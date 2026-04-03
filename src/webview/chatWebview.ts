@@ -34,7 +34,6 @@ export interface ExtensionMessage {
   currentModel?: string;
   modelName?: string;
   progress?: string;
-  installingModel?: string;
   fileName?: string;
   fileContent?: string;
   githubAction?: string;

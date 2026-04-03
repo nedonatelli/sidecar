@@ -13,6 +13,7 @@ import * as path from 'path';
 import { spawn } from 'child_process';
 import { OllamaClient } from '../ollama/client.js';
 import { getOllamaModel, getOllamaSystemPrompt } from '../config/settings.js';
+import { getWorkspaceContext, getWorkspaceEnabled, getFilePatterns, getMaxFiles } from '../config/workspace.js';
 import type { OllamaMessage } from '../ollama/types.js';
 import { getChatWebviewHtml, type WebviewMessage, type ExtensionMessage, type LibraryModelUI } from './chatWebview.js';
 import { GitCLI } from '../github/git.js';
@@ -88,6 +89,11 @@ export class ChatViewProvider implements WebviewViewProvider {
       undefined,
       this.context.subscriptions
     );
+
+    // Restore chat history if panel was recreated
+    if (this.messages.length > 0) {
+      this.postMessage({ command: 'init', messages: this.messages });
+    }
 
     this.loadModels();
   }
@@ -212,8 +218,20 @@ export class ChatViewProvider implements WebviewViewProvider {
       this.ollamaClient.updateModel(model);
       this.ollamaClient.updateSystemPrompt(systemPrompt);
 
+      // Build messages with workspace context if enabled
+      let chatMessages = [...this.messages];
+      if (getWorkspaceEnabled()) {
+        const context = await getWorkspaceContext(getFilePatterns(), getMaxFiles());
+        if (context) {
+          chatMessages = [
+            { role: 'system', content: 'You are a helpful coding assistant. You have access to the following workspace files:\n\n' + context },
+            ...chatMessages,
+          ];
+        }
+      }
+
       let fullResponse = '';
-      const stream = this.ollamaClient.streamChat(this.messages, this.abortController.signal);
+      const stream = this.ollamaClient.streamChat(chatMessages, this.abortController.signal);
 
       for await (const chunk of stream) {
         fullResponse += chunk.message.content;

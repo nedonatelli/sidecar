@@ -4,7 +4,7 @@
   "description": "Ollama AI chat client for VS Code — run Llama, Mistral, Gemma, and other local LLMs in your editor",
   "version": "0.0.1",
   "license": "MIT",
-  "publisher": "NicholasDonatelli",
+  "publisher": "nedonatelli",
   "author": {
     "name": "Nicholas Donatelli"
   },
@@ -36,7 +36,7 @@
         },
         "ollama.includeWorkspace": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Include workspace files in context"
         },
         "ollama.filePatterns": {

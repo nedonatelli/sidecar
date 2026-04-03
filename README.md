@@ -8,10 +8,12 @@
 
 ### AI Chat powered by Ollama
 - Streaming chat responses in a dedicated VS Code sidebar panel
+- **Workspace-aware** — SideCar automatically reads your project files so the AI understands your code
 - Switch between installed Ollama models with a single click
+- **Custom model support** — use any model available in Ollama, including your own custom models
 - Download and install new Ollama models on-demand with progress tracking
 - Customizable system prompts via VS Code settings
-- Conversation history within your session
+- Chat history persists when the panel is hidden and reopened
 - Ollama starts automatically when you open SideCar — no need to manually run `ollama serve`
 
 ### File Operations
