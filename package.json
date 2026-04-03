@@ -1,0 +1,83 @@
+{
+  "name": "sidecar",
+  "displayName": "SideCar",
+  "description": "Ollama AI chat client for VS Code — run Llama, Mistral, Gemma, and other local LLMs in your editor",
+  "version": "0.0.1",
+  "license": "MIT",
+  "publisher": "NicholasDonatelli",
+  "author": {
+    "name": "Nicholas Donatelli"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nedonatelli/sidecar"
+  },
+  "engines": {
+    "vscode": "^1.88.0"
+  },
+  "icon": "media/SideCar.png",
+  "categories": ["AI", "Chat"],
+  "keywords": ["ollama", "ai", "chat", "llama", "llm", "local", "mistral", "gemma", "codellama", "copilot"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "Ollama",
+      "properties": {
+        "ollama.model": {
+          "type": "string",
+          "default": "llama3",
+          "description": "Ollama model to use for chat"
+        },
+        "ollama.systemPrompt": {
+          "type": "string",
+          "default": "",
+          "description": "System prompt override (optional)"
+        },
+        "ollama.includeWorkspace": {
+          "type": "boolean",
+          "default": false,
+          "description": "Include workspace files in context"
+        },
+        "ollama.filePatterns": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["**/*.ts", "**/*.js", "**/*.py", "**/*.md"],
+          "description": "File patterns to include when building workspace context"
+        },
+        "ollama.maxFiles": {
+          "type": "number",
+          "default": 10,
+          "description": "Maximum number of files to include in workspace context"
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ollama-view-container",
+          "title": "Ollama",
+          "icon": "media/SideCar.png"
+        }
+      ]
+    },
+    "views": {
+      "ollama-view-container": [
+        {
+          "type": "webview",
+          "id": "ollama.chatView",
+          "name": "SideCar"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0"
+  }
+}
