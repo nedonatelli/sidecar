@@ -1,6 +1,39 @@
+export interface TextContentBlock {
+  type: 'text';
+  text: string;
+}
+
+export interface ImageContentBlock {
+  type: 'image';
+  source: {
+    type: 'base64';
+    media_type: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+    data: string;
+  };
+}
+
+export type ContentBlock = TextContentBlock | ImageContentBlock;
+
 export interface ChatMessage {
   role: 'user' | 'assistant';
-  content: string;
+  content: string | ContentBlock[];
+}
+
+// Utility to extract text from message content
+export function getContentText(content: string | ContentBlock[]): string {
+  if (typeof content === 'string') return content;
+  return content
+    .filter((b): b is TextContentBlock => b.type === 'text')
+    .map(b => b.text)
+    .join('\n');
+}
+
+export function getContentLength(content: string | ContentBlock[]): number {
+  if (typeof content === 'string') return content.length;
+  return content.reduce((sum, block) => {
+    if (block.type === 'text') return sum + block.text.length;
+    return sum + 100; // rough estimate for image token cost
+  }, 0);
 }
 
 // Anthropic Messages API types

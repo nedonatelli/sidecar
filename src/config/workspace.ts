@@ -1,4 +1,4 @@
-import { workspace, CancellationToken } from 'vscode';
+import { workspace, Uri, CancellationToken } from 'vscode';
 import * as path from 'path';
 
 export interface WorkspaceFile {
@@ -91,4 +91,39 @@ export function getFilePatterns(): string[] {
 
 export function getMaxFiles(): number {
   return workspace.getConfiguration('sidecar').get<number>('maxFiles', 10);
+}
+
+export async function resolveFileReferences(text: string): Promise<string> {
+  const workspaceFolders = workspace.workspaceFolders;
+  if (!workspaceFolders || workspaceFolders.length === 0) return text;
+
+  const root = workspaceFolders[0].uri;
+  const filePathRegex = /(?:^|\s)(\.{0,2}\/[\w\-.\/]+\.\w{1,10})(?:\s|$|[,;:)])/g;
+  let match;
+  const attached: { filePath: string; content: string }[] = [];
+  const seen = new Set<string>();
+
+  while ((match = filePathRegex.exec(text)) !== null) {
+    const candidate = match[1].trim();
+    if (seen.has(candidate)) continue;
+    seen.add(candidate);
+    try {
+      const fileUri = Uri.joinPath(root, candidate);
+      const stat = await workspace.fs.stat(fileUri);
+      if (stat.size > MAX_FILE_SIZE) continue;
+      const bytes = await workspace.fs.readFile(fileUri);
+      const content = Buffer.from(bytes).toString('utf-8').slice(0, MAX_CONTENT_LENGTH);
+      attached.push({ filePath: candidate, content });
+    } catch {
+      // File doesn't exist, skip
+    }
+  }
+
+  if (attached.length === 0) return text;
+
+  let result = text + '\n\n--- Referenced Files ---\n';
+  for (const f of attached) {
+    result += `\n### ${f.filePath}\n\`\`\`\n${f.content}\n\`\`\`\n`;
+  }
+  return result;
 }

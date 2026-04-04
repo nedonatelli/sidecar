@@ -17,6 +17,7 @@ body {
 #header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   padding: 8px 12px;
   border-bottom: 1px solid var(--vscode-widget-border);
   background: var(--vscode-editor-background);
@@ -512,6 +513,67 @@ body {
 
 .edit-replace {
   background: rgba(0, 255, 0, 0.08);
+}
+
+#chat-actions {
+  display: flex;
+  gap: 4px;
+}
+
+#chat-actions button {
+  background: transparent;
+  border: 1px solid var(--vscode-widget-border);
+  color: var(--vscode-editor-foreground);
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 2px 8px;
+  font-size: 14px;
+}
+
+#chat-actions button:hover {
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+#stream-stats {
+  text-align: center;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  padding: 2px 0;
+}
+
+#image-preview {
+  display: flex;
+  gap: 4px;
+  padding: 4px 12px;
+  flex-wrap: wrap;
+}
+
+.image-thumb-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+.image-thumb {
+  max-height: 60px;
+  max-width: 80px;
+  border-radius: 4px;
+  border: 1px solid var(--vscode-widget-border);
+}
+
+.image-remove {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+  border: none;
+  border-radius: 50%;
+  width: 16px;
+  height: 16px;
+  font-size: 10px;
+  cursor: pointer;
+  line-height: 16px;
+  padding: 0;
 }
 
 .file-created-notice {

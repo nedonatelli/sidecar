@@ -1,4 +1,5 @@
-import { window, workspace, languages, ExtensionContext, Disposable } from 'vscode';
+import { window, workspace, languages, commands, ExtensionContext, Disposable } from 'vscode';
+import * as path from 'path';
 import { ChatViewProvider } from './webview/chatView.js';
 import { TerminalManager } from './terminal/manager.js';
 import { SideCarClient } from './ollama/client.js';
@@ -24,6 +25,32 @@ export function activate(context: ExtensionContext) {
         retainContextWhenHidden: true,
       },
     })
+  );
+
+  // Keyboard shortcut
+  context.subscriptions.push(
+    commands.registerCommand('sidecar.toggleChat', () => {
+      commands.executeCommand('sidecar.chatView.focus');
+    })
+  );
+
+  // Code actions (right-click menu)
+  function registerCodeAction(commandId: string, action: string) {
+    return commands.registerCommand(commandId, () => {
+      const editor = window.activeTextEditor;
+      if (!editor) return;
+      const selection = editor.document.getText(editor.selection);
+      if (!selection) return;
+      const fileName = path.basename(editor.document.fileName);
+      commands.executeCommand('sidecar.chatView.focus');
+      provider.sendCodeAction(action, selection, fileName);
+    });
+  }
+
+  context.subscriptions.push(
+    registerCodeAction('sidecar.explainSelection', 'Explain'),
+    registerCodeAction('sidecar.fixSelection', 'Fix'),
+    registerCodeAction('sidecar.refactorSelection', 'Refactor'),
   );
 
   // Inline completions

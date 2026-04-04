@@ -15,9 +15,10 @@ import { promisify } from 'util';
 
 const execAsync = promisify(exec);
 import { SideCarClient } from '../ollama/client.js';
-import { getModel, getSystemPrompt, getBaseUrl, getApiKey } from '../config/settings.js';
-import { getWorkspaceContext, getWorkspaceEnabled, getWorkspaceRoot, getFilePatterns, getMaxFiles } from '../config/workspace.js';
-import type { ChatMessage } from '../ollama/types.js';
+import { getModel, getSystemPrompt, getBaseUrl, getApiKey, getIncludeActiveFile } from '../config/settings.js';
+import { getWorkspaceContext, getWorkspaceEnabled, getWorkspaceRoot, getFilePatterns, getMaxFiles, resolveFileReferences } from '../config/workspace.js';
+import type { ChatMessage, ContentBlock } from '../ollama/types.js';
+import { getContentLength } from '../ollama/types.js';
 import { getChatWebviewHtml, type WebviewMessage, type ExtensionMessage, type LibraryModelUI } from './chatWebview.js';
 import { GitCLI } from '../github/git.js';
 import { GitHubAPI } from '../github/api.js';
@@ -64,7 +65,18 @@ export class ChatViewProvider implements WebviewViewProvider {
       async (msg: WebviewMessage) => {
         switch (msg.command) {
           case 'userMessage':
-            await this.handleUserMessage(msg.text || '');
+            if (msg.images && msg.images.length > 0) {
+              const content: ContentBlock[] = msg.images.map(img => ({
+                type: 'image' as const,
+                source: { type: 'base64' as const, media_type: img.mediaType as 'image/png', data: img.data },
+              }));
+              content.push({ type: 'text', text: msg.text || '' });
+              this.messages.push({ role: 'user', content });
+              this.saveHistory();
+              await this.handleUserMessage('');
+            } else {
+              await this.handleUserMessage(msg.text || '');
+            }
             break;
           case 'abort':
             this.abort();
@@ -101,6 +113,14 @@ export class ChatViewProvider implements WebviewViewProvider {
           case 'github':
             await this.handleGitHubCommand(msg);
             break;
+          case 'newChat':
+            this.messages = [];
+            this.saveHistory();
+            this.postMessage({ command: 'chatCleared' });
+            break;
+          case 'exportChat':
+            await this.handleExportChat();
+            break;
           case 'openExternal':
             if (msg.url) {
               env.openExternal(Uri.parse(msg.url));
@@ -112,7 +132,10 @@ export class ChatViewProvider implements WebviewViewProvider {
       this.context.subscriptions
     );
 
-    // Restore chat history if panel was recreated
+    // Restore chat history
+    if (this.messages.length === 0) {
+      this.messages = this.loadHistory();
+    }
     if (this.messages.length > 0) {
       this.postMessage({ command: 'init', messages: this.messages });
     }
@@ -237,9 +260,65 @@ export class ChatViewProvider implements WebviewViewProvider {
     this.installAbortController?.abort();
   }
 
+  private saveHistory(): void {
+    // Strip any non-string content (images) for persistence
+    const serializable = this.messages.map(m => ({
+      role: m.role,
+      content: typeof m.content === 'string' ? m.content : '[message with images]',
+    }));
+    this.context.workspaceState.update('sidecar.chatHistory', serializable);
+  }
+
+  private loadHistory(): ChatMessage[] {
+    return this.context.workspaceState.get<ChatMessage[]>('sidecar.chatHistory', []);
+  }
+
+  private async handleExportChat(): Promise<void> {
+    if (this.messages.length === 0) return;
+    const lines: string[] = [];
+    for (const msg of this.messages) {
+      const label = msg.role === 'user' ? '## User' : '## Assistant';
+      const text = typeof msg.content === 'string' ? msg.content : '[message with images]';
+      lines.push(`${label}\n\n${text}\n`);
+    }
+    const content = lines.join('\n---\n\n');
+    const uri = await window.showSaveDialog({
+      filters: { 'Markdown': ['md'] },
+      defaultUri: Uri.file('sidecar-chat.md'),
+    });
+    if (!uri) return;
+    await workspace.fs.writeFile(uri, Buffer.from(content, 'utf-8'));
+    window.showInformationMessage(`Chat exported to ${path.basename(uri.fsPath)}`);
+  }
+
+  private getActiveFileContext(): string {
+    const editor = window.activeTextEditor;
+    if (!editor) return '';
+    const doc = editor.document;
+    const root = getWorkspaceRoot();
+    const fileName = root ? path.relative(root, doc.fileName) : doc.fileName;
+    const cursorLine = editor.selection.active.line + 1;
+    const content = doc.getText();
+    const maxChars = 50_000;
+    const truncated = content.length > maxChars
+      ? content.slice(0, maxChars) + '\n... (truncated)'
+      : content;
+    return `[Active file: ${fileName}, cursor at line ${cursorLine}]\n\`\`\`\n${truncated}\n\`\`\`\n\n`;
+  }
+
+  public async sendCodeAction(action: string, code: string, fileName: string): Promise<void> {
+    const prompt = `${action} this code from ${fileName}:\n\`\`\`\n${code}\n\`\`\``;
+    if (this.webviewView) {
+      this.webviewView.show(true);
+    }
+    this.postMessage({ command: 'addUserMessage', content: prompt });
+    await this.handleUserMessage(prompt);
+  }
+
   private async handleUserMessage(text: string): Promise<void> {
     if (text) {
       this.messages.push({ role: 'user', content: text });
+      this.saveHistory();
     }
     this.postMessage({ command: 'setLoading', isLoading: true });
 
@@ -274,12 +353,38 @@ export class ChatViewProvider implements WebviewViewProvider {
       }
 
       this.client.updateSystemPrompt(systemPrompt);
+
+      // Build API messages with enriched context
       const chatMessages = [...this.messages];
+      if (chatMessages.length > 0) {
+        // Find last user message to enrich
+        let lastUserIdx = -1;
+        for (let i = chatMessages.length - 1; i >= 0; i--) {
+          if (chatMessages[i].role === 'user') { lastUserIdx = i; break; }
+        }
+        if (lastUserIdx !== -1) {
+          let enriched = typeof chatMessages[lastUserIdx].content === 'string'
+            ? chatMessages[lastUserIdx].content as string : '';
+
+          // Inject active file context
+          if (getIncludeActiveFile()) {
+            const activeCtx = this.getActiveFileContext();
+            if (activeCtx) {
+              enriched = activeCtx + enriched;
+            }
+          }
+
+          // Resolve file references
+          enriched = await resolveFileReferences(enriched);
+
+          chatMessages[lastUserIdx] = { ...chatMessages[lastUserIdx], content: enriched };
+        }
+      }
 
       // Warn if context may exceed the model's limit
       const contextLength = await this.client.getModelContextLength();
       if (contextLength) {
-        const totalChars = chatMessages.reduce((sum, m) => sum + m.content.length, 0);
+        const totalChars = chatMessages.reduce((sum, m) => sum + getContentLength(m.content), 0);
         const estimatedTokens = Math.ceil(totalChars / 3.5);
         if (estimatedTokens > contextLength * 0.8) {
           this.postMessage({
@@ -298,6 +403,7 @@ export class ChatViewProvider implements WebviewViewProvider {
       }
 
       this.messages.push({ role: 'assistant', content: fullResponse });
+      this.saveHistory();
       this.postMessage({ command: 'done' });
 
       // Check if the response contains a shell command to run

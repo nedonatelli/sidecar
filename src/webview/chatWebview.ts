@@ -4,7 +4,8 @@ import type { ChatMessage } from '../ollama/types.js';
 import * as crypto from 'crypto';
 
 export interface WebviewMessage {
-  command: 'userMessage' | 'abort' | 'changeModel' | 'installModel' | 'cancelInstall' | 'attachFile' | 'saveCodeBlock' | 'createFile' | 'runCommand' | 'moveFile' | 'github' | 'openExternal';
+  command: 'userMessage' | 'abort' | 'changeModel' | 'installModel' | 'cancelInstall' | 'attachFile' | 'saveCodeBlock' | 'createFile' | 'runCommand' | 'moveFile' | 'github' | 'openExternal' | 'newChat' | 'exportChat';
+  images?: { mediaType: string; data: string }[];
   text?: string;
   model?: string;
   code?: string;
@@ -27,7 +28,7 @@ export interface WebviewMessage {
 }
 
 export interface ExtensionMessage {
-  command: 'init' | 'assistantMessage' | 'error' | 'done' | 'setLoading' | 'setModels' | 'setCurrentModel' | 'installProgress' | 'installComplete' | 'fileAttached' | 'fileMoved' | 'githubResult' | 'commandResult';
+  command: 'init' | 'assistantMessage' | 'error' | 'done' | 'setLoading' | 'setModels' | 'setCurrentModel' | 'installProgress' | 'installComplete' | 'fileAttached' | 'fileMoved' | 'githubResult' | 'commandResult' | 'chatCleared' | 'addUserMessage';
   content?: string;
   messages?: ChatMessage[];
   isLoading?: boolean;
@@ -72,6 +73,10 @@ export function getChatWebviewHtml(
         <span id="model-arrow">&#9662;</span>
       </span>
     </div>
+    <div id="chat-actions">
+      <button id="new-chat-btn" title="New Chat">+</button>
+      <button id="export-btn" title="Export as Markdown">&#8681;</button>
+    </div>
   </div>
   <div id="model-panel" class="hidden">
     <div id="model-panel-header">
@@ -85,6 +90,7 @@ export function getChatWebviewHtml(
     <div id="model-list"></div>
   </div>
   <div id="messages"></div>
+  <div id="stream-stats" class="hidden"></div>
   <div id="install-progress" class="hidden">
     <span id="install-text">Installing...</span>
     <button id="cancel-install">Cancel</button>
@@ -93,8 +99,11 @@ export function getChatWebviewHtml(
     <span id="file-attachment-name"></span>
     <button id="remove-attachment">&times;</button>
   </div>
+  <div id="image-preview" class="hidden"></div>
   <div id="input-area">
     <button id="attach-btn" title="Attach file">&#128206;</button>
+    <button id="image-btn" title="Attach image">&#128247;</button>
+    <input type="file" id="image-input" accept="image/*" class="hidden" />
     <textarea id="input" rows="1" placeholder="Ask SideCar..."></textarea>
     <button id="send">Send</button>
   </div>
@@ -124,6 +133,13 @@ export function getChatWebviewHtml(
     let currentAssistantText = '';
     let installingModel = null;
     let pendingFile = null;
+    let pendingImages = [];
+    const imageBtn = document.getElementById('image-btn');
+    const imageInput = document.getElementById('image-input');
+    const imagePreview = document.getElementById('image-preview');
+    let streamStartTime = 0;
+    let streamCharCount = 0;
+    const streamStats = document.getElementById('stream-stats');
 
     modelBtn.addEventListener('click', () => {
       modelPanel.classList.toggle('hidden');
@@ -152,6 +168,79 @@ export function getChatWebviewHtml(
       vscode.postMessage({ command: 'changeModel', model: name });
       customModelInput.value = '';
       modelPanel.classList.add('hidden');
+    });
+
+    imageBtn.addEventListener('click', () => { imageInput.click(); });
+
+    imageInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result;
+        const [header, data] = dataUrl.split(',');
+        const mediaType = header.match(/data:(.*?);/)[1];
+        pendingImages.push({ mediaType, data });
+        updateImagePreview();
+      };
+      reader.readAsDataURL(file);
+      imageInput.value = '';
+    });
+
+    input.addEventListener('paste', (e) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const item of items) {
+        if (item.type.startsWith('image/')) {
+          e.preventDefault();
+          const file = item.getAsFile();
+          if (!file) continue;
+          const reader = new FileReader();
+          reader.onload = () => {
+            const dataUrl = reader.result;
+            const [header, data] = dataUrl.split(',');
+            const mediaType = header.match(/data:(.*?);/)[1];
+            pendingImages.push({ mediaType, data });
+            updateImagePreview();
+          };
+          reader.readAsDataURL(file);
+        }
+      }
+    });
+
+    function updateImagePreview() {
+      if (pendingImages.length === 0) {
+        imagePreview.classList.add('hidden');
+        imagePreview.innerHTML = '';
+        return;
+      }
+      imagePreview.classList.remove('hidden');
+      imagePreview.innerHTML = '';
+      for (let i = 0; i < pendingImages.length; i++) {
+        const img = document.createElement('img');
+        img.src = 'data:' + pendingImages[i].mediaType + ';base64,' + pendingImages[i].data;
+        img.className = 'image-thumb';
+        const removeBtn = document.createElement('button');
+        removeBtn.textContent = '\\u00d7';
+        removeBtn.className = 'image-remove';
+        removeBtn.addEventListener('click', () => {
+          pendingImages.splice(i, 1);
+          updateImagePreview();
+        });
+        const wrapper = document.createElement('span');
+        wrapper.className = 'image-thumb-wrapper';
+        wrapper.appendChild(img);
+        wrapper.appendChild(removeBtn);
+        imagePreview.appendChild(wrapper);
+      }
+    }
+
+    document.getElementById('new-chat-btn').addEventListener('click', () => {
+      vscode.postMessage({ command: 'newChat' });
+    });
+
+    document.getElementById('export-btn').addEventListener('click', () => {
+      vscode.postMessage({ command: 'exportChat' });
     });
 
     customModelInput.addEventListener('keydown', (e) => {
@@ -463,7 +552,13 @@ export function getChatWebviewHtml(
         appendMessage('user', displayText);
       }
 
-      vscode.postMessage({ command: 'userMessage', text: messageText });
+      if (pendingImages.length > 0) {
+        vscode.postMessage({ command: 'userMessage', text: messageText, images: pendingImages });
+        pendingImages = [];
+        updateImagePreview();
+      } else {
+        vscode.postMessage({ command: 'userMessage', text: messageText });
+      }
       input.value = '';
       input.style.height = 'auto';
     }
@@ -711,7 +806,9 @@ export function getChatWebviewHtml(
         case 'init':
           if (event.data.messages) {
             for (const msg of event.data.messages) {
-              appendMessage(msg.role, msg.content);
+              const text = typeof msg.content === 'string' ? msg.content
+                : msg.content.filter(b => b.type === 'text').map(b => b.text).join('\\n');
+              appendMessage(msg.role, text);
             }
           }
           break;
@@ -720,6 +817,10 @@ export function getChatWebviewHtml(
           setLoading(event.data.isLoading);
           if (event.data.isLoading) {
             showTypingIndicator();
+            streamStartTime = Date.now();
+            streamCharCount = 0;
+            streamStats.classList.remove('hidden');
+            streamStats.textContent = '';
           } else {
             removeTypingIndicator();
           }
@@ -731,11 +832,29 @@ export function getChatWebviewHtml(
             startAssistantMessage();
           }
           appendToAssistantMessage(content || '');
+          streamCharCount += (content || '').length;
+          {
+            const elapsed = (Date.now() - streamStartTime) / 1000;
+            const tokens = Math.ceil(streamCharCount / 4);
+            const tokPerSec = elapsed > 0 ? (tokens / elapsed).toFixed(1) : '0';
+            streamStats.textContent = tokens + ' tokens \\u00b7 ' + tokPerSec + ' tok/s';
+          }
           break;
 
         case 'done':
           finishAssistantMessage();
           setLoading(false);
+          setTimeout(() => { streamStats.classList.add('hidden'); }, 3000);
+          break;
+
+        case 'chatCleared':
+          messagesContainer.innerHTML = '';
+          currentAssistantDiv = null;
+          currentAssistantText = '';
+          break;
+
+        case 'addUserMessage':
+          appendMessage('user', content || '');
           break;
 
         case 'commandResult': {

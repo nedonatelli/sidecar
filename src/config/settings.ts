@@ -16,6 +16,10 @@ export function getApiKey(): string {
   return workspace.getConfiguration('sidecar').get<string>('apiKey', 'ollama');
 }
 
+export function getIncludeActiveFile(): boolean {
+  return workspace.getConfiguration('sidecar').get<boolean>('includeActiveFile', true);
+}
+
 export function getEnableInlineCompletions(): boolean {
   return workspace.getConfiguration('sidecar').get<boolean>('enableInlineCompletions', false);
 }

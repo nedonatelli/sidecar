@@ -60,6 +60,11 @@
           "default": 10,
           "description": "Maximum number of files to include in workspace context"
         },
+        "sidecar.includeActiveFile": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include the currently active file in chat context"
+        },
         "sidecar.enableInlineCompletions": {
           "type": "boolean",
           "default": false,
@@ -93,6 +98,22 @@
           "id": "sidecar.chatView",
           "name": "Chat"
         }
+      ]
+    },
+    "commands": [
+      { "command": "sidecar.toggleChat", "title": "Toggle SideCar Chat" },
+      { "command": "sidecar.explainSelection", "title": "Explain with SideCar" },
+      { "command": "sidecar.fixSelection", "title": "Fix with SideCar" },
+      { "command": "sidecar.refactorSelection", "title": "Refactor with SideCar" }
+    ],
+    "keybindings": [
+      { "command": "sidecar.toggleChat", "key": "ctrl+shift+i", "mac": "cmd+shift+i" }
+    ],
+    "menus": {
+      "editor/context": [
+        { "command": "sidecar.explainSelection", "when": "editorHasSelection", "group": "sidecar@1" },
+        { "command": "sidecar.fixSelection", "when": "editorHasSelection", "group": "sidecar@2" },
+        { "command": "sidecar.refactorSelection", "when": "editorHasSelection", "group": "sidecar@3" }
       ]
     }
   },
