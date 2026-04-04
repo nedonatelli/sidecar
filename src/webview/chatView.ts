@@ -237,25 +237,23 @@ export class ChatViewProvider implements WebviewViewProvider {
       const userSystemPrompt = getSystemPrompt();
       this.client.updateConnection(getBaseUrl(), getApiKey());
       this.client.updateModel(model);
-      this.client.updateSystemPrompt(userSystemPrompt);
 
-      // Inject workspace context into the latest user message so models always see it
-      const chatMessages = [...this.messages];
+      // Build system prompt with workspace context
+      let systemPrompt = `You are SideCar, an AI coding assistant running inside VS Code. You CAN create and edit files directly.\nProject root: ${getWorkspaceRoot()}\n\nTo create or edit a file, output a code fence with the filepath after a colon:\n\`\`\`py:src/hello.py\nprint("hello")\n\`\`\`\n\`\`\`txt:notes.txt\nsome text\n\`\`\`\nThe file will be written automatically. Always use relative paths from the project root. When the user asks you to create a file, just do it — do not say you cannot.`;
+
+      if (userSystemPrompt) {
+        systemPrompt += `\n\n${userSystemPrompt}`;
+      }
+
       if (getWorkspaceEnabled()) {
         const context = await getWorkspaceContext(getFilePatterns(), getMaxFiles());
-        if (context && chatMessages.length > 0) {
-          let lastUserIdx = -1;
-          for (let i = chatMessages.length - 1; i >= 0; i--) {
-            if (chatMessages[i].role === 'user') { lastUserIdx = i; break; }
-          }
-          if (lastUserIdx !== -1) {
-            chatMessages[lastUserIdx] = {
-              ...chatMessages[lastUserIdx],
-              content: `[SYSTEM INSTRUCTIONS]\nYou are SideCar, an AI coding assistant running inside VS Code. You CAN create and edit files directly.\nProject root: ${getWorkspaceRoot()}\n\nTo create or edit a file, output a code fence with the filepath after a colon:\n\`\`\`py:src/hello.py\nprint("hello")\n\`\`\`\n\`\`\`txt:notes.txt\nsome text\n\`\`\`\nThe file will be written automatically. Always use relative paths from the project root. When the user asks you to create a file, just do it — do not say you cannot.\n[/SYSTEM INSTRUCTIONS]\n\n${context}\n\n---\n\n${chatMessages[lastUserIdx].content}`,
-            };
-          }
+        if (context) {
+          systemPrompt += `\n\n${context}`;
         }
       }
+
+      this.client.updateSystemPrompt(systemPrompt);
+      const chatMessages = [...this.messages];
 
       // Warn if context may exceed the model's limit
       const contextLength = await this.client.getModelContextLength();
