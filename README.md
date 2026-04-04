@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="media/SideCar.png" alt="SideCar Logo" width="200">
+</p>
+
 # SideCar — AI Coding Assistant for VS Code
 
 **SideCar** is a free, self-hosted VS Code extension that serves as a drop-in replacement for GitHub Copilot and Claude Code. Use local [Ollama](https://ollama.com) models or the [Anthropic API](https://api.anthropic.com) for AI-powered coding — with full agentic capabilities, inline completions, and tool use.
