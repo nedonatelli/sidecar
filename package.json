@@ -95,6 +95,11 @@
           "type": "number",
           "default": 256,
           "description": "Maximum tokens for inline completion responses"
+        },
+        "sidecar.completionDebounceMs": {
+          "type": "number",
+          "default": 300,
+          "description": "Minimum interval in milliseconds between completion requests"
         }
       }
     },

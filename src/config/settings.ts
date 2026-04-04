@@ -43,3 +43,7 @@ export function getCompletionModel(): string {
 export function getCompletionMaxTokens(): number {
   return workspace.getConfiguration('sidecar').get<number>('completionMaxTokens', 256);
 }
+
+export function getCompletionDebounceMs(): number {
+  return workspace.getConfiguration('sidecar').get<number>('completionDebounceMs', 300);
+}

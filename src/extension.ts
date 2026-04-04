@@ -4,7 +4,7 @@ import { ChatViewProvider } from './webview/chatView.js';
 import { TerminalManager } from './terminal/manager.js';
 import { SideCarClient } from './ollama/client.js';
 import { SideCarCompletionProvider } from './completions/provider.js';
-import { getEnableInlineCompletions, getCompletionModel, getCompletionMaxTokens, getModel, getBaseUrl, getApiKey } from './config/settings.js';
+import { getEnableInlineCompletions, getCompletionModel, getCompletionMaxTokens, getCompletionDebounceMs, getModel, getBaseUrl, getApiKey } from './config/settings.js';
 import { ProposedContentProvider } from './edits/proposedContentProvider.js';
 import { AgentLogger } from './agent/logger.js';
 import { handleInlineChat } from './inline/inlineChatProvider.js';
@@ -77,7 +77,7 @@ export function activate(context: ExtensionContext) {
 
     const completionModel = getCompletionModel() || getModel();
     const client = new SideCarClient(completionModel, getBaseUrl(), getApiKey());
-    const completionProvider = new SideCarCompletionProvider(client, getCompletionMaxTokens());
+    const completionProvider = new SideCarCompletionProvider(client, getCompletionMaxTokens(), getCompletionDebounceMs());
 
     completionDisposable = languages.registerInlineCompletionItemProvider(
       { pattern: '**' },
@@ -92,7 +92,8 @@ export function activate(context: ExtensionContext) {
     workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('sidecar.enableInlineCompletions') ||
           e.affectsConfiguration('sidecar.completionModel') ||
-          e.affectsConfiguration('sidecar.completionMaxTokens')) {
+          e.affectsConfiguration('sidecar.completionMaxTokens') ||
+          e.affectsConfiguration('sidecar.completionDebounceMs')) {
         registerCompletions();
       }
     })
