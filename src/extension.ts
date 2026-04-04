@@ -7,6 +7,7 @@ import { SideCarCompletionProvider } from './completions/provider.js';
 import { getEnableInlineCompletions, getCompletionModel, getCompletionMaxTokens, getModel, getBaseUrl, getApiKey } from './config/settings.js';
 import { ProposedContentProvider } from './edits/proposedContentProvider.js';
 import { AgentLogger } from './agent/logger.js';
+import { handleInlineChat } from './inline/inlineChatProvider.js';
 
 export function activate(context: ExtensionContext) {
   console.log('SideCar extension activating...');
@@ -55,6 +56,14 @@ export function activate(context: ExtensionContext) {
     registerCodeAction('sidecar.explainSelection', 'Explain'),
     registerCodeAction('sidecar.fixSelection', 'Fix'),
     registerCodeAction('sidecar.refactorSelection', 'Refactor'),
+  );
+
+  // Inline chat (Cmd+I)
+  context.subscriptions.push(
+    commands.registerCommand('sidecar.inlineChat', () => {
+      const inlineClient = new SideCarClient(getModel(), getBaseUrl(), getApiKey());
+      handleInlineChat(inlineClient);
+    })
   );
 
   // Inline completions

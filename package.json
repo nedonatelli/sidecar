@@ -120,10 +120,12 @@
       { "command": "sidecar.toggleChat", "title": "Toggle SideCar Chat" },
       { "command": "sidecar.explainSelection", "title": "Explain with SideCar" },
       { "command": "sidecar.fixSelection", "title": "Fix with SideCar" },
-      { "command": "sidecar.refactorSelection", "title": "Refactor with SideCar" }
+      { "command": "sidecar.refactorSelection", "title": "Refactor with SideCar" },
+      { "command": "sidecar.inlineChat", "title": "SideCar: Inline Chat" }
     ],
     "keybindings": [
-      { "command": "sidecar.toggleChat", "key": "ctrl+shift+i", "mac": "cmd+shift+i" }
+      { "command": "sidecar.toggleChat", "key": "ctrl+shift+i", "mac": "cmd+shift+i" },
+      { "command": "sidecar.inlineChat", "key": "ctrl+i", "mac": "cmd+i", "when": "editorTextFocus" }
     ],
     "menus": {
       "editor/context": [
