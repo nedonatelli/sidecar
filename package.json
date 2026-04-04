@@ -36,7 +36,7 @@
         },
         "sidecar.model": {
           "type": "string",
-          "default": "qwen3-coder",
+          "default": "qwen3-coder:30b",
           "description": "Model to use for chat (e.g. qwen3-coder, qwen3.5, claude-sonnet-4-6)"
         },
         "sidecar.systemPrompt": {
@@ -59,6 +59,21 @@
           "type": "number",
           "default": 10,
           "description": "Maximum number of files to include in workspace context"
+        },
+        "sidecar.enableInlineCompletions": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable inline code completions (Copilot-like autocomplete)"
+        },
+        "sidecar.completionModel": {
+          "type": "string",
+          "default": "",
+          "description": "Model for inline completions (leave empty to use the chat model)"
+        },
+        "sidecar.completionMaxTokens": {
+          "type": "number",
+          "default": 256,
+          "description": "Maximum tokens for inline completion responses"
         }
       }
     },

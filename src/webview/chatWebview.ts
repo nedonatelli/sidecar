@@ -4,7 +4,7 @@ import type { ChatMessage } from '../ollama/types.js';
 import * as crypto from 'crypto';
 
 export interface WebviewMessage {
-  command: 'userMessage' | 'abort' | 'changeModel' | 'installModel' | 'cancelInstall' | 'attachFile' | 'saveCodeBlock' | 'createFile' | 'moveFile' | 'github' | 'openExternal';
+  command: 'userMessage' | 'abort' | 'changeModel' | 'installModel' | 'cancelInstall' | 'attachFile' | 'saveCodeBlock' | 'createFile' | 'runCommand' | 'moveFile' | 'github' | 'openExternal';
   text?: string;
   model?: string;
   code?: string;
@@ -27,7 +27,7 @@ export interface WebviewMessage {
 }
 
 export interface ExtensionMessage {
-  command: 'init' | 'assistantMessage' | 'error' | 'done' | 'setLoading' | 'setModels' | 'setCurrentModel' | 'installProgress' | 'installComplete' | 'fileAttached' | 'fileMoved' | 'githubResult';
+  command: 'init' | 'assistantMessage' | 'error' | 'done' | 'setLoading' | 'setModels' | 'setCurrentModel' | 'installProgress' | 'installComplete' | 'fileAttached' | 'fileMoved' | 'githubResult' | 'commandResult';
   content?: string;
   messages?: ChatMessage[];
   isLoading?: boolean;
@@ -468,6 +468,8 @@ export function getChatWebviewHtml(
       input.style.height = 'auto';
     }
 
+    const createdFiles = new Set();
+
     function renderContent(text) {
       const fragment = document.createDocumentFragment();
       const codeBlockRegex = /\`\`\`([\\w.]*):?([^\\n]*)\\n([\\s\\S]*?)\`\`\`/g;
@@ -492,7 +494,29 @@ export function getChatWebviewHtml(
         header.appendChild(document.createTextNode(filePath || lang || 'code'));
 
         if (filePath) {
-          vscode.postMessage({ command: 'createFile', code, filePath });
+          if (!createdFiles.has(filePath)) {
+            createdFiles.add(filePath);
+            vscode.postMessage({ command: 'createFile', code, filePath });
+          }
+          const notice = document.createElement('div');
+          notice.className = 'file-created-notice';
+          notice.textContent = '✓ Created ' + filePath;
+          fragment.appendChild(notice);
+          lastIndex = match.index + match[0].length;
+          continue;
+        }
+
+        const isShell = ['sh', 'bash', 'shell', 'zsh'].includes(lang.toLowerCase());
+        if (isShell) {
+          const runBtn = document.createElement('button');
+          runBtn.className = 'code-save-btn code-run-btn';
+          runBtn.textContent = 'Run';
+          runBtn.addEventListener('click', () => {
+            vscode.postMessage({ command: 'runCommand', text: code.trim() });
+            runBtn.textContent = 'Running...';
+            runBtn.disabled = true;
+          });
+          header.appendChild(runBtn);
         }
 
         const saveBtn = document.createElement('button');
@@ -516,9 +540,51 @@ export function getChatWebviewHtml(
       }
 
       if (lastIndex < text.length) {
-        const span = document.createElement('span');
-        span.textContent = text.slice(lastIndex);
-        fragment.appendChild(span);
+        const remaining = text.slice(lastIndex);
+        // Render edit blocks in remaining text
+        const editRegex = /<<<SEARCH:([^\\n]+)\\n([\\s\\S]*?)\\n===\\n([\\s\\S]*?)\\n>>>REPLACE/g;
+        let editLastIndex = 0;
+        let editMatch;
+        while ((editMatch = editRegex.exec(remaining)) !== null) {
+          if (editMatch.index > editLastIndex) {
+            const span = document.createElement('span');
+            span.textContent = remaining.slice(editLastIndex, editMatch.index);
+            fragment.appendChild(span);
+          }
+          const editFilePath = editMatch[1].trim();
+          const searchText = editMatch[2];
+          const replaceText = editMatch[3];
+
+          const editBlock = document.createElement('div');
+          editBlock.className = 'edit-block';
+
+          const editHeader = document.createElement('div');
+          editHeader.className = 'edit-header';
+          editHeader.textContent = '✎ Edit: ' + editFilePath;
+          editBlock.appendChild(editHeader);
+
+          const searchDiv = document.createElement('div');
+          searchDiv.className = 'edit-search';
+          const searchPre = document.createElement('pre');
+          searchPre.textContent = searchText;
+          searchDiv.appendChild(searchPre);
+          editBlock.appendChild(searchDiv);
+
+          const replaceDiv = document.createElement('div');
+          replaceDiv.className = 'edit-replace';
+          const replacePre = document.createElement('pre');
+          replacePre.textContent = replaceText;
+          replaceDiv.appendChild(replacePre);
+          editBlock.appendChild(replaceDiv);
+
+          fragment.appendChild(editBlock);
+          editLastIndex = editMatch.index + editMatch[0].length;
+        }
+        if (editLastIndex < remaining.length) {
+          const span = document.createElement('span');
+          span.textContent = remaining.slice(editLastIndex);
+          fragment.appendChild(span);
+        }
       }
 
       return fragment;
@@ -671,6 +737,19 @@ export function getChatWebviewHtml(
           finishAssistantMessage();
           setLoading(false);
           break;
+
+        case 'commandResult': {
+          const resultDiv = document.createElement('div');
+          resultDiv.className = 'message assistant';
+          const output = event.data.content || '(no output)';
+          const pre = document.createElement('pre');
+          pre.className = 'command-output';
+          pre.textContent = output;
+          resultDiv.appendChild(pre);
+          messagesContainer.appendChild(resultDiv);
+          scrollToBottom();
+          break;
+        }
 
         case 'setModels':
           renderModelList(event.data.models || []);

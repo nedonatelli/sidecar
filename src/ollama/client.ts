@@ -1,4 +1,4 @@
-import type { ChatMessage, AnthropicStreamEvent } from './types.js';
+import type { ChatMessage, AnthropicResponse, AnthropicStreamEvent } from './types.js';
 
 const DEFAULT_BASE_URL = 'http://localhost:11434';
 
@@ -65,6 +65,10 @@ export class SideCarClient {
 
   private get pullUrl(): string {
     return `${this.baseUrl}/api/pull`;
+  }
+
+  private get generateUrl(): string {
+    return `${this.baseUrl}/api/generate`;
   }
 
   async *streamChat(
@@ -136,6 +140,72 @@ export class SideCarClient {
     } finally {
       reader.releaseLock();
     }
+  }
+
+  async complete(
+    messages: ChatMessage[],
+    maxTokens: number = 256,
+    signal?: AbortSignal
+  ): Promise<string> {
+    const body: Record<string, unknown> = {
+      model: this.model,
+      max_tokens: maxTokens,
+      messages,
+      stream: false,
+    };
+
+    if (this.systemPrompt) {
+      body.system = this.systemPrompt;
+    }
+
+    const response = await fetch(this.messagesUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': this.apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify(body),
+      signal,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      throw new Error(`API request failed: ${response.status} ${response.statusText}${errorText ? ` — ${errorText}` : ''}`);
+    }
+
+    const data = await response.json() as AnthropicResponse;
+    const textBlock = data.content.find(b => b.type === 'text');
+    return textBlock?.text ?? '';
+  }
+
+  async completeFIM(
+    prefix: string,
+    suffix: string,
+    model?: string,
+    maxTokens: number = 256,
+    signal?: AbortSignal
+  ): Promise<string> {
+    const response = await fetch(this.generateUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: model || this.model,
+        prompt: prefix,
+        suffix,
+        stream: false,
+        options: { num_predict: maxTokens },
+      }),
+      signal,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      throw new Error(`FIM request failed: ${response.status}${errorText ? ` — ${errorText}` : ''}`);
+    }
+
+    const data = await response.json() as { response: string };
+    return data.response ?? '';
   }
 
   updateModel(model: string) {

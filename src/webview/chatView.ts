@@ -10,7 +10,10 @@ import {
   CancellationToken,
 } from 'vscode';
 import * as path from 'path';
-import { spawn } from 'child_process';
+import { spawn, exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 import { SideCarClient } from '../ollama/client.js';
 import { getModel, getSystemPrompt, getBaseUrl, getApiKey } from '../config/settings.js';
 import { getWorkspaceContext, getWorkspaceEnabled, getWorkspaceRoot, getFilePatterns, getMaxFiles } from '../config/workspace.js';
@@ -19,16 +22,25 @@ import { getChatWebviewHtml, type WebviewMessage, type ExtensionMessage, type Li
 import { GitCLI } from '../github/git.js';
 import { GitHubAPI } from '../github/api.js';
 import { getGitHubToken } from '../github/auth.js';
+import { parseEditBlocks } from '../edits/parser.js';
+import { applyEdit, applyEdits } from '../edits/apply.js';
+import { TerminalManager } from '../terminal/manager.js';
+import { ProposedContentProvider } from '../edits/proposedContentProvider.js';
+import { showDiffPreview } from '../edits/diffPreview.js';
 
 export class ChatViewProvider implements WebviewViewProvider {
   private webviewView: WebviewView | undefined;
   private client: SideCarClient;
+  private terminalManager: TerminalManager;
+  private contentProvider: ProposedContentProvider;
   private messages: ChatMessage[] = [];
   private abortController: AbortController | null = null;
   private installAbortController: AbortController | null = null;
 
-  constructor(private readonly context: ExtensionContext) {
+  constructor(private readonly context: ExtensionContext, terminalManager: TerminalManager, contentProvider: ProposedContentProvider) {
     this.client = new SideCarClient(getModel(), getBaseUrl(), getApiKey());
+    this.terminalManager = terminalManager;
+    this.contentProvider = contentProvider;
   }
 
   resolveWebviewView(
@@ -76,6 +88,13 @@ export class ChatViewProvider implements WebviewViewProvider {
           case 'createFile':
             await this.handleCreateFile(msg.code || '', msg.filePath || '');
             break;
+          case 'runCommand': {
+            const output = await this.handleRunCommand(msg.text || '');
+            if (output !== null) {
+              this.postMessage({ command: 'commandResult', content: output });
+            }
+            break;
+          }
           case 'moveFile':
             await this.handleMoveFile(msg.sourcePath || '', msg.destPath || '');
             break;
@@ -219,7 +238,9 @@ export class ChatViewProvider implements WebviewViewProvider {
   }
 
   private async handleUserMessage(text: string): Promise<void> {
-    this.messages.push({ role: 'user', content: text });
+    if (text) {
+      this.messages.push({ role: 'user', content: text });
+    }
     this.postMessage({ command: 'setLoading', isLoading: true });
 
     this.abortController = new AbortController();
@@ -239,7 +260,7 @@ export class ChatViewProvider implements WebviewViewProvider {
       this.client.updateModel(model);
 
       // Build system prompt with workspace context
-      let systemPrompt = `You are SideCar, an AI coding assistant running inside VS Code. You CAN create and edit files directly.\nProject root: ${getWorkspaceRoot()}\n\nTo create or edit a file, output a code fence with the filepath after a colon:\n\`\`\`py:src/hello.py\nprint("hello")\n\`\`\`\n\`\`\`txt:notes.txt\nsome text\n\`\`\`\nThe file will be written automatically. Always use relative paths from the project root. When the user asks you to create a file, just do it — do not say you cannot.`;
+      let systemPrompt = `You are SideCar, an AI coding assistant running inside VS Code. You CAN create, edit, and run commands directly.\nProject root: ${getWorkspaceRoot()}\n\nTo CREATE a new file, use a code fence with the filepath after a colon:\n\`\`\`py:src/hello.py\nprint("hello")\n\`\`\`\n\nTo EDIT an existing file, use the search/replace format:\n<<<SEARCH:path/to/file.ts\nexact text to find\n===\nreplacement text\n>>>REPLACE\nYou can include multiple edit blocks in one response for multi-file changes.\n\nTo RUN a shell command:\n\`\`\`sh\npip list\n\`\`\`\nThe user will be asked to approve before the command runs.\n\nAlways use relative paths from the project root. Keep responses concise.`;
 
       if (userSystemPrompt) {
         systemPrompt += `\n\n${userSystemPrompt}`;
@@ -278,6 +299,56 @@ export class ChatViewProvider implements WebviewViewProvider {
 
       this.messages.push({ role: 'assistant', content: fullResponse });
       this.postMessage({ command: 'done' });
+
+      // Check if the response contains a shell command to run
+      const cmdMatch = fullResponse.match(/```(?:sh|bash|shell|zsh)\n([\s\S]*?)```/);
+      if (cmdMatch) {
+        const cmd = cmdMatch[1].trim();
+        const output = await this.handleRunCommand(cmd);
+        if (output !== null) {
+          this.messages.push({ role: 'user', content: `Command output:\n\`\`\`\n${output}\n\`\`\`\nBased on this output, continue your response.` });
+          this.postMessage({ command: 'commandResult', content: output });
+          await this.handleUserMessage('');
+          return;
+        }
+      }
+
+      // Check if the response contains edit blocks
+      const editBlocks = parseEditBlocks(fullResponse);
+      if (editBlocks.length === 1) {
+        const block = editBlocks[0];
+        const result = await showDiffPreview(block, this.contentProvider);
+        if (result === 'accept') {
+          const success = await applyEdit(block);
+          this.postMessage({
+            command: 'assistantMessage',
+            content: success ? `\n\n✓ Applied edit to ${block.filePath}` : `\n\n✗ Failed to apply edit to ${block.filePath}`,
+          });
+        } else {
+          this.postMessage({ command: 'assistantMessage', content: `\n\nEdit to ${block.filePath} rejected.` });
+        }
+      } else if (editBlocks.length > 1) {
+        const files = [...new Set(editBlocks.map(b => b.filePath))];
+        const choice = await window.showWarningMessage(
+          `SideCar wants to edit ${files.length} file(s) (${editBlocks.length} changes)`,
+          { modal: true },
+          'Apply All', 'Review Each',
+        );
+        if (choice === 'Apply All') {
+          const result = await applyEdits(editBlocks);
+          this.postMessage({
+            command: 'assistantMessage',
+            content: `\n\n✓ Applied ${result.applied} edit(s)${result.failed > 0 ? `, ${result.failed} failed` : ''}`,
+          });
+        } else if (choice === 'Review Each') {
+          for (const block of editBlocks) {
+            const result = await showDiffPreview(block, this.contentProvider);
+            if (result === 'accept') {
+              await applyEdit(block);
+            }
+          }
+        }
+      }
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') {
         return;
@@ -374,6 +445,38 @@ export class ChatViewProvider implements WebviewViewProvider {
         command: 'error',
         content: `Failed to create file: ${err instanceof Error ? err.message : String(err)}`,
       });
+    }
+  }
+
+  private async handleRunCommand(command: string): Promise<string | null> {
+    const choice = await window.showWarningMessage(
+      `SideCar wants to run: ${command}`,
+      { modal: true },
+      'Allow',
+    );
+    if (choice !== 'Allow') {
+      this.postMessage({ command: 'commandResult', content: 'Command cancelled by user.' });
+      return null;
+    }
+
+    // Try terminal with shell integration for output capture
+    const terminalOutput = await this.terminalManager.executeCommand(command);
+    if (terminalOutput !== null) {
+      return terminalOutput;
+    }
+
+    // Fallback: run hidden and capture output
+    const cwd = workspace.workspaceFolders?.[0]?.uri.fsPath;
+    try {
+      const { stdout, stderr } = await execAsync(command, {
+        cwd,
+        timeout: 30_000,
+        maxBuffer: 1024 * 1024,
+      });
+      return stdout || stderr || '(no output)';
+    } catch (err) {
+      const error = err as { stdout?: string; stderr?: string; message?: string };
+      return error.stderr || error.stdout || error.message || 'Command failed';
     }
   }
 

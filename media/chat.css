@@ -461,6 +461,65 @@ body {
   white-space: pre;
 }
 
+.code-run-btn {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+}
+
+.command-output {
+  background: var(--vscode-textCodeBlock-background, rgba(0, 0, 0, 0.15));
+  border: 1px solid var(--vscode-widget-border);
+  border-radius: 4px;
+  padding: 8px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: var(--vscode-editor-font-size, 13px);
+  white-space: pre-wrap;
+  overflow-x: auto;
+  margin: 4px 0;
+}
+
+.edit-block {
+  border: 1px solid var(--vscode-widget-border);
+  border-radius: 4px;
+  margin: 8px 0;
+  overflow: hidden;
+}
+
+.edit-header {
+  padding: 6px 8px;
+  font-size: 12px;
+  font-weight: bold;
+  background: var(--vscode-textCodeBlock-background, rgba(0, 0, 0, 0.15));
+  border-bottom: 1px solid var(--vscode-widget-border);
+}
+
+.edit-search, .edit-replace {
+  padding: 0;
+}
+
+.edit-search pre, .edit-replace pre {
+  margin: 0;
+  padding: 6px 8px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: var(--vscode-editor-font-size, 13px);
+  white-space: pre-wrap;
+}
+
+.edit-search {
+  background: rgba(255, 0, 0, 0.08);
+  border-bottom: 1px solid var(--vscode-widget-border);
+}
+
+.edit-replace {
+  background: rgba(0, 255, 0, 0.08);
+}
+
+.file-created-notice {
+  color: var(--vscode-charts-green, #4ec9b0);
+  font-size: 12px;
+  padding: 4px 0;
+}
+
 /* GitHub result cards */
 .gh-result {
   max-width: 100%;
