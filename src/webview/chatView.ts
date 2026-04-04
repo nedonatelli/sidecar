@@ -340,7 +340,7 @@ export class ChatViewProvider implements WebviewViewProvider {
       this.client.updateModel(model);
 
       // Build system prompt with workspace context
-      let systemPrompt = `You are SideCar, an AI coding assistant running inside VS Code. You have tools to read, write, edit, and search files, and to run shell commands.\nProject root: ${getWorkspaceRoot()}\n\nUse your tools to accomplish tasks. Always use relative paths from the project root. Keep responses concise. When asked to create or edit files, use the write_file or edit_file tools directly.`;
+      let systemPrompt = `You are SideCar, an AI coding assistant running inside VS Code. You have tools to read, write, edit, and search files, run shell commands, check diagnostics, and run tests.\nProject root: ${getWorkspaceRoot()}\n\nUse your tools to accomplish tasks. Always use relative paths from the project root. Keep responses concise.\n\nAfter editing files, use get_diagnostics to check for errors and fix them. When asked to fix bugs or add features, use run_tests to verify your changes pass.`;
 
       if (userSystemPrompt) {
         systemPrompt += `\n\n${userSystemPrompt}`;

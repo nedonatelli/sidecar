@@ -1,4 +1,4 @@
-import { workspace, Uri } from 'vscode';
+import { workspace, languages, Uri } from 'vscode';
 import * as path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -207,6 +207,121 @@ async function listDirectory(input: Record<string, unknown>): Promise<string> {
     .join('\n');
 }
 
+const getDiagnosticsDef: ToolDefinition = {
+  name: 'get_diagnostics',
+  description: 'Get compiler errors, warnings, and linting issues from VS Code. Returns diagnostics for a specific file or all files if no path given.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      path: { type: 'string', description: 'Optional: relative file path to get diagnostics for. Omit for all files.' },
+    },
+    required: [],
+  },
+};
+
+const runTestsDef: ToolDefinition = {
+  name: 'run_tests',
+  description: 'Run the project test suite. Optionally specify a test file or pattern. Returns test output with pass/fail results.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      command: { type: 'string', description: 'Test command to run (e.g. "npm test", "pytest", "go test ./..."). If omitted, tries common test runners.' },
+      file: { type: 'string', description: 'Optional: specific test file to run' },
+    },
+    required: [],
+  },
+};
+
+async function getDiagnostics(input: Record<string, unknown>): Promise<string> {
+  const filePath = input.path as string | undefined;
+  const root = getRoot();
+
+  if (filePath) {
+    const fileUri = Uri.joinPath(getRootUri(), filePath);
+    const diags = languages.getDiagnostics(fileUri);
+    if (diags.length === 0) return `No diagnostics for ${filePath}`;
+    return diags.map(d => {
+      const line = d.range.start.line + 1;
+      const severity = ['Error', 'Warning', 'Info', 'Hint'][d.severity] || 'Unknown';
+      return `${filePath}:${line} [${severity}] ${d.message}`;
+    }).join('\n');
+  }
+
+  // All diagnostics
+  const allDiags = languages.getDiagnostics();
+  const results: string[] = [];
+  for (const [uri, diags] of allDiags) {
+    if (diags.length === 0) continue;
+    const relPath = root ? path.relative(root, uri.fsPath) : uri.fsPath;
+    if (relPath.includes('node_modules')) continue;
+    for (const d of diags) {
+      const line = d.range.start.line + 1;
+      const severity = ['Error', 'Warning', 'Info', 'Hint'][d.severity] || 'Unknown';
+      results.push(`${relPath}:${line} [${severity}] ${d.message}`);
+    }
+  }
+  return results.length > 0 ? results.slice(0, 100).join('\n') : 'No diagnostics found.';
+}
+
+async function runTests(input: Record<string, unknown>): Promise<string> {
+  let command = input.command as string | undefined;
+  const file = input.file as string | undefined;
+  const cwd = getRoot();
+
+  if (!command) {
+    // Auto-detect test runner
+    try {
+      const pkgBytes = await workspace.fs.readFile(Uri.joinPath(getRootUri(), 'package.json'));
+      const pkg = JSON.parse(Buffer.from(pkgBytes).toString('utf-8'));
+      if (pkg.scripts?.test) {
+        command = 'npm test';
+      }
+    } catch { /* no package.json */ }
+
+    if (!command) {
+      // Check for common test files/configs
+      const checks: [string, string][] = [
+        ['pytest.ini', 'pytest'],
+        ['setup.py', 'pytest'],
+        ['pyproject.toml', 'pytest'],
+        ['Cargo.toml', 'cargo test'],
+        ['go.mod', 'go test ./...'],
+        ['build.gradle', './gradlew test'],
+        ['build.gradle.kts', './gradlew test'],
+      ];
+      for (const [configFile, testCmd] of checks) {
+        try {
+          await workspace.fs.stat(Uri.joinPath(getRootUri(), configFile));
+          command = testCmd;
+          break;
+        } catch { /* not found */ }
+      }
+    }
+
+    if (!command) {
+      return 'Could not detect test runner. Specify a command (e.g. "npm test", "pytest").';
+    }
+  }
+
+  if (file) {
+    command += ` ${file}`;
+  }
+
+  try {
+    const { stdout, stderr } = await execAsync(command, {
+      cwd,
+      timeout: 120_000,
+      maxBuffer: 2 * 1024 * 1024,
+    });
+    return (stdout + (stderr ? '\nSTDERR:\n' + stderr : '')).trim() || '(no output)';
+  } catch (err) {
+    const error = err as { stdout?: string; stderr?: string; message?: string };
+    // Test failures often exit non-zero but still have useful output
+    const output = (error.stdout || '') + (error.stderr ? '\nSTDERR:\n' + error.stderr : '');
+    return output.trim() || `Test command failed: ${error.message || 'Unknown error'}`;
+  }
+}
+
 // --- Registry ---
 
 export const TOOL_REGISTRY: RegisteredTool[] = [
@@ -217,6 +332,8 @@ export const TOOL_REGISTRY: RegisteredTool[] = [
   { definition: grepDef, executor: grep, requiresApproval: false },
   { definition: runCommandDef, executor: runCommand, requiresApproval: true },
   { definition: listDirectoryDef, executor: listDirectory, requiresApproval: false },
+  { definition: getDiagnosticsDef, executor: getDiagnostics, requiresApproval: false },
+  { definition: runTestsDef, executor: runTests, requiresApproval: true },
 ];
 
 export function getToolDefinitions(): ToolDefinition[] {
