@@ -23,11 +23,9 @@ import { getChatWebviewHtml, type WebviewMessage, type ExtensionMessage, type Li
 import { GitCLI } from '../github/git.js';
 import { GitHubAPI } from '../github/api.js';
 import { getGitHubToken } from '../github/auth.js';
-import { parseEditBlocks } from '../edits/parser.js';
-import { applyEdit, applyEdits } from '../edits/apply.js';
 import { TerminalManager } from '../terminal/manager.js';
 import { ProposedContentProvider } from '../edits/proposedContentProvider.js';
-import { showDiffPreview } from '../edits/diffPreview.js';
+import { runAgentLoop } from '../agent/loop.js';
 
 export class ChatViewProvider implements WebviewViewProvider {
   private webviewView: WebviewView | undefined;
@@ -339,7 +337,7 @@ export class ChatViewProvider implements WebviewViewProvider {
       this.client.updateModel(model);
 
       // Build system prompt with workspace context
-      let systemPrompt = `You are SideCar, an AI coding assistant running inside VS Code. You CAN create, edit, and run commands directly.\nProject root: ${getWorkspaceRoot()}\n\nTo CREATE a new file, use a code fence with the filepath after a colon:\n\`\`\`py:src/hello.py\nprint("hello")\n\`\`\`\n\nTo EDIT an existing file, use the search/replace format:\n<<<SEARCH:path/to/file.ts\nexact text to find\n===\nreplacement text\n>>>REPLACE\nYou can include multiple edit blocks in one response for multi-file changes.\n\nTo RUN a shell command:\n\`\`\`sh\npip list\n\`\`\`\nThe user will be asked to approve before the command runs.\n\nAlways use relative paths from the project root. Keep responses concise.`;
+      let systemPrompt = `You are SideCar, an AI coding assistant running inside VS Code. You have tools to read, write, edit, and search files, and to run shell commands.\nProject root: ${getWorkspaceRoot()}\n\nUse your tools to accomplish tasks. Always use relative paths from the project root. Keep responses concise. When asked to create or edit files, use the write_file or edit_file tools directly.`;
 
       if (userSystemPrompt) {
         systemPrompt += `\n\n${userSystemPrompt}`;
@@ -394,67 +392,37 @@ export class ChatViewProvider implements WebviewViewProvider {
         }
       }
 
-      let fullResponse = '';
-      const stream = this.client.streamChat(chatMessages, this.abortController.signal);
+      // Run agent loop with tool use
+      const updatedMessages = await runAgentLoop(
+        this.client,
+        chatMessages,
+        {
+          onText: (text) => {
+            this.postMessage({ command: 'assistantMessage', content: text });
+          },
+          onToolCall: (name, input) => {
+            const summary = Object.entries(input)
+              .map(([k, v]) => {
+                const val = typeof v === 'string' && v.length > 60 ? v.slice(0, 60) + '...' : String(v);
+                return `${k}: ${val}`;
+              })
+              .join(', ');
+            this.postMessage({ command: 'toolCall', content: `${name}(${summary})` });
+          },
+          onToolResult: (name, result, isError) => {
+            const preview = result.length > 200 ? result.slice(0, 200) + '...' : result;
+            this.postMessage({ command: 'toolResult', content: `${name}: ${isError ? '✗ ' : '✓ '}${preview}` });
+          },
+          onDone: () => {
+            this.postMessage({ command: 'done' });
+          },
+        },
+        this.abortController.signal,
+      );
 
-      for await (const text of stream) {
-        fullResponse += text;
-        this.postMessage({ command: 'assistantMessage', content: text });
-      }
-
-      this.messages.push({ role: 'assistant', content: fullResponse });
+      // Sync messages from agent loop back
+      this.messages = updatedMessages;
       this.saveHistory();
-      this.postMessage({ command: 'done' });
-
-      // Check if the response contains a shell command to run
-      const cmdMatch = fullResponse.match(/```(?:sh|bash|shell|zsh)\n([\s\S]*?)```/);
-      if (cmdMatch) {
-        const cmd = cmdMatch[1].trim();
-        const output = await this.handleRunCommand(cmd);
-        if (output !== null) {
-          this.messages.push({ role: 'user', content: `Command output:\n\`\`\`\n${output}\n\`\`\`\nBased on this output, continue your response.` });
-          this.postMessage({ command: 'commandResult', content: output });
-          await this.handleUserMessage('');
-          return;
-        }
-      }
-
-      // Check if the response contains edit blocks
-      const editBlocks = parseEditBlocks(fullResponse);
-      if (editBlocks.length === 1) {
-        const block = editBlocks[0];
-        const result = await showDiffPreview(block, this.contentProvider);
-        if (result === 'accept') {
-          const success = await applyEdit(block);
-          this.postMessage({
-            command: 'assistantMessage',
-            content: success ? `\n\n✓ Applied edit to ${block.filePath}` : `\n\n✗ Failed to apply edit to ${block.filePath}`,
-          });
-        } else {
-          this.postMessage({ command: 'assistantMessage', content: `\n\nEdit to ${block.filePath} rejected.` });
-        }
-      } else if (editBlocks.length > 1) {
-        const files = [...new Set(editBlocks.map(b => b.filePath))];
-        const choice = await window.showWarningMessage(
-          `SideCar wants to edit ${files.length} file(s) (${editBlocks.length} changes)`,
-          { modal: true },
-          'Apply All', 'Review Each',
-        );
-        if (choice === 'Apply All') {
-          const result = await applyEdits(editBlocks);
-          this.postMessage({
-            command: 'assistantMessage',
-            content: `\n\n✓ Applied ${result.applied} edit(s)${result.failed > 0 ? `, ${result.failed} failed` : ''}`,
-          });
-        } else if (choice === 'Review Each') {
-          for (const block of editBlocks) {
-            const result = await showDiffPreview(block, this.contentProvider);
-            if (result === 'accept') {
-              await applyEdit(block);
-            }
-          }
-        }
-      }
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') {
         return;

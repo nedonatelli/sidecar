@@ -1,4 +1,4 @@
-import type { ChatMessage, AnthropicResponse, AnthropicStreamEvent } from './types.js';
+import type { ChatMessage, ToolDefinition, ToolUseContentBlock, AnthropicResponse, AnthropicStreamEvent, StreamEvent } from './types.js';
 
 const DEFAULT_BASE_URL = 'http://localhost:11434';
 
@@ -73,8 +73,9 @@ export class SideCarClient {
 
   async *streamChat(
     messages: ChatMessage[],
-    signal?: AbortSignal
-  ): AsyncGenerator<string> {
+    signal?: AbortSignal,
+    tools?: ToolDefinition[]
+  ): AsyncGenerator<StreamEvent> {
     const body: Record<string, unknown> = {
       model: this.model,
       max_tokens: 4096,
@@ -84,6 +85,10 @@ export class SideCarClient {
 
     if (this.systemPrompt) {
       body.system = this.systemPrompt;
+    }
+
+    if (tools && tools.length > 0) {
+      body.tools = tools;
     }
 
     const response = await fetch(this.messagesUrl, {
@@ -109,6 +114,9 @@ export class SideCarClient {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
 
+    // State for buffering tool use blocks
+    let currentToolUse: { id: string; name: string; inputJson: string } | null = null;
+
     try {
       let buffer = '';
       while (true) {
@@ -120,20 +128,67 @@ export class SideCarClient {
         buffer = lines.pop() || '';
 
         for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6).trim();
-            if (!data) continue;
-            try {
-              const event = JSON.parse(data) as AnthropicStreamEvent;
-              if (event.type === 'content_block_delta' && event.delta && 'type' in event.delta && event.delta.type === 'text_delta' && 'text' in event.delta) {
-                yield (event.delta as { type: 'text_delta'; text: string }).text;
-              } else if (event.type === 'error' && event.error) {
+          if (!line.startsWith('data: ')) continue;
+          const data = line.slice(6).trim();
+          if (!data) continue;
+
+          let event: AnthropicStreamEvent;
+          try {
+            event = JSON.parse(data) as AnthropicStreamEvent;
+          } catch {
+            continue;
+          }
+
+          switch (event.type) {
+            case 'content_block_start':
+              if (event.content_block?.type === 'tool_use') {
+                currentToolUse = {
+                  id: event.content_block.id || '',
+                  name: event.content_block.name || '',
+                  inputJson: '',
+                };
+              }
+              break;
+
+            case 'content_block_delta':
+              if (!event.delta) break;
+              if (event.delta.type === 'text_delta' && event.delta.text) {
+                yield { type: 'text', text: event.delta.text };
+              } else if (event.delta.type === 'input_json_delta' && event.delta.partial_json && currentToolUse) {
+                currentToolUse.inputJson += event.delta.partial_json;
+              }
+              break;
+
+            case 'content_block_stop':
+              if (currentToolUse) {
+                let input: Record<string, unknown> = {};
+                try {
+                  input = JSON.parse(currentToolUse.inputJson || '{}');
+                } catch {
+                  // Malformed JSON, use empty
+                }
+                const toolUse: ToolUseContentBlock = {
+                  type: 'tool_use',
+                  id: currentToolUse.id,
+                  name: currentToolUse.name,
+                  input,
+                };
+                yield { type: 'tool_use', toolUse };
+                currentToolUse = null;
+              }
+              break;
+
+            case 'message_delta':
+              if (event.delta?.stop_reason) {
+                yield { type: 'stop', stopReason: event.delta.stop_reason };
+              }
+              break;
+
+            case 'error':
+              if (event.error) {
                 throw new Error(event.error.message);
               }
-            } catch (err) {
-              if (err instanceof SyntaxError) continue;
-              throw err;
-            }
+              break;
           }
         }
       }

@@ -534,6 +534,24 @@ body {
   background: var(--vscode-toolbar-hoverBackground);
 }
 
+.tool-call, .tool-result {
+  font-size: 11px;
+  padding: 4px 12px;
+  color: var(--vscode-descriptionForeground);
+  border-left: 2px solid var(--vscode-widget-border);
+  margin: 2px 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.tool-call {
+  border-left-color: var(--vscode-charts-blue, #4fc1ff);
+}
+
+.tool-result {
+  border-left-color: var(--vscode-charts-green, #4ec9b0);
+}
+
 #stream-stats {
   text-align: center;
   font-size: 11px;

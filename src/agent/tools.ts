@@ -1,0 +1,228 @@
+import { workspace, Uri } from 'vscode';
+import * as path from 'path';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import type { ToolDefinition } from '../ollama/types.js';
+
+const execAsync = promisify(exec);
+
+export interface ToolExecutor {
+  (input: Record<string, unknown>): Promise<string>;
+}
+
+export interface RegisteredTool {
+  definition: ToolDefinition;
+  executor: ToolExecutor;
+  requiresApproval: boolean;
+}
+
+function getRoot(): string {
+  return workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+}
+
+function getRootUri(): Uri {
+  return workspace.workspaceFolders![0].uri;
+}
+
+// --- Tool Definitions ---
+
+const readFileDef: ToolDefinition = {
+  name: 'read_file',
+  description: 'Read the contents of a file at the given path (relative to project root).',
+  input_schema: {
+    type: 'object',
+    properties: {
+      path: { type: 'string', description: 'Relative file path' },
+    },
+    required: ['path'],
+  },
+};
+
+const writeFileDef: ToolDefinition = {
+  name: 'write_file',
+  description: 'Create or overwrite a file with the given content.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      path: { type: 'string', description: 'Relative file path' },
+      content: { type: 'string', description: 'File content to write' },
+    },
+    required: ['path', 'content'],
+  },
+};
+
+const editFileDef: ToolDefinition = {
+  name: 'edit_file',
+  description: 'Edit an existing file by replacing a search string with a replacement string.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      path: { type: 'string', description: 'Relative file path' },
+      search: { type: 'string', description: 'Exact text to find in the file' },
+      replace: { type: 'string', description: 'Text to replace it with' },
+    },
+    required: ['path', 'search', 'replace'],
+  },
+};
+
+const searchFilesDef: ToolDefinition = {
+  name: 'search_files',
+  description: 'Search for files matching a glob pattern in the workspace. Returns a list of matching file paths.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      pattern: { type: 'string', description: 'Glob pattern (e.g. "**/*.ts", "src/**/*.test.js")' },
+    },
+    required: ['pattern'],
+  },
+};
+
+const grepDef: ToolDefinition = {
+  name: 'grep',
+  description: 'Search file contents for a text pattern. Returns matching lines with file paths and line numbers.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      pattern: { type: 'string', description: 'Text or regex pattern to search for' },
+      path: { type: 'string', description: 'Optional: limit search to this file or directory' },
+    },
+    required: ['pattern'],
+  },
+};
+
+const runCommandDef: ToolDefinition = {
+  name: 'run_command',
+  description: 'Execute a shell command in the project root directory. Returns stdout and stderr.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      command: { type: 'string', description: 'Shell command to run' },
+    },
+    required: ['command'],
+  },
+};
+
+const listDirectoryDef: ToolDefinition = {
+  name: 'list_directory',
+  description: 'List the contents of a directory. Returns file and folder names.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      path: { type: 'string', description: 'Relative directory path (empty or "." for project root)' },
+    },
+    required: [],
+  },
+};
+
+// --- Tool Executors ---
+
+async function readFile(input: Record<string, unknown>): Promise<string> {
+  const filePath = input.path as string;
+  const fileUri = Uri.joinPath(getRootUri(), filePath);
+  const bytes = await workspace.fs.readFile(fileUri);
+  return Buffer.from(bytes).toString('utf-8');
+}
+
+async function writeFile(input: Record<string, unknown>): Promise<string> {
+  const filePath = input.path as string;
+  const content = input.content as string;
+  const fileUri = Uri.joinPath(getRootUri(), filePath);
+  // Create parent directories
+  const dir = path.dirname(filePath);
+  if (dir && dir !== '.') {
+    await workspace.fs.createDirectory(Uri.joinPath(getRootUri(), dir));
+  }
+  await workspace.fs.writeFile(fileUri, Buffer.from(content, 'utf-8'));
+  return `File written: ${filePath}`;
+}
+
+async function editFile(input: Record<string, unknown>): Promise<string> {
+  const filePath = input.path as string;
+  const search = input.search as string;
+  const replace = input.replace as string;
+  const fileUri = Uri.joinPath(getRootUri(), filePath);
+  const bytes = await workspace.fs.readFile(fileUri);
+  const text = Buffer.from(bytes).toString('utf-8');
+  if (!text.includes(search)) {
+    return `Error: Search text not found in ${filePath}`;
+  }
+  const newText = text.replace(search, replace);
+  await workspace.fs.writeFile(fileUri, Buffer.from(newText, 'utf-8'));
+  return `File edited: ${filePath}`;
+}
+
+async function searchFiles(input: Record<string, unknown>): Promise<string> {
+  const pattern = input.pattern as string;
+  const uris = await workspace.findFiles(
+    pattern,
+    `**/{node_modules,.git,out,dist,.venv,venv,__pycache__,.next}/**`,
+    50
+  );
+  if (uris.length === 0) return 'No files found.';
+  const root = getRoot();
+  return uris.map(u => path.relative(root, u.fsPath)).join('\n');
+}
+
+async function grep(input: Record<string, unknown>): Promise<string> {
+  const pattern = input.pattern as string;
+  const searchPath = (input.path as string) || '.';
+  const cwd = getRoot();
+  try {
+    const { stdout } = await execAsync(
+      `grep -rn --include="*" "${pattern.replace(/"/g, '\\"')}" "${searchPath}"`,
+      { cwd, timeout: 15_000, maxBuffer: 512 * 1024 }
+    );
+    // Limit output
+    const lines = stdout.split('\n').slice(0, 50);
+    return lines.join('\n') || 'No matches found.';
+  } catch (err) {
+    const error = err as { stdout?: string; code?: number };
+    if (error.code === 1) return 'No matches found.';
+    return error.stdout || 'Grep failed.';
+  }
+}
+
+async function runCommand(input: Record<string, unknown>): Promise<string> {
+  const command = input.command as string;
+  const cwd = getRoot();
+  try {
+    const { stdout, stderr } = await execAsync(command, {
+      cwd,
+      timeout: 60_000,
+      maxBuffer: 1024 * 1024,
+    });
+    return (stdout + (stderr ? '\nSTDERR:\n' + stderr : '')).trim() || '(no output)';
+  } catch (err) {
+    const error = err as { stdout?: string; stderr?: string; message?: string };
+    return `Command failed:\n${error.stderr || error.stdout || error.message || 'Unknown error'}`;
+  }
+}
+
+async function listDirectory(input: Record<string, unknown>): Promise<string> {
+  const dirPath = (input.path as string) || '.';
+  const dirUri = Uri.joinPath(getRootUri(), dirPath);
+  const entries = await workspace.fs.readDirectory(dirUri);
+  return entries
+    .map(([name, type]) => `${type === 2 ? '📁 ' : '📄 '}${name}`)
+    .join('\n');
+}
+
+// --- Registry ---
+
+export const TOOL_REGISTRY: RegisteredTool[] = [
+  { definition: readFileDef, executor: readFile, requiresApproval: false },
+  { definition: writeFileDef, executor: writeFile, requiresApproval: true },
+  { definition: editFileDef, executor: editFile, requiresApproval: true },
+  { definition: searchFilesDef, executor: searchFiles, requiresApproval: false },
+  { definition: grepDef, executor: grep, requiresApproval: false },
+  { definition: runCommandDef, executor: runCommand, requiresApproval: true },
+  { definition: listDirectoryDef, executor: listDirectory, requiresApproval: false },
+];
+
+export function getToolDefinitions(): ToolDefinition[] {
+  return TOOL_REGISTRY.map(t => t.definition);
+}
+
+export function findTool(name: string): RegisteredTool | undefined {
+  return TOOL_REGISTRY.find(t => t.definition.name === name);
+}

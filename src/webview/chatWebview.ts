@@ -28,7 +28,7 @@ export interface WebviewMessage {
 }
 
 export interface ExtensionMessage {
-  command: 'init' | 'assistantMessage' | 'error' | 'done' | 'setLoading' | 'setModels' | 'setCurrentModel' | 'installProgress' | 'installComplete' | 'fileAttached' | 'fileMoved' | 'githubResult' | 'commandResult' | 'chatCleared' | 'addUserMessage';
+  command: 'init' | 'assistantMessage' | 'error' | 'done' | 'setLoading' | 'setModels' | 'setCurrentModel' | 'installProgress' | 'installComplete' | 'fileAttached' | 'fileMoved' | 'githubResult' | 'commandResult' | 'chatCleared' | 'addUserMessage' | 'toolCall' | 'toolResult';
   content?: string;
   messages?: ChatMessage[];
   isLoading?: boolean;
@@ -856,6 +856,24 @@ export function getChatWebviewHtml(
         case 'addUserMessage':
           appendMessage('user', content || '');
           break;
+
+        case 'toolCall': {
+          const toolDiv = document.createElement('div');
+          toolDiv.className = 'tool-call';
+          toolDiv.textContent = '\\u2699 ' + (content || '');
+          messagesContainer.appendChild(toolDiv);
+          scrollToBottom();
+          break;
+        }
+
+        case 'toolResult': {
+          const resultDiv = document.createElement('div');
+          resultDiv.className = 'tool-result';
+          resultDiv.textContent = content || '';
+          messagesContainer.appendChild(resultDiv);
+          scrollToBottom();
+          break;
+        }
 
         case 'commandResult': {
           const resultDiv = document.createElement('div');
