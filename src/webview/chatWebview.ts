@@ -858,19 +858,33 @@ export function getChatWebviewHtml(
           break;
 
         case 'toolCall': {
-          const toolDiv = document.createElement('div');
-          toolDiv.className = 'tool-call';
-          toolDiv.textContent = '\\u2699 ' + (content || '');
-          messagesContainer.appendChild(toolDiv);
+          const details = document.createElement('details');
+          details.className = 'tool-call';
+          const summary = document.createElement('summary');
+          summary.textContent = '\\u2699 ' + (content || '').split('(')[0];
+          details.appendChild(summary);
+          const body = document.createElement('pre');
+          body.className = 'tool-call-body';
+          body.textContent = (content || '');
+          details.appendChild(body);
+          messagesContainer.appendChild(details);
           scrollToBottom();
           break;
         }
 
         case 'toolResult': {
-          const resultDiv = document.createElement('div');
-          resultDiv.className = 'tool-result';
-          resultDiv.textContent = content || '';
-          messagesContainer.appendChild(resultDiv);
+          const details = document.createElement('details');
+          details.className = 'tool-result';
+          const summary = document.createElement('summary');
+          const text = content || '';
+          const isError = text.startsWith('\\u2717') || text.includes('Error');
+          summary.textContent = (isError ? '\\u2717 ' : '\\u2713 ') + text.split(':')[0];
+          details.appendChild(summary);
+          const body = document.createElement('pre');
+          body.className = 'tool-result-body';
+          body.textContent = text;
+          details.appendChild(body);
+          messagesContainer.appendChild(details);
           scrollToBottom();
           break;
         }

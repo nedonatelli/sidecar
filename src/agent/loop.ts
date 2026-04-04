@@ -2,6 +2,7 @@ import type { ChatMessage, ContentBlock, ToolUseContentBlock, ToolResultContentB
 import { SideCarClient } from '../ollama/client.js';
 import { getToolDefinitions } from './tools.js';
 import { executeTool, type ApprovalMode } from './executor.js';
+import type { AgentLogger } from './logger.js';
 
 export interface AgentCallbacks {
   onText: (text: string) => void;
@@ -13,6 +14,7 @@ export interface AgentCallbacks {
 export interface AgentOptions {
   maxIterations?: number;
   approvalMode?: ApprovalMode;
+  logger?: AgentLogger;
 }
 
 const DEFAULT_MAX_ITERATIONS = 25;
@@ -26,6 +28,7 @@ export async function runAgentLoop(
 ): Promise<ChatMessage[]> {
   const maxIterations = options.maxIterations || DEFAULT_MAX_ITERATIONS;
   const approvalMode = options.approvalMode || 'cautious';
+  const logger = options.logger;
   const tools = getToolDefinitions();
   let iteration = 0;
 
@@ -34,7 +37,11 @@ export async function runAgentLoop(
 
   while (iteration < maxIterations) {
     iteration++;
-    if (signal.aborted) break;
+    if (signal.aborted) {
+      logger?.logAborted();
+      break;
+    }
+    logger?.logIteration(iteration, maxIterations);
 
     // Stream response from model
     const assistantContent: ContentBlock[] = [];
@@ -53,6 +60,7 @@ export async function runAgentLoop(
           break;
         case 'tool_use':
           pendingToolUses.push(event.toolUse);
+          logger?.logToolCall(event.toolUse.name, event.toolUse.input);
           callbacks.onToolCall(event.toolUse.name, event.toolUse.input);
           break;
         case 'stop':
@@ -83,6 +91,7 @@ export async function runAgentLoop(
       for (const toolUse of pendingToolUses) {
         const result = await executeTool(toolUse, approvalMode);
         toolResults.push(result);
+        logger?.logToolResult(toolUse.name, result.content, result.is_error || false);
         callbacks.onToolResult(
           toolUse.name,
           result.content,
@@ -104,6 +113,7 @@ export async function runAgentLoop(
     break;
   }
 
+  logger?.logDone(iteration);
   callbacks.onDone();
   return agentMessages;
 }

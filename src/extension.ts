@@ -6,6 +6,7 @@ import { SideCarClient } from './ollama/client.js';
 import { SideCarCompletionProvider } from './completions/provider.js';
 import { getEnableInlineCompletions, getCompletionModel, getCompletionMaxTokens, getModel, getBaseUrl, getApiKey } from './config/settings.js';
 import { ProposedContentProvider } from './edits/proposedContentProvider.js';
+import { AgentLogger } from './agent/logger.js';
 
 export function activate(context: ExtensionContext) {
   console.log('SideCar extension activating...');
@@ -18,7 +19,10 @@ export function activate(context: ExtensionContext) {
     workspace.registerTextDocumentContentProvider('sidecar-proposed', proposedContentProvider)
   );
 
-  const provider = new ChatViewProvider(context, terminalManager, proposedContentProvider);
+  const agentLogger = new AgentLogger();
+  context.subscriptions.push(agentLogger);
+
+  const provider = new ChatViewProvider(context, terminalManager, proposedContentProvider, agentLogger);
   context.subscriptions.push(
     window.registerWebviewViewProvider('sidecar.chatView', provider, {
       webviewOptions: {

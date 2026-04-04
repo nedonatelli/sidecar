@@ -26,20 +26,23 @@ import { getGitHubToken } from '../github/auth.js';
 import { TerminalManager } from '../terminal/manager.js';
 import { ProposedContentProvider } from '../edits/proposedContentProvider.js';
 import { runAgentLoop } from '../agent/loop.js';
+import type { AgentLogger } from '../agent/logger.js';
 
 export class ChatViewProvider implements WebviewViewProvider {
   private webviewView: WebviewView | undefined;
   private client: SideCarClient;
   private terminalManager: TerminalManager;
   private contentProvider: ProposedContentProvider;
+  private agentLogger: AgentLogger;
   private messages: ChatMessage[] = [];
   private abortController: AbortController | null = null;
   private installAbortController: AbortController | null = null;
 
-  constructor(private readonly context: ExtensionContext, terminalManager: TerminalManager, contentProvider: ProposedContentProvider) {
+  constructor(private readonly context: ExtensionContext, terminalManager: TerminalManager, contentProvider: ProposedContentProvider, agentLogger: AgentLogger) {
     this.client = new SideCarClient(getModel(), getBaseUrl(), getApiKey());
     this.terminalManager = terminalManager;
     this.contentProvider = contentProvider;
+    this.agentLogger = agentLogger;
   }
 
   resolveWebviewView(
@@ -418,6 +421,7 @@ export class ChatViewProvider implements WebviewViewProvider {
           },
         },
         this.abortController.signal,
+        { logger: this.agentLogger },
       );
 
       // Sync messages from agent loop back

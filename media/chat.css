@@ -536,12 +536,11 @@ body {
 
 .tool-call, .tool-result {
   font-size: 11px;
-  padding: 4px 12px;
+  padding: 2px 12px;
   color: var(--vscode-descriptionForeground);
   border-left: 2px solid var(--vscode-widget-border);
   margin: 2px 12px;
-  white-space: pre-wrap;
-  word-break: break-all;
+  cursor: pointer;
 }
 
 .tool-call {
@@ -550,6 +549,24 @@ body {
 
 .tool-result {
   border-left-color: var(--vscode-charts-green, #4ec9b0);
+}
+
+.tool-call summary, .tool-result summary {
+  user-select: none;
+  outline: none;
+}
+
+.tool-call-body, .tool-result-body {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 4px 0 2px;
+  padding: 4px;
+  background: var(--vscode-textCodeBlock-background, rgba(0, 0, 0, 0.1));
+  border-radius: 3px;
+  max-height: 200px;
+  overflow-y: auto;
 }
 
 #stream-stats {
