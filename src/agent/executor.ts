@@ -1,12 +1,16 @@
 import { window } from 'vscode';
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../ollama/types.js';
 import { findTool } from './tools.js';
+import type { ChangeLog } from './changelog.js';
 
 export type ApprovalMode = 'autonomous' | 'cautious' | 'manual';
 
+const WRITE_TOOLS = new Set(['write_file', 'edit_file']);
+
 export async function executeTool(
   toolUse: ToolUseContentBlock,
-  approvalMode: ApprovalMode = 'cautious'
+  approvalMode: ApprovalMode = 'cautious',
+  changelog?: ChangeLog
 ): Promise<ToolResultContentBlock> {
   const tool = findTool(toolUse.name);
 
@@ -47,6 +51,11 @@ export async function executeTool(
         is_error: true,
       };
     }
+  }
+
+  // Snapshot file before destructive operations
+  if (changelog && WRITE_TOOLS.has(toolUse.name) && toolUse.input.path) {
+    await changelog.snapshotFile(toolUse.input.path as string);
   }
 
   try {

@@ -27,6 +27,7 @@ import { TerminalManager } from '../terminal/manager.js';
 import { ProposedContentProvider } from '../edits/proposedContentProvider.js';
 import { runAgentLoop } from '../agent/loop.js';
 import type { AgentLogger } from '../agent/logger.js';
+import { ChangeLog } from '../agent/changelog.js';
 
 export class ChatViewProvider implements WebviewViewProvider {
   private webviewView: WebviewView | undefined;
@@ -34,6 +35,7 @@ export class ChatViewProvider implements WebviewViewProvider {
   private terminalManager: TerminalManager;
   private contentProvider: ProposedContentProvider;
   private agentLogger: AgentLogger;
+  private changelog = new ChangeLog();
   private messages: ChatMessage[] = [];
   private abortController: AbortController | null = null;
   private installAbortController: AbortController | null = null;
@@ -116,8 +118,12 @@ export class ChatViewProvider implements WebviewViewProvider {
             break;
           case 'newChat':
             this.messages = [];
+            this.changelog.clear();
             this.saveHistory();
             this.postMessage({ command: 'chatCleared' });
+            break;
+          case 'undoChanges':
+            await this.handleUndoChanges();
             break;
           case 'exportChat':
             await this.handleExportChat();
@@ -274,6 +280,27 @@ export class ChatViewProvider implements WebviewViewProvider {
     return this.context.workspaceState.get<ChatMessage[]>('sidecar.chatHistory', []);
   }
 
+  private async handleUndoChanges(): Promise<void> {
+    if (!this.changelog.hasChanges()) {
+      window.showInformationMessage('No changes to undo.');
+      return;
+    }
+    const changes = this.changelog.getChanges();
+    const choice = await window.showWarningMessage(
+      `Undo ${changes.length} file change(s) made by SideCar?`,
+      { modal: true },
+      'Undo All',
+    );
+    if (choice !== 'Undo All') return;
+    const result = await this.changelog.rollbackAll();
+    const parts: string[] = [];
+    if (result.restored > 0) parts.push(`${result.restored} restored`);
+    if (result.deleted > 0) parts.push(`${result.deleted} deleted`);
+    if (result.failed > 0) parts.push(`${result.failed} failed`);
+    window.showInformationMessage(`Undo complete: ${parts.join(', ')}`);
+    this.postMessage({ command: 'assistantMessage', content: `\n\n↩ Undid ${changes.length} file change(s): ${parts.join(', ')}` });
+  }
+
   private async handleExportChat(): Promise<void> {
     if (this.messages.length === 0) return;
     const lines: string[] = [];
@@ -421,7 +448,7 @@ export class ChatViewProvider implements WebviewViewProvider {
           },
         },
         this.abortController.signal,
-        { logger: this.agentLogger },
+        { logger: this.agentLogger, changelog: this.changelog },
       );
 
       // Sync messages from agent loop back

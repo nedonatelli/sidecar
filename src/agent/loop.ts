@@ -3,6 +3,7 @@ import { SideCarClient } from '../ollama/client.js';
 import { getToolDefinitions } from './tools.js';
 import { executeTool, type ApprovalMode } from './executor.js';
 import type { AgentLogger } from './logger.js';
+import type { ChangeLog } from './changelog.js';
 
 export interface AgentCallbacks {
   onText: (text: string) => void;
@@ -15,6 +16,7 @@ export interface AgentOptions {
   maxIterations?: number;
   approvalMode?: ApprovalMode;
   logger?: AgentLogger;
+  changelog?: ChangeLog;
 }
 
 const DEFAULT_MAX_ITERATIONS = 25;
@@ -29,6 +31,7 @@ export async function runAgentLoop(
   const maxIterations = options.maxIterations || DEFAULT_MAX_ITERATIONS;
   const approvalMode = options.approvalMode || 'cautious';
   const logger = options.logger;
+  const changelog = options.changelog;
   const tools = getToolDefinitions();
   let iteration = 0;
 
@@ -89,7 +92,7 @@ export async function runAgentLoop(
     if (stopReason === 'tool_use' && pendingToolUses.length > 0) {
       const toolResults: ToolResultContentBlock[] = [];
       for (const toolUse of pendingToolUses) {
-        const result = await executeTool(toolUse, approvalMode);
+        const result = await executeTool(toolUse, approvalMode, changelog);
         toolResults.push(result);
         logger?.logToolResult(toolUse.name, result.content, result.is_error || false);
         callbacks.onToolResult(

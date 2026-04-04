@@ -4,7 +4,7 @@ import type { ChatMessage } from '../ollama/types.js';
 import * as crypto from 'crypto';
 
 export interface WebviewMessage {
-  command: 'userMessage' | 'abort' | 'changeModel' | 'installModel' | 'cancelInstall' | 'attachFile' | 'saveCodeBlock' | 'createFile' | 'runCommand' | 'moveFile' | 'github' | 'openExternal' | 'newChat' | 'exportChat';
+  command: 'userMessage' | 'abort' | 'changeModel' | 'installModel' | 'cancelInstall' | 'attachFile' | 'saveCodeBlock' | 'createFile' | 'runCommand' | 'moveFile' | 'github' | 'openExternal' | 'newChat' | 'exportChat' | 'undoChanges';
   images?: { mediaType: string; data: string }[];
   text?: string;
   model?: string;
@@ -75,6 +75,7 @@ export function getChatWebviewHtml(
     </div>
     <div id="chat-actions">
       <button id="new-chat-btn" title="New Chat">+</button>
+      <button id="undo-btn" title="Undo All Changes">&#8634;</button>
       <button id="export-btn" title="Export as Markdown">&#8681;</button>
     </div>
   </div>
@@ -237,6 +238,10 @@ export function getChatWebviewHtml(
 
     document.getElementById('new-chat-btn').addEventListener('click', () => {
       vscode.postMessage({ command: 'newChat' });
+    });
+
+    document.getElementById('undo-btn').addEventListener('click', () => {
+      vscode.postMessage({ command: 'undoChanges' });
     });
 
     document.getElementById('export-btn').addEventListener('click', () => {
