@@ -1,9 +1,6 @@
-import type { OllamaMessage, OllamaStreamChunk } from './types.js';
+import type { ChatMessage, AnthropicStreamEvent } from './types.js';
 
-const OLLAMA_URL = 'http://localhost:11434';
-const OLLAMA_API_CHAT = `${OLLAMA_URL}/api/chat`;
-const OLLAMA_API_TAGS = `${OLLAMA_URL}/api/tags`;
-const OLLAMA_API_PULL = `${OLLAMA_URL}/api/pull`;
+const DEFAULT_BASE_URL = 'http://localhost:11434';
 
 const LIBRARY_MODELS = [
   'llama3',
@@ -15,6 +12,7 @@ const LIBRARY_MODELS = [
   'phi3',
   'qwen2',
   'qwen2.5',
+  'qwen3-coder',
   'deepseek-coder',
   'nomic-embed-text',
   'llava',
@@ -44,21 +42,38 @@ export interface PullProgress {
   completed?: number;
 }
 
-export class OllamaClient {
+export class SideCarClient {
   private model: string;
   private systemPrompt: string;
+  private baseUrl: string;
+  private apiKey: string;
 
-  constructor(model: string = 'llama3', systemPrompt: string = '') {
+  constructor(model: string, baseUrl?: string, apiKey?: string) {
     this.model = model;
-    this.systemPrompt = systemPrompt;
+    this.systemPrompt = '';
+    this.baseUrl = baseUrl || DEFAULT_BASE_URL;
+    this.apiKey = apiKey || 'ollama';
+  }
+
+  private get messagesUrl(): string {
+    return `${this.baseUrl}/v1/messages`;
+  }
+
+  private get tagsUrl(): string {
+    return `${this.baseUrl}/api/tags`;
+  }
+
+  private get pullUrl(): string {
+    return `${this.baseUrl}/api/pull`;
   }
 
   async *streamChat(
-    messages: OllamaMessage[],
+    messages: ChatMessage[],
     signal?: AbortSignal
-  ): AsyncGenerator<OllamaStreamChunk> {
+  ): AsyncGenerator<string> {
     const body: Record<string, unknown> = {
       model: this.model,
+      max_tokens: 4096,
       messages,
       stream: true,
     };
@@ -67,39 +82,54 @@ export class OllamaClient {
       body.system = this.systemPrompt;
     }
 
-    const response = await fetch(OLLAMA_API_CHAT, {
+    const response = await fetch(this.messagesUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': this.apiKey,
+        'anthropic-version': '2023-06-01',
+      },
       body: JSON.stringify(body),
       signal,
     });
 
     if (!response.ok) {
-      throw new Error(`Ollama request failed: ${response.status} ${response.statusText}`);
+      const errorText = await response.text().catch(() => '');
+      throw new Error(`API request failed: ${response.status} ${response.statusText}${errorText ? ` — ${errorText}` : ''}`);
     }
 
     if (!response.body) {
-      throw new Error('Ollama returned an empty response body');
+      throw new Error('API returned an empty response body');
     }
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
 
     try {
+      let buffer = '';
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\n').filter((line) => line.trim());
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
 
         for (const line of lines) {
-          try {
-            const parsed = JSON.parse(line) as OllamaStreamChunk;
-            yield parsed;
-            if (parsed.done) break;
-          } catch {
-            // Skip malformed JSON lines
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6).trim();
+            if (!data) continue;
+            try {
+              const event = JSON.parse(data) as AnthropicStreamEvent;
+              if (event.type === 'content_block_delta' && event.delta && 'type' in event.delta && event.delta.type === 'text_delta' && 'text' in event.delta) {
+                yield (event.delta as { type: 'text_delta'; text: string }).text;
+              } else if (event.type === 'error' && event.error) {
+                throw new Error(event.error.message);
+              }
+            } catch (err) {
+              if (err instanceof SyntaxError) continue;
+              throw err;
+            }
           }
         }
       }
@@ -116,8 +146,40 @@ export class OllamaClient {
     this.systemPrompt = prompt;
   }
 
+  updateConnection(baseUrl: string, apiKey: string) {
+    this.baseUrl = baseUrl || DEFAULT_BASE_URL;
+    this.apiKey = apiKey || 'ollama';
+  }
+
+  async getModelContextLength(): Promise<number | null> {
+    if (!this.isLocalOllama()) return null;
+    try {
+      const response = await fetch(`${this.baseUrl}/api/show`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: this.model }),
+      });
+      if (!response.ok) return null;
+      const data = await response.json() as Record<string, unknown>;
+      const modelInfo = data.model_info as Record<string, unknown> | undefined;
+      if (!modelInfo) return null;
+      for (const [key, value] of Object.entries(modelInfo)) {
+        if (key.toLowerCase().includes('context_length') && typeof value === 'number') {
+          return value;
+        }
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  isLocalOllama(): boolean {
+    return this.baseUrl.includes('localhost:11434') || this.baseUrl.includes('127.0.0.1:11434');
+  }
+
   async listInstalledModels(): Promise<InstalledModel[]> {
-    const response = await fetch(OLLAMA_API_TAGS);
+    const response = await fetch(this.tagsUrl);
     if (!response.ok) {
       throw new Error(`Failed to list models: ${response.status}`);
     }
@@ -129,13 +191,11 @@ export class OllamaClient {
     const installed = await this.listInstalledModels();
     const installedNames = new Set(installed.map((m) => m.name.split(':')[0]));
 
-    // Start with all installed models (including custom ones)
     const results: LibraryModel[] = installed.map((m) => ({
       name: m.name,
       installed: true,
     }));
 
-    // Add library models that aren't already installed
     for (const name of LIBRARY_MODELS) {
       if (!installedNames.has(name)) {
         results.push({ name, installed: false });
@@ -149,7 +209,7 @@ export class OllamaClient {
     model: string,
     signal?: AbortSignal
   ): AsyncGenerator<PullProgress> {
-    const response = await fetch(OLLAMA_API_PULL, {
+    const response = await fetch(this.pullUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: model, stream: true }),

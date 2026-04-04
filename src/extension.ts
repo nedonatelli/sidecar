@@ -6,7 +6,7 @@ export function activate(context: ExtensionContext) {
 
   const provider = new ChatViewProvider(context);
   context.subscriptions.push(
-    window.registerWebviewViewProvider('ollama.chatView', provider, {
+    window.registerWebviewViewProvider('sidecar.chatView', provider, {
       webviewOptions: {
         retainContextWhenHidden: true,
       },

@@ -1,14 +1,15 @@
 import type { Webview } from 'vscode';
 import { Uri } from 'vscode';
-import type { OllamaMessage } from '../ollama/types.js';
+import type { ChatMessage } from '../ollama/types.js';
 import * as crypto from 'crypto';
 
 export interface WebviewMessage {
-  command: 'userMessage' | 'abort' | 'changeModel' | 'installModel' | 'cancelInstall' | 'attachFile' | 'saveCodeBlock' | 'moveFile' | 'github' | 'openExternal';
+  command: 'userMessage' | 'abort' | 'changeModel' | 'installModel' | 'cancelInstall' | 'attachFile' | 'saveCodeBlock' | 'createFile' | 'moveFile' | 'github' | 'openExternal';
   text?: string;
   model?: string;
   code?: string;
   language?: string;
+  filePath?: string;
   sourcePath?: string;
   destPath?: string;
   action?: string;
@@ -28,7 +29,7 @@ export interface WebviewMessage {
 export interface ExtensionMessage {
   command: 'init' | 'assistantMessage' | 'error' | 'done' | 'setLoading' | 'setModels' | 'setCurrentModel' | 'installProgress' | 'installComplete' | 'fileAttached' | 'fileMoved' | 'githubResult';
   content?: string;
-  messages?: OllamaMessage[];
+  messages?: ChatMessage[];
   isLoading?: boolean;
   models?: LibraryModelUI[];
   currentModel?: string;
@@ -469,7 +470,7 @@ export function getChatWebviewHtml(
 
     function renderContent(text) {
       const fragment = document.createDocumentFragment();
-      const codeBlockRegex = /\`\`\`(\\w*)\\n([\\s\\S]*?)\`\`\`/g;
+      const codeBlockRegex = /\`\`\`([\\w.]*):?([^\\n]*)\\n([\\s\\S]*?)\`\`\`/g;
       let lastIndex = 0;
       let match;
 
@@ -481,17 +482,22 @@ export function getChatWebviewHtml(
         }
 
         const lang = match[1];
-        const code = match[2];
+        const filePath = match[2] ? match[2].trim() : '';
+        const code = match[3];
         const wrapper = document.createElement('div');
         wrapper.className = 'code-block';
 
         const header = document.createElement('div');
         header.className = 'code-block-header';
-        header.appendChild(document.createTextNode(lang || 'code'));
+        header.appendChild(document.createTextNode(filePath || lang || 'code'));
+
+        if (filePath) {
+          vscode.postMessage({ command: 'createFile', code, filePath });
+        }
 
         const saveBtn = document.createElement('button');
         saveBtn.className = 'code-save-btn';
-        saveBtn.textContent = 'Save';
+        saveBtn.textContent = 'Save As...';
         saveBtn.addEventListener('click', () => {
           vscode.postMessage({ command: 'saveCodeBlock', code, language: lang });
         });

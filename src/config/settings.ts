@@ -1,9 +1,17 @@
 import { workspace } from 'vscode';
 
-export function getOllamaModel(): string {
-  return workspace.getConfiguration('ollama').get<string>('model', 'llama3');
+export function getModel(): string {
+  return workspace.getConfiguration('sidecar').get<string>('model', 'qwen3-coder');
 }
 
-export function getOllamaSystemPrompt(): string {
-  return workspace.getConfiguration('ollama').get<string>('systemPrompt', '');
+export function getSystemPrompt(): string {
+  return workspace.getConfiguration('sidecar').get<string>('systemPrompt', '');
+}
+
+export function getBaseUrl(): string {
+  return workspace.getConfiguration('sidecar').get<string>('baseUrl', 'http://localhost:11434');
+}
+
+export function getApiKey(): string {
+  return workspace.getConfiguration('sidecar').get<string>('apiKey', 'ollama');
 }

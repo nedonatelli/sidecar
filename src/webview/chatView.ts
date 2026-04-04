@@ -11,10 +11,10 @@ import {
 } from 'vscode';
 import * as path from 'path';
 import { spawn } from 'child_process';
-import { OllamaClient } from '../ollama/client.js';
-import { getOllamaModel, getOllamaSystemPrompt } from '../config/settings.js';
-import { getWorkspaceContext, getWorkspaceEnabled, getFilePatterns, getMaxFiles } from '../config/workspace.js';
-import type { OllamaMessage } from '../ollama/types.js';
+import { SideCarClient } from '../ollama/client.js';
+import { getModel, getSystemPrompt, getBaseUrl, getApiKey } from '../config/settings.js';
+import { getWorkspaceContext, getWorkspaceEnabled, getWorkspaceRoot, getFilePatterns, getMaxFiles } from '../config/workspace.js';
+import type { ChatMessage } from '../ollama/types.js';
 import { getChatWebviewHtml, type WebviewMessage, type ExtensionMessage, type LibraryModelUI } from './chatWebview.js';
 import { GitCLI } from '../github/git.js';
 import { GitHubAPI } from '../github/api.js';
@@ -22,13 +22,13 @@ import { getGitHubToken } from '../github/auth.js';
 
 export class ChatViewProvider implements WebviewViewProvider {
   private webviewView: WebviewView | undefined;
-  private ollamaClient: OllamaClient;
-  private messages: OllamaMessage[] = [];
+  private client: SideCarClient;
+  private messages: ChatMessage[] = [];
   private abortController: AbortController | null = null;
   private installAbortController: AbortController | null = null;
 
   constructor(private readonly context: ExtensionContext) {
-    this.ollamaClient = new OllamaClient(getOllamaModel(), getOllamaSystemPrompt());
+    this.client = new SideCarClient(getModel(), getBaseUrl(), getApiKey());
   }
 
   resolveWebviewView(
@@ -58,7 +58,7 @@ export class ChatViewProvider implements WebviewViewProvider {
             this.abort();
             break;
           case 'changeModel':
-            this.ollamaClient.updateModel(msg.model || 'llama3');
+            this.client.updateModel(msg.model || 'llama3');
             this.postMessage({ command: 'setCurrentModel', currentModel: msg.model });
             break;
           case 'installModel':
@@ -72,6 +72,9 @@ export class ChatViewProvider implements WebviewViewProvider {
             break;
           case 'saveCodeBlock':
             await this.handleSaveCodeBlock(msg.code || '', msg.language);
+            break;
+          case 'createFile':
+            await this.handleCreateFile(msg.code || '', msg.filePath || '');
             break;
           case 'moveFile':
             await this.handleMoveFile(msg.sourcePath || '', msg.destPath || '');
@@ -98,19 +101,31 @@ export class ChatViewProvider implements WebviewViewProvider {
     this.loadModels();
   }
 
-  private async isOllamaReachable(): Promise<boolean> {
+  private async isReachable(): Promise<boolean> {
     try {
-      const response = await fetch('http://localhost:11434/api/tags');
+      const baseUrl = getBaseUrl();
+      // For local Ollama, check /api/tags; for remote APIs, check the base URL
+      const checkUrl = this.client.isLocalOllama()
+        ? `${baseUrl}/api/tags`
+        : baseUrl;
+      const response = await fetch(checkUrl, {
+        headers: this.client.isLocalOllama() ? {} : {
+          'x-api-key': getApiKey(),
+          'anthropic-version': '2023-06-01',
+        },
+      });
       return response.ok;
     } catch {
       return false;
     }
   }
 
-  private async ensureOllamaRunning(): Promise<boolean> {
-    if (await this.isOllamaReachable()) return true;
+  private async ensureProviderRunning(): Promise<boolean> {
+    if (await this.isReachable()) return true;
 
-    // Try to start ollama serve
+    // Only try to auto-start local Ollama
+    if (!this.client.isLocalOllama()) return false;
+
     try {
       const child = spawn('ollama', ['serve'], {
         detached: true,
@@ -121,10 +136,9 @@ export class ChatViewProvider implements WebviewViewProvider {
       return false;
     }
 
-    // Wait for it to become reachable (up to 15 seconds)
     for (let i = 0; i < 30; i++) {
       await new Promise((r) => setTimeout(r, 500));
-      if (await this.isOllamaReachable()) return true;
+      if (await this.isReachable()) return true;
     }
 
     return false;
@@ -132,17 +146,19 @@ export class ChatViewProvider implements WebviewViewProvider {
 
   private async loadModels(): Promise<void> {
     try {
-      const started = await this.ensureOllamaRunning();
+      const started = await this.ensureProviderRunning();
       if (!started) {
         this.postMessage({
           command: 'error',
-          content: 'Cannot start Ollama. Make sure Ollama is installed and in your PATH.',
+          content: this.client.isLocalOllama()
+            ? 'Cannot start Ollama. Make sure Ollama is installed and in your PATH.'
+            : `Cannot reach API at ${getBaseUrl()}. Check your baseUrl and apiKey settings.`,
         });
         return;
       }
 
-      const libraryModels = await this.ollamaClient.listLibraryModels();
-      const currentModel = getOllamaModel();
+      const libraryModels = await this.client.listLibraryModels();
+      const currentModel = getModel();
 
       const modelsUI: LibraryModelUI[] = libraryModels.map((m) => ({
         name: m.name,
@@ -155,7 +171,9 @@ export class ChatViewProvider implements WebviewViewProvider {
       console.error('Failed to load models:', err);
       this.postMessage({
         command: 'error',
-        content: 'Cannot connect to Ollama. Make sure Ollama is running on localhost:11434.',
+        content: this.client.isLocalOllama()
+          ? 'Cannot connect to Ollama. Make sure Ollama is running on localhost:11434.'
+          : `Cannot connect to API at ${getBaseUrl()}.`,
       });
     }
   }
@@ -170,7 +188,7 @@ export class ChatViewProvider implements WebviewViewProvider {
         progress: 'Starting...',
       });
 
-      for await (const progress of this.ollamaClient.pullModel(modelName, this.installAbortController.signal)) {
+      for await (const progress of this.client.pullModel(modelName, this.installAbortController.signal)) {
         this.postMessage({
           command: 'installProgress',
           modelName,
@@ -178,7 +196,7 @@ export class ChatViewProvider implements WebviewViewProvider {
         });
       }
 
-      this.ollamaClient.updateModel(modelName);
+      this.client.updateModel(modelName);
       this.postMessage({ command: 'installComplete', modelName });
       this.postMessage({ command: 'setCurrentModel', currentModel: modelName });
       await this.loadModels();
@@ -207,35 +225,57 @@ export class ChatViewProvider implements WebviewViewProvider {
     this.abortController = new AbortController();
 
     try {
-      const started = await this.ensureOllamaRunning();
+      const started = await this.ensureProviderRunning();
       if (!started) {
-        this.postMessage({ command: 'error', content: 'Ollama is not running and could not be started.' });
+        this.postMessage({ command: 'error', content: this.client.isLocalOllama()
+          ? 'Ollama is not running and could not be started.'
+          : `Cannot reach API at ${getBaseUrl()}.` });
         return;
       }
 
-      const model = getOllamaModel();
-      const systemPrompt = getOllamaSystemPrompt();
-      this.ollamaClient.updateModel(model);
-      this.ollamaClient.updateSystemPrompt(systemPrompt);
+      const model = getModel();
+      const userSystemPrompt = getSystemPrompt();
+      this.client.updateConnection(getBaseUrl(), getApiKey());
+      this.client.updateModel(model);
+      this.client.updateSystemPrompt(userSystemPrompt);
 
-      // Build messages with workspace context if enabled
-      let chatMessages = [...this.messages];
+      // Inject workspace context into the latest user message so models always see it
+      const chatMessages = [...this.messages];
       if (getWorkspaceEnabled()) {
         const context = await getWorkspaceContext(getFilePatterns(), getMaxFiles());
-        if (context) {
-          chatMessages = [
-            { role: 'system', content: 'You are a helpful coding assistant. You have access to the following workspace files:\n\n' + context },
-            ...chatMessages,
-          ];
+        if (context && chatMessages.length > 0) {
+          let lastUserIdx = -1;
+          for (let i = chatMessages.length - 1; i >= 0; i--) {
+            if (chatMessages[i].role === 'user') { lastUserIdx = i; break; }
+          }
+          if (lastUserIdx !== -1) {
+            chatMessages[lastUserIdx] = {
+              ...chatMessages[lastUserIdx],
+              content: `[SYSTEM INSTRUCTIONS]\nYou are SideCar, an AI coding assistant running inside VS Code. You CAN create and edit files directly.\nProject root: ${getWorkspaceRoot()}\n\nTo create or edit a file, output a code fence with the filepath after a colon:\n\`\`\`py:src/hello.py\nprint("hello")\n\`\`\`\n\`\`\`txt:notes.txt\nsome text\n\`\`\`\nThe file will be written automatically. Always use relative paths from the project root. When the user asks you to create a file, just do it — do not say you cannot.\n[/SYSTEM INSTRUCTIONS]\n\n${context}\n\n---\n\n${chatMessages[lastUserIdx].content}`,
+            };
+          }
+        }
+      }
+
+      // Warn if context may exceed the model's limit
+      const contextLength = await this.client.getModelContextLength();
+      if (contextLength) {
+        const totalChars = chatMessages.reduce((sum, m) => sum + m.content.length, 0);
+        const estimatedTokens = Math.ceil(totalChars / 3.5);
+        if (estimatedTokens > contextLength * 0.8) {
+          this.postMessage({
+            command: 'assistantMessage',
+            content: `⚠️ Warning: Your conversation (~${estimatedTokens} tokens) may exceed this model's ${contextLength} token context window. Consider switching to a model with a larger context, reducing maxFiles, or starting a new conversation.\n\n`,
+          });
         }
       }
 
       let fullResponse = '';
-      const stream = this.ollamaClient.streamChat(chatMessages, this.abortController.signal);
+      const stream = this.client.streamChat(chatMessages, this.abortController.signal);
 
-      for await (const chunk of stream) {
-        fullResponse += chunk.message.content;
-        this.postMessage({ command: 'assistantMessage', content: chunk.message.content });
+      for await (const text of stream) {
+        fullResponse += text;
+        this.postMessage({ command: 'assistantMessage', content: text });
       }
 
       this.messages.push({ role: 'assistant', content: fullResponse });
@@ -298,6 +338,45 @@ export class ChatViewProvider implements WebviewViewProvider {
 
     await workspace.fs.writeFile(uri, Buffer.from(code, 'utf-8'));
     window.showInformationMessage(`Saved to ${path.basename(uri.fsPath)}`);
+  }
+
+  private async handleCreateFile(code: string, filePath: string): Promise<void> {
+    const workspaceFolders = workspace.workspaceFolders;
+    if (!workspaceFolders || workspaceFolders.length === 0) {
+      this.postMessage({ command: 'error', content: 'No workspace folder open.' });
+      return;
+    }
+
+    const rootUri = workspaceFolders[0].uri;
+    const fileUri = Uri.joinPath(rootUri, filePath);
+
+    let exists = false;
+    try {
+      await workspace.fs.stat(fileUri);
+      exists = true;
+    } catch {
+      // File doesn't exist — safe to create
+    }
+
+    if (exists) {
+      const choice = await window.showWarningMessage(
+        `"${filePath}" already exists. Overwrite?`,
+        { modal: true },
+        'Overwrite'
+      );
+      if (choice !== 'Overwrite') return;
+    }
+
+    try {
+      await workspace.fs.createDirectory(Uri.joinPath(rootUri, path.dirname(filePath)));
+      await workspace.fs.writeFile(fileUri, Buffer.from(code, 'utf-8'));
+      window.showInformationMessage(`Created ${filePath}`);
+    } catch (err) {
+      this.postMessage({
+        command: 'error',
+        content: `Failed to create file: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
   }
 
   private async handleGitHubCommand(msg: WebviewMessage): Promise<void> {

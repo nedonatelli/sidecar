@@ -1,7 +1,7 @@
 {
   "name": "sidecar",
   "displayName": "SideCar",
-  "description": "Ollama AI chat client for VS Code — run Llama, Mistral, Gemma, and other local LLMs in your editor",
+  "description": "AI chat client for VS Code — use local Ollama models or Claude via the Anthropic API",
   "version": "0.0.1",
   "license": "MIT",
   "publisher": "nedonatelli",
@@ -22,30 +22,40 @@
   "main": "./out/extension.js",
   "contributes": {
     "configuration": {
-      "title": "Ollama",
+      "title": "SideCar",
       "properties": {
-        "ollama.model": {
+        "sidecar.baseUrl": {
           "type": "string",
-          "default": "llama3",
-          "description": "Ollama model to use for chat"
+          "default": "http://localhost:11434",
+          "description": "API base URL (Ollama default: http://localhost:11434, Anthropic: https://api.anthropic.com)"
         },
-        "ollama.systemPrompt": {
+        "sidecar.apiKey": {
+          "type": "string",
+          "default": "ollama",
+          "description": "API key (ignored for local Ollama, required for Anthropic)"
+        },
+        "sidecar.model": {
+          "type": "string",
+          "default": "qwen3-coder",
+          "description": "Model to use for chat (e.g. qwen3-coder, qwen3.5, claude-sonnet-4-6)"
+        },
+        "sidecar.systemPrompt": {
           "type": "string",
           "default": "",
           "description": "System prompt override (optional)"
         },
-        "ollama.includeWorkspace": {
+        "sidecar.includeWorkspace": {
           "type": "boolean",
           "default": true,
           "description": "Include workspace files in context"
         },
-        "ollama.filePatterns": {
+        "sidecar.filePatterns": {
           "type": "array",
           "items": { "type": "string" },
-          "default": ["**/*.ts", "**/*.js", "**/*.py", "**/*.md"],
+          "default": ["**/*.ts", "**/*.js", "**/*.py", "**/*.md", "**/*.kt", "**/*.java", "**/*.swift", "**/*.go", "**/*.rs", "**/*.c", "**/*.cpp", "**/*.h", "**/*.rb", "**/*.php", "**/*.cs", "**/*.json", "**/*.yaml", "**/*.yml", "**/*.toml", "**/*.gradle.kts", "**/*.gradle", "**/*.html", "**/*.css", "**/*.scss", "**/*.sh", "**/*.sql"],
           "description": "File patterns to include when building workspace context"
         },
-        "ollama.maxFiles": {
+        "sidecar.maxFiles": {
           "type": "number",
           "default": 10,
           "description": "Maximum number of files to include in workspace context"
@@ -55,18 +65,18 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "ollama-view-container",
-          "title": "Ollama",
+          "id": "sidecar-view-container",
+          "title": "SideCar",
           "icon": "media/SideCar.png"
         }
       ]
     },
     "views": {
-      "ollama-view-container": [
+      "sidecar-view-container": [
         {
           "type": "webview",
-          "id": "ollama.chatView",
-          "name": "SideCar"
+          "id": "sidecar.chatView",
+          "name": "Chat"
         }
       ]
     }
