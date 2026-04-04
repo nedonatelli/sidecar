@@ -2,7 +2,7 @@
   "name": "sidecar",
   "displayName": "SideCar",
   "description": "AI chat client for VS Code — use local Ollama models or Claude via the Anthropic API",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -59,6 +59,22 @@
           "type": "number",
           "default": 10,
           "description": "Maximum number of files to include in workspace context"
+        },
+        "sidecar.agentMode": {
+          "type": "string",
+          "enum": ["cautious", "autonomous", "manual"],
+          "default": "cautious",
+          "description": "Agent approval mode: cautious (confirm writes), autonomous (auto-approve read/write, confirm destructive), manual (confirm everything)"
+        },
+        "sidecar.agentMaxIterations": {
+          "type": "number",
+          "default": 25,
+          "description": "Maximum agent loop iterations before stopping"
+        },
+        "sidecar.agentMaxTokens": {
+          "type": "number",
+          "default": 100000,
+          "description": "Maximum total tokens before stopping the agent loop"
         },
         "sidecar.includeActiveFile": {
           "type": "boolean",

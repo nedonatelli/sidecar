@@ -28,7 +28,8 @@ export interface WebviewMessage {
 }
 
 export interface ExtensionMessage {
-  command: 'init' | 'assistantMessage' | 'error' | 'done' | 'setLoading' | 'setModels' | 'setCurrentModel' | 'installProgress' | 'installComplete' | 'fileAttached' | 'fileMoved' | 'githubResult' | 'commandResult' | 'chatCleared' | 'addUserMessage' | 'toolCall' | 'toolResult';
+  command: 'init' | 'assistantMessage' | 'error' | 'done' | 'setLoading' | 'setModels' | 'setCurrentModel' | 'installProgress' | 'installComplete' | 'fileAttached' | 'fileMoved' | 'githubResult' | 'commandResult' | 'chatCleared' | 'addUserMessage' | 'toolCall' | 'toolResult' | 'setAgentMode';
+  agentMode?: string;
   content?: string;
   messages?: ChatMessage[];
   isLoading?: boolean;
@@ -73,6 +74,7 @@ export function getChatWebviewHtml(
         <span id="model-arrow">&#9662;</span>
       </span>
     </div>
+    <span id="agent-mode-badge" class="agent-mode-badge"></span>
     <div id="chat-actions">
       <button id="new-chat-btn" title="New Chat">+</button>
       <button id="undo-btn" title="Undo All Changes">&#8634;</button>
@@ -915,6 +917,14 @@ export function getChatWebviewHtml(
           modelName.textContent = event.data.currentModel || 'Select Model';
           modelPanel.classList.add('hidden');
           break;
+
+        case 'setAgentMode': {
+          const badge = document.getElementById('agent-mode-badge');
+          const mode = event.data.agentMode || 'cautious';
+          badge.textContent = mode;
+          badge.className = 'agent-mode-badge mode-' + mode;
+          break;
+        }
 
         case 'installProgress':
           installingModel = event.data.modelName;

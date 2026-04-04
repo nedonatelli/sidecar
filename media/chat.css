@@ -515,6 +515,29 @@ body {
   background: rgba(0, 255, 0, 0.08);
 }
 
+.agent-mode-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.mode-cautious {
+  background: var(--vscode-charts-yellow, #cca700);
+  color: #000;
+}
+
+.mode-autonomous {
+  background: var(--vscode-charts-green, #4ec9b0);
+  color: #000;
+}
+
+.mode-manual {
+  background: var(--vscode-charts-blue, #4fc1ff);
+  color: #000;
+}
+
 #chat-actions {
   display: flex;
   gap: 4px;

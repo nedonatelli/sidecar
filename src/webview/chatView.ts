@@ -15,7 +15,7 @@ import { promisify } from 'util';
 
 const execAsync = promisify(exec);
 import { SideCarClient } from '../ollama/client.js';
-import { getModel, getSystemPrompt, getBaseUrl, getApiKey, getIncludeActiveFile } from '../config/settings.js';
+import { getModel, getSystemPrompt, getBaseUrl, getApiKey, getIncludeActiveFile, getAgentMode, getAgentMaxIterations, getAgentMaxTokens } from '../config/settings.js';
 import { getWorkspaceContext, getWorkspaceEnabled, getWorkspaceRoot, getFilePatterns, getMaxFiles, resolveFileReferences } from '../config/workspace.js';
 import type { ChatMessage, ContentBlock } from '../ollama/types.js';
 import { getContentLength } from '../ollama/types.js';
@@ -148,6 +148,7 @@ export class ChatViewProvider implements WebviewViewProvider {
     }
 
     this.loadModels();
+    this.postMessage({ command: 'setAgentMode', agentMode: getAgentMode() });
   }
 
   private async isReachable(): Promise<boolean> {
@@ -448,7 +449,13 @@ export class ChatViewProvider implements WebviewViewProvider {
           },
         },
         this.abortController.signal,
-        { logger: this.agentLogger, changelog: this.changelog },
+        {
+          logger: this.agentLogger,
+          changelog: this.changelog,
+          approvalMode: getAgentMode(),
+          maxIterations: getAgentMaxIterations(),
+          maxTokens: getAgentMaxTokens(),
+        },
       );
 
       // Sync messages from agent loop back

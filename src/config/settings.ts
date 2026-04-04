@@ -16,6 +16,18 @@ export function getApiKey(): string {
   return workspace.getConfiguration('sidecar').get<string>('apiKey', 'ollama');
 }
 
+export function getAgentMode(): 'cautious' | 'autonomous' | 'manual' {
+  return workspace.getConfiguration('sidecar').get<'cautious' | 'autonomous' | 'manual'>('agentMode', 'cautious');
+}
+
+export function getAgentMaxIterations(): number {
+  return workspace.getConfiguration('sidecar').get<number>('agentMaxIterations', 25);
+}
+
+export function getAgentMaxTokens(): number {
+  return workspace.getConfiguration('sidecar').get<number>('agentMaxTokens', 100000);
+}
+
 export function getIncludeActiveFile(): boolean {
   return workspace.getConfiguration('sidecar').get<boolean>('includeActiveFile', true);
 }

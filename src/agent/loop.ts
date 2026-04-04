@@ -14,6 +14,7 @@ export interface AgentCallbacks {
 
 export interface AgentOptions {
   maxIterations?: number;
+  maxTokens?: number;
   approvalMode?: ApprovalMode;
   logger?: AgentLogger;
   changelog?: ChangeLog;
@@ -32,8 +33,10 @@ export async function runAgentLoop(
   const approvalMode = options.approvalMode || 'cautious';
   const logger = options.logger;
   const changelog = options.changelog;
+  const maxTokens = options.maxTokens || 100_000;
   const tools = getToolDefinitions();
   let iteration = 0;
+  let totalChars = 0;
 
   // Work with a copy of messages
   const agentMessages = [...messages];
@@ -44,6 +47,14 @@ export async function runAgentLoop(
       logger?.logAborted();
       break;
     }
+    // Check token budget (estimate: ~4 chars per token)
+    const estimatedTokens = Math.ceil(totalChars / 4);
+    if (estimatedTokens > maxTokens) {
+      logger?.warn(`Token budget exceeded: ~${estimatedTokens} tokens > ${maxTokens} limit`);
+      callbacks.onText(`\n\n⚠️ Agent stopped: token budget exceeded (~${estimatedTokens} tokens).`);
+      break;
+    }
+
     logger?.logIteration(iteration, maxIterations);
 
     // Stream response from model
@@ -59,6 +70,7 @@ export async function runAgentLoop(
       switch (event.type) {
         case 'text':
           fullText += event.text;
+          totalChars += event.text.length;
           callbacks.onText(event.text);
           break;
         case 'tool_use':
