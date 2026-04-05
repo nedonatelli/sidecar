@@ -1,9 +1,10 @@
-import type { ChatMessage, ContentBlock, ToolUseContentBlock, ToolResultContentBlock, StreamEvent } from '../ollama/types.js';
+import type { ChatMessage, ContentBlock, ToolUseContentBlock, ToolResultContentBlock } from '../ollama/types.js';
 import { SideCarClient } from '../ollama/client.js';
 import { getToolDefinitions } from './tools.js';
 import { executeTool, type ApprovalMode } from './executor.js';
 import type { AgentLogger } from './logger.js';
 import type { ChangeLog } from './changelog.js';
+import { spawnSubAgent } from './subagent.js';
 
 export interface AgentCallbacks {
   onText: (text: string) => void;
@@ -118,6 +119,25 @@ export async function runAgentLoop(
     if (stopReason === 'tool_use' && pendingToolUses.length > 0) {
       const toolResults: ToolResultContentBlock[] = [];
       for (const toolUse of pendingToolUses) {
+        // Handle spawn_agent specially — it needs the client and runtime context
+        if (toolUse.name === 'spawn_agent') {
+          const subResult = await spawnSubAgent(
+            client,
+            toolUse.input.task as string,
+            toolUse.input.context as string | undefined,
+            callbacks,
+            signal,
+            { logger, changelog, approvalMode, maxIterations: Math.min(maxIterations, 15) }
+          );
+          toolResults.push({
+            type: 'tool_result',
+            tool_use_id: toolUse.id,
+            content: subResult.output || '(no output)',
+            is_error: !subResult.success,
+          });
+          continue;
+        }
+
         const result = await executeTool(toolUse, approvalMode, changelog);
         toolResults.push(result);
         logger?.logToolResult(toolUse.name, result.content, result.is_error || false);

@@ -2,6 +2,22 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.4.0] - 2026-04-05
+
+### Added
+- **Inline chat** (Cmd+I / Ctrl+I): edit code in place or insert at cursor
+- **Enhanced completions**: better FIM prompts, next-edit prediction from recent edits, configurable debounce
+- **Extended thinking**: collapsible "Reasoning" blocks from models that support thinking
+- **Context compression**: auto-truncates old tool results at 70% of token budget
+- **Code review**: `sidecar.reviewChanges` command — AI reviews git diff, opens results as markdown
+- `get_git_diff` tool for agent access to git changes
+- **Sub-agents**: `spawn_agent` tool lets the model spawn parallel workers for complex tasks
+- `sidecar.completionDebounceMs` setting
+
+### Changed
+- Completion provider tracks recent edits for next-edit prediction context
+- Prefix/suffix limits (8K/2K) for completions to avoid context overflow
+
 ## [0.3.0] - 2026-04-04
 
 ### Added

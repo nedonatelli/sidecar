@@ -364,8 +364,21 @@ export const TOOL_REGISTRY: RegisteredTool[] = [
   { definition: getGitDiffDef, executor: getGitDiff, requiresApproval: false },
 ];
 
+export const SPAWN_AGENT_DEFINITION: ToolDefinition = {
+  name: 'spawn_agent',
+  description: 'Spawn a sub-agent to handle a specific task in parallel. The sub-agent has access to all the same tools. Use this for complex tasks that can be broken into independent parts.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      task: { type: 'string', description: 'Clear description of what the sub-agent should accomplish' },
+      context: { type: 'string', description: 'Optional: additional context or file contents to provide' },
+    },
+    required: ['task'],
+  },
+};
+
 export function getToolDefinitions(): ToolDefinition[] {
-  return TOOL_REGISTRY.map(t => t.definition);
+  return [...TOOL_REGISTRY.map(t => t.definition), SPAWN_AGENT_DEFINITION];
 }
 
 export function findTool(name: string): RegisteredTool | undefined {
