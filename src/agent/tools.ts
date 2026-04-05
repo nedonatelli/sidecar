@@ -322,6 +322,33 @@ async function runTests(input: Record<string, unknown>): Promise<string> {
   }
 }
 
+const getGitDiffDef: ToolDefinition = {
+  name: 'get_git_diff',
+  description: 'Get the git diff for the current workspace. Shows staged and unstaged changes. Optionally compare against a specific ref.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      ref: { type: 'string', description: 'Optional: git ref to diff against (e.g. "HEAD~3", "main"). Defaults to HEAD.' },
+    },
+    required: [],
+  },
+};
+
+async function getGitDiff(input: Record<string, unknown>): Promise<string> {
+  const ref = (input.ref as string) || 'HEAD';
+  const cwd = getRoot();
+  try {
+    const { stdout } = await execAsync(`git diff ${ref}`, { cwd, maxBuffer: 2 * 1024 * 1024 });
+    if (!stdout.trim()) {
+      const staged = await execAsync('git diff --cached', { cwd, maxBuffer: 2 * 1024 * 1024 });
+      return staged.stdout.trim() || 'No changes found.';
+    }
+    return stdout;
+  } catch (err) {
+    return `Git diff failed: ${err instanceof Error ? err.message : String(err)}`;
+  }
+}
+
 // --- Registry ---
 
 export const TOOL_REGISTRY: RegisteredTool[] = [
@@ -334,6 +361,7 @@ export const TOOL_REGISTRY: RegisteredTool[] = [
   { definition: listDirectoryDef, executor: listDirectory, requiresApproval: false },
   { definition: getDiagnosticsDef, executor: getDiagnostics, requiresApproval: false },
   { definition: runTestsDef, executor: runTests, requiresApproval: true },
+  { definition: getGitDiffDef, executor: getGitDiff, requiresApproval: false },
 ];
 
 export function getToolDefinitions(): ToolDefinition[] {
