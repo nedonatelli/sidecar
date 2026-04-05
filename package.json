@@ -2,7 +2,7 @@
   "name": "sidecar",
   "displayName": "SideCar",
   "description": "AI chat client for VS Code — use local Ollama models or Claude via the Anthropic API",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -134,6 +134,16 @@
           "default": {},
           "description": "Pre/post-execution hooks by tool name. Keys are tool names or '*' for all. Value: { \"pre\": \"command\", \"post\": \"command\" }"
         },
+        "sidecar.eventHooks": {
+          "type": "object",
+          "default": {},
+          "description": "Event-based hooks. { \"onSave\": \"command\", \"onCreate\": \"command\", \"onDelete\": \"command\" }",
+          "properties": {
+            "onSave": { "type": "string" },
+            "onCreate": { "type": "string" },
+            "onDelete": { "type": "string" }
+          }
+        },
         "sidecar.scheduledTasks": {
           "type": "array",
           "default": [],
@@ -260,6 +270,10 @@
       {
         "command": "sidecar.summarizePR",
         "title": "SideCar: Summarize PR"
+      },
+      {
+        "command": "sidecar.generateCommitMessage",
+        "title": "SideCar: Generate Commit Message"
       }
     ],
     "keybindings": [

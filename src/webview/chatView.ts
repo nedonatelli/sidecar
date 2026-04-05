@@ -33,6 +33,7 @@ import { SessionManager } from '../agent/sessions.js';
 import { MetricsCollector } from '../agent/metrics.js';
 import { generateInsightReport } from '../agent/insightReport.js';
 import { parseBatchInput, runBatch } from '../agent/batch.js';
+import { generateSpec, saveSpec } from '../agent/specDriven.js';
 
 export class ChatViewProvider implements WebviewViewProvider {
   private webviewView: WebviewView | undefined;
@@ -164,6 +165,9 @@ export class ChatViewProvider implements WebviewViewProvider {
             break;
           case 'insight':
             await this.handleInsight();
+            break;
+          case 'spec':
+            await this.handleSpec(msg.text || '');
             break;
           case 'openExternal':
             if (msg.url) {
@@ -447,6 +451,24 @@ export class ChatViewProvider implements WebviewViewProvider {
     const report = generateInsightReport(history);
     const doc = await workspace.openTextDocument({ content: report, language: 'markdown' });
     await window.showTextDocument(doc, { preview: true });
+  }
+
+  // --- Spec handler ---
+
+  private async handleSpec(description: string): Promise<void> {
+    this.postMessage({ command: 'setLoading', isLoading: true });
+    this.client.updateConnection(getBaseUrl(), getApiKey());
+    this.client.updateModel(getModel());
+
+    const spec = await generateSpec(this.client, description);
+    if (spec) {
+      this.postMessage({ command: 'assistantMessage', content: spec });
+      this.postMessage({ command: 'done' });
+      await saveSpec(spec, description.slice(0, 40));
+    } else {
+      this.postMessage({ command: 'error', content: 'Failed to generate spec.' });
+    }
+    this.postMessage({ command: 'setLoading', isLoading: false });
   }
 
   private async loadSidecarMd(): Promise<string | null> {

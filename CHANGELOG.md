@@ -2,6 +2,14 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.8.0] - 2026-04-05
+
+### Added
+- **Spec-driven development**: `/spec` command generates structured requirements (EARS notation), design, and dependency-sequenced tasks. Specs saved to `.sidecar/specs/`
+- **Event-based hooks**: trigger shell commands on file save, create, or delete events via `sidecar.eventHooks` setting
+- **Git commit message generation**: `sidecar.generateCommitMessage` command generates conventional commit messages from staged/unstaged changes
+- **Per-prompt cost estimation**: `estimateCost()` utility for Anthropic models (Claude Opus/Sonnet/Haiku pricing)
+
 ## [0.7.0] - 2026-04-05
 
 ### Added

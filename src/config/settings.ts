@@ -1,5 +1,19 @@
 import { workspace } from 'vscode';
 
+// Cost per million tokens (input/output) for known models
+const MODEL_COSTS: Record<string, { input: number; output: number }> = {
+  'claude-opus-4-6': { input: 15, output: 75 },
+  'claude-sonnet-4-6': { input: 3, output: 15 },
+  'claude-haiku-4-5': { input: 0.8, output: 4 },
+};
+
+export function estimateCost(model: string, inputTokens: number, outputTokens: number): number | null {
+  const key = Object.keys(MODEL_COSTS).find(k => model.includes(k));
+  if (!key) return null; // Local model, free
+  const costs = MODEL_COSTS[key];
+  return (inputTokens * costs.input + outputTokens * costs.output) / 1_000_000;
+}
+
 export function getModel(): string {
   return workspace.getConfiguration('sidecar').get<string>('model', 'qwen3-coder:30b');
 }
@@ -40,6 +54,16 @@ export interface ScheduledTask {
   intervalMinutes: number;
   prompt: string;
   enabled: boolean;
+}
+
+export interface EventHookConfig {
+  onSave?: string;
+  onCreate?: string;
+  onDelete?: string;
+}
+
+export function getEventHooks(): EventHookConfig {
+  return workspace.getConfiguration('sidecar').get<EventHookConfig>('eventHooks', {});
 }
 
 export function getScheduledTasks(): ScheduledTask[] {

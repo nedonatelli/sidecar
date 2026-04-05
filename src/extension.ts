@@ -13,6 +13,9 @@ import { getMCPServers, getScheduledTasks } from './config/settings.js';
 import { handleInlineChat } from './inline/inlineChatProvider.js';
 import { reviewCurrentChanges } from './review/reviewer.js';
 import { summarizePR } from './review/prSummary.js';
+import { generateCommitMessage } from './review/commitMessage.js';
+import { EventHookManager } from './agent/eventHooks.js';
+import { getEventHooks } from './config/settings.js';
 
 export function activate(context: ExtensionContext) {
   console.log('SideCar extension activating...');
@@ -95,6 +98,30 @@ export function activate(context: ExtensionContext) {
     commands.registerCommand('sidecar.summarizePR', () => {
       const prClient = new SideCarClient(getModel(), getBaseUrl(), getApiKey());
       summarizePR(prClient);
+    }),
+    commands.registerCommand('sidecar.generateCommitMessage', () => {
+      const commitClient = new SideCarClient(getModel(), getBaseUrl(), getApiKey());
+      generateCommitMessage(commitClient);
+    })
+  );
+
+  // Event-based hooks (file save, create, delete)
+  const eventHookManager = new EventHookManager(agentLogger);
+  const eventHooks = getEventHooks();
+  if (eventHooks.onSave || eventHooks.onCreate || eventHooks.onDelete) {
+    eventHookManager.start(eventHooks);
+  }
+  context.subscriptions.push(eventHookManager);
+
+  context.subscriptions.push(
+    workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('sidecar.eventHooks')) {
+        eventHookManager.stop();
+        const hooks = getEventHooks();
+        if (hooks.onSave || hooks.onCreate || hooks.onDelete) {
+          eventHookManager.start(hooks);
+        }
+      }
     })
   );
 
