@@ -2,7 +2,7 @@
   "name": "sidecar",
   "displayName": "SideCar",
   "description": "AI chat client for VS Code — use local Ollama models or Claude via the Anthropic API",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -104,6 +104,44 @@
           "type": "number",
           "default": 10,
           "description": "Maximum number of files to include in workspace context"
+        },
+        "sidecar.toolPermissions": {
+          "type": "object",
+          "default": {},
+          "description": "Per-tool permission overrides: { \"tool_name\": \"allow\" | \"deny\" | \"ask\" }"
+        },
+        "sidecar.hooks": {
+          "type": "object",
+          "default": {},
+          "description": "Pre/post-execution hooks by tool name. Keys are tool names or '*' for all. Value: { \"pre\": \"command\", \"post\": \"command\" }"
+        },
+        "sidecar.scheduledTasks": {
+          "type": "array",
+          "default": [],
+          "description": "Recurring tasks to run on interval",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "intervalMinutes": {
+                "type": "number"
+              },
+              "prompt": {
+                "type": "string"
+              },
+              "enabled": {
+                "type": "boolean",
+                "default": true
+              }
+            },
+            "required": [
+              "name",
+              "intervalMinutes",
+              "prompt"
+            ]
+          }
         },
         "sidecar.mcpServers": {
           "type": "object",

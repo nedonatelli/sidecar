@@ -2,6 +2,13 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.6.0] - 2026-04-05
+
+### Added
+- **Per-tool permissions**: allow, deny, or force-ask per tool via `sidecar.toolPermissions`
+- **Pre/post execution hooks**: run shell commands before/after tool execution via `sidecar.hooks`. Passes tool name, input, and output as env vars
+- **Scheduled tasks**: recurring agent runs on interval via `sidecar.scheduledTasks`. Runs autonomously with output channel logging
+
 ## [0.5.0] - 2026-04-05
 
 ### Added

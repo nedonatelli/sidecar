@@ -22,6 +22,30 @@ export interface MCPServerConfig {
   env?: Record<string, string>;
 }
 
+export function getToolPermissions(): Record<string, 'allow' | 'deny' | 'ask'> {
+  return workspace.getConfiguration('sidecar').get<Record<string, 'allow' | 'deny' | 'ask'>>('toolPermissions', {});
+}
+
+export interface HookConfig {
+  pre?: string;
+  post?: string;
+}
+
+export function getHooks(): Record<string, HookConfig> {
+  return workspace.getConfiguration('sidecar').get<Record<string, HookConfig>>('hooks', {});
+}
+
+export interface ScheduledTask {
+  name: string;
+  intervalMinutes: number;
+  prompt: string;
+  enabled: boolean;
+}
+
+export function getScheduledTasks(): ScheduledTask[] {
+  return workspace.getConfiguration('sidecar').get<ScheduledTask[]>('scheduledTasks', []);
+}
+
 export function getMCPServers(): Record<string, MCPServerConfig> {
   return workspace.getConfiguration('sidecar').get<Record<string, MCPServerConfig>>('mcpServers', {});
 }

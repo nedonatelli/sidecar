@@ -8,7 +8,8 @@ import { getEnableInlineCompletions, getCompletionModel, getCompletionMaxTokens,
 import { ProposedContentProvider } from './edits/proposedContentProvider.js';
 import { AgentLogger } from './agent/logger.js';
 import { MCPManager } from './agent/mcpManager.js';
-import { getMCPServers } from './config/settings.js';
+import { Scheduler } from './agent/scheduler.js';
+import { getMCPServers, getScheduledTasks } from './config/settings.js';
 import { handleInlineChat } from './inline/inlineChatProvider.js';
 import { reviewCurrentChanges } from './review/reviewer.js';
 
@@ -121,6 +122,23 @@ export function activate(context: ExtensionContext) {
           e.affectsConfiguration('sidecar.completionMaxTokens') ||
           e.affectsConfiguration('sidecar.completionDebounceMs')) {
         registerCompletions();
+      }
+    })
+  );
+
+  // Scheduled tasks
+  const scheduler = new Scheduler(agentLogger, mcpManager);
+  const scheduledTasks = getScheduledTasks();
+  if (scheduledTasks.length > 0) {
+    scheduler.start(scheduledTasks);
+  }
+  context.subscriptions.push(scheduler);
+
+  context.subscriptions.push(
+    workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('sidecar.scheduledTasks')) {
+        scheduler.stop();
+        scheduler.start(getScheduledTasks());
       }
     })
   );

@@ -1,8 +1,13 @@
-import { window } from 'vscode';
+import { window, workspace } from 'vscode';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../ollama/types.js';
 import { findTool } from './tools.js';
 import type { ChangeLog } from './changelog.js';
 import type { MCPManager } from './mcpManager.js';
+import { getToolPermissions, getHooks } from '../config/settings.js';
+
+const execAsync = promisify(exec);
 
 export type ApprovalMode = 'autonomous' | 'cautious' | 'manual';
 
@@ -25,10 +30,31 @@ export async function executeTool(
     };
   }
 
-  // Determine if approval is needed
-  const needsApproval =
-    approvalMode === 'manual' ||
-    (approvalMode === 'cautious' && tool.requiresApproval);
+  // --- Per-tool permissions (highest priority) ---
+  const permissions = getToolPermissions();
+  const explicitPermission = permissions[toolUse.name];
+
+  if (explicitPermission === 'deny') {
+    return {
+      type: 'tool_result',
+      tool_use_id: toolUse.id,
+      content: `Tool "${toolUse.name}" is denied by policy.`,
+      is_error: true,
+    };
+  }
+
+  // --- Determine approval ---
+  let needsApproval: boolean;
+  if (explicitPermission === 'allow') {
+    needsApproval = false;
+  } else if (explicitPermission === 'ask') {
+    needsApproval = true;
+  } else {
+    // Fall back to global mode + tool flag
+    needsApproval =
+      approvalMode === 'manual' ||
+      (approvalMode === 'cautious' && tool.requiresApproval);
+  }
 
   if (needsApproval) {
     const inputSummary = Object.entries(toolUse.input)
@@ -55,13 +81,21 @@ export async function executeTool(
     }
   }
 
-  // Snapshot file before destructive operations
+  // --- Pre-hook ---
+  await runHook('pre', toolUse.name, toolUse.input);
+
+  // --- Snapshot file before destructive operations ---
   if (changelog && WRITE_TOOLS.has(toolUse.name) && toolUse.input.path) {
     await changelog.snapshotFile(toolUse.input.path as string);
   }
 
+  // --- Execute tool ---
   try {
     const result = await tool.executor(toolUse.input);
+
+    // --- Post-hook ---
+    await runHook('post', toolUse.name, toolUse.input, result);
+
     return {
       type: 'tool_result',
       tool_use_id: toolUse.id,
@@ -74,5 +108,35 @@ export async function executeTool(
       content: `Error: ${err instanceof Error ? err.message : String(err)}`,
       is_error: true,
     };
+  }
+}
+
+async function runHook(
+  phase: 'pre' | 'post',
+  toolName: string,
+  input: Record<string, unknown>,
+  output?: string
+): Promise<void> {
+  const hooks = getHooks();
+  const toolHook = hooks[toolName]?.[phase];
+  const globalHook = hooks['*']?.[phase];
+  const command = toolHook || globalHook;
+
+  if (!command) return;
+
+  const cwd = workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const env: Record<string, string> = {
+    ...process.env as Record<string, string>,
+    SIDECAR_TOOL: toolName,
+    SIDECAR_INPUT: JSON.stringify(input),
+  };
+  if (output !== undefined) {
+    env.SIDECAR_OUTPUT = output.slice(0, 10_000); // Limit env var size
+  }
+
+  try {
+    await execAsync(command, { cwd, timeout: 15_000, env });
+  } catch (err) {
+    console.warn(`[SideCar] Hook ${phase}:${toolName} failed:`, err);
   }
 }

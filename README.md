@@ -93,6 +93,25 @@ Create a `SIDECAR.md` file in your project root to give SideCar project-specific
 
 SideCar reads this file on every message and includes it in the system prompt.
 
+### Hooks
+Run shell commands before/after any tool execution:
+```json
+"sidecar.hooks": {
+  "write_file": { "post": "npm run lint --fix" },
+  "*": { "pre": "echo \"Tool: $SIDECAR_TOOL\"" }
+}
+```
+Environment variables: `SIDECAR_TOOL`, `SIDECAR_INPUT`, `SIDECAR_OUTPUT` (post only).
+
+### Scheduled Tasks
+Run recurring agent tasks on an interval:
+```json
+"sidecar.scheduledTasks": [
+  { "name": "Lint check", "intervalMinutes": 30, "prompt": "Run the linter and fix any issues", "enabled": true }
+]
+```
+Scheduled tasks run autonomously and log to the SideCar Agent output channel.
+
 ### GitHub Integration
 - Clone repos, list/view/create PRs and issues
 - View commit history, diffs, push/pull
@@ -131,6 +150,9 @@ SideCar reads this file on every message and includes it in the system prompt.
 | `sidecar.apiKey` | `ollama` | API key (ignored for Ollama) |
 | `sidecar.model` | `qwen3-coder:30b` | Model for chat |
 | `sidecar.systemPrompt` | `""` | Custom system prompt |
+| `sidecar.toolPermissions` | `{}` | Per-tool overrides: `{ "tool_name": "allow" \| "deny" \| "ask" }` |
+| `sidecar.hooks` | `{}` | Pre/post execution hooks (see Hooks section above) |
+| `sidecar.scheduledTasks` | `[]` | Recurring agent tasks (see Scheduled Tasks section above) |
 | `sidecar.mcpServers` | `{}` | MCP servers to connect to (see MCP section above) |
 | `sidecar.agentMode` | `cautious` | Agent approval mode: cautious, autonomous, manual |
 | `sidecar.agentMaxIterations` | `25` | Max agent loop iterations |
