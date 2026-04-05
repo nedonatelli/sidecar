@@ -15,7 +15,7 @@ import { promisify } from 'util';
 
 const execAsync = promisify(exec);
 import { SideCarClient } from '../ollama/client.js';
-import { getModel, getSystemPrompt, getBaseUrl, getApiKey, getIncludeActiveFile, getAgentMode, getAgentMaxIterations, getAgentMaxTokens } from '../config/settings.js';
+import { getModel, getSystemPrompt, getBaseUrl, getApiKey, getIncludeActiveFile, getAgentMode, getAgentMaxIterations, getAgentMaxTokens, getPlanMode } from '../config/settings.js';
 import { getWorkspaceContext, getWorkspaceEnabled, getWorkspaceRoot, getFilePatterns, getMaxFiles, resolveFileReferences } from '../config/workspace.js';
 import type { ChatMessage, ContentBlock } from '../ollama/types.js';
 import { getContentLength } from '../ollama/types.js';
@@ -29,6 +29,10 @@ import { runAgentLoop } from '../agent/loop.js';
 import type { AgentLogger } from '../agent/logger.js';
 import { ChangeLog } from '../agent/changelog.js';
 import type { MCPManager } from '../agent/mcpManager.js';
+import { SessionManager } from '../agent/sessions.js';
+import { MetricsCollector } from '../agent/metrics.js';
+import { generateInsightReport } from '../agent/insightReport.js';
+import { parseBatchInput, runBatch } from '../agent/batch.js';
 
 export class ChatViewProvider implements WebviewViewProvider {
   private webviewView: WebviewView | undefined;
@@ -37,7 +41,11 @@ export class ChatViewProvider implements WebviewViewProvider {
   private contentProvider: ProposedContentProvider;
   private agentLogger: AgentLogger;
   private mcpManager: MCPManager;
+  private sessionManager: SessionManager;
+  private metricsCollector: MetricsCollector;
   private changelog = new ChangeLog();
+  private pendingPlan: string | null = null;
+  private pendingPlanMessages: ChatMessage[] = [];
   private messages: ChatMessage[] = [];
   private abortController: AbortController | null = null;
   private installAbortController: AbortController | null = null;
@@ -48,6 +56,8 @@ export class ChatViewProvider implements WebviewViewProvider {
     this.contentProvider = contentProvider;
     this.agentLogger = agentLogger;
     this.mcpManager = mcpManager;
+    this.sessionManager = new SessionManager(context.globalState);
+    this.metricsCollector = new MetricsCollector(context.workspaceState);
   }
 
   resolveWebviewView(
@@ -130,6 +140,30 @@ export class ChatViewProvider implements WebviewViewProvider {
             break;
           case 'exportChat':
             await this.handleExportChat();
+            break;
+          case 'executePlan':
+            await this.handleExecutePlan();
+            break;
+          case 'revisePlan':
+            await this.handleRevisePlan(msg.text || '');
+            break;
+          case 'batch':
+            await this.handleBatch(msg.text || '');
+            break;
+          case 'saveSession':
+            this.handleSaveSession(msg.text || 'Untitled');
+            break;
+          case 'loadSession':
+            this.handleLoadSession(msg.text || '');
+            break;
+          case 'deleteSession':
+            this.handleDeleteSession(msg.text || '');
+            break;
+          case 'listSessions':
+            this.handleListSessions();
+            break;
+          case 'insight':
+            await this.handleInsight();
             break;
           case 'openExternal':
             if (msg.url) {
@@ -323,6 +357,98 @@ export class ChatViewProvider implements WebviewViewProvider {
     window.showInformationMessage(`Chat exported to ${path.basename(uri.fsPath)}`);
   }
 
+  // --- Plan Mode handlers ---
+
+  private async handleExecutePlan(): Promise<void> {
+    if (!this.pendingPlan || this.pendingPlanMessages.length === 0) return;
+    // Add instruction to execute the plan
+    this.pendingPlanMessages.push({
+      role: 'user',
+      content: `Execute the following plan step by step:\n\n${this.pendingPlan}`,
+    });
+    this.messages = this.pendingPlanMessages;
+    this.pendingPlan = null;
+    this.pendingPlanMessages = [];
+    await this.handleUserMessage('');
+  }
+
+  private async handleRevisePlan(feedback: string): Promise<void> {
+    if (this.pendingPlanMessages.length === 0) return;
+    this.pendingPlanMessages.push({ role: 'user', content: `Revise the plan based on this feedback: ${feedback}` });
+    this.messages = this.pendingPlanMessages;
+    this.pendingPlan = null;
+    this.pendingPlanMessages = [];
+    await this.handleUserMessage('');
+  }
+
+  // --- Batch handler ---
+
+  private async handleBatch(text: string): Promise<void> {
+    const { mode, tasks } = parseBatchInput(text);
+    if (tasks.length === 0) return;
+
+    this.postMessage({ command: 'assistantMessage', content: `Starting batch (${mode}): ${tasks.length} task(s)\n\n` });
+
+    const abortController = new AbortController();
+    this.abortController = abortController;
+
+    this.client.updateConnection(getBaseUrl(), getApiKey());
+    this.client.updateModel(getModel());
+
+    await runBatch(
+      this.client,
+      tasks,
+      mode,
+      (taskId, status, result) => {
+        const preview = result.length > 100 ? result.slice(0, 100) + '...' : result;
+        this.postMessage({ command: 'assistantMessage', content: `Task ${taskId + 1}: ${status}${preview ? ' — ' + preview : ''}\n` });
+      },
+      abortController.signal,
+      { logger: this.agentLogger, mcpManager: this.mcpManager, approvalMode: getAgentMode() },
+    );
+
+    this.postMessage({ command: 'assistantMessage', content: '\nBatch complete.\n' });
+    this.postMessage({ command: 'done' });
+    this.abortController = null;
+  }
+
+  // --- Session handlers ---
+
+  private handleSaveSession(name: string): void {
+    this.sessionManager.save(name, this.messages);
+    window.showInformationMessage(`Session "${name}" saved.`);
+    this.handleListSessions();
+  }
+
+  private handleLoadSession(id: string): void {
+    const session = this.sessionManager.load(id);
+    if (!session) return;
+    this.messages = session.messages;
+    this.saveHistory();
+    this.postMessage({ command: 'chatCleared' });
+    this.postMessage({ command: 'init', messages: this.messages });
+  }
+
+  private handleDeleteSession(id: string): void {
+    this.sessionManager.delete(id);
+    this.handleListSessions();
+  }
+
+  private handleListSessions(): void {
+    const sessions = this.sessionManager.list();
+    const data = sessions.map(s => ({ id: s.id, name: s.name, createdAt: s.createdAt }));
+    this.postMessage({ command: 'sessionList', content: JSON.stringify(data) });
+  }
+
+  // --- Insight handler ---
+
+  private async handleInsight(): Promise<void> {
+    const history = this.metricsCollector.getHistory();
+    const report = generateInsightReport(history);
+    const doc = await workspace.openTextDocument({ content: report, language: 'markdown' });
+    await window.showTextDocument(doc, { preview: true });
+  }
+
   private async loadSidecarMd(): Promise<string | null> {
     const rootUri = workspace.workspaceFolders?.[0]?.uri;
     if (!rootUri) return null;
@@ -446,6 +572,7 @@ export class ChatViewProvider implements WebviewViewProvider {
       }
 
       // Run agent loop with tool use
+      this.metricsCollector.startRun();
       const updatedMessages = await runAgentLoop(
         this.client,
         chatMessages,
@@ -464,10 +591,17 @@ export class ChatViewProvider implements WebviewViewProvider {
               })
               .join(', ');
             this.postMessage({ command: 'toolCall', content: `${name}(${summary})` });
+            this.metricsCollector.recordToolStart();
           },
           onToolResult: (name, result, isError) => {
             const preview = result.length > 200 ? result.slice(0, 200) + '...' : result;
             this.postMessage({ command: 'toolResult', content: `${name}: ${isError ? '✗ ' : '✓ '}${preview}` });
+            this.metricsCollector.recordToolEnd(name, isError);
+          },
+          onPlanGenerated: (plan) => {
+            this.pendingPlan = plan;
+            this.pendingPlanMessages = [...chatMessages];
+            this.postMessage({ command: 'planReady', content: plan });
           },
           onDone: () => {
             this.postMessage({ command: 'done' });
@@ -479,6 +613,7 @@ export class ChatViewProvider implements WebviewViewProvider {
           changelog: this.changelog,
           mcpManager: this.mcpManager,
           approvalMode: getAgentMode(),
+          planMode: getPlanMode(),
           maxIterations: getAgentMaxIterations(),
           maxTokens: getAgentMaxTokens(),
         },
@@ -487,6 +622,7 @@ export class ChatViewProvider implements WebviewViewProvider {
       // Sync messages from agent loop back
       this.messages = updatedMessages;
       this.saveHistory();
+      this.metricsCollector.endRun();
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') {
         return;

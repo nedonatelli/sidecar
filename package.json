@@ -2,7 +2,7 @@
   "name": "sidecar",
   "displayName": "SideCar",
   "description": "AI chat client for VS Code — use local Ollama models or Claude via the Anthropic API",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -104,6 +104,25 @@
           "type": "number",
           "default": 10,
           "description": "Maximum number of files to include in workspace context"
+        },
+        "sidecar.planMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Generate a plan for approval before executing tools"
+        },
+        "sidecar.customTools": {
+          "type": "array",
+          "default": [],
+          "description": "Custom tools that run shell commands. Format: [{ \"name\": \"...\", \"description\": \"...\", \"command\": \"...\" }]",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "description": { "type": "string" },
+              "command": { "type": "string" }
+            },
+            "required": ["name", "description", "command"]
+          }
         },
         "sidecar.toolPermissions": {
           "type": "object",
@@ -237,6 +256,10 @@
       {
         "command": "sidecar.reviewChanges",
         "title": "SideCar: Review Changes"
+      },
+      {
+        "command": "sidecar.summarizePR",
+        "title": "SideCar: Summarize PR"
       }
     ],
     "keybindings": [

@@ -557,6 +557,45 @@ body {
   background: var(--vscode-toolbar-hoverBackground);
 }
 
+.plan-block {
+  border: 1px solid var(--vscode-charts-blue, #4fc1ff);
+  border-radius: 4px;
+  margin: 8px 12px;
+  padding: 8px;
+  background: var(--vscode-textCodeBlock-background, rgba(0, 0, 0, 0.1));
+}
+
+.plan-block pre {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+  white-space: pre-wrap;
+  margin: 0 0 8px;
+}
+
+.plan-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.plan-btn {
+  padding: 4px 12px;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.plan-execute {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+}
+
+.plan-revise {
+  background: transparent;
+  border: 1px solid var(--vscode-widget-border);
+  color: var(--vscode-editor-foreground);
+}
+
 .thinking-block {
   font-size: 11px;
   padding: 4px 12px;

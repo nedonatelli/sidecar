@@ -2,6 +2,19 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.7.0] - 2026-04-05
+
+### Added
+- **Plan Mode**: generate a plan for review before executing tools (`sidecar.planMode` setting)
+- **Danger Mode UX**: autonomous mode shows "Danger Mode" badge, autonomous tool calls audit-logged
+- **Batch Processing**: `/batch` command for running multiple tasks sequentially or in parallel (`--parallel`)
+- **Session Management**: `/save name` and `/sessions` commands, save/load/delete named sessions across workspaces
+- **Custom Skills**: user-defined tools via `sidecar.customTools` setting — shell commands registered as agent tools
+- **Insight Reports**: `/insight` command generates activity analytics (tool usage, error rates, token stats)
+- **PR Summaries**: `sidecar.summarizePR` command generates PR description from git diff
+- **Metrics Collector**: tracks tool calls, durations, tokens, and errors per agent run
+- `.vscodeignore` for cleaner extension packaging
+
 ## [0.6.0] - 2026-04-05
 
 ### Added

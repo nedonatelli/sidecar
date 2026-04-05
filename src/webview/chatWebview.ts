@@ -4,7 +4,7 @@ import type { ChatMessage } from '../ollama/types.js';
 import * as crypto from 'crypto';
 
 export interface WebviewMessage {
-  command: 'userMessage' | 'abort' | 'changeModel' | 'installModel' | 'cancelInstall' | 'attachFile' | 'saveCodeBlock' | 'createFile' | 'runCommand' | 'moveFile' | 'github' | 'openExternal' | 'newChat' | 'exportChat' | 'undoChanges';
+  command: 'userMessage' | 'abort' | 'changeModel' | 'installModel' | 'cancelInstall' | 'attachFile' | 'saveCodeBlock' | 'createFile' | 'runCommand' | 'moveFile' | 'github' | 'openExternal' | 'newChat' | 'exportChat' | 'undoChanges' | 'executePlan' | 'revisePlan' | 'batch' | 'saveSession' | 'loadSession' | 'deleteSession' | 'listSessions' | 'insight';
   images?: { mediaType: string; data: string }[];
   text?: string;
   model?: string;
@@ -28,7 +28,7 @@ export interface WebviewMessage {
 }
 
 export interface ExtensionMessage {
-  command: 'init' | 'assistantMessage' | 'error' | 'done' | 'setLoading' | 'setModels' | 'setCurrentModel' | 'installProgress' | 'installComplete' | 'fileAttached' | 'fileMoved' | 'githubResult' | 'commandResult' | 'chatCleared' | 'addUserMessage' | 'toolCall' | 'toolResult' | 'setAgentMode' | 'thinking';
+  command: 'init' | 'assistantMessage' | 'error' | 'done' | 'setLoading' | 'setModels' | 'setCurrentModel' | 'installProgress' | 'installComplete' | 'fileAttached' | 'fileMoved' | 'githubResult' | 'commandResult' | 'chatCleared' | 'addUserMessage' | 'toolCall' | 'toolResult' | 'setAgentMode' | 'thinking' | 'planReady' | 'batchStart' | 'batchTaskUpdate' | 'batchDone' | 'sessionList';
   agentMode?: string;
   content?: string;
   messages?: ChatMessage[];
@@ -522,6 +522,34 @@ export function getChatWebviewHtml(
       const text = input.value.trim();
       if (!text || isLoading) return;
 
+      // Check for slash commands
+      if (text.startsWith('/batch ') || text.startsWith('/batch\\n')) {
+        appendMessage('user', text);
+        vscode.postMessage({ command: 'batch', text: text.slice(7) });
+        input.value = '';
+        input.style.height = 'auto';
+        return;
+      }
+      if (text.trim() === '/insight') {
+        appendMessage('user', text);
+        vscode.postMessage({ command: 'insight' });
+        input.value = '';
+        input.style.height = 'auto';
+        return;
+      }
+      if (text.startsWith('/save ')) {
+        vscode.postMessage({ command: 'saveSession', text: text.slice(6).trim() });
+        input.value = '';
+        input.style.height = 'auto';
+        return;
+      }
+      if (text.trim() === '/sessions') {
+        vscode.postMessage({ command: 'listSessions' });
+        input.value = '';
+        input.style.height = 'auto';
+        return;
+      }
+
       // Check for move/rename commands
       const moveCmd = tryParseMoveCommand(text);
       if (moveCmd) {
@@ -952,8 +980,45 @@ export function getChatWebviewHtml(
         case 'setAgentMode': {
           const badge = document.getElementById('agent-mode-badge');
           const mode = event.data.agentMode || 'cautious';
-          badge.textContent = mode;
+          badge.textContent = mode === 'autonomous' ? 'Danger Mode' : mode;
           badge.className = 'agent-mode-badge mode-' + mode;
+          break;
+        }
+
+        case 'planReady': {
+          const planDiv = document.createElement('div');
+          planDiv.className = 'plan-block';
+          const planContent = document.createElement('pre');
+          planContent.textContent = content || '';
+          planDiv.appendChild(planContent);
+          const btnRow = document.createElement('div');
+          btnRow.className = 'plan-actions';
+          const execBtn = document.createElement('button');
+          execBtn.textContent = 'Execute Plan';
+          execBtn.className = 'plan-btn plan-execute';
+          execBtn.addEventListener('click', () => {
+            vscode.postMessage({ command: 'executePlan' });
+            execBtn.disabled = true;
+            execBtn.textContent = 'Executing...';
+          });
+          const reviseBtn = document.createElement('button');
+          reviseBtn.textContent = 'Revise';
+          reviseBtn.className = 'plan-btn plan-revise';
+          reviseBtn.addEventListener('click', () => {
+            const feedback = prompt('How should the plan be revised?');
+            if (feedback) vscode.postMessage({ command: 'revisePlan', text: feedback });
+          });
+          btnRow.appendChild(execBtn);
+          btnRow.appendChild(reviseBtn);
+          planDiv.appendChild(btnRow);
+          messagesContainer.appendChild(planDiv);
+          scrollToBottom();
+          break;
+        }
+
+        case 'sessionList': {
+          // Could be rendered in a panel — for now just log
+          console.log('Sessions:', content);
           break;
         }
 

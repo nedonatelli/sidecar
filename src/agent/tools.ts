@@ -4,6 +4,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import type { ToolDefinition } from '../ollama/types.js';
 import type { MCPManager } from './mcpManager.js';
+import { getCustomTools } from '../config/settings.js';
 
 const execAsync = promisify(exec);
 
@@ -378,14 +379,40 @@ export const SPAWN_AGENT_DEFINITION: ToolDefinition = {
   },
 };
 
+function getCustomToolRegistry(): RegisteredTool[] {
+  const configs = getCustomTools();
+  return configs.map(cfg => ({
+    definition: {
+      name: `custom_${cfg.name}`,
+      description: `[Custom] ${cfg.description}`,
+      input_schema: {
+        type: 'object' as const,
+        properties: { input: { type: 'string', description: 'Input to pass to the tool' } },
+        required: ['input'],
+      },
+    },
+    executor: async (input: Record<string, unknown>) => {
+      const cwd = getRoot();
+      const userInput = (input.input as string) || '';
+      const env = { ...process.env, SIDECAR_INPUT: userInput } as Record<string, string>;
+      const { stdout, stderr } = await execAsync(cfg.command, { cwd, timeout: 30_000, env, maxBuffer: 1024 * 1024 });
+      return (stdout + (stderr ? '\nSTDERR:\n' + stderr : '')).trim() || '(no output)';
+    },
+    requiresApproval: true,
+  }));
+}
+
 export function getToolDefinitions(mcpManager?: MCPManager): ToolDefinition[] {
   const builtIn = [...TOOL_REGISTRY.map(t => t.definition), SPAWN_AGENT_DEFINITION];
+  const custom = getCustomToolRegistry().map(t => t.definition);
   const mcp = mcpManager ? mcpManager.getToolDefinitions() : [];
-  return [...builtIn, ...mcp];
+  return [...builtIn, ...custom, ...mcp];
 }
 
 export function findTool(name: string, mcpManager?: MCPManager): RegisteredTool | undefined {
   const builtin = TOOL_REGISTRY.find(t => t.definition.name === name);
   if (builtin) return builtin;
+  const custom = getCustomToolRegistry().find(t => t.definition.name === name);
+  if (custom) return custom;
   return mcpManager?.getTool(name);
 }

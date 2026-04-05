@@ -12,6 +12,7 @@ import { Scheduler } from './agent/scheduler.js';
 import { getMCPServers, getScheduledTasks } from './config/settings.js';
 import { handleInlineChat } from './inline/inlineChatProvider.js';
 import { reviewCurrentChanges } from './review/reviewer.js';
+import { summarizePR } from './review/prSummary.js';
 
 export function activate(context: ExtensionContext) {
   console.log('SideCar extension activating...');
@@ -85,11 +86,15 @@ export function activate(context: ExtensionContext) {
     })
   );
 
-  // Code review
+  // Code review + PR summary
   context.subscriptions.push(
     commands.registerCommand('sidecar.reviewChanges', () => {
       const reviewClient = new SideCarClient(getModel(), getBaseUrl(), getApiKey());
       reviewCurrentChanges(reviewClient);
+    }),
+    commands.registerCommand('sidecar.summarizePR', () => {
+      const prClient = new SideCarClient(getModel(), getBaseUrl(), getApiKey());
+      summarizePR(prClient);
     })
   );
 

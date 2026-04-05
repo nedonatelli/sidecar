@@ -1,0 +1,9 @@
+.vscode/**
+src/**
+node_modules/**
+!node_modules/@modelcontextprotocol/sdk/**
+.claude/**
+.gitignore
+tsconfig.json
+**/*.ts
+**/*.map

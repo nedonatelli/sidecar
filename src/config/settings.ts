@@ -46,8 +46,22 @@ export function getScheduledTasks(): ScheduledTask[] {
   return workspace.getConfiguration('sidecar').get<ScheduledTask[]>('scheduledTasks', []);
 }
 
+export interface CustomToolConfig {
+  name: string;
+  description: string;
+  command: string;
+}
+
+export function getCustomTools(): CustomToolConfig[] {
+  return workspace.getConfiguration('sidecar').get<CustomToolConfig[]>('customTools', []);
+}
+
 export function getMCPServers(): Record<string, MCPServerConfig> {
   return workspace.getConfiguration('sidecar').get<Record<string, MCPServerConfig>>('mcpServers', {});
+}
+
+export function getPlanMode(): boolean {
+  return workspace.getConfiguration('sidecar').get<boolean>('planMode', false);
 }
 
 export function getAgentMode(): 'cautious' | 'autonomous' | 'manual' {

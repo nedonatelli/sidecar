@@ -12,6 +12,7 @@ export interface AgentCallbacks {
   onThinking?: (thinking: string) => void;
   onToolCall: (name: string, input: Record<string, unknown>) => void;
   onToolResult: (name: string, result: string, isError: boolean) => void;
+  onPlanGenerated?: (plan: string) => void;
   onDone: () => void;
 }
 
@@ -19,6 +20,7 @@ export interface AgentOptions {
   maxIterations?: number;
   maxTokens?: number;
   approvalMode?: ApprovalMode;
+  planMode?: boolean;
   logger?: AgentLogger;
   changelog?: ChangeLog;
   mcpManager?: MCPManager;
@@ -77,7 +79,9 @@ export async function runAgentLoop(
     const pendingToolUses: ToolUseContentBlock[] = [];
     let stopReason = 'end_turn';
 
-    const stream = client.streamChat(agentMessages, signal, tools);
+    // In plan mode, first iteration runs without tools to generate a plan
+    const iterTools = (options.planMode && iteration === 1) ? [] : tools;
+    const stream = client.streamChat(agentMessages, signal, iterTools);
     for await (const event of stream) {
       if (signal.aborted) break;
 
@@ -141,7 +145,7 @@ export async function runAgentLoop(
           continue;
         }
 
-        const result = await executeTool(toolUse, approvalMode, changelog, mcpManager);
+        const result = await executeTool(toolUse, approvalMode, changelog, mcpManager, logger);
         toolResults.push(result);
         logger?.logToolResult(toolUse.name, result.content, result.is_error || false);
         callbacks.onToolResult(
@@ -159,6 +163,12 @@ export async function runAgentLoop(
 
       // Continue the loop — model will respond to tool results
       continue;
+    }
+
+    // In plan mode, return after first iteration so user can approve
+    if (options.planMode && iteration === 1 && fullText) {
+      callbacks.onPlanGenerated?.(fullText);
+      break;
     }
 
     // Model finished (end_turn or max_tokens) — done

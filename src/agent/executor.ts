@@ -6,6 +6,7 @@ import { findTool } from './tools.js';
 import type { ChangeLog } from './changelog.js';
 import type { MCPManager } from './mcpManager.js';
 import { getToolPermissions, getHooks } from '../config/settings.js';
+import type { AgentLogger } from './logger.js';
 
 const execAsync = promisify(exec);
 
@@ -17,7 +18,8 @@ export async function executeTool(
   toolUse: ToolUseContentBlock,
   approvalMode: ApprovalMode = 'cautious',
   changelog?: ChangeLog,
-  mcpManager?: MCPManager
+  mcpManager?: MCPManager,
+  logger?: AgentLogger
 ): Promise<ToolResultContentBlock> {
   const tool = findTool(toolUse.name, mcpManager);
 
@@ -79,6 +81,11 @@ export async function executeTool(
         is_error: true,
       };
     }
+  }
+
+  // Audit log for autonomous executions
+  if (!needsApproval && approvalMode === 'autonomous') {
+    logger?.warn(`[AUTONOMOUS] ${toolUse.name}(${JSON.stringify(toolUse.input).slice(0, 200)})`);
   }
 
   // --- Pre-hook ---
