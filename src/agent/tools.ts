@@ -3,6 +3,7 @@ import * as path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import type { ToolDefinition } from '../ollama/types.js';
+import type { MCPManager } from './mcpManager.js';
 
 const execAsync = promisify(exec);
 
@@ -377,10 +378,14 @@ export const SPAWN_AGENT_DEFINITION: ToolDefinition = {
   },
 };
 
-export function getToolDefinitions(): ToolDefinition[] {
-  return [...TOOL_REGISTRY.map(t => t.definition), SPAWN_AGENT_DEFINITION];
+export function getToolDefinitions(mcpManager?: MCPManager): ToolDefinition[] {
+  const builtIn = [...TOOL_REGISTRY.map(t => t.definition), SPAWN_AGENT_DEFINITION];
+  const mcp = mcpManager ? mcpManager.getToolDefinitions() : [];
+  return [...builtIn, ...mcp];
 }
 
-export function findTool(name: string): RegisteredTool | undefined {
-  return TOOL_REGISTRY.find(t => t.definition.name === name);
+export function findTool(name: string, mcpManager?: MCPManager): RegisteredTool | undefined {
+  const builtin = TOOL_REGISTRY.find(t => t.definition.name === name);
+  if (builtin) return builtin;
+  return mcpManager?.getTool(name);
 }

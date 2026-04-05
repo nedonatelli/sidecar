@@ -4,6 +4,7 @@ import { getToolDefinitions } from './tools.js';
 import { executeTool, type ApprovalMode } from './executor.js';
 import type { AgentLogger } from './logger.js';
 import type { ChangeLog } from './changelog.js';
+import type { MCPManager } from './mcpManager.js';
 import { spawnSubAgent } from './subagent.js';
 
 export interface AgentCallbacks {
@@ -20,6 +21,7 @@ export interface AgentOptions {
   approvalMode?: ApprovalMode;
   logger?: AgentLogger;
   changelog?: ChangeLog;
+  mcpManager?: MCPManager;
 }
 
 const DEFAULT_MAX_ITERATIONS = 25;
@@ -35,8 +37,9 @@ export async function runAgentLoop(
   const approvalMode = options.approvalMode || 'cautious';
   const logger = options.logger;
   const changelog = options.changelog;
+  const mcpManager = options.mcpManager;
   const maxTokens = options.maxTokens || 100_000;
-  const tools = getToolDefinitions();
+  const tools = getToolDefinitions(mcpManager);
   let iteration = 0;
   let totalChars = 0;
 
@@ -138,7 +141,7 @@ export async function runAgentLoop(
           continue;
         }
 
-        const result = await executeTool(toolUse, approvalMode, changelog);
+        const result = await executeTool(toolUse, approvalMode, changelog, mcpManager);
         toolResults.push(result);
         logger?.logToolResult(toolUse.name, result.content, result.is_error || false);
         callbacks.onToolResult(

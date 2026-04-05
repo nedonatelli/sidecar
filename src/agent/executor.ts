@@ -2,6 +2,7 @@ import { window } from 'vscode';
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../ollama/types.js';
 import { findTool } from './tools.js';
 import type { ChangeLog } from './changelog.js';
+import type { MCPManager } from './mcpManager.js';
 
 export type ApprovalMode = 'autonomous' | 'cautious' | 'manual';
 
@@ -10,9 +11,10 @@ const WRITE_TOOLS = new Set(['write_file', 'edit_file']);
 export async function executeTool(
   toolUse: ToolUseContentBlock,
   approvalMode: ApprovalMode = 'cautious',
-  changelog?: ChangeLog
+  changelog?: ChangeLog,
+  mcpManager?: MCPManager
 ): Promise<ToolResultContentBlock> {
-  const tool = findTool(toolUse.name);
+  const tool = findTool(toolUse.name, mcpManager);
 
   if (!tool) {
     return {

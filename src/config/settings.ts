@@ -16,6 +16,16 @@ export function getApiKey(): string {
   return workspace.getConfiguration('sidecar').get<string>('apiKey', 'ollama');
 }
 
+export interface MCPServerConfig {
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+}
+
+export function getMCPServers(): Record<string, MCPServerConfig> {
+  return workspace.getConfiguration('sidecar').get<Record<string, MCPServerConfig>>('mcpServers', {});
+}
+
 export function getAgentMode(): 'cautious' | 'autonomous' | 'manual' {
   return workspace.getConfiguration('sidecar').get<'cautious' | 'autonomous' | 'manual'>('agentMode', 'cautious');
 }

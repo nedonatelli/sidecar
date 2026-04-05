@@ -2,6 +2,15 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.5.0] - 2026-04-05
+
+### Added
+- **MCP (Model Context Protocol) client**: connect to any MCP server for external tools
+- `sidecar.mcpServers` setting for configuring MCP server connections (stdio transport)
+- MCP tools appear transparently alongside built-in tools in the agent loop
+- Auto-reconnect when MCP server settings change
+- MCP tool calls go through the existing approval flow
+
 ## [0.4.0] - 2026-04-05
 
 ### Added

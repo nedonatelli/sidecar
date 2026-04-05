@@ -28,6 +28,7 @@ import { ProposedContentProvider } from '../edits/proposedContentProvider.js';
 import { runAgentLoop } from '../agent/loop.js';
 import type { AgentLogger } from '../agent/logger.js';
 import { ChangeLog } from '../agent/changelog.js';
+import type { MCPManager } from '../agent/mcpManager.js';
 
 export class ChatViewProvider implements WebviewViewProvider {
   private webviewView: WebviewView | undefined;
@@ -35,16 +36,18 @@ export class ChatViewProvider implements WebviewViewProvider {
   private terminalManager: TerminalManager;
   private contentProvider: ProposedContentProvider;
   private agentLogger: AgentLogger;
+  private mcpManager: MCPManager;
   private changelog = new ChangeLog();
   private messages: ChatMessage[] = [];
   private abortController: AbortController | null = null;
   private installAbortController: AbortController | null = null;
 
-  constructor(private readonly context: ExtensionContext, terminalManager: TerminalManager, contentProvider: ProposedContentProvider, agentLogger: AgentLogger) {
+  constructor(private readonly context: ExtensionContext, terminalManager: TerminalManager, contentProvider: ProposedContentProvider, agentLogger: AgentLogger, mcpManager: MCPManager) {
     this.client = new SideCarClient(getModel(), getBaseUrl(), getApiKey());
     this.terminalManager = terminalManager;
     this.contentProvider = contentProvider;
     this.agentLogger = agentLogger;
+    this.mcpManager = mcpManager;
   }
 
   resolveWebviewView(
@@ -455,6 +458,7 @@ export class ChatViewProvider implements WebviewViewProvider {
         {
           logger: this.agentLogger,
           changelog: this.changelog,
+          mcpManager: this.mcpManager,
           approvalMode: getAgentMode(),
           maxIterations: getAgentMaxIterations(),
           maxTokens: getAgentMaxTokens(),

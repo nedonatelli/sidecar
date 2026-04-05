@@ -7,6 +7,8 @@ import { SideCarCompletionProvider } from './completions/provider.js';
 import { getEnableInlineCompletions, getCompletionModel, getCompletionMaxTokens, getCompletionDebounceMs, getModel, getBaseUrl, getApiKey } from './config/settings.js';
 import { ProposedContentProvider } from './edits/proposedContentProvider.js';
 import { AgentLogger } from './agent/logger.js';
+import { MCPManager } from './agent/mcpManager.js';
+import { getMCPServers } from './config/settings.js';
 import { handleInlineChat } from './inline/inlineChatProvider.js';
 import { reviewCurrentChanges } from './review/reviewer.js';
 
@@ -24,7 +26,22 @@ export function activate(context: ExtensionContext) {
   const agentLogger = new AgentLogger();
   context.subscriptions.push(agentLogger);
 
-  const provider = new ChatViewProvider(context, terminalManager, proposedContentProvider, agentLogger);
+  const mcpManager = new MCPManager();
+  const mcpServers = getMCPServers();
+  if (Object.keys(mcpServers).length > 0) {
+    mcpManager.connect(mcpServers);
+  }
+
+  // Reconnect MCP servers when settings change
+  context.subscriptions.push(
+    workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('sidecar.mcpServers')) {
+        mcpManager.connect(getMCPServers());
+      }
+    })
+  );
+
+  const provider = new ChatViewProvider(context, terminalManager, proposedContentProvider, agentLogger, mcpManager);
   context.subscriptions.push(
     window.registerWebviewViewProvider('sidecar.chatView', provider, {
       webviewOptions: {

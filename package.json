@@ -2,7 +2,7 @@
   "name": "sidecar",
   "displayName": "SideCar",
   "description": "AI chat client for VS Code — use local Ollama models or Claude via the Anthropic API",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -16,9 +16,25 @@
     "vscode": "^1.88.0"
   },
   "icon": "media/SideCar.png",
-  "categories": ["AI", "Chat"],
-  "keywords": ["ollama", "ai", "chat", "llama", "llm", "local", "mistral", "gemma", "codellama", "copilot"],
-  "activationEvents": ["onStartupFinished"],
+  "categories": [
+    "AI",
+    "Chat"
+  ],
+  "keywords": [
+    "ollama",
+    "ai",
+    "chat",
+    "llama",
+    "llm",
+    "local",
+    "mistral",
+    "gemma",
+    "codellama",
+    "copilot"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "configuration": {
@@ -51,8 +67,37 @@
         },
         "sidecar.filePatterns": {
           "type": "array",
-          "items": { "type": "string" },
-          "default": ["**/*.ts", "**/*.js", "**/*.py", "**/*.md", "**/*.kt", "**/*.java", "**/*.swift", "**/*.go", "**/*.rs", "**/*.c", "**/*.cpp", "**/*.h", "**/*.rb", "**/*.php", "**/*.cs", "**/*.json", "**/*.yaml", "**/*.yml", "**/*.toml", "**/*.gradle.kts", "**/*.gradle", "**/*.html", "**/*.css", "**/*.scss", "**/*.sh", "**/*.sql"],
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "**/*.ts",
+            "**/*.js",
+            "**/*.py",
+            "**/*.md",
+            "**/*.kt",
+            "**/*.java",
+            "**/*.swift",
+            "**/*.go",
+            "**/*.rs",
+            "**/*.c",
+            "**/*.cpp",
+            "**/*.h",
+            "**/*.rb",
+            "**/*.php",
+            "**/*.cs",
+            "**/*.json",
+            "**/*.yaml",
+            "**/*.yml",
+            "**/*.toml",
+            "**/*.gradle.kts",
+            "**/*.gradle",
+            "**/*.html",
+            "**/*.css",
+            "**/*.scss",
+            "**/*.sh",
+            "**/*.sql"
+          ],
           "description": "File patterns to include when building workspace context"
         },
         "sidecar.maxFiles": {
@@ -60,9 +105,18 @@
           "default": 10,
           "description": "Maximum number of files to include in workspace context"
         },
+        "sidecar.mcpServers": {
+          "type": "object",
+          "default": {},
+          "description": "MCP servers to connect to. Format: { \"name\": { \"command\": \"npx\", \"args\": [\"-y\", \"@some/mcp-server\"] } }"
+        },
         "sidecar.agentMode": {
           "type": "string",
-          "enum": ["cautious", "autonomous", "manual"],
+          "enum": [
+            "cautious",
+            "autonomous",
+            "manual"
+          ],
           "default": "cautious",
           "description": "Agent approval mode: cautious (confirm writes), autonomous (auto-approve read/write, confirm destructive), manual (confirm everything)"
         },
@@ -122,22 +176,61 @@
       ]
     },
     "commands": [
-      { "command": "sidecar.toggleChat", "title": "Toggle SideCar Chat" },
-      { "command": "sidecar.explainSelection", "title": "Explain with SideCar" },
-      { "command": "sidecar.fixSelection", "title": "Fix with SideCar" },
-      { "command": "sidecar.refactorSelection", "title": "Refactor with SideCar" },
-      { "command": "sidecar.inlineChat", "title": "SideCar: Inline Chat" },
-      { "command": "sidecar.reviewChanges", "title": "SideCar: Review Changes" }
+      {
+        "command": "sidecar.toggleChat",
+        "title": "Toggle SideCar Chat"
+      },
+      {
+        "command": "sidecar.explainSelection",
+        "title": "Explain with SideCar"
+      },
+      {
+        "command": "sidecar.fixSelection",
+        "title": "Fix with SideCar"
+      },
+      {
+        "command": "sidecar.refactorSelection",
+        "title": "Refactor with SideCar"
+      },
+      {
+        "command": "sidecar.inlineChat",
+        "title": "SideCar: Inline Chat"
+      },
+      {
+        "command": "sidecar.reviewChanges",
+        "title": "SideCar: Review Changes"
+      }
     ],
     "keybindings": [
-      { "command": "sidecar.toggleChat", "key": "ctrl+shift+i", "mac": "cmd+shift+i" },
-      { "command": "sidecar.inlineChat", "key": "ctrl+i", "mac": "cmd+i", "when": "editorTextFocus" }
+      {
+        "command": "sidecar.toggleChat",
+        "key": "ctrl+shift+i",
+        "mac": "cmd+shift+i"
+      },
+      {
+        "command": "sidecar.inlineChat",
+        "key": "ctrl+i",
+        "mac": "cmd+i",
+        "when": "editorTextFocus"
+      }
     ],
     "menus": {
       "editor/context": [
-        { "command": "sidecar.explainSelection", "when": "editorHasSelection", "group": "sidecar@1" },
-        { "command": "sidecar.fixSelection", "when": "editorHasSelection", "group": "sidecar@2" },
-        { "command": "sidecar.refactorSelection", "when": "editorHasSelection", "group": "sidecar@3" }
+        {
+          "command": "sidecar.explainSelection",
+          "when": "editorHasSelection",
+          "group": "sidecar@1"
+        },
+        {
+          "command": "sidecar.fixSelection",
+          "when": "editorHasSelection",
+          "group": "sidecar@2"
+        },
+        {
+          "command": "sidecar.refactorSelection",
+          "when": "editorHasSelection",
+          "group": "sidecar@3"
+        }
       ]
     }
   },
@@ -149,5 +242,8 @@
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.85.0",
     "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
   }
 }

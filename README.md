@@ -49,7 +49,20 @@
 - **Anthropic API** — use Claude models with your API key
 - Same interface for both — just change `sidecar.baseUrl` and `sidecar.apiKey`
 
-### Tool Registry (9 tools)
+### MCP (Model Context Protocol)
+- Connect to any MCP server for external tools (Gmail, Slack, databases, custom tools)
+- MCP tools appear transparently alongside built-in tools
+- Configure via `sidecar.mcpServers` setting:
+  ```json
+  "sidecar.mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"]
+    }
+  }
+  ```
+
+### Tool Registry (10+ built-in tools + MCP)
 | Tool | Description |
 |------|-------------|
 | `read_file` | Read file contents |
@@ -100,6 +113,7 @@
 | `sidecar.apiKey` | `ollama` | API key (ignored for Ollama) |
 | `sidecar.model` | `qwen3-coder:30b` | Model for chat |
 | `sidecar.systemPrompt` | `""` | Custom system prompt |
+| `sidecar.mcpServers` | `{}` | MCP servers to connect to (see MCP section above) |
 | `sidecar.agentMode` | `cautious` | Agent approval mode: cautious, autonomous, manual |
 | `sidecar.agentMaxIterations` | `25` | Max agent loop iterations |
 | `sidecar.agentMaxTokens` | `100000` | Max tokens per agent run |
