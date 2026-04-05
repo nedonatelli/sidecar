@@ -431,6 +431,9 @@ export class ChatViewProvider implements WebviewViewProvider {
           onText: (text) => {
             this.postMessage({ command: 'assistantMessage', content: text });
           },
+          onThinking: (thinking) => {
+            this.postMessage({ command: 'thinking', content: thinking });
+          },
           onToolCall: (name, input) => {
             const summary = Object.entries(input)
               .map(([k, v]) => {

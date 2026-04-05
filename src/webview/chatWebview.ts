@@ -28,7 +28,7 @@ export interface WebviewMessage {
 }
 
 export interface ExtensionMessage {
-  command: 'init' | 'assistantMessage' | 'error' | 'done' | 'setLoading' | 'setModels' | 'setCurrentModel' | 'installProgress' | 'installComplete' | 'fileAttached' | 'fileMoved' | 'githubResult' | 'commandResult' | 'chatCleared' | 'addUserMessage' | 'toolCall' | 'toolResult' | 'setAgentMode';
+  command: 'init' | 'assistantMessage' | 'error' | 'done' | 'setLoading' | 'setModels' | 'setCurrentModel' | 'installProgress' | 'installComplete' | 'fileAttached' | 'fileMoved' | 'githubResult' | 'commandResult' | 'chatCleared' | 'addUserMessage' | 'toolCall' | 'toolResult' | 'setAgentMode' | 'thinking';
   agentMode?: string;
   content?: string;
   messages?: ChatMessage[];
@@ -848,11 +848,18 @@ export function getChatWebviewHtml(
           }
           break;
 
-        case 'done':
+        case 'done': {
           finishAssistantMessage();
           setLoading(false);
           setTimeout(() => { streamStats.classList.add('hidden'); }, 3000);
+          const thinkingDone = document.getElementById('current-thinking');
+          if (thinkingDone) {
+            thinkingDone.removeAttribute('id');
+            const summary = thinkingDone.querySelector('summary');
+            if (summary) summary.textContent = 'Reasoning';
+          }
           break;
+        }
 
         case 'chatCleared':
           messagesContainer.innerHTML = '';
@@ -863,6 +870,30 @@ export function getChatWebviewHtml(
         case 'addUserMessage':
           appendMessage('user', content || '');
           break;
+
+        case 'thinking': {
+          let thinkingEl = document.getElementById('current-thinking');
+          if (!thinkingEl) {
+            const details = document.createElement('details');
+            details.className = 'thinking-block';
+            details.id = 'current-thinking';
+            const summary = document.createElement('summary');
+            summary.textContent = 'Reasoning...';
+            details.appendChild(summary);
+            const body = document.createElement('pre');
+            body.className = 'thinking-body';
+            body.textContent = '';
+            details.appendChild(body);
+            messagesContainer.appendChild(details);
+          }
+          thinkingEl = document.getElementById('current-thinking');
+          if (thinkingEl) {
+            const body = thinkingEl.querySelector('.thinking-body');
+            if (body) body.textContent += (content || '');
+          }
+          scrollToBottom();
+          break;
+        }
 
         case 'toolCall': {
           const details = document.createElement('details');

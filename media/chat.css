@@ -557,6 +557,34 @@ body {
   background: var(--vscode-toolbar-hoverBackground);
 }
 
+.thinking-block {
+  font-size: 11px;
+  padding: 4px 12px;
+  margin: 4px 12px;
+  color: var(--vscode-descriptionForeground);
+  border-left: 2px solid var(--vscode-charts-purple, #b180d7);
+  cursor: pointer;
+}
+
+.thinking-block summary {
+  user-select: none;
+  outline: none;
+  font-style: italic;
+}
+
+.thinking-body {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 4px 0 2px;
+  padding: 4px;
+  background: var(--vscode-textCodeBlock-background, rgba(0, 0, 0, 0.1));
+  border-radius: 3px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
 .tool-call, .tool-result {
   font-size: 11px;
   padding: 2px 12px;

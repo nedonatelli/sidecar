@@ -28,7 +28,12 @@ export interface ToolResultContentBlock {
   is_error?: boolean;
 }
 
-export type ContentBlock = TextContentBlock | ImageContentBlock | ToolUseContentBlock | ToolResultContentBlock;
+export interface ThinkingContentBlock {
+  type: 'thinking';
+  thinking: string;
+}
+
+export type ContentBlock = TextContentBlock | ImageContentBlock | ToolUseContentBlock | ToolResultContentBlock | ThinkingContentBlock;
 
 // Tool definition (sent to API)
 export interface ToolDefinition {
@@ -77,18 +82,24 @@ export interface StreamToolUseEvent {
   toolUse: ToolUseContentBlock;
 }
 
+export interface StreamThinkingEvent {
+  type: 'thinking';
+  thinking: string;
+}
+
 export interface StreamStopEvent {
   type: 'stop';
   stopReason: string;
 }
 
-export type StreamEvent = StreamTextEvent | StreamToolUseEvent | StreamStopEvent;
+export type StreamEvent = StreamTextEvent | StreamToolUseEvent | StreamThinkingEvent | StreamStopEvent;
 
 // Anthropic Messages API types
 
 export interface AnthropicContentBlock {
-  type: 'text' | 'tool_use';
+  type: 'text' | 'tool_use' | 'thinking';
   text?: string;
+  thinking?: string;
   id?: string;
   name?: string;
   input?: Record<string, unknown>;
@@ -111,8 +122,9 @@ export interface AnthropicStreamEvent {
   index?: number;
   content_block?: AnthropicContentBlock;
   delta?: {
-    type: 'text_delta' | 'input_json_delta' | 'message_delta';
+    type: 'text_delta' | 'input_json_delta' | 'thinking_delta' | 'message_delta';
     text?: string;
+    thinking?: string;
     partial_json?: string;
     stop_reason?: string;
   };

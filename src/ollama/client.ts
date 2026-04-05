@@ -114,8 +114,9 @@ export class SideCarClient {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
 
-    // State for buffering tool use blocks
+    // State for buffering tool use and thinking blocks
     let currentToolUse: { id: string; name: string; inputJson: string } | null = null;
+    let currentThinking = false;
 
     try {
       let buffer = '';
@@ -147,6 +148,8 @@ export class SideCarClient {
                   name: event.content_block.name || '',
                   inputJson: '',
                 };
+              } else if (event.content_block?.type === 'thinking') {
+                currentThinking = true;
               }
               break;
 
@@ -154,12 +157,15 @@ export class SideCarClient {
               if (!event.delta) break;
               if (event.delta.type === 'text_delta' && event.delta.text) {
                 yield { type: 'text', text: event.delta.text };
+              } else if (event.delta.type === 'thinking_delta' && event.delta.thinking && currentThinking) {
+                yield { type: 'thinking', thinking: event.delta.thinking };
               } else if (event.delta.type === 'input_json_delta' && event.delta.partial_json && currentToolUse) {
                 currentToolUse.inputJson += event.delta.partial_json;
               }
               break;
 
             case 'content_block_stop':
+              currentThinking = false;
               if (currentToolUse) {
                 let input: Record<string, unknown> = {};
                 try {

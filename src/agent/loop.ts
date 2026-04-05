@@ -7,6 +7,7 @@ import type { ChangeLog } from './changelog.js';
 
 export interface AgentCallbacks {
   onText: (text: string) => void;
+  onThinking?: (thinking: string) => void;
   onToolCall: (name: string, input: Record<string, unknown>) => void;
   onToolResult: (name: string, result: string, isError: boolean) => void;
   onDone: () => void;
@@ -55,6 +56,15 @@ export async function runAgentLoop(
       break;
     }
 
+    // Compress context at 70% of budget to extend the loop
+    if (estimatedTokens > maxTokens * 0.7) {
+      const compressed = compressMessages(agentMessages);
+      if (compressed) {
+        logger?.info(`Context compressed: removed ${compressed} chars of old tool results`);
+        totalChars -= compressed;
+      }
+    }
+
     logger?.logIteration(iteration, maxIterations);
 
     // Stream response from model
@@ -72,6 +82,10 @@ export async function runAgentLoop(
           fullText += event.text;
           totalChars += event.text.length;
           callbacks.onText(event.text);
+          break;
+        case 'thinking':
+          totalChars += event.thinking.length;
+          callbacks.onThinking?.(event.thinking);
           break;
         case 'tool_use':
           pendingToolUses.push(event.toolUse);
@@ -131,4 +145,35 @@ export async function runAgentLoop(
   logger?.logDone(iteration);
   callbacks.onDone();
   return agentMessages;
+}
+
+/**
+ * Compress old tool results in the message history to free up context space.
+ * Replaces verbose tool results from earlier iterations with short summaries.
+ * Returns the number of characters freed.
+ */
+function compressMessages(messages: ChatMessage[]): number {
+  let freed = 0;
+  // Only compress tool results that aren't in the last 4 messages
+  const cutoff = Math.max(0, messages.length - 4);
+
+  for (let i = 0; i < cutoff; i++) {
+    const msg = messages[i];
+    if (typeof msg.content === 'string' || !Array.isArray(msg.content)) continue;
+
+    const newContent: ContentBlock[] = [];
+    for (const block of msg.content) {
+      if (block.type === 'tool_result' && block.content.length > 200) {
+        const original = block.content.length;
+        const summary = block.content.slice(0, 100) + '... (truncated)';
+        newContent.push({ ...block, content: summary });
+        freed += original - summary.length;
+      } else {
+        newContent.push(block);
+      }
+    }
+    messages[i] = { ...msg, content: newContent };
+  }
+
+  return freed;
 }
