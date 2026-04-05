@@ -1,4 +1,10 @@
-import type { ChatMessage, ContentBlock, ToolUseContentBlock, ToolResultContentBlock } from '../ollama/types.js';
+import type {
+  ChatMessage,
+  ContentBlock,
+  ToolDefinition,
+  ToolUseContentBlock,
+  ToolResultContentBlock,
+} from '../ollama/types.js';
 import { SideCarClient } from '../ollama/client.js';
 import { getToolDefinitions } from './tools.js';
 import { executeTool, type ApprovalMode } from './executor.js';
@@ -33,7 +39,7 @@ export async function runAgentLoop(
   messages: ChatMessage[],
   callbacks: AgentCallbacks,
   signal: AbortSignal,
-  options: AgentOptions = {}
+  options: AgentOptions = {},
 ): Promise<ChatMessage[]> {
   const maxIterations = options.maxIterations || DEFAULT_MAX_ITERATIONS;
   const approvalMode = options.approvalMode || 'cautious';
@@ -80,7 +86,7 @@ export async function runAgentLoop(
     let stopReason = 'end_turn';
 
     // In plan mode, first iteration runs without tools to generate a plan
-    const iterTools = (options.planMode && iteration === 1) ? [] : tools;
+    const iterTools = options.planMode && iteration === 1 ? [] : tools;
     const stream = client.streamChat(agentMessages, signal, iterTools);
     for await (const event of stream) {
       if (signal.aborted) break;
@@ -106,6 +112,19 @@ export async function runAgentLoop(
       }
     }
 
+    // If no structured tool calls came through, try parsing text-based tool calls
+    if (pendingToolUses.length === 0 && fullText) {
+      const parsed = parseTextToolCalls(fullText, tools);
+      for (const tu of parsed) {
+        pendingToolUses.push(tu);
+        logger?.logToolCall(tu.name, tu.input);
+        callbacks.onToolCall(tu.name, tu.input);
+      }
+      if (parsed.length > 0) {
+        stopReason = 'tool_use';
+      }
+    }
+
     // Build the assistant message content
     if (fullText) {
       assistantContent.push({ type: 'text', text: fullText });
@@ -123,7 +142,7 @@ export async function runAgentLoop(
     }
 
     // If the model wants to use tools, execute them and loop
-    if (stopReason === 'tool_use' && pendingToolUses.length > 0) {
+    if ((stopReason === 'tool_use' || pendingToolUses.length > 0) && pendingToolUses.length > 0) {
       const toolResults: ToolResultContentBlock[] = [];
       for (const toolUse of pendingToolUses) {
         // Handle spawn_agent specially — it needs the client and runtime context
@@ -134,7 +153,7 @@ export async function runAgentLoop(
             toolUse.input.context as string | undefined,
             callbacks,
             signal,
-            { logger, changelog, approvalMode, maxIterations: Math.min(maxIterations, 15) }
+            { logger, changelog, approvalMode, maxIterations: Math.min(maxIterations, 15) },
           );
           toolResults.push({
             type: 'tool_result',
@@ -148,11 +167,7 @@ export async function runAgentLoop(
         const result = await executeTool(toolUse, approvalMode, changelog, mcpManager, logger);
         toolResults.push(result);
         logger?.logToolResult(toolUse.name, result.content, result.is_error || false);
-        callbacks.onToolResult(
-          toolUse.name,
-          result.content,
-          result.is_error || false
-        );
+        callbacks.onToolResult(toolUse.name, result.content, result.is_error || false);
       }
 
       // Add tool results as a user message (Anthropic API format)
@@ -185,7 +200,7 @@ export async function runAgentLoop(
  * Replaces verbose tool results from earlier iterations with short summaries.
  * Returns the number of characters freed.
  */
-function compressMessages(messages: ChatMessage[]): number {
+export function compressMessages(messages: ChatMessage[]): number {
   let freed = 0;
   // Only compress tool results that aren't in the last 4 messages
   const cutoff = Math.max(0, messages.length - 4);
@@ -209,4 +224,69 @@ function compressMessages(messages: ChatMessage[]): number {
   }
 
   return freed;
+}
+
+/**
+ * Parse tool calls from model text output when the model doesn't use structured tool_use blocks.
+ * Handles common formats:
+ *   - <function=name><parameter=key>value</parameter></function>
+ *   - <tool_call>{"name":"...","arguments":{...}}</tool_call>
+ *   - ```json\n{"name":"...","arguments":{...}}\n```
+ */
+export function parseTextToolCalls(text: string, tools: ToolDefinition[]): ToolUseContentBlock[] {
+  const toolNames = new Set(tools.map((t) => t.name));
+  const results: ToolUseContentBlock[] = [];
+  let idCounter = 0;
+
+  // Pattern 1: <function=name><parameter=key>value</parameter>...</function>
+  const fnPattern = /<function=(\w+)>([\s\S]*?)<\/function>/g;
+  let match;
+  while ((match = fnPattern.exec(text)) !== null) {
+    const name = match[1];
+    if (!toolNames.has(name)) continue;
+    const body = match[2];
+    const input: Record<string, unknown> = {};
+    const paramPattern = /<parameter=(\w+)>([\s\S]*?)<\/parameter>/g;
+    let pm;
+    while ((pm = paramPattern.exec(body)) !== null) {
+      input[pm[1]] = pm[2].trim();
+    }
+    results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
+  }
+  if (results.length > 0) return results;
+
+  // Pattern 2: <tool_call>{"name":"...","arguments":{...}}</tool_call>
+  const tcPattern = /<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/g;
+  while ((match = tcPattern.exec(text)) !== null) {
+    try {
+      const parsed = JSON.parse(match[1]);
+      const name = parsed.name || parsed.function?.name;
+      const args = parsed.arguments || parsed.function?.arguments || parsed.parameters || {};
+      if (name && toolNames.has(name)) {
+        const input = typeof args === 'string' ? JSON.parse(args) : args;
+        results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
+      }
+    } catch {
+      /* skip malformed */
+    }
+  }
+  if (results.length > 0) return results;
+
+  // Pattern 3: JSON block with name + arguments in a code fence
+  const jsonPattern = /```(?:json)?\s*\n?\s*(\{[\s\S]*?\})\s*\n?\s*```/g;
+  while ((match = jsonPattern.exec(text)) !== null) {
+    try {
+      const parsed = JSON.parse(match[1]);
+      const name = parsed.name || parsed.tool || parsed.function;
+      const args = parsed.arguments || parsed.parameters || parsed.input || {};
+      if (name && typeof name === 'string' && toolNames.has(name)) {
+        const input = typeof args === 'string' ? JSON.parse(args) : args;
+        results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
+      }
+    } catch {
+      /* skip malformed */
+    }
+  }
+
+  return results;
 }

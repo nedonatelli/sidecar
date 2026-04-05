@@ -1,4 +1,12 @@
-import type { ChatMessage, ToolDefinition, ToolUseContentBlock, AnthropicResponse, AnthropicStreamEvent, StreamEvent } from './types.js';
+import type {
+  ChatMessage,
+  ToolDefinition,
+  ToolUseContentBlock,
+  AnthropicResponse,
+  AnthropicStreamEvent,
+  StreamEvent,
+} from './types.js';
+import { isLocalOllama } from '../config/settings.js';
 
 const DEFAULT_BASE_URL = 'http://localhost:11434';
 
@@ -74,7 +82,7 @@ export class SideCarClient {
   async *streamChat(
     messages: ChatMessage[],
     signal?: AbortSignal,
-    tools?: ToolDefinition[]
+    tools?: ToolDefinition[],
   ): AsyncGenerator<StreamEvent> {
     const body: Record<string, unknown> = {
       model: this.model,
@@ -104,7 +112,9 @@ export class SideCarClient {
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
-      throw new Error(`API request failed: ${response.status} ${response.statusText}${errorText ? ` — ${errorText}` : ''}`);
+      throw new Error(
+        `API request failed: ${response.status} ${response.statusText}${errorText ? ` — ${errorText}` : ''}`,
+      );
     }
 
     if (!response.body) {
@@ -203,11 +213,7 @@ export class SideCarClient {
     }
   }
 
-  async complete(
-    messages: ChatMessage[],
-    maxTokens: number = 256,
-    signal?: AbortSignal
-  ): Promise<string> {
+  async complete(messages: ChatMessage[], maxTokens: number = 256, signal?: AbortSignal): Promise<string> {
     const body: Record<string, unknown> = {
       model: this.model,
       max_tokens: maxTokens,
@@ -232,11 +238,13 @@ export class SideCarClient {
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
-      throw new Error(`API request failed: ${response.status} ${response.statusText}${errorText ? ` — ${errorText}` : ''}`);
+      throw new Error(
+        `API request failed: ${response.status} ${response.statusText}${errorText ? ` — ${errorText}` : ''}`,
+      );
     }
 
-    const data = await response.json() as AnthropicResponse;
-    const textBlock = data.content.find(b => b.type === 'text');
+    const data = (await response.json()) as AnthropicResponse;
+    const textBlock = data.content.find((b) => b.type === 'text');
     return textBlock?.text ?? '';
   }
 
@@ -245,7 +253,7 @@ export class SideCarClient {
     suffix: string,
     model?: string,
     maxTokens: number = 256,
-    signal?: AbortSignal
+    signal?: AbortSignal,
   ): Promise<string> {
     const response = await fetch(this.generateUrl, {
       method: 'POST',
@@ -265,7 +273,7 @@ export class SideCarClient {
       throw new Error(`FIM request failed: ${response.status}${errorText ? ` — ${errorText}` : ''}`);
     }
 
-    const data = await response.json() as { response: string };
+    const data = (await response.json()) as { response: string };
     return data.response ?? '';
   }
 
@@ -291,7 +299,7 @@ export class SideCarClient {
         body: JSON.stringify({ model: this.model }),
       });
       if (!response.ok) return null;
-      const data = await response.json() as Record<string, unknown>;
+      const data = (await response.json()) as Record<string, unknown>;
       const modelInfo = data.model_info as Record<string, unknown> | undefined;
       if (!modelInfo) return null;
       for (const [key, value] of Object.entries(modelInfo)) {
@@ -306,7 +314,7 @@ export class SideCarClient {
   }
 
   isLocalOllama(): boolean {
-    return this.baseUrl.includes('localhost:11434') || this.baseUrl.includes('127.0.0.1:11434');
+    return isLocalOllama(this.baseUrl);
   }
 
   async listInstalledModels(): Promise<InstalledModel[]> {
@@ -314,7 +322,7 @@ export class SideCarClient {
     if (!response.ok) {
       throw new Error(`Failed to list models: ${response.status}`);
     }
-    const data = await response.json() as { models: InstalledModel[] };
+    const data = (await response.json()) as { models: InstalledModel[] };
     return data.models ?? [];
   }
 
@@ -336,10 +344,7 @@ export class SideCarClient {
     return results;
   }
 
-  async *pullModel(
-    model: string,
-    signal?: AbortSignal
-  ): AsyncGenerator<PullProgress> {
+  async *pullModel(model: string, signal?: AbortSignal): AsyncGenerator<PullProgress> {
     const response = await fetch(this.pullUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -363,7 +368,8 @@ export class SideCarClient {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const lines = decoder.decode(value, { stream: true })
+        const lines = decoder
+          .decode(value, { stream: true })
           .split('\n')
           .filter((line) => line.trim());
 

@@ -2,9 +2,17 @@ import { window, workspace, languages, commands, ExtensionContext, Disposable, S
 import * as path from 'path';
 import { ChatViewProvider } from './webview/chatView.js';
 import { TerminalManager } from './terminal/manager.js';
-import { SideCarClient } from './ollama/client.js';
 import { SideCarCompletionProvider } from './completions/provider.js';
-import { getEnableInlineCompletions, getCompletionModel, getCompletionMaxTokens, getCompletionDebounceMs, getModel, getBaseUrl, getApiKey } from './config/settings.js';
+import {
+  isLocalOllama,
+  getEnableInlineCompletions,
+  getCompletionModel,
+  getCompletionMaxTokens,
+  getCompletionDebounceMs,
+  getModel,
+  getBaseUrl,
+} from './config/settings.js';
+import { createClient } from './ollama/factory.js';
 import { ProposedContentProvider } from './edits/proposedContentProvider.js';
 import { AgentLogger } from './agent/logger.js';
 import { MCPManager } from './agent/mcpManager.js';
@@ -20,30 +28,40 @@ import { getEventHooks } from './config/settings.js';
 export function activate(context: ExtensionContext) {
   console.log('SideCar extension activating...');
 
+  // Read config once upfront for status bar display
+  let cachedModel = getModel();
+  let cachedBaseUrl = getBaseUrl();
+
   const terminalManager = new TerminalManager();
   context.subscriptions.push(terminalManager);
 
   const proposedContentProvider = new ProposedContentProvider();
   context.subscriptions.push(
-    workspace.registerTextDocumentContentProvider('sidecar-proposed', proposedContentProvider)
+    workspace.registerTextDocumentContentProvider('sidecar-proposed', proposedContentProvider),
   );
 
   const agentLogger = new AgentLogger();
   context.subscriptions.push(agentLogger);
 
   const mcpManager = new MCPManager();
+
+  // Defer MCP connection — run after activation completes so it doesn't block startup
   const mcpServers = getMCPServers();
   if (Object.keys(mcpServers).length > 0) {
-    mcpManager.connect(mcpServers);
+    setImmediate(() => {
+      mcpManager.connect(mcpServers).catch((err) => console.error('[SideCar] Failed to connect MCP servers:', err));
+    });
   }
 
   // Reconnect MCP servers when settings change
   context.subscriptions.push(
     workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('sidecar.mcpServers')) {
-        mcpManager.connect(getMCPServers());
+        mcpManager
+          .connect(getMCPServers())
+          .catch((err) => console.error('[SideCar] Failed to reconnect MCP servers:', err));
       }
-    })
+    }),
   );
 
   const provider = new ChatViewProvider(context, terminalManager, proposedContentProvider, agentLogger, mcpManager);
@@ -52,14 +70,14 @@ export function activate(context: ExtensionContext) {
       webviewOptions: {
         retainContextWhenHidden: true,
       },
-    })
+    }),
   );
 
   // Keyboard shortcut
   context.subscriptions.push(
     commands.registerCommand('sidecar.toggleChat', () => {
       commands.executeCommand('sidecar.chatView.focus');
-    })
+    }),
   );
 
   // Code actions (right-click menu)
@@ -84,25 +102,21 @@ export function activate(context: ExtensionContext) {
   // Inline chat (Cmd+I)
   context.subscriptions.push(
     commands.registerCommand('sidecar.inlineChat', () => {
-      const inlineClient = new SideCarClient(getModel(), getBaseUrl(), getApiKey());
-      handleInlineChat(inlineClient);
-    })
+      handleInlineChat(createClient());
+    }),
   );
 
   // Code review + PR summary
   context.subscriptions.push(
     commands.registerCommand('sidecar.reviewChanges', () => {
-      const reviewClient = new SideCarClient(getModel(), getBaseUrl(), getApiKey());
-      reviewCurrentChanges(reviewClient);
+      reviewCurrentChanges(createClient());
     }),
     commands.registerCommand('sidecar.summarizePR', () => {
-      const prClient = new SideCarClient(getModel(), getBaseUrl(), getApiKey());
-      summarizePR(prClient);
+      summarizePR(createClient());
     }),
     commands.registerCommand('sidecar.generateCommitMessage', () => {
-      const commitClient = new SideCarClient(getModel(), getBaseUrl(), getApiKey());
-      generateCommitMessage(commitClient);
-    })
+      generateCommitMessage(createClient());
+    }),
   );
 
   // Event-based hooks (file save, create, delete)
@@ -122,10 +136,10 @@ export function activate(context: ExtensionContext) {
           eventHookManager.start(hooks);
         }
       }
-    })
+    }),
   );
 
-  // Inline completions
+  // Inline completions — only register when enabled (lazy init)
   let completionDisposable: Disposable | null = null;
 
   function registerCompletions() {
@@ -134,28 +148,34 @@ export function activate(context: ExtensionContext) {
 
     if (!getEnableInlineCompletions()) return;
 
-    const completionModel = getCompletionModel() || getModel();
-    const client = new SideCarClient(completionModel, getBaseUrl(), getApiKey());
-    const completionProvider = new SideCarCompletionProvider(client, getCompletionMaxTokens(), getCompletionDebounceMs());
-
-    completionDisposable = languages.registerInlineCompletionItemProvider(
-      { pattern: '**' },
-      completionProvider
+    const completionModel = getCompletionModel() || cachedModel;
+    const client = createClient(completionModel);
+    const completionProvider = new SideCarCompletionProvider(
+      client,
+      getCompletionMaxTokens(),
+      getCompletionDebounceMs(),
     );
+
+    completionDisposable = languages.registerInlineCompletionItemProvider({ pattern: '**' }, completionProvider);
     context.subscriptions.push(completionDisposable);
   }
 
-  registerCompletions();
+  // Only set up completions at startup if actually enabled
+  if (getEnableInlineCompletions()) {
+    registerCompletions();
+  }
 
   context.subscriptions.push(
     workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration('sidecar.enableInlineCompletions') ||
-          e.affectsConfiguration('sidecar.completionModel') ||
-          e.affectsConfiguration('sidecar.completionMaxTokens') ||
-          e.affectsConfiguration('sidecar.completionDebounceMs')) {
+      if (
+        e.affectsConfiguration('sidecar.enableInlineCompletions') ||
+        e.affectsConfiguration('sidecar.completionModel') ||
+        e.affectsConfiguration('sidecar.completionMaxTokens') ||
+        e.affectsConfiguration('sidecar.completionDebounceMs')
+      ) {
         registerCompletions();
       }
-    })
+    }),
   );
 
   // Scheduled tasks
@@ -172,30 +192,31 @@ export function activate(context: ExtensionContext) {
         scheduler.stop();
         scheduler.start(getScheduledTasks());
       }
-    })
+    }),
   );
 
-  // Status bar
+  // Status bar — use cached config values
   const statusBar = window.createStatusBarItem(StatusBarAlignment.Right, 100);
   statusBar.command = 'sidecar.toggleChat';
-  const model = getModel();
-  const baseUrl = getBaseUrl();
-  const isLocal = baseUrl.includes('localhost:11434') || baseUrl.includes('127.0.0.1:11434');
-  statusBar.text = `$(hubot) ${model.split(':')[0]}`;
-  statusBar.tooltip = `SideCar — ${isLocal ? 'Ollama' : 'Anthropic'} (${model})`;
+  statusBar.text = `$(hubot) ${cachedModel.split(':')[0]}`;
+  statusBar.tooltip = `SideCar — ${isLocalOllama(cachedBaseUrl) ? 'Ollama' : 'Anthropic'} (${cachedModel})`;
   statusBar.show();
   context.subscriptions.push(statusBar);
 
+  // Invalidate cached config when core settings change
   context.subscriptions.push(
     workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration('sidecar.model') || e.affectsConfiguration('sidecar.baseUrl')) {
-        const m = getModel();
-        const url = getBaseUrl();
-        const local = url.includes('localhost:11434') || url.includes('127.0.0.1:11434');
-        statusBar.text = `$(hubot) ${m.split(':')[0]}`;
-        statusBar.tooltip = `SideCar — ${local ? 'Ollama' : 'Anthropic'} (${m})`;
+      if (
+        e.affectsConfiguration('sidecar.model') ||
+        e.affectsConfiguration('sidecar.baseUrl') ||
+        e.affectsConfiguration('sidecar.apiKey')
+      ) {
+        cachedModel = getModel();
+        cachedBaseUrl = getBaseUrl();
+        statusBar.text = `$(hubot) ${cachedModel.split(':')[0]}`;
+        statusBar.tooltip = `SideCar — ${isLocalOllama(cachedBaseUrl) ? 'Ollama' : 'Anthropic'} (${cachedModel})`;
       }
-    })
+    }),
   );
 
   console.log('SideCar extension activated');

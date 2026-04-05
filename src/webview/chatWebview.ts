@@ -4,7 +4,32 @@ import type { ChatMessage } from '../ollama/types.js';
 import * as crypto from 'crypto';
 
 export interface WebviewMessage {
-  command: 'userMessage' | 'abort' | 'changeModel' | 'installModel' | 'cancelInstall' | 'attachFile' | 'saveCodeBlock' | 'createFile' | 'runCommand' | 'moveFile' | 'github' | 'openExternal' | 'newChat' | 'exportChat' | 'undoChanges' | 'executePlan' | 'revisePlan' | 'batch' | 'saveSession' | 'loadSession' | 'deleteSession' | 'listSessions' | 'insight' | 'spec' | 'generateDoc';
+  command:
+    | 'userMessage'
+    | 'abort'
+    | 'changeModel'
+    | 'installModel'
+    | 'cancelInstall'
+    | 'attachFile'
+    | 'saveCodeBlock'
+    | 'createFile'
+    | 'runCommand'
+    | 'moveFile'
+    | 'github'
+    | 'openExternal'
+    | 'newChat'
+    | 'exportChat'
+    | 'undoChanges'
+    | 'executePlan'
+    | 'revisePlan'
+    | 'batch'
+    | 'saveSession'
+    | 'loadSession'
+    | 'deleteSession'
+    | 'listSessions'
+    | 'insight'
+    | 'spec'
+    | 'generateDoc';
   images?: { mediaType: string; data: string }[];
   text?: string;
   model?: string;
@@ -28,7 +53,32 @@ export interface WebviewMessage {
 }
 
 export interface ExtensionMessage {
-  command: 'init' | 'assistantMessage' | 'error' | 'done' | 'setLoading' | 'setModels' | 'setCurrentModel' | 'installProgress' | 'installComplete' | 'fileAttached' | 'fileMoved' | 'githubResult' | 'commandResult' | 'chatCleared' | 'addUserMessage' | 'toolCall' | 'toolResult' | 'setAgentMode' | 'thinking' | 'planReady' | 'batchStart' | 'batchTaskUpdate' | 'batchDone' | 'sessionList';
+  command:
+    | 'init'
+    | 'assistantMessage'
+    | 'error'
+    | 'done'
+    | 'setLoading'
+    | 'setModels'
+    | 'setCurrentModel'
+    | 'installProgress'
+    | 'installComplete'
+    | 'fileAttached'
+    | 'imageAttached'
+    | 'fileMoved'
+    | 'githubResult'
+    | 'commandResult'
+    | 'chatCleared'
+    | 'addUserMessage'
+    | 'toolCall'
+    | 'toolResult'
+    | 'setAgentMode'
+    | 'thinking'
+    | 'planReady'
+    | 'batchStart'
+    | 'batchTaskUpdate'
+    | 'batchDone'
+    | 'sessionList';
   agentMode?: string;
   content?: string;
   messages?: ChatMessage[];
@@ -41,6 +91,8 @@ export interface ExtensionMessage {
   fileContent?: string;
   githubAction?: string;
   githubData?: unknown;
+  mediaType?: string;
+  data?: string;
 }
 
 export interface LibraryModelUI {
@@ -48,13 +100,8 @@ export interface LibraryModelUI {
   installed: boolean;
 }
 
-export function getChatWebviewHtml(
-  webview: Webview,
-  extensionUri: Uri
-): string {
-  const stylesUri = webview.asWebviewUri(
-    Uri.joinPath(extensionUri, 'media', 'chat.css')
-  );
+export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string {
+  const stylesUri = webview.asWebviewUri(Uri.joinPath(extensionUri, 'media', 'chat.css'));
   const nonce = crypto.randomBytes(16).toString('base64');
 
   return `<!DOCTYPE html>
@@ -105,8 +152,6 @@ export function getChatWebviewHtml(
   <div id="image-preview" class="hidden"></div>
   <div id="input-area">
     <button id="attach-btn" title="Attach file">&#128206;</button>
-    <button id="image-btn" title="Attach image">&#128247;</button>
-    <input type="file" id="image-input" accept="image/*" class="hidden" />
     <textarea id="input" rows="1" placeholder="Ask SideCar..."></textarea>
     <button id="send">Send</button>
   </div>
@@ -137,8 +182,6 @@ export function getChatWebviewHtml(
     let installingModel = null;
     let pendingFile = null;
     let pendingImages = [];
-    const imageBtn = document.getElementById('image-btn');
-    const imageInput = document.getElementById('image-input');
     const imagePreview = document.getElementById('image-preview');
     let streamStartTime = 0;
     let streamCharCount = 0;
@@ -171,23 +214,6 @@ export function getChatWebviewHtml(
       vscode.postMessage({ command: 'changeModel', model: name });
       customModelInput.value = '';
       modelPanel.classList.add('hidden');
-    });
-
-    imageBtn.addEventListener('click', () => { imageInput.click(); });
-
-    imageInput.addEventListener('change', (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        const dataUrl = reader.result;
-        const [header, data] = dataUrl.split(',');
-        const mediaType = header.match(/data:(.*?);/)[1];
-        pendingImages.push({ mediaType, data });
-        updateImagePreview();
-      };
-      reader.readAsDataURL(file);
-      imageInput.value = '';
     });
 
     input.addEventListener('paste', (e) => {
@@ -1057,6 +1083,11 @@ export function getChatWebviewHtml(
           pendingFile = { fileName: event.data.fileName, fileContent: event.data.fileContent };
           fileAttachmentName.textContent = 'Attached: ' + event.data.fileName;
           fileAttachment.classList.remove('hidden');
+          break;
+
+        case 'imageAttached':
+          pendingImages.push({ mediaType: event.data.mediaType, data: event.data.data });
+          updateImagePreview();
           break;
 
         case 'fileMoved':

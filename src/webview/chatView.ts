@@ -15,8 +15,26 @@ import { promisify } from 'util';
 
 const execAsync = promisify(exec);
 import { SideCarClient } from '../ollama/client.js';
-import { getModel, getSystemPrompt, getBaseUrl, getApiKey, getIncludeActiveFile, getAgentMode, getAgentMaxIterations, getAgentMaxTokens, getPlanMode } from '../config/settings.js';
-import { getWorkspaceContext, getWorkspaceEnabled, getWorkspaceRoot, getFilePatterns, getMaxFiles, resolveFileReferences, resolveAtReferences } from '../config/workspace.js';
+import {
+  getModel,
+  getSystemPrompt,
+  getBaseUrl,
+  getApiKey,
+  getIncludeActiveFile,
+  getAgentMode,
+  getAgentMaxIterations,
+  getAgentMaxTokens,
+  getPlanMode,
+} from '../config/settings.js';
+import {
+  getWorkspaceContext,
+  getWorkspaceEnabled,
+  getWorkspaceRoot,
+  getFilePatterns,
+  getMaxFiles,
+  resolveFileReferences,
+  resolveAtReferences,
+} from '../config/workspace.js';
 import type { ChatMessage, ContentBlock } from '../ollama/types.js';
 import { getContentLength } from '../ollama/types.js';
 import { getChatWebviewHtml, type WebviewMessage, type ExtensionMessage, type LibraryModelUI } from './chatWebview.js';
@@ -52,7 +70,13 @@ export class ChatViewProvider implements WebviewViewProvider {
   private abortController: AbortController | null = null;
   private installAbortController: AbortController | null = null;
 
-  constructor(private readonly context: ExtensionContext, terminalManager: TerminalManager, contentProvider: ProposedContentProvider, agentLogger: AgentLogger, mcpManager: MCPManager) {
+  constructor(
+    private readonly context: ExtensionContext,
+    terminalManager: TerminalManager,
+    contentProvider: ProposedContentProvider,
+    agentLogger: AgentLogger,
+    mcpManager: MCPManager,
+  ) {
     this.client = new SideCarClient(getModel(), getBaseUrl(), getApiKey());
     this.terminalManager = terminalManager;
     this.contentProvider = contentProvider;
@@ -65,7 +89,7 @@ export class ChatViewProvider implements WebviewViewProvider {
   resolveWebviewView(
     webviewView: WebviewView,
     _context: WebviewViewResolveContext,
-    _token: CancellationToken
+    _token: CancellationToken,
   ): void | Thenable<void> {
     this.webviewView = webviewView;
 
@@ -74,17 +98,14 @@ export class ChatViewProvider implements WebviewViewProvider {
       localResourceRoots: [Uri.joinPath(this.context.extensionUri, 'media')],
     };
 
-    webviewView.webview.html = getChatWebviewHtml(
-      webviewView.webview,
-      this.context.extensionUri
-    );
+    webviewView.webview.html = getChatWebviewHtml(webviewView.webview, this.context.extensionUri);
 
     webviewView.webview.onDidReceiveMessage(
       async (msg: WebviewMessage) => {
         switch (msg.command) {
           case 'userMessage':
             if (msg.images && msg.images.length > 0) {
-              const content: ContentBlock[] = msg.images.map(img => ({
+              const content: ContentBlock[] = msg.images.map((img) => ({
                 type: 'image' as const,
                 source: { type: 'base64' as const, media_type: img.mediaType as 'image/png', data: img.data },
               }));
@@ -135,6 +156,8 @@ export class ChatViewProvider implements WebviewViewProvider {
             break;
           case 'newChat':
             this.messages = [];
+            this.pendingPlan = null;
+            this.pendingPlanMessages = [];
             this.changelog.clear();
             this.saveHistory();
             this.postMessage({ command: 'chatCleared' });
@@ -183,7 +206,7 @@ export class ChatViewProvider implements WebviewViewProvider {
         }
       },
       undefined,
-      this.context.subscriptions
+      this.context.subscriptions,
     );
 
     // Restore chat history
@@ -202,14 +225,14 @@ export class ChatViewProvider implements WebviewViewProvider {
     try {
       const baseUrl = getBaseUrl();
       // For local Ollama, check /api/tags; for remote APIs, check the base URL
-      const checkUrl = this.client.isLocalOllama()
-        ? `${baseUrl}/api/tags`
-        : baseUrl;
+      const checkUrl = this.client.isLocalOllama() ? `${baseUrl}/api/tags` : baseUrl;
       const response = await fetch(checkUrl, {
-        headers: this.client.isLocalOllama() ? {} : {
-          'x-api-key': getApiKey(),
-          'anthropic-version': '2023-06-01',
-        },
+        headers: this.client.isLocalOllama()
+          ? {}
+          : {
+              'x-api-key': getApiKey(),
+              'anthropic-version': '2023-06-01',
+            },
       });
       return response.ok;
     } catch {
@@ -317,7 +340,7 @@ export class ChatViewProvider implements WebviewViewProvider {
 
   private saveHistory(): void {
     // Strip any non-string content (images) for persistence
-    const serializable = this.messages.map(m => ({
+    const serializable = this.messages.map((m) => ({
       role: m.role,
       content: typeof m.content === 'string' ? m.content : '[message with images]',
     }));
@@ -346,7 +369,10 @@ export class ChatViewProvider implements WebviewViewProvider {
     if (result.deleted > 0) parts.push(`${result.deleted} deleted`);
     if (result.failed > 0) parts.push(`${result.failed} failed`);
     window.showInformationMessage(`Undo complete: ${parts.join(', ')}`);
-    this.postMessage({ command: 'assistantMessage', content: `\n\n↩ Undid ${changes.length} file change(s): ${parts.join(', ')}` });
+    this.postMessage({
+      command: 'assistantMessage',
+      content: `\n\n↩ Undid ${changes.length} file change(s): ${parts.join(', ')}`,
+    });
   }
 
   private async handleExportChat(): Promise<void> {
@@ -359,7 +385,7 @@ export class ChatViewProvider implements WebviewViewProvider {
     }
     const content = lines.join('\n---\n\n');
     const uri = await window.showSaveDialog({
-      filters: { 'Markdown': ['md'] },
+      filters: { Markdown: ['md'] },
       defaultUri: Uri.file('sidecar-chat.md'),
     });
     if (!uri) return;
@@ -411,7 +437,10 @@ export class ChatViewProvider implements WebviewViewProvider {
       mode,
       (taskId, status, result) => {
         const preview = result.length > 100 ? result.slice(0, 100) + '...' : result;
-        this.postMessage({ command: 'assistantMessage', content: `Task ${taskId + 1}: ${status}${preview ? ' — ' + preview : ''}\n` });
+        this.postMessage({
+          command: 'assistantMessage',
+          content: `Task ${taskId + 1}: ${status}${preview ? ' — ' + preview : ''}\n`,
+        });
       },
       abortController.signal,
       { logger: this.agentLogger, mcpManager: this.mcpManager, approvalMode: getAgentMode() },
@@ -446,7 +475,7 @@ export class ChatViewProvider implements WebviewViewProvider {
 
   private handleListSessions(): void {
     const sessions = this.sessionManager.list();
-    const data = sessions.map(s => ({ id: s.id, name: s.name, createdAt: s.createdAt }));
+    const data = sessions.map((s) => ({ id: s.id, name: s.name, createdAt: s.createdAt }));
     this.postMessage({ command: 'sessionList', content: JSON.stringify(data) });
   }
 
@@ -526,9 +555,7 @@ export class ChatViewProvider implements WebviewViewProvider {
     const cursorLine = editor.selection.active.line + 1;
     const content = doc.getText();
     const maxChars = 50_000;
-    const truncated = content.length > maxChars
-      ? content.slice(0, maxChars) + '\n... (truncated)'
-      : content;
+    const truncated = content.length > maxChars ? content.slice(0, maxChars) + '\n... (truncated)' : content;
     return `[Active file: ${fileName}, cursor at line ${cursorLine}]\n\`\`\`\n${truncated}\n\`\`\`\n\n`;
   }
 
@@ -553,9 +580,12 @@ export class ChatViewProvider implements WebviewViewProvider {
     try {
       const started = await this.ensureProviderRunning();
       if (!started) {
-        this.postMessage({ command: 'error', content: this.client.isLocalOllama()
-          ? 'Ollama is not running and could not be started.'
-          : `Cannot reach API at ${getBaseUrl()}.` });
+        this.postMessage({
+          command: 'error',
+          content: this.client.isLocalOllama()
+            ? 'Ollama is not running and could not be started.'
+            : `Cannot reach API at ${getBaseUrl()}.`,
+        });
         return;
       }
 
@@ -592,11 +622,14 @@ export class ChatViewProvider implements WebviewViewProvider {
         // Find last user message to enrich
         let lastUserIdx = -1;
         for (let i = chatMessages.length - 1; i >= 0; i--) {
-          if (chatMessages[i].role === 'user') { lastUserIdx = i; break; }
+          if (chatMessages[i].role === 'user') {
+            lastUserIdx = i;
+            break;
+          }
         }
         if (lastUserIdx !== -1) {
-          let enriched = typeof chatMessages[lastUserIdx].content === 'string'
-            ? chatMessages[lastUserIdx].content as string : '';
+          let enriched =
+            typeof chatMessages[lastUserIdx].content === 'string' ? (chatMessages[lastUserIdx].content as string) : '';
 
           // Inject active file context
           if (getIncludeActiveFile()) {
@@ -690,6 +723,8 @@ export class ChatViewProvider implements WebviewViewProvider {
     }
   }
 
+  private static readonly IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.svg']);
+
   private async handleAttachFile(): Promise<void> {
     const editor = window.activeTextEditor;
 
@@ -699,32 +734,59 @@ export class ChatViewProvider implements WebviewViewProvider {
     }
     options.push('Browse...');
 
-    const pick = options.length === 1
-      ? options[0]
-      : await window.showQuickPick(options, { placeHolder: 'Select a file to attach' });
+    const pick =
+      options.length === 1
+        ? options[0]
+        : await window.showQuickPick(options, { placeHolder: 'Select a file to attach' });
     if (!pick) return;
 
-    let fileName: string | undefined;
-    let fileContent: string | undefined;
-
     if (pick.startsWith('Active File') && editor) {
-      fileName = path.basename(editor.document.fileName);
-      fileContent = editor.document.getText();
+      const fileName = path.basename(editor.document.fileName);
+      const ext = path.extname(fileName).toLowerCase();
+      if (ChatViewProvider.IMAGE_EXTENSIONS.has(ext)) {
+        await this.attachImage(Uri.file(editor.document.fileName));
+      } else {
+        const fileContent = editor.document.getText();
+        if (fileContent.length > 500_000) {
+          window.showWarningMessage(`File "${fileName}" is too large to attach (>500KB).`);
+          return;
+        }
+        this.postMessage({ command: 'fileAttached', fileName, fileContent });
+      }
     } else {
       const uris = await window.showOpenDialog({ canSelectMany: false });
       if (!uris || uris.length === 0) return;
-      const doc = await workspace.openTextDocument(uris[0]);
-      fileName = path.basename(uris[0].fsPath);
-      fileContent = doc.getText();
-    }
-
-    if (fileName && fileContent) {
-      if (fileContent.length > 500_000) {
-        window.showWarningMessage(`File "${fileName}" is too large to attach (>500KB).`);
-        return;
+      const fileName = path.basename(uris[0].fsPath);
+      const ext = path.extname(fileName).toLowerCase();
+      if (ChatViewProvider.IMAGE_EXTENSIONS.has(ext)) {
+        await this.attachImage(uris[0]);
+      } else {
+        const doc = await workspace.openTextDocument(uris[0]);
+        const fileContent = doc.getText();
+        if (fileContent.length > 500_000) {
+          window.showWarningMessage(`File "${fileName}" is too large to attach (>500KB).`);
+          return;
+        }
+        this.postMessage({ command: 'fileAttached', fileName, fileContent });
       }
-      this.postMessage({ command: 'fileAttached', fileName, fileContent });
     }
+  }
+
+  private async attachImage(uri: Uri): Promise<void> {
+    const bytes = await workspace.fs.readFile(uri);
+    const ext = path.extname(uri.fsPath).toLowerCase();
+    const mimeMap: Record<string, string> = {
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.gif': 'image/gif',
+      '.bmp': 'image/bmp',
+      '.webp': 'image/webp',
+      '.svg': 'image/svg+xml',
+    };
+    const mediaType = mimeMap[ext] || 'image/png';
+    const data = Buffer.from(bytes).toString('base64');
+    this.postMessage({ command: 'imageAttached', mediaType, data });
   }
 
   private async handleSaveCodeBlock(code: string, language?: string): Promise<void> {
@@ -761,7 +823,7 @@ export class ChatViewProvider implements WebviewViewProvider {
       const choice = await window.showWarningMessage(
         `"${filePath}" already exists. Overwrite?`,
         { modal: true },
-        'Overwrite'
+        'Overwrite',
       );
       if (choice !== 'Overwrite') return;
     }
@@ -779,11 +841,7 @@ export class ChatViewProvider implements WebviewViewProvider {
   }
 
   private async handleRunCommand(command: string): Promise<string | null> {
-    const choice = await window.showWarningMessage(
-      `SideCar wants to run: ${command}`,
-      { modal: true },
-      'Allow',
-    );
+    const choice = await window.showWarningMessage(`SideCar wants to run: ${command}`, { modal: true }, 'Allow');
     if (choice !== 'Allow') {
       this.postMessage({ command: 'commandResult', content: 'Command cancelled by user.' });
       return null;
@@ -825,19 +883,23 @@ export class ChatViewProvider implements WebviewViewProvider {
             openLabel: 'Clone Here',
           });
           if (!targetUris || targetUris.length === 0) return;
-          const repoName = msg.url.replace(/\.git$/, '').split('/').pop() || 'repo';
+          const repoName =
+            msg.url
+              .replace(/\.git$/, '')
+              .split('/')
+              .pop() || 'repo';
           const targetDir = path.join(targetUris[0].fsPath, repoName);
           this.postMessage({ command: 'githubResult', githubAction: 'clone', githubData: 'Cloning...' });
           const git = new GitCLI(targetUris[0].fsPath);
           const result = await git.clone(msg.url, targetDir);
           this.postMessage({ command: 'githubResult', githubAction: 'clone', githubData: result });
           const openChoice = await window.showInformationMessage(
-            `Cloned ${repoName}. Open in VSCode?`, 'Open', 'Cancel'
+            `Cloned ${repoName}. Open in VSCode?`,
+            'Open',
+            'Cancel',
           );
           if (openChoice === 'Open') {
-            await import('vscode').then((vsc) =>
-              vsc.commands.executeCommand('vscode.openFolder', Uri.file(targetDir))
-            );
+            await import('vscode').then((vsc) => vsc.commands.executeCommand('vscode.openFolder', Uri.file(targetDir)));
           }
           break;
         }
@@ -889,7 +951,10 @@ export class ChatViewProvider implements WebviewViewProvider {
             const git = new GitCLI();
             const remoteUrl = await git.getRemoteUrl();
             if (!remoteUrl) {
-              this.postMessage({ command: 'error', content: 'No GitHub remote found. Specify a repo like: /prs owner/repo' });
+              this.postMessage({
+                command: 'error',
+                content: 'No GitHub remote found. Specify a repo like: /prs owner/repo',
+              });
               return;
             }
             const parsed = GitHubAPI.parseRepo(remoteUrl);
@@ -954,12 +1019,8 @@ export class ChatViewProvider implements WebviewViewProvider {
     }
 
     const rootUri = workspaceFolders[0].uri;
-    const sourceUri = path.isAbsolute(sourcePath)
-      ? Uri.file(sourcePath)
-      : Uri.joinPath(rootUri, sourcePath);
-    const destUri = path.isAbsolute(destPath)
-      ? Uri.file(destPath)
-      : Uri.joinPath(rootUri, destPath);
+    const sourceUri = path.isAbsolute(sourcePath) ? Uri.file(sourcePath) : Uri.joinPath(rootUri, sourcePath);
+    const destUri = path.isAbsolute(destPath) ? Uri.file(destPath) : Uri.joinPath(rootUri, destPath);
 
     try {
       await workspace.fs.stat(sourceUri);
@@ -980,7 +1041,7 @@ export class ChatViewProvider implements WebviewViewProvider {
       const choice = await window.showWarningMessage(
         `"${destPath}" already exists. Overwrite?`,
         { modal: true },
-        'Overwrite'
+        'Overwrite',
       );
       if (choice !== 'Overwrite') {
         this.postMessage({ command: 'fileMoved', content: 'Move cancelled.' });
@@ -1004,11 +1065,24 @@ export class ChatViewProvider implements WebviewViewProvider {
 
   private languageToExtension(lang: string): string {
     const map: Record<string, string> = {
-      typescript: '.ts', javascript: '.js', python: '.py',
-      rust: '.rs', go: '.go', java: '.java', cpp: '.cpp',
-      c: '.c', html: '.html', css: '.css', json: '.json',
-      yaml: '.yaml', markdown: '.md', bash: '.sh', sh: '.sh',
-      sql: '.sql', tsx: '.tsx', jsx: '.jsx',
+      typescript: '.ts',
+      javascript: '.js',
+      python: '.py',
+      rust: '.rs',
+      go: '.go',
+      java: '.java',
+      cpp: '.cpp',
+      c: '.c',
+      html: '.html',
+      css: '.css',
+      json: '.json',
+      yaml: '.yaml',
+      markdown: '.md',
+      bash: '.sh',
+      sh: '.sh',
+      sql: '.sql',
+      tsx: '.tsx',
+      jsx: '.jsx',
     };
     return map[lang.toLowerCase()] || '.txt';
   }

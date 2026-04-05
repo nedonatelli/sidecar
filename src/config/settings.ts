@@ -1,5 +1,12 @@
 import { workspace } from 'vscode';
 
+/**
+ * Check whether a base URL points to a local Ollama instance.
+ */
+export function isLocalOllama(baseUrl: string): boolean {
+  return baseUrl.includes('localhost:11434') || baseUrl.includes('127.0.0.1:11434');
+}
+
 // Cost per million tokens (input/output) for known models
 const MODEL_COSTS: Record<string, { input: number; output: number }> = {
   'claude-opus-4-6': { input: 15, output: 75 },
@@ -8,7 +15,7 @@ const MODEL_COSTS: Record<string, { input: number; output: number }> = {
 };
 
 export function estimateCost(model: string, inputTokens: number, outputTokens: number): number | null {
-  const key = Object.keys(MODEL_COSTS).find(k => model.includes(k));
+  const key = Object.keys(MODEL_COSTS).find((k) => model.includes(k));
   if (!key) return null; // Local model, free
   const costs = MODEL_COSTS[key];
   return (inputTokens * costs.input + outputTokens * costs.output) / 1_000_000;
