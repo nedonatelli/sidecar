@@ -4,7 +4,7 @@ import type { ChatMessage } from '../ollama/types.js';
 import * as crypto from 'crypto';
 
 export interface WebviewMessage {
-  command: 'userMessage' | 'abort' | 'changeModel' | 'installModel' | 'cancelInstall' | 'attachFile' | 'saveCodeBlock' | 'createFile' | 'runCommand' | 'moveFile' | 'github' | 'openExternal' | 'newChat' | 'exportChat' | 'undoChanges' | 'executePlan' | 'revisePlan' | 'batch' | 'saveSession' | 'loadSession' | 'deleteSession' | 'listSessions' | 'insight' | 'spec';
+  command: 'userMessage' | 'abort' | 'changeModel' | 'installModel' | 'cancelInstall' | 'attachFile' | 'saveCodeBlock' | 'createFile' | 'runCommand' | 'moveFile' | 'github' | 'openExternal' | 'newChat' | 'exportChat' | 'undoChanges' | 'executePlan' | 'revisePlan' | 'batch' | 'saveSession' | 'loadSession' | 'deleteSession' | 'listSessions' | 'insight' | 'spec' | 'generateDoc';
   images?: { mediaType: string; data: string }[];
   text?: string;
   model?: string;
@@ -526,6 +526,13 @@ export function getChatWebviewHtml(
       if (text.startsWith('/batch ') || text.startsWith('/batch\\n')) {
         appendMessage('user', text);
         vscode.postMessage({ command: 'batch', text: text.slice(7) });
+        input.value = '';
+        input.style.height = 'auto';
+        return;
+      }
+      if (text.trim() === '/doc') {
+        appendMessage('user', text);
+        vscode.postMessage({ command: 'generateDoc' });
         input.value = '';
         input.style.height = 'auto';
         return;

@@ -1,4 +1,4 @@
-import { workspace, Uri, CancellationToken } from 'vscode';
+import { workspace, commands, Uri, CancellationToken, SymbolInformation } from 'vscode';
 import * as path from 'path';
 
 export interface WorkspaceFile {
@@ -91,6 +91,63 @@ export function getFilePatterns(): string[] {
 
 export function getMaxFiles(): number {
   return workspace.getConfiguration('sidecar').get<number>('maxFiles', 10);
+}
+
+export async function resolveAtReferences(text: string): Promise<string> {
+  const workspaceFolders = workspace.workspaceFolders;
+  if (!workspaceFolders || workspaceFolders.length === 0) return text;
+
+  const root = workspaceFolders[0].uri;
+  let result = text;
+  const attachments: string[] = [];
+
+  // @file:path — include file content
+  const fileRefs = text.matchAll(/@file:([^\s]+)/g);
+  for (const match of fileRefs) {
+    const filePath = match[1];
+    try {
+      const fileUri = Uri.joinPath(root, filePath);
+      const bytes = await workspace.fs.readFile(fileUri);
+      const content = Buffer.from(bytes).toString('utf-8').slice(0, MAX_CONTENT_LENGTH);
+      attachments.push(`### @file:${filePath}\n\`\`\`\n${content}\n\`\`\``);
+    } catch { /* file not found */ }
+  }
+
+  // @folder:path — list folder contents
+  const folderRefs = text.matchAll(/@folder:([^\s]+)/g);
+  for (const match of folderRefs) {
+    const folderPath = match[1];
+    try {
+      const folderUri = Uri.joinPath(root, folderPath);
+      const entries = await workspace.fs.readDirectory(folderUri);
+      const listing = entries.map(([name, type]) => `${type === 2 ? '📁 ' : '📄 '}${name}`).join('\n');
+      attachments.push(`### @folder:${folderPath}\n\`\`\`\n${listing}\n\`\`\``);
+    } catch { /* folder not found */ }
+  }
+
+  // @symbol:name — search for symbol in workspace
+  const symbolRefs = text.matchAll(/@symbol:([^\s]+)/g);
+  for (const match of symbolRefs) {
+    const symbolName = match[1];
+    try {
+      const symbols = await commands.executeCommand<SymbolInformation[]>(
+        'vscode.executeWorkspaceSymbolProvider', symbolName
+      );
+      if (symbols && symbols.length > 0) {
+        const results = symbols.slice(0, 10).map((s: SymbolInformation) => {
+          const relPath = path.relative(root.fsPath, s.location.uri.fsPath);
+          return `${s.name} (${s.kind}) — ${relPath}:${s.location.range.start.line + 1}`;
+        }).join('\n');
+        attachments.push(`### @symbol:${symbolName}\n\`\`\`\n${results}\n\`\`\``);
+      }
+    } catch { /* symbol search failed */ }
+  }
+
+  if (attachments.length > 0) {
+    result += '\n\n--- Referenced Context ---\n\n' + attachments.join('\n\n');
+  }
+
+  return result;
 }
 
 export async function resolveFileReferences(text: string): Promise<string> {

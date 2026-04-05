@@ -1,4 +1,4 @@
-import { window, workspace, languages, commands, ExtensionContext, Disposable } from 'vscode';
+import { window, workspace, languages, commands, ExtensionContext, Disposable, StatusBarAlignment } from 'vscode';
 import * as path from 'path';
 import { ChatViewProvider } from './webview/chatView.js';
 import { TerminalManager } from './terminal/manager.js';
@@ -171,6 +171,29 @@ export function activate(context: ExtensionContext) {
       if (e.affectsConfiguration('sidecar.scheduledTasks')) {
         scheduler.stop();
         scheduler.start(getScheduledTasks());
+      }
+    })
+  );
+
+  // Status bar
+  const statusBar = window.createStatusBarItem(StatusBarAlignment.Right, 100);
+  statusBar.command = 'sidecar.toggleChat';
+  const model = getModel();
+  const baseUrl = getBaseUrl();
+  const isLocal = baseUrl.includes('localhost:11434') || baseUrl.includes('127.0.0.1:11434');
+  statusBar.text = `$(hubot) ${model.split(':')[0]}`;
+  statusBar.tooltip = `SideCar — ${isLocal ? 'Ollama' : 'Anthropic'} (${model})`;
+  statusBar.show();
+  context.subscriptions.push(statusBar);
+
+  context.subscriptions.push(
+    workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('sidecar.model') || e.affectsConfiguration('sidecar.baseUrl')) {
+        const m = getModel();
+        const url = getBaseUrl();
+        const local = url.includes('localhost:11434') || url.includes('127.0.0.1:11434');
+        statusBar.text = `$(hubot) ${m.split(':')[0]}`;
+        statusBar.tooltip = `SideCar — ${local ? 'Ollama' : 'Anthropic'} (${m})`;
       }
     })
   );

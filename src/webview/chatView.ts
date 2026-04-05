@@ -16,7 +16,7 @@ import { promisify } from 'util';
 const execAsync = promisify(exec);
 import { SideCarClient } from '../ollama/client.js';
 import { getModel, getSystemPrompt, getBaseUrl, getApiKey, getIncludeActiveFile, getAgentMode, getAgentMaxIterations, getAgentMaxTokens, getPlanMode } from '../config/settings.js';
-import { getWorkspaceContext, getWorkspaceEnabled, getWorkspaceRoot, getFilePatterns, getMaxFiles, resolveFileReferences } from '../config/workspace.js';
+import { getWorkspaceContext, getWorkspaceEnabled, getWorkspaceRoot, getFilePatterns, getMaxFiles, resolveFileReferences, resolveAtReferences } from '../config/workspace.js';
 import type { ChatMessage, ContentBlock } from '../ollama/types.js';
 import { getContentLength } from '../ollama/types.js';
 import { getChatWebviewHtml, type WebviewMessage, type ExtensionMessage, type LibraryModelUI } from './chatWebview.js';
@@ -34,6 +34,7 @@ import { MetricsCollector } from '../agent/metrics.js';
 import { generateInsightReport } from '../agent/insightReport.js';
 import { parseBatchInput, runBatch } from '../agent/batch.js';
 import { generateSpec, saveSpec } from '../agent/specDriven.js';
+import { generateDocumentation } from '../agent/docGenerator.js';
 
 export class ChatViewProvider implements WebviewViewProvider {
   private webviewView: WebviewView | undefined;
@@ -101,6 +102,8 @@ export class ChatViewProvider implements WebviewViewProvider {
           case 'changeModel':
             this.client.updateModel(msg.model || 'llama3');
             this.postMessage({ command: 'setCurrentModel', currentModel: msg.model });
+            // Update config so status bar reflects the change
+            workspace.getConfiguration('sidecar').update('model', msg.model, true);
             break;
           case 'installModel':
             await this.handleInstallModel(msg.model || '');
@@ -168,6 +171,9 @@ export class ChatViewProvider implements WebviewViewProvider {
             break;
           case 'spec':
             await this.handleSpec(msg.text || '');
+            break;
+          case 'generateDoc':
+            await this.handleGenerateDoc();
             break;
           case 'openExternal':
             if (msg.url) {
@@ -453,6 +459,33 @@ export class ChatViewProvider implements WebviewViewProvider {
     await window.showTextDocument(doc, { preview: true });
   }
 
+  // --- Doc generation handler ---
+
+  private async handleGenerateDoc(): Promise<void> {
+    const editor = window.activeTextEditor;
+    if (!editor) {
+      this.postMessage({ command: 'error', content: 'No active editor. Open a file first.' });
+      return;
+    }
+    const doc = editor.document;
+    const code = editor.selection.isEmpty ? doc.getText() : doc.getText(editor.selection);
+    const language = doc.languageId;
+    const fileName = path.basename(doc.fileName);
+
+    this.postMessage({ command: 'setLoading', isLoading: true });
+    this.client.updateConnection(getBaseUrl(), getApiKey());
+    this.client.updateModel(getModel());
+
+    const result = await generateDocumentation(this.client, code, language, fileName);
+    if (result) {
+      this.postMessage({ command: 'assistantMessage', content: result });
+    } else {
+      this.postMessage({ command: 'error', content: 'Failed to generate documentation.' });
+    }
+    this.postMessage({ command: 'done' });
+    this.postMessage({ command: 'setLoading', isLoading: false });
+  }
+
   // --- Spec handler ---
 
   private async handleSpec(description: string): Promise<void> {
@@ -575,6 +608,7 @@ export class ChatViewProvider implements WebviewViewProvider {
 
           // Resolve file references
           enriched = await resolveFileReferences(enriched);
+          enriched = await resolveAtReferences(enriched);
 
           chatMessages[lastUserIdx] = { ...chatMessages[lastUserIdx], content: enriched };
         }

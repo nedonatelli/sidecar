@@ -2,6 +2,14 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.9.0] - 2026-04-05
+
+### Added
+- **@ references**: `@file:path`, `@folder:path`, `@symbol:name` syntax in chat messages for precise context inclusion
+- **Status bar integration**: shows current model and provider (Ollama/Anthropic), click to toggle chat panel, updates on model/config changes
+- **Documentation generation**: `/doc` command generates JSDoc/docstrings for active file or selection
+- **Multi-model mid-chat switching**: changing models preserves conversation, updates status bar and config
+
 ## [0.8.0] - 2026-04-05
 
 ### Added
