@@ -1,9 +1,12 @@
 .vscode/**
-src/**
-node_modules/**
-!node_modules/@modelcontextprotocol/sdk/**
 .claude/**
+src/**
+out/**
+node_modules/**
 .gitignore
 tsconfig.json
 **/*.ts
 **/*.map
+*.md
+!README.md
+!CHANGELOG.md
