@@ -10,6 +10,7 @@ All notable changes to the SideCar extension will be documented in this file.
 - MCP tools appear transparently alongside built-in tools in the agent loop
 - Auto-reconnect when MCP server settings change
 - MCP tool calls go through the existing approval flow
+- **SIDECAR.md** project instructions: create a `SIDECAR.md` in your project root for persistent project-specific context (like CLAUDE.md for Claude Code)
 
 ## [0.4.0] - 2026-04-05
 

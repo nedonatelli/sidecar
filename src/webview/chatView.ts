@@ -323,6 +323,19 @@ export class ChatViewProvider implements WebviewViewProvider {
     window.showInformationMessage(`Chat exported to ${path.basename(uri.fsPath)}`);
   }
 
+  private async loadSidecarMd(): Promise<string | null> {
+    const rootUri = workspace.workspaceFolders?.[0]?.uri;
+    if (!rootUri) return null;
+    try {
+      const fileUri = Uri.joinPath(rootUri, 'SIDECAR.md');
+      const bytes = await workspace.fs.readFile(fileUri);
+      const content = Buffer.from(bytes).toString('utf-8').trim();
+      return content || null;
+    } catch {
+      return null;
+    }
+  }
+
   private getActiveFileContext(): string {
     const editor = window.activeTextEditor;
     if (!editor) return '';
@@ -372,6 +385,12 @@ export class ChatViewProvider implements WebviewViewProvider {
 
       // Build system prompt with workspace context
       let systemPrompt = `You are SideCar, an AI coding assistant running inside VS Code. You have tools to read, write, edit, and search files, run shell commands, check diagnostics, and run tests.\nProject root: ${getWorkspaceRoot()}\n\nUse your tools to accomplish tasks. Always use relative paths from the project root. Keep responses concise.\n\nAfter editing files, use get_diagnostics to check for errors and fix them. When asked to fix bugs or add features, use run_tests to verify your changes pass.`;
+
+      // Load SIDECAR.md project instructions if present
+      const sidecarMd = await this.loadSidecarMd();
+      if (sidecarMd) {
+        systemPrompt += `\n\nProject instructions (from SIDECAR.md):\n${sidecarMd}`;
+      }
 
       if (userSystemPrompt) {
         systemPrompt += `\n\n${userSystemPrompt}`;

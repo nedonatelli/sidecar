@@ -75,6 +75,24 @@
 | `get_diagnostics` | Read compiler errors and warnings |
 | `run_tests` | Run test suites with auto-detection |
 
+### Project Instructions (SIDECAR.md)
+Create a `SIDECAR.md` file in your project root to give SideCar project-specific instructions that persist across sessions:
+
+```markdown
+# Project: My App
+
+## Build
+- Run `npm run build` to compile
+- Run `npm test` to run tests
+
+## Conventions
+- Use TypeScript strict mode
+- Prefer async/await over callbacks
+- Components go in src/components/
+```
+
+SideCar reads this file on every message and includes it in the system prompt.
+
 ### GitHub Integration
 - Clone repos, list/view/create PRs and issues
 - View commit history, diffs, push/pull
