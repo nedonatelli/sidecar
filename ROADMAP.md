@@ -108,6 +108,22 @@ A discoverable directory of MCP servers that users can browse and install from w
 
 ---
 
+## Multi-Agent Orchestration
+
+### Worktree-isolated agents
+Each background agent gets its own git worktree — a full isolated copy of the codebase. Multiple agents can edit files simultaneously without conflicts. Worktrees are created on agent start and cleaned up or merged on completion. Config files (`.env`, etc.) are synced to new worktrees automatically. Inspired by Code Squad and Claude Code's agent teams.
+
+### Agent dashboard
+A visual panel showing all running and completed agent threads. Displays status (running/done/failed), elapsed time, token usage, and a summary of changes per agent. Supports keyboard navigation to inspect, pause, or cancel individual agents.
+
+### Agent diff review & merge
+After a background agent completes, review its changes independently in a diff view scoped to that agent's worktree. Accept, reject, or cherry-pick individual file changes before merging back into the main branch. Prevents unwanted changes from landing automatically.
+
+### Multi-agent task coordination
+Coordinate multiple agents working on related tasks from a single prompt. For example: "Agent 1: write the API endpoints, Agent 2: write the tests, Agent 3: write the documentation." Agents run in parallel in isolated worktrees, with a coordination layer to handle dependencies and sequencing.
+
+---
+
 ## Completed (v0.11.0–v0.22.0)
 
 - [x] Slash commands: `/reset`, `/undo`, `/export`, `/model`, `/help`
