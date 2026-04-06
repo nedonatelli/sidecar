@@ -51,7 +51,7 @@
 
 ### Dual Backend
 - **Ollama** (default) — runs locally, free, no API key needed
-- **Anthropic API** — use Claude models with your API key
+- **Anthropic API** — use Claude models with your API key, with prompt caching for ~90% input token cost reduction
 - Same interface for both — just change `sidecar.baseUrl` and `sidecar.apiKey`
 
 ### MCP (Model Context Protocol)

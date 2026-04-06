@@ -2,7 +2,7 @@
 
 This document tracks planned improvements and features for SideCar. Items are grouped by theme and roughly prioritized within each group.
 
-Last updated: 2026-04-05 (v0.13.0)
+Last updated: 2026-04-05 (v0.14.0)
 
 ---
 
@@ -83,9 +83,6 @@ The extension already handles image attachments and sends them to the model. Exp
 - Design diffing: compare a mockup to current UI code
 Requires vision-capable models (Claude, LLaVA on Ollama).
 
-### Prompt caching
-Cache the system prompt and workspace context between messages to reduce latency and token cost on repeated queries. Track cache invalidation on file changes and settings updates. Particularly valuable for Anthropic API where prompt caching reduces input token costs.
-
 ### Conversation steering
 Enable smarter, more interactive conversations between the user and the agent:
 - **Clarifying questions**: the model asks for missing context before acting (e.g., "Which test framework are you using?" instead of guessing)
@@ -123,3 +120,5 @@ Support multiple parallel conversation branches from a single chat:
 - [x] Slash command autocomplete dropdown with filtering and keyboard navigation
 - [x] Keyboard shortcuts: Cmd+L (clear), Cmd+Shift+U (undo), Cmd+Shift+E (export)
 - [x] Conversation-aware workspace index (track agent file reads/writes, decay over time)
+- [x] Inline confirmation cards (replace system modal dialogs)
+- [x] Prompt caching: Anthropic API cache_control on stable prefix, local SIDECAR.md cache with file watcher

@@ -2,6 +2,13 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.14.0] - 2026-04-05
+
+### Added
+- **Prompt caching (Anthropic API)**: stable system prompt prefix (base + SIDECAR.md + user config) marked with `cache_control: { type: 'ephemeral' }` for server-side caching — ~90% input token cost reduction on cache hits
+- **Local SIDECAR.md cache**: file content cached in memory with `FileSystemWatcher` invalidation, eliminates redundant reads per message
+- **Inline confirmation cards**: tool approvals, file overwrites, command execution, and undo confirmations now render as styled cards in the chat UI instead of system modal pop-ups
+
 ## [0.13.0] - 2026-04-05
 
 ### Added
