@@ -13,10 +13,13 @@
 ### Agentic Coding Assistant
 - **Tool use** — the model can read, write, edit, and search files, run commands, check diagnostics, and run tests autonomously
 - **Agent loop** — multi-step execution (read code, edit, run tests, fix errors) without manual intervention at each step
+- **Agent progress** — live step count, elapsed time, and token usage during agent runs
+- **Activity indicators** — animated progress bar and tool execution pulses so you always know SideCar is working
+- **Stop button** — abort the agent loop at any time (Send button toggles to Stop while processing)
 - **Diagnostics integration** — reads compiler errors and warnings from VS Code's language services
 - **Test-driven loop** — runs tests, feeds failures back to the model, iterates until passing
 - **Undo/rollback** — revert all AI-made file changes with one click
-- **Safety guardrails** — configurable agent mode (cautious/autonomous/manual), iteration limits, token budget
+- **Safety guardrails** — agent mode dropdown (cautious/autonomous/manual) in the header, iteration limits, token budget
 
 ### Inline Chat (Cmd+I)
 - Edit code in place within the editor
@@ -35,12 +38,14 @@
 
 ### AI Chat
 - Streaming responses in a dedicated sidebar panel
-- **Workspace-aware** — automatically includes project files as context
+- **Workspace indexing** — persistent file index with relevance scoring replaces per-message glob scan, updated incrementally via file watcher
 - **Active file context** — includes the currently open file and cursor position
-- **Context-aware file reading** — detects file paths in your messages and auto-includes their content
+- **@ references** — `@file:path`, `@folder:path`, `@symbol:name` for precise context inclusion
 - **Image support** — paste screenshots or attach images for vision models
+- **Slash commands** — `/reset`, `/undo`, `/export`, `/model`, `/help`, `/batch`, `/doc`, `/spec`, `/insight`, `/save`, `/sessions`
+- **Actionable errors** — classified error cards with retry, start Ollama, and settings buttons
+- **Sticky scroll** — auto-scroll pauses when you scroll up, floating button to jump back down
 - **Chat history persistence** — conversations survive VS Code restarts (per-workspace)
-- **Conversation management** — new chat, export as Markdown
 - **Streaming indicator** — shows token count and generation speed
 - **Model management** — switch models, install new ones from Ollama
 

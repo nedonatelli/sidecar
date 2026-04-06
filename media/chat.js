@@ -126,6 +126,12 @@
     forceScrollToBottom();
   });
 
+  document.getElementById('agent-mode-select').addEventListener('change', (e) => {
+    const mode = e.target.value;
+    vscode.postMessage({ command: 'changeAgentMode', agentMode: mode });
+    e.target.className = 'agent-mode-select mode-' + mode;
+  });
+
   customModelInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       customModelUse.click();
@@ -762,6 +768,8 @@
     sendBtn.textContent = loading ? 'Stop' : 'Send';
     sendBtn.classList.toggle('loading', loading);
     input.disabled = loading;
+    const activityBar = document.getElementById('activity-bar');
+    if (activityBar) activityBar.classList.toggle('hidden', !loading);
   }
 
   let userScrolledUp = false;
@@ -969,9 +977,10 @@
         finishAssistantMessage();
 
         const details = document.createElement('details');
-        details.className = 'tool-call';
+        details.className = 'tool-call running';
+        details.id = 'active-tool';
         const summary = document.createElement('summary');
-        summary.textContent = '\u2699 ' + (content || '').split('(')[0];
+        summary.textContent = '\u2699 ' + (content || '').split('(')[0] + ' \u2026';
         details.appendChild(summary);
         const body = document.createElement('pre');
         body.className = 'tool-call-body';
@@ -983,6 +992,16 @@
       }
 
       case 'toolResult': {
+        // Mark active tool call as complete
+        const activeTool = document.getElementById('active-tool');
+        if (activeTool) {
+          activeTool.classList.remove('running');
+          activeTool.removeAttribute('id');
+          const activeSummary = activeTool.querySelector('summary');
+          if (activeSummary) {
+            activeSummary.textContent = activeSummary.textContent.replace(' \u2026', '');
+          }
+        }
         const details = document.createElement('details');
         details.className = 'tool-result';
         const summary = document.createElement('summary');
@@ -1022,10 +1041,12 @@
         break;
 
       case 'setAgentMode': {
-        const badge = document.getElementById('agent-mode-badge');
+        const select = document.getElementById('agent-mode-select');
         const mode = event.data.agentMode || 'cautious';
-        badge.textContent = mode === 'autonomous' ? 'Danger Mode' : mode;
-        badge.className = 'agent-mode-badge mode-' + mode;
+        if (select) {
+          select.value = mode;
+          select.className = 'agent-mode-select mode-' + mode;
+        }
         break;
       }
 

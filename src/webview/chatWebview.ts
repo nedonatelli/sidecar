@@ -30,10 +30,12 @@ export interface WebviewMessage {
     | 'listSessions'
     | 'insight'
     | 'spec'
-    | 'generateDoc';
+    | 'generateDoc'
+    | 'changeAgentMode';
   images?: { mediaType: string; data: string }[];
   text?: string;
   model?: string;
+  agentMode?: string;
   code?: string;
   language?: string;
   filePath?: string;
@@ -131,13 +133,18 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
         <span id="model-arrow">&#9662;</span>
       </span>
     </div>
-    <span id="agent-mode-badge" class="agent-mode-badge"></span>
+    <select id="agent-mode-select" class="agent-mode-select">
+      <option value="cautious">cautious</option>
+      <option value="autonomous">autonomous</option>
+      <option value="manual">manual</option>
+    </select>
     <div id="chat-actions">
       <button id="new-chat-btn" title="New Chat">+</button>
       <button id="undo-btn" title="Undo All Changes">&#8634;</button>
       <button id="export-btn" title="Export as Markdown">&#8681;</button>
     </div>
   </div>
+  <div id="activity-bar" class="hidden"></div>
   <div id="model-panel" class="hidden">
     <div id="model-panel-header">
       <span>Select Model</span>

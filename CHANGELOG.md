@@ -2,6 +2,31 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.11.0] - 2026-04-05
+
+### Added
+- **Slash commands**: `/reset`, `/undo`, `/export`, `/model <name>`, `/help` in chat input
+- **Agent progress indicators**: step count, elapsed time, and token usage shown during agent runs
+- **Actionable error cards**: classified errors (connection, auth, model, timeout) with retry and settings buttons
+- **Stop button**: Send button toggles to red Stop button during processing to abort the agent loop
+- **Activity bar**: animated progress bar below header showing SideCar is actively working
+- **Tool execution animation**: pulsing indicator on tool calls while they're running
+- **Workspace indexing**: persistent in-memory file index with relevance scoring, replaces per-message glob scan. Uses `FileSystemWatcher` for incremental updates
+- **Agent mode dropdown**: header badge replaced with a dropdown to switch between cautious/autonomous/manual modes directly from the UI
+- **28 new tests**: executor tool approval flow, MCP manager, workspace index (128 total)
+
+### Changed
+- **Sticky scroll**: auto-scroll stops when user scrolls up, floating scroll-to-bottom button appears
+- **Incremental streaming**: only re-renders full DOM when code blocks change; plain text updates the trailing span
+- **Agent progress pulse**: progress bar and tool calls animate to show SideCar is alive during intensive tasks
+- **Settings migration**: `executor.ts`, `extension.ts`, `chatHandlers.ts` migrated from deprecated individual getters to consolidated `getConfig()`
+- Removed unused `getMCPServers`, `getScheduledTasks`, `getEventHooks` imports
+
+### Fixed
+- Messages with image content showing `[message with images]` placeholder instead of actual text
+- Stale `[message with images]` entries in persisted history from pre-v0.11.0 sessions filtered on load
+- Removed `@rolldown/binding-darwin-arm64` from production dependencies (platform-specific dev dep)
+
 ## [0.10.0] - 2026-04-05
 
 ### Added

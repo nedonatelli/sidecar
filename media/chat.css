@@ -27,6 +27,27 @@ body {
   background: var(--vscode-editor-background);
 }
 
+#activity-bar {
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--vscode-progressBar-background, #0078d4) 50%,
+    transparent 100%
+  );
+  background-size: 40% 100%;
+  animation: activity-slide 1.2s ease-in-out infinite;
+}
+
+@keyframes activity-slide {
+  0% {
+    background-position: -40% 0;
+  }
+  100% {
+    background-position: 140% 0;
+  }
+}
+
 #current-model {
   display: flex;
   align-items: center;
@@ -584,12 +605,16 @@ body {
   background: rgba(0, 255, 0, 0.08);
 }
 
-.agent-mode-badge {
+.agent-mode-select {
   font-size: 10px;
-  padding: 1px 6px;
+  padding: 1px 4px;
   border-radius: 3px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  border: none;
+  cursor: pointer;
+  font-family: var(--vscode-font-family);
+  outline: none;
 }
 
 .mode-cautious {
@@ -707,6 +732,22 @@ body {
   border-left-color: var(--vscode-charts-blue, #4fc1ff);
 }
 
+.tool-call.running {
+  animation: tool-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes tool-pulse {
+  0%,
+  100% {
+    border-left-color: var(--vscode-charts-blue, #4fc1ff);
+    opacity: 1;
+  }
+  50% {
+    border-left-color: var(--vscode-progressBar-background, #0078d4);
+    opacity: 0.6;
+  }
+}
+
 .tool-result {
   border-left-color: var(--vscode-charts-green, #4ec9b0);
 }
@@ -738,6 +779,17 @@ body {
   font-size: 11px;
   color: var(--vscode-descriptionForeground);
   padding: 4px 0;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
 }
 
 #agent-progress span {

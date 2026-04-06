@@ -2,20 +2,20 @@
 
 This document tracks planned improvements and features for SideCar. Items are grouped by effort level and roughly prioritized within each group.
 
-Last updated: 2026-04-05 (v0.11.0)
+Last updated: 2026-04-05 (v0.11.x)
 
 ---
 
 ## Quick Wins
 
-### Migrate deprecated settings getters
-Replace the 18 individual deprecated getter functions (`getModel()`, `getBaseUrl()`, `getApiKey()`, etc.) in `src/config/settings.ts` with the consolidated `getConfig()` accessor across all callers: `chatHandlers.ts`, `extension.ts`, `executor.ts`, `eventHooks.ts`.
-
-### Update CHANGELOG for v0.11.0
-Document the v0.11.0 release: slash commands, agent progress indicators, actionable error cards, sticky scroll, incremental streaming, workspace indexing, 28 new tests, dependency cleanup.
+### Update CHANGELOG for v0.11.x
+Document recent releases: slash commands, agent progress, error cards, streaming UX, workspace indexing, stop button, activity indicators, agent mode dropdown, `getConfig()` migration, stale history fix.
 
 ### Expand test coverage for handlers
 Add tests for `src/webview/handlers/chatHandlers.ts` (message handling, context assembly, error classification) and `src/webview/handlers/githubHandlers.ts` (command parsing, GitHub API dispatch).
+
+### Remove remaining deprecated settings getters
+The main callers (`chatHandlers.ts`, `extension.ts`, `executor.ts`) have been migrated to `getConfig()`. Remaining callers in `eventHooks.ts` and other modules still use the deprecated individual getters. Finish the migration and remove the deprecated functions from `settings.ts`.
 
 ---
 
@@ -58,7 +58,7 @@ Support multiple parallel conversation branches from a single chat:
 
 ---
 
-## Completed (v0.11.0)
+## Completed (v0.11.x)
 
 - [x] Slash commands: `/reset`, `/undo`, `/export`, `/model`, `/help`
 - [x] Agent progress indicators (step count, elapsed time, token usage)
@@ -68,3 +68,8 @@ Support multiple parallel conversation branches from a single chat:
 - [x] Workspace indexing with relevance scoring
 - [x] Test coverage for executor, MCP manager, workspace index
 - [x] Remove `@rolldown/binding-darwin-arm64` from production dependencies
+- [x] Stop button (Send toggles to red Stop while processing)
+- [x] Activity bar, agent progress pulse, tool execution animation
+- [x] Agent mode dropdown (cautious/autonomous/manual) in header
+- [x] Migrate `executor.ts`, `extension.ts`, `chatHandlers.ts` to `getConfig()`
+- [x] Filter stale `[message with images]` from persisted history
