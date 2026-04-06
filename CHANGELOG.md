@@ -2,6 +2,12 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.22.1] - 2026-04-06
+
+### Fixed
+- **Repeated content in model output**: automatically strips verbatim blocks (100+ chars) that the model echoes from earlier assistant messages in the conversation history
+- **Per-message delete**: hover-visible delete button on each message for manual cleanup of stuck or unwanted messages
+
 ## [0.22.0] - 2026-04-06
 
 ### Added
