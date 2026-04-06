@@ -8,9 +8,6 @@ Last updated: 2026-04-05 (v0.11.x)
 
 ## Quick Wins
 
-### Update CHANGELOG for v0.11.x
-Document recent releases: slash commands, agent progress, error cards, streaming UX, workspace indexing, stop button, activity indicators, agent mode dropdown, `getConfig()` migration, stale history fix.
-
 ### Expand test coverage for handlers
 Add tests for `src/webview/handlers/chatHandlers.ts` (message handling, context assembly, error classification) and `src/webview/handlers/githubHandlers.ts` (command parsing, GitHub API dispatch).
 
