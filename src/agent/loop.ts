@@ -120,6 +120,12 @@ export async function runAgentLoop(
       }
     }
 
+    // Strip repeated content from the model's output.
+    // Some models echo blocks of text from earlier in the conversation.
+    if (fullText) {
+      fullText = stripRepeatedContent(fullText, agentMessages);
+    }
+
     // If no structured tool calls came through, try parsing text-based tool calls
     if (pendingToolUses.length === 0 && fullText) {
       const parsed = parseTextToolCalls(fullText, tools);
@@ -316,4 +322,50 @@ export function parseTextToolCalls(text: string, tools: ToolDefinition[]): ToolU
   }
 
   return results;
+}
+
+/**
+ * Strip blocks of text that the model is repeating verbatim from earlier
+ * assistant messages in the conversation. This prevents the model from
+ * echoing stale content (e.g., commit summaries, status updates) that
+ * got stuck in the conversation history.
+ *
+ * Only strips blocks of 100+ characters to avoid false positives on
+ * short common phrases.
+ */
+export function stripRepeatedContent(text: string, messages: ChatMessage[]): string {
+  // Collect text from previous assistant messages
+  const previousTexts: string[] = [];
+  for (const msg of messages) {
+    if (msg.role !== 'assistant') continue;
+    if (typeof msg.content === 'string') {
+      previousTexts.push(msg.content);
+    } else if (Array.isArray(msg.content)) {
+      for (const block of msg.content) {
+        if (block.type === 'text' && block.text) {
+          previousTexts.push(block.text);
+        }
+      }
+    }
+  }
+
+  if (previousTexts.length === 0) return text;
+
+  let result = text;
+  for (const prev of previousTexts) {
+    // Find substantial blocks (100+ chars) from previous messages that appear in the new text
+    // Split previous text into paragraphs and check each
+    const paragraphs = prev.split(/\n\n+/).filter((p) => p.trim().length >= 100);
+    for (const paragraph of paragraphs) {
+      const trimmed = paragraph.trim();
+      if (result.includes(trimmed)) {
+        result = result.replace(trimmed, '').trim();
+      }
+    }
+  }
+
+  // Clean up leftover whitespace from removals
+  result = result.replace(/\n{3,}/g, '\n\n').trim();
+
+  return result;
 }

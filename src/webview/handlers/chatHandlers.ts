@@ -642,6 +642,12 @@ export function handleAcceptAllChanges(state: ChatState): void {
   });
 }
 
+export function handleDeleteMessage(state: ChatState, index: number): void {
+  if (index < 0 || index >= state.messages.length) return;
+  state.messages.splice(index, 1);
+  state.saveHistory();
+}
+
 export async function handleExportChat(state: ChatState): Promise<void> {
   if (state.messages.length === 0) return;
   const lines: string[] = [];

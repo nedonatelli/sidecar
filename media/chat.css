@@ -493,12 +493,38 @@ body {
 }
 
 .message {
+  position: relative;
   padding: 8px 12px;
   border-radius: 6px;
   max-width: 80%;
   white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.5;
+}
+
+.message-delete-btn {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  background: none;
+  border: none;
+  color: inherit;
+  opacity: 0;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 5px;
+  border-radius: 3px;
+  line-height: 1;
+  transition: opacity 0.15s;
+}
+
+.message:hover .message-delete-btn {
+  opacity: 0.5;
+}
+
+.message-delete-btn:hover {
+  opacity: 1 !important;
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .message.user {

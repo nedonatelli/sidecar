@@ -998,6 +998,23 @@
     } else {
       div.textContent = content;
     }
+
+    // Add delete button to each message
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'message-delete-btn';
+    deleteBtn.textContent = '\u00d7';
+    deleteBtn.title = 'Delete message';
+    deleteBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const allMessages = messagesContainer.querySelectorAll('.message');
+      const index = Array.from(allMessages).indexOf(div);
+      if (index !== -1) {
+        vscode.postMessage({ command: 'deleteMessage', index });
+        div.remove();
+      }
+    });
+    div.appendChild(deleteBtn);
+
     messagesContainer.appendChild(div);
     scrollToBottom();
     return div;

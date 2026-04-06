@@ -32,6 +32,7 @@ import {
   handleGenerateCommit,
   handleRevertFile,
   handleAcceptAllChanges,
+  handleDeleteMessage,
 } from './handlers/chatHandlers.js';
 import { handleGitHubCommand } from './handlers/githubHandlers.js';
 import { loadModels, handleInstallModel } from './handlers/modelHandlers.js';
@@ -255,6 +256,9 @@ export class ChatViewProvider implements WebviewViewProvider {
         break;
       case 'acceptAllChanges':
         handleAcceptAllChanges(this.state);
+        break;
+      case 'deleteMessage':
+        handleDeleteMessage(this.state, msg.index ?? -1);
         break;
     }
   }

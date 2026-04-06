@@ -42,7 +42,8 @@ export interface WebviewMessage {
     | 'scaffold'
     | 'generateCommit'
     | 'revertFile'
-    | 'acceptAllChanges';
+    | 'acceptAllChanges'
+    | 'deleteMessage';
   images?: { mediaType: string; data: string }[];
   text?: string;
   model?: string;
@@ -66,6 +67,7 @@ export interface WebviewMessage {
   ref2?: string;
   ghPath?: string;
   count?: number;
+  index?: number;
 }
 
 export interface ExtensionMessage {
