@@ -6,6 +6,7 @@ import type { ToolDefinition } from '../ollama/types.js';
 import type { MCPManager } from './mcpManager.js';
 import { getConfig } from '../config/settings.js';
 import { scanFile, formatIssues } from './securityScanner.js';
+import { GitCLI } from '../github/git.js';
 
 const execAsync = promisify(exec);
 
@@ -340,34 +341,242 @@ async function runTests(input: Record<string, unknown>): Promise<string> {
   }
 }
 
-const getGitDiffDef: ToolDefinition = {
-  name: 'get_git_diff',
+// --- Git Tools (backed by GitCLI) ---
+
+const gitDiffDef: ToolDefinition = {
+  name: 'git_diff',
   description:
-    'Get the git diff for the current workspace. Shows staged and unstaged changes. Optionally compare against a specific ref.',
+    'Get the git diff for the current workspace. Shows staged and unstaged changes. Optionally compare between two refs.',
   input_schema: {
     type: 'object',
     properties: {
-      ref: {
-        type: 'string',
-        description: 'Optional: git ref to diff against (e.g. "HEAD~3", "main"). Defaults to HEAD.',
+      ref1: { type: 'string', description: 'Optional: first ref (e.g. "HEAD~3", "main").' },
+      ref2: { type: 'string', description: 'Optional: second ref to compare against ref1.' },
+    },
+    required: [],
+  },
+};
+
+async function gitDiffTool(input: Record<string, unknown>): Promise<string> {
+  try {
+    const git = new GitCLI();
+    const result = await git.diff(input.ref1 as string | undefined, input.ref2 as string | undefined);
+    return `${result.summary}\n\n${result.diff}`;
+  } catch (err) {
+    return `git diff failed: ${err instanceof Error ? err.message : String(err)}`;
+  }
+}
+
+const gitStatusDef: ToolDefinition = {
+  name: 'git_status',
+  description: 'Show the working tree status: staged, unstaged, and untracked files.',
+  input_schema: {
+    type: 'object',
+    properties: {},
+    required: [],
+  },
+};
+
+async function gitStatus(): Promise<string> {
+  try {
+    return await new GitCLI().status();
+  } catch (err) {
+    return `git status failed: ${err instanceof Error ? err.message : String(err)}`;
+  }
+}
+
+const gitStageDef: ToolDefinition = {
+  name: 'git_stage',
+  description: 'Stage files for commit. Can stage specific files or all changes.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      files: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Files to stage (relative paths). If omitted, stages all modified and new files.',
       },
     },
     required: [],
   },
 };
 
-async function getGitDiff(input: Record<string, unknown>): Promise<string> {
-  const ref = (input.ref as string) || 'HEAD';
-  const cwd = getRoot();
+async function gitStage(input: Record<string, unknown>): Promise<string> {
   try {
-    const { stdout } = await execAsync(`git diff ${ref}`, { cwd, maxBuffer: 2 * 1024 * 1024 });
-    if (!stdout.trim()) {
-      const staged = await execAsync('git diff --cached', { cwd, maxBuffer: 2 * 1024 * 1024 });
-      return staged.stdout.trim() || 'No changes found.';
-    }
-    return stdout;
+    return await new GitCLI().stage(input.files as string[] | undefined);
   } catch (err) {
-    return `Git diff failed: ${err instanceof Error ? err.message : String(err)}`;
+    return `git stage failed: ${err instanceof Error ? err.message : String(err)}`;
+  }
+}
+
+const gitCommitDef: ToolDefinition = {
+  name: 'git_commit',
+  description:
+    'Create a git commit with the currently staged changes. Automatically appends a Co-Authored-By trailer for SideCar. Stage files first with git_stage.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      message: {
+        type: 'string',
+        description: 'Commit message. Follow conventional commits format (type: description).',
+      },
+    },
+    required: ['message'],
+  },
+};
+
+async function gitCommit(input: Record<string, unknown>): Promise<string> {
+  try {
+    return await new GitCLI().commit(input.message as string);
+  } catch (err) {
+    return `git commit failed: ${err instanceof Error ? err.message : String(err)}`;
+  }
+}
+
+const gitLogDef: ToolDefinition = {
+  name: 'git_log',
+  description: 'Show recent commit history.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      count: { type: 'number', description: 'Number of commits to show. Default: 10.' },
+    },
+    required: [],
+  },
+};
+
+async function gitLog(input: Record<string, unknown>): Promise<string> {
+  try {
+    const git = new GitCLI();
+    const commits = await git.log((input.count as number) || 10);
+    if (commits.length === 0) return 'No commits found.';
+    return commits.map((c) => `${c.hash} ${c.message} (${c.author}, ${c.date})`).join('\n');
+  } catch (err) {
+    return `git log failed: ${err instanceof Error ? err.message : String(err)}`;
+  }
+}
+
+const gitPushDef: ToolDefinition = {
+  name: 'git_push',
+  description: 'Push commits to the remote repository. Optionally set upstream for new branches.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      setUpstream: {
+        type: 'boolean',
+        description: 'If true, sets the upstream tracking branch (for new branches). Default: false.',
+      },
+    },
+    required: [],
+  },
+};
+
+async function gitPush(input: Record<string, unknown>): Promise<string> {
+  try {
+    const git = new GitCLI();
+    if (input.setUpstream) {
+      const branch = await git.getCurrentBranch();
+      return await git.push('origin', branch);
+    }
+    return await git.push();
+  } catch (err) {
+    return `git push failed: ${err instanceof Error ? err.message : String(err)}`;
+  }
+}
+
+const gitPullDef: ToolDefinition = {
+  name: 'git_pull',
+  description: 'Pull changes from the remote repository.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      rebase: { type: 'boolean', description: 'If true, pull with rebase instead of merge. Default: false.' },
+    },
+    required: [],
+  },
+};
+
+async function gitPull(input: Record<string, unknown>): Promise<string> {
+  try {
+    // GitCLI.pull doesn't support --rebase flag yet, so handle it here
+    if (input.rebase) {
+      const { stdout, stderr } = await execAsync('git pull --rebase', {
+        cwd: getRoot(),
+        timeout: 60_000,
+      });
+      return (stdout + '\n' + stderr).trim() || 'Pull complete.';
+    }
+    return await new GitCLI().pull();
+  } catch (err) {
+    return `git pull failed: ${err instanceof Error ? err.message : String(err)}`;
+  }
+}
+
+const gitBranchDef: ToolDefinition = {
+  name: 'git_branch',
+  description: 'List, create, or switch branches.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      action: {
+        type: 'string',
+        description: 'Action: "list" (default), "create", or "switch".',
+      },
+      name: { type: 'string', description: 'Branch name (required for create/switch).' },
+    },
+    required: [],
+  },
+};
+
+async function gitBranch(input: Record<string, unknown>): Promise<string> {
+  const action = (input.action as string) || 'list';
+  const name = input.name as string | undefined;
+  try {
+    const git = new GitCLI();
+    switch (action) {
+      case 'create': {
+        if (!name) return 'Error: branch name required for create.';
+        return await git.createBranch(name);
+      }
+      case 'switch': {
+        if (!name) return 'Error: branch name required for switch.';
+        return await git.switchBranch(name);
+      }
+      default: {
+        const branches = await git.listBranches(true);
+        return branches.join('\n') || 'No branches found.';
+      }
+    }
+  } catch (err) {
+    return `git branch failed: ${err instanceof Error ? err.message : String(err)}`;
+  }
+}
+
+const gitStashDef: ToolDefinition = {
+  name: 'git_stash',
+  description: 'Stash or restore working directory changes.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      action: {
+        type: 'string',
+        description: 'Action: "push" (default), "pop", "apply", "list", or "drop".',
+      },
+      message: { type: 'string', description: 'Optional message for push.' },
+      index: { type: 'number', description: 'Stash index for pop/apply/drop (default: 0).' },
+    },
+    required: [],
+  },
+};
+
+async function gitStash(input: Record<string, unknown>): Promise<string> {
+  try {
+    return await new GitCLI().stash((input.action as string) || 'push', {
+      message: input.message as string | undefined,
+      index: input.index as number | undefined,
+    });
+  } catch (err) {
+    return `git stash failed: ${err instanceof Error ? err.message : String(err)}`;
   }
 }
 
@@ -383,7 +592,15 @@ export const TOOL_REGISTRY: RegisteredTool[] = [
   { definition: listDirectoryDef, executor: listDirectory, requiresApproval: false },
   { definition: getDiagnosticsDef, executor: getDiagnostics, requiresApproval: false },
   { definition: runTestsDef, executor: runTests, requiresApproval: true },
-  { definition: getGitDiffDef, executor: getGitDiff, requiresApproval: false },
+  { definition: gitDiffDef, executor: gitDiffTool, requiresApproval: false },
+  { definition: gitStatusDef, executor: gitStatus, requiresApproval: false },
+  { definition: gitStageDef, executor: gitStage, requiresApproval: true },
+  { definition: gitCommitDef, executor: gitCommit, requiresApproval: true },
+  { definition: gitLogDef, executor: gitLog, requiresApproval: false },
+  { definition: gitPushDef, executor: gitPush, requiresApproval: true },
+  { definition: gitPullDef, executor: gitPull, requiresApproval: true },
+  { definition: gitBranchDef, executor: gitBranch, requiresApproval: true },
+  { definition: gitStashDef, executor: gitStash, requiresApproval: true },
 ];
 
 export const SPAWN_AGENT_DEFINITION: ToolDefinition = {

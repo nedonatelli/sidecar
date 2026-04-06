@@ -77,6 +77,74 @@ export class GitCLI {
     return { summary: summary || 'No changes.', diff: diff || 'No diff output.' };
   }
 
+  async status(): Promise<string> {
+    const output = await this.exec(['status', '--short']);
+    return output || 'Working tree clean.';
+  }
+
+  async stage(files?: string[]): Promise<string> {
+    if (files && files.length > 0) {
+      await this.exec(['add', ...files]);
+    } else {
+      await this.exec(['add', '-A']);
+    }
+    const output = await this.exec(['diff', '--cached', '--stat']);
+    return output ? `Staged:\n${output}` : 'No changes to stage.';
+  }
+
+  async commit(message: string): Promise<string> {
+    const staged = await this.exec(['diff', '--cached', '--stat']);
+    if (!staged) {
+      return 'Nothing to commit — no staged changes. Use git_stage first.';
+    }
+
+    const fullMessage = `${message}\n\nCo-Authored-By: SideCar <sidecar-bot@users.noreply.github.com>`;
+    await this.exec(['commit', '-m', fullMessage]);
+
+    const log = await this.exec(['log', '--oneline', '-1']);
+    return `Committed: ${log}\nFiles:\n${staged}`;
+  }
+
+  async stash(action: string = 'push', options?: { message?: string; index?: number }): Promise<string> {
+    switch (action) {
+      case 'push': {
+        const args = ['stash', 'push'];
+        if (options?.message) args.push('-m', options.message);
+        return (await this.exec(args)) || 'No local changes to stash.';
+      }
+      case 'pop': {
+        const args = ['stash', 'pop'];
+        if (options?.index !== undefined) args.push(`stash@{${options.index}}`);
+        return (await this.exec(args)) || 'Stash popped.';
+      }
+      case 'apply': {
+        const args = ['stash', 'apply'];
+        if (options?.index !== undefined) args.push(`stash@{${options.index}}`);
+        return (await this.exec(args)) || 'Stash applied.';
+      }
+      case 'list': {
+        return (await this.exec(['stash', 'list'])) || 'No stashes.';
+      }
+      case 'drop': {
+        const args = ['stash', 'drop'];
+        if (options?.index !== undefined) args.push(`stash@{${options.index}}`);
+        return (await this.exec(args)) || 'Stash dropped.';
+      }
+      default:
+        return `Unknown stash action: ${action}. Use push, pop, apply, list, or drop.`;
+    }
+  }
+
+  async createBranch(name: string): Promise<string> {
+    await this.exec(['checkout', '-b', name]);
+    return `Created and switched to branch: ${name}`;
+  }
+
+  async switchBranch(name: string): Promise<string> {
+    await this.exec(['checkout', name]);
+    return `Switched to branch: ${name}`;
+  }
+
   async getRemoteUrl(): Promise<string | null> {
     try {
       return await this.exec(['remote', 'get-url', 'origin']);
@@ -89,8 +157,9 @@ export class GitCLI {
     return this.exec(['branch', '--show-current']);
   }
 
-  async listBranches(): Promise<string[]> {
-    const output = await this.exec(['branch', '--format=%(refname:short)']);
+  async listBranches(all: boolean = false): Promise<string[]> {
+    const args = all ? ['branch', '-a'] : ['branch', '--format=%(refname:short)'];
+    const output = await this.exec(args);
     return output ? output.split('\n') : [];
   }
 }
