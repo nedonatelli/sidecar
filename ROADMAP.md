@@ -2,7 +2,7 @@
 
 This document tracks planned improvements and features for SideCar. Items are grouped by theme and roughly prioritized within each group.
 
-Last updated: 2026-04-06 (v0.22.0)
+Last updated: 2026-04-06 (v0.22.2)
 
 ---
 
@@ -62,6 +62,49 @@ Support multiple parallel conversation branches from a single chat:
 - Named threads with independent context
 - Thread picker in the UI sidebar
 - Per-thread history persistence
+
+---
+
+## Modes & Workflows
+
+### Custom modes
+User-defined agent modes (e.g., Architect, Coder, Debugger) with different system prompts, tool access, and behaviors per mode. Ship 3 built-in modes and let users create their own via `sidecar.customModes` setting. Inspired by Kilo Code's mode system.
+
+### Background agents
+Run agent tasks concurrently in the background while the user continues working. Build on the existing `spawn_agent` tool. Background agents should request permissions upfront, run independently, and surface results when complete.
+
+### Auto mode
+An intelligent approval classifier that evaluates each tool call in real-time to decide whether it needs user confirmation. Sits between cautious and autonomous modes — learns from the user's approval patterns to reduce friction without sacrificing safety.
+
+---
+
+## Model & Provider Support
+
+### OpenRouter support
+Add OpenRouter as a third backend option alongside Ollama and Anthropic. A single API key gives access to 400+ models (GPT-4, Gemini, Mistral, Llama, etc.). Requires implementing the OpenRouter API format and model listing.
+
+### Arena mode (model comparison)
+Send the same prompt to two models side-by-side and compare responses in parallel columns. Users can vote on which response is better. Useful for evaluating which model works best for different tasks. Inspired by Windsurf's Arena Mode.
+
+---
+
+## Browser & Web
+
+### Browser automation
+Built-in browser automation powered by Playwright MCP for testing and interacting with web apps. The agent can navigate pages, click elements, fill forms, take screenshots, and verify UI behavior. Ship as an optional built-in MCP server.
+
+---
+
+## Advanced Context & Intelligence
+
+### Deep codebase indexing
+Build a symbol graph with component connections, data models, and dependency tracking. Go beyond file-level context to understand how the codebase fits together — imports, exports, call sites, type hierarchies. Major upgrade to context quality.
+
+### Next edit predictions
+After the user makes a change, anticipate ripple effects and suggest connected edits across the codebase (e.g., updating imports, renaming references, fixing type mismatches). Requires deep codebase indexing as a foundation.
+
+### MCP marketplace
+A discoverable directory of MCP servers that users can browse and install from within SideCar. Show descriptions, install counts, and one-click setup. Could pull from a curated list or a community registry.
 
 ---
 
