@@ -3,7 +3,6 @@ import { SideCarClient } from '../ollama/client.js';
 import type { ChatMessage } from '../ollama/types.js';
 import { getWorkspaceRoot } from '../config/workspace.js';
 import { Uri } from 'vscode';
-import * as path from 'path';
 
 const SPEC_SYSTEM_PROMPT = `You are a software architect. When given a feature request, generate a structured specification with these sections:
 
@@ -30,14 +29,13 @@ Ordered by dependency. Each task should have:
 
 Output ONLY the specification in markdown. Be thorough but concise.`;
 
-export async function generateSpec(
-  client: SideCarClient,
-  featureDescription: string
-): Promise<string | null> {
-  const messages: ChatMessage[] = [{
-    role: 'user',
-    content: `Generate a specification for this feature:\n\n${featureDescription}`,
-  }];
+export async function generateSpec(client: SideCarClient, featureDescription: string): Promise<string | null> {
+  const messages: ChatMessage[] = [
+    {
+      role: 'user',
+      content: `Generate a specification for this feature:\n\n${featureDescription}`,
+    },
+  ];
 
   client.updateSystemPrompt(SPEC_SYSTEM_PROMPT);
 

@@ -7,35 +7,9 @@ export function isLocalOllama(baseUrl: string): boolean {
   return baseUrl.includes('localhost:11434') || baseUrl.includes('127.0.0.1:11434');
 }
 
-// Cost per million tokens (input/output) for known models
-const MODEL_COSTS: Record<string, { input: number; output: number }> = {
-  'claude-opus-4-6': { input: 15, output: 75 },
-  'claude-sonnet-4-6': { input: 3, output: 15 },
-  'claude-haiku-4-5': { input: 0.8, output: 4 },
-};
-
-export function estimateCost(model: string, inputTokens: number, outputTokens: number): number | null {
-  const key = Object.keys(MODEL_COSTS).find((k) => model.includes(k));
-  if (!key) return null; // Local model, free
-  const costs = MODEL_COSTS[key];
-  return (inputTokens * costs.input + outputTokens * costs.output) / 1_000_000;
-}
-
-export function getModel(): string {
-  return workspace.getConfiguration('sidecar').get<string>('model', 'qwen3-coder:30b');
-}
-
-export function getSystemPrompt(): string {
-  return workspace.getConfiguration('sidecar').get<string>('systemPrompt', '');
-}
-
-export function getBaseUrl(): string {
-  return workspace.getConfiguration('sidecar').get<string>('baseUrl', 'http://localhost:11434');
-}
-
-export function getApiKey(): string {
-  return workspace.getConfiguration('sidecar').get<string>('apiKey', 'ollama');
-}
+// ---------------------------------------------------------------------------
+// Typed configuration
+// ---------------------------------------------------------------------------
 
 export interface MCPServerConfig {
   command: string;
@@ -43,17 +17,9 @@ export interface MCPServerConfig {
   env?: Record<string, string>;
 }
 
-export function getToolPermissions(): Record<string, 'allow' | 'deny' | 'ask'> {
-  return workspace.getConfiguration('sidecar').get<Record<string, 'allow' | 'deny' | 'ask'>>('toolPermissions', {});
-}
-
 export interface HookConfig {
   pre?: string;
   post?: string;
-}
-
-export function getHooks(): Record<string, HookConfig> {
-  return workspace.getConfiguration('sidecar').get<Record<string, HookConfig>>('hooks', {});
 }
 
 export interface ScheduledTask {
@@ -69,60 +35,174 @@ export interface EventHookConfig {
   onDelete?: string;
 }
 
-export function getEventHooks(): EventHookConfig {
-  return workspace.getConfiguration('sidecar').get<EventHookConfig>('eventHooks', {});
-}
-
-export function getScheduledTasks(): ScheduledTask[] {
-  return workspace.getConfiguration('sidecar').get<ScheduledTask[]>('scheduledTasks', []);
-}
-
 export interface CustomToolConfig {
   name: string;
   description: string;
   command: string;
 }
 
+export interface SideCarConfig {
+  model: string;
+  systemPrompt: string;
+  baseUrl: string;
+  apiKey: string;
+  includeActiveFile: boolean;
+  planMode: boolean;
+  agentMode: 'cautious' | 'autonomous' | 'manual';
+  agentMaxIterations: number;
+  agentMaxTokens: number;
+  enableInlineCompletions: boolean;
+  completionModel: string;
+  completionMaxTokens: number;
+  completionDebounceMs: number;
+  toolPermissions: Record<string, 'allow' | 'deny' | 'ask'>;
+  hooks: Record<string, HookConfig>;
+  eventHooks: EventHookConfig;
+  scheduledTasks: ScheduledTask[];
+  customTools: CustomToolConfig[];
+  mcpServers: Record<string, MCPServerConfig>;
+}
+
+/**
+ * Read all SideCar settings from workspace configuration in a single call.
+ */
+export function getConfig(): SideCarConfig {
+  const cfg = workspace.getConfiguration('sidecar');
+  return {
+    model: cfg.get<string>('model', 'qwen3-coder:30b'),
+    systemPrompt: cfg.get<string>('systemPrompt', ''),
+    baseUrl: cfg.get<string>('baseUrl', 'http://localhost:11434'),
+    apiKey: cfg.get<string>('apiKey', 'ollama'),
+    includeActiveFile: cfg.get<boolean>('includeActiveFile', true),
+    planMode: cfg.get<boolean>('planMode', false),
+    agentMode: cfg.get<'cautious' | 'autonomous' | 'manual'>('agentMode', 'cautious'),
+    agentMaxIterations: cfg.get<number>('agentMaxIterations', 25),
+    agentMaxTokens: cfg.get<number>('agentMaxTokens', 100000),
+    enableInlineCompletions: cfg.get<boolean>('enableInlineCompletions', false),
+    completionModel: cfg.get<string>('completionModel', ''),
+    completionMaxTokens: cfg.get<number>('completionMaxTokens', 256),
+    completionDebounceMs: cfg.get<number>('completionDebounceMs', 300),
+    toolPermissions: cfg.get<Record<string, 'allow' | 'deny' | 'ask'>>('toolPermissions', {}),
+    hooks: cfg.get<Record<string, HookConfig>>('hooks', {}),
+    eventHooks: cfg.get<EventHookConfig>('eventHooks', {}),
+    scheduledTasks: cfg.get<ScheduledTask[]>('scheduledTasks', []),
+    customTools: cfg.get<CustomToolConfig[]>('customTools', []),
+    mcpServers: cfg.get<Record<string, MCPServerConfig>>('mcpServers', {}),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Individual getters (delegate to getConfig for convenience)
+// ---------------------------------------------------------------------------
+
+/** @deprecated Use getConfig().model */
+export function getModel(): string {
+  return getConfig().model;
+}
+
+/** @deprecated Use getConfig().systemPrompt */
+export function getSystemPrompt(): string {
+  return getConfig().systemPrompt;
+}
+
+/** @deprecated Use getConfig().baseUrl */
+export function getBaseUrl(): string {
+  return getConfig().baseUrl;
+}
+
+/** @deprecated Use getConfig().apiKey */
+export function getApiKey(): string {
+  return getConfig().apiKey;
+}
+
+/** @deprecated Use getConfig().toolPermissions */
+export function getToolPermissions(): Record<string, 'allow' | 'deny' | 'ask'> {
+  return getConfig().toolPermissions;
+}
+
+/** @deprecated Use getConfig().hooks */
+export function getHooks(): Record<string, HookConfig> {
+  return getConfig().hooks;
+}
+
+/** @deprecated Use getConfig().eventHooks */
+export function getEventHooks(): EventHookConfig {
+  return getConfig().eventHooks;
+}
+
+/** @deprecated Use getConfig().scheduledTasks */
+export function getScheduledTasks(): ScheduledTask[] {
+  return getConfig().scheduledTasks;
+}
+
+/** @deprecated Use getConfig().customTools */
 export function getCustomTools(): CustomToolConfig[] {
-  return workspace.getConfiguration('sidecar').get<CustomToolConfig[]>('customTools', []);
+  return getConfig().customTools;
 }
 
+/** @deprecated Use getConfig().mcpServers */
 export function getMCPServers(): Record<string, MCPServerConfig> {
-  return workspace.getConfiguration('sidecar').get<Record<string, MCPServerConfig>>('mcpServers', {});
+  return getConfig().mcpServers;
 }
 
+/** @deprecated Use getConfig().planMode */
 export function getPlanMode(): boolean {
-  return workspace.getConfiguration('sidecar').get<boolean>('planMode', false);
+  return getConfig().planMode;
 }
 
+/** @deprecated Use getConfig().agentMode */
 export function getAgentMode(): 'cautious' | 'autonomous' | 'manual' {
-  return workspace.getConfiguration('sidecar').get<'cautious' | 'autonomous' | 'manual'>('agentMode', 'cautious');
+  return getConfig().agentMode;
 }
 
+/** @deprecated Use getConfig().agentMaxIterations */
 export function getAgentMaxIterations(): number {
-  return workspace.getConfiguration('sidecar').get<number>('agentMaxIterations', 25);
+  return getConfig().agentMaxIterations;
 }
 
+/** @deprecated Use getConfig().agentMaxTokens */
 export function getAgentMaxTokens(): number {
-  return workspace.getConfiguration('sidecar').get<number>('agentMaxTokens', 100000);
+  return getConfig().agentMaxTokens;
 }
 
+/** @deprecated Use getConfig().includeActiveFile */
 export function getIncludeActiveFile(): boolean {
-  return workspace.getConfiguration('sidecar').get<boolean>('includeActiveFile', true);
+  return getConfig().includeActiveFile;
 }
 
+/** @deprecated Use getConfig().enableInlineCompletions */
 export function getEnableInlineCompletions(): boolean {
-  return workspace.getConfiguration('sidecar').get<boolean>('enableInlineCompletions', false);
+  return getConfig().enableInlineCompletions;
 }
 
+/** @deprecated Use getConfig().completionModel */
 export function getCompletionModel(): string {
-  return workspace.getConfiguration('sidecar').get<string>('completionModel', '');
+  return getConfig().completionModel;
 }
 
+/** @deprecated Use getConfig().completionMaxTokens */
 export function getCompletionMaxTokens(): number {
-  return workspace.getConfiguration('sidecar').get<number>('completionMaxTokens', 256);
+  return getConfig().completionMaxTokens;
 }
 
+/** @deprecated Use getConfig().completionDebounceMs */
 export function getCompletionDebounceMs(): number {
-  return workspace.getConfiguration('sidecar').get<number>('completionDebounceMs', 300);
+  return getConfig().completionDebounceMs;
+}
+
+// ---------------------------------------------------------------------------
+// Cost estimation
+// ---------------------------------------------------------------------------
+
+const MODEL_COSTS: Record<string, { input: number; output: number }> = {
+  'claude-opus-4-6': { input: 15, output: 75 },
+  'claude-sonnet-4-6': { input: 3, output: 15 },
+  'claude-haiku-4-5': { input: 0.8, output: 4 },
+};
+
+export function estimateCost(model: string, inputTokens: number, outputTokens: number): number | null {
+  const key = Object.keys(MODEL_COSTS).find((k) => model.includes(k));
+  if (!key) return null;
+  const costs = MODEL_COSTS[key];
+  return (inputTokens * costs.input + outputTokens * costs.output) / 1_000_000;
 }

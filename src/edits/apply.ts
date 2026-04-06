@@ -10,7 +10,7 @@ export async function applyEdit(block: EditBlock): Promise<boolean> {
   const text = doc.getText();
 
   // Exact match first
-  let startIndex = text.indexOf(block.searchText);
+  const startIndex = text.indexOf(block.searchText);
 
   // Fuzzy match: normalize whitespace
   if (startIndex === -1) {
@@ -19,12 +19,11 @@ export async function applyEdit(block: EditBlock): Promise<boolean> {
     const normalizedText = normalize(text);
     const fuzzyIndex = normalizedText.indexOf(normalizedSearch);
     if (fuzzyIndex !== -1) {
-      // Map back to original text position
-      let origPos = 0;
-      let normPos = 0;
-      const trimmedText = text.replace(/^\s+/, (m) => { origPos = m.length; return ''; });
       // Simple approach: find lines containing the search content
-      const searchLines = block.searchText.trim().split('\n').map(l => l.trim());
+      const searchLines = block.searchText
+        .trim()
+        .split('\n')
+        .map((l) => l.trim());
       const docLines = text.split('\n');
       for (let i = 0; i <= docLines.length - searchLines.length; i++) {
         let match = true;
@@ -37,10 +36,7 @@ export async function applyEdit(block: EditBlock): Promise<boolean> {
         if (match) {
           const startLine = i;
           const endLine = i + searchLines.length - 1;
-          const range = new Range(
-            new Position(startLine, 0),
-            new Position(endLine, docLines[endLine].length)
-          );
+          const range = new Range(new Position(startLine, 0), new Position(endLine, docLines[endLine].length));
           const edit = new WorkspaceEdit();
           edit.replace(fileUri, range, block.replaceText);
           return workspace.applyEdit(edit);

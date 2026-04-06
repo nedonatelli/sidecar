@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isLocalOllama } from './settings.js';
+import { isLocalOllama, getConfig } from './settings.js';
 
 describe('isLocalOllama', () => {
   it('returns true for http://localhost:11434', () => {
@@ -32,5 +32,51 @@ describe('isLocalOllama', () => {
 
   it('returns false for empty string', () => {
     expect(isLocalOllama('')).toBe(false);
+  });
+});
+
+describe('getConfig', () => {
+  it('returns an object with all expected keys', () => {
+    const config = getConfig();
+    expect(config).toHaveProperty('model');
+    expect(config).toHaveProperty('systemPrompt');
+    expect(config).toHaveProperty('baseUrl');
+    expect(config).toHaveProperty('apiKey');
+    expect(config).toHaveProperty('includeActiveFile');
+    expect(config).toHaveProperty('planMode');
+    expect(config).toHaveProperty('agentMode');
+    expect(config).toHaveProperty('agentMaxIterations');
+    expect(config).toHaveProperty('agentMaxTokens');
+    expect(config).toHaveProperty('enableInlineCompletions');
+    expect(config).toHaveProperty('completionModel');
+    expect(config).toHaveProperty('completionMaxTokens');
+    expect(config).toHaveProperty('completionDebounceMs');
+    expect(config).toHaveProperty('toolPermissions');
+    expect(config).toHaveProperty('hooks');
+    expect(config).toHaveProperty('eventHooks');
+    expect(config).toHaveProperty('scheduledTasks');
+    expect(config).toHaveProperty('customTools');
+    expect(config).toHaveProperty('mcpServers');
+  });
+
+  it('returns correct defaults from mock configuration', () => {
+    const config = getConfig();
+    expect(config.model).toBe('qwen3-coder:30b');
+    expect(config.baseUrl).toBe('http://localhost:11434');
+    expect(config.apiKey).toBe('ollama');
+    expect(config.agentMode).toBe('cautious');
+    expect(config.agentMaxIterations).toBe(25);
+    expect(config.agentMaxTokens).toBe(100000);
+    expect(config.planMode).toBe(false);
+    expect(config.enableInlineCompletions).toBe(false);
+    expect(config.completionMaxTokens).toBe(256);
+    expect(config.completionDebounceMs).toBe(300);
+  });
+
+  it('returns typed object (not undefined values)', () => {
+    const config = getConfig();
+    for (const [key, value] of Object.entries(config)) {
+      expect(value, `config.${key} should not be undefined`).not.toBeUndefined();
+    }
   });
 });
