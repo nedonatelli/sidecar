@@ -36,6 +36,14 @@ Requires vision-capable models (Claude, LLaVA on Ollama).
 ### Prompt caching
 Cache the system prompt and workspace context between messages to reduce latency and token cost on repeated queries. Track cache invalidation on file changes and settings updates. Particularly valuable for Anthropic API where prompt caching reduces input token costs.
 
+### Conversation steering
+Enable smarter, more interactive conversations between the user and the agent:
+- **Clarifying questions**: the model asks for missing context before acting (e.g., "Which test framework are you using?" instead of guessing)
+- **Next-step suggestions**: after completing a task, suggest logical follow-ups (e.g., "Want me to add tests for this?" or "Should I run the linter?")
+- **Mid-task redirection**: allow the user to interrupt a running agent with new instructions without fully aborting — the agent incorporates the feedback and adjusts its approach
+
+Requires system prompt changes, a feedback injection mechanism in the agent loop, and UI support for inline suggestions.
+
 ### Chat threads and branching
 Support multiple parallel conversation branches from a single chat:
 - Branch a conversation at any message to explore alternatives
