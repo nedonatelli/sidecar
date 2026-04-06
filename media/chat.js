@@ -1086,7 +1086,8 @@
 
   // Handle messages from extension
   window.addEventListener('message', (event) => {
-    const { command, content } = event.data;
+    const msg = event.data;
+    const { command, content } = msg;
 
     switch (command) {
       case 'init':

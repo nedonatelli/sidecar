@@ -92,7 +92,12 @@ export class ChatViewProvider implements WebviewViewProvider {
 
     webviewView.webview.onDidReceiveMessage(
       async (msg: WebviewMessage) => {
-        await this.dispatch(msg);
+        try {
+          await this.dispatch(msg);
+        } catch (err: unknown) {
+          const text = err instanceof Error ? err.message : String(err);
+          this.state.postMessage({ command: 'error', content: text });
+        }
       },
       undefined,
       this.context.subscriptions,
