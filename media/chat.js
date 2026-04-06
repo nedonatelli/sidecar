@@ -110,6 +110,85 @@
     }
   }
 
+  const sessionsPanel = document.getElementById('sessions-panel');
+  const sessionsList = document.getElementById('sessions-list');
+  const sessionsEmpty = document.getElementById('sessions-empty');
+
+  document.getElementById('history-btn').addEventListener('click', () => {
+    const isOpen = !sessionsPanel.classList.contains('hidden');
+    sessionsPanel.classList.toggle('hidden');
+    if (!isOpen) {
+      vscode.postMessage({ command: 'listSessions' });
+    }
+  });
+
+  document.getElementById('close-sessions').addEventListener('click', () => {
+    sessionsPanel.classList.add('hidden');
+  });
+
+  function renderSessionsList(sessions) {
+    sessionsList.innerHTML = '';
+    if (!sessions || sessions.length === 0) {
+      sessionsEmpty.classList.remove('hidden');
+      return;
+    }
+    sessionsEmpty.classList.add('hidden');
+    // Sort newest first
+    sessions.sort((a, b) => b.createdAt - a.createdAt);
+    for (const s of sessions) {
+      const item = document.createElement('div');
+      item.className = 'session-item';
+
+      const info = document.createElement('div');
+      info.className = 'session-info';
+
+      const name = document.createElement('div');
+      name.className = 'session-name';
+      name.textContent = s.name;
+
+      const date = document.createElement('div');
+      date.className = 'session-date';
+      date.textContent = new Date(s.createdAt).toLocaleString();
+
+      info.appendChild(name);
+      info.appendChild(date);
+
+      const actions = document.createElement('div');
+      actions.className = 'session-actions';
+
+      const loadBtn = document.createElement('button');
+      loadBtn.className = 'session-load-btn';
+      loadBtn.textContent = 'Load';
+      loadBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        vscode.postMessage({ command: 'loadSession', text: s.id });
+        sessionsPanel.classList.add('hidden');
+      });
+
+      const deleteBtn = document.createElement('button');
+      deleteBtn.className = 'session-delete-btn';
+      deleteBtn.textContent = 'Delete';
+      deleteBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        vscode.postMessage({ command: 'deleteSession', text: s.id });
+      });
+
+      actions.appendChild(loadBtn);
+      actions.appendChild(deleteBtn);
+
+      item.appendChild(info);
+      item.appendChild(actions);
+
+      // Clicking the row also loads
+      item.addEventListener('click', () => {
+        vscode.postMessage({ command: 'loadSession', text: s.id });
+        sessionsPanel.classList.add('hidden');
+      });
+
+      sessionsList.appendChild(item);
+    }
+  }
+
   document.getElementById('new-chat-btn').addEventListener('click', () => {
     vscode.postMessage({ command: 'newChat' });
   });
@@ -540,6 +619,7 @@
       return;
     }
     if (text.trim() === '/sessions') {
+      sessionsPanel.classList.remove('hidden');
       vscode.postMessage({ command: 'listSessions' });
       input.value = '';
       input.style.height = 'auto';
@@ -1259,8 +1339,12 @@
       }
 
       case 'sessionList': {
-        // Could be rendered in a panel — for now just log
-        console.log('Sessions:', content);
+        try {
+          const sessions = JSON.parse(content);
+          renderSessionsList(sessions);
+        } catch (e) {
+          console.error('Failed to parse session list:', e);
+        }
         break;
       }
 

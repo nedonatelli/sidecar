@@ -129,14 +129,14 @@ export class SideCarClient {
     this.systemPrompt = prompt;
   }
 
-  getSystemPrompt(): string {
-    return this.systemPrompt;
-  }
-
   updateConnection(baseUrl: string, apiKey: string) {
     this.baseUrl = baseUrl || DEFAULT_BASE_URL;
     this.apiKey = apiKey || 'ollama';
     this.backend = this.createBackend();
+  }
+
+  getSystemPrompt(): string {
+    return this.systemPrompt;
   }
 
   async getModelContextLength(): Promise<number | null> {

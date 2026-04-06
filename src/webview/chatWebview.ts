@@ -153,6 +153,7 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
     </select>
     <div id="chat-actions">
       <button id="new-chat-btn" title="New Chat">+</button>
+      <button id="history-btn" title="Conversation History">&#9776;</button>
       <button id="undo-btn" title="Undo All Changes">&#8634;</button>
       <button id="export-btn" title="Export as Markdown">&#8681;</button>
     </div>
@@ -168,6 +169,14 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
       <button id="custom-model-use">Use</button>
     </div>
     <div id="model-list"></div>
+  </div>
+  <div id="sessions-panel" class="hidden">
+    <div id="sessions-panel-header">
+      <span>Conversations</span>
+      <button id="close-sessions">&times;</button>
+    </div>
+    <div id="sessions-list"></div>
+    <div id="sessions-empty" class="hidden">No saved conversations. Use <code>/save &lt;name&gt;</code> to save one.</div>
   </div>
   <div id="messages"></div>
   <button id="scroll-to-bottom" class="hidden" title="Scroll to bottom">&#8595;</button>

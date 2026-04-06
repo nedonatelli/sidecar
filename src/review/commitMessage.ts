@@ -56,6 +56,9 @@ export async function generateCommitMessage(client: SideCarClient): Promise<void
           .replace(/\n?```$/, '')
           .trim();
 
+        // Append Co-Authored-By trailer
+        message += '\n\nCo-Authored-By: SideCar <sidecar-bot@users.noreply.github.com>';
+
         const action = await window.showInformationMessage(
           `Commit message: "${message.split('\n')[0]}"`,
           'Copy to Clipboard',
