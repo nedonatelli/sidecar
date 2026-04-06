@@ -1,7 +1,7 @@
 import { Disposable } from 'vscode';
 import type { ScheduledTask } from '../config/settings.js';
 import { SideCarClient } from '../ollama/client.js';
-import { getModel, getBaseUrl, getApiKey } from '../config/settings.js';
+import { getConfig } from '../config/settings.js';
 import { runAgentLoop } from './loop.js';
 import type { AgentLogger } from './logger.js';
 import type { MCPManager } from './mcpManager.js';
@@ -37,7 +37,8 @@ export class Scheduler implements Disposable {
   private async runTask(task: ScheduledTask): Promise<void> {
     this.logger?.info(`Running scheduled task: ${task.name}`);
 
-    const client = new SideCarClient(getModel(), getBaseUrl(), getApiKey());
+    const config = getConfig();
+    const client = new SideCarClient(config.model, config.baseUrl, config.apiKey);
     const messages = [{ role: 'user' as const, content: task.prompt }];
     const abortController = new AbortController();
 

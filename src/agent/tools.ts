@@ -4,7 +4,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import type { ToolDefinition } from '../ollama/types.js';
 import type { MCPManager } from './mcpManager.js';
-import { getCustomTools } from '../config/settings.js';
+import { getConfig } from '../config/settings.js';
 
 const execAsync = promisify(exec);
 
@@ -396,7 +396,7 @@ export const SPAWN_AGENT_DEFINITION: ToolDefinition = {
 };
 
 function getCustomToolRegistry(): RegisteredTool[] {
-  const configs = getCustomTools();
+  const configs = getConfig().customTools;
   return configs.map((cfg) => ({
     definition: {
       name: `custom_${cfg.name}`,

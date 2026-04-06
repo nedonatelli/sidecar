@@ -1,8 +1,9 @@
 import type { ChatState } from '../chatState.js';
 import type { LibraryModelUI } from '../chatWebview.js';
-import { getModel, getBaseUrl, getApiKey } from '../../config/settings.js';
+import { getConfig } from '../../config/settings.js';
 
 export async function loadModels(state: ChatState): Promise<void> {
+  const config = getConfig();
   try {
     const started = await ensureReachable(state);
     if (!started) {
@@ -10,13 +11,12 @@ export async function loadModels(state: ChatState): Promise<void> {
         command: 'error',
         content: state.client.isLocalOllama()
           ? 'Cannot start Ollama. Make sure Ollama is installed and in your PATH.'
-          : `Cannot reach API at ${getBaseUrl()}. Check your baseUrl and apiKey settings.`,
+          : `Cannot reach API at ${config.baseUrl}. Check your baseUrl and apiKey settings.`,
       });
       return;
     }
 
     const libraryModels = await state.client.listLibraryModels();
-    const currentModel = getModel();
 
     const modelsUI: LibraryModelUI[] = libraryModels.map((m) => ({
       name: m.name,
@@ -24,14 +24,14 @@ export async function loadModels(state: ChatState): Promise<void> {
     }));
 
     state.postMessage({ command: 'setModels', models: modelsUI });
-    state.postMessage({ command: 'setCurrentModel', currentModel });
+    state.postMessage({ command: 'setCurrentModel', currentModel: config.model });
   } catch (err) {
     console.error('Failed to load models:', err);
     state.postMessage({
       command: 'error',
       content: state.client.isLocalOllama()
         ? 'Cannot connect to Ollama. Make sure Ollama is running on localhost:11434.'
-        : `Cannot connect to API at ${getBaseUrl()}.`,
+        : `Cannot connect to API at ${config.baseUrl}.`,
     });
   }
 }
@@ -73,14 +73,14 @@ export async function handleInstallModel(state: ChatState, modelName: string): P
 }
 
 async function ensureReachable(state: ChatState): Promise<boolean> {
+  const config = getConfig();
   try {
-    const baseUrl = getBaseUrl();
-    const checkUrl = state.client.isLocalOllama() ? `${baseUrl}/api/tags` : baseUrl;
+    const checkUrl = state.client.isLocalOllama() ? `${config.baseUrl}/api/tags` : config.baseUrl;
     const response = await fetch(checkUrl, {
       headers: state.client.isLocalOllama()
         ? {}
         : {
-            'x-api-key': getApiKey(),
+            'x-api-key': config.apiKey,
             'anthropic-version': '2023-06-01',
           },
     });
@@ -88,7 +88,4 @@ async function ensureReachable(state: ChatState): Promise<boolean> {
   } catch {
     return false;
   }
-
-  // Note: auto-starting Ollama is handled in chatHandlers.ensureProviderRunning
-  // This is a simpler check used only for model listing
 }

@@ -1,7 +1,7 @@
 import { window, workspace } from 'vscode';
 import * as path from 'path';
 import type { ChatState } from '../chatState.js';
-import { getModel, getBaseUrl, getApiKey, getAgentMode } from '../../config/settings.js';
+import { getConfig } from '../../config/settings.js';
 import { handleUserMessage } from './chatHandlers.js';
 import { parseBatchInput, runBatch } from '../../agent/batch.js';
 import { generateInsightReport } from '../../agent/insightReport.js';
@@ -38,8 +38,9 @@ export async function handleBatch(state: ChatState, text: string): Promise<void>
   const abortController = new AbortController();
   state.abortController = abortController;
 
-  state.client.updateConnection(getBaseUrl(), getApiKey());
-  state.client.updateModel(getModel());
+  const config = getConfig();
+  state.client.updateConnection(config.baseUrl, config.apiKey);
+  state.client.updateModel(config.model);
 
   await runBatch(
     state.client,
@@ -53,7 +54,7 @@ export async function handleBatch(state: ChatState, text: string): Promise<void>
       });
     },
     abortController.signal,
-    { logger: state.agentLogger, mcpManager: state.mcpManager, approvalMode: getAgentMode() },
+    { logger: state.agentLogger, mcpManager: state.mcpManager, approvalMode: config.agentMode },
   );
 
   state.postMessage({ command: 'assistantMessage', content: '\nBatch complete.\n' });
@@ -80,8 +81,9 @@ export async function handleGenerateDoc(state: ChatState): Promise<void> {
   const fileName = path.basename(doc.fileName);
 
   state.postMessage({ command: 'setLoading', isLoading: true });
-  state.client.updateConnection(getBaseUrl(), getApiKey());
-  state.client.updateModel(getModel());
+  const config = getConfig();
+  state.client.updateConnection(config.baseUrl, config.apiKey);
+  state.client.updateModel(config.model);
 
   const result = await generateDocumentation(state.client, code, language, fileName);
   if (result) {
@@ -95,8 +97,9 @@ export async function handleGenerateDoc(state: ChatState): Promise<void> {
 
 export async function handleSpec(state: ChatState, description: string): Promise<void> {
   state.postMessage({ command: 'setLoading', isLoading: true });
-  state.client.updateConnection(getBaseUrl(), getApiKey());
-  state.client.updateModel(getModel());
+  const config = getConfig();
+  state.client.updateConnection(config.baseUrl, config.apiKey);
+  state.client.updateModel(config.model);
 
   const spec = await generateSpec(state.client, description);
   if (spec) {

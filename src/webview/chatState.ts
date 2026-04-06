@@ -9,7 +9,7 @@ import type { MCPManager } from '../agent/mcpManager.js';
 import type { TerminalManager } from '../terminal/manager.js';
 import type { WorkspaceIndex } from '../config/workspaceIndex.js';
 import type { ExtensionMessage } from './chatWebview.js';
-import { getModel, getBaseUrl, getApiKey } from '../config/settings.js';
+import { getConfig } from '../config/settings.js';
 
 /**
  * Shared mutable state for the chat view.
@@ -35,7 +35,8 @@ export class ChatState {
     readonly mcpManager: MCPManager,
     private _postMessage: (msg: ExtensionMessage) => void,
   ) {
-    this.client = new SideCarClient(getModel(), getBaseUrl(), getApiKey());
+    const config = getConfig();
+    this.client = new SideCarClient(config.model, config.baseUrl, config.apiKey);
     this.sessionManager = new SessionManager(context.globalState);
     this.metricsCollector = new MetricsCollector(context.workspaceState);
   }
