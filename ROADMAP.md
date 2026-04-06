@@ -124,6 +124,58 @@ Coordinate multiple agents working on related tasks from a single prompt. For ex
 
 ---
 
+## Quality & Review
+
+### AI code review agent
+Multi-agent PR review with specialized sub-agents for bug detection, security analysis, code quality, and test coverage gaps. Review uncommitted changes or full PRs in-editor with inline annotations. Inspired by CodeRabbit and Qodo's multi-agent review architecture.
+
+### Auto-fix on lint/test failure
+When linter or tests fail after agent edits, automatically feed errors back to the model and iterate without user intervention. Tighter feedback loop than the current test-driven agent loop — no manual re-prompting needed.
+
+### Test coverage analysis
+Show coverage gaps after agent changes, suggest which tests to add, and auto-generate tests targeting uncovered code paths. Integrate with existing coverage tools (c8, istanbul, coverage.py, go test -cover).
+
+---
+
+## Input & Accessibility
+
+### Voice input
+Hold a key and speak prompts instead of typing. Use the Web Speech API or a local speech-to-text model for transcription. Approximately 3x faster than typing for natural language instructions. Claude Code and Codex both shipped voice input in early 2026.
+
+### Web page context
+Paste a URL in chat and SideCar fetches the page content (docs, Stack Overflow answers, API references) and includes it in context. Useful for referencing external documentation without copy-pasting.
+
+---
+
+## Developer Experience
+
+### Codebase map
+Generate a visual or textual overview of the entire codebase structure — files, modules, dependencies, entry points. Helps the model orient in large projects and gives users a bird's-eye view. Could render as a tree, graph, or markdown summary.
+
+### Auto-commit with smart messages
+Automatically commit after each successful agent edit with generated conventional commit messages. Opt-in via a setting (`sidecar.autoCommit`). Each commit is atomic and revertable. Inspired by Aider's auto-commit behavior.
+
+### Multi-model routing
+Route different task types to different models automatically. For example: fast/small model for completions, strong/large model for complex multi-file edits, cheap model for code review. Configurable via a routing table in settings.
+
+### Cost tracking & budgets
+Real-time cost display per message and per agent run. Daily and weekly spending caps with alerts. Budget limits that pause the agent when exceeded. Critical for Anthropic API users managing costs.
+
+### Onboarding walkthrough
+Interactive first-run tutorial that guides new users through key features — chat, agent mode, tools, slash commands, SIDECAR.md. Reduces time-to-value for new installs. Shows a "Getting Started" card on first launch.
+
+---
+
+## Enterprise & Team
+
+### Team configuration sharing
+Share SIDECAR.md, custom modes, MCP server configs, and tool permissions across a team via a shared config directory or settings sync. Teams define conventions once and every member gets the same agent behavior.
+
+### Telemetry-free guarantee
+Explicit privacy mode with zero telemetry, zero usage data collection, and no network calls except to the configured LLM endpoint. Verifiable via source code (already open-source). Key selling point for enterprise and compliance-sensitive environments.
+
+---
+
 ## Completed (v0.11.0–v0.22.0)
 
 - [x] Slash commands: `/reset`, `/undo`, `/export`, `/model`, `/help`
