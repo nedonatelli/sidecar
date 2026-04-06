@@ -123,6 +123,8 @@ export class ChatViewProvider implements WebviewViewProvider {
         this.state.abort();
         break;
       case 'changeModel':
+        const config = getConfig();
+        this.state.client.updateConnection(config.baseUrl, config.apiKey);
         this.state.client.updateModel(msg.model || 'llama3');
         this.postMessage({ command: 'setCurrentModel', currentModel: msg.model });
         workspace.getConfiguration('sidecar').update('model', msg.model, true);

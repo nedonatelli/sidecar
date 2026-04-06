@@ -300,6 +300,8 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     state.metricsCollector.endRun();
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
+      state.postMessage({ command: 'done' });
+      state.postMessage({ command: 'setLoading', isLoading: false });
       return;
     }
     const errorMessage = err instanceof Error ? err.message : 'Unknown error';

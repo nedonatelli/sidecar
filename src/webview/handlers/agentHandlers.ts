@@ -48,24 +48,35 @@ export async function handleBatch(state: ChatState, text: string): Promise<void>
   state.client.updateConnection(config.baseUrl, config.apiKey);
   state.client.updateModel(config.model);
 
-  await runBatch(
-    state.client,
-    tasks,
-    mode,
-    (taskId, status, result) => {
-      const preview = result.length > 100 ? result.slice(0, 100) + '...' : result;
-      state.postMessage({
-        command: 'assistantMessage',
-        content: `Task ${taskId + 1}: ${status}${preview ? ' — ' + preview : ''}\n`,
-      });
-    },
-    abortController.signal,
-    { logger: state.agentLogger, mcpManager: state.mcpManager, approvalMode: config.agentMode },
-  );
+  try {
+    await runBatch(
+      state.client,
+      tasks,
+      mode,
+      (taskId, status, result) => {
+        const preview = result.length > 100 ? result.slice(0, 100) + '...' : result;
+        state.postMessage({
+          command: 'assistantMessage',
+          content: `Task ${taskId + 1}: ${status}${preview ? ' — ' + preview : ''}\n`,
+        });
+      },
+      abortController.signal,
+      { logger: state.agentLogger, mcpManager: state.mcpManager, approvalMode: config.agentMode },
+    );
 
-  state.postMessage({ command: 'assistantMessage', content: '\nBatch complete.\n' });
-  state.postMessage({ command: 'done' });
-  state.abortController = null;
+    state.postMessage({ command: 'assistantMessage', content: '\nBatch complete.\n' });
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      state.postMessage({ command: 'assistantMessage', content: '\nBatch interrupted.\n' });
+    } else {
+      const msg = err instanceof Error ? err.message : String(err);
+      state.postMessage({ command: 'error', content: `Batch error: ${msg}` });
+    }
+  } finally {
+    state.postMessage({ command: 'done' });
+    state.postMessage({ command: 'setLoading', isLoading: false });
+    state.abortController = null;
+  }
 }
 
 export async function handleInsight(state: ChatState): Promise<void> {
