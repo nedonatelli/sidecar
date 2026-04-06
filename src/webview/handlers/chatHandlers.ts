@@ -45,7 +45,7 @@ function getActiveFileContext(): string {
   return `[Active file: ${fileName}, cursor at line ${cursorLine}]\n\`\`\`\n${truncated}\n\`\`\`\n\n`;
 }
 
-function classifyError(message: string): {
+export function classifyError(message: string): {
   errorType: 'connection' | 'auth' | 'model' | 'timeout' | 'unknown';
   errorAction?: string;
   errorActionCommand?: string;
@@ -558,7 +558,7 @@ export async function handleExportChat(state: ChatState): Promise<void> {
   window.showInformationMessage(`Chat exported to ${path.basename(uri.fsPath)}`);
 }
 
-function languageToExtension(lang: string): string {
+export function languageToExtension(lang: string): string {
   const map: Record<string, string> = {
     typescript: '.ts',
     javascript: '.js',

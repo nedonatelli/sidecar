@@ -21,6 +21,7 @@ export const workspace = {
     writeFile: async (_uri: unknown, _content: Uint8Array) => {},
     readDirectory: async (_uri: unknown) => [],
     stat: async (_uri: unknown) => ({ type: 1, size: 100 }),
+    rename: async (_source: unknown, _target: unknown, _options?: unknown) => {},
     createDirectory: async (_uri: unknown) => {},
   },
   findFiles: async () => [],
