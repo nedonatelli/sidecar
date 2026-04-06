@@ -1,4 +1,4 @@
-import { window, workspace, Uri } from 'vscode';
+import { window, workspace, Uri, RelativePattern } from 'vscode';
 import * as path from 'path';
 import { promisify } from 'util';
 import { exec } from 'child_process';
@@ -19,17 +19,38 @@ import { runAgentLoop } from '../../agent/loop.js';
 
 const execAsync = promisify(exec);
 
+let sidecarMdCache: string | null | undefined;
+let sidecarMdWatcher: { dispose(): void } | null = null;
+
 async function loadSidecarMd(): Promise<string | null> {
+  if (sidecarMdCache !== undefined) return sidecarMdCache;
+
   const rootUri = workspace.workspaceFolders?.[0]?.uri;
   if (!rootUri) return null;
+
   try {
     const fileUri = Uri.joinPath(rootUri, 'SIDECAR.md');
     const bytes = await workspace.fs.readFile(fileUri);
     const content = Buffer.from(bytes).toString('utf-8').trim();
-    return content || null;
+    sidecarMdCache = content || null;
   } catch {
-    return null;
+    sidecarMdCache = null;
   }
+
+  // Watch for changes and invalidate cache
+  if (!sidecarMdWatcher) {
+    const pattern = new RelativePattern(rootUri, 'SIDECAR.md');
+    const watcher = workspace.createFileSystemWatcher(pattern);
+    const invalidate = () => {
+      sidecarMdCache = undefined;
+    };
+    watcher.onDidChange(invalidate);
+    watcher.onDidCreate(invalidate);
+    watcher.onDidDelete(invalidate);
+    sidecarMdWatcher = watcher;
+  }
+
+  return sidecarMdCache;
 }
 
 function getActiveFileContext(): string {

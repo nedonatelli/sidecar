@@ -10,6 +10,31 @@ import type {
 import { fetchWithRetry } from './retry.js';
 
 /**
+ * Split the system prompt into cached (stable) and dynamic blocks.
+ * The stable prefix (base prompt + SIDECAR.md + user config) is marked
+ * with cache_control so Anthropic caches it server-side (~90% cheaper).
+ * The dynamic workspace context is sent uncached since it changes per query.
+ */
+const WORKSPACE_CONTEXT_MARKER = '## Workspace Structure';
+
+export function buildSystemBlocks(
+  systemPrompt: string,
+): { type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }[] {
+  const markerIndex = systemPrompt.indexOf(WORKSPACE_CONTEXT_MARKER);
+  if (markerIndex <= 0) {
+    // No workspace context — cache the entire system prompt
+    return [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }];
+  }
+  // Split into stable prefix (cached) and dynamic workspace context (not cached)
+  const stablePrefix = systemPrompt.slice(0, markerIndex).trimEnd();
+  const dynamicContext = systemPrompt.slice(markerIndex);
+  return [
+    { type: 'text', text: stablePrefix, cache_control: { type: 'ephemeral' } },
+    { type: 'text', text: dynamicContext },
+  ];
+}
+
+/**
  * Backend for the Anthropic Messages API (/v1/messages).
  * Used when connecting to https://api.anthropic.com or any Anthropic-compatible proxy.
  */
@@ -38,7 +63,7 @@ export class AnthropicBackend implements ApiBackend {
     };
 
     if (systemPrompt) {
-      body.system = systemPrompt;
+      body.system = buildSystemBlocks(systemPrompt);
     }
 
     if (tools && tools.length > 0) {
@@ -173,7 +198,7 @@ export class AnthropicBackend implements ApiBackend {
     };
 
     if (systemPrompt) {
-      body.system = systemPrompt;
+      body.system = buildSystemBlocks(systemPrompt);
     }
 
     const response = await fetchWithRetry(this.messagesUrl, {
