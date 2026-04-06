@@ -8,6 +8,34 @@
 
 > A free, open-source, local-first AI coding assistant. No subscriptions, no data leaving your machine.
 
+## Why SideCar?
+
+Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins**. SideCar is a **full agentic coding assistant** — closer to Claude Code or Cursor than to a chatbot.
+
+| Capability | SideCar | Continue | Llama Coder | Twinny | Copilot (free) |
+|---|---|---|---|---|---|
+| Chat with local models | Yes | Yes | No | Yes | Yes |
+| Inline completions | Yes | Yes | Yes | Yes | Yes |
+| Autonomous agent loop | **Yes** | No | No | No | No |
+| File read/write/edit tools | **Yes** | No | No | No | No |
+| Run commands & tests | **Yes** | No | No | No | No |
+| Diagnostics integration | **Yes** | No | No | No | No |
+| Security & secrets scanning | **Yes** | No | No | No | No |
+| MCP server support | **Yes** | No | No | No | No |
+| Hooks & scheduled tasks | **Yes** | No | No | No | No |
+| Git integration (commit, PR) | **Yes** | No | No | No | No |
+| Diff preview & undo/rollback | **Yes** | No | No | No | No |
+| Fully offline / self-hosted | Yes | Yes | Yes | Yes | No |
+| Free & open-source | Yes | Yes | Yes | Yes | Freemium |
+
+### What sets SideCar apart
+
+- **True agentic autonomy** — SideCar doesn't just answer questions. It reads your code, edits files, runs tests, reads the errors, and iterates until the task is done. Other local AI extensions stop at chat and autocomplete.
+- **No vendor lock-in** — Use Ollama for fully offline operation or the Anthropic API for Claude models. Same interface, your choice.
+- **Security from the ground up** — Built-in secrets detection and vulnerability scanning run automatically after every file write. No other local-first extension does this.
+- **Extensible with MCP** — Connect external tools (databases, APIs, custom scripts) via the Model Context Protocol. SideCar treats them as first-class tools alongside its built-in ones.
+- **Production-grade safety** — Agent mode controls (cautious/autonomous/manual), iteration limits, token budgets, diff preview, and one-click rollback keep you in control.
+
 ## Features
 
 ### Agentic Coding Assistant
