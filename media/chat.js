@@ -817,6 +817,10 @@
       }
 
       case 'toolCall': {
+        // Finish the current assistant message so the next text stream
+        // creates a new response block after the tool call/result.
+        finishAssistantMessage();
+
         const details = document.createElement('details');
         details.className = 'tool-call';
         const summary = document.createElement('summary');
