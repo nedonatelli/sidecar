@@ -2,7 +2,7 @@
 
 This document tracks planned improvements and features for SideCar. Items are grouped by theme and roughly prioritized within each group.
 
-Last updated: 2026-04-05 (v0.16.0)
+Last updated: 2026-04-05 (v0.17.0)
 
 ---
 
@@ -29,22 +29,6 @@ Index project documentation (READMEs, wiki pages, doc comments, markdown files) 
 
 ### Agent memory
 Persistent memory across sessions about project patterns, conventions, user preferences, and past decisions. Stored per-workspace, surfaced in context when relevant. Distinct from chat history — captures insights and learned facts rather than raw conversation.
-
----
-
-## Developer Workflow
-
-### Automated test generation
-First-class `/test` command that generates tests for the current file or selection. Auto-detects the test framework (Vitest, Jest, pytest, Go test, etc.), generates test cases, and runs them to verify they pass.
-
-### Lint-fix integration
-Auto-run the project's linter after agent edits. Feed lint errors back to the model for automatic fixing. Configurable via `sidecar.lintCommand` setting. Loop until clean or max attempts reached.
-
-### Dependency analysis
-Visualize import graphs, find unused dependencies, identify circular imports, and suggest cleanup. Surface as a `/deps` command or integrate into the workspace index.
-
-### Code generation templates
-Scaffolding for common patterns — React components, API endpoints, test suites, database models, CLI commands. User-configurable templates stored in `.sidecar/templates/`. Invoked via `/scaffold <template>`.
 
 ---
 
@@ -108,3 +92,7 @@ Support multiple parallel conversation branches from a single chat:
 - [x] Diff preview before apply: VS Code diff editor for write_file/edit_file in cautious mode
 - [x] Token usage & cost dashboard: `/usage` command with per-run history and tool breakdown
 - [x] Context window visualization: `/context` command with token counts per section
+- [x] Automated test generation: `/test` with framework auto-detection
+- [x] Lint-fix integration: `/lint` with linter auto-detection
+- [x] Dependency analysis: `/deps` with unused/outdated checks
+- [x] Code generation templates: `/scaffold` with 8 built-in template types

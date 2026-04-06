@@ -9,6 +9,10 @@ import { generateUsageReport } from '../../agent/usageReport.js';
 import { generateContextReport } from '../../agent/contextReport.js';
 import { generateSpec, saveSpec } from '../../agent/specDriven.js';
 import { generateDocumentation } from '../../agent/docGenerator.js';
+import { generateTests } from '../../agent/testGenerator.js';
+import { runLint } from '../../agent/lintFix.js';
+import { analyzeDependencies } from '../../agent/depAnalysis.js';
+import { generateScaffold, getTemplateList } from '../../agent/scaffold.js';
 
 export async function handleExecutePlan(state: ChatState): Promise<void> {
   if (!state.pendingPlan || state.pendingPlanMessages.length === 0) return;
@@ -127,4 +131,85 @@ export async function handleContext(state: ChatState): Promise<void> {
   const report = generateContextReport(systemPrompt, state.messages, config.model, config.agentMaxTokens);
   const doc = await workspace.openTextDocument({ content: report, language: 'markdown' });
   await window.showTextDocument(doc, { preview: true });
+}
+
+export async function handleGenerateTests(state: ChatState): Promise<void> {
+  const editor = window.activeTextEditor;
+  if (!editor) {
+    state.postMessage({ command: 'error', content: 'No active editor. Open a file first.' });
+    return;
+  }
+  const doc = editor.document;
+  const code = editor.selection.isEmpty ? doc.getText() : doc.getText(editor.selection);
+  const language = doc.languageId;
+  const fileName = path.basename(doc.fileName);
+
+  state.postMessage({ command: 'setLoading', isLoading: true });
+  const config = getConfig();
+  state.client.updateConnection(config.baseUrl, config.apiKey);
+  state.client.updateModel(config.model);
+
+  const result = await generateTests(state.client, code, language, fileName);
+  if (result) {
+    state.postMessage({
+      command: 'assistantMessage',
+      content: `Generated tests for **${fileName}** → \`${result.testFileName}\`\n\n\`\`\`${language}:${result.testFileName}\n${result.content}\n\`\`\``,
+    });
+  } else {
+    state.postMessage({ command: 'error', content: 'Failed to generate tests.' });
+  }
+  state.postMessage({ command: 'done' });
+  state.postMessage({ command: 'setLoading', isLoading: false });
+}
+
+export async function handleLint(state: ChatState, command?: string): Promise<void> {
+  state.postMessage({ command: 'setLoading', isLoading: true });
+  const { output, success } = await runLint(command);
+  state.postMessage({
+    command: 'assistantMessage',
+    content: success ? `✓ Lint passed:\n\`\`\`\n${output}\n\`\`\`` : `✗ Lint issues:\n\`\`\`\n${output}\n\`\`\``,
+  });
+  state.postMessage({ command: 'done' });
+  state.postMessage({ command: 'setLoading', isLoading: false });
+}
+
+export async function handleDeps(state: ChatState): Promise<void> {
+  state.postMessage({ command: 'setLoading', isLoading: true });
+  const report = await analyzeDependencies();
+  const doc = await workspace.openTextDocument({ content: report, language: 'markdown' });
+  await window.showTextDocument(doc, { preview: true });
+  state.postMessage({ command: 'done' });
+  state.postMessage({ command: 'setLoading', isLoading: false });
+}
+
+export async function handleScaffold(state: ChatState, text: string): Promise<void> {
+  const parts = text.trim().split(/\s+/);
+  const templateType = parts[0] || '';
+  const description = parts.slice(1).join(' ');
+
+  if (!templateType) {
+    state.postMessage({
+      command: 'assistantMessage',
+      content: getTemplateList(),
+    });
+    state.postMessage({ command: 'done' });
+    return;
+  }
+
+  const editor = window.activeTextEditor;
+  const language = editor?.document.languageId || 'typescript';
+
+  state.postMessage({ command: 'setLoading', isLoading: true });
+  const config = getConfig();
+  state.client.updateConnection(config.baseUrl, config.apiKey);
+  state.client.updateModel(config.model);
+
+  const result = await generateScaffold(state.client, templateType, description, language);
+  if (result) {
+    state.postMessage({ command: 'assistantMessage', content: `\`\`\`${language}\n${result}\n\`\`\`` });
+  } else {
+    state.postMessage({ command: 'error', content: `Failed to generate ${templateType} scaffold.` });
+  }
+  state.postMessage({ command: 'done' });
+  state.postMessage({ command: 'setLoading', isLoading: false });
 }

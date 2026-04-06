@@ -41,6 +41,10 @@ import {
   handleGenerateDoc,
   handleUsage,
   handleContext,
+  handleGenerateTests,
+  handleLint,
+  handleDeps,
+  handleScaffold,
 } from './handlers/agentHandlers.js';
 import {
   handleSaveSession,
@@ -213,6 +217,18 @@ export class ChatViewProvider implements WebviewViewProvider {
         break;
       case 'context':
         await handleContext(this.state);
+        break;
+      case 'generateTests':
+        await handleGenerateTests(this.state);
+        break;
+      case 'lint':
+        await handleLint(this.state, msg.text);
+        break;
+      case 'deps':
+        await handleDeps(this.state);
+        break;
+      case 'scaffold':
+        await handleScaffold(this.state, msg.text || '');
         break;
     }
   }

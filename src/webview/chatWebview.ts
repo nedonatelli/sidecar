@@ -35,7 +35,11 @@ export interface WebviewMessage {
     | 'confirmResponse'
     | 'scanStaged'
     | 'usage'
-    | 'context';
+    | 'context'
+    | 'generateTests'
+    | 'lint'
+    | 'deps'
+    | 'scaffold';
   images?: { mediaType: string; data: string }[];
   text?: string;
   model?: string;

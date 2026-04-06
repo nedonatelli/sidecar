@@ -156,6 +156,10 @@
     { cmd: '/scan', desc: 'Scan staged files for secrets' },
     { cmd: '/usage', desc: 'Token usage & cost dashboard' },
     { cmd: '/context', desc: 'Show context window breakdown' },
+    { cmd: '/test', desc: 'Generate tests for active file' },
+    { cmd: '/lint', desc: 'Run linter and show results' },
+    { cmd: '/deps', desc: 'Analyze project dependencies' },
+    { cmd: '/scaffold', desc: 'Generate code from template' },
   ];
   const autocompleteEl = document.getElementById('slash-autocomplete');
   let acSelectedIndex = -1;
@@ -193,7 +197,7 @@
 
   function selectAutocomplete(cmd) {
     // For commands that take arguments, add a trailing space
-    const needsArg = ['/model', '/batch', '/spec', '/save', '/move', '/clone'].includes(cmd);
+    const needsArg = ['/model', '/batch', '/spec', '/save', '/move', '/clone', '/scaffold'].includes(cmd);
     input.value = needsArg ? cmd + ' ' : cmd;
     input.focus();
     autocompleteEl.classList.add('hidden');
@@ -541,6 +545,34 @@
       input.style.height = 'auto';
       return;
     }
+    if (text.trim() === '/test') {
+      appendMessage('user', '/test');
+      vscode.postMessage({ command: 'generateTests' });
+      input.value = '';
+      input.style.height = 'auto';
+      return;
+    }
+    if (text.trim() === '/lint' || text.startsWith('/lint ')) {
+      appendMessage('user', text);
+      vscode.postMessage({ command: 'lint', text: text.slice(5).trim() || undefined });
+      input.value = '';
+      input.style.height = 'auto';
+      return;
+    }
+    if (text.trim() === '/deps') {
+      appendMessage('user', '/deps');
+      vscode.postMessage({ command: 'deps' });
+      input.value = '';
+      input.style.height = 'auto';
+      return;
+    }
+    if (text.startsWith('/scaffold')) {
+      appendMessage('user', text);
+      vscode.postMessage({ command: 'scaffold', text: text.slice(9).trim() });
+      input.value = '';
+      input.style.height = 'auto';
+      return;
+    }
     if (text.trim() === '/context') {
       appendMessage('user', '/context');
       vscode.postMessage({ command: 'context' });
@@ -608,7 +640,11 @@
           '`/clone <url>` — Clone repository\n' +
           '`/scan` — Scan staged files for secrets\n' +
           '`/usage` — Token usage & cost dashboard\n' +
-          '`/context` — Show context window breakdown',
+          '`/context` — Show context window breakdown\n' +
+          '`/test` — Generate tests for active file\n' +
+          '`/lint` — Run linter and show results\n' +
+          '`/deps` — Analyze project dependencies\n' +
+          '`/scaffold <type>` — Generate code from template',
       );
       input.value = '';
       input.style.height = 'auto';

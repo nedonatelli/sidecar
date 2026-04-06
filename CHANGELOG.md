@@ -2,6 +2,14 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.17.0] - 2026-04-05
+
+### Added
+- **Automated test generation**: `/test` command generates tests for the active file or selection. Auto-detects framework (Vitest, Jest, pytest, Go test, JUnit) and creates a properly named test file via code block
+- **Lint-fix integration**: `/lint` command auto-detects the project's linter (ESLint, Ruff, golangci-lint) from config files and runs it. Optionally pass a custom command: `/lint npx eslint --fix .`
+- **Dependency analysis**: `/deps` command analyzes project dependencies — shows counts, lists, checks for unused packages (Node.js), outdated versions, with Python and Go support
+- **Code generation templates**: `/scaffold <type>` generates boilerplate for common patterns (component, api, test, model, cli, hook, middleware, service). Run `/scaffold` with no args to see available templates
+
 ## [0.16.0] - 2026-04-05
 
 ### Added
