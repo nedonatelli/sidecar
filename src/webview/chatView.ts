@@ -202,6 +202,18 @@ export class ChatViewProvider implements WebviewViewProvider {
     }
   }
 
+  public clearChat(): void {
+    this.state.clearChat();
+  }
+
+  public async undoChanges(): Promise<void> {
+    await handleUndoChanges(this.state);
+  }
+
+  public async exportChat(): Promise<void> {
+    await handleExportChat(this.state);
+  }
+
   public async sendCodeAction(action: string, code: string, fileName: string): Promise<void> {
     const prompt = `${action} this code from ${fileName}:\n\`\`\`\n${code}\n\`\`\``;
     if (this.webviewView) {

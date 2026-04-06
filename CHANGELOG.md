@@ -2,6 +2,26 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.13.0] - 2026-04-05
+
+### Added
+- **Slash command autocomplete**: dropdown appears as you type `/` in the chat input, with command descriptions, arrow key navigation, Tab/Enter to select, Escape to dismiss
+- **Keyboard shortcuts**: `Cmd+L` / `Ctrl+L` to clear chat, `Cmd+Shift+U` / `Ctrl+Shift+U` to undo changes, `Cmd+Shift+E` / `Ctrl+Shift+E` to export chat
+- **Conversation-aware workspace index**: agent file access (read_file, write_file, edit_file) is tracked and used to boost relevance scores — files the agent touches rank higher in subsequent context. Write access boosts more than read. Relevance decays over time so stale accesses fade
+
+## [0.12.0] - 2026-04-05
+
+### Added
+- **Stop button**: Send button toggles to red Stop button during processing to abort the agent loop
+- **Activity bar**: animated progress bar below header showing SideCar is actively working
+- **Tool execution animation**: pulsing indicator on tool calls while they're running
+- **Agent mode dropdown**: header badge replaced with a dropdown to switch between cautious/autonomous/manual modes directly from the UI
+- **42 new handler tests**: chatHandlers, githubHandlers, sessionHandlers (170 total)
+
+### Changed
+- **Settings cleanup**: removed all 18 deprecated individual settings getters, migrated all callers to `getConfig()`
+- Stale `[message with images]` entries filtered from persisted history
+
 ## [0.11.0] - 2026-04-05
 
 ### Added

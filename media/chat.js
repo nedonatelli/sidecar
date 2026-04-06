@@ -138,14 +138,100 @@
     }
   });
 
+  // Slash command definitions for autocomplete
+  const slashCommands = [
+    { cmd: '/help', desc: 'Show available commands' },
+    { cmd: '/reset', desc: 'Clear chat' },
+    { cmd: '/undo', desc: 'Rollback file changes' },
+    { cmd: '/export', desc: 'Export chat as Markdown' },
+    { cmd: '/model', desc: 'Switch model' },
+    { cmd: '/batch', desc: 'Run multiple tasks' },
+    { cmd: '/doc', desc: 'Generate documentation' },
+    { cmd: '/spec', desc: 'Spec-driven development' },
+    { cmd: '/insight', desc: 'Codebase insight report' },
+    { cmd: '/save', desc: 'Save session' },
+    { cmd: '/sessions', desc: 'List sessions' },
+    { cmd: '/move', desc: 'Move/rename file' },
+    { cmd: '/clone', desc: 'Clone repository' },
+  ];
+  const autocompleteEl = document.getElementById('slash-autocomplete');
+  let acSelectedIndex = -1;
+
+  function updateAutocomplete() {
+    const text = input.value;
+    // Only show when text starts with / and is a single line with no spaces yet (or just the command)
+    const match = text.match(/^\/(\S*)$/);
+    if (!match) {
+      autocompleteEl.classList.add('hidden');
+      acSelectedIndex = -1;
+      return;
+    }
+    const query = match[1].toLowerCase();
+    const filtered = slashCommands.filter((c) => c.cmd.slice(1).startsWith(query));
+    if (filtered.length === 0) {
+      autocompleteEl.classList.add('hidden');
+      acSelectedIndex = -1;
+      return;
+    }
+    acSelectedIndex = 0;
+    autocompleteEl.innerHTML = '';
+    filtered.forEach((c, i) => {
+      const item = document.createElement('div');
+      item.className = 'ac-item' + (i === 0 ? ' ac-selected' : '');
+      item.innerHTML = `<span class="ac-cmd">${c.cmd}</span> <span class="ac-desc">${c.desc}</span>`;
+      item.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        selectAutocomplete(c.cmd);
+      });
+      autocompleteEl.appendChild(item);
+    });
+    autocompleteEl.classList.remove('hidden');
+  }
+
+  function selectAutocomplete(cmd) {
+    // For commands that take arguments, add a trailing space
+    const needsArg = ['/model', '/batch', '/spec', '/save', '/move', '/clone'].includes(cmd);
+    input.value = needsArg ? cmd + ' ' : cmd;
+    input.focus();
+    autocompleteEl.classList.add('hidden');
+    acSelectedIndex = -1;
+  }
+
   // Auto-resize textarea
   input.addEventListener('input', () => {
     input.style.height = 'auto';
     input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+    updateAutocomplete();
   });
 
-  // Enter to send, Shift+Enter for newline
+  // Enter to send, Shift+Enter for newline, arrow keys for autocomplete
   input.addEventListener('keydown', (e) => {
+    if (!autocompleteEl.classList.contains('hidden')) {
+      const items = autocompleteEl.querySelectorAll('.ac-item');
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        acSelectedIndex = Math.min(acSelectedIndex + 1, items.length - 1);
+        items.forEach((el, i) => el.classList.toggle('ac-selected', i === acSelectedIndex));
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        acSelectedIndex = Math.max(acSelectedIndex - 1, 0);
+        items.forEach((el, i) => el.classList.toggle('ac-selected', i === acSelectedIndex));
+        return;
+      }
+      if ((e.key === 'Enter' || e.key === 'Tab') && acSelectedIndex >= 0) {
+        e.preventDefault();
+        const selected = items[acSelectedIndex]?.querySelector('.ac-cmd')?.textContent;
+        if (selected) selectAutocomplete(selected);
+        return;
+      }
+      if (e.key === 'Escape') {
+        autocompleteEl.classList.add('hidden');
+        acSelectedIndex = -1;
+        return;
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       submitMessage();

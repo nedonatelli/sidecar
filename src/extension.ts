@@ -84,10 +84,19 @@ export function activate(context: ExtensionContext) {
     }),
   );
 
-  // Keyboard shortcut
+  // Keyboard shortcuts
   context.subscriptions.push(
     commands.registerCommand('sidecar.toggleChat', () => {
       commands.executeCommand('sidecar.chatView.focus');
+    }),
+    commands.registerCommand('sidecar.clearChat', () => {
+      provider.clearChat();
+    }),
+    commands.registerCommand('sidecar.undoChanges', () => {
+      provider.undoChanges();
+    }),
+    commands.registerCommand('sidecar.exportChat', () => {
+      provider.exportChat();
     }),
   );
 

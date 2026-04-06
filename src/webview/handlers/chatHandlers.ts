@@ -80,6 +80,9 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
 
   state.abortController = new AbortController();
 
+  // Decay workspace index relevance so old accesses fade
+  state.workspaceIndex?.decayRelevance();
+
   try {
     const config = getConfig();
     const started = await ensureProviderRunning(state);
@@ -209,6 +212,13 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
             .join(', ');
           state.postMessage({ command: 'toolCall', content: `${name}(${summary})` });
           state.metricsCollector.recordToolStart();
+          // Track file access for workspace index relevance
+          if (state.workspaceIndex && typeof input.path === 'string') {
+            const accessType = name === 'read_file' ? 'read' : 'write';
+            if (['read_file', 'write_file', 'edit_file'].includes(name)) {
+              state.workspaceIndex.trackFileAccess(input.path as string, accessType);
+            }
+          }
         },
         onToolResult: (name, result, isError) => {
           const preview = result.length > 200 ? result.slice(0, 200) + '...' : result;

@@ -173,6 +173,7 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
     <button id="remove-attachment">&times;</button>
   </div>
   <div id="image-preview" class="hidden"></div>
+  <div id="slash-autocomplete" class="hidden"></div>
   <div id="input-area">
     <button id="attach-btn" title="Attach file">&#128206;</button>
     <textarea id="input" rows="1" placeholder="Ask SideCar..."></textarea>

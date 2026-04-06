@@ -349,6 +349,38 @@ body {
   background: var(--vscode-button-secondaryHoverBackground);
 }
 
+#slash-autocomplete {
+  border-top: 1px solid var(--vscode-widget-border);
+  background: var(--vscode-editor-background);
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.ac-item {
+  padding: 6px 12px;
+  cursor: pointer;
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 13px;
+}
+
+.ac-item:hover,
+.ac-item.ac-selected {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.ac-cmd {
+  font-weight: 600;
+  color: var(--vscode-foreground);
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+
+.ac-desc {
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+}
+
 #input-area {
   display: flex;
   padding: 12px;

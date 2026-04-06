@@ -151,6 +151,29 @@ export class WorkspaceIndex implements Disposable {
     }
   }
 
+  /**
+   * Track a file accessed by the agent via tool calls.
+   * Write access gets a bigger boost than read access.
+   */
+  trackFileAccess(relativePath: string, accessType: 'read' | 'write'): void {
+    const node = this.files.get(relativePath);
+    if (node) {
+      const boost = accessType === 'write' ? 0.4 : 0.2;
+      node.relevanceScore = Math.min(1, node.relevanceScore + boost);
+    }
+  }
+
+  /**
+   * Decay all relevance scores slightly so old accesses fade over time.
+   * Call this at the start of each conversation turn.
+   */
+  decayRelevance(factor = 0.95): void {
+    for (const node of this.files.values()) {
+      const base = this.baseScore(node.relativePath);
+      node.relevanceScore = Math.max(base, node.relevanceScore * factor);
+    }
+  }
+
   getFileCount(): number {
     return this.files.size;
   }

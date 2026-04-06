@@ -107,6 +107,53 @@ describe('WorkspaceIndex', () => {
     expect(context.length).toBeLessThan(500);
   });
 
+  it('trackFileAccess boosts write more than read', async () => {
+    vi.spyOn(workspace, 'findFiles').mockResolvedValue([
+      { fsPath: '/mock-workspace/src/a.ts' },
+      { fsPath: '/mock-workspace/src/b.ts' },
+    ] as never);
+    vi.spyOn(workspace.fs, 'stat').mockResolvedValue({ type: 1, size: 100 } as never);
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from('code') as never);
+
+    await index.initialize(['**/*.ts']);
+
+    // Both start with the same base score
+    index.trackFileAccess('src/a.ts', 'read');
+    index.trackFileAccess('src/b.ts', 'write');
+
+    // b.ts (write) should rank higher than a.ts (read) in Relevant Files section
+    const context = await index.getRelevantContext('test');
+    const relevantSection = context.slice(context.indexOf('## Relevant Files'));
+    const aPos = relevantSection.indexOf('a.ts');
+    const bPos = relevantSection.indexOf('b.ts');
+    // b.ts should appear first (higher score)
+    expect(bPos).toBeLessThan(aPos);
+  });
+
+  it('decayRelevance reduces scores but not below base', async () => {
+    vi.spyOn(workspace, 'findFiles').mockResolvedValue([{ fsPath: '/mock-workspace/src/x.ts' }] as never);
+    vi.spyOn(workspace.fs, 'stat').mockResolvedValue({ type: 1, size: 100 } as never);
+
+    await index.initialize(['**/*.ts']);
+
+    // Boost then decay many times
+    index.trackFileAccess('src/x.ts', 'write');
+    for (let i = 0; i < 100; i++) {
+      index.decayRelevance();
+    }
+
+    // Score should have decayed but file should still be indexed
+    expect(index.getFileCount()).toBe(1);
+  });
+
+  it('trackFileAccess is a no-op for unknown paths', async () => {
+    vi.spyOn(workspace, 'findFiles').mockResolvedValue([] as never);
+    await index.initialize(['**/*.ts']);
+    // Should not throw
+    index.trackFileAccess('nonexistent.ts', 'read');
+    expect(index.getFileCount()).toBe(0);
+  });
+
   it('dispose cleans up without error', () => {
     expect(() => index.dispose()).not.toThrow();
   });

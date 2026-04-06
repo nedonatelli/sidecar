@@ -2,7 +2,7 @@
   "name": "sidecar",
   "displayName": "SideCar",
   "description": "AI chat client for VS Code — use local Ollama models or Claude via the Anthropic API",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -290,6 +290,18 @@
       {
         "command": "sidecar.generateCommitMessage",
         "title": "SideCar: Generate Commit Message"
+      },
+      {
+        "command": "sidecar.clearChat",
+        "title": "SideCar: Clear Chat"
+      },
+      {
+        "command": "sidecar.undoChanges",
+        "title": "SideCar: Undo All Changes"
+      },
+      {
+        "command": "sidecar.exportChat",
+        "title": "SideCar: Export Chat"
       }
     ],
     "keybindings": [
@@ -303,6 +315,21 @@
         "key": "ctrl+i",
         "mac": "cmd+i",
         "when": "editorTextFocus"
+      },
+      {
+        "command": "sidecar.clearChat",
+        "key": "ctrl+l",
+        "mac": "cmd+l"
+      },
+      {
+        "command": "sidecar.undoChanges",
+        "key": "ctrl+shift+u",
+        "mac": "cmd+shift+u"
+      },
+      {
+        "command": "sidecar.exportChat",
+        "key": "ctrl+shift+e",
+        "mac": "cmd+shift+e"
       }
     ],
     "menus": {
