@@ -65,7 +65,7 @@ export class Scheduler implements Disposable {
           mcpManager: this.mcpManager,
           approvalMode: 'autonomous', // Scheduled tasks run autonomously
           maxIterations: 10,
-        }
+        },
       );
     } catch (err) {
       this.logger?.error(`[${task.name}] Failed: ${err instanceof Error ? err.message : String(err)}`);

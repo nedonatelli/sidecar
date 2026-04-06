@@ -29,8 +29,8 @@ export class GitHubAPI {
     const response = await fetch(`${BASE_URL}${endpoint}`, {
       ...options,
       headers: {
-        'Authorization': `Bearer ${this.token}`,
-        'Accept': 'application/vnd.github+json',
+        Authorization: `Bearer ${this.token}`,
+        Accept: 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28',
         ...options?.headers,
       },
@@ -46,13 +46,13 @@ export class GitHubAPI {
 
   async listPRs(owner: string, repo: string, state: string = 'open'): Promise<GitHubPR[]> {
     const data = await this.request<Array<Record<string, unknown>>>(
-      `/repos/${owner}/${repo}/pulls?state=${state}&per_page=20`
+      `/repos/${owner}/${repo}/pulls?state=${state}&per_page=20`,
     );
     return data.map((pr) => ({
       number: pr.number as number,
       title: pr.title as string,
       state: pr.state as string,
-      author: (pr.user as Record<string, unknown>)?.login as string ?? 'unknown',
+      author: ((pr.user as Record<string, unknown>)?.login as string) ?? 'unknown',
       url: pr.html_url as string,
       createdAt: pr.created_at as string,
       body: pr.body as string | undefined,
@@ -62,14 +62,12 @@ export class GitHubAPI {
   }
 
   async getPR(owner: string, repo: string, number: number): Promise<GitHubPR> {
-    const pr = await this.request<Record<string, unknown>>(
-      `/repos/${owner}/${repo}/pulls/${number}`
-    );
+    const pr = await this.request<Record<string, unknown>>(`/repos/${owner}/${repo}/pulls/${number}`);
     return {
       number: pr.number as number,
       title: pr.title as string,
-      state: (pr.merged as boolean) ? 'merged' : pr.state as string,
-      author: (pr.user as Record<string, unknown>)?.login as string ?? 'unknown',
+      state: (pr.merged as boolean) ? 'merged' : (pr.state as string),
+      author: ((pr.user as Record<string, unknown>)?.login as string) ?? 'unknown',
       url: pr.html_url as string,
       createdAt: pr.created_at as string,
       body: pr.body as string | undefined,
@@ -79,23 +77,23 @@ export class GitHubAPI {
   }
 
   async createPR(
-    owner: string, repo: string,
-    title: string, head: string, base: string,
-    body?: string
+    owner: string,
+    repo: string,
+    title: string,
+    head: string,
+    base: string,
+    body?: string,
   ): Promise<GitHubPR> {
-    const pr = await this.request<Record<string, unknown>>(
-      `/repos/${owner}/${repo}/pulls`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, head, base, body }),
-      }
-    );
+    const pr = await this.request<Record<string, unknown>>(`/repos/${owner}/${repo}/pulls`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, head, base, body }),
+    });
     return {
       number: pr.number as number,
       title: pr.title as string,
       state: pr.state as string,
-      author: (pr.user as Record<string, unknown>)?.login as string ?? 'unknown',
+      author: ((pr.user as Record<string, unknown>)?.login as string) ?? 'unknown',
       url: pr.html_url as string,
       createdAt: pr.created_at as string,
       body: pr.body as string | undefined,
@@ -106,15 +104,15 @@ export class GitHubAPI {
 
   async listIssues(owner: string, repo: string, state: string = 'open'): Promise<GitHubIssue[]> {
     const data = await this.request<Array<Record<string, unknown>>>(
-      `/repos/${owner}/${repo}/issues?state=${state}&per_page=20`
+      `/repos/${owner}/${repo}/issues?state=${state}&per_page=20`,
     );
     return data
-      .filter((issue) => !(issue.pull_request))
+      .filter((issue) => !issue.pull_request)
       .map((issue) => ({
         number: issue.number as number,
         title: issue.title as string,
         state: issue.state as string,
-        author: (issue.user as Record<string, unknown>)?.login as string ?? 'unknown',
+        author: ((issue.user as Record<string, unknown>)?.login as string) ?? 'unknown',
         url: issue.html_url as string,
         labels: (issue.labels as Array<Record<string, unknown>>)?.map((l) => l.name as string) ?? [],
         createdAt: issue.created_at as string,
@@ -123,14 +121,12 @@ export class GitHubAPI {
   }
 
   async getIssue(owner: string, repo: string, number: number): Promise<GitHubIssue> {
-    const issue = await this.request<Record<string, unknown>>(
-      `/repos/${owner}/${repo}/issues/${number}`
-    );
+    const issue = await this.request<Record<string, unknown>>(`/repos/${owner}/${repo}/issues/${number}`);
     return {
       number: issue.number as number,
       title: issue.title as string,
       state: issue.state as string,
-      author: (issue.user as Record<string, unknown>)?.login as string ?? 'unknown',
+      author: ((issue.user as Record<string, unknown>)?.login as string) ?? 'unknown',
       url: issue.html_url as string,
       labels: (issue.labels as Array<Record<string, unknown>>)?.map((l) => l.name as string) ?? [],
       createdAt: issue.created_at as string,
@@ -138,23 +134,17 @@ export class GitHubAPI {
     };
   }
 
-  async createIssue(
-    owner: string, repo: string,
-    title: string, body?: string
-  ): Promise<GitHubIssue> {
-    const issue = await this.request<Record<string, unknown>>(
-      `/repos/${owner}/${repo}/issues`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, body }),
-      }
-    );
+  async createIssue(owner: string, repo: string, title: string, body?: string): Promise<GitHubIssue> {
+    const issue = await this.request<Record<string, unknown>>(`/repos/${owner}/${repo}/issues`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, body }),
+    });
     return {
       number: issue.number as number,
       title: issue.title as string,
       state: issue.state as string,
-      author: (issue.user as Record<string, unknown>)?.login as string ?? 'unknown',
+      author: ((issue.user as Record<string, unknown>)?.login as string) ?? 'unknown',
       url: issue.html_url as string,
       labels: [],
       createdAt: issue.created_at as string,
@@ -163,9 +153,7 @@ export class GitHubAPI {
   }
 
   async listRepoContents(owner: string, repo: string, repoPath: string = ''): Promise<GitHubRepoFile[]> {
-    const endpoint = repoPath
-      ? `/repos/${owner}/${repo}/contents/${repoPath}`
-      : `/repos/${owner}/${repo}/contents`;
+    const endpoint = repoPath ? `/repos/${owner}/${repo}/contents/${repoPath}` : `/repos/${owner}/${repo}/contents`;
     const data = await this.request<Array<Record<string, unknown>>>(endpoint);
     return data.map((item) => ({
       name: item.name as string,

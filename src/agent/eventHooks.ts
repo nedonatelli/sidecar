@@ -27,7 +27,7 @@ export class EventHookManager implements Disposable {
         workspace.onDidSaveTextDocument((doc) => {
           const relativePath = workspace.asRelativePath(doc.uri);
           this.runHook('onSave', cmd, cwd, { SIDECAR_FILE: relativePath });
-        })
+        }),
       );
       this.logger?.info(`Event hook registered: onSave → ${cmd}`);
     }
@@ -40,7 +40,7 @@ export class EventHookManager implements Disposable {
             const relativePath = workspace.asRelativePath(file);
             this.runHook('onCreate', cmd, cwd, { SIDECAR_FILE: relativePath });
           }
-        })
+        }),
       );
       this.logger?.info(`Event hook registered: onCreate → ${cmd}`);
     }
@@ -53,7 +53,7 @@ export class EventHookManager implements Disposable {
             const relativePath = workspace.asRelativePath(file);
             this.runHook('onDelete', cmd, cwd, { SIDECAR_FILE: relativePath });
           }
-        })
+        }),
       );
       this.logger?.info(`Event hook registered: onDelete → ${cmd}`);
     }

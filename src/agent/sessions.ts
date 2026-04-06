@@ -18,7 +18,7 @@ export class SessionManager {
   save(name: string, messages: ChatMessage[]): SavedSession {
     const sessions = this.list();
     // Strip images for storage
-    const cleanMessages = messages.map(m => ({
+    const cleanMessages = messages.map((m) => ({
       role: m.role,
       content: typeof m.content === 'string' ? m.content : getContentText(m.content),
     }));
@@ -41,11 +41,11 @@ export class SessionManager {
   }
 
   load(id: string): SavedSession | undefined {
-    return this.list().find(s => s.id === id);
+    return this.list().find((s) => s.id === id);
   }
 
   delete(id: string): void {
-    const sessions = this.list().filter(s => s.id !== id);
+    const sessions = this.list().filter((s) => s.id !== id);
     this.globalState.update(STORAGE_KEY, sessions);
   }
 }

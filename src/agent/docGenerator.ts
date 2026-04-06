@@ -12,12 +12,14 @@ export async function generateDocumentation(
   client: SideCarClient,
   code: string,
   language: string,
-  fileName: string
+  fileName: string,
 ): Promise<string | null> {
-  const messages: ChatMessage[] = [{
-    role: 'user',
-    content: `Add documentation to this ${language} code from ${fileName}:\n\n\`\`\`${language}\n${code}\n\`\`\``,
-  }];
+  const messages: ChatMessage[] = [
+    {
+      role: 'user',
+      content: `Add documentation to this ${language} code from ${fileName}:\n\n\`\`\`${language}\n${code}\n\`\`\``,
+    },
+  ];
 
   client.updateSystemPrompt(DOC_SYSTEM_PROMPT);
 

@@ -12,7 +12,7 @@ const MAX_CONTENT_LENGTH = 10_000; // 10K chars per file
 export async function getWorkspaceContext(
   patterns: string[],
   maxFiles: number,
-  token?: CancellationToken
+  token?: CancellationToken,
 ): Promise<string> {
   const workspaceFolders = workspace.workspaceFolders;
   if (!workspaceFolders || workspaceFolders.length === 0) {
@@ -29,7 +29,7 @@ export async function getWorkspaceContext(
       pattern,
       `**/{node_modules,.git,out,dist,.venv,venv,__pycache__,.next}/**`,
       maxFiles - files.length,
-      token
+      token,
     );
 
     for (const uri of uris) {
@@ -77,16 +77,11 @@ export function getWorkspaceEnabled(): boolean {
 }
 
 export function getFilePatterns(): string[] {
-  return workspace.getConfiguration('sidecar').get<string[]>('filePatterns', [
-    '**/*.ts', '**/*.js', '**/*.py', '**/*.md',
-    '**/*.kt', '**/*.java', '**/*.swift',
-    '**/*.go', '**/*.rs', '**/*.c', '**/*.cpp', '**/*.h',
-    '**/*.rb', '**/*.php', '**/*.cs',
-    '**/*.json', '**/*.yaml', '**/*.yml', '**/*.toml',
-    '**/*.gradle.kts', '**/*.gradle',
-    '**/*.html', '**/*.css', '**/*.scss',
-    '**/*.sh', '**/*.sql',
-  ]);
+  return workspace
+    .getConfiguration('sidecar')
+    .get<
+      string[]
+    >('filePatterns', ['**/*.ts', '**/*.js', '**/*.py', '**/*.md', '**/*.kt', '**/*.java', '**/*.swift', '**/*.go', '**/*.rs', '**/*.c', '**/*.cpp', '**/*.h', '**/*.rb', '**/*.php', '**/*.cs', '**/*.json', '**/*.yaml', '**/*.yml', '**/*.toml', '**/*.gradle.kts', '**/*.gradle', '**/*.html', '**/*.css', '**/*.scss', '**/*.sh', '**/*.sql']);
 }
 
 export function getMaxFiles(): number {
@@ -110,7 +105,9 @@ export async function resolveAtReferences(text: string): Promise<string> {
       const bytes = await workspace.fs.readFile(fileUri);
       const content = Buffer.from(bytes).toString('utf-8').slice(0, MAX_CONTENT_LENGTH);
       attachments.push(`### @file:${filePath}\n\`\`\`\n${content}\n\`\`\``);
-    } catch { /* file not found */ }
+    } catch {
+      /* file not found */
+    }
   }
 
   // @folder:path — list folder contents
@@ -122,7 +119,9 @@ export async function resolveAtReferences(text: string): Promise<string> {
       const entries = await workspace.fs.readDirectory(folderUri);
       const listing = entries.map(([name, type]) => `${type === 2 ? '📁 ' : '📄 '}${name}`).join('\n');
       attachments.push(`### @folder:${folderPath}\n\`\`\`\n${listing}\n\`\`\``);
-    } catch { /* folder not found */ }
+    } catch {
+      /* folder not found */
+    }
   }
 
   // @symbol:name — search for symbol in workspace
@@ -131,16 +130,22 @@ export async function resolveAtReferences(text: string): Promise<string> {
     const symbolName = match[1];
     try {
       const symbols = await commands.executeCommand<SymbolInformation[]>(
-        'vscode.executeWorkspaceSymbolProvider', symbolName
+        'vscode.executeWorkspaceSymbolProvider',
+        symbolName,
       );
       if (symbols && symbols.length > 0) {
-        const results = symbols.slice(0, 10).map((s: SymbolInformation) => {
-          const relPath = path.relative(root.fsPath, s.location.uri.fsPath);
-          return `${s.name} (${s.kind}) — ${relPath}:${s.location.range.start.line + 1}`;
-        }).join('\n');
+        const results = symbols
+          .slice(0, 10)
+          .map((s: SymbolInformation) => {
+            const relPath = path.relative(root.fsPath, s.location.uri.fsPath);
+            return `${s.name} (${s.kind}) — ${relPath}:${s.location.range.start.line + 1}`;
+          })
+          .join('\n');
         attachments.push(`### @symbol:${symbolName}\n\`\`\`\n${results}\n\`\`\``);
       }
-    } catch { /* symbol search failed */ }
+    } catch {
+      /* symbol search failed */
+    }
   }
 
   if (attachments.length > 0) {

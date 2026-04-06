@@ -36,13 +36,12 @@ export async function reviewCurrentChanges(client: SideCarClient): Promise<void>
 
   // Truncate very large diffs
   const maxDiffChars = 30_000;
-  const truncatedDiff = diff.length > maxDiffChars
-    ? diff.slice(0, maxDiffChars) + '\n... (diff truncated)'
-    : diff;
+  const truncatedDiff = diff.length > maxDiffChars ? diff.slice(0, maxDiffChars) + '\n... (diff truncated)' : diff;
 
-  const messages: ChatMessage[] = [{
-    role: 'user',
-    content: `Review the following code changes. For each issue found, provide:
+  const messages: ChatMessage[] = [
+    {
+      role: 'user',
+      content: `Review the following code changes. For each issue found, provide:
 - The file and line number
 - The severity (critical, warning, suggestion)
 - A clear description of the issue
@@ -53,9 +52,11 @@ Focus on: bugs, security issues, performance problems, edge cases, and code qual
 \`\`\`diff
 ${truncatedDiff}
 \`\`\``,
-  }];
+    },
+  ];
 
-  const systemPrompt = 'You are an expert code reviewer. Be thorough but concise. Only flag real issues — do not nitpick style or formatting unless it causes bugs.';
+  const systemPrompt =
+    'You are an expert code reviewer. Be thorough but concise. Only flag real issues — do not nitpick style or formatting unless it causes bugs.';
   client.updateSystemPrompt(systemPrompt);
 
   await window.withProgress(
@@ -67,13 +68,13 @@ ${truncatedDiff}
       try {
         const review = await client.complete(messages, 4096);
         // Show in a new editor tab
-        const doc = await import('vscode').then(vsc =>
-          vsc.workspace.openTextDocument({ content: review, language: 'markdown' })
+        const doc = await import('vscode').then((vsc) =>
+          vsc.workspace.openTextDocument({ content: review, language: 'markdown' }),
         );
         await window.showTextDocument(doc, { preview: true });
       } catch (err) {
         window.showErrorMessage(`Review failed: ${err instanceof Error ? err.message : String(err)}`);
       }
-    }
+    },
   );
 }

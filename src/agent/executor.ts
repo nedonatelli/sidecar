@@ -19,7 +19,7 @@ export async function executeTool(
   approvalMode: ApprovalMode = 'cautious',
   changelog?: ChangeLog,
   mcpManager?: MCPManager,
-  logger?: AgentLogger
+  logger?: AgentLogger,
 ): Promise<ToolResultContentBlock> {
   const tool = findTool(toolUse.name, mcpManager);
 
@@ -53,9 +53,7 @@ export async function executeTool(
     needsApproval = true;
   } else {
     // Fall back to global mode + tool flag
-    needsApproval =
-      approvalMode === 'manual' ||
-      (approvalMode === 'cautious' && tool.requiresApproval);
+    needsApproval = approvalMode === 'manual' || (approvalMode === 'cautious' && tool.requiresApproval);
   }
 
   if (needsApproval) {
@@ -122,7 +120,7 @@ async function runHook(
   phase: 'pre' | 'post',
   toolName: string,
   input: Record<string, unknown>,
-  output?: string
+  output?: string,
 ): Promise<void> {
   const hooks = getHooks();
   const toolHook = hooks[toolName]?.[phase];
@@ -133,7 +131,7 @@ async function runHook(
 
   const cwd = workspace.workspaceFolders?.[0]?.uri.fsPath;
   const env: Record<string, string> = {
-    ...process.env as Record<string, string>,
+    ...(process.env as Record<string, string>),
     SIDECAR_TOOL: toolName,
     SIDECAR_INPUT: JSON.stringify(input),
   };

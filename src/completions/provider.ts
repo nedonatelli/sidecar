@@ -24,7 +24,7 @@ export class SideCarCompletionProvider implements InlineCompletionItemProvider {
   constructor(
     private client: SideCarClient,
     private maxTokens: number = 256,
-    private debounceMs: number = 300
+    private debounceMs: number = 300,
   ) {
     // Track recent edits for next-edit prediction
     this.editListener = workspace.onDidChangeTextDocument((e) => {
@@ -38,7 +38,7 @@ export class SideCarCompletionProvider implements InlineCompletionItemProvider {
       });
       // Keep only last 10 edits from last 60 seconds
       const cutoff = Date.now() - 60_000;
-      this.recentEdits = this.recentEdits.filter(e => e.timestamp > cutoff).slice(-10);
+      this.recentEdits = this.recentEdits.filter((e) => e.timestamp > cutoff).slice(-10);
     });
   }
 
@@ -50,7 +50,7 @@ export class SideCarCompletionProvider implements InlineCompletionItemProvider {
     document: TextDocument,
     position: Position,
     context: InlineCompletionContext,
-    token: CancellationToken
+    token: CancellationToken,
   ): Promise<InlineCompletionItem[]> {
     if (context.triggerKind === InlineCompletionTriggerKind.Invoke) {
       // Manual invoke — skip debounce
@@ -62,12 +62,8 @@ export class SideCarCompletionProvider implements InlineCompletionItemProvider {
     const fullPrefix = document.getText(new Range(new Position(0, 0), position));
     const fullSuffix = document.getText(new Range(position, document.lineAt(document.lineCount - 1).range.end));
 
-    const prefix = fullPrefix.length > MAX_PREFIX_CHARS
-      ? fullPrefix.slice(-MAX_PREFIX_CHARS)
-      : fullPrefix;
-    const suffix = fullSuffix.length > MAX_SUFFIX_CHARS
-      ? fullSuffix.slice(0, MAX_SUFFIX_CHARS)
-      : fullSuffix;
+    const prefix = fullPrefix.length > MAX_PREFIX_CHARS ? fullPrefix.slice(-MAX_PREFIX_CHARS) : fullPrefix;
+    const suffix = fullSuffix.length > MAX_SUFFIX_CHARS ? fullSuffix.slice(0, MAX_SUFFIX_CHARS) : fullSuffix;
 
     if (prefix.trim().length < MIN_PREFIX_LENGTH) {
       return [];
@@ -84,11 +80,7 @@ export class SideCarCompletionProvider implements InlineCompletionItemProvider {
       } else {
         const recentEditContext = this.buildRecentEditContext(document.fileName);
         const prompt = this.buildCompletionPrompt(prefix, suffix, document.languageId, recentEditContext);
-        completion = await this.client.complete(
-          [{ role: 'user', content: prompt }],
-          this.maxTokens,
-          signal
-        );
+        completion = await this.client.complete([{ role: 'user', content: prompt }], this.maxTokens, signal);
       }
 
       completion = this.cleanCompletion(completion, prefix, suffix);
@@ -112,12 +104,12 @@ export class SideCarCompletionProvider implements InlineCompletionItemProvider {
   }
 
   private buildRecentEditContext(currentFile: string): string {
-    const relevant = this.recentEdits.filter(e => e.file === currentFile && e.text.trim().length > 0);
+    const relevant = this.recentEdits.filter((e) => e.file === currentFile && e.text.trim().length > 0);
     if (relevant.length === 0) return '';
 
     return relevant
       .slice(-5)
-      .map(e => `Line ${e.line + 1}: ${e.text.slice(0, 100)}`)
+      .map((e) => `Line ${e.line + 1}: ${e.text.slice(0, 100)}`)
       .join('\n');
   }
 

@@ -10,7 +10,10 @@ export interface BatchTask {
 }
 
 export function parseBatchInput(text: string): { mode: 'sequential' | 'parallel'; tasks: string[] } {
-  const lines = text.split('\n').map(l => l.trim()).filter(l => l);
+  const lines = text
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l);
   let mode: 'sequential' | 'parallel' = 'sequential';
   let startIdx = 0;
   if (lines[0]?.toLowerCase() === '--parallel') {
@@ -26,7 +29,7 @@ export async function runBatch(
   mode: 'sequential' | 'parallel',
   onTaskUpdate: (taskId: number, status: string, result: string) => void,
   signal: AbortSignal,
-  options: AgentOptions = {}
+  options: AgentOptions = {},
 ): Promise<BatchTask[]> {
   const batchTasks: BatchTask[] = tasks.map((prompt, i) => ({
     id: i,
@@ -43,12 +46,20 @@ export async function runBatch(
     let output = '';
 
     try {
-      await runAgentLoop(client, messages, {
-        onText: (text) => { output += text; },
-        onToolCall: () => {},
-        onToolResult: () => {},
-        onDone: () => {},
-      }, signal, { ...options, maxIterations: 15 });
+      await runAgentLoop(
+        client,
+        messages,
+        {
+          onText: (text) => {
+            output += text;
+          },
+          onToolCall: () => {},
+          onToolResult: () => {},
+          onDone: () => {},
+        },
+        signal,
+        { ...options, maxIterations: 15 },
+      );
 
       task.status = 'done';
       task.result = output || '(completed)';

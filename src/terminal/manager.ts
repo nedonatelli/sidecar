@@ -10,7 +10,7 @@ export class TerminalManager implements Disposable {
         if (t === this.terminal) {
           this.terminal = null;
         }
-      })
+      }),
     );
   }
 
@@ -26,7 +26,11 @@ export class TerminalManager implements Disposable {
     terminal.show();
 
     // Try to use shell integration for output capture
-    const shellIntegration = (terminal as unknown as { shellIntegration?: { executeCommand?: (cmd: string) => { read: () => AsyncIterable<string> } } }).shellIntegration;
+    const shellIntegration = (
+      terminal as unknown as {
+        shellIntegration?: { executeCommand?: (cmd: string) => { read: () => AsyncIterable<string> } };
+      }
+    ).shellIntegration;
 
     if (shellIntegration?.executeCommand) {
       try {

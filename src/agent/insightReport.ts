@@ -67,8 +67,8 @@ export function generateInsightReport(metrics: AgentRunMetrics[]): string {
     }
   }
 
-  const frequentApprovalTools = sortedTools.filter(([name]) =>
-    ['write_file', 'edit_file', 'run_command'].includes(name) && toolCounts.get(name)!.count > 10
+  const frequentApprovalTools = sortedTools.filter(
+    ([name]) => ['write_file', 'edit_file', 'run_command'].includes(name) && toolCounts.get(name)!.count > 10,
   );
   if (frequentApprovalTools.length > 0) {
     report += `- Consider setting \`"allow"\` permission for frequently-approved tools to reduce prompts\n`;

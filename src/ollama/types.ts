@@ -33,7 +33,12 @@ export interface ThinkingContentBlock {
   thinking: string;
 }
 
-export type ContentBlock = TextContentBlock | ImageContentBlock | ToolUseContentBlock | ToolResultContentBlock | ThinkingContentBlock;
+export type ContentBlock =
+  | TextContentBlock
+  | ImageContentBlock
+  | ToolUseContentBlock
+  | ToolResultContentBlock
+  | ThinkingContentBlock;
 
 // Tool definition (sent to API)
 export interface ToolDefinition {
@@ -57,7 +62,7 @@ export function getContentText(content: string | ContentBlock[]): string {
   if (typeof content === 'string') return content;
   return content
     .filter((b): b is TextContentBlock => b.type === 'text')
-    .map(b => b.text)
+    .map((b) => b.text)
     .join('\n');
 }
 
@@ -117,7 +122,15 @@ export interface AnthropicResponse {
 
 // Streaming event types
 export interface AnthropicStreamEvent {
-  type: 'message_start' | 'content_block_start' | 'content_block_delta' | 'content_block_stop' | 'message_delta' | 'message_stop' | 'ping' | 'error';
+  type:
+    | 'message_start'
+    | 'content_block_start'
+    | 'content_block_delta'
+    | 'content_block_stop'
+    | 'message_delta'
+    | 'message_stop'
+    | 'ping'
+    | 'error';
   message?: AnthropicResponse;
   index?: number;
   content_block?: AnthropicContentBlock;

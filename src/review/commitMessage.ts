@@ -36,10 +36,12 @@ export async function generateCommitMessage(client: SideCarClient): Promise<void
   const maxDiff = 15_000;
   const truncated = diff.length > maxDiff ? diff.slice(0, maxDiff) + '\n... (truncated)' : diff;
 
-  const messages: ChatMessage[] = [{
-    role: 'user',
-    content: `Generate a concise git commit message for these changes. Follow conventional commits format (type: description). First line max 72 chars. Add a blank line then bullet points for details if needed. Output ONLY the commit message, nothing else.\n\n\`\`\`diff\n${truncated}\n\`\`\``,
-  }];
+  const messages: ChatMessage[] = [
+    {
+      role: 'user',
+      content: `Generate a concise git commit message for these changes. Follow conventional commits format (type: description). First line max 72 chars. Add a blank line then bullet points for details if needed. Output ONLY the commit message, nothing else.\n\n\`\`\`diff\n${truncated}\n\`\`\``,
+    },
+  ];
 
   client.updateSystemPrompt('You are a git commit message generator. Be concise and accurate.');
 
@@ -49,7 +51,10 @@ export async function generateCommitMessage(client: SideCarClient): Promise<void
       try {
         let message = await client.complete(messages, 512);
         // Clean up any code fence wrapping
-        message = message.replace(/^```\w*\n?/, '').replace(/\n?```$/, '').trim();
+        message = message
+          .replace(/^```\w*\n?/, '')
+          .replace(/\n?```$/, '')
+          .trim();
 
         const action = await window.showInformationMessage(
           `Commit message: "${message.split('\n')[0]}"`,
@@ -73,6 +78,6 @@ export async function generateCommitMessage(client: SideCarClient): Promise<void
       } catch (err) {
         window.showErrorMessage(`Failed: ${err instanceof Error ? err.message : String(err)}`);
       }
-    }
+    },
   );
 }

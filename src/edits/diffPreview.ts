@@ -4,7 +4,7 @@ import type { ProposedContentProvider } from './proposedContentProvider.js';
 
 export async function showDiffPreview(
   block: EditBlock,
-  contentProvider: ProposedContentProvider
+  contentProvider: ProposedContentProvider,
 ): Promise<'accept' | 'reject'> {
   const workspaceFolders = workspace.workspaceFolders;
   if (!workspaceFolders || workspaceFolders.length === 0) return 'reject';
@@ -25,15 +25,11 @@ export async function showDiffPreview(
     'vscode.diff',
     originalUri,
     proposedUri,
-    `SideCar: ${block.filePath} (proposed changes)`
+    `SideCar: ${block.filePath} (proposed changes)`,
   );
 
   // Ask user to accept or reject
-  const choice = await window.showInformationMessage(
-    `Apply changes to ${block.filePath}?`,
-    'Accept',
-    'Reject'
-  );
+  const choice = await window.showInformationMessage(`Apply changes to ${block.filePath}?`, 'Accept', 'Reject');
 
   // Clean up
   contentProvider.removeProposal(key);

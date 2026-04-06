@@ -23,7 +23,7 @@ export async function spawnSubAgent(
   context: string | undefined,
   parentCallbacks: AgentCallbacks,
   signal: AbortSignal,
-  options: AgentOptions = {}
+  options: AgentOptions = {},
 ): Promise<SubAgentResult> {
   const id = `sub-${++subAgentCounter}`;
 

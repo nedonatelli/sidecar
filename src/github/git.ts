@@ -50,10 +50,7 @@ export class GitCLI {
 
   async log(count: number = 10): Promise<GitCommitInfo[]> {
     const n = Math.min(count, MAX_LOG_ENTRIES);
-    const output = await this.exec([
-      'log', `--max-count=${n}`,
-      '--format=%h\t%an\t%ar\t%s',
-    ]);
+    const output = await this.exec(['log', `--max-count=${n}`, '--format=%h\t%an\t%ar\t%s']);
     if (!output) return [];
 
     return output.split('\n').map((line) => {

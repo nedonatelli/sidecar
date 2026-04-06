@@ -361,6 +361,9 @@
     "src/**/*.ts": [
       "prettier --write",
       "eslint --max-warnings=0"
+    ],
+    "media/**/*.{js,css}": [
+      "prettier --write"
     ]
   }
 }

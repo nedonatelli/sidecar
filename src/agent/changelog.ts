@@ -14,7 +14,7 @@ export class ChangeLog {
     if (!rootUri) return;
 
     // Check if we already have a snapshot for this file in this session
-    if (this.changes.some(c => c.filePath === filePath)) return;
+    if (this.changes.some((c) => c.filePath === filePath)) return;
 
     const fileUri = Uri.joinPath(rootUri, filePath);
     let originalContent: string | null = null;
@@ -75,7 +75,7 @@ export class ChangeLog {
     const rootUri = workspace.workspaceFolders?.[0]?.uri;
     if (!rootUri) return false;
 
-    const change = this.changes.find(c => c.filePath === filePath);
+    const change = this.changes.find((c) => c.filePath === filePath);
     if (!change) return false;
 
     try {
@@ -85,7 +85,7 @@ export class ChangeLog {
       } else {
         await workspace.fs.writeFile(fileUri, Buffer.from(change.originalContent, 'utf-8'));
       }
-      this.changes = this.changes.filter(c => c.filePath !== filePath);
+      this.changes = this.changes.filter((c) => c.filePath !== filePath);
       return true;
     } catch {
       return false;

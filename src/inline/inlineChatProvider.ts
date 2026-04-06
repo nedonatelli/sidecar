@@ -34,10 +34,9 @@ export async function handleInlineChat(client: SideCarClient): Promise<void> {
   const doc = editor.document;
   const startLine = Math.max(0, selection.start.line - 20);
   const endLine = Math.min(doc.lineCount - 1, selection.end.line + 20);
-  const surroundingCode = doc.getText(new Range(
-    new Position(startLine, 0),
-    new Position(endLine, doc.lineAt(endLine).text.length)
-  ));
+  const surroundingCode = doc.getText(
+    new Range(new Position(startLine, 0), new Position(endLine, doc.lineAt(endLine).text.length)),
+  );
 
   let prompt: string;
   if (hasSelection) {
@@ -85,7 +84,7 @@ Respond with ONLY the code to insert, no explanation, no code fences.`;
       } catch (err) {
         window.showErrorMessage(`SideCar inline chat failed: ${err instanceof Error ? err.message : String(err)}`);
       }
-    }
+    },
   );
 }
 
@@ -93,7 +92,7 @@ async function applyInlineEdit(
   editor: TextEditor,
   selection: Selection,
   newText: string,
-  isReplace: boolean
+  isReplace: boolean,
 ): Promise<void> {
   const edit = new WorkspaceEdit();
   const uri = editor.document.uri;

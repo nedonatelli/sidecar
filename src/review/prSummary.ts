@@ -33,13 +33,12 @@ export async function summarizePR(client: SideCarClient): Promise<void> {
   }
 
   const maxDiffChars = 30_000;
-  const truncatedDiff = diff.length > maxDiffChars
-    ? diff.slice(0, maxDiffChars) + '\n... (diff truncated)'
-    : diff;
+  const truncatedDiff = diff.length > maxDiffChars ? diff.slice(0, maxDiffChars) + '\n... (diff truncated)' : diff;
 
-  const messages: ChatMessage[] = [{
-    role: 'user',
-    content: `Generate a pull request summary for the following changes. Include:
+  const messages: ChatMessage[] = [
+    {
+      role: 'user',
+      content: `Generate a pull request summary for the following changes. Include:
 1. A suggested PR title (one line)
 2. A summary section with bullet points describing what changed and why
 3. A list of files impacted
@@ -48,7 +47,8 @@ export async function summarizePR(client: SideCarClient): Promise<void> {
 \`\`\`diff
 ${truncatedDiff}
 \`\`\``,
-  }];
+    },
+  ];
 
   client.updateSystemPrompt('You are a PR summary generator. Be concise and focus on the "what" and "why" of changes.');
 
@@ -57,13 +57,13 @@ ${truncatedDiff}
     async () => {
       try {
         const summary = await client.complete(messages, 2048);
-        const doc = await import('vscode').then(vsc =>
-          vsc.workspace.openTextDocument({ content: summary, language: 'markdown' })
+        const doc = await import('vscode').then((vsc) =>
+          vsc.workspace.openTextDocument({ content: summary, language: 'markdown' }),
         );
         await window.showTextDocument(doc, { preview: true });
       } catch (err) {
         window.showErrorMessage(`PR summary failed: ${err instanceof Error ? err.message : String(err)}`);
       }
-    }
+    },
   );
 }

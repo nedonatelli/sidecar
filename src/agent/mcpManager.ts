@@ -24,7 +24,7 @@ export class MCPManager {
         const transport = new StdioClientTransport({
           command: config.command,
           args: config.args,
-          env: config.env ? { ...process.env, ...config.env } as Record<string, string> : undefined,
+          env: config.env ? ({ ...process.env, ...config.env } as Record<string, string>) : undefined,
         });
 
         const client = new Client({
@@ -36,7 +36,7 @@ export class MCPManager {
 
         // Discover tools
         const toolsResult = await client.listTools();
-        const tools: RegisteredTool[] = (toolsResult.tools || []).map(mcpTool => ({
+        const tools: RegisteredTool[] = (toolsResult.tools || []).map((mcpTool) => ({
           definition: {
             name: `mcp_${name}_${mcpTool.name}`,
             description: `[MCP: ${name}] ${mcpTool.description || mcpTool.name}`,
@@ -69,15 +69,15 @@ export class MCPManager {
     }
 
     // Rebuild cache
-    this.toolCache = this.connections.flatMap(c => c.tools);
+    this.toolCache = this.connections.flatMap((c) => c.tools);
   }
 
   getToolDefinitions(): ToolDefinition[] {
-    return this.toolCache.map(t => t.definition);
+    return this.toolCache.map((t) => t.definition);
   }
 
   getTool(name: string): RegisteredTool | undefined {
-    return this.toolCache.find(t => t.definition.name === name);
+    return this.toolCache.find((t) => t.definition.name === name);
   }
 
   getToolCount(): number {
@@ -85,7 +85,7 @@ export class MCPManager {
   }
 
   getServerNames(): string[] {
-    return this.connections.map(c => c.name);
+    return this.connections.map((c) => c.name);
   }
 
   async disconnect(): Promise<void> {

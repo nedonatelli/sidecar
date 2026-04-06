@@ -158,11 +158,11 @@ async function searchFiles(input: Record<string, unknown>): Promise<string> {
   const uris = await workspace.findFiles(
     pattern,
     `**/{node_modules,.git,out,dist,.venv,venv,__pycache__,.next}/**`,
-    50
+    50,
   );
   if (uris.length === 0) return 'No files found.';
   const root = getRoot();
-  return uris.map(u => path.relative(root, u.fsPath)).join('\n');
+  return uris.map((u) => path.relative(root, u.fsPath)).join('\n');
 }
 
 async function grep(input: Record<string, unknown>): Promise<string> {
@@ -170,10 +170,11 @@ async function grep(input: Record<string, unknown>): Promise<string> {
   const searchPath = (input.path as string) || '.';
   const cwd = getRoot();
   try {
-    const { stdout } = await execAsync(
-      `grep -rn --include="*" "${pattern.replace(/"/g, '\\"')}" "${searchPath}"`,
-      { cwd, timeout: 15_000, maxBuffer: 512 * 1024 }
-    );
+    const { stdout } = await execAsync(`grep -rn --include="*" "${pattern.replace(/"/g, '\\"')}" "${searchPath}"`, {
+      cwd,
+      timeout: 15_000,
+      maxBuffer: 512 * 1024,
+    });
     // Limit output
     const lines = stdout.split('\n').slice(0, 50);
     return lines.join('\n') || 'No matches found.';
@@ -204,14 +205,13 @@ async function listDirectory(input: Record<string, unknown>): Promise<string> {
   const dirPath = (input.path as string) || '.';
   const dirUri = Uri.joinPath(getRootUri(), dirPath);
   const entries = await workspace.fs.readDirectory(dirUri);
-  return entries
-    .map(([name, type]) => `${type === 2 ? '📁 ' : '📄 '}${name}`)
-    .join('\n');
+  return entries.map(([name, type]) => `${type === 2 ? '📁 ' : '📄 '}${name}`).join('\n');
 }
 
 const getDiagnosticsDef: ToolDefinition = {
   name: 'get_diagnostics',
-  description: 'Get compiler errors, warnings, and linting issues from VS Code. Returns diagnostics for a specific file or all files if no path given.',
+  description:
+    'Get compiler errors, warnings, and linting issues from VS Code. Returns diagnostics for a specific file or all files if no path given.',
   input_schema: {
     type: 'object',
     properties: {
@@ -223,11 +223,16 @@ const getDiagnosticsDef: ToolDefinition = {
 
 const runTestsDef: ToolDefinition = {
   name: 'run_tests',
-  description: 'Run the project test suite. Optionally specify a test file or pattern. Returns test output with pass/fail results.',
+  description:
+    'Run the project test suite. Optionally specify a test file or pattern. Returns test output with pass/fail results.',
   input_schema: {
     type: 'object',
     properties: {
-      command: { type: 'string', description: 'Test command to run (e.g. "npm test", "pytest", "go test ./..."). If omitted, tries common test runners.' },
+      command: {
+        type: 'string',
+        description:
+          'Test command to run (e.g. "npm test", "pytest", "go test ./..."). If omitted, tries common test runners.',
+      },
       file: { type: 'string', description: 'Optional: specific test file to run' },
     },
     required: [],
@@ -242,11 +247,13 @@ async function getDiagnostics(input: Record<string, unknown>): Promise<string> {
     const fileUri = Uri.joinPath(getRootUri(), filePath);
     const diags = languages.getDiagnostics(fileUri);
     if (diags.length === 0) return `No diagnostics for ${filePath}`;
-    return diags.map(d => {
-      const line = d.range.start.line + 1;
-      const severity = ['Error', 'Warning', 'Info', 'Hint'][d.severity] || 'Unknown';
-      return `${filePath}:${line} [${severity}] ${d.message}`;
-    }).join('\n');
+    return diags
+      .map((d) => {
+        const line = d.range.start.line + 1;
+        const severity = ['Error', 'Warning', 'Info', 'Hint'][d.severity] || 'Unknown';
+        return `${filePath}:${line} [${severity}] ${d.message}`;
+      })
+      .join('\n');
   }
 
   // All diagnostics
@@ -278,7 +285,9 @@ async function runTests(input: Record<string, unknown>): Promise<string> {
       if (pkg.scripts?.test) {
         command = 'npm test';
       }
-    } catch { /* no package.json */ }
+    } catch {
+      /* no package.json */
+    }
 
     if (!command) {
       // Check for common test files/configs
@@ -296,7 +305,9 @@ async function runTests(input: Record<string, unknown>): Promise<string> {
           await workspace.fs.stat(Uri.joinPath(getRootUri(), configFile));
           command = testCmd;
           break;
-        } catch { /* not found */ }
+        } catch {
+          /* not found */
+        }
       }
     }
 
@@ -326,11 +337,15 @@ async function runTests(input: Record<string, unknown>): Promise<string> {
 
 const getGitDiffDef: ToolDefinition = {
   name: 'get_git_diff',
-  description: 'Get the git diff for the current workspace. Shows staged and unstaged changes. Optionally compare against a specific ref.',
+  description:
+    'Get the git diff for the current workspace. Shows staged and unstaged changes. Optionally compare against a specific ref.',
   input_schema: {
     type: 'object',
     properties: {
-      ref: { type: 'string', description: 'Optional: git ref to diff against (e.g. "HEAD~3", "main"). Defaults to HEAD.' },
+      ref: {
+        type: 'string',
+        description: 'Optional: git ref to diff against (e.g. "HEAD~3", "main"). Defaults to HEAD.',
+      },
     },
     required: [],
   },
@@ -368,7 +383,8 @@ export const TOOL_REGISTRY: RegisteredTool[] = [
 
 export const SPAWN_AGENT_DEFINITION: ToolDefinition = {
   name: 'spawn_agent',
-  description: 'Spawn a sub-agent to handle a specific task in parallel. The sub-agent has access to all the same tools. Use this for complex tasks that can be broken into independent parts.',
+  description:
+    'Spawn a sub-agent to handle a specific task in parallel. The sub-agent has access to all the same tools. Use this for complex tasks that can be broken into independent parts.',
   input_schema: {
     type: 'object',
     properties: {
@@ -381,7 +397,7 @@ export const SPAWN_AGENT_DEFINITION: ToolDefinition = {
 
 function getCustomToolRegistry(): RegisteredTool[] {
   const configs = getCustomTools();
-  return configs.map(cfg => ({
+  return configs.map((cfg) => ({
     definition: {
       name: `custom_${cfg.name}`,
       description: `[Custom] ${cfg.description}`,
@@ -403,16 +419,16 @@ function getCustomToolRegistry(): RegisteredTool[] {
 }
 
 export function getToolDefinitions(mcpManager?: MCPManager): ToolDefinition[] {
-  const builtIn = [...TOOL_REGISTRY.map(t => t.definition), SPAWN_AGENT_DEFINITION];
-  const custom = getCustomToolRegistry().map(t => t.definition);
+  const builtIn = [...TOOL_REGISTRY.map((t) => t.definition), SPAWN_AGENT_DEFINITION];
+  const custom = getCustomToolRegistry().map((t) => t.definition);
   const mcp = mcpManager ? mcpManager.getToolDefinitions() : [];
   return [...builtIn, ...custom, ...mcp];
 }
 
 export function findTool(name: string, mcpManager?: MCPManager): RegisteredTool | undefined {
-  const builtin = TOOL_REGISTRY.find(t => t.definition.name === name);
+  const builtin = TOOL_REGISTRY.find((t) => t.definition.name === name);
   if (builtin) return builtin;
-  const custom = getCustomToolRegistry().find(t => t.definition.name === name);
+  const custom = getCustomToolRegistry().find((t) => t.definition.name === name);
   if (custom) return custom;
   return mcpManager?.getTool(name);
 }
