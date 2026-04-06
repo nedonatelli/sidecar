@@ -65,7 +65,7 @@ Support multiple parallel conversation branches from a single chat:
 
 ---
 
-## Completed (v0.11.0–v0.13.0)
+## Completed (v0.11.0–v0.20.0)
 
 - [x] Slash commands: `/reset`, `/undo`, `/export`, `/model`, `/help`
 - [x] Agent progress indicators (step count, elapsed time, token usage)
@@ -96,3 +96,12 @@ Support multiple parallel conversation branches from a single chat:
 - [x] Lint-fix integration: `/lint` with linter auto-detection
 - [x] Dependency analysis: `/deps` with unused/outdated checks
 - [x] Code generation templates: `/scaffold` with 8 built-in template types
+- [x] Conversation history panel: browse, load, delete saved conversations with auto-save persistence
+- [x] SideCar co-author attribution: commits include `Co-Authored-By: SideCar` trailer
+- [x] Unified git toolset: 8 dedicated agent tools (git_status, git_stage, git_commit, git_log, git_push, git_pull, git_branch, git_stash) backed by GitCLI
+- [x] `/commit` slash command: generate commit message, stage changes, and commit from chat
+- [x] Chat-only model support: graceful handling of models without function calling (gemma2, llama2, mistral, etc.)
+- [x] Tool support detection: automatic model categorization as Full Features (Tools) or Chat-Only
+- [x] Model dropdown UI organization: separate sections for tool-capable and chat-only models
+- [x] Chat-only badge: header indicator with interactive tooltip listing available tools
+- [x] Code block webview rendering: chat-only models show code blocks for saving; tool-enabled models create files silently
