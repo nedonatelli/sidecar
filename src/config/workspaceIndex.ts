@@ -32,6 +32,7 @@ export class WorkspaceIndex implements Disposable {
   private watcher: FileSystemWatcher | null = null;
   private ready = false;
   private maxContextChars: number;
+  private fileContentCache = new Map<string, string>(); // Cache for file contents
 
   constructor(maxContextChars = 20_000) {
     this.maxContextChars = maxContextChars;
@@ -44,20 +45,31 @@ export class WorkspaceIndex implements Disposable {
     const rootUri = folders[0].uri;
     const rootPath = rootUri.fsPath;
 
-    for (const pattern of patterns) {
-      const uris = await workspace.findFiles(pattern, EXCLUDE_PATTERN, 500);
-      for (const uri of uris) {
-        try {
-          const stat = await workspace.fs.stat(uri);
-          if (stat.size > MAX_FILE_SIZE) continue;
+    // Parallelize file discovery and stat calls
+    const allUris: Uri[] = [];
+    const findPromises = patterns.map((pattern) => workspace.findFiles(pattern, EXCLUDE_PATTERN, 500));
+    const foundUris = await Promise.all(findPromises);
+    for (const uris of foundUris) {
+      allUris.push(...uris);
+    }
+
+    // Process files in parallel with batching
+    const batchSize = 20;
+    for (let i = 0; i < allUris.length; i += batchSize) {
+      const batch = allUris.slice(i, i + batchSize);
+      const statPromises = batch.map((uri) => workspace.fs.stat(uri));
+      const stats = await Promise.allSettled(statPromises);
+
+      for (let j = 0; j < batch.length; j++) {
+        const stat = stats[j];
+        if (stat.status === 'fulfilled' && stat.value.size <= MAX_FILE_SIZE) {
+          const uri = batch[j];
           const relativePath = path.relative(rootPath, uri.fsPath);
           this.files.set(relativePath, {
             relativePath,
-            sizeBytes: stat.size,
+            sizeBytes: stat.value.size,
             relevanceScore: this.baseScore(relativePath),
           });
-        } catch {
-          // skip unreadable files
         }
       }
     }

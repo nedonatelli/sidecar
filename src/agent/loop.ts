@@ -133,6 +133,11 @@ export async function runAgentLoop(
       }
     }
 
+    // Optimize tool execution by checking if we have any tools to execute
+    if (pendingToolUses.length === 0) {
+      continue; // Skip tool execution if no tools to run
+    }
+
     // Build the assistant message content
     if (fullText) {
       assistantContent.push({ type: 'text', text: fullText });
@@ -152,7 +157,9 @@ export async function runAgentLoop(
     // If the model wants to use tools, execute them and loop
     if ((stopReason === 'tool_use' || pendingToolUses.length > 0) && pendingToolUses.length > 0) {
       const toolResults: ToolResultContentBlock[] = [];
-      for (const toolUse of pendingToolUses) {
+
+      // Execute tools in parallel for better performance
+      const executionPromises = pendingToolUses.map(async (toolUse) => {
         // Handle spawn_agent specially — it needs the client and runtime context
         if (toolUse.name === 'spawn_agent') {
           const subResult = await spawnSubAgent(
@@ -163,13 +170,13 @@ export async function runAgentLoop(
             signal,
             { logger, changelog, approvalMode, maxIterations: Math.min(maxIterations, 15) },
           );
-          toolResults.push({
+          const toolResult: ToolResultContentBlock = {
             type: 'tool_result',
             tool_use_id: toolUse.id,
             content: subResult.output || '(no output)',
             is_error: !subResult.success,
-          });
-          continue;
+          };
+          return toolResult;
         }
 
         const result = await executeTool(
@@ -181,10 +188,14 @@ export async function runAgentLoop(
           options.confirmFn,
           options.diffPreviewFn,
         );
-        toolResults.push(result);
         logger?.logToolResult(toolUse.name, result.content, result.is_error || false);
         callbacks.onToolResult(toolUse.name, result.content, result.is_error || false);
-      }
+        return result;
+      });
+
+      // Execute all tools in parallel
+      const results = await Promise.all(executionPromises);
+      toolResults.push(...results);
 
       // Add tool results as a user message (Anthropic API format)
       agentMessages.push({
