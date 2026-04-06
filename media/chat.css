@@ -64,7 +64,7 @@ body {
   background: var(--vscode-editor-background);
   border: 1px solid var(--vscode-widget-border);
   border-radius: 6px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
   display: flex;
   flex-direction: column;
   z-index: 100;
@@ -250,6 +250,31 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  position: relative;
+}
+
+#scroll-to-bottom {
+  position: sticky;
+  bottom: 4px;
+  align-self: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--vscode-widget-border);
+  background: var(--vscode-editor-background);
+  color: var(--vscode-foreground);
+  font-size: 14px;
+  cursor: pointer;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.8;
+}
+
+#scroll-to-bottom:hover {
+  opacity: 1;
+  background: var(--vscode-button-secondaryHoverBackground);
 }
 
 .message {
@@ -277,6 +302,30 @@ body {
   align-self: flex-start;
   background: var(--vscode-diffEditor-removedTextBackground);
   color: var(--vscode-errorForeground);
+}
+
+.error-card {
+  margin-bottom: 6px;
+}
+
+.error-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.error-action-btn {
+  padding: 4px 10px;
+  font-size: 11px;
+  border: 1px solid var(--vscode-button-border, var(--vscode-widget-border));
+  border-radius: 3px;
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+  cursor: pointer;
+}
+
+.error-action-btn:hover {
+  background: var(--vscode-button-secondaryHoverBackground);
 }
 
 #input-area {
@@ -348,12 +397,24 @@ body {
   animation: typing 1.4s infinite;
 }
 
-.typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
-.typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+.typing-indicator span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.typing-indicator span:nth-child(3) {
+  animation-delay: 0.4s;
+}
 
 @keyframes typing {
-  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
-  30% { transform: translateY(-4px); opacity: 1; }
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
 }
 
 /* File attachment chip */
@@ -498,11 +559,13 @@ body {
   border-bottom: 1px solid var(--vscode-widget-border);
 }
 
-.edit-search, .edit-replace {
+.edit-search,
+.edit-replace {
   padding: 0;
 }
 
-.edit-search pre, .edit-replace pre {
+.edit-search pre,
+.edit-replace pre {
   margin: 0;
   padding: 6px 8px;
   font-family: var(--vscode-editor-font-family, monospace);
@@ -628,7 +691,8 @@ body {
   overflow-y: auto;
 }
 
-.tool-call, .tool-result {
+.tool-call,
+.tool-result {
   font-size: 11px;
   padding: 2px 12px;
   color: var(--vscode-descriptionForeground);
@@ -645,12 +709,14 @@ body {
   border-left-color: var(--vscode-charts-green, #4ec9b0);
 }
 
-.tool-call summary, .tool-result summary {
+.tool-call summary,
+.tool-result summary {
   user-select: none;
   outline: none;
 }
 
-.tool-call-body, .tool-result-body {
+.tool-call-body,
+.tool-result-body {
   font-family: var(--vscode-editor-font-family, monospace);
   font-size: 11px;
   white-space: pre-wrap;
@@ -661,6 +727,24 @@ body {
   border-radius: 3px;
   max-height: 200px;
   overflow-y: auto;
+}
+
+#agent-progress {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  padding: 4px 0;
+}
+
+#agent-progress span {
+  white-space: nowrap;
+}
+
+#progress-step {
+  font-weight: 500;
+  color: var(--vscode-foreground);
 }
 
 #stream-stats {
@@ -740,9 +824,18 @@ body {
   font-weight: 500;
 }
 
-.gh-state.open { color: #3fb950; background: rgba(63, 185, 80, 0.15); }
-.gh-state.closed { color: #f85149; background: rgba(248, 81, 73, 0.15); }
-.gh-state.merged { color: #a371f7; background: rgba(163, 113, 247, 0.15); }
+.gh-state.open {
+  color: #3fb950;
+  background: rgba(63, 185, 80, 0.15);
+}
+.gh-state.closed {
+  color: #f85149;
+  background: rgba(248, 81, 73, 0.15);
+}
+.gh-state.merged {
+  color: #a371f7;
+  background: rgba(163, 113, 247, 0.15);
+}
 
 .gh-meta {
   font-size: 11px;

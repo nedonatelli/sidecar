@@ -55,6 +55,32 @@ function getActiveFileContext(): string {
   return `[Active file: ${fileName}, cursor at line ${cursorLine}]\n\`\`\`\n${truncated}\n\`\`\`\n\n`;
 }
 
+function classifyError(message: string): {
+  errorType: 'connection' | 'auth' | 'model' | 'timeout' | 'unknown';
+  errorAction?: string;
+  errorActionCommand?: string;
+} {
+  const lower = message.toLowerCase();
+  if (lower.includes('econnrefused') || lower.includes('fetch failed') || lower.includes('network')) {
+    return { errorType: 'connection', errorAction: 'Check Connection', errorActionCommand: 'openSettings' };
+  }
+  if (
+    lower.includes('401') ||
+    lower.includes('403') ||
+    lower.includes('unauthorized') ||
+    lower.includes('invalid api key')
+  ) {
+    return { errorType: 'auth', errorAction: 'Check API Key', errorActionCommand: 'openSettings' };
+  }
+  if (lower.includes('404') && (lower.includes('model') || lower.includes('not found'))) {
+    return { errorType: 'model', errorAction: 'Install Model' };
+  }
+  if (lower.includes('timeout') || lower.includes('timed out') || lower.includes('etimedout')) {
+    return { errorType: 'timeout', errorAction: 'Retry' };
+  }
+  return { errorType: 'unknown' };
+}
+
 export async function handleUserMessage(state: ChatState, text: string): Promise<void> {
   if (text) {
     state.messages.push({ role: 'user', content: text });
@@ -67,12 +93,23 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
   try {
     const started = await ensureProviderRunning(state);
     if (!started) {
-      state.postMessage({
-        command: 'error',
-        content: state.client.isLocalOllama()
-          ? 'Ollama is not running and could not be started.'
-          : `Cannot reach API at ${getBaseUrl()}.`,
-      });
+      state.postMessage(
+        state.client.isLocalOllama()
+          ? {
+              command: 'error',
+              content: 'Ollama is not running and could not be started.',
+              errorType: 'connection',
+              errorAction: 'Start Ollama',
+              errorActionCommand: 'runCommand',
+            }
+          : {
+              command: 'error',
+              content: `Cannot reach API at ${getBaseUrl()}.`,
+              errorType: 'connection',
+              errorAction: 'Check Settings',
+              errorActionCommand: 'openSettings',
+            },
+      );
       return;
     }
 
@@ -94,9 +131,26 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     }
 
     if (getWorkspaceEnabled()) {
-      const context = await getWorkspaceContext(getFilePatterns(), getMaxFiles());
-      if (context) {
-        systemPrompt += `\n\n${context}`;
+      if (state.workspaceIndex?.isReady()) {
+        // Use indexed context with relevance scoring
+        const activeFilePath = window.activeTextEditor
+          ? path.relative(getWorkspaceRoot(), window.activeTextEditor.document.uri.fsPath)
+          : undefined;
+        const indexContext = await state.workspaceIndex.getRelevantContext(text, activeFilePath);
+        if (indexContext) {
+          systemPrompt += `\n\n${indexContext}`;
+        }
+        // Boost relevance for files mentioned in this message
+        const mentionedPaths = [...text.matchAll(/@file:([^\s]+)/g)].map((m) => m[1]);
+        if (mentionedPaths.length > 0) {
+          state.workspaceIndex.updateRelevance(mentionedPaths);
+        }
+      } else {
+        // Fallback to glob-based context while index is building
+        const context = await getWorkspaceContext(getFilePatterns(), getMaxFiles());
+        if (context) {
+          systemPrompt += `\n\n${context}`;
+        }
       }
     }
 
@@ -170,6 +224,15 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
           state.postMessage({ command: 'toolResult', content: `${name}: ${isError ? '✗ ' : '✓ '}${preview}` });
           state.metricsCollector.recordToolEnd(name, isError);
         },
+        onIterationStart: (iteration, maxIterations, elapsedMs, estimatedTokens) => {
+          state.postMessage({
+            command: 'agentProgress',
+            iteration,
+            maxIterations,
+            elapsedMs,
+            estimatedTokens,
+          });
+        },
         onPlanGenerated: (plan) => {
           state.pendingPlan = plan;
           state.pendingPlanMessages = [...chatMessages];
@@ -199,7 +262,8 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
       return;
     }
     const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-    state.postMessage({ command: 'error', content: `Error: ${errorMessage}` });
+    const classified = classifyError(errorMessage);
+    state.postMessage({ command: 'error', content: `Error: ${errorMessage}`, ...classified });
   } finally {
     state.abortController = null;
   }

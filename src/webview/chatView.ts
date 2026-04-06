@@ -1,6 +1,7 @@
 import {
   workspace,
   env,
+  commands,
   WebviewView,
   WebviewViewProvider,
   WebviewViewResolveContext,
@@ -14,6 +15,7 @@ import type { TerminalManager } from '../terminal/manager.js';
 import type { ProposedContentProvider } from '../edits/proposedContentProvider.js';
 import type { AgentLogger } from '../agent/logger.js';
 import type { MCPManager } from '../agent/mcpManager.js';
+import type { WorkspaceIndex } from '../config/workspaceIndex.js';
 import { getConfig } from '../config/settings.js';
 
 // Handler modules
@@ -57,9 +59,13 @@ export class ChatViewProvider implements WebviewViewProvider {
     contentProvider: ProposedContentProvider,
     agentLogger: AgentLogger,
     mcpManager: MCPManager,
+    workspaceIndex?: WorkspaceIndex,
   ) {
     this._contentProvider = contentProvider;
     this.state = new ChatState(context, terminalManager, agentLogger, mcpManager, (msg) => this.postMessage(msg));
+    if (workspaceIndex) {
+      this.state.workspaceIndex = workspaceIndex;
+    }
   }
 
   resolveWebviewView(
@@ -185,6 +191,9 @@ export class ChatViewProvider implements WebviewViewProvider {
         if (msg.url) {
           env.openExternal(Uri.parse(msg.url));
         }
+        break;
+      case 'openSettings':
+        commands.executeCommand('workbench.action.openSettings', 'sidecar');
         break;
     }
   }

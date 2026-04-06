@@ -7,6 +7,7 @@ import { MetricsCollector } from '../agent/metrics.js';
 import type { AgentLogger } from '../agent/logger.js';
 import type { MCPManager } from '../agent/mcpManager.js';
 import type { TerminalManager } from '../terminal/manager.js';
+import type { WorkspaceIndex } from '../config/workspaceIndex.js';
 import type { ExtensionMessage } from './chatWebview.js';
 import { getModel, getBaseUrl, getApiKey } from '../config/settings.js';
 
@@ -25,6 +26,7 @@ export class ChatState {
   changelog = new ChangeLog();
   sessionManager: SessionManager;
   metricsCollector: MetricsCollector;
+  workspaceIndex: WorkspaceIndex | null = null;
 
   constructor(
     readonly context: ExtensionContext,

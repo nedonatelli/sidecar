@@ -24,6 +24,8 @@ import { summarizePR } from './review/prSummary.js';
 import { generateCommitMessage } from './review/commitMessage.js';
 import { EventHookManager } from './agent/eventHooks.js';
 import { getEventHooks } from './config/settings.js';
+import { WorkspaceIndex } from './config/workspaceIndex.js';
+import { getFilePatterns } from './config/workspace.js';
 
 export function activate(context: ExtensionContext) {
   console.log('SideCar extension activating...');
@@ -64,7 +66,25 @@ export function activate(context: ExtensionContext) {
     }),
   );
 
-  const provider = new ChatViewProvider(context, terminalManager, proposedContentProvider, agentLogger, mcpManager);
+  const workspaceIndex = new WorkspaceIndex();
+  context.subscriptions.push(workspaceIndex);
+
+  // Initialize workspace index in the background
+  if (workspace.workspaceFolders && workspace.workspaceFolders.length > 0) {
+    workspaceIndex
+      .initialize(getFilePatterns())
+      .then(() => console.log(`[SideCar] Workspace indexed: ${workspaceIndex.getFileCount()} files`))
+      .catch((err) => console.error('[SideCar] Workspace indexing failed:', err));
+  }
+
+  const provider = new ChatViewProvider(
+    context,
+    terminalManager,
+    proposedContentProvider,
+    agentLogger,
+    mcpManager,
+    workspaceIndex,
+  );
   context.subscriptions.push(
     window.registerWebviewViewProvider('sidecar.chatView', provider, {
       webviewOptions: {

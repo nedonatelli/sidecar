@@ -1,0 +1,113 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { WorkspaceIndex } from './workspaceIndex.js';
+import { workspace } from 'vscode';
+
+describe('WorkspaceIndex', () => {
+  let index: WorkspaceIndex;
+
+  beforeEach(() => {
+    index = new WorkspaceIndex(5000);
+    vi.restoreAllMocks();
+  });
+
+  it('starts as not ready with no files', () => {
+    expect(index.isReady()).toBe(false);
+    expect(index.getFileCount()).toBe(0);
+  });
+
+  it('initializes and indexes files from workspace', async () => {
+    const mockUris = [{ fsPath: '/mock-workspace/src/index.ts' }, { fsPath: '/mock-workspace/package.json' }];
+    vi.spyOn(workspace, 'findFiles').mockResolvedValue(mockUris as never);
+    vi.spyOn(workspace.fs, 'stat').mockResolvedValue({ type: 1, size: 500 } as never);
+
+    await index.initialize(['**/*.ts', '**/*.json']);
+
+    expect(index.isReady()).toBe(true);
+    expect(index.getFileCount()).toBe(2);
+  });
+
+  it('skips files larger than 100KB', async () => {
+    const mockUris = [{ fsPath: '/mock-workspace/small.ts' }, { fsPath: '/mock-workspace/large.bin' }];
+    vi.spyOn(workspace, 'findFiles').mockResolvedValue(mockUris as never);
+    vi.spyOn(workspace.fs, 'stat')
+      .mockResolvedValueOnce({ type: 1, size: 500 } as never)
+      .mockResolvedValueOnce({ type: 1, size: 200_000 } as never);
+
+    await index.initialize(['**/*']);
+    expect(index.getFileCount()).toBe(1);
+  });
+
+  it('getRelevantContext returns empty for no files', async () => {
+    const context = await index.getRelevantContext('test query');
+    expect(context).toBe('');
+  });
+
+  it('getRelevantContext includes tree structure', async () => {
+    vi.spyOn(workspace, 'findFiles').mockResolvedValue([{ fsPath: '/mock-workspace/src/app.ts' }] as never);
+    vi.spyOn(workspace.fs, 'stat').mockResolvedValue({ type: 1, size: 100 } as never);
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from('const x = 1;') as never);
+
+    await index.initialize(['**/*.ts']);
+    const context = await index.getRelevantContext('app');
+
+    expect(context).toContain('Workspace Structure');
+    expect(context).toContain('app.ts');
+  });
+
+  it('boosts relevance for files mentioned in query', async () => {
+    vi.spyOn(workspace, 'findFiles').mockResolvedValue([
+      { fsPath: '/mock-workspace/src/foo.ts' },
+      { fsPath: '/mock-workspace/src/bar.ts' },
+    ] as never);
+    vi.spyOn(workspace.fs, 'stat').mockResolvedValue({ type: 1, size: 100 } as never);
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from('content') as never);
+
+    await index.initialize(['**/*.ts']);
+    const context = await index.getRelevantContext('look at src/foo.ts');
+
+    expect(context).toContain('Relevant Files');
+    expect(context).toContain('foo.ts');
+  });
+
+  it('updateRelevance increases score for mentioned paths', async () => {
+    vi.spyOn(workspace, 'findFiles').mockResolvedValue([{ fsPath: '/mock-workspace/src/low.ts' }] as never);
+    vi.spyOn(workspace.fs, 'stat').mockResolvedValue({ type: 1, size: 100 } as never);
+
+    await index.initialize(['**/*.ts']);
+    index.updateRelevance(['src/low.ts']);
+    index.updateRelevance(['nonexistent.ts']); // should be a no-op
+    expect(index.getFileCount()).toBe(1);
+  });
+
+  it('gives higher base score to root config files', async () => {
+    vi.spyOn(workspace, 'findFiles').mockResolvedValue([
+      { fsPath: '/mock-workspace/package.json' },
+      { fsPath: '/mock-workspace/src/utils.ts' },
+    ] as never);
+    vi.spyOn(workspace.fs, 'stat').mockResolvedValue({ type: 1, size: 100 } as never);
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from('{}') as never);
+
+    await index.initialize(['**/*']);
+    const context = await index.getRelevantContext('some query');
+    expect(context).toContain('package.json');
+  });
+
+  it('respects token budget', async () => {
+    const smallIndex = new WorkspaceIndex(200);
+    vi.spyOn(workspace, 'findFiles').mockResolvedValue([
+      { fsPath: '/mock-workspace/a.ts' },
+      { fsPath: '/mock-workspace/b.ts' },
+    ] as never);
+    vi.spyOn(workspace.fs, 'stat').mockResolvedValue({ type: 1, size: 100 } as never);
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from('x'.repeat(500)) as never);
+
+    await smallIndex.initialize(['**/*.ts']);
+    const context = await smallIndex.getRelevantContext('a.ts');
+    // Tree is always included but file contents should be limited
+    expect(context.length).toBeLessThan(500);
+  });
+
+  it('dispose cleans up without error', () => {
+    expect(() => index.dispose()).not.toThrow();
+  });
+});

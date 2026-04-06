@@ -122,6 +122,10 @@
     vscode.postMessage({ command: 'exportChat' });
   });
 
+  document.getElementById('scroll-to-bottom').addEventListener('click', () => {
+    forceScrollToBottom();
+  });
+
   customModelInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       customModelUse.click();
@@ -435,6 +439,55 @@
       input.style.height = 'auto';
       return;
     }
+    if (text.trim() === '/reset') {
+      vscode.postMessage({ command: 'newChat' });
+      input.value = '';
+      input.style.height = 'auto';
+      return;
+    }
+    if (text.trim() === '/undo') {
+      vscode.postMessage({ command: 'undoChanges' });
+      input.value = '';
+      input.style.height = 'auto';
+      return;
+    }
+    if (text.trim() === '/export') {
+      appendMessage('user', text);
+      vscode.postMessage({ command: 'exportChat' });
+      input.value = '';
+      input.style.height = 'auto';
+      return;
+    }
+    if (text.match(/^\/model\s+(.+)$/i)) {
+      const modelName = text.match(/^\/model\s+(.+)$/i)[1].trim();
+      vscode.postMessage({ command: 'changeModel', model: modelName });
+      input.value = '';
+      input.style.height = 'auto';
+      return;
+    }
+    if (text.trim() === '/help') {
+      appendMessage('user', '/help');
+      appendMessage(
+        'assistant',
+        '**Available commands:**\n' +
+          '`/help` — Show this list\n' +
+          '`/reset` — Clear chat\n' +
+          '`/undo` — Rollback file changes\n' +
+          '`/export` — Export chat as Markdown\n' +
+          '`/model <name>` — Switch model\n' +
+          '`/batch <tasks>` — Run multiple tasks\n' +
+          '`/doc` — Generate documentation\n' +
+          '`/spec <desc>` — Spec-driven development\n' +
+          '`/insight` — Codebase insight report\n' +
+          '`/save <name>` — Save session\n' +
+          '`/sessions` — List sessions\n' +
+          '`/move <src> <dest>` — Move/rename file\n' +
+          '`/clone <url>` — Clone repository',
+      );
+      input.value = '';
+      input.style.height = 'auto';
+      return;
+    }
 
     // Check for move/rename commands
     const moveCmd = tryParseMoveCommand(text);
@@ -628,18 +681,58 @@
     return currentAssistantDiv;
   }
 
+  let lastRenderedBlockCount = 0;
+
+  function countCompletedBlocks(text) {
+    const codeBlocks = (text.match(/```[\w.]*:?[^\n]*\n[\s\S]*?```/g) || []).length;
+    const editBlocks = (text.match(/<<<SEARCH:[^\n]+\n[\s\S]*?\n===\n[\s\S]*?\n>>>REPLACE/g) || []).length;
+    return codeBlocks + editBlocks;
+  }
+
+  function getTrailingText(text) {
+    // Find the end position of the last completed code block
+    const codeBlockRegex = /```[\w.]*:?[^\n]*\n[\s\S]*?```/g;
+    let lastMatchEnd = 0;
+    let m;
+    while ((m = codeBlockRegex.exec(text)) !== null) {
+      lastMatchEnd = m.index + m[0].length;
+    }
+    return text.slice(lastMatchEnd);
+  }
+
   function appendToAssistantMessage(content) {
-    if (currentAssistantDiv) {
-      currentAssistantText += content;
+    if (!currentAssistantDiv) return;
+    currentAssistantText += content;
+
+    const blockCount = countCompletedBlocks(currentAssistantText);
+
+    if (blockCount !== lastRenderedBlockCount) {
+      // New code/edit block completed — full re-render
+      lastRenderedBlockCount = blockCount;
       currentAssistantDiv.innerHTML = '';
       currentAssistantDiv.appendChild(renderContent(currentAssistantText));
-      scrollToBottom();
+    } else {
+      // Plain text streaming — update only the trailing text span
+      const lastChild = currentAssistantDiv.lastChild;
+      if (lastChild && lastChild.nodeType === Node.ELEMENT_NODE && lastChild.tagName === 'SPAN') {
+        lastChild.textContent = getTrailingText(currentAssistantText);
+      } else {
+        currentAssistantDiv.innerHTML = '';
+        currentAssistantDiv.appendChild(renderContent(currentAssistantText));
+      }
     }
+    scrollToBottom();
   }
 
   function finishAssistantMessage() {
+    if (currentAssistantDiv && currentAssistantText) {
+      // Final full render to ensure complete content with all buttons
+      currentAssistantDiv.innerHTML = '';
+      currentAssistantDiv.appendChild(renderContent(currentAssistantText));
+    }
     currentAssistantDiv = null;
     currentAssistantText = '';
+    lastRenderedBlockCount = 0;
   }
 
   function showTypingIndicator() {
@@ -663,8 +756,26 @@
     input.disabled = loading;
   }
 
+  let userScrolledUp = false;
+
+  messagesContainer.addEventListener('scroll', () => {
+    const gap = messagesContainer.scrollHeight - messagesContainer.scrollTop - messagesContainer.clientHeight;
+    userScrolledUp = gap > 40;
+    const scrollBtn = document.getElementById('scroll-to-bottom');
+    if (scrollBtn) scrollBtn.classList.toggle('hidden', !userScrolledUp);
+  });
+
   function scrollToBottom() {
+    if (!userScrolledUp) {
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+  }
+
+  function forceScrollToBottom() {
+    userScrolledUp = false;
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    const scrollBtn = document.getElementById('scroll-to-bottom');
+    if (scrollBtn) scrollBtn.classList.add('hidden');
   }
 
   function renderModelList(models) {
@@ -767,9 +878,37 @@
         }
         break;
 
+      case 'agentProgress': {
+        const progressEl = document.getElementById('agent-progress');
+        if (progressEl && msg.iteration != null) {
+          const stepEl = document.getElementById('progress-step');
+          const timeEl = document.getElementById('progress-time');
+          const tokensEl = document.getElementById('progress-tokens');
+          if (stepEl) stepEl.textContent = `Step ${msg.iteration}/${msg.maxIterations}`;
+          if (timeEl) {
+            const secs = Math.floor((msg.elapsedMs || 0) / 1000);
+            const mins = Math.floor(secs / 60);
+            const rem = secs % 60;
+            timeEl.textContent = mins > 0 ? `${mins}m ${rem}s` : `${rem}s`;
+          }
+          if (tokensEl && msg.estimatedTokens != null) {
+            const k =
+              msg.estimatedTokens >= 1000 ? `${Math.round(msg.estimatedTokens / 1000)}K` : String(msg.estimatedTokens);
+            tokensEl.textContent = `~${k} tokens`;
+          }
+          progressEl.classList.remove('hidden');
+        }
+        break;
+      }
+
       case 'done': {
         finishAssistantMessage();
         setLoading(false);
+        userScrolledUp = false;
+        const scrollBtnDone = document.getElementById('scroll-to-bottom');
+        if (scrollBtnDone) scrollBtnDone.classList.add('hidden');
+        const progressDone = document.getElementById('agent-progress');
+        if (progressDone) progressDone.classList.add('hidden');
         setTimeout(() => {
           streamStats.classList.add('hidden');
         }, 3000);
@@ -959,16 +1098,55 @@
         break;
       }
 
-      case 'error':
+      case 'error': {
         removeTypingIndicator();
+        const progressErr = document.getElementById('agent-progress');
+        if (progressErr) progressErr.classList.add('hidden');
         if (currentAssistantDiv) {
           currentAssistantDiv.remove();
           currentAssistantDiv = null;
           currentAssistantText = '';
         }
-        appendMessage('assistant', content || 'An error occurred', true);
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'message assistant error';
+        const errorContent = document.createElement('div');
+        errorContent.className = 'error-card';
+        errorContent.textContent = content || 'An error occurred';
+        errorDiv.appendChild(errorContent);
+        if (msg.errorAction) {
+          const actionsRow = document.createElement('div');
+          actionsRow.className = 'error-actions';
+          const actionBtn = document.createElement('button');
+          actionBtn.className = 'error-action-btn';
+          actionBtn.textContent = msg.errorAction;
+          actionBtn.addEventListener('click', () => {
+            if (msg.errorActionCommand === 'openSettings') {
+              vscode.postMessage({ command: 'openSettings' });
+            } else if (msg.errorActionCommand === 'runCommand') {
+              vscode.postMessage({ command: 'runCommand', text: 'ollama serve' });
+            }
+          });
+          actionsRow.appendChild(actionBtn);
+          if (msg.errorType === 'timeout' || msg.errorType === 'connection') {
+            const retryBtn = document.createElement('button');
+            retryBtn.className = 'error-action-btn';
+            retryBtn.textContent = 'Retry';
+            retryBtn.addEventListener('click', () => {
+              const lastUser = [...messagesContainer.querySelectorAll('.message.user')].pop();
+              if (lastUser) {
+                const lastText = lastUser.textContent || '';
+                vscode.postMessage({ command: 'userMessage', text: lastText });
+              }
+            });
+            actionsRow.appendChild(retryBtn);
+          }
+          errorDiv.appendChild(actionsRow);
+        }
+        messagesContainer.appendChild(errorDiv);
+        scrollToBottom();
         setLoading(false);
         break;
+      }
     }
   });
 })();

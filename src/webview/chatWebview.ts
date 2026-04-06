@@ -17,6 +17,7 @@ export interface WebviewMessage {
     | 'moveFile'
     | 'github'
     | 'openExternal'
+    | 'openSettings'
     | 'newChat'
     | 'exportChat'
     | 'undoChanges'
@@ -78,8 +79,16 @@ export interface ExtensionMessage {
     | 'batchStart'
     | 'batchTaskUpdate'
     | 'batchDone'
-    | 'sessionList';
+    | 'sessionList'
+    | 'agentProgress';
   agentMode?: string;
+  iteration?: number;
+  maxIterations?: number;
+  elapsedMs?: number;
+  estimatedTokens?: number;
+  errorType?: 'connection' | 'auth' | 'model' | 'timeout' | 'unknown';
+  errorAction?: string;
+  errorActionCommand?: string;
   content?: string;
   messages?: ChatMessage[];
   isLoading?: boolean;
@@ -141,6 +150,12 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
     <div id="model-list"></div>
   </div>
   <div id="messages"></div>
+  <button id="scroll-to-bottom" class="hidden" title="Scroll to bottom">&#8595;</button>
+  <div id="agent-progress" class="hidden">
+    <span id="progress-step"></span>
+    <span id="progress-time"></span>
+    <span id="progress-tokens"></span>
+  </div>
   <div id="stream-stats" class="hidden"></div>
   <div id="install-progress" class="hidden">
     <span id="install-text">Installing...</span>

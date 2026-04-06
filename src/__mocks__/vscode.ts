@@ -8,6 +8,9 @@ export const Uri = {
   },
 };
 
+const noopDisposable = { dispose: () => {} };
+const noopEvent = () => noopDisposable;
+
 export const workspace = {
   workspaceFolders: [{ uri: { fsPath: '/mock-workspace' }, name: 'mock', index: 0 }],
   getConfiguration: (_section?: string) => ({
@@ -22,6 +25,12 @@ export const workspace = {
   },
   findFiles: async () => [],
   openTextDocument: async (_uri: unknown) => ({ getText: () => 'mock content' }),
+  createFileSystemWatcher: () => ({
+    onDidCreate: noopEvent,
+    onDidChange: noopEvent,
+    onDidDelete: noopEvent,
+    dispose: () => {},
+  }),
 };
 
 export const window = {
@@ -58,6 +67,13 @@ export enum DiagnosticSeverity {
   Warning = 1,
   Information = 2,
   Hint = 3,
+}
+
+export class RelativePattern {
+  constructor(
+    public base: unknown,
+    public pattern: string,
+  ) {}
 }
 
 export class CancellationTokenSource {

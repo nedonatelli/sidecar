@@ -19,6 +19,7 @@ export interface AgentCallbacks {
   onToolCall: (name: string, input: Record<string, unknown>) => void;
   onToolResult: (name: string, result: string, isError: boolean) => void;
   onPlanGenerated?: (plan: string) => void;
+  onIterationStart?: (iteration: number, maxIterations: number, elapsedMs: number, estimatedTokens: number) => void;
   onDone: () => void;
 }
 
@@ -50,6 +51,7 @@ export async function runAgentLoop(
   const tools = getToolDefinitions(mcpManager);
   let iteration = 0;
   let totalChars = 0;
+  const startTime = Date.now();
 
   // Work with a copy of messages
   const agentMessages = [...messages];
@@ -78,6 +80,7 @@ export async function runAgentLoop(
     }
 
     logger?.logIteration(iteration, maxIterations);
+    callbacks.onIterationStart?.(iteration, maxIterations, Date.now() - startTime, estimatedTokens);
 
     // Stream response from model
     const assistantContent: ContentBlock[] = [];
