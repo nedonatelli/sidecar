@@ -6,16 +6,6 @@ Last updated: 2026-04-05 (v0.11.x)
 
 ---
 
-## Quick Wins
-
-### Expand test coverage for handlers
-Add tests for `src/webview/handlers/chatHandlers.ts` (message handling, context assembly, error classification) and `src/webview/handlers/githubHandlers.ts` (command parsing, GitHub API dispatch).
-
-### Remove remaining deprecated settings getters
-The main callers (`chatHandlers.ts`, `extension.ts`, `executor.ts`) have been migrated to `getConfig()`. Remaining callers in `eventHooks.ts` and other modules still use the deprecated individual getters. Finish the migration and remove the deprecated functions from `settings.ts`.
-
----
-
 ## Medium Effort
 
 ### Slash command autocomplete
@@ -70,3 +60,5 @@ Support multiple parallel conversation branches from a single chat:
 - [x] Agent mode dropdown (cautious/autonomous/manual) in header
 - [x] Migrate `executor.ts`, `extension.ts`, `chatHandlers.ts` to `getConfig()`
 - [x] Filter stale `[message with images]` from persisted history
+- [x] Handler tests: chatHandlers (25), githubHandlers (11), sessionHandlers (9) — 170 total
+- [x] Remove all 18 deprecated settings getters, migrate all callers to `getConfig()`

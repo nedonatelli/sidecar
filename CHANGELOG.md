@@ -13,14 +13,13 @@ All notable changes to the SideCar extension will be documented in this file.
 - **Tool execution animation**: pulsing indicator on tool calls while they're running
 - **Workspace indexing**: persistent in-memory file index with relevance scoring, replaces per-message glob scan. Uses `FileSystemWatcher` for incremental updates
 - **Agent mode dropdown**: header badge replaced with a dropdown to switch between cautious/autonomous/manual modes directly from the UI
-- **28 new tests**: executor tool approval flow, MCP manager, workspace index (128 total)
+- **70 new tests**: executor, MCP manager, workspace index, chatHandlers, githubHandlers, sessionHandlers (170 total)
 
 ### Changed
 - **Sticky scroll**: auto-scroll stops when user scrolls up, floating scroll-to-bottom button appears
 - **Incremental streaming**: only re-renders full DOM when code blocks change; plain text updates the trailing span
 - **Agent progress pulse**: progress bar and tool calls animate to show SideCar is alive during intensive tasks
-- **Settings migration**: `executor.ts`, `extension.ts`, `chatHandlers.ts` migrated from deprecated individual getters to consolidated `getConfig()`
-- Removed unused `getMCPServers`, `getScheduledTasks`, `getEventHooks` imports
+- **Settings migration**: all callers migrated from 18 deprecated individual getters to consolidated `getConfig()`, deprecated functions removed from `settings.ts`
 
 ### Fixed
 - Messages with image content showing `[message with images]` placeholder instead of actual text
