@@ -86,7 +86,7 @@ describe('ChatState', () => {
     state.saveHistory();
     expect(mockWorkspaceState.update).toHaveBeenCalledWith('sidecar.chatHistory', [
       { role: 'user', content: 'hello' },
-      { role: 'assistant', content: '[message with images]' },
+      { role: 'assistant', content: 'hi' },
     ]);
   });
 

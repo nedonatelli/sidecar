@@ -1,5 +1,5 @@
 import type { ExtensionContext } from 'vscode';
-import type { ChatMessage } from '../ollama/types.js';
+import { type ChatMessage, getContentText } from '../ollama/types.js';
 import { SideCarClient } from '../ollama/client.js';
 import { ChangeLog } from '../agent/changelog.js';
 import { SessionManager } from '../agent/sessions.js';
@@ -45,7 +45,7 @@ export class ChatState {
   saveHistory(): void {
     const serializable = this.messages.map((m) => ({
       role: m.role,
-      content: typeof m.content === 'string' ? m.content : '[message with images]',
+      content: getContentText(m.content),
     }));
     this.context.workspaceState.update('sidecar.chatHistory', serializable);
   }

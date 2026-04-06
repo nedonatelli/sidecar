@@ -4,7 +4,7 @@ import { promisify } from 'util';
 import { exec } from 'child_process';
 import type { ChatState } from '../chatState.js';
 import type { ContentBlock } from '../../ollama/types.js';
-import { getContentLength } from '../../ollama/types.js';
+import { getContentLength, getContentText } from '../../ollama/types.js';
 import {
   getModel,
   getSystemPrompt,
@@ -489,7 +489,7 @@ export async function handleExportChat(state: ChatState): Promise<void> {
   const lines: string[] = [];
   for (const msg of state.messages) {
     const label = msg.role === 'user' ? '## User' : '## Assistant';
-    const text = typeof msg.content === 'string' ? msg.content : '[message with images]';
+    const text = getContentText(msg.content);
     lines.push(`${label}\n\n${text}\n`);
   }
   const content = lines.join('\n---\n\n');
