@@ -252,6 +252,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
         planMode: config.planMode,
         maxIterations: config.agentMaxIterations,
         maxTokens: config.agentMaxTokens,
+        confirmFn: (msg, actions) => state.requestConfirm(msg, actions),
       },
     );
 
@@ -426,11 +427,7 @@ export async function handleCreateFile(state: ChatState, code: string, filePath:
   }
 
   if (exists) {
-    const choice = await window.showWarningMessage(
-      `"${filePath}" already exists. Overwrite?`,
-      { modal: true },
-      'Overwrite',
-    );
+    const choice = await state.requestConfirm(`"${filePath}" already exists. Overwrite?`, ['Overwrite', 'Cancel']);
     if (choice !== 'Overwrite') return;
   }
 
@@ -447,7 +444,7 @@ export async function handleCreateFile(state: ChatState, code: string, filePath:
 }
 
 export async function handleRunCommand(state: ChatState, command: string): Promise<string | null> {
-  const choice = await window.showWarningMessage(`SideCar wants to run: ${command}`, { modal: true }, 'Allow');
+  const choice = await state.requestConfirm(`SideCar wants to run: \`${command}\``, ['Allow', 'Deny']);
   if (choice !== 'Allow') {
     state.postMessage({ command: 'commandResult', content: 'Command cancelled by user.' });
     return null;
@@ -504,11 +501,7 @@ export async function handleMoveFile(state: ChatState, sourcePath: string, destP
   }
 
   if (destExists) {
-    const choice = await window.showWarningMessage(
-      `"${destPath}" already exists. Overwrite?`,
-      { modal: true },
-      'Overwrite',
-    );
+    const choice = await state.requestConfirm(`"${destPath}" already exists. Overwrite?`, ['Overwrite', 'Cancel']);
     if (choice !== 'Overwrite') {
       state.postMessage({ command: 'fileMoved', content: 'Move cancelled.' });
       return;
@@ -532,11 +525,10 @@ export async function handleUndoChanges(state: ChatState): Promise<void> {
     return;
   }
   const changes = state.changelog.getChanges();
-  const choice = await window.showWarningMessage(
-    `Undo ${changes.length} file change(s) made by SideCar?`,
-    { modal: true },
+  const choice = await state.requestConfirm(`Undo ${changes.length} file change(s) made by SideCar?`, [
     'Undo All',
-  );
+    'Cancel',
+  ]);
   if (choice !== 'Undo All') return;
   const result = await state.changelog.rollbackAll();
   const parts: string[] = [];

@@ -31,11 +31,14 @@ export interface WebviewMessage {
     | 'insight'
     | 'spec'
     | 'generateDoc'
-    | 'changeAgentMode';
+    | 'changeAgentMode'
+    | 'confirmResponse';
   images?: { mediaType: string; data: string }[];
   text?: string;
   model?: string;
   agentMode?: string;
+  confirmId?: string;
+  confirmed?: boolean;
   code?: string;
   language?: string;
   filePath?: string;
@@ -82,8 +85,11 @@ export interface ExtensionMessage {
     | 'batchTaskUpdate'
     | 'batchDone'
     | 'sessionList'
-    | 'agentProgress';
+    | 'agentProgress'
+    | 'confirm';
   agentMode?: string;
+  confirmId?: string;
+  confirmActions?: string[];
   iteration?: number;
   maxIterations?: number;
   elapsedMs?: number;

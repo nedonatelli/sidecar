@@ -1,4 +1,4 @@
-import { window, workspace } from 'vscode';
+import { workspace } from 'vscode';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../ollama/types.js';
@@ -11,6 +11,7 @@ import type { AgentLogger } from './logger.js';
 const execAsync = promisify(exec);
 
 export type ApprovalMode = 'autonomous' | 'cautious' | 'manual';
+export type ConfirmFn = (message: string, actions: string[]) => Promise<string | undefined>;
 
 const WRITE_TOOLS = new Set(['write_file', 'edit_file']);
 
@@ -20,6 +21,7 @@ export async function executeTool(
   changelog?: ChangeLog,
   mcpManager?: MCPManager,
   logger?: AgentLogger,
+  confirmFn?: ConfirmFn,
 ): Promise<ToolResultContentBlock> {
   const tool = findTool(toolUse.name, mcpManager);
 
@@ -65,12 +67,8 @@ export async function executeTool(
       })
       .join(', ');
 
-    const choice = await window.showWarningMessage(
-      `SideCar wants to use ${toolUse.name}(${inputSummary})`,
-      { modal: true },
-      'Allow',
-      'Deny',
-    );
+    const confirm = confirmFn || (async (msg: string, actions: string[]) => actions[0]);
+    const choice = await confirm(`SideCar wants to use **${toolUse.name}**(${inputSummary})`, ['Allow', 'Deny']);
 
     if (choice !== 'Allow') {
       return {

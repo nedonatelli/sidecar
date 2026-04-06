@@ -349,6 +349,50 @@ body {
   background: var(--vscode-button-secondaryHoverBackground);
 }
 
+.confirm-card {
+  margin: 4px 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--vscode-widget-border);
+  border-radius: 4px;
+  background: var(--vscode-textBlockQuote-background);
+}
+
+.confirm-message {
+  font-size: 13px;
+  color: var(--vscode-foreground);
+  margin-bottom: 8px;
+}
+
+.confirm-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.confirm-btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  border: 1px solid var(--vscode-widget-border);
+  border-radius: 3px;
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+  cursor: pointer;
+  font-family: var(--vscode-font-family);
+}
+
+.confirm-btn:hover {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.confirm-btn.confirm-primary {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  border-color: var(--vscode-button-background);
+}
+
+.confirm-btn.confirm-primary:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
 #slash-autocomplete {
   border-top: 1px solid var(--vscode-widget-border);
   background: var(--vscode-editor-background);

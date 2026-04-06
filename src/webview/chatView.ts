@@ -124,6 +124,9 @@ export class ChatViewProvider implements WebviewViewProvider {
         workspace.getConfiguration('sidecar').update('agentMode', msg.agentMode, true);
         this.postMessage({ command: 'setAgentMode', agentMode: msg.agentMode });
         break;
+      case 'confirmResponse':
+        this.state.resolveConfirm(msg.confirmId || '', msg.confirmed ? msg.text : undefined);
+        break;
       case 'installModel':
         await handleInstallModel(this.state, msg.model || '');
         break;

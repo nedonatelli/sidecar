@@ -1,8 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { executeTool } from './executor.js';
+import { executeTool, type ConfirmFn } from './executor.js';
 import type { ToolUseContentBlock } from '../ollama/types.js';
 import type { ChangeLog } from './changelog.js';
-import { window } from 'vscode';
 
 // Mock the modules
 vi.mock('../config/settings.js', () => ({
@@ -35,12 +34,12 @@ function mockConfig(overrides: { toolPermissions?: Record<string, string>; hooks
 }
 
 describe('executeTool', () => {
-  let showWarningSpy: ReturnType<typeof vi.spyOn>;
+  let mockConfirm: ConfirmFn;
 
   beforeEach(() => {
     vi.clearAllMocks();
     mockConfig();
-    showWarningSpy = vi.spyOn(window, 'showWarningMessage').mockResolvedValue(undefined as never);
+    mockConfirm = vi.fn().mockResolvedValue('Allow');
   });
 
   it('returns error for unknown tool', async () => {
@@ -72,23 +71,36 @@ describe('executeTool', () => {
     });
     mockConfig({ toolPermissions: { write_file: 'allow' } });
 
-    const result = await executeTool(makeToolUse('write_file', { path: 'test.ts', content: 'hi' }), 'cautious');
+    const result = await executeTool(
+      makeToolUse('write_file', { path: 'test.ts', content: 'hi' }),
+      'cautious',
+      undefined,
+      undefined,
+      undefined,
+      mockConfirm,
+    );
     expect(result.is_error).toBeFalsy();
     expect(result.content).toBe('file contents');
-    expect(showWarningSpy).not.toHaveBeenCalled();
+    expect(mockConfirm).not.toHaveBeenCalled();
   });
 
-  it('shows approval dialog in cautious mode for write tools', async () => {
+  it('shows inline confirmation in cautious mode for write tools', async () => {
     const executor = vi.fn().mockResolvedValue('written');
     mockedFindTool.mockReturnValue({
       definition: { name: 'write_file', description: '', input_schema: { type: 'object', properties: {} } },
       executor,
       requiresApproval: true,
     });
-    showWarningSpy.mockResolvedValue('Allow' as never);
 
-    const result = await executeTool(makeToolUse('write_file', { path: 'test.ts' }), 'cautious');
-    expect(showWarningSpy).toHaveBeenCalled();
+    const result = await executeTool(
+      makeToolUse('write_file', { path: 'test.ts' }),
+      'cautious',
+      undefined,
+      undefined,
+      undefined,
+      mockConfirm,
+    );
+    expect(mockConfirm).toHaveBeenCalled();
     expect(result.content).toBe('written');
   });
 
@@ -98,9 +110,16 @@ describe('executeTool', () => {
       executor: async () => 'ok',
       requiresApproval: true,
     });
-    showWarningSpy.mockResolvedValue('Deny' as never);
+    const denyConfirm = vi.fn().mockResolvedValue('Deny');
 
-    const result = await executeTool(makeToolUse('write_file', { path: 'test.ts' }), 'cautious');
+    const result = await executeTool(
+      makeToolUse('write_file', { path: 'test.ts' }),
+      'cautious',
+      undefined,
+      undefined,
+      undefined,
+      denyConfirm,
+    );
     expect(result.is_error).toBe(true);
     expect(result.content).toContain('denied by user');
   });
@@ -113,8 +132,15 @@ describe('executeTool', () => {
       requiresApproval: false,
     });
 
-    const result = await executeTool(makeToolUse('read_file', { path: 'test.ts' }), 'autonomous');
-    expect(showWarningSpy).not.toHaveBeenCalled();
+    const result = await executeTool(
+      makeToolUse('read_file', { path: 'test.ts' }),
+      'autonomous',
+      undefined,
+      undefined,
+      undefined,
+      mockConfirm,
+    );
+    expect(mockConfirm).not.toHaveBeenCalled();
     expect(result.content).toBe('data');
   });
 
@@ -153,9 +179,15 @@ describe('executeTool', () => {
       executor,
       requiresApproval: false,
     });
-    showWarningSpy.mockResolvedValue('Allow' as never);
 
-    await executeTool(makeToolUse('read_file', { path: 'test.ts' }), 'manual');
-    expect(showWarningSpy).toHaveBeenCalled();
+    await executeTool(
+      makeToolUse('read_file', { path: 'test.ts' }),
+      'manual',
+      undefined,
+      undefined,
+      undefined,
+      mockConfirm,
+    );
+    expect(mockConfirm).toHaveBeenCalled();
   });
 });

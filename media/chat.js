@@ -1057,6 +1057,34 @@
         break;
       }
 
+      case 'confirm': {
+        finishAssistantMessage();
+        const confirmCard = document.createElement('div');
+        confirmCard.className = 'confirm-card';
+        const confirmMsg = document.createElement('div');
+        confirmMsg.className = 'confirm-message';
+        confirmMsg.textContent = content || 'Confirm action?';
+        confirmCard.appendChild(confirmMsg);
+        const confirmActions = document.createElement('div');
+        confirmActions.className = 'confirm-actions';
+        const actions = event.data.confirmActions || ['Allow', 'Deny'];
+        const confirmId = event.data.confirmId;
+        for (const label of actions) {
+          const btn = document.createElement('button');
+          btn.className = 'confirm-btn' + (label === actions[0] ? ' confirm-primary' : '');
+          btn.textContent = label;
+          btn.addEventListener('click', () => {
+            vscode.postMessage({ command: 'confirmResponse', confirmId, confirmed: true, text: label });
+            confirmCard.remove();
+          });
+          confirmActions.appendChild(btn);
+        }
+        confirmCard.appendChild(confirmActions);
+        messagesContainer.appendChild(confirmCard);
+        scrollToBottom();
+        break;
+      }
+
       case 'toolCall': {
         // Finish the current assistant message so the next text stream
         // creates a new response block after the tool call/result.

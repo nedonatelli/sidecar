@@ -114,11 +114,11 @@ describe('languageToExtension', () => {
 // handleCreateFile
 // ---------------------------------------------------------------------------
 describe('handleCreateFile', () => {
-  let state: { postMessage: ReturnType<typeof vi.fn> };
+  let state: { postMessage: ReturnType<typeof vi.fn>; requestConfirm: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
     vi.restoreAllMocks();
-    state = { postMessage: vi.fn() };
+    state = { postMessage: vi.fn(), requestConfirm: vi.fn().mockResolvedValue(undefined) };
   });
 
   it('posts error when no workspace folder is open', async () => {
@@ -145,19 +145,17 @@ describe('handleCreateFile', () => {
 
   it('prompts for overwrite when file exists', async () => {
     vi.spyOn(workspace.fs, 'stat').mockResolvedValue({ type: 1, size: 100 } as never);
-    vi.spyOn(window, 'showWarningMessage').mockResolvedValue(undefined as never);
 
     await handleCreateFile(state as never, 'code', 'existing.ts');
-    expect(window.showWarningMessage).toHaveBeenCalledWith(
-      expect.stringContaining('already exists'),
-      expect.anything(),
+    expect(state.requestConfirm).toHaveBeenCalledWith(expect.stringContaining('already exists'), [
       'Overwrite',
-    );
+      'Cancel',
+    ]);
   });
 
   it('does not overwrite when user cancels', async () => {
     vi.spyOn(workspace.fs, 'stat').mockResolvedValue({ type: 1, size: 100 } as never);
-    vi.spyOn(window, 'showWarningMessage').mockResolvedValue(undefined as never);
+    state.requestConfirm.mockResolvedValue(undefined);
     const writeSpy = vi.spyOn(workspace.fs, 'writeFile');
 
     await handleCreateFile(state as never, 'code', 'existing.ts');
@@ -169,11 +167,11 @@ describe('handleCreateFile', () => {
 // handleMoveFile
 // ---------------------------------------------------------------------------
 describe('handleMoveFile', () => {
-  let state: { postMessage: ReturnType<typeof vi.fn> };
+  let state: { postMessage: ReturnType<typeof vi.fn>; requestConfirm: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
     vi.restoreAllMocks();
-    state = { postMessage: vi.fn() };
+    state = { postMessage: vi.fn(), requestConfirm: vi.fn().mockResolvedValue(undefined) };
   });
 
   it('posts error when source or dest is empty', async () => {
@@ -208,14 +206,12 @@ describe('handleMoveFile', () => {
 
   it('prompts for overwrite when dest exists', async () => {
     vi.spyOn(workspace.fs, 'stat').mockResolvedValue({ type: 1, size: 100 } as never);
-    vi.spyOn(window, 'showWarningMessage').mockResolvedValue(undefined as never);
 
     await handleMoveFile(state as never, 'src.ts', 'dest.ts');
-    expect(window.showWarningMessage).toHaveBeenCalledWith(
-      expect.stringContaining('already exists'),
-      expect.anything(),
+    expect(state.requestConfirm).toHaveBeenCalledWith(expect.stringContaining('already exists'), [
       'Overwrite',
-    );
+      'Cancel',
+    ]);
   });
 });
 

@@ -23,6 +23,8 @@ export class ChatState {
   pendingPlanMessages: ChatMessage[] = [];
   abortController: AbortController | null = null;
   installAbortController: AbortController | null = null;
+  private pendingConfirms = new Map<string, (choice: string | undefined) => void>();
+  private confirmCounter = 0;
   changelog = new ChangeLog();
   sessionManager: SessionManager;
   metricsCollector: MetricsCollector;
@@ -65,6 +67,26 @@ export class ChatState {
 
   cancelInstall(): void {
     this.installAbortController?.abort();
+  }
+
+  /**
+   * Show an inline confirmation card in the chat and await the user's choice.
+   * Returns the label of the button clicked, or undefined if dismissed.
+   */
+  requestConfirm(message: string, actions: string[]): Promise<string | undefined> {
+    const id = `confirm_${++this.confirmCounter}`;
+    return new Promise((resolve) => {
+      this.pendingConfirms.set(id, resolve);
+      this.postMessage({ command: 'confirm', content: message, confirmId: id, confirmActions: actions });
+    });
+  }
+
+  resolveConfirm(id: string, choice: string | undefined): void {
+    const resolve = this.pendingConfirms.get(id);
+    if (resolve) {
+      this.pendingConfirms.delete(id);
+      resolve(choice);
+    }
   }
 
   clearChat(): void {
