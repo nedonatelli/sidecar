@@ -2,6 +2,11 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.22.2] - 2026-04-06
+
+### Fixed
+- **CI publish workflow**: added missing build step before marketplace publish
+
 ## [0.22.1] - 2026-04-06
 
 ### Fixed
