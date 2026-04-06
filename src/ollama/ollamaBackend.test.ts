@@ -124,6 +124,51 @@ describe('OllamaBackend', () => {
       expect(body.tools[0].function.name).toBe('read_file');
     });
 
+    it('emits warning and does not send tools for unsupported models', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        body: ndjsonBody([
+          {
+            model: 'gemma2:latest',
+            message: { role: 'assistant', content: 'response' },
+            done: true,
+            done_reason: 'stop',
+          },
+        ]),
+      });
+
+      const tools: ToolDefinition[] = [
+        {
+          name: 'read_file',
+          description: 'Read a file',
+          input_schema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
+        },
+      ];
+
+      const events = [];
+      for await (const event of backend.streamChat(
+        'gemma2:latest',
+        '',
+        [{ role: 'user', content: 'hi' }],
+        undefined,
+        tools,
+      )) {
+        events.push(event);
+      }
+
+      // Check that warning was emitted
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: 'warning',
+          message: expect.stringContaining('does not support tools'),
+        }),
+      );
+
+      // Check that tools were not sent to the API
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.tools).toBeUndefined();
+    });
+
     it('posts to /api/chat endpoint', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,

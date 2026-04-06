@@ -1,6 +1,7 @@
 import type { ChatState } from '../chatState.js';
 import type { LibraryModelUI } from '../chatWebview.js';
 import { getConfig } from '../../config/settings.js';
+import { modelSupportsTools } from '../../ollama/ollamaBackend.js';
 
 export async function loadModels(state: ChatState): Promise<void> {
   const config = getConfig();
@@ -21,10 +22,12 @@ export async function loadModels(state: ChatState): Promise<void> {
     const modelsUI: LibraryModelUI[] = libraryModels.map((m) => ({
       name: m.name,
       installed: m.installed,
+      supportsTools: modelSupportsTools(m.name),
     }));
 
     state.postMessage({ command: 'setModels', models: modelsUI });
-    state.postMessage({ command: 'setCurrentModel', currentModel: config.model });
+    const supportsTools = modelSupportsTools(config.model);
+    state.postMessage({ command: 'setCurrentModel', currentModel: config.model, supportsTools });
   } catch (err) {
     console.error('Failed to load models:', err);
     state.postMessage({

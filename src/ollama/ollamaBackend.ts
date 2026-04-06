@@ -3,6 +3,31 @@ import type { ChatMessage, ContentBlock, ToolDefinition, ToolUseContentBlock, St
 import { fetchWithRetry } from './retry.js';
 
 // ---------------------------------------------------------------------------
+// Models that do not support tools
+// ---------------------------------------------------------------------------
+const MODELS_WITHOUT_TOOL_SUPPORT = new Set([
+  'gemma:latest',
+  'gemma2:latest',
+  'gemma2:2b',
+  'gemma2:9b',
+  'gemma2:27b',
+  'llama2',
+  'mistral',
+  'neural-chat',
+  'starling-lm',
+]);
+
+function supportsTools(model: string): boolean {
+  // Check if model name matches any known non-tool-supporting models
+  const base = model.split(':')[0];
+  return !MODELS_WITHOUT_TOOL_SUPPORT.has(model) && !MODELS_WITHOUT_TOOL_SUPPORT.has(`${base}:latest`);
+}
+
+export function modelSupportsTools(model: string): boolean {
+  return supportsTools(model);
+}
+
+// ---------------------------------------------------------------------------
 // Ollama native API types
 // ---------------------------------------------------------------------------
 
@@ -175,7 +200,14 @@ export class OllamaBackend implements ApiBackend {
     };
 
     if (tools && tools.length > 0) {
-      body.tools = toOllamaTools(tools);
+      if (supportsTools(model)) {
+        body.tools = toOllamaTools(tools);
+      } else {
+        yield {
+          type: 'warning',
+          message: `⚠️ Model "${model}" does not support tools. Tool calling is disabled for this model.`,
+        };
+      }
     }
 
     const response = await fetchWithRetry(this.chatUrl, {

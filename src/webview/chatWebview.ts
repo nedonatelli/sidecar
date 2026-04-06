@@ -98,6 +98,7 @@ export interface ExtensionMessage {
   agentMode?: string;
   confirmId?: string;
   confirmActions?: string[];
+  supportsTools?: boolean;
   iteration?: number;
   maxIterations?: number;
   elapsedMs?: number;
@@ -123,6 +124,7 @@ export interface ExtensionMessage {
 export interface LibraryModelUI {
   name: string;
   installed: boolean;
+  supportsTools?: boolean;
 }
 
 export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string {
@@ -145,6 +147,10 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
       <span id="model-btn">
         <span id="model-name">Loading...</span>
         <span id="model-arrow">&#9662;</span>
+      </span>
+      <span id="chat-only-badge" class="hidden" title="This model does not support tool calling">
+        <span class="chat-only-icon">ℹ️</span>
+        <span class="chat-only-text">Chat-Only</span>
       </span>
     </div>
     <select id="agent-mode-select" class="agent-mode-select">

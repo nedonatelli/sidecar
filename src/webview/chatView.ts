@@ -137,7 +137,9 @@ export class ChatViewProvider implements WebviewViewProvider {
         const config = getConfig();
         this.state.client.updateConnection(config.baseUrl, config.apiKey);
         this.state.client.updateModel(msg.model || 'llama3');
-        this.postMessage({ command: 'setCurrentModel', currentModel: msg.model });
+        const { modelSupportsTools } = await import('../ollama/ollamaBackend.js');
+        const supportsTools = modelSupportsTools(msg.model || '');
+        this.postMessage({ command: 'setCurrentModel', currentModel: msg.model, supportsTools });
         workspace.getConfiguration('sidecar').update('model', msg.model, true);
         break;
       case 'changeAgentMode':

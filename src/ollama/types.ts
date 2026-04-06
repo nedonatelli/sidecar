@@ -97,7 +97,17 @@ export interface StreamStopEvent {
   stopReason: string;
 }
 
-export type StreamEvent = StreamTextEvent | StreamToolUseEvent | StreamThinkingEvent | StreamStopEvent;
+export interface StreamWarningEvent {
+  type: 'warning';
+  message: string;
+}
+
+export type StreamEvent =
+  | StreamTextEvent
+  | StreamToolUseEvent
+  | StreamThinkingEvent
+  | StreamStopEvent
+  | StreamWarningEvent;
 
 // Anthropic Messages API types
 

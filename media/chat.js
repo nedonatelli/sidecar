@@ -548,7 +548,7 @@
       summary.textContent = result.summary;
       container.appendChild(summary);
       if (result.diff && result.diff !== 'No diff output.') {
-        container.appendChild(renderContent('```diff\n' + result.diff + '\n```'));
+        container.appendChild(renderContent('```diff\n' + result.diff + '\n```', window.currentModelSupportsTools));
       }
       return container;
     }
@@ -790,7 +790,7 @@
 
   const createdFiles = new Set();
 
-  function renderContent(text) {
+  function renderContent(text, supportsTools = true) {
     const fragment = document.createDocumentFragment();
     const codeBlockRegex = /```([\w.]*):?([^\n]*)\n([\s\S]*?)```/g;
     let lastIndex = 0;
@@ -813,7 +813,8 @@
       header.className = 'code-block-header';
       header.appendChild(document.createTextNode(filePath || lang || 'code'));
 
-      if (filePath) {
+      if (filePath && supportsTools) {
+        // If tools supported and has file path, create file silently (don't show in webview)
         if (!createdFiles.has(filePath)) {
           createdFiles.add(filePath);
           vscode.postMessage({ command: 'createFile', code, filePath });
@@ -826,6 +827,7 @@
         continue;
       }
 
+      // For chat-only models or code blocks without file paths, always show the code block
       const isShell = ['sh', 'bash', 'shell', 'zsh'].includes(lang.toLowerCase());
       if (isShell) {
         const runBtn = document.createElement('button');
@@ -914,7 +916,7 @@
     const div = document.createElement('div');
     div.className = 'message ' + role + (isError ? ' error' : '');
     if (role === 'assistant' && !isError) {
-      div.appendChild(renderContent(content));
+      div.appendChild(renderContent(content, window.currentModelSupportsTools));
     } else {
       div.textContent = content;
     }
@@ -961,7 +963,7 @@
       // New code/edit block completed — full re-render
       lastRenderedBlockCount = blockCount;
       currentAssistantDiv.innerHTML = '';
-      currentAssistantDiv.appendChild(renderContent(currentAssistantText));
+      currentAssistantDiv.appendChild(renderContent(currentAssistantText, window.currentModelSupportsTools));
     } else {
       // Plain text streaming — update only the trailing text span
       const lastChild = currentAssistantDiv.lastChild;
@@ -969,7 +971,7 @@
         lastChild.textContent = getTrailingText(currentAssistantText);
       } else {
         currentAssistantDiv.innerHTML = '';
-        currentAssistantDiv.appendChild(renderContent(currentAssistantText));
+        currentAssistantDiv.appendChild(renderContent(currentAssistantText, window.currentModelSupportsTools));
       }
     }
     scrollToBottom();
@@ -979,7 +981,7 @@
     if (currentAssistantDiv && currentAssistantText) {
       // Final full render to ensure complete content with all buttons
       currentAssistantDiv.innerHTML = '';
-      currentAssistantDiv.appendChild(renderContent(currentAssistantText));
+      currentAssistantDiv.appendChild(renderContent(currentAssistantText, window.currentModelSupportsTools));
     }
     currentAssistantDiv = null;
     currentAssistantText = '';
@@ -1034,54 +1036,182 @@
 
   function renderModelList(models) {
     modelList.innerHTML = '';
-    for (const model of models) {
-      const item = document.createElement('div');
-      item.className = 'model-item';
 
-      const nameSpan = document.createElement('span');
-      nameSpan.className = 'model-item-name';
-      nameSpan.textContent = model.name;
+    // Organize models by tool support
+    const toolModels = models.filter((m) => m.supportsTools !== false);
+    const chatOnlyModels = models.filter((m) => m.supportsTools === false);
 
-      if (model.installed) {
-        nameSpan.classList.add('installed');
-        const checkmark = document.createElement('span');
-        checkmark.className = 'model-check';
-        checkmark.textContent = '\u2713';
-        nameSpan.appendChild(checkmark);
-      } else {
-        const badge = document.createElement('span');
-        badge.className = 'model-badge';
-        badge.textContent = 'not installed';
-        nameSpan.appendChild(badge);
-      }
+    // Render tool-supporting models section
+    if (toolModels.length > 0) {
+      const section = document.createElement('div');
+      section.className = 'model-section';
+      const header = document.createElement('div');
+      header.className = 'model-section-header';
+      header.textContent = 'Full Features (Tools)';
+      section.appendChild(header);
+      modelList.appendChild(section);
 
-      const actionBtn = document.createElement('button');
-      if (model.installed) {
-        actionBtn.textContent = 'Use';
-        actionBtn.className = 'model-action use';
-      } else if (installingModel === model.name) {
-        actionBtn.textContent = 'Installing...';
-        actionBtn.className = 'model-action installing';
-        actionBtn.disabled = true;
-      } else {
-        actionBtn.textContent = 'Install';
-        actionBtn.className = 'model-action install';
-      }
-      actionBtn.dataset.model = model.name;
+      for (const model of toolModels) {
+        const item = document.createElement('div');
+        item.className = 'model-item';
 
-      actionBtn.addEventListener('click', () => {
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'model-item-name';
+        nameSpan.textContent = model.name;
+
         if (model.installed) {
-          vscode.postMessage({ command: 'changeModel', model: model.name });
-          modelPanel.classList.add('hidden');
-        } else if (installingModel !== model.name) {
-          vscode.postMessage({ command: 'installModel', model: model.name });
+          nameSpan.classList.add('installed');
+          const checkmark = document.createElement('span');
+          checkmark.className = 'model-check';
+          checkmark.textContent = '\u2713';
+          nameSpan.appendChild(checkmark);
+        } else {
+          const badge = document.createElement('span');
+          badge.className = 'model-badge';
+          badge.textContent = 'not installed';
+          nameSpan.appendChild(badge);
         }
-      });
 
-      item.appendChild(nameSpan);
-      item.appendChild(actionBtn);
-      modelList.appendChild(item);
+        const actionBtn = document.createElement('button');
+        if (model.installed) {
+          actionBtn.textContent = 'Use';
+          actionBtn.className = 'model-action use';
+        } else if (installingModel === model.name) {
+          actionBtn.textContent = 'Installing...';
+          actionBtn.className = 'model-action installing';
+          actionBtn.disabled = true;
+        } else {
+          actionBtn.textContent = 'Install';
+          actionBtn.className = 'model-action install';
+        }
+        actionBtn.dataset.model = model.name;
+
+        actionBtn.addEventListener('click', () => {
+          if (model.installed) {
+            vscode.postMessage({ command: 'changeModel', model: model.name });
+            modelPanel.classList.add('hidden');
+          } else if (installingModel !== model.name) {
+            vscode.postMessage({ command: 'installModel', model: model.name });
+          }
+        });
+
+        item.appendChild(nameSpan);
+        item.appendChild(actionBtn);
+        modelList.appendChild(item);
+      }
     }
+
+    // Render chat-only models section
+    if (chatOnlyModels.length > 0) {
+      const section = document.createElement('div');
+      section.className = 'model-section';
+      const header = document.createElement('div');
+      header.className = 'model-section-header';
+      header.innerHTML = 'Chat-Only \u2139\ufe0f';
+      header.title = 'These models support text chat only. Use Full Features models for autonomous tool calling.';
+      section.appendChild(header);
+      modelList.appendChild(section);
+
+      for (const model of chatOnlyModels) {
+        const item = document.createElement('div');
+        item.className = 'model-item';
+
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'model-item-name';
+        nameSpan.textContent = model.name;
+
+        if (model.installed) {
+          nameSpan.classList.add('installed');
+          const checkmark = document.createElement('span');
+          checkmark.className = 'model-check';
+          checkmark.textContent = '\u2713';
+          nameSpan.appendChild(checkmark);
+        } else {
+          const badge = document.createElement('span');
+          badge.className = 'model-badge';
+          badge.textContent = 'not installed';
+          nameSpan.appendChild(badge);
+        }
+
+        const actionBtn = document.createElement('button');
+        if (model.installed) {
+          actionBtn.textContent = 'Use';
+          actionBtn.className = 'model-action use';
+        } else if (installingModel === model.name) {
+          actionBtn.textContent = 'Installing...';
+          actionBtn.className = 'model-action installing';
+          actionBtn.disabled = true;
+        } else {
+          actionBtn.textContent = 'Install';
+          actionBtn.className = 'model-action install';
+        }
+        actionBtn.dataset.model = model.name;
+
+        actionBtn.addEventListener('click', () => {
+          if (model.installed) {
+            vscode.postMessage({ command: 'changeModel', model: model.name });
+            modelPanel.classList.add('hidden');
+          } else if (installingModel !== model.name) {
+            vscode.postMessage({ command: 'installModel', model: model.name });
+          }
+        });
+
+        item.appendChild(nameSpan);
+        item.appendChild(actionBtn);
+        modelList.appendChild(item);
+      }
+    }
+  }
+
+  function updateChatOnlyBadge() {
+    const badge = document.getElementById('chat-only-badge');
+    const supportsTools = window.currentModelSupportsTools !== false;
+    if (supportsTools) {
+      badge.classList.add('hidden');
+    } else {
+      badge.classList.remove('hidden');
+    }
+  }
+
+  // Store current model's tool support status
+  window.currentModelSupportsTools = true;
+
+  // Handle chat-only badge hover
+  const chatOnlyBadge = document.getElementById('chat-only-badge');
+  if (chatOnlyBadge) {
+    chatOnlyBadge.addEventListener('mouseenter', () => {
+      const tooltipContent = `<strong>Available Tools:</strong><br/>
+• Read files<br/>
+• Edit files<br/>
+• Search files<br/>
+• Run commands<br/>
+• Git operations<br/>
+• Run tests<br/>
+• Get diagnostics<br/>
+• Access workspace`;
+
+      // Reuse or create tooltip
+      let tooltip = document.getElementById('chat-only-tooltip');
+      if (!tooltip) {
+        tooltip = document.createElement('div');
+        tooltip.id = 'chat-only-tooltip';
+        document.body.appendChild(tooltip);
+      }
+      tooltip.innerHTML = tooltipContent;
+      tooltip.classList.add('visible');
+
+      // Position tooltip
+      const rect = chatOnlyBadge.getBoundingClientRect();
+      tooltip.style.left = rect.left + rect.width / 2 - tooltip.offsetWidth / 2 + 'px';
+      tooltip.style.top = rect.bottom + 8 + 'px';
+    });
+
+    chatOnlyBadge.addEventListener('mouseleave', () => {
+      const tooltip = document.getElementById('chat-only-tooltip');
+      if (tooltip) {
+        tooltip.classList.remove('visible');
+      }
+    });
   }
 
   // Handle messages from extension
@@ -1304,6 +1434,8 @@
 
       case 'setCurrentModel':
         modelName.textContent = event.data.currentModel || 'Select Model';
+        window.currentModelSupportsTools = event.data.supportsTools !== false;
+        updateChatOnlyBadge();
         modelPanel.classList.add('hidden');
         break;
 

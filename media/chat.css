@@ -51,6 +51,7 @@ body {
 #current-model {
   display: flex;
   align-items: center;
+  gap: 8px;
 }
 
 #model-btn {
@@ -74,6 +75,51 @@ body {
 #model-arrow {
   font-size: 10px;
   opacity: 0.7;
+}
+
+#chat-only-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: var(--vscode-notificationCenter-border);
+  color: var(--vscode-editor-foreground);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: help;
+  white-space: nowrap;
+}
+
+#chat-only-badge:hover {
+  background: var(--vscode-input-background);
+}
+
+.chat-only-icon {
+  font-size: 14px;
+}
+
+.chat-only-text {
+  white-space: nowrap;
+}
+
+#chat-only-tooltip {
+  position: fixed;
+  display: none;
+  background: var(--vscode-editorHoverWidget-background);
+  color: var(--vscode-editorHoverWidget-foreground);
+  border: 1px solid var(--vscode-editorHoverWidget-border);
+  border-radius: 4px;
+  padding: 12px;
+  font-size: 11px;
+  line-height: 1.5;
+  max-width: 280px;
+  z-index: 10000;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+#chat-only-tooltip.visible {
+  display: block;
 }
 
 #model-panel {
@@ -161,6 +207,23 @@ body {
 #model-list {
   overflow-y: auto;
   flex: 1;
+}
+
+.model-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.model-section-header {
+  padding: 8px 12px;
+  background: var(--vscode-inputOption-activeBackground, rgba(255, 255, 255, 0.1));
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--vscode-editor-foreground);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--vscode-widget-border);
+  cursor: help;
 }
 
 .model-item {

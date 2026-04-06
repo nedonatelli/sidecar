@@ -2,7 +2,7 @@
 
 This document tracks planned improvements and features for SideCar. Items are grouped by theme and roughly prioritized within each group.
 
-Last updated: 2026-04-05 (v0.17.0)
+Last updated: 2026-04-06 (v0.20.0)
 
 ---
 

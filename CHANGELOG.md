@@ -2,6 +2,25 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.20.0] - 2026-04-06
+
+### Added
+- **Chat-only model support**: models like gemma2, llama2, and mistral that don't support function calling now work gracefully in chat-only mode
+- **Tool support detection**: models are automatically classified as "Full Features" (tool-capable) or "Chat-Only" in the model dropdown
+- **Model categorization UI**: model list organized into two sections with dedicated headers and tooltips explaining capabilities
+- **Chat-only badge**: `ℹ️ Chat-Only` indicator in the header when using a non-tool-capable model, with interactive tooltip listing available tools
+- **Tool calling warning**: warning message displayed when attempting to use tools with unsupported models
+- **Code block webview rendering**: code blocks are shown in the webview for chat-only models (with Save/Run buttons) while tool-enabled models silently create files
+
+### Changed
+- **Tool support status**: OpenAI backend always supports tools; Ollama backend filters unsupported models (gemma, gemma2, llama2, mistral, neural-chat, starling-lm)
+- **Stream event handling**: agent loop now handles warning events from streaming backends
+
+## [0.19.1] - 2026-04-06
+
+### Fixed
+- **Webview crash on `/commit` command**: resolved crash when receiving `/commit` or error messages in the webview
+
 ## [0.19.0] - 2026-04-06
 
 ### Added

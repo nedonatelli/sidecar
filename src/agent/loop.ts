@@ -106,6 +106,9 @@ export async function runAgentLoop(
           totalChars += event.thinking.length;
           callbacks.onThinking?.(event.thinking);
           break;
+        case 'warning':
+          callbacks.onText(`\n⚠️ ${event.message}\n`);
+          break;
         case 'tool_use':
           pendingToolUses.push(event.toolUse);
           logger?.logToolCall(event.toolUse.name, event.toolUse.input);
