@@ -1,5 +1,5 @@
 {
-  "name": "sidecar",
+  "name": "sidecar-ai",
   "displayName": "SideCar",
   "description": "AI chat client for VS Code — use local Ollama models or Claude via the Anthropic API",
   "version": "0.21.0",
