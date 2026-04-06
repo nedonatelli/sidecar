@@ -7,6 +7,7 @@ import type {
   AnthropicStreamEvent,
   StreamEvent,
 } from './types.js';
+import { fetchWithRetry } from './retry.js';
 
 /**
  * Backend for the Anthropic Messages API (/v1/messages).
@@ -44,7 +45,7 @@ export class AnthropicBackend implements ApiBackend {
       body.tools = tools;
     }
 
-    const response = await fetch(this.messagesUrl, {
+    const response = await fetchWithRetry(this.messagesUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -175,7 +176,7 @@ export class AnthropicBackend implements ApiBackend {
       body.system = systemPrompt;
     }
 
-    const response = await fetch(this.messagesUrl, {
+    const response = await fetchWithRetry(this.messagesUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

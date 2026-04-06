@@ -103,14 +103,15 @@ describe('SideCarClient', () => {
 
     it('throws on non-ok response', async () => {
       const client = new SideCarClient('test-model');
-      mockFetch.mockResolvedValueOnce({
+      mockFetch.mockResolvedValue({
         ok: false,
-        status: 500,
-        statusText: 'Internal Server Error',
-        text: async () => 'model not found',
+        status: 400,
+        statusText: 'Bad Request',
+        headers: new Headers(),
+        text: async () => 'bad request',
       });
 
-      await expect(client.complete([{ role: 'user', content: 'hi' }])).rejects.toThrow('Ollama request failed: 500');
+      await expect(client.complete([{ role: 'user', content: 'hi' }])).rejects.toThrow('Ollama request failed: 400');
     });
   });
 

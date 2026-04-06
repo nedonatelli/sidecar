@@ -159,10 +159,11 @@ describe('OllamaBackend', () => {
     });
 
     it('throws on non-ok response', async () => {
-      mockFetch.mockResolvedValueOnce({
+      mockFetch.mockResolvedValue({
         ok: false,
-        status: 500,
-        statusText: 'Internal Server Error',
+        status: 400,
+        statusText: 'Bad Request',
+        headers: new Headers(),
         text: async () => 'model not found',
       });
 
@@ -170,7 +171,7 @@ describe('OllamaBackend', () => {
         for await (const _event of backend.streamChat('test', '', [{ role: 'user', content: 'hi' }])) {
           // consume
         }
-      }).rejects.toThrow('Ollama request failed: 500');
+      }).rejects.toThrow('Ollama request failed: 400');
     });
 
     it('converts tool_result messages to role:tool', async () => {

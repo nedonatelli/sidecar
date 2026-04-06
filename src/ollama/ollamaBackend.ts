@@ -1,5 +1,6 @@
 import type { ApiBackend } from './backend.js';
 import type { ChatMessage, ContentBlock, ToolDefinition, ToolUseContentBlock, StreamEvent } from './types.js';
+import { fetchWithRetry } from './retry.js';
 
 // ---------------------------------------------------------------------------
 // Ollama native API types
@@ -177,7 +178,7 @@ export class OllamaBackend implements ApiBackend {
       body.tools = toOllamaTools(tools);
     }
 
-    const response = await fetch(this.chatUrl, {
+    const response = await fetchWithRetry(this.chatUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -263,7 +264,7 @@ export class OllamaBackend implements ApiBackend {
       stream: false,
     };
 
-    const response = await fetch(this.chatUrl, {
+    const response = await fetchWithRetry(this.chatUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),

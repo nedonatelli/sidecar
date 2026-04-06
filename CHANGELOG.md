@@ -2,6 +2,27 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.10.0] - 2026-04-05
+
+### Added
+- **Dual API backend**: local Ollama models now use native `/api/chat` endpoint with NDJSON streaming and native tool calls; Anthropic API uses `/v1/messages` — backend selected automatically based on URL
+- **Text tool call fallback**: models that output tool calls as text (`<function=...>`, `<tool_call>`, JSON fences) are parsed and executed automatically
+- **Retry with backoff**: API calls retry on 429/5xx with exponential backoff and Retry-After header support
+- **Code quality infrastructure**: Vitest (87+ tests), ESLint, Prettier, husky pre-commit hooks, GitHub Actions CI
+
+### Changed
+- **Unified file attachment**: paperclip button now handles both files and images (camera button removed)
+- **ChatViewProvider refactored**: split from 1,099-line god class into thin dispatcher (210 lines) + 5 handler modules + ChatState
+- **Webview JS extracted**: inline script moved from chatWebview.ts (1,120 lines) to external media/chat.js (163-line template remains)
+- **Config consolidated**: typed `SideCarConfig` interface with single `getConfig()` accessor
+- **Client factory**: `createClient()` replaces 5 duplicate `new SideCarClient(...)` calls
+- **isLocalOllama**: shared helper replaces 3 inline URL checks
+
+### Fixed
+- Stale `pendingPlan` state not cleared on new chat
+- Hidden file input (`<input type="file">`) rendering visibly due to missing CSS rule
+- 6 pre-existing lint warnings (unused imports, let vs const)
+
 ## [0.9.0] - 2026-04-05
 
 ### Added
