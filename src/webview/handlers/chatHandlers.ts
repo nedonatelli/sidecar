@@ -17,6 +17,7 @@ import {
   resolveAtReferences,
 } from '../../config/workspace.js';
 import { runAgentLoop } from '../../agent/loop.js';
+import { computeUnifiedDiff } from '../../agent/diff.js';
 import { commands } from 'vscode';
 
 const execAsync = promisify(exec);
@@ -300,6 +301,22 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     state.saveHistory();
     state.autoSave();
     state.metricsCollector.endRun();
+
+    // Send change summary if any files were modified
+    if (state.changelog.hasChanges()) {
+      const changes = await state.changelog.getChangeSummary();
+      const summaryItems = changes
+        .map((c) => ({
+          filePath: c.filePath,
+          diff: computeUnifiedDiff(c.filePath, c.original, c.current),
+          isNew: c.original === null,
+          isDeleted: c.current === null,
+        }))
+        .filter((item) => item.diff.length > 0);
+      if (summaryItems.length > 0) {
+        state.postMessage({ command: 'changeSummary', changeSummary: summaryItems });
+      }
+    }
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
       state.autoSave();
@@ -583,6 +600,45 @@ export async function handleUndoChanges(state: ChatState): Promise<void> {
   state.postMessage({
     command: 'assistantMessage',
     content: `\n\n↩ Undid ${changes.length} file change(s): ${parts.join(', ')}`,
+  });
+}
+
+export async function handleRevertFile(state: ChatState, filePath: string): Promise<void> {
+  const success = await state.changelog.rollbackFile(filePath);
+  if (success) {
+    state.postMessage({
+      command: 'assistantMessage',
+      content: `\n\n↩ Reverted **${filePath}**`,
+    });
+  } else {
+    state.postMessage({
+      command: 'error',
+      content: `Failed to revert ${filePath}`,
+    });
+  }
+
+  // Send updated change summary
+  if (state.changelog.hasChanges()) {
+    const changes = await state.changelog.getChangeSummary();
+    const summaryItems = changes
+      .map((c) => ({
+        filePath: c.filePath,
+        diff: computeUnifiedDiff(c.filePath, c.original, c.current),
+        isNew: c.original === null,
+        isDeleted: c.current === null,
+      }))
+      .filter((item) => item.diff.length > 0);
+    state.postMessage({ command: 'changeSummary', changeSummary: summaryItems });
+  } else {
+    state.postMessage({ command: 'changeSummary', changeSummary: [] });
+  }
+}
+
+export function handleAcceptAllChanges(state: ChatState): void {
+  state.changelog.clear();
+  state.postMessage({
+    command: 'assistantMessage',
+    content: '\n\n✓ All changes accepted',
   });
 }
 

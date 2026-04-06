@@ -2,7 +2,7 @@
 
 This document tracks planned improvements and features for SideCar. Items are grouped by theme and roughly prioritized within each group.
 
-Last updated: 2026-04-06 (v0.21.0)
+Last updated: 2026-04-06 (v0.22.0)
 
 ---
 
@@ -11,8 +11,8 @@ Last updated: 2026-04-06 (v0.21.0)
 ### Streaming diff view
 Render file changes as they stream in from the agent instead of displaying raw text blocks. Show a live diff that builds up as tokens arrive.
 
-### Multi-file change summary
-After an agent run, show a unified changeset review panel listing all modified files with diffs. Allow the user to review, revert individual files, or accept all.
+### ~~Multi-file change summary~~ (completed in v0.22.0)
+~~After an agent run, show a unified changeset review panel listing all modified files with diffs. Allow the user to review, revert individual files, or accept all.~~
 
 ---
 
@@ -65,7 +65,7 @@ Support multiple parallel conversation branches from a single chat:
 
 ---
 
-## Completed (v0.11.0–v0.20.0)
+## Completed (v0.11.0–v0.22.0)
 
 - [x] Slash commands: `/reset`, `/undo`, `/export`, `/model`, `/help`
 - [x] Agent progress indicators (step count, elapsed time, token usage)
@@ -107,3 +107,7 @@ Support multiple parallel conversation branches from a single chat:
 - [x] Code block webview rendering: chat-only models show code blocks for saving; tool-enabled models create files silently
 - [x] Inline markdown rendering: bold, italic, strikethrough, inline code, and links rendered in assistant messages (XSS-safe DOM construction)
 - [x] "Why SideCar?" competitive comparison section in README
+- [x] Multi-file change summary: collapsible panel with inline diffs, per-file Revert, and Accept All after agent runs
+- [x] Line-based unified diff engine (no external dependencies)
+- [x] GitHub Pages documentation site (12 pages)
+- [x] VS Code Marketplace listing and auto-publish workflow

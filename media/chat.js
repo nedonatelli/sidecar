@@ -1384,6 +1384,85 @@
         break;
       }
 
+      case 'changeSummary': {
+        // Remove any existing summary panel
+        const existingSummary = document.getElementById('change-summary');
+        if (existingSummary) existingSummary.remove();
+
+        const items = msg.changeSummary || [];
+        if (items.length === 0) break;
+
+        const panel = document.createElement('div');
+        panel.id = 'change-summary';
+        panel.className = 'change-summary';
+
+        const csHeader = document.createElement('div');
+        csHeader.className = 'change-summary-header';
+        const csTitle = document.createElement('span');
+        csTitle.textContent = items.length + ' file(s) changed';
+        csHeader.appendChild(csTitle);
+
+        const acceptAllBtn = document.createElement('button');
+        acceptAllBtn.className = 'confirm-btn confirm-primary';
+        acceptAllBtn.textContent = 'Accept All';
+        acceptAllBtn.addEventListener('click', () => {
+          vscode.postMessage({ command: 'acceptAllChanges' });
+          panel.remove();
+        });
+        csHeader.appendChild(acceptAllBtn);
+        panel.appendChild(csHeader);
+
+        for (const item of items) {
+          const fileSection = document.createElement('details');
+          fileSection.className = 'change-summary-file';
+
+          const fileSummary = document.createElement('summary');
+          const badge = item.isNew ? ' (new)' : item.isDeleted ? ' (deleted)' : '';
+          const fileLabel = document.createTextNode(item.filePath + badge);
+          fileSummary.appendChild(fileLabel);
+
+          const revertBtn = document.createElement('button');
+          revertBtn.className = 'confirm-btn';
+          revertBtn.textContent = 'Revert';
+          revertBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            vscode.postMessage({ command: 'revertFile', filePath: item.filePath });
+            fileSection.remove();
+            if (panel.querySelectorAll('.change-summary-file').length === 0) {
+              panel.remove();
+            }
+          });
+          fileSummary.appendChild(revertBtn);
+          fileSection.appendChild(fileSummary);
+
+          const diffPre = document.createElement('pre');
+          diffPre.className = 'change-summary-diff';
+          // Render diff lines with color classes
+          const diffLines = item.diff.split('\n');
+          for (const line of diffLines) {
+            const span = document.createElement('span');
+            span.textContent = line;
+            if (line.startsWith('+')) {
+              span.className = 'diff-add';
+            } else if (line.startsWith('-')) {
+              span.className = 'diff-del';
+            } else if (line.startsWith('@@')) {
+              span.className = 'diff-hunk';
+            } else {
+              span.className = 'diff-ctx';
+            }
+            diffPre.appendChild(span);
+            diffPre.appendChild(document.createTextNode('\n'));
+          }
+          fileSection.appendChild(diffPre);
+          panel.appendChild(fileSection);
+        }
+
+        messagesContainer.appendChild(panel);
+        scrollToBottom();
+        break;
+      }
+
       case 'chatCleared':
         messagesContainer.innerHTML = '';
         currentAssistantDiv = null;

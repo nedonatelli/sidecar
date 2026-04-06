@@ -40,7 +40,9 @@ export interface WebviewMessage {
     | 'lint'
     | 'deps'
     | 'scaffold'
-    | 'generateCommit';
+    | 'generateCommit'
+    | 'revertFile'
+    | 'acceptAllChanges';
   images?: { mediaType: string; data: string }[];
   text?: string;
   model?: string;
@@ -94,7 +96,8 @@ export interface ExtensionMessage {
     | 'batchDone'
     | 'sessionList'
     | 'agentProgress'
-    | 'confirm';
+    | 'confirm'
+    | 'changeSummary';
   agentMode?: string;
   confirmId?: string;
   confirmActions?: string[];
@@ -119,6 +122,7 @@ export interface ExtensionMessage {
   githubData?: unknown;
   mediaType?: string;
   data?: string;
+  changeSummary?: { filePath: string; diff: string; isNew: boolean; isDeleted: boolean }[];
 }
 
 export interface LibraryModelUI {

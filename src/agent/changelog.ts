@@ -92,6 +92,32 @@ export class ChangeLog {
     }
   }
 
+  async getChangeSummary(): Promise<{ filePath: string; original: string | null; current: string | null }[]> {
+    const rootUri = workspace.workspaceFolders?.[0]?.uri;
+    if (!rootUri) return [];
+
+    const results: { filePath: string; original: string | null; current: string | null }[] = [];
+
+    for (const change of this.changes) {
+      let current: string | null = null;
+      try {
+        const fileUri = Uri.joinPath(rootUri, change.filePath);
+        const bytes = await workspace.fs.readFile(fileUri);
+        current = Buffer.from(bytes).toString('utf-8');
+      } catch {
+        // File was deleted after being tracked
+        current = null;
+      }
+      results.push({
+        filePath: change.filePath,
+        original: change.originalContent,
+        current,
+      });
+    }
+
+    return results;
+  }
+
   clear(): void {
     this.changes = [];
   }

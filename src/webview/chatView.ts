@@ -30,6 +30,8 @@ import {
   handleUndoChanges,
   handleExportChat,
   handleGenerateCommit,
+  handleRevertFile,
+  handleAcceptAllChanges,
 } from './handlers/chatHandlers.js';
 import { handleGitHubCommand } from './handlers/githubHandlers.js';
 import { loadModels, handleInstallModel } from './handlers/modelHandlers.js';
@@ -247,6 +249,12 @@ export class ChatViewProvider implements WebviewViewProvider {
         break;
       case 'generateCommit':
         await handleGenerateCommit(this.state);
+        break;
+      case 'revertFile':
+        await handleRevertFile(this.state, msg.filePath || '');
+        break;
+      case 'acceptAllChanges':
+        handleAcceptAllChanges(this.state);
         break;
     }
   }

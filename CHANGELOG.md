@@ -2,6 +2,19 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.22.0] - 2026-04-06
+
+### Added
+- **Multi-file change summary**: after an agent run, a collapsible panel lists all modified files with inline unified diffs, per-file Revert buttons, and an Accept All button
+- **Line-based diff engine**: new `src/agent/diff.ts` computes unified diffs (LCS algorithm) with no external dependencies, truncates at 500 lines
+- **GitHub Pages documentation site**: comprehensive docs at `docs/` with 12 pages covering getting started, agent mode, configuration, MCP servers, slash commands, security scanning, SIDECAR.md, hooks, inline chat, GitHub integration, and troubleshooting
+- **VS Code Marketplace badge**: README links to the published extension
+- **GitHub repo homepage**: repo description and homepage URL point to the marketplace listing
+
+### Changed
+- **Package name**: `sidecar` renamed to `sidecar-ai` to avoid VS Code Marketplace naming conflict (display name remains "SideCar")
+- **Auto-publish workflow**: GitHub Actions workflow publishes to the marketplace on version tags (`v*`)
+
 ## [0.21.0] - 2026-04-06
 
 ### Added
