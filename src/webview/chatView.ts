@@ -202,6 +202,9 @@ export class ChatViewProvider implements WebviewViewProvider {
       case 'openSettings':
         commands.executeCommand('workbench.action.openSettings', 'sidecar');
         break;
+      case 'scanStaged':
+        commands.executeCommand('sidecar.scanStaged');
+        break;
     }
   }
 

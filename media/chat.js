@@ -153,6 +153,7 @@
     { cmd: '/sessions', desc: 'List sessions' },
     { cmd: '/move', desc: 'Move/rename file' },
     { cmd: '/clone', desc: 'Clone repository' },
+    { cmd: '/scan', desc: 'Scan staged files for secrets' },
   ];
   const autocompleteEl = document.getElementById('slash-autocomplete');
   let acSelectedIndex = -1;
@@ -538,6 +539,13 @@
       input.style.height = 'auto';
       return;
     }
+    if (text.trim() === '/scan') {
+      appendMessage('user', '/scan');
+      vscode.postMessage({ command: 'scanStaged' });
+      input.value = '';
+      input.style.height = 'auto';
+      return;
+    }
     if (text.trim() === '/reset') {
       vscode.postMessage({ command: 'newChat' });
       input.value = '';
@@ -581,7 +589,8 @@
           '`/save <name>` — Save session\n' +
           '`/sessions` — List sessions\n' +
           '`/move <src> <dest>` — Move/rename file\n' +
-          '`/clone <url>` — Clone repository',
+          '`/clone <url>` — Clone repository\n' +
+          '`/scan` — Scan staged files for secrets',
       );
       input.value = '';
       input.style.height = 'auto';

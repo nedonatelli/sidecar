@@ -2,7 +2,7 @@
   "name": "sidecar",
   "displayName": "SideCar",
   "description": "AI chat client for VS Code — use local Ollama models or Claude via the Anthropic API",
-  "version": "0.15.0",
+  "version": "0.15.1",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -290,6 +290,10 @@
       {
         "command": "sidecar.generateCommitMessage",
         "title": "SideCar: Generate Commit Message"
+      },
+      {
+        "command": "sidecar.scanStaged",
+        "title": "SideCar: Scan Staged Files for Secrets"
       },
       {
         "command": "sidecar.clearChat",

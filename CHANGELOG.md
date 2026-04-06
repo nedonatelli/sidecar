@@ -7,7 +7,8 @@ All notable changes to the SideCar extension will be documented in this file.
 ### Added
 - **Security scanning**: automatic secrets detection and vulnerability scanning on files written/edited by the agent. Detects AWS keys, GitHub tokens, API keys, private keys, JWTs, connection strings, and more. Flags SQL injection, command injection, XSS (innerHTML), eval usage, and insecure HTTP URLs
 - **Diagnostics integration**: `get_diagnostics` tool now includes security scan results alongside compiler errors and warnings
-- **23 new security scanner tests** (200 total)
+- **Pre-commit secrets gate**: `/scan` slash command and `sidecar.scanStaged` command scan staged git files for secrets before committing. Reads the staged version via `git show` and reports findings in a markdown panel
+- **27 new tests** (204 total)
 
 ## [0.14.0] - 2026-04-05
 

@@ -16,6 +16,7 @@ import { generateCommitMessage } from './review/commitMessage.js';
 import { EventHookManager } from './agent/eventHooks.js';
 import { WorkspaceIndex } from './config/workspaceIndex.js';
 import { getFilePatterns } from './config/workspace.js';
+import { runPreCommitScan } from './agent/preCommitScan.js';
 
 export function activate(context: ExtensionContext) {
   console.log('SideCar extension activating...');
@@ -136,6 +137,9 @@ export function activate(context: ExtensionContext) {
     }),
     commands.registerCommand('sidecar.generateCommitMessage', () => {
       generateCommitMessage(createClient());
+    }),
+    commands.registerCommand('sidecar.scanStaged', () => {
+      runPreCommitScan();
     }),
   );
 

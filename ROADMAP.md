@@ -66,8 +66,6 @@ Send the same prompt to multiple models side-by-side and compare responses. Usef
 
 ## Security
 
-### Pre-commit secrets gate
-Scan staged files before git commit and block if secrets are detected. Configurable patterns via `sidecar.secretPatterns`. Extends the existing security scanner with a git-aware pre-commit check.
 
 ---
 
@@ -120,3 +118,4 @@ Support multiple parallel conversation branches from a single chat:
 - [x] Inline confirmation cards (replace system modal dialogs)
 - [x] Prompt caching: Anthropic API cache_control on stable prefix, local SIDECAR.md cache with file watcher
 - [x] Security scanning: secrets detection + vulnerability patterns, integrated into executor and diagnostics
+- [x] Pre-commit secrets gate: `/scan` command and `sidecar.scanStaged` to scan staged files before commit
