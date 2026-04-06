@@ -240,6 +240,8 @@
     { cmd: '/lint', desc: 'Run linter and show results' },
     { cmd: '/deps', desc: 'Analyze project dependencies' },
     { cmd: '/scaffold', desc: 'Generate code from template' },
+    { cmd: '/verbose', desc: 'Toggle verbose mode (show agent reasoning)' },
+    { cmd: '/prompt', desc: 'Show the current system prompt' },
   ];
   const autocompleteEl = document.getElementById('slash-autocomplete');
   let acSelectedIndex = -1;
@@ -682,6 +684,18 @@
       input.style.height = 'auto';
       return;
     }
+    if (text.trim() === '/verbose') {
+      vscode.postMessage({ command: 'toggleVerbose' });
+      input.value = '';
+      input.style.height = 'auto';
+      return;
+    }
+    if (text.trim() === '/prompt') {
+      vscode.postMessage({ command: 'showSystemPrompt' });
+      input.value = '';
+      input.style.height = 'auto';
+      return;
+    }
     if (text.trim() === '/reset') {
       vscode.postMessage({ command: 'newChat' });
       input.value = '';
@@ -733,7 +747,9 @@
           '`/test` — Generate tests for active file\n' +
           '`/lint` — Run linter and show results\n' +
           '`/deps` — Analyze project dependencies\n' +
-          '`/scaffold <type>` — Generate code from template',
+          '`/scaffold <type>` — Generate code from template\n' +
+          '`/verbose` — Toggle verbose mode (show agent reasoning)\n' +
+          '`/prompt` — Show the current system prompt',
       );
       input.value = '';
       input.style.height = 'auto';
@@ -1332,6 +1348,10 @@
 
       case 'setLoading':
         setLoading(event.data.isLoading);
+        // Feature 6: Store expandThinking preference
+        if (event.data.expandThinking !== undefined) {
+          window.expandThinking = event.data.expandThinking;
+        }
         if (event.data.isLoading) {
           showTypingIndicator();
           streamStartTime = Date.now();
@@ -1496,6 +1516,10 @@
           const details = document.createElement('details');
           details.className = 'thinking-block';
           details.id = 'current-thinking';
+          // Feature 6: Expand thinking by default if setting is enabled
+          if (window.expandThinking) {
+            details.open = true;
+          }
           const summary = document.createElement('summary');
           summary.textContent = 'Reasoning...';
           details.appendChild(summary);
@@ -1510,6 +1534,22 @@
           const body = thinkingEl.querySelector('.thinking-body');
           if (body) body.textContent += content || '';
         }
+        scrollToBottom();
+        break;
+      }
+
+      case 'verboseLog': {
+        const vBlock = document.createElement('details');
+        vBlock.className = 'verbose-block';
+        vBlock.open = true;
+        const vSummary = document.createElement('summary');
+        vSummary.textContent = msg.verboseLabel || 'Verbose';
+        vBlock.appendChild(vSummary);
+        const vBody = document.createElement('pre');
+        vBody.className = 'verbose-body';
+        vBody.textContent = content || '';
+        vBlock.appendChild(vBody);
+        messagesContainer.appendChild(vBlock);
         scrollToBottom();
         break;
       }

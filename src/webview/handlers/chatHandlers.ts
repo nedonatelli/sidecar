@@ -215,6 +215,22 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
       }
     }
 
+    // Verbose mode helper
+    const verbose = config.verboseMode;
+    const verboseLog = (label: string, content: string) => {
+      if (verbose) {
+        state.postMessage({ command: 'verboseLog', content, verboseLabel: label });
+      }
+    };
+
+    // Feature 5: System prompt inspector — send assembled prompt in verbose mode
+    if (verbose) {
+      verboseLog('System Prompt', systemPrompt);
+    }
+
+    // Send expandThinking preference to webview
+    state.postMessage({ command: 'setLoading', isLoading: true, expandThinking: config.expandThinking });
+
     // Run agent loop with tool use
     state.metricsCollector.startRun();
     const updatedMessages = await runAgentLoop(
@@ -236,6 +252,10 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
             .join(', ');
           state.postMessage({ command: 'toolCall', content: `${name}(${summary})` });
           state.metricsCollector.recordToolStart();
+          // Verbose: explain tool selection
+          if (verbose) {
+            verboseLog('Tool Selected', `Invoking ${name} with: ${summary}`);
+          }
           // Track file access for workspace index relevance
           if (state.workspaceIndex && typeof input.path === 'string') {
             const accessType = name === 'read_file' ? 'read' : 'write';
@@ -257,6 +277,14 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
             elapsedMs,
             estimatedTokens,
           });
+          // Feature 4: Per-iteration narrative
+          if (verbose) {
+            const elapsed = (elapsedMs / 1000).toFixed(1);
+            verboseLog(
+              `Iteration ${iteration}/${maxIterations}`,
+              `Starting iteration ${iteration}. Elapsed: ${elapsed}s, ~${estimatedTokens} tokens used.`,
+            );
+          }
         },
         onPlanGenerated: (plan) => {
           state.pendingPlan = plan;
@@ -640,6 +668,24 @@ export function handleAcceptAllChanges(state: ChatState): void {
     command: 'assistantMessage',
     content: '\n\n✓ All changes accepted',
   });
+}
+
+export async function handleShowSystemPrompt(state: ChatState): Promise<void> {
+  const config = getConfig();
+
+  let systemPrompt = `You are SideCar, an AI coding assistant running inside VS Code.\nProject root: ${getWorkspaceRoot()}`;
+
+  const sidecarMd = await loadSidecarMd();
+  if (sidecarMd) {
+    systemPrompt += `\n\nProject instructions (from SIDECAR.md):\n${sidecarMd}`;
+  }
+
+  const userSystemPrompt = config.systemPrompt;
+  if (userSystemPrompt) {
+    systemPrompt += `\n\n${userSystemPrompt}`;
+  }
+
+  state.postMessage({ command: 'verboseLog', content: systemPrompt, verboseLabel: 'System Prompt' });
 }
 
 export function handleDeleteMessage(state: ChatState, index: number): void {

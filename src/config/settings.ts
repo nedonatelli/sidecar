@@ -61,6 +61,8 @@ export interface SideCarConfig {
   scheduledTasks: ScheduledTask[];
   customTools: CustomToolConfig[];
   mcpServers: Record<string, MCPServerConfig>;
+  verboseMode: boolean;
+  expandThinking: boolean;
 }
 
 /**
@@ -88,6 +90,8 @@ export function getConfig(): SideCarConfig {
     scheduledTasks: cfg.get<ScheduledTask[]>('scheduledTasks', []),
     customTools: cfg.get<CustomToolConfig[]>('customTools', []),
     mcpServers: cfg.get<Record<string, MCPServerConfig>>('mcpServers', {}),
+    verboseMode: cfg.get<boolean>('verboseMode', false),
+    expandThinking: cfg.get<boolean>('expandThinking', false),
   };
 }
 

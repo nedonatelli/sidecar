@@ -237,6 +237,16 @@
           "type": "number",
           "default": 300,
           "description": "Minimum interval in milliseconds between completion requests"
+        },
+        "sidecar.verboseMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show detailed agent reasoning — iteration summaries, tool selection context, and system prompt assembly"
+        },
+        "sidecar.expandThinking": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show model reasoning blocks expanded by default instead of collapsed"
         }
       }
     },

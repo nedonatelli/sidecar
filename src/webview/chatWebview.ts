@@ -43,7 +43,9 @@ export interface WebviewMessage {
     | 'generateCommit'
     | 'revertFile'
     | 'acceptAllChanges'
-    | 'deleteMessage';
+    | 'deleteMessage'
+    | 'toggleVerbose'
+    | 'showSystemPrompt';
   images?: { mediaType: string; data: string }[];
   text?: string;
   model?: string;
@@ -99,7 +101,8 @@ export interface ExtensionMessage {
     | 'sessionList'
     | 'agentProgress'
     | 'confirm'
-    | 'changeSummary';
+    | 'changeSummary'
+    | 'verboseLog';
   agentMode?: string;
   confirmId?: string;
   confirmActions?: string[];
@@ -125,6 +128,8 @@ export interface ExtensionMessage {
   mediaType?: string;
   data?: string;
   changeSummary?: { filePath: string; diff: string; isNew: boolean; isDeleted: boolean }[];
+  expandThinking?: boolean;
+  verboseLabel?: string;
 }
 
 export interface LibraryModelUI {

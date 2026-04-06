@@ -231,6 +231,7 @@ export class OllamaBackend implements ApiBackend {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let toolCallCounter = 0;
+    let insideThinkTag = false;
 
     try {
       let buffer = '';
@@ -253,9 +254,38 @@ export class OllamaBackend implements ApiBackend {
             continue;
           }
 
-          // Emit text content
+          // Emit text content, parsing <think> tags for reasoning models
           if (chunk.message.content) {
-            yield { type: 'text', text: chunk.message.content };
+            let content = chunk.message.content;
+
+            // Handle <think> tag transitions within this chunk
+            while (content.length > 0) {
+              if (!insideThinkTag) {
+                const openIdx = content.indexOf('<think>');
+                if (openIdx === -1) {
+                  yield { type: 'text', text: content };
+                  break;
+                }
+                // Emit text before the tag
+                if (openIdx > 0) {
+                  yield { type: 'text', text: content.slice(0, openIdx) };
+                }
+                insideThinkTag = true;
+                content = content.slice(openIdx + 7); // skip '<think>'
+              } else {
+                const closeIdx = content.indexOf('</think>');
+                if (closeIdx === -1) {
+                  yield { type: 'thinking', thinking: content };
+                  break;
+                }
+                // Emit thinking before close tag
+                if (closeIdx > 0) {
+                  yield { type: 'thinking', thinking: content.slice(0, closeIdx) };
+                }
+                insideThinkTag = false;
+                content = content.slice(closeIdx + 8); // skip '</think>'
+              }
+            }
           }
 
           // Emit tool calls

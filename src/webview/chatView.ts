@@ -260,6 +260,22 @@ export class ChatViewProvider implements WebviewViewProvider {
       case 'deleteMessage':
         handleDeleteMessage(this.state, msg.index ?? -1);
         break;
+      case 'toggleVerbose': {
+        const current = getConfig().verboseMode;
+        workspace.getConfiguration('sidecar').update('verboseMode', !current, true);
+        const label = !current ? 'on' : 'off';
+        this.state.postMessage({
+          command: 'assistantMessage',
+          content: `Verbose mode ${label}. ${!current ? 'Agent reasoning will be shown during runs.' : 'Agent reasoning hidden.'}`,
+        });
+        this.state.postMessage({ command: 'done' });
+        break;
+      }
+      case 'showSystemPrompt':
+        await import('./handlers/chatHandlers.js').then(({ handleShowSystemPrompt }) =>
+          handleShowSystemPrompt(this.state),
+        );
+        break;
     }
   }
 
