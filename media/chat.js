@@ -228,8 +228,9 @@
     { cmd: '/doc', desc: 'Generate documentation' },
     { cmd: '/spec', desc: 'Spec-driven development' },
     { cmd: '/insight', desc: 'Codebase insight report' },
+    { cmd: '/commit', desc: 'Generate commit message & commit' },
     { cmd: '/save', desc: 'Save session' },
-    { cmd: '/sessions', desc: 'List sessions' },
+    { cmd: '/sessions', desc: 'Browse conversations' },
     { cmd: '/move', desc: 'Move/rename file' },
     { cmd: '/clone', desc: 'Clone repository' },
     { cmd: '/scan', desc: 'Scan staged files for secrets' },
@@ -591,6 +592,13 @@
       input.style.height = 'auto';
       return;
     }
+    if (text.trim() === '/commit') {
+      appendMessage('user', '/commit');
+      vscode.postMessage({ command: 'generateCommit' });
+      input.value = '';
+      input.style.height = 'auto';
+      return;
+    }
     if (text.trim() === '/doc') {
       appendMessage('user', text);
       vscode.postMessage({ command: 'generateDoc' });
@@ -714,8 +722,9 @@
           '`/doc` — Generate documentation\n' +
           '`/spec <desc>` — Spec-driven development\n' +
           '`/insight` — Codebase insight report\n' +
+          '`/commit` — Generate commit message & commit\n' +
           '`/save <name>` — Save session\n' +
-          '`/sessions` — List sessions\n' +
+          '`/sessions` — Browse conversations\n' +
           '`/move <src> <dest>` — Move/rename file\n' +
           '`/clone <url>` — Clone repository\n' +
           '`/scan` — Scan staged files for secrets\n' +

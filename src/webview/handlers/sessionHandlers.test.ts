@@ -7,6 +7,8 @@ function createMockState() {
     messages: [{ role: 'user', content: 'hello' }],
     postMessage: vi.fn(),
     saveHistory: vi.fn(),
+    autoSave: vi.fn(),
+    currentSessionId: null as string | null,
     sessionManager: {
       save: vi.fn(),
       load: vi.fn(),
@@ -41,11 +43,13 @@ describe('sessionHandlers', () => {
 
   describe('handleLoadSession', () => {
     it('loads session and updates state', () => {
-      const session = { messages: [{ role: 'assistant', content: 'loaded' }] };
+      const session = { id: 'session-1', messages: [{ role: 'assistant', content: 'loaded' }] };
       state.sessionManager.load.mockReturnValue(session);
 
       handleLoadSession(state as never, 'session-1');
+      expect(state.autoSave).toHaveBeenCalled();
       expect(state.messages).toEqual(session.messages);
+      expect(state.currentSessionId).toBe('session-1');
       expect(state.saveHistory).toHaveBeenCalled();
       expect(state.postMessage).toHaveBeenCalledWith({ command: 'chatCleared' });
       expect(state.postMessage).toHaveBeenCalledWith(

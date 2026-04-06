@@ -10,7 +10,9 @@ export function handleSaveSession(state: ChatState, name: string): void {
 export function handleLoadSession(state: ChatState, id: string): void {
   const session = state.sessionManager.load(id);
   if (!session) return;
+  state.autoSave(); // Save current conversation before switching
   state.messages = session.messages;
+  state.currentSessionId = session.id;
   state.saveHistory();
   state.postMessage({ command: 'chatCleared' });
   state.postMessage({ command: 'init', messages: state.messages });

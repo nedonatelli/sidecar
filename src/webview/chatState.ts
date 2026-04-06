@@ -32,6 +32,9 @@ export class ChatState {
   workspaceIndex: WorkspaceIndex | null = null;
   contentProvider: ProposedContentProvider | null = null;
 
+  /** ID of the current auto-saved session, null if conversation is empty/unsaved */
+  currentSessionId: string | null = null;
+
   constructor(
     readonly context: ExtensionContext,
     readonly terminalManager: TerminalManager,
@@ -91,11 +94,38 @@ export class ChatState {
     }
   }
 
+  /**
+   * Auto-save the current conversation to the session store.
+   * Creates a new session on first save, updates in place after that.
+   * Skips if the conversation is empty.
+   */
+  autoSave(): void {
+    if (this.messages.length === 0) return;
+
+    if (this.currentSessionId && this.sessionManager.update(this.currentSessionId, this.messages)) {
+      return;
+    }
+
+    // Generate a name from the first user message
+    const firstUserMsg = this.messages.find((m) => m.role === 'user');
+    const preview = firstUserMsg
+      ? (typeof firstUserMsg.content === 'string' ? firstUserMsg.content : getContentText(firstUserMsg.content))
+          .slice(0, 50)
+          .replace(/\n/g, ' ')
+      : 'Conversation';
+    const name = preview.length >= 50 ? preview + '...' : preview;
+
+    const session = this.sessionManager.save(name, this.messages);
+    this.currentSessionId = session.id;
+  }
+
   clearChat(): void {
+    this.autoSave();
     this.messages = [];
     this.pendingPlan = null;
     this.pendingPlanMessages = [];
     this.changelog.clear();
+    this.currentSessionId = null;
     this.saveHistory();
     this.postMessage({ command: 'chatCleared' });
   }

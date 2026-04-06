@@ -44,6 +44,24 @@ export class SessionManager {
     return this.list().find((s) => s.id === id);
   }
 
+  /**
+   * Update an existing session's messages in place.
+   * Returns false if the session was not found.
+   */
+  update(id: string, messages: ChatMessage[]): boolean {
+    const sessions = this.list();
+    const session = sessions.find((s) => s.id === id);
+    if (!session) return false;
+
+    session.messages = messages.map((m) => ({
+      role: m.role,
+      content: typeof m.content === 'string' ? m.content : getContentText(m.content),
+    }));
+    session.updatedAt = Date.now();
+    this.globalState.update(STORAGE_KEY, sessions);
+    return true;
+  }
+
   delete(id: string): void {
     const sessions = this.list().filter((s) => s.id !== id);
     this.globalState.update(STORAGE_KEY, sessions);

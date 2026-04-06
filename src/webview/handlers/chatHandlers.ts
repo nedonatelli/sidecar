@@ -6,6 +6,7 @@ import type { ChatState } from '../chatState.js';
 import type { ContentBlock } from '../../ollama/types.js';
 import { getContentLength, getContentText } from '../../ollama/types.js';
 import { getConfig } from '../../config/settings.js';
+import { GitCLI } from '../../github/git.js';
 import {
   getWorkspaceContext,
   getWorkspaceEnabled,
@@ -297,9 +298,11 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
 
     state.messages = updatedMessages;
     state.saveHistory();
+    state.autoSave();
     state.metricsCollector.endRun();
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
+      state.autoSave();
       state.postMessage({ command: 'done' });
       state.postMessage({ command: 'setLoading', isLoading: false });
       return;
@@ -599,6 +602,69 @@ export async function handleExportChat(state: ChatState): Promise<void> {
   if (!uri) return;
   await workspace.fs.writeFile(uri, Buffer.from(content, 'utf-8'));
   window.showInformationMessage(`Chat exported to ${path.basename(uri.fsPath)}`);
+}
+
+export async function handleGenerateCommit(state: ChatState): Promise<void> {
+  const cwd = getWorkspaceRoot();
+  if (!cwd) {
+    state.postMessage({ command: 'error', content: 'No workspace folder open.' });
+    return;
+  }
+
+  const git = new GitCLI(cwd);
+
+  try {
+    // Check for changes
+    const status = await git.status();
+    if (status === 'Working tree clean.') {
+      state.postMessage({ command: 'assistantMessage', content: 'No changes to commit.' });
+      state.postMessage({ command: 'done' });
+      return;
+    }
+
+    // Get diff for message generation
+    const { diff } = await git.diff();
+    if (diff === 'No diff output.') {
+      state.postMessage({ command: 'assistantMessage', content: 'No diff found. Stage files first or make changes.' });
+      state.postMessage({ command: 'done' });
+      return;
+    }
+
+    const maxDiff = 15_000;
+    const truncated = diff.length > maxDiff ? diff.slice(0, maxDiff) + '\n... (truncated)' : diff;
+
+    state.postMessage({ command: 'setLoading', isLoading: true });
+    state.postMessage({ command: 'assistantMessage', content: 'Generating commit message...\n\n' });
+
+    const config = getConfig();
+    state.client.updateConnection(config.baseUrl, config.apiKey);
+    state.client.updateModel(config.model);
+
+    const messages: import('../../ollama/types.js').ChatMessage[] = [
+      {
+        role: 'user',
+        content: `Generate a concise git commit message for these changes. Follow conventional commits format (type: description). First line max 72 chars. Add a blank line then bullet points for details if needed. Output ONLY the commit message, nothing else.\n\n\`\`\`diff\n${truncated}\n\`\`\``,
+      },
+    ];
+
+    let message = await state.client.complete(messages, 512);
+    message = message
+      .replace(/^```\w*\n?/, '')
+      .replace(/\n?```$/, '')
+      .trim();
+
+    // Stage all changes and commit
+    await git.stage();
+    const result = await git.commit(message);
+
+    state.postMessage({ command: 'assistantMessage', content: result + '\n' });
+    state.postMessage({ command: 'done' });
+    state.postMessage({ command: 'setLoading', isLoading: false });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    state.postMessage({ command: 'error', content: `Commit failed: ${msg}` });
+    state.postMessage({ command: 'setLoading', isLoading: false });
+  }
 }
 
 export function languageToExtension(lang: string): string {

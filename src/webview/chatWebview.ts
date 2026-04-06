@@ -39,7 +39,8 @@ export interface WebviewMessage {
     | 'generateTests'
     | 'lint'
     | 'deps'
-    | 'scaffold';
+    | 'scaffold'
+    | 'generateCommit';
   images?: { mediaType: string; data: string }[];
   text?: string;
   model?: string;

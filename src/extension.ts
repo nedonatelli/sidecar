@@ -18,6 +18,8 @@ import { WorkspaceIndex } from './config/workspaceIndex.js';
 import { getFilePatterns } from './config/workspace.js';
 import { runPreCommitScan } from './agent/preCommitScan.js';
 
+let chatProvider: ChatViewProvider | undefined;
+
 export function activate(context: ExtensionContext) {
   console.log('SideCar extension activating...');
 
@@ -69,7 +71,7 @@ export function activate(context: ExtensionContext) {
       .catch((err) => console.error('[SideCar] Workspace indexing failed:', err));
   }
 
-  const provider = new ChatViewProvider(
+  chatProvider = new ChatViewProvider(
     context,
     terminalManager,
     proposedContentProvider,
@@ -78,7 +80,7 @@ export function activate(context: ExtensionContext) {
     workspaceIndex,
   );
   context.subscriptions.push(
-    window.registerWebviewViewProvider('sidecar.chatView', provider, {
+    window.registerWebviewViewProvider('sidecar.chatView', chatProvider, {
       webviewOptions: {
         retainContextWhenHidden: true,
       },
@@ -91,13 +93,13 @@ export function activate(context: ExtensionContext) {
       commands.executeCommand('sidecar.chatView.focus');
     }),
     commands.registerCommand('sidecar.clearChat', () => {
-      provider.clearChat();
+      chatProvider?.clearChat();
     }),
     commands.registerCommand('sidecar.undoChanges', () => {
-      provider.undoChanges();
+      chatProvider?.undoChanges();
     }),
     commands.registerCommand('sidecar.exportChat', () => {
-      provider.exportChat();
+      chatProvider?.exportChat();
     }),
   );
 
@@ -110,7 +112,7 @@ export function activate(context: ExtensionContext) {
       if (!selection) return;
       const fileName = path.basename(editor.document.fileName);
       commands.executeCommand('sidecar.chatView.focus');
-      provider.sendCodeAction(action, selection, fileName);
+      chatProvider?.sendCodeAction(action, selection, fileName);
     });
   }
 
@@ -247,4 +249,6 @@ export function activate(context: ExtensionContext) {
   console.log('SideCar extension activated');
 }
 
-export function deactivate() {}
+export function deactivate() {
+  chatProvider?.autoSave();
+}

@@ -29,6 +29,7 @@ import {
   handleMoveFile,
   handleUndoChanges,
   handleExportChat,
+  handleGenerateCommit,
 } from './handlers/chatHandlers.js';
 import { handleGitHubCommand } from './handlers/githubHandlers.js';
 import { loadModels, handleInstallModel } from './handlers/modelHandlers.js';
@@ -96,6 +97,11 @@ export class ChatViewProvider implements WebviewViewProvider {
       undefined,
       this.context.subscriptions,
     );
+
+    // Auto-save conversation when the webview panel is disposed (e.g. VS Code closed)
+    webviewView.onDidDispose(() => {
+      this.state.autoSave();
+    });
 
     // Restore chat history
     if (this.state.messages.length === 0) {
@@ -232,11 +238,18 @@ export class ChatViewProvider implements WebviewViewProvider {
       case 'scaffold':
         await handleScaffold(this.state, msg.text || '');
         break;
+      case 'generateCommit':
+        await handleGenerateCommit(this.state);
+        break;
     }
   }
 
   public clearChat(): void {
     this.state.clearChat();
+  }
+
+  public autoSave(): void {
+    this.state.autoSave();
   }
 
   public async undoChanges(): Promise<void> {

@@ -2,6 +2,24 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.19.0] - 2026-04-06
+
+### Added
+- **Conversation history panel**: browse, load, and delete saved conversations from a visual panel. Click the hamburger button or type `/sessions` to open. Conversations auto-save after each assistant response, on new chat, and when VS Code closes
+- **Git toolset**: 8 dedicated agent tools (`git_status`, `git_stage`, `git_commit`, `git_log`, `git_push`, `git_pull`, `git_branch`, `git_stash`) backed by a unified `GitCLI` class — replaces ad-hoc `run_command` usage for git operations
+- **`/commit` slash command**: generates a commit message from the current diff, stages all changes, and commits — all from the chat input
+- **SideCar co-author attribution**: commits made by SideCar automatically include a `Co-Authored-By: SideCar` trailer
+
+### Fixed
+- **Abort button**: properly interrupts streaming and batch operations. Extension now sends `done`/`setLoading` on abort so the webview finalizes partial responses and cleans up progress indicators
+- **Batch abort handling**: `runBatch` wrapped in try/catch to handle `AbortError` gracefully instead of throwing uncaught
+- **Duplicate `updateConnection`** method removed from `SideCarClient`
+
+### Changed
+- **`get_git_diff` renamed to `git_diff`** for consistency with the new git tool family
+- **Git tools consolidated**: agent tools and slash command handlers now share the `GitCLI` class — no more duplicate implementations
+- **Auto-save sessions**: conversations persist automatically to global state. Named from the first user message. Updated in place on subsequent saves
+
 ## [0.17.0] - 2026-04-05
 
 ### Added

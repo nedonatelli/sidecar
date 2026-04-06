@@ -11,7 +11,7 @@ const mockWorkspaceState = {
   update: vi.fn(),
 };
 const mockGlobalState = {
-  get: vi.fn().mockReturnValue(undefined),
+  get: vi.fn().mockReturnValue([]),
   update: vi.fn(),
   keys: vi.fn().mockReturnValue([]),
   setKeysForSync: vi.fn(),
