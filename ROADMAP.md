@@ -2,7 +2,7 @@
 
 This document tracks planned improvements and features for SideCar. Items are grouped by theme and roughly prioritized within each group.
 
-Last updated: 2026-04-06 (v0.20.0)
+Last updated: 2026-04-06 (v0.21.0)
 
 ---
 
@@ -105,3 +105,5 @@ Support multiple parallel conversation branches from a single chat:
 - [x] Model dropdown UI organization: separate sections for tool-capable and chat-only models
 - [x] Chat-only badge: header indicator with interactive tooltip listing available tools
 - [x] Code block webview rendering: chat-only models show code blocks for saving; tool-enabled models create files silently
+- [x] Inline markdown rendering: bold, italic, strikethrough, inline code, and links rendered in assistant messages (XSS-safe DOM construction)
+- [x] "Why SideCar?" competitive comparison section in README

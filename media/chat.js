@@ -790,6 +790,90 @@
 
   const createdFiles = new Set();
 
+  /**
+   * Parse inline markdown into DOM nodes (no innerHTML, XSS-safe).
+   * Supports: **bold**, *italic*, ~~strikethrough~~, `code`, [links](url), line breaks.
+   */
+  function appendInlineMarkdown(parent, text) {
+    // Regex matches inline markdown tokens in priority order
+    const inlineRegex =
+      /(\*\*(.+?)\*\*)|(__(.+?)__)|(?<!\w)\*(?!\s)(.+?)(?<!\s)\*(?!\w)|(?<!\w)_(?!\s)(.+?)(?<!\s)_(?!\w)|(~~(.+?)~~)|(`([^`]+?)`)|(\[([^\]]+)\]\(([^)]+)\))/g;
+    let lastIdx = 0;
+    let m;
+
+    while ((m = inlineRegex.exec(text)) !== null) {
+      // Append plain text before this match
+      if (m.index > lastIdx) {
+        appendPlainText(parent, text.slice(lastIdx, m.index));
+      }
+
+      if (m[2] != null) {
+        // **bold**
+        const el = document.createElement('strong');
+        el.textContent = m[2];
+        parent.appendChild(el);
+      } else if (m[4] != null) {
+        // __bold__
+        const el = document.createElement('strong');
+        el.textContent = m[4];
+        parent.appendChild(el);
+      } else if (m[5] != null) {
+        // *italic*
+        const el = document.createElement('em');
+        el.textContent = m[5];
+        parent.appendChild(el);
+      } else if (m[6] != null) {
+        // _italic_
+        const el = document.createElement('em');
+        el.textContent = m[6];
+        parent.appendChild(el);
+      } else if (m[8] != null) {
+        // ~~strikethrough~~
+        const el = document.createElement('del');
+        el.textContent = m[8];
+        parent.appendChild(el);
+      } else if (m[10] != null) {
+        // `inline code`
+        const el = document.createElement('code');
+        el.textContent = m[10];
+        parent.appendChild(el);
+      } else if (m[12] != null && m[13] != null) {
+        // [text](url) — only allow http/https
+        const url = m[13];
+        if (/^https?:\/\//i.test(url)) {
+          const el = document.createElement('a');
+          el.href = url;
+          el.textContent = m[12];
+          el.target = '_blank';
+          el.rel = 'noopener noreferrer';
+          parent.appendChild(el);
+        } else {
+          // Not a safe URL, render as plain text
+          appendPlainText(parent, m[0]);
+        }
+      }
+
+      lastIdx = m.index + m[0].length;
+    }
+
+    // Append remaining plain text
+    if (lastIdx < text.length) {
+      appendPlainText(parent, text.slice(lastIdx));
+    }
+  }
+
+  function appendPlainText(parent, text) {
+    const lines = text.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      if (i > 0) {
+        parent.appendChild(document.createElement('br'));
+      }
+      if (lines[i]) {
+        parent.appendChild(document.createTextNode(lines[i]));
+      }
+    }
+  }
+
   function renderContent(text, supportsTools = true) {
     const fragment = document.createDocumentFragment();
     const codeBlockRegex = /```([\w.]*):?([^\n]*)\n([\s\S]*?)```/g;
@@ -798,9 +882,7 @@
 
     while ((match = codeBlockRegex.exec(text)) !== null) {
       if (match.index > lastIndex) {
-        const span = document.createElement('span');
-        span.textContent = text.slice(lastIndex, match.index);
-        fragment.appendChild(span);
+        appendInlineMarkdown(fragment, text.slice(lastIndex, match.index));
       }
 
       const lang = match[1];
@@ -869,9 +951,7 @@
       let editMatch;
       while ((editMatch = editRegex.exec(remaining)) !== null) {
         if (editMatch.index > editLastIndex) {
-          const span = document.createElement('span');
-          span.textContent = remaining.slice(editLastIndex, editMatch.index);
-          fragment.appendChild(span);
+          appendInlineMarkdown(fragment, remaining.slice(editLastIndex, editMatch.index));
         }
         const editFilePath = editMatch[1].trim();
         const searchText = editMatch[2];
@@ -903,9 +983,7 @@
         editLastIndex = editMatch.index + editMatch[0].length;
       }
       if (editLastIndex < remaining.length) {
-        const span = document.createElement('span');
-        span.textContent = remaining.slice(editLastIndex);
-        fragment.appendChild(span);
+        appendInlineMarkdown(fragment, remaining.slice(editLastIndex));
       }
     }
 

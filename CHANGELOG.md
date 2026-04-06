@@ -2,6 +2,19 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.21.0] - 2026-04-06
+
+### Added
+- **Inline markdown rendering**: assistant messages now render **bold**, *italic*, ~~strikethrough~~, `inline code`, and [links](url) instead of showing raw markdown syntax
+- **Competitive comparison in README**: "Why SideCar?" section with feature comparison table vs Continue, Llama Coder, Twinny, and Copilot
+
+### Fixed
+- **Raw markdown in chat**: `**bold**` and other inline markdown was displayed as literal text instead of rendered formatting
+
+### Security
+- **XSS-safe markdown renderer**: uses DOM node construction (`createElement` + `textContent`) instead of `innerHTML` — no injection vectors
+- **Link URL validation**: only `https://` and `http://` links are rendered as clickable; `javascript:`, `data:`, and other dangerous URIs are displayed as plain text
+
 ## [0.20.0] - 2026-04-06
 
 ### Added

@@ -820,6 +820,14 @@ body {
   white-space: pre;
 }
 
+.message code:not(.code-block code) {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 0.9em;
+  background: var(--vscode-textCodeBlock-background, rgba(127, 127, 127, 0.15));
+  padding: 2px 5px;
+  border-radius: 3px;
+}
+
 .code-run-btn {
   background: var(--vscode-button-background);
   color: var(--vscode-button-foreground);
