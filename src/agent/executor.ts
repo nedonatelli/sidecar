@@ -1,4 +1,4 @@
-import { workspace } from 'vscode';
+import { workspace, Uri } from 'vscode';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../ollama/types.js';
@@ -13,6 +13,7 @@ const execAsync = promisify(exec);
 
 export type ApprovalMode = 'autonomous' | 'cautious' | 'manual';
 export type ConfirmFn = (message: string, actions: string[]) => Promise<string | undefined>;
+export type DiffPreviewFn = (filePath: string, proposedContent: string) => Promise<'accept' | 'reject'>;
 
 const WRITE_TOOLS = new Set(['write_file', 'edit_file']);
 
@@ -23,6 +24,7 @@ export async function executeTool(
   mcpManager?: MCPManager,
   logger?: AgentLogger,
   confirmFn?: ConfirmFn,
+  diffPreviewFn?: DiffPreviewFn,
 ): Promise<ToolResultContentBlock> {
   const tool = findTool(toolUse.name, mcpManager);
 
@@ -61,23 +63,55 @@ export async function executeTool(
   }
 
   if (needsApproval) {
-    const inputSummary = Object.entries(toolUse.input)
-      .map(([k, v]) => {
-        const val = typeof v === 'string' && v.length > 80 ? v.slice(0, 80) + '...' : String(v);
-        return `${k}: ${val}`;
-      })
-      .join(', ');
+    // For write tools with diff preview available, show a visual diff
+    if (diffPreviewFn && WRITE_TOOLS.has(toolUse.name) && toolUse.input.path) {
+      const filePath = toolUse.input.path as string;
+      let proposedContent: string;
 
-    const confirm = confirmFn || (async (msg: string, actions: string[]) => actions[0]);
-    const choice = await confirm(`SideCar wants to use **${toolUse.name}**(${inputSummary})`, ['Allow', 'Deny']);
+      if (toolUse.name === 'edit_file') {
+        // Compute proposed content from search/replace
+        try {
+          const fileUri = Uri.joinPath(workspace.workspaceFolders![0].uri, filePath);
+          const bytes = await workspace.fs.readFile(fileUri);
+          const original = Buffer.from(bytes).toString('utf-8');
+          proposedContent = original.replace(toolUse.input.search as string, toolUse.input.replace as string);
+        } catch {
+          proposedContent = toolUse.input.replace as string;
+        }
+      } else {
+        // write_file — proposed content is the full new content
+        proposedContent = (toolUse.input.content as string) || '';
+      }
 
-    if (choice !== 'Allow') {
-      return {
-        type: 'tool_result',
-        tool_use_id: toolUse.id,
-        content: 'Tool call denied by user.',
-        is_error: true,
-      };
+      const diffChoice = await diffPreviewFn(filePath, proposedContent);
+      if (diffChoice !== 'accept') {
+        return {
+          type: 'tool_result',
+          tool_use_id: toolUse.id,
+          content: 'Tool call denied by user after diff preview.',
+          is_error: true,
+        };
+      }
+    } else {
+      // Non-write tools or no diff preview — use inline confirm
+      const inputSummary = Object.entries(toolUse.input)
+        .map(([k, v]) => {
+          const val = typeof v === 'string' && v.length > 80 ? v.slice(0, 80) + '...' : String(v);
+          return `${k}: ${val}`;
+        })
+        .join(', ');
+
+      const confirm = confirmFn || (async (_msg: string, actions: string[]) => actions[0]);
+      const choice = await confirm(`SideCar wants to use **${toolUse.name}**(${inputSummary})`, ['Allow', 'Deny']);
+
+      if (choice !== 'Allow') {
+        return {
+          type: 'tool_result',
+          tool_use_id: toolUse.id,
+          content: 'Tool call denied by user.',
+          is_error: true,
+        };
+      }
     }
   }
 

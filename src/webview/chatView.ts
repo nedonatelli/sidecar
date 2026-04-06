@@ -39,6 +39,8 @@ import {
   handleInsight,
   handleSpec,
   handleGenerateDoc,
+  handleUsage,
+  handleContext,
 } from './handlers/agentHandlers.js';
 import {
   handleSaveSession,
@@ -66,6 +68,7 @@ export class ChatViewProvider implements WebviewViewProvider {
     if (workspaceIndex) {
       this.state.workspaceIndex = workspaceIndex;
     }
+    this.state.contentProvider = contentProvider;
   }
 
   resolveWebviewView(
@@ -204,6 +207,12 @@ export class ChatViewProvider implements WebviewViewProvider {
         break;
       case 'scanStaged':
         commands.executeCommand('sidecar.scanStaged');
+        break;
+      case 'usage':
+        await handleUsage(this.state);
+        break;
+      case 'context':
+        await handleContext(this.state);
         break;
     }
   }

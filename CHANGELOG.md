@@ -2,6 +2,13 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.16.0] - 2026-04-05
+
+### Added
+- **Diff preview before apply**: in cautious mode, `write_file` and `edit_file` open VS Code's built-in diff editor showing proposed changes before writing to disk. User accepts or rejects via inline confirmation card
+- **Token usage & cost dashboard**: `/usage` command shows cumulative token consumption, estimated Anthropic API cost, per-run history, and tool usage breakdown
+- **Context window visualization**: `/context` command shows what's in the context window — system prompt, SIDECAR.md, workspace files, conversation history — with token counts per section and a visual usage bar
+
 ## [0.15.0] - 2026-04-05
 
 ### Added

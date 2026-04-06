@@ -2,14 +2,11 @@
 
 This document tracks planned improvements and features for SideCar. Items are grouped by theme and roughly prioritized within each group.
 
-Last updated: 2026-04-05 (v0.15.0)
+Last updated: 2026-04-05 (v0.16.0)
 
 ---
 
 ## Diff & Review UX
-
-### Diff preview before apply
-Show proposed changes as a side-by-side diff before writing to disk. Let the user accept or reject changes per-file. Use VS Code's built-in diff editor via the existing `sidecar-proposed` content provider.
 
 ### Streaming diff view
 Render file changes as they stream in from the agent instead of displaying raw text blocks. Show a live diff that builds up as tokens arrive.
@@ -53,19 +50,8 @@ Scaffolding for common patterns — React components, API endpoints, test suites
 
 ## Observability
 
-### Context window visualization
-Show what's currently in the context window: system prompt, workspace files, conversation history, tool results. Display token counts per section and highlight what got truncated. Render as a collapsible panel in the chat UI.
-
-### Token usage & cost dashboard
-Track token consumption over time with per-session and cumulative stats. Show input vs output tokens, estimated cost for Anthropic API, and model-specific breakdowns. Surface via `/usage` command or a dedicated panel.
-
 ### Model comparison
 Send the same prompt to multiple models side-by-side and compare responses. Useful for evaluating which model works best for different tasks. Render results in parallel columns.
-
----
-
-## Security
-
 
 ---
 
@@ -119,3 +105,6 @@ Support multiple parallel conversation branches from a single chat:
 - [x] Prompt caching: Anthropic API cache_control on stable prefix, local SIDECAR.md cache with file watcher
 - [x] Security scanning: secrets detection + vulnerability patterns, integrated into executor and diagnostics
 - [x] Pre-commit secrets gate: `/scan` command and `sidecar.scanStaged` to scan staged files before commit
+- [x] Diff preview before apply: VS Code diff editor for write_file/edit_file in cautious mode
+- [x] Token usage & cost dashboard: `/usage` command with per-run history and tool breakdown
+- [x] Context window visualization: `/context` command with token counts per section

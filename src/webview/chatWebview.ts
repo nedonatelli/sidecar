@@ -33,7 +33,9 @@ export interface WebviewMessage {
     | 'generateDoc'
     | 'changeAgentMode'
     | 'confirmResponse'
-    | 'scanStaged';
+    | 'scanStaged'
+    | 'usage'
+    | 'context';
   images?: { mediaType: string; data: string }[];
   text?: string;
   model?: string;

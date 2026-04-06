@@ -8,6 +8,7 @@ import type { AgentLogger } from '../agent/logger.js';
 import type { MCPManager } from '../agent/mcpManager.js';
 import type { TerminalManager } from '../terminal/manager.js';
 import type { WorkspaceIndex } from '../config/workspaceIndex.js';
+import type { ProposedContentProvider } from '../edits/proposedContentProvider.js';
 import type { ExtensionMessage } from './chatWebview.js';
 import { getConfig } from '../config/settings.js';
 
@@ -29,6 +30,7 @@ export class ChatState {
   sessionManager: SessionManager;
   metricsCollector: MetricsCollector;
   workspaceIndex: WorkspaceIndex | null = null;
+  contentProvider: ProposedContentProvider | null = null;
 
   constructor(
     readonly context: ExtensionContext,

@@ -2,7 +2,7 @@
   "name": "sidecar",
   "displayName": "SideCar",
   "description": "AI chat client for VS Code — use local Ollama models or Claude via the Anthropic API",
-  "version": "0.15.1",
+  "version": "0.16.0",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {

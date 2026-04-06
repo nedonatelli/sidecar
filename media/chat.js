@@ -154,6 +154,8 @@
     { cmd: '/move', desc: 'Move/rename file' },
     { cmd: '/clone', desc: 'Clone repository' },
     { cmd: '/scan', desc: 'Scan staged files for secrets' },
+    { cmd: '/usage', desc: 'Token usage & cost dashboard' },
+    { cmd: '/context', desc: 'Show context window breakdown' },
   ];
   const autocompleteEl = document.getElementById('slash-autocomplete');
   let acSelectedIndex = -1;
@@ -539,6 +541,20 @@
       input.style.height = 'auto';
       return;
     }
+    if (text.trim() === '/context') {
+      appendMessage('user', '/context');
+      vscode.postMessage({ command: 'context' });
+      input.value = '';
+      input.style.height = 'auto';
+      return;
+    }
+    if (text.trim() === '/usage') {
+      appendMessage('user', '/usage');
+      vscode.postMessage({ command: 'usage' });
+      input.value = '';
+      input.style.height = 'auto';
+      return;
+    }
     if (text.trim() === '/scan') {
       appendMessage('user', '/scan');
       vscode.postMessage({ command: 'scanStaged' });
@@ -590,7 +606,9 @@
           '`/sessions` — List sessions\n' +
           '`/move <src> <dest>` — Move/rename file\n' +
           '`/clone <url>` — Clone repository\n' +
-          '`/scan` — Scan staged files for secrets',
+          '`/scan` — Scan staged files for secrets\n' +
+          '`/usage` — Token usage & cost dashboard\n' +
+          '`/context` — Show context window breakdown',
       );
       input.value = '';
       input.style.height = 'auto';

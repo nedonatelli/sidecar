@@ -16,6 +16,7 @@ import {
   resolveAtReferences,
 } from '../../config/workspace.js';
 import { runAgentLoop } from '../../agent/loop.js';
+import { commands } from 'vscode';
 
 const execAsync = promisify(exec);
 
@@ -274,6 +275,23 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
         maxIterations: config.agentMaxIterations,
         maxTokens: config.agentMaxTokens,
         confirmFn: (msg, actions) => state.requestConfirm(msg, actions),
+        diffPreviewFn: state.contentProvider
+          ? async (filePath: string, proposedContent: string) => {
+              const cp = state.contentProvider!;
+              const key = `/${filePath}`;
+              const proposedUri = cp.addProposal(key, proposedContent);
+              const rootUri = workspace.workspaceFolders?.[0]?.uri;
+              if (!rootUri) {
+                cp.removeProposal(key);
+                return 'reject' as const;
+              }
+              const originalUri = Uri.joinPath(rootUri, filePath);
+              await commands.executeCommand('vscode.diff', originalUri, proposedUri, `SideCar: ${filePath} (proposed)`);
+              const choice = await state.requestConfirm(`Apply changes to **${filePath}**?`, ['Accept', 'Reject']);
+              cp.removeProposal(key);
+              return choice === 'Accept' ? ('accept' as const) : ('reject' as const);
+            }
+          : undefined,
       },
     );
 

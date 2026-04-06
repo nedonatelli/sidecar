@@ -19,6 +19,7 @@
 - **Diagnostics integration** — reads compiler errors and warnings from VS Code's language services
 - **Test-driven loop** — runs tests, feeds failures back to the model, iterates until passing
 - **Undo/rollback** — revert all AI-made file changes with one click
+- **Diff preview** — in cautious mode, file writes open VS Code's diff editor for review before applying
 - **Safety guardrails** — agent mode dropdown (cautious/autonomous/manual) in the header, iteration limits, token budget
 
 ### Inline Chat (Cmd+I)
@@ -42,7 +43,7 @@
 - **Active file context** — includes the currently open file and cursor position
 - **@ references** — `@file:path`, `@folder:path`, `@symbol:name` for precise context inclusion
 - **Image support** — paste screenshots or attach images for vision models
-- **Slash commands** — `/reset`, `/undo`, `/export`, `/model`, `/help`, `/batch`, `/doc`, `/spec`, `/insight`, `/save`, `/sessions` — with autocomplete dropdown as you type
+- **Slash commands** — `/reset`, `/undo`, `/export`, `/model`, `/help`, `/batch`, `/doc`, `/spec`, `/insight`, `/save`, `/sessions`, `/scan`, `/usage`, `/context` — with autocomplete dropdown as you type
 - **Actionable errors** — classified error cards with retry, start Ollama, and settings buttons
 - **Sticky scroll** — auto-scroll pauses when you scroll up, floating button to jump back down
 - **Chat history persistence** — conversations survive VS Code restarts (per-workspace)

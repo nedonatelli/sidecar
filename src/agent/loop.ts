@@ -7,7 +7,7 @@ import type {
 } from '../ollama/types.js';
 import { SideCarClient } from '../ollama/client.js';
 import { getToolDefinitions } from './tools.js';
-import { executeTool, type ApprovalMode, type ConfirmFn } from './executor.js';
+import { executeTool, type ApprovalMode, type ConfirmFn, type DiffPreviewFn } from './executor.js';
 import type { AgentLogger } from './logger.js';
 import type { ChangeLog } from './changelog.js';
 import type { MCPManager } from './mcpManager.js';
@@ -32,6 +32,7 @@ export interface AgentOptions {
   changelog?: ChangeLog;
   mcpManager?: MCPManager;
   confirmFn?: ConfirmFn;
+  diffPreviewFn?: DiffPreviewFn;
 }
 
 const DEFAULT_MAX_ITERATIONS = 25;
@@ -168,7 +169,15 @@ export async function runAgentLoop(
           continue;
         }
 
-        const result = await executeTool(toolUse, approvalMode, changelog, mcpManager, logger, options.confirmFn);
+        const result = await executeTool(
+          toolUse,
+          approvalMode,
+          changelog,
+          mcpManager,
+          logger,
+          options.confirmFn,
+          options.diffPreviewFn,
+        );
         toolResults.push(result);
         logger?.logToolResult(toolUse.name, result.content, result.is_error || false);
         callbacks.onToolResult(toolUse.name, result.content, result.is_error || false);

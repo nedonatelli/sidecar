@@ -5,6 +5,8 @@ import { getConfig } from '../../config/settings.js';
 import { handleUserMessage } from './chatHandlers.js';
 import { parseBatchInput, runBatch } from '../../agent/batch.js';
 import { generateInsightReport } from '../../agent/insightReport.js';
+import { generateUsageReport } from '../../agent/usageReport.js';
+import { generateContextReport } from '../../agent/contextReport.js';
 import { generateSpec, saveSpec } from '../../agent/specDriven.js';
 import { generateDocumentation } from '../../agent/docGenerator.js';
 
@@ -110,4 +112,19 @@ export async function handleSpec(state: ChatState, description: string): Promise
     state.postMessage({ command: 'error', content: 'Failed to generate spec.' });
   }
   state.postMessage({ command: 'setLoading', isLoading: false });
+}
+
+export async function handleUsage(state: ChatState): Promise<void> {
+  const history = state.metricsCollector.getHistory();
+  const report = generateUsageReport(history);
+  const doc = await workspace.openTextDocument({ content: report, language: 'markdown' });
+  await window.showTextDocument(doc, { preview: true });
+}
+
+export async function handleContext(state: ChatState): Promise<void> {
+  const config = getConfig();
+  const systemPrompt = state.client.getSystemPrompt();
+  const report = generateContextReport(systemPrompt, state.messages, config.model, config.agentMaxTokens);
+  const doc = await workspace.openTextDocument({ content: report, language: 'markdown' });
+  await window.showTextDocument(doc, { preview: true });
 }
