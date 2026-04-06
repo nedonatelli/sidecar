@@ -1,5 +1,4 @@
 import {
-  window,
   workspace,
   env,
   WebviewView,
@@ -9,66 +8,48 @@ import {
   Uri,
   CancellationToken,
 } from 'vscode';
-import * as path from 'path';
-import { spawn, exec } from 'child_process';
-import { promisify } from 'util';
-
-const execAsync = promisify(exec);
-import { SideCarClient } from '../ollama/client.js';
-import {
-  getModel,
-  getSystemPrompt,
-  getBaseUrl,
-  getApiKey,
-  getIncludeActiveFile,
-  getAgentMode,
-  getAgentMaxIterations,
-  getAgentMaxTokens,
-  getPlanMode,
-} from '../config/settings.js';
-import {
-  getWorkspaceContext,
-  getWorkspaceEnabled,
-  getWorkspaceRoot,
-  getFilePatterns,
-  getMaxFiles,
-  resolveFileReferences,
-  resolveAtReferences,
-} from '../config/workspace.js';
-import type { ChatMessage, ContentBlock } from '../ollama/types.js';
-import { getContentLength } from '../ollama/types.js';
-import { getChatWebviewHtml, type WebviewMessage, type ExtensionMessage, type LibraryModelUI } from './chatWebview.js';
-import { GitCLI } from '../github/git.js';
-import { GitHubAPI } from '../github/api.js';
-import { getGitHubToken } from '../github/auth.js';
-import { TerminalManager } from '../terminal/manager.js';
-import { ProposedContentProvider } from '../edits/proposedContentProvider.js';
-import { runAgentLoop } from '../agent/loop.js';
+import { ChatState } from './chatState.js';
+import { getChatWebviewHtml, type WebviewMessage, type ExtensionMessage } from './chatWebview.js';
+import type { TerminalManager } from '../terminal/manager.js';
+import type { ProposedContentProvider } from '../edits/proposedContentProvider.js';
 import type { AgentLogger } from '../agent/logger.js';
-import { ChangeLog } from '../agent/changelog.js';
 import type { MCPManager } from '../agent/mcpManager.js';
-import { SessionManager } from '../agent/sessions.js';
-import { MetricsCollector } from '../agent/metrics.js';
-import { generateInsightReport } from '../agent/insightReport.js';
-import { parseBatchInput, runBatch } from '../agent/batch.js';
-import { generateSpec, saveSpec } from '../agent/specDriven.js';
-import { generateDocumentation } from '../agent/docGenerator.js';
+import { getConfig } from '../config/settings.js';
+
+// Handler modules
+import {
+  handleUserMessage,
+  handleUserMessageWithImages,
+  handleAttachFile,
+  handleSaveCodeBlock,
+  handleCreateFile,
+  handleRunCommand,
+  handleMoveFile,
+  handleUndoChanges,
+  handleExportChat,
+} from './handlers/chatHandlers.js';
+import { handleGitHubCommand } from './handlers/githubHandlers.js';
+import { loadModels, handleInstallModel } from './handlers/modelHandlers.js';
+import {
+  handleExecutePlan,
+  handleRevisePlan,
+  handleBatch,
+  handleInsight,
+  handleSpec,
+  handleGenerateDoc,
+} from './handlers/agentHandlers.js';
+import {
+  handleSaveSession,
+  handleLoadSession,
+  handleDeleteSession,
+  handleListSessions,
+} from './handlers/sessionHandlers.js';
 
 export class ChatViewProvider implements WebviewViewProvider {
   private webviewView: WebviewView | undefined;
-  private client: SideCarClient;
-  private terminalManager: TerminalManager;
-  private contentProvider: ProposedContentProvider;
-  private agentLogger: AgentLogger;
-  private mcpManager: MCPManager;
-  private sessionManager: SessionManager;
-  private metricsCollector: MetricsCollector;
-  private changelog = new ChangeLog();
-  private pendingPlan: string | null = null;
-  private pendingPlanMessages: ChatMessage[] = [];
-  private messages: ChatMessage[] = [];
-  private abortController: AbortController | null = null;
-  private installAbortController: AbortController | null = null;
+  private state: ChatState;
+  // Retained for potential future use (proposed diff views)
+  private readonly _contentProvider: ProposedContentProvider;
 
   constructor(
     private readonly context: ExtensionContext,
@@ -77,13 +58,8 @@ export class ChatViewProvider implements WebviewViewProvider {
     agentLogger: AgentLogger,
     mcpManager: MCPManager,
   ) {
-    this.client = new SideCarClient(getModel(), getBaseUrl(), getApiKey());
-    this.terminalManager = terminalManager;
-    this.contentProvider = contentProvider;
-    this.agentLogger = agentLogger;
-    this.mcpManager = mcpManager;
-    this.sessionManager = new SessionManager(context.globalState);
-    this.metricsCollector = new MetricsCollector(context.workspaceState);
+    this._contentProvider = contentProvider;
+    this.state = new ChatState(context, terminalManager, agentLogger, mcpManager, (msg) => this.postMessage(msg));
   }
 
   resolveWebviewView(
@@ -102,461 +78,115 @@ export class ChatViewProvider implements WebviewViewProvider {
 
     webviewView.webview.onDidReceiveMessage(
       async (msg: WebviewMessage) => {
-        switch (msg.command) {
-          case 'userMessage':
-            if (msg.images && msg.images.length > 0) {
-              const content: ContentBlock[] = msg.images.map((img) => ({
-                type: 'image' as const,
-                source: { type: 'base64' as const, media_type: img.mediaType as 'image/png', data: img.data },
-              }));
-              content.push({ type: 'text', text: msg.text || '' });
-              this.messages.push({ role: 'user', content });
-              this.saveHistory();
-              await this.handleUserMessage('');
-            } else {
-              await this.handleUserMessage(msg.text || '');
-            }
-            break;
-          case 'abort':
-            this.abort();
-            break;
-          case 'changeModel':
-            this.client.updateModel(msg.model || 'llama3');
-            this.postMessage({ command: 'setCurrentModel', currentModel: msg.model });
-            // Update config so status bar reflects the change
-            workspace.getConfiguration('sidecar').update('model', msg.model, true);
-            break;
-          case 'installModel':
-            await this.handleInstallModel(msg.model || '');
-            break;
-          case 'cancelInstall':
-            this.cancelInstall();
-            break;
-          case 'attachFile':
-            await this.handleAttachFile();
-            break;
-          case 'saveCodeBlock':
-            await this.handleSaveCodeBlock(msg.code || '', msg.language);
-            break;
-          case 'createFile':
-            await this.handleCreateFile(msg.code || '', msg.filePath || '');
-            break;
-          case 'runCommand': {
-            const output = await this.handleRunCommand(msg.text || '');
-            if (output !== null) {
-              this.postMessage({ command: 'commandResult', content: output });
-            }
-            break;
-          }
-          case 'moveFile':
-            await this.handleMoveFile(msg.sourcePath || '', msg.destPath || '');
-            break;
-          case 'github':
-            await this.handleGitHubCommand(msg);
-            break;
-          case 'newChat':
-            this.messages = [];
-            this.pendingPlan = null;
-            this.pendingPlanMessages = [];
-            this.changelog.clear();
-            this.saveHistory();
-            this.postMessage({ command: 'chatCleared' });
-            break;
-          case 'undoChanges':
-            await this.handleUndoChanges();
-            break;
-          case 'exportChat':
-            await this.handleExportChat();
-            break;
-          case 'executePlan':
-            await this.handleExecutePlan();
-            break;
-          case 'revisePlan':
-            await this.handleRevisePlan(msg.text || '');
-            break;
-          case 'batch':
-            await this.handleBatch(msg.text || '');
-            break;
-          case 'saveSession':
-            this.handleSaveSession(msg.text || 'Untitled');
-            break;
-          case 'loadSession':
-            this.handleLoadSession(msg.text || '');
-            break;
-          case 'deleteSession':
-            this.handleDeleteSession(msg.text || '');
-            break;
-          case 'listSessions':
-            this.handleListSessions();
-            break;
-          case 'insight':
-            await this.handleInsight();
-            break;
-          case 'spec':
-            await this.handleSpec(msg.text || '');
-            break;
-          case 'generateDoc':
-            await this.handleGenerateDoc();
-            break;
-          case 'openExternal':
-            if (msg.url) {
-              env.openExternal(Uri.parse(msg.url));
-            }
-            break;
-        }
+        await this.dispatch(msg);
       },
       undefined,
       this.context.subscriptions,
     );
 
     // Restore chat history
-    if (this.messages.length === 0) {
-      this.messages = this.loadHistory();
+    if (this.state.messages.length === 0) {
+      this.state.messages = this.state.loadHistory();
     }
-    if (this.messages.length > 0) {
-      this.postMessage({ command: 'init', messages: this.messages });
+    if (this.state.messages.length > 0) {
+      this.postMessage({ command: 'init', messages: this.state.messages });
     }
 
-    this.loadModels();
-    this.postMessage({ command: 'setAgentMode', agentMode: getAgentMode() });
+    loadModels(this.state);
+    this.postMessage({ command: 'setAgentMode', agentMode: getConfig().agentMode });
   }
 
-  private async isReachable(): Promise<boolean> {
-    try {
-      const baseUrl = getBaseUrl();
-      // For local Ollama, check /api/tags; for remote APIs, check the base URL
-      const checkUrl = this.client.isLocalOllama() ? `${baseUrl}/api/tags` : baseUrl;
-      const response = await fetch(checkUrl, {
-        headers: this.client.isLocalOllama()
-          ? {}
-          : {
-              'x-api-key': getApiKey(),
-              'anthropic-version': '2023-06-01',
-            },
-      });
-      return response.ok;
-    } catch {
-      return false;
-    }
-  }
-
-  private async ensureProviderRunning(): Promise<boolean> {
-    if (await this.isReachable()) return true;
-
-    // Only try to auto-start local Ollama
-    if (!this.client.isLocalOllama()) return false;
-
-    try {
-      const child = spawn('ollama', ['serve'], {
-        detached: true,
-        stdio: 'ignore',
-      });
-      child.unref();
-    } catch {
-      return false;
-    }
-
-    for (let i = 0; i < 30; i++) {
-      await new Promise((r) => setTimeout(r, 500));
-      if (await this.isReachable()) return true;
-    }
-
-    return false;
-  }
-
-  private async loadModels(): Promise<void> {
-    try {
-      const started = await this.ensureProviderRunning();
-      if (!started) {
-        this.postMessage({
-          command: 'error',
-          content: this.client.isLocalOllama()
-            ? 'Cannot start Ollama. Make sure Ollama is installed and in your PATH.'
-            : `Cannot reach API at ${getBaseUrl()}. Check your baseUrl and apiKey settings.`,
-        });
-        return;
+  private async dispatch(msg: WebviewMessage): Promise<void> {
+    switch (msg.command) {
+      case 'userMessage':
+        if (msg.images && msg.images.length > 0) {
+          handleUserMessageWithImages(this.state, msg.text || '', msg.images);
+          await handleUserMessage(this.state, '');
+        } else {
+          await handleUserMessage(this.state, msg.text || '');
+        }
+        break;
+      case 'abort':
+        this.state.abort();
+        break;
+      case 'changeModel':
+        this.state.client.updateModel(msg.model || 'llama3');
+        this.postMessage({ command: 'setCurrentModel', currentModel: msg.model });
+        workspace.getConfiguration('sidecar').update('model', msg.model, true);
+        break;
+      case 'installModel':
+        await handleInstallModel(this.state, msg.model || '');
+        break;
+      case 'cancelInstall':
+        this.state.cancelInstall();
+        break;
+      case 'attachFile':
+        await handleAttachFile(this.state);
+        break;
+      case 'saveCodeBlock':
+        await handleSaveCodeBlock(msg.code || '', msg.language);
+        break;
+      case 'createFile':
+        await handleCreateFile(this.state, msg.code || '', msg.filePath || '');
+        break;
+      case 'runCommand': {
+        const output = await handleRunCommand(this.state, msg.text || '');
+        if (output !== null) {
+          this.postMessage({ command: 'commandResult', content: output });
+        }
+        break;
       }
-
-      const libraryModels = await this.client.listLibraryModels();
-      const currentModel = getModel();
-
-      const modelsUI: LibraryModelUI[] = libraryModels.map((m) => ({
-        name: m.name,
-        installed: m.installed,
-      }));
-
-      this.postMessage({ command: 'setModels', models: modelsUI });
-      this.postMessage({ command: 'setCurrentModel', currentModel });
-    } catch (err) {
-      console.error('Failed to load models:', err);
-      this.postMessage({
-        command: 'error',
-        content: this.client.isLocalOllama()
-          ? 'Cannot connect to Ollama. Make sure Ollama is running on localhost:11434.'
-          : `Cannot connect to API at ${getBaseUrl()}.`,
-      });
+      case 'moveFile':
+        await handleMoveFile(this.state, msg.sourcePath || '', msg.destPath || '');
+        break;
+      case 'github':
+        await handleGitHubCommand(this.state, msg);
+        break;
+      case 'newChat':
+        this.state.clearChat();
+        break;
+      case 'undoChanges':
+        await handleUndoChanges(this.state);
+        break;
+      case 'exportChat':
+        await handleExportChat(this.state);
+        break;
+      case 'executePlan':
+        await handleExecutePlan(this.state);
+        break;
+      case 'revisePlan':
+        await handleRevisePlan(this.state, msg.text || '');
+        break;
+      case 'batch':
+        await handleBatch(this.state, msg.text || '');
+        break;
+      case 'saveSession':
+        handleSaveSession(this.state, msg.text || 'Untitled');
+        break;
+      case 'loadSession':
+        handleLoadSession(this.state, msg.text || '');
+        break;
+      case 'deleteSession':
+        handleDeleteSession(this.state, msg.text || '');
+        break;
+      case 'listSessions':
+        handleListSessions(this.state);
+        break;
+      case 'insight':
+        await handleInsight(this.state);
+        break;
+      case 'spec':
+        await handleSpec(this.state, msg.text || '');
+        break;
+      case 'generateDoc':
+        await handleGenerateDoc(this.state);
+        break;
+      case 'openExternal':
+        if (msg.url) {
+          env.openExternal(Uri.parse(msg.url));
+        }
+        break;
     }
-  }
-
-  private async handleInstallModel(modelName: string): Promise<void> {
-    this.installAbortController = new AbortController();
-
-    try {
-      this.postMessage({
-        command: 'installProgress',
-        modelName,
-        progress: 'Starting...',
-      });
-
-      for await (const progress of this.client.pullModel(modelName, this.installAbortController.signal)) {
-        this.postMessage({
-          command: 'installProgress',
-          modelName,
-          progress: progress.status,
-        });
-      }
-
-      this.client.updateModel(modelName);
-      this.postMessage({ command: 'installComplete', modelName });
-      this.postMessage({ command: 'setCurrentModel', currentModel: modelName });
-      await this.loadModels();
-    } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') {
-        this.postMessage({ command: 'installComplete', modelName });
-        return;
-      }
-      this.postMessage({
-        command: 'error',
-        content: `Failed to install ${modelName}: ${err instanceof Error ? err.message : String(err)}`,
-      });
-    } finally {
-      this.installAbortController = null;
-    }
-  }
-
-  private cancelInstall(): void {
-    this.installAbortController?.abort();
-  }
-
-  private saveHistory(): void {
-    // Strip any non-string content (images) for persistence
-    const serializable = this.messages.map((m) => ({
-      role: m.role,
-      content: typeof m.content === 'string' ? m.content : '[message with images]',
-    }));
-    this.context.workspaceState.update('sidecar.chatHistory', serializable);
-  }
-
-  private loadHistory(): ChatMessage[] {
-    return this.context.workspaceState.get<ChatMessage[]>('sidecar.chatHistory', []);
-  }
-
-  private async handleUndoChanges(): Promise<void> {
-    if (!this.changelog.hasChanges()) {
-      window.showInformationMessage('No changes to undo.');
-      return;
-    }
-    const changes = this.changelog.getChanges();
-    const choice = await window.showWarningMessage(
-      `Undo ${changes.length} file change(s) made by SideCar?`,
-      { modal: true },
-      'Undo All',
-    );
-    if (choice !== 'Undo All') return;
-    const result = await this.changelog.rollbackAll();
-    const parts: string[] = [];
-    if (result.restored > 0) parts.push(`${result.restored} restored`);
-    if (result.deleted > 0) parts.push(`${result.deleted} deleted`);
-    if (result.failed > 0) parts.push(`${result.failed} failed`);
-    window.showInformationMessage(`Undo complete: ${parts.join(', ')}`);
-    this.postMessage({
-      command: 'assistantMessage',
-      content: `\n\n↩ Undid ${changes.length} file change(s): ${parts.join(', ')}`,
-    });
-  }
-
-  private async handleExportChat(): Promise<void> {
-    if (this.messages.length === 0) return;
-    const lines: string[] = [];
-    for (const msg of this.messages) {
-      const label = msg.role === 'user' ? '## User' : '## Assistant';
-      const text = typeof msg.content === 'string' ? msg.content : '[message with images]';
-      lines.push(`${label}\n\n${text}\n`);
-    }
-    const content = lines.join('\n---\n\n');
-    const uri = await window.showSaveDialog({
-      filters: { Markdown: ['md'] },
-      defaultUri: Uri.file('sidecar-chat.md'),
-    });
-    if (!uri) return;
-    await workspace.fs.writeFile(uri, Buffer.from(content, 'utf-8'));
-    window.showInformationMessage(`Chat exported to ${path.basename(uri.fsPath)}`);
-  }
-
-  // --- Plan Mode handlers ---
-
-  private async handleExecutePlan(): Promise<void> {
-    if (!this.pendingPlan || this.pendingPlanMessages.length === 0) return;
-    // Add instruction to execute the plan
-    this.pendingPlanMessages.push({
-      role: 'user',
-      content: `Execute the following plan step by step:\n\n${this.pendingPlan}`,
-    });
-    this.messages = this.pendingPlanMessages;
-    this.pendingPlan = null;
-    this.pendingPlanMessages = [];
-    await this.handleUserMessage('');
-  }
-
-  private async handleRevisePlan(feedback: string): Promise<void> {
-    if (this.pendingPlanMessages.length === 0) return;
-    this.pendingPlanMessages.push({ role: 'user', content: `Revise the plan based on this feedback: ${feedback}` });
-    this.messages = this.pendingPlanMessages;
-    this.pendingPlan = null;
-    this.pendingPlanMessages = [];
-    await this.handleUserMessage('');
-  }
-
-  // --- Batch handler ---
-
-  private async handleBatch(text: string): Promise<void> {
-    const { mode, tasks } = parseBatchInput(text);
-    if (tasks.length === 0) return;
-
-    this.postMessage({ command: 'assistantMessage', content: `Starting batch (${mode}): ${tasks.length} task(s)\n\n` });
-
-    const abortController = new AbortController();
-    this.abortController = abortController;
-
-    this.client.updateConnection(getBaseUrl(), getApiKey());
-    this.client.updateModel(getModel());
-
-    await runBatch(
-      this.client,
-      tasks,
-      mode,
-      (taskId, status, result) => {
-        const preview = result.length > 100 ? result.slice(0, 100) + '...' : result;
-        this.postMessage({
-          command: 'assistantMessage',
-          content: `Task ${taskId + 1}: ${status}${preview ? ' — ' + preview : ''}\n`,
-        });
-      },
-      abortController.signal,
-      { logger: this.agentLogger, mcpManager: this.mcpManager, approvalMode: getAgentMode() },
-    );
-
-    this.postMessage({ command: 'assistantMessage', content: '\nBatch complete.\n' });
-    this.postMessage({ command: 'done' });
-    this.abortController = null;
-  }
-
-  // --- Session handlers ---
-
-  private handleSaveSession(name: string): void {
-    this.sessionManager.save(name, this.messages);
-    window.showInformationMessage(`Session "${name}" saved.`);
-    this.handleListSessions();
-  }
-
-  private handleLoadSession(id: string): void {
-    const session = this.sessionManager.load(id);
-    if (!session) return;
-    this.messages = session.messages;
-    this.saveHistory();
-    this.postMessage({ command: 'chatCleared' });
-    this.postMessage({ command: 'init', messages: this.messages });
-  }
-
-  private handleDeleteSession(id: string): void {
-    this.sessionManager.delete(id);
-    this.handleListSessions();
-  }
-
-  private handleListSessions(): void {
-    const sessions = this.sessionManager.list();
-    const data = sessions.map((s) => ({ id: s.id, name: s.name, createdAt: s.createdAt }));
-    this.postMessage({ command: 'sessionList', content: JSON.stringify(data) });
-  }
-
-  // --- Insight handler ---
-
-  private async handleInsight(): Promise<void> {
-    const history = this.metricsCollector.getHistory();
-    const report = generateInsightReport(history);
-    const doc = await workspace.openTextDocument({ content: report, language: 'markdown' });
-    await window.showTextDocument(doc, { preview: true });
-  }
-
-  // --- Doc generation handler ---
-
-  private async handleGenerateDoc(): Promise<void> {
-    const editor = window.activeTextEditor;
-    if (!editor) {
-      this.postMessage({ command: 'error', content: 'No active editor. Open a file first.' });
-      return;
-    }
-    const doc = editor.document;
-    const code = editor.selection.isEmpty ? doc.getText() : doc.getText(editor.selection);
-    const language = doc.languageId;
-    const fileName = path.basename(doc.fileName);
-
-    this.postMessage({ command: 'setLoading', isLoading: true });
-    this.client.updateConnection(getBaseUrl(), getApiKey());
-    this.client.updateModel(getModel());
-
-    const result = await generateDocumentation(this.client, code, language, fileName);
-    if (result) {
-      this.postMessage({ command: 'assistantMessage', content: result });
-    } else {
-      this.postMessage({ command: 'error', content: 'Failed to generate documentation.' });
-    }
-    this.postMessage({ command: 'done' });
-    this.postMessage({ command: 'setLoading', isLoading: false });
-  }
-
-  // --- Spec handler ---
-
-  private async handleSpec(description: string): Promise<void> {
-    this.postMessage({ command: 'setLoading', isLoading: true });
-    this.client.updateConnection(getBaseUrl(), getApiKey());
-    this.client.updateModel(getModel());
-
-    const spec = await generateSpec(this.client, description);
-    if (spec) {
-      this.postMessage({ command: 'assistantMessage', content: spec });
-      this.postMessage({ command: 'done' });
-      await saveSpec(spec, description.slice(0, 40));
-    } else {
-      this.postMessage({ command: 'error', content: 'Failed to generate spec.' });
-    }
-    this.postMessage({ command: 'setLoading', isLoading: false });
-  }
-
-  private async loadSidecarMd(): Promise<string | null> {
-    const rootUri = workspace.workspaceFolders?.[0]?.uri;
-    if (!rootUri) return null;
-    try {
-      const fileUri = Uri.joinPath(rootUri, 'SIDECAR.md');
-      const bytes = await workspace.fs.readFile(fileUri);
-      const content = Buffer.from(bytes).toString('utf-8').trim();
-      return content || null;
-    } catch {
-      return null;
-    }
-  }
-
-  private getActiveFileContext(): string {
-    const editor = window.activeTextEditor;
-    if (!editor) return '';
-    const doc = editor.document;
-    const root = getWorkspaceRoot();
-    const fileName = root ? path.relative(root, doc.fileName) : doc.fileName;
-    const cursorLine = editor.selection.active.line + 1;
-    const content = doc.getText();
-    const maxChars = 50_000;
-    const truncated = content.length > maxChars ? content.slice(0, maxChars) + '\n... (truncated)' : content;
-    return `[Active file: ${fileName}, cursor at line ${cursorLine}]\n\`\`\`\n${truncated}\n\`\`\`\n\n`;
   }
 
   public async sendCodeAction(action: string, code: string, fileName: string): Promise<void> {
@@ -565,532 +195,7 @@ export class ChatViewProvider implements WebviewViewProvider {
       this.webviewView.show(true);
     }
     this.postMessage({ command: 'addUserMessage', content: prompt });
-    await this.handleUserMessage(prompt);
-  }
-
-  private async handleUserMessage(text: string): Promise<void> {
-    if (text) {
-      this.messages.push({ role: 'user', content: text });
-      this.saveHistory();
-    }
-    this.postMessage({ command: 'setLoading', isLoading: true });
-
-    this.abortController = new AbortController();
-
-    try {
-      const started = await this.ensureProviderRunning();
-      if (!started) {
-        this.postMessage({
-          command: 'error',
-          content: this.client.isLocalOllama()
-            ? 'Ollama is not running and could not be started.'
-            : `Cannot reach API at ${getBaseUrl()}.`,
-        });
-        return;
-      }
-
-      const model = getModel();
-      const userSystemPrompt = getSystemPrompt();
-      this.client.updateConnection(getBaseUrl(), getApiKey());
-      this.client.updateModel(model);
-
-      // Build system prompt with workspace context
-      let systemPrompt = `You are SideCar, an AI coding assistant running inside VS Code. You have tools to read, write, edit, and search files, run shell commands, check diagnostics, and run tests.\nProject root: ${getWorkspaceRoot()}\n\nUse your tools to accomplish tasks. Always use relative paths from the project root. Keep responses concise.\n\nAfter editing files, use get_diagnostics to check for errors and fix them. When asked to fix bugs or add features, use run_tests to verify your changes pass.`;
-
-      // Load SIDECAR.md project instructions if present
-      const sidecarMd = await this.loadSidecarMd();
-      if (sidecarMd) {
-        systemPrompt += `\n\nProject instructions (from SIDECAR.md):\n${sidecarMd}`;
-      }
-
-      if (userSystemPrompt) {
-        systemPrompt += `\n\n${userSystemPrompt}`;
-      }
-
-      if (getWorkspaceEnabled()) {
-        const context = await getWorkspaceContext(getFilePatterns(), getMaxFiles());
-        if (context) {
-          systemPrompt += `\n\n${context}`;
-        }
-      }
-
-      this.client.updateSystemPrompt(systemPrompt);
-
-      // Build API messages with enriched context
-      const chatMessages = [...this.messages];
-      if (chatMessages.length > 0) {
-        // Find last user message to enrich
-        let lastUserIdx = -1;
-        for (let i = chatMessages.length - 1; i >= 0; i--) {
-          if (chatMessages[i].role === 'user') {
-            lastUserIdx = i;
-            break;
-          }
-        }
-        if (lastUserIdx !== -1) {
-          let enriched =
-            typeof chatMessages[lastUserIdx].content === 'string' ? (chatMessages[lastUserIdx].content as string) : '';
-
-          // Inject active file context
-          if (getIncludeActiveFile()) {
-            const activeCtx = this.getActiveFileContext();
-            if (activeCtx) {
-              enriched = activeCtx + enriched;
-            }
-          }
-
-          // Resolve file references
-          enriched = await resolveFileReferences(enriched);
-          enriched = await resolveAtReferences(enriched);
-
-          chatMessages[lastUserIdx] = { ...chatMessages[lastUserIdx], content: enriched };
-        }
-      }
-
-      // Warn if context may exceed the model's limit
-      const contextLength = await this.client.getModelContextLength();
-      if (contextLength) {
-        const totalChars = chatMessages.reduce((sum, m) => sum + getContentLength(m.content), 0);
-        const estimatedTokens = Math.ceil(totalChars / 3.5);
-        if (estimatedTokens > contextLength * 0.8) {
-          this.postMessage({
-            command: 'assistantMessage',
-            content: `⚠️ Warning: Your conversation (~${estimatedTokens} tokens) may exceed this model's ${contextLength} token context window. Consider switching to a model with a larger context, reducing maxFiles, or starting a new conversation.\n\n`,
-          });
-        }
-      }
-
-      // Run agent loop with tool use
-      this.metricsCollector.startRun();
-      const updatedMessages = await runAgentLoop(
-        this.client,
-        chatMessages,
-        {
-          onText: (text) => {
-            this.postMessage({ command: 'assistantMessage', content: text });
-          },
-          onThinking: (thinking) => {
-            this.postMessage({ command: 'thinking', content: thinking });
-          },
-          onToolCall: (name, input) => {
-            const summary = Object.entries(input)
-              .map(([k, v]) => {
-                const val = typeof v === 'string' && v.length > 60 ? v.slice(0, 60) + '...' : String(v);
-                return `${k}: ${val}`;
-              })
-              .join(', ');
-            this.postMessage({ command: 'toolCall', content: `${name}(${summary})` });
-            this.metricsCollector.recordToolStart();
-          },
-          onToolResult: (name, result, isError) => {
-            const preview = result.length > 200 ? result.slice(0, 200) + '...' : result;
-            this.postMessage({ command: 'toolResult', content: `${name}: ${isError ? '✗ ' : '✓ '}${preview}` });
-            this.metricsCollector.recordToolEnd(name, isError);
-          },
-          onPlanGenerated: (plan) => {
-            this.pendingPlan = plan;
-            this.pendingPlanMessages = [...chatMessages];
-            this.postMessage({ command: 'planReady', content: plan });
-          },
-          onDone: () => {
-            this.postMessage({ command: 'done' });
-          },
-        },
-        this.abortController.signal,
-        {
-          logger: this.agentLogger,
-          changelog: this.changelog,
-          mcpManager: this.mcpManager,
-          approvalMode: getAgentMode(),
-          planMode: getPlanMode(),
-          maxIterations: getAgentMaxIterations(),
-          maxTokens: getAgentMaxTokens(),
-        },
-      );
-
-      // Sync messages from agent loop back
-      this.messages = updatedMessages;
-      this.saveHistory();
-      this.metricsCollector.endRun();
-    } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') {
-        return;
-      }
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      this.postMessage({ command: 'error', content: `Error: ${errorMessage}` });
-    } finally {
-      this.abortController = null;
-    }
-  }
-
-  private static readonly IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.svg']);
-
-  private async handleAttachFile(): Promise<void> {
-    const editor = window.activeTextEditor;
-
-    const options: string[] = [];
-    if (editor) {
-      options.push('Active File: ' + path.basename(editor.document.fileName));
-    }
-    options.push('Browse...');
-
-    const pick =
-      options.length === 1
-        ? options[0]
-        : await window.showQuickPick(options, { placeHolder: 'Select a file to attach' });
-    if (!pick) return;
-
-    if (pick.startsWith('Active File') && editor) {
-      const fileName = path.basename(editor.document.fileName);
-      const ext = path.extname(fileName).toLowerCase();
-      if (ChatViewProvider.IMAGE_EXTENSIONS.has(ext)) {
-        await this.attachImage(Uri.file(editor.document.fileName));
-      } else {
-        const fileContent = editor.document.getText();
-        if (fileContent.length > 500_000) {
-          window.showWarningMessage(`File "${fileName}" is too large to attach (>500KB).`);
-          return;
-        }
-        this.postMessage({ command: 'fileAttached', fileName, fileContent });
-      }
-    } else {
-      const uris = await window.showOpenDialog({ canSelectMany: false });
-      if (!uris || uris.length === 0) return;
-      const fileName = path.basename(uris[0].fsPath);
-      const ext = path.extname(fileName).toLowerCase();
-      if (ChatViewProvider.IMAGE_EXTENSIONS.has(ext)) {
-        await this.attachImage(uris[0]);
-      } else {
-        const doc = await workspace.openTextDocument(uris[0]);
-        const fileContent = doc.getText();
-        if (fileContent.length > 500_000) {
-          window.showWarningMessage(`File "${fileName}" is too large to attach (>500KB).`);
-          return;
-        }
-        this.postMessage({ command: 'fileAttached', fileName, fileContent });
-      }
-    }
-  }
-
-  private async attachImage(uri: Uri): Promise<void> {
-    const bytes = await workspace.fs.readFile(uri);
-    const ext = path.extname(uri.fsPath).toLowerCase();
-    const mimeMap: Record<string, string> = {
-      '.png': 'image/png',
-      '.jpg': 'image/jpeg',
-      '.jpeg': 'image/jpeg',
-      '.gif': 'image/gif',
-      '.bmp': 'image/bmp',
-      '.webp': 'image/webp',
-      '.svg': 'image/svg+xml',
-    };
-    const mediaType = mimeMap[ext] || 'image/png';
-    const data = Buffer.from(bytes).toString('base64');
-    this.postMessage({ command: 'imageAttached', mediaType, data });
-  }
-
-  private async handleSaveCodeBlock(code: string, language?: string): Promise<void> {
-    const ext = language ? this.languageToExtension(language) : '.txt';
-    const uri = await window.showSaveDialog({
-      filters: { 'All Files': ['*'] },
-      defaultUri: Uri.file('untitled' + ext),
-    });
-    if (!uri) return;
-
-    await workspace.fs.writeFile(uri, Buffer.from(code, 'utf-8'));
-    window.showInformationMessage(`Saved to ${path.basename(uri.fsPath)}`);
-  }
-
-  private async handleCreateFile(code: string, filePath: string): Promise<void> {
-    const workspaceFolders = workspace.workspaceFolders;
-    if (!workspaceFolders || workspaceFolders.length === 0) {
-      this.postMessage({ command: 'error', content: 'No workspace folder open.' });
-      return;
-    }
-
-    const rootUri = workspaceFolders[0].uri;
-    const fileUri = Uri.joinPath(rootUri, filePath);
-
-    let exists = false;
-    try {
-      await workspace.fs.stat(fileUri);
-      exists = true;
-    } catch {
-      // File doesn't exist — safe to create
-    }
-
-    if (exists) {
-      const choice = await window.showWarningMessage(
-        `"${filePath}" already exists. Overwrite?`,
-        { modal: true },
-        'Overwrite',
-      );
-      if (choice !== 'Overwrite') return;
-    }
-
-    try {
-      await workspace.fs.createDirectory(Uri.joinPath(rootUri, path.dirname(filePath)));
-      await workspace.fs.writeFile(fileUri, Buffer.from(code, 'utf-8'));
-      window.showInformationMessage(`Created ${filePath}`);
-    } catch (err) {
-      this.postMessage({
-        command: 'error',
-        content: `Failed to create file: ${err instanceof Error ? err.message : String(err)}`,
-      });
-    }
-  }
-
-  private async handleRunCommand(command: string): Promise<string | null> {
-    const choice = await window.showWarningMessage(`SideCar wants to run: ${command}`, { modal: true }, 'Allow');
-    if (choice !== 'Allow') {
-      this.postMessage({ command: 'commandResult', content: 'Command cancelled by user.' });
-      return null;
-    }
-
-    // Try terminal with shell integration for output capture
-    const terminalOutput = await this.terminalManager.executeCommand(command);
-    if (terminalOutput !== null) {
-      return terminalOutput;
-    }
-
-    // Fallback: run hidden and capture output
-    const cwd = workspace.workspaceFolders?.[0]?.uri.fsPath;
-    try {
-      const { stdout, stderr } = await execAsync(command, {
-        cwd,
-        timeout: 30_000,
-        maxBuffer: 1024 * 1024,
-      });
-      return stdout || stderr || '(no output)';
-    } catch (err) {
-      const error = err as { stdout?: string; stderr?: string; message?: string };
-      return error.stderr || error.stdout || error.message || 'Command failed';
-    }
-  }
-
-  private async handleGitHubCommand(msg: WebviewMessage): Promise<void> {
-    try {
-      switch (msg.action) {
-        case 'clone': {
-          if (!msg.url) {
-            this.postMessage({ command: 'error', content: 'Please provide a repository URL.' });
-            return;
-          }
-          const targetUris = await window.showOpenDialog({
-            canSelectFolders: true,
-            canSelectFiles: false,
-            canSelectMany: false,
-            openLabel: 'Clone Here',
-          });
-          if (!targetUris || targetUris.length === 0) return;
-          const repoName =
-            msg.url
-              .replace(/\.git$/, '')
-              .split('/')
-              .pop() || 'repo';
-          const targetDir = path.join(targetUris[0].fsPath, repoName);
-          this.postMessage({ command: 'githubResult', githubAction: 'clone', githubData: 'Cloning...' });
-          const git = new GitCLI(targetUris[0].fsPath);
-          const result = await git.clone(msg.url, targetDir);
-          this.postMessage({ command: 'githubResult', githubAction: 'clone', githubData: result });
-          const openChoice = await window.showInformationMessage(
-            `Cloned ${repoName}. Open in VSCode?`,
-            'Open',
-            'Cancel',
-          );
-          if (openChoice === 'Open') {
-            await import('vscode').then((vsc) => vsc.commands.executeCommand('vscode.openFolder', Uri.file(targetDir)));
-          }
-          break;
-        }
-        case 'push': {
-          const git = new GitCLI();
-          const result = await git.push();
-          this.postMessage({ command: 'githubResult', githubAction: 'push', githubData: result });
-          break;
-        }
-        case 'pull': {
-          const git = new GitCLI();
-          const result = await git.pull();
-          this.postMessage({ command: 'githubResult', githubAction: 'pull', githubData: result });
-          break;
-        }
-        case 'log': {
-          const git = new GitCLI();
-          const commits = await git.log(msg.count || 10);
-          this.postMessage({ command: 'githubResult', githubAction: 'log', githubData: commits });
-          break;
-        }
-        case 'diff': {
-          const git = new GitCLI();
-          const diff = await git.diff(msg.ref1, msg.ref2);
-          this.postMessage({ command: 'githubResult', githubAction: 'diff', githubData: diff });
-          break;
-        }
-        case 'listPRs':
-        case 'getPR':
-        case 'createPR':
-        case 'listIssues':
-        case 'getIssue':
-        case 'createIssue':
-        case 'browse': {
-          const token = await getGitHubToken();
-          const api = new GitHubAPI(token);
-
-          let owner: string;
-          let repo: string;
-
-          if (msg.repo) {
-            const parsed = GitHubAPI.parseRepo(msg.repo);
-            if (!parsed) {
-              this.postMessage({ command: 'error', content: 'Invalid repo format. Use owner/repo or a GitHub URL.' });
-              return;
-            }
-            ({ owner, repo } = parsed);
-          } else {
-            const git = new GitCLI();
-            const remoteUrl = await git.getRemoteUrl();
-            if (!remoteUrl) {
-              this.postMessage({
-                command: 'error',
-                content: 'No GitHub remote found. Specify a repo like: /prs owner/repo',
-              });
-              return;
-            }
-            const parsed = GitHubAPI.parseRepo(remoteUrl);
-            if (!parsed) {
-              this.postMessage({ command: 'error', content: 'Could not parse remote URL as a GitHub repo.' });
-              return;
-            }
-            ({ owner, repo } = parsed);
-          }
-
-          if (msg.action === 'listPRs') {
-            const prs = await api.listPRs(owner, repo);
-            this.postMessage({ command: 'githubResult', githubAction: 'listPRs', githubData: prs });
-          } else if (msg.action === 'getPR') {
-            const pr = await api.getPR(owner, repo, msg.number!);
-            this.postMessage({ command: 'githubResult', githubAction: 'getPR', githubData: pr });
-          } else if (msg.action === 'createPR') {
-            if (!msg.title || !msg.head || !msg.base) {
-              this.postMessage({ command: 'error', content: 'Usage: /create pr "title" base-branch head-branch' });
-              return;
-            }
-            const pr = await api.createPR(owner, repo, msg.title, msg.head, msg.base, msg.body);
-            this.postMessage({ command: 'githubResult', githubAction: 'createPR', githubData: pr });
-          } else if (msg.action === 'listIssues') {
-            const issues = await api.listIssues(owner, repo);
-            this.postMessage({ command: 'githubResult', githubAction: 'listIssues', githubData: issues });
-          } else if (msg.action === 'getIssue') {
-            const issue = await api.getIssue(owner, repo, msg.number!);
-            this.postMessage({ command: 'githubResult', githubAction: 'getIssue', githubData: issue });
-          } else if (msg.action === 'createIssue') {
-            if (!msg.title) {
-              this.postMessage({ command: 'error', content: 'Usage: /create issue "title" ["body"]' });
-              return;
-            }
-            const issue = await api.createIssue(owner, repo, msg.title, msg.body);
-            this.postMessage({ command: 'githubResult', githubAction: 'createIssue', githubData: issue });
-          } else if (msg.action === 'browse') {
-            const files = await api.listRepoContents(owner, repo, msg.ghPath);
-            this.postMessage({ command: 'githubResult', githubAction: 'browse', githubData: files });
-          }
-          break;
-        }
-      }
-    } catch (err) {
-      this.postMessage({
-        command: 'error',
-        content: `GitHub error: ${err instanceof Error ? err.message : String(err)}`,
-      });
-    }
-  }
-
-  private async handleMoveFile(sourcePath: string, destPath: string): Promise<void> {
-    if (!sourcePath || !destPath) {
-      this.postMessage({ command: 'error', content: 'Move requires both a source and destination path.' });
-      return;
-    }
-
-    const workspaceFolders = workspace.workspaceFolders;
-    if (!workspaceFolders || workspaceFolders.length === 0) {
-      this.postMessage({ command: 'error', content: 'No workspace folder open.' });
-      return;
-    }
-
-    const rootUri = workspaceFolders[0].uri;
-    const sourceUri = path.isAbsolute(sourcePath) ? Uri.file(sourcePath) : Uri.joinPath(rootUri, sourcePath);
-    const destUri = path.isAbsolute(destPath) ? Uri.file(destPath) : Uri.joinPath(rootUri, destPath);
-
-    try {
-      await workspace.fs.stat(sourceUri);
-    } catch {
-      this.postMessage({ command: 'error', content: `Source not found: ${sourcePath}` });
-      return;
-    }
-
-    let destExists = false;
-    try {
-      await workspace.fs.stat(destUri);
-      destExists = true;
-    } catch {
-      // Destination doesn't exist — safe to proceed
-    }
-
-    if (destExists) {
-      const choice = await window.showWarningMessage(
-        `"${destPath}" already exists. Overwrite?`,
-        { modal: true },
-        'Overwrite',
-      );
-      if (choice !== 'Overwrite') {
-        this.postMessage({ command: 'fileMoved', content: 'Move cancelled.' });
-        return;
-      }
-    }
-
-    try {
-      await workspace.fs.rename(sourceUri, destUri, { overwrite: destExists });
-      this.postMessage({
-        command: 'fileMoved',
-        content: `Moved "${sourcePath}" to "${destPath}"`,
-      });
-    } catch (err) {
-      this.postMessage({
-        command: 'error',
-        content: `Failed to move file: ${err instanceof Error ? err.message : String(err)}`,
-      });
-    }
-  }
-
-  private languageToExtension(lang: string): string {
-    const map: Record<string, string> = {
-      typescript: '.ts',
-      javascript: '.js',
-      python: '.py',
-      rust: '.rs',
-      go: '.go',
-      java: '.java',
-      cpp: '.cpp',
-      c: '.c',
-      html: '.html',
-      css: '.css',
-      json: '.json',
-      yaml: '.yaml',
-      markdown: '.md',
-      bash: '.sh',
-      sh: '.sh',
-      sql: '.sql',
-      tsx: '.tsx',
-      jsx: '.jsx',
-    };
-    return map[lang.toLowerCase()] || '.txt';
-  }
-
-  private abort(): void {
-    if (this.abortController) {
-      this.abortController.abort();
-    }
+    await handleUserMessage(this.state, prompt);
   }
 
   private postMessage(message: ExtensionMessage): void {
