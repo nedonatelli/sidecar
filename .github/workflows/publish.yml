@@ -27,6 +27,9 @@ jobs:
       - name: Tests
         run: npm test
 
+      - name: Build
+        run: npm run build
+
       - name: Publish to VS Code Marketplace
         run: npx @vscode/vsce publish --no-dependencies
         env:
