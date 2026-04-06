@@ -7,6 +7,7 @@ import type { ChangeLog } from './changelog.js';
 import type { MCPManager } from './mcpManager.js';
 import { getConfig } from '../config/settings.js';
 import type { AgentLogger } from './logger.js';
+import { scanFile, formatIssues } from './securityScanner.js';
 
 const execAsync = promisify(exec);
 
@@ -100,10 +101,20 @@ export async function executeTool(
     // --- Post-hook ---
     await runHook('post', toolUse.name, toolUse.input, result);
 
+    // --- Security scan after file writes ---
+    let securityWarnings = '';
+    if (WRITE_TOOLS.has(toolUse.name) && toolUse.input.path) {
+      const issues = await scanFile(toolUse.input.path as string);
+      if (issues.length > 0) {
+        securityWarnings = `\n\n⚠️ Security scan:\n${formatIssues(issues)}`;
+        logger?.warn(`[SECURITY] ${issues.length} issue(s) in ${toolUse.input.path}`);
+      }
+    }
+
     return {
       type: 'tool_result',
       tool_use_id: toolUse.id,
-      content: result,
+      content: result + securityWarnings,
     };
   } catch (err) {
     return {

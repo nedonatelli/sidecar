@@ -67,6 +67,12 @@
   }
   ```
 
+### Security Scanning
+- **Automatic secrets detection** — scans files after agent writes for AWS keys, GitHub tokens, API keys, private keys, JWTs, connection strings, and more
+- **Vulnerability scanning** — flags SQL injection, command injection, XSS (innerHTML), eval usage, and insecure HTTP URLs
+- **Integrated into diagnostics** — `get_diagnostics` includes security findings alongside compiler errors
+- Skips comments, node_modules, lock files, and minified code
+
 ### Tool Registry (10+ built-in tools + MCP)
 | Tool | Description |
 |------|-------------|

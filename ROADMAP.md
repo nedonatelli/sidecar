@@ -2,7 +2,7 @@
 
 This document tracks planned improvements and features for SideCar. Items are grouped by theme and roughly prioritized within each group.
 
-Last updated: 2026-04-05 (v0.14.0)
+Last updated: 2026-04-05 (v0.15.0)
 
 ---
 
@@ -66,11 +66,8 @@ Send the same prompt to multiple models side-by-side and compare responses. Usef
 
 ## Security
 
-### Security scanning
-Flag potential vulnerabilities in generated code — SQL injection, XSS, command injection, hardcoded secrets, insecure defaults. Run as a post-edit check using a lightweight static analysis pass or by prompting the model to self-review.
-
-### Secrets detection
-Warn before committing files that contain API keys, tokens, passwords, or credentials. Scan staged files and block commits with a pre-commit hook. Configurable patterns via `sidecar.secretPatterns`.
+### Pre-commit secrets gate
+Scan staged files before git commit and block if secrets are detected. Configurable patterns via `sidecar.secretPatterns`. Extends the existing security scanner with a git-aware pre-commit check.
 
 ---
 
@@ -122,3 +119,4 @@ Support multiple parallel conversation branches from a single chat:
 - [x] Conversation-aware workspace index (track agent file reads/writes, decay over time)
 - [x] Inline confirmation cards (replace system modal dialogs)
 - [x] Prompt caching: Anthropic API cache_control on stable prefix, local SIDECAR.md cache with file watcher
+- [x] Security scanning: secrets detection + vulnerability patterns, integrated into executor and diagnostics

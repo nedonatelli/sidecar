@@ -5,6 +5,7 @@ import { promisify } from 'util';
 import type { ToolDefinition } from '../ollama/types.js';
 import type { MCPManager } from './mcpManager.js';
 import { getConfig } from '../config/settings.js';
+import { scanFile, formatIssues } from './securityScanner.js';
 
 const execAsync = promisify(exec);
 
@@ -246,14 +247,18 @@ async function getDiagnostics(input: Record<string, unknown>): Promise<string> {
   if (filePath) {
     const fileUri = Uri.joinPath(getRootUri(), filePath);
     const diags = languages.getDiagnostics(fileUri);
-    if (diags.length === 0) return `No diagnostics for ${filePath}`;
-    return diags
-      .map((d) => {
-        const line = d.range.start.line + 1;
-        const severity = ['Error', 'Warning', 'Info', 'Hint'][d.severity] || 'Unknown';
-        return `${filePath}:${line} [${severity}] ${d.message}`;
-      })
-      .join('\n');
+    const results = diags.map((d) => {
+      const line = d.range.start.line + 1;
+      const severity = ['Error', 'Warning', 'Info', 'Hint'][d.severity] || 'Unknown';
+      return `${filePath}:${line} [${severity}] ${d.message}`;
+    });
+
+    // Append security scan results
+    const securityIssues = await scanFile(filePath);
+    const securityOutput = formatIssues(securityIssues);
+    if (securityOutput) results.push(securityOutput);
+
+    return results.length > 0 ? results.join('\n') : `No diagnostics for ${filePath}`;
   }
 
   // All diagnostics
