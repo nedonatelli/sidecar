@@ -1,11 +1,7 @@
-import type {
-  ChatMessage,
-  ToolDefinition,
-  ToolUseContentBlock,
-  AnthropicResponse,
-  AnthropicStreamEvent,
-  StreamEvent,
-} from './types.js';
+import type { ChatMessage, ToolDefinition, StreamEvent } from './types.js';
+import type { ApiBackend } from './backend.js';
+import { AnthropicBackend } from './anthropicBackend.js';
+import { OllamaBackend } from './ollamaBackend.js';
 import { isLocalOllama } from '../config/settings.js';
 
 const DEFAULT_BASE_URL = 'http://localhost:11434';
@@ -55,16 +51,21 @@ export class SideCarClient {
   private systemPrompt: string;
   private baseUrl: string;
   private apiKey: string;
+  private backend: ApiBackend;
 
   constructor(model: string, baseUrl?: string, apiKey?: string) {
     this.model = model;
     this.systemPrompt = '';
     this.baseUrl = baseUrl || DEFAULT_BASE_URL;
     this.apiKey = apiKey || 'ollama';
+    this.backend = this.createBackend();
   }
 
-  private get messagesUrl(): string {
-    return `${this.baseUrl}/v1/messages`;
+  private createBackend(): ApiBackend {
+    if (isLocalOllama(this.baseUrl)) {
+      return new OllamaBackend(this.baseUrl);
+    }
+    return new AnthropicBackend(this.baseUrl, this.apiKey);
   }
 
   private get tagsUrl(): string {
@@ -84,168 +85,11 @@ export class SideCarClient {
     signal?: AbortSignal,
     tools?: ToolDefinition[],
   ): AsyncGenerator<StreamEvent> {
-    const body: Record<string, unknown> = {
-      model: this.model,
-      max_tokens: 4096,
-      messages,
-      stream: true,
-    };
-
-    if (this.systemPrompt) {
-      body.system = this.systemPrompt;
-    }
-
-    if (tools && tools.length > 0) {
-      body.tools = tools;
-    }
-
-    const response = await fetch(this.messagesUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': this.apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify(body),
-      signal,
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => '');
-      throw new Error(
-        `API request failed: ${response.status} ${response.statusText}${errorText ? ` — ${errorText}` : ''}`,
-      );
-    }
-
-    if (!response.body) {
-      throw new Error('API returned an empty response body');
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-
-    // State for buffering tool use and thinking blocks
-    let currentToolUse: { id: string; name: string; inputJson: string } | null = null;
-    let currentThinking = false;
-
-    try {
-      let buffer = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          const data = line.slice(6).trim();
-          if (!data) continue;
-
-          let event: AnthropicStreamEvent;
-          try {
-            event = JSON.parse(data) as AnthropicStreamEvent;
-          } catch {
-            continue;
-          }
-
-          switch (event.type) {
-            case 'content_block_start':
-              if (event.content_block?.type === 'tool_use') {
-                currentToolUse = {
-                  id: event.content_block.id || '',
-                  name: event.content_block.name || '',
-                  inputJson: '',
-                };
-              } else if (event.content_block?.type === 'thinking') {
-                currentThinking = true;
-              }
-              break;
-
-            case 'content_block_delta':
-              if (!event.delta) break;
-              if (event.delta.type === 'text_delta' && event.delta.text) {
-                yield { type: 'text', text: event.delta.text };
-              } else if (event.delta.type === 'thinking_delta' && event.delta.thinking && currentThinking) {
-                yield { type: 'thinking', thinking: event.delta.thinking };
-              } else if (event.delta.type === 'input_json_delta' && event.delta.partial_json && currentToolUse) {
-                currentToolUse.inputJson += event.delta.partial_json;
-              }
-              break;
-
-            case 'content_block_stop':
-              currentThinking = false;
-              if (currentToolUse) {
-                let input: Record<string, unknown> = {};
-                try {
-                  input = JSON.parse(currentToolUse.inputJson || '{}');
-                } catch {
-                  // Malformed JSON, use empty
-                }
-                const toolUse: ToolUseContentBlock = {
-                  type: 'tool_use',
-                  id: currentToolUse.id,
-                  name: currentToolUse.name,
-                  input,
-                };
-                yield { type: 'tool_use', toolUse };
-                currentToolUse = null;
-              }
-              break;
-
-            case 'message_delta':
-              if (event.delta?.stop_reason) {
-                yield { type: 'stop', stopReason: event.delta.stop_reason };
-              }
-              break;
-
-            case 'error':
-              if (event.error) {
-                throw new Error(event.error.message);
-              }
-              break;
-          }
-        }
-      }
-    } finally {
-      reader.releaseLock();
-    }
+    yield* this.backend.streamChat(this.model, this.systemPrompt, messages, signal, tools);
   }
 
   async complete(messages: ChatMessage[], maxTokens: number = 256, signal?: AbortSignal): Promise<string> {
-    const body: Record<string, unknown> = {
-      model: this.model,
-      max_tokens: maxTokens,
-      messages,
-      stream: false,
-    };
-
-    if (this.systemPrompt) {
-      body.system = this.systemPrompt;
-    }
-
-    const response = await fetch(this.messagesUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': this.apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify(body),
-      signal,
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => '');
-      throw new Error(
-        `API request failed: ${response.status} ${response.statusText}${errorText ? ` — ${errorText}` : ''}`,
-      );
-    }
-
-    const data = (await response.json()) as AnthropicResponse;
-    const textBlock = data.content.find((b) => b.type === 'text');
-    return textBlock?.text ?? '';
+    return this.backend.complete(this.model, this.systemPrompt, messages, maxTokens, signal);
   }
 
   async completeFIM(
@@ -288,6 +132,7 @@ export class SideCarClient {
   updateConnection(baseUrl: string, apiKey: string) {
     this.baseUrl = baseUrl || DEFAULT_BASE_URL;
     this.apiKey = apiKey || 'ollama';
+    this.backend = this.createBackend();
   }
 
   async getModelContextLength(): Promise<number | null> {
