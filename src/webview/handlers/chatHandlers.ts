@@ -5,17 +5,7 @@ import { exec } from 'child_process';
 import type { ChatState } from '../chatState.js';
 import type { ContentBlock } from '../../ollama/types.js';
 import { getContentLength, getContentText } from '../../ollama/types.js';
-import {
-  getModel,
-  getSystemPrompt,
-  getBaseUrl,
-  getApiKey,
-  getIncludeActiveFile,
-  getAgentMode,
-  getAgentMaxIterations,
-  getAgentMaxTokens,
-  getPlanMode,
-} from '../../config/settings.js';
+import { getConfig } from '../../config/settings.js';
 import {
   getWorkspaceContext,
   getWorkspaceEnabled,
@@ -91,6 +81,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
   state.abortController = new AbortController();
 
   try {
+    const config = getConfig();
     const started = await ensureProviderRunning(state);
     if (!started) {
       state.postMessage(
@@ -104,7 +95,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
             }
           : {
               command: 'error',
-              content: `Cannot reach API at ${getBaseUrl()}.`,
+              content: `Cannot reach API at ${config.baseUrl}.`,
               errorType: 'connection',
               errorAction: 'Check Settings',
               errorActionCommand: 'openSettings',
@@ -113,8 +104,8 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
       return;
     }
 
-    const model = getModel();
-    state.client.updateConnection(getBaseUrl(), getApiKey());
+    const model = config.model;
+    state.client.updateConnection(config.baseUrl, config.apiKey);
     state.client.updateModel(model);
 
     // Build system prompt with workspace context
@@ -125,7 +116,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
       systemPrompt += `\n\nProject instructions (from SIDECAR.md):\n${sidecarMd}`;
     }
 
-    const userSystemPrompt = getSystemPrompt();
+    const userSystemPrompt = config.systemPrompt;
     if (userSystemPrompt) {
       systemPrompt += `\n\n${userSystemPrompt}`;
     }
@@ -170,7 +161,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
         let enriched =
           typeof chatMessages[lastUserIdx].content === 'string' ? (chatMessages[lastUserIdx].content as string) : '';
 
-        if (getIncludeActiveFile()) {
+        if (config.includeActiveFile) {
           const activeCtx = getActiveFileContext();
           if (activeCtx) {
             enriched = activeCtx + enriched;
@@ -247,10 +238,10 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
         logger: state.agentLogger,
         changelog: state.changelog,
         mcpManager: state.mcpManager,
-        approvalMode: getAgentMode(),
-        planMode: getPlanMode(),
-        maxIterations: getAgentMaxIterations(),
-        maxTokens: getAgentMaxTokens(),
+        approvalMode: config.agentMode,
+        planMode: config.planMode,
+        maxIterations: config.agentMaxIterations,
+        maxTokens: config.agentMaxTokens,
       },
     );
 
@@ -286,14 +277,15 @@ export function handleUserMessageWithImages(
 // --- Provider management ---
 
 async function isReachable(state: ChatState): Promise<boolean> {
+  const config = getConfig();
   try {
-    const baseUrl = getBaseUrl();
+    const baseUrl = config.baseUrl;
     const checkUrl = state.client.isLocalOllama() ? `${baseUrl}/api/tags` : baseUrl;
     const response = await fetch(checkUrl, {
       headers: state.client.isLocalOllama()
         ? {}
         : {
-            'x-api-key': getApiKey(),
+            'x-api-key': config.apiKey,
             'anthropic-version': '2023-06-01',
           },
     });

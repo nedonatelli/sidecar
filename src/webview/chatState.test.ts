@@ -97,6 +97,20 @@ describe('ChatState', () => {
     expect(state.loadHistory()).toEqual(stored);
   });
 
+  it('loadHistory filters out stale placeholder entries', () => {
+    const stored = [
+      { role: 'user', content: 'hello' },
+      { role: 'assistant', content: '[message with images]' },
+      { role: 'assistant', content: 'real response' },
+    ];
+    mockWorkspaceState.get.mockReturnValueOnce(stored);
+    const state = createState();
+    expect(state.loadHistory()).toEqual([
+      { role: 'user', content: 'hello' },
+      { role: 'assistant', content: 'real response' },
+    ]);
+  });
+
   it('creates a local Ollama client by default', () => {
     const state = createState();
     expect(state.client.isLocalOllama()).toBe(true);

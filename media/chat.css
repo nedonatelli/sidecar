@@ -378,7 +378,9 @@ body {
 }
 
 #send.loading {
-  opacity: 0.7;
+  background: var(--vscode-errorForeground, #f44);
+  color: var(--vscode-editor-background, #fff);
+  opacity: 1;
 }
 
 .typing-indicator {

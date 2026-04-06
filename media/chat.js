@@ -146,7 +146,14 @@
     }
   });
 
-  sendBtn.addEventListener('click', submitMessage);
+  sendBtn.addEventListener('click', () => {
+    if (isLoading) {
+      vscode.postMessage({ command: 'abort' });
+      setLoading(false);
+    } else {
+      submitMessage();
+    }
+  });
 
   function tryParseMoveCommand(text) {
     // /move source dest
@@ -751,7 +758,8 @@
 
   function setLoading(loading) {
     isLoading = loading;
-    sendBtn.disabled = loading;
+    sendBtn.disabled = false;
+    sendBtn.textContent = loading ? 'Stop' : 'Send';
     sendBtn.classList.toggle('loading', loading);
     input.disabled = loading;
   }

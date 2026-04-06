@@ -5,7 +5,7 @@ import type { ToolUseContentBlock, ToolResultContentBlock } from '../ollama/type
 import { findTool } from './tools.js';
 import type { ChangeLog } from './changelog.js';
 import type { MCPManager } from './mcpManager.js';
-import { getToolPermissions, getHooks } from '../config/settings.js';
+import { getConfig } from '../config/settings.js';
 import type { AgentLogger } from './logger.js';
 
 const execAsync = promisify(exec);
@@ -32,8 +32,9 @@ export async function executeTool(
     };
   }
 
+  const config = getConfig();
   // --- Per-tool permissions (highest priority) ---
-  const permissions = getToolPermissions();
+  const permissions = config.toolPermissions;
   const explicitPermission = permissions[toolUse.name];
 
   if (explicitPermission === 'deny') {
@@ -122,7 +123,8 @@ async function runHook(
   input: Record<string, unknown>,
   output?: string,
 ): Promise<void> {
-  const hooks = getHooks();
+  const config = getConfig();
+  const hooks = config.hooks;
   const toolHook = hooks[toolName]?.[phase];
   const globalHook = hooks['*']?.[phase];
   const command = toolHook || globalHook;

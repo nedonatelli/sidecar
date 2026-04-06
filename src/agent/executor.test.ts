@@ -6,8 +6,10 @@ import { window } from 'vscode';
 
 // Mock the modules
 vi.mock('../config/settings.js', () => ({
-  getToolPermissions: vi.fn(() => ({})),
-  getHooks: vi.fn(() => ({})),
+  getConfig: vi.fn(() => ({
+    toolPermissions: {},
+    hooks: {},
+  })),
 }));
 
 vi.mock('./tools.js', () => ({
@@ -15,13 +17,21 @@ vi.mock('./tools.js', () => ({
 }));
 
 import { findTool } from './tools.js';
-import { getToolPermissions } from '../config/settings.js';
+import { getConfig } from '../config/settings.js';
 
 const mockedFindTool = vi.mocked(findTool);
-const mockedGetPermissions = vi.mocked(getToolPermissions);
+const mockedGetConfig = vi.mocked(getConfig);
 
 function makeToolUse(name: string, input: Record<string, unknown> = {}): ToolUseContentBlock {
   return { type: 'tool_use', id: 'test_1', name, input };
+}
+
+function mockConfig(overrides: { toolPermissions?: Record<string, string>; hooks?: Record<string, unknown> } = {}) {
+  mockedGetConfig.mockReturnValue({
+    toolPermissions: {},
+    hooks: {},
+    ...overrides,
+  } as ReturnType<typeof getConfig>);
 }
 
 describe('executeTool', () => {
@@ -29,7 +39,7 @@ describe('executeTool', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockedGetPermissions.mockReturnValue({});
+    mockConfig();
     showWarningSpy = vi.spyOn(window, 'showWarningMessage').mockResolvedValue(undefined as never);
   });
 
@@ -46,7 +56,7 @@ describe('executeTool', () => {
       executor: async () => 'ok',
       requiresApproval: false,
     });
-    mockedGetPermissions.mockReturnValue({ read_file: 'deny' });
+    mockConfig({ toolPermissions: { read_file: 'deny' } });
 
     const result = await executeTool(makeToolUse('read_file'));
     expect(result.is_error).toBe(true);
@@ -60,7 +70,7 @@ describe('executeTool', () => {
       executor,
       requiresApproval: true,
     });
-    mockedGetPermissions.mockReturnValue({ write_file: 'allow' });
+    mockConfig({ toolPermissions: { write_file: 'allow' } });
 
     const result = await executeTool(makeToolUse('write_file', { path: 'test.ts', content: 'hi' }), 'cautious');
     expect(result.is_error).toBeFalsy();
@@ -115,7 +125,7 @@ describe('executeTool', () => {
       executor,
       requiresApproval: false,
     });
-    mockedGetPermissions.mockReturnValue({ write_file: 'allow' });
+    mockConfig({ toolPermissions: { write_file: 'allow' } });
 
     const changelog = { snapshotFile: vi.fn().mockResolvedValue(undefined) } as unknown as ChangeLog;
     await executeTool(makeToolUse('write_file', { path: 'src/main.ts', content: 'new' }), 'autonomous', changelog);

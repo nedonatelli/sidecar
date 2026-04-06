@@ -53,7 +53,9 @@ export class ChatState {
   }
 
   loadHistory(): ChatMessage[] {
-    return this.context.workspaceState.get<ChatMessage[]>('sidecar.chatHistory', []);
+    const messages = this.context.workspaceState.get<ChatMessage[]>('sidecar.chatHistory', []);
+    // Filter out stale placeholder entries from pre-v0.11.0 history
+    return messages.filter((m) => m.content !== '[message with images]');
   }
 
   abort(): void {
