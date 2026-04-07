@@ -11,6 +11,9 @@ Last updated: 2026-04-07 (v0.25.0)
 ### Streaming diff view
 Render file changes as they stream in from the agent instead of displaying raw text blocks. Show a live diff that builds up as tokens arrive.
 
+### Agent-driven inline edit suggestions
+After the agent proposes a code change, render it as ghost text (inline suggestion) directly in the editor — press Tab to accept, Esc to dismiss. Different from autocomplete: this is agent-initiated, can span multiple lines, and is triggered by chat or agent actions rather than typing. Cursor's "tab to apply" is the benchmark here. Requires VS Code's `InlineCompletionItemProvider` API and a way to pipe agent edits into it.
+
 ### ~~Multi-file change summary~~ (completed in v0.22.0)
 ~~After an agent run, show a unified changeset review panel listing all modified files with diffs. Allow the user to review, revert individual files, or accept all.~~
 
@@ -80,6 +83,9 @@ An intelligent approval classifier that evaluates each tool call in real-time to
 
 ## Model & Provider Support
 
+### OpenAI-compatible API support
+Add a generic OpenAI-compatible backend that works with any server exposing the `/v1/chat/completions` endpoint — LM Studio, vLLM, llama.cpp, text-generation-webui, and any OpenAI-compatible provider. User configures a base URL and optional API key. Lower barrier than OpenRouter for self-hosters already running a local inference server, and broadens model access without vendor-specific integration work.
+
 ### OpenRouter support
 Add OpenRouter as a third backend option alongside Ollama and Anthropic. A single API key gives access to 400+ models (GPT-4, Gemini, Mistral, Llama, etc.). Requires implementing the OpenRouter API format and model listing.
 
@@ -98,7 +104,10 @@ Built-in browser automation powered by Playwright MCP for testing and interactin
 ## Advanced Context & Intelligence
 
 ### Deep codebase indexing
-Build a symbol graph with component connections, data models, and dependency tracking. Go beyond file-level context to understand how the codebase fits together — imports, exports, call sites, type hierarchies. Major upgrade to context quality.
+Build a symbol graph with component connections, data models, and dependency tracking. Go beyond file-level context to understand how the codebase fits together — imports, exports, call sites, type hierarchies. Major upgrade to context quality. Sourcegraph's Cody already ships cross-repo symbol graphs — this is the biggest context quality gap versus paid competitors.
+
+### Cross-file reference awareness
+Surface usages, callers, and dependents when the agent reads or edits a symbol. For example, renaming a function should show all call sites, not just the definition. Builds on deep codebase indexing. Key differentiator for Cody and Cursor.
 
 ### Next edit predictions
 After the user makes a change, anticipate ripple effects and suggest connected edits across the codebase (e.g., updating imports, renaming references, fixing type mismatches). Requires deep codebase indexing as a foundation.

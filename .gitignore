@@ -4,3 +4,4 @@ dist/
 *.vsix
 .vscode-test/
 .DS_Store
+docs/market-notes.md

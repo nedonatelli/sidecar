@@ -10,6 +10,10 @@
 
 > A free, open-source, local-first AI coding assistant. No subscriptions, no data leaving your machine.
 
+SideCar will always be free, tips not required but appreciated.
+
+<a href="https://www.buymeacoffee.com/nedonatelli" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-red.png" alt="Buy Me A Coffee" style="height: 40px !important;" ></a>
+
 ## Why SideCar?
 
 Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins**. SideCar is a **full agentic coding assistant** — closer to Claude Code or Cursor than to a chatbot.
