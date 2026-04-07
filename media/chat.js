@@ -126,6 +126,23 @@
     sessionsPanel.classList.add('hidden');
   });
 
+  // Event delegation for session list — single listener instead of per-item
+  sessionsList.addEventListener('click', (e) => {
+    const target = e.target;
+    const item = target.closest('.session-item');
+    if (!item) return;
+    const id = item.dataset.sessionId;
+    if (!id) return;
+
+    if (target.closest('.session-delete-btn')) {
+      e.stopPropagation();
+      vscode.postMessage({ command: 'deleteSession', text: id });
+    } else {
+      vscode.postMessage({ command: 'loadSession', text: id });
+      sessionsPanel.classList.add('hidden');
+    }
+  });
+
   function renderSessionsList(sessions) {
     sessionsList.innerHTML = '';
     if (!sessions || sessions.length === 0) {
@@ -135,9 +152,13 @@
     sessionsEmpty.classList.add('hidden');
     // Sort newest first
     sessions.sort((a, b) => b.createdAt - a.createdAt);
+
+    // Build all items in a fragment to avoid per-item reflow
+    const fragment = document.createDocumentFragment();
     for (const s of sessions) {
       const item = document.createElement('div');
       item.className = 'session-item';
+      item.dataset.sessionId = s.id;
 
       const info = document.createElement('div');
       info.className = 'session-info';
@@ -159,19 +180,10 @@
       const loadBtn = document.createElement('button');
       loadBtn.className = 'session-load-btn';
       loadBtn.textContent = 'Load';
-      loadBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        vscode.postMessage({ command: 'loadSession', text: s.id });
-        sessionsPanel.classList.add('hidden');
-      });
 
       const deleteBtn = document.createElement('button');
       deleteBtn.className = 'session-delete-btn';
       deleteBtn.textContent = 'Delete';
-      deleteBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        vscode.postMessage({ command: 'deleteSession', text: s.id });
-      });
 
       actions.appendChild(loadBtn);
       actions.appendChild(deleteBtn);
@@ -179,14 +191,9 @@
       item.appendChild(info);
       item.appendChild(actions);
 
-      // Clicking the row also loads
-      item.addEventListener('click', () => {
-        vscode.postMessage({ command: 'loadSession', text: s.id });
-        sessionsPanel.classList.add('hidden');
-      });
-
-      sessionsList.appendChild(item);
+      fragment.appendChild(item);
     }
+    sessionsList.appendChild(fragment);
   }
 
   document.getElementById('new-chat-btn').addEventListener('click', () => {
@@ -1345,19 +1352,18 @@
 
     const text = currentAssistantText;
     const boundary = findSafeRenderBoundary(text);
-    const safeText = text.slice(0, boundary);
     const pendingText = text.slice(boundary);
 
-    // Only re-render if the safe portion has grown
+    // Only render if the safe portion has grown
     if (boundary > lastRenderedLen) {
-      // Remove the streaming span before re-render
+      // Remove the streaming span before appending new content
       if (streamingSpan && streamingSpan.parentNode) {
         streamingSpan.remove();
       }
-      // Full render of all safe content
-      currentAssistantDiv.innerHTML = '';
-      if (safeText) {
-        currentAssistantDiv.appendChild(renderContent(safeText, window.currentModelSupportsTools));
+      // Render ONLY the new incremental slice and append it
+      const newSlice = text.slice(lastRenderedLen, boundary);
+      if (newSlice) {
+        currentAssistantDiv.appendChild(renderContent(newSlice, window.currentModelSupportsTools));
       }
       lastRenderedLen = boundary;
     }
@@ -1795,8 +1801,9 @@
 
           const diffPre = document.createElement('pre');
           diffPre.className = 'change-summary-diff';
-          // Render diff lines with color classes
+          // Render diff lines with color classes — build in fragment to avoid per-line reflow
           const diffLines = item.diff.split('\n');
+          const diffFragment = document.createDocumentFragment();
           for (const line of diffLines) {
             const span = document.createElement('span');
             span.textContent = line;
@@ -1809,9 +1816,10 @@
             } else {
               span.className = 'diff-ctx';
             }
-            diffPre.appendChild(span);
-            diffPre.appendChild(document.createTextNode('\n'));
+            diffFragment.appendChild(span);
+            diffFragment.appendChild(document.createTextNode('\n'));
           }
+          diffPre.appendChild(diffFragment);
           fileSection.appendChild(diffPre);
           panel.appendChild(fileSection);
         }

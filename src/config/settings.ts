@@ -68,9 +68,24 @@ export interface SideCarConfig {
 }
 
 /**
- * Read all SideCar settings from workspace configuration in a single call.
+ * Read all SideCar settings from workspace configuration.
+ * Results are cached and invalidated automatically when settings change.
  */
-export function getConfig(): SideCarConfig {
+let _cachedConfig: SideCarConfig | null = null;
+
+// Invalidate cache when VS Code settings change.
+// Guard for test environments where workspace API may not be fully available.
+try {
+  workspace.onDidChangeConfiguration((e) => {
+    if (e.affectsConfiguration('sidecar')) {
+      _cachedConfig = null;
+    }
+  });
+} catch {
+  // Not in a VS Code environment (e.g., unit tests) — cache will be rebuilt on each call
+}
+
+function readConfig(): SideCarConfig {
   const cfg = workspace.getConfiguration('sidecar');
   return {
     model: cfg.get<string>('model', 'qwen3-coder:30b'),
@@ -97,6 +112,13 @@ export function getConfig(): SideCarConfig {
     shellTimeout: cfg.get<number>('shellTimeout', 120),
     shellMaxOutputMB: cfg.get<number>('shellMaxOutputMB', 10),
   };
+}
+
+export function getConfig(): SideCarConfig {
+  if (!_cachedConfig) {
+    _cachedConfig = readConfig();
+  }
+  return _cachedConfig;
 }
 
 // ---------------------------------------------------------------------------

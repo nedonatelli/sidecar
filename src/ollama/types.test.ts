@@ -47,10 +47,10 @@ describe('getContentLength', () => {
     expect(getContentLength(blocks)).toBe(5);
   });
 
-  it('includes tool_use input JSON length', () => {
+  it('includes tool_use name and input size', () => {
     const blocks: ContentBlock[] = [{ type: 'tool_use', id: 'tc1', name: 'read_file', input: { path: 'a.ts' } }];
-    const inputLen = JSON.stringify({ path: 'a.ts' }).length;
-    expect(getContentLength(blocks)).toBe(inputLen);
+    // name ("read_file" = 9) + input value ("a.ts" = 4) = 13
+    expect(getContentLength(blocks)).toBe(13);
   });
 
   it('returns 0 for empty array', () => {

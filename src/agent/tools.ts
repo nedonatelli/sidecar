@@ -203,7 +203,7 @@ async function searchFiles(input: Record<string, unknown>): Promise<string> {
   const uris = await workspace.findFiles(
     pattern,
     `**/{node_modules,.git,out,dist,.venv,venv,__pycache__,.next}/**`,
-    50,
+    200,
   );
   if (uris.length === 0) return 'No files found.';
   const root = getRoot();
@@ -223,7 +223,7 @@ async function grep(input: Record<string, unknown>): Promise<string> {
       maxBuffer: 512 * 1024,
     });
     // Limit output
-    const lines = stdout.split('\n').slice(0, 50);
+    const lines = stdout.split('\n').slice(0, 200);
     return lines.join('\n') || 'No matches found.';
   } catch (err) {
     const error = err as { stdout?: string; code?: number };

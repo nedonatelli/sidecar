@@ -71,9 +71,20 @@ export function getContentLength(content: string | ContentBlock[]): number {
   return content.reduce((sum, block) => {
     if (block.type === 'text') return sum + block.text.length;
     if (block.type === 'tool_result') return sum + block.content.length;
-    if (block.type === 'tool_use') return sum + JSON.stringify(block.input).length;
+    if (block.type === 'tool_use') return sum + block.name.length + estimateInputSize(block.input);
     return sum + 100;
   }, 0);
+}
+
+/** Estimate the character size of a tool input object without JSON.stringify. */
+function estimateInputSize(input: Record<string, unknown>): number {
+  let size = 0;
+  for (const v of Object.values(input)) {
+    if (typeof v === 'string') size += v.length;
+    else if (typeof v === 'number' || typeof v === 'boolean') size += 8;
+    else if (v !== null && v !== undefined) size += String(v).length;
+  }
+  return size;
 }
 
 // Stream events emitted by the client

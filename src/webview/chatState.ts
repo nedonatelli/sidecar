@@ -1,5 +1,5 @@
 import type { ExtensionContext } from 'vscode';
-import { type ChatMessage, getContentText } from '../ollama/types.js';
+import { type ChatMessage, getContentText, getContentLength } from '../ollama/types.js';
 import { SideCarClient } from '../ollama/client.js';
 import { ChangeLog } from '../agent/changelog.js';
 import { SessionManager } from '../agent/sessions.js';
@@ -11,6 +11,11 @@ import type { WorkspaceIndex } from '../config/workspaceIndex.js';
 import type { ProposedContentProvider } from '../edits/proposedContentProvider.js';
 import type { ExtensionMessage } from './chatWebview.js';
 import { getConfig } from '../config/settings.js';
+
+/** Maximum number of messages to keep in memory. */
+const MAX_HISTORY_MESSAGES = 200;
+/** Maximum total character size of in-memory history. */
+const MAX_HISTORY_CHARS = 2_000_000; // ~2MB
 
 /**
  * Shared mutable state for the chat view.
@@ -129,6 +134,25 @@ export class ChatState {
 
     const session = this.sessionManager.save(name, this.messages);
     this.currentSessionId = session.id;
+  }
+
+  /**
+   * Trim in-memory history when it exceeds size bounds.
+   * Drops oldest message pairs (preserving user/assistant pairing)
+   * until both message count and character size are within limits.
+   */
+  trimHistory(): void {
+    // Trim by message count
+    while (this.messages.length > MAX_HISTORY_MESSAGES) {
+      this.messages.shift();
+    }
+
+    // Trim by total character size
+    let totalChars = this.messages.reduce((sum, m) => sum + getContentLength(m.content), 0);
+    while (totalChars > MAX_HISTORY_CHARS && this.messages.length > 2) {
+      const removed = this.messages.shift()!;
+      totalChars -= getContentLength(removed.content);
+    }
   }
 
   clearChat(): void {

@@ -64,12 +64,25 @@ export function activate(context: ExtensionContext) {
   const workspaceIndex = new WorkspaceIndex();
   context.subscriptions.push(workspaceIndex);
 
-  // Initialize workspace index in the background
+  // Initialize workspace index in the background with progress indicator
   if (workspace.workspaceFolders && workspace.workspaceFolders.length > 0) {
+    const indexStatus = window.createStatusBarItem(StatusBarAlignment.Left, 0);
+    indexStatus.text = '$(sync~spin) SideCar: Indexing workspace...';
+    indexStatus.show();
+    context.subscriptions.push(indexStatus);
     workspaceIndex
       .initialize(getFilePatterns())
-      .then(() => console.log(`[SideCar] Workspace indexed: ${workspaceIndex.getFileCount()} files`))
-      .catch((err) => console.error('[SideCar] Workspace indexing failed:', err));
+      .then(() => {
+        const count = workspaceIndex.getFileCount();
+        console.log(`[SideCar] Workspace indexed: ${count} files`);
+        indexStatus.text = `$(check) SideCar: ${count} files indexed`;
+        setTimeout(() => indexStatus.dispose(), 5000);
+      })
+      .catch((err) => {
+        console.error('[SideCar] Workspace indexing failed:', err);
+        indexStatus.text = '$(warning) SideCar: Indexing failed';
+        setTimeout(() => indexStatus.dispose(), 5000);
+      });
   }
 
   chatProvider = new ChatViewProvider(

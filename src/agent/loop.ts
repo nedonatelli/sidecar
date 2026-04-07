@@ -66,8 +66,8 @@ export async function runAgentLoop(
       logger?.logAborted();
       break;
     }
-    // Check token budget (estimate: ~4 chars per token)
-    const estimatedTokens = Math.ceil(totalChars / 4);
+    // Check token budget (estimate: ~3.5 chars per token for typical LLM tokenizers)
+    const estimatedTokens = Math.ceil(totalChars / 3.5);
     if (estimatedTokens > maxTokens) {
       logger?.warn(`Token budget exceeded: ~${estimatedTokens} tokens > ${maxTokens} limit`);
       callbacks.onText(`\n\n⚠️ Agent stopped: token budget exceeded (~${estimatedTokens} tokens).`);
@@ -230,7 +230,10 @@ export async function runAgentLoop(
 
       // Count tool call and result tokens toward the budget
       for (const tu of pendingToolUses) {
-        totalChars += tu.name.length + JSON.stringify(tu.input).length;
+        totalChars += tu.name.length;
+        for (const v of Object.values(tu.input)) {
+          totalChars += typeof v === 'string' ? v.length : String(v).length;
+        }
       }
       for (const tr of toolResults) {
         totalChars += tr.content.length;
@@ -380,49 +383,65 @@ export function parseTextToolCalls(text: string, tools: ToolDefinition[]): ToolU
  * Skips content inside code blocks (``` fences) to avoid breaking code examples.
  */
 export function stripRepeatedContent(text: string, messages: ChatMessage[]): string {
-  // Collect text from previous assistant messages
-  const previousTexts: string[] = [];
+  // Build a Set of substantial paragraphs from previous assistant messages for O(1) lookup.
+  const seenParagraphs = new Set<string>();
   for (const msg of messages) {
     if (msg.role !== 'assistant') continue;
+    const texts: string[] = [];
     if (typeof msg.content === 'string') {
-      previousTexts.push(msg.content);
+      texts.push(msg.content);
     } else if (Array.isArray(msg.content)) {
       for (const block of msg.content) {
         if (block.type === 'text' && block.text) {
-          previousTexts.push(block.text);
+          texts.push(block.text);
+        }
+      }
+    }
+    for (const t of texts) {
+      for (const paragraph of t.split(/\n\n+/)) {
+        const trimmed = paragraph.trim();
+        if (trimmed.length >= 200) {
+          seenParagraphs.add(trimmed);
         }
       }
     }
   }
 
-  if (previousTexts.length === 0) return text;
+  if (seenParagraphs.size === 0) return text;
 
-  // Extract code block positions so we don't strip content inside them
-  const codeBlockRanges: { start: number; end: number }[] = [];
+  // Split the new text into paragraphs, preserving code blocks intact.
+  // Code blocks should never be stripped even if they match previous content.
+  const parts: string[] = [];
   const codeBlockRegex = /```[\s\S]*?```/g;
+  let lastEnd = 0;
   let cbMatch;
   while ((cbMatch = codeBlockRegex.exec(text)) !== null) {
-    codeBlockRanges.push({ start: cbMatch.index, end: cbMatch.index + cbMatch[0].length });
+    if (cbMatch.index > lastEnd) {
+      parts.push(text.slice(lastEnd, cbMatch.index));
+    }
+    // Mark code blocks with a sentinel so we skip them during filtering
+    parts.push('\0CB\0' + cbMatch[0]);
+    lastEnd = cbMatch.index + cbMatch[0].length;
+  }
+  if (lastEnd < text.length) {
+    parts.push(text.slice(lastEnd));
   }
 
-  const isInsideCodeBlock = (idx: number) => codeBlockRanges.some((r) => idx >= r.start && idx < r.end);
-
-  let result = text;
-  for (const prev of previousTexts) {
-    // Find substantial blocks (200+ chars) from previous messages that appear in the new text
-    const paragraphs = prev.split(/\n\n+/).filter((p) => p.trim().length >= 200);
-    for (const paragraph of paragraphs) {
-      const trimmed = paragraph.trim();
-      const idx = result.indexOf(trimmed);
-      if (idx !== -1 && !isInsideCodeBlock(idx)) {
-        result = result.slice(0, idx) + result.slice(idx + trimmed.length);
-        result = result.trim();
-      }
+  // Filter paragraphs in non-code-block segments
+  const filtered: string[] = [];
+  for (const part of parts) {
+    if (part.startsWith('\0CB\0')) {
+      filtered.push(part.slice(4)); // Remove sentinel, keep code block
+      continue;
     }
+    const paragraphs = part.split(/\n\n+/);
+    const kept = paragraphs.filter((p) => !seenParagraphs.has(p.trim()));
+    filtered.push(kept.join('\n\n'));
   }
 
   // Clean up leftover whitespace from removals
-  result = result.replace(/\n{3,}/g, '\n\n').trim();
-
-  return result;
+  return filtered
+    .join('')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }

@@ -123,164 +123,96 @@ export class ChatViewProvider implements WebviewViewProvider {
     this.postMessage({ command: 'setAgentMode', agentMode: getConfig().agentMode });
   }
 
+  /** Handler map for O(1) command dispatch instead of linear switch. */
+  private handlers: Record<string, (msg: WebviewMessage) => void | Promise<void>> = {
+    userMessage: async (msg) => {
+      if (msg.images && msg.images.length > 0) {
+        handleUserMessageWithImages(this.state, msg.text || '', msg.images);
+        await handleUserMessage(this.state, '');
+      } else {
+        await handleUserMessage(this.state, msg.text || '');
+      }
+    },
+    abort: () => this.state.abort(),
+    changeModel: async (msg) => {
+      const cfg = getConfig();
+      this.state.client.updateConnection(cfg.baseUrl, cfg.apiKey);
+      this.state.client.updateModel(msg.model || 'llama3');
+      const { modelSupportsTools } = await import('../ollama/ollamaBackend.js');
+      const supports = modelSupportsTools(msg.model || '');
+      this.postMessage({ command: 'setCurrentModel', currentModel: msg.model, supportsTools: supports });
+      workspace.getConfiguration('sidecar').update('model', msg.model, true);
+    },
+    changeAgentMode: async (msg) => {
+      await workspace.getConfiguration('sidecar').update('agentMode', msg.agentMode, true);
+      this.postMessage({ command: 'setAgentMode', agentMode: msg.agentMode });
+      if (msg.agentMode === 'autonomous') {
+        this.state.resolveAllConfirms('Allow');
+      }
+    },
+    confirmResponse: (msg) => this.state.resolveConfirm(msg.confirmId || '', msg.confirmed ? msg.text : undefined),
+    installModel: (msg) => handleInstallModel(this.state, msg.model || ''),
+    cancelInstall: () => this.state.cancelInstall(),
+    attachFile: () => handleAttachFile(this.state),
+    saveCodeBlock: (msg) => handleSaveCodeBlock(msg.code || '', msg.language),
+    createFile: (msg) => handleCreateFile(this.state, msg.code || '', msg.filePath || ''),
+    runCommand: async (msg) => {
+      const output = await handleRunCommand(this.state, msg.text || '');
+      if (output !== null) {
+        this.postMessage({ command: 'commandResult', content: output });
+      }
+    },
+    moveFile: (msg) => handleMoveFile(this.state, msg.sourcePath || '', msg.destPath || ''),
+    github: (msg) => handleGitHubCommand(this.state, msg),
+    newChat: () => this.state.clearChat(),
+    undoChanges: () => handleUndoChanges(this.state),
+    exportChat: () => handleExportChat(this.state),
+    executePlan: () => handleExecutePlan(this.state),
+    revisePlan: (msg) => handleRevisePlan(this.state, msg.text || ''),
+    batch: (msg) => handleBatch(this.state, msg.text || ''),
+    saveSession: (msg) => handleSaveSession(this.state, msg.text || 'Untitled'),
+    loadSession: (msg) => handleLoadSession(this.state, msg.text || ''),
+    deleteSession: (msg) => handleDeleteSession(this.state, msg.text || ''),
+    listSessions: () => handleListSessions(this.state),
+    insight: () => handleInsight(this.state),
+    spec: (msg) => handleSpec(this.state, msg.text || ''),
+    generateDoc: () => handleGenerateDoc(this.state),
+    openExternal: (msg) => {
+      if (msg.url) env.openExternal(Uri.parse(msg.url));
+    },
+    openSettings: async () => {
+      await commands.executeCommand('workbench.action.openSettings', 'sidecar');
+    },
+    scanStaged: async () => {
+      await commands.executeCommand('sidecar.scanStaged');
+    },
+    usage: () => handleUsage(this.state),
+    context: () => handleContext(this.state),
+    generateTests: () => handleGenerateTests(this.state),
+    lint: (msg) => handleLint(this.state, msg.text),
+    deps: () => handleDeps(this.state),
+    scaffold: (msg) => handleScaffold(this.state, msg.text || ''),
+    generateCommit: () => handleGenerateCommit(this.state),
+    revertFile: (msg) => handleRevertFile(this.state, msg.filePath || ''),
+    acceptAllChanges: () => handleAcceptAllChanges(this.state),
+    deleteMessage: (msg) => handleDeleteMessage(this.state, msg.index ?? -1),
+    toggleVerbose: () => {
+      const current = getConfig().verboseMode;
+      workspace.getConfiguration('sidecar').update('verboseMode', !current, true);
+      const label = !current ? 'on' : 'off';
+      this.state.postMessage({
+        command: 'assistantMessage',
+        content: `Verbose mode ${label}. ${!current ? 'Agent reasoning will be shown during runs.' : 'Agent reasoning hidden.'}`,
+      });
+      this.state.postMessage({ command: 'done' });
+    },
+    showSystemPrompt: () =>
+      import('./handlers/chatHandlers.js').then(({ handleShowSystemPrompt }) => handleShowSystemPrompt(this.state)),
+  };
+
   private async dispatch(msg: WebviewMessage): Promise<void> {
-    switch (msg.command) {
-      case 'userMessage':
-        if (msg.images && msg.images.length > 0) {
-          handleUserMessageWithImages(this.state, msg.text || '', msg.images);
-          await handleUserMessage(this.state, '');
-        } else {
-          await handleUserMessage(this.state, msg.text || '');
-        }
-        break;
-      case 'abort':
-        this.state.abort();
-        break;
-      case 'changeModel':
-        const config = getConfig();
-        this.state.client.updateConnection(config.baseUrl, config.apiKey);
-        this.state.client.updateModel(msg.model || 'llama3');
-        const { modelSupportsTools } = await import('../ollama/ollamaBackend.js');
-        const supportsTools = modelSupportsTools(msg.model || '');
-        this.postMessage({ command: 'setCurrentModel', currentModel: msg.model, supportsTools });
-        workspace.getConfiguration('sidecar').update('model', msg.model, true);
-        break;
-      case 'changeAgentMode':
-        await workspace.getConfiguration('sidecar').update('agentMode', msg.agentMode, true);
-        this.postMessage({ command: 'setAgentMode', agentMode: msg.agentMode });
-        // Auto-resolve any pending confirmation prompts when switching to autonomous
-        if (msg.agentMode === 'autonomous') {
-          this.state.resolveAllConfirms('Allow');
-        }
-        break;
-      case 'confirmResponse':
-        this.state.resolveConfirm(msg.confirmId || '', msg.confirmed ? msg.text : undefined);
-        break;
-      case 'installModel':
-        await handleInstallModel(this.state, msg.model || '');
-        break;
-      case 'cancelInstall':
-        this.state.cancelInstall();
-        break;
-      case 'attachFile':
-        await handleAttachFile(this.state);
-        break;
-      case 'saveCodeBlock':
-        await handleSaveCodeBlock(msg.code || '', msg.language);
-        break;
-      case 'createFile':
-        await handleCreateFile(this.state, msg.code || '', msg.filePath || '');
-        break;
-      case 'runCommand': {
-        const output = await handleRunCommand(this.state, msg.text || '');
-        if (output !== null) {
-          this.postMessage({ command: 'commandResult', content: output });
-        }
-        break;
-      }
-      case 'moveFile':
-        await handleMoveFile(this.state, msg.sourcePath || '', msg.destPath || '');
-        break;
-      case 'github':
-        await handleGitHubCommand(this.state, msg);
-        break;
-      case 'newChat':
-        this.state.clearChat();
-        break;
-      case 'undoChanges':
-        await handleUndoChanges(this.state);
-        break;
-      case 'exportChat':
-        await handleExportChat(this.state);
-        break;
-      case 'executePlan':
-        await handleExecutePlan(this.state);
-        break;
-      case 'revisePlan':
-        await handleRevisePlan(this.state, msg.text || '');
-        break;
-      case 'batch':
-        await handleBatch(this.state, msg.text || '');
-        break;
-      case 'saveSession':
-        handleSaveSession(this.state, msg.text || 'Untitled');
-        break;
-      case 'loadSession':
-        handleLoadSession(this.state, msg.text || '');
-        break;
-      case 'deleteSession':
-        handleDeleteSession(this.state, msg.text || '');
-        break;
-      case 'listSessions':
-        handleListSessions(this.state);
-        break;
-      case 'insight':
-        await handleInsight(this.state);
-        break;
-      case 'spec':
-        await handleSpec(this.state, msg.text || '');
-        break;
-      case 'generateDoc':
-        await handleGenerateDoc(this.state);
-        break;
-      case 'openExternal':
-        if (msg.url) {
-          env.openExternal(Uri.parse(msg.url));
-        }
-        break;
-      case 'openSettings':
-        commands.executeCommand('workbench.action.openSettings', 'sidecar');
-        break;
-      case 'scanStaged':
-        commands.executeCommand('sidecar.scanStaged');
-        break;
-      case 'usage':
-        await handleUsage(this.state);
-        break;
-      case 'context':
-        await handleContext(this.state);
-        break;
-      case 'generateTests':
-        await handleGenerateTests(this.state);
-        break;
-      case 'lint':
-        await handleLint(this.state, msg.text);
-        break;
-      case 'deps':
-        await handleDeps(this.state);
-        break;
-      case 'scaffold':
-        await handleScaffold(this.state, msg.text || '');
-        break;
-      case 'generateCommit':
-        await handleGenerateCommit(this.state);
-        break;
-      case 'revertFile':
-        await handleRevertFile(this.state, msg.filePath || '');
-        break;
-      case 'acceptAllChanges':
-        handleAcceptAllChanges(this.state);
-        break;
-      case 'deleteMessage':
-        handleDeleteMessage(this.state, msg.index ?? -1);
-        break;
-      case 'toggleVerbose': {
-        const current = getConfig().verboseMode;
-        workspace.getConfiguration('sidecar').update('verboseMode', !current, true);
-        const label = !current ? 'on' : 'off';
-        this.state.postMessage({
-          command: 'assistantMessage',
-          content: `Verbose mode ${label}. ${!current ? 'Agent reasoning will be shown during runs.' : 'Agent reasoning hidden.'}`,
-        });
-        this.state.postMessage({ command: 'done' });
-        break;
-      }
-      case 'showSystemPrompt':
-        await import('./handlers/chatHandlers.js').then(({ handleShowSystemPrompt }) =>
-          handleShowSystemPrompt(this.state),
-        );
-        break;
-    }
+    const handler = this.handlers[msg.command];
+    if (handler) await handler(msg);
   }
 
   public clearChat(): void {

@@ -379,6 +379,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     // snapshot of chatMessages — append any new messages the user added since then.
     const newUserMessages = state.messages.slice(chatMessages.length);
     state.messages = [...updatedMessages, ...newUserMessages];
+    state.trimHistory();
     state.saveHistory();
     state.autoSave();
 
