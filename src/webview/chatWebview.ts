@@ -92,6 +92,7 @@ export interface ExtensionMessage {
     | 'addUserMessage'
     | 'toolCall'
     | 'toolResult'
+    | 'toolOutput'
     | 'setAgentMode'
     | 'thinking'
     | 'planReady'
@@ -105,6 +106,7 @@ export interface ExtensionMessage {
     | 'changeSummary'
     | 'verboseLog';
   agentMode?: string;
+  toolName?: string;
   confirmId?: string;
   confirmActions?: string[];
   supportsTools?: boolean;

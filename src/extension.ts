@@ -17,6 +17,7 @@ import { EventHookManager } from './agent/eventHooks.js';
 import { WorkspaceIndex } from './config/workspaceIndex.js';
 import { getFilePatterns } from './config/workspace.js';
 import { runPreCommitScan } from './agent/preCommitScan.js';
+import { disposeShellSession } from './agent/tools.js';
 
 let chatProvider: ChatViewProvider | undefined;
 
@@ -251,4 +252,5 @@ export function activate(context: ExtensionContext) {
 
 export function deactivate() {
   chatProvider?.autoSave();
+  disposeShellSession();
 }

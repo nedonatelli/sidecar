@@ -2,7 +2,7 @@ import { workspace, Uri } from 'vscode';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../ollama/types.js';
-import { findTool } from './tools.js';
+import { findTool, type ToolExecutorContext } from './tools.js';
 import type { ChangeLog } from './changelog.js';
 import type { MCPManager } from './mcpManager.js';
 import { getConfig } from '../config/settings.js';
@@ -25,6 +25,7 @@ export async function executeTool(
   logger?: AgentLogger,
   confirmFn?: ConfirmFn,
   diffPreviewFn?: DiffPreviewFn,
+  executorContext?: ToolExecutorContext,
 ): Promise<ToolResultContentBlock> {
   const tool = findTool(toolUse.name, mcpManager);
 
@@ -130,7 +131,7 @@ export async function executeTool(
 
   // --- Execute tool ---
   try {
-    const result = await tool.executor(toolUse.input);
+    const result = await tool.executor(toolUse.input, executorContext);
 
     // --- Post-hook ---
     await runHook('post', toolUse.name, toolUse.input, result);

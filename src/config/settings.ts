@@ -63,6 +63,8 @@ export interface SideCarConfig {
   mcpServers: Record<string, MCPServerConfig>;
   verboseMode: boolean;
   expandThinking: boolean;
+  shellTimeout: number;
+  shellMaxOutputMB: number;
 }
 
 /**
@@ -92,6 +94,8 @@ export function getConfig(): SideCarConfig {
     mcpServers: cfg.get<Record<string, MCPServerConfig>>('mcpServers', {}),
     verboseMode: cfg.get<boolean>('verboseMode', false),
     expandThinking: cfg.get<boolean>('expandThinking', false),
+    shellTimeout: cfg.get<number>('shellTimeout', 120),
+    shellMaxOutputMB: cfg.get<number>('shellMaxOutputMB', 10),
   };
 }
 

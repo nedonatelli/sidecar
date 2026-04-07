@@ -1,17 +1,45 @@
 import { workspace, languages, Uri } from 'vscode';
 import * as path from 'path';
-import { exec } from 'child_process';
+import { exec, execFile } from 'child_process';
 import { promisify } from 'util';
 import type { ToolDefinition } from '../ollama/types.js';
 import type { MCPManager } from './mcpManager.js';
 import { getConfig } from '../config/settings.js';
 import { scanFile, formatIssues } from './securityScanner.js';
 import { GitCLI } from '../github/git.js';
+import { ShellSession } from '../terminal/shellSession.js';
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
+
+// ---------------------------------------------------------------------------
+// Persistent shell session — shared across agent tool calls so that
+// environment variables, cwd changes, and shell state persist.
+// ---------------------------------------------------------------------------
+let shellSession: ShellSession | null = null;
+
+function getShellSession(): ShellSession {
+  if (shellSession && shellSession.isAlive) return shellSession;
+  const config = getConfig();
+  const maxOutput = (config.shellMaxOutputMB || 10) * 1024 * 1024;
+  shellSession = new ShellSession(getRoot(), undefined, maxOutput);
+  return shellSession;
+}
+
+/** Call on extension deactivate to clean up the shell process. */
+export function disposeShellSession(): void {
+  shellSession?.dispose();
+  shellSession = null;
+}
+
+/** Optional context passed to tool executors for streaming and cancellation. */
+export interface ToolExecutorContext {
+  onOutput?: (chunk: string) => void;
+  signal?: AbortSignal;
+}
 
 export interface ToolExecutor {
-  (input: Record<string, unknown>): Promise<string>;
+  (input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string>;
 }
 
 export interface RegisteredTool {
@@ -25,7 +53,11 @@ function getRoot(): string {
 }
 
 function getRootUri(): Uri {
-  return workspace.workspaceFolders![0].uri;
+  const folder = workspace.workspaceFolders?.[0];
+  if (!folder) {
+    throw new Error('No workspace folder open. Open a folder or workspace first.');
+  }
+  return folder.uri;
 }
 
 // --- Tool Definitions ---
@@ -96,11 +128,22 @@ const grepDef: ToolDefinition = {
 
 const runCommandDef: ToolDefinition = {
   name: 'run_command',
-  description: 'Execute a shell command in the project root directory. Returns stdout and stderr.',
+  description:
+    'Execute a shell command in a persistent shell session. Environment variables, aliases, and working directory changes persist between calls. ' +
+    'Set timeout (seconds) for long-running commands. Use background=true to start a process in the background and command_id to check on it later.',
   input_schema: {
     type: 'object',
     properties: {
       command: { type: 'string', description: 'Shell command to run' },
+      timeout: {
+        type: 'number',
+        description: 'Timeout in seconds (default: 120). Use higher values for builds/installs.',
+      },
+      background: { type: 'boolean', description: 'If true, run in background and return an ID to check later.' },
+      command_id: {
+        type: 'string',
+        description: 'Check on a background command by its ID (returned from a previous background call).',
+      },
     },
     required: ['command'],
   },
@@ -172,7 +215,9 @@ async function grep(input: Record<string, unknown>): Promise<string> {
   const searchPath = (input.path as string) || '.';
   const cwd = getRoot();
   try {
-    const { stdout } = await execAsync(`grep -rn --include="*" "${pattern.replace(/"/g, '\\"')}" "${searchPath}"`, {
+    // Use execFile with args array to prevent shell injection
+    const args = ['-rn', '--include=*', pattern, searchPath];
+    const { stdout } = await execFileAsync('grep', args, {
       cwd,
       timeout: 15_000,
       maxBuffer: 512 * 1024,
@@ -187,19 +232,42 @@ async function grep(input: Record<string, unknown>): Promise<string> {
   }
 }
 
-async function runCommand(input: Record<string, unknown>): Promise<string> {
+async function runCommand(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   const command = input.command as string;
-  const cwd = getRoot();
+
+  // Check on a background command
+  if (input.command_id) {
+    const session = getShellSession();
+    const status = session.checkBackground(input.command_id as string);
+    if (!status) return `No background command found with ID: ${input.command_id}`;
+    const header = status.done
+      ? `Background command finished (exit code: ${status.exitCode})`
+      : `Background command still running`;
+    return `${header}\n\nOutput:\n${status.output || '(no output yet)'}`;
+  }
+
+  // Start a background command
+  if (input.background) {
+    const session = getShellSession();
+    const id = session.executeBackground(command);
+    return `Background command started with ID: ${id}\nUse run_command with command_id="${id}" to check on it.`;
+  }
+
+  // Normal execution through the persistent shell session
+  const session = getShellSession();
+  const config = getConfig();
+  const timeoutSec = (input.timeout as number) || config.shellTimeout || 120;
   try {
-    const { stdout, stderr } = await execAsync(command, {
-      cwd,
-      timeout: 60_000,
-      maxBuffer: 1024 * 1024,
+    const result = await session.execute(command, {
+      timeout: timeoutSec * 1000,
+      onOutput: context?.onOutput,
+      signal: context?.signal,
     });
-    return (stdout + (stderr ? '\nSTDERR:\n' + stderr : '')).trim() || '(no output)';
+    const status = result.exitCode !== 0 ? `\n(exit code: ${result.exitCode})` : '';
+    return result.stdout.trim() + status || '(no output)';
   } catch (err) {
-    const error = err as { stdout?: string; stderr?: string; message?: string };
-    return `Command failed:\n${error.stderr || error.stdout || error.message || 'Unknown error'}`;
+    const error = err as { message?: string };
+    return `Command failed:\n${error.message || 'Unknown error'}`;
   }
 }
 
@@ -281,7 +349,6 @@ async function getDiagnostics(input: Record<string, unknown>): Promise<string> {
 async function runTests(input: Record<string, unknown>): Promise<string> {
   let command = input.command as string | undefined;
   const file = input.file as string | undefined;
-  const cwd = getRoot();
 
   if (!command) {
     // Auto-detect test runner
@@ -326,18 +393,17 @@ async function runTests(input: Record<string, unknown>): Promise<string> {
     command += ` ${file}`;
   }
 
+  // Use persistent shell session for test execution
+  const session = getShellSession();
+  const config = getConfig();
+  const timeoutSec = config.shellTimeout || 120;
   try {
-    const { stdout, stderr } = await execAsync(command, {
-      cwd,
-      timeout: 120_000,
-      maxBuffer: 2 * 1024 * 1024,
-    });
-    return (stdout + (stderr ? '\nSTDERR:\n' + stderr : '')).trim() || '(no output)';
+    const result = await session.execute(command, { timeout: timeoutSec * 1000 });
+    const status = result.exitCode !== 0 ? `\n(exit code: ${result.exitCode})` : '';
+    return result.stdout.trim() + status || '(no output)';
   } catch (err) {
-    const error = err as { stdout?: string; stderr?: string; message?: string };
-    // Test failures often exit non-zero but still have useful output
-    const output = (error.stdout || '') + (error.stderr ? '\nSTDERR:\n' + error.stderr : '');
-    return output.trim() || `Test command failed: ${error.message || 'Unknown error'}`;
+    const error = err as { message?: string };
+    return `Test command failed: ${error.message || 'Unknown error'}`;
   }
 }
 

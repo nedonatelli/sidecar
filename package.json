@@ -213,6 +213,16 @@
           "default": 100000,
           "description": "Maximum total tokens before stopping the agent loop"
         },
+        "sidecar.shellTimeout": {
+          "type": "number",
+          "default": 120,
+          "description": "Default timeout for shell commands in seconds"
+        },
+        "sidecar.shellMaxOutputMB": {
+          "type": "number",
+          "default": 10,
+          "description": "Maximum shell output size in MB before truncation"
+        },
         "sidecar.includeActiveFile": {
           "type": "boolean",
           "default": true,
