@@ -2,7 +2,7 @@
 
 This document tracks planned improvements and features for SideCar. Items are grouped by theme and roughly prioritized within each group.
 
-Last updated: 2026-04-07 (v0.24.1)
+Last updated: 2026-04-07 (v0.24.2)
 
 ---
 
@@ -176,7 +176,7 @@ Explicit privacy mode with zero telemetry, zero usage data collection, and no ne
 
 ---
 
-## Completed (v0.11.0–v0.24.1)
+## Completed (v0.11.0–v0.24.2)
 
 - [x] Slash commands: `/reset`, `/undo`, `/export`, `/model`, `/help`
 - [x] Agent progress indicators (step count, elapsed time, token usage)

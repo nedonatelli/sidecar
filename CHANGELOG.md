@@ -2,7 +2,7 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
-## [0.24.1] - 2026-04-07
+## [0.24.2] - 2026-04-07
 
 ### Added
 - **LimitedCache utility**: TTL-based cache with size limits for workspace and AST caches, replacing unbounded `Map` instances that could grow without limit
