@@ -54,7 +54,7 @@ SideCar has 10+ built-in tools the agent can use:
 | `edit_file` | Search/replace edits in existing files |
 | `search_files` | Glob pattern file search |
 | `grep` | Content search with regex |
-| `run_command` | Execute shell commands |
+| `run_command` | Execute shell commands in a persistent session (env/cwd persist, background support) |
 | `list_directory` | List directory contents |
 | `get_diagnostics` | Read compiler errors, warnings, and security findings |
 | `run_tests` | Run test suites with auto-detection |

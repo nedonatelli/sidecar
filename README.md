@@ -20,7 +20,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 | Inline completions | Yes | Yes | Yes | Yes | Yes |
 | Autonomous agent loop | **Yes** | No | No | No | No |
 | File read/write/edit tools | **Yes** | No | No | No | No |
-| Run commands & tests | **Yes** | No | No | No | No |
+| Run commands & tests | **Yes** (persistent shell) | No | No | No | No |
 | Diagnostics integration | **Yes** | No | No | No | No |
 | Security & secrets scanning | **Yes** | No | No | No | No |
 | MCP server support | **Yes** | No | No | No | No |
@@ -55,6 +55,9 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 - **Verbose mode** — `/verbose` to show system prompt, per-iteration summaries, and tool selection context during agent runs
 - **Smart context selection** — AST-based parsing extracts relevant functions, classes, and imports from JS/TS files instead of including whole files in context
 - **Bounded caches** — workspace file content and AST caches use TTL-based eviction to prevent unbounded memory growth during long sessions
+- **Persistent shell** — `run_command` uses a long-lived shell process; env vars, cwd, and aliases persist between calls. Supports configurable timeouts, background commands, and streaming output
+- **Context pruning** — conversation history is automatically compressed between turns so local models don't choke on accumulated context from prior tool calls
+- **Clean tool display** — tool calls show as `Read src/foo.ts` with icons and spinners, matching the polish of Claude Code and Copilot
 
 ### Inline Chat (Cmd+I)
 - Edit code in place within the editor
@@ -118,7 +121,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 | `edit_file` | Search/replace edits in existing files |
 | `search_files` | Glob pattern file search |
 | `grep` | Content search with regex |
-| `run_command` | Execute shell commands |
+| `run_command` | Execute shell commands (persistent session, background support) |
 | `list_directory` | List directory contents |
 | `get_diagnostics` | Read compiler errors and warnings |
 | `run_tests` | Run test suites with auto-detection |
@@ -217,6 +220,8 @@ Scheduled tasks run autonomously and log to the SideCar Agent output channel.
 | `sidecar.completionMaxTokens` | `256` | Max tokens for completions |
 | `sidecar.verboseMode` | `false` | Show detailed agent reasoning during runs |
 | `sidecar.expandThinking` | `false` | Show reasoning blocks expanded instead of collapsed |
+| `sidecar.shellTimeout` | `120` | Default timeout for shell commands in seconds |
+| `sidecar.shellMaxOutputMB` | `10` | Maximum shell output size in MB before truncation |
 
 ## Documentation
 

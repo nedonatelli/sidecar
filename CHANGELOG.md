@@ -2,6 +2,30 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.25.0] - 2026-04-07
+
+### Added
+- **Persistent shell session**: `run_command` and `run_tests` now use a long-lived shell process. Environment variables, working directory, and shell state persist between commands — just like a real terminal. Supports configurable timeouts (`sidecar.shellTimeout`, default 120s), background commands (`background: true` + `command_id` to check later), and up to 10MB output (`sidecar.shellMaxOutputMB`)
+- **Streaming tool output**: shell command output streams to the UI in real-time as it arrives, instead of waiting for the command to finish. The active tool call card auto-opens and shows live output
+- **Between-turn context pruning**: conversation history is now automatically compressed before each agent turn. Older turns get progressively heavier compression (tool results truncated, thinking blocks stripped, text summarized). Prevents local models from choking on accumulated context from prior turns
+- **Clean tool display**: tool calls now show as `📖 Read src/foo.ts` with icons and spinners instead of raw `read_file(path: src/foo.ts)`. Successful results fold into the tool call card; errors show separately. Matches the polish of Claude Code and Copilot
+- **Streaming markdown renderer**: replaced the per-token full re-render with boundary-aware incremental rendering. Only completed markdown blocks are rendered; in-progress text shows with a blinking cursor. Renders debounced at 80ms to reduce DOM thrashing
+- **Compact system prompt for local models**: local Ollama models get a ~60% shorter system prompt, saving precious context window for conversation and tool results
+
+### Fixed
+- **`getRootUri()` null crash**: now throws a clear error when no workspace folder is open instead of crashing with a null reference
+- **`Promise.all` tool execution crash**: one tool failure no longer aborts all parallel tool executions. Uses `Promise.allSettled` and converts rejected promises into error tool results
+- **Grep command injection**: user-provided search patterns were interpolated into a shell string. Now uses `execFile` with an args array to prevent shell metacharacter injection
+- **MCP async dispose**: `dispose()` was dropping the async `disconnect()` promise. Now catches and logs errors
+- **File watcher thrashing**: rapid file creation/deletion triggered `rebuildTree()` on every event. Now debounced to 300ms
+- **Unbounded retry backoff**: exponential backoff had no ceiling. Added `maxDelayMs` (default 30s) to cap delay between retries
+- **Within-loop compression too conservative**: old `compressMessages()` used a flat 100-char truncation. Now uses distance-based tiers (1000 chars for recent, 200 chars for old) and drops old thinking blocks
+
+### Changed
+- `run_command` tool description updated to document persistent session, timeout, and background parameters
+- `ToolExecutor` interface now accepts optional `ToolExecutorContext` for streaming callbacks and abort signals
+- Agent loop `onToolOutput` callback added to `AgentCallbacks` for streaming tool output to the UI
+
 ## [0.24.2] - 2026-04-07
 
 ### Added

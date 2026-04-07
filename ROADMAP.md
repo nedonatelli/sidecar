@@ -2,7 +2,7 @@
 
 This document tracks planned improvements and features for SideCar. Items are grouped by theme and roughly prioritized within each group.
 
-Last updated: 2026-04-07 (v0.24.2)
+Last updated: 2026-04-07 (v0.25.0)
 
 ---
 
@@ -176,7 +176,7 @@ Explicit privacy mode with zero telemetry, zero usage data collection, and no ne
 
 ---
 
-## Completed (v0.11.0–v0.24.2)
+## Completed (v0.11.0–v0.25.0)
 
 - [x] Slash commands: `/reset`, `/undo`, `/export`, `/model`, `/help`
 - [x] Agent progress indicators (step count, elapsed time, token usage)
@@ -238,3 +238,12 @@ Explicit privacy mode with zero telemetry, zero usage data collection, and no ne
 - [x] Clarified `expandThinking` setting description
 - [x] Fix block markdown infinite loop on `\r\n` line endings
 - [x] LimitedCache with TTL and size eviction for workspace and AST caches
+- [x] Persistent shell session: env vars, cwd, and state persist between commands
+- [x] Streaming tool output: real-time shell output piped to the UI
+- [x] Between-turn context pruning: tiered compression of old tool results and thinking blocks
+- [x] Clean tool display: icons, display names, spinners, and result badges (matches Claude Code/Copilot polish)
+- [x] Streaming markdown renderer: boundary-aware incremental rendering with debounce
+- [x] Compact system prompt for local models (~60% shorter)
+- [x] Background command support: start long-running processes and check on them later
+- [x] Security fix: grep command injection via execFile with args array
+- [x] Robustness: Promise.allSettled for parallel tool execution, null safety, retry backoff cap, debounced file watcher

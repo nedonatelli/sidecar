@@ -45,6 +45,15 @@ All settings are under the `sidecar.*` prefix. Open VS Code settings (`Cmd+,` / 
 | `sidecar.completionMaxTokens` | number | `256` | Max tokens per completion |
 | `sidecar.completionDebounceMs` | number | `300` | Minimum ms between completion requests |
 
+## Shell execution
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.shellTimeout` | number | `120` | Default timeout for shell commands in seconds |
+| `sidecar.shellMaxOutputMB` | number | `10` | Maximum shell output size in MB before truncation |
+
+Shell commands (`run_command`, `run_tests`) use a **persistent shell session** — environment variables, working directory changes, and aliases persist between tool calls. Set a longer timeout for builds and installs. Use `background: true` to start long-running processes and check on them later with `command_id`.
+
 ## Debugging & reasoning
 
 | Setting | Type | Default | Description |
