@@ -169,7 +169,99 @@ Interactive first-run tutorial that guides new users through key features — ch
 ## Enterprise & Team
 
 ### Team configuration sharing
-Share SIDECAR.md, custom modes, MCP server configs, and tool permissions across a team via a shared config directory or settings sync. Teams define conventions once and every member gets the same agent behavior.
+Share SIDECAR.md, custom modes, MCP server configs, and tool permissions across a team via a shared config directory or settings sync. Teams define conventions once and
+
+---
+
+## Advanced AI Capabilities
+
+### Constitutional AI & Safety
+- **Ethical decision making** - Model should consider ethical implications of code changes
+- **Bias detection** - Identify and flag potentially biased code patterns
+- **Security-focused reasoning** - Explicit security considerations in code generation
+- **Privacy-aware AI** - Avoid exposing sensitive information in generated code
+
+### Code Understanding & Analysis
+- **Code complexity analysis** - Automatically detect and flag overly complex functions
+- **Technical debt detection** - Identify patterns that indicate technical debt
+- **Performance impact estimation** - Predict performance implications of changes
+- **Architecture pattern recognition** - Identify when code violates established patterns
+
+### Collaborative AI Features
+- **Shared agent memory** - Persistent memory across sessions and team members
+- **AI persona management** - Different AI personalities for different coding tasks
+- **Knowledge sharing** - Ability to share learned patterns and best practices
+- **Cross-project learning** - Apply learnings from one project to another
+
+---
+
+## Enhanced Development Workflows
+
+### Intelligent Debugging
+- **Bug reproduction assistance** - Help create minimal reproduction cases
+- **Root cause analysis** - Automatically analyze why tests are failing
+- **Debugging strategy suggestions** - Recommend debugging approaches based on code patterns
+- **Error prediction** - Anticipate potential runtime errors
+
+### Testing & Quality Assurance
+- **Test suite optimization** - Suggest which tests to run based on changes
+- **Mutation testing integration** - Help ensure test quality
+- **Integration test generation** - Generate tests for complex integrations
+- **Performance testing automation** - Automatically create performance benchmarks
+
+### Project Management Integration
+- **Task estimation** - Estimate time required for different development tasks
+- **Dependency impact analysis** - Show how changes affect dependencies
+- **Release planning** - Help plan releases and feature rollouts
+- **Changelog generation** - Automatically generate changelogs from commits
+
+---
+
+## User Experience Enhancements
+
+### Personalization & Adaptation
+- **Learning user preferences** - Adapt to user's coding style and preferences
+- **Adaptive prompting** - Adjust system prompts based on user behavior
+- **Customizable agent personalities** - Different modes for different tasks
+- **Progressive disclosure** - Show advanced features only when needed
+
+### Cross-Platform Integration
+- **Remote development support** - Better integration with remote development environments
+- **Multi-language support** - Enhanced support for various programming languages
+- **IDE plugin ecosystem** - Allow third-party plugins to extend functionality
+- **Cloud sync** - Sync preferences and learned patterns across devices
+
+---
+
+## Advanced Tooling
+
+### Code Transformation & Refactoring
+- **Automated refactoring suggestions** - Suggest code improvements
+- **API evolution guidance** - Help with backward compatibility when changing APIs
+- **Code migration assistance** - Help migrate between frameworks or versions
+- **Style guide enforcement** - Automatically enforce coding standards
+
+### Data & Analytics
+- **Development metrics** - Track productivity and code quality metrics
+- **Learning analytics** - Understand how users interact with the AI
+- **Code pattern analytics** - Identify common patterns and anti-patterns
+- **Performance dashboards** - Visualize development workflow metrics
+
+---
+
+## Infrastructure & Scalability
+
+### Performance & Resource Management
+- **Resource-aware AI** - Adjust AI behavior based on system resources
+- **Batch processing optimization** - Better handling of large workloads
+- **Caching strategies** - Intelligent caching of AI responses and generated code
+- **Offline capabilities** - Functionality when network is unavailable
+
+### Security & Compliance
+- **Compliance checking** - Ensure generated code meets compliance requirements
+- **Security scanning integration** - Deep integration with security tools
+- **Audit trail** - Complete record of AI-assisted development decisions
+- **Data governance** - Control over what data is used by the AI every member gets the same agent behavior.
 
 ### Telemetry-free guarantee
 Explicit privacy mode with zero telemetry, zero usage data collection, and no network calls except to the configured LLM endpoint. Verifiable via source code (already open-source). Key selling point for enterprise and compliance-sensitive environments.
