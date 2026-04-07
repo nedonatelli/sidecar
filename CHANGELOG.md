@@ -2,6 +2,21 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.24.0] - 2026-04-07
+
+### Added
+- **Block-level markdown rendering**: assistant messages now render headings (`#`–`####`), bullet lists, numbered lists, blockquotes, and horizontal rules. Previously only inline markdown (bold, italic, code, links) was supported
+- **Smart context selection**: AST-based code element extraction for JS/TS files in workspace context. Parses functions, classes, imports, and exports, scores them by query relevance, and includes targeted code snippets instead of whole files
+
+### Fixed
+- **Autonomous mode ignored pending confirmations**: switching to autonomous mode while the agent was blocked on a confirmation prompt left it stuck. Now auto-resolves all pending confirmations and dismisses the UI cards
+- **Agent mode setting not persisted before next message**: `agentMode` config update was fire-and-forget (not awaited), so the next `getConfig()` call could read the stale value
+- **Duplicate file parsing in workspace index**: JS/TS files were parsed twice per context request — the first pass was dead code from an earlier stub. Removed the duplicate
+- **Redundant string split in extractRelevantContent**: `content.split('\n')` was called inside a loop for every element instead of once. Hoisted above the loop
+
+### Changed
+- **`expandThinking` setting description**: clarified wording from "expanded by default" to "expanded instead of collapsed" to avoid implying the setting is enabled by default
+
 ## [0.23.0] - 2026-04-06
 
 ### Added

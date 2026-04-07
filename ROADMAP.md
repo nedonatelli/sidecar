@@ -2,7 +2,7 @@
 
 This document tracks planned improvements and features for SideCar. Items are grouped by theme and roughly prioritized within each group.
 
-Last updated: 2026-04-06 (v0.23.0)
+Last updated: 2026-04-07 (v0.24.0)
 
 ---
 
@@ -21,8 +21,8 @@ Render file changes as they stream in from the agent instead of displaying raw t
 ### Context pinning
 Allow users to pin specific files or folders to always be included in context regardless of relevance scoring. Add a `@pin:path` syntax or a UI toggle. Pinned files bypass the token budget limit (up to a configurable cap).
 
-### Smart context selection
-Use AST or tree-sitter parsing to include relevant functions, classes, and type definitions instead of whole files. Reduces token usage while providing more targeted context. Fall back to full-file inclusion when parsing is unavailable.
+### ~~Smart context selection~~ (started in v0.24.0)
+~~Use AST or tree-sitter parsing to include relevant functions, classes, and type definitions instead of whole files.~~ Initial implementation landed: lightweight AST parsing extracts functions, classes, imports, and exports from JS/TS files and scores them by query relevance. Full tree-sitter integration and multi-language support still planned.
 
 ### RAG over documentation
 Index project documentation (READMEs, wiki pages, doc comments, markdown files) and include relevant sections in context based on the user's query. Use embedding-based similarity search for retrieval.
@@ -176,7 +176,7 @@ Explicit privacy mode with zero telemetry, zero usage data collection, and no ne
 
 ---
 
-## Completed (v0.11.0–v0.23.0)
+## Completed (v0.11.0–v0.24.0)
 
 - [x] Slash commands: `/reset`, `/undo`, `/export`, `/model`, `/help`
 - [x] Agent progress indicators (step count, elapsed time, token usage)
@@ -230,3 +230,9 @@ Explicit privacy mode with zero telemetry, zero usage data collection, and no ne
 - [x] Token budget now includes tool call/result sizes
 - [x] System prompt bounds checking (50% of model context cap)
 - [x] Agent loop break on empty stripped content (prevents infinite loop)
+- [x] Block-level markdown rendering: headings, bullet/numbered lists, blockquotes, horizontal rules
+- [x] Smart context selection (initial): AST-based JS/TS element extraction with query relevance scoring
+- [x] Autonomous mode auto-resolves pending confirmation prompts on switch
+- [x] Await agentMode config update before confirming change
+- [x] Duplicate file parsing removed from workspace index
+- [x] Clarified `expandThinking` setting description
