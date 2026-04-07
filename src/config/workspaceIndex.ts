@@ -1,5 +1,6 @@
 import { workspace, Uri, FileSystemWatcher, RelativePattern, Disposable } from 'vscode';
 import * as path from 'path';
+import { SimpleCodeAnalyzer, ParsedFile } from '../astContext.js';
 
 const MAX_FILE_SIZE = 100 * 1024; // 100KB
 const MAX_CONTENT_LENGTH = 10_000; // 10K chars per file
@@ -33,6 +34,7 @@ export class WorkspaceIndex implements Disposable {
   private ready = false;
   private maxContextChars: number;
   private fileContentCache = new Map<string, string>(); // Cache for file contents
+  private parsedFiles = new Map<string, ParsedFile>(); // Cache for parsed file content
 
   constructor(maxContextChars = 20_000) {
     this.maxContextChars = maxContextChars;
@@ -138,6 +140,26 @@ export class WorkspaceIndex implements Disposable {
         const fileUri = Uri.joinPath(rootUri, file.relativePath);
         const bytes = await workspace.fs.readFile(fileUri);
         const content = Buffer.from(bytes).toString('utf-8').slice(0, MAX_CONTENT_LENGTH);
+
+        // Try to extract relevant code elements for smarter context
+        const fileExtension = path.extname(file.relativePath).toLowerCase();
+
+        // For JavaScript/TypeScript files, use smart parsing
+        if (
+          fileExtension === '.js' ||
+          fileExtension === '.ts' ||
+          fileExtension === '.jsx' ||
+          fileExtension === '.tsx'
+        ) {
+          const parsedFile = SimpleCodeAnalyzer.parseFileContent(file.relativePath, content);
+          // Store for potential future use
+          this.parsedFiles.set(file.relativePath, parsedFile);
+
+          // For now, we'll keep the original content but in a real implementation,
+          // we would extract relevant code elements here
+          // This is where we'd implement the smart context selection
+        }
+
         const section = `\n### ${file.relativePath}\n\`\`\`\n${content}\n\`\`\`\n`;
 
         if (charCount + section.length > budget) continue;
