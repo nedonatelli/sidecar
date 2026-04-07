@@ -240,7 +240,7 @@
         },
         "sidecar.verboseMode": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Show detailed agent reasoning — iteration summaries, tool selection context, and system prompt assembly"
         },
         "sidecar.expandThinking": {
