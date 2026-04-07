@@ -224,8 +224,8 @@ export class SmartWorkspaceIndex {
    * Get relevant context with smart code element selection
    */
   async getSmartContext(query: string, activeFilePath?: string, _maxElementsPerFile = 3): Promise<string> {
-    // This would normally use the existing workspace index logic
-    // but for now we'll focus on the smart parsing aspect
+    // This is a stub implementation - in a full implementation this would
+    // use the workspace index to provide smart context selection
     return '';
   }
 
