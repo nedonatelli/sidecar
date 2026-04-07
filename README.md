@@ -213,7 +213,7 @@ Scheduled tasks run autonomously and log to the SideCar Agent output channel.
 | `sidecar.completionModel` | `""` | Model for completions (empty = use chat model) |
 | `sidecar.completionMaxTokens` | `256` | Max tokens for completions |
 | `sidecar.verboseMode` | `false` | Show detailed agent reasoning during runs |
-| `sidecar.expandThinking` | `false` | Show reasoning blocks expanded by default |
+| `sidecar.expandThinking` | `false` | Show reasoning blocks expanded instead of collapsed |
 
 ## Documentation
 

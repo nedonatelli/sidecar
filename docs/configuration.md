@@ -50,7 +50,7 @@ All settings are under the `sidecar.*` prefix. Open VS Code settings (`Cmd+,` / 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `sidecar.verboseMode` | boolean | `false` | Show system prompt, iteration summaries, and tool selection context |
-| `sidecar.expandThinking` | boolean | `false` | Show model reasoning blocks expanded by default |
+| `sidecar.expandThinking` | boolean | `false` | Show model reasoning blocks expanded instead of collapsed |
 
 ## Extensibility
 

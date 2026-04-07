@@ -800,6 +800,57 @@ body {
   background: var(--vscode-button-secondaryHoverBackground);
 }
 
+/* Block-level markdown in assistant messages */
+.message h2,
+.message h3,
+.message h4,
+.message h5 {
+  margin: 8px 0 4px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.message h2 {
+  font-size: 1.2em;
+}
+
+.message h3 {
+  font-size: 1.1em;
+}
+
+.message h4,
+.message h5 {
+  font-size: 1em;
+}
+
+.message ul,
+.message ol {
+  margin: 4px 0;
+  padding-left: 20px;
+}
+
+.message li {
+  margin: 2px 0;
+}
+
+.message blockquote {
+  margin: 6px 0;
+  padding: 4px 10px;
+  border-left: 3px solid var(--vscode-textBlockQuote-border, #007acc);
+  background: var(--vscode-textBlockQuote-background);
+  opacity: 0.85;
+}
+
+.message hr {
+  border: none;
+  border-top: 1px solid var(--vscode-widget-border);
+  margin: 8px 0;
+}
+
+.message p {
+  margin: 4px 0;
+}
+
 /* Code blocks in assistant messages */
 .code-block {
   background: var(--vscode-textCodeBlock-background, rgba(0, 0, 0, 0.15));

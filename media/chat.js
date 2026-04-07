@@ -890,6 +890,103 @@
     }
   }
 
+  /**
+   * Parse block-level markdown into DOM nodes, then apply inline markdown
+   * within each block. Supports: headings (#-####), bullet lists (- or *),
+   * numbered lists (1.), blockquotes (>), and horizontal rules (---/***).
+   */
+  function appendBlockMarkdown(parent, text) {
+    const lines = text.split('\n');
+    let i = 0;
+
+    while (i < lines.length) {
+      const line = lines[i];
+
+      // Skip empty lines
+      if (line.trim() === '') {
+        i++;
+        continue;
+      }
+
+      // Horizontal rule: --- or *** or ___ (3+ chars, optional spaces)
+      if (/^\s*([-*_])\s*\1\s*\1[\s\1]*$/.test(line)) {
+        parent.appendChild(document.createElement('hr'));
+        i++;
+        continue;
+      }
+
+      // Heading: # to ####
+      const headingMatch = line.match(/^(#{1,4})\s+(.+)$/);
+      if (headingMatch) {
+        const level = headingMatch[1].length;
+        const el = document.createElement('h' + (level + 1)); // h2-h5 (avoid h1 in chat)
+        appendInlineMarkdown(el, headingMatch[2]);
+        parent.appendChild(el);
+        i++;
+        continue;
+      }
+
+      // Blockquote: > text (collect consecutive > lines)
+      if (/^\s*>\s?/.test(line)) {
+        const bq = document.createElement('blockquote');
+        const bqLines = [];
+        while (i < lines.length && /^\s*>\s?/.test(lines[i])) {
+          bqLines.push(lines[i].replace(/^\s*>\s?/, ''));
+          i++;
+        }
+        appendInlineMarkdown(bq, bqLines.join('\n'));
+        parent.appendChild(bq);
+        continue;
+      }
+
+      // Bullet list: - or * at start (collect consecutive list items)
+      if (/^\s*[-*]\s+/.test(line)) {
+        const ul = document.createElement('ul');
+        while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
+          const li = document.createElement('li');
+          appendInlineMarkdown(li, lines[i].replace(/^\s*[-*]\s+/, ''));
+          ul.appendChild(li);
+          i++;
+        }
+        parent.appendChild(ul);
+        continue;
+      }
+
+      // Numbered list: 1. 2. etc (collect consecutive items)
+      if (/^\s*\d+\.\s+/.test(line)) {
+        const ol = document.createElement('ol');
+        while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) {
+          const li = document.createElement('li');
+          appendInlineMarkdown(li, lines[i].replace(/^\s*\d+\.\s+/, ''));
+          ol.appendChild(li);
+          i++;
+        }
+        parent.appendChild(ol);
+        continue;
+      }
+
+      // Regular paragraph: collect consecutive non-special lines
+      const paraLines = [];
+      while (
+        i < lines.length &&
+        lines[i].trim() !== '' &&
+        !/^#{1,4}\s+/.test(lines[i]) &&
+        !/^\s*[-*]\s+/.test(lines[i]) &&
+        !/^\s*\d+\.\s+/.test(lines[i]) &&
+        !/^\s*>\s?/.test(lines[i]) &&
+        !/^\s*([-*_])\s*\1\s*\1[\s\1]*$/.test(lines[i])
+      ) {
+        paraLines.push(lines[i]);
+        i++;
+      }
+      if (paraLines.length > 0) {
+        const p = document.createElement('p');
+        appendInlineMarkdown(p, paraLines.join('\n'));
+        parent.appendChild(p);
+      }
+    }
+  }
+
   function renderContent(text, supportsTools = true) {
     const fragment = document.createDocumentFragment();
     const codeBlockRegex = /```([\w.]*):?([^\n]*)\n([\s\S]*?)```/g;
@@ -898,7 +995,7 @@
 
     while ((match = codeBlockRegex.exec(text)) !== null) {
       if (match.index > lastIndex) {
-        appendInlineMarkdown(fragment, text.slice(lastIndex, match.index));
+        appendBlockMarkdown(fragment, text.slice(lastIndex, match.index));
       }
 
       const lang = match[1];
@@ -967,7 +1064,7 @@
       let editMatch;
       while ((editMatch = editRegex.exec(remaining)) !== null) {
         if (editMatch.index > editLastIndex) {
-          appendInlineMarkdown(fragment, remaining.slice(editLastIndex, editMatch.index));
+          appendBlockMarkdown(fragment, remaining.slice(editLastIndex, editMatch.index));
         }
         const editFilePath = editMatch[1].trim();
         const searchText = editMatch[2];
@@ -999,7 +1096,7 @@
         editLastIndex = editMatch.index + editMatch[0].length;
       }
       if (editLastIndex < remaining.length) {
-        appendInlineMarkdown(fragment, remaining.slice(editLastIndex));
+        appendBlockMarkdown(fragment, remaining.slice(editLastIndex));
       }
     }
 
