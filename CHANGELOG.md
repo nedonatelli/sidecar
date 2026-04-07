@@ -2,6 +2,26 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.23.0] - 2026-04-06
+
+### Added
+- **`<think>` tag parsing**: Ollama reasoning models (qwen3, deepseek-r1) now route `<think>...</think>` content to collapsible "Reasoning" blocks instead of showing raw tags
+- **Verbose mode** (`sidecar.verboseMode`): shows system prompt, per-iteration summaries, and tool selection context during agent runs
+- **`/verbose` slash command**: toggle verbose mode from the chat
+- **`/prompt` slash command**: inspect the full assembled system prompt
+- **Expand thinking setting** (`sidecar.expandThinking`): show reasoning blocks expanded by default instead of collapsed
+
+### Fixed
+- **Agent used tools on every message**: system prompt told the model to always use tools. Now only uses tools when the user asks for an action — questions get direct text responses
+- **Lost messages on concurrent runs**: if user sent a message while the agent was running, it was overwritten. Now merges messages and aborts the previous run
+- **Token budget exceeded by 30-50%**: tool call names, inputs, and results weren't counted. Now included in budget tracking
+- **Context overflow on large projects**: SIDECAR.md and user system prompt are now capped at 50% of model context with truncation warnings
+- **Infinite loop on stripped content**: agent loop could spin when `stripRepeatedContent` emptied the response. Now breaks cleanly
+- **Metrics not ended on error**: `metricsCollector.endRun()` moved to `finally` block so it always fires
+- **System prompt ordering**: constraints ("only use tools when asked") now appear before tool descriptions so models weight them properly
+- **Unclosed `<think>` tags**: stream ending mid-think-tag now emits a closing marker
+- **stripRepeatedContent false positives**: threshold raised from 100 to 200 chars; code blocks are now excluded from stripping
+
 ## [0.22.2] - 2026-04-06
 
 ### Fixed

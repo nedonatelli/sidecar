@@ -45,6 +45,13 @@ All settings are under the `sidecar.*` prefix. Open VS Code settings (`Cmd+,` / 
 | `sidecar.completionMaxTokens` | number | `256` | Max tokens per completion |
 | `sidecar.completionDebounceMs` | number | `300` | Minimum ms between completion requests |
 
+## Debugging & reasoning
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.verboseMode` | boolean | `false` | Show system prompt, iteration summaries, and tool selection context |
+| `sidecar.expandThinking` | boolean | `false` | Show model reasoning blocks expanded by default |
+
 ## Extensibility
 
 | Setting | Type | Default | Description |

@@ -2,7 +2,7 @@
 
 This document tracks planned improvements and features for SideCar. Items are grouped by theme and roughly prioritized within each group.
 
-Last updated: 2026-04-06 (v0.22.2)
+Last updated: 2026-04-06 (v0.23.0)
 
 ---
 
@@ -176,7 +176,7 @@ Explicit privacy mode with zero telemetry, zero usage data collection, and no ne
 
 ---
 
-## Completed (v0.11.0–v0.22.0)
+## Completed (v0.11.0–v0.23.0)
 
 - [x] Slash commands: `/reset`, `/undo`, `/export`, `/model`, `/help`
 - [x] Agent progress indicators (step count, elapsed time, token usage)
@@ -222,3 +222,11 @@ Explicit privacy mode with zero telemetry, zero usage data collection, and no ne
 - [x] Line-based unified diff engine (no external dependencies)
 - [x] GitHub Pages documentation site (12 pages)
 - [x] VS Code Marketplace listing and auto-publish workflow
+- [x] `<think>` tag parsing for Ollama reasoning models (qwen3, deepseek-r1)
+- [x] Verbose mode with `/verbose` and `/prompt` slash commands
+- [x] Expand thinking setting (`sidecar.expandThinking`)
+- [x] System prompt constraint ordering (constraints before tool list)
+- [x] Race condition guard and message merge for concurrent agent runs
+- [x] Token budget now includes tool call/result sizes
+- [x] System prompt bounds checking (50% of model context cap)
+- [x] Agent loop break on empty stripped content (prevents infinite loop)

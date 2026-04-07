@@ -31,6 +31,8 @@ Type `/` in the chat input to see all available commands. An autocomplete dropdo
 | `/deps` | Analyze dependencies |
 | `/scaffold <type>` | Generate boilerplate |
 | `/commit` | Generate commit and push |
+| `/verbose` | Toggle verbose mode |
+| `/prompt` | Show system prompt |
 
 ---
 
@@ -187,3 +189,22 @@ Switches to a different model mid-conversation. The conversation history is pres
 /model claude-sonnet-4-6
 /model qwen3-coder:8b
 ```
+
+---
+
+## Debugging
+
+### `/verbose`
+
+Toggles verbose mode on or off. When enabled, SideCar shows:
+- The full assembled system prompt at the start of each run
+- Per-iteration summaries with elapsed time and token counts
+- Tool selection explanations before each tool call
+
+Verbose output appears in yellow-bordered collapsible blocks, visually distinct from normal responses.
+
+You can also enable verbose mode permanently via `sidecar.verboseMode` in settings.
+
+### `/prompt`
+
+Shows the current system prompt in a collapsible block — the base prompt, SIDECAR.md content, and any custom system prompt you've configured. Useful for debugging unexpected agent behavior.

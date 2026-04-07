@@ -102,6 +102,25 @@ After an agent run, a **change summary panel** shows all modified files with inl
 
 Enable `sidecar.planMode` to have SideCar generate a plan before executing any tools. You review and approve the plan, then SideCar executes it. Useful for complex tasks where you want to validate the approach first.
 
+## Thinking / reasoning
+
+Models that support reasoning output show their thinking in collapsible "Reasoning" blocks:
+
+- **Anthropic API**: Extended thinking blocks stream automatically
+- **Ollama models**: `<think>...</think>` tags (used by qwen3, deepseek-r1) are parsed and displayed as reasoning blocks
+
+Set `sidecar.expandThinking` to `true` to show reasoning blocks expanded by default.
+
+## Verbose mode
+
+Enable `sidecar.verboseMode` or type `/verbose` to see detailed agent internals:
+
+- **System prompt** — the full assembled prompt shown at the start of each run
+- **Iteration summaries** — elapsed time and token counts per iteration
+- **Tool selection** — which tool was chosen and why
+
+Verbose output appears in yellow-bordered collapsible blocks. Use `/prompt` to inspect the system prompt at any time.
+
 ## Progress indicators
 
 During agent runs, the UI shows:
