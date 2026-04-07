@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseTextToolCalls, compressMessages } from './loop.js';
+import { parseTextToolCalls, compressMessages, stripRepeatedContent } from './loop.js';
 import type { ToolDefinition } from '../ollama/types.js';
 import type { ChatMessage } from '../ollama/types.js';
 
@@ -244,5 +244,86 @@ describe('compressMessages', () => {
     // Messages near the end (last 4) should be untouched
     const nearEnd = messages[messages.length - 2].content as Array<{ type: string; content: string }>;
     expect(nearEnd[0].content.length).toBe(2000);
+  });
+
+  it('drops thinking blocks from old messages (distFromEnd >= 8)', () => {
+    const messages: ChatMessage[] = [];
+    for (let i = 0; i < 6; i++) {
+      messages.push({
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'long reasoning '.repeat(20) },
+          { type: 'text', text: 'answer' },
+        ],
+      });
+      messages.push({ role: 'user', content: 'next' });
+    }
+
+    compressMessages(messages);
+
+    // First assistant message (distFromEnd = 11) should have thinking dropped
+    const first = messages[0].content as Array<{ type: string }>;
+    const hasThinking = first.some((b) => b.type === 'thinking');
+    expect(hasThinking).toBe(false);
+
+    // Last assistant message (distFromEnd = 1) should keep thinking
+    const last = messages[messages.length - 2].content as Array<{ type: string }>;
+    const lastHasThinking = last.some((b) => b.type === 'thinking');
+    expect(lastHasThinking).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// stripRepeatedContent — unit tests
+// ---------------------------------------------------------------------------
+describe('stripRepeatedContent', () => {
+  it('strips text that appears in a previous assistant message', () => {
+    const repeated = 'A'.repeat(250);
+    const messages: ChatMessage[] = [{ role: 'assistant', content: `Here is the summary:\n\n${repeated}\n\nDone.` }];
+    const text = `Let me continue.\n\n${repeated}\n\nNew content here.`;
+    const result = stripRepeatedContent(text, messages);
+    expect(result).not.toContain(repeated);
+    expect(result).toContain('New content here');
+  });
+
+  it('does not strip short repeated content (under 200 chars)', () => {
+    const short = 'A'.repeat(100);
+    const messages: ChatMessage[] = [{ role: 'assistant', content: short }];
+    const text = `Intro ${short} outro`;
+    const result = stripRepeatedContent(text, messages);
+    expect(result).toContain(short);
+  });
+
+  it('does not strip content inside code blocks', () => {
+    const repeated = 'B'.repeat(250);
+    const messages: ChatMessage[] = [{ role: 'assistant', content: repeated }];
+    const text = '```\n' + repeated + '\n```';
+    const result = stripRepeatedContent(text, messages);
+    expect(result).toContain(repeated);
+  });
+
+  it('returns text unchanged when no previous messages', () => {
+    const text = 'Hello world';
+    const result = stripRepeatedContent(text, []);
+    expect(result).toBe(text);
+  });
+
+  it('handles content block arrays in previous messages', () => {
+    const repeated = 'C'.repeat(250);
+    const messages: ChatMessage[] = [{ role: 'assistant', content: [{ type: 'text', text: repeated }] }];
+    const text = `Preamble.\n\n${repeated}\n\nAfterword.`;
+    const result = stripRepeatedContent(text, messages);
+    expect(result).not.toContain(repeated);
+    expect(result).toContain('Preamble');
+    expect(result).toContain('Afterword');
+  });
+
+  it('ignores user messages', () => {
+    const repeated = 'D'.repeat(250);
+    const messages: ChatMessage[] = [{ role: 'user', content: repeated }];
+    const text = repeated;
+    const result = stripRepeatedContent(text, messages);
+    // User messages are skipped — content should remain
+    expect(result).toContain(repeated);
   });
 });

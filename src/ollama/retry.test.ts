@@ -122,6 +122,33 @@ describe('fetchWithRetry', () => {
     expect(Date.now() - start).toBeLessThan(1000);
   });
 
+  it('caps backoff delay at maxDelayMs', async () => {
+    const start = Date.now();
+    // With baseDelay=5000 and 3 attempts, uncapped backoff would be 5s then 10s.
+    // With maxDelayMs=50ms, delays should be capped.
+    mockFetch
+      .mockResolvedValueOnce({ ok: false, status: 500, headers: new Headers() })
+      .mockResolvedValueOnce({ ok: false, status: 500, headers: new Headers() })
+      .mockResolvedValueOnce({ ok: true, status: 200 });
+
+    const response = await fetchWithRetry('http://test', {}, { maxAttempts: 3, baseDelayMs: 5000, maxDelayMs: 50 });
+
+    expect(response.ok).toBe(true);
+    // Without the cap, this would take 5000 + 10000 = 15s.
+    // With maxDelayMs=50, it should take ~100ms max.
+    expect(Date.now() - start).toBeLessThan(1000);
+  });
+
+  it('caps network error backoff at maxDelayMs', async () => {
+    const start = Date.now();
+    mockFetch.mockRejectedValueOnce(new Error('ECONNREFUSED')).mockResolvedValueOnce({ ok: true, status: 200 });
+
+    const response = await fetchWithRetry('http://test', {}, { maxAttempts: 3, baseDelayMs: 5000, maxDelayMs: 50 });
+
+    expect(response.ok).toBe(true);
+    expect(Date.now() - start).toBeLessThan(1000);
+  });
+
   it('retries with custom retryableStatuses', async () => {
     mockFetch
       .mockResolvedValueOnce({ ok: false, status: 418, headers: new Headers() })

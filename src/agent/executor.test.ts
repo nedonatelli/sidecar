@@ -172,6 +172,37 @@ describe('executeTool', () => {
     expect(result.content).toContain('file not found');
   });
 
+  it('forwards executorContext to the tool executor', async () => {
+    let receivedContext: unknown = null;
+    const executor = vi.fn().mockImplementation((_input: unknown, ctx: unknown) => {
+      receivedContext = ctx;
+      return 'ok';
+    });
+    mockedFindTool.mockReturnValue({
+      definition: { name: 'read_file', description: '', input_schema: { type: 'object', properties: {} } },
+      executor,
+      requiresApproval: false,
+    });
+
+    const onOutput = vi.fn();
+    const controller = new AbortController();
+    await executeTool(
+      makeToolUse('read_file', { path: 'test.ts' }),
+      'autonomous',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { onOutput, signal: controller.signal },
+    );
+
+    expect(executor).toHaveBeenCalledTimes(1);
+    expect(receivedContext).toBeDefined();
+    expect((receivedContext as { onOutput: unknown }).onOutput).toBe(onOutput);
+    expect((receivedContext as { signal: unknown }).signal).toBe(controller.signal);
+  });
+
   it('requires approval for all tools in manual mode', async () => {
     const executor = vi.fn().mockResolvedValue('data');
     mockedFindTool.mockReturnValue({
