@@ -896,7 +896,8 @@
    * numbered lists (1.), blockquotes (>), and horizontal rules (---/***).
    */
   function appendBlockMarkdown(parent, text) {
-    const lines = text.split('\n');
+    // Normalize \r\n → \n to prevent regex failures (JS . doesn't match \r)
+    const lines = text.replace(/\r\n?/g, '\n').split('\n');
     let i = 0;
 
     while (i < lines.length) {
@@ -983,6 +984,13 @@
         const p = document.createElement('p');
         appendInlineMarkdown(p, paraLines.join('\n'));
         parent.appendChild(p);
+      } else {
+        // Safety: if no pattern matched and no paragraph lines collected,
+        // treat as plain paragraph to prevent infinite loop
+        const p = document.createElement('p');
+        appendInlineMarkdown(p, line);
+        parent.appendChild(p);
+        i++;
       }
     }
   }
