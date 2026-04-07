@@ -2,7 +2,7 @@
 
 This document tracks planned improvements and features for SideCar. Items are grouped by theme and roughly prioritized within each group.
 
-Last updated: 2026-04-07 (v0.26.0)
+Last updated: 2026-04-07 (v0.27.0)
 
 ---
 
@@ -27,6 +27,9 @@ Allow users to pin specific files or folders to always be included in context re
 ### ~~Smart context selection~~ (started in v0.24.0)
 ~~Use AST or tree-sitter parsing to include relevant functions, classes, and type definitions instead of whole files.~~ Initial implementation landed: lightweight AST parsing extracts functions, classes, imports, and exports from JS/TS files and scores them by query relevance. Full tree-sitter integration and multi-language support still planned.
 
+### Large file & monorepo handling
+Gracefully handle very large files (10k+ lines) and monorepo-scale workspaces without degrading performance. Strategies include streaming file reads with chunked context windows, lazy indexing (only index files on access rather than upfront), depth-limited directory traversal for monorepos, and configurable workspace scope boundaries (`sidecar.workspaceRoots`). The workspace indexer and AST parser should degrade gracefully — partial results are better than timeouts.
+
 ### RAG over documentation
 Index project documentation (READMEs, wiki pages, doc comments, markdown files) and include relevant sections in context based on the user's query. Use embedding-based similarity search for retrieval.
 
@@ -36,6 +39,9 @@ Persistent memory across sessions about project patterns, conventions, user pref
 ---
 
 ## Observability
+
+### Agent action audit log
+Structured log of every agent action — which tool was called, with what arguments, what changed, and when. Stored per-session as JSON, browsable via a `/audit` slash command or the agent dashboard. Useful for debugging unexpected changes, understanding what an autonomous agent did while unattended, and building trust with cautious users. Pairs with the agent dashboard for visual inspection.
 
 ### Model comparison
 Send the same prompt to multiple models side-by-side and compare responses. Useful for evaluating which model works best for different tasks. Render results in parallel columns.
@@ -112,6 +118,9 @@ Surface usages, callers, and dependents when the agent reads or edits a symbol. 
 ### Next edit predictions
 After the user makes a change, anticipate ripple effects and suggest connected edits across the codebase (e.g., updating imports, renaming references, fixing type mismatches). Requires deep codebase indexing as a foundation.
 
+### Extension / plugin API
+A public API for extending SideCar beyond MCP servers — custom slash commands, custom message renderers, custom tool providers, and lifecycle hooks (pre-tool, post-tool, pre-commit). Plugins are standard VS Code extensions that depend on `sidecar` and call its API. Ship a `@sidecar/sdk` package with types and helpers. This is what separates tools that grow communities from those that plateau — let power users build on top of SideCar without forking it.
+
 ### MCP marketplace
 A discoverable directory of MCP servers that users can browse and install from within SideCar. Show descriptions, install counts, and one-click setup. Could pull from a curated list or a community registry.
 
@@ -157,6 +166,9 @@ Paste a URL in chat and SideCar fetches the page content (docs, Stack Overflow a
 ---
 
 ## Developer Experience
+
+### Agent run debugger / replay
+When an agent loop produces unexpected results, there's no way to inspect why. Add a replay mode that records the full agent trace (prompts, tool calls, tool results, model responses, branching decisions) and lets the user step through it after the fact. Render as a timeline with expandable steps showing input/output at each turn. Supports pause-and-inspect during live runs too. Essential for debugging complex multi-step agent workflows and for contributors working on the agent loop itself.
 
 ### Codebase map
 Generate a visual or textual overview of the entire codebase structure — files, modules, dependencies, entry points. Helps the model orient in large projects and gives users a bird's-eye view. Could render as a tree, graph, or markdown summary.

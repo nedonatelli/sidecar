@@ -1247,6 +1247,7 @@
     div.className = 'message ' + role + (isError ? ' error' : '');
     if (role === 'assistant' && !isError) {
       div.appendChild(renderContent(content, window.currentModelSupportsTools));
+      postProcessMarkdown(div);
     } else {
       div.textContent = content;
     }
@@ -1274,6 +1275,15 @@
 
   function startAssistantMessage() {
     currentAssistantText = '';
+    lastRenderedLen = 0;
+    if (renderTimer) {
+      clearTimeout(renderTimer);
+      renderTimer = null;
+    }
+    if (streamingSpan && streamingSpan.parentNode) {
+      streamingSpan.remove();
+    }
+    streamingSpan = null;
     currentAssistantDiv = document.createElement('div');
     currentAssistantDiv.className = 'message assistant';
     messagesContainer.appendChild(currentAssistantDiv);
@@ -1372,7 +1382,7 @@
     // Render with markdown so bold, lists, etc. display correctly while streaming
     if (pendingText) {
       if (!streamingSpan || !streamingSpan.parentNode) {
-        streamingSpan = document.createElement('span');
+        streamingSpan = document.createElement('div');
         streamingSpan.className = 'streaming-text';
       }
       streamingSpan.innerHTML = '';
@@ -1418,21 +1428,115 @@
 
     if (currentAssistantDiv && currentAssistantText) {
       // Final full render to ensure complete content with all buttons
-      currentAssistantDiv.innerHTML = '';
-      currentAssistantDiv.appendChild(renderContent(currentAssistantText, window.currentModelSupportsTools));
+      try {
+        currentAssistantDiv.innerHTML = '';
+        currentAssistantDiv.appendChild(renderContent(currentAssistantText, window.currentModelSupportsTools));
+      } catch (err) {
+        console.error('SideCar: finishAssistantMessage render failed:', err);
+        // Fallback: show raw text rather than losing the content
+        currentAssistantDiv.innerHTML = '';
+        const fallback = document.createElement('p');
+        fallback.textContent = currentAssistantText;
+        currentAssistantDiv.appendChild(fallback);
+      }
+      // Post-processing pass: fix any un-rendered markdown in text nodes
+      postProcessMarkdown(currentAssistantDiv);
     }
     currentAssistantDiv = null;
     currentAssistantText = '';
     lastRenderedLen = 0;
   }
 
+  /**
+   * Post-processing pass: walk the DOM and fix text nodes that still contain
+   * raw markdown syntax (**, `, ~~) that the primary renderer failed to convert.
+   * Uses simple string splitting (no regex) as an independent fallback.
+   */
+  function postProcessMarkdown(root) {
+    // Collect all text nodes (skip code blocks and pre elements)
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode: (node) => {
+        const parent = node.parentNode;
+        if (!parent) return NodeFilter.FILTER_REJECT;
+        const tag = parent.tagName;
+        if (tag === 'CODE' || tag === 'PRE' || tag === 'STRONG' || tag === 'EM' || tag === 'DEL')
+          return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    });
+
+    const textNodes = [];
+    let n;
+    while ((n = walker.nextNode())) textNodes.push(n);
+
+    for (const textNode of textNodes) {
+      const text = textNode.textContent;
+      if (!text) continue;
+
+      // Check for un-rendered bold (**text**)
+      if (text.indexOf('**') === -1) continue;
+
+      const parts = text.split('**');
+      // Need at least 3 parts (text before, bold content, text after) for a valid bold pair
+      if (parts.length < 3) continue;
+
+      const fragment = document.createDocumentFragment();
+      for (let i = 0; i < parts.length; i++) {
+        if (i % 2 === 0) {
+          // Even indices: plain text
+          if (parts[i]) {
+            // Process inline code within plain text
+            processInlineCode(fragment, parts[i]);
+          }
+        } else {
+          // Odd indices: bold text
+          const strong = document.createElement('strong');
+          strong.textContent = parts[i];
+          fragment.appendChild(strong);
+        }
+      }
+      textNode.parentNode.replaceChild(fragment, textNode);
+    }
+  }
+
+  /** Helper: process backtick-delimited inline code within a text segment */
+  function processInlineCode(parent, text) {
+    if (text.indexOf('`') === -1) {
+      parent.appendChild(document.createTextNode(text));
+      return;
+    }
+    const parts = text.split('`');
+    for (let i = 0; i < parts.length; i++) {
+      if (i % 2 === 0) {
+        if (parts[i]) parent.appendChild(document.createTextNode(parts[i]));
+      } else {
+        const code = document.createElement('code');
+        code.textContent = parts[i];
+        parent.appendChild(code);
+      }
+    }
+  }
+
   function showTypingIndicator() {
     const div = document.createElement('div');
     div.className = 'message assistant typing-indicator';
     div.id = 'typing';
-    div.innerHTML = '<span></span><span></span><span></span>';
+    const dots = document.createElement('div');
+    dots.className = 'typing-dots';
+    dots.innerHTML = '<span></span><span></span><span></span>';
+    div.appendChild(dots);
+    const status = document.createElement('div');
+    status.className = 'typing-status';
+    status.id = 'typing-status';
+    status.textContent = 'Connecting to model...';
+    div.appendChild(status);
     messagesContainer.appendChild(div);
     scrollToBottom();
+  }
+
+  function updateTypingStatus(text) {
+    const status = document.getElementById('typing-status');
+    if (status) status.textContent = text;
   }
 
   function removeTypingIndicator() {
@@ -1691,6 +1795,7 @@
         break;
 
       case 'assistantMessage':
+        updateTypingStatus('Generating response...');
         if (!currentAssistantDiv) {
           removeTypingIndicator();
           startAssistantMessage();
@@ -1708,6 +1813,7 @@
       case 'agentProgress': {
         const progressEl = document.getElementById('agent-progress');
         if (progressEl && msg.iteration != null) {
+          updateTypingStatus(`Agent step ${msg.iteration}/${msg.maxIterations}...`);
           const stepEl = document.getElementById('progress-step');
           const timeEl = document.getElementById('progress-time');
           const tokensEl = document.getElementById('progress-tokens');
@@ -1840,6 +1946,7 @@
         break;
 
       case 'thinking': {
+        updateTypingStatus('Reasoning...');
         let thinkingEl = document.getElementById('current-thinking');
         if (!thinkingEl) {
           const details = document.createElement('details');
@@ -1927,6 +2034,7 @@
         const toolName = event.data.toolName || (content || '').split('(')[0];
         const toolCallId = event.data.toolCallId || '';
         const displayName = formatToolName(toolName);
+        updateTypingStatus('Running tool: ' + displayName + '...');
         const toolDetail = formatToolDetail(toolName, content || '');
 
         const details = document.createElement('details');
@@ -1980,6 +2088,7 @@
       }
 
       case 'toolResult': {
+        updateTypingStatus('Processing tool result...');
         const resultToolId = event.data.toolCallId;
         const resultToolName = event.data.toolName || '';
         const text = content || '';
@@ -2161,6 +2270,15 @@
         removeTypingIndicator();
         const progressErr = document.getElementById('agent-progress');
         if (progressErr) progressErr.classList.add('hidden');
+        if (renderTimer) {
+          clearTimeout(renderTimer);
+          renderTimer = null;
+        }
+        if (streamingSpan && streamingSpan.parentNode) {
+          streamingSpan.remove();
+        }
+        streamingSpan = null;
+        lastRenderedLen = 0;
         if (currentAssistantDiv) {
           currentAssistantDiv.remove();
           currentAssistantDiv = null;

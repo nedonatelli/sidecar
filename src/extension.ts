@@ -85,6 +85,30 @@ export function activate(context: ExtensionContext) {
       });
   }
 
+  // Pre-warm: load the configured model into Ollama's memory so the first
+  // chat message doesn't wait for a cold start.  Runs in the background and
+  // fails silently — it's a best-effort optimisation.
+  if (isLocalOllama(config.baseUrl)) {
+    setImmediate(() => {
+      const warmUrl = `${config.baseUrl}/api/generate`;
+      fetch(warmUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: config.model, prompt: '', keep_alive: '10m' }),
+      })
+        .then((res) => {
+          if (res.ok) {
+            console.log(`[SideCar] Pre-warmed model: ${config.model}`);
+          } else {
+            console.warn(`[SideCar] Pre-warm failed (${res.status}) for ${config.model}`);
+          }
+        })
+        .catch((err) => {
+          console.warn('[SideCar] Pre-warm skipped — Ollama may not be running:', err.message);
+        });
+    });
+  }
+
   chatProvider = new ChatViewProvider(
     context,
     terminalManager,

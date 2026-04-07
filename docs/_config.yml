@@ -19,6 +19,10 @@ heading_anchors: true
 
 footer_content: "SideCar is an independent project by Nicholas Donatelli. MIT License."
 
+# Custom CSS overlay — matches SideCar logo gradient palette
+head_extra: |
+  <link rel="stylesheet" href="/sidecar/assets/css/custom.css">
+
 exclude:
   - node_modules/
   - dist/

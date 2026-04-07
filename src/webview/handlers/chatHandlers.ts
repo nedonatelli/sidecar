@@ -147,9 +147,13 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     // Use a compact prompt for local models (smaller context windows) and
     // a more detailed one for cloud APIs with larger context budgets.
     const isLocal = state.client.isLocalOllama();
+    const pkg = state.context.extension?.packageJSON || {};
+    const extensionVersion = pkg.version || 'unknown';
+    const repoUrl = pkg.repository?.url || 'https://github.com/nedonatelli/sidecar';
+    const docsUrl = 'https://nedonatelli.github.io/sidecar/';
     let systemPrompt = isLocal
-      ? `You are SideCar, an AI coding assistant in VS Code. Project root: ${getWorkspaceRoot()}\nUse tools only when asked to act (create, edit, fix, run, test). For questions, respond with text. Use relative paths. After edits, check diagnostics. Be concise.`
-      : `You are SideCar, an AI coding assistant running inside VS Code.\nProject root: ${getWorkspaceRoot()}\n\nIMPORTANT: Only use tools when the user asks you to take an action (create, edit, fix, run, test, etc.). If the user asks a question, explains something, or wants a conversation, respond directly with text — do NOT invoke tools. Not every message requires tool use.\n\nYou have tools to read, write, edit, and search files, run shell commands, check diagnostics, and run tests. When you do use tools, use relative paths from the project root. After editing files, use get_diagnostics to check for errors. When fixing bugs or adding features, use run_tests to verify your changes pass. Keep responses concise.`;
+      ? `You are SideCar v${extensionVersion}, an AI coding assistant in VS Code. GitHub: ${repoUrl} | Docs: ${docsUrl}\nProject root: ${getWorkspaceRoot()}\nUse tools only when asked to act (create, edit, fix, run, test). For questions, respond with text. Use relative paths. After edits, check diagnostics. Be concise.`
+      : `You are SideCar v${extensionVersion}, an AI coding assistant running inside VS Code. GitHub: ${repoUrl} | Docs: ${docsUrl}\nProject root: ${getWorkspaceRoot()}\n\nIMPORTANT: Only use tools when the user asks you to take an action (create, edit, fix, run, test, etc.). If the user asks a question, explains something, or wants a conversation, respond directly with text — do NOT invoke tools. Not every message requires tool use.\n\nYou have tools to read, write, edit, and search files, run shell commands, check diagnostics, and run tests. When you do use tools, use relative paths from the project root. After editing files, use get_diagnostics to check for errors. When fixing bugs or adding features, use run_tests to verify your changes pass. Keep responses concise.`;
 
     // Append SIDECAR.md and user prompt with size limits to prevent context overflow.
     // Reserve at least 50% of context for conversation and tool results.
@@ -727,7 +731,11 @@ export function handleAcceptAllChanges(state: ChatState): void {
 export async function handleShowSystemPrompt(state: ChatState): Promise<void> {
   const config = getConfig();
 
-  let systemPrompt = `You are SideCar, an AI coding assistant running inside VS Code.\nProject root: ${getWorkspaceRoot()}\n\n(Use /verbose to see the full prompt sent during agent runs)`;
+  const pkg = state.context.extension?.packageJSON || {};
+  const extensionVersion = pkg.version || 'unknown';
+  const repoUrl = pkg.repository?.url || 'https://github.com/nedonatelli/sidecar';
+  const docsUrl = 'https://nedonatelli.github.io/sidecar/';
+  let systemPrompt = `You are SideCar v${extensionVersion}, an AI coding assistant running inside VS Code. GitHub: ${repoUrl} | Docs: ${docsUrl}\nProject root: ${getWorkspaceRoot()}\n\n(Use /verbose to see the full prompt sent during agent runs)`;
 
   const sidecarMd = await loadSidecarMd();
   if (sidecarMd) {

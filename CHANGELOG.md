@@ -2,6 +2,27 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.27.0] - 2026-04-07
+
+### Added
+- **Model pre-warm**: on activation, SideCar sends an empty request to Ollama to load the configured model into memory, eliminating the cold-start delay on the first chat message
+- **Typing status line**: the typing indicator now shows a descriptive status below the bouncing dots — "Connecting to model...", "Reasoning...", "Generating response...", "Running tool: Read File...", "Agent step 2/10...", etc.
+- **Version and links in system prompt**: SideCar now tells the model its own version, GitHub repo URL, and documentation URL so it can answer user questions about itself
+- **Roadmap additions**: large file & monorepo handling, agent action audit log, extension/plugin API, agent run debugger/replay
+
+### Fixed
+- **Scroll truncation**: added `min-height: 0` to the messages container to fix a flexbox bug where the scrollbar was cut off when scrolling up
+- **Streaming renderer stale state**: `startAssistantMessage` now resets `lastRenderedLen`, `renderTimer`, and `streamingSpan` to prevent stale state from a previous message or error breaking the next render
+- **Invalid HTML in streaming span**: changed the streaming container from `<span>` to `<div>` — block elements (`<h3>`, `<p>`, `<ol>`) inside inline elements caused browser rendering quirks
+- **Error handler cleanup**: the error handler now properly resets all streaming state (`lastRenderedLen`, `renderTimer`, `streamingSpan`) to prevent cascading render failures
+- **Markdown post-processing**: added a DOM post-processing pass that catches un-rendered `**bold**` and `` `code` `` in text nodes using simple string splitting as an independent fallback
+- **Silent render failures**: `finishAssistantMessage` is now wrapped in try-catch with a plaintext fallback so rendering errors don't silently lose message content
+
+### Changed
+- **Assistant message CSS**: `.message.assistant` now uses `white-space: normal` instead of inheriting `pre-wrap` from `.message`, since the markdown renderer handles line breaks via DOM elements. Block elements inside messages get explicit `white-space: normal` and `display: block`
+- **Explicit inline markdown styles**: added CSS rules for `.message strong`, `.message em`, `.message del` to ensure bold, italic, and strikethrough render visibly regardless of inherited styles
+- **Docs site redesign**: new custom CSS theme matching the SideCar logo gradient palette (coral → peach → sky blue → steel blue), animated hero section with floating logo, feature card grid, and themed tables/code blocks/nav
+
 ## [0.26.0] - 2026-04-07
 
 ### Fixed
