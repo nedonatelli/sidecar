@@ -2,6 +2,11 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.24.1] - 2026-04-07
+
+### Fixed
+- **Block markdown infinite loop**: lines with `\r\n` endings caused `appendBlockMarkdown` to loop forever — heading regex failed (JS `.` doesn't match `\r`) but the line was still excluded from paragraph collection, so `i` never advanced. Fixed by normalizing `\r\n` → `\n` before parsing and adding a fallback that always advances the line index
+
 ## [0.24.0] - 2026-04-07
 
 ### Added
