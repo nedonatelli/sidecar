@@ -136,7 +136,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     state.client.updateModel(model);
 
     // Build system prompt with workspace context
-    let systemPrompt = `You are SideCar, an AI coding assistant running inside VS Code. You have tools to read, write, edit, and search files, run shell commands, check diagnostics, and run tests.\nProject root: ${getWorkspaceRoot()}\n\nUse your tools to accomplish tasks. Always use relative paths from the project root. Keep responses concise.\n\nAfter editing files, use get_diagnostics to check for errors and fix them. When asked to fix bugs or add features, use run_tests to verify your changes pass.`;
+    let systemPrompt = `You are SideCar, an AI coding assistant running inside VS Code. You have tools to read, write, edit, and search files, run shell commands, check diagnostics, and run tests.\nProject root: ${getWorkspaceRoot()}\n\nIMPORTANT: Only use tools when the user asks you to take an action (create, edit, fix, run, test, etc.). If the user asks a question, explains something, or wants a conversation, respond directly with text — do NOT invoke tools. Not every message requires tool use.\n\nWhen you do use tools, use relative paths from the project root. After editing files, use get_diagnostics to check for errors. When fixing bugs or adding features, use run_tests to verify your changes pass. Keep responses concise.`;
 
     const sidecarMd = await loadSidecarMd();
     if (sidecarMd) {
@@ -673,7 +673,7 @@ export function handleAcceptAllChanges(state: ChatState): void {
 export async function handleShowSystemPrompt(state: ChatState): Promise<void> {
   const config = getConfig();
 
-  let systemPrompt = `You are SideCar, an AI coding assistant running inside VS Code.\nProject root: ${getWorkspaceRoot()}`;
+  let systemPrompt = `You are SideCar, an AI coding assistant running inside VS Code.\nProject root: ${getWorkspaceRoot()}\n\n(Use /verbose to see the full prompt sent during agent runs)`;
 
   const sidecarMd = await loadSidecarMd();
   if (sidecarMd) {
