@@ -95,6 +95,18 @@ export class ChatState {
   }
 
   /**
+   * Auto-resolve all pending confirmation prompts with the given choice.
+   * Used when switching to autonomous mode so the agent isn't left blocked.
+   */
+  resolveAllConfirms(choice: string): void {
+    for (const [id, resolve] of this.pendingConfirms) {
+      resolve(choice);
+      this.postMessage({ command: 'dismissConfirm', confirmId: id });
+    }
+    this.pendingConfirms.clear();
+  }
+
+  /**
    * Auto-save the current conversation to the session store.
    * Creates a new session on first save, updates in place after that.
    * Skips if the conversation is empty.

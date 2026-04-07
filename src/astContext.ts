@@ -164,18 +164,14 @@ export class SimpleCodeAnalyzer {
     // Get the lines that contain relevant elements
     const relevantLines = new Set<number>();
 
+    const lines = parsedFile.content.split('\n');
+
     for (const element of relevantElements) {
       // Include a few lines before and after the element
-      for (
-        let i = Math.max(0, element.startLine - 2);
-        i <= Math.min(element.endLine + 2, parsedFile.content.split('\n').length - 1);
-        i++
-      ) {
+      for (let i = Math.max(0, element.startLine - 2); i <= Math.min(element.endLine + 2, lines.length - 1); i++) {
         relevantLines.add(i);
       }
     }
-
-    const lines = parsedFile.content.split('\n');
     const relevantContent = Array.from(relevantLines)
       .sort((a, b) => a - b)
       .map((lineIndex) => lines[lineIndex])
@@ -224,8 +220,8 @@ export class SmartWorkspaceIndex {
    * Get relevant context with smart code element selection
    */
   async getSmartContext(query: string, activeFilePath?: string, _maxElementsPerFile = 3): Promise<string> {
-    // This is a stub implementation - in a full implementation this would
-    // use the workspace index to provide smart context selection
+    // TODO: Integrate with WorkspaceIndex to provide AST-aware context selection.
+    // This should replace full-file inclusion with targeted function/class extraction.
     return '';
   }
 

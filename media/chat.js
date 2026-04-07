@@ -1558,6 +1558,8 @@
         finishAssistantMessage();
         const confirmCard = document.createElement('div');
         confirmCard.className = 'confirm-card';
+        const confirmId = event.data.confirmId;
+        confirmCard.dataset.confirmId = confirmId;
         const confirmMsg = document.createElement('div');
         confirmMsg.className = 'confirm-message';
         confirmMsg.textContent = content || 'Confirm action?';
@@ -1565,7 +1567,6 @@
         const confirmActions = document.createElement('div');
         confirmActions.className = 'confirm-actions';
         const actions = event.data.confirmActions || ['Allow', 'Deny'];
-        const confirmId = event.data.confirmId;
         for (const label of actions) {
           const btn = document.createElement('button');
           btn.className = 'confirm-btn' + (label === actions[0] ? ' confirm-primary' : '');
@@ -1579,6 +1580,13 @@
         confirmCard.appendChild(confirmActions);
         messagesContainer.appendChild(confirmCard);
         scrollToBottom();
+        break;
+      }
+
+      case 'dismissConfirm': {
+        const id = event.data.confirmId;
+        const card = document.querySelector(`.confirm-card[data-confirm-id="${id}"]`);
+        if (card) card.remove();
         break;
       }
 

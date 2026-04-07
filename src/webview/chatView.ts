@@ -146,8 +146,12 @@ export class ChatViewProvider implements WebviewViewProvider {
         workspace.getConfiguration('sidecar').update('model', msg.model, true);
         break;
       case 'changeAgentMode':
-        workspace.getConfiguration('sidecar').update('agentMode', msg.agentMode, true);
+        await workspace.getConfiguration('sidecar').update('agentMode', msg.agentMode, true);
         this.postMessage({ command: 'setAgentMode', agentMode: msg.agentMode });
+        // Auto-resolve any pending confirmation prompts when switching to autonomous
+        if (msg.agentMode === 'autonomous') {
+          this.state.resolveAllConfirms('Allow');
+        }
         break;
       case 'confirmResponse':
         this.state.resolveConfirm(msg.confirmId || '', msg.confirmed ? msg.text : undefined);

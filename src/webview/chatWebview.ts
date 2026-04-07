@@ -101,6 +101,7 @@ export interface ExtensionMessage {
     | 'sessionList'
     | 'agentProgress'
     | 'confirm'
+    | 'dismissConfirm'
     | 'changeSummary'
     | 'verboseLog';
   agentMode?: string;
