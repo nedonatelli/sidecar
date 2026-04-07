@@ -16,10 +16,10 @@ import { spawnSubAgent } from './subagent.js';
 export interface AgentCallbacks {
   onText: (text: string) => void;
   onThinking?: (thinking: string) => void;
-  onToolCall: (name: string, input: Record<string, unknown>) => void;
-  onToolResult: (name: string, result: string, isError: boolean) => void;
+  onToolCall: (name: string, input: Record<string, unknown>, id: string) => void;
+  onToolResult: (name: string, result: string, isError: boolean, id: string) => void;
   /** Streaming output from long-running tools (e.g., shell commands). */
-  onToolOutput?: (name: string, chunk: string) => void;
+  onToolOutput?: (name: string, chunk: string, id?: string) => void;
   onPlanGenerated?: (plan: string) => void;
   onIterationStart?: (iteration: number, maxIterations: number, elapsedMs: number, estimatedTokens: number) => void;
   onDone: () => void;
@@ -114,7 +114,7 @@ export async function runAgentLoop(
         case 'tool_use':
           pendingToolUses.push(event.toolUse);
           logger?.logToolCall(event.toolUse.name, event.toolUse.input);
-          callbacks.onToolCall(event.toolUse.name, event.toolUse.input);
+          callbacks.onToolCall(event.toolUse.name, event.toolUse.input, event.toolUse.id);
           break;
         case 'stop':
           stopReason = event.stopReason;
@@ -134,7 +134,7 @@ export async function runAgentLoop(
       for (const tu of parsed) {
         pendingToolUses.push(tu);
         logger?.logToolCall(tu.name, tu.input);
-        callbacks.onToolCall(tu.name, tu.input);
+        callbacks.onToolCall(tu.name, tu.input, tu.id);
       }
       if (parsed.length > 0) {
         stopReason = 'tool_use';
@@ -198,12 +198,12 @@ export async function runAgentLoop(
           options.confirmFn,
           options.diffPreviewFn,
           {
-            onOutput: (chunk) => callbacks.onToolOutput?.(toolUse.name, chunk),
+            onOutput: (chunk) => callbacks.onToolOutput?.(toolUse.name, chunk, toolUse.id),
             signal,
           },
         );
         logger?.logToolResult(toolUse.name, result.content, result.is_error || false);
-        callbacks.onToolResult(toolUse.name, result.content, result.is_error || false);
+        callbacks.onToolResult(toolUse.name, result.content, result.is_error || false, toolUse.id);
         return result;
       });
 
@@ -224,7 +224,7 @@ export async function runAgentLoop(
             is_error: true,
           });
           logger?.warn(`Tool ${pendingToolUses[idx].name} threw: ${errMsg}`);
-          callbacks.onToolResult(pendingToolUses[idx].name, `Internal error: ${errMsg}`, true);
+          callbacks.onToolResult(pendingToolUses[idx].name, `Internal error: ${errMsg}`, true, pendingToolUses[idx].id);
         }
       }
 

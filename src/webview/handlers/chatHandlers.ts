@@ -289,14 +289,14 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
         onThinking: (thinking) => {
           state.postMessage({ command: 'thinking', content: thinking });
         },
-        onToolCall: (name, input) => {
+        onToolCall: (name, input, id) => {
           const summary = Object.entries(input)
             .map(([k, v]) => {
               const val = typeof v === 'string' && v.length > 60 ? v.slice(0, 60) + '...' : String(v);
               return `${k}: ${val}`;
             })
             .join(', ');
-          state.postMessage({ command: 'toolCall', toolName: name, content: `${name}(${summary})` });
+          state.postMessage({ command: 'toolCall', toolName: name, toolCallId: id, content: `${name}(${summary})` });
           state.metricsCollector.recordToolStart();
           // Verbose: explain tool selection
           if (verbose) {
@@ -310,13 +310,13 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
             }
           }
         },
-        onToolResult: (name, result, isError) => {
+        onToolResult: (name, result, isError, id) => {
           const preview = result.length > 200 ? result.slice(0, 200) + '...' : result;
-          state.postMessage({ command: 'toolResult', content: `${name}: ${isError ? '✗ ' : '✓ '}${preview}` });
+          state.postMessage({ command: 'toolResult', toolName: name, toolCallId: id, content: preview });
           state.metricsCollector.recordToolEnd(name, isError);
         },
-        onToolOutput: (name, chunk) => {
-          state.postMessage({ command: 'toolOutput', content: chunk, toolName: name });
+        onToolOutput: (name, chunk, id) => {
+          state.postMessage({ command: 'toolOutput', content: chunk, toolName: name, toolCallId: id });
         },
         onIterationStart: (iteration, maxIterations, elapsedMs, estimatedTokens) => {
           state.postMessage({

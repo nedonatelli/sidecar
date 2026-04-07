@@ -1026,27 +1026,65 @@
         continue;
       }
 
-      // Bullet list: - or * at start (collect consecutive list items)
+      // Bullet list: - or * at start (collect consecutive list items, allow blank lines between)
       if (/^\s*[-*]\s+/.test(line)) {
         const ul = document.createElement('ul');
-        while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
-          const li = document.createElement('li');
-          appendInlineMarkdown(li, lines[i].replace(/^\s*[-*]\s+/, ''));
-          ul.appendChild(li);
-          i++;
+        while (i < lines.length) {
+          if (/^\s*[-*]\s+/.test(lines[i])) {
+            const li = document.createElement('li');
+            // Collect continuation lines (non-empty lines that aren't a new list item)
+            let itemText = lines[i].replace(/^\s*[-*]\s+/, '');
+            i++;
+            while (
+              i < lines.length &&
+              lines[i].trim() !== '' &&
+              !/^\s*[-*]\s+/.test(lines[i]) &&
+              !/^\s*\d+\.\s+/.test(lines[i]) &&
+              !/^#{1,4}\s+/.test(lines[i])
+            ) {
+              itemText += ' ' + lines[i].trim();
+              i++;
+            }
+            appendInlineMarkdown(li, itemText);
+            ul.appendChild(li);
+          } else if (lines[i].trim() === '' && i + 1 < lines.length && /^\s*[-*]\s+/.test(lines[i + 1])) {
+            // Skip blank line between list items
+            i++;
+          } else {
+            break;
+          }
         }
         parent.appendChild(ul);
         continue;
       }
 
-      // Numbered list: 1. 2. etc (collect consecutive items)
+      // Numbered list: 1. 2. etc (collect consecutive items, allow blank lines between)
       if (/^\s*\d+\.\s+/.test(line)) {
         const ol = document.createElement('ol');
-        while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) {
-          const li = document.createElement('li');
-          appendInlineMarkdown(li, lines[i].replace(/^\s*\d+\.\s+/, ''));
-          ol.appendChild(li);
-          i++;
+        while (i < lines.length) {
+          if (/^\s*\d+\.\s+/.test(lines[i])) {
+            const li = document.createElement('li');
+            // Collect continuation lines (non-empty lines that aren't a new list item)
+            let itemText = lines[i].replace(/^\s*\d+\.\s+/, '');
+            i++;
+            while (
+              i < lines.length &&
+              lines[i].trim() !== '' &&
+              !/^\s*\d+\.\s+/.test(lines[i]) &&
+              !/^\s*[-*]\s+/.test(lines[i]) &&
+              !/^#{1,4}\s+/.test(lines[i])
+            ) {
+              itemText += ' ' + lines[i].trim();
+              i++;
+            }
+            appendInlineMarkdown(li, itemText);
+            ol.appendChild(li);
+          } else if (lines[i].trim() === '' && i + 1 < lines.length && /^\s*\d+\.\s+/.test(lines[i + 1])) {
+            // Skip blank line between numbered list items
+            i++;
+          } else {
+            break;
+          }
         }
         parent.appendChild(ol);
         continue;
@@ -1325,12 +1363,14 @@
     }
 
     // Update or create the streaming span for pending (in-progress) text
+    // Render with markdown so bold, lists, etc. display correctly while streaming
     if (pendingText) {
       if (!streamingSpan || !streamingSpan.parentNode) {
         streamingSpan = document.createElement('span');
         streamingSpan.className = 'streaming-text';
       }
-      streamingSpan.textContent = pendingText;
+      streamingSpan.innerHTML = '';
+      appendBlockMarkdown(streamingSpan, pendingText);
       if (!streamingSpan.parentNode) {
         currentAssistantDiv.appendChild(streamingSpan);
       }
@@ -1877,12 +1917,13 @@
         finishAssistantMessage();
 
         const toolName = event.data.toolName || (content || '').split('(')[0];
+        const toolCallId = event.data.toolCallId || '';
         const displayName = formatToolName(toolName);
         const toolDetail = formatToolDetail(toolName, content || '');
 
         const details = document.createElement('details');
         details.className = 'tool-call running';
-        details.id = 'active-tool';
+        if (toolCallId) details.setAttribute('data-tool-id', toolCallId);
         const summary = document.createElement('summary');
         summary.innerHTML = '';
         const iconSpan = document.createElement('span');
@@ -1913,8 +1954,11 @@
       }
 
       case 'toolOutput': {
-        // Stream output into the active tool call body
-        const activeToolForOutput = document.getElementById('active-tool');
+        // Stream output into the matching tool call body (by ID or last running)
+        const toolIdForOutput = event.data.toolCallId;
+        const activeToolForOutput = toolIdForOutput
+          ? document.querySelector('.tool-call[data-tool-id="' + toolIdForOutput + '"]')
+          : document.querySelector('.tool-call.running:last-of-type');
         if (activeToolForOutput) {
           const body = activeToolForOutput.querySelector('.tool-call-body');
           if (body) {
@@ -1928,37 +1972,57 @@
       }
 
       case 'toolResult': {
-        // Mark active tool call as complete and remove spinner
-        const activeTool = document.getElementById('active-tool');
-        if (activeTool) {
-          activeTool.classList.remove('running');
-          activeTool.removeAttribute('id');
-          const spinner = activeTool.querySelector('.tool-spinner');
-          if (spinner) spinner.remove();
-        }
+        const resultToolId = event.data.toolCallId;
+        const resultToolName = event.data.toolName || '';
         const text = content || '';
         const isError = text.startsWith('\u2717') || text.includes('Error');
 
-        // For successful results, just update the active tool call with result info.
-        // For errors or when there's no active tool, show a separate result block.
-        if (activeTool && !isError) {
+        // Find the matching tool call element by ID, or fall back to last running
+        const matchedTool = resultToolId
+          ? document.querySelector('.tool-call[data-tool-id="' + resultToolId + '"]')
+          : document.querySelector('.tool-call.running:last-of-type');
+
+        if (matchedTool) {
+          matchedTool.classList.remove('running');
+          const spinner = matchedTool.querySelector('.tool-spinner');
+          if (spinner) spinner.remove();
+
+          // Add success/error badge
           const resultBadge = document.createElement('span');
-          resultBadge.className = 'tool-result-badge success';
-          resultBadge.textContent = '\u2713';
-          const activeSummary = activeTool.querySelector('summary');
-          if (activeSummary) activeSummary.appendChild(resultBadge);
+          resultBadge.className = 'tool-result-badge ' + (isError ? 'error' : 'success');
+          resultBadge.textContent = isError ? '\u2717' : '\u2713';
+          const matchedSummary = matchedTool.querySelector('summary');
+          if (matchedSummary) matchedSummary.appendChild(resultBadge);
+
           // Append result output to the tool call body
-          const activeBody = activeTool.querySelector('.tool-call-body');
-          if (activeBody && text) {
-            activeBody.textContent += '\n' + text;
+          if (text) {
+            const matchedBody = matchedTool.querySelector('.tool-call-body');
+            if (matchedBody) {
+              matchedBody.textContent += '\n' + text;
+            }
+          }
+
+          if (isError) {
+            matchedTool.classList.add('error');
           }
         } else {
+          // No matching tool call found — show a standalone result block
           const details = document.createElement('details');
           details.className = 'tool-result' + (isError ? ' error' : '');
           const summary = document.createElement('summary');
-          const rawName = text.split(':')[0];
-          const cleanName = formatToolName(rawName.replace(/^[^\w]*/, '').trim());
-          summary.textContent = (isError ? '\u2717 ' : '\u2713 ') + cleanName;
+          const displayName = resultToolName ? formatToolName(resultToolName) : 'Tool';
+          const iconSpan = document.createElement('span');
+          iconSpan.className = 'tool-icon';
+          iconSpan.textContent = resultToolName ? getToolIcon(resultToolName) : '\u2699';
+          summary.appendChild(iconSpan);
+          const nameSpan = document.createElement('span');
+          nameSpan.className = 'tool-name';
+          nameSpan.textContent = displayName;
+          summary.appendChild(nameSpan);
+          const badge = document.createElement('span');
+          badge.className = 'tool-result-badge ' + (isError ? 'error' : 'success');
+          badge.textContent = isError ? '\u2717' : '\u2713';
+          summary.appendChild(badge);
           details.appendChild(summary);
           const body = document.createElement('pre');
           body.className = 'tool-result-body';

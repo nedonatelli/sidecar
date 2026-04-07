@@ -107,6 +107,7 @@ export interface ExtensionMessage {
     | 'verboseLog';
   agentMode?: string;
   toolName?: string;
+  toolCallId?: string;
   confirmId?: string;
   confirmActions?: string[];
   supportsTools?: boolean;

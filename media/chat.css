@@ -1213,6 +1213,14 @@ body {
   color: var(--vscode-charts-green, #4ec9b0);
 }
 
+.tool-result-badge.error {
+  color: var(--vscode-errorForeground, #f48771);
+}
+
+.tool-call.error {
+  border-left-color: var(--vscode-errorForeground, #f48771);
+}
+
 .tool-call-body,
 .tool-result-body {
   font-family: var(--vscode-editor-font-family, monospace);

@@ -45,13 +45,13 @@ export async function spawnSubAgent(
     onThinking: (thinking) => {
       options.logger?.debug(`[${id}] thinking: ${thinking.slice(0, 100)}`);
     },
-    onToolCall: (name, input) => {
+    onToolCall: (name, input, toolId) => {
       options.logger?.logToolCall(name, input);
-      parentCallbacks.onToolCall(name, input);
+      parentCallbacks.onToolCall(name, input, toolId);
     },
-    onToolResult: (name, result, isError) => {
+    onToolResult: (name, result, isError, toolId) => {
       options.logger?.logToolResult(name, result, isError);
-      parentCallbacks.onToolResult(name, result, isError);
+      parentCallbacks.onToolResult(name, result, isError, toolId);
     },
     onDone: () => {
       options.logger?.info(`Sub-agent ${id} completed`);
