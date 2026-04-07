@@ -2,7 +2,7 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
-## [Unreleased]
+## [0.26.0] - 2026-04-07
 
 ### Fixed
 - **Parallel tool call matching**: tool calls executed in parallel (e.g., multiple file reads) now correctly match results to their originating call via unique IDs. Previously a singleton `active-tool` element caused race conditions — results updated the wrong tool or created duplicate entries
