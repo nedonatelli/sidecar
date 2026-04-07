@@ -160,6 +160,29 @@ export class WorkspaceIndex implements Disposable {
           // This is where we'd implement the smart context selection
         }
 
+        // Try to extract relevant code elements for smarter context
+        const extName = path.extname(file.relativePath).toLowerCase();
+
+        // For JavaScript/TypeScript files, use smart parsing
+        if (extName === '.js' || extName === '.ts' || extName === '.jsx' || extName === '.tsx') {
+          const parsedFile = SimpleCodeAnalyzer.parseFileContent(file.relativePath, content);
+          // Store for potential future use
+          this.parsedFiles.set(file.relativePath, parsedFile);
+
+          // Extract relevant code elements based on the query
+          const relevantElements = SimpleCodeAnalyzer.findRelevantElements(parsedFile, query);
+          if (relevantElements.length > 0) {
+            // Use the extracted relevant content instead of full file content
+            const sectionContent = SimpleCodeAnalyzer.extractRelevantContent(parsedFile, relevantElements);
+            const section = `\n### ${file.relativePath}\n\`\`\`\n${sectionContent}\n\`\`\`\n`;
+
+            if (charCount + section.length > budget) continue;
+            parts.push(section);
+            charCount += section.length;
+            continue; // Skip the default content
+          }
+        }
+
         const section = `\n### ${file.relativePath}\n\`\`\`\n${content}\n\`\`\`\n`;
 
         if (charCount + section.length > budget) continue;
