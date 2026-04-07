@@ -308,6 +308,11 @@ export class OllamaBackend implements ApiBackend {
           }
         }
       }
+      // If stream ended inside an unclosed <think> tag, the content was already
+      // yielded as thinking events. Emit a note so the UI can finalize the block.
+      if (insideThinkTag) {
+        yield { type: 'thinking', thinking: '\n(end of reasoning)' };
+      }
     } finally {
       reader.releaseLock();
     }

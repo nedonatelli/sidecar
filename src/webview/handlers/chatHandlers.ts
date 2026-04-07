@@ -100,6 +100,13 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     state.messages.push({ role: 'user', content: text });
     state.saveHistory();
   }
+
+  // Guard against concurrent agent runs — abort the previous one first
+  if (state.abortController) {
+    state.abortController.abort();
+    state.abortController = null;
+  }
+
   state.postMessage({ command: 'setLoading', isLoading: true });
 
   state.abortController = new AbortController();
@@ -136,16 +143,30 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     state.client.updateModel(model);
 
     // Build system prompt with workspace context
-    let systemPrompt = `You are SideCar, an AI coding assistant running inside VS Code. You have tools to read, write, edit, and search files, run shell commands, check diagnostics, and run tests.\nProject root: ${getWorkspaceRoot()}\n\nIMPORTANT: Only use tools when the user asks you to take an action (create, edit, fix, run, test, etc.). If the user asks a question, explains something, or wants a conversation, respond directly with text — do NOT invoke tools. Not every message requires tool use.\n\nWhen you do use tools, use relative paths from the project root. After editing files, use get_diagnostics to check for errors. When fixing bugs or adding features, use run_tests to verify your changes pass. Keep responses concise.`;
+    let systemPrompt = `You are SideCar, an AI coding assistant running inside VS Code.\nProject root: ${getWorkspaceRoot()}\n\nIMPORTANT: Only use tools when the user asks you to take an action (create, edit, fix, run, test, etc.). If the user asks a question, explains something, or wants a conversation, respond directly with text — do NOT invoke tools. Not every message requires tool use.\n\nYou have tools to read, write, edit, and search files, run shell commands, check diagnostics, and run tests. When you do use tools, use relative paths from the project root. After editing files, use get_diagnostics to check for errors. When fixing bugs or adding features, use run_tests to verify your changes pass. Keep responses concise.`;
+
+    // Append SIDECAR.md and user prompt with size limits to prevent context overflow.
+    // Reserve at least 50% of context for conversation and tool results.
+    const contextLength = await state.client.getModelContextLength();
+    const maxSystemChars = contextLength ? Math.floor(contextLength * 4 * 0.5) : 80_000;
 
     const sidecarMd = await loadSidecarMd();
     if (sidecarMd) {
-      systemPrompt += `\n\nProject instructions (from SIDECAR.md):\n${sidecarMd}`;
+      const truncated =
+        sidecarMd.length > maxSystemChars - systemPrompt.length
+          ? sidecarMd.slice(0, maxSystemChars - systemPrompt.length - 100) + '\n... (SIDECAR.md truncated)'
+          : sidecarMd;
+      systemPrompt += `\n\nProject instructions (from SIDECAR.md):\n${truncated}`;
     }
 
     const userSystemPrompt = config.systemPrompt;
-    if (userSystemPrompt) {
-      systemPrompt += `\n\n${userSystemPrompt}`;
+    if (userSystemPrompt && systemPrompt.length < maxSystemChars) {
+      const remaining = maxSystemChars - systemPrompt.length;
+      const truncated =
+        userSystemPrompt.length > remaining
+          ? userSystemPrompt.slice(0, remaining - 50) + '\n... (system prompt truncated)'
+          : userSystemPrompt;
+      systemPrompt += `\n\n${truncated}`;
     }
 
     if (getWorkspaceEnabled()) {
@@ -203,10 +224,9 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     }
 
     // Warn if context may exceed the model's limit
-    const contextLength = await state.client.getModelContextLength();
     if (contextLength) {
       const totalChars = chatMessages.reduce((sum, m) => sum + getContentLength(m.content), 0);
-      const estimatedTokens = Math.ceil(totalChars / 3.5);
+      const estimatedTokens = Math.ceil(totalChars / 4);
       if (estimatedTokens > contextLength * 0.8) {
         state.postMessage({
           command: 'assistantMessage',
@@ -325,10 +345,13 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
       },
     );
 
-    state.messages = updatedMessages;
+    // Merge agent output with any messages added during the run (e.g., user sent
+    // a new message while the agent was working). The agent loop started with a
+    // snapshot of chatMessages — append any new messages the user added since then.
+    const newUserMessages = state.messages.slice(chatMessages.length);
+    state.messages = [...updatedMessages, ...newUserMessages];
     state.saveHistory();
     state.autoSave();
-    state.metricsCollector.endRun();
 
     // Send change summary if any files were modified
     if (state.changelog.hasChanges()) {
@@ -356,6 +379,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     const classified = classifyError(errorMessage);
     state.postMessage({ command: 'error', content: `Error: ${errorMessage}`, ...classified });
   } finally {
+    state.metricsCollector.endRun();
     state.abortController = null;
   }
 }

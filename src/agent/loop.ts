@@ -139,9 +139,11 @@ export async function runAgentLoop(
       }
     }
 
-    // Optimize tool execution by checking if we have any tools to execute
+    // If no tools to execute and no text, the model has nothing to do — stop.
+    // Previously this used `continue` which could loop infinitely when
+    // stripRepeatedContent emptied the response.
     if (pendingToolUses.length === 0) {
-      continue; // Skip tool execution if no tools to run
+      break;
     }
 
     // Build the assistant message content
@@ -202,6 +204,14 @@ export async function runAgentLoop(
       // Execute all tools in parallel
       const results = await Promise.all(executionPromises);
       toolResults.push(...results);
+
+      // Count tool call and result tokens toward the budget
+      for (const tu of pendingToolUses) {
+        totalChars += tu.name.length + JSON.stringify(tu.input).length;
+      }
+      for (const tr of toolResults) {
+        totalChars += tr.content.length;
+      }
 
       // Add tool results as a user message (Anthropic API format)
       agentMessages.push({
@@ -330,8 +340,8 @@ export function parseTextToolCalls(text: string, tools: ToolDefinition[]): ToolU
  * echoing stale content (e.g., commit summaries, status updates) that
  * got stuck in the conversation history.
  *
- * Only strips blocks of 100+ characters to avoid false positives on
- * short common phrases.
+ * Only strips blocks of 200+ characters to avoid false positives.
+ * Skips content inside code blocks (``` fences) to avoid breaking code examples.
  */
 export function stripRepeatedContent(text: string, messages: ChatMessage[]): string {
   // Collect text from previous assistant messages
@@ -351,15 +361,26 @@ export function stripRepeatedContent(text: string, messages: ChatMessage[]): str
 
   if (previousTexts.length === 0) return text;
 
+  // Extract code block positions so we don't strip content inside them
+  const codeBlockRanges: { start: number; end: number }[] = [];
+  const codeBlockRegex = /```[\s\S]*?```/g;
+  let cbMatch;
+  while ((cbMatch = codeBlockRegex.exec(text)) !== null) {
+    codeBlockRanges.push({ start: cbMatch.index, end: cbMatch.index + cbMatch[0].length });
+  }
+
+  const isInsideCodeBlock = (idx: number) => codeBlockRanges.some((r) => idx >= r.start && idx < r.end);
+
   let result = text;
   for (const prev of previousTexts) {
-    // Find substantial blocks (100+ chars) from previous messages that appear in the new text
-    // Split previous text into paragraphs and check each
-    const paragraphs = prev.split(/\n\n+/).filter((p) => p.trim().length >= 100);
+    // Find substantial blocks (200+ chars) from previous messages that appear in the new text
+    const paragraphs = prev.split(/\n\n+/).filter((p) => p.trim().length >= 200);
     for (const paragraph of paragraphs) {
       const trimmed = paragraph.trim();
-      if (result.includes(trimmed)) {
-        result = result.replace(trimmed, '').trim();
+      const idx = result.indexOf(trimmed);
+      if (idx !== -1 && !isInsideCodeBlock(idx)) {
+        result = result.slice(0, idx) + result.slice(idx + trimmed.length);
+        result = result.trim();
       }
     }
   }
