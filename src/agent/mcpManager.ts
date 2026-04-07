@@ -101,6 +101,8 @@ export class MCPManager {
   }
 
   dispose(): void {
-    this.disconnect();
+    this.disconnect().catch((err) => {
+      console.error('[SideCar] MCP disconnect error during dispose:', err);
+    });
   }
 }

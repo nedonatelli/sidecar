@@ -36,6 +36,7 @@ export class WorkspaceIndex implements Disposable {
   private maxContextChars: number;
   private fileContentCache = new LimitedCache<string, string>(100, 300000); // 100 items, 5 min TTL
   private parsedFiles = new LimitedCache<string, ParsedFile>(100, 300000);
+  private rebuildTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(maxContextChars = 20_000) {
     this.maxContextChars = maxContextChars;
@@ -80,7 +81,7 @@ export class WorkspaceIndex implements Disposable {
     this.rebuildTree();
     this.ready = true;
 
-    // Watch for file changes
+    // Watch for file changes — debounce rebuilds to avoid thrashing
     this.watcher = workspace.createFileSystemWatcher(new RelativePattern(rootUri, '**/*'));
     this.watcher.onDidCreate((uri) => {
       const rel = path.relative(rootPath, uri.fsPath);
@@ -89,7 +90,7 @@ export class WorkspaceIndex implements Disposable {
         (stat) => {
           if (stat.size <= MAX_FILE_SIZE) {
             this.files.set(rel, { relativePath: rel, sizeBytes: stat.size, relevanceScore: this.baseScore(rel) });
-            this.rebuildTree();
+            this.scheduleRebuild();
           }
         },
         () => {},
@@ -98,7 +99,7 @@ export class WorkspaceIndex implements Disposable {
     this.watcher.onDidDelete((uri) => {
       const rel = path.relative(rootPath, uri.fsPath);
       this.files.delete(rel);
-      this.rebuildTree();
+      this.scheduleRebuild();
     });
   }
 
@@ -229,6 +230,19 @@ export class WorkspaceIndex implements Disposable {
 
   dispose(): void {
     this.watcher?.dispose();
+    if (this.rebuildTimer) {
+      clearTimeout(this.rebuildTimer);
+      this.rebuildTimer = null;
+    }
+  }
+
+  /** Debounce tree rebuilds — coalesce rapid file changes into one rebuild. */
+  private scheduleRebuild(): void {
+    if (this.rebuildTimer) clearTimeout(this.rebuildTimer);
+    this.rebuildTimer = setTimeout(() => {
+      this.rebuildTimer = null;
+      this.rebuildTree();
+    }, 300);
   }
 
   private baseScore(relativePath: string): number {

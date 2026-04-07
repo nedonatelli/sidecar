@@ -3,6 +3,8 @@ export interface RetryOptions {
   maxAttempts?: number;
   /** Base delay in ms before first retry. Doubles each attempt. Default: 1000 */
   baseDelayMs?: number;
+  /** Maximum delay in ms (caps exponential backoff). Default: 30000 */
+  maxDelayMs?: number;
   /** HTTP status codes that should trigger a retry. Default: [429, 500, 502, 503, 504] */
   retryableStatuses?: number[];
 }
@@ -10,6 +12,7 @@ export interface RetryOptions {
 const DEFAULT_OPTIONS: Required<RetryOptions> = {
   maxAttempts: 3,
   baseDelayMs: 1000,
+  maxDelayMs: 30_000,
   retryableStatuses: [429, 500, 502, 503, 504],
 };
 
@@ -33,7 +36,7 @@ export async function fetchWithRetry(url: string, init: RequestInit, options?: R
       // Retryable status — compute delay
       if (attempt < opts.maxAttempts) {
         const retryAfter = parseRetryAfter(response.headers.get('retry-after'));
-        const backoff = retryAfter ?? opts.baseDelayMs * Math.pow(2, attempt - 1);
+        const backoff = Math.min(retryAfter ?? opts.baseDelayMs * Math.pow(2, attempt - 1), opts.maxDelayMs);
         await sleep(backoff, init.signal as AbortSignal | undefined);
         continue;
       }
@@ -49,7 +52,7 @@ export async function fetchWithRetry(url: string, init: RequestInit, options?: R
       lastError = err instanceof Error ? err : new Error(String(err));
 
       if (attempt < opts.maxAttempts) {
-        const backoff = opts.baseDelayMs * Math.pow(2, attempt - 1);
+        const backoff = Math.min(opts.baseDelayMs * Math.pow(2, attempt - 1), opts.maxDelayMs);
         await sleep(backoff, init.signal as AbortSignal | undefined);
         continue;
       }
