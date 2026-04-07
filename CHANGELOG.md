@@ -4,8 +4,13 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [0.24.1] - 2026-04-07
 
+### Added
+- **LimitedCache utility**: TTL-based cache with size limits for workspace and AST caches, replacing unbounded `Map` instances that could grow without limit
+
 ### Fixed
 - **Block markdown infinite loop**: lines with `\r\n` endings caused `appendBlockMarkdown` to loop forever — heading regex failed (JS `.` doesn't match `\r`) but the line was still excluded from paragraph collection, so `i` never advanced. Fixed by normalizing `\r\n` → `\n` before parsing and adding a fallback that always advances the line index
+- **Unbounded cache growth in workspace index**: file content and parsed AST caches used plain `Map` with no eviction — replaced with `LimitedCache` (100 entries, 5-minute TTL)
+- **Unbounded cache in SmartWorkspaceIndex**: parsed file cache had no size or TTL limits — replaced with `LimitedCache` (50 entries, 5-minute TTL)
 
 ## [0.24.0] - 2026-04-07
 

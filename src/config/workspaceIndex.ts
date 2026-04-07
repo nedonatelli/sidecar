@@ -1,6 +1,7 @@
 import { workspace, Uri, FileSystemWatcher, RelativePattern, Disposable } from 'vscode';
 import * as path from 'path';
 import { SimpleCodeAnalyzer, ParsedFile } from '../astContext.js';
+import { LimitedCache } from '../agent/memoryManager.js';
 
 const MAX_FILE_SIZE = 100 * 1024; // 100KB
 const MAX_CONTENT_LENGTH = 10_000; // 10K chars per file
@@ -33,8 +34,8 @@ export class WorkspaceIndex implements Disposable {
   private watcher: FileSystemWatcher | null = null;
   private ready = false;
   private maxContextChars: number;
-  private fileContentCache = new Map<string, string>(); // Cache for file contents
-  private parsedFiles = new Map<string, ParsedFile>(); // Cache for parsed file content
+  private fileContentCache = new LimitedCache<string, string>(100, 300000); // 100 items, 5 min TTL
+  private parsedFiles = new LimitedCache<string, ParsedFile>(100, 300000);
 
   constructor(maxContextChars = 20_000) {
     this.maxContextChars = maxContextChars;
@@ -138,17 +139,27 @@ export class WorkspaceIndex implements Disposable {
 
       try {
         const fileUri = Uri.joinPath(rootUri, file.relativePath);
-        const bytes = await workspace.fs.readFile(fileUri);
-        const content = Buffer.from(bytes).toString('utf-8').slice(0, MAX_CONTENT_LENGTH);
+        let content = this.fileContentCache.get(file.relativePath);
+
+        // Only read from disk if not cached
+        if (!content) {
+          const bytes = await workspace.fs.readFile(fileUri);
+          content = Buffer.from(bytes).toString('utf-8').slice(0, MAX_CONTENT_LENGTH);
+          this.fileContentCache.set(file.relativePath, content);
+        }
 
         // Try to extract relevant code elements for smarter context
         const extName = path.extname(file.relativePath).toLowerCase();
 
         // For JavaScript/TypeScript files, use smart parsing
         if (extName === '.js' || extName === '.ts' || extName === '.jsx' || extName === '.tsx') {
-          const parsedFile = SimpleCodeAnalyzer.parseFileContent(file.relativePath, content);
-          // Store for potential future use
-          this.parsedFiles.set(file.relativePath, parsedFile);
+          let parsedFile = this.parsedFiles.get(file.relativePath);
+
+          // Only parse if not cached
+          if (!parsedFile) {
+            parsedFile = SimpleCodeAnalyzer.parseFileContent(file.relativePath, content);
+            this.parsedFiles.set(file.relativePath, parsedFile);
+          }
 
           // Extract relevant code elements based on the query
           const relevantElements = SimpleCodeAnalyzer.findRelevantElements(parsedFile, query);

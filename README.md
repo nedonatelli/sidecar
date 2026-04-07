@@ -54,6 +54,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 - **Thinking/reasoning** — collapsible reasoning blocks from models that support extended thinking (Anthropic) or `<think>` tags (qwen3, deepseek-r1)
 - **Verbose mode** — `/verbose` to show system prompt, per-iteration summaries, and tool selection context during agent runs
 - **Smart context selection** — AST-based parsing extracts relevant functions, classes, and imports from JS/TS files instead of including whole files in context
+- **Bounded caches** — workspace file content and AST caches use TTL-based eviction to prevent unbounded memory growth during long sessions
 
 ### Inline Chat (Cmd+I)
 - Edit code in place within the editor

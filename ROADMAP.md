@@ -176,7 +176,7 @@ Explicit privacy mode with zero telemetry, zero usage data collection, and no ne
 
 ---
 
-## Completed (v0.11.0–v0.24.0)
+## Completed (v0.11.0–v0.24.1)
 
 - [x] Slash commands: `/reset`, `/undo`, `/export`, `/model`, `/help`
 - [x] Agent progress indicators (step count, elapsed time, token usage)
@@ -237,3 +237,4 @@ Explicit privacy mode with zero telemetry, zero usage data collection, and no ne
 - [x] Duplicate file parsing removed from workspace index
 - [x] Clarified `expandThinking` setting description
 - [x] Fix block markdown infinite loop on `\r\n` line endings
+- [x] LimitedCache with TTL and size eviction for workspace and AST caches

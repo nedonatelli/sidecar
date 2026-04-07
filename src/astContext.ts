@@ -5,6 +5,7 @@
  */
 
 import { workspace, Uri } from 'vscode';
+import { LimitedCache } from './agent/memoryManager.js';
 
 export interface CodeElement {
   type: 'function' | 'class' | 'method' | 'variable' | 'import' | 'export';
@@ -185,7 +186,7 @@ export class SimpleCodeAnalyzer {
  * Enhanced workspace index with smart context selection
  */
 export class SmartWorkspaceIndex {
-  private parsedFiles = new Map<string, ParsedFile>();
+  private parsedFiles = new LimitedCache<string, ParsedFile>(50, 300000); // 50 items, 5 minute TTL
   private maxContextChars: number;
 
   constructor(maxContextChars = 20_000) {
