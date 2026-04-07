@@ -17,6 +17,7 @@ import {
   resolveAtReferences,
 } from '../../config/workspace.js';
 import { runAgentLoop } from '../../agent/loop.js';
+import { pruneHistory } from '../../agent/context.js';
 import { computeUnifiedDiff } from '../../agent/diff.js';
 import { commands } from 'vscode';
 
@@ -142,8 +143,13 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     state.client.updateConnection(config.baseUrl, config.apiKey);
     state.client.updateModel(model);
 
-    // Build system prompt with workspace context
-    let systemPrompt = `You are SideCar, an AI coding assistant running inside VS Code.\nProject root: ${getWorkspaceRoot()}\n\nIMPORTANT: Only use tools when the user asks you to take an action (create, edit, fix, run, test, etc.). If the user asks a question, explains something, or wants a conversation, respond directly with text — do NOT invoke tools. Not every message requires tool use.\n\nYou have tools to read, write, edit, and search files, run shell commands, check diagnostics, and run tests. When you do use tools, use relative paths from the project root. After editing files, use get_diagnostics to check for errors. When fixing bugs or adding features, use run_tests to verify your changes pass. Keep responses concise.`;
+    // Build system prompt with workspace context.
+    // Use a compact prompt for local models (smaller context windows) and
+    // a more detailed one for cloud APIs with larger context budgets.
+    const isLocal = state.client.isLocalOllama();
+    let systemPrompt = isLocal
+      ? `You are SideCar, an AI coding assistant in VS Code. Project root: ${getWorkspaceRoot()}\nUse tools only when asked to act (create, edit, fix, run, test). For questions, respond with text. Use relative paths. After edits, check diagnostics. Be concise.`
+      : `You are SideCar, an AI coding assistant running inside VS Code.\nProject root: ${getWorkspaceRoot()}\n\nIMPORTANT: Only use tools when the user asks you to take an action (create, edit, fix, run, test, etc.). If the user asks a question, explains something, or wants a conversation, respond directly with text — do NOT invoke tools. Not every message requires tool use.\n\nYou have tools to read, write, edit, and search files, run shell commands, check diagnostics, and run tests. When you do use tools, use relative paths from the project root. After editing files, use get_diagnostics to check for errors. When fixing bugs or adding features, use run_tests to verify your changes pass. Keep responses concise.`;
 
     // Append SIDECAR.md and user prompt with size limits to prevent context overflow.
     // Reserve at least 50% of context for conversation and tool results.
@@ -223,7 +229,27 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
       }
     }
 
-    // Warn if context may exceed the model's limit
+    // Prune old conversation history to keep context manageable.
+    // Reserve ~50% of context for system prompt + model output; use the rest for history.
+    const systemChars = systemPrompt.length;
+    const historyBudget = contextLength ? Math.floor(contextLength * 4 * 0.5) - systemChars : 200_000 - systemChars;
+    const prunedMessages = pruneHistory(chatMessages, Math.max(historyBudget, 20_000));
+    if (prunedMessages.length < chatMessages.length) {
+      const before = chatMessages.reduce((s, m) => s + getContentLength(m.content), 0);
+      const after = prunedMessages.reduce((s, m) => s + getContentLength(m.content), 0);
+      if (config.verboseMode) {
+        state.postMessage({
+          command: 'verboseLog',
+          content: `Pruned conversation: ${chatMessages.length} → ${prunedMessages.length} messages, ~${Math.round((before - after) / 4)} tokens freed`,
+          verboseLabel: 'Context Pruning',
+        });
+      }
+    }
+    // Replace chatMessages with pruned version
+    chatMessages.length = 0;
+    chatMessages.push(...prunedMessages);
+
+    // Warn if context may still exceed the model's limit
     if (contextLength) {
       const totalChars = chatMessages.reduce((sum, m) => sum + getContentLength(m.content), 0);
       const estimatedTokens = Math.ceil(totalChars / 4);
@@ -270,7 +296,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
               return `${k}: ${val}`;
             })
             .join(', ');
-          state.postMessage({ command: 'toolCall', content: `${name}(${summary})` });
+          state.postMessage({ command: 'toolCall', toolName: name, content: `${name}(${summary})` });
           state.metricsCollector.recordToolStart();
           // Verbose: explain tool selection
           if (verbose) {
@@ -288,6 +314,9 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
           const preview = result.length > 200 ? result.slice(0, 200) + '...' : result;
           state.postMessage({ command: 'toolResult', content: `${name}: ${isError ? '✗ ' : '✓ '}${preview}` });
           state.metricsCollector.recordToolEnd(name, isError);
+        },
+        onToolOutput: (name, chunk) => {
+          state.postMessage({ command: 'toolOutput', content: chunk, toolName: name });
         },
         onIterationStart: (iteration, maxIterations, elapsedMs, estimatedTokens) => {
           state.postMessage({

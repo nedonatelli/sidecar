@@ -806,6 +806,92 @@
 
   const createdFiles = new Set();
 
+  // ---------------------------------------------------------------------------
+  // Tool display helpers — clean names and icons like Claude Code / Copilot
+  // ---------------------------------------------------------------------------
+  const TOOL_DISPLAY_NAMES = {
+    read_file: 'Read',
+    write_file: 'Write',
+    edit_file: 'Edit',
+    search_files: 'Search',
+    grep: 'Grep',
+    run_command: 'Bash',
+    list_directory: 'List',
+    get_diagnostics: 'Diagnostics',
+    run_tests: 'Test',
+    git_diff: 'Git Diff',
+    git_status: 'Git Status',
+    git_stage: 'Git Stage',
+    git_commit: 'Git Commit',
+    git_log: 'Git Log',
+    git_push: 'Git Push',
+    git_pull: 'Git Pull',
+    git_branch: 'Git Branch',
+    git_stash: 'Git Stash',
+    spawn_agent: 'Agent',
+  };
+
+  const TOOL_ICONS = {
+    read_file: '\u{1F4D6}', // 📖
+    write_file: '\u{270F}', // ✏
+    edit_file: '\u{270F}', // ✏
+    search_files: '\u{1F50D}', // 🔍
+    grep: '\u{1F50E}', // 🔎
+    run_command: '\u{1F4BB}', // 💻
+    list_directory: '\u{1F4C2}', // 📂
+    get_diagnostics: '\u{1FA7A}', // 🩺
+    run_tests: '\u{1F9EA}', // 🧪
+    spawn_agent: '\u{1F916}', // 🤖
+  };
+
+  function formatToolName(name) {
+    return TOOL_DISPLAY_NAMES[name] || name.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+
+  function getToolIcon(name) {
+    // Git tools share one icon
+    if (name.startsWith('git_')) return '\u{E0A0}'; // git branch symbol, fallback ↓
+    return TOOL_ICONS[name] || '\u2699'; // ⚙
+  }
+
+  function formatToolDetail(name, fullContent) {
+    // Extract the key argument to show as a concise detail
+    const match = fullContent.match(/\(([^)]*)\)/);
+    if (!match) return '';
+    const args = match[1];
+
+    // Show the most relevant argument for each tool type
+    switch (name) {
+      case 'read_file':
+      case 'write_file':
+      case 'edit_file':
+      case 'list_directory':
+      case 'get_diagnostics': {
+        const pathMatch = args.match(/path:\s*([^,]+)/);
+        return pathMatch ? pathMatch[1].trim() : '';
+      }
+      case 'grep':
+      case 'search_files': {
+        const patMatch = args.match(/pattern:\s*([^,]+)/);
+        return patMatch ? patMatch[1].trim() : '';
+      }
+      case 'run_command': {
+        const cmdMatch = args.match(/command:\s*(.+?)(?:,\s*timeout|$)/);
+        return cmdMatch ? cmdMatch[1].trim() : '';
+      }
+      case 'run_tests': {
+        const testMatch = args.match(/command:\s*([^,]+)/);
+        return testMatch ? testMatch[1].trim() : 'auto-detect';
+      }
+      case 'spawn_agent': {
+        const taskMatch = args.match(/task:\s*(.+)/);
+        return taskMatch ? taskMatch[1].trim().slice(0, 50) : '';
+      }
+      default:
+        return args.length > 60 ? args.slice(0, 57) + '...' : args;
+    }
+  }
+
   /**
    * Parse inline markdown into DOM nodes (no innerHTML, XSS-safe).
    * Supports: **bold**, *italic*, ~~strikethrough~~, `code`, [links](url), line breaks.
@@ -1150,50 +1236,140 @@
     return currentAssistantDiv;
   }
 
-  let lastRenderedBlockCount = 0;
+  // ---------------------------------------------------------------------------
+  // Streaming renderer: buffer incoming tokens, render completed markdown
+  // blocks incrementally, and show in-progress text with a cursor.
+  // ---------------------------------------------------------------------------
+  let lastRenderedLen = 0; // how much of currentAssistantText has been fully rendered
+  let renderTimer = null; // debounce timer for re-renders
+  let streamingSpan = null; // the <span> used for in-progress (unfinished) text
 
-  function countCompletedBlocks(text) {
-    const codeBlocks = (text.match(/```[\w.]*:?[^\n]*\n[\s\S]*?```/g) || []).length;
-    const editBlocks = (text.match(/<<<SEARCH:[^\n]+\n[\s\S]*?\n===\n[\s\S]*?\n>>>REPLACE/g) || []).length;
-    return codeBlocks + editBlocks;
-  }
+  /** Find the end position of all "safe" (fully closed) content in the text.
+   *  Anything after this position may be a partial code block, partial bold, etc. */
+  function findSafeRenderBoundary(text) {
+    // Find last completed code block or edit block
+    let safeEnd = 0;
 
-  function getTrailingText(text) {
-    // Find the end position of the last completed code block
+    // Track code block regions
     const codeBlockRegex = /```[\w.]*:?[^\n]*\n[\s\S]*?```/g;
-    let lastMatchEnd = 0;
     let m;
     while ((m = codeBlockRegex.exec(text)) !== null) {
-      lastMatchEnd = m.index + m[0].length;
+      safeEnd = m.index + m[0].length;
     }
-    return text.slice(lastMatchEnd);
+
+    // Track edit block regions
+    const editRegex = /<<<SEARCH:[^\n]+\n[\s\S]*?\n===\n[\s\S]*?\n>>>REPLACE/g;
+    while ((m = editRegex.exec(text)) !== null) {
+      if (m.index + m[0].length > safeEnd) {
+        safeEnd = m.index + m[0].length;
+      }
+    }
+
+    // For text after the last structural block, find the last complete paragraph.
+    // A paragraph is "complete" if followed by a blank line or another block marker.
+    const trailing = text.slice(safeEnd);
+
+    // Check if we're inside an unclosed code fence
+    const backtickCount = (trailing.match(/```/g) || []).length;
+    if (backtickCount % 2 !== 0) {
+      // Inside an unclosed code block — don't render the trailing part
+      return safeEnd;
+    }
+
+    // Check if we're inside an unclosed edit block
+    const searchCount = (trailing.match(/<<<SEARCH:/g) || []).length;
+    const replaceCount = (trailing.match(/>>>REPLACE/g) || []).length;
+    if (searchCount > replaceCount) {
+      return safeEnd;
+    }
+
+    // Find the last double-newline boundary in trailing text.
+    // Content before it is "complete paragraphs" safe to render.
+    const lastBlankLine = trailing.lastIndexOf('\n\n');
+    if (lastBlankLine !== -1) {
+      return safeEnd + lastBlankLine + 2;
+    }
+
+    // If there's a single complete line (ends with \n), render up to
+    // the last newline so we don't render a half-typed line.
+    const lastNewline = trailing.lastIndexOf('\n');
+    if (lastNewline !== -1) {
+      return safeEnd + lastNewline + 1;
+    }
+
+    // No safe boundary in trailing text — only render up to the structural blocks
+    return safeEnd;
+  }
+
+  function renderStreamingChunk() {
+    renderTimer = null;
+    if (!currentAssistantDiv) return;
+
+    const text = currentAssistantText;
+    const boundary = findSafeRenderBoundary(text);
+    const safeText = text.slice(0, boundary);
+    const pendingText = text.slice(boundary);
+
+    // Only re-render if the safe portion has grown
+    if (boundary > lastRenderedLen) {
+      // Remove the streaming span before re-render
+      if (streamingSpan && streamingSpan.parentNode) {
+        streamingSpan.remove();
+      }
+      // Full render of all safe content
+      currentAssistantDiv.innerHTML = '';
+      if (safeText) {
+        currentAssistantDiv.appendChild(renderContent(safeText, window.currentModelSupportsTools));
+      }
+      lastRenderedLen = boundary;
+    }
+
+    // Update or create the streaming span for pending (in-progress) text
+    if (pendingText) {
+      if (!streamingSpan || !streamingSpan.parentNode) {
+        streamingSpan = document.createElement('span');
+        streamingSpan.className = 'streaming-text';
+      }
+      streamingSpan.textContent = pendingText;
+      if (!streamingSpan.parentNode) {
+        currentAssistantDiv.appendChild(streamingSpan);
+      }
+    } else if (streamingSpan && streamingSpan.parentNode) {
+      streamingSpan.remove();
+    }
+
+    scrollToBottom();
   }
 
   function appendToAssistantMessage(content) {
     if (!currentAssistantDiv) return;
     currentAssistantText += content;
 
-    const blockCount = countCompletedBlocks(currentAssistantText);
-
-    if (blockCount !== lastRenderedBlockCount) {
-      // New code/edit block completed — full re-render
-      lastRenderedBlockCount = blockCount;
-      currentAssistantDiv.innerHTML = '';
-      currentAssistantDiv.appendChild(renderContent(currentAssistantText, window.currentModelSupportsTools));
-    } else {
-      // Plain text streaming — update only the trailing text span
-      const lastChild = currentAssistantDiv.lastChild;
-      if (lastChild && lastChild.nodeType === Node.ELEMENT_NODE && lastChild.tagName === 'SPAN') {
-        lastChild.textContent = getTrailingText(currentAssistantText);
-      } else {
-        currentAssistantDiv.innerHTML = '';
-        currentAssistantDiv.appendChild(renderContent(currentAssistantText, window.currentModelSupportsTools));
+    // Debounce renders to avoid DOM thrashing on fast token streams.
+    // Render immediately on the first chunk and on structural boundaries;
+    // otherwise batch updates every 80ms.
+    const hasStructural = content.includes('```') || content.includes('>>>REPLACE');
+    if (lastRenderedLen === 0 || hasStructural) {
+      if (renderTimer) {
+        clearTimeout(renderTimer);
+        renderTimer = null;
       }
+      renderStreamingChunk();
+    } else if (!renderTimer) {
+      renderTimer = setTimeout(renderStreamingChunk, 80);
     }
-    scrollToBottom();
   }
 
   function finishAssistantMessage() {
+    if (renderTimer) {
+      clearTimeout(renderTimer);
+      renderTimer = null;
+    }
+    if (streamingSpan && streamingSpan.parentNode) {
+      streamingSpan.remove();
+    }
+    streamingSpan = null;
+
     if (currentAssistantDiv && currentAssistantText) {
       // Final full render to ensure complete content with all buttons
       currentAssistantDiv.innerHTML = '';
@@ -1201,7 +1377,7 @@
     }
     currentAssistantDiv = null;
     currentAssistantText = '';
-    lastRenderedBlockCount = 0;
+    lastRenderedLen = 0;
   }
 
   function showTypingIndicator() {
@@ -1700,11 +1876,32 @@
         // creates a new response block after the tool call/result.
         finishAssistantMessage();
 
+        const toolName = event.data.toolName || (content || '').split('(')[0];
+        const displayName = formatToolName(toolName);
+        const toolDetail = formatToolDetail(toolName, content || '');
+
         const details = document.createElement('details');
         details.className = 'tool-call running';
         details.id = 'active-tool';
         const summary = document.createElement('summary');
-        summary.textContent = '\u2699 ' + (content || '').split('(')[0] + ' \u2026';
+        summary.innerHTML = '';
+        const iconSpan = document.createElement('span');
+        iconSpan.className = 'tool-icon';
+        iconSpan.textContent = getToolIcon(toolName);
+        summary.appendChild(iconSpan);
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'tool-name';
+        nameSpan.textContent = displayName;
+        summary.appendChild(nameSpan);
+        if (toolDetail) {
+          const detailSpan = document.createElement('span');
+          detailSpan.className = 'tool-detail';
+          detailSpan.textContent = toolDetail;
+          summary.appendChild(detailSpan);
+        }
+        const spinnerSpan = document.createElement('span');
+        spinnerSpan.className = 'tool-spinner';
+        summary.appendChild(spinnerSpan);
         details.appendChild(summary);
         const body = document.createElement('pre');
         body.className = 'tool-call-body';
@@ -1715,29 +1912,60 @@
         break;
       }
 
+      case 'toolOutput': {
+        // Stream output into the active tool call body
+        const activeToolForOutput = document.getElementById('active-tool');
+        if (activeToolForOutput) {
+          const body = activeToolForOutput.querySelector('.tool-call-body');
+          if (body) {
+            body.textContent += event.data.content || '';
+            // Auto-open the details when output starts flowing
+            activeToolForOutput.open = true;
+          }
+        }
+        scrollToBottom();
+        break;
+      }
+
       case 'toolResult': {
-        // Mark active tool call as complete
+        // Mark active tool call as complete and remove spinner
         const activeTool = document.getElementById('active-tool');
         if (activeTool) {
           activeTool.classList.remove('running');
           activeTool.removeAttribute('id');
-          const activeSummary = activeTool.querySelector('summary');
-          if (activeSummary) {
-            activeSummary.textContent = activeSummary.textContent.replace(' \u2026', '');
-          }
+          const spinner = activeTool.querySelector('.tool-spinner');
+          if (spinner) spinner.remove();
         }
-        const details = document.createElement('details');
-        details.className = 'tool-result';
-        const summary = document.createElement('summary');
         const text = content || '';
         const isError = text.startsWith('\u2717') || text.includes('Error');
-        summary.textContent = (isError ? '\u2717 ' : '\u2713 ') + text.split(':')[0];
-        details.appendChild(summary);
-        const body = document.createElement('pre');
-        body.className = 'tool-result-body';
-        body.textContent = text;
-        details.appendChild(body);
-        messagesContainer.appendChild(details);
+
+        // For successful results, just update the active tool call with result info.
+        // For errors or when there's no active tool, show a separate result block.
+        if (activeTool && !isError) {
+          const resultBadge = document.createElement('span');
+          resultBadge.className = 'tool-result-badge success';
+          resultBadge.textContent = '\u2713';
+          const activeSummary = activeTool.querySelector('summary');
+          if (activeSummary) activeSummary.appendChild(resultBadge);
+          // Append result output to the tool call body
+          const activeBody = activeTool.querySelector('.tool-call-body');
+          if (activeBody && text) {
+            activeBody.textContent += '\n' + text;
+          }
+        } else {
+          const details = document.createElement('details');
+          details.className = 'tool-result' + (isError ? ' error' : '');
+          const summary = document.createElement('summary');
+          const rawName = text.split(':')[0];
+          const cleanName = formatToolName(rawName.replace(/^[^\w]*/, '').trim());
+          summary.textContent = (isError ? '\u2717 ' : '\u2713 ') + cleanName;
+          details.appendChild(summary);
+          const body = document.createElement('pre');
+          body.className = 'tool-result-body';
+          body.textContent = text;
+          details.appendChild(body);
+          messagesContainer.appendChild(details);
+        }
         scrollToBottom();
         break;
       }

@@ -167,7 +167,7 @@ describe('parseTextToolCalls', () => {
 // ---------------------------------------------------------------------------
 describe('compressMessages', () => {
   it('truncates long tool_result blocks outside the last 4 messages', () => {
-    const longContent = 'x'.repeat(500);
+    const longContent = 'x'.repeat(1500);
     const messages: ChatMessage[] = [
       { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tc1', content: longContent }] },
       { role: 'assistant', content: [{ type: 'text', text: 'ok' }] },
@@ -181,12 +181,12 @@ describe('compressMessages', () => {
     expect(freed).toBeGreaterThan(0);
 
     const compressed = messages[0].content as Array<{ type: string; content: string }>;
-    expect(compressed[0].content).toContain('... (truncated)');
+    expect(compressed[0].content).toContain('chars total)');
     expect(compressed[0].content.length).toBeLessThan(longContent.length);
   });
 
   it('does not touch messages in the last 4', () => {
-    const longContent = 'x'.repeat(500);
+    const longContent = 'x'.repeat(1500);
     const messages: ChatMessage[] = [
       { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tc1', content: longContent }] },
       { role: 'assistant', content: 'msg2' },
@@ -224,5 +224,25 @@ describe('compressMessages', () => {
 
     const freed = compressMessages(messages);
     expect(freed).toBe(0);
+  });
+
+  it('compresses more aggressively for older messages', () => {
+    const longContent = 'x'.repeat(2000);
+    const messages: ChatMessage[] = [];
+    // Create 12 messages so the first one is far from the end
+    for (let i = 0; i < 10; i++) {
+      messages.push({ role: 'user', content: [{ type: 'tool_result', tool_use_id: `tc${i}`, content: longContent }] });
+      messages.push({ role: 'assistant', content: 'ok' });
+    }
+
+    compressMessages(messages);
+
+    // First message (distFromEnd = 19) should be heavily compressed (maxLen=200)
+    const first = messages[0].content as Array<{ type: string; content: string }>;
+    expect(first[0].content.length).toBeLessThan(250);
+
+    // Messages near the end (last 4) should be untouched
+    const nearEnd = messages[messages.length - 2].content as Array<{ type: string; content: string }>;
+    expect(nearEnd[0].content.length).toBe(2000);
   });
 });

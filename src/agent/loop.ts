@@ -18,6 +18,8 @@ export interface AgentCallbacks {
   onThinking?: (thinking: string) => void;
   onToolCall: (name: string, input: Record<string, unknown>) => void;
   onToolResult: (name: string, result: string, isError: boolean) => void;
+  /** Streaming output from long-running tools (e.g., shell commands). */
+  onToolOutput?: (name: string, chunk: string) => void;
   onPlanGenerated?: (plan: string) => void;
   onIterationStart?: (iteration: number, maxIterations: number, elapsedMs: number, estimatedTokens: number) => void;
   onDone: () => void;
@@ -195,15 +197,36 @@ export async function runAgentLoop(
           logger,
           options.confirmFn,
           options.diffPreviewFn,
+          {
+            onOutput: (chunk) => callbacks.onToolOutput?.(toolUse.name, chunk),
+            signal,
+          },
         );
         logger?.logToolResult(toolUse.name, result.content, result.is_error || false);
         callbacks.onToolResult(toolUse.name, result.content, result.is_error || false);
         return result;
       });
 
-      // Execute all tools in parallel
-      const results = await Promise.all(executionPromises);
-      toolResults.push(...results);
+      // Execute all tools in parallel — use allSettled so one failure
+      // doesn't abort the others
+      const settled = await Promise.allSettled(executionPromises);
+      for (let idx = 0; idx < settled.length; idx++) {
+        const outcome = settled[idx];
+        if (outcome.status === 'fulfilled') {
+          toolResults.push(outcome.value);
+        } else {
+          // Promise rejected — turn it into an error tool result
+          const errMsg = outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason);
+          toolResults.push({
+            type: 'tool_result',
+            tool_use_id: pendingToolUses[idx].id,
+            content: `Internal error: ${errMsg}`,
+            is_error: true,
+          });
+          logger?.warn(`Tool ${pendingToolUses[idx].name} threw: ${errMsg}`);
+          callbacks.onToolResult(pendingToolUses[idx].name, `Internal error: ${errMsg}`, true);
+        }
+      }
 
       // Count tool call and result tokens toward the budget
       for (const tu of pendingToolUses) {
@@ -240,25 +263,38 @@ export async function runAgentLoop(
 
 /**
  * Compress old tool results in the message history to free up context space.
- * Replaces verbose tool results from earlier iterations with short summaries.
+ * Uses a tiered approach: messages further from the current iteration get
+ * compressed more aggressively.
  * Returns the number of characters freed.
  */
 export function compressMessages(messages: ChatMessage[]): number {
   let freed = 0;
-  // Only compress tool results that aren't in the last 4 messages
-  const cutoff = Math.max(0, messages.length - 4);
+  const len = messages.length;
 
-  for (let i = 0; i < cutoff; i++) {
+  for (let i = 0; i < len; i++) {
     const msg = messages[i];
     if (typeof msg.content === 'string' || !Array.isArray(msg.content)) continue;
 
+    // Distance from the end determines compression level
+    const distFromEnd = len - 1 - i;
+    // Last 4 messages: untouched. 4-8: light. 8+: aggressive.
+    let maxLen: number;
+    if (distFromEnd < 4)
+      continue; // keep recent messages intact
+    else if (distFromEnd < 8) maxLen = 1000;
+    else maxLen = 200;
+
     const newContent: ContentBlock[] = [];
     for (const block of msg.content) {
-      if (block.type === 'tool_result' && block.content.length > 200) {
+      if (block.type === 'tool_result' && block.content.length > maxLen) {
         const original = block.content.length;
-        const summary = block.content.slice(0, 100) + '... (truncated)';
+        const keepLen = Math.floor(maxLen * 0.75);
+        const summary = block.content.slice(0, keepLen) + `... (${original} chars total)`;
         newContent.push({ ...block, content: summary });
         freed += original - summary.length;
+      } else if (block.type === 'thinking' && distFromEnd >= 8) {
+        // Drop old thinking blocks to save space
+        freed += block.thinking.length;
       } else {
         newContent.push(block);
       }
