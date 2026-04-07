@@ -45,7 +45,7 @@ The **Stop button** (the Send button toggles to a red Stop during processing) le
 
 ## Built-in tools
 
-SideCar has 10+ built-in tools the agent can use:
+SideCar has 19 built-in tools the agent can use:
 
 | Tool | Description |
 |------|-------------|

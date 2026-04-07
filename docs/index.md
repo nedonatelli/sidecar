@@ -16,6 +16,10 @@ SideCar is a VS Code extension that serves as a drop-in replacement for GitHub C
 
 No subscriptions. No data leaving your machine. No vendor lock-in.
 
+SideCar will always be free, tips not required but appreciated.
+
+<a href="https://www.buymeacoffee.com/nedonatelli" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-red.png" alt="Buy Me A Coffee" style="height: 40px !important;" ></a>
+
 ---
 
 ## How SideCar compares

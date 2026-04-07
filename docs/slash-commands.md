@@ -34,6 +34,13 @@ Type `/` in the chat input to see all available commands. An autocomplete dropdo
 | `/verbose` | Toggle verbose mode |
 | `/prompt` | Show system prompt |
 
+The following commands are also available from the **Command Palette** (`Ctrl+Shift+P` / `Cmd+Shift+P`):
+
+| Command | Description |
+|---------|-------------|
+| `SideCar: Review Changes` | AI-powered review of uncommitted changes |
+| `SideCar: Summarize PR` | Generate a PR summary from the current branch |
+
 ---
 
 ## Conversation
@@ -176,6 +183,14 @@ Generates a commit message from the current diff, stages all changes, and commit
 ### `/undo`
 
 Reverts all file changes made by SideCar in the current session. SideCar snapshots every file before modifying it, so undo restores the exact original content.
+
+### Review Changes (Command Palette)
+
+Run `SideCar: Review Changes` from the Command Palette to get an AI-powered review of your uncommitted changes. The review covers potential bugs, security concerns, and code quality.
+
+### Summarize PR (Command Palette)
+
+Run `SideCar: Summarize PR` from the Command Palette to generate a pull request summary from the current branch's changes against the base branch.
 
 ---
 

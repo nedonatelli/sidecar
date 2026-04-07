@@ -2,6 +2,23 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- **Parallel tool call matching**: tool calls executed in parallel (e.g., multiple file reads) now correctly match results to their originating call via unique IDs. Previously a singleton `active-tool` element caused race conditions — results updated the wrong tool or created duplicate entries
+- **Markdown rendering during streaming**: pending (in-progress) text now renders with full markdown (bold, lists, headings) instead of raw `textContent`. Numbered and bullet lists separated by blank lines are now parsed as a single list with multi-line item support
+
+### Performance
+- **Incremental DOM rendering**: streaming no longer clears `innerHTML` on every 80ms tick. Only the new slice of safe content is appended, reducing render cost from O(total_content) to O(new_chunk)
+- **Message history memory bounds**: in-memory history capped at 200 messages / 2MB. Prevents unbounded memory growth in long agent sessions
+- **Search result limits**: `grep` and `search_files` results bumped from 50 to 200, so the agent discovers more context in large codebases
+- **stripRepeatedContent O(n) rewrite**: replaced nested-loop paragraph matching with a hash set for O(1) lookups instead of O(n²) scanning
+- **Dispatch handler map**: converted 41-case `switch` statement to an object map for O(1) command lookup
+- **Token estimation**: improved from `chars / 4` to `chars / 3.5` for more accurate budget tracking; removed unnecessary `JSON.stringify` allocations in tool call and content length sizing
+- **Config caching**: `getConfig()` now caches results and invalidates only on `workspace.onDidChangeConfiguration`, eliminating 30+ redundant VS Code config reads per message cycle
+- **DOM batching**: session list and diff rendering now build in `DocumentFragment` before a single append; session list uses event delegation instead of per-item listeners
+- **Workspace indexing progress**: status bar shows spinning indicator during workspace scan, then file count on completion
+
 ## [0.25.0] - 2026-04-07
 
 ### Added
