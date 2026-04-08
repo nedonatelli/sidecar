@@ -87,6 +87,9 @@ export interface SideCarConfig {
   autoFixOnFailure: boolean;
   autoFixMaxRetries: number;
   fetchUrlContext: boolean;
+  fallbackBaseUrl: string;
+  fallbackApiKey: string;
+  fallbackModel: string;
 }
 
 /**
@@ -146,6 +149,9 @@ function readConfig(): SideCarConfig {
     autoFixOnFailure: cfg.get<boolean>('autoFixOnFailure', false),
     autoFixMaxRetries: clampMin(cfg.get<number>('autoFixMaxRetries'), 0, 3),
     fetchUrlContext: cfg.get<boolean>('fetchUrlContext', true),
+    fallbackBaseUrl: cfg.get<string>('fallbackBaseUrl', ''),
+    fallbackApiKey: cfg.get<string>('fallbackApiKey', ''),
+    fallbackModel: cfg.get<string>('fallbackModel', ''),
   };
 }
 

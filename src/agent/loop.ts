@@ -430,53 +430,63 @@ export function parseTextToolCalls(text: string, tools: ToolDefinition[]): ToolU
   const results: ToolUseContentBlock[] = [];
   let idCounter = 0;
 
-  // Pattern 1: <function=name><parameter=key>value</parameter>...</function>
-  const fnPattern = /<function=(\w+)>([\s\S]*?)<\/function>/g;
+  // Single combined regex matches all three patterns in one pass.
+  // Groups: (1) function=name, (2) function body,
+  //         (3) tool_call body, (4) json code fence body
+  const combined =
+    /<function=(\w+)>([\s\S]*?)<\/function>|<tool_call>\s*([\s\S]*?)\s*<\/tool_call>|```(?:json)?\s*\n?\s*(\{[\s\S]*?\})\s*\n?\s*```/g;
+
+  // Track which pattern type matched first (for priority: fn > tool_call > json)
+  let firstType: 'fn' | 'tc' | 'json' | null = null;
   let match;
-  while ((match = fnPattern.exec(text)) !== null) {
-    const name = match[1];
-    if (!toolNames.has(name)) continue;
-    const body = match[2];
-    const input: Record<string, unknown> = {};
-    const paramPattern = /<parameter=(\w+)>([\s\S]*?)<\/parameter>/g;
-    let pm;
-    while ((pm = paramPattern.exec(body)) !== null) {
-      input[pm[1]] = pm[2].trim();
-    }
-    results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
-  }
-  if (results.length > 0) return results;
 
-  // Pattern 2: <tool_call>{"name":"...","arguments":{...}}</tool_call>
-  const tcPattern = /<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/g;
-  while ((match = tcPattern.exec(text)) !== null) {
-    try {
-      const parsed = JSON.parse(match[1]);
-      const name = parsed.name || parsed.function?.name;
-      const args = parsed.arguments || parsed.function?.arguments || parsed.parameters || {};
-      if (name && toolNames.has(name)) {
-        const input = typeof args === 'string' ? JSON.parse(args) : args;
-        results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
+  while ((match = combined.exec(text)) !== null) {
+    // Pattern 1: <function=name><parameter=key>value</parameter></function>
+    if (match[1] !== undefined) {
+      if (firstType === null) firstType = 'fn';
+      if (firstType !== 'fn') continue; // stick with first pattern type found
+      const name = match[1];
+      if (!toolNames.has(name)) continue;
+      const body = match[2];
+      const input: Record<string, unknown> = {};
+      const paramPattern = /<parameter=(\w+)>([\s\S]*?)<\/parameter>/g;
+      let pm;
+      while ((pm = paramPattern.exec(body)) !== null) {
+        input[pm[1]] = pm[2].trim();
       }
-    } catch {
-      /* skip malformed */
+      results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
     }
-  }
-  if (results.length > 0) return results;
-
-  // Pattern 3: JSON block with name + arguments in a code fence
-  const jsonPattern = /```(?:json)?\s*\n?\s*(\{[\s\S]*?\})\s*\n?\s*```/g;
-  while ((match = jsonPattern.exec(text)) !== null) {
-    try {
-      const parsed = JSON.parse(match[1]);
-      const name = parsed.name || parsed.tool || parsed.function;
-      const args = parsed.arguments || parsed.parameters || parsed.input || {};
-      if (name && typeof name === 'string' && toolNames.has(name)) {
-        const input = typeof args === 'string' ? JSON.parse(args) : args;
-        results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
+    // Pattern 2: <tool_call>JSON</tool_call>
+    else if (match[3] !== undefined) {
+      if (firstType === null) firstType = 'tc';
+      if (firstType !== 'tc') continue;
+      try {
+        const parsed = JSON.parse(match[3]);
+        const name = parsed.name || parsed.function?.name;
+        const args = parsed.arguments || parsed.function?.arguments || parsed.parameters || {};
+        if (name && toolNames.has(name)) {
+          const input = typeof args === 'string' ? JSON.parse(args) : args;
+          results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
+        }
+      } catch {
+        /* skip malformed */
       }
-    } catch {
-      /* skip malformed */
+    }
+    // Pattern 3: ```json\n{...}\n```
+    else if (match[4] !== undefined) {
+      if (firstType === null) firstType = 'json';
+      if (firstType !== 'json') continue;
+      try {
+        const parsed = JSON.parse(match[4]);
+        const name = parsed.name || parsed.tool || parsed.function;
+        const args = parsed.arguments || parsed.parameters || parsed.input || {};
+        if (name && typeof name === 'string' && toolNames.has(name)) {
+          const input = typeof args === 'string' ? JSON.parse(args) : args;
+          results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
+        }
+      } catch {
+        /* skip malformed */
+      }
     }
   }
 

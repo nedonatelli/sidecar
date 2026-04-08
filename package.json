@@ -306,6 +306,21 @@
           "type": "boolean",
           "default": true,
           "description": "Automatically fetch web page content when URLs are pasted in chat"
+        },
+        "sidecar.fallbackBaseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Fallback API URL. If the primary backend fails repeatedly, SideCar switches to this. Leave empty to disable fallback."
+        },
+        "sidecar.fallbackApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API key for the fallback backend"
+        },
+        "sidecar.fallbackModel": {
+          "type": "string",
+          "default": "",
+          "description": "Model to use on the fallback backend"
         }
       }
     },

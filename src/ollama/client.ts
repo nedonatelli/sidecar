@@ -54,11 +54,22 @@ export class SideCarClient {
   private apiKey: string;
   private backend: ApiBackend;
 
+  // Fallback state
+  private consecutiveFailures = 0;
+  private usingFallback = false;
+  private primaryBaseUrl: string;
+  private primaryApiKey: string;
+  private primaryModel: string;
+  private static readonly FALLBACK_THRESHOLD = 2;
+
   constructor(model: string, baseUrl?: string, apiKey?: string) {
     this.model = model;
     this.systemPrompt = '';
     this.baseUrl = baseUrl || DEFAULT_BASE_URL;
     this.apiKey = apiKey || 'ollama';
+    this.primaryBaseUrl = this.baseUrl;
+    this.primaryApiKey = this.apiKey;
+    this.primaryModel = this.model;
     this.backend = this.createBackend();
   }
 
@@ -91,11 +102,78 @@ export class SideCarClient {
     signal?: AbortSignal,
     tools?: ToolDefinition[],
   ): AsyncGenerator<StreamEvent> {
-    yield* this.backend.streamChat(this.model, this.systemPrompt, messages, signal, tools);
+    try {
+      yield* this.backend.streamChat(this.model, this.systemPrompt, messages, signal, tools);
+      this.recordSuccess();
+    } catch (err) {
+      // Don't count user aborts as failures
+      if (err instanceof Error && err.name === 'AbortError') throw err;
+      if (this.switchToFallback()) {
+        console.warn(`[SideCar] Primary backend failed, switching to fallback: ${(err as Error).message}`);
+        yield { type: 'warning', message: 'Primary backend unavailable — using fallback.' };
+        yield* this.backend.streamChat(this.model, this.systemPrompt, messages, signal, tools);
+        return;
+      }
+      throw err;
+    }
   }
 
   async complete(messages: ChatMessage[], maxTokens: number = 256, signal?: AbortSignal): Promise<string> {
-    return this.backend.complete(this.model, this.systemPrompt, messages, maxTokens, signal);
+    try {
+      const result = await this.backend.complete(this.model, this.systemPrompt, messages, maxTokens, signal);
+      this.recordSuccess();
+      return result;
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') throw err;
+      if (this.switchToFallback()) {
+        console.warn(`[SideCar] Primary backend failed, switching to fallback: ${(err as Error).message}`);
+        return this.backend.complete(this.model, this.systemPrompt, messages, maxTokens, signal);
+      }
+      throw err;
+    }
+  }
+
+  private recordSuccess(): void {
+    this.consecutiveFailures = 0;
+    // If on fallback and primary succeeded, switch back
+    if (this.usingFallback) {
+      this.switchToPrimary();
+    }
+  }
+
+  /**
+   * Try switching to the fallback backend after consecutive failures.
+   * Returns true if switched (caller should retry), false if no fallback available.
+   */
+  private switchToFallback(): boolean {
+    this.consecutiveFailures++;
+    if (this.consecutiveFailures < SideCarClient.FALLBACK_THRESHOLD) return false;
+
+    const config = getConfig();
+    if (!config.fallbackBaseUrl || this.usingFallback) return false;
+
+    // Save primary state and switch
+    this.primaryBaseUrl = this.baseUrl;
+    this.primaryApiKey = this.apiKey;
+    this.primaryModel = this.model;
+
+    this.baseUrl = config.fallbackBaseUrl;
+    this.apiKey = config.fallbackApiKey || 'ollama';
+    this.model = config.fallbackModel || this.primaryModel;
+    this.backend = this.createBackend();
+    this.usingFallback = true;
+    this.consecutiveFailures = 0;
+    console.log(`[SideCar] Switched to fallback backend: ${this.baseUrl}`);
+    return true;
+  }
+
+  private switchToPrimary(): void {
+    this.baseUrl = this.primaryBaseUrl;
+    this.apiKey = this.primaryApiKey;
+    this.model = this.primaryModel;
+    this.backend = this.createBackend();
+    this.usingFallback = false;
+    console.log('[SideCar] Switched back to primary backend');
   }
 
   async completeFIM(
@@ -142,6 +220,11 @@ export class SideCarClient {
   updateConnection(baseUrl: string, apiKey: string) {
     this.baseUrl = baseUrl || DEFAULT_BASE_URL;
     this.apiKey = apiKey || 'ollama';
+    this.primaryBaseUrl = this.baseUrl;
+    this.primaryApiKey = this.apiKey;
+    this.primaryModel = this.model;
+    this.usingFallback = false;
+    this.consecutiveFailures = 0;
     this.backend = this.createBackend();
   }
 

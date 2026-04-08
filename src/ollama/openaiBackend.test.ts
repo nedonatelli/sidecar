@@ -1,0 +1,138 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { OpenAIBackend } from './openaiBackend.js';
+
+const mockFetch = vi.fn();
+vi.stubGlobal('fetch', mockFetch);
+
+function sseBody(events: string[]): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  const data = events.map((e) => `data: ${e}\n\n`).join('');
+  let sent = false;
+  return new ReadableStream({
+    pull(controller) {
+      if (!sent) {
+        controller.enqueue(encoder.encode(data));
+        sent = true;
+      } else {
+        controller.close();
+      }
+    },
+  });
+}
+
+function chunk(content: string, done = false): string {
+  return JSON.stringify({
+    choices: [
+      {
+        delta: { content, role: 'assistant' },
+        finish_reason: done ? 'stop' : null,
+      },
+    ],
+  });
+}
+
+describe('OpenAIBackend', () => {
+  let backend: OpenAIBackend;
+
+  beforeEach(() => {
+    backend = new OpenAIBackend('http://localhost:1234', 'test-key');
+    mockFetch.mockReset();
+  });
+
+  describe('streamChat', () => {
+    it('yields text events from SSE stream', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        body: sseBody([chunk('Hello'), chunk(' world'), chunk('', true), '[DONE]']),
+      });
+
+      const events = [];
+      for await (const event of backend.streamChat('test', '', [{ role: 'user', content: 'hi' }])) {
+        events.push(event);
+      }
+
+      expect(events).toContainEqual({ type: 'text', text: 'Hello' });
+      expect(events).toContainEqual({ type: 'text', text: ' world' });
+    });
+
+    it('handles malformed JSON in SSE events gracefully', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        body: sseBody(['not valid json', chunk('ok'), '[DONE]']),
+      });
+
+      const events = [];
+      for await (const event of backend.streamChat('test', '', [{ role: 'user', content: 'hi' }])) {
+        events.push(event);
+      }
+
+      expect(events).toContainEqual({ type: 'text', text: 'ok' });
+    });
+
+    it('handles partial SSE chunks that split across reads', async () => {
+      const encoder = new TextEncoder();
+      const line1 = `data: ${chunk('hello')}\n\n`;
+      const line2 = `data: [DONE]\n\n`;
+      const mid = Math.floor(line1.length / 2);
+
+      const body = new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(line1.slice(0, mid)));
+          controller.enqueue(encoder.encode(line1.slice(mid) + line2));
+          controller.close();
+        },
+      });
+
+      mockFetch.mockResolvedValueOnce({ ok: true, body });
+
+      const events = [];
+      for await (const event of backend.streamChat('test', '', [{ role: 'user', content: 'hi' }])) {
+        events.push(event);
+      }
+
+      expect(events).toContainEqual({ type: 'text', text: 'hello' });
+    });
+
+    it('parses <think> tags across multiple chunks', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        body: sseBody([chunk('<think>reasoning'), chunk(' more</think>answer'), '[DONE]']),
+      });
+
+      const events = [];
+      for await (const event of backend.streamChat('test', '', [{ role: 'user', content: 'think' }])) {
+        events.push(event);
+      }
+
+      expect(events).toContainEqual({ type: 'thinking', thinking: 'reasoning' });
+      expect(events).toContainEqual({ type: 'thinking', thinking: ' more' });
+      expect(events).toContainEqual({ type: 'text', text: 'answer' });
+    });
+
+    it('throws on non-ok response', async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 401,
+        statusText: 'Unauthorized',
+        headers: new Headers(),
+        text: async () => 'Invalid API key',
+      });
+
+      await expect(async () => {
+        for await (const _event of backend.streamChat('test', '', [{ role: 'user', content: 'hi' }])) {
+          // consume
+        }
+      }).rejects.toThrow('OpenAI API request failed: 401');
+    });
+
+    it('handles empty response body', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: true, body: null });
+
+      await expect(async () => {
+        for await (const _event of backend.streamChat('test', '', [{ role: 'user', content: 'hi' }])) {
+          // consume
+        }
+      }).rejects.toThrow('empty response body');
+    });
+  });
+});

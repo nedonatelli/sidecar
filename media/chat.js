@@ -1169,20 +1169,17 @@
         const runBtn = document.createElement('button');
         runBtn.className = 'code-save-btn code-run-btn';
         runBtn.textContent = 'Run';
-        runBtn.addEventListener('click', () => {
-          vscode.postMessage({ command: 'runCommand', text: code.trim() });
-          runBtn.textContent = 'Running...';
-          runBtn.disabled = true;
-        });
+        runBtn.dataset.action = 'run';
+        runBtn.dataset.code = code.trim();
         header.appendChild(runBtn);
       }
 
       const saveBtn = document.createElement('button');
       saveBtn.className = 'code-save-btn';
       saveBtn.textContent = 'Save As...';
-      saveBtn.addEventListener('click', () => {
-        vscode.postMessage({ command: 'saveCodeBlock', code, language: lang });
-      });
+      saveBtn.dataset.action = 'save';
+      saveBtn.dataset.code = code;
+      saveBtn.dataset.lang = lang;
       header.appendChild(saveBtn);
 
       const pre = document.createElement('pre');
@@ -1600,6 +1597,21 @@
       if (!scrollBtnRef) scrollBtnRef = document.getElementById('scroll-to-bottom');
       if (scrollBtnRef) scrollBtnRef.classList.toggle('hidden', !userScrolledUp);
     });
+  });
+
+  // Delegated event handler for code block buttons — avoids per-button
+  // listeners that capture code/lang in closures and leak memory.
+  messagesContainer.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-action]');
+    if (!btn) return;
+    const action = btn.dataset.action;
+    if (action === 'run') {
+      vscode.postMessage({ command: 'runCommand', text: btn.dataset.code });
+      btn.textContent = 'Running...';
+      btn.disabled = true;
+    } else if (action === 'save') {
+      vscode.postMessage({ command: 'saveCodeBlock', code: btn.dataset.code, language: btn.dataset.lang });
+    }
   });
 
   function scrollToBottom() {

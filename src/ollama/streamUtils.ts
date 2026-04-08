@@ -49,29 +49,34 @@ export interface ThinkTagState {
  * across multiple chunks.
  */
 export function* parseThinkTags(content: string, state: ThinkTagState): Generator<StreamEvent> {
-  while (content.length > 0) {
+  // Use index tracking instead of repeated string slicing to reduce
+  // intermediate string allocations and GC pressure.
+  let pos = 0;
+  const len = content.length;
+
+  while (pos < len) {
     if (!state.insideThinkTag) {
-      const openIdx = content.indexOf('<think>');
+      const openIdx = content.indexOf('<think>', pos);
       if (openIdx === -1) {
-        yield { type: 'text', text: content };
+        yield { type: 'text', text: content.substring(pos) };
         break;
       }
-      if (openIdx > 0) {
-        yield { type: 'text', text: content.slice(0, openIdx) };
+      if (openIdx > pos) {
+        yield { type: 'text', text: content.substring(pos, openIdx) };
       }
       state.insideThinkTag = true;
-      content = content.slice(openIdx + 7); // skip '<think>'
+      pos = openIdx + 7; // skip '<think>'
     } else {
-      const closeIdx = content.indexOf('</think>');
+      const closeIdx = content.indexOf('</think>', pos);
       if (closeIdx === -1) {
-        yield { type: 'thinking', thinking: content };
+        yield { type: 'thinking', thinking: content.substring(pos) };
         break;
       }
-      if (closeIdx > 0) {
-        yield { type: 'thinking', thinking: content.slice(0, closeIdx) };
+      if (closeIdx > pos) {
+        yield { type: 'thinking', thinking: content.substring(pos, closeIdx) };
       }
       state.insideThinkTag = false;
-      content = content.slice(closeIdx + 8); // skip '</think>'
+      pos = closeIdx + 8; // skip '</think>'
     }
   }
 }
