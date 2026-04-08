@@ -2,7 +2,7 @@
 
 This document tracks planned improvements and features for SideCar. Items are grouped by theme and roughly prioritized within each group.
 
-Last updated: 2026-04-07 (v0.28.0)
+Last updated: 2026-04-07 (v0.28.1)
 
 ---
 
@@ -197,8 +197,12 @@ Explicit privacy mode with zero telemetry, zero usage data collection, and no ne
 
 ---
 
-## Completed (v0.11.0–v0.28.0)
+## Completed (v0.11.0–v0.28.1)
 
+- [x] Per-request timeout for LLM calls with `sidecar.requestTimeout` setting
+- [x] Local model context cap to prevent oversized prompts
+- [x] Workspace context budget enforcement
+- [x] Fix: user message dropped by pruneHistory array reference aliasing
 - [x] Slash commands: `/reset`, `/undo`, `/export`, `/model`, `/help`
 - [x] Agent progress indicators (step count, elapsed time, token usage)
 - [x] Actionable error cards with retry and settings buttons

@@ -79,6 +79,7 @@ export interface SideCarConfig {
   mcpServers: Record<string, MCPServerConfig>;
   verboseMode: boolean;
   expandThinking: boolean;
+  requestTimeout: number;
   shellTimeout: number;
   shellMaxOutputMB: number;
   pinnedContext: string[];
@@ -130,6 +131,7 @@ function readConfig(): SideCarConfig {
     mcpServers: cfg.get<Record<string, MCPServerConfig>>('mcpServers', {}),
     verboseMode: cfg.get<boolean>('verboseMode', false),
     expandThinking: cfg.get<boolean>('expandThinking', false),
+    requestTimeout: cfg.get<number>('requestTimeout', 120),
     shellTimeout: cfg.get<number>('shellTimeout', 120),
     shellMaxOutputMB: cfg.get<number>('shellMaxOutputMB', 10),
     pinnedContext: cfg.get<string[]>('pinnedContext', []),

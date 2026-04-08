@@ -2,6 +2,21 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.28.1] - 2026-04-07
+
+### Fixed
+- **User message dropped by history pruning**: `pruneHistory()` returns the same array reference when short-circuiting (≤2 messages), so the subsequent `chatMessages.length = 0; chatMessages.push(...prunedMessages)` cleared both arrays — silently dropping the user's message. The model received only a system prompt with no question, returning empty content. Fixed by copying the pruned array before clearing
+- **Workspace context exceeding model capacity**: the workspace index injected up to 20K chars of file content into the system prompt regardless of the model's context window, causing local models to return empty responses or extreme latency. Added a context cap for local models (8K tokens) and tool overhead reservation (10K chars) to keep total prompt size manageable
+- **No request timeout**: agent loop requests had no timeout — if the model hung (loading, oversized prompt, connection stall), SideCar would wait forever. Added per-request timeout using `Promise.race` on each stream event, defaulting to 120 seconds
+
+### Added
+- **`sidecar.requestTimeout` setting**: configurable timeout in seconds for each LLM request (default: 120). If no tokens arrive within this window, the request is aborted with a user-friendly message. Set to 0 to disable
+- **`abortableRead` stream helper**: races `reader.read()` against the abort signal so stream body reading can be cancelled — `fetch` only controls the initial request, not ongoing body reads
+
+### Changed
+- **Local model context cap**: local models now cap at 8K tokens for context budget calculations instead of trusting the model's advertised context length (e.g. qwen3-coder reports 262K but Ollama's actual `num_ctx` is much smaller)
+- **Workspace context budget enforcement**: indexed and glob-based workspace context is now truncated to the remaining system prompt budget, preventing it from exceeding `maxSystemChars`
+
 ## [0.28.0] - 2026-04-07
 
 ### Added

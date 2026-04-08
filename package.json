@@ -2,7 +2,7 @@
   "name": "sidecar-ai",
   "displayName": "SideCar",
   "description": "AI chat client for VS Code — use local Ollama models or Claude via the Anthropic API",
-  "version": "0.28.0",
+  "version": "0.28.1",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -213,6 +213,11 @@
           "default": 100000,
           "description": "Maximum total tokens before stopping the agent loop"
         },
+        "sidecar.requestTimeout": {
+          "type": "number",
+          "default": 120,
+          "description": "Timeout in seconds for each LLM request. If no tokens arrive within this time the request is aborted. Set to 0 to disable."
+        },
         "sidecar.shellTimeout": {
           "type": "number",
           "default": 120,
@@ -260,7 +265,9 @@
         },
         "sidecar.pinnedContext": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "description": "Files or folders always included in context (relative paths). Use @pin:path in chat to add dynamically."
         },
@@ -276,7 +283,12 @@
         },
         "sidecar.provider": {
           "type": "string",
-          "enum": ["auto", "ollama", "anthropic", "openai"],
+          "enum": [
+            "auto",
+            "ollama",
+            "anthropic",
+            "openai"
+          ],
           "default": "auto",
           "description": "LLM provider backend. 'auto' detects from the base URL (localhost:11434 → Ollama, anthropic.com → Anthropic, anything else → OpenAI-compatible). Set explicitly for LM Studio, vLLM, llama.cpp, or OpenRouter."
         },

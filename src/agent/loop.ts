@@ -1,6 +1,7 @@
 import type {
   ChatMessage,
   ContentBlock,
+  StreamEvent,
   ToolDefinition,
   ToolUseContentBlock,
   ToolResultContentBlock,
@@ -97,32 +98,72 @@ export async function runAgentLoop(
 
     // In plan mode, first iteration runs without tools to generate a plan
     const iterTools = options.planMode && iteration === 1 ? [] : tools;
-    const stream = client.streamChat(agentMessages, signal, iterTools);
-    for await (const event of stream) {
-      if (signal.aborted) break;
 
-      switch (event.type) {
-        case 'text':
-          fullText += event.text;
-          totalChars += event.text.length;
-          callbacks.onText(event.text);
-          break;
-        case 'thinking':
-          totalChars += event.thinking.length;
-          callbacks.onThinking?.(event.thinking);
-          break;
-        case 'warning':
-          callbacks.onText(`\n⚠️ ${event.message}\n`);
-          break;
-        case 'tool_use':
-          pendingToolUses.push(event.toolUse);
-          logger?.logToolCall(event.toolUse.name, event.toolUse.input);
-          callbacks.onToolCall(event.toolUse.name, event.toolUse.input, event.toolUse.id);
-          break;
-        case 'stop':
-          stopReason = event.stopReason;
-          break;
+    // Request timeout — abort if no stream events arrive within the window.
+    // We use Promise.race on each .next() call rather than relying on
+    // AbortSignal propagation through fetch, which is unreliable in Node.
+    const requestTimeoutMs = config.requestTimeout * 1000;
+
+    const stream = client.streamChat(agentMessages, signal, iterTools);
+    const iter = stream[Symbol.asyncIterator]();
+    try {
+      while (true) {
+        if (signal.aborted) break;
+
+        // Race the next stream event against the timeout
+        let result: IteratorResult<StreamEvent>;
+        if (requestTimeoutMs > 0) {
+          const next = iter.next();
+          const timeout = new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error('__REQUEST_TIMEOUT__')), requestTimeoutMs);
+          });
+          result = await Promise.race([next, timeout]);
+        } else {
+          result = await iter.next();
+        }
+
+        if (result.done) break;
+        const event = result.value;
+
+        switch (event.type) {
+          case 'text':
+            fullText += event.text;
+            totalChars += event.text.length;
+            callbacks.onText(event.text);
+            break;
+          case 'thinking':
+            totalChars += event.thinking.length;
+            callbacks.onThinking?.(event.thinking);
+            break;
+          case 'warning':
+            callbacks.onText(`\n⚠️ ${event.message}\n`);
+            break;
+          case 'tool_use':
+            pendingToolUses.push(event.toolUse);
+            logger?.logToolCall(event.toolUse.name, event.toolUse.input);
+            callbacks.onToolCall(event.toolUse.name, event.toolUse.input, event.toolUse.id);
+            break;
+          case 'stop':
+            stopReason = event.stopReason;
+            break;
+        }
       }
+    } catch (err) {
+      if (err instanceof Error && err.message === '__REQUEST_TIMEOUT__') {
+        const msg =
+          `Request timed out after ${config.requestTimeout}s waiting for the model. ` +
+          `The model may be loading or the prompt may be too large. ` +
+          `You can increase sidecar.requestTimeout in settings.`;
+        logger?.warn(msg);
+        callbacks.onText(`\n\n⚠️ ${msg}\n`);
+        // Try to clean up the stream
+        iter.return?.(undefined);
+        break;
+      }
+      if (err instanceof Error && err.name === 'AbortError') {
+        break;
+      }
+      throw err;
     }
 
     // Strip repeated content from the model's output.

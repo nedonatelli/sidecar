@@ -235,6 +235,7 @@ SideCar auto-detects the provider. To override, set `sidecar.provider` to `"open
 | `sidecar.completionMaxTokens` | `256` | Max tokens for completions |
 | `sidecar.verboseMode` | `false` | Show detailed agent reasoning during runs |
 | `sidecar.expandThinking` | `false` | Show reasoning blocks expanded instead of collapsed |
+| `sidecar.requestTimeout` | `120` | Timeout in seconds for each LLM request. Aborts if no tokens arrive within this window. Set to 0 to disable |
 | `sidecar.shellTimeout` | `120` | Default timeout for shell commands in seconds |
 | `sidecar.shellMaxOutputMB` | `10` | Maximum shell output size in MB before truncation |
 

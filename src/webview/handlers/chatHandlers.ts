@@ -176,8 +176,14 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
 
     // Append SIDECAR.md and user prompt with size limits to prevent context overflow.
     // Reserve at least 50% of context for conversation and tool results.
+    // Cap local model context at 16K tokens — many models advertise huge context
+    // windows (e.g. 262K) but Ollama's default num_ctx is much smaller, and large
+    // prompts cause extreme first-token latency on local hardware.
     state.postMessage({ command: 'typingStatus', content: 'Building context...' });
-    const contextLength = await state.client.getModelContextLength();
+    const rawContextLength = await state.client.getModelContextLength();
+    const LOCAL_CONTEXT_CAP = 8_192;
+    const contextLength =
+      isLocal && rawContextLength && rawContextLength > LOCAL_CONTEXT_CAP ? LOCAL_CONTEXT_CAP : rawContextLength;
     const maxSystemChars = contextLength ? Math.floor(contextLength * 4 * 0.5) : 80_000;
 
     const sidecarMd = await loadSidecarMd();
@@ -200,6 +206,13 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     }
 
     if (getWorkspaceEnabled()) {
+      // Enforce a tight budget on workspace context.  For local models, tool
+      // definitions add ~8-10K chars to the request on top of the system
+      // prompt, so we reserve headroom for those.  Without this, the prompt
+      // can grow so large that the model returns empty responses.
+      const toolOverheadChars = isLocal ? 10_000 : 0;
+      const contextBudget = Math.max(0, maxSystemChars - systemPrompt.length - toolOverheadChars);
+
       if (state.workspaceIndex?.isReady()) {
         // Apply pinned context from settings + @pin: references
         state.workspaceIndex.setPinnedPaths(config.pinnedContext);
@@ -214,7 +227,11 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
           : undefined;
         const indexContext = await state.workspaceIndex.getRelevantContext(text, activeFilePath);
         if (indexContext) {
-          systemPrompt += `\n\n${indexContext}`;
+          const trimmed =
+            indexContext.length > contextBudget
+              ? indexContext.slice(0, contextBudget - 30) + '\n... (context truncated)'
+              : indexContext;
+          systemPrompt += `\n\n${trimmed}`;
         }
         // Boost relevance for files mentioned in this message
         const mentionedPaths = [...text.matchAll(/@file:([^\s]+)/g)].map((m) => m[1]);
@@ -225,7 +242,11 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
         // Fallback to glob-based context while index is building
         const context = await getWorkspaceContext(getFilePatterns(), getMaxFiles());
         if (context) {
-          systemPrompt += `\n\n${context}`;
+          const trimmed =
+            context.length > contextBudget
+              ? context.slice(0, contextBudget - 30) + '\n... (context truncated)'
+              : context;
+          systemPrompt += `\n\n${trimmed}`;
         }
       }
     }
@@ -280,8 +301,12 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
       }
     }
     // Replace chatMessages with pruned version
+    // Replace chatMessages with pruned version.
+    // Note: pruneHistory may return the same array reference when it
+    // short-circuits, so we must copy before clearing.
+    const pruned = [...prunedMessages];
     chatMessages.length = 0;
-    chatMessages.push(...prunedMessages);
+    chatMessages.push(...pruned);
 
     // Warn if context may still exceed the model's limit
     if (contextLength) {

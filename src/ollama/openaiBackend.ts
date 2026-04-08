@@ -1,6 +1,7 @@
 import type { ApiBackend } from './backend.js';
 import type { ChatMessage, ContentBlock, ToolDefinition, ToolUseContentBlock, StreamEvent } from './types.js';
 import { fetchWithRetry } from './retry.js';
+import { abortableRead } from './streamUtils.js';
 
 // ---------------------------------------------------------------------------
 // OpenAI-compatible API types
@@ -216,7 +217,7 @@ export class OpenAIBackend implements ApiBackend {
     try {
       let buffer = '';
       while (true) {
-        const { done, value } = await reader.read();
+        const { done, value } = await abortableRead(reader, signal);
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
