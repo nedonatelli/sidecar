@@ -2,7 +2,43 @@
 
 This document tracks planned improvements and features for SideCar. Items are grouped by theme and roughly prioritized within each group.
 
-Last updated: 2026-04-07 (v0.28.1)
+Last updated: 2026-04-08 (v0.28.1)
+
+---
+
+## Technical Debt & Performance (from v0.28.1 audit)
+
+Items identified via architecture, AI engineering, algorithms, and frontend performance reviews. Grouped by priority.
+
+### HIGH — Code block button memory leak
+Event listeners on code block Run/Save/Copy buttons capture `code` and `lang` variables in closures. When messages are deleted, these closures remain referenced. Over long conversations with many code blocks, this leaks significant memory. **Fix:** Use event delegation on the messages container instead of per-button listeners.
+
+### HIGH — Backend fallback (primary → secondary provider)
+If the configured backend is unavailable (API down, rate limited, network error), SideCar has no fallback. Allow users to configure a secondary backend. After 2 consecutive failures on the primary, automatically switch to secondary. Log fallback events in verbose mode.
+
+### MEDIUM — OpenAI and Anthropic stream error tests
+Only the Ollama backend has tests for stream error paths (malformed JSON, partial chunks, mid-stream drops, unclosed think tags). The OpenAI and Anthropic backends need equivalent coverage.
+
+### MEDIUM — Consolidate parseTextToolCalls regex passes
+`parseTextToolCalls()` in `loop.ts` runs three sequential regex patterns over the full text. Could be consolidated into a single pass or a unified parser for ~3x throughput improvement.
+
+### MEDIUM — parseThinkTags index tracking
+`parseThinkTags()` in `streamUtils.ts` creates intermediate strings via `content.slice()` on every think tag boundary. Should use start/end index tracking instead of slicing to reduce GC pressure during heavy thinking output.
+
+### LOW — Config interface sub-object grouping
+`SideCarConfig` has 28+ fields. Group into sub-objects (`AgentConfig`, `CompletionConfig`, `ShellConfig`, `ContextConfig`) to improve maintainability. Requires updating all downstream call sites.
+
+### LOW — Real tokenizer integration
+Token counting uses character estimation (3.5–4 chars/token) which varies by model. Integrate `js-tiktoken` for OpenAI models and community tokenizers for others. Fall back to character estimation when no tokenizer is available.
+
+### LOW — Incremental markdown parser for streaming
+During streaming, the renderer clears `innerHTML` and rebuilds from parsed markdown on each debounced update (~12x/sec). An incremental parser that tracks completed blocks and only renders new content would reduce DOM churn and GC pressure.
+
+### LOW — Message list virtualization
+Loading a 200+ message conversation renders all messages to the DOM at once, causing multi-second initial load times. Implement virtual scrolling that only renders messages in/near the viewport.
+
+### LOW — Semantic search for file relevance
+Workspace file scoring uses keyword matching only. Integrate local ONNX embeddings (e.g., `@xenova/transformers`) for semantic similarity scoring. Combine with existing keyword scores via weighted fusion.
 
 ---
 
@@ -199,6 +235,32 @@ Explicit privacy mode with zero telemetry, zero usage data collection, and no ne
 
 ## Completed (v0.11.0–v0.28.1)
 
+- [x] Agent loop cycle detection: halt on repeated identical tool calls
+- [x] Task-specific temperature: `sidecar.agentTemperature` (default 0.2) for tool-calling requests
+- [x] Tool support auto-detection: track runtime failures, disable tools after 3 misses
+- [x] Optimized system prompts: numbered rules, positive instructions, multi-step guidance
+- [x] Context injection reordering: relevant files before workspace tree
+- [x] `.sidecar/` project directory: foundation for cache, logs, sessions, plans, memory
+- [x] Shared backend utilities: `parseThinkTags()`, `toFunctionTools()` deduplicated across backends
+- [x] Config validation: `clampMin()` for all numeric settings
+- [x] Error classification expansion: ENOTFOUND, EADDRNOTAVAIL, EHOSTUNREACH, ECONNRESET
+- [x] FileSystemWatcher disposal on deactivate
+- [x] Agent abort on extension deactivate
+- [x] Pending confirmations cleared on abort
+- [x] Shell session SIGTERM → SIGKILL timeout on dispose
+- [x] Standardized error messages across all three backends
+- [x] Typing indicator fix: remove duplicates, `setLoading: false` in finally block
+- [x] Scroll handler debounce via requestAnimationFrame with cached element ref
+- [x] O(1) message delete via `data-msg-index` attribute
+- [x] `parseFileContent` language branching: test only relevant patterns per language
+- [x] Partial sort in `getRelevantContext`: filter relevant files, sort only those
+- [x] Pre-built pinned file Set for O(1) lookups
+- [x] `pruneHistory` incremental char tracking: flatten once at end instead of O(m²)
+- [x] Multi-language AST extraction: Python, Rust, Go, Java/Kotlin with full body capture
+- [x] Smart context `enhanceContextWithSmartElements` wired into fallback path
+- [x] Workspace index excludes: `coverage/`, `build/`, `.turbo`, `.cache`
+- [x] 27 new tests: streamUtils, config validation, agent loop timeout, pruneHistory regression, backend stream errors
+- [x] GitHub Actions: bot-powered releases, issue auto-labeling, PR test result comments
 - [x] Per-request timeout for LLM calls with `sidecar.requestTimeout` setting
 - [x] Local model context cap to prevent oversized prompts
 - [x] Workspace context budget enforcement
