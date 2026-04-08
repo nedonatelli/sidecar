@@ -134,43 +134,51 @@ export class WorkspaceIndex implements Disposable {
     if (!folders || folders.length === 0) return '';
     const rootUri = folders[0].uri;
 
-    // Score files based on query relevance
+    // Score files and select top-k using partial sort (O(n) for scoring,
+    // O(n) for partitioning) instead of full O(n log n) sort.
     const scored = [...this.files.values()].map((f) => ({
       ...f,
       score: this.computeScore(f, query, activeFilePath),
     }));
-    scored.sort((a, b) => b.score - a.score);
+    // Partition: move files with score > 0 to the front, then sort only those.
+    const relevant = scored.filter((f) => f.score > 0);
+    relevant.sort((a, b) => b.score - a.score);
 
     // Build context with relevant content first, tree last.
-    // Relevant files and pinned files are more valuable than the tree
-    // structure, so they get priority in the context budget.
     const parts: string[] = [];
     let charCount = 0;
     const budget = this.maxContextChars;
 
-    // Include pinned files first (always, regardless of score)
+    // Pre-build pinned file set for O(1) lookup and match pinned folders once.
+    const pinnedFiles = new Set<string>();
     if (this.pinnedPaths.size > 0) {
+      for (const pinPath of this.pinnedPaths) {
+        for (const f of this.files.keys()) {
+          if (f === pinPath || f.startsWith(pinPath + path.sep)) {
+            pinnedFiles.add(f);
+          }
+        }
+      }
+    }
+
+    // Include pinned files first (always, regardless of score)
+    if (pinnedFiles.size > 0) {
       parts.push('\n## Pinned Files\n');
       charCount += 18;
-      for (const pinPath of this.pinnedPaths) {
+      for (const filePath of pinnedFiles) {
         if (charCount >= budget) break;
         try {
-          // Support pinned folders: include all files under the prefix
-          const matchingFiles = [...this.files.keys()].filter((f) => f === pinPath || f.startsWith(pinPath + path.sep));
-          for (const filePath of matchingFiles) {
-            if (charCount >= budget) break;
-            const fileUri = Uri.joinPath(rootUri, filePath);
-            let content = this.fileContentCache.get(filePath);
-            if (!content) {
-              const bytes = await workspace.fs.readFile(fileUri);
-              content = Buffer.from(bytes).toString('utf-8').slice(0, MAX_CONTENT_LENGTH);
-              this.fileContentCache.set(filePath, content);
-            }
-            const section = `\n### ${filePath} (pinned)\n\`\`\`\n${content}\n\`\`\`\n`;
-            if (charCount + section.length > budget) continue;
-            parts.push(section);
-            charCount += section.length;
+          const fileUri = Uri.joinPath(rootUri, filePath);
+          let content = this.fileContentCache.get(filePath);
+          if (!content) {
+            const bytes = await workspace.fs.readFile(fileUri);
+            content = Buffer.from(bytes).toString('utf-8').slice(0, MAX_CONTENT_LENGTH);
+            this.fileContentCache.set(filePath, content);
           }
+          const section = `\n### ${filePath} (pinned)\n\`\`\`\n${content}\n\`\`\`\n`;
+          if (charCount + section.length > budget) continue;
+          parts.push(section);
+          charCount += section.length;
         } catch {
           /* skip unreadable pinned files */
         }
@@ -181,13 +189,10 @@ export class WorkspaceIndex implements Disposable {
     parts.push('\n## Relevant Files\n');
     charCount += 20;
 
-    for (const file of scored) {
-      // Skip files already included as pinned
-      if (this.pinnedPaths.has(file.relativePath)) continue;
-      const isPinnedFolder = [...this.pinnedPaths].some((p) => file.relativePath.startsWith(p + path.sep));
-      if (isPinnedFolder) continue;
+    for (const file of relevant) {
+      // Skip files already included as pinned (O(1) lookup)
+      if (pinnedFiles.has(file.relativePath)) continue;
       if (charCount >= budget) break;
-      if (file.score <= 0) break;
 
       try {
         const fileUri = Uri.joinPath(rootUri, file.relativePath);

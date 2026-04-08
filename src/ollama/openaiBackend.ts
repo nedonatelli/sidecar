@@ -2,6 +2,7 @@ import type { ApiBackend } from './backend.js';
 import type { ChatMessage, ContentBlock, ToolDefinition, ToolUseContentBlock, StreamEvent } from './types.js';
 import { fetchWithRetry } from './retry.js';
 import { abortableRead, toFunctionTools, parseThinkTags, type ThinkTagState } from './streamUtils.js';
+import { getConfig } from '../config/settings.js';
 
 // ---------------------------------------------------------------------------
 // OpenAI-compatible API types
@@ -151,10 +152,12 @@ export class OpenAIBackend implements ApiBackend {
     signal?: AbortSignal,
     tools?: ToolDefinition[],
   ): AsyncGenerator<StreamEvent> {
+    const { agentTemperature } = getConfig();
     const body: Record<string, unknown> = {
       model,
       messages: toOpenAIMessages(messages, systemPrompt),
       stream: true,
+      ...(tools && tools.length > 0 ? { temperature: agentTemperature } : {}),
     };
 
     if (tools && tools.length > 0) {

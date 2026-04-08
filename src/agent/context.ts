@@ -36,19 +36,24 @@ export function pruneHistory(messages: ChatMessage[], maxChars: number): ChatMes
     return compressTurn(turn, 'heavy'); // older — heavy compression
   });
 
-  // Flatten turns back to a message array
-  let flat = result.flat();
-
-  // If still over budget, start dropping oldest turns
-  let totalChars = flat.reduce((sum, m) => sum + getContentLength(m.content), 0);
-  while (totalChars > maxChars && result.length > 2) {
-    const dropped = result.shift()!;
-    const droppedChars = dropped.reduce((sum, m) => sum + getContentLength(m.content), 0);
-    totalChars -= droppedChars;
-    flat = result.flat();
+  // Compute total chars incrementally instead of re-flattening on each drop.
+  let totalChars = 0;
+  for (const turn of result) {
+    for (const m of turn) {
+      totalChars += getContentLength(m.content);
+    }
   }
 
-  return flat;
+  // Drop oldest turns until under budget (skip re-flattening each iteration)
+  while (totalChars > maxChars && result.length > 2) {
+    const dropped = result.shift()!;
+    for (const m of dropped) {
+      totalChars -= getContentLength(m.content);
+    }
+  }
+
+  // Flatten once at the end
+  return result.flat();
 }
 
 /** A turn is a sequence of messages starting with a user message. */

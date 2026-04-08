@@ -8,6 +8,7 @@ import type {
   StreamEvent,
 } from './types.js';
 import { fetchWithRetry } from './retry.js';
+import { getConfig } from '../config/settings.js';
 
 /**
  * Split the system prompt into cached (stable) and dynamic blocks.
@@ -55,11 +56,13 @@ export class AnthropicBackend implements ApiBackend {
     signal?: AbortSignal,
     tools?: ToolDefinition[],
   ): AsyncGenerator<StreamEvent> {
+    const { agentTemperature } = getConfig();
     const body: Record<string, unknown> = {
       model,
       max_tokens: 4096,
       messages,
       stream: true,
+      ...(tools && tools.length > 0 ? { temperature: agentTemperature } : {}),
     };
 
     if (systemPrompt) {

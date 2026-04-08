@@ -65,6 +65,7 @@ export interface SideCarConfig {
   includeActiveFile: boolean;
   planMode: boolean;
   agentMode: 'cautious' | 'autonomous' | 'manual';
+  agentTemperature: number;
   agentMaxIterations: number;
   agentMaxTokens: number;
   enableInlineCompletions: boolean;
@@ -123,6 +124,7 @@ function readConfig(): SideCarConfig {
     includeActiveFile: cfg.get<boolean>('includeActiveFile', true),
     planMode: cfg.get<boolean>('planMode', false),
     agentMode: cfg.get<'cautious' | 'autonomous' | 'manual'>('agentMode', 'cautious'),
+    agentTemperature: clampMin(cfg.get<number>('agentTemperature'), 0, 0.2),
     agentMaxIterations: clampMin(cfg.get<number>('agentMaxIterations'), 1, 25),
     agentMaxTokens: clampMin(cfg.get<number>('agentMaxTokens'), 1000, 100000),
     enableInlineCompletions: cfg.get<boolean>('enableInlineCompletions', false),

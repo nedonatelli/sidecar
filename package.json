@@ -208,6 +208,11 @@
           "default": "cautious",
           "description": "Agent approval mode: cautious (confirm writes), autonomous (auto-approve read/write, confirm destructive), manual (confirm everything)"
         },
+        "sidecar.agentTemperature": {
+          "type": "number",
+          "default": 0.2,
+          "description": "Temperature for agent tool-calling requests. Lower values (0.1-0.3) produce more deterministic tool selection. Set higher (0.7-1.0) for creative tasks."
+        },
         "sidecar.agentMaxIterations": {
           "type": "number",
           "default": 25,

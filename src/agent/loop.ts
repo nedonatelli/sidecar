@@ -62,6 +62,10 @@ export async function runAgentLoop(
   let autoFixRetries = 0;
   const startTime = Date.now();
 
+  // Cycle detection: track recent tool calls to detect stuck loops
+  const recentToolCalls: string[] = [];
+  const CYCLE_WINDOW = 4;
+
   // Work with a copy of messages
   const agentMessages = [...messages];
 
@@ -204,6 +208,22 @@ export async function runAgentLoop(
 
     // Model used tools successfully — reset any failure tracking
     recordToolSuccess(client.getModel());
+
+    // Cycle detection: hash the tool calls and check for repetition
+    const callSignature = pendingToolUses.map((tu) => `${tu.name}:${JSON.stringify(tu.input)}`).join('|');
+    recentToolCalls.push(callSignature);
+    if (recentToolCalls.length > CYCLE_WINDOW) {
+      recentToolCalls.shift();
+    }
+    if (recentToolCalls.length >= 2) {
+      const last = recentToolCalls[recentToolCalls.length - 1];
+      const prev = recentToolCalls[recentToolCalls.length - 2];
+      if (last === prev) {
+        logger?.warn(`Agent loop cycle detected: same tool call repeated — ${callSignature.slice(0, 100)}`);
+        callbacks.onText('\n\n⚠️ Agent stopped: detected repeated tool call (possible loop).\n');
+        break;
+      }
+    }
 
     // Build the assistant message content
     if (fullText) {

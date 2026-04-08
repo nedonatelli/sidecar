@@ -1244,9 +1244,12 @@
     return fragment;
   }
 
+  let messageCounter = 0;
+
   function appendMessage(role, content, isError = false) {
     const div = document.createElement('div');
     div.className = 'message ' + role + (isError ? ' error' : '');
+    div.dataset.msgIndex = String(messageCounter++);
     if (role === 'assistant' && !isError) {
       div.appendChild(renderContent(content, window.currentModelSupportsTools));
       postProcessMarkdown(div);
@@ -1254,16 +1257,15 @@
       div.textContent = content;
     }
 
-    // Add delete button to each message
+    // Add delete button — uses data-msg-index for O(1) lookup instead of DOM query
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'message-delete-btn';
     deleteBtn.textContent = '\u00d7';
     deleteBtn.title = 'Delete message';
     deleteBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      const allMessages = messagesContainer.querySelectorAll('.message');
-      const index = Array.from(allMessages).indexOf(div);
-      if (index !== -1) {
+      const index = parseInt(div.dataset.msgIndex, 10);
+      if (!isNaN(index)) {
         vscode.postMessage({ command: 'deleteMessage', index });
         div.remove();
       }
@@ -1584,12 +1586,20 @@
   }
 
   let userScrolledUp = false;
+  let scrollBtnRef = null; // cached reference to avoid getElementById per event
 
+  let scrollRafPending = false;
   messagesContainer.addEventListener('scroll', () => {
-    const gap = messagesContainer.scrollHeight - messagesContainer.scrollTop - messagesContainer.clientHeight;
-    userScrolledUp = gap > 40;
-    const scrollBtn = document.getElementById('scroll-to-bottom');
-    if (scrollBtn) scrollBtn.classList.toggle('hidden', !userScrolledUp);
+    // Debounce via requestAnimationFrame to avoid layout thrashing
+    if (scrollRafPending) return;
+    scrollRafPending = true;
+    requestAnimationFrame(() => {
+      scrollRafPending = false;
+      const gap = messagesContainer.scrollHeight - messagesContainer.scrollTop - messagesContainer.clientHeight;
+      userScrolledUp = gap > 40;
+      if (!scrollBtnRef) scrollBtnRef = document.getElementById('scroll-to-bottom');
+      if (scrollBtnRef) scrollBtnRef.classList.toggle('hidden', !userScrolledUp);
+    });
   });
 
   function scrollToBottom() {
@@ -2021,6 +2031,7 @@
         messagesContainer.innerHTML = '';
         currentAssistantDiv = null;
         currentAssistantText = '';
+        messageCounter = 0;
         break;
 
       case 'addUserMessage':
