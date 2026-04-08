@@ -2,6 +2,27 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.30.0] - 2026-04-08
+
+### Added
+- **Claude Code skill compatibility**: load and use existing Claude Code skills directly — no format conversion needed. Scans `~/.claude/commands/`, `<workspace>/.claude/commands/`, and `.sidecar/skills/` for markdown skill files. Trigger via `/skill-name` slash command or automatic keyword matching. New `/skills` command lists all loaded skills
+- **Backend fallback**: configure a secondary provider via `sidecar.fallbackBaseUrl`, `sidecar.fallbackApiKey`, `sidecar.fallbackModel`. After 2 consecutive failures on the primary, SideCar auto-switches to fallback with a warning. Switches back on success
+- **Docs redesign CSS**: extracted design system stylesheet for the docs site (coral/blue/purple palette, code blocks, callouts, mode grid, nav cards)
+- **Redesigned landing page**: new standalone landing page with terminal mockup, feature comparison table, stat strip, and quickstart guide
+
+### Fixed
+- **Code block button memory leak**: Run/Save/Copy buttons now use event delegation with `data-action` attributes instead of per-button listeners that captured code in closures
+- **Repetitive model responses**: added anti-repetition rules to system prompts ("NEVER repeat information", "no lists unless asked", "only add new info after tool calls")
+- **Marketplace publish blocking releases**: publish step now uses `continue-on-error` so re-runs can create the GitHub Release even if the VSIX was already published
+
+### Performance
+- **parseThinkTags**: index tracking instead of string slicing — eliminates intermediate string allocations
+- **parseTextToolCalls**: consolidated 3 sequential regex passes into single combined regex with priority tracking
+- **OpenAI backend stream tests**: 6 new tests for SSE parsing, malformed JSON, partial chunks, think tags, error responses
+
+### Tests
+- 403 total tests
+
 ## [0.29.0] - 2026-04-08
 
 ### Added
