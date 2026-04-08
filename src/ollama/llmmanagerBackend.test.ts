@@ -88,7 +88,7 @@ describe('LLMManagerBackend', () => {
         'http://localhost:11435/v1/chat/completions',
         expect.objectContaining({
           headers: expect.objectContaining({
-            'Authorization': 'Bearer test-token',
+            Authorization: 'Bearer test-token',
             'Content-Type': 'application/json',
           }),
         }),
