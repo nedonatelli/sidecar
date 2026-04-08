@@ -519,6 +519,9 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
         state.postMessage({ command: 'changeSummary', changeSummary: summaryItems });
       }
     }
+
+    // Ensure loading state is cleared after normal completion
+    state.postMessage({ command: 'setLoading', isLoading: false });
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
       state.autoSave();
@@ -532,6 +535,8 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
   } finally {
     state.metricsCollector.endRun();
     state.abortController = null;
+    // Always ensure loading indicator is cleared, regardless of how we got here
+    state.postMessage({ command: 'setLoading', isLoading: false });
   }
 }
 

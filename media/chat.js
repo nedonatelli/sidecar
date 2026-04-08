@@ -1520,6 +1520,8 @@
   }
 
   function showTypingIndicator() {
+    // Remove any existing typing indicator to prevent duplicates
+    removeTypingIndicator();
     const div = document.createElement('div');
     div.className = 'message assistant typing-indicator';
     div.id = 'typing';
