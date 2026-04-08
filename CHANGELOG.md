@@ -2,6 +2,32 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.28.0] - 2026-04-07
+
+### Added
+- **OpenAI-compatible API backend**: works with any server exposing `/v1/chat/completions` — LM Studio, vLLM, llama.cpp, text-generation-webui, OpenRouter, and more. SSE streaming, incremental tool call accumulation, `<think>` tag parsing, and `/v1/models` listing. Set `sidecar.baseUrl` to your server and SideCar auto-detects the protocol
+- **`sidecar.provider` setting**: explicit provider selection (`auto`, `ollama`, `anthropic`, `openai`) when auto-detection doesn't match your setup
+- **Context pinning**: `@pin:path` syntax in chat and `sidecar.pinnedContext` array setting to always include specific files or folders in context regardless of relevance scoring. Supports folder pinning (includes all files under the prefix)
+- **Auto-fix on failure**: `sidecar.autoFixOnFailure` checks VS Code diagnostics after agent writes/edits and feeds errors back to the model for self-correction, up to `sidecar.autoFixMaxRetries` attempts
+- **Web page context**: paste a URL in chat and SideCar auto-fetches the page, strips HTML, and includes readable content in context. Configurable via `sidecar.fetchUrlContext`. Max 3 URLs per message, 5000 chars per page
+- **Onboarding walkthrough**: first-run "Welcome to SideCar" card with feature overview and "Got it" dismiss. Stored in globalState, never shows again after dismissal
+- **Reconnect button**: error card shows "Reconnect" with auto-retry (3 attempts with 2s/4s/8s backoff) before prompting. On success, automatically resends the last user message
+- **Typing status line**: descriptive status below bouncing dots — "Connecting to model...", "Building context...", "Sending to model...", "Reasoning...", "Running tool: X...", "Agent step N/M..."
+- **Wall-clock timer**: elapsed time counter on the typing indicator so users know SideCar isn't stuck
+- **Verbose log blocks collapsed**: system prompt and verbose logs now render collapsed by default instead of expanded
+- **Troubleshooting docs**: "Slow model loading" section with macOS Launch Agent setup instructions for pre-warming models at startup
+
+### Changed
+- **Three-way backend dispatch**: `SideCarClient.createBackend()` now uses `detectProvider()` with Ollama, Anthropic, and OpenAI backends instead of a binary Ollama/Anthropic check. Non-Ollama, non-Anthropic URLs now default to OpenAI-compatible instead of Anthropic
+- **Reachability checks**: both `chatHandlers` and `modelHandlers` use provider-aware endpoint checks (`/api/tags` for Ollama, base URL for Anthropic, `/v1/models` for OpenAI)
+- **Model listing**: `listInstalledModels()` uses `GET /v1/models` for OpenAI backends; `listLibraryModels()` skips Ollama library suggestions for non-Ollama providers
+
+### Tests
+- 370 total tests (287 → 370)
+- New test files: metrics, logger, debounce, parser, apply, git, workspace
+- Updated: settings (provider, isAnthropic, detectProvider), workspaceIndex (pinning)
+- VS Code mock expanded: Position, Range, WorkspaceEdit, StatusBarAlignment
+
 ## [0.27.0] - 2026-04-07
 
 ### Added

@@ -7,6 +7,21 @@ export function isLocalOllama(baseUrl: string): boolean {
   return baseUrl.includes('localhost:11434') || baseUrl.includes('127.0.0.1:11434');
 }
 
+export function isAnthropic(baseUrl: string): boolean {
+  return baseUrl.includes('anthropic.com');
+}
+
+/** Determine which backend provider to use based on URL and explicit setting. */
+export function detectProvider(
+  baseUrl: string,
+  provider: 'auto' | 'ollama' | 'anthropic' | 'openai',
+): 'ollama' | 'anthropic' | 'openai' {
+  if (provider !== 'auto') return provider;
+  if (isLocalOllama(baseUrl)) return 'ollama';
+  if (isAnthropic(baseUrl)) return 'anthropic';
+  return 'openai';
+}
+
 // ---------------------------------------------------------------------------
 // Typed configuration
 // ---------------------------------------------------------------------------
@@ -43,6 +58,7 @@ export interface CustomToolConfig {
 
 export interface SideCarConfig {
   model: string;
+  provider: 'auto' | 'ollama' | 'anthropic' | 'openai';
   systemPrompt: string;
   baseUrl: string;
   apiKey: string;
@@ -93,6 +109,7 @@ function readConfig(): SideCarConfig {
   const cfg = workspace.getConfiguration('sidecar');
   return {
     model: cfg.get<string>('model', 'qwen3-coder:30b'),
+    provider: cfg.get<'auto' | 'ollama' | 'anthropic' | 'openai'>('provider', 'auto'),
     systemPrompt: cfg.get<string>('systemPrompt', ''),
     baseUrl: cfg.get<string>('baseUrl', 'http://localhost:11434'),
     apiKey: cfg.get<string>('apiKey', 'ollama'),

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isLocalOllama, getConfig } from './settings.js';
+import { isLocalOllama, isAnthropic, detectProvider, getConfig } from './settings.js';
 
 describe('isLocalOllama', () => {
   it('returns true for http://localhost:11434', () => {
@@ -35,10 +35,46 @@ describe('isLocalOllama', () => {
   });
 });
 
+describe('isAnthropic', () => {
+  it('returns true for api.anthropic.com', () => {
+    expect(isAnthropic('https://api.anthropic.com')).toBe(true);
+  });
+
+  it('returns false for localhost', () => {
+    expect(isAnthropic('http://localhost:11434')).toBe(false);
+  });
+
+  it('returns false for other URLs', () => {
+    expect(isAnthropic('http://localhost:8080')).toBe(false);
+  });
+});
+
+describe('detectProvider', () => {
+  it('returns explicit provider when not auto', () => {
+    expect(detectProvider('http://anything.com', 'openai')).toBe('openai');
+    expect(detectProvider('http://anything.com', 'anthropic')).toBe('anthropic');
+    expect(detectProvider('http://anything.com', 'ollama')).toBe('ollama');
+  });
+
+  it('auto-detects ollama from localhost:11434', () => {
+    expect(detectProvider('http://localhost:11434', 'auto')).toBe('ollama');
+  });
+
+  it('auto-detects anthropic from anthropic.com', () => {
+    expect(detectProvider('https://api.anthropic.com', 'auto')).toBe('anthropic');
+  });
+
+  it('defaults to openai for unknown URLs', () => {
+    expect(detectProvider('http://localhost:1234', 'auto')).toBe('openai');
+    expect(detectProvider('https://my-vllm-server.com', 'auto')).toBe('openai');
+  });
+});
+
 describe('getConfig', () => {
   it('returns an object with all expected keys', () => {
     const config = getConfig();
     expect(config).toHaveProperty('model');
+    expect(config).toHaveProperty('provider');
     expect(config).toHaveProperty('systemPrompt');
     expect(config).toHaveProperty('baseUrl');
     expect(config).toHaveProperty('apiKey');
@@ -75,6 +111,7 @@ describe('getConfig', () => {
     expect(config.enableInlineCompletions).toBe(false);
     expect(config.completionMaxTokens).toBe(256);
     expect(config.completionDebounceMs).toBe(300);
+    expect(config.provider).toBe('auto');
     expect(config.pinnedContext).toEqual([]);
     expect(config.autoFixOnFailure).toBe(false);
     expect(config.autoFixMaxRetries).toBe(3);

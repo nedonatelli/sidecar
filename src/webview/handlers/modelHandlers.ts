@@ -77,16 +77,29 @@ export async function handleInstallModel(state: ChatState, modelName: string): P
 
 async function ensureReachable(state: ChatState): Promise<boolean> {
   const config = getConfig();
+  const provider = state.client.getProviderType();
   try {
-    const checkUrl = state.client.isLocalOllama() ? `${config.baseUrl}/api/tags` : config.baseUrl;
-    const response = await fetch(checkUrl, {
-      headers: state.client.isLocalOllama()
-        ? {}
-        : {
-            'x-api-key': config.apiKey,
-            'anthropic-version': '2023-06-01',
-          },
-    });
+    let checkUrl: string;
+    const headers: Record<string, string> = {};
+
+    switch (provider) {
+      case 'ollama':
+        checkUrl = `${config.baseUrl}/api/tags`;
+        break;
+      case 'anthropic':
+        checkUrl = config.baseUrl;
+        headers['x-api-key'] = config.apiKey;
+        headers['anthropic-version'] = '2023-06-01';
+        break;
+      case 'openai':
+        checkUrl = `${config.baseUrl}/v1/models`;
+        if (config.apiKey && config.apiKey !== 'ollama') {
+          headers['Authorization'] = `Bearer ${config.apiKey}`;
+        }
+        break;
+    }
+
+    const response = await fetch(checkUrl, { headers });
     return response.ok;
   } catch {
     return false;

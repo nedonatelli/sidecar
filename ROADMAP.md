@@ -2,7 +2,7 @@
 
 This document tracks planned improvements and features for SideCar. Items are grouped by theme and roughly prioritized within each group.
 
-Last updated: 2026-04-07 (v0.27.0)
+Last updated: 2026-04-07 (v0.28.0)
 
 ---
 
@@ -89,8 +89,8 @@ An intelligent approval classifier that evaluates each tool call in real-time to
 
 ## Model & Provider Support
 
-### OpenAI-compatible API support
-Add a generic OpenAI-compatible backend that works with any server exposing the `/v1/chat/completions` endpoint — LM Studio, vLLM, llama.cpp, text-generation-webui, and any OpenAI-compatible provider. User configures a base URL and optional API key. Lower barrier than OpenRouter for self-hosters already running a local inference server, and broadens model access without vendor-specific integration work.
+### ~~OpenAI-compatible API support~~ (completed in v0.28.0)
+~~Add a generic OpenAI-compatible backend that works with any server exposing the `/v1/chat/completions` endpoint — LM Studio, vLLM, llama.cpp, text-generation-webui, and any OpenAI-compatible provider.~~ Shipped with SSE streaming, incremental tool call accumulation, `<think>` tag parsing, `/v1/models` listing, and `sidecar.provider` setting for explicit backend selection.
 
 ### OpenRouter support
 Add OpenRouter as a third backend option alongside Ollama and Anthropic. A single API key gives access to 400+ models (GPT-4, Gemini, Mistral, Llama, etc.). Requires implementing the OpenRouter API format and model listing.
@@ -197,7 +197,7 @@ Explicit privacy mode with zero telemetry, zero usage data collection, and no ne
 
 ---
 
-## Completed (v0.11.0–v0.26.0)
+## Completed (v0.11.0–v0.28.0)
 
 - [x] Slash commands: `/reset`, `/undo`, `/export`, `/model`, `/help`
 - [x] Agent progress indicators (step count, elapsed time, token usage)
@@ -268,3 +268,17 @@ Explicit privacy mode with zero telemetry, zero usage data collection, and no ne
 - [x] Background command support: start long-running processes and check on them later
 - [x] Security fix: grep command injection via execFile with args array
 - [x] Robustness: Promise.allSettled for parallel tool execution, null safety, retry backoff cap, debounced file watcher
+- [x] Model pre-warm: load configured Ollama model into memory on extension activation
+- [x] Typing status line with wall-clock timer and phase descriptions
+- [x] Version, GitHub URL, and docs URL in system prompt for self-identification
+- [x] Docs site redesign: custom CSS matching logo gradient, animated hero, feature cards
+- [x] OpenAI-compatible API backend: LM Studio, vLLM, llama.cpp, OpenRouter, etc.
+- [x] `sidecar.provider` setting with auto-detection (Ollama, Anthropic, OpenAI)
+- [x] Context pinning: `@pin:path` syntax and `sidecar.pinnedContext` setting
+- [x] Auto-fix on failure: diagnostics check after writes with configurable retry
+- [x] Web page context: auto-fetch URLs in chat messages
+- [x] Onboarding walkthrough: first-run Getting Started card
+- [x] Reconnect button with auto-retry and exponential backoff
+- [x] Scroll fix: `min-height: 0` for flexbox scroll truncation
+- [x] Markdown post-processing pass for un-rendered bold/code
+- [x] Verbose log blocks collapsed by default

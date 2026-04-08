@@ -2,7 +2,8 @@ import type { ChatMessage, ToolDefinition, StreamEvent } from './types.js';
 import type { ApiBackend } from './backend.js';
 import { AnthropicBackend } from './anthropicBackend.js';
 import { OllamaBackend } from './ollamaBackend.js';
-import { isLocalOllama } from '../config/settings.js';
+import { OpenAIBackend } from './openaiBackend.js';
+import { isLocalOllama, detectProvider, getConfig } from '../config/settings.js';
 
 const DEFAULT_BASE_URL = 'http://localhost:11434';
 
@@ -62,10 +63,15 @@ export class SideCarClient {
   }
 
   private createBackend(): ApiBackend {
-    if (isLocalOllama(this.baseUrl)) {
-      return new OllamaBackend(this.baseUrl);
+    const provider = detectProvider(this.baseUrl, getConfig().provider);
+    switch (provider) {
+      case 'ollama':
+        return new OllamaBackend(this.baseUrl);
+      case 'anthropic':
+        return new AnthropicBackend(this.baseUrl, this.apiKey);
+      case 'openai':
+        return new OpenAIBackend(this.baseUrl, this.apiKey);
     }
-    return new AnthropicBackend(this.baseUrl, this.apiKey);
   }
 
   private get tagsUrl(): string {
@@ -166,7 +172,40 @@ export class SideCarClient {
     return isLocalOllama(this.baseUrl);
   }
 
+  isOpenAI(): boolean {
+    const provider = detectProvider(this.baseUrl, getConfig().provider);
+    return provider === 'openai';
+  }
+
+  getProviderType(): 'ollama' | 'anthropic' | 'openai' {
+    return detectProvider(this.baseUrl, getConfig().provider);
+  }
+
   async listInstalledModels(): Promise<InstalledModel[]> {
+    const provider = this.getProviderType();
+
+    if (provider === 'openai') {
+      // OpenAI-compatible servers use GET /v1/models
+      try {
+        const headers: Record<string, string> = {};
+        if (this.apiKey && this.apiKey !== 'ollama') {
+          headers['Authorization'] = `Bearer ${this.apiKey}`;
+        }
+        const response = await fetch(`${this.baseUrl}/v1/models`, { headers });
+        if (!response.ok) return [];
+        const data = (await response.json()) as { data: { id: string; owned_by?: string }[] };
+        return (data.data || []).map((m) => ({
+          name: m.id,
+          model: m.id,
+          size: 0,
+          details: { parameter_size: '', quantization_level: '', family: m.owned_by || '' },
+        }));
+      } catch {
+        return [];
+      }
+    }
+
+    // Ollama uses /api/tags
     const response = await fetch(this.tagsUrl);
     if (!response.ok) {
       throw new Error(`Failed to list models: ${response.status}`);
@@ -184,9 +223,12 @@ export class SideCarClient {
       installed: true,
     }));
 
-    for (const name of LIBRARY_MODELS) {
-      if (!installedNames.has(name)) {
-        results.push({ name, installed: false });
+    // Only show library models for Ollama (local pull support)
+    if (this.getProviderType() === 'ollama') {
+      for (const name of LIBRARY_MODELS) {
+        if (!installedNames.has(name)) {
+          results.push({ name, installed: false });
+        }
       }
     }
 

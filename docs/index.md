@@ -16,6 +16,7 @@ nav_order: 1
     <span class="hero-badge"><span class="hero-badge-icon">🤖</span> Agentic</span>
     <span class="hero-badge"><span class="hero-badge-icon">🛠️</span> Tool Use</span>
     <span class="hero-badge"><span class="hero-badge-icon">🧠</span> MCP Support</span>
+    <span class="hero-badge"><span class="hero-badge-icon">🔌</span> OpenAI Compatible</span>
     <span class="hero-badge"><span class="hero-badge-icon">🆓</span> MIT License</span>
   </div>
   <div class="hero-cta">
@@ -78,6 +79,7 @@ Most local AI extensions for VS Code are chat wrappers or autocomplete plugins. 
 | MCP server support | **Yes** | No | No | No | No |
 | Git integration (commit, PR) | **Yes** | No | No | No | No |
 | Diff preview & undo/rollback | **Yes** | No | No | No | No |
+| OpenAI-compatible API | **Yes** | Yes | No | No | No |
 | Fully offline / self-hosted | Yes | Yes | Yes | Yes | No |
 | Free & open-source | Yes | Yes | Yes | Yes | Freemium |
 

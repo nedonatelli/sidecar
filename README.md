@@ -6,7 +6,7 @@
 
 [![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/nedonatelli.sidecar-ai)](https://marketplace.visualstudio.com/items?itemName=nedonatelli.sidecar-ai)
 
-**SideCar** is a free, self-hosted VS Code extension that serves as a drop-in replacement for GitHub Copilot and Claude Code. Use local [Ollama](https://ollama.com) models or the [Anthropic API](https://api.anthropic.com) for AI-powered coding — with full agentic capabilities, inline completions, and tool use.
+**SideCar** is a free, self-hosted VS Code extension that serves as a drop-in replacement for GitHub Copilot and Claude Code. Use local [Ollama](https://ollama.com) models, the [Anthropic API](https://api.anthropic.com), or any [OpenAI-compatible server](https://nedonatelli.github.io/sidecar/getting-started#using-openai-compatible-servers) (LM Studio, vLLM, llama.cpp, OpenRouter) for AI-powered coding — with full agentic capabilities, inline completions, and tool use.
 
 > A free, open-source, local-first AI coding assistant. No subscriptions, no data leaving your machine.
 
@@ -37,7 +37,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 ### What sets SideCar apart
 
 - **True agentic autonomy** — SideCar doesn't just answer questions. It reads your code, edits files, runs tests, reads the errors, and iterates until the task is done. Other local AI extensions stop at chat and autocomplete.
-- **No vendor lock-in** — Use Ollama for fully offline operation or the Anthropic API for Claude models. Same interface, your choice.
+- **No vendor lock-in** — Use Ollama for fully offline operation, the Anthropic API for Claude, or any OpenAI-compatible server (LM Studio, vLLM, llama.cpp, OpenRouter). Same interface, your choice.
 - **Security from the ground up** — Built-in secrets detection and vulnerability scanning run automatically after every file write. No other local-first extension does this.
 - **Extensible with MCP** — Connect external tools (databases, APIs, custom scripts) via the Model Context Protocol. SideCar treats them as first-class tools alongside its built-in ones.
 - **Production-grade safety** — Agent mode controls (cautious/autonomous/manual), iteration limits, token budgets, diff preview, and one-click rollback keep you in control.
@@ -92,10 +92,11 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 - **Streaming indicator** — shows token count and generation speed
 - **Model management** — switch models, install new ones from Ollama
 
-### Dual Backend
+### Multi-Backend Support
 - **Ollama** (default) — runs locally, free, no API key needed
 - **Anthropic API** — use Claude models with your API key, with prompt caching for ~90% input token cost reduction
-- Same interface for both — just change `sidecar.baseUrl` and `sidecar.apiKey`
+- **OpenAI-compatible** — works with LM Studio, vLLM, llama.cpp, text-generation-webui, OpenRouter, and any server with a `/v1/chat/completions` endpoint
+- Same interface for all — just change `sidecar.baseUrl` and optionally `sidecar.provider`
 
 ### MCP (Model Context Protocol)
 - Connect to any MCP server for external tools (Gmail, Slack, databases, custom tools)
@@ -189,6 +190,16 @@ Scheduled tasks run autonomously and log to the SideCar Agent output channel.
 1. Set `sidecar.baseUrl` to `https://api.anthropic.com`
 2. Set `sidecar.apiKey` to your Anthropic API key
 3. Set `sidecar.model` to a Claude model (e.g. `claude-sonnet-4-6`)
+
+### Using with OpenAI-compatible servers
+
+Works with LM Studio, vLLM, llama.cpp, text-generation-webui, OpenRouter, and more:
+
+1. Set `sidecar.baseUrl` to your server URL (e.g. `http://localhost:1234`)
+2. Set `sidecar.apiKey` if your server requires it (optional for most local servers)
+3. Set `sidecar.model` to the model name on your server
+
+SideCar auto-detects the provider. To override, set `sidecar.provider` to `"openai"`.
 
 ## Keyboard Shortcuts
 

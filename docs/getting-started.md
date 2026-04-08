@@ -53,6 +53,36 @@ To use Claude models instead of local Ollama:
 
 SideCar uses prompt caching with Anthropic, reducing input token costs by ~90% on cache hits.
 
+## Using OpenAI-compatible servers
+
+SideCar works with any server that exposes the OpenAI `/v1/chat/completions` endpoint — including **LM Studio**, **vLLM**, **llama.cpp**, **text-generation-webui**, and **OpenRouter**.
+
+1. Set `sidecar.baseUrl` to your server's URL (e.g., `http://localhost:1234`)
+2. Set `sidecar.apiKey` if required (optional for most local servers)
+3. Set `sidecar.model` to the model name your server is running
+
+SideCar auto-detects the provider from the URL. If auto-detection gets it wrong, set `sidecar.provider` explicitly:
+
+```json
+"sidecar.provider": "openai"
+```
+
+### Provider examples
+
+| Server | Base URL | Notes |
+|--------|----------|-------|
+| LM Studio | `http://localhost:1234` | Auto-detected as OpenAI |
+| vLLM | `http://localhost:8000` | Auto-detected as OpenAI |
+| llama.cpp | `http://localhost:8080` | Auto-detected as OpenAI |
+| OpenRouter | `https://openrouter.ai/api` | Set API key, access 400+ models |
+| text-generation-webui | `http://localhost:5000` | Enable OpenAI extension in the UI |
+| Ollama | `http://localhost:11434` | Auto-detected as Ollama (native API) |
+| Anthropic | `https://api.anthropic.com` | Auto-detected as Anthropic |
+
+### Tool support
+
+Most OpenAI-compatible models support function calling (tool use), which enables SideCar's full agentic capabilities — file editing, shell commands, git operations, etc. If a model doesn't support tools, SideCar falls back to chat-only mode automatically.
+
 ## Keyboard shortcuts
 
 | Shortcut | Action |
