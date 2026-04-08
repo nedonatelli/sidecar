@@ -2,7 +2,7 @@
 
 This document tracks planned improvements and features for SideCar. Items are grouped by theme and roughly prioritized within each group.
 
-Last updated: 2026-04-08 (v0.28.1)
+Last updated: 2026-04-08 (v0.30.1)
 
 ---
 
@@ -10,11 +10,17 @@ Last updated: 2026-04-08 (v0.28.1)
 
 Items identified via architecture, AI engineering, algorithms, and frontend performance reviews. Grouped by priority.
 
-### HIGH — Code block button memory leak
-Event listeners on code block Run/Save/Copy buttons capture `code` and `lang` variables in closures. When messages are deleted, these closures remain referenced. Over long conversations with many code blocks, this leaks significant memory. **Fix:** Use event delegation on the messages container instead of per-button listeners.
+### ✅ COMPLETED (v0.30.1) — Code block button memory leak
+**Description & Fix:** Image remove buttons and model action buttons in the chat UI had per-button event listeners capturing loop variables and objects in closures. Refactored to use event delegation on container elements with HTML dataset attributes instead. Eliminates closure references and memory leaks in long conversations.
 
-### HIGH — Backend fallback (primary → secondary provider)
-If the configured backend is unavailable (API down, rate limited, network error), SideCar has no fallback. Allow users to configure a secondary backend. After 2 consecutive failures on the primary, automatically switch to secondary. Log fallback events in verbose mode.
+**Implementation:** Both image preview (`imagePreview` container) and model list (`modelList` container) now use single delegated listeners instead of per-element handlers. Pattern was already correctly used for code block buttons.
+
+### ✅ COMPLETED (v0.30.1) — Backend fallback (primary → secondary provider)
+**Description & Implementation:** Fully functional in v0.30.0+. Users configure secondary provider via `sidecar.fallbackBaseUrl`, `sidecar.fallbackApiKey`, `sidecar.fallbackModel`. After 2 consecutive failures on primary, auto-switches to fallback with warning. Tracks failures via counter that resets on success. Auto-switches back to primary when fallback succeeds.
+
+**Testing:** Added unit tests (v0.30.1) verifying counter reset behavior and configuration support.
+
+**Remaining:** Verbose logging for fallback events (low priority — console warnings already visible)
 
 ### MEDIUM — OpenAI and Anthropic stream error tests
 Only the Ollama backend has tests for stream error paths (malformed JSON, partial chunks, mid-stream drops, unclosed think tags). The OpenAI and Anthropic backends need equivalent coverage.

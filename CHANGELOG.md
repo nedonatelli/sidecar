@@ -2,6 +2,22 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.30.1] - 2026-04-08
+
+### Added
+- **Configurable message ceiling**: new `sidecar.agentMaxMessages` setting (default 25, range 5-100) lets users tune message limit before agent wraps up. Agent loop now tracks and reports remaining message capacity each iteration
+- **Backend fallback unit tests**: 2 new tests verifying consecutive failure counting and counter reset behavior
+- **Dual-stage context compression**: conversation summarization + semantic tool result extraction for extended agent loops (30+ iterations vs 18-20 previously)
+
+### Fixed
+- **Model action button memory leak**: model list buttons now use event delegation instead of per-button listeners capturing model objects
+- **Image upload preview button leak**: image remove buttons now use event delegation instead of capturing loop variable in closure
+- **GitHub Pages styling**: corrected Jekyll CSS path from absolute to relative so `relative_url` filter properly applies `/sidecar` baseurl
+- **Marketplace messaging**: clarified that SideCar is an autonomous AI agent, not just a chat client — updated README tagline and package.json description
+
+### Tests
+- 464 total tests (up from 462)
+
 ## [0.30.0] - 2026-04-08
 
 ### Added
