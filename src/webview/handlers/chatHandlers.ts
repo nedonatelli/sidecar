@@ -210,11 +210,13 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
           '',
           'RULES:',
           '1. Questions → answer with text. Actions (create, edit, fix, run, test) → use tools.',
-          '2. Use relative paths from the project root.',
-          '3. After editing files, call get_diagnostics to check for errors.',
-          '4. After fixing bugs, call run_tests to verify.',
-          '5. Read files before editing them. Use grep or search_files to find code.',
-          '6. If you are unsure, say so rather than guessing.',
+          '2. Keep answers short and direct. One paragraph for simple questions. No lists unless asked.',
+          '3. NEVER repeat information you already said in this conversation.',
+          '4. Use relative paths from the project root.',
+          '5. After editing files, call get_diagnostics to check for errors.',
+          '6. After fixing bugs, call run_tests to verify.',
+          '7. Read files before editing them. Use grep or search_files to find code.',
+          '8. If you already answered the question before using a tool, just add new information from the tool result — do not restate your previous answer.',
         ].join('\n')
       : [
           `You are SideCar v${extensionVersion}, an AI coding assistant running inside VS Code. GitHub: ${repoUrl} | Docs: ${docsUrl}`,
@@ -225,12 +227,13 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
           'RULES:',
           '1. If the user asks a question or wants a conversation, respond with text — do NOT call tools.',
           '2. If the user asks you to take an action (create, edit, fix, run, test), use the appropriate tools.',
-          '3. Use relative paths from the project root.',
-          '4. After editing files, call get_diagnostics to check for errors.',
-          '5. After fixing bugs or adding features, call run_tests to verify your changes pass.',
-          '6. Read files before editing them. Use grep or search_files to locate code first.',
-          '7. For multi-step tasks, plan your approach, then execute step by step.',
-          '8. If you are unsure about something, say so rather than guessing.',
+          '3. Keep responses concise. Give direct answers, not exhaustive lists. Avoid repeating yourself.',
+          '4. Use relative paths from the project root.',
+          '5. After editing files, call get_diagnostics to check for errors.',
+          '6. After fixing bugs or adding features, call run_tests to verify your changes pass.',
+          '7. Read files before editing them. Use grep or search_files to locate code first.',
+          '8. For multi-step tasks, plan your approach, then execute step by step.',
+          '9. If you already answered before using a tool, only add new information — do not restate what you said.',
         ].join('\n');
 
     // Append SIDECAR.md and user prompt with size limits to prevent context overflow.
