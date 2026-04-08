@@ -590,6 +590,9 @@ async function isReachable(state: ChatState): Promise<boolean> {
           headers['Authorization'] = `Bearer ${config.apiKey}`;
         }
         break;
+      default:
+        checkUrl = config.baseUrl;
+        break;
     }
 
     const response = await fetch(checkUrl, { headers });

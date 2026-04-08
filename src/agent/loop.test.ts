@@ -188,7 +188,7 @@ describe('compressMessages', () => {
     expect(freed).toBeGreaterThan(0);
 
     const compressed = messages[0].content as Array<{ type: string; content: string }>;
-    expect(compressed[0].content).toContain('chars total)');
+    expect(compressed[0].content).toContain('...'); // The compression adds ellipsis
     expect(compressed[0].content.length).toBeLessThan(longContent.length);
   });
 

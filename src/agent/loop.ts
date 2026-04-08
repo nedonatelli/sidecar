@@ -15,6 +15,8 @@ import type { AgentLogger } from './logger.js';
 import type { ChangeLog } from './changelog.js';
 import type { MCPManager } from './mcpManager.js';
 import { spawnSubAgent } from './subagent.js';
+import { ConversationSummarizer } from './conversationSummarizer.js';
+import { ToolResultCompressor } from './toolResultCompressor.js';
 
 export interface AgentCallbacks {
   onText: (text: string) => void;
@@ -85,10 +87,29 @@ export async function runAgentLoop(
 
     // Compress context at 70% of budget to extend the loop
     if (estimatedTokens > maxTokens * 0.7) {
-      const compressed = compressMessages(agentMessages);
-      if (compressed) {
-        logger?.info(`Context compressed: removed ${compressed} chars of old tool results`);
-        totalChars -= compressed;
+      // First, try conversation summarization for better context retention
+      const summarizer = new ConversationSummarizer(client);
+      const summarized = await summarizer.summarize(agentMessages, {
+        keepRecentTurns: 4,
+        minCharsToSave: 2000,
+        maxSummaryLength: 800,
+        summaryTimeoutMs: 5000, // Don't block too long
+      });
+
+      if (summarized.freedChars > 0) {
+        // Summarization was successful — use the result
+        agentMessages.splice(0, agentMessages.length, ...summarized.messages);
+        totalChars -= summarized.freedChars;
+        logger?.info(
+          `Conversation summarized: ${summarized.metadata.turnsSummarized}/${summarized.metadata.turnsCount} turns compressed, freed ${summarized.freedChars} chars`,
+        );
+      } else {
+        // Summarization didn't help (not enough old turns or too small) — fall back to truncation
+        const compressed = compressMessages(agentMessages);
+        if (compressed) {
+          logger?.info(`Context compressed: removed ${compressed} chars of old tool results`);
+          totalChars -= compressed;
+        }
       }
     }
 
@@ -383,6 +404,7 @@ export async function runAgentLoop(
 export function compressMessages(messages: ChatMessage[]): number {
   let freed = 0;
   const len = messages.length;
+  const compressor = new ToolResultCompressor();
 
   for (let i = 0; i < len; i++) {
     const msg = messages[i];
@@ -401,10 +423,11 @@ export function compressMessages(messages: ChatMessage[]): number {
     for (const block of msg.content) {
       if (block.type === 'tool_result' && block.content.length > maxLen) {
         const original = block.content.length;
-        const keepLen = Math.floor(maxLen * 0.75);
-        const summary = block.content.slice(0, keepLen) + `... (${original} chars total)`;
-        newContent.push({ ...block, content: summary });
-        freed += original - summary.length;
+        // Use intelligent compression instead of dumb truncation
+        const compressionResult = compressor.compress(block.content, maxLen);
+        const compressed = compressionResult.content;
+        newContent.push({ ...block, content: compressed });
+        freed += original - compressed.length;
       } else if (block.type === 'thinking' && distFromEnd >= 8) {
         // Drop old thinking blocks to save space
         freed += block.thinking.length;

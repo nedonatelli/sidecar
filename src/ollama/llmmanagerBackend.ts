@@ -1,7 +1,7 @@
 import type { ApiBackend } from './backend.js';
 import type { ChatMessage, ContentBlock, ToolDefinition, ToolUseContentBlock, StreamEvent } from './types.js';
 import { fetchWithRetry } from './retry.js';
-import { abortableRead, toFunctionTools } from './streamUtils.js';
+import { abortableRead } from './streamUtils.js';
 
 // ---------------------------------------------------------------------------
 // LLMManager API types
@@ -136,7 +136,7 @@ export class LLMManagerBackend implements ApiBackend {
   private getHeaders(): Record<string, string> {
     return {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${this.apiToken}`,
+      Authorization: `Bearer ${this.apiToken}`,
     };
   }
 
@@ -187,45 +187,50 @@ export class LLMManagerBackend implements ApiBackend {
     let buffer = '';
 
     try {
-      for await (const chunk of abortableRead(reader, signal)) {
-        buffer += decoder.decode(chunk, { stream: true });
+      let done = false;
+      while (!done) {
+        const result = await abortableRead(reader, signal);
+        done = result.done;
+        const chunk = result.value;
 
-        const lines = buffer.split('\n');
-        buffer = lines[lines.length - 1];
+        if (chunk) {
+          buffer += decoder.decode(chunk, { stream: true });
 
-        for (const line of lines.slice(0, -1)) {
-          if (!line.startsWith('data: ')) continue;
+          const lines = buffer.split('\n');
+          buffer = lines[lines.length - 1];
 
-          const data = line.slice(6);
-          if (data === '[DONE]') break;
+          for (const line of lines.slice(0, -1)) {
+            if (!line.startsWith('data: ')) continue;
 
-          try {
-            const parsed: LLMManagerStreamChunk = JSON.parse(data);
-            const delta = parsed.choices[0]?.delta;
+            const data = line.slice(6);
+            if (data === '[DONE]') break;
 
-            if (delta?.content) {
-              yield { type: 'text', text: delta.content };
-            }
+            try {
+              const parsed: LLMManagerStreamChunk = JSON.parse(data);
+              const delta = parsed.choices[0]?.delta;
 
-            if (delta?.tool_calls) {
-              for (const toolCall of delta.tool_calls) {
-                if (toolCall.function?.name) {
-                  const toolUse: ToolUseContentBlock = {
-                    type: 'tool_use',
-                    id: toolCall.id || `tool-${Date.now()}`,
-                    name: toolCall.function.name,
-                    input: toolCall.function.arguments
-                      ? JSON.parse(toolCall.function.arguments)
-                      : {},
-                  };
-                  yield { type: 'tool_use', toolUse };
+              if (delta?.content) {
+                yield { type: 'text', text: delta.content };
+              }
+
+              if (delta?.tool_calls) {
+                for (const toolCall of delta.tool_calls) {
+                  if (toolCall.function?.name) {
+                    const toolUse: ToolUseContentBlock = {
+                      type: 'tool_use',
+                      id: toolCall.id || `tool-${Date.now()}`,
+                      name: toolCall.function.name,
+                      input: toolCall.function.arguments ? JSON.parse(toolCall.function.arguments) : {},
+                    };
+                    yield { type: 'tool_use', toolUse };
+                  }
                 }
               }
-            }
-          } catch (e) {
-            // Skip lines that aren't valid JSON
-            if (data.length > 0) {
-              console.warn('[LLMManager] Failed to parse stream line:', data);
+            } catch {
+              // Skip lines that aren't valid JSON
+              if (data.length > 0) {
+                console.warn('[LLMManager] Failed to parse stream line:', data);
+              }
             }
           }
         }
