@@ -1,7 +1,7 @@
 {
   "name": "sidecar-ai",
   "displayName": "SideCar",
-  "description": "AI chat client for VS Code — use local Ollama models or Claude via the Anthropic API",
+  "description": "Autonomous AI agent for coding — run full agent loops with local Ollama, Anthropic Claude, or OpenAI models",
   "version": "0.30.0",
   "license": "MIT",
   "publisher": "nedonatelli",
@@ -217,6 +217,11 @@
           "type": "number",
           "default": 25,
           "description": "Maximum agent loop iterations before stopping"
+        },
+        "sidecar.agentMaxMessages": {
+          "type": "number",
+          "default": 25,
+          "description": "Maximum conversation messages before agent should wrap up (ceiling). Agent must complete full cycle if possible."
         },
         "sidecar.agentMaxTokens": {
           "type": "number",

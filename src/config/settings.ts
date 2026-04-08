@@ -90,6 +90,7 @@ export interface SideCarConfig {
   agentMode: 'cautious' | 'autonomous' | 'manual';
   agentTemperature: number;
   agentMaxIterations: number;
+  agentMaxMessages: number;
   agentMaxTokens: number;
   enableInlineCompletions: boolean;
   completionModel: string;
@@ -152,6 +153,7 @@ function readConfig(): SideCarConfig {
     agentMode: cfg.get<'cautious' | 'autonomous' | 'manual'>('agentMode', 'cautious'),
     agentTemperature: clampMin(cfg.get<number>('agentTemperature'), 0, 0.2),
     agentMaxIterations: clampMin(cfg.get<number>('agentMaxIterations'), 1, 25),
+    agentMaxMessages: clampMin(cfg.get<number>('agentMaxMessages'), 5, 100),
     agentMaxTokens: clampMin(cfg.get<number>('agentMaxTokens'), 1000, 100000),
     enableInlineCompletions: cfg.get<boolean>('enableInlineCompletions', false),
     completionModel: cfg.get<string>('completionModel', ''),

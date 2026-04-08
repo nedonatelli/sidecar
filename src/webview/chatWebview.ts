@@ -119,6 +119,9 @@ export interface ExtensionMessage {
   maxIterations?: number;
   elapsedMs?: number;
   estimatedTokens?: number;
+  messageCount?: number;
+  messagesRemaining?: number;
+  atCapacity?: boolean;
   errorType?: 'connection' | 'auth' | 'model' | 'timeout' | 'unknown';
   errorAction?: string;
   errorActionCommand?: string;

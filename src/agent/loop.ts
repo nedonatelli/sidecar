@@ -26,7 +26,15 @@ export interface AgentCallbacks {
   /** Streaming output from long-running tools (e.g., shell commands). */
   onToolOutput?: (name: string, chunk: string, id?: string) => void;
   onPlanGenerated?: (plan: string) => void;
-  onIterationStart?: (iteration: number, maxIterations: number, elapsedMs: number, estimatedTokens: number) => void;
+  onIterationStart?: (info: {
+    iteration: number;
+    maxIterations: number;
+    elapsedMs: number;
+    estimatedTokens: number;
+    messageCount: number;
+    messagesRemaining: number;
+    atCapacity: boolean;
+  }) => void;
   onDone: () => void;
 }
 
@@ -58,7 +66,6 @@ export async function runAgentLoop(
   const mcpManager = options.mcpManager;
   const maxTokens = options.maxTokens || 100_000;
   const tools = getToolDefinitions(mcpManager);
-  const config = getConfig();
   let iteration = 0;
   let totalChars = 0;
   let autoFixRetries = 0;
@@ -114,7 +121,20 @@ export async function runAgentLoop(
     }
 
     logger?.logIteration(iteration, maxIterations);
-    callbacks.onIterationStart?.(iteration, maxIterations, Date.now() - startTime, estimatedTokens);
+    const config = getConfig();
+    const messageCeiling = config.agentMaxMessages;
+    const messageCount = agentMessages.length;
+    const messagesRemaining = Math.max(0, messageCeiling - messageCount);
+    const atCapacity = messageCount >= messageCeiling;
+    callbacks.onIterationStart?.({
+      iteration,
+      maxIterations,
+      elapsedMs: Date.now() - startTime,
+      estimatedTokens,
+      messageCount,
+      messagesRemaining,
+      atCapacity,
+    });
 
     // Stream response from model
     const assistantContent: ContentBlock[] = [];

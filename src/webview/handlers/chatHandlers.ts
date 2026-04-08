@@ -451,20 +451,24 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
         onToolOutput: (name, chunk, id) => {
           state.postMessage({ command: 'toolOutput', content: chunk, toolName: name, toolCallId: id });
         },
-        onIterationStart: (iteration, maxIterations, elapsedMs, estimatedTokens) => {
+        onIterationStart: (info) => {
           state.postMessage({
             command: 'agentProgress',
-            iteration,
-            maxIterations,
-            elapsedMs,
-            estimatedTokens,
+            iteration: info.iteration,
+            maxIterations: info.maxIterations,
+            elapsedMs: info.elapsedMs,
+            estimatedTokens: info.estimatedTokens,
+            messageCount: info.messageCount,
+            messagesRemaining: info.messagesRemaining,
+            atCapacity: info.atCapacity,
           });
           // Feature 4: Per-iteration narrative
           if (verbose) {
-            const elapsed = (elapsedMs / 1000).toFixed(1);
+            const elapsed = (info.elapsedMs / 1000).toFixed(1);
+            const capacityWarning = info.atCapacity ? ' ⚠️ At message limit!' : '';
             verboseLog(
-              `Iteration ${iteration}/${maxIterations}`,
-              `Starting iteration ${iteration}. Elapsed: ${elapsed}s, ~${estimatedTokens} tokens used.`,
+              `Iteration ${info.iteration}/${info.maxIterations}`,
+              `Starting iteration ${info.iteration}. Elapsed: ${elapsed}s, ~${info.estimatedTokens} tokens used, ${info.messageCount} messages${capacityWarning}`,
             );
           }
         },
