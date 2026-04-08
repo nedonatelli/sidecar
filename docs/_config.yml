@@ -3,19 +3,15 @@ description: AI Coding Assistant for VS Code — local Ollama models, Anthropic 
 url: https://nedonatelli.github.io
 baseurl: /sidecar
 
-# No remote theme — using custom _layouts/docs.html
-plugins:
-  - jekyll-seo-tag
+# Custom layout — no remote theme
+theme: null
 
-nav_enabled: true
 heading_anchors: true
-
-footer_content: "SideCar is an independent project by Nicholas Donatelli. MIT License."
 
 exclude:
   - node_modules/
   - dist/
   - out/
   - "*.vsix"
-  - index-old.md
-  - docs.html
+  - Gemfile
+  - Gemfile.lock
