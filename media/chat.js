@@ -100,10 +100,7 @@
       const removeBtn = document.createElement('button');
       removeBtn.textContent = '\u00d7';
       removeBtn.className = 'image-remove';
-      removeBtn.addEventListener('click', () => {
-        pendingImages.splice(i, 1);
-        updateImagePreview();
-      });
+      removeBtn.dataset.imageIndex = i;
       const wrapper = document.createElement('span');
       wrapper.className = 'image-thumb-wrapper';
       wrapper.appendChild(img);
@@ -111,6 +108,15 @@
       imagePreview.appendChild(wrapper);
     }
   }
+
+  // Event delegation for image remove buttons — avoids closure capture of loop variable
+  imagePreview.addEventListener('click', (e) => {
+    if (e.target.classList.contains('image-remove')) {
+      const index = parseInt(e.target.dataset.imageIndex, 10);
+      pendingImages.splice(index, 1);
+      updateImagePreview();
+    }
+  });
 
   const sessionsPanel = document.getElementById('sessions-panel');
   const sessionsList = document.getElementById('sessions-list');
@@ -1677,24 +1683,18 @@
         if (model.installed) {
           actionBtn.textContent = 'Use';
           actionBtn.className = 'model-action use';
+          actionBtn.dataset.installed = 'true';
         } else if (installingModel === model.name) {
           actionBtn.textContent = 'Installing...';
           actionBtn.className = 'model-action installing';
           actionBtn.disabled = true;
+          actionBtn.dataset.installed = 'false';
         } else {
           actionBtn.textContent = 'Install';
           actionBtn.className = 'model-action install';
+          actionBtn.dataset.installed = 'false';
         }
         actionBtn.dataset.model = model.name;
-
-        actionBtn.addEventListener('click', () => {
-          if (model.installed) {
-            vscode.postMessage({ command: 'changeModel', model: model.name });
-            modelPanel.classList.add('hidden');
-          } else if (installingModel !== model.name) {
-            vscode.postMessage({ command: 'installModel', model: model.name });
-          }
-        });
 
         item.appendChild(nameSpan);
         item.appendChild(actionBtn);
@@ -1738,24 +1738,18 @@
         if (model.installed) {
           actionBtn.textContent = 'Use';
           actionBtn.className = 'model-action use';
+          actionBtn.dataset.installed = 'true';
         } else if (installingModel === model.name) {
           actionBtn.textContent = 'Installing...';
           actionBtn.className = 'model-action installing';
           actionBtn.disabled = true;
+          actionBtn.dataset.installed = 'false';
         } else {
           actionBtn.textContent = 'Install';
           actionBtn.className = 'model-action install';
+          actionBtn.dataset.installed = 'false';
         }
         actionBtn.dataset.model = model.name;
-
-        actionBtn.addEventListener('click', () => {
-          if (model.installed) {
-            vscode.postMessage({ command: 'changeModel', model: model.name });
-            modelPanel.classList.add('hidden');
-          } else if (installingModel !== model.name) {
-            vscode.postMessage({ command: 'installModel', model: model.name });
-          }
-        });
 
         item.appendChild(nameSpan);
         item.appendChild(actionBtn);
@@ -1763,6 +1757,22 @@
       }
     }
   }
+
+  // Event delegation for model action buttons — avoids closure capture of model object
+  modelList.addEventListener('click', (e) => {
+    const btn = e.target.closest('.model-action');
+    if (!btn) return;
+
+    const modelName = btn.dataset.model;
+    const isInstalled = btn.dataset.installed === 'true';
+
+    if (isInstalled) {
+      vscode.postMessage({ command: 'changeModel', model: modelName });
+      modelPanel.classList.add('hidden');
+    } else if (installingModel !== modelName) {
+      vscode.postMessage({ command: 'installModel', model: modelName });
+    }
+  });
 
   function updateChatOnlyBadge() {
     const badge = document.getElementById('chat-only-badge');
