@@ -5,7 +5,7 @@ import { LimitedCache } from '../agent/memoryManager.js';
 
 const MAX_FILE_SIZE = 100 * 1024; // 100KB
 const MAX_CONTENT_LENGTH = 10_000; // 10K chars per file
-const EXCLUDE_PATTERN = `**/{node_modules,.git,out,dist,.venv,venv,__pycache__,.next}/**`;
+const EXCLUDE_PATTERN = `**/{node_modules,.git,.sidecar,out,dist,.venv,venv,__pycache__,.next}/**`;
 
 const ROOT_CONFIG_FILES = new Set([
   'package.json',
@@ -225,6 +225,31 @@ export class WorkspaceIndex implements Disposable {
           }
         }
 
+        // For other file types, use basic smart context selection
+        if (extName === '.py' || extName === '.rs' || extName === '.go' || extName === '.java') {
+          // Try to extract relevant code elements for Python/Rust/Go/Java files
+          let parsedFile = this.parsedFiles.get(file.relativePath);
+
+          // Only parse if not cached
+          if (!parsedFile) {
+            parsedFile = SimpleCodeAnalyzer.parseFileContent(file.relativePath, content);
+            this.parsedFiles.set(file.relativePath, parsedFile);
+          }
+
+          // Extract relevant code elements based on the query
+          const relevantElements = SimpleCodeAnalyzer.findRelevantElements(parsedFile, query);
+          if (relevantElements.length > 0) {
+            // Use the extracted relevant content instead of full file content
+            const sectionContent = SimpleCodeAnalyzer.extractRelevantContent(parsedFile, relevantElements);
+            const section = `\n### ${file.relativePath}\n\`\`\`\n${sectionContent}\n\`\`\`\n`;
+
+            if (charCount + section.length > budget) continue;
+            parts.push(section);
+            charCount += section.length;
+            continue; // Skip the default content
+          }
+        }
+
         const section = `\n### ${file.relativePath}\n\`\`\`\n${content}\n\`\`\`\n`;
 
         if (charCount + section.length > budget) continue;
@@ -236,6 +261,27 @@ export class WorkspaceIndex implements Disposable {
     }
 
     return parts.join('');
+  }
+
+  /**
+   * Compute relevance score for a file based on query terms
+   */
+  private computeScore(file: FileNode, query: string, activeFilePath?: string): number {
+    let score = file.relevanceScore;
+
+    // Boost if file path appears in the query
+    if (query.includes(file.relativePath) || query.includes(path.basename(file.relativePath))) {
+      score += 0.5;
+    }
+
+    // Boost if in same directory as active file
+    if (activeFilePath) {
+      const fileDir = path.dirname(file.relativePath);
+      const activeDir = path.dirname(activeFilePath);
+      if (fileDir === activeDir) score += 0.2;
+    }
+
+    return score;
   }
 
   /**
@@ -320,24 +366,6 @@ export class WorkspaceIndex implements Disposable {
     return 0.02;
   }
 
-  private computeScore(file: FileNode, query: string, activeFilePath?: string): number {
-    let score = file.relevanceScore;
-
-    // Boost if file path appears in the query
-    if (query.includes(file.relativePath) || query.includes(path.basename(file.relativePath))) {
-      score += 0.5;
-    }
-
-    // Boost if in same directory as active file
-    if (activeFilePath) {
-      const fileDir = path.dirname(file.relativePath);
-      const activeDir = path.dirname(activeFilePath);
-      if (fileDir === activeDir) score += 0.2;
-    }
-
-    return score;
-  }
-
   private rebuildTree(): void {
     const sorted = [...this.files.keys()].sort();
     const lines: string[] = [];
@@ -359,7 +387,17 @@ export class WorkspaceIndex implements Disposable {
 
   private shouldExclude(relativePath: string): boolean {
     const parts = relativePath.split(path.sep);
-    const excluded = new Set(['node_modules', '.git', 'out', 'dist', '.venv', 'venv', '__pycache__', '.next']);
+    const excluded = new Set([
+      'node_modules',
+      '.git',
+      '.sidecar',
+      'out',
+      'dist',
+      '.venv',
+      'venv',
+      '__pycache__',
+      '.next',
+    ]);
     return parts.some((p) => excluded.has(p));
   }
 }

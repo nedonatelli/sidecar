@@ -1,8 +1,8 @@
-import { window, workspace } from 'vscode';
+import { window, workspace, Uri } from 'vscode';
 import { SideCarClient } from '../ollama/client.js';
 import type { ChatMessage } from '../ollama/types.js';
 import { getWorkspaceRoot } from '../config/workspace.js';
-import { Uri } from 'vscode';
+import type { SidecarDir } from '../config/sidecarDir.js';
 
 const SPEC_SYSTEM_PROMPT = `You are a software architect. When given a feature request, generate a structured specification with these sections:
 
@@ -47,11 +47,20 @@ export async function generateSpec(client: SideCarClient, featureDescription: st
   }
 }
 
-export async function saveSpec(spec: string, name: string): Promise<void> {
+export async function saveSpec(spec: string, name: string, sidecarDir?: SidecarDir | null): Promise<void> {
+  const safeName = name.replace(/[^a-zA-Z0-9-_]/g, '-').toLowerCase();
+
+  if (sidecarDir?.isReady()) {
+    await sidecarDir.writeText(`specs/${safeName}.md`, spec);
+    const doc = await workspace.openTextDocument(sidecarDir.getUri('specs', `${safeName}.md`));
+    await window.showTextDocument(doc, { preview: true });
+    return;
+  }
+
+  // Fallback: write to .sidecar/specs/ using raw paths
   const root = getWorkspaceRoot();
   if (!root) return;
 
-  // Create .sidecar/specs directory
   const specsDir = Uri.joinPath(Uri.file(root), '.sidecar', 'specs');
   try {
     await workspace.fs.createDirectory(specsDir);
@@ -59,7 +68,6 @@ export async function saveSpec(spec: string, name: string): Promise<void> {
     // Already exists
   }
 
-  const safeName = name.replace(/[^a-zA-Z0-9-_]/g, '-').toLowerCase();
   const specUri = Uri.joinPath(specsDir, `${safeName}.md`);
   await workspace.fs.writeFile(specUri, Buffer.from(spec, 'utf-8'));
 

@@ -1,5 +1,6 @@
 import type { ChatMessage, ContentBlock, ToolResultContentBlock, ToolUseContentBlock } from '../ollama/types.js';
 import { getContentLength } from '../ollama/types.js';
+import { SimpleCodeAnalyzer } from '../astContext.js';
 
 /**
  * Prune conversation history between user turns to keep context manageable.
@@ -167,4 +168,88 @@ function compressText(block: { type: 'text'; text: string }, level: CompressionL
     return { type: 'text', text: block.text.slice(0, 1500) + '\n... (truncated)' };
   }
   return block;
+}
+
+/**
+ * Enhance context with smart code element selection for better relevance
+ */
+export function enhanceContextWithSmartElements(context: string, query: string): string {
+  // Parse the context to identify code files and their content
+  // Extract relevant code elements based on the query using AST analysis
+  const fileSections = context.match(/### (.*?)(?=\n### |\Z)/gs);
+  if (!fileSections || fileSections.length === 0) {
+    return context;
+  }
+
+  const enhancedSections = [];
+
+  for (const section of fileSections) {
+    // Extract file path from section header
+    const match = section.match(/### (.*?)(?:\s*\(.*?\))?/);
+    if (!match) {
+      enhancedSections.push(section);
+      continue;
+    }
+
+    const filePath = match[1];
+    const fileContent = section.substring(match[0].length).trim();
+
+    // Skip if it's not a code file
+    const codeExtensions = [
+      '.js',
+      '.ts',
+      '.jsx',
+      '.tsx',
+      '.py',
+      '.rs',
+      '.go',
+      '.java',
+      '.cpp',
+      '.c',
+      '.cs',
+      '.kt',
+      '.swift',
+    ];
+    const ext = filePath.substring(filePath.lastIndexOf('.')).toLowerCase();
+    if (!codeExtensions.includes(ext)) {
+      enhancedSections.push(section);
+      continue;
+    }
+
+    // Try to extract relevant code elements using AST analysis
+    let enhancedContent = fileContent;
+
+    try {
+      // For JavaScript/TypeScript files, use AST parsing
+      if (ext === '.js' || ext === '.ts' || ext === '.jsx' || ext === '.tsx') {
+        // Use SimpleCodeAnalyzer to find relevant elements based on query terms
+        const parsedFile = SimpleCodeAnalyzer.parseFileContent(filePath, fileContent);
+        const relevantElements = SimpleCodeAnalyzer.findRelevantElements(parsedFile, query);
+
+        if (relevantElements.length > 0) {
+          // Extract only the relevant code elements
+          enhancedContent = SimpleCodeAnalyzer.extractRelevantContent(parsedFile, relevantElements);
+        }
+      }
+      // For other code files, we could implement similar logic
+      else if (ext === '.py' || ext === '.rs' || ext === '.go' || ext === '.java') {
+        // Use SimpleCodeAnalyzer to find relevant elements based on query terms
+        const parsedFile = SimpleCodeAnalyzer.parseFileContent(filePath, fileContent);
+        const relevantElements = SimpleCodeAnalyzer.findRelevantElements(parsedFile, query);
+
+        if (relevantElements.length > 0) {
+          // Extract only the relevant code elements
+          enhancedContent = SimpleCodeAnalyzer.extractRelevantContent(parsedFile, relevantElements);
+        }
+      }
+    } catch (error) {
+      // If AST parsing fails, keep the original content
+      console.warn(`Failed to parse ${filePath} for smart context enhancement:`, error);
+    }
+
+    // Create enhanced section
+    enhancedSections.push(`### ${filePath}\n\`\`\`\n${enhancedContent}\n\`\`\`\n`);
+  }
+
+  return enhancedSections.join('');
 }

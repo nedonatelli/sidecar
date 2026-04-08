@@ -15,6 +15,7 @@ import { summarizePR } from './review/prSummary.js';
 import { generateCommitMessage } from './review/commitMessage.js';
 import { EventHookManager } from './agent/eventHooks.js';
 import { WorkspaceIndex } from './config/workspaceIndex.js';
+import { SidecarDir } from './config/sidecarDir.js';
 import { getFilePatterns } from './config/workspace.js';
 import { runPreCommitScan } from './agent/preCommitScan.js';
 import { disposeShellSession } from './agent/tools.js';
@@ -60,6 +61,15 @@ export function activate(context: ExtensionContext) {
       }
     }),
   );
+
+  // Initialize .sidecar/ project directory
+  const sidecarDir = new SidecarDir();
+  if (workspace.workspaceFolders && workspace.workspaceFolders.length > 0) {
+    sidecarDir.initialize().then(
+      (ok) => ok && console.log('[SideCar] .sidecar/ directory ready'),
+      (err) => console.warn('[SideCar] .sidecar/ init failed:', err),
+    );
+  }
 
   const workspaceIndex = new WorkspaceIndex();
   context.subscriptions.push(workspaceIndex);
@@ -116,6 +126,7 @@ export function activate(context: ExtensionContext) {
     agentLogger,
     mcpManager,
     workspaceIndex,
+    sidecarDir,
   );
   context.subscriptions.push(
     window.registerWebviewViewProvider('sidecar.chatView', chatProvider, {

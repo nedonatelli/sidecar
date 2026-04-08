@@ -34,26 +34,41 @@ async function loadSidecarMd(): Promise<string | null> {
   const rootUri = workspace.workspaceFolders?.[0]?.uri;
   if (!rootUri) return null;
 
-  try {
-    const fileUri = Uri.joinPath(rootUri, 'SIDECAR.md');
-    const bytes = await workspace.fs.readFile(fileUri);
-    const content = Buffer.from(bytes).toString('utf-8').trim();
-    sidecarMdCache = content || null;
-  } catch {
-    sidecarMdCache = null;
+  // Check .sidecar/SIDECAR.md first, fall back to root SIDECAR.md
+  const candidates = [Uri.joinPath(rootUri, '.sidecar', 'SIDECAR.md'), Uri.joinPath(rootUri, 'SIDECAR.md')];
+
+  sidecarMdCache = null;
+  for (const fileUri of candidates) {
+    try {
+      const bytes = await workspace.fs.readFile(fileUri);
+      const content = Buffer.from(bytes).toString('utf-8').trim();
+      if (content) {
+        sidecarMdCache = content;
+        break;
+      }
+    } catch {
+      // Not found — try next
+    }
   }
 
-  // Watch for changes and invalidate cache
+  // Watch for changes at both locations and invalidate cache
   if (!sidecarMdWatcher) {
-    const pattern = new RelativePattern(rootUri, 'SIDECAR.md');
-    const watcher = workspace.createFileSystemWatcher(pattern);
     const invalidate = () => {
       sidecarMdCache = undefined;
     };
-    watcher.onDidChange(invalidate);
-    watcher.onDidCreate(invalidate);
-    watcher.onDidDelete(invalidate);
-    sidecarMdWatcher = watcher;
+    const watcher1 = workspace.createFileSystemWatcher(new RelativePattern(rootUri, 'SIDECAR.md'));
+    const watcher2 = workspace.createFileSystemWatcher(new RelativePattern(rootUri, '.sidecar/SIDECAR.md'));
+    for (const w of [watcher1, watcher2]) {
+      w.onDidChange(invalidate);
+      w.onDidCreate(invalidate);
+      w.onDidDelete(invalidate);
+    }
+    sidecarMdWatcher = {
+      dispose: () => {
+        watcher1.dispose();
+        watcher2.dispose();
+      },
+    };
   }
 
   return sidecarMdCache;

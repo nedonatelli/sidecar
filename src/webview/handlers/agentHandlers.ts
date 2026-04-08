@@ -122,7 +122,7 @@ export async function handleSpec(state: ChatState, description: string): Promise
   if (spec) {
     state.postMessage({ command: 'assistantMessage', content: spec });
     state.postMessage({ command: 'done' });
-    await saveSpec(spec, description.slice(0, 40));
+    await saveSpec(spec, description.slice(0, 40), state.sidecarDir);
   } else {
     state.postMessage({ command: 'error', content: 'Failed to generate spec.' });
   }

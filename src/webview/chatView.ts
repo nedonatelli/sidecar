@@ -16,6 +16,7 @@ import type { ProposedContentProvider } from '../edits/proposedContentProvider.j
 import type { AgentLogger } from '../agent/logger.js';
 import type { MCPManager } from '../agent/mcpManager.js';
 import type { WorkspaceIndex } from '../config/workspaceIndex.js';
+import type { SidecarDir } from '../config/sidecarDir.js';
 import { getConfig } from '../config/settings.js';
 
 // Handler modules
@@ -70,11 +71,15 @@ export class ChatViewProvider implements WebviewViewProvider {
     agentLogger: AgentLogger,
     mcpManager: MCPManager,
     workspaceIndex?: WorkspaceIndex,
+    sidecarDir?: SidecarDir,
   ) {
     this._contentProvider = contentProvider;
     this.state = new ChatState(context, terminalManager, agentLogger, mcpManager, (msg) => this.postMessage(msg));
     if (workspaceIndex) {
       this.state.workspaceIndex = workspaceIndex;
+    }
+    if (sidecarDir) {
+      this.state.sidecarDir = sidecarDir;
     }
     this.state.contentProvider = contentProvider;
   }
