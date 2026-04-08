@@ -1,0 +1,943 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SideCar — AI Coding Assistant for VS Code</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Syne:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:        #0a090e;
+    --bg-2:      #0f0e15;
+    --bg-3:      #16141f;
+    --border:    #221f30;
+    --border-2:  #332e47;
+    --coral:     #e86040;
+    --coral-dim: #c04e32;
+    --blue:      #7ab4d8;
+    --blue-dim:  #5a92b8;
+    --purple:    #9b78c8;
+    --accent:    #e86040;
+    --accent-dim:#c04e32;
+    --accent-glow:rgba(232,96,64,0.08);
+    --amber:     #e89040;
+    --text:      #ede8f5;
+    --text-2:    #9088a8;
+    --text-3:    #504868;
+    --mono:      'JetBrains Mono', monospace;
+    --sans:      'Syne', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(232,96,64,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(122,180,216,0.04) 1px, transparent 1px);
+    background-size: 48px 48px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: radial-gradient(ellipse 80% 80% at 50% 0%, transparent 60%, var(--bg) 100%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* NAV */
+  nav {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 3rem;
+    height: 64px;
+    background: rgba(9,12,15,0.85);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .nav-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: var(--mono);
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+    text-decoration: none;
+    letter-spacing: -0.02em;
+  }
+
+  .nav-logo {
+    width: 28px; height: 28px;
+    background: linear-gradient(135deg, var(--coral) 0%, var(--purple) 60%, var(--blue) 100%);
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .nav-logo svg { width: 16px; height: 16px; }
+
+  .nav-links {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    list-style: none;
+  }
+  .nav-links a {
+    display: block;
+    padding: 8px 14px;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-2);
+    text-decoration: none;
+    letter-spacing: 0.02em;
+    transition: color 0.15s;
+  }
+  .nav-links a:hover { color: var(--coral); }
+
+  .nav-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .btn-ghost {
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 8px 16px;
+    border: 1px solid var(--border-2);
+    border-radius: 6px;
+    color: var(--text-2);
+    background: transparent;
+    cursor: pointer;
+    text-decoration: none;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .btn-ghost:hover { border-color: var(--text-3); color: var(--text); }
+
+  .btn-primary {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 700;
+    padding: 8px 16px;
+    border: 1px solid var(--coral);
+    border-radius: 6px;
+    color: #fff;
+    background: var(--coral);
+    cursor: pointer;
+    text-decoration: none;
+    transition: background 0.15s, box-shadow 0.15s;
+  }
+  .btn-primary:hover {
+    background: var(--coral-dim);
+    box-shadow: 0 0 20px rgba(232,96,64,0.3);
+  }
+
+  /* HERO */
+  .hero {
+    position: relative;
+    z-index: 1;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 100px 3rem 80px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 60px;
+    align-items: center;
+  }
+
+  .hero-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    color: var(--coral);
+    text-transform: uppercase;
+    margin-bottom: 24px;
+  }
+  .hero-eyebrow::before {
+    content: '';
+    width: 24px; height: 1px;
+    background: var(--coral);
+    flex-shrink: 0;
+  }
+
+  h1 {
+    font-family: var(--sans);
+    font-size: clamp(42px, 5vw, 64px);
+    font-weight: 800;
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+    color: var(--text);
+    margin-bottom: 24px;
+  }
+  h1 span {
+    background: linear-gradient(90deg, var(--coral) 0%, var(--purple) 50%, var(--blue) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    display: block;
+  }
+
+  .hero-sub {
+    font-size: 17px;
+    color: var(--text-2);
+    line-height: 1.65;
+    max-width: 480px;
+    margin-bottom: 36px;
+  }
+
+  .hero-cta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .btn-lg {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 700;
+    padding: 14px 28px;
+    border: 1px solid var(--coral);
+    border-radius: 8px;
+    color: #fff;
+    background: var(--coral);
+    text-decoration: none;
+    transition: box-shadow 0.15s, background 0.15s;
+  }
+  .btn-lg:hover {
+    background: var(--coral-dim);
+    box-shadow: 0 0 32px rgba(232,96,64,0.35);
+  }
+  .btn-lg-ghost {
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 14px 28px;
+    border: 1px solid var(--border-2);
+    border-radius: 8px;
+    color: var(--text-2);
+    background: transparent;
+    text-decoration: none;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .btn-lg-ghost:hover { border-color: var(--text-2); color: var(--text); }
+
+  /* Terminal mockup */
+  .terminal {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    font-family: var(--mono);
+    font-size: 13px;
+  }
+  .terminal-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-3);
+  }
+  .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .dot-r { background: #e55; }
+  .dot-y { background: #da0; }
+  .dot-g { background: #4c4; }
+  .terminal-title {
+    margin-left: auto;
+    margin-right: auto;
+    font-size: 11px;
+    color: var(--text-3);
+    letter-spacing: 0.05em;
+  }
+
+  .terminal-body { padding: 20px; line-height: 1.8; }
+  .t-prompt { color: var(--coral); }
+  .t-cmd { color: var(--text); }
+  .t-out { color: var(--text-2); }
+  .t-ok { color: var(--blue); }
+  .t-warn { color: var(--amber); }
+  .t-path { color: var(--blue); }
+  .t-cursor {
+    display: inline-block;
+    width: 8px; height: 15px;
+    background: var(--coral);
+    vertical-align: middle;
+    animation: blink 1s step-end infinite;
+    margin-left: 2px;
+    border-radius: 1px;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* DIVIDER */
+  .divider {
+    position: relative;
+    z-index: 1;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 3rem;
+    border-top: 1px solid var(--border);
+  }
+
+  /* SECTION */
+  section {
+    position: relative;
+    z-index: 1;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 80px 3rem;
+  }
+
+  h2 {
+    font-family: var(--sans);
+    font-size: clamp(28px, 3.5vw, 40px);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+    color: var(--text);
+    margin-bottom: 16px;
+  }
+
+  /* TICKER */
+  .ticker-wrap {
+    position: relative; z-index: 1;
+    width: 100%; overflow: hidden;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-2);
+    padding: 13px 0;
+  }
+  .ticker-track {
+    display: flex; gap: 0;
+    white-space: nowrap;
+    animation: ticker 38s linear infinite;
+  }
+  @keyframes ticker {
+    0%   { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+  }
+  .tick {
+    font-family: var(--mono); font-size: 11px;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--text-3); padding: 0 20px; flex-shrink: 0;
+  }
+  .tick-sep { font-family: var(--mono); font-size: 11px; color: var(--border-2); flex-shrink: 0; }
+
+  /* STAT STRIP */
+  .stat-strip {
+    position: relative; z-index: 1;
+    max-width: 1100px; margin: 0 auto;
+    padding: 52px 3rem;
+    display: flex; align-items: center; gap: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .stat-item { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+  .stat-num {
+    font-family: var(--sans);
+    font-size: clamp(36px, 5vw, 56px);
+    font-weight: 800; letter-spacing: -0.04em; line-height: 1;
+    background: linear-gradient(120deg, var(--coral), var(--purple));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .stat-label {
+    font-family: var(--mono); font-size: 11px;
+    letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3);
+  }
+  .stat-div { width: 1px; height: 48px; background: var(--border); flex-shrink: 0; margin: 0 40px; }
+
+  /* CAPABILITY LAYOUT */
+  .cap-header {
+    display: grid; grid-template-columns: 1fr 1.6fr;
+    gap: 48px; align-items: start; margin-bottom: 48px;
+  }
+  .cap-desc { font-size: 16px; color: var(--text-2); line-height: 1.75; padding-top: 8px; }
+
+  .feat-layout {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px; background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 12px; overflow: hidden;
+  }
+  .feat-hero {
+    grid-column: span 2;
+    background: var(--bg-2); padding: 36px 32px;
+    border-bottom: 1px solid var(--border);
+    position: relative; transition: background 0.15s;
+  }
+  .feat-hero:hover { background: var(--bg-3); }
+  .feat-tag {
+    font-family: var(--mono); font-size: 10px;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--coral);
+    border: 1px solid rgba(232,96,64,0.3);
+    background: rgba(232,96,64,0.06);
+    display: inline-block; padding: 3px 8px; border-radius: 3px;
+  }
+  .feat-big-num {
+    font-family: var(--sans); font-size: 80px;
+    font-weight: 800; line-height: 1;
+    letter-spacing: -0.04em;
+    color: rgba(232,96,64,0.08);
+    user-select: none; flex-shrink: 0;
+  }
+  .feat-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 24px; }
+  .feat-pill {
+    font-family: var(--mono); font-size: 11px;
+    color: var(--text-3); border: 1px solid var(--border-2);
+    padding: 4px 10px; border-radius: 3px; letter-spacing: 0.03em;
+  }
+  .feat-card {
+    background: var(--bg-2); padding: 28px 24px; transition: background 0.15s;
+  }
+  .feat-card:hover { background: var(--bg-3); }
+  .feature-icon {
+    width: 40px; height: 40px;
+    border-radius: 8px;
+    border: 1px solid var(--border-2);
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 20px;
+    background: var(--bg-3);
+  }
+  .feature-icon svg { width: 18px; height: 18px; stroke: var(--blue); fill: none; stroke-width: 1.5; }
+  .feat-card h3 {
+    font-family: var(--sans); font-size: 14px; font-weight: 700;
+    color: var(--text); margin-bottom: 8px; margin-top: 16px; letter-spacing: -0.01em;
+  }
+  .feat-card p { font-size: 13px; color: var(--text-2); line-height: 1.6; }
+
+  /* COMPARISON TABLE */
+  .compare-section {
+    display: grid; grid-template-columns: 220px 1fr;
+    gap: 52px; align-items: start;
+    position: relative; z-index: 1;
+    max-width: 1100px; margin: 0 auto; padding: 80px 3rem;
+  }
+  .compare-label-block { position: sticky; top: 80px; }
+  .compare-statement {
+    font-family: var(--sans);
+    font-size: clamp(20px, 2.5vw, 28px);
+    font-weight: 800; letter-spacing: -0.03em;
+    line-height: 1.15; color: var(--text);
+  }
+  .compare-wrapper {
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    min-width: 700px;
+  }
+  thead tr {
+    background: var(--bg-3);
+    border-bottom: 1px solid var(--border);
+  }
+  th {
+    padding: 14px 20px;
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    font-weight: 500;
+    color: var(--text-3);
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  th:first-child { color: var(--text-2); }
+  th.col-sc { color: var(--coral); }
+  tr { border-bottom: 1px solid var(--border); }
+  tr:last-child { border-bottom: none; }
+  tr:hover td { background: rgba(255,255,255,0.015); }
+  td {
+    padding: 12px 20px;
+    color: var(--text-2);
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  td:first-child {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text);
+    background: rgba(0,0,0,0.1);
+    border-right: 1px solid var(--border);
+  }
+  td.col-sc { background: rgba(232,96,64,0.04); }
+  .check {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 20px; height: 20px;
+    background: rgba(122,180,216,0.12);
+    border-radius: 50%;
+    color: var(--blue);
+    font-size: 11px; font-weight: 700;
+  }
+  .cross { color: var(--text-3); font-size: 14px; }
+  .check-bold {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 20px; height: 20px;
+    background: var(--coral);
+    border-radius: 50%;
+    color: #fff;
+    font-size: 11px; font-weight: 700;
+  }
+
+  /* QUICKSTART */
+  .quickstart-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 40px;
+    align-items: start;
+  }
+  .steps { display: flex; flex-direction: column; gap: 4px; }
+  .step {
+    display: flex; gap: 20px; align-items: flex-start;
+    padding: 24px 0; border-bottom: 1px solid var(--border); position: relative;
+  }
+  .step:last-child { border-bottom: none; }
+  .step-num-bg {
+    font-family: var(--sans); font-size: 72px; font-weight: 800;
+    line-height: 0.85; letter-spacing: -0.04em;
+    color: rgba(232,96,64,0.10);
+    user-select: none; flex-shrink: 0; width: 72px; text-align: right;
+  }
+  .step-content h4 {
+    font-family: var(--sans); font-weight: 700; font-size: 15px;
+    color: var(--text); margin-bottom: 6px;
+  }
+  .step-content p { font-size: 14px; color: var(--text-2); line-height: 1.65; }
+  .step-content code {
+    font-family: var(--mono); font-size: 12px;
+    background: var(--bg-3); border: 1px solid var(--border);
+    padding: 2px 7px; border-radius: 3px; color: var(--blue-dim);
+  }
+
+  .req-card {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px;
+  }
+  .req-card h4 {
+    font-family: var(--mono); font-size: 11px;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--text-3); margin-bottom: 20px;
+  }
+  .req-item {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 14px 0; border-bottom: 1px solid var(--border);
+  }
+  .req-item:last-child { border-bottom: none; }
+  .req-dot {
+    width: 6px; height: 6px;
+    background: linear-gradient(135deg, var(--coral), var(--purple));
+    border-radius: 50%;
+    flex-shrink: 0; margin-top: 7px;
+  }
+  .req-item h5 {
+    font-family: var(--mono); font-size: 13px; font-weight: 500;
+    color: var(--text); margin-bottom: 3px;
+  }
+  .req-item p { font-size: 13px; color: var(--text-2); }
+
+  /* CTA BAND */
+  .cta-band {
+    position: relative; z-index: 1;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-2);
+    overflow: hidden;
+  }
+  .cta-band::before {
+    content: '';
+    position: absolute;
+    top: -120px; left: 50%;
+    transform: translateX(-50%);
+    width: 600px; height: 300px;
+    background: radial-gradient(ellipse, rgba(232,96,64,0.08) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  .cta-inner-v2 {
+    position: relative; max-width: 1100px; margin: 0 auto;
+    padding: 80px 3rem;
+    display: grid; grid-template-columns: 1fr auto;
+    gap: 60px; align-items: end;
+  }
+  .cta-headline {
+    font-family: var(--sans);
+    font-size: clamp(52px, 7vw, 96px);
+    font-weight: 800; letter-spacing: -0.04em;
+    line-height: 1.0; color: var(--text);
+  }
+
+  /* FOOTER */
+  footer {
+    position: relative; z-index: 1;
+    max-width: 1100px; margin: 0 auto;
+    padding: 32px 3rem;
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 16px;
+    border-top: 1px solid var(--border);
+  }
+  .footer-left {
+    display: flex; align-items: center; gap: 10px;
+    font-family: var(--mono); font-size: 12px; color: var(--text-3);
+  }
+  .footer-right {
+    font-family: var(--mono); font-size: 11px; color: var(--text-3);
+  }
+  .footer-right a { color: var(--text-3); text-decoration: none; }
+  .footer-right a:hover { color: var(--coral); }
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a class="nav-brand" href="https://nedonatelli.github.io/sidecar/">
+    <div class="nav-logo">
+      <svg viewBox="0 0 16 16" fill="none" stroke="#090c0f" stroke-width="2.2" stroke-linecap="round">
+        <polyline points="3,5 1,8 3,11"/>
+        <polyline points="13,5 15,8 13,11"/>
+        <line x1="6" y1="3" x2="10" y2="13"/>
+      </svg>
+    </div>
+    SideCar
+  </a>
+  <ul class="nav-links">
+    <li><a href="https://nedonatelli.github.io/sidecar/">Docs</a></li>
+    <li><a href="https://nedonatelli.github.io/sidecar/agent-mode">Agent Mode</a></li>
+    <li><a href="https://nedonatelli.github.io/sidecar/mcp-servers">MCP Servers</a></li>
+    <li><a href="https://github.com/nedonatelli/sidecar/blob/main/CHANGELOG.md">Changelog</a></li>
+  </ul>
+  <div class="nav-actions">
+    <a href="https://github.com/nedonatelli/sidecar" class="btn-ghost">GitHub</a>
+    <a href="https://marketplace.visualstudio.com/items?itemName=nedonatelli.sidecar-ai" class="btn-primary">Install</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<div class="hero">
+  <div>
+    <div class="hero-eyebrow">Open Source &middot; MIT License &middot; v0.29.0</div>
+    <h1>Your code.<br><span>Your machine.</span>No cloud.</h1>
+    <p class="hero-sub">SideCar is a full agentic coding assistant &mdash; not a chatbot wrapper. It reads your files, runs your tests, and ships the fix. Nothing touches a server unless you want it to.</p>
+    <div class="hero-cta">
+      <a href="https://marketplace.visualstudio.com/items?itemName=nedonatelli.sidecar-ai" class="btn-lg">Install from Marketplace</a>
+      <a href="https://nedonatelli.github.io/sidecar/getting-started" class="btn-lg-ghost">Read the docs &rarr;</a>
+    </div>
+  </div>
+
+  <div style="display:flex; flex-direction:column; gap:24px;">
+    <img src="assets/logo.png" alt="SideCar logo" style="width:100%; border-radius:12px; display:block; border:1px solid var(--border);">
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="dot dot-r"></div>
+        <div class="dot dot-y"></div>
+        <div class="dot dot-g"></div>
+        <span class="terminal-title">sidecar &mdash; agent</span>
+      </div>
+      <div class="terminal-body">
+        <div><span class="t-prompt">&gt;</span> <span class="t-cmd">refactor auth module, add JWT support</span></div>
+        <br>
+        <div><span class="t-out">Reading </span><span class="t-path">src/auth/index.ts</span><span class="t-out"> &hellip;</span></div>
+        <div><span class="t-out">Reading </span><span class="t-path">src/middleware/session.ts</span><span class="t-out"> &hellip;</span></div>
+        <div><span class="t-out">Planning changes across 3 files&hellip;</span></div>
+        <br>
+        <div><span class="t-ok">&check;</span> <span class="t-out">Edited </span><span class="t-path">src/auth/index.ts</span></div>
+        <div><span class="t-ok">&check;</span> <span class="t-out">Created </span><span class="t-path">src/auth/jwt.ts</span></div>
+        <div><span class="t-ok">&check;</span> <span class="t-out">Edited </span><span class="t-path">src/middleware/session.ts</span></div>
+        <br>
+        <div><span class="t-out">Running </span><span class="t-cmd">npm test</span><span class="t-out"> &hellip;</span></div>
+        <div><span class="t-warn">&varr; </span> <span class="t-out">2 tests failing &mdash; fixing&hellip;</span></div>
+        <div><span class="t-ok">&check;</span> <span class="t-out">All 47 tests pass</span></div>
+        <br>
+        <div><span class="t-prompt">&gt;</span> <span class="t-cursor"></span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MARQUEE TICKER -->
+<div class="ticker-wrap">
+  <div class="ticker-track">
+    <span class="tick">Fully Offline</span><span class="tick-sep">&middot;</span>
+    <span class="tick">Autonomous Agent Loop</span><span class="tick-sep">&middot;</span>
+    <span class="tick">19 Built-in Tools</span><span class="tick-sep">&middot;</span>
+    <span class="tick">MCP Server Support</span><span class="tick-sep">&middot;</span>
+    <span class="tick">Security Scanning</span><span class="tick-sep">&middot;</span>
+    <span class="tick">Git Integration</span><span class="tick-sep">&middot;</span>
+    <span class="tick">Smart Context</span><span class="tick-sep">&middot;</span>
+    <span class="tick">Diff Preview &amp; Undo</span><span class="tick-sep">&middot;</span>
+    <span class="tick">OpenAI-Compatible</span><span class="tick-sep">&middot;</span>
+    <span class="tick">Cycle Detection</span><span class="tick-sep">&middot;</span>
+    <span class="tick">.sidecar Directory</span><span class="tick-sep">&middot;</span>
+    <span class="tick">MIT License</span><span class="tick-sep">&middot;</span>
+    <span class="tick">Zero Subscriptions</span><span class="tick-sep">&middot;</span>
+    <!-- Duplicate for seamless loop -->
+    <span class="tick">Fully Offline</span><span class="tick-sep">&middot;</span>
+    <span class="tick">Autonomous Agent Loop</span><span class="tick-sep">&middot;</span>
+    <span class="tick">19 Built-in Tools</span><span class="tick-sep">&middot;</span>
+    <span class="tick">MCP Server Support</span><span class="tick-sep">&middot;</span>
+    <span class="tick">Security Scanning</span><span class="tick-sep">&middot;</span>
+    <span class="tick">Git Integration</span><span class="tick-sep">&middot;</span>
+    <span class="tick">Smart Context</span><span class="tick-sep">&middot;</span>
+    <span class="tick">Diff Preview &amp; Undo</span><span class="tick-sep">&middot;</span>
+    <span class="tick">OpenAI-Compatible</span><span class="tick-sep">&middot;</span>
+    <span class="tick">Cycle Detection</span><span class="tick-sep">&middot;</span>
+    <span class="tick">.sidecar Directory</span><span class="tick-sep">&middot;</span>
+    <span class="tick">MIT License</span><span class="tick-sep">&middot;</span>
+    <span class="tick">Zero Subscriptions</span><span class="tick-sep">&middot;</span>
+  </div>
+</div>
+
+<!-- STAT STRIP -->
+<div class="stat-strip">
+  <div class="stat-item">
+    <span class="stat-num">100%</span>
+    <span class="stat-label">local-first</span>
+  </div>
+  <div class="stat-div"></div>
+  <div class="stat-item">
+    <span class="stat-num">397</span>
+    <span class="stat-label">tests passing</span>
+  </div>
+  <div class="stat-div"></div>
+  <div class="stat-item">
+    <span class="stat-num">MIT</span>
+    <span class="stat-label">free forever</span>
+  </div>
+  <div class="stat-div"></div>
+  <div class="stat-item">
+    <span class="stat-num">19</span>
+    <span class="stat-label">built-in tools</span>
+  </div>
+</div>
+
+<!-- CAPABILITIES -->
+<section>
+  <div class="cap-header">
+    <h2 style="font-size:clamp(36px,5vw,56px); max-width:340px; line-height:1.0;">Not a<br>chatbot<br>plugin.</h2>
+    <p class="cap-desc">SideCar runs an autonomous loop &mdash; closer to Claude Code or Cursor than anything else in the VS Code ecosystem. It decides what to read, what to change, runs tests, and iterates. Use local Ollama models, the Anthropic API, or any OpenAI-compatible server.</p>
+  </div>
+
+  <div class="feat-layout">
+    <div class="feat-hero">
+      <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:28px;">
+        <div>
+          <div class="feat-tag">Core capability</div>
+          <h3 style="font-size:22px; margin-top:10px; letter-spacing:-0.02em;">Autonomous Agent Loop</h3>
+        </div>
+        <span class="feat-big-num">01</span>
+      </div>
+      <p style="font-size:15px; color:var(--text-2); line-height:1.7; max-width:480px;">Multi-step reasoning with real tool use. SideCar reads the files that matter, writes targeted diffs, runs your test suite, reads the output, and fixes what broke &mdash; all in one uninterrupted pass. Cycle detection prevents runaway loops.</p>
+      <div class="feat-pills">
+        <span class="feat-pill">file read/write</span>
+        <span class="feat-pill">test runner</span>
+        <span class="feat-pill">iterative repair</span>
+        <span class="feat-pill">diff preview</span>
+        <span class="feat-pill">cycle detection</span>
+      </div>
+    </div>
+
+    <div class="feat-card">
+      <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></div>
+      <h3>Smart Context</h3>
+      <p>AST-based extraction for JS/TS, Python, Rust, Go, and Java/Kotlin. Sends relevant functions, not entire files.</p>
+    </div>
+
+    <div class="feat-card">
+      <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="1.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
+      <h3>Security Scanning</h3>
+      <p>Built-in secrets detection and vulnerability patterns. Scans staged files before every commit.</p>
+    </div>
+
+    <div class="feat-card">
+      <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg></div>
+      <h3>MCP Servers</h3>
+      <p>Extend with Model Context Protocol servers &mdash; databases, APIs, browser automation, and more.</p>
+    </div>
+
+    <div class="feat-card">
+      <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="1.5"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg></div>
+      <h3>Git Integration</h3>
+      <p>Stage, commit, push, branch, and stash through natural language. Commit messages auto-generated.</p>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- COMPARE -->
+<div class="compare-section">
+  <div class="compare-label-block">
+    <p class="compare-statement">The only local<br>VS Code extension<br>with a full<br>agent loop.</p>
+    <p style="font-size:13px; color:var(--text-3); font-family:var(--mono); margin-top:20px; line-height:1.7;">Tested against Continue,<br>Llama Coder, Twinny,<br>and GitHub Copilot (free).</p>
+  </div>
+
+  <div class="compare-table-wrap">
+    <div class="compare-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>Capability</th>
+            <th class="col-sc">SideCar</th>
+            <th>Continue</th>
+            <th>Llama Coder</th>
+            <th>Twinny</th>
+            <th>Copilot</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Chat with local models</td><td class="col-sc"><span class="check">&check;</span></td><td><span class="check">&check;</span></td><td><span class="cross">&mdash;</span></td><td><span class="check">&check;</span></td><td><span class="check">&check;</span></td></tr>
+          <tr><td>Inline completions</td><td class="col-sc"><span class="check">&check;</span></td><td><span class="check">&check;</span></td><td><span class="check">&check;</span></td><td><span class="check">&check;</span></td><td><span class="check">&check;</span></td></tr>
+          <tr><td>Autonomous agent loop</td><td class="col-sc"><span class="check-bold">&check;</span></td><td><span class="cross">&mdash;</span></td><td><span class="cross">&mdash;</span></td><td><span class="cross">&mdash;</span></td><td><span class="cross">&mdash;</span></td></tr>
+          <tr><td>File read / write / edit</td><td class="col-sc"><span class="check-bold">&check;</span></td><td><span class="cross">&mdash;</span></td><td><span class="cross">&mdash;</span></td><td><span class="cross">&mdash;</span></td><td><span class="cross">&mdash;</span></td></tr>
+          <tr><td>Run commands &amp; tests</td><td class="col-sc"><span class="check-bold">&check;</span></td><td><span class="cross">&mdash;</span></td><td><span class="cross">&mdash;</span></td><td><span class="cross">&mdash;</span></td><td><span class="cross">&mdash;</span></td></tr>
+          <tr><td>Security &amp; secrets scanning</td><td class="col-sc"><span class="check-bold">&check;</span></td><td><span class="cross">&mdash;</span></td><td><span class="cross">&mdash;</span></td><td><span class="cross">&mdash;</span></td><td><span class="cross">&mdash;</span></td></tr>
+          <tr><td>MCP server support</td><td class="col-sc"><span class="check-bold">&check;</span></td><td><span class="cross">&mdash;</span></td><td><span class="cross">&mdash;</span></td><td><span class="cross">&mdash;</span></td><td><span class="cross">&mdash;</span></td></tr>
+          <tr><td>Hooks &amp; scheduled tasks</td><td class="col-sc"><span class="check-bold">&check;</span></td><td><span class="cross">&mdash;</span></td><td><span class="cross">&mdash;</span></td><td><span class="cross">&mdash;</span></td><td><span class="cross">&mdash;</span></td></tr>
+          <tr><td>Git integration</td><td class="col-sc"><span class="check-bold">&check;</span></td><td><span class="cross">&mdash;</span></td><td><span class="cross">&mdash;</span></td><td><span class="cross">&mdash;</span></td><td><span class="cross">&mdash;</span></td></tr>
+          <tr><td>Diff preview &amp; rollback</td><td class="col-sc"><span class="check-bold">&check;</span></td><td><span class="cross">&mdash;</span></td><td><span class="cross">&mdash;</span></td><td><span class="cross">&mdash;</span></td><td><span class="cross">&mdash;</span></td></tr>
+          <tr><td>OpenAI-compatible API</td><td class="col-sc"><span class="check">&check;</span></td><td><span class="check">&check;</span></td><td><span class="cross">&mdash;</span></td><td><span class="cross">&mdash;</span></td><td><span class="cross">&mdash;</span></td></tr>
+          <tr><td>Fully offline</td><td class="col-sc"><span class="check">&check;</span></td><td><span class="check">&check;</span></td><td><span class="check">&check;</span></td><td><span class="check">&check;</span></td><td><span class="cross">&mdash;</span></td></tr>
+          <tr><td>Free &amp; open source</td><td class="col-sc"><span class="check">&check;</span></td><td><span class="check">&check;</span></td><td><span class="check">&check;</span></td><td><span class="check">&check;</span></td><td><span class="cross">Freemium</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- QUICKSTART -->
+<section>
+  <h2 style="font-size:clamp(28px,4vw,48px); margin-bottom:52px;">Four steps<br>to agentic coding.</h2>
+
+  <div class="quickstart-grid">
+    <div class="steps">
+      <div class="step">
+        <div class="step-num-bg">01</div>
+        <div class="step-content">
+          <h4>Install Ollama</h4>
+          <p>Download from <code>ollama.com</code> &mdash; the local model runtime SideCar uses by default. Make sure it's in your PATH.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num-bg">02</div>
+        <div class="step-content">
+          <h4>Install SideCar</h4>
+          <p>Search <code>sidecar-ai</code> in the VS Code Extensions panel, or install directly from the <a href="https://marketplace.visualstudio.com/items?itemName=nedonatelli.sidecar-ai" style="color:var(--blue);">Marketplace</a>.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num-bg">03</div>
+        <div class="step-content">
+          <h4>Open the Panel</h4>
+          <p>Click the SideCar icon in the activity bar. The extension launches Ollama automatically on first run.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num-bg">04</div>
+        <div class="step-content">
+          <h4>Give it a task</h4>
+          <p>Describe what you want done. SideCar will read the relevant files, write the code, and test it &mdash; no hand-holding required.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="req-card">
+      <h4>Requirements</h4>
+      <div class="req-item">
+        <div class="req-dot"></div>
+        <div>
+          <h5>Ollama</h5>
+          <p>Installed and in PATH. Runs your local language models.</p>
+        </div>
+      </div>
+      <div class="req-item">
+        <div class="req-dot"></div>
+        <div>
+          <h5>VS Code 1.88.0+</h5>
+          <p>Any current release. VS Code Insiders also works.</p>
+        </div>
+      </div>
+      <div class="req-item">
+        <div class="req-dot"></div>
+        <div>
+          <h5>Anthropic API <span style="color:var(--text-3); font-weight:400;">(optional)</span></h5>
+          <p>Use Claude models via API key. Prompt caching for lower cost.</p>
+        </div>
+      </div>
+      <div class="req-item">
+        <div class="req-dot"></div>
+        <div>
+          <h5>OpenAI-compatible backend <span style="color:var(--text-3); font-weight:400;">(optional)</span></h5>
+          <p>LM Studio, vLLM, Groq, OpenRouter &mdash; point SideCar at any compatible API.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA BAND -->
+<div class="cta-band">
+  <div class="cta-inner-v2">
+    <div class="cta-headline">SideCar<br>will always<br>be free.</div>
+    <div class="cta-right">
+      <p style="font-size:14px; color:var(--text-2); margin-bottom:28px; line-height:1.7;">MIT License. Independent project by<br>Nicholas Donatelli. Tips appreciated<br>but never required.</p>
+      <div style="display:flex; flex-direction:column; gap:10px; align-items:flex-start;">
+        <a href="https://marketplace.visualstudio.com/items?itemName=nedonatelli.sidecar-ai" class="btn-lg">Install from Marketplace</a>
+        <a href="https://www.buymeacoffee.com/nedonatelli" style="font-family:var(--mono);font-size:12px;color:var(--text-3);text-decoration:none;">&hearts; Buy Me a Coffee</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-left">
+    <div class="nav-logo" style="width:20px;height:20px;">
+      <svg viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round">
+        <polyline points="3,5 1,8 3,11"/><polyline points="13,5 15,8 13,11"/><line x1="6" y1="3" x2="10" y2="13"/>
+      </svg>
+    </div>
+    SideCar &mdash; MIT License &mdash; <a href="mailto:sidecarai.vscode@gmail.com" style="color:var(--text-3);text-decoration:none;">sidecarai.vscode@gmail.com</a>
+  </div>
+  <div class="footer-right">
+    <a href="https://github.com/nedonatelli/sidecar">GitHub</a> &middot;
+    <a href="https://marketplace.visualstudio.com/items?itemName=nedonatelli.sidecar-ai">Marketplace</a> &middot;
+    <a href="https://github.com/nedonatelli/sidecar/blob/main/CHANGELOG.md">Changelog</a> &middot;
+    <a href="https://nedonatelli.github.io/sidecar/">Docs</a>
+  </div>
+</footer>
+
+</body>
+</html>
