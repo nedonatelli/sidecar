@@ -1,7 +1,7 @@
 import type { ApiBackend } from './backend.js';
 import type { ChatMessage, ContentBlock, ToolDefinition, ToolUseContentBlock, StreamEvent } from './types.js';
 import { fetchWithRetry } from './retry.js';
-import { abortableRead } from './streamUtils.js';
+import { abortableRead, toFunctionTools, parseThinkTags, type ThinkTagState } from './streamUtils.js';
 
 // ---------------------------------------------------------------------------
 // Models that do not support tools
@@ -43,19 +43,6 @@ interface OllamaToolCall {
   function: {
     name: string;
     arguments: Record<string, unknown>;
-  };
-}
-
-interface OllamaTool {
-  type: 'function';
-  function: {
-    name: string;
-    description: string;
-    parameters: {
-      type: 'object';
-      properties: Record<string, unknown>;
-      required?: string[];
-    };
   };
 }
 
@@ -157,21 +144,6 @@ function toOllamaMessages(messages: ChatMessage[], systemPrompt: string): Ollama
 /**
  * Convert our ToolDefinition[] to Ollama's tool format.
  */
-function toOllamaTools(tools: ToolDefinition[]): OllamaTool[] {
-  return tools.map((t) => ({
-    type: 'function',
-    function: {
-      name: t.name,
-      description: t.description,
-      parameters: {
-        type: 'object',
-        properties: t.input_schema.properties,
-        required: t.input_schema.required,
-      },
-    },
-  }));
-}
-
 // ---------------------------------------------------------------------------
 // OllamaBackend
 // ---------------------------------------------------------------------------
@@ -202,7 +174,7 @@ export class OllamaBackend implements ApiBackend {
 
     if (tools && tools.length > 0) {
       if (supportsTools(model)) {
-        body.tools = toOllamaTools(tools);
+        body.tools = toFunctionTools(tools);
       } else {
         yield {
           type: 'warning',
@@ -232,7 +204,7 @@ export class OllamaBackend implements ApiBackend {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let toolCallCounter = 0;
-    let insideThinkTag = false;
+    const thinkState: ThinkTagState = { insideThinkTag: false };
 
     try {
       let buffer = '';
@@ -257,36 +229,7 @@ export class OllamaBackend implements ApiBackend {
 
           // Emit text content, parsing <think> tags for reasoning models
           if (chunk.message.content) {
-            let content = chunk.message.content;
-
-            // Handle <think> tag transitions within this chunk
-            while (content.length > 0) {
-              if (!insideThinkTag) {
-                const openIdx = content.indexOf('<think>');
-                if (openIdx === -1) {
-                  yield { type: 'text', text: content };
-                  break;
-                }
-                // Emit text before the tag
-                if (openIdx > 0) {
-                  yield { type: 'text', text: content.slice(0, openIdx) };
-                }
-                insideThinkTag = true;
-                content = content.slice(openIdx + 7); // skip '<think>'
-              } else {
-                const closeIdx = content.indexOf('</think>');
-                if (closeIdx === -1) {
-                  yield { type: 'thinking', thinking: content };
-                  break;
-                }
-                // Emit thinking before close tag
-                if (closeIdx > 0) {
-                  yield { type: 'thinking', thinking: content.slice(0, closeIdx) };
-                }
-                insideThinkTag = false;
-                content = content.slice(closeIdx + 8); // skip '</think>'
-              }
-            }
+            yield* parseThinkTags(chunk.message.content, thinkState);
           }
 
           // Emit tool calls
@@ -311,7 +254,7 @@ export class OllamaBackend implements ApiBackend {
       }
       // If stream ended inside an unclosed <think> tag, the content was already
       // yielded as thinking events. Emit a note so the UI can finalize the block.
-      if (insideThinkTag) {
+      if (thinkState.insideThinkTag) {
         yield { type: 'thinking', thinking: '\n(end of reasoning)' };
       }
     } finally {

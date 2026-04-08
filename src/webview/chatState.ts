@@ -75,6 +75,10 @@ export class ChatState {
 
   abort(): void {
     this.abortController?.abort();
+    // Resolve any pending confirmation prompts so their promises don't dangle
+    if (this.pendingConfirms.size > 0) {
+      this.resolveAllConfirms('Reject');
+    }
   }
 
   cancelInstall(): void {

@@ -237,6 +237,11 @@ export class ChatViewProvider implements WebviewViewProvider {
     this.state.autoSave();
   }
 
+  /** Abort any running agent loops. Call on extension deactivate. */
+  public abort(): void {
+    this.state.abort();
+  }
+
   public async undoChanges(): Promise<void> {
     await handleUndoChanges(this.state);
   }

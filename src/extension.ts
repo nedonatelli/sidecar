@@ -19,6 +19,7 @@ import { SidecarDir } from './config/sidecarDir.js';
 import { getFilePatterns } from './config/workspace.js';
 import { runPreCommitScan } from './agent/preCommitScan.js';
 import { disposeShellSession } from './agent/tools.js';
+import { disposeSidecarMdWatcher } from './webview/handlers/chatHandlers.js';
 
 let chatProvider: ChatViewProvider | undefined;
 
@@ -300,5 +301,7 @@ export function activate(context: ExtensionContext) {
 
 export function deactivate() {
   chatProvider?.autoSave();
+  chatProvider?.abort();
+  disposeSidecarMdWatcher();
   disposeShellSession();
 }

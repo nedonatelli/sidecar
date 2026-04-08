@@ -1,7 +1,7 @@
 import type { ApiBackend } from './backend.js';
 import type { ChatMessage, ContentBlock, ToolDefinition, ToolUseContentBlock, StreamEvent } from './types.js';
 import { fetchWithRetry } from './retry.js';
-import { abortableRead } from './streamUtils.js';
+import { abortableRead, toFunctionTools, parseThinkTags, type ThinkTagState } from './streamUtils.js';
 
 // ---------------------------------------------------------------------------
 // OpenAI-compatible API types
@@ -20,19 +20,6 @@ interface OpenAIToolCall {
   function: {
     name: string;
     arguments: string;
-  };
-}
-
-interface OpenAITool {
-  type: 'function';
-  function: {
-    name: string;
-    description: string;
-    parameters: {
-      type: 'object';
-      properties: Record<string, unknown>;
-      required?: string[];
-    };
   };
 }
 
@@ -126,21 +113,6 @@ export function toOpenAIMessages(messages: ChatMessage[], systemPrompt: string):
   return result;
 }
 
-export function toOpenAITools(tools: ToolDefinition[]): OpenAITool[] {
-  return tools.map((t) => ({
-    type: 'function' as const,
-    function: {
-      name: t.name,
-      description: t.description,
-      parameters: {
-        type: 'object' as const,
-        properties: t.input_schema.properties,
-        required: t.input_schema.required,
-      },
-    },
-  }));
-}
-
 // ---------------------------------------------------------------------------
 // OpenAI-compatible backend
 // ---------------------------------------------------------------------------
@@ -186,7 +158,7 @@ export class OpenAIBackend implements ApiBackend {
     };
 
     if (tools && tools.length > 0) {
-      body.tools = toOpenAITools(tools);
+      body.tools = toFunctionTools(tools);
     }
 
     const response = await fetchWithRetry(this.chatUrl, {
@@ -209,7 +181,7 @@ export class OpenAIBackend implements ApiBackend {
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
-    let insideThinkTag = false;
+    const thinkState: ThinkTagState = { insideThinkTag: false };
 
     // Accumulate incremental tool call data keyed by index
     const pendingToolCalls = new Map<number, { id: string; name: string; arguments: string }>();
@@ -266,33 +238,7 @@ export class OpenAIBackend implements ApiBackend {
 
           // Handle text content with <think> tag parsing
           if (delta.content) {
-            let content = delta.content;
-
-            while (content.length > 0) {
-              if (!insideThinkTag) {
-                const openIdx = content.indexOf('<think>');
-                if (openIdx === -1) {
-                  yield { type: 'text', text: content };
-                  break;
-                }
-                if (openIdx > 0) {
-                  yield { type: 'text', text: content.slice(0, openIdx) };
-                }
-                insideThinkTag = true;
-                content = content.slice(openIdx + 7);
-              } else {
-                const closeIdx = content.indexOf('</think>');
-                if (closeIdx === -1) {
-                  yield { type: 'thinking', thinking: content };
-                  break;
-                }
-                if (closeIdx > 0) {
-                  yield { type: 'thinking', thinking: content.slice(0, closeIdx) };
-                }
-                insideThinkTag = false;
-                content = content.slice(closeIdx + 8);
-              }
-            }
+            yield* parseThinkTags(delta.content, thinkState);
           }
 
           // Handle incremental tool calls

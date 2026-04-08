@@ -19,7 +19,7 @@ import {
   resolveUrlReferences,
 } from '../../config/workspace.js';
 import { runAgentLoop } from '../../agent/loop.js';
-import { pruneHistory } from '../../agent/context.js';
+import { pruneHistory, enhanceContextWithSmartElements } from '../../agent/context.js';
 import { computeUnifiedDiff } from '../../agent/diff.js';
 import { commands } from 'vscode';
 
@@ -27,6 +27,13 @@ const execAsync = promisify(exec);
 
 let sidecarMdCache: string | null | undefined;
 let sidecarMdWatcher: { dispose(): void } | null = null;
+
+/** Dispose file watchers created by loadSidecarMd. Call on extension deactivate. */
+export function disposeSidecarMdWatcher(): void {
+  sidecarMdWatcher?.dispose();
+  sidecarMdWatcher = null;
+  sidecarMdCache = undefined;
+}
 
 async function loadSidecarMd(): Promise<string | null> {
   if (sidecarMdCache !== undefined) return sidecarMdCache;
@@ -93,7 +100,15 @@ export function classifyError(message: string): {
   errorActionCommand?: string;
 } {
   const lower = message.toLowerCase();
-  if (lower.includes('econnrefused') || lower.includes('fetch failed') || lower.includes('network')) {
+  if (
+    lower.includes('econnrefused') ||
+    lower.includes('enotfound') ||
+    lower.includes('eaddrnotavail') ||
+    lower.includes('ehostunreach') ||
+    lower.includes('econnreset') ||
+    lower.includes('fetch failed') ||
+    lower.includes('network')
+  ) {
     return { errorType: 'connection', errorAction: 'Check Connection', errorActionCommand: 'openSettings' };
   }
   if (
@@ -255,8 +270,10 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
         }
       } else {
         // Fallback to glob-based context while index is building
-        const context = await getWorkspaceContext(getFilePatterns(), getMaxFiles());
+        let context = await getWorkspaceContext(getFilePatterns(), getMaxFiles());
         if (context) {
+          // Apply smart element extraction so the fallback path also benefits
+          context = enhanceContextWithSmartElements(context, text);
           const trimmed =
             context.length > contextBudget
               ? context.slice(0, contextBudget - 30) + '\n... (context truncated)'

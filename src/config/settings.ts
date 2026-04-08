@@ -106,23 +106,29 @@ try {
   // Not in a VS Code environment (e.g., unit tests) — cache will be rebuilt on each call
 }
 
+/** Clamp a number to a minimum value, falling back to the default if invalid. */
+function clampMin(value: number | undefined, min: number, fallback: number): number {
+  if (value === undefined || typeof value !== 'number' || isNaN(value)) return fallback;
+  return Math.max(min, value);
+}
+
 function readConfig(): SideCarConfig {
   const cfg = workspace.getConfiguration('sidecar');
   return {
-    model: cfg.get<string>('model', 'qwen3-coder:30b'),
+    model: cfg.get<string>('model', 'qwen3-coder:30b') || 'qwen3-coder:30b',
     provider: cfg.get<'auto' | 'ollama' | 'anthropic' | 'openai'>('provider', 'auto'),
     systemPrompt: cfg.get<string>('systemPrompt', ''),
-    baseUrl: cfg.get<string>('baseUrl', 'http://localhost:11434'),
+    baseUrl: cfg.get<string>('baseUrl', 'http://localhost:11434') || 'http://localhost:11434',
     apiKey: cfg.get<string>('apiKey', 'ollama'),
     includeActiveFile: cfg.get<boolean>('includeActiveFile', true),
     planMode: cfg.get<boolean>('planMode', false),
     agentMode: cfg.get<'cautious' | 'autonomous' | 'manual'>('agentMode', 'cautious'),
-    agentMaxIterations: cfg.get<number>('agentMaxIterations', 25),
-    agentMaxTokens: cfg.get<number>('agentMaxTokens', 100000),
+    agentMaxIterations: clampMin(cfg.get<number>('agentMaxIterations'), 1, 25),
+    agentMaxTokens: clampMin(cfg.get<number>('agentMaxTokens'), 1000, 100000),
     enableInlineCompletions: cfg.get<boolean>('enableInlineCompletions', false),
     completionModel: cfg.get<string>('completionModel', ''),
-    completionMaxTokens: cfg.get<number>('completionMaxTokens', 256),
-    completionDebounceMs: cfg.get<number>('completionDebounceMs', 300),
+    completionMaxTokens: clampMin(cfg.get<number>('completionMaxTokens'), 1, 256),
+    completionDebounceMs: clampMin(cfg.get<number>('completionDebounceMs'), 0, 300),
     toolPermissions: cfg.get<Record<string, 'allow' | 'deny' | 'ask'>>('toolPermissions', {}),
     hooks: cfg.get<Record<string, HookConfig>>('hooks', {}),
     eventHooks: cfg.get<EventHookConfig>('eventHooks', {}),
@@ -131,12 +137,12 @@ function readConfig(): SideCarConfig {
     mcpServers: cfg.get<Record<string, MCPServerConfig>>('mcpServers', {}),
     verboseMode: cfg.get<boolean>('verboseMode', false),
     expandThinking: cfg.get<boolean>('expandThinking', false),
-    requestTimeout: cfg.get<number>('requestTimeout', 120),
-    shellTimeout: cfg.get<number>('shellTimeout', 120),
-    shellMaxOutputMB: cfg.get<number>('shellMaxOutputMB', 10),
+    requestTimeout: clampMin(cfg.get<number>('requestTimeout'), 0, 120),
+    shellTimeout: clampMin(cfg.get<number>('shellTimeout'), 1, 120),
+    shellMaxOutputMB: clampMin(cfg.get<number>('shellMaxOutputMB'), 1, 10),
     pinnedContext: cfg.get<string[]>('pinnedContext', []),
     autoFixOnFailure: cfg.get<boolean>('autoFixOnFailure', false),
-    autoFixMaxRetries: cfg.get<number>('autoFixMaxRetries', 3),
+    autoFixMaxRetries: clampMin(cfg.get<number>('autoFixMaxRetries'), 0, 3),
     fetchUrlContext: cfg.get<boolean>('fetchUrlContext', true),
   };
 }
