@@ -1,6 +1,6 @@
 ---
 title: Slash Commands
-layout: default
+layout: docs
 nav_order: 6
 ---
 

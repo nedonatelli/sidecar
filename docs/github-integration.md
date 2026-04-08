@@ -1,6 +1,6 @@
 ---
 title: GitHub Integration
-layout: default
+layout: docs
 nav_order: 11
 ---
 

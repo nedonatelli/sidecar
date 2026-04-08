@@ -1,6 +1,6 @@
 ---
 title: Agent Mode
-layout: default
+layout: docs
 nav_order: 3
 ---
 

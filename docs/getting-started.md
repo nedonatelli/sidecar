@@ -1,6 +1,6 @@
 ---
 title: Getting Started
-layout: default
+layout: docs
 nav_order: 2
 ---
 

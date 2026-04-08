@@ -1,30 +1,21 @@
 title: SideCar
-description: AI Coding Assistant for VS Code — local Ollama models or Claude via Anthropic API
-remote_theme: just-the-docs/just-the-docs@v0.10.0
+description: AI Coding Assistant for VS Code — local Ollama models, Anthropic Claude, or any OpenAI-compatible server
 url: https://nedonatelli.github.io
 baseurl: /sidecar
 
-color_scheme: dark
-
-aux_links:
-  "GitHub":
-    - "https://github.com/nedonatelli/sidecar"
-  "VS Code Marketplace":
-    - "https://marketplace.visualstudio.com/items?itemName=nedonatelli.sidecar-ai"
+# No remote theme — using custom _layouts/docs.html
+plugins:
+  - jekyll-seo-tag
 
 nav_enabled: true
-search_enabled: true
-
 heading_anchors: true
 
 footer_content: "SideCar is an independent project by Nicholas Donatelli. MIT License."
-
-# Custom CSS overlay — matches SideCar logo gradient palette
-head_extra: |
-  <link rel="stylesheet" href="/sidecar/assets/css/custom.css">
 
 exclude:
   - node_modules/
   - dist/
   - out/
   - "*.vsix"
+  - index-old.md
+  - docs.html

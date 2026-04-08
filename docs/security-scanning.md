@@ -1,6 +1,6 @@
 ---
 title: Security Scanning
-layout: default
+layout: docs
 nav_order: 7
 ---
 

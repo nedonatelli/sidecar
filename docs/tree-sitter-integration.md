@@ -1,6 +1,6 @@
 ---
 title: Smart Context
-layout: default
+layout: docs
 nav_order: 9
 ---
 

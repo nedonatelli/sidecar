@@ -1,6 +1,6 @@
 ---
 title: MCP Servers
-layout: default
+layout: docs
 nav_order: 5
 ---
 

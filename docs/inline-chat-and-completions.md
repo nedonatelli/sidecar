@@ -1,6 +1,6 @@
 ---
 title: Inline Chat & Completions
-layout: default
+layout: docs
 nav_order: 10
 ---
 

@@ -1,6 +1,6 @@
 ---
 title: SIDECAR.md
-layout: default
+layout: docs
 nav_order: 8
 ---
 

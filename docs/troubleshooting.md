@@ -1,6 +1,6 @@
 ---
 title: Troubleshooting
-layout: default
+layout: docs
 nav_order: 12
 ---
 

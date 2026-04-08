@@ -1,6 +1,6 @@
 ---
 title: Hooks & Scheduled Tasks
-layout: default
+layout: docs
 nav_order: 9
 ---
 

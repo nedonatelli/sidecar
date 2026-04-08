@@ -1,6 +1,6 @@
 ---
 title: Configuration
-layout: default
+layout: docs
 nav_order: 4
 ---
 
