@@ -9,6 +9,7 @@ import type { MCPManager } from '../agent/mcpManager.js';
 import type { TerminalManager } from '../terminal/manager.js';
 import type { WorkspaceIndex } from '../config/workspaceIndex.js';
 import type { SidecarDir } from '../config/sidecarDir.js';
+import type { SkillLoader } from '../agent/skillLoader.js';
 import type { ProposedContentProvider } from '../edits/proposedContentProvider.js';
 import type { ExtensionMessage } from './chatWebview.js';
 import { getConfig } from '../config/settings.js';
@@ -37,6 +38,7 @@ export class ChatState {
   metricsCollector: MetricsCollector;
   workspaceIndex: WorkspaceIndex | null = null;
   sidecarDir: SidecarDir | null = null;
+  skillLoader: SkillLoader | null = null;
   contentProvider: ProposedContentProvider | null = null;
 
   /** ID of the current auto-saved session, null if conversation is empty/unsaved */

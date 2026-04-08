@@ -17,6 +17,7 @@ import type { AgentLogger } from '../agent/logger.js';
 import type { MCPManager } from '../agent/mcpManager.js';
 import type { WorkspaceIndex } from '../config/workspaceIndex.js';
 import type { SidecarDir } from '../config/sidecarDir.js';
+import type { SkillLoader } from '../agent/skillLoader.js';
 import { getConfig } from '../config/settings.js';
 
 // Handler modules
@@ -72,6 +73,7 @@ export class ChatViewProvider implements WebviewViewProvider {
     mcpManager: MCPManager,
     workspaceIndex?: WorkspaceIndex,
     sidecarDir?: SidecarDir,
+    skillLoader?: SkillLoader,
   ) {
     this._contentProvider = contentProvider;
     this.state = new ChatState(context, terminalManager, agentLogger, mcpManager, (msg) => this.postMessage(msg));
@@ -80,6 +82,9 @@ export class ChatViewProvider implements WebviewViewProvider {
     }
     if (sidecarDir) {
       this.state.sidecarDir = sidecarDir;
+    }
+    if (skillLoader) {
+      this.state.skillLoader = skillLoader;
     }
     this.state.contentProvider = contentProvider;
   }
@@ -214,6 +219,11 @@ export class ChatViewProvider implements WebviewViewProvider {
         command: 'assistantMessage',
         content: `Verbose mode ${label}. ${!current ? 'Agent reasoning will be shown during runs.' : 'Agent reasoning hidden.'}`,
       });
+      this.state.postMessage({ command: 'done' });
+    },
+    listSkills: () => {
+      const list = this.state.skillLoader?.listFormatted() || 'No skills loaded.';
+      this.state.postMessage({ command: 'assistantMessage', content: list });
       this.state.postMessage({ command: 'done' });
     },
     showSystemPrompt: () =>

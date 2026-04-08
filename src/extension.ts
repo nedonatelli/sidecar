@@ -16,6 +16,7 @@ import { generateCommitMessage } from './review/commitMessage.js';
 import { EventHookManager } from './agent/eventHooks.js';
 import { WorkspaceIndex } from './config/workspaceIndex.js';
 import { SidecarDir } from './config/sidecarDir.js';
+import { SkillLoader } from './agent/skillLoader.js';
 import { getFilePatterns } from './config/workspace.js';
 import { runPreCommitScan } from './agent/preCommitScan.js';
 import { disposeShellSession } from './agent/tools.js';
@@ -71,6 +72,10 @@ export function activate(context: ExtensionContext) {
       (err) => console.warn('[SideCar] .sidecar/ init failed:', err),
     );
   }
+
+  // Load Claude Code and SideCar skills
+  const skillLoader = new SkillLoader();
+  skillLoader.initialize().catch((err) => console.warn('[SideCar] Skill loading failed:', err));
 
   const workspaceIndex = new WorkspaceIndex();
   context.subscriptions.push(workspaceIndex);
@@ -128,6 +133,7 @@ export function activate(context: ExtensionContext) {
     mcpManager,
     workspaceIndex,
     sidecarDir,
+    skillLoader,
   );
   context.subscriptions.push(
     window.registerWebviewViewProvider('sidecar.chatView', chatProvider, {

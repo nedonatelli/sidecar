@@ -251,6 +251,7 @@
     { cmd: '/scaffold', desc: 'Generate code from template' },
     { cmd: '/verbose', desc: 'Toggle verbose mode (show agent reasoning)' },
     { cmd: '/prompt', desc: 'Show the current system prompt' },
+    { cmd: '/skills', desc: 'List available Claude Code & SideCar skills' },
   ];
   const autocompleteEl = document.getElementById('slash-autocomplete');
   let acSelectedIndex = -1;
@@ -701,6 +702,13 @@
     }
     if (text.trim() === '/prompt') {
       vscode.postMessage({ command: 'showSystemPrompt' });
+      input.value = '';
+      input.style.height = 'auto';
+      return;
+    }
+    if (text.trim() === '/skills') {
+      appendMessage('user', '/skills');
+      vscode.postMessage({ command: 'listSkills' });
       input.value = '';
       input.style.height = 'auto';
       return;

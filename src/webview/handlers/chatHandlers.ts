@@ -267,6 +267,15 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
       systemPrompt += `\n\n${truncated}`;
     }
 
+    // Skill injection: match user message against loaded skills and inject
+    // the skill prompt into the system context for this request.
+    if (state.skillLoader?.isReady() && text) {
+      const skill = state.skillLoader.match(text);
+      if (skill && systemPrompt.length + skill.content.length < maxSystemChars) {
+        systemPrompt += `\n\n## Active Skill: ${skill.name}\n${skill.content}`;
+      }
+    }
+
     if (getWorkspaceEnabled()) {
       // Enforce a tight budget on workspace context.  For local models, tool
       // definitions add ~8-10K chars to the request on top of the system
