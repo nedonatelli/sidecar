@@ -300,7 +300,7 @@
             "openai"
           ],
           "default": "auto",
-          "description": "LLM provider backend. 'auto' detects from the base URL (localhost:11434 → Ollama, anthropic.com → Anthropic, anything else → OpenAI-compatible). Set explicitly for LM Studio, vLLM, llama.cpp, or OpenRouter."
+          "description": "LLM provider backend. 'auto' detects from the base URL (localhost:11434 → Ollama, anthropic.com → Anthropic, localhost:11435 → LLMManager, anything else → OpenAI-compatible). Set explicitly for LM Studio, vLLM, llama.cpp, OpenRouter, or LLMManager."
         },
         "sidecar.fetchUrlContext": {
           "type": "boolean",

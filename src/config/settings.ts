@@ -1,4 +1,7 @@
 import { workspace } from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 
 /**
  * Check whether a base URL points to a local Ollama instance.
@@ -11,14 +14,34 @@ export function isAnthropic(baseUrl: string): boolean {
   return baseUrl.includes('anthropic.com');
 }
 
+export function isLLMManager(baseUrl: string): boolean {
+  return baseUrl.includes('localhost:11435') || baseUrl.includes('127.0.0.1:11435');
+}
+
+/**
+ * Read the LLMManager API token from ~/.config/llmmanager/token
+ */
+export function readLLMManagerToken(): string {
+  try {
+    const tokenPath = path.join(os.homedir(), '.config', 'llmmanager', 'token');
+    if (fs.existsSync(tokenPath)) {
+      return fs.readFileSync(tokenPath, 'utf-8').trim();
+    }
+  } catch (error) {
+    console.warn('[LLMManager] Failed to read token file:', error);
+  }
+  return 'llmmanager';
+}
+
 /** Determine which backend provider to use based on URL and explicit setting. */
 export function detectProvider(
   baseUrl: string,
-  provider: 'auto' | 'ollama' | 'anthropic' | 'openai',
-): 'ollama' | 'anthropic' | 'openai' {
+  provider: 'auto' | 'ollama' | 'anthropic' | 'openai' | 'llmmanager',
+): 'ollama' | 'anthropic' | 'openai' | 'llmmanager' {
   if (provider !== 'auto') return provider;
   if (isLocalOllama(baseUrl)) return 'ollama';
   if (isAnthropic(baseUrl)) return 'anthropic';
+  if (isLLMManager(baseUrl)) return 'llmmanager';
   return 'openai';
 }
 
@@ -58,7 +81,7 @@ export interface CustomToolConfig {
 
 export interface SideCarConfig {
   model: string;
-  provider: 'auto' | 'ollama' | 'anthropic' | 'openai';
+  provider: 'auto' | 'ollama' | 'anthropic' | 'openai' | 'llmmanager';
   systemPrompt: string;
   baseUrl: string;
   apiKey: string;
@@ -120,7 +143,7 @@ function readConfig(): SideCarConfig {
   const cfg = workspace.getConfiguration('sidecar');
   return {
     model: cfg.get<string>('model', 'qwen3-coder:30b') || 'qwen3-coder:30b',
-    provider: cfg.get<'auto' | 'ollama' | 'anthropic' | 'openai'>('provider', 'auto'),
+    provider: cfg.get<'auto' | 'ollama' | 'anthropic' | 'openai' | 'llmmanager'>('provider', 'auto'),
     systemPrompt: cfg.get<string>('systemPrompt', ''),
     baseUrl: cfg.get<string>('baseUrl', 'http://localhost:11434') || 'http://localhost:11434',
     apiKey: cfg.get<string>('apiKey', 'ollama'),

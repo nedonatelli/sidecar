@@ -3,7 +3,8 @@ import type { ApiBackend } from './backend.js';
 import { AnthropicBackend } from './anthropicBackend.js';
 import { OllamaBackend } from './ollamaBackend.js';
 import { OpenAIBackend } from './openaiBackend.js';
-import { isLocalOllama, detectProvider, getConfig } from '../config/settings.js';
+import { LLMManagerBackend } from './llmmanagerBackend.js';
+import { isLocalOllama, detectProvider, getConfig, readLLMManagerToken } from '../config/settings.js';
 
 const DEFAULT_BASE_URL = 'http://localhost:11434';
 
@@ -80,6 +81,8 @@ export class SideCarClient {
         return new OllamaBackend(this.baseUrl);
       case 'anthropic':
         return new AnthropicBackend(this.baseUrl, this.apiKey);
+      case 'llmmanager':
+        return new LLMManagerBackend(this.baseUrl, this.apiKey || readLLMManagerToken());
       case 'openai':
         return new OpenAIBackend(this.baseUrl, this.apiKey);
     }
@@ -264,7 +267,7 @@ export class SideCarClient {
     return provider === 'openai';
   }
 
-  getProviderType(): 'ollama' | 'anthropic' | 'openai' {
+  getProviderType(): 'ollama' | 'anthropic' | 'openai' | 'llmmanager' {
     return detectProvider(this.baseUrl, getConfig().provider);
   }
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isLocalOllama, isAnthropic, detectProvider, getConfig, clampMin } from './settings.js';
+import { isLocalOllama, isAnthropic, isLLMManager, detectProvider, getConfig, clampMin } from './settings.js';
 
 describe('isLocalOllama', () => {
   it('returns true for http://localhost:11434', () => {
@@ -49,11 +49,29 @@ describe('isAnthropic', () => {
   });
 });
 
+describe('isLLMManager', () => {
+  it('returns true for localhost:11435', () => {
+    expect(isLLMManager('http://localhost:11435')).toBe(true);
+    expect(isLLMManager('http://127.0.0.1:11435')).toBe(true);
+  });
+
+  it('returns false for other ports', () => {
+    expect(isLLMManager('http://localhost:11434')).toBe(false);
+    expect(isLLMManager('http://localhost:8080')).toBe(false);
+  });
+
+  it('returns false for other URLs', () => {
+    expect(isLLMManager('https://api.anthropic.com')).toBe(false);
+    expect(isLLMManager('http://localhost:1234')).toBe(false);
+  });
+});
+
 describe('detectProvider', () => {
   it('returns explicit provider when not auto', () => {
     expect(detectProvider('http://anything.com', 'openai')).toBe('openai');
     expect(detectProvider('http://anything.com', 'anthropic')).toBe('anthropic');
     expect(detectProvider('http://anything.com', 'ollama')).toBe('ollama');
+    expect(detectProvider('http://anything.com', 'llmmanager')).toBe('llmmanager');
   });
 
   it('auto-detects ollama from localhost:11434', () => {
@@ -62,6 +80,11 @@ describe('detectProvider', () => {
 
   it('auto-detects anthropic from anthropic.com', () => {
     expect(detectProvider('https://api.anthropic.com', 'auto')).toBe('anthropic');
+  });
+
+  it('auto-detects llmmanager from localhost:11435', () => {
+    expect(detectProvider('http://localhost:11435', 'auto')).toBe('llmmanager');
+    expect(detectProvider('http://127.0.0.1:11435', 'auto')).toBe('llmmanager');
   });
 
   it('defaults to openai for unknown URLs', () => {

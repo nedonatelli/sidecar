@@ -5,6 +5,7 @@ All notable changes to the SideCar extension will be documented in this file.
 ## [0.30.0] - 2026-04-08
 
 ### Added
+- **LLMManager backend support**: connect to LLMManager inference server on `http://localhost:11435` with automatic token loading from `~/.config/llmmanager/token`. Full streaming, tool use, and fallback support
 - **Claude Code skill compatibility**: load and use existing Claude Code skills directly — no format conversion needed. Scans `~/.claude/commands/`, `<workspace>/.claude/commands/`, and `.sidecar/skills/` for markdown skill files. Trigger via `/skill-name` slash command or automatic keyword matching. New `/skills` command lists all loaded skills
 - **Backend fallback**: configure a secondary provider via `sidecar.fallbackBaseUrl`, `sidecar.fallbackApiKey`, `sidecar.fallbackModel`. After 2 consecutive failures on the primary, SideCar auto-switches to fallback with a warning. Switches back on success
 - **Docs redesign CSS**: extracted design system stylesheet for the docs site (coral/blue/purple palette, code blocks, callouts, mode grid, nav cards)

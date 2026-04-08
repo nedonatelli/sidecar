@@ -91,6 +91,10 @@ async function ensureReachable(state: ChatState): Promise<boolean> {
         headers['x-api-key'] = config.apiKey;
         headers['anthropic-version'] = '2023-06-01';
         break;
+      case 'llmmanager':
+        checkUrl = `${config.baseUrl}/v1/models`;
+        headers['Authorization'] = `Bearer ${config.apiKey}`;
+        break;
       case 'openai':
         checkUrl = `${config.baseUrl}/v1/models`;
         if (config.apiKey && config.apiKey !== 'ollama') {

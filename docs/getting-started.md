@@ -53,6 +53,17 @@ To use Claude models instead of local Ollama:
 
 SideCar uses prompt caching with Anthropic, reducing input token costs by ~90% on cache hits.
 
+## Using LLMManager
+
+[LLMManager](https://github.com/llmmanager/llmmanager) is a local inference server that manages model loading, unloading, and GPU memory efficiently.
+
+1. Install and start LLMManager
+2. Set `sidecar.baseUrl` to `http://localhost:11435` (default LLMManager port)
+3. Set `sidecar.model` to the model you want to use
+4. If authentication is required, set `sidecar.apiKey` — or store your token in `~/.config/llmmanager/token` for automatic loading
+
+SideCar will auto-detect LLMManager by the port number.
+
 ## Using OpenAI-compatible servers
 
 SideCar works with any server that exposes the OpenAI `/v1/chat/completions` endpoint — including **LM Studio**, **vLLM**, **llama.cpp**, **text-generation-webui**, and **OpenRouter**.
@@ -76,6 +87,7 @@ SideCar auto-detects the provider from the URL. If auto-detection gets it wrong,
 | llama.cpp | `http://localhost:8080` | Auto-detected as OpenAI |
 | OpenRouter | `https://openrouter.ai/api` | Set API key, access 400+ models |
 | text-generation-webui | `http://localhost:5000` | Enable OpenAI extension in the UI |
+| LLMManager | `http://localhost:11435` | Auto-detected as LLMManager |
 | Ollama | `http://localhost:11434` | Auto-detected as Ollama (native API) |
 | Anthropic | `https://api.anthropic.com` | Auto-detected as Anthropic |
 
