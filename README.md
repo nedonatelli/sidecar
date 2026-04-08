@@ -243,6 +243,12 @@ SideCar auto-detects the provider. To override, set `sidecar.provider` to `"open
 
 Full documentation is available at [nedonatelli.github.io/sidecar](https://nedonatelli.github.io/sidecar/).
 
+## Support & Contact
+
+- **Bug reports & feature requests**: [GitHub Issues](https://github.com/nedonatelli/sidecar/issues)
+- **Email**: [sidecarai.vscode@gmail.com](mailto:sidecarai.vscode@gmail.com)
+- **Documentation**: [nedonatelli.github.io/sidecar](https://nedonatelli.github.io/sidecar/)
+
 ## Disclaimer
 
 SideCar is an independent project by Nicholas Donatelli and is not affiliated with, endorsed by, or sponsored by Ollama, Anthropic, Meta, Mistral AI, Google, GitHub, or any other company. All product names are trademarks of their respective holders.
