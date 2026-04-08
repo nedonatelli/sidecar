@@ -309,7 +309,9 @@ export class OpenAIBackend implements ApiBackend {
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
-      throw new Error(`OpenAI API error: ${response.status}${errorText ? ` — ${errorText}` : ''}`);
+      throw new Error(
+        `OpenAI API request failed: ${response.status} ${response.statusText}${errorText ? ` — ${errorText}` : ''}`,
+      );
     }
 
     const data = (await response.json()) as { choices: { message: { content: string } }[] };

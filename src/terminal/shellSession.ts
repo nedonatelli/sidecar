@@ -280,20 +280,29 @@ export class ShellSession {
    * Dispose the shell session and all background processes.
    */
   dispose(): void {
-    if (this.proc) {
+    const killWithTimeout = (proc: ChildProcess) => {
       try {
-        this.proc.kill();
+        proc.kill('SIGTERM');
       } catch {
-        /* ignore */
+        return;
       }
+      // Force-kill if still alive after 3 seconds
+      const timer = setTimeout(() => {
+        try {
+          proc.kill('SIGKILL');
+        } catch {
+          /* already exited */
+        }
+      }, 3000);
+      proc.once('exit', () => clearTimeout(timer));
+    };
+
+    if (this.proc) {
+      killWithTimeout(this.proc);
       this.proc = null;
     }
     for (const [, entry] of this.backgroundCommands) {
-      try {
-        entry.proc.kill();
-      } catch {
-        /* ignore */
-      }
+      killWithTimeout(entry.proc);
     }
     this.backgroundCommands.clear();
     this.commandQueue = [];

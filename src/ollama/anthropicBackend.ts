@@ -84,12 +84,12 @@ export class AnthropicBackend implements ApiBackend {
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
       throw new Error(
-        `API request failed: ${response.status} ${response.statusText}${errorText ? ` — ${errorText}` : ''}`,
+        `Anthropic API request failed: ${response.status} ${response.statusText}${errorText ? ` — ${errorText}` : ''}`,
       );
     }
 
     if (!response.body) {
-      throw new Error('API returned an empty response body');
+      throw new Error('Anthropic API returned an empty response body');
     }
 
     const reader = response.body.getReader();
@@ -215,7 +215,7 @@ export class AnthropicBackend implements ApiBackend {
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
       throw new Error(
-        `API request failed: ${response.status} ${response.statusText}${errorText ? ` — ${errorText}` : ''}`,
+        `Anthropic API request failed: ${response.status} ${response.statusText}${errorText ? ` — ${errorText}` : ''}`,
       );
     }
 

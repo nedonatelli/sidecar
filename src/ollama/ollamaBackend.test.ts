@@ -249,6 +249,121 @@ describe('OllamaBackend', () => {
       expect(toolMsg).toBeDefined();
       expect(toolMsg.content).toBe('file contents here');
     });
+
+    it('handles malformed JSON lines gracefully (skips them)', async () => {
+      const encoder = new TextEncoder();
+      const body = new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode('not valid json\n'));
+          controller.enqueue(
+            encoder.encode(
+              JSON.stringify({
+                model: 'test',
+                message: { role: 'assistant', content: 'ok' },
+                done: true,
+                done_reason: 'stop',
+              }) + '\n',
+            ),
+          );
+          controller.close();
+        },
+      });
+
+      mockFetch.mockResolvedValueOnce({ ok: true, body });
+
+      const events = [];
+      for await (const event of backend.streamChat('test', '', [{ role: 'user', content: 'hi' }])) {
+        events.push(event);
+      }
+
+      expect(events).toContainEqual({ type: 'text', text: 'ok' });
+      expect(events).toContainEqual({ type: 'stop', stopReason: 'end_turn' });
+    });
+
+    it('handles partial chunks that split across reads', async () => {
+      const encoder = new TextEncoder();
+      const fullLine =
+        JSON.stringify({ model: 'test', message: { role: 'assistant', content: 'hello' }, done: false }) + '\n';
+      const doneLine =
+        JSON.stringify({
+          model: 'test',
+          message: { role: 'assistant', content: '' },
+          done: true,
+          done_reason: 'stop',
+        }) + '\n';
+      // Split the first line in the middle
+      const mid = Math.floor(fullLine.length / 2);
+
+      const body = new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(fullLine.slice(0, mid)));
+          controller.enqueue(encoder.encode(fullLine.slice(mid)));
+          controller.enqueue(encoder.encode(doneLine));
+          controller.close();
+        },
+      });
+
+      mockFetch.mockResolvedValueOnce({ ok: true, body });
+
+      const events = [];
+      for await (const event of backend.streamChat('test', '', [{ role: 'user', content: 'hi' }])) {
+        events.push(event);
+      }
+
+      expect(events).toContainEqual({ type: 'text', text: 'hello' });
+    });
+
+    it('parses <think> tags across multiple chunks', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        body: ndjsonBody([
+          { model: 'test', message: { role: 'assistant', content: '<think>reasoning' }, done: false },
+          { model: 'test', message: { role: 'assistant', content: ' more</think>answer' }, done: false },
+          { model: 'test', message: { role: 'assistant', content: '' }, done: true, done_reason: 'stop' },
+        ]),
+      });
+
+      const events = [];
+      for await (const event of backend.streamChat('test', '', [{ role: 'user', content: 'think' }])) {
+        events.push(event);
+      }
+
+      expect(events).toContainEqual({ type: 'thinking', thinking: 'reasoning' });
+      expect(events).toContainEqual({ type: 'thinking', thinking: ' more' });
+      expect(events).toContainEqual({ type: 'text', text: 'answer' });
+    });
+
+    it('handles empty response body', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        body: null,
+      });
+
+      await expect(async () => {
+        for await (const _event of backend.streamChat('test', '', [{ role: 'user', content: 'hi' }])) {
+          // consume
+        }
+      }).rejects.toThrow('empty response body');
+    });
+
+    it('handles stream that ends mid-think tag', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        body: ndjsonBody([
+          { model: 'test', message: { role: 'assistant', content: '<think>reasoning without close' }, done: false },
+          { model: 'test', message: { role: 'assistant', content: '' }, done: true, done_reason: 'stop' },
+        ]),
+      });
+
+      const events = [];
+      for await (const event of backend.streamChat('test', '', [{ role: 'user', content: 'think' }])) {
+        events.push(event);
+      }
+
+      expect(events).toContainEqual({ type: 'thinking', thinking: 'reasoning without close' });
+      // Should emit end-of-reasoning marker
+      expect(events).toContainEqual({ type: 'thinking', thinking: '\n(end of reasoning)' });
+    });
   });
 
   describe('complete', () => {
