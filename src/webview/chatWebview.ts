@@ -45,7 +45,9 @@ export interface WebviewMessage {
     | 'acceptAllChanges'
     | 'deleteMessage'
     | 'toggleVerbose'
-    | 'showSystemPrompt';
+    | 'showSystemPrompt'
+    | 'reconnect'
+    | 'dismissOnboarding';
   images?: { mediaType: string; data: string }[];
   text?: string;
   model?: string;
@@ -104,7 +106,9 @@ export interface ExtensionMessage {
     | 'confirm'
     | 'dismissConfirm'
     | 'changeSummary'
-    | 'verboseLog';
+    | 'verboseLog'
+    | 'typingStatus'
+    | 'onboarding';
   agentMode?: string;
   toolName?: string;
   toolCallId?: string;

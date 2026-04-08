@@ -15,6 +15,8 @@ import {
   getMaxFiles,
   resolveFileReferences,
   resolveAtReferences,
+  extractPinReferences,
+  resolveUrlReferences,
 } from '../../config/workspace.js';
 import { runAgentLoop } from '../../agent/loop.js';
 import { pruneHistory } from '../../agent/context.js';
@@ -117,23 +119,40 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
 
   try {
     const config = getConfig();
-    const started = await ensureProviderRunning(state);
+    state.postMessage({ command: 'typingStatus', content: 'Connecting to model...' });
+    let started = await ensureProviderRunning(state);
+
+    // Auto-retry with backoff if initial connection fails
+    if (!started) {
+      const retryDelays = [2000, 4000, 8000];
+      for (let attempt = 0; attempt < retryDelays.length; attempt++) {
+        state.postMessage({
+          command: 'typingStatus',
+          content: `Connection failed — retrying (${attempt + 1}/${retryDelays.length})...`,
+        });
+        await new Promise((r) => setTimeout(r, retryDelays[attempt]));
+        if (state.abortController?.signal.aborted) return;
+        started = await isReachable(state);
+        if (started) break;
+      }
+    }
+
     if (!started) {
       state.postMessage(
         state.client.isLocalOllama()
           ? {
               command: 'error',
-              content: 'Ollama is not running and could not be started.',
+              content: 'Ollama is not running and could not be started after 3 retries.',
               errorType: 'connection',
-              errorAction: 'Start Ollama',
-              errorActionCommand: 'runCommand',
+              errorAction: 'Reconnect',
+              errorActionCommand: 'reconnect',
             }
           : {
               command: 'error',
-              content: `Cannot reach API at ${config.baseUrl}.`,
+              content: `Cannot reach API at ${config.baseUrl} after 3 retries.`,
               errorType: 'connection',
-              errorAction: 'Check Settings',
-              errorActionCommand: 'openSettings',
+              errorAction: 'Reconnect',
+              errorActionCommand: 'reconnect',
             },
       );
       return;
@@ -157,6 +176,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
 
     // Append SIDECAR.md and user prompt with size limits to prevent context overflow.
     // Reserve at least 50% of context for conversation and tool results.
+    state.postMessage({ command: 'typingStatus', content: 'Building context...' });
     const contextLength = await state.client.getModelContextLength();
     const maxSystemChars = contextLength ? Math.floor(contextLength * 4 * 0.5) : 80_000;
 
@@ -181,6 +201,13 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
 
     if (getWorkspaceEnabled()) {
       if (state.workspaceIndex?.isReady()) {
+        // Apply pinned context from settings + @pin: references
+        state.workspaceIndex.setPinnedPaths(config.pinnedContext);
+        const pinRefs = extractPinReferences(text);
+        for (const pin of pinRefs) {
+          state.workspaceIndex.addPin(pin);
+        }
+
         // Use indexed context with relevance scoring
         const activeFilePath = window.activeTextEditor
           ? path.relative(getWorkspaceRoot(), window.activeTextEditor.document.uri.fsPath)
@@ -228,6 +255,9 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
 
         enriched = await resolveFileReferences(enriched);
         enriched = await resolveAtReferences(enriched);
+        if (config.fetchUrlContext) {
+          enriched = await resolveUrlReferences(enriched);
+        }
 
         chatMessages[lastUserIdx] = { ...chatMessages[lastUserIdx], content: enriched };
       }
@@ -279,6 +309,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     }
 
     // Send expandThinking preference to webview
+    state.postMessage({ command: 'typingStatus', content: 'Sending to model...' });
     state.postMessage({ command: 'setLoading', isLoading: true, expandThinking: config.expandThinking });
 
     // Run agent loop with tool use
@@ -475,6 +506,47 @@ async function ensureProviderRunning(state: ChatState): Promise<boolean> {
   }
 
   return false;
+}
+
+/**
+ * Manual reconnect: try to reach the provider, start Ollama if local,
+ * and resend the last user message on success.
+ */
+export async function handleReconnect(state: ChatState): Promise<void> {
+  state.postMessage({ command: 'setLoading', isLoading: true });
+  state.postMessage({ command: 'typingStatus', content: 'Reconnecting...' });
+
+  const started = await ensureProviderRunning(state);
+  if (started) {
+    state.postMessage({
+      command: 'assistantMessage',
+      content: 'Reconnected to model successfully.\n',
+    });
+    state.postMessage({ command: 'done' });
+
+    // Resend the last user message automatically
+    const lastUserMsg = [...state.messages].reverse().find((m) => m.role === 'user');
+    if (lastUserMsg) {
+      const text =
+        typeof lastUserMsg.content === 'string'
+          ? lastUserMsg.content
+          : lastUserMsg.content
+              .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+              .map((b) => b.text)
+              .join('\n');
+      // Remove the last user message so handleUserMessage re-adds it
+      state.messages.pop();
+      await handleUserMessage(state, text);
+    }
+  } else {
+    state.postMessage({
+      command: 'error',
+      content: 'Still unable to connect. Check that Ollama is running and try again.',
+      errorType: 'connection',
+      errorAction: 'Reconnect',
+      errorActionCommand: 'reconnect',
+    });
+  }
 }
 
 // --- File handlers ---

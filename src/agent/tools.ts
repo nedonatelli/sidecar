@@ -309,7 +309,7 @@ const runTestsDef: ToolDefinition = {
   },
 };
 
-async function getDiagnostics(input: Record<string, unknown>): Promise<string> {
+export async function getDiagnostics(input: Record<string, unknown>): Promise<string> {
   const filePath = input.path as string | undefined;
   const root = getRoot();
 

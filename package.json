@@ -257,6 +257,27 @@
           "type": "boolean",
           "default": false,
           "description": "Show model reasoning blocks expanded by default instead of collapsed"
+        },
+        "sidecar.pinnedContext": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Files or folders always included in context (relative paths). Use @pin:path in chat to add dynamically."
+        },
+        "sidecar.autoFixOnFailure": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically check for errors after agent edits and feed them back to the model for self-correction"
+        },
+        "sidecar.autoFixMaxRetries": {
+          "type": "number",
+          "default": 3,
+          "description": "Maximum auto-fix attempts before stopping"
+        },
+        "sidecar.fetchUrlContext": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically fetch web page content when URLs are pasted in chat"
         }
       }
     },

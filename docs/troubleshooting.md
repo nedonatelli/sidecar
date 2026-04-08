@@ -53,6 +53,70 @@ SideCar auto-detects these and runs in **chat-only mode**. You'll see a "Chat-On
 
 Switch to a tool-capable model like `qwen3-coder`, `llama3.1`, or `command-r` for full agentic features.
 
+## Slow model loading
+
+Large models (especially 30B+ parameters) can take 10–30 seconds to load into memory the first time. This is normal — Ollama needs to read the model weights from disk into RAM/VRAM.
+
+### What SideCar already does
+
+SideCar **pre-warms** your configured model on activation. When you open VS Code, SideCar sends an empty request to Ollama in the background to load the model before you send your first message. You'll see `[SideCar] Pre-warmed model: <model>` in the output console.
+
+### If pre-warming isn't fast enough
+
+If you want the model ready before you even open VS Code, you can load it at computer startup using a macOS Launch Agent.
+
+**Step 1:** Create the plist file:
+
+```bash
+cat > ~/Library/LaunchAgents/com.sidecar.prewarm.plist << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.sidecar.prewarm</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>sleep 15 &amp;&amp; /usr/bin/curl -s -o /dev/null http://localhost:11434/api/generate -d '{"model":"qwen3-coder:30b","prompt":"","keep_alive":"30m"}'</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/sidecar-prewarm.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/sidecar-prewarm.log</string>
+</dict>
+</plist>
+EOF
+```
+
+> **Note:** Replace `qwen3-coder:30b` with whichever model you have configured in `sidecar.model`.
+
+**Step 2:** Register it:
+
+```bash
+launchctl load ~/Library/LaunchAgents/com.sidecar.prewarm.plist
+```
+
+On every login, macOS will wait 15 seconds for Ollama to start, then load your model into memory. The model stays loaded for 30 minutes — plenty of time to open VS Code and start chatting.
+
+**To remove it:**
+
+```bash
+launchctl unload ~/Library/LaunchAgents/com.sidecar.prewarm.plist
+rm ~/Library/LaunchAgents/com.sidecar.prewarm.plist
+```
+
+**Logs:** Check `/tmp/sidecar-prewarm.log` if the warm-up isn't working.
+
+### Other tips for faster loading
+
+- **Use a smaller model** — `gemma2` (5GB) loads in a few seconds vs. `qwen3-coder:30b` (18GB)
+- **Keep models warm** — Set the `OLLAMA_KEEP_ALIVE` environment variable to `24h` so Ollama doesn't unload the model between sessions
+- **SSD storage** — NVMe SSDs load models significantly faster than HDDs
+
 ## Agent loop not stopping
 
 - Click the **Stop button** (red button that replaces Send during processing)

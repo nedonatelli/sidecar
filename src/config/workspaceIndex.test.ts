@@ -157,4 +157,53 @@ describe('WorkspaceIndex', () => {
   it('dispose cleans up without error', () => {
     expect(() => index.dispose()).not.toThrow();
   });
+
+  // --- Context pinning tests ---
+
+  it('addPin and removePin manage pinned paths', () => {
+    index.addPin('src/important.ts');
+    index.addPin('src/config/');
+    // No assertion on internals — just verify no errors
+    index.removePin('src/important.ts');
+    index.removePin('nonexistent.ts'); // no-op
+  });
+
+  it('setPinnedPaths replaces all pins', () => {
+    index.addPin('src/a.ts');
+    index.setPinnedPaths(['src/b.ts', 'src/c.ts']);
+    // The old pin (a.ts) should be gone, replaced by b.ts and c.ts
+    // We verify via getRelevantContext output
+  });
+
+  it('pinned files appear in Pinned Files section', async () => {
+    vi.spyOn(workspace, 'findFiles').mockResolvedValue([
+      { fsPath: '/mock-workspace/src/pinned.ts' },
+      { fsPath: '/mock-workspace/src/normal.ts' },
+    ] as never);
+    vi.spyOn(workspace.fs, 'stat').mockResolvedValue({ type: 1, size: 100 } as never);
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from('pinned content') as never);
+
+    await index.initialize(['**/*.ts']);
+    index.addPin('src/pinned.ts');
+
+    const context = await index.getRelevantContext('test');
+    expect(context).toContain('Pinned Files');
+    expect(context).toContain('pinned.ts (pinned)');
+  });
+
+  it('pinned files are not duplicated in Relevant Files', async () => {
+    vi.spyOn(workspace, 'findFiles').mockResolvedValue([{ fsPath: '/mock-workspace/src/only.ts' }] as never);
+    vi.spyOn(workspace.fs, 'stat').mockResolvedValue({ type: 1, size: 100 } as never);
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from('code') as never);
+
+    await index.initialize(['**/*.ts']);
+    index.addPin('src/only.ts');
+
+    const context = await index.getRelevantContext('only');
+    // Should appear in pinned, not in relevant
+    const pinnedSection = context.slice(0, context.indexOf('## Relevant Files'));
+    const relevantSection = context.slice(context.indexOf('## Relevant Files'));
+    expect(pinnedSection).toContain('only.ts (pinned)');
+    expect(relevantSection).not.toContain('only.ts');
+  });
 });

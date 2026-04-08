@@ -82,3 +82,32 @@ export class CancellationTokenSource {
   cancel() {}
   dispose() {}
 }
+
+export class Position {
+  constructor(
+    public line: number,
+    public character: number,
+  ) {}
+}
+
+export class Range {
+  constructor(
+    public start: Position,
+    public end: Position,
+  ) {}
+}
+
+export class WorkspaceEdit {
+  private edits: { uri: unknown; range: Range; newText: string }[] = [];
+  replace(uri: unknown, range: Range, newText: string) {
+    this.edits.push({ uri, range, newText });
+  }
+  get size() {
+    return this.edits.length;
+  }
+}
+
+export enum StatusBarAlignment {
+  Left = 1,
+  Right = 2,
+}

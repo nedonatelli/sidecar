@@ -32,6 +32,8 @@
   let streamStartTime = 0;
   let streamCharCount = 0;
   const streamStats = document.getElementById('stream-stats');
+  let typingTimerStart = 0;
+  let typingTimerInterval = null;
 
   modelBtn.addEventListener('click', () => {
     modelPanel.classList.toggle('hidden');
@@ -1525,13 +1527,34 @@
     dots.className = 'typing-dots';
     dots.innerHTML = '<span></span><span></span><span></span>';
     div.appendChild(dots);
-    const status = document.createElement('div');
+    const statusRow = document.createElement('div');
+    statusRow.className = 'typing-status-row';
+    const status = document.createElement('span');
     status.className = 'typing-status';
     status.id = 'typing-status';
     status.textContent = 'Connecting to model...';
-    div.appendChild(status);
+    statusRow.appendChild(status);
+    const timer = document.createElement('span');
+    timer.className = 'typing-timer';
+    timer.id = 'typing-timer';
+    timer.textContent = '0s';
+    statusRow.appendChild(timer);
+    div.appendChild(statusRow);
     messagesContainer.appendChild(div);
     scrollToBottom();
+    typingTimerStart = Date.now();
+    typingTimerInterval = setInterval(() => {
+      const el = document.getElementById('typing-timer');
+      if (!el) {
+        clearInterval(typingTimerInterval);
+        typingTimerInterval = null;
+        return;
+      }
+      const secs = Math.floor((Date.now() - typingTimerStart) / 1000);
+      const mins = Math.floor(secs / 60);
+      const rem = secs % 60;
+      el.textContent = mins > 0 ? mins + 'm ' + rem + 's' : secs + 's';
+    }, 1000);
   }
 
   function updateTypingStatus(text) {
@@ -1540,6 +1563,10 @@
   }
 
   function removeTypingIndicator() {
+    if (typingTimerInterval) {
+      clearInterval(typingTimerInterval);
+      typingTimerInterval = null;
+    }
     const typing = document.getElementById('typing');
     if (typing) typing.remove();
   }
@@ -1794,6 +1821,59 @@
         }
         break;
 
+      case 'typingStatus':
+        updateTypingStatus(content || '');
+        break;
+
+      case 'onboarding': {
+        const card = document.createElement('div');
+        card.className = 'onboarding-card';
+
+        const title = document.createElement('div');
+        title.className = 'onboarding-title';
+        title.textContent = 'Welcome to SideCar';
+        card.appendChild(title);
+
+        const subtitle = document.createElement('div');
+        subtitle.className = 'onboarding-subtitle';
+        subtitle.textContent = 'Your free, local-first AI coding assistant';
+        card.appendChild(subtitle);
+
+        const features = [
+          ['Type a question or instruction to get started', '💬'],
+          ['Use @file:path to include specific files as context', '📎'],
+          ['Use @pin:path to pin files for persistent context', '📌'],
+          ['Type / to see all slash commands', '⌨️'],
+          ['Switch between cautious / autonomous modes in the header', '🔧'],
+          ['Paste a URL to include web page content automatically', '🌐'],
+        ];
+        const list = document.createElement('ul');
+        list.className = 'onboarding-features';
+        for (const [text, icon] of features) {
+          const li = document.createElement('li');
+          const iconSpan = document.createElement('span');
+          iconSpan.className = 'onboarding-icon';
+          iconSpan.textContent = icon;
+          li.appendChild(iconSpan);
+          li.appendChild(document.createTextNode(text));
+          list.appendChild(li);
+        }
+        card.appendChild(list);
+
+        const btn = document.createElement('button');
+        btn.className = 'onboarding-dismiss';
+        btn.textContent = 'Got it';
+        btn.addEventListener('click', () => {
+          card.remove();
+          vscode.postMessage({ command: 'dismissOnboarding' });
+        });
+        card.appendChild(btn);
+
+        messagesContainer.appendChild(card);
+        scrollToBottom();
+        break;
+      }
+
       case 'assistantMessage':
         updateTypingStatus('Generating response...');
         if (!currentAssistantDiv) {
@@ -1977,7 +2057,6 @@
       case 'verboseLog': {
         const vBlock = document.createElement('details');
         vBlock.className = 'verbose-block';
-        vBlock.open = true;
         const vSummary = document.createElement('summary');
         vSummary.textContent = msg.verboseLabel || 'Verbose';
         vBlock.appendChild(vSummary);
@@ -2301,6 +2380,10 @@
               vscode.postMessage({ command: 'openSettings' });
             } else if (msg.errorActionCommand === 'runCommand') {
               vscode.postMessage({ command: 'runCommand', text: 'ollama serve' });
+            } else if (msg.errorActionCommand === 'reconnect') {
+              actionBtn.textContent = 'Reconnecting...';
+              actionBtn.disabled = true;
+              vscode.postMessage({ command: 'reconnect' });
             }
           });
           actionsRow.appendChild(actionBtn);

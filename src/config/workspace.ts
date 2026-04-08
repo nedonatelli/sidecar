@@ -148,11 +148,21 @@ export async function resolveAtReferences(text: string): Promise<string> {
     }
   }
 
+  // @pin:path — pin a file/folder for persistent context inclusion
+  // (Stripped from message text; pinning is handled by the caller via extractPinReferences)
+  result = result.replace(/@pin:[^\s]+/g, '').trim();
+
   if (attachments.length > 0) {
     result += '\n\n--- Referenced Context ---\n\n' + attachments.join('\n\n');
   }
 
   return result;
+}
+
+/** Extract @pin:path references from message text and return the paths. */
+export function extractPinReferences(text: string): string[] {
+  const matches = [...text.matchAll(/@pin:([^\s]+)/g)];
+  return matches.map((m) => m[1]);
 }
 
 export async function resolveFileReferences(text: string): Promise<string> {
@@ -188,4 +198,67 @@ export async function resolveFileReferences(text: string): Promise<string> {
     result += `\n### ${f.filePath}\n\`\`\`\n${f.content}\n\`\`\`\n`;
   }
   return result;
+}
+
+const MAX_URL_CONTENT = 5000;
+const MAX_URLS_PER_MESSAGE = 3;
+const URL_FETCH_TIMEOUT = 10000;
+
+/**
+ * Detect URLs in the message text, fetch readable content, and append it.
+ */
+export async function resolveUrlReferences(text: string): Promise<string> {
+  const urlRegex = /https?:\/\/[^\s)>\]]+/g;
+  const urls = [...text.matchAll(urlRegex)].map((m) => m[0]);
+  if (urls.length === 0) return text;
+
+  const attachments: string[] = [];
+  const seen = new Set<string>();
+
+  for (const url of urls.slice(0, MAX_URLS_PER_MESSAGE)) {
+    if (seen.has(url)) continue;
+    seen.add(url);
+    try {
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(URL_FETCH_TIMEOUT),
+        headers: { 'User-Agent': 'SideCar-VSCode/1.0' },
+      });
+      if (!response.ok) continue;
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('text/html') && !contentType.includes('text/plain')) continue;
+      const html = await response.text();
+      const readable = extractReadableContent(html).slice(0, MAX_URL_CONTENT);
+      if (readable.length > 50) {
+        attachments.push(`### ${url}\n\`\`\`\n${readable}\n\`\`\``);
+      }
+    } catch {
+      /* timeout or network error — skip */
+    }
+  }
+
+  if (attachments.length > 0) {
+    return text + '\n\n--- Web Page Context ---\n\n' + attachments.join('\n\n');
+  }
+  return text;
+}
+
+function extractReadableContent(html: string): string {
+  // Remove script and style tags with their content
+  let text = html.replace(/<script[\s\S]*?<\/script>/gi, '');
+  text = text.replace(/<style[\s\S]*?<\/style>/gi, '');
+  text = text.replace(/<nav[\s\S]*?<\/nav>/gi, '');
+  text = text.replace(/<footer[\s\S]*?<\/footer>/gi, '');
+  // Strip remaining HTML tags
+  text = text.replace(/<[^>]+>/g, ' ');
+  // Decode common HTML entities
+  text = text
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ');
+  // Collapse whitespace
+  text = text.replace(/\s+/g, ' ').trim();
+  return text;
 }

@@ -57,6 +57,10 @@ describe('getConfig', () => {
     expect(config).toHaveProperty('scheduledTasks');
     expect(config).toHaveProperty('customTools');
     expect(config).toHaveProperty('mcpServers');
+    expect(config).toHaveProperty('pinnedContext');
+    expect(config).toHaveProperty('autoFixOnFailure');
+    expect(config).toHaveProperty('autoFixMaxRetries');
+    expect(config).toHaveProperty('fetchUrlContext');
   });
 
   it('returns correct defaults from mock configuration', () => {
@@ -71,6 +75,10 @@ describe('getConfig', () => {
     expect(config.enableInlineCompletions).toBe(false);
     expect(config.completionMaxTokens).toBe(256);
     expect(config.completionDebounceMs).toBe(300);
+    expect(config.pinnedContext).toEqual([]);
+    expect(config.autoFixOnFailure).toBe(false);
+    expect(config.autoFixMaxRetries).toBe(3);
+    expect(config.fetchUrlContext).toBe(true);
   });
 
   it('returns typed object (not undefined values)', () => {

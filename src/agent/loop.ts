@@ -6,7 +6,8 @@ import type {
   ToolResultContentBlock,
 } from '../ollama/types.js';
 import { SideCarClient } from '../ollama/client.js';
-import { getToolDefinitions } from './tools.js';
+import { getToolDefinitions, getDiagnostics } from './tools.js';
+import { getConfig } from '../config/settings.js';
 import { executeTool, type ApprovalMode, type ConfirmFn, type DiffPreviewFn } from './executor.js';
 import type { AgentLogger } from './logger.js';
 import type { ChangeLog } from './changelog.js';
@@ -53,8 +54,10 @@ export async function runAgentLoop(
   const mcpManager = options.mcpManager;
   const maxTokens = options.maxTokens || 100_000;
   const tools = getToolDefinitions(mcpManager);
+  const config = getConfig();
   let iteration = 0;
   let totalChars = 0;
+  let autoFixRetries = 0;
   const startTime = Date.now();
 
   // Work with a copy of messages
@@ -244,6 +247,39 @@ export async function runAgentLoop(
         role: 'user',
         content: toolResults,
       });
+
+      // Auto-fix: check for errors after file writes and feed them back
+      if (config.autoFixOnFailure && autoFixRetries < config.autoFixMaxRetries) {
+        const writtenFiles = pendingToolUses
+          .filter((tu) => tu.name === 'write_file' || tu.name === 'edit_file')
+          .map((tu) => (tu.input.path || tu.input.file_path) as string)
+          .filter(Boolean);
+
+        if (writtenFiles.length > 0) {
+          // Small delay to let VS Code language services update diagnostics
+          await new Promise((r) => setTimeout(r, 500));
+
+          const diagResults = await Promise.allSettled(writtenFiles.map((f) => getDiagnostics({ path: f })));
+          const errors = diagResults
+            .filter((r): r is PromiseFulfilledResult<string> => r.status === 'fulfilled')
+            .map((r) => r.value)
+            .filter((d) => d.includes('[Error]'));
+
+          if (errors.length > 0) {
+            autoFixRetries++;
+            callbacks.onText(`\n⚠️ Auto-fixing errors (attempt ${autoFixRetries}/${config.autoFixMaxRetries})...\n`);
+            agentMessages.push({
+              role: 'user',
+              content: [
+                {
+                  type: 'text' as const,
+                  text: `Errors detected after your edits. Please fix them:\n${errors.join('\n')}`,
+                },
+              ],
+            });
+          }
+        }
+      }
 
       // Continue the loop — model will respond to tool results
       continue;

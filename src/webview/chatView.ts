@@ -121,6 +121,11 @@ export class ChatViewProvider implements WebviewViewProvider {
 
     loadModels(this.state);
     this.postMessage({ command: 'setAgentMode', agentMode: getConfig().agentMode });
+
+    // Show onboarding card on first launch (no history, never dismissed)
+    if (this.state.messages.length === 0 && !this.context.globalState.get('sidecar.onboardingComplete', false)) {
+      this.postMessage({ command: 'onboarding' });
+    }
   }
 
   /** Handler map for O(1) command dispatch instead of linear switch. */
@@ -208,6 +213,10 @@ export class ChatViewProvider implements WebviewViewProvider {
     },
     showSystemPrompt: () =>
       import('./handlers/chatHandlers.js').then(({ handleShowSystemPrompt }) => handleShowSystemPrompt(this.state)),
+    reconnect: () => import('./handlers/chatHandlers.js').then(({ handleReconnect }) => handleReconnect(this.state)),
+    dismissOnboarding: () => {
+      this.context.globalState.update('sidecar.onboardingComplete', true);
+    },
   };
 
   private async dispatch(msg: WebviewMessage): Promise<void> {

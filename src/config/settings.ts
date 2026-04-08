@@ -65,6 +65,10 @@ export interface SideCarConfig {
   expandThinking: boolean;
   shellTimeout: number;
   shellMaxOutputMB: number;
+  pinnedContext: string[];
+  autoFixOnFailure: boolean;
+  autoFixMaxRetries: number;
+  fetchUrlContext: boolean;
 }
 
 /**
@@ -111,6 +115,10 @@ function readConfig(): SideCarConfig {
     expandThinking: cfg.get<boolean>('expandThinking', false),
     shellTimeout: cfg.get<number>('shellTimeout', 120),
     shellMaxOutputMB: cfg.get<number>('shellMaxOutputMB', 10),
+    pinnedContext: cfg.get<string[]>('pinnedContext', []),
+    autoFixOnFailure: cfg.get<boolean>('autoFixOnFailure', false),
+    autoFixMaxRetries: cfg.get<number>('autoFixMaxRetries', 3),
+    fetchUrlContext: cfg.get<boolean>('fetchUrlContext', true),
   };
 }
 

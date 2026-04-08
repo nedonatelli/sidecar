@@ -37,9 +37,25 @@ export class WorkspaceIndex implements Disposable {
   private fileContentCache = new LimitedCache<string, string>(100, 300000); // 100 items, 5 min TTL
   private parsedFiles = new LimitedCache<string, ParsedFile>(100, 300000);
   private rebuildTimer: ReturnType<typeof setTimeout> | null = null;
+  private pinnedPaths = new Set<string>();
 
   constructor(maxContextChars = 20_000) {
     this.maxContextChars = maxContextChars;
+  }
+
+  /** Set pinned paths from settings (replaces previous pins from settings). */
+  setPinnedPaths(paths: string[]): void {
+    this.pinnedPaths = new Set(paths);
+  }
+
+  /** Add a runtime pin (e.g. from @pin:path in chat). */
+  addPin(relativePath: string): void {
+    this.pinnedPaths.add(relativePath);
+  }
+
+  /** Remove a runtime pin. */
+  removePin(relativePath: string): void {
+    this.pinnedPaths.delete(relativePath);
   }
 
   async initialize(patterns: string[]): Promise<void> {
@@ -130,11 +146,44 @@ export class WorkspaceIndex implements Disposable {
     let charCount = parts[0].length;
     const budget = this.maxContextChars;
 
+    // Include pinned files first (always, regardless of score)
+    if (this.pinnedPaths.size > 0) {
+      parts.push('\n## Pinned Files\n');
+      charCount += 18;
+      for (const pinPath of this.pinnedPaths) {
+        if (charCount >= budget) break;
+        try {
+          // Support pinned folders: include all files under the prefix
+          const matchingFiles = [...this.files.keys()].filter((f) => f === pinPath || f.startsWith(pinPath + path.sep));
+          for (const filePath of matchingFiles) {
+            if (charCount >= budget) break;
+            const fileUri = Uri.joinPath(rootUri, filePath);
+            let content = this.fileContentCache.get(filePath);
+            if (!content) {
+              const bytes = await workspace.fs.readFile(fileUri);
+              content = Buffer.from(bytes).toString('utf-8').slice(0, MAX_CONTENT_LENGTH);
+              this.fileContentCache.set(filePath, content);
+            }
+            const section = `\n### ${filePath} (pinned)\n\`\`\`\n${content}\n\`\`\`\n`;
+            if (charCount + section.length > budget) continue;
+            parts.push(section);
+            charCount += section.length;
+          }
+        } catch {
+          /* skip unreadable pinned files */
+        }
+      }
+    }
+
     // Add file contents for top-scoring files
     parts.push('\n## Relevant Files\n');
     charCount += 20;
 
     for (const file of scored) {
+      // Skip files already included as pinned
+      if (this.pinnedPaths.has(file.relativePath)) continue;
+      const isPinnedFolder = [...this.pinnedPaths].some((p) => file.relativePath.startsWith(p + path.sep));
+      if (isPinnedFolder) continue;
       if (charCount >= budget) break;
       if (file.score <= 0) break;
 
