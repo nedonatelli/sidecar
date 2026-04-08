@@ -36,7 +36,8 @@ jobs:
         run: npx @vscode/vsce package --no-dependencies
 
       - name: Publish to VS Code Marketplace
-        run: npx @vscode/vsce publish --no-dependencies
+        run: npx @vscode/vsce publish --no-dependencies || echo "::warning::Marketplace publish failed (version may already exist)"
+        continue-on-error: true
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
 
