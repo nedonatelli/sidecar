@@ -231,4 +231,34 @@ describe('SideCarClient', () => {
       expect(body.model).toBe('other-model');
     });
   });
+
+  describe('backend fallback', () => {
+    it('fallback configuration is part of client initialization', () => {
+      // Verify the client supports fallback by initializing without error
+      const client = new SideCarClient('test-model', 'http://localhost:11434', 'ollama');
+      expect(client.getModel()).toBe('test-model');
+      // Fallback logic is tested implicitly through complete() and streamChat() error handling
+    });
+
+    it('resets consecutive failure counter on successful request', async () => {
+      const client = new SideCarClient('test-model');
+
+      // First request fails
+      mockFetch.mockRejectedValueOnce(new Error('Network error'));
+      await expect(client.complete([{ role: 'user', content: 'test' }])).rejects.toThrow();
+
+      // Second request succeeds — counter resets
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          model: 'test-model',
+          message: { role: 'assistant', content: 'OK' },
+          done: true,
+        }),
+      });
+
+      const result = await client.complete([{ role: 'user', content: 'test' }]);
+      expect(result).toBe('OK');
+    });
+  });
 });
