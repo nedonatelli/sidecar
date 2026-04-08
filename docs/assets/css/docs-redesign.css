@@ -1,0 +1,142 @@
+/* SideCar Docs Redesign — Design System
+ * Fonts: JetBrains Mono (mono/UI), Syne (display/headings)
+ * Colors: Coral #e86040, Blue #7ab4d8, Purple #9b78c8
+ * Background: #0a090e → #0f0e15 → #16141f
+ *
+ * Import fonts in HTML head:
+ * <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Syne:wght@400;500;700;800&display=swap" rel="stylesheet">
+ */
+
+:root {
+  --bg:        #0a090e;
+  --bg-2:      #0f0e15;
+  --bg-3:      #16141f;
+  --bg-4:      #1c1a28;
+  --border:    #221f30;
+  --border-2:  #332e47;
+  --coral:     #e86040;
+  --coral-dim: #c04e32;
+  --blue:      #7ab4d8;
+  --blue-dim:  #5a92b8;
+  --purple:    #9b78c8;
+  --amber:     #e89040;
+  --text:      #ede8f5;
+  --text-2:    #9088a8;
+  --text-3:    #504868;
+  --mono:      'JetBrains Mono', monospace;
+  --sans:      'Syne', sans-serif;
+  --sidebar-w: 256px;
+  --nav-h:     56px;
+}
+
+/* --- Code blocks --- */
+.code-block {
+  position: relative;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin: 20px 0 28px;
+}
+.code-block-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 14px;
+  background: var(--bg-3);
+  border-bottom: 1px solid var(--border);
+}
+.code-lang {
+  font-family: var(--mono); font-size: 10px;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--text-3);
+}
+.copy-btn {
+  font-family: var(--mono); font-size: 10px;
+  color: var(--text-3); background: none; border: none;
+  cursor: pointer; letter-spacing: 0.05em; transition: color .15s;
+}
+.copy-btn:hover { color: var(--blue); }
+.code-block pre {
+  padding: 18px 20px;
+  font-family: var(--mono); font-size: 13px;
+  line-height: 1.7; color: var(--text-2);
+  overflow-x: auto;
+}
+.code-block pre .c-g { color: var(--blue); }
+.code-block pre .c-k { color: var(--coral); }
+.code-block pre .c-c { color: var(--text-3); }
+.code-block pre .c-s { color: #c8a0e8; }
+.code-block pre .c-n { color: var(--amber); }
+
+/* --- Callouts --- */
+.callout {
+  border-left: 3px solid var(--border-2);
+  background: var(--bg-2);
+  border-radius: 0 6px 6px 0;
+  padding: 14px 18px;
+  margin: 20px 0 28px;
+}
+.callout.note  { border-color: var(--blue);  background: rgba(122,180,216,0.06); }
+.callout.tip   { border-color: #63c87a;     background: rgba(99,200,122,0.06); }
+.callout.warn  { border-color: var(--amber); background: rgba(232,144,64,0.06); }
+.callout-head {
+  font-family: var(--mono); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.callout.note  .callout-head { color: var(--blue); }
+.callout.tip   .callout-head { color: #63c87a; }
+.callout.warn  .callout-head { color: var(--amber); }
+.callout p { margin: 0; font-size: 13.5px; color: var(--text-2); }
+
+/* --- Approval mode grid --- */
+.mode-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 1px; background: var(--border);
+  border: 1px solid var(--border); border-radius: 8px;
+  overflow: hidden; margin: 20px 0 28px;
+}
+.mode-card { background: var(--bg-2); padding: 20px; }
+.mode-card:hover { background: var(--bg-3); }
+.mode-name {
+  font-family: var(--sans); font-size: 14px; font-weight: 800;
+  color: var(--text); margin-bottom: 8px;
+}
+.mode-desc { font-size: 13px; color: var(--text-2); line-height: 1.55; }
+
+/* --- Prev/Next navigation --- */
+.doc-nav {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 12px; margin-top: 64px;
+  border-top: 1px solid var(--border); padding-top: 32px;
+}
+.doc-nav-card {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 16px 18px; border: 1px solid var(--border);
+  border-radius: 8px; text-decoration: none;
+  transition: border-color .15s, background .15s;
+}
+.doc-nav-card:hover { border-color: var(--border-2); background: var(--bg-2); }
+.doc-nav-card.next { align-items: flex-end; }
+.doc-nav-dir {
+  font-family: var(--mono); font-size: 10px;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--text-3);
+}
+.doc-nav-title {
+  font-family: var(--sans); font-size: 14px; font-weight: 700;
+  color: var(--text);
+}
+
+/* --- Badge types --- */
+.badge-type {
+  font-family: var(--mono); font-size: 10px;
+  padding: 2px 6px; border-radius: 3px;
+  border: 1px solid var(--border-2); color: var(--text-3);
+}
+.badge-default {
+  font-family: var(--mono); font-size: 9px; font-weight: 500;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  background: rgba(232,96,64,0.12); color: var(--coral);
+  border: 1px solid rgba(232,96,64,0.25);
+  padding: 2px 6px; border-radius: 3px;
+}
