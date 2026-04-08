@@ -1,0 +1,68 @@
+name: Issue Triage
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Auto-label issues by keywords
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.BOT_PAT }}
+          script: |
+            const issue = context.payload.issue;
+            const text = `${issue.title} ${issue.body || ''}`.toLowerCase();
+            const labels = [];
+
+            // Bug indicators
+            if (/\b(crash|error|broken|fail|bug|not working|doesn't work|won't|can't)\b/.test(text)) {
+              labels.push('bug');
+            }
+
+            // Feature requests
+            if (/\b(feature|request|add support|would be nice|suggestion|please add)\b/.test(text)) {
+              labels.push('enhancement');
+            }
+
+            // Questions
+            if (/\b(how to|how do|question|is it possible|can i|does sidecar)\b/.test(text)) {
+              labels.push('question');
+            }
+
+            // Component labels
+            if (/\b(agent|tool.?call|tool.?use|iteration|loop)\b/.test(text)) {
+              labels.push('agent');
+            }
+            if (/\b(ollama|anthropic|claude|openai|backend|api.?key|model)\b/.test(text)) {
+              labels.push('backend');
+            }
+            if (/\b(context|workspace|index|prompt|sidecar\.md|pinned)\b/.test(text)) {
+              labels.push('context');
+            }
+            if (/\b(slow|performance|latency|timeout|memory|hang|stuck|loading)\b/.test(text)) {
+              labels.push('performance');
+            }
+            if (/\b(ui|chat|webview|typing|indicator|scroll|render|display)\b/.test(text)) {
+              labels.push('ui');
+            }
+            if (/\b(mcp|server|tool.?server)\b/.test(text)) {
+              labels.push('mcp');
+            }
+            if (/\b(autocomplete|completion|inline|suggest|tab)\b/.test(text)) {
+              labels.push('inline-completion');
+            }
+            if (/\b(doc|readme|changelog|documentation)\b/.test(text)) {
+              labels.push('documentation');
+            }
+
+            if (labels.length > 0) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                labels,
+              });
+            }
