@@ -156,8 +156,12 @@ export async function runAgentLoop(
           `You can increase sidecar.requestTimeout in settings.`;
         logger?.warn(msg);
         callbacks.onText(`\n\n⚠️ ${msg}\n`);
-        // Try to clean up the stream
-        iter.return?.(undefined);
+        // Best-effort cleanup — the generator may not support return()
+        try {
+          iter.return?.(undefined);
+        } catch {
+          /* stream cleanup is best-effort */
+        }
         break;
       }
       if (err instanceof Error && err.name === 'AbortError') {

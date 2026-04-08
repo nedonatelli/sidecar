@@ -1,7 +1,14 @@
-import { describe, it, expect } from 'vitest';
-import { parseTextToolCalls, compressMessages, stripRepeatedContent } from './loop.js';
-import type { ToolDefinition } from '../ollama/types.js';
-import type { ChatMessage } from '../ollama/types.js';
+import { describe, it, expect, vi } from 'vitest';
+import { parseTextToolCalls, compressMessages, stripRepeatedContent, runAgentLoop } from './loop.js';
+import type { ToolDefinition, ChatMessage, StreamEvent } from '../ollama/types.js';
+import type { SideCarClient } from '../ollama/client.js';
+import type { AgentCallbacks } from './loop.js';
+
+// Mock getToolDefinitions to avoid workspace API calls in tests
+vi.mock('./tools.js', () => ({
+  getToolDefinitions: () => [],
+  getDiagnostics: async () => 'No diagnostics',
+}));
 
 const MOCK_TOOLS: ToolDefinition[] = [
   {
@@ -325,5 +332,107 @@ describe('stripRepeatedContent', () => {
     const result = stripRepeatedContent(text, messages);
     // User messages are skipped — content should remain
     expect(result).toContain(repeated);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runAgentLoop — timeout and error path tests
+// ---------------------------------------------------------------------------
+describe('runAgentLoop', () => {
+  function makeCallbacks(): AgentCallbacks & { texts: string[] } {
+    const texts: string[] = [];
+    return {
+      texts,
+      onText: (t: string) => texts.push(t),
+      onToolCall: () => {},
+      onToolResult: () => {},
+      onDone: () => {},
+    };
+  }
+
+  function makeMockClient(generator: () => AsyncGenerator<StreamEvent>): SideCarClient {
+    return {
+      streamChat: generator,
+      getSystemPrompt: () => '',
+    } as unknown as SideCarClient;
+  }
+
+  it('times out when model never responds', async () => {
+    // Generator that hangs forever
+    async function* hanging(): AsyncGenerator<StreamEvent> {
+      await new Promise(() => {}); // never resolves
+      yield { type: 'text', text: 'unreachable' };
+    }
+
+    const cb = makeCallbacks();
+    const ac = new AbortController();
+
+    // Use a very short timeout (1 second)
+    vi.spyOn(await import('../config/settings.js'), 'getConfig').mockReturnValue({
+      requestTimeout: 1,
+      agentMaxIterations: 25,
+      agentMaxTokens: 100000,
+      autoFixOnFailure: false,
+      autoFixMaxRetries: 3,
+    } as ReturnType<typeof import('../config/settings.js').getConfig>);
+
+    const messages: ChatMessage[] = [{ role: 'user', content: 'hello' }];
+    const result = await runAgentLoop(makeMockClient(hanging), messages, cb, ac.signal);
+
+    expect(cb.texts.some((t) => t.includes('timed out'))).toBe(true);
+    expect(result.length).toBeGreaterThanOrEqual(1);
+
+    vi.restoreAllMocks();
+  }, 10_000);
+
+  it('completes normally when model responds within timeout', async () => {
+    async function* responding(): AsyncGenerator<StreamEvent> {
+      yield { type: 'text', text: 'Hello!' };
+      yield { type: 'stop', stopReason: 'end_turn' };
+    }
+
+    const cb = makeCallbacks();
+    const ac = new AbortController();
+
+    vi.spyOn(await import('../config/settings.js'), 'getConfig').mockReturnValue({
+      requestTimeout: 30,
+      agentMaxIterations: 25,
+      agentMaxTokens: 100000,
+      autoFixOnFailure: false,
+      autoFixMaxRetries: 3,
+    } as ReturnType<typeof import('../config/settings.js').getConfig>);
+
+    const messages: ChatMessage[] = [{ role: 'user', content: 'hello' }];
+    await runAgentLoop(makeMockClient(responding), messages, cb, ac.signal);
+
+    expect(cb.texts).toContain('Hello!');
+
+    vi.restoreAllMocks();
+  });
+
+  it('stops when model produces no text or tools', async () => {
+    // Model returns stop immediately with no text — loop should exit
+    async function* emptyResponse(): AsyncGenerator<StreamEvent> {
+      yield { type: 'stop', stopReason: 'end_turn' };
+    }
+
+    const cb = makeCallbacks();
+    const ac = new AbortController();
+
+    vi.spyOn(await import('../config/settings.js'), 'getConfig').mockReturnValue({
+      requestTimeout: 30,
+      agentMaxIterations: 25,
+      agentMaxTokens: 100000,
+      autoFixOnFailure: false,
+      autoFixMaxRetries: 3,
+    } as ReturnType<typeof import('../config/settings.js').getConfig>);
+
+    const messages: ChatMessage[] = [{ role: 'user', content: 'hello' }];
+    await runAgentLoop(makeMockClient(emptyResponse), messages, cb, ac.signal);
+
+    // Should exit cleanly with no text
+    expect(cb.texts).toHaveLength(0);
+
+    vi.restoreAllMocks();
   });
 });

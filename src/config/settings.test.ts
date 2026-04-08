@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isLocalOllama, isAnthropic, detectProvider, getConfig } from './settings.js';
+import { isLocalOllama, isAnthropic, detectProvider, getConfig, clampMin } from './settings.js';
 
 describe('isLocalOllama', () => {
   it('returns true for http://localhost:11434', () => {
@@ -123,5 +123,37 @@ describe('getConfig', () => {
     for (const [key, value] of Object.entries(config)) {
       expect(value, `config.${key} should not be undefined`).not.toBeUndefined();
     }
+  });
+});
+
+describe('clampMin', () => {
+  it('returns the value when above minimum', () => {
+    expect(clampMin(50, 1, 25)).toBe(50);
+  });
+
+  it('clamps to minimum when value is too low', () => {
+    expect(clampMin(-5, 1, 25)).toBe(1);
+    expect(clampMin(0, 1, 25)).toBe(1);
+  });
+
+  it('returns fallback for undefined', () => {
+    expect(clampMin(undefined, 1, 25)).toBe(25);
+  });
+
+  it('returns fallback for NaN', () => {
+    expect(clampMin(NaN, 1, 25)).toBe(25);
+  });
+
+  it('returns fallback for non-number types', () => {
+    // Simulate bad config value cast
+    expect(clampMin('hello' as unknown as number, 1, 25)).toBe(25);
+  });
+
+  it('allows zero when min is zero', () => {
+    expect(clampMin(0, 0, 120)).toBe(0);
+  });
+
+  it('returns exact minimum when value equals minimum', () => {
+    expect(clampMin(1, 1, 25)).toBe(1);
   });
 });

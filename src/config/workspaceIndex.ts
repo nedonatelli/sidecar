@@ -5,7 +5,7 @@ import { LimitedCache } from '../agent/memoryManager.js';
 
 const MAX_FILE_SIZE = 100 * 1024; // 100KB
 const MAX_CONTENT_LENGTH = 10_000; // 10K chars per file
-const EXCLUDE_PATTERN = `**/{node_modules,.git,.sidecar,out,dist,.venv,venv,__pycache__,.next}/**`;
+const EXCLUDE_PATTERN = `**/{node_modules,.git,.sidecar,coverage,out,dist,build,.venv,venv,__pycache__,.next,.turbo,.cache}/**`;
 
 const ROOT_CONFIG_FILES = new Set([
   'package.json',
@@ -391,12 +391,16 @@ export class WorkspaceIndex implements Disposable {
       'node_modules',
       '.git',
       '.sidecar',
+      'coverage',
       'out',
       'dist',
+      'build',
       '.venv',
       'venv',
       '__pycache__',
       '.next',
+      '.turbo',
+      '.cache',
     ]);
     return parts.some((p) => excluded.has(p));
   }

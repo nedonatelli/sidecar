@@ -107,7 +107,7 @@ try {
 }
 
 /** Clamp a number to a minimum value, falling back to the default if invalid. */
-function clampMin(value: number | undefined, min: number, fallback: number): number {
+export function clampMin(value: number | undefined, min: number, fallback: number): number {
   if (value === undefined || typeof value !== 'number' || isNaN(value)) return fallback;
   return Math.max(min, value);
 }

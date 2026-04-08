@@ -176,7 +176,7 @@ function compressText(block: { type: 'text'; text: string }, level: CompressionL
 export function enhanceContextWithSmartElements(context: string, query: string): string {
   // Parse the context to identify code files and their content
   // Extract relevant code elements based on the query using AST analysis
-  const fileSections = context.match(/### (.*?)(?=\n### |\Z)/gs);
+  const fileSections = context.match(/### (.*?)(?=\n### |$)/gs);
   if (!fileSections || fileSections.length === 0) {
     return context;
   }
@@ -216,31 +216,18 @@ export function enhanceContextWithSmartElements(context: string, query: string):
       continue;
     }
 
+    // Strip code fence markers so the parser sees raw source
+    const rawContent = fileContent.replace(/^```\w*\n?/, '').replace(/\n?```\s*$/, '');
+
     // Try to extract relevant code elements using AST analysis
-    let enhancedContent = fileContent;
+    let enhancedContent = rawContent;
 
     try {
-      // For JavaScript/TypeScript files, use AST parsing
-      if (ext === '.js' || ext === '.ts' || ext === '.jsx' || ext === '.tsx') {
-        // Use SimpleCodeAnalyzer to find relevant elements based on query terms
-        const parsedFile = SimpleCodeAnalyzer.parseFileContent(filePath, fileContent);
-        const relevantElements = SimpleCodeAnalyzer.findRelevantElements(parsedFile, query);
+      const parsedFile = SimpleCodeAnalyzer.parseFileContent(filePath, rawContent);
+      const relevantElements = SimpleCodeAnalyzer.findRelevantElements(parsedFile, query);
 
-        if (relevantElements.length > 0) {
-          // Extract only the relevant code elements
-          enhancedContent = SimpleCodeAnalyzer.extractRelevantContent(parsedFile, relevantElements);
-        }
-      }
-      // For other code files, we could implement similar logic
-      else if (ext === '.py' || ext === '.rs' || ext === '.go' || ext === '.java') {
-        // Use SimpleCodeAnalyzer to find relevant elements based on query terms
-        const parsedFile = SimpleCodeAnalyzer.parseFileContent(filePath, fileContent);
-        const relevantElements = SimpleCodeAnalyzer.findRelevantElements(parsedFile, query);
-
-        if (relevantElements.length > 0) {
-          // Extract only the relevant code elements
-          enhancedContent = SimpleCodeAnalyzer.extractRelevantContent(parsedFile, relevantElements);
-        }
+      if (relevantElements.length > 0) {
+        enhancedContent = SimpleCodeAnalyzer.extractRelevantContent(parsedFile, relevantElements);
       }
     } catch (error) {
       // If AST parsing fails, keep the original content

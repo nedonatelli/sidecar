@@ -4,9 +4,6 @@
  * (functions, classes, methods) based on query content.
  */
 
-import { workspace, Uri } from 'vscode';
-import { LimitedCache } from './agent/memoryManager.js';
-
 export interface CodeElement {
   type: 'function' | 'class' | 'method' | 'variable' | 'import' | 'export';
   name: string;
@@ -28,48 +25,176 @@ export interface ParsedFile {
  */
 export class SimpleCodeAnalyzer {
   /**
-   * Parse a file and extract code elements
+   * Find the closing brace for a block that starts on `startLine`.
+   * Counts `{` / `}` from the start line forward.  Returns the line
+   * index of the matching `}`, or the last line of the file.
+   */
+  private static findBlockEnd(lines: string[], startLine: number): number {
+    let depth = 0;
+    for (let i = startLine; i < lines.length; i++) {
+      for (const ch of lines[i]) {
+        if (ch === '{') depth++;
+        else if (ch === '}') {
+          depth--;
+          if (depth === 0) return i;
+        }
+      }
+    }
+    return lines.length - 1;
+  }
+
+  /**
+   * Find the end of a Python-style indented block starting after `startLine`.
+   * Returns the last line that is either blank or indented deeper than the
+   * definition line.
+   */
+  private static findIndentEnd(lines: string[], startLine: number): number {
+    const defIndent = lines[startLine].search(/\S/);
+    let last = startLine;
+    for (let i = startLine + 1; i < lines.length; i++) {
+      const line = lines[i];
+      if (line.trim() === '') {
+        // Blank lines inside a block are part of it
+        continue;
+      }
+      const indent = line.search(/\S/);
+      if (indent <= defIndent) break;
+      last = i;
+    }
+    return last;
+  }
+
+  /**
+   * Parse a file and extract code elements with their full bodies.
    */
   static parseFileContent(filePath: string, content: string): ParsedFile {
     const elements: CodeElement[] = [];
     const lines = content.split('\n');
+    const ext = filePath.substring(filePath.lastIndexOf('.')).toLowerCase();
+    const isPython = ext === '.py';
 
-    // Simple approach: look for function/class definitions
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
 
-      // Look for function definitions
-      if (line.includes('function ') && !line.includes('function(')) {
+      // --- JS/TS: function declarations ---
+      if (!isPython && line.includes('function ') && !line.includes('function(')) {
         const match = line.match(/function\s+([a-zA-Z_$][\w$]*)/);
         if (match && match[1]) {
+          const endLine = this.findBlockEnd(lines, i);
           elements.push({
             type: 'function',
             name: match[1],
             startLine: i,
-            endLine: i,
-            content: line,
+            endLine,
+            content: lines.slice(i, endLine + 1).join('\n'),
             relevanceScore: 0.8,
           });
         }
       }
 
-      // Look for class definitions
-      if (line.includes('class ')) {
+      // --- JS/TS: arrow / const function expressions ---
+      if (!isPython) {
+        const arrowMatch = line.match(
+          /(?:export\s+)?(?:const|let|var)\s+([a-zA-Z_$][\w$]*)\s*=\s*(?:async\s+)?(?:\(|[a-zA-Z_$])/,
+        );
+        if (arrowMatch && arrowMatch[1] && (line.includes('=>') || lines[i + 1]?.includes('=>'))) {
+          const endLine = line.includes('{') ? this.findBlockEnd(lines, i) : i;
+          elements.push({
+            type: 'function',
+            name: arrowMatch[1],
+            startLine: i,
+            endLine,
+            content: lines.slice(i, endLine + 1).join('\n'),
+            relevanceScore: 0.8,
+          });
+        }
+      }
+
+      // --- JS/TS/Python: class definitions ---
+      if (line.match(/^\s*(?:export\s+)?class\s/)) {
         const match = line.match(/class\s+([a-zA-Z_$][\w$]*)/);
         if (match && match[1]) {
+          const endLine = isPython ? this.findIndentEnd(lines, i) : this.findBlockEnd(lines, i);
           elements.push({
             type: 'class',
             name: match[1],
             startLine: i,
-            endLine: i,
-            content: line,
+            endLine,
+            content: lines.slice(i, endLine + 1).join('\n'),
             relevanceScore: 0.9,
           });
         }
       }
 
-      // Look for import statements
-      if (line.includes('import ') && line.includes('from')) {
+      // --- Python: def / async def ---
+      if (isPython && line.match(/^\s*(?:async\s+)?def\s/)) {
+        const match = line.match(/def\s+([a-zA-Z_]\w*)/);
+        if (match && match[1]) {
+          const endLine = this.findIndentEnd(lines, i);
+          elements.push({
+            type: 'function',
+            name: match[1],
+            startLine: i,
+            endLine,
+            content: lines.slice(i, endLine + 1).join('\n'),
+            relevanceScore: 0.8,
+          });
+        }
+      }
+
+      // --- Rust: fn ---
+      if (ext === '.rs' && line.match(/^\s*(?:pub\s+)?(?:async\s+)?fn\s/)) {
+        const match = line.match(/fn\s+([a-zA-Z_]\w*)/);
+        if (match && match[1]) {
+          const endLine = this.findBlockEnd(lines, i);
+          elements.push({
+            type: 'function',
+            name: match[1],
+            startLine: i,
+            endLine,
+            content: lines.slice(i, endLine + 1).join('\n'),
+            relevanceScore: 0.8,
+          });
+        }
+      }
+
+      // --- Go: func ---
+      if (ext === '.go' && line.match(/^func\s/)) {
+        const match = line.match(/func\s+(?:\([^)]*\)\s+)?([a-zA-Z_]\w*)/);
+        if (match && match[1]) {
+          const endLine = this.findBlockEnd(lines, i);
+          elements.push({
+            type: 'function',
+            name: match[1],
+            startLine: i,
+            endLine,
+            content: lines.slice(i, endLine + 1).join('\n'),
+            relevanceScore: 0.8,
+          });
+        }
+      }
+
+      // --- Java/Kotlin: method-level (simplified) ---
+      if (
+        (ext === '.java' || ext === '.kt') &&
+        line.match(/^\s*(?:public|private|protected|internal)?\s*(?:static\s+)?(?:fun\s|[\w<>\[\]]+\s+\w+\s*\()/)
+      ) {
+        const match = line.match(/(?:fun\s+)?([a-zA-Z_]\w*)\s*\(/);
+        if (match && match[1] && !['if', 'for', 'while', 'switch', 'catch'].includes(match[1])) {
+          const endLine = this.findBlockEnd(lines, i);
+          elements.push({
+            type: 'method',
+            name: match[1],
+            startLine: i,
+            endLine,
+            content: lines.slice(i, endLine + 1).join('\n'),
+            relevanceScore: 0.8,
+          });
+        }
+      }
+
+      // --- Import statements (all languages) ---
+      if (line.match(/^\s*import\s/) && line.includes('from')) {
         const match = line.match(/import\s+(?:.*\s+from\s+)?['"](.*?)['"]/);
         if (match && match[1]) {
           elements.push({
@@ -83,8 +208,8 @@ export class SimpleCodeAnalyzer {
         }
       }
 
-      // Look for export statements
-      if (line.includes('export ') && line.includes('from')) {
+      // --- Export-from statements ---
+      if (line.match(/^\s*export\s/) && line.includes('from')) {
         const match = line.match(/export\s+(?:.*\s+from\s+)?['"](.*?)['"]/);
         if (match && match[1]) {
           elements.push({
@@ -140,10 +265,8 @@ export class SimpleCodeAnalyzer {
         score += 0.3;
       }
 
-      element.relevanceScore = score;
-
       if (score > 0.3) {
-        relevantElements.push(element);
+        relevantElements.push({ ...element, relevanceScore: score });
       }
     }
 
@@ -157,79 +280,40 @@ export class SimpleCodeAnalyzer {
    */
   static extractRelevantContent(parsedFile: ParsedFile, relevantElements: CodeElement[]): string {
     if (relevantElements.length === 0) {
-      // Return a snippet of the file if no elements found
       const lines = parsedFile.content.split('\n');
       return lines.slice(0, 20).join('\n') + (lines.length > 20 ? '\n...' : '');
     }
 
-    // Get the lines that contain relevant elements
+    const lines = parsedFile.content.split('\n');
     const relevantLines = new Set<number>();
 
-    const lines = parsedFile.content.split('\n');
-
     for (const element of relevantElements) {
-      // Include a few lines before and after the element
-      for (let i = Math.max(0, element.startLine - 2); i <= Math.min(element.endLine + 2, lines.length - 1); i++) {
+      // Include 1 line of context before the element and the full body
+      const start = Math.max(0, element.startLine - 1);
+      const end = Math.min(element.endLine + 1, lines.length - 1);
+      for (let i = start; i <= end; i++) {
         relevantLines.add(i);
       }
     }
-    const relevantContent = Array.from(relevantLines)
-      .sort((a, b) => a - b)
-      .map((lineIndex) => lines[lineIndex])
-      .join('\n');
 
-    return relevantContent;
-  }
-}
+    // Build output with `...` markers for skipped regions
+    const sorted = Array.from(relevantLines).sort((a, b) => a - b);
+    const parts: string[] = [];
+    let prev = -2; // sentinel so first region doesn't get a gap marker
 
-/**
- * Enhanced workspace index with smart context selection
- */
-export class SmartWorkspaceIndex {
-  private parsedFiles = new LimitedCache<string, ParsedFile>(50, 300000); // 50 items, 5 minute TTL
-  private maxContextChars: number;
-
-  constructor(maxContextChars = 20_000) {
-    this.maxContextChars = maxContextChars;
-  }
-
-  /**
-   * Parse a file and cache its parsed content
-   */
-  async parseFile(filePath: string): Promise<ParsedFile> {
-    const folders = workspace.workspaceFolders;
-    if (!folders || folders.length === 0) {
-      return { filePath, elements: [], content: '' };
+    for (const lineIdx of sorted) {
+      if (lineIdx > prev + 1) {
+        parts.push('...');
+      }
+      parts.push(lines[lineIdx]);
+      prev = lineIdx;
     }
 
-    const rootUri = folders[0].uri;
-    const fileUri = Uri.joinPath(rootUri, filePath);
-
-    try {
-      const bytes = await workspace.fs.readFile(fileUri);
-      const content = Buffer.from(bytes).toString('utf-8');
-      const parsed = SimpleCodeAnalyzer.parseFileContent(filePath, content);
-      this.parsedFiles.set(filePath, parsed);
-      return parsed;
-    } catch (error) {
-      console.error(`Failed to parse file ${filePath}:`, error);
-      return { filePath, elements: [], content: '' };
+    // Trailing indicator if we didn't reach the end
+    if (sorted[sorted.length - 1] < lines.length - 1) {
+      parts.push('...');
     }
-  }
 
-  /**
-   * Get relevant context with smart code element selection
-   */
-  async getSmartContext(query: string, activeFilePath?: string, _maxElementsPerFile = 3): Promise<string> {
-    // TODO: Integrate with WorkspaceIndex to provide AST-aware context selection.
-    // This should replace full-file inclusion with targeted function/class extraction.
-    return '';
-  }
-
-  /**
-   * Get the parsed file content (for testing/debugging)
-   */
-  getParsedFile(filePath: string): ParsedFile | undefined {
-    return this.parsedFiles.get(filePath);
+    return parts.join('\n');
   }
 }

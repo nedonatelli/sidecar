@@ -90,6 +90,35 @@ describe('pruneHistory', () => {
     expect(hasLast).toBe(true);
   });
 
+  it('returns the same reference when short-circuiting (caller must copy before mutating)', () => {
+    // Regression: pruneHistory returns `messages` directly when length <= 2.
+    // If the caller does `arr.length = 0; arr.push(...pruned)` without
+    // copying first, both arrays are cleared because they are the same ref.
+    const msgs: ChatMessage[] = [{ role: 'user', content: 'hello' }];
+    const pruned = pruneHistory(msgs, 50_000);
+
+    // Verify it IS the same reference (the short-circuit path)
+    expect(pruned).toBe(msgs);
+
+    // Simulate the safe pattern: copy before clearing
+    const copy = [...pruned];
+    msgs.length = 0;
+    msgs.push(...copy);
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].content).toBe('hello');
+  });
+
+  it('does not lose messages when pruned result equals input (2 messages)', () => {
+    // Two messages: still under the short-circuit threshold (<=2)
+    const msgs: ChatMessage[] = [
+      { role: 'user', content: 'What is your version?' },
+      { role: 'assistant', content: [{ type: 'text', text: 'I am SideCar v0.28.1' }] },
+    ];
+    const pruned = pruneHistory(msgs, 100_000);
+    expect(pruned).toHaveLength(2);
+    expect(pruned[0].content).toBe('What is your version?');
+  });
+
   it('reduces total character count significantly for multi-turn conversations', () => {
     const msgs = buildConversation(6);
     const before = msgs.reduce((sum, m) => {
