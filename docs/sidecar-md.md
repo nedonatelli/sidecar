@@ -14,11 +14,28 @@ SideCar reads `SIDECAR.md` on every message and includes it in the system prompt
 
 ## Where to put it
 
-Place it in the root of your workspace:
+SideCar checks two locations in order:
+
+1. `.sidecar/SIDECAR.md` (preferred — keeps project instructions alongside other SideCar data)
+2. `SIDECAR.md` in the workspace root (fallback for backward compatibility)
 
 ```
 my-project/
-  SIDECAR.md    <-- here
+  .sidecar/
+    SIDECAR.md    <-- preferred location
+    specs/
+    plans/
+    memory/
+  src/
+  package.json
+  ...
+```
+
+Or in the root:
+
+```
+my-project/
+  SIDECAR.md    <-- also works
   src/
   package.json
   ...

@@ -40,6 +40,14 @@ Control how much autonomy SideCar has via the agent mode dropdown in the chat he
 |---------|---------|-------------|
 | `sidecar.agentMaxIterations` | `25` | Max loop iterations before auto-stop |
 | `sidecar.agentMaxTokens` | `100000` | Max total tokens before auto-stop |
+| `sidecar.agentTemperature` | `0.2` | Temperature for tool-calling requests (lower = more deterministic) |
+| `sidecar.requestTimeout` | `120` | Timeout per LLM request in seconds (0 to disable) |
+
+Additional safety mechanisms:
+
+- **Cycle detection** — if the agent repeats the same tool call with identical arguments, it halts automatically to prevent infinite loops
+- **Tool support auto-detection** — if a model fails to use tools after 3 attempts, SideCar stops sending tool definitions to avoid wasting context
+- **Request timeout** — if no tokens arrive within `requestTimeout` seconds, the request is aborted with a user-friendly message
 
 The **Stop button** (the Send button toggles to a red Stop during processing) lets you abort at any time. Partial changes can be reverted with Undo.
 

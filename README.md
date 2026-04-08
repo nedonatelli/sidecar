@@ -40,7 +40,9 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 - **No vendor lock-in** — Use Ollama for fully offline operation, the Anthropic API for Claude, or any OpenAI-compatible server (LM Studio, vLLM, llama.cpp, OpenRouter). Same interface, your choice.
 - **Security from the ground up** — Built-in secrets detection and vulnerability scanning run automatically after every file write. No other local-first extension does this.
 - **Extensible with MCP** — Connect external tools (databases, APIs, custom scripts) via the Model Context Protocol. SideCar treats them as first-class tools alongside its built-in ones.
-- **Production-grade safety** — Agent mode controls (cautious/autonomous/manual), iteration limits, token budgets, diff preview, and one-click rollback keep you in control.
+- **Production-grade safety** — Agent mode controls (cautious/autonomous/manual), iteration limits, token budgets, cycle detection, diff preview, and one-click rollback keep you in control.
+- **`.sidecar/` project directory** — Persistent project storage for workspace index cache, agent reasoning logs, session history, plans, and memory. Committed project instructions live alongside gitignored ephemeral data.
+- **Smart context** — AST-based extraction for JS/TS, Python, Rust, Go, and Java/Kotlin files. SideCar sends relevant functions and classes to the model, not entire files.
 
 ## Features
 
@@ -224,6 +226,7 @@ SideCar auto-detects the provider. To override, set `sidecar.provider` to `"open
 | `sidecar.scheduledTasks` | `[]` | Recurring agent tasks (see Scheduled Tasks section above) |
 | `sidecar.mcpServers` | `{}` | MCP servers to connect to (see MCP section above) |
 | `sidecar.agentMode` | `cautious` | Agent approval mode: cautious, autonomous, manual |
+| `sidecar.agentTemperature` | `0.2` | Temperature for agent tool-calling requests. Lower = more deterministic |
 | `sidecar.agentMaxIterations` | `25` | Max agent loop iterations |
 | `sidecar.agentMaxTokens` | `100000` | Max tokens per agent run |
 | `sidecar.includeWorkspace` | `true` | Include workspace files in context |

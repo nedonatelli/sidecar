@@ -2,6 +2,46 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.29.0] - 2026-04-08
+
+### Added
+- **`.sidecar/` project directory**: persistent project storage for cache, logs, sessions, plans, memory, and scratchpad. Auto-generates `.gitignore` for ephemeral subdirs. `SIDECAR.md` is now loaded from `.sidecar/SIDECAR.md` first with fallback to root
+- **Agent loop cycle detection**: tracks the last 4 tool call signatures and halts if the model repeats the same call consecutively — prevents infinite loops
+- **`sidecar.agentTemperature` setting**: task-specific temperature (default 0.2) applied when tools are present. Lower values produce more deterministic tool selection across all three backends
+- **Tool support auto-detection**: runtime tracking of models that fail to use tools. After 3 consecutive failures, tool definitions are no longer sent — saves context and avoids empty responses
+- **Smart context for multi-language files**: AST-based extraction now supports Python (`def`/`class`), Rust (`fn`), Go (`func`), Java/Kotlin methods with full body capture via brace/indent tracking
+- **`enhanceContextWithSmartElements`**: post-processing pass for glob-based context that applies AST extraction to code files before injection
+- **GitHub Actions workflows**: bot-powered GitHub Releases with VSIX artifacts, issue auto-labeling by keywords (12 labels), and PR test result comments — all via SideCarAI-Bot
+- **Support & Contact section**: email (sidecarai.vscode@gmail.com) and links in README and package.json
+
+### Fixed
+- **Typing indicator persists after response**: `showTypingIndicator()` now removes any existing indicator before creating a new one; `setLoading: false` sent in `finally` block as safety net
+- **Resource leaks on extension deactivate**: dispose `sidecarMdWatcher` file watchers, abort running agent loops, clear pending confirmations, shell session SIGTERM → SIGKILL with 3s timeout
+- **Inconsistent error messages**: all three backends now prefix errors with service name (Ollama/OpenAI/Anthropic) and use consistent `request failed: {status} {statusText}` format
+- **Error classification gaps**: added ENOTFOUND, EADDRNOTAVAIL, EHOSTUNREACH, ECONNRESET to connection error patterns
+- **Smart context bugs**: regex `\Z` → `$` (invalid JS), strip code fences before AST parsing, deduplicate identical branches, copy elements instead of mutating scores
+- **Dead code**: removed unused `SmartWorkspaceIndex` stub and its imports
+
+### Changed
+- **System prompts restructured**: numbered rules for clearer instruction following; positive instructions ("Read files before editing") instead of negative; multi-step task guidance for cloud models
+- **Context injection reordered**: pinned files and relevant content come before the workspace tree — high-value context gets priority in limited context windows. Tree is appended last and truncated if budget is tight
+- **Race condition fix**: abort previous agent run BEFORE pushing new user message to prevent concurrent reads/writes on the messages array
+- **Config validation**: `clampMin()` helper validates all numeric settings; empty model/URL fall back to defaults
+
+### Performance
+- **`parseFileContent` language branching**: detect language once, test only relevant regex patterns per line — O(L×P) → O(L×1)
+- **Partial sort in `getRelevantContext`**: filter relevant files first, sort only those instead of full O(n log n) sort
+- **Pre-built pinned file Set**: O(1) lookups instead of O(p×f) filter per pinned path
+- **`pruneHistory` incremental tracking**: compute chars incrementally and flatten once at end instead of O(m²) repeated `.flat()` calls
+- **Shared backend utilities**: `parseThinkTags()` and `toFunctionTools()` extracted into `streamUtils.ts`, removing ~80 lines of duplication
+- **Scroll handler debounce**: `requestAnimationFrame` with cached element reference instead of raw scroll event
+- **O(1) message delete**: `data-msg-index` attribute instead of O(n) `querySelectorAll` + `indexOf`
+- **Workspace excludes**: added `coverage/`, `build/`, `.turbo`, `.cache` to prevent generated files in context
+
+### Tests
+- 397 total tests (370 → 397)
+- New: streamUtils (parseThinkTags, toFunctionTools), config validation (clampMin), agent loop (timeout, normal completion, empty response), pruneHistory aliasing regression, Ollama backend stream errors (malformed JSON, partial chunks, cross-chunk think tags, empty body, unclosed think tags)
+
 ## [0.28.1] - 2026-04-07
 
 ### Fixed

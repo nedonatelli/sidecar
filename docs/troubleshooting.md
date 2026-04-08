@@ -117,9 +117,20 @@ rm ~/Library/LaunchAgents/com.sidecar.prewarm.plist
 - **Keep models warm** — Set the `OLLAMA_KEEP_ALIVE` environment variable to `24h` so Ollama doesn't unload the model between sessions
 - **SSD storage** — NVMe SSDs load models significantly faster than HDDs
 
+## Request timeout
+
+If SideCar shows "Request timed out after Ns waiting for the model", the model didn't respond within the timeout window. This usually means:
+
+- **Model is loading** — large models (30B+) take time to load into memory. See [Slow model loading](#slow-model-loading) above
+- **Prompt too large** — the system prompt + workspace context exceeds what the model can handle. Try reducing `sidecar.maxFiles` or disabling workspace context temporarily (`sidecar.includeWorkspace: false`)
+- **Network issue** — for remote backends, check your connection
+
+Adjust the timeout via `sidecar.requestTimeout` (default: 120 seconds). Set to `0` to disable the timeout entirely.
+
 ## Agent loop not stopping
 
 - Click the **Stop button** (red button that replaces Send during processing)
+- **Cycle detection** — SideCar automatically halts if the agent repeats the same tool call with identical arguments
 - Check `sidecar.agentMaxIterations` (default: 25) and `sidecar.agentMaxTokens` (default: 100,000)
 - Lower these values if the agent runs too long on your hardware
 
@@ -150,7 +161,16 @@ SideCar classifies errors and shows actionable cards:
 
 Click the action button on the error card to resolve common issues quickly.
 
+## Model returns empty responses
+
+If the model responds with nothing (empty content, `done` immediately):
+
+- **Context too large** — local models have a limited context window. SideCar caps local models at 8K tokens. Reduce `sidecar.maxFiles` or unpin large files
+- **Tool definitions overwhelm the model** — 19 tool definitions add ~10K chars. Smaller models may not handle this well. Try a larger model or use chat-only mode
+- **Wrong model format** — some models don't support the chat template or tool format. Try a different model
+
 ## Getting help
 
 - [GitHub Issues](https://github.com/nedonatelli/sidecar/issues) — report bugs or request features
 - [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=nedonatelli.sidecar-ai) — reviews and ratings
+- **Email**: [sidecarai.vscode@gmail.com](mailto:sidecarai.vscode@gmail.com)
