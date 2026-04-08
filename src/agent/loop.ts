@@ -7,6 +7,7 @@ import type {
   ToolResultContentBlock,
 } from '../ollama/types.js';
 import { SideCarClient } from '../ollama/client.js';
+import { recordToolSuccess, recordToolFailure } from '../ollama/ollamaBackend.js';
 import { getToolDefinitions, getDiagnostics } from './tools.js';
 import { getConfig } from '../config/settings.js';
 import { executeTool, type ApprovalMode, type ConfirmFn, type DiffPreviewFn } from './executor.js';
@@ -193,8 +194,16 @@ export async function runAgentLoop(
     // Previously this used `continue` which could loop infinitely when
     // stripRepeatedContent emptied the response.
     if (pendingToolUses.length === 0) {
+      // Track that tools were available but not used — helps auto-detect
+      // models that don't actually support tool calling.
+      if (iterTools.length > 0 && fullText) {
+        recordToolFailure(client.getModel());
+      }
       break;
     }
+
+    // Model used tools successfully — reset any failure tracking
+    recordToolSuccess(client.getModel());
 
     // Build the assistant message content
     if (fullText) {

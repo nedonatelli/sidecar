@@ -129,15 +129,17 @@ export function classifyError(message: string): {
 }
 
 export async function handleUserMessage(state: ChatState, text: string): Promise<void> {
-  if (text) {
-    state.messages.push({ role: 'user', content: text });
-    state.saveHistory();
-  }
-
-  // Guard against concurrent agent runs — abort the previous one first
+  // Abort any previous agent run BEFORE mutating messages.
+  // This prevents race conditions where the old agent loop reads
+  // messages while we're pushing a new one.
   if (state.abortController) {
     state.abortController.abort();
     state.abortController = null;
+  }
+
+  if (text) {
+    state.messages.push({ role: 'user', content: text });
+    state.saveHistory();
   }
 
   state.postMessage({ command: 'setLoading', isLoading: true });
@@ -200,9 +202,36 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     const extensionVersion = pkg.version || 'unknown';
     const repoUrl = pkg.repository?.url || 'https://github.com/nedonatelli/sidecar';
     const docsUrl = 'https://nedonatelli.github.io/sidecar/';
+    const root = getWorkspaceRoot();
     let systemPrompt = isLocal
-      ? `You are SideCar v${extensionVersion}, an AI coding assistant in VS Code. GitHub: ${repoUrl} | Docs: ${docsUrl}\nProject root: ${getWorkspaceRoot()}\nUse tools only when asked to act (create, edit, fix, run, test). For questions, respond with text. Use relative paths. After edits, check diagnostics. Be concise.`
-      : `You are SideCar v${extensionVersion}, an AI coding assistant running inside VS Code. GitHub: ${repoUrl} | Docs: ${docsUrl}\nProject root: ${getWorkspaceRoot()}\n\nIMPORTANT: Only use tools when the user asks you to take an action (create, edit, fix, run, test, etc.). If the user asks a question, explains something, or wants a conversation, respond directly with text — do NOT invoke tools. Not every message requires tool use.\n\nYou have tools to read, write, edit, and search files, run shell commands, check diagnostics, and run tests. When you do use tools, use relative paths from the project root. After editing files, use get_diagnostics to check for errors. When fixing bugs or adding features, use run_tests to verify your changes pass. Keep responses concise.`;
+      ? [
+          `You are SideCar v${extensionVersion}, an AI coding assistant in VS Code.`,
+          `Project: ${root}`,
+          '',
+          'RULES:',
+          '1. Questions → answer with text. Actions (create, edit, fix, run, test) → use tools.',
+          '2. Use relative paths from the project root.',
+          '3. After editing files, call get_diagnostics to check for errors.',
+          '4. After fixing bugs, call run_tests to verify.',
+          '5. Read files before editing them. Use grep or search_files to find code.',
+          '6. If you are unsure, say so rather than guessing.',
+        ].join('\n')
+      : [
+          `You are SideCar v${extensionVersion}, an AI coding assistant running inside VS Code. GitHub: ${repoUrl} | Docs: ${docsUrl}`,
+          `Project root: ${root}`,
+          '',
+          'You have tools to read, write, edit, and search files, run shell commands, check diagnostics, and run tests.',
+          '',
+          'RULES:',
+          '1. If the user asks a question or wants a conversation, respond with text — do NOT call tools.',
+          '2. If the user asks you to take an action (create, edit, fix, run, test), use the appropriate tools.',
+          '3. Use relative paths from the project root.',
+          '4. After editing files, call get_diagnostics to check for errors.',
+          '5. After fixing bugs or adding features, call run_tests to verify your changes pass.',
+          '6. Read files before editing them. Use grep or search_files to locate code first.',
+          '7. For multi-step tasks, plan your approach, then execute step by step.',
+          '8. If you are unsure about something, say so rather than guessing.',
+        ].join('\n');
 
     // Append SIDECAR.md and user prompt with size limits to prevent context overflow.
     // Reserve at least 50% of context for conversation and tool results.

@@ -127,6 +127,10 @@ export class SideCarClient {
     return data.response ?? '';
   }
 
+  getModel(): string {
+    return this.model;
+  }
+
   updateModel(model: string) {
     this.model = model;
   }

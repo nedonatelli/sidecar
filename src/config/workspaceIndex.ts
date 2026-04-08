@@ -141,9 +141,11 @@ export class WorkspaceIndex implements Disposable {
     }));
     scored.sort((a, b) => b.score - a.score);
 
-    // Always include the tree structure
-    const parts = [`## Workspace Structure\n\`\`\`\n${this.treeCache}\n\`\`\`\n`];
-    let charCount = parts[0].length;
+    // Build context with relevant content first, tree last.
+    // Relevant files and pinned files are more valuable than the tree
+    // structure, so they get priority in the context budget.
+    const parts: string[] = [];
+    let charCount = 0;
     const budget = this.maxContextChars;
 
     // Include pinned files first (always, regardless of score)
@@ -258,6 +260,17 @@ export class WorkspaceIndex implements Disposable {
       } catch {
         // skip unreadable
       }
+    }
+
+    // Append workspace tree at the end if budget remains — it's useful
+    // context but less valuable than actual file contents.
+    const tree = `\n## Workspace Structure\n\`\`\`\n${this.treeCache}\n\`\`\`\n`;
+    if (charCount + tree.length <= budget) {
+      parts.push(tree);
+    } else if (budget - charCount > 200) {
+      // Truncate tree to fit remaining budget
+      const remaining = budget - charCount - 50;
+      parts.push(`\n## Workspace Structure\n\`\`\`\n${this.treeCache.slice(0, remaining)}\n...\n\`\`\`\n`);
     }
 
     return parts.join('');

@@ -200,10 +200,16 @@ describe('WorkspaceIndex', () => {
     index.addPin('src/only.ts');
 
     const context = await index.getRelevantContext('only');
-    // Should appear in pinned, not in relevant
-    const pinnedSection = context.slice(0, context.indexOf('## Relevant Files'));
-    const relevantSection = context.slice(context.indexOf('## Relevant Files'));
-    expect(pinnedSection).toContain('only.ts (pinned)');
-    expect(relevantSection).not.toContain('only.ts');
+    // Should appear in pinned, not in the relevant files section.
+    // The workspace tree (at the end) may also mention the file name,
+    // so we only check the relevant files section between the two headers.
+    const relevantStart = context.indexOf('## Relevant Files');
+    const treeStart = context.indexOf('## Workspace Structure');
+    expect(context).toContain('only.ts (pinned)');
+    if (relevantStart !== -1) {
+      const end = treeStart !== -1 && treeStart > relevantStart ? treeStart : context.length;
+      const relevantSection = context.slice(relevantStart, end);
+      expect(relevantSection).not.toContain('only.ts\n');
+    }
   });
 });

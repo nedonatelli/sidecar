@@ -4,8 +4,10 @@ import { fetchWithRetry } from './retry.js';
 import { abortableRead, toFunctionTools, parseThinkTags, type ThinkTagState } from './streamUtils.js';
 
 // ---------------------------------------------------------------------------
-// Models that do not support tools
+// Tool support detection
 // ---------------------------------------------------------------------------
+
+/** Models known to not support tools — fast-path deny list. */
 const MODELS_WITHOUT_TOOL_SUPPORT = new Set([
   'gemma:latest',
   'gemma2:latest',
@@ -18,10 +20,36 @@ const MODELS_WITHOUT_TOOL_SUPPORT = new Set([
   'starling-lm',
 ]);
 
+/**
+ * Runtime tool support tracking. If a model is sent tools but never
+ * returns tool calls after several attempts, we stop sending tools
+ * to avoid wasting context on tool definitions.
+ */
+const toolSupportFailures = new Map<string, number>();
+const TOOL_FAILURE_THRESHOLD = 3;
+
 function supportsTools(model: string): boolean {
-  // Check if model name matches any known non-tool-supporting models
   const base = model.split(':')[0];
-  return !MODELS_WITHOUT_TOOL_SUPPORT.has(model) && !MODELS_WITHOUT_TOOL_SUPPORT.has(`${base}:latest`);
+  if (MODELS_WITHOUT_TOOL_SUPPORT.has(model) || MODELS_WITHOUT_TOOL_SUPPORT.has(`${base}:latest`)) {
+    return false;
+  }
+  // If this model has failed to use tools multiple times, disable them
+  const failures = toolSupportFailures.get(model) || 0;
+  return failures < TOOL_FAILURE_THRESHOLD;
+}
+
+/** Record that a model was sent tools but did not use them. */
+export function recordToolFailure(model: string): void {
+  const count = (toolSupportFailures.get(model) || 0) + 1;
+  toolSupportFailures.set(model, count);
+  if (count >= TOOL_FAILURE_THRESHOLD) {
+    console.warn(`[SideCar] Model "${model}" has not used tools after ${count} attempts — disabling tool sending`);
+  }
+}
+
+/** Record that a model successfully used tools (resets failure count). */
+export function recordToolSuccess(model: string): void {
+  toolSupportFailures.delete(model);
 }
 
 export function modelSupportsTools(model: string): boolean {
