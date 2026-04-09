@@ -58,6 +58,15 @@ export async function spawnSubAgent(
     },
   };
 
+  // Save parent's system prompt and set a dedicated sub-agent prompt
+  // to prevent mutation during the sub-agent run from corrupting the parent.
+  const parentSystemPrompt = client.getSystemPrompt();
+  client.updateSystemPrompt(
+    `You are a sub-agent. Complete ONLY the assigned task. Do not ask clarifying questions. ` +
+      `Use tools directly to accomplish the task. Be concise in your responses.\n\n` +
+      parentSystemPrompt,
+  );
+
   try {
     await runAgentLoop(client, messages, subCallbacks, signal, {
       ...options,
@@ -71,5 +80,8 @@ export async function spawnSubAgent(
     options.logger?.error(`Sub-agent ${id} failed: ${errorMsg}`);
     parentCallbacks.onText(`\n[Sub-agent ${id} failed: ${errorMsg}]\n`);
     return { id, task, output: errorMsg, success: false };
+  } finally {
+    // Always restore parent's system prompt
+    client.updateSystemPrompt(parentSystemPrompt);
   }
 }

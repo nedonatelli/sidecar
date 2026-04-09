@@ -2,6 +2,20 @@
   box-sizing: border-box;
 }
 
+/* Global focus-visible styles for keyboard accessibility */
+:focus-visible {
+  outline: 2px solid var(--vscode-focusBorder, #007fd4);
+  outline-offset: 2px;
+}
+
+/* Inputs use border highlight instead of outline */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
+  border-color: var(--vscode-focusBorder, #007fd4);
+}
+
 .hidden {
   display: none !important;
 }
@@ -525,7 +539,7 @@ body {
 
 .message-delete-btn:hover {
   opacity: 1 !important;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
 }
 
 .message.user {
@@ -1030,12 +1044,12 @@ body {
 }
 
 .edit-search {
-  background: rgba(255, 0, 0, 0.08);
+  background: var(--vscode-diffEditor-removedTextBackground, rgba(255, 0, 0, 0.08));
   border-bottom: 1px solid var(--vscode-widget-border);
 }
 
 .edit-replace {
-  background: rgba(0, 255, 0, 0.08);
+  background: var(--vscode-diffEditor-insertedTextBackground, rgba(0, 255, 0, 0.08));
 }
 
 .agent-mode-select {

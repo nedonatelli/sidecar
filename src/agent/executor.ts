@@ -24,6 +24,10 @@ export type StreamingDiffPreviewFn = (
 
 const WRITE_TOOLS = new Set(['write_file', 'edit_file']);
 
+// Track whether workspace-level hooks have been trusted for this session
+let workspaceHooksTrusted = false;
+let workspaceHooksBlocked = false;
+
 export async function executeTool(
   toolUse: ToolUseContentBlock,
   approvalMode: ApprovalMode = 'cautious',
@@ -231,6 +235,28 @@ async function runHook(
   const command = toolHook || globalHook;
 
   if (!command) return;
+
+  // Warn once per session if hooks are defined at workspace level (supply-chain risk)
+  if (!workspaceHooksTrusted) {
+    const inspection = workspace.getConfiguration('sidecar').inspect('hooks');
+    if (inspection?.workspaceValue && Object.keys(inspection.workspaceValue as object).length > 0) {
+      const { window: vscWindow } = await import('vscode');
+      const trust = await vscWindow.showWarningMessage(
+        `SideCar: This workspace defines hook commands that will execute shell commands. Only trust hooks from repositories you control.`,
+        { modal: false },
+        'Allow',
+        'Block',
+      );
+      if (trust === 'Block') {
+        workspaceHooksBlocked = true;
+        return;
+      }
+      workspaceHooksTrusted = true;
+    } else {
+      workspaceHooksTrusted = true;
+    }
+  }
+  if (workspaceHooksBlocked) return;
 
   const cwd = workspace.workspaceFolders?.[0]?.uri.fsPath;
   const env: Record<string, string> = {

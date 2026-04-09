@@ -115,10 +115,16 @@ export class ConversationSummarizer {
       // Build new message array: summary block + recent turns
       const newMessages: ChatMessage[] = [];
 
-      // Insert summary as a system-like user message at the start
+      // Insert summary as a user message + assistant acknowledgment to maintain
+      // valid message alternation (prevents consecutive user messages which
+      // Anthropic API rejects).
       newMessages.push({
         role: 'user',
         content: `[Earlier conversation summary (turns 1–${oldTurns.length})]\n${summary}`,
+      });
+      newMessages.push({
+        role: 'assistant',
+        content: 'Understood. I have the conversation context from the summary above.',
       });
 
       // Flatten recent turns back into message array

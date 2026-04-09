@@ -47,6 +47,7 @@ export function activate(context: ExtensionContext) {
   context.subscriptions.push(agentLogger);
 
   const mcpManager = new MCPManager();
+  context.subscriptions.push(mcpManager);
 
   // Defer MCP connection — run after activation completes so it doesn't block startup
   const mcpServers = config.mcpServers;

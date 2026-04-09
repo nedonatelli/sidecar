@@ -195,10 +195,37 @@ function validateFilePath(filePath: string): string | null {
   return null; // valid
 }
 
+// --- Sensitive file detection ---
+
+const SENSITIVE_PATTERNS = [
+  /^\.env($|\.)/i, // .env, .env.local, .env.production
+  /\.pem$/i,
+  /\.key$/i,
+  /\.p12$/i,
+  /\.pfx$/i,
+  /^id_rsa/i,
+  /^id_ed25519/i,
+  /credentials\.json$/i,
+  /secrets?\.(json|ya?ml|toml)$/i,
+  /\.secret$/i,
+  /token\.json$/i,
+  /service.account\.json$/i,
+];
+
+function isSensitiveFile(filePath: string): boolean {
+  const basename = filePath.split(/[\\/]/).pop() || '';
+  return SENSITIVE_PATTERNS.some((p) => p.test(basename));
+}
+
 // --- Tool Executors ---
 
 async function readFile(input: Record<string, unknown>): Promise<string> {
   const filePath = input.path as string;
+  const pathError = validateFilePath(filePath);
+  if (pathError) return pathError;
+  if (isSensitiveFile(filePath)) {
+    return `Warning: "${filePath}" appears to contain secrets or credentials. Reading this file would send its contents to the LLM provider. Use read_file on a non-sensitive file instead, or ask the user to provide the needed information directly.`;
+  }
   const fileUri = Uri.joinPath(getRootUri(), filePath);
   const bytes = await workspace.fs.readFile(fileUri);
   return Buffer.from(bytes).toString('utf-8');
