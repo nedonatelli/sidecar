@@ -66,8 +66,21 @@
   }
 
   async function renderMermaidBlock(container, code, copyBtn) {
+    // Skip if this container has already been rendered or is in progress
+    if (container.dataset.mermaidState === 'rendering' || container.dataset.mermaidState === 'done') {
+      return;
+    }
+    container.dataset.mermaidState = 'rendering';
+
     try {
       const m = await loadMermaid();
+
+      // Check if container was detached from DOM during mermaid load
+      // (happens when finishAssistantMessage clears and re-renders)
+      if (!container.parentNode) {
+        return;
+      }
+
       const id = 'mermaid-' + ++mermaidIdCounter;
       const { svg } = await m.render(id, code);
 
@@ -75,6 +88,7 @@
       const sanitizedSvg = sanitizeSvg(svg);
       container.innerHTML = sanitizedSvg;
       container.classList.add('diagram-rendered');
+      container.dataset.mermaidState = 'done';
 
       if (copyBtn) {
         copyBtn.style.visibility = 'visible';
@@ -90,6 +104,7 @@
     } catch (err) {
       container.textContent = 'Diagram error: ' + (err.message || err);
       container.classList.add('diagram-error');
+      container.dataset.mermaidState = 'error';
     }
   }
 
@@ -1399,7 +1414,7 @@
         diagramBlock.appendChild(diagramHeader);
         const diagramContainer = document.createElement('div');
         diagramContainer.className = 'diagram-container';
-        diagramContainer.textContent = 'Rendering diagram...';
+        diagramContainer.textContent = mermaidReady ? 'Rendering diagram...' : 'Loading diagram engine...';
         diagramBlock.appendChild(diagramContainer);
         // Show mermaid source in a collapsible detail
         const details = document.createElement('details');
@@ -1681,6 +1696,11 @@
     // Render immediately on the first chunk and on structural boundaries;
     // otherwise batch updates every 80ms.
     const hasStructural = content.includes('```') || content.includes('>>>REPLACE');
+    // Preload mermaid.js as soon as we see a mermaid code fence opening,
+    // so the 5MB script is parsed before the block finishes streaming.
+    if (!mermaidReady && currentAssistantText.includes('```mermaid')) {
+      loadMermaid();
+    }
     if (lastRenderedLen === 0 || hasStructural) {
       if (renderTimer) {
         clearTimeout(renderTimer);
