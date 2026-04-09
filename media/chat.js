@@ -70,8 +70,12 @@
       const m = await loadMermaid();
       const id = 'mermaid-' + ++mermaidIdCounter;
       const { svg } = await m.render(id, code);
-      container.innerHTML = svg;
+
+      // Sanitize SVG content to prevent XSS
+      const sanitizedSvg = sanitizeSvg(svg);
+      container.innerHTML = sanitizedSvg;
       container.classList.add('diagram-rendered');
+
       if (copyBtn) {
         copyBtn.style.visibility = 'visible';
         copyBtn.addEventListener('click', () => {
@@ -87,6 +91,16 @@
       container.textContent = 'Diagram error: ' + (err.message || err);
       container.classList.add('diagram-error');
     }
+  }
+
+  // Sanitize SVG content to prevent XSS
+  function sanitizeSvg(svgContent) {
+    // Remove potentially dangerous elements and attributes
+    return svgContent
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '') // Remove script tags
+      .replace(/on\w+\s*=\s*["'][^"']*["']/gi, '') // Remove event handlers
+      .replace(/<svg[^>]*>/, '<svg xmlns="http://www.w3.org/2000/svg"') // Ensure proper namespace
+      .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, ''); // Remove style tags
   }
 
   modelBtn.addEventListener('click', () => {

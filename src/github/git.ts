@@ -98,7 +98,7 @@ export class GitCLI {
       return 'Nothing to commit — no staged changes. Use git_stage first.';
     }
 
-    const fullMessage = `${message}\n\nCo-Authored-By: SideCar <sidecar-bot@users.noreply.github.com>`;
+    const fullMessage = `${message}\n\nCo-Authored-By: SideCar <274544454+SideCarAI-Bot@users.noreply.github.com>`;
     await this.exec(['commit', '-m', fullMessage]);
 
     const log = await this.exec(['log', '--oneline', '-1']);

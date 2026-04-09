@@ -245,6 +245,16 @@ export class SideCarClient {
       });
       if (!response.ok) return null;
       const data = (await response.json()) as Record<string, unknown>;
+
+      // Prefer the actual runtime num_ctx from model parameters — this reflects
+      // what Ollama will actually use, not the model's theoretical max.
+      const params = data.parameters as string | undefined;
+      if (params) {
+        const match = params.match(/^num_ctx\s+(\d+)/m);
+        if (match) return parseInt(match[1], 10);
+      }
+
+      // Fall back to the model_info advertised context length
       const modelInfo = data.model_info as Record<string, unknown> | undefined;
       if (!modelInfo) return null;
       for (const [key, value] of Object.entries(modelInfo)) {

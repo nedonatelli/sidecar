@@ -35,7 +35,7 @@ Set `sidecar.provider` explicitly if auto-detection doesn't match your setup —
 |---------|------|---------|-------------|
 | `sidecar.agentMode` | enum | `cautious` | Approval mode: `cautious`, `autonomous`, `manual` |
 | `sidecar.agentTemperature` | number | `0.2` | Temperature for agent tool-calling requests. Lower values (0.1–0.3) produce more deterministic tool selection |
-| `sidecar.agentMaxIterations` | number | `25` | Max agent loop iterations |
+| `sidecar.agentMaxIterations` | number | `50` | Max agent loop iterations |
 | `sidecar.agentMaxTokens` | number | `100000` | Max tokens per agent run |
 | `sidecar.requestTimeout` | number | `120` | Timeout in seconds for each LLM request. Aborts if no tokens arrive within this window. Set to 0 to disable |
 | `sidecar.planMode` | boolean | `false` | Generate a plan for approval before executing tools |
@@ -49,6 +49,7 @@ Set `sidecar.provider` explicitly if auto-detection doesn't match your setup —
 | `sidecar.includeActiveFile` | boolean | `true` | Include the currently active file |
 | `sidecar.filePatterns` | array | `["**/*.ts", ...]` | Glob patterns for workspace context (25+ languages) |
 | `sidecar.maxFiles` | number | `10` | Max files to include in workspace context |
+| `sidecar.contextLimit` | number | `0` | Override context token limit for local models (0 = auto-detect with 16K cap). Increase if you have enough VRAM for longer conversations |
 | `sidecar.pinnedContext` | array | `[]` | Files or folders always included in context (relative paths) |
 | `sidecar.fetchUrlContext` | boolean | `true` | Auto-fetch web page content when URLs are pasted in chat |
 

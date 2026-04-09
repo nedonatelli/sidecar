@@ -11,6 +11,7 @@ import {
   getWorkspaceContext,
   getWorkspaceEnabled,
   getWorkspaceRoot,
+  getContextLimit,
   getFilePatterns,
   getMaxFiles,
   resolveFileReferences,
@@ -238,14 +239,22 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
 
     // Append SIDECAR.md and user prompt with size limits to prevent context overflow.
     // Reserve at least 50% of context for conversation and tool results.
-    // Cap local model context at 16K tokens — many models advertise huge context
-    // windows (e.g. 262K) but Ollama's default num_ctx is much smaller, and large
+    // Cap local model context — many models advertise huge context windows
+    // (e.g. 262K) but Ollama's default num_ctx is much smaller, and large
     // prompts cause extreme first-token latency on local hardware.
+    // Users can override with sidecar.contextLimit setting.
     state.postMessage({ command: 'typingStatus', content: 'Building context...' });
     const rawContextLength = await state.client.getModelContextLength();
-    const LOCAL_CONTEXT_CAP = 8_192;
-    const contextLength =
-      isLocal && rawContextLength && rawContextLength > LOCAL_CONTEXT_CAP ? LOCAL_CONTEXT_CAP : rawContextLength;
+    const userContextLimit = getContextLimit();
+    const LOCAL_CONTEXT_CAP = 16_384;
+    let contextLength: number | null;
+    if (userContextLimit > 0) {
+      // User explicitly set a context limit — respect it for both local and cloud
+      contextLength = isLocal ? userContextLimit : (rawContextLength ?? userContextLimit);
+    } else {
+      contextLength =
+        isLocal && rawContextLength && rawContextLength > LOCAL_CONTEXT_CAP ? LOCAL_CONTEXT_CAP : rawContextLength;
+    }
     const maxSystemChars = contextLength ? Math.floor(contextLength * 4 * 0.5) : 80_000;
 
     const sidecarMd = await loadSidecarMd();
@@ -361,7 +370,10 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     // Reserve ~50% of context for system prompt + model output; use the rest for history.
     const systemChars = systemPrompt.length;
     const historyBudget = contextLength ? Math.floor(contextLength * 4 * 0.5) - systemChars : 200_000 - systemChars;
-    const prunedMessages = pruneHistory(chatMessages, Math.max(historyBudget, 20_000));
+    // Floor scales with context window: at least 25% of context budget or 4K chars,
+    // whichever is larger. The old fixed 20K floor prevented pruning on small models.
+    const minBudget = contextLength ? Math.max(contextLength * 1, 4_000) : 20_000;
+    const prunedMessages = pruneHistory(chatMessages, Math.max(historyBudget, minBudget));
     if (prunedMessages.length < chatMessages.length) {
       const before = chatMessages.reduce((s, m) => s + getContentLength(m.content), 0);
       const after = prunedMessages.reduce((s, m) => s + getContentLength(m.content), 0);
@@ -381,10 +393,11 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     chatMessages.length = 0;
     chatMessages.push(...pruned);
 
-    // Warn if context may still exceed the model's limit
+    // Warn if context may still exceed the model's limit.
+    // Include system prompt in the estimate — the model sees both.
     if (contextLength) {
-      const totalChars = chatMessages.reduce((sum, m) => sum + getContentLength(m.content), 0);
-      const estimatedTokens = Math.ceil(totalChars / 4);
+      const historyChars = chatMessages.reduce((sum, m) => sum + getContentLength(m.content), 0);
+      const estimatedTokens = Math.ceil((historyChars + systemChars) / 4);
       if (estimatedTokens > contextLength * 0.8) {
         state.postMessage({
           command: 'assistantMessage',

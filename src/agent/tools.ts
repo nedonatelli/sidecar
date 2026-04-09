@@ -161,6 +161,39 @@ const listDirectoryDef: ToolDefinition = {
   },
 };
 
+// --- Path validation ---
+
+/** Reject obviously invalid file paths that indicate the model hallucinated. */
+function validateFilePath(filePath: string): string | null {
+  if (!filePath || filePath.trim().length === 0) {
+    return 'Error: file path is empty.';
+  }
+  // Reject paths with backticks, control chars, or that look like prose
+  if (/[`\x00-\x1f]/.test(filePath)) {
+    return `Error: invalid characters in file path: ${filePath.slice(0, 80)}`;
+  }
+  // Reject paths containing spaces that are clearly not file names
+  // (e.g., "... ```) that contain diagram content")
+  if (filePath.length > 80) {
+    return `Error: file path too long (${filePath.length} chars): ${filePath.slice(0, 80)}...`;
+  }
+  // Reject paths that don't have at least one valid-looking segment
+  const segments = filePath.split(/[\\/]/);
+  for (const seg of segments) {
+    if (seg.length > 60) {
+      return `Error: path segment too long, likely not a real file name: ${seg.slice(0, 60)}...`;
+    }
+  }
+  // Block path traversal outside workspace
+  if (filePath.includes('..')) {
+    return `Error: path traversal ("..") is not allowed: ${filePath}`;
+  }
+  if (path.isAbsolute(filePath)) {
+    return `Error: absolute paths are not allowed. Use a path relative to the workspace root.`;
+  }
+  return null; // valid
+}
+
 // --- Tool Executors ---
 
 async function readFile(input: Record<string, unknown>): Promise<string> {
@@ -172,6 +205,8 @@ async function readFile(input: Record<string, unknown>): Promise<string> {
 
 async function writeFile(input: Record<string, unknown>): Promise<string> {
   const filePath = input.path as string;
+  const pathError = validateFilePath(filePath);
+  if (pathError) return pathError;
   const content = input.content as string;
   const fileUri = Uri.joinPath(getRootUri(), filePath);
   // Create parent directories
@@ -185,6 +220,8 @@ async function writeFile(input: Record<string, unknown>): Promise<string> {
 
 async function editFile(input: Record<string, unknown>): Promise<string> {
   const filePath = input.path as string;
+  const pathError = validateFilePath(filePath);
+  if (pathError) return pathError;
   const search = input.search as string;
   const replace = input.replace as string;
   const fileUri = Uri.joinPath(getRootUri(), filePath);
@@ -646,6 +683,64 @@ async function gitStash(input: Record<string, unknown>): Promise<string> {
   }
 }
 
+const displayDiagramDef: ToolDefinition = {
+  name: 'display_diagram',
+  description:
+    'Display a diagram from a markdown file. Parses markdown to extract diagram code blocks and returns the specified diagram by index.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      path: {
+        type: 'string',
+        description: 'Relative file path to the markdown file containing diagrams',
+      },
+      index: {
+        type: 'number',
+        description: 'Index of the diagram to display (0-based). Default: 0',
+      },
+    },
+    required: ['path'],
+  },
+};
+
+async function displayDiagram(input: Record<string, unknown>): Promise<string> {
+  const filePath = input.path as string;
+  const diagramIndex = input.index as number;
+  const effectiveIndex = diagramIndex ?? 0;
+
+  const pathError = validateFilePath(filePath);
+  if (pathError) return pathError;
+
+  try {
+    const fileUri = Uri.joinPath(getRootUri(), filePath);
+    const bytes = await workspace.fs.readFile(fileUri);
+    const content = Buffer.from(bytes).toString('utf-8');
+
+    // Parse markdown to find diagram blocks
+    // This regex looks for code blocks with diagram content (mermaid, graphviz, plantuml, etc)
+    const diagramRegex = /```(mermaid|graphviz|plantuml|dot)\n([\s\S]*?)\n```/g;
+    const diagrams: { type: string; content: string }[] = [];
+    let match;
+
+    while ((match = diagramRegex.exec(content)) !== null) {
+      diagrams.push({ type: match[1], content: match[2] });
+    }
+
+    if (diagrams.length === 0) {
+      return `No diagrams found in ${filePath}`;
+    }
+
+    if (effectiveIndex >= diagrams.length) {
+      return `Diagram index ${effectiveIndex} out of range. Only ${diagrams.length} diagrams found.`;
+    }
+
+    const selectedDiagram = diagrams[effectiveIndex];
+    return `Diagram ${effectiveIndex} from ${filePath}:\n\n\`\`\`${selectedDiagram.type}\n${selectedDiagram.content}\n\`\`\``;
+  } catch (err) {
+    return `Error reading diagram from ${filePath}: ${err instanceof Error ? err.message : 'Unknown error'}`;
+  }
+}
+
 // --- Registry ---
 
 export const TOOL_REGISTRY: RegisteredTool[] = [
@@ -667,6 +762,7 @@ export const TOOL_REGISTRY: RegisteredTool[] = [
   { definition: gitPullDef, executor: gitPull, requiresApproval: true },
   { definition: gitBranchDef, executor: gitBranch, requiresApproval: true },
   { definition: gitStashDef, executor: gitStash, requiresApproval: true },
+  { definition: displayDiagramDef, executor: displayDiagram, requiresApproval: false },
 ];
 
 export const SPAWN_AGENT_DEFINITION: ToolDefinition = {

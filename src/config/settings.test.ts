@@ -128,7 +128,7 @@ describe('getConfig', () => {
     expect(config.baseUrl).toBe('http://localhost:11434');
     expect(config.apiKey).toBe('ollama');
     expect(config.agentMode).toBe('cautious');
-    expect(config.agentMaxIterations).toBe(25);
+    expect(config.agentMaxIterations).toBe(50);
     expect(config.agentMaxTokens).toBe(100000);
     expect(config.planMode).toBe(false);
     expect(config.enableInlineCompletions).toBe(false);

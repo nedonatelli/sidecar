@@ -122,7 +122,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 - **Pre-commit scan** — `/scan` command or `SideCar: Scan Staged Files for Secrets` in the command palette scans staged git files before committing
 - Skips comments, node_modules, lock files, and minified code
 
-### Tool Registry (10+ built-in tools + MCP)
+### Tool Registry (20+ built-in tools + MCP)
 | Tool | Description |
 |------|-------------|
 | `read_file` | Read file contents |
@@ -134,6 +134,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 | `list_directory` | List directory contents |
 | `get_diagnostics` | Read compiler errors and warnings |
 | `run_tests` | Run test suites with auto-detection |
+| `display_diagram` | Extract and render diagrams from markdown files |
 
 ### Project Instructions (SIDECAR.md)
 Create a `SIDECAR.md` file in your project root to give SideCar project-specific instructions that persist across sessions:
@@ -229,12 +230,13 @@ SideCar auto-detects the provider. To override, set `sidecar.provider` to `"open
 | `sidecar.mcpServers` | `{}` | MCP servers to connect to (see MCP section above) |
 | `sidecar.agentMode` | `cautious` | Agent approval mode: cautious, autonomous, manual |
 | `sidecar.agentTemperature` | `0.2` | Temperature for agent tool-calling requests. Lower = more deterministic |
-| `sidecar.agentMaxIterations` | `25` | Max agent loop iterations |
+| `sidecar.agentMaxIterations` | `50` | Max agent loop iterations |
 | `sidecar.agentMaxTokens` | `100000` | Max tokens per agent run |
 | `sidecar.includeWorkspace` | `true` | Include workspace files in context |
 | `sidecar.includeActiveFile` | `true` | Include active file in context |
 | `sidecar.filePatterns` | `["**/*.ts", ...]` | File patterns for workspace context |
 | `sidecar.maxFiles` | `10` | Max files in workspace context |
+| `sidecar.contextLimit` | `0` | Override context token limit for local models (0 = auto-detect with 16K cap) |
 | `sidecar.enableInlineCompletions` | `false` | Enable Copilot-like autocomplete |
 | `sidecar.completionModel` | `""` | Model for completions (empty = use chat model) |
 | `sidecar.completionMaxTokens` | `256` | Max tokens for completions |

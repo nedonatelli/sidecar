@@ -2,6 +2,29 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.32.0] - 2026-04-08
+
+### Added
+- **`display_diagram` tool**: agent can extract and display diagrams from markdown files, preserving the original diagram type (mermaid, graphviz, plantuml, dot)
+- **`sidecar.contextLimit` setting**: user-configurable context token limit for local models (0 = auto-detect with 16K default cap). Increase if you have enough VRAM for longer conversations
+- **Adaptive context pruning**: conversation history is now compressed even within a single turn when over budget — the latest turn's tool results and text are progressively truncated instead of blowing past the context window
+- **Ollama `num_ctx` detection**: reads the actual runtime `num_ctx` from Ollama's model parameters instead of only trusting the model's advertised (often inflated) context length
+
+### Fixed
+- **Context overflow on small models**: local model context cap raised from 8K to 16K tokens; pruning budget floor now scales with context window instead of fixed 20K char minimum that prevented pruning on small models
+- **Token warning undercounting**: context overflow warning now includes the system prompt in its estimate, not just conversation history
+- **SVG XSS hardening**: mermaid diagram output is now sanitized (script tags, event handlers, style tags stripped) before innerHTML injection
+- **File path hallucination guard**: `write_file`, `edit_file`, and `display_diagram` now validate paths — rejects backticks, control characters, excessive length, path traversal, and absolute paths
+- **Duplicate tool registration**: `display_diagram` was registered twice in the tool definitions list
+- **Co-author trailer**: commits now tag the SideCarAI-Bot GitHub account (`274544454+SideCarAI-Bot@users.noreply.github.com`) so SideCar appears as a contributor
+
+### Changed
+- **`agentMaxIterations` default**: increased from 25 to 50 to support longer agentic sessions
+
+### Tests
+- 465 total tests (up from 464)
+- New test: `pruneHistory` compresses latest turn when over budget after dropping old turns
+
 ## [0.31.0] - 2026-04-08
 
 ### Added

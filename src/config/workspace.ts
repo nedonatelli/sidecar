@@ -88,6 +88,10 @@ export function getMaxFiles(): number {
   return workspace.getConfiguration('sidecar').get<number>('maxFiles', 10);
 }
 
+export function getContextLimit(): number {
+  return workspace.getConfiguration('sidecar').get<number>('contextLimit', 0);
+}
+
 export async function resolveAtReferences(text: string): Promise<string> {
   const workspaceFolders = workspace.workspaceFolders;
   if (!workspaceFolders || workspaceFolders.length === 0) return text;

@@ -25,30 +25,47 @@ export function pruneHistory(messages: ChatMessage[], maxChars: number): ChatMes
   // Split conversation into turns.  A "turn" is a user message followed
   // by all assistant/tool-result messages until the next user message.
   const turns = splitIntoTurns(messages);
-  if (turns.length <= 1) return messages;
 
-  // Always preserve the last turn fully (the new user prompt).
-  // Work backwards from the second-to-last turn applying increasing compression.
+  const computeTotalChars = (t: Turn[]) => {
+    let total = 0;
+    for (const turn of t) {
+      for (const m of turn) {
+        total += getContentLength(m.content);
+      }
+    }
+    return total;
+  };
+
+  // For multi-turn conversations, apply graduated compression to older turns.
   const result = turns.map((turn, i) => {
-    if (i === turns.length - 1) return turn; // latest turn — keep intact
-    if (i === turns.length - 2) return compressTurn(turn, 'light'); // previous turn — light compression
-    if (i === turns.length - 3) return compressTurn(turn, 'medium'); // two turns ago — medium
-    return compressTurn(turn, 'heavy'); // older — heavy compression
+    if (turns.length <= 1) return turn; // single turn — handle below
+    if (i === turns.length - 1) return turn; // latest turn — keep intact initially
+    if (i === turns.length - 2) return compressTurn(turn, 'light');
+    if (i === turns.length - 3) return compressTurn(turn, 'medium');
+    return compressTurn(turn, 'heavy');
   });
 
-  // Compute total chars incrementally instead of re-flattening on each drop.
-  let totalChars = 0;
-  for (const turn of result) {
-    for (const m of turn) {
-      totalChars += getContentLength(m.content);
-    }
-  }
+  let totalChars = computeTotalChars(result);
 
-  // Drop oldest turns until under budget (skip re-flattening each iteration)
+  // Drop oldest turns until under budget
   while (totalChars > maxChars && result.length > 2) {
     const dropped = result.shift()!;
     for (const m of dropped) {
       totalChars -= getContentLength(m.content);
+    }
+  }
+
+  // If still over budget, progressively compress remaining turns (including
+  // the latest). A compressed recent turn is better than exceeding the
+  // model's context window.
+  if (totalChars > maxChars) {
+    const levels: CompressionLevel[] = ['light', 'medium', 'heavy'];
+    for (const level of levels) {
+      if (totalChars <= maxChars) break;
+      for (let i = 0; i < result.length; i++) {
+        result[i] = compressTurn(result[i], level);
+      }
+      totalChars = computeTotalChars(result);
     }
   }
 

@@ -2,13 +2,16 @@
 
 This document tracks planned improvements and features for SideCar. Items are grouped by theme and roughly prioritized within each group.
 
-Last updated: 2026-04-08 (v0.31.0)
+Last updated: 2026-04-08 (v0.32.0)
 
 ---
 
 ## Technical Debt & Performance (from v0.28.1 audit)
 
 Items identified via architecture, AI engineering, algorithms, and frontend performance reviews. Grouped by priority.
+
+### ✅ COMPLETED (v0.32.0) — Context management & tool hardening
+**Description:** Local models were hitting context limits after a single large agentic task. Fixed by raising the default context cap (8K → 16K), reading Ollama's actual runtime `num_ctx`, scaling the pruning floor with context window size, and adding progressive compression of the latest turn when over budget. Added `sidecar.contextLimit` setting for user override. Hardened file tools with path validation to prevent hallucinated filenames. SVG output sanitized to prevent XSS. Co-author trailer now links to the SideCarAI-Bot GitHub account.
 
 ### ✅ COMPLETED (v0.31.0) — Mermaid diagram rendering
 **Description & Feature:** Models can now generate diagrams inline within chat using Mermaid syntax. Chat webview detects mermaid code blocks, lazily loads mermaid.js on first diagram, renders SVG output natively with theme-aware styling, and provides collapsible source view and copy-to-clipboard for SVG.
@@ -360,4 +363,11 @@ Explicit privacy mode with zero telemetry, zero usage data collection, and no ne
 - [x] Reconnect button with auto-retry and exponential backoff
 - [x] Scroll fix: `min-height: 0` for flexbox scroll truncation
 - [x] Markdown post-processing pass for un-rendered bold/code
+- [x] `display_diagram` tool: extract and display diagrams from markdown files
+- [x] Adaptive context pruning: progressive compression of latest turn when over budget
+- [x] `sidecar.contextLimit` setting for user-configurable context token limit
+- [x] Ollama `num_ctx` runtime detection (prefer actual over advertised context length)
+- [x] File path validation: reject hallucinated paths in write_file, edit_file, display_diagram
+- [x] SVG sanitization for mermaid diagram output
+- [x] SideCarAI-Bot co-author attribution on commits
 - [x] Verbose log blocks collapsed by default

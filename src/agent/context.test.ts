@@ -119,6 +119,48 @@ describe('pruneHistory', () => {
     expect(pruned[0].content).toBe('What is your version?');
   });
 
+  it('compresses the latest turn when still over budget after dropping old turns', () => {
+    // Build a single-turn conversation with a huge tool result
+    const msgs: ChatMessage[] = [
+      { role: 'user', content: 'Read the big file' },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'Reading...' },
+          { type: 'tool_use', id: 'tc_0', name: 'read_file', input: { path: 'big.ts' } },
+        ],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'tc_0', content: 'x'.repeat(10_000) }],
+      },
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'Here is the file content: ' + 'y'.repeat(2000) }],
+      },
+    ];
+
+    // Budget much smaller than the content — forces compression of the only turn
+    const pruned = pruneHistory(msgs, 2_000);
+    const totalChars = pruned.reduce((sum, m) => {
+      if (typeof m.content === 'string') return sum + m.content.length;
+      return (
+        sum +
+        m.content.reduce((s, b) => {
+          if (b.type === 'text') return s + b.text.length;
+          if (b.type === 'tool_result') return s + b.content.length;
+          if (b.type === 'tool_use') return s + JSON.stringify(b.input).length;
+          return s;
+        }, 0)
+      );
+    }, 0);
+
+    // Should be significantly smaller than original (~12K chars)
+    expect(totalChars).toBeLessThan(5_000);
+    // Should still have messages (not empty)
+    expect(pruned.length).toBeGreaterThan(0);
+  });
+
   it('reduces total character count significantly for multi-turn conversations', () => {
     const msgs = buildConversation(6);
     const before = msgs.reduce((sum, m) => {
