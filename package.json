@@ -482,8 +482,9 @@
   },
   "scripts": {
     "compile": "tsc -p ./",
-    "bundle": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap --minify --tree-shaking=true",
-    "build": "npm run compile && npm run bundle",
+    "bundle": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:web-tree-sitter --format=cjs --platform=node --sourcemap --minify --tree-shaking=true",
+    "copy-grammars": "mkdir -p grammars && cp node_modules/web-tree-sitter/tree-sitter.wasm grammars/ && cp node_modules/tree-sitter-wasms/out/tree-sitter-typescript.wasm node_modules/tree-sitter-wasms/out/tree-sitter-tsx.wasm node_modules/tree-sitter-wasms/out/tree-sitter-javascript.wasm node_modules/tree-sitter-wasms/out/tree-sitter-python.wasm node_modules/tree-sitter-wasms/out/tree-sitter-rust.wasm node_modules/tree-sitter-wasms/out/tree-sitter-go.wasm grammars/",
+    "build": "npm run compile && npm run bundle && npm run copy-grammars",
     "package": "npm run build && npx @vscode/vsce package",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -500,19 +501,21 @@
     "@typescript-eslint/eslint-plugin": "^8.58.0",
     "@typescript-eslint/parser": "^8.58.0",
     "@vitest/coverage-v8": "^4.1.2",
+    "@vscode/vsce": "^2.15.0",
     "esbuild": "^0.28.0",
     "eslint": "^10.2.0",
     "eslint-config-prettier": "^10.1.8",
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
     "prettier": "^3.8.1",
+    "tree-sitter-wasms": "^0.1.13",
     "typescript": "^5.3.0",
-    "vitest": "^4.1.2",
-    "@vscode/vsce": "^2.15.0"
+    "vitest": "^4.1.2"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "mermaid": "^11.14.0"
+    "mermaid": "^11.14.0",
+    "web-tree-sitter": "^0.24.7"
   },
   "lint-staged": {
     "src/**/*.ts": [

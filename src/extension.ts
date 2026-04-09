@@ -11,6 +11,7 @@ import { AgentLogger } from './agent/logger.js';
 import { MCPManager } from './agent/mcpManager.js';
 import { Scheduler } from './agent/scheduler.js';
 import { handleInlineChat } from './inline/inlineChatProvider.js';
+import { setGrammarsPath } from './parsing/registry.js';
 import { reviewCurrentChanges } from './review/reviewer.js';
 import { summarizePR } from './review/prSummary.js';
 import { generateCommitMessage } from './review/commitMessage.js';
@@ -29,6 +30,10 @@ let chatProvider: ChatViewProvider | undefined;
 
 export function activate(context: ExtensionContext) {
   console.log('SideCar extension activating...');
+
+  // Set grammars path for tree-sitter (lazy-loaded on first parse)
+  const grammarsPath = path.join(context.extensionPath, 'grammars');
+  setGrammarsPath(grammarsPath);
 
   // Read config once upfront for status bar display
   const config = getConfig();
