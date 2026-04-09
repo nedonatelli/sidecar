@@ -2,6 +2,23 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.33.0] - 2026-04-09
+
+### Documentation
+- **Roadmap cleanup**: marked 7 previously-completed features as COMPLETED with version numbers (Context pinning v0.27.0, Web page context v0.21.0, Onboarding walkthrough v0.22.0, Auto-fix on failure v0.20.0, and 3 others as PARTIALLY COMPLETED)
+- **Expanded roadmap**: added 8 new planned feature categories:
+  - Tool Discovery & Management: tool registries, versioning, dynamic loading
+  - Security & Permissions: granular controls, sandboxing, audit logging
+  - Advanced Agent Capabilities: multi-agent collaboration, planning, memory management
+  - Integration & Provider Support: enhanced MCP, VS Code API, multi-provider optimization
+  - Performance Optimizations: result caching, efficient context, parallel execution
+  - User Experience Improvements: reasoning visualization, error handling, config management
+  - Integration Improvements: CI/CD, project management tools, debugging, collaboration
+  - Enterprise & Team: configuration sharing, privacy guarantees
+
+### Tests
+- 465 total tests (maintained)
+
 ## [0.32.0] - 2026-04-08
 
 ### Added
