@@ -8,6 +8,7 @@ import { getConfig } from '../config/settings.js';
 import { scanFile, formatIssues } from './securityScanner.js';
 import { GitCLI } from '../github/git.js';
 import { ShellSession } from '../terminal/shellSession.js';
+import { searchWeb, formatSearchResults, checkInternetConnectivity } from './webSearch.js';
 import type { SymbolGraph } from '../config/symbolGraph.js';
 
 const execAsync = promisify(exec);
@@ -872,6 +873,62 @@ async function findReferences(input: Record<string, unknown>): Promise<string> {
   return result;
 }
 
+// --- Web search ---
+
+const webSearchDef: ToolDefinition = {
+  name: 'web_search',
+  description:
+    'Search the web for information. Use this to find documentation, solutions to error messages, ' +
+    'library APIs, or any information not available in the local codebase. Returns titles, URLs, and snippets.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      query: {
+        type: 'string',
+        description: 'Search query (e.g., "react useEffect cleanup function", "python asyncio timeout")',
+      },
+    },
+    required: ['query'],
+  },
+};
+
+let internetChecked = false;
+let internetAvailable = true;
+
+async function webSearch(input: Record<string, unknown>): Promise<string> {
+  const query = (input.query as string) || '';
+  if (!query) return 'Error: search query is required.';
+
+  // Check internet connectivity once per session
+  if (!internetChecked) {
+    internetChecked = true;
+    internetAvailable = await checkInternetConnectivity();
+    if (!internetAvailable) {
+      return '⚠️ No internet connection detected. Web search is unavailable. Try resolving the issue using local files, documentation, or project context instead.';
+    }
+  } else if (!internetAvailable) {
+    // Retry connectivity on subsequent calls in case connection was restored
+    internetAvailable = await checkInternetConnectivity();
+    if (!internetAvailable) {
+      return '⚠️ Still offline. Web search is unavailable.';
+    }
+  }
+
+  try {
+    const results = await searchWeb(query);
+    if (results.length === 0) {
+      return `No results found for: "${query}". Try rephrasing the query.`;
+    }
+    return `Web search results for "${query}":\n\n${formatSearchResults(results)}`;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('timeout') || msg.includes('ETIMEDOUT')) {
+      return '⚠️ Search timed out. The internet connection may be slow or unavailable.';
+    }
+    return `Search failed: ${msg}`;
+  }
+}
+
 // --- Registry ---
 
 export const TOOL_REGISTRY: RegisteredTool[] = [
@@ -895,6 +952,7 @@ export const TOOL_REGISTRY: RegisteredTool[] = [
   { definition: gitStashDef, executor: gitStash, requiresApproval: true },
   { definition: displayDiagramDef, executor: displayDiagram, requiresApproval: false },
   { definition: findReferencesDef, executor: findReferences, requiresApproval: false },
+  { definition: webSearchDef, executor: webSearch, requiresApproval: false },
 ];
 
 export const SPAWN_AGENT_DEFINITION: ToolDefinition = {
