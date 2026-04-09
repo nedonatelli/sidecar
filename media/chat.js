@@ -349,6 +349,7 @@
     { cmd: '/skills', desc: 'List available Claude Code & SideCar skills' },
     { cmd: '/releases', desc: 'List GitHub releases' },
     { cmd: '/release', desc: 'Show, create, or delete a release' },
+    { cmd: '/plan', desc: 'Toggle plan mode (plan before executing)' },
   ];
   const autocompleteEl = document.getElementById('slash-autocomplete');
   let acSelectedIndex = -1;
@@ -948,6 +949,22 @@
       input.style.height = 'auto';
       return;
     }
+    if (text.trim() === '/plan') {
+      vscode.postMessage({ command: 'togglePlanMode' });
+      input.value = '';
+      input.style.height = 'auto';
+      return;
+    }
+    if (text.trim().startsWith('/revise ')) {
+      const feedback = text.trim().slice(8);
+      if (feedback) {
+        appendMessage('user', 'Revise: ' + feedback);
+        vscode.postMessage({ command: 'revisePlan', text: feedback });
+      }
+      input.value = '';
+      input.style.height = 'auto';
+      return;
+    }
     if (text.trim() === '/prompt') {
       vscode.postMessage({ command: 'showSystemPrompt' });
       input.value = '';
@@ -1014,6 +1031,7 @@
           '`/deps` — Analyze project dependencies\n' +
           '`/scaffold <type>` — Generate code from template\n' +
           '`/verbose` — Toggle verbose mode (show agent reasoning)\n' +
+          '`/plan` — Toggle plan mode (plan before executing)\n' +
           '`/prompt` — Show the current system prompt',
       );
       input.value = '';
@@ -2608,11 +2626,25 @@
         reviseBtn.textContent = 'Revise';
         reviseBtn.className = 'plan-btn plan-revise';
         reviseBtn.addEventListener('click', () => {
-          const feedback = prompt('How should the plan be revised?');
-          if (feedback) vscode.postMessage({ command: 'revisePlan', text: feedback });
+          // Focus the chat input with a revision prefix instead of window.prompt()
+          input.value = '/revise ';
+          input.focus();
+          input.style.height = 'auto';
+          input.style.height = input.scrollHeight + 'px';
+        });
+        const rejectBtn = document.createElement('button');
+        rejectBtn.textContent = 'Reject';
+        rejectBtn.className = 'plan-btn plan-reject';
+        rejectBtn.addEventListener('click', () => {
+          planDiv.style.opacity = '0.5';
+          execBtn.disabled = true;
+          reviseBtn.disabled = true;
+          rejectBtn.disabled = true;
+          appendMessage('assistant', 'Plan rejected.');
         });
         btnRow.appendChild(execBtn);
         btnRow.appendChild(reviseBtn);
+        btnRow.appendChild(rejectBtn);
         planDiv.appendChild(btnRow);
         messagesContainer.appendChild(planDiv);
         scrollToBottom();

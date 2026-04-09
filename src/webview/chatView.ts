@@ -226,6 +226,18 @@ export class ChatViewProvider implements WebviewViewProvider {
       });
       this.state.postMessage({ command: 'done' });
     },
+    togglePlanMode: () => {
+      const current = getConfig().planMode;
+      workspace.getConfiguration('sidecar').update('planMode', !current, true);
+      const label = !current ? 'ON' : 'OFF';
+      this.state.postMessage({
+        command: 'assistantMessage',
+        content: !current
+          ? `Plan mode ${label}. The agent will generate a structured plan before executing any tools. You can review, revise, or execute the plan.`
+          : `Plan mode ${label}. The agent will execute tasks directly.`,
+      });
+      this.state.postMessage({ command: 'done' });
+    },
     listSkills: () => {
       const list = this.state.skillLoader?.listFormatted() || 'No skills loaded.';
       this.state.postMessage({ command: 'assistantMessage', content: list });

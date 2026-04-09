@@ -284,6 +284,25 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
           '10. You can create diagrams by writing mermaid code blocks (```mermaid) in your responses — they will be rendered visually in the chat. Use this for architecture diagrams, flowcharts, sequence diagrams, ER diagrams, class diagrams, etc. when it helps explain concepts.',
         ].join('\n');
 
+    // In plan mode, append structured planning instructions
+    if (config.planMode) {
+      systemPrompt +=
+        '\n\nPLAN MODE ACTIVE:\n' +
+        "You are in plan mode. For the user's request, generate a structured execution plan — do NOT execute anything yet.\n" +
+        'Format your plan as:\n' +
+        '## Plan: <brief title>\n\n' +
+        '1. **Step name** — description of what to do, which files to touch\n' +
+        '2. **Step name** — next action\n' +
+        '...\n\n' +
+        '### Risks & Considerations\n' +
+        '- Note any potential issues, edge cases, or dependencies between steps\n\n' +
+        '### Estimated Scope\n' +
+        '- Files to modify: list them\n' +
+        '- New files: list if any\n' +
+        '- Tests needed: yes/no and which\n\n' +
+        'After presenting the plan, the user can approve, revise, or reject it before execution begins.';
+    }
+
     // Append SIDECAR.md and user prompt with size limits to prevent context overflow.
     // Reserve at least 50% of context for conversation and tool results.
     // Cap local model context — many models advertise huge context windows
