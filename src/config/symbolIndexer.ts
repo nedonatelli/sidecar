@@ -107,7 +107,7 @@ export class SymbolIndexer implements Disposable {
     // Remove files that no longer exist
     if (restored) {
       const currentFiles = new Set(codeUris.map((u) => path.relative(this.rootPath, u.fsPath)));
-      for (const indexed of [...this.graph.toJSON().fileHashes]) {
+      for (const indexed of Object.entries(this.graph.toJSON().fileHashes)) {
         if (!currentFiles.has(indexed[0])) {
           this.graph.removeFile(indexed[0]);
         }
