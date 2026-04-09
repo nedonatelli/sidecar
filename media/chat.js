@@ -1551,20 +1551,35 @@
 
   let messageCounter = 0;
 
-  function appendMessage(role, content, isError = false) {
-    const div = document.createElement('div');
-    div.className = 'message ' + role + (isError ? ' error' : '');
-    div.dataset.msgIndex = String(messageCounter++);
-    if (role === 'assistant' && !isError) {
-      div.appendChild(renderContent(content, window.currentModelSupportsTools));
-      postProcessMarkdown(div);
-    } else {
-      div.textContent = content;
-    }
+  /** Add copy and delete action buttons to a message div. */
+  function addMessageActions(div) {
+    // Remove existing actions if present (for re-render cases)
+    const existing = div.querySelector('.message-actions');
+    if (existing) existing.remove();
 
-    // Add delete button — uses data-msg-index for O(1) lookup instead of DOM query
+    const actions = document.createElement('div');
+    actions.className = 'message-actions';
+
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'message-action-btn message-copy-btn';
+    copyBtn.innerHTML = '&#x2398;';
+    copyBtn.title = 'Copy message';
+    copyBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const raw = div.dataset.rawContent || div.innerText;
+      navigator.clipboard.writeText(raw).then(() => {
+        copyBtn.innerHTML = '&#x2713;';
+        copyBtn.classList.add('copied');
+        setTimeout(() => {
+          copyBtn.innerHTML = '&#x2398;';
+          copyBtn.classList.remove('copied');
+        }, 1500);
+      });
+    });
+    actions.appendChild(copyBtn);
+
     const deleteBtn = document.createElement('button');
-    deleteBtn.className = 'message-delete-btn';
+    deleteBtn.className = 'message-action-btn message-delete-btn';
     deleteBtn.textContent = '\u00d7';
     deleteBtn.title = 'Delete message';
     deleteBtn.addEventListener('click', (e) => {
@@ -1575,8 +1590,25 @@
         div.remove();
       }
     });
-    div.appendChild(deleteBtn);
+    actions.appendChild(deleteBtn);
 
+    div.appendChild(actions);
+  }
+
+  function appendMessage(role, content, isError = false) {
+    const div = document.createElement('div');
+    div.className = 'message ' + role + (isError ? ' error' : '');
+    div.dataset.msgIndex = String(messageCounter++);
+    // Store raw markdown content for the copy button (not rendered HTML)
+    div.dataset.rawContent = content || '';
+    if (role === 'assistant' && !isError) {
+      div.appendChild(renderContent(content, window.currentModelSupportsTools));
+      postProcessMarkdown(div);
+    } else {
+      div.textContent = content;
+    }
+
+    addMessageActions(div);
     messagesContainer.appendChild(div);
     scrollToBottom();
     return div;
@@ -1741,6 +1773,9 @@
     streamingSpan = null;
 
     if (currentAssistantDiv && currentAssistantText) {
+      // Store raw content for copy button before re-rendering
+      currentAssistantDiv.dataset.rawContent = currentAssistantText;
+
       // Final full render to ensure complete content with all buttons
       try {
         currentAssistantDiv.innerHTML = '';
@@ -1755,6 +1790,9 @@
       }
       // Post-processing pass: fix any un-rendered markdown in text nodes
       postProcessMarkdown(currentAssistantDiv);
+
+      // Re-add message action buttons (destroyed by innerHTML clear)
+      addMessageActions(currentAssistantDiv);
     }
     currentAssistantDiv = null;
     currentAssistantText = '';
