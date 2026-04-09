@@ -2,6 +2,7 @@ import { workspace, Uri, FileSystemWatcher, RelativePattern, Disposable } from '
 import * as path from 'path';
 import { SimpleCodeAnalyzer, ParsedFile } from '../astContext.js';
 import { LimitedCache } from '../agent/memoryManager.js';
+import type { SymbolIndexer } from './symbolIndexer.js';
 
 const MAX_FILE_SIZE = 100 * 1024; // 100KB
 const MAX_CONTENT_LENGTH = 10_000; // 10K chars per file
@@ -38,9 +39,17 @@ export class WorkspaceIndex implements Disposable {
   private parsedFiles = new LimitedCache<string, ParsedFile>(100, 300000);
   private rebuildTimer: ReturnType<typeof setTimeout> | null = null;
   private pinnedPaths = new Set<string>();
+  private symbolIndexer: SymbolIndexer | null = null;
+  /** Files the agent has accessed this session, for graph context. */
+  private recentlyAccessedFiles = new Set<string>();
 
   constructor(maxContextChars = 20_000) {
     this.maxContextChars = maxContextChars;
+  }
+
+  /** Attach a symbol indexer to receive file change notifications and provide graph context. */
+  setSymbolIndexer(indexer: SymbolIndexer): void {
+    this.symbolIndexer = indexer;
   }
 
   /** Set pinned paths from settings (replaces previous pins from settings). */
@@ -107,15 +116,22 @@ export class WorkspaceIndex implements Disposable {
           if (stat.size <= MAX_FILE_SIZE) {
             this.files.set(rel, { relativePath: rel, sizeBytes: stat.size, relevanceScore: this.baseScore(rel) });
             this.scheduleRebuild();
+            this.symbolIndexer?.queueUpdate(rel);
           }
         },
         () => {},
       );
     });
+    this.watcher.onDidChange((uri) => {
+      const rel = path.relative(rootPath, uri.fsPath);
+      if (this.shouldExclude(rel)) return;
+      this.symbolIndexer?.queueUpdate(rel);
+    });
     this.watcher.onDidDelete((uri) => {
       const rel = path.relative(rootPath, uri.fsPath);
       this.files.delete(rel);
       this.scheduleRebuild();
+      this.symbolIndexer?.queueDelete(rel);
     });
   }
 
@@ -267,6 +283,24 @@ export class WorkspaceIndex implements Disposable {
       }
     }
 
+    // Append symbol graph context if available — show dependencies
+    // and dependents of recently accessed files.
+    if (this.symbolIndexer && this.recentlyAccessedFiles.size > 0) {
+      const graphBudget = Math.min(2000, budget - charCount);
+      if (graphBudget > 100) {
+        const graphContext = this.symbolIndexer
+          .getGraph()
+          .getFileGraphContext([...this.recentlyAccessedFiles], graphBudget);
+        if (graphContext) {
+          const section = `\n## File Dependencies\n${graphContext}\n`;
+          if (charCount + section.length <= budget) {
+            parts.push(section);
+            charCount += section.length;
+          }
+        }
+      }
+    }
+
     // Append workspace tree at the end if budget remains — it's useful
     // context but less valuable than actual file contents.
     const tree = `\n## Workspace Structure\n\`\`\`\n${this.treeCache}\n\`\`\`\n`;
@@ -287,9 +321,10 @@ export class WorkspaceIndex implements Disposable {
   private computeScore(file: FileNode, query: string, activeFilePath?: string): number {
     let score = file.relevanceScore;
 
-    // Boost if file path appears in the query
+    // Strong boost if file path appears in the query — the user is explicitly
+    // asking about this file, so it should dominate over accumulated history.
     if (query.includes(file.relativePath) || query.includes(path.basename(file.relativePath))) {
-      score += 0.5;
+      score += 1.5;
     }
 
     // Boost if in same directory as active file
@@ -324,17 +359,32 @@ export class WorkspaceIndex implements Disposable {
       const boost = accessType === 'write' ? 0.4 : 0.2;
       node.relevanceScore = Math.min(1, node.relevanceScore + boost);
     }
+    this.recentlyAccessedFiles.add(relativePath);
   }
 
   /**
-   * Decay all relevance scores slightly so old accesses fade over time.
+   * Decay all relevance scores so old accesses fade over time.
    * Call this at the start of each conversation turn.
+   * Uses a faster decay (0.8) so that when the user changes topic,
+   * previously discussed files don't dominate the context.
    */
-  decayRelevance(factor = 0.95): void {
+  decayRelevance(factor = 0.8): void {
     for (const node of this.files.values()) {
       const base = this.baseScore(node.relativePath);
       node.relevanceScore = Math.max(base, node.relevanceScore * factor);
     }
+  }
+
+  /**
+   * Reset all relevance scores back to their base values.
+   * Called when the conversation is cleared so that previously discussed
+   * files don't carry over into a fresh conversation's workspace context.
+   */
+  resetRelevance(): void {
+    for (const node of this.files.values()) {
+      node.relevanceScore = this.baseScore(node.relativePath);
+    }
+    this.recentlyAccessedFiles.clear();
   }
 
   getFileCount(): number {

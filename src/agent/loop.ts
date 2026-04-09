@@ -239,10 +239,18 @@ export async function runAgentLoop(
     // Previously this used `continue` which could loop infinitely when
     // stripRepeatedContent emptied the response.
     if (pendingToolUses.length === 0) {
-      // Track that tools were available but not used — helps auto-detect
-      // models that don't actually support tool calling.
+      // Only record a tool failure if the model's response looks like it
+      // attempted to call tools but failed (contains tool-like syntax).
+      // Normal text-only responses (answering questions) should NOT count
+      // as failures — otherwise 3 Q&A turns would disable tools entirely.
       if (iterTools.length > 0 && fullText) {
-        recordToolFailure(client.getModel());
+        const looksLikeToolAttempt =
+          fullText.includes('<function=') ||
+          fullText.includes('<tool_call>') ||
+          (fullText.includes('"name"') && fullText.includes('"arguments"'));
+        if (looksLikeToolAttempt) {
+          recordToolFailure(client.getModel());
+        }
       }
       break;
     }

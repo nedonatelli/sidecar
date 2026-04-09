@@ -5,12 +5,16 @@
  */
 
 export interface CodeElement {
-  type: 'function' | 'class' | 'method' | 'variable' | 'import' | 'export';
+  type: 'function' | 'class' | 'method' | 'variable' | 'import' | 'export' | 'interface' | 'type' | 'enum';
   name: string;
   startLine: number;
   endLine: number;
   content: string;
   relevanceScore: number;
+  /** Whether the symbol has an `export` modifier. */
+  exported?: boolean;
+  /** For imports: the named bindings imported (e.g. ['A', 'B'] from `import { A, B } from ...`). */
+  bindings?: string[];
 }
 
 export interface ParsedFile {
@@ -65,6 +69,101 @@ export class SimpleCodeAnalyzer {
   }
 
   /**
+   * Parse an import statement, handling multi-line imports.
+   * Returns the module path, named bindings, and end line.
+   */
+  private static parseImport(
+    line: string,
+    lines: string[],
+    startLine: number,
+  ): { modulePath: string; bindings: string[]; endLine: number } | null {
+    // Named imports: import { A, B } from '...'
+    const namedMatch = line.match(/import\s+\{([^}]*)\}\s+from\s+['"]([^'"]+)['"]/);
+    if (namedMatch) {
+      const bindings = namedMatch[1]
+        .split(',')
+        .map((b) =>
+          b
+            .trim()
+            .split(/\s+as\s+/)[0]
+            .trim(),
+        )
+        .filter(Boolean);
+      return { modulePath: namedMatch[2], bindings, endLine: startLine };
+    }
+
+    // Multi-line named imports: import {\n  A,\n  B\n} from '...'
+    if (line.match(/import\s+\{/) && !line.includes('}')) {
+      let endLine = startLine;
+      let accumulated = line;
+      for (let j = startLine + 1; j < lines.length && j < startLine + 20; j++) {
+        accumulated += ' ' + lines[j];
+        if (lines[j].includes('}')) {
+          endLine = j;
+          break;
+        }
+      }
+      const multiMatch = accumulated.match(/import\s+\{([^}]*)\}\s+from\s+['"]([^'"]+)['"]/);
+      if (multiMatch) {
+        const bindings = multiMatch[1]
+          .split(',')
+          .map((b) =>
+            b
+              .trim()
+              .split(/\s+as\s+/)[0]
+              .trim(),
+          )
+          .filter(Boolean);
+        return { modulePath: multiMatch[2], bindings, endLine };
+      }
+    }
+
+    // Default import: import Foo from '...'
+    const defaultMatch = line.match(/import\s+([a-zA-Z_$][\w$]*)\s+from\s+['"]([^'"]+)['"]/);
+    if (defaultMatch) {
+      return { modulePath: defaultMatch[2], bindings: ['default'], endLine: startLine };
+    }
+
+    // Star import: import * as Foo from '...'
+    const starMatch = line.match(/import\s+\*\s+as\s+([a-zA-Z_$][\w$]*)\s+from\s+['"]([^'"]+)['"]/);
+    if (starMatch) {
+      return { modulePath: starMatch[2], bindings: ['*'], endLine: startLine };
+    }
+
+    // Side-effect import: import '...'
+    const sideEffectMatch = line.match(/import\s+['"]([^'"]+)['"]/);
+    if (sideEffectMatch) {
+      return { modulePath: sideEffectMatch[1], bindings: [], endLine: startLine };
+    }
+
+    return null;
+  }
+
+  /**
+   * Best-effort resolution of a relative import path to a file path.
+   * Tries common extensions (.ts, .tsx, .js, .jsx) and index files.
+   */
+  static resolveImportPath(importerFile: string, moduleSpecifier: string): string | null {
+    // Only resolve relative imports
+    if (!moduleSpecifier.startsWith('.')) return null;
+
+    const importerDir = importerFile.substring(0, importerFile.lastIndexOf('/'));
+    const segments = moduleSpecifier.split('/');
+    const resolved: string[] = importerDir ? importerDir.split('/') : [];
+
+    for (const seg of segments) {
+      if (seg === '.') continue;
+      if (seg === '..') {
+        resolved.pop();
+      } else {
+        resolved.push(seg);
+      }
+    }
+
+    return resolved.join('/');
+  }
+
+  /**
    * Parse a file and extract code elements with their full bodies.
    */
   static parseFileContent(filePath: string, content: string): ParsedFile {
@@ -96,6 +195,8 @@ export class SimpleCodeAnalyzer {
 
       // --- Language-specific function/method patterns ---
       if (lang === 'js') {
+        const isExported = /^\s*export\s/.test(line);
+
         // Function declarations
         if (line.includes('function ') && !line.includes('function(')) {
           const match = line.match(/function\s+([a-zA-Z_$][\w$]*)/);
@@ -108,6 +209,7 @@ export class SimpleCodeAnalyzer {
               endLine,
               content: buildContent(i, endLine),
               relevanceScore: 0.8,
+              exported: isExported,
             });
           }
         }
@@ -124,7 +226,60 @@ export class SimpleCodeAnalyzer {
             endLine,
             content: buildContent(i, endLine),
             relevanceScore: 0.8,
+            exported: isExported,
           });
+        }
+
+        // Interface declarations (TypeScript)
+        if (line.includes('interface ')) {
+          const match = line.match(/interface\s+([a-zA-Z_$][\w$]*)/);
+          if (match) {
+            const endLine = this.findBlockEnd(lines, i);
+            elements.push({
+              type: 'interface',
+              name: match[1],
+              startLine: i,
+              endLine,
+              content: buildContent(i, endLine),
+              relevanceScore: 0.7,
+              exported: isExported,
+            });
+          }
+        }
+
+        // Type alias declarations (TypeScript)
+        if (line.includes('type ') && line.match(/^\s*(?:export\s+)?type\s+([a-zA-Z_$][\w$]*)\s*[=<]/)) {
+          const match = line.match(/type\s+([a-zA-Z_$][\w$]*)/);
+          if (match) {
+            // Type aliases can be single-line or multi-line
+            const endLine = line.includes('{') ? this.findBlockEnd(lines, i) : i;
+            elements.push({
+              type: 'type',
+              name: match[1],
+              startLine: i,
+              endLine,
+              content: buildContent(i, endLine),
+              relevanceScore: 0.6,
+              exported: isExported,
+            });
+          }
+        }
+
+        // Enum declarations (TypeScript)
+        if (line.includes('enum ')) {
+          const match = line.match(/(?:const\s+)?enum\s+([a-zA-Z_$][\w$]*)/);
+          if (match) {
+            const endLine = this.findBlockEnd(lines, i);
+            elements.push({
+              type: 'enum',
+              name: match[1],
+              startLine: i,
+              endLine,
+              content: buildContent(i, endLine),
+              relevanceScore: 0.6,
+              exported: isExported,
+            });
+          }
         }
       } else if (lang === 'py') {
         if (line.match(/^\s*(?:async\s+)?def\s/)) {
@@ -192,6 +347,7 @@ export class SimpleCodeAnalyzer {
       if (line.match(/^\s*(?:export\s+)?class\s/)) {
         const match = line.match(/class\s+([a-zA-Z_$][\w$]*)/);
         if (match) {
+          const isExportedClass = /^\s*export\s/.test(line);
           const endLine = usesBraces ? this.findBlockEnd(lines, i) : this.findIndentEnd(lines, i);
           elements.push({
             type: 'class',
@@ -200,22 +356,39 @@ export class SimpleCodeAnalyzer {
             endLine,
             content: buildContent(i, endLine),
             relevanceScore: 0.9,
+            exported: isExportedClass,
           });
         }
       }
 
-      // --- Import/export statements (all languages, cheap string checks first) ---
-      if (line.includes('import') && line.includes('from') && line.match(/^\s*import\s/)) {
-        const match = line.match(/import\s+(?:.*\s+from\s+)?['"](.*?)['"]/);
-        if (match) {
+      // --- Import statements with binding extraction ---
+      if (line.includes('import') && line.match(/^\s*import\s/)) {
+        const parsed = this.parseImport(line, lines, i);
+        if (parsed) {
           elements.push({
             type: 'import',
-            name: match[1],
+            name: parsed.modulePath,
             startLine: i,
-            endLine: i,
-            content: line,
+            endLine: parsed.endLine,
+            content: buildContent(i, parsed.endLine),
             relevanceScore: 0.3,
+            bindings: parsed.bindings,
           });
+          // Skip past multi-line imports
+          if (parsed.endLine > i) i = parsed.endLine;
+        } else if (line.includes('from')) {
+          // Fallback for unrecognized import patterns
+          const match = line.match(/import\s+(?:.*\s+from\s+)?['"](.*?)['"]/);
+          if (match) {
+            elements.push({
+              type: 'import',
+              name: match[1],
+              startLine: i,
+              endLine: i,
+              content: line,
+              relevanceScore: 0.3,
+            });
+          }
         }
       }
       if (line.includes('export') && line.includes('from') && line.match(/^\s*export\s/)) {

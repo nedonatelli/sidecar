@@ -218,6 +218,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
           '6. After fixing bugs, call run_tests to verify.',
           '7. Read files before editing them. Use grep or search_files to find code.',
           '8. If you already answered the question before using a tool, just add new information from the tool result — do not restate your previous answer.',
+          '9. You can create diagrams by writing mermaid code blocks (```mermaid) in your responses — they will be rendered visually in the chat. Use this for architecture diagrams, flowcharts, sequence diagrams, ER diagrams, etc. when it helps explain concepts.',
         ].join('\n')
       : [
           `You are SideCar v${extensionVersion}, an AI coding assistant running inside VS Code. GitHub: ${repoUrl} | Docs: ${docsUrl}`,
@@ -235,6 +236,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
           '7. Read files before editing them. Use grep or search_files to locate code first.',
           '8. For multi-step tasks, plan your approach, then execute step by step.',
           '9. If you already answered before using a tool, only add new information — do not restate what you said.',
+          '10. You can create diagrams by writing mermaid code blocks (```mermaid) in your responses — they will be rendered visually in the chat. Use this for architecture diagrams, flowcharts, sequence diagrams, ER diagrams, class diagrams, etc. when it helps explain concepts.',
         ].join('\n');
 
     // Append SIDECAR.md and user prompt with size limits to prevent context overflow.
@@ -334,6 +336,10 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     }
 
     state.client.updateSystemPrompt(systemPrompt);
+
+    // Snapshot the chat generation so we can detect if clearChat() was
+    // called while the agent loop was running.
+    const generationAtStart = state.chatGeneration;
 
     // Build API messages with enriched context
     const chatMessages = [...state.messages];
@@ -523,6 +529,12 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
           : undefined,
       },
     );
+
+    // If the conversation was cleared while the agent loop was running,
+    // discard the stale results — don't restore old messages into the new chat.
+    if (state.chatGeneration !== generationAtStart) {
+      return;
+    }
 
     // Merge agent output with any messages added during the run (e.g., user sent
     // a new message while the agent was working). The agent loop started with a

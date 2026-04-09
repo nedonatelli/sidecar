@@ -163,13 +163,24 @@ export class ChatState {
     }
   }
 
+  /** Monotonically increasing generation counter, bumped on each clearChat. */
+  chatGeneration = 0;
+
   clearChat(): void {
     this.autoSave();
+    // Abort any in-flight agent loop so its post-loop code doesn't
+    // overwrite the cleared messages with old conversation history.
+    this.abort();
+    this.abortController = null;
     this.messages = [];
     this.pendingPlan = null;
     this.pendingPlanMessages = [];
     this.changelog.clear();
     this.currentSessionId = null;
+    this.chatGeneration++;
+    // Reset workspace file relevance so previously discussed files
+    // don't dominate context in the new conversation.
+    this.workspaceIndex?.resetRelevance();
     this.saveHistory();
     this.postMessage({ command: 'chatCleared' });
   }

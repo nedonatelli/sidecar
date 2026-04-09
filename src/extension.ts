@@ -16,10 +16,11 @@ import { generateCommitMessage } from './review/commitMessage.js';
 import { EventHookManager } from './agent/eventHooks.js';
 import { WorkspaceIndex } from './config/workspaceIndex.js';
 import { SidecarDir } from './config/sidecarDir.js';
+import { SymbolIndexer } from './config/symbolIndexer.js';
 import { SkillLoader } from './agent/skillLoader.js';
 import { getFilePatterns } from './config/workspace.js';
 import { runPreCommitScan } from './agent/preCommitScan.js';
-import { disposeShellSession } from './agent/tools.js';
+import { disposeShellSession, setSymbolGraph } from './agent/tools.js';
 import { disposeSidecarMdWatcher } from './webview/handlers/chatHandlers.js';
 
 let chatProvider: ChatViewProvider | undefined;
@@ -80,6 +81,10 @@ export function activate(context: ExtensionContext) {
   const workspaceIndex = new WorkspaceIndex();
   context.subscriptions.push(workspaceIndex);
 
+  // Initialize symbol graph indexer
+  const symbolIndexer = new SymbolIndexer(sidecarDir);
+  context.subscriptions.push(symbolIndexer);
+
   // Initialize workspace index in the background with progress indicator
   if (workspace.workspaceFolders && workspace.workspaceFolders.length > 0) {
     const indexStatus = window.createStatusBarItem(StatusBarAlignment.Left, 0);
@@ -93,6 +98,17 @@ export function activate(context: ExtensionContext) {
         console.log(`[SideCar] Workspace indexed: ${count} files`);
         indexStatus.text = `$(check) SideCar: ${count} files indexed`;
         setTimeout(() => indexStatus.dispose(), 5000);
+
+        // Build symbol graph after workspace index is ready
+        symbolIndexer
+          .initialize(getFilePatterns())
+          .then(() => {
+            const symCount = symbolIndexer.getGraph().symbolCount();
+            console.log(`[SideCar] Symbol graph built: ${symCount} symbols`);
+            workspaceIndex.setSymbolIndexer(symbolIndexer);
+            setSymbolGraph(symbolIndexer.getGraph());
+          })
+          .catch((err) => console.warn('[SideCar] Symbol graph build failed:', err));
       })
       .catch((err) => {
         console.error('[SideCar] Workspace indexing failed:', err);

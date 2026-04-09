@@ -32,14 +32,14 @@ Items identified via architecture, AI engineering, algorithms, and frontend perf
 
 **Remaining:** Verbose logging for fallback events (low priority — console warnings already visible)
 
-### MEDIUM — OpenAI and Anthropic stream error tests
-Only the Ollama backend has tests for stream error paths (malformed JSON, partial chunks, mid-stream drops, unclosed think tags). The OpenAI and Anthropic backends need equivalent coverage.
+### ✅ COMPLETED — OpenAI and Anthropic stream error tests
+Added comprehensive stream error path tests for both OpenAI and Anthropic backends: malformed JSON, partial chunks, mid-stream errors, tool call accumulation, malformed tool arguments, multiple sequential tool calls, missing delta fields, abrupt stream termination, and complete/non-streaming error paths. 26 new tests total.
 
-### MEDIUM — Consolidate parseTextToolCalls regex passes
-`parseTextToolCalls()` in `loop.ts` runs three sequential regex patterns over the full text. Could be consolidated into a single pass or a unified parser for ~3x throughput improvement.
+### ✅ COMPLETED — Consolidate parseTextToolCalls regex passes
+`parseTextToolCalls()` in `loop.ts` already uses a single combined regex matching all three patterns (function tags, tool_call tags, JSON code fences) in one pass.
 
-### MEDIUM — parseThinkTags index tracking
-`parseThinkTags()` in `streamUtils.ts` creates intermediate strings via `content.slice()` on every think tag boundary. Should use start/end index tracking instead of slicing to reduce GC pressure during heavy thinking output.
+### ✅ COMPLETED — parseThinkTags index tracking
+`parseThinkTags()` in `streamUtils.ts` already uses index tracking via a `pos` variable instead of repeated `content.slice()` calls, reducing GC pressure during heavy thinking output.
 
 ### LOW — Config interface sub-object grouping
 `SideCarConfig` has 28+ fields. Group into sub-objects (`AgentConfig`, `CompletionConfig`, `ShellConfig`, `ContextConfig`) to improve maintainability. Requires updating all downstream call sites.

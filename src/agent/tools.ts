@@ -8,6 +8,7 @@ import { getConfig } from '../config/settings.js';
 import { scanFile, formatIssues } from './securityScanner.js';
 import { GitCLI } from '../github/git.js';
 import { ShellSession } from '../terminal/shellSession.js';
+import type { SymbolGraph } from '../config/symbolGraph.js';
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
@@ -741,6 +742,105 @@ async function displayDiagram(input: Record<string, unknown>): Promise<string> {
   }
 }
 
+// --- Symbol graph integration ---
+let symbolGraph: SymbolGraph | null = null;
+
+export function setSymbolGraph(graph: SymbolGraph): void {
+  symbolGraph = graph;
+}
+
+const findReferencesDef: ToolDefinition = {
+  name: 'find_references',
+  description:
+    'Find all references to a symbol (function, class, type, variable) across the workspace. ' +
+    'Returns the definition location, files that import it, and lines where it is used. ' +
+    'Use this to understand impact before refactoring or to find callers of a function.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      symbol: { type: 'string', description: 'Name of the symbol to find references for' },
+      file: {
+        type: 'string',
+        description: 'Optional: restrict search to references involving this file (as definer or user)',
+      },
+    },
+    required: ['symbol'],
+  },
+};
+
+async function findReferences(input: Record<string, unknown>): Promise<string> {
+  if (!symbolGraph) {
+    return 'Symbol graph is not available. The workspace may still be indexing.';
+  }
+
+  const symbolName = (input.symbol as string) || '';
+  const filterFile = input.file as string | undefined;
+
+  if (!symbolName) return 'Error: symbol name is required.';
+
+  // Look up definitions
+  let definitions = symbolGraph.lookupSymbol(symbolName);
+  if (filterFile) {
+    definitions = definitions.filter((d) => d.filePath === filterFile || d.filePath.includes(filterFile));
+  }
+
+  if (definitions.length === 0) {
+    return `No symbol named "${symbolName}" found in the index.`;
+  }
+
+  const parts: string[] = [];
+
+  // Show definitions
+  parts.push(`## Definitions of "${symbolName}"\n`);
+  for (const def of definitions.slice(0, 10)) {
+    parts.push(
+      `- ${def.exported ? 'export ' : ''}${def.type} **${def.qualifiedName}** — ${def.filePath}:${def.startLine + 1}`,
+    );
+  }
+
+  // Show dependents (files that import the defining file)
+  const allDependents = new Set<string>();
+  for (const def of definitions) {
+    for (const dep of symbolGraph.getDependents(def.filePath)) {
+      allDependents.add(dep);
+    }
+  }
+  if (allDependents.size > 0) {
+    parts.push(`\n## Files importing the defining module(s)\n`);
+    const depList = [...allDependents].slice(0, 20);
+    for (const dep of depList) {
+      parts.push(`- ${dep}`);
+    }
+    if (allDependents.size > 20) {
+      parts.push(`- ... and ${allDependents.size - 20} more`);
+    }
+  }
+
+  // Find actual usage sites
+  const references = symbolGraph.findReferences(symbolName);
+  const filtered = filterFile
+    ? references.filter((r) => r.file === filterFile || r.file.includes(filterFile))
+    : references;
+
+  if (filtered.length > 0) {
+    parts.push(`\n## Usage sites (${filtered.length} references)\n`);
+    for (const ref of filtered.slice(0, 30)) {
+      parts.push(`- ${ref.file}:${ref.line} — \`${ref.context}\``);
+    }
+    if (filtered.length > 30) {
+      parts.push(`- ... and ${filtered.length - 30} more`);
+    }
+  }
+
+  // Truncate to 5000 chars
+  let result = parts.join('\n');
+  if (result.length > 5000) {
+    result = result.slice(0, 4950) + '\n... (truncated)';
+  }
+
+  return result;
+}
+
 // --- Registry ---
 
 export const TOOL_REGISTRY: RegisteredTool[] = [
@@ -763,6 +863,7 @@ export const TOOL_REGISTRY: RegisteredTool[] = [
   { definition: gitBranchDef, executor: gitBranch, requiresApproval: true },
   { definition: gitStashDef, executor: gitStash, requiresApproval: true },
   { definition: displayDiagramDef, executor: displayDiagram, requiresApproval: false },
+  { definition: findReferencesDef, executor: findReferences, requiresApproval: false },
 ];
 
 export const SPAWN_AGENT_DEFINITION: ToolDefinition = {

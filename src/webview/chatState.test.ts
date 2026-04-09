@@ -63,6 +63,19 @@ describe('ChatState', () => {
     expect(mockPostMessage).toHaveBeenCalledWith({ command: 'chatCleared' });
   });
 
+  it('clearChat aborts running agent loop and bumps generation', () => {
+    const state = createState();
+    state.abortController = new AbortController();
+    const abortSpy = vi.spyOn(state.abortController, 'abort');
+    const genBefore = state.chatGeneration;
+
+    state.clearChat();
+
+    expect(abortSpy).toHaveBeenCalled();
+    expect(state.abortController).toBeNull();
+    expect(state.chatGeneration).toBe(genBefore + 1);
+  });
+
   it('abort calls abort on the controller', () => {
     const state = createState();
     state.abortController = new AbortController();
