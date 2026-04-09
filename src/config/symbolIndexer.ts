@@ -6,6 +6,7 @@
 import { workspace, Uri, Disposable } from 'vscode';
 import * as path from 'path';
 import { SimpleCodeAnalyzer } from '../astContext.js';
+import { getRegexAnalyzer } from '../parsing/registry.js';
 import { SymbolGraph, type SymbolEntry, type ImportEdge } from './symbolGraph.js';
 import type { SidecarDir } from './sidecarDir.js';
 
@@ -122,7 +123,8 @@ export class SymbolIndexer implements Disposable {
 
   /** Parse a single file and add its symbols/imports to the graph. */
   private indexFile(relativePath: string, content: string, hash: string): void {
-    const parsed = SimpleCodeAnalyzer.parseFileContent(relativePath, content);
+    const analyzer = getRegexAnalyzer();
+    const parsed = analyzer.parseFileContent(relativePath, content);
 
     const symbols: SymbolEntry[] = [];
     const imports: ImportEdge[] = [];

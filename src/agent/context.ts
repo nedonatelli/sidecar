@@ -1,6 +1,6 @@
 import type { ChatMessage, ContentBlock, ToolResultContentBlock, ToolUseContentBlock } from '../ollama/types.js';
 import { getContentLength } from '../ollama/types.js';
-import { SimpleCodeAnalyzer } from '../astContext.js';
+import { getRegexAnalyzer } from '../parsing/registry.js';
 
 /**
  * Prune conversation history between user turns to keep context manageable.
@@ -245,11 +245,12 @@ export function enhanceContextWithSmartElements(context: string, query: string):
     let enhancedContent = rawContent;
 
     try {
-      const parsedFile = SimpleCodeAnalyzer.parseFileContent(filePath, rawContent);
-      const relevantElements = SimpleCodeAnalyzer.findRelevantElements(parsedFile, query);
+      const analyzer = getRegexAnalyzer();
+      const parsedFile = analyzer.parseFileContent(filePath, rawContent);
+      const relevantElements = analyzer.findRelevantElements(parsedFile, query);
 
       if (relevantElements.length > 0) {
-        enhancedContent = SimpleCodeAnalyzer.extractRelevantContent(parsedFile, relevantElements);
+        enhancedContent = analyzer.extractRelevantContent(parsedFile, relevantElements);
       }
     } catch (error) {
       // If AST parsing fails, keep the original content

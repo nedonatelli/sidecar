@@ -1,6 +1,7 @@
 import { workspace, Uri, FileSystemWatcher, RelativePattern, Disposable } from 'vscode';
 import * as path from 'path';
-import { SimpleCodeAnalyzer, ParsedFile } from '../astContext.js';
+import type { ParsedFile } from '../astContext.js';
+import { getAnalyzer } from '../parsing/registry.js';
 import { LimitedCache } from '../agent/memoryManager.js';
 import type { SymbolIndexer } from './symbolIndexer.js';
 
@@ -224,52 +225,24 @@ export class WorkspaceIndex implements Disposable {
         // Try to extract relevant code elements for smarter context
         const extName = path.extname(file.relativePath).toLowerCase();
 
-        // For JavaScript/TypeScript files, use smart parsing
-        if (extName === '.js' || extName === '.ts' || extName === '.jsx' || extName === '.tsx') {
+        // Try smart code extraction via the analyzer registry (tree-sitter or regex fallback)
+        const ext = extName.startsWith('.') ? extName.slice(1) : extName;
+        const analyzer = await getAnalyzer(ext);
+        if (analyzer.supportedExtensions.has(ext)) {
           let parsedFile = this.parsedFiles.get(file.relativePath);
-
-          // Only parse if not cached
           if (!parsedFile) {
-            parsedFile = SimpleCodeAnalyzer.parseFileContent(file.relativePath, content);
+            parsedFile = analyzer.parseFileContent(file.relativePath, content);
             this.parsedFiles.set(file.relativePath, parsedFile);
           }
 
-          // Extract relevant code elements based on the query
-          const relevantElements = SimpleCodeAnalyzer.findRelevantElements(parsedFile, query);
+          const relevantElements = analyzer.findRelevantElements(parsedFile, query);
           if (relevantElements.length > 0) {
-            // Use the extracted relevant content instead of full file content
-            const sectionContent = SimpleCodeAnalyzer.extractRelevantContent(parsedFile, relevantElements);
+            const sectionContent = analyzer.extractRelevantContent(parsedFile, relevantElements);
             const section = `\n### ${file.relativePath}\n\`\`\`\n${sectionContent}\n\`\`\`\n`;
-
             if (charCount + section.length > budget) continue;
             parts.push(section);
             charCount += section.length;
-            continue; // Skip the default content
-          }
-        }
-
-        // For other file types, use basic smart context selection
-        if (extName === '.py' || extName === '.rs' || extName === '.go' || extName === '.java') {
-          // Try to extract relevant code elements for Python/Rust/Go/Java files
-          let parsedFile = this.parsedFiles.get(file.relativePath);
-
-          // Only parse if not cached
-          if (!parsedFile) {
-            parsedFile = SimpleCodeAnalyzer.parseFileContent(file.relativePath, content);
-            this.parsedFiles.set(file.relativePath, parsedFile);
-          }
-
-          // Extract relevant code elements based on the query
-          const relevantElements = SimpleCodeAnalyzer.findRelevantElements(parsedFile, query);
-          if (relevantElements.length > 0) {
-            // Use the extracted relevant content instead of full file content
-            const sectionContent = SimpleCodeAnalyzer.extractRelevantContent(parsedFile, relevantElements);
-            const section = `\n### ${file.relativePath}\n\`\`\`\n${sectionContent}\n\`\`\`\n`;
-
-            if (charCount + section.length > budget) continue;
-            parts.push(section);
-            charCount += section.length;
-            continue; // Skip the default content
+            continue;
           }
         }
 
