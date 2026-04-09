@@ -1,114 +1,68 @@
-import { workspace, window, commands, Uri, ViewColumn } from 'vscode';
-import type { EditBlock } from './parser.js';
+/**
+ * Streaming diff preview — shows file changes in VS Code's diff editor
+ * as the agent proposes them, with Accept/Reject controls.
+ *
+ * The diff view opens immediately when a write/edit tool is invoked in
+ * cautious mode. The ProposedContentProvider's onDidChange event enables
+ * the diff to update incrementally if content changes.
+ */
+
+import { workspace, commands, Uri, ViewColumn } from 'vscode';
 import type { ProposedContentProvider } from './proposedContentProvider.js';
 
-export interface StreamingDiffPreviewOptions {
-  /** Whether to show a streaming diff preview (default: true) */
-  streaming?: boolean;
-  /** Timeout in milliseconds for diff operations (default: 30000) */
-  timeout?: number;
+export interface DiffPreviewSession {
+  /** Update the proposed content (diff view refreshes automatically). */
+  update(content: string): void;
+  /** Finalize and wait for user to accept or reject. Returns the decision. */
+  finalize(): Promise<'accept' | 'reject'>;
+  /** Clean up the session. */
+  dispose(): void;
 }
 
 /**
- * Show a streaming diff preview for an edit block.
- * This version supports streaming output for large diffs.
+ * Open a diff view for a file and return a session that can be updated.
+ *
+ * @param filePath - Relative path to the file being edited
+ * @param proposedContent - Initial proposed content
+ * @param contentProvider - The VS Code content provider for the proposed:// scheme
+ * @param confirmFn - Function to show accept/reject UI (reuses the chat confirmation system)
  */
-export async function showStreamingDiffPreview(
-  block: EditBlock,
+export async function openDiffPreview(
+  filePath: string,
+  proposedContent: string,
   contentProvider: ProposedContentProvider,
-  options: StreamingDiffPreviewOptions = {},
-): Promise<'accept' | 'reject'> {
+  confirmFn: (message: string, actions: string[]) => Promise<string | undefined>,
+): Promise<DiffPreviewSession> {
   const workspaceFolders = workspace.workspaceFolders;
-  if (!workspaceFolders || workspaceFolders.length === 0) return 'reject';
-
-  const { streaming = true, timeout: _timeout = 30000 } = options;
-  const originalUri = Uri.joinPath(workspaceFolders[0].uri, block.filePath);
-
-  // Read original content and compute proposed
-  const doc = await workspace.openTextDocument(originalUri);
-  const originalText = doc.getText();
-  const proposedText = originalText.replace(block.searchText, block.replaceText);
-
-  // Register proposed content
-  const key = `/${block.filePath}`;
-  const proposedUri = contentProvider.addProposal(key, proposedText);
-
-  // For streaming, we'll show a simple diff view with a message about streaming
-  if (streaming) {
-    // Open diff view with a message about streaming
-    await commands.executeCommand(
-      'vscode.diff',
-      originalUri,
-      proposedUri,
-      `SideCar: ${block.filePath} (proposed changes)`,
-      { preview: false, viewColumn: ViewColumn.One },
-    );
-
-    // Show a message that streaming is happening
-    const choice = await window.showInformationMessage(
-      `Streaming diff preview for ${block.filePath}...`,
-      { modal: true },
-      'Continue',
-    );
-
-    // Clean up
-    contentProvider.removeProposal(key);
-
-    return choice === 'Continue' ? 'accept' : 'reject';
-  } else {
-    // Non-streaming - just show the diff directly
-    await commands.executeCommand(
-      'vscode.diff',
-      originalUri,
-      proposedUri,
-      `SideCar: ${block.filePath} (proposed changes)`,
-    );
-
-    // Ask user to accept or reject
-    const choice = await window.showInformationMessage(`Apply changes to ${block.filePath}?`, 'Accept', 'Reject');
-
-    // Clean up
-    contentProvider.removeProposal(key);
-
-    return choice === 'Accept' ? 'accept' : 'reject';
+  if (!workspaceFolders || workspaceFolders.length === 0) {
+    throw new Error('No workspace folder open');
   }
-}
 
-/**
- * Show a simple diff preview without streaming.
- * This is a fallback for cases where streaming is not supported.
- */
-export async function showSimpleDiffPreview(
-  block: EditBlock,
-  contentProvider: ProposedContentProvider,
-): Promise<'accept' | 'reject'> {
-  const workspaceFolders = workspace.workspaceFolders;
-  if (!workspaceFolders || workspaceFolders.length === 0) return 'reject';
+  const originalUri = Uri.joinPath(workspaceFolders[0].uri, filePath);
+  const key = `/${filePath}`;
 
-  const originalUri = Uri.joinPath(workspaceFolders[0].uri, block.filePath);
+  // Register initial proposed content
+  const proposedUri = contentProvider.addProposal(key, proposedContent);
 
-  // Read original content and compute proposed
-  const doc = await workspace.openTextDocument(originalUri);
-  const originalText = doc.getText();
-  const proposedText = originalText.replace(block.searchText, block.replaceText);
+  // Open the diff editor
+  await commands.executeCommand('vscode.diff', originalUri, proposedUri, `SideCar: ${filePath} (proposed)`, {
+    preview: true,
+    viewColumn: ViewColumn.One,
+  });
 
-  // Register proposed content
-  const key = `/${block.filePath}`;
-  const proposedUri = contentProvider.addProposal(key, proposedText);
+  return {
+    update(content: string) {
+      // Update triggers onDidChange, VS Code refreshes the diff view
+      contentProvider.addProposal(key, content);
+    },
 
-  // Open diff view
-  await commands.executeCommand(
-    'vscode.diff',
-    originalUri,
-    proposedUri,
-    `SideCar: ${block.filePath} (proposed changes)`,
-  );
+    async finalize(): Promise<'accept' | 'reject'> {
+      const choice = await confirmFn(`Apply changes to **${filePath}**?`, ['Accept', 'Reject']);
+      return choice === 'Accept' ? 'accept' : 'reject';
+    },
 
-  // Ask user to accept or reject
-  const choice = await window.showInformationMessage(`Apply changes to ${block.filePath}?`, 'Accept', 'Reject');
-
-  // Clean up
-  contentProvider.removeProposal(key);
-
-  return choice === 'Accept' ? 'accept' : 'reject';
+    dispose() {
+      contentProvider.removeProposal(key);
+    },
+  };
 }

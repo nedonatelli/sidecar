@@ -587,6 +587,19 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
               return choice === 'Accept' ? ('accept' as const) : ('reject' as const);
             }
           : undefined,
+        streamingDiffPreviewFn: state.contentProvider
+          ? async (filePath: string, proposedContent: string) => {
+              const { openDiffPreview } = await import('../../edits/streamingDiffPreview.js');
+              const session = await openDiffPreview(filePath, proposedContent, state.contentProvider!, (msg, actions) =>
+                state.requestConfirm(msg, actions),
+              );
+              try {
+                return await session.finalize();
+              } finally {
+                session.dispose();
+              }
+            }
+          : undefined,
         inlineEditFn: state.inlineEditProvider
           ? (filePath: string, searchText: string, replaceText: string) =>
               state.inlineEditProvider!.proposeEdit(filePath, searchText, replaceText)
