@@ -130,8 +130,102 @@
     vscode.postMessage({ command: 'cancelInstall' });
   });
 
-  attachBtn.addEventListener('click', () => {
-    vscode.postMessage({ command: 'attachFile' });
+  // Attach button context menu — shows file attach + available skills
+  let attachMenuEl = null;
+  let pendingSkillsCallback = null;
+
+  function showAttachMenu() {
+    if (attachMenuEl) {
+      attachMenuEl.remove();
+      attachMenuEl = null;
+      return;
+    }
+
+    attachMenuEl = document.createElement('div');
+    attachMenuEl.className = 'attach-menu';
+
+    // Always show "Attach File" first
+    const fileItem = document.createElement('div');
+    fileItem.className = 'attach-menu-item';
+    fileItem.innerHTML = '&#128206; Attach File';
+    fileItem.addEventListener('click', () => {
+      vscode.postMessage({ command: 'attachFile' });
+      closeAttachMenu();
+    });
+    attachMenuEl.appendChild(fileItem);
+
+    // Add a divider
+    const divider = document.createElement('div');
+    divider.className = 'attach-menu-divider';
+    divider.textContent = 'Skills';
+    attachMenuEl.appendChild(divider);
+
+    // Loading placeholder
+    const loading = document.createElement('div');
+    loading.className = 'attach-menu-item attach-menu-loading';
+    loading.textContent = 'Loading skills...';
+    attachMenuEl.appendChild(loading);
+
+    // Position relative to the attach button
+    const rect = attachBtn.getBoundingClientRect();
+    attachMenuEl.style.bottom = window.innerHeight - rect.top + 4 + 'px';
+    attachMenuEl.style.left = rect.left + 'px';
+    document.body.appendChild(attachMenuEl);
+
+    // Request skills from extension
+    pendingSkillsCallback = (skills) => {
+      if (!attachMenuEl) return;
+      loading.remove();
+      if (!skills || skills.length === 0) {
+        const noSkills = document.createElement('div');
+        noSkills.className = 'attach-menu-item attach-menu-empty';
+        noSkills.textContent = 'No skills found';
+        attachMenuEl.appendChild(noSkills);
+      } else {
+        for (const skill of skills) {
+          const item = document.createElement('div');
+          item.className = 'attach-menu-item attach-menu-skill';
+          item.innerHTML =
+            '<strong>/' +
+            skill.id +
+            '</strong>' +
+            (skill.description ? '<span class="attach-menu-desc">' + skill.description + '</span>' : '');
+          item.title = skill.description || skill.name;
+          item.addEventListener('click', () => {
+            input.value = '/' + skill.id + ' ';
+            input.focus();
+            closeAttachMenu();
+          });
+          attachMenuEl.appendChild(item);
+        }
+      }
+    };
+    vscode.postMessage({ command: 'getSkillsForMenu' });
+
+    // Close on outside click
+    setTimeout(() => {
+      document.addEventListener('click', closeAttachMenuOnOutside);
+    }, 0);
+  }
+
+  function closeAttachMenu() {
+    if (attachMenuEl) {
+      attachMenuEl.remove();
+      attachMenuEl = null;
+    }
+    pendingSkillsCallback = null;
+    document.removeEventListener('click', closeAttachMenuOnOutside);
+  }
+
+  function closeAttachMenuOnOutside(e) {
+    if (attachMenuEl && !attachMenuEl.contains(e.target) && e.target !== attachBtn) {
+      closeAttachMenu();
+    }
+  }
+
+  attachBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    showAttachMenu();
   });
 
   removeAttachment.addEventListener('click', () => {
@@ -2203,6 +2297,14 @@
       case 'typingStatus':
         updateTypingStatus(content || '');
         break;
+
+      case 'skillsMenu': {
+        if (pendingSkillsCallback && msg.skills) {
+          pendingSkillsCallback(msg.skills);
+          pendingSkillsCallback = null;
+        }
+        break;
+      }
 
       case 'onboarding': {
         const card = document.createElement('div');

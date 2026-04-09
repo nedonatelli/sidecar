@@ -243,6 +243,11 @@ export class ChatViewProvider implements WebviewViewProvider {
       this.state.postMessage({ command: 'assistantMessage', content: list });
       this.state.postMessage({ command: 'done' });
     },
+    getSkillsForMenu: () => {
+      const skills = this.state.skillLoader?.getAll() || [];
+      const items = skills.map((s) => ({ id: s.id, name: s.name, description: s.description }));
+      this.state.postMessage({ command: 'skillsMenu', skills: items });
+    },
     showSystemPrompt: () =>
       import('./handlers/chatHandlers.js').then(({ handleShowSystemPrompt }) => handleShowSystemPrompt(this.state)),
     reconnect: () => import('./handlers/chatHandlers.js').then(({ handleReconnect }) => handleReconnect(this.state)),

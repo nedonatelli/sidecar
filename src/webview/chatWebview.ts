@@ -48,7 +48,8 @@ export interface WebviewMessage {
     | 'togglePlanMode'
     | 'showSystemPrompt'
     | 'reconnect'
-    | 'dismissOnboarding';
+    | 'dismissOnboarding'
+    | 'getSkillsForMenu';
   images?: { mediaType: string; data: string }[];
   text?: string;
   model?: string;
@@ -113,7 +114,8 @@ export interface ExtensionMessage {
     | 'changeSummary'
     | 'verboseLog'
     | 'typingStatus'
-    | 'onboarding';
+    | 'onboarding'
+    | 'skillsMenu';
   agentMode?: string;
   toolName?: string;
   toolCallId?: string;
@@ -146,6 +148,7 @@ export interface ExtensionMessage {
   changeSummary?: { filePath: string; diff: string; isNew: boolean; isDeleted: boolean }[];
   expandThinking?: boolean;
   verboseLabel?: string;
+  skills?: { id: string; name: string; description: string }[];
 }
 
 export interface LibraryModelUI {

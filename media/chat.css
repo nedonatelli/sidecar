@@ -680,6 +680,69 @@ body {
   background: var(--vscode-editor-background);
 }
 
+/* Attach button context menu */
+.attach-menu {
+  position: fixed;
+  min-width: 220px;
+  max-width: 320px;
+  max-height: 300px;
+  overflow-y: auto;
+  background: var(--vscode-menu-background, var(--vscode-dropdown-background));
+  border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border));
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 1000;
+  padding: 4px 0;
+}
+
+.attach-menu-item {
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.attach-menu-item:hover {
+  background: var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground));
+  color: var(--vscode-menu-selectionForeground, inherit);
+}
+
+.attach-menu-item strong {
+  font-weight: 600;
+}
+
+.attach-menu-desc {
+  font-size: 11px;
+  opacity: 0.7;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attach-menu-divider {
+  padding: 4px 12px 2px;
+  font-size: 10px;
+  text-transform: uppercase;
+  opacity: 0.5;
+  letter-spacing: 0.5px;
+  border-top: 1px solid var(--vscode-widget-border);
+  margin-top: 4px;
+}
+
+.attach-menu-loading,
+.attach-menu-empty {
+  opacity: 0.5;
+  font-style: italic;
+  cursor: default;
+}
+
+.attach-menu-loading:hover,
+.attach-menu-empty:hover {
+  background: none;
+}
+
 #input {
   flex: 1;
   padding: 8px 12px;
