@@ -23,6 +23,29 @@ Loading a 200+ message conversation renders all messages to the DOM at once, cau
 ### LOW — Semantic search for file relevance
 Workspace file scoring uses keyword matching only. Integrate local ONNX embeddings (e.g., `@xenova/transformers`) for semantic similarity scoring. Combine with existing keyword scores via weighted fusion.
 
+### Code review findings (v0.34.0 audit)
+
+**Code reuse:**
+- `loop.ts:91-102` — hand-rolled char counting duplicates `getContentLength()` from `ollama/types.ts` and misses `tool_use` block sizing. Replace with `agentMessages.reduce((s, m) => s + getContentLength(m.content), 0)`
+- `chat.js:527-803` — 6 GitHub card rendering branches repeat identical DOM construction (`gh-card` + `gh-card-title` + `gh-meta` + `gh-link`). Extract `createGhCard()`, `createGhBadge()`, `createGhLink()` helpers (~100 lines savings)
+- `chatHandlers.ts` + `usageReport.ts` — budget status formatting (spend, limit, percentage) computed independently in both files. Extract `getBudgetStatus()` on `MetricsCollector`
+
+**Code quality:**
+- `chatHandlers.ts:624` — accesses `metricsCollector['currentRun']` via bracket notation to bypass `private`. Add a public `getCurrentTokenEstimate()` accessor instead
+- `chatHandlers.ts` + `modelHandlers.ts` — duplicated `isReachable`/`ensureReachable` functions with divergent provider coverage (chatHandlers missing `llmmanager` case). Extract shared utility
+- `api.ts:228-237` — `deleteRelease()` bypasses the shared `request()` helper, skipping error handling and duplicating auth headers. Adjust `request()` to handle 204 No Content
+- `api.ts` — all responses typed as `Record<string, unknown>` with manual field casting. Define proper response interfaces for type safety
+- `githubHandlers.ts` — stringly-typed `msg.action` dispatched via `if/else if` chain. Define a `GitHubAction` union type for compiler exhaustiveness checking
+- `huggingface.ts:42-53` — redundant URL regex (protocol-required match, then strip protocol and rematch). Combine into single regex with optional protocol
+- `chatHandlers.ts` + `usageReport.ts` — magic number `0.7` for input/output token ratio duplicated. Extract `INPUT_TOKEN_RATIO` constant
+- `chat.js:714,721` — release badges reuse `gh-state open`/`gh-state closed` CSS classes meant for PR/issue states. Add dedicated `gh-state tag`/`gh-state draft` classes
+- `chat.js:131` — inline HF URL regex can drift from `huggingface.ts` patterns. Consider making extension-side `isHuggingFaceRef()` the single source of truth
+
+**Efficiency:**
+- `metrics.ts` — `getDailySpend()` + `getWeeklySpend()` each call `getHistory()` separately, deserializing workspace state twice per chat send. Combine into single-pass `getBudgetStatus()`
+- `api.ts:183-192` — `getRelease()` always tries tag endpoint first; numeric IDs cause a guaranteed 404 before fallback. Check if input is numeric and call the ID endpoint directly
+- `modelHandlers.ts:54` — no loading indicator during `listGGUFFiles()` HF API fetch (up to 10s timeout). Add `setLoading` messages around the call
+
 ---
 
 ## Diff & Review UX
