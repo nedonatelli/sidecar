@@ -8,6 +8,7 @@ import type {
 } from '../ollama/types.js';
 import { SideCarClient } from '../ollama/client.js';
 import { recordToolSuccess, recordToolFailure } from '../ollama/ollamaBackend.js';
+import type { InlineEditFn } from './executor.js';
 import { getToolDefinitions, getDiagnostics } from './tools.js';
 import { getConfig } from '../config/settings.js';
 import { executeTool, type ApprovalMode, type ConfirmFn, type DiffPreviewFn } from './executor.js';
@@ -48,6 +49,7 @@ export interface AgentOptions {
   mcpManager?: MCPManager;
   confirmFn?: ConfirmFn;
   diffPreviewFn?: DiffPreviewFn;
+  inlineEditFn?: InlineEditFn;
 }
 
 const DEFAULT_MAX_ITERATIONS = 25;
@@ -327,6 +329,7 @@ export async function runAgentLoop(
             onOutput: (chunk) => callbacks.onToolOutput?.(toolUse.name, chunk, toolUse.id),
             signal,
           },
+          options.inlineEditFn,
         );
         logger?.logToolResult(toolUse.name, result.content, result.is_error || false);
         callbacks.onToolResult(toolUse.name, result.content, result.is_error || false, toolUse.id);

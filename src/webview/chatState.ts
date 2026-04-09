@@ -11,6 +11,7 @@ import type { WorkspaceIndex } from '../config/workspaceIndex.js';
 import type { SidecarDir } from '../config/sidecarDir.js';
 import type { SkillLoader } from '../agent/skillLoader.js';
 import type { ProposedContentProvider } from '../edits/proposedContentProvider.js';
+import type { InlineEditProvider } from '../edits/inlineEditProvider.js';
 import type { ExtensionMessage } from './chatWebview.js';
 import { getConfig } from '../config/settings.js';
 
@@ -40,6 +41,7 @@ export class ChatState {
   sidecarDir: SidecarDir | null = null;
   skillLoader: SkillLoader | null = null;
   contentProvider: ProposedContentProvider | null = null;
+  inlineEditProvider: InlineEditProvider | null = null;
 
   /** ID of the current auto-saved session, null if conversation is empty/unsaved */
   currentSessionId: string | null = null;

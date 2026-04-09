@@ -527,6 +527,10 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
               return choice === 'Accept' ? ('accept' as const) : ('reject' as const);
             }
           : undefined,
+        inlineEditFn: state.inlineEditProvider
+          ? (filePath: string, searchText: string, replaceText: string) =>
+              state.inlineEditProvider!.proposeEdit(filePath, searchText, replaceText)
+          : undefined,
       },
     );
 

@@ -2,7 +2,7 @@
 
 This document tracks planned improvements and features for SideCar. Items are grouped by theme and roughly prioritized within each group.
 
-Last updated: 2026-04-08 (v0.32.0)
+Last updated: 2026-04-09 (v0.31.0)
 
 ---
 
@@ -73,8 +73,10 @@ After the agent proposes a code change, render it as ghost text (inline suggesti
 
 ## Smarter Context
 
-### Context pinning
-Allow users to pin specific files or folders to always be included in context regardless of relevance scoring. Add a `@pin:path` syntax or a UI toggle. Pinned files bypass the token budget limit (up to a configurable cap).
+### ✅ COMPLETED — Context pinning (v0.27.0)
+**Description & Implementation:** Users can pin specific files or folders via `@pin:path` syntax or the `sidecar.pinnedContext` setting. Pinned files are always included in context regardless of relevance scoring and bypass the token budget limit up to a configurable cap.
+
+**Use case:** Essential for project instructions, configuration files, and frequently-referenced documentation.
 
 ### ~~Smart context selection~~ (started in v0.24.0)
 ~~Use AST or tree-sitter parsing to include relevant functions, classes, and type definitions instead of whole files.~~ Initial implementation landed: lightweight AST parsing extracts functions, classes, imports, and exports from JS/TS files and scores them by query relevance. Full tree-sitter integration and multi-language support still planned.
@@ -102,11 +104,14 @@ Send the same prompt to multiple models side-by-side and compare responses. Usef
 
 ## Existing Planned Features
 
-### Vision support
-The extension already handles image attachments and sends them to the model. Expand this with:
+### ✅ PARTIALLY COMPLETED — Vision support (v0.10.0+)
+**Completed:** Image attachments fully supported — paste screenshots or attach images for vision models. Chat includes images in messages.
+
+**Remaining features for full vision support:**
 - Screenshot-to-code: paste a UI mockup, generate HTML/CSS/React
 - Visual debugging: paste error screenshots, have the model diagnose
 - Design diffing: compare a mockup to current UI code
+
 Requires vision-capable models (Claude, LLaVA on Ollama).
 
 ### Conversation steering
@@ -131,8 +136,14 @@ Support multiple parallel conversation branches from a single chat:
 ### Custom modes
 User-defined agent modes (e.g., Architect, Coder, Debugger) with different system prompts, tool access, and behaviors per mode. Ship 3 built-in modes and let users create their own via `sidecar.customModes` setting. Inspired by Kilo Code's mode system.
 
-### Background agents
-Run agent tasks concurrently in the background while the user continues working. Build on the existing `spawn_agent` tool. Background agents should request permissions upfront, run independently, and surface results when complete.
+### ✅ PARTIALLY COMPLETED — Background agents (v0.18.0+)
+**Completed:** Background command support via `run_command` tool with async execution and result polling. Long-running processes can run in parallel.
+
+**Remaining features for full background agent orchestration:**
+- Full agent spawning with independent state and progress tracking
+- Multi-agent task coordination with dependency graphs
+- Permission requests upfront for complex workflows
+- Agent dashboard for monitoring multiple concurrent agents
 
 ### Auto mode
 An intelligent approval classifier that evaluates each tool call in real-time to decide whether it needs user confirmation. Sits between cautious and autonomous modes — learns from the user's approval patterns to reduce friction without sacrificing safety.
@@ -199,8 +210,10 @@ Coordinate multiple agents working on related tasks from a single prompt. For ex
 ### AI code review agent
 Multi-agent PR review with specialized sub-agents for bug detection, security analysis, code quality, and test coverage gaps. Review uncommitted changes or full PRs in-editor with inline annotations. Inspired by CodeRabbit and Qodo's multi-agent review architecture.
 
-### Auto-fix on lint/test failure
-When linter or tests fail after agent edits, automatically feed errors back to the model and iterate without user intervention. Tighter feedback loop than the current test-driven agent loop — no manual re-prompting needed.
+### ✅ COMPLETED — Auto-fix on failure (v0.20.0)
+**Description & Implementation:** When linter, tests, or diagnostics fail after agent edits, errors are automatically fed back to the model for iteration. No manual re-prompting needed. Uses `get_diagnostics` integration with automatic retry and configurable timeout (`sidecar.autoFixRetries`).
+
+**Use case:** Agents automatically fix compilation errors, test failures, and lint violations in a tight feedback loop.
 
 ### Test coverage analysis
 Show coverage gaps after agent changes, suggest which tests to add, and auto-generate tests targeting uncovered code paths. Integrate with existing coverage tools (c8, istanbul, coverage.py, go test -cover).
@@ -212,8 +225,10 @@ Show coverage gaps after agent changes, suggest which tests to add, and auto-gen
 ### Voice input
 Hold a key and speak prompts instead of typing. Use the Web Speech API or a local speech-to-text model for transcription. Approximately 3x faster than typing for natural language instructions. Claude Code and Codex both shipped voice input in early 2026.
 
-### Web page context
-Paste a URL in chat and SideCar fetches the page content (docs, Stack Overflow answers, API references) and includes it in context. Useful for referencing external documentation without copy-pasting.
+### ✅ COMPLETED — Web page context (v0.21.0)
+**Description & Implementation:** Paste URLs in chat and SideCar automatically fetches page content (HTML → markdown) and includes it in context. Works with docs, Stack Overflow answers, API references, and any accessible web pages. Auto-detects URLs in chat messages and expands them.
+
+**Use case:** Reference external documentation without manual copy-pasting, especially useful for referencing framework docs or error resolution pages.
 
 ---
 
@@ -231,11 +246,117 @@ Automatically commit after each successful agent edit with generated conventiona
 ### Multi-model routing
 Route different task types to different models automatically. For example: fast/small model for completions, strong/large model for complex multi-file edits, cheap model for code review. Configurable via a routing table in settings.
 
-### Cost tracking & budgets
-Real-time cost display per message and per agent run. Daily and weekly spending caps with alerts. Budget limits that pause the agent when exceeded. Critical for Anthropic API users managing costs.
+### ✅ PARTIALLY COMPLETED — Cost tracking & budgets (v0.20.0+)
+**Completed:** Real-time cost display per message and agent run via `/usage` slash command. Token usage dashboard with per-run history and cost estimates for Anthropic API.
 
-### Onboarding walkthrough
-Interactive first-run tutorial that guides new users through key features — chat, agent mode, tools, slash commands, SIDECAR.md. Reduces time-to-value for new installs. Shows a "Getting Started" card on first launch.
+**Remaining features:**
+- Daily and weekly spending caps with alerts
+- Budget limits that pause the agent when exceeded
+- Spending alerts in the UI (currently must check `/usage` dashboard)
+
+Critical for Anthropic API users managing costs.
+
+### ✅ COMPLETED — Onboarding walkthrough (v0.22.0)
+**Description & Implementation:** Interactive first-run tutorial shows a "Getting Started" card on first launch. Guides users through key features: chat basics, agent mode, available tools, slash commands, and SIDECAR.md project instructions. Dismissible and can be re-triggered via command palette.
+
+**Impact:** Reduces time-to-value for new users and improves feature discovery.
+
+---
+
+## Tool Discovery & Management
+
+### Better integration with external tool registries
+Enhanced tool registry integration enabling discovery of community-maintained extensions and MCP servers. Surface tool metadata, version history, and compatibility information across different LLM provider ecosystems.
+
+### Dynamic tool loading/unloading
+Support hot-reloading of tools without restarting the extension. Tools can be enabled/disabled dynamically via UI toggles in settings. Enables experimentation with new tools and graceful handling of unavailable external services.
+
+### Tool versioning and compatibility management
+Track tool versions and validate compatibility with active models before use. Tools can specify minimum/maximum model versions, feature flags, and fallback behavior when incompatible. Prevents silent failures when tool and model combinations are unsupported.
+
+---
+
+## Security & Permissions
+
+### Granular permission controls for tool categories
+Fine-grained permission system for tool groups (file operations, system commands, network access, external APIs). Users can allow/deny entire categories or specific tools. Agents request permission scopes upfront (e.g., "This task needs file write + command execution").
+
+### Enhanced sandboxing for dangerous operations
+Isolate potentially dangerous tools (run_command, write_file) in constrained environments. Whitelist allowed commands, working directories, and file paths. Prevent shell injection, directory traversal, and excessive resource consumption. Critical for shared environments and untrusted agent workflows.
+
+### Audit logging for tool usage
+Comprehensive audit trail of all tool calls: timestamp, tool name, arguments, result, user approval status, and any side effects. Queryable via dashboard. Essential for compliance, debugging unexpected behavior, and building user trust in autonomous agents.
+
+---
+
+## Advanced Agent Capabilities
+
+### Multi-agent collaboration workflows
+Orchestrate specialized agents that collaborate on complex tasks. Define inter-agent communication patterns, task dependencies, and handoff mechanics. Example: Research Agent → Analysis Agent → Writing Agent → Review Agent for documentation generation.
+
+### Sophisticated planning and task decomposition
+Agents use explicit planning steps before execution. Break complex goals into subtasks with dependency graphs, estimate effort/risk per subtask, and execute with backtracking on failure. Inspired by o1-preview's chain-of-thought planning.
+
+### Improved memory management for long-running sessions
+Persistent session memory across days/weeks without accumulating bloat. Implement hierarchical memory with immediate recall (current session), working memory (last N turns), and long-term memory (distilled insights). Automatically archive and summarize old turns.
+
+### Mid-task redirection without aborting
+Allow users to interrupt a running agent with new instructions. Agent incorporates feedback, adjusts its current plan, and continues execution instead of starting over. Requires UI support for inline interrupts and agent state introspection.
+
+---
+
+## Integration & Provider Support
+
+### Enhanced MCP (Model Context Protocol) support
+Deeper MCP integration with UI-based MCP server discovery and one-click installation. Support for MCP server versioning, dependency resolution, and capability advertisement. MCP tools displayed with usage examples and documentation.
+
+### Better VS Code extension integration
+APIs for third-party extensions to hook into SideCar workflows. Expose commands, context injection points, and agent event hooks. Enable extensions to add custom tools, message processors, and agent modes without forking SideCar.
+
+### Improved support for different LLM providers
+Expanded multi-provider support with provider-specific optimizations: prompt prefixes for code-focused models, parameter tuning per provider, cost visibility for each provider, and automatic fallback chains (e.g., OpenAI → Anthropic → Ollama).
+
+---
+
+## Performance Optimizations
+
+### Caching mechanisms for tool results
+Cache results from expensive tools (grep on large repos, external API calls) with configurable TTL. Agents can reference cached results without re-execution. Reduces redundant work in iterated agent runs.
+
+### More efficient context management
+Implement sliding window context with importance sampling instead of pure recency. High-signal tool results preserved across pruning cycles. Early tool results that influenced agent decisions stay in context even if not recent.
+
+### Parallel execution of independent tool calls
+When agent generates multiple independent tool calls in sequence, execute them concurrently instead of serially. Reduce agent latency by 50%+ for multi-file operations, dependency analysis, and complex test runs.
+
+---
+
+## User Experience Improvements
+
+### Enhanced visualization of agent reasoning
+Detailed visual breakdown of agent thinking: goal decomposition, tool selection rationale, result interpretation, and error recovery strategy. Timeline view with collapsible reasoning blocks matching o1/o3 style thinking transparency.
+
+### Better error handling and recovery mechanisms
+Intelligent error parsing that categorizes failures (timeout, permission denied, not found, invalid syntax) and suggests targeted recovery actions. Agents automatically retry with backoff instead of failing hard. Human-readable error explanations with links to docs.
+
+### Improved configuration management
+Config hierarchy with workspace/folder/global scopes. Configuration inheritance and merging rules. Visual config inspector showing which setting came from where. Import/export config presets for different project types.
+
+---
+
+## Integration Improvements
+
+### CI/CD pipeline integrations
+Native integration with GitHub Actions, GitLab CI, Jenkins, CircleCI, and other CI/CD platforms. Agents can trigger builds, inspect test results, review deployment logs, and propose fixes for failing pipelines. Enables autonomous debugging of CI failures and proactive issue detection.
+
+### Project management tool integrations
+Connect to Jira, Linear, GitHub Issues, and other issue trackers. Agents can link code changes to tickets, auto-update issue status on completion, extract requirements from tickets into context, and generate PRs tied to specific tasks.
+
+### Enhanced debugging capabilities
+Integrated debugger support: breakpoint management, variable inspection, call stack navigation. Agents can set breakpoints, step through code, and analyze runtime state to diagnose failures. Supports Node.js, Python, and Go debuggers.
+
+### Improved collaboration features
+Multi-user awareness: see which team members are editing which files in real-time. Conflict detection when agents and humans edit the same file. Merge conflict resolution assistance. Shared session history and notes within a workspace.
 
 ---
 

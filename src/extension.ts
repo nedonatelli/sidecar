@@ -22,6 +22,7 @@ import { getFilePatterns } from './config/workspace.js';
 import { runPreCommitScan } from './agent/preCommitScan.js';
 import { disposeShellSession, setSymbolGraph } from './agent/tools.js';
 import { disposeSidecarMdWatcher } from './webview/handlers/chatHandlers.js';
+import { InlineEditProvider } from './edits/inlineEditProvider.js';
 
 let chatProvider: ChatViewProvider | undefined;
 
@@ -141,6 +142,18 @@ export function activate(context: ExtensionContext) {
     });
   }
 
+  // Inline edit provider — "tab to apply" ghost text for agent-proposed edits
+  const inlineEditProvider = new InlineEditProvider();
+  context.subscriptions.push(inlineEditProvider);
+  context.subscriptions.push(languages.registerInlineCompletionItemProvider({ pattern: '**' }, inlineEditProvider));
+
+  // Register the accepted callback command (fires after VS Code applies the inline completion)
+  context.subscriptions.push(
+    commands.registerCommand('sidecar.onInlineEditAccepted', () => {
+      inlineEditProvider.accept();
+    }),
+  );
+
   chatProvider = new ChatViewProvider(
     context,
     terminalManager,
@@ -150,6 +163,7 @@ export function activate(context: ExtensionContext) {
     workspaceIndex,
     sidecarDir,
     skillLoader,
+    inlineEditProvider,
   );
   context.subscriptions.push(
     window.registerWebviewViewProvider('sidecar.chatView', chatProvider, {

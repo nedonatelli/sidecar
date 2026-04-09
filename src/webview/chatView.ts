@@ -18,6 +18,7 @@ import type { MCPManager } from '../agent/mcpManager.js';
 import type { WorkspaceIndex } from '../config/workspaceIndex.js';
 import type { SidecarDir } from '../config/sidecarDir.js';
 import type { SkillLoader } from '../agent/skillLoader.js';
+import type { InlineEditProvider } from '../edits/inlineEditProvider.js';
 import { getConfig } from '../config/settings.js';
 
 // Handler modules
@@ -74,6 +75,7 @@ export class ChatViewProvider implements WebviewViewProvider {
     workspaceIndex?: WorkspaceIndex,
     sidecarDir?: SidecarDir,
     skillLoader?: SkillLoader,
+    inlineEditProvider?: InlineEditProvider,
   ) {
     this._contentProvider = contentProvider;
     this.state = new ChatState(context, terminalManager, agentLogger, mcpManager, (msg) => this.postMessage(msg));
@@ -87,6 +89,9 @@ export class ChatViewProvider implements WebviewViewProvider {
       this.state.skillLoader = skillLoader;
     }
     this.state.contentProvider = contentProvider;
+    if (inlineEditProvider) {
+      this.state.inlineEditProvider = inlineEditProvider;
+    }
   }
 
   resolveWebviewView(

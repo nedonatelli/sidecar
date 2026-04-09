@@ -14,6 +14,7 @@ const execAsync = promisify(exec);
 export type ApprovalMode = 'autonomous' | 'cautious' | 'manual';
 export type ConfirmFn = (message: string, actions: string[]) => Promise<string | undefined>;
 export type DiffPreviewFn = (filePath: string, proposedContent: string) => Promise<'accept' | 'reject'>;
+export type InlineEditFn = (filePath: string, searchText: string, replaceText: string) => Promise<boolean>;
 
 const WRITE_TOOLS = new Set(['write_file', 'edit_file']);
 
@@ -26,6 +27,7 @@ export async function executeTool(
   confirmFn?: ConfirmFn,
   diffPreviewFn?: DiffPreviewFn,
   executorContext?: ToolExecutorContext,
+  inlineEditFn?: InlineEditFn,
 ): Promise<ToolResultContentBlock> {
   const tool = findTool(toolUse.name, mcpManager);
 
@@ -64,6 +66,40 @@ export async function executeTool(
   }
 
   if (needsApproval) {
+    // For edit_file with inline edit provider, show ghost text (tab to apply)
+    if (
+      inlineEditFn &&
+      toolUse.name === 'edit_file' &&
+      toolUse.input.path &&
+      toolUse.input.search &&
+      toolUse.input.replace
+    ) {
+      // Snapshot before the edit so we can revert if needed
+      if (changelog) {
+        await changelog.snapshotFile(toolUse.input.path as string);
+      }
+      const accepted = await inlineEditFn(
+        toolUse.input.path as string,
+        toolUse.input.search as string,
+        toolUse.input.replace as string,
+      );
+      if (!accepted) {
+        return {
+          type: 'tool_result',
+          tool_use_id: toolUse.id,
+          content: 'Edit dismissed by user.',
+          is_error: true,
+        };
+      }
+      // User accepted via Tab — the inline completion already applied the text,
+      // so we skip the normal tool executor and return success.
+      return {
+        type: 'tool_result',
+        tool_use_id: toolUse.id,
+        content: `Applied edit to ${toolUse.input.path}`,
+      };
+    }
+
     // For write tools with diff preview available, show a visual diff
     if (diffPreviewFn && WRITE_TOOLS.has(toolUse.name) && toolUse.input.path) {
       const filePath = toolUse.input.path as string;
