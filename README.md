@@ -31,6 +31,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 | Hooks & scheduled tasks | **Yes** | No | No | No | No |
 | Git integration (commit, PR) | **Yes** | No | No | No | No |
 | Diff preview & undo/rollback | **Yes** | No | No | No | No |
+| Diagram generation | **Yes** | No | No | No | No |
 | Fully offline / self-hosted | Yes | Yes | Yes | Yes | No |
 | Free & open-source | Yes | Yes | Yes | Yes | Freemium |
 
@@ -88,6 +89,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 - **@ references** — `@file:path`, `@folder:path`, `@symbol:name` for precise context inclusion
 - **Image support** — paste screenshots or attach images for vision models
 - **Slash commands** — `/reset`, `/undo`, `/export`, `/model`, `/help`, `/batch`, `/doc`, `/spec`, `/insight`, `/save`, `/sessions`, `/scan`, `/usage`, `/context`, `/test`, `/lint`, `/deps`, `/scaffold`, `/commit`, `/verbose`, `/prompt` — with autocomplete dropdown as you type
+- **Diagram generation** — models can generate Mermaid diagrams in code blocks; rendered natively in chat with syntax highlighting and copy-to-SVG support
 - **Actionable errors** — classified error cards with retry, start Ollama, and settings buttons
 - **Sticky scroll** — auto-scroll pauses when you scroll up, floating button to jump back down
 - **Chat history persistence** — conversations survive VS Code restarts (per-workspace)

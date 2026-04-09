@@ -69,6 +69,8 @@ Opens the session browser panel. Browse, load, or delete saved conversations. Se
 
 Generates JSDoc or docstring documentation for the active file or selected code. Detects the language and uses the appropriate documentation format.
 
+**Diagrams**: Models can also generate **Mermaid diagrams** in documentation. Architecture diagrams, flowcharts, sequence diagrams, ER diagrams, and other Mermaid types are rendered natively in chat with full interactivity. Click "Copy SVG" to export diagram graphics.
+
 ### `/test`
 
 Generates tests for the active file or selection. Auto-detects your test framework:

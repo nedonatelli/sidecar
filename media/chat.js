@@ -35,6 +35,60 @@
   let typingTimerStart = 0;
   let typingTimerInterval = null;
 
+  // Mermaid lazy-loader
+  let mermaidReady = null; // resolves when mermaid is loaded
+  let mermaidIdCounter = 0;
+
+  function loadMermaid() {
+    if (mermaidReady) return mermaidReady;
+    mermaidReady = new Promise((resolve, reject) => {
+      if (window.mermaid) {
+        window.mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'strict' });
+        resolve(window.mermaid);
+        return;
+      }
+      const src = window.__mermaidSrc;
+      if (!src) {
+        reject(new Error('Mermaid source not configured'));
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = src;
+      if (window.__nonce) script.setAttribute('nonce', window.__nonce);
+      script.onload = () => {
+        window.mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'strict' });
+        resolve(window.mermaid);
+      };
+      script.onerror = () => reject(new Error('Failed to load mermaid'));
+      document.head.appendChild(script);
+    });
+    return mermaidReady;
+  }
+
+  async function renderMermaidBlock(container, code, copyBtn) {
+    try {
+      const m = await loadMermaid();
+      const id = 'mermaid-' + ++mermaidIdCounter;
+      const { svg } = await m.render(id, code);
+      container.innerHTML = svg;
+      container.classList.add('diagram-rendered');
+      if (copyBtn) {
+        copyBtn.style.visibility = 'visible';
+        copyBtn.addEventListener('click', () => {
+          navigator.clipboard.writeText(svg).then(() => {
+            copyBtn.textContent = 'Copied!';
+            setTimeout(() => {
+              copyBtn.textContent = 'Copy SVG';
+            }, 1500);
+          });
+        });
+      }
+    } catch (err) {
+      container.textContent = 'Diagram error: ' + (err.message || err);
+      container.classList.add('diagram-error');
+    }
+  }
+
   modelBtn.addEventListener('click', () => {
     modelPanel.classList.toggle('hidden');
   });
@@ -1156,6 +1210,40 @@
       const lang = match[1];
       const filePath = match[2] ? match[2].trim() : '';
       const code = match[3];
+
+      // Render mermaid blocks as diagrams
+      if (lang.toLowerCase() === 'mermaid') {
+        const diagramBlock = document.createElement('div');
+        diagramBlock.className = 'diagram-block';
+        const diagramHeader = document.createElement('div');
+        diagramHeader.className = 'diagram-header';
+        diagramHeader.textContent = 'Diagram';
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'code-save-btn';
+        copyBtn.textContent = 'Copy SVG';
+        copyBtn.style.visibility = 'hidden';
+        diagramHeader.appendChild(copyBtn);
+        diagramBlock.appendChild(diagramHeader);
+        const diagramContainer = document.createElement('div');
+        diagramContainer.className = 'diagram-container';
+        diagramContainer.textContent = 'Rendering diagram...';
+        diagramBlock.appendChild(diagramContainer);
+        // Show mermaid source in a collapsible detail
+        const details = document.createElement('details');
+        details.className = 'diagram-source';
+        const summary = document.createElement('summary');
+        summary.textContent = 'View source';
+        details.appendChild(summary);
+        const sourcePre = document.createElement('pre');
+        sourcePre.textContent = code;
+        details.appendChild(sourcePre);
+        diagramBlock.appendChild(details);
+        fragment.appendChild(diagramBlock);
+        renderMermaidBlock(diagramContainer, code.trim(), copyBtn);
+        lastIndex = match.index + match[0].length;
+        continue;
+      }
+
       const wrapper = document.createElement('div');
       wrapper.className = 'code-block';
 

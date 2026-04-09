@@ -2,13 +2,20 @@
 
 This document tracks planned improvements and features for SideCar. Items are grouped by theme and roughly prioritized within each group.
 
-Last updated: 2026-04-08 (v0.30.1)
+Last updated: 2026-04-08 (v0.31.0)
 
 ---
 
 ## Technical Debt & Performance (from v0.28.1 audit)
 
 Items identified via architecture, AI engineering, algorithms, and frontend performance reviews. Grouped by priority.
+
+### ✅ COMPLETED (v0.31.0) — Mermaid diagram rendering
+**Description & Feature:** Models can now generate diagrams inline within chat using Mermaid syntax. Chat webview detects mermaid code blocks, lazily loads mermaid.js on first diagram, renders SVG output natively with theme-aware styling, and provides collapsible source view and copy-to-clipboard for SVG.
+
+**Implementation:** Added lazy-loading mermaid.js integration in `chat.js` with CSP updates for `'unsafe-eval'` (required by mermaid). Diagram blocks styled with dedicated layout (`diagram-block`, `diagram-container`, `diagram-source`) that matches SideCar's dark theme. SVG copied on button click after render completes.
+
+**Use case:** `/doc` slash command can now generate architecture diagrams, sequence diagrams, flowcharts, ER diagrams, and other Mermaid diagram types automatically.
 
 ### ✅ COMPLETED (v0.30.1) — Code block button memory leak
 **Description & Fix:** Image remove buttons and model action buttons in the chat UI had per-button event listeners capturing loop variables and objects in closures. Refactored to use event delegation on container elements with HTML dataset attributes instead. Eliminates closure references and memory leaks in long conversations.

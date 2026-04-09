@@ -2,6 +2,15 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.31.0] - 2026-04-08
+
+### Added
+- **Mermaid diagram rendering**: models can now generate diagrams in markdown mermaid code blocks. Chat displays diagrams natively with syntax highlighting, diagram source collapsible view, and copy-to-clipboard for SVG output. Lazy-loads mermaid.js on first diagram to minimize bundle size impact
+- **Diagram block styling**: dedicated CSS for diagram containers with theme-aware background, border, and padding. Header shows "Diagram" label with Copy SVG button
+
+### Tests
+- 464 total tests (maintained)
+
 ## [0.30.1] - 2026-04-08
 
 ### Added

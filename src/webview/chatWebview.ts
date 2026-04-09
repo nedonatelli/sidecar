@@ -152,6 +152,7 @@ export interface LibraryModelUI {
 export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string {
   const stylesUri = webview.asWebviewUri(Uri.joinPath(extensionUri, 'media', 'chat.css'));
   const scriptUri = webview.asWebviewUri(Uri.joinPath(extensionUri, 'media', 'chat.js'));
+  const mermaidUri = webview.asWebviewUri(Uri.joinPath(extensionUri, 'media', 'mermaid.min.js'));
   const nonce = crypto.randomBytes(16).toString('base64');
 
   return `<!DOCTYPE html>
@@ -160,7 +161,7 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}' ${webview.cspSource}; img-src ${webview.cspSource} data: blob:; connect-src http://localhost:* https://localhost:*;">
+    content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}' ${webview.cspSource} 'unsafe-eval'; img-src ${webview.cspSource} data: blob:; connect-src http://localhost:* https://localhost:*;">
   <link rel="stylesheet" href="${stylesUri}">
 </head>
 <body>
@@ -231,6 +232,7 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
     <button id="send">Send</button>
   </div>
 
+  <script nonce="${nonce}">window.__mermaidSrc = "${mermaidUri}"; window.__nonce = "${nonce}";</script>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;
