@@ -13,6 +13,8 @@ export interface AgentRunMetrics {
   totalTokensEstimate: number;
   durationMs: number;
   errors: string[];
+  /** Estimated cost in USD for this run (null for local models). */
+  costUsd: number | null;
 }
 
 const STORAGE_KEY = 'sidecar.metrics';
@@ -30,6 +32,7 @@ export class MetricsCollector {
       errors: [],
       iterations: 0,
       totalTokensEstimate: 0,
+      costUsd: null,
     };
   }
 
@@ -69,7 +72,44 @@ export class MetricsCollector {
     this.currentRun = null;
   }
 
+  recordCost(costUsd: number | null): void {
+    if (this.currentRun) {
+      this.currentRun.costUsd = costUsd;
+    }
+  }
+
   getHistory(): AgentRunMetrics[] {
     return this.workspaceState.get<AgentRunMetrics[]>(STORAGE_KEY, []);
+  }
+
+  /**
+   * Sum estimated cost (USD) for runs within a time window.
+   * Runs without cost data (local models) are excluded.
+   */
+  getSpendSince(sinceMs: number): number {
+    const history = this.getHistory();
+    let total = 0;
+    for (const run of history) {
+      if (run.timestamp >= sinceMs && run.costUsd !== null && run.costUsd !== undefined) {
+        total += run.costUsd;
+      }
+    }
+    return total;
+  }
+
+  /** Cost spent in the current calendar day (local midnight). */
+  getDailySpend(): number {
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    return this.getSpendSince(startOfDay);
+  }
+
+  /** Cost spent in the current calendar week (Monday midnight). */
+  getWeeklySpend(): number {
+    const now = new Date();
+    const day = now.getDay(); // 0=Sun, 1=Mon, ...
+    const daysSinceMonday = day === 0 ? 6 : day - 1;
+    const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysSinceMonday).getTime();
+    return this.getSpendSince(startOfWeek);
   }
 }

@@ -131,7 +131,7 @@ export async function handleSpec(state: ChatState, description: string): Promise
 
 export async function handleUsage(state: ChatState): Promise<void> {
   const history = state.metricsCollector.getHistory();
-  const report = generateUsageReport(history);
+  const report = generateUsageReport(history, state.metricsCollector);
   const doc = await workspace.openTextDocument({ content: report, language: 'markdown' });
   await window.showTextDocument(doc, { preview: true });
 }

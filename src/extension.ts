@@ -3,7 +3,7 @@ import * as path from 'path';
 import { ChatViewProvider } from './webview/chatView.js';
 import { TerminalManager } from './terminal/manager.js';
 import { SideCarCompletionProvider } from './completions/provider.js';
-import { getConfig, isLocalOllama, readLLMManagerToken } from './config/settings.js';
+import { getConfig, isLocalOllama, isLLMManager, detectProvider, readLLMManagerToken } from './config/settings.js';
 import { createClient } from './ollama/factory.js';
 import { SideCarClient } from './ollama/client.js';
 import { ProposedContentProvider } from './edits/proposedContentProvider.js';
@@ -143,22 +143,28 @@ export function activate(context: ExtensionContext) {
     });
   }
 
-  // Discover available models from both Ollama and LLMManager on startup
-  setImmediate(() => {
-    const apiKey = readLLMManagerToken();
-    SideCarClient.discoverAllAvailableModels(apiKey)
-      .then((models) => {
-        if (models.length > 0) {
-          const modelNames = models.map((m) => m.name).join(', ');
-          console.log(`[SideCar] Discovered ${models.length} available models: ${modelNames}`);
-        } else {
-          console.log('[SideCar] No models discovered from Ollama or LLMManager');
-        }
-      })
-      .catch((err) => {
-        console.warn('[SideCar] Model discovery failed:', err.message);
-      });
-  });
+  // Discover available models on startup, but only when using local backends.
+  // Remote-only providers (anthropic, openai) don't benefit from probing localhost.
+  const provider = detectProvider(config.baseUrl, config.provider);
+  if (provider === 'ollama' || provider === 'llmmanager') {
+    setImmediate(() => {
+      const ollamaUrl = isLocalOllama(config.baseUrl) ? config.baseUrl : 'http://localhost:11434';
+      const llmManagerUrl = isLLMManager(config.baseUrl) ? config.baseUrl : 'http://localhost:11435';
+      const apiKey = readLLMManagerToken();
+      SideCarClient.discoverAllAvailableModels(ollamaUrl, llmManagerUrl, apiKey)
+        .then((models) => {
+          if (models.length > 0) {
+            const modelNames = models.map((m) => m.name).join(', ');
+            console.log(`[SideCar] Discovered ${models.length} available models: ${modelNames}`);
+          } else {
+            console.log('[SideCar] No models discovered from Ollama or LLMManager');
+          }
+        })
+        .catch((err) => {
+          console.warn('[SideCar] Model discovery failed:', err.message);
+        });
+    });
+  }
 
   // Inline edit provider — "tab to apply" ghost text for agent-proposed edits
   const inlineEditProvider = new InlineEditProvider();
@@ -253,8 +259,11 @@ export function activate(context: ExtensionContext) {
       message.show();
 
       try {
+        const cfg = getConfig();
+        const ollamaUrl = isLocalOllama(cfg.baseUrl) ? cfg.baseUrl : 'http://localhost:11434';
+        const llmManagerUrl = isLLMManager(cfg.baseUrl) ? cfg.baseUrl : 'http://localhost:11435';
         const apiKey = readLLMManagerToken();
-        const models = await SideCarClient.discoverAllAvailableModels(apiKey);
+        const models = await SideCarClient.discoverAllAvailableModels(ollamaUrl, llmManagerUrl, apiKey);
 
         if (models.length === 0) {
           window.showInformationMessage('SideCar: No models found. Make sure Ollama or LLMManager is running.');
@@ -264,7 +273,9 @@ export function activate(context: ExtensionContext) {
           console.log(`[SideCar] Discovered models: ${modelList}`);
         }
       } catch (error) {
-        window.showErrorMessage(`SideCar: Failed to discover models: ${error instanceof Error ? error.message : String(error)}`);
+        window.showErrorMessage(
+          `SideCar: Failed to discover models: ${error instanceof Error ? error.message : String(error)}`,
+        );
       } finally {
         message.dispose();
       }

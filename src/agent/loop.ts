@@ -11,7 +11,13 @@ import { recordToolSuccess, recordToolFailure } from '../ollama/ollamaBackend.js
 import type { InlineEditFn } from './executor.js';
 import { getToolDefinitions, getDiagnostics } from './tools.js';
 import { getConfig } from '../config/settings.js';
-import { executeTool, type ApprovalMode, type ConfirmFn, type DiffPreviewFn } from './executor.js';
+import {
+  executeTool,
+  type ApprovalMode,
+  type ConfirmFn,
+  type DiffPreviewFn,
+  type StreamingDiffPreviewFn,
+} from './executor.js';
 import type { AgentLogger } from './logger.js';
 import type { ChangeLog } from './changelog.js';
 import type { MCPManager } from './mcpManager.js';
@@ -50,6 +56,7 @@ export interface AgentOptions {
   confirmFn?: ConfirmFn;
   diffPreviewFn?: DiffPreviewFn;
   inlineEditFn?: InlineEditFn;
+  streamingDiffPreviewFn?: StreamingDiffPreviewFn;
 }
 
 const DEFAULT_MAX_ITERATIONS = 25;
@@ -69,7 +76,6 @@ export async function runAgentLoop(
   const maxTokens = options.maxTokens || 100_000;
   const tools = getToolDefinitions(mcpManager);
   let iteration = 0;
-  let totalChars = 0;
   let autoFixRetries = 0;
   const startTime = Date.now();
 
@@ -79,6 +85,21 @@ export async function runAgentLoop(
 
   // Work with a copy of messages
   const agentMessages = [...messages];
+
+  // Initialize totalChars from existing conversation history so the
+  // compression threshold accounts for all context, not just new output.
+  let totalChars = 0;
+  for (const msg of agentMessages) {
+    if (typeof msg.content === 'string') {
+      totalChars += msg.content.length;
+    } else if (Array.isArray(msg.content)) {
+      for (const block of msg.content) {
+        if ('text' in block && typeof block.text === 'string') totalChars += block.text.length;
+        else if ('content' in block && typeof block.content === 'string') totalChars += block.content.length;
+        else if ('thinking' in block && typeof block.thinking === 'string') totalChars += block.thinking.length;
+      }
+    }
+  }
 
   while (iteration < maxIterations) {
     iteration++;
@@ -330,6 +351,7 @@ export async function runAgentLoop(
             signal,
           },
           options.inlineEditFn,
+          options.streamingDiffPreviewFn,
         );
         logger?.logToolResult(toolUse.name, result.content, result.is_error || false);
         callbacks.onToolResult(toolUse.name, result.content, result.is_error || false, toolUse.id);

@@ -379,15 +379,25 @@ export class SideCarClient {
 
   /**
    * Discover and merge available models from both Ollama and LLMManager backends.
-   * Returns models from whichever backends are running.
+   * Uses the configured base URL for the active provider and probes the other
+   * backend at its default port only if the active provider isn't already pointing there.
+   *
+   * @param ollamaUrl   Base URL for Ollama (default: http://localhost:11434)
+   * @param llmManagerUrl Base URL for LLMManager (default: http://localhost:11435)
+   * @param apiKey      Optional API key for LLMManager authentication
    */
-  static async discoverAllAvailableModels(apiKey?: string): Promise<InstalledModel[]> {
+  static async discoverAllAvailableModels(
+    ollamaUrl = 'http://localhost:11434',
+    llmManagerUrl = 'http://localhost:11435',
+    apiKey?: string,
+  ): Promise<InstalledModel[]> {
     const models: InstalledModel[] = [];
     const seen = new Set<string>();
 
-    // Try Ollama at localhost:11434
+    // Try Ollama
     try {
-      const ollamaResponse = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(2000) });
+      const url = ollamaUrl.replace(/\/+$/, '');
+      const ollamaResponse = await fetch(`${url}/api/tags`, { signal: AbortSignal.timeout(2000) });
       if (ollamaResponse.ok) {
         const data = (await ollamaResponse.json()) as { models: InstalledModel[] };
         if (data.models) {
@@ -403,13 +413,14 @@ export class SideCarClient {
       // Ollama not available, continue
     }
 
-    // Try LLMManager at localhost:11435
+    // Try LLMManager
     try {
+      const url = llmManagerUrl.replace(/\/+$/, '');
       const headers: Record<string, string> = {};
       if (apiKey && apiKey !== 'ollama') {
         headers['Authorization'] = `Bearer ${apiKey}`;
       }
-      const llmmResponse = await fetch('http://localhost:11435/v1/models', {
+      const llmmResponse = await fetch(`${url}/v1/models`, {
         headers,
         signal: AbortSignal.timeout(2000),
       });

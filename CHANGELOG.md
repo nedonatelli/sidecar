@@ -2,6 +2,28 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.34.0] - 2026-04-09
+
+### Added
+- **Spending budgets**: new `sidecar.dailyBudget` and `sidecar.weeklyBudget` settings (USD). Agent runs are blocked when the limit is reached, with a warning at 80% usage. Completes the cost tracking & budgets roadmap item
+- **Per-run cost tracking**: each agent run now records its estimated cost in metrics history. `/usage` dashboard shows per-run cost column and a new Budget Status section with spent/limit/remaining
+- **LLMManager provider support**: `llmmanager` added as an explicit provider option alongside ollama/anthropic/openai
+- **Dual-backend model discovery**: new `SideCar: Discover Available Models` command and startup discovery that probes both Ollama and LLMManager for available models. Respects configured base URLs instead of hardcoded ports
+- **Streaming diff preview types**: added `StreamingDiffPreviewFn`, `EditBlock`, and `ProposedContentProvider` type infrastructure for upcoming streaming diff feature
+
+### Fixed
+- **Token compaction not triggering**: agent loop `totalChars` was initialized to 0 instead of summing existing conversation history, so the 70% compression threshold never fired for accumulated context
+- **Pruned messages re-added**: after `pruneHistory` reduced the message array, the post-loop merge used the pruned length to slice `state.messages`, re-adding the very messages that pruning had removed
+- **Model discovery hardcoded ports**: `discoverAllAvailableModels()` now accepts configurable URLs for both Ollama and LLMManager instead of hardcoding `localhost:11434` and `localhost:11435`
+- **Unnecessary startup discovery**: model discovery on activation now only runs when the detected provider is `ollama` or `llmmanager`, avoiding two 2-second timeout fetches for Anthropic/OpenAI users
+- **TypeScript type errors**: added missing imports for `EditBlock`, `ProposedContentProvider` in executor.ts and `StreamingDiffPreviewFn` in loop.ts — zero type errors now
+
+### Changed
+- **`vsce` packaging**: `package` script now uses `npx @vscode/vsce package` instead of bare `vsce`
+
+### Tests
+- 506 total tests (up from 465)
+
 ## [0.33.0] - 2026-04-09
 
 ### Documentation

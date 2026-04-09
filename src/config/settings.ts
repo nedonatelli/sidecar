@@ -114,6 +114,8 @@ export interface SideCarConfig {
   fallbackBaseUrl: string;
   fallbackApiKey: string;
   fallbackModel: string;
+  dailyBudget: number;
+  weeklyBudget: number;
 }
 
 /**
@@ -177,6 +179,8 @@ function readConfig(): SideCarConfig {
     fallbackBaseUrl: cfg.get<string>('fallbackBaseUrl', ''),
     fallbackApiKey: cfg.get<string>('fallbackApiKey', ''),
     fallbackModel: cfg.get<string>('fallbackModel', ''),
+    dailyBudget: clampMin(cfg.get<number>('dailyBudget'), 0, 0),
+    weeklyBudget: clampMin(cfg.get<number>('weeklyBudget'), 0, 0),
   };
 }
 

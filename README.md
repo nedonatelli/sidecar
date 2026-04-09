@@ -41,7 +41,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 - **No vendor lock-in** — Use Ollama for fully offline operation, the Anthropic API for Claude, or any OpenAI-compatible server (LM Studio, vLLM, llama.cpp, OpenRouter). Same interface, your choice.
 - **Security from the ground up** — Built-in secrets detection and vulnerability scanning run automatically after every file write. No other local-first extension does this.
 - **Extensible with MCP** — Connect external tools (databases, APIs, custom scripts) via the Model Context Protocol. SideCar treats them as first-class tools alongside its built-in ones.
-- **Production-grade safety** — Agent mode controls (cautious/autonomous/manual), iteration limits, token budgets, cycle detection, diff preview, and one-click rollback keep you in control.
+- **Production-grade safety** — Agent mode controls (cautious/autonomous/manual), iteration limits, token budgets, daily/weekly spending caps, cycle detection, diff preview, and one-click rollback keep you in control.
 - **`.sidecar/` project directory** — Persistent project storage for workspace index cache, agent reasoning logs, session history, plans, and memory. Committed project instructions live alongside gitignored ephemeral data.
 - **Smart context** — AST-based extraction for JS/TS, Python, Rust, Go, and Java/Kotlin files. SideCar sends relevant functions and classes to the model, not entire files.
 
@@ -57,7 +57,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 - **Test-driven loop** — runs tests, feeds failures back to the model, iterates until passing
 - **Undo/rollback** — revert all AI-made file changes with one click
 - **Diff preview** — in cautious mode, file writes open VS Code's diff editor for review before applying
-- **Safety guardrails** — agent mode dropdown (cautious/autonomous/manual) in the header, iteration limits, token budget
+- **Safety guardrails** — agent mode dropdown (cautious/autonomous/manual) in the header, iteration limits, token budget, daily/weekly spending caps
 - **Thinking/reasoning** — collapsible reasoning blocks from models that support extended thinking (Anthropic) or `<think>` tags (qwen3, deepseek-r1)
 - **Verbose mode** — `/verbose` to show system prompt, per-iteration summaries, and tool selection context during agent runs
 - **Smart context selection** — AST-based parsing extracts relevant functions, classes, and imports from JS/TS files instead of including whole files in context

@@ -5,7 +5,7 @@ import { exec } from 'child_process';
 import type { ChatState } from '../chatState.js';
 import type { ContentBlock } from '../../ollama/types.js';
 import { getContentLength, getContentText } from '../../ollama/types.js';
-import { getConfig } from '../../config/settings.js';
+import { getConfig, estimateCost } from '../../config/settings.js';
 import { GitCLI } from '../../github/git.js';
 import {
   getWorkspaceContext,
@@ -191,6 +191,42 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
       return;
     }
 
+    // Budget enforcement: block agent runs when spending limits are exceeded.
+    if (config.dailyBudget > 0 || config.weeklyBudget > 0) {
+      const dailySpend = state.metricsCollector.getDailySpend();
+      const weeklySpend = state.metricsCollector.getWeeklySpend();
+
+      if (config.dailyBudget > 0 && dailySpend >= config.dailyBudget) {
+        state.postMessage({
+          command: 'assistantMessage',
+          content: `⚠️ **Daily spending limit reached** — $${dailySpend.toFixed(4)} of $${config.dailyBudget.toFixed(2)} budget used today. Adjust \`sidecar.dailyBudget\` in settings to continue.`,
+        });
+        state.postMessage({ command: 'setLoading', isLoading: false });
+        return;
+      }
+      if (config.weeklyBudget > 0 && weeklySpend >= config.weeklyBudget) {
+        state.postMessage({
+          command: 'assistantMessage',
+          content: `⚠️ **Weekly spending limit reached** — $${weeklySpend.toFixed(4)} of $${config.weeklyBudget.toFixed(2)} budget used this week. Adjust \`sidecar.weeklyBudget\` in settings to continue.`,
+        });
+        state.postMessage({ command: 'setLoading', isLoading: false });
+        return;
+      }
+
+      // Warn when approaching limits (80% threshold)
+      if (config.dailyBudget > 0 && dailySpend >= config.dailyBudget * 0.8) {
+        state.postMessage({
+          command: 'assistantMessage',
+          content: `💰 Approaching daily budget: $${dailySpend.toFixed(4)} of $${config.dailyBudget.toFixed(2)} (${Math.round((dailySpend / config.dailyBudget) * 100)}% used)\n\n`,
+        });
+      } else if (config.weeklyBudget > 0 && weeklySpend >= config.weeklyBudget * 0.8) {
+        state.postMessage({
+          command: 'assistantMessage',
+          content: `💰 Approaching weekly budget: $${weeklySpend.toFixed(4)} of $${config.weeklyBudget.toFixed(2)} (${Math.round((weeklySpend / config.weeklyBudget) * 100)}% used)\n\n`,
+        });
+      }
+    }
+
     const model = config.model;
     state.client.updateConnection(config.baseUrl, config.apiKey);
     state.client.updateModel(model);
@@ -341,7 +377,10 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     // called while the agent loop was running.
     const generationAtStart = state.chatGeneration;
 
-    // Build API messages with enriched context
+    // Build API messages with enriched context.
+    // Record the pre-prune message count so the post-loop merge can
+    // correctly identify messages added by the user during the run.
+    const prePruneMessageCount = state.messages.length;
     const chatMessages = [...state.messages];
     if (chatMessages.length > 0) {
       let lastUserIdx = -1;
@@ -541,9 +580,10 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     }
 
     // Merge agent output with any messages added during the run (e.g., user sent
-    // a new message while the agent was working). The agent loop started with a
-    // snapshot of chatMessages — append any new messages the user added since then.
-    const newUserMessages = state.messages.slice(chatMessages.length);
+    // a new message while the agent was working). Use the pre-prune count to
+    // identify genuinely new messages — using chatMessages.length would re-add
+    // messages that pruning had removed (since pruning shrinks chatMessages).
+    const newUserMessages = state.messages.slice(prePruneMessageCount);
     state.messages = [...updatedMessages, ...newUserMessages];
     state.trimHistory();
     state.saveHistory();
@@ -578,6 +618,16 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     const classified = classifyError(errorMessage);
     state.postMessage({ command: 'error', content: `Error: ${errorMessage}`, ...classified });
   } finally {
+    // Record estimated cost for this run before finalizing metrics.
+    const runConfig = getConfig();
+    // currentRun hasn't been pushed yet, so token count is on the in-flight run
+    const currentTokens = state.metricsCollector['currentRun']?.totalTokensEstimate || 0;
+    if (currentTokens > 0) {
+      const inputTokens = Math.round(currentTokens * 0.7);
+      const outputTokens = currentTokens - inputTokens;
+      const runCost = estimateCost(runConfig.model, inputTokens, outputTokens);
+      state.metricsCollector.recordCost(runCost);
+    }
     state.metricsCollector.endRun();
     state.abortController = null;
     // Always ensure loading indicator is cleared, regardless of how we got here

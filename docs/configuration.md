@@ -78,6 +78,22 @@ Pinned files appear in a dedicated "Pinned Files" section before relevance-score
 
 When enabled, SideCar automatically runs VS Code's language diagnostics after the agent writes or edits a file. If errors are found, they're fed back to the model to self-correct — up to the configured retry limit.
 
+## Spending budgets
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.dailyBudget` | number | `0` | Daily spending budget in USD. Agent runs are blocked when the limit is reached. Set to 0 to disable |
+| `sidecar.weeklyBudget` | number | `0` | Weekly spending budget in USD. Agent runs are blocked when the limit is reached. Set to 0 to disable |
+
+Set spending limits to prevent runaway costs when using paid APIs (Anthropic, OpenRouter). When a budget is active:
+
+- At **80% usage**: a warning message appears in chat before the agent run starts
+- At **100% usage**: the agent run is blocked with a message indicating which setting to adjust
+
+Budget tracking uses the per-run cost estimates stored in metrics history. View current spending with the `/usage` command, which shows a Budget Status table with spent/limit/remaining for each active budget.
+
+Budgets reset on calendar boundaries — daily at midnight local time, weekly on Monday midnight.
+
 ## Inline completions
 
 | Setting | Type | Default | Description |

@@ -2,7 +2,7 @@
   "name": "sidecar-ai",
   "displayName": "SideCar",
   "description": "Autonomous AI agent for coding — run full agent loops with local Ollama, Anthropic Claude, or OpenAI models",
-  "version": "0.33.0",
+  "version": "0.34.0",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -332,6 +332,18 @@
           "type": "string",
           "default": "",
           "description": "Model to use on the fallback backend"
+        },
+        "sidecar.dailyBudget": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "description": "Daily spending budget in USD. Agent runs are blocked when the limit is reached. Set to 0 to disable."
+        },
+        "sidecar.weeklyBudget": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "description": "Weekly spending budget in USD. Agent runs are blocked when the limit is reached. Set to 0 to disable."
         }
       }
     },
@@ -506,7 +518,7 @@
     "src/**/*.ts": [
       "prettier --write",
       "eslint --max-warnings=0",
-      "tsc --noEmit"
+      "bash -c 'tsc --noEmit'"
     ],
     "media/**/*.{js,css}": [
       "prettier --write"

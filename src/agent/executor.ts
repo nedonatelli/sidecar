@@ -8,6 +8,8 @@ import type { MCPManager } from './mcpManager.js';
 import { getConfig } from '../config/settings.js';
 import type { AgentLogger } from './logger.js';
 import { scanFile, formatIssues } from './securityScanner.js';
+import type { EditBlock } from '../edits/parser.js';
+import type { ProposedContentProvider } from '../edits/proposedContentProvider.js';
 
 const execAsync = promisify(exec);
 
@@ -15,6 +17,10 @@ export type ApprovalMode = 'autonomous' | 'cautious' | 'manual';
 export type ConfirmFn = (message: string, actions: string[]) => Promise<string | undefined>;
 export type DiffPreviewFn = (filePath: string, proposedContent: string) => Promise<'accept' | 'reject'>;
 export type InlineEditFn = (filePath: string, searchText: string, replaceText: string) => Promise<boolean>;
+export type StreamingDiffPreviewFn = (
+  block: EditBlock,
+  contentProvider: ProposedContentProvider,
+) => Promise<'accept' | 'reject'>;
 
 const WRITE_TOOLS = new Set(['write_file', 'edit_file']);
 
@@ -28,6 +34,7 @@ export async function executeTool(
   diffPreviewFn?: DiffPreviewFn,
   executorContext?: ToolExecutorContext,
   inlineEditFn?: InlineEditFn,
+  streamingDiffPreviewFn?: StreamingDiffPreviewFn,
 ): Promise<ToolResultContentBlock> {
   const tool = findTool(toolUse.name, mcpManager);
 
@@ -120,7 +127,21 @@ export async function executeTool(
         proposedContent = (toolUse.input.content as string) || '';
       }
 
-      const diffChoice = await diffPreviewFn(filePath, proposedContent);
+      // Use streaming diff preview if available, otherwise fall back to regular diff
+      let diffChoice: 'accept' | 'reject';
+      if (streamingDiffPreviewFn) {
+        // For streaming diff preview, we need to create a mock EditBlock
+        // since the streaming preview function expects a different interface
+        const mockBlock = {
+          filePath,
+          searchText: toolUse.name === 'edit_file' ? (toolUse.input.search as string) : '',
+          replaceText: toolUse.name === 'edit_file' ? (toolUse.input.replace as string) : proposedContent,
+        };
+        diffChoice = await streamingDiffPreviewFn(mockBlock, undefined as unknown as ProposedContentProvider);
+      } else {
+        diffChoice = await diffPreviewFn(filePath, proposedContent);
+      }
+
       if (diffChoice !== 'accept') {
         return {
           type: 'tool_result',

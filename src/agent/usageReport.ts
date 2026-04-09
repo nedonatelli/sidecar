@@ -1,7 +1,8 @@
 import type { AgentRunMetrics } from './metrics.js';
+import type { MetricsCollector } from './metrics.js';
 import { estimateCost, getConfig } from '../config/settings.js';
 
-export function generateUsageReport(metrics: AgentRunMetrics[]): string {
+export function generateUsageReport(metrics: AgentRunMetrics[], collector?: MetricsCollector): string {
   if (metrics.length === 0) {
     return '# SideCar Token Usage\n\nNo agent activity recorded yet.';
   }
@@ -13,10 +14,12 @@ export function generateUsageReport(metrics: AgentRunMetrics[]): string {
   const totalTimeMs = metrics.reduce((s, m) => s + m.durationMs, 0);
   const totalToolCalls = metrics.reduce((s, m) => s + m.toolCalls.length, 0);
 
-  // Rough split: ~70% input, ~30% output for typical agent usage
+  // Use per-run cost data when available, fall back to aggregate estimation
+  const totalCostFromRuns = metrics.reduce((s, m) => s + (m.costUsd ?? 0), 0);
   const inputTokens = Math.round(totalTokens * 0.7);
   const outputTokens = totalTokens - inputTokens;
-  const cost = estimateCost(model, inputTokens, outputTokens);
+  const estimatedCost = estimateCost(model, inputTokens, outputTokens);
+  const cost = totalCostFromRuns > 0 ? totalCostFromRuns : estimatedCost;
 
   // Per-run breakdown
   const recentRuns = metrics.slice(-10).reverse();
@@ -43,16 +46,40 @@ export function generateUsageReport(metrics: AgentRunMetrics[]): string {
     lines.push(`| Estimated cost | N/A (local model) |`);
   }
 
+  // Budget status section
+  if (collector && (config.dailyBudget > 0 || config.weeklyBudget > 0)) {
+    lines.push('', '## Budget Status', '');
+    lines.push('| Budget | Spent | Limit | Remaining |');
+    lines.push('|--------|-------|-------|-----------|');
+    if (config.dailyBudget > 0) {
+      const daily = collector.getDailySpend();
+      const remaining = Math.max(0, config.dailyBudget - daily);
+      const pct = Math.round((daily / config.dailyBudget) * 100);
+      lines.push(
+        `| Daily | $${daily.toFixed(4)} | $${config.dailyBudget.toFixed(2)} | $${remaining.toFixed(4)} (${pct}% used) |`,
+      );
+    }
+    if (config.weeklyBudget > 0) {
+      const weekly = collector.getWeeklySpend();
+      const remaining = Math.max(0, config.weeklyBudget - weekly);
+      const pct = Math.round((weekly / config.weeklyBudget) * 100);
+      lines.push(
+        `| Weekly | $${weekly.toFixed(4)} | $${config.weeklyBudget.toFixed(2)} | $${remaining.toFixed(4)} (${pct}% used) |`,
+      );
+    }
+  }
+
   lines.push('', '## Recent Runs (last 10)', '');
-  lines.push('| # | Tokens | Tools | Duration | Errors |');
-  lines.push('|---|--------|-------|----------|--------|');
+  lines.push('| # | Tokens | Cost | Tools | Duration | Errors |');
+  lines.push('|---|--------|------|-------|----------|--------|');
 
   for (let i = 0; i < recentRuns.length; i++) {
     const m = recentRuns[i];
     const dur = (m.durationMs / 1000).toFixed(1);
     const date = new Date(m.timestamp).toLocaleTimeString();
+    const runCost = m.costUsd !== null && m.costUsd !== undefined ? `$${m.costUsd.toFixed(4)}` : '—';
     lines.push(
-      `| ${date} | ${m.totalTokensEstimate.toLocaleString()} | ${m.toolCalls.length} | ${dur}s | ${m.errors.length} |`,
+      `| ${date} | ${m.totalTokensEstimate.toLocaleString()} | ${runCost} | ${m.toolCalls.length} | ${dur}s | ${m.errors.length} |`,
     );
   }
 
