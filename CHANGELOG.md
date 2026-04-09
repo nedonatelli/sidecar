@@ -2,6 +2,22 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.36.0] - 2026-04-09
+
+### Added
+- **Tree-sitter AST parsing**: proper syntax-aware code analysis for TypeScript, TSX, JavaScript, Python, Rust, and Go via `web-tree-sitter` WASM runtime. Replaces regex-based parsing with accurate scope analysis, nested structure support, and syntax-aware element extraction. Falls back to regex parser if WASM loading fails
+- **Built-in web search**: `web_search` tool lets the agent search the internet via DuckDuckGo (no API key needed). Returns up to 8 results with titles, URLs, and snippets. Checks internet connectivity on first use with clear offline warning
+- **CodeAnalyzer abstraction**: new `CodeAnalyzer` interface with registry that dispatches to tree-sitter or regex analyzer per language. Consumers (`workspaceIndex`, `symbolIndexer`, `context`) use the registry transparently
+- **SSRF protection**: URL fetching now blocks private/reserved IP ranges (10.x, 172.16-31.x, 192.168.x, 169.254.x, localhost) to prevent server-side request forgery
+- **Anthropic output capacity**: `max_tokens` raised from 4096 to 8192, unlocking full Claude output capacity
+
+### Fixed
+- **OpenAI tool call ID collision**: replaced `Date.now()` with monotonic counter to prevent ID collisions when multiple tool calls flush in the same millisecond
+- **edit_file search description**: now specifies uniqueness requirement and first-match-only behavior to prevent silent wrong-location edits
+
+### Tests
+- 506 total tests (maintained)
+
 ## [0.35.0] - 2026-04-09
 
 ### Security

@@ -2,7 +2,7 @@
 
 Planned improvements and features for SideCar, organized by priority. Audit findings from v0.34.0 comprehensive review are in the Audit Backlog section. All 13 critical fixes from the v0.34.0 audits were addressed in v0.35.0.
 
-Last updated: 2026-04-09 (v0.35.0)
+Last updated: 2026-04-09 (v0.36.0)
 
 ---
 
@@ -205,6 +205,15 @@ Detailed findings from seven comprehensive reviews. Items above in "Critical Fix
 ## Completed Items
 
 All completed features, grouped by version.
+
+### v0.36.0 (2026-04-09)
+
+- [x] **Tree-sitter AST parsing**: `web-tree-sitter` WASM runtime with grammars for TypeScript, TSX, JavaScript, Python, Rust, Go. CodeAnalyzer interface with registry dispatching to tree-sitter or regex fallback
+- [x] **Built-in web search**: `web_search` tool via DuckDuckGo HTML (no API key). Internet connectivity check with offline warning
+- [x] **SSRF protection**: private/reserved IP blocklist in URL fetching
+- [x] **Anthropic max_tokens**: raised from 4096 to 8192
+- [x] **OpenAI tool call ID fix**: monotonic counter replaces `Date.now()`
+- [x] **edit_file docs**: search parameter now specifies uniqueness and first-match behavior
 
 ### v0.35.0 (2026-04-09)
 
