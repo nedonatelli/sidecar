@@ -3,8 +3,9 @@ import * as path from 'path';
 import { ChatViewProvider } from './webview/chatView.js';
 import { TerminalManager } from './terminal/manager.js';
 import { SideCarCompletionProvider } from './completions/provider.js';
-import { getConfig, isLocalOllama } from './config/settings.js';
+import { getConfig, isLocalOllama, readLLMManagerToken } from './config/settings.js';
 import { createClient } from './ollama/factory.js';
+import { SideCarClient } from './ollama/client.js';
 import { ProposedContentProvider } from './edits/proposedContentProvider.js';
 import { AgentLogger } from './agent/logger.js';
 import { MCPManager } from './agent/mcpManager.js';
@@ -142,6 +143,23 @@ export function activate(context: ExtensionContext) {
     });
   }
 
+  // Discover available models from both Ollama and LLMManager on startup
+  setImmediate(() => {
+    const apiKey = readLLMManagerToken();
+    SideCarClient.discoverAllAvailableModels(apiKey)
+      .then((models) => {
+        if (models.length > 0) {
+          const modelNames = models.map((m) => m.name).join(', ');
+          console.log(`[SideCar] Discovered ${models.length} available models: ${modelNames}`);
+        } else {
+          console.log('[SideCar] No models discovered from Ollama or LLMManager');
+        }
+      })
+      .catch((err) => {
+        console.warn('[SideCar] Model discovery failed:', err.message);
+      });
+  });
+
   // Inline edit provider — "tab to apply" ghost text for agent-proposed edits
   const inlineEditProvider = new InlineEditProvider();
   context.subscriptions.push(inlineEditProvider);
@@ -228,6 +246,28 @@ export function activate(context: ExtensionContext) {
     }),
     commands.registerCommand('sidecar.scanStaged', () => {
       runPreCommitScan();
+    }),
+    commands.registerCommand('sidecar.discoverModels', async () => {
+      const message = window.createStatusBarItem(StatusBarAlignment.Left);
+      message.text = '$(sync~spin) SideCar: Discovering available models...';
+      message.show();
+
+      try {
+        const apiKey = readLLMManagerToken();
+        const models = await SideCarClient.discoverAllAvailableModels(apiKey);
+
+        if (models.length === 0) {
+          window.showInformationMessage('SideCar: No models found. Make sure Ollama or LLMManager is running.');
+        } else {
+          const modelList = models.map((m) => m.name).join(', ');
+          window.showInformationMessage(`SideCar: Discovered ${models.length} models: ${modelList}`);
+          console.log(`[SideCar] Discovered models: ${modelList}`);
+        }
+      } catch (error) {
+        window.showErrorMessage(`SideCar: Failed to discover models: ${error instanceof Error ? error.message : String(error)}`);
+      } finally {
+        message.dispose();
+      }
     }),
   );
 

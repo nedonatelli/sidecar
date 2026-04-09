@@ -307,7 +307,8 @@
             "auto",
             "ollama",
             "anthropic",
-            "openai"
+            "openai",
+            "llmmanager"
           ],
           "default": "auto",
           "description": "LLM provider backend. 'auto' detects from the base URL (localhost:11434 → Ollama, anthropic.com → Anthropic, localhost:11435 → LLMManager, anything else → OpenAI-compatible). Set explicitly for LM Studio, vLLM, llama.cpp, OpenRouter, or LLMManager."
@@ -390,6 +391,10 @@
         "title": "SideCar: Scan Staged Files for Secrets"
       },
       {
+        "command": "sidecar.discoverModels",
+        "title": "SideCar: Discover Available Models"
+      },
+      {
         "command": "sidecar.clearChat",
         "title": "SideCar: Clear Chat"
       },
@@ -467,7 +472,7 @@
     "compile": "tsc -p ./",
     "bundle": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap --minify --tree-shaking=true",
     "build": "npm run compile && npm run bundle",
-    "package": "npm run build && vsce package",
+    "package": "npm run build && npx @vscode/vsce package",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -490,7 +495,8 @@
     "lint-staged": "^16.4.0",
     "prettier": "^3.8.1",
     "typescript": "^5.3.0",
-    "vitest": "^4.1.2"
+    "vitest": "^4.1.2",
+    "@vscode/vsce": "^2.15.0"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

@@ -284,8 +284,8 @@ export class SideCarClient {
   async listInstalledModels(): Promise<InstalledModel[]> {
     const provider = this.getProviderType();
 
-    if (provider === 'openai') {
-      // OpenAI-compatible servers use GET /v1/models
+    if (provider === 'openai' || provider === 'llmmanager') {
+      // OpenAI-compatible servers and LLMManager use GET /v1/models
       try {
         const headers: Record<string, string> = {};
         if (this.apiKey && this.apiKey !== 'ollama') {
@@ -375,5 +375,62 @@ export class SideCarClient {
     } finally {
       reader.releaseLock();
     }
+  }
+
+  /**
+   * Discover and merge available models from both Ollama and LLMManager backends.
+   * Returns models from whichever backends are running.
+   */
+  static async discoverAllAvailableModels(apiKey?: string): Promise<InstalledModel[]> {
+    const models: InstalledModel[] = [];
+    const seen = new Set<string>();
+
+    // Try Ollama at localhost:11434
+    try {
+      const ollamaResponse = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(2000) });
+      if (ollamaResponse.ok) {
+        const data = (await ollamaResponse.json()) as { models: InstalledModel[] };
+        if (data.models) {
+          for (const m of data.models) {
+            if (!seen.has(m.name)) {
+              models.push(m);
+              seen.add(m.name);
+            }
+          }
+        }
+      }
+    } catch {
+      // Ollama not available, continue
+    }
+
+    // Try LLMManager at localhost:11435
+    try {
+      const headers: Record<string, string> = {};
+      if (apiKey && apiKey !== 'ollama') {
+        headers['Authorization'] = `Bearer ${apiKey}`;
+      }
+      const llmmResponse = await fetch('http://localhost:11435/v1/models', {
+        headers,
+        signal: AbortSignal.timeout(2000),
+      });
+      if (llmmResponse.ok) {
+        const data = (await llmmResponse.json()) as { data: { id: string; owned_by?: string }[] };
+        if (data.data) {
+          for (const m of data.data) {
+            if (!seen.has(m.id)) {
+              models.push({
+                name: m.id,
+                model: m.id,
+              });
+              seen.add(m.id);
+            }
+          }
+        }
+      }
+    } catch {
+      // LLMManager not available, continue
+    }
+
+    return models;
   }
 }
