@@ -61,8 +61,17 @@ Persistent memory across sessions about project patterns, conventions, user pref
 ### Agent action audit log
 Structured log of every agent action — which tool was called, with what arguments, what changed, and when. Stored per-session as JSON, browsable via a `/audit` slash command or the agent dashboard. Useful for debugging unexpected changes, understanding what an autonomous agent did while unattended, and building trust with cautious users. Pairs with the agent dashboard for visual inspection.
 
+### Model decision explanations
+Add a "Why?" button on tool calls and code suggestions that asks the model to explain its reasoning for that specific action. Surfaces thinking blocks more prominently and generates on-demand explanations when thinking wasn't captured. Builds user trust in agent decisions, especially in autonomous mode. Could reuse the existing collapsible thinking block infrastructure with an explicit "explain this step" prompt.
+
+### Conversation pattern analysis
+Analyze usage patterns across sessions to surface actionable insights: which tools the agent uses most, average iterations per task type, common failure modes, time-of-day productivity patterns, and which file types/areas of the codebase get the most agent attention. Builds on the existing `/usage` metrics history. Could render as a `/insights` slash command with charts (sparklines in markdown or a dedicated webview panel). Over time, use patterns to suggest workflow improvements — e.g., "Your agent runs average 12 iterations on test-related tasks. Consider enabling auto-fix to reduce retries."
+
 ### Model comparison
 Send the same prompt to multiple models side-by-side and compare responses. Useful for evaluating which model works best for different tasks. Render results in parallel columns.
+
+### Real-time code profiling integration
+Integrate with language-specific profiling tools to surface execution timing data inline in the editor. The agent could analyze profiling output to identify performance bottlenecks and suggest optimizations. Best implemented as an MCP server that wraps profilers (Node.js `--prof`, Python `cProfile`, Go `pprof`) and exposes results as tool output. The agent can then read profiling data and make targeted optimization suggestions.
 
 ---
 
@@ -353,6 +362,9 @@ An intelligent approval classifier that evaluates each tool call in real-time to
 ### ~~OpenAI-compatible API support~~ (completed in v0.28.0)
 ~~Add a generic OpenAI-compatible backend that works with any server exposing the `/v1/chat/completions` endpoint — LM Studio, vLLM, llama.cpp, text-generation-webui, and any OpenAI-compatible provider.~~ Shipped with SSE streaming, incremental tool call accumulation, `<think>` tag parsing, `/v1/models` listing, and `sidecar.provider` setting for explicit backend selection.
 
+### Bitbucket / Atlassian support
+Add Bitbucket Cloud and Bitbucket Server as alternative git hosting providers alongside GitHub. Requires implementing the Bitbucket REST API v2.0 for PRs, issues, releases, and repo browsing, plus Atlassian OAuth2 or app password authentication. The existing `GitHubAPI` class should be refactored into a `GitProvider` interface that both GitHub and Bitbucket backends implement, so slash commands (`/prs`, `/issues`, `/releases`, etc.) work transparently regardless of which remote the repo uses. Auto-detect from git remote URL (`bitbucket.org` vs `github.com`).
+
 ### OpenRouter support
 Add OpenRouter as a third backend option alongside Ollama and Anthropic. A single API key gives access to 400+ models (GPT-4, Gemini, Mistral, Llama, etc.). Requires implementing the OpenRouter API format and model listing.
 
@@ -480,6 +492,9 @@ Isolate potentially dangerous tools (run_command, write_file) in constrained env
 ### Audit logging for tool usage
 Comprehensive audit trail of all tool calls: timestamp, tool name, arguments, result, user approval status, and any side effects. Queryable via dashboard. Essential for compliance, debugging unexpected behavior, and building user trust in autonomous agents.
 
+### Customizable code analysis rules
+Let users define custom analysis patterns via a `sidecar.analysisRules` setting — each rule specifies a regex pattern, severity (error/warning/info), and message. Rules run alongside the existing security scanner after agent file writes and surface in `get_diagnostics` output. Enables project-specific enforcement (e.g., "no console.log in production code", "always use strict equality") without requiring a full linter setup. Could also support custom metrics (line count thresholds, complexity warnings) and per-workspace rule sets.
+
 ---
 
 ## Advanced Agent Capabilities
@@ -534,6 +549,13 @@ Intelligent error parsing that categorizes failures (timeout, permission denied,
 
 ### Improved configuration management
 Config hierarchy with workspace/folder/global scopes. Configuration inheritance and merging rules. Visual config inspector showing which setting came from where. Import/export config presets for different project types.
+
+### Customizable chat UI themes
+The chat panel is a webview with its own CSS, independent of the VS Code editor theme. Add a `sidecar.chatTheme` setting that lets users customize the chat experience:
+- **Built-in themes**: ship 3–4 presets (Default Dark, Light, High Contrast, Minimal) that override chat colors, font sizes, message spacing, and code block styling
+- **Custom CSS**: a `sidecar.customCSS` setting pointing to a user CSS file that gets injected into the webview, enabling full visual customization (colors, fonts, borders, bubble shapes, avatar styles)
+- **Font and density controls**: `sidecar.chatFontSize` and `sidecar.chatDensity` (compact/comfortable/spacious) for quick adjustments without writing CSS
+- **VS Code theme sync**: read CSS custom properties from the active VS Code color theme to auto-match the editor's palette by default, so the chat panel looks native in any theme
 
 ---
 

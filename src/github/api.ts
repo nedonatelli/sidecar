@@ -1,4 +1,4 @@
-import type { GitHubPR, GitHubIssue, GitHubRepoFile } from './types.js';
+import type { GitHubPR, GitHubIssue, GitHubRepoFile, GitHubRelease } from './types.js';
 
 const BASE_URL = 'https://api.github.com';
 
@@ -150,6 +150,90 @@ export class GitHubAPI {
       createdAt: issue.created_at as string,
       body: issue.body as string | undefined,
     };
+  }
+
+  // --- Releases ---
+
+  private parseRelease(r: Record<string, unknown>): GitHubRelease {
+    const assets = (r.assets as Array<Record<string, unknown>> | undefined) ?? [];
+    return {
+      id: r.id as number,
+      tagName: r.tag_name as string,
+      name: (r.name as string) || (r.tag_name as string),
+      body: (r.body as string) || '',
+      draft: r.draft as boolean,
+      prerelease: r.prerelease as boolean,
+      url: r.html_url as string,
+      createdAt: r.created_at as string,
+      publishedAt: (r.published_at as string) || '',
+      assets: assets.map((a) => ({
+        name: a.name as string,
+        size: a.size as number,
+        downloadUrl: a.browser_download_url as string,
+        downloadCount: a.download_count as number,
+      })),
+    };
+  }
+
+  async listReleases(owner: string, repo: string): Promise<GitHubRelease[]> {
+    const data = await this.request<Array<Record<string, unknown>>>(`/repos/${owner}/${repo}/releases?per_page=20`);
+    return data.map((r) => this.parseRelease(r));
+  }
+
+  async getRelease(owner: string, repo: string, tagOrId: string): Promise<GitHubRelease> {
+    // Try by tag first, fall back to by ID
+    try {
+      const r = await this.request<Record<string, unknown>>(`/repos/${owner}/${repo}/releases/tags/${tagOrId}`);
+      return this.parseRelease(r);
+    } catch {
+      const r = await this.request<Record<string, unknown>>(`/repos/${owner}/${repo}/releases/${tagOrId}`);
+      return this.parseRelease(r);
+    }
+  }
+
+  async getLatestRelease(owner: string, repo: string): Promise<GitHubRelease> {
+    const r = await this.request<Record<string, unknown>>(`/repos/${owner}/${repo}/releases/latest`);
+    return this.parseRelease(r);
+  }
+
+  async createRelease(
+    owner: string,
+    repo: string,
+    options: {
+      tag: string;
+      name?: string;
+      body?: string;
+      draft?: boolean;
+      prerelease?: boolean;
+      target?: string;
+      generateNotes?: boolean;
+    },
+  ): Promise<GitHubRelease> {
+    const r = await this.request<Record<string, unknown>>(`/repos/${owner}/${repo}/releases`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tag_name: options.tag,
+        name: options.name || options.tag,
+        body: options.body || '',
+        draft: options.draft ?? false,
+        prerelease: options.prerelease ?? false,
+        target_commitish: options.target,
+        generate_release_notes: options.generateNotes ?? false,
+      }),
+    });
+    return this.parseRelease(r);
+  }
+
+  async deleteRelease(owner: string, repo: string, releaseId: number): Promise<void> {
+    await fetch(`${BASE_URL}/repos/${owner}/${repo}/releases/${releaseId}`, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${this.token}`,
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    });
   }
 
   async listRepoContents(owner: string, repo: string, repoPath: string = ''): Promise<GitHubRepoFile[]> {

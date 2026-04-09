@@ -332,6 +332,8 @@
     { cmd: '/verbose', desc: 'Toggle verbose mode (show agent reasoning)' },
     { cmd: '/prompt', desc: 'Show the current system prompt' },
     { cmd: '/skills', desc: 'List available Claude Code & SideCar skills' },
+    { cmd: '/releases', desc: 'List GitHub releases' },
+    { cmd: '/release', desc: 'Show, create, or delete a release' },
   ];
   const autocompleteEl = document.getElementById('slash-autocomplete');
   let acSelectedIndex = -1;
@@ -491,6 +493,33 @@
     // /browse [path] [repo] or browse repo [path]
     m = text.match(/^(?:\/browse|browse\s+repo(?:\s+files?)?)\s*(?:\s+(\S+))?\s*$/i);
     if (m) return { action: 'browse', ghPath: m[1] };
+
+    // /releases [repo] or list releases [repo]
+    m = text.match(/^(?:\/releases|(?:show|list)\s+releases?)(?:\s+(.+?))?\s*$/i);
+    if (m) return { action: 'listReleases', repo: m[1] };
+
+    // /release <tag> [repo] or show release <tag>
+    m = text.match(/^(?:\/release|show\s+release)\s+(\S+)(?:\s+(.+?))?\s*$/i);
+    if (m && m[1] !== 'create' && m[1] !== 'delete') return { action: 'getRelease', tag: m[1], repo: m[2] };
+
+    // /release create <tag> ["title"] ["body"] [--draft] [--prerelease] [--notes]
+    m = text.match(/^(?:\/release\s+create|create\s+release)\s+(\S+)(?:\s+"([^"]*)")?(?:\s+"([^"]*)")?(.*)?$/i);
+    if (m) {
+      const flags = m[4] || '';
+      return {
+        action: 'createRelease',
+        tag: m[1],
+        title: m[2],
+        body: m[3],
+        draft: /--draft/i.test(flags),
+        prerelease: /--prerelease/i.test(flags),
+        generateNotes: /--notes/i.test(flags),
+      };
+    }
+
+    // /release delete <tag>
+    m = text.match(/^(?:\/release\s+delete|delete\s+release)\s+(\S+)(?:\s+(.+?))?\s*$/i);
+    if (m) return { action: 'deleteRelease', tag: m[1], repo: m[2] };
 
     return null;
   }
@@ -664,6 +693,130 @@
         row.appendChild(link);
         container.appendChild(row);
       }
+      return container;
+    }
+
+    if (action === 'listReleases') {
+      const releases = data;
+      if (!releases || releases.length === 0) {
+        container.textContent = 'No releases found.';
+        return container;
+      }
+      for (const r of releases) {
+        const card = document.createElement('div');
+        card.className = 'gh-card';
+
+        const title = document.createElement('div');
+        title.className = 'gh-card-title';
+        title.textContent = r.name || r.tagName;
+
+        const tag = document.createElement('span');
+        tag.className = 'gh-state open';
+        tag.textContent = r.tagName;
+        title.appendChild(document.createTextNode(' '));
+        title.appendChild(tag);
+
+        if (r.draft) {
+          const draft = document.createElement('span');
+          draft.className = 'gh-state closed';
+          draft.textContent = 'draft';
+          title.appendChild(document.createTextNode(' '));
+          title.appendChild(draft);
+        }
+        if (r.prerelease) {
+          const pre = document.createElement('span');
+          pre.className = 'gh-state';
+          pre.textContent = 'pre-release';
+          title.appendChild(document.createTextNode(' '));
+          title.appendChild(pre);
+        }
+
+        const meta = document.createElement('div');
+        meta.className = 'gh-meta';
+        meta.textContent = r.publishedAt ? new Date(r.publishedAt).toLocaleDateString() : 'unpublished';
+        if (r.assets && r.assets.length > 0) {
+          meta.textContent += ' \u2022 ' + r.assets.length + ' asset' + (r.assets.length === 1 ? '' : 's');
+        }
+
+        const link = document.createElement('span');
+        link.className = 'gh-link';
+        link.textContent = r.url;
+        link.addEventListener('click', () => {
+          vscode.postMessage({ command: 'openExternal', url: r.url });
+        });
+
+        card.appendChild(title);
+        card.appendChild(meta);
+        card.appendChild(link);
+        container.appendChild(card);
+      }
+      return container;
+    }
+
+    if (action === 'getRelease') {
+      const r = data;
+      const card = document.createElement('div');
+      card.className = 'gh-card';
+
+      const title = document.createElement('div');
+      title.className = 'gh-card-title';
+      title.textContent = (r.name || r.tagName) + ' (' + r.tagName + ')';
+
+      const meta = document.createElement('div');
+      meta.className = 'gh-meta';
+      meta.textContent = r.publishedAt ? 'Published ' + new Date(r.publishedAt).toLocaleDateString() : 'Draft';
+
+      card.appendChild(title);
+      card.appendChild(meta);
+
+      if (r.body) {
+        const body = document.createElement('div');
+        body.className = 'gh-body';
+        body.textContent = r.body.slice(0, 800) + (r.body.length > 800 ? '...' : '');
+        card.appendChild(body);
+      }
+
+      if (r.assets && r.assets.length > 0) {
+        const assetsDiv = document.createElement('div');
+        assetsDiv.className = 'gh-meta';
+        assetsDiv.textContent =
+          'Assets: ' +
+          r.assets
+            .map(function (a) {
+              const mb = (a.size / (1024 * 1024)).toFixed(1);
+              return a.name + ' (' + mb + ' MB, ' + a.downloadCount + ' downloads)';
+            })
+            .join(', ');
+        card.appendChild(assetsDiv);
+      }
+
+      const link = document.createElement('span');
+      link.className = 'gh-link';
+      link.textContent = r.url;
+      link.addEventListener('click', () => {
+        vscode.postMessage({ command: 'openExternal', url: r.url });
+      });
+      card.appendChild(link);
+
+      container.appendChild(card);
+      return container;
+    }
+
+    if (action === 'createRelease') {
+      const r = data;
+      container.textContent = 'Release created: ' + (r.name || r.tagName);
+      const link = document.createElement('span');
+      link.className = 'gh-link';
+      link.textContent = ' ' + r.url;
+      link.addEventListener('click', () => {
+        vscode.postMessage({ command: 'openExternal', url: r.url });
+      });
+      container.appendChild(link);
+      return container;
+    }
+
+    if (action === 'deleteRelease') {
+      container.textContent = typeof data === 'string' ? data : 'Release deleted.';
       return container;
     }
 

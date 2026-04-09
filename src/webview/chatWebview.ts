@@ -72,6 +72,10 @@ export interface WebviewMessage {
   ghPath?: string;
   count?: number;
   index?: number;
+  tag?: string;
+  draft?: boolean;
+  prerelease?: boolean;
+  generateNotes?: boolean;
 }
 
 export interface ExtensionMessage {

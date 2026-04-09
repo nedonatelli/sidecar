@@ -68,6 +68,10 @@ export async function handleGitHubCommand(state: ChatState, msg: WebviewMessage)
       case 'listIssues':
       case 'getIssue':
       case 'createIssue':
+      case 'listReleases':
+      case 'getRelease':
+      case 'createRelease':
+      case 'deleteRelease':
       case 'browse': {
         const token = await getGitHubToken();
         const api = new GitHubAPI(token);
@@ -126,6 +130,46 @@ export async function handleGitHubCommand(state: ChatState, msg: WebviewMessage)
           }
           const issue = await api.createIssue(owner, repo, msg.title, msg.body);
           state.postMessage({ command: 'githubResult', githubAction: 'createIssue', githubData: issue });
+        } else if (msg.action === 'listReleases') {
+          const releases = await api.listReleases(owner, repo);
+          state.postMessage({ command: 'githubResult', githubAction: 'listReleases', githubData: releases });
+        } else if (msg.action === 'getRelease') {
+          if (msg.tag) {
+            const release = await api.getRelease(owner, repo, msg.tag);
+            state.postMessage({ command: 'githubResult', githubAction: 'getRelease', githubData: release });
+          } else {
+            const release = await api.getLatestRelease(owner, repo);
+            state.postMessage({ command: 'githubResult', githubAction: 'getRelease', githubData: release });
+          }
+        } else if (msg.action === 'createRelease') {
+          if (!msg.tag) {
+            state.postMessage({
+              command: 'error',
+              content: 'Usage: /release create <tag> ["title"] ["body"] [--draft] [--prerelease] [--notes]',
+            });
+            return;
+          }
+          const release = await api.createRelease(owner, repo, {
+            tag: msg.tag,
+            name: msg.title,
+            body: msg.body,
+            draft: msg.draft,
+            prerelease: msg.prerelease,
+            generateNotes: msg.generateNotes,
+          });
+          state.postMessage({ command: 'githubResult', githubAction: 'createRelease', githubData: release });
+        } else if (msg.action === 'deleteRelease') {
+          if (!msg.tag) {
+            state.postMessage({ command: 'error', content: 'Usage: /release delete <tag>' });
+            return;
+          }
+          const release = await api.getRelease(owner, repo, msg.tag);
+          await api.deleteRelease(owner, repo, release.id);
+          state.postMessage({
+            command: 'githubResult',
+            githubAction: 'deleteRelease',
+            githubData: `Deleted release ${msg.tag}`,
+          });
         } else if (msg.action === 'browse') {
           const files = await api.listRepoContents(owner, repo, msg.ghPath);
           state.postMessage({ command: 'githubResult', githubAction: 'browse', githubData: files });

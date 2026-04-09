@@ -39,3 +39,23 @@ export interface GitHubRepoFile {
   path: string;
   url: string;
 }
+
+export interface GitHubRelease {
+  id: number;
+  tagName: string;
+  name: string;
+  body: string;
+  draft: boolean;
+  prerelease: boolean;
+  url: string;
+  createdAt: string;
+  publishedAt: string;
+  assets: GitHubReleaseAsset[];
+}
+
+export interface GitHubReleaseAsset {
+  name: string;
+  size: number;
+  downloadUrl: string;
+  downloadCount: number;
+}
