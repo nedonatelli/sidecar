@@ -127,7 +127,13 @@
   customModelUse.addEventListener('click', () => {
     const name = customModelInput.value.trim();
     if (!name) return;
-    vscode.postMessage({ command: 'changeModel', model: name });
+    // Detect HuggingFace URLs and trigger install instead of just switching
+    const isHF = /huggingface\.co\/|^hf\.co\//i.test(name);
+    if (isHF) {
+      vscode.postMessage({ command: 'installModel', model: name });
+    } else {
+      vscode.postMessage({ command: 'changeModel', model: name });
+    }
     customModelInput.value = '';
     modelPanel.classList.add('hidden');
   });

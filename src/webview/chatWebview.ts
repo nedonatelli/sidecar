@@ -195,7 +195,7 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
       <button id="close-panel">&times;</button>
     </div>
     <div id="custom-model-row">
-      <input id="custom-model-input" type="text" placeholder="Enter model name..." />
+      <input id="custom-model-input" type="text" placeholder="Model name or HuggingFace URL..." />
       <button id="custom-model-use">Use</button>
     </div>
     <div id="model-list"></div>
