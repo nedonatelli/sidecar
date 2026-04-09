@@ -209,6 +209,32 @@ const MAX_URLS_PER_MESSAGE = 3;
 const URL_FETCH_TIMEOUT = 10000;
 
 /**
+ * Check if a URL hostname resolves to a private/reserved IP range.
+ * Blocks SSRF against cloud metadata, internal services, and localhost.
+ */
+function isPrivateUrl(urlStr: string): boolean {
+  try {
+    const parsed = new URL(urlStr);
+    const host = parsed.hostname;
+    // Block localhost
+    if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]') return true;
+    // Block private IPv4 ranges and cloud metadata
+    const ipv4 = host.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+    if (ipv4) {
+      const [, a, b] = ipv4.map(Number);
+      if (a === 10) return true; // 10.0.0.0/8
+      if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
+      if (a === 192 && b === 168) return true; // 192.168.0.0/16
+      if (a === 169 && b === 254) return true; // 169.254.0.0/16 (link-local, cloud metadata)
+      if (a === 0) return true; // 0.0.0.0/8
+    }
+    return false;
+  } catch {
+    return true; // Block malformed URLs
+  }
+}
+
+/**
  * Detect URLs in the message text, fetch readable content, and append it.
  */
 export async function resolveUrlReferences(text: string): Promise<string> {
@@ -222,6 +248,7 @@ export async function resolveUrlReferences(text: string): Promise<string> {
   for (const url of urls.slice(0, MAX_URLS_PER_MESSAGE)) {
     if (seen.has(url)) continue;
     seen.add(url);
+    if (isPrivateUrl(url)) continue; // SSRF protection
     try {
       const response = await fetch(url, {
         signal: AbortSignal.timeout(URL_FETCH_TIMEOUT),

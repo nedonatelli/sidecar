@@ -95,7 +95,11 @@ const editFileDef: ToolDefinition = {
     type: 'object',
     properties: {
       path: { type: 'string', description: 'Relative file path' },
-      search: { type: 'string', description: 'Exact text to find in the file' },
+      search: {
+        type: 'string',
+        description:
+          'Exact text to find in the file. Must be unique — include enough surrounding context to match only one location. Only the first match is replaced.',
+      },
       replace: { type: 'string', description: 'Text to replace it with' },
     },
     required: ['path', 'search', 'replace'],

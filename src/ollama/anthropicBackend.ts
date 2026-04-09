@@ -59,7 +59,7 @@ export class AnthropicBackend implements ApiBackend {
     const { agentTemperature } = getConfig();
     const body: Record<string, unknown> = {
       model,
-      max_tokens: 4096,
+      max_tokens: 8192,
       messages,
       stream: true,
       ...(tools && tools.length > 0 ? { temperature: agentTemperature } : {}),

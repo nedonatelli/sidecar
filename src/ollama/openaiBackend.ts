@@ -4,6 +4,9 @@ import { fetchWithRetry } from './retry.js';
 import { abortableRead, toFunctionTools, parseThinkTags, type ThinkTagState } from './streamUtils.js';
 import { getConfig } from '../config/settings.js';
 
+// Monotonic counter for generating unique tool call IDs when the API doesn't provide one
+let toolCallIdCounter = 0;
+
 // ---------------------------------------------------------------------------
 // OpenAI-compatible API types
 // ---------------------------------------------------------------------------
@@ -216,7 +219,7 @@ export class OpenAIBackend implements ApiBackend {
                 }
                 const toolUse: ToolUseContentBlock = {
                   type: 'tool_use',
-                  id: tc.id || `openai_tc_${Date.now()}`,
+                  id: tc.id || `openai_tc_${++toolCallIdCounter}`,
                   name: tc.name,
                   input: parsedArgs,
                 };
@@ -268,7 +271,7 @@ export class OpenAIBackend implements ApiBackend {
                 }
                 const toolUse: ToolUseContentBlock = {
                   type: 'tool_use',
-                  id: tc.id || `openai_tc_${Date.now()}`,
+                  id: tc.id || `openai_tc_${++toolCallIdCounter}`,
                   name: tc.name,
                   input: parsedArgs,
                 };
