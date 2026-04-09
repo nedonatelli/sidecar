@@ -46,6 +46,79 @@ Workspace file scoring uses keyword matching only. Integrate local ONNX embeddin
 - `api.ts:183-192` — `getRelease()` always tries tag endpoint first; numeric IDs cause a guaranteed 404 before fallback. Check if input is numeric and call the ID endpoint directly
 - `modelHandlers.ts:54` — no loading indicator during `listGGUFFiles()` HF API fetch (up to 10s timeout). Add `setLoading` messages around the call
 
+### Security audit findings (v0.34.0)
+
+**CRITICAL:**
+- `executor.ts:246` — hook system executes shell commands from workspace settings. Malicious `.vscode/settings.json` in a repo could execute arbitrary commands on project open. `SIDECAR_OUTPUT` env var contains tool output that may include attacker-controlled content
+
+**HIGH:**
+- `tools.ts:200-205` — `readFile` has NO path validation. `validateFilePath()` exists but is only called by `writeFile`/`editFile`. LLM can read `../../.ssh/id_rsa` or any file on the system and exfiltrate via LLM provider
+- No filtering of sensitive files (`.env`, `.pem`, `credentials.json`) before sending to LLM. Security scanner only runs AFTER writes, not before reads
+- `chatWebview.ts:168` — CSP allows `unsafe-eval` (required by mermaid.js), significantly weakening XSS protection
+- `eventHooks.ts:65` — event hooks pass unsanitized file paths in `SIDECAR_FILE` env var. Crafted filenames with shell metacharacters enable injection
+
+**MEDIUM:**
+- `workspace.ts:214-247` — SSRF: `resolveUrlReferences()` fetches any URL without blocking private IPs (169.254.x, 10.x, 192.168.x). Cloud metadata, internal services exposed
+- `chat.js:112-119` — SVG sanitizer is regex-based, bypassable via attribute splitting, `<foreignObject>`, HTML entities. Combined with `unsafe-eval`, leads to XSS from LLM-generated diagrams
+- `workspace.ts:104-115` — `@file:` references have no path traversal validation. `@file:../../.ssh/id_rsa` sends the file to the LLM
+- API keys stored in plaintext `settings.json`. Consider VS Code `SecretStorage` API
+- `auth.ts:4` — GitHub token requests full `repo` scope (read/write all repos). Use more granular scopes
+- `executor.ts:52-68` — workspace `.vscode/settings.json` can set `toolPermissions: { "run_command": "allow" }`, bypassing approval in cautious mode
+- MCP server configs in workspace settings can spawn arbitrary processes on project open
+
+**LOW:**
+- `executor.ts:162` — default `confirmFn` auto-approves (`actions[0]` = "Allow"). Should default to deny
+- `shellSession.ts:237` — unbounded background command spawning. Add max concurrent limit
+
+### Architecture audit findings (v0.34.0)
+
+**HIGH:**
+- `chatHandlers.ts:131-636` — `handleUserMessage` is a 500+ line god function mixing budget checks, context building, system prompt assembly, agent orchestration, and error handling. Needs decomposition
+- `extension.ts:49` — MCPManager not in `context.subscriptions`. MCP server child processes leak on deactivate
+- `chatHandlers.ts:131-138` — race condition: second `handleUserMessage` can corrupt `state.messages` during post-loop merge. `chatGeneration` guard only covers `clearChat`
+- `loop.ts:321` — parallel `write_file` calls to same path produce non-deterministic results. Serialize writes to same file
+
+**MEDIUM:**
+- `tools.ts:20-34` — module-level singletons (`shellSession`, `symbolGraph`) create hidden coupling and untestable state
+- `chatState.ts:29` — `messages` array mutated from multiple async paths with fragile merge logic
+- `mcpManager.ts:46-59` — MCP tool errors lose server/call context, surfaced as generic "Internal error"
+- `chatHandlers.ts:97-129` — error classifier missing 429, 500/502/503, content policy violations, token limit exceeded
+- `executor.ts:246-248` — hook failures silently swallowed with `console.warn`. Policy hooks don't block tool execution
+- `tools.ts:883-904` — `getCustomToolRegistry()` rebuilt on every `findTool()` call in hot loops. Cache with config invalidation
+- `executor.ts:27-38` — `executeTool` has 10 positional parameters. Use options object pattern
+
+### AI engineering audit findings (v0.34.0)
+
+**P1 (critical for reliability):**
+- `chatHandlers.ts:243-258` — no tool format instructions in system prompt for local models. Biggest reliability gap for Ollama users — models can't reliably call tools without format guidance
+- `conversationSummarizer.ts:119` — summary inserted as `role: 'user'`, can create consecutive user messages that Anthropic API rejects. Insert an assistant acknowledgment after summary
+- `subagent.ts:62` — sub-agents share mutable `SideCarClient` instance. `updateSystemPrompt` during sub-agent run corrupts parent's prompt
+
+**P2 (significant impact):**
+- `anthropicBackend.ts:63` — hardcoded `max_tokens: 4096`. Claude 3.5 Sonnet/Opus support 8192 output tokens. Should be configurable or model-derived
+- `anthropicBackend.ts:106` — doesn't use `abortableRead`. Stalled Anthropic streams can't be cancelled after connection established
+- `anthropicBackend.ts:154-157` — malformed streaming tool input silently becomes `{}`, causing confusing execution failures
+- `openaiBackend.ts:219` — fallback tool call ID `openai_tc_${Date.now()}` collides when multiple calls flush in same millisecond
+- `loop.ts:111` vs `chatHandlers.ts:417` — token estimation uses chars/3.5 in loop but chars/4 in pruner. Budget disagreements
+- `loop.ts:291-297` — cycle detection only catches exact 2-repetition. Alternating patterns (A,B,A,B) not detected despite CYCLE_WINDOW=4
+- `workspaceIndex.ts:38,125` — file content cache has 5-min TTL but no invalidation on file change watcher event. Agent sees stale content
+- `workspaceIndex.ts:326-327` — query matching is path-substring only. "fix auth bug" won't boost `auth.ts`
+- `ollamaBackend.ts:12-22` — tool support deny list is static, becomes stale as new models release. Consider `ollama show` API check
+- `ollamaBackend.ts:281` — discards non-`'stop'` done_reason for tool calls. Newer Ollama versions use tool-specific done reasons
+
+**P3:**
+- `loop.ts:79` — `autoFixRetries` never resets between different file writes. After N errors, auto-fix stops for rest of session
+- Sub-agents consume tokens not tracked in parent's `totalChars`
+- `loop.ts:186-189` — timeout promise timer never cleared on success, creating thousands of pending timers over long runs
+
+### Frontend performance observations (v0.34.0)
+
+- `media/chat.js` — 800+ line file with `@ts-nocheck` and `eslint-disable`. Unminified, no code splitting
+- No message list virtualization for 200+ message conversations (already on roadmap)
+- Multiple `innerHTML` usages in card rendering — DOM API preferred for security and performance
+- 5.2MB `mermaid.min.js` bundled — consider lighter alternative or web worker rendering
+- Per-item event listeners on cards instead of event delegation (functional but not ideal at scale)
+
 ---
 
 ## Diff & Review UX
