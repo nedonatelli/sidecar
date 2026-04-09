@@ -2,6 +2,31 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.35.0] - 2026-04-09
+
+### Security
+- **readFile path traversal fix**: `read_file` tool now validates paths with `validateFilePath()`, blocking `../` traversal and absolute paths. Previously only `write_file` and `edit_file` had this protection
+- **Sensitive file blocklist**: files matching `.env`, `.pem`, `.key`, `credentials.json`, `secrets.yaml`, and 12 other patterns are blocked from being read into LLM context
+- **Workspace hook warning**: hooks defined in workspace-level `.vscode/settings.json` now trigger a one-time trust prompt before executing, protecting against supply-chain attacks via malicious repositories
+- **Prompt injection sandbox**: SIDECAR.md, user system prompts, and skill content are now wrapped with a boundary instruction stating they cannot override core safety rules or tool approval requirements
+
+### Fixed
+- **Local model tool reliability**: system prompt for local models now includes a 4-step few-shot example (read → edit → diagnostics → fix), significantly improving tool call reliability for Ollama users
+- **MCPManager process leak**: MCP manager now added to `context.subscriptions` so child processes are properly cleaned up on extension deactivate
+- **Conversation summary API rejection**: summary insertion now includes an assistant acknowledgment message after the summary, preventing consecutive user messages that Anthropic API rejects
+- **Sub-agent system prompt corruption**: sub-agents now save and restore the parent's system prompt in a `finally` block, with a dedicated sub-agent role instruction
+- **Concurrent agent message race**: aborting a previous agent run now bumps `chatGeneration`, so the stale run's post-loop merge is discarded instead of corrupting `state.messages`
+- **Mermaid diagram rendering hang**: diagrams no longer render twice (dedup guard), mermaid.js preloads when ```` ```mermaid ```` fence opens, detached containers skip rendering
+
+### Accessibility
+- **Keyboard navigation**: global `:focus-visible` outline style for all interactive elements
+- **Model picker button**: changed from `<span>` to semantic `<button>` with `aria-haspopup`, `aria-expanded`, and `aria-label`
+- **ARIA roles**: model panel and sessions panel (`role="dialog"`), messages container (`role="log"` with `aria-live="polite"`), slash autocomplete (`role="listbox"`), agent mode select (`aria-label`)
+- **Light theme support**: hardcoded `rgba(255,255,255,0.1)` hover states and edit block colors replaced with VS Code theme variables (`--vscode-toolbar-hoverBackground`, `--vscode-diffEditor-*`)
+
+### Tests
+- 506 total tests (maintained)
+
 ## [0.34.0] - 2026-04-09
 
 ### Added
