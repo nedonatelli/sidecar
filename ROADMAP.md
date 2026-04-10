@@ -2,7 +2,7 @@
 
 Planned improvements and features for SideCar. Audit findings from v0.34.0 comprehensive review are in the Audit Backlog section. All critical fixes were addressed in v0.35.0.
 
-Last updated: 2026-04-09 (v0.37.0)
+Last updated: 2026-04-09 (v0.37.1)
 
 ---
 
@@ -220,4 +220,4 @@ Remaining findings from seven comprehensive reviews. Fixed items removed.
 
 - [x] Agent loop, system prompts, `.sidecar/` directory, error handling, persistent shell
 - [x] Context management, UI (slash commands, autocomplete, markdown, activity bar)
-- [x] Security scanning, git toolset, inline chat, FIM completions, 506 tests
+- [x] Security scanning, git toolset, inline chat, FIM completions, 848 tests
