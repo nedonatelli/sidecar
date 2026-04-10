@@ -365,6 +365,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
           '8. If you already answered the question before using a tool, just add new information from the tool result — do not restate your previous answer.',
           '9. You can create diagrams by writing mermaid code blocks (```mermaid) in your responses — they will be rendered visually in the chat.',
           '10. When the request is ambiguous or there are multiple valid approaches, use the ask_user tool to present options and let the user choose before proceeding. Do NOT guess — ask.',
+          '11. DO NOT narrate your analysis or summarize what you see in the codebase before acting. Skip preambles like "Based on my review…", "I can see that…", "The system already has…". Go straight to the answer or action.',
           '',
           'EXAMPLE WORKFLOW — user asks "add a hello function to utils.ts":',
           '1. Call read_file(path="src/utils.ts") to see current content',
@@ -390,6 +391,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
           '9. If you already answered before using a tool, only add new information — do not restate what you said.',
           '10. You can create diagrams by writing mermaid code blocks (```mermaid) in your responses — they will be rendered visually in the chat. Use this for architecture diagrams, flowcharts, sequence diagrams, ER diagrams, class diagrams, etc. when it helps explain concepts.',
           '11. When the request is ambiguous or there are multiple valid approaches, use the ask_user tool to present options and let the user choose before proceeding. Do NOT guess — ask.',
+          '12. DO NOT narrate your analysis or summarize what you see in the codebase before acting. Skip preambles like "Based on my review…", "I can see that…", "The system already has…", "Looking at the code…". Go straight to the answer or action. Never repeat the same point across consecutive messages.',
         ].join('\n');
 
     // In plan mode, append structured planning instructions
