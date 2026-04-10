@@ -22,6 +22,8 @@ export interface MemoryEntry {
   context?: string;
   /** Relevance score for retrieval (0-1) */
   relevanceScore?: number;
+  /** Session ID that created this memory (for current vs past session awareness) */
+  sessionId?: string;
 }
 
 /**
@@ -33,13 +35,34 @@ export class AgentMemory {
   private memoryDir: string;
   private readonly MAX_MEMORIES = 500;
   private readonly MEMORY_FILE = 'agent-memories.json';
+  private currentSessionId: string;
 
   constructor(sidecarDir: string) {
     this.memoryDir = path.join(sidecarDir, 'memory');
+    this.currentSessionId = AgentMemory.generateSessionId();
     // Create directory if it doesn't exist
     if (!fs.existsSync(this.memoryDir)) {
       fs.mkdirSync(this.memoryDir, { recursive: true });
     }
+  }
+
+  private static generateSessionId(): string {
+    return `s-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  }
+
+  /**
+   * Start a new session. Flushes the tool chain buffer and rotates the
+   * session ID so new memories are tagged with the new session.
+   * Call this on chat clear / new conversation.
+   */
+  startSession(): void {
+    this.flushToolChain();
+    this.currentSessionId = AgentMemory.generateSessionId();
+  }
+
+  /** Get the current session ID. */
+  getSessionId(): string {
+    return this.currentSessionId;
   }
 
   /**
@@ -114,6 +137,7 @@ export class AgentMemory {
       timestamp: Date.now(),
       useCount: 0,
       context,
+      sessionId: this.currentSessionId,
     };
 
     this.memories.set(id, entry);
@@ -147,6 +171,11 @@ export class AgentMemory {
         const ageMinutes = (Date.now() - m.timestamp) / (1000 * 60);
         const recencyBoost = Math.max(0, 1 - ageMinutes / (7 * 24 * 60)); // Decay over week
         score += recencyBoost * 0.5;
+
+        // Boost current-session memories so they rank higher than stale ones
+        if (m.sessionId === this.currentSessionId) {
+          score += 1.0;
+        }
 
         return { ...m, relevanceScore: score };
       });
@@ -237,9 +266,25 @@ export class AgentMemory {
   formatForContext(memories: MemoryEntry[]): string {
     if (memories.length === 0) return '';
 
-    const parts = ['## Agent Memory (learned from past sessions — NOT the current conversation)\n'];
+    const currentSession = memories.filter((m) => m.sessionId === this.currentSessionId);
+    const pastSessions = memories.filter((m) => m.sessionId !== this.currentSessionId);
 
-    // Group by type
+    const parts: string[] = [];
+
+    if (currentSession.length > 0) {
+      parts.push('## This Session\n');
+      this.formatMemoryGroup(currentSession, parts);
+    }
+
+    if (pastSessions.length > 0) {
+      parts.push('\n## Learned from Past Sessions (not this conversation)\n');
+      this.formatMemoryGroup(pastSessions, parts);
+    }
+
+    return parts.join('\n');
+  }
+
+  private formatMemoryGroup(memories: MemoryEntry[], parts: string[]): void {
     const byType: Record<string, MemoryEntry[]> = {};
     for (const m of memories) {
       if (!byType[m.type]) byType[m.type] = [];
@@ -255,8 +300,6 @@ export class AgentMemory {
         }
       }
     }
-
-    return parts.join('\n');
   }
 
   /**

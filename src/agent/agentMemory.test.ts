@@ -96,7 +96,7 @@ describe('AgentMemory', () => {
     const entries = memory.search('');
     const formatted = memory.formatForContext(entries);
 
-    expect(formatted).toContain('Agent Memory');
+    expect(formatted).toContain('This Session');
     expect(formatted).toContain('Pattern');
     expect(formatted).toContain('Decision');
   });
@@ -237,5 +237,56 @@ describe('AgentMemory', () => {
     const failures = memory.getByType('failure');
     expect(failures).toHaveLength(1);
     expect(failures[0].content).toContain('file not found');
+  });
+
+  // --- Session tracking ---
+
+  it('startSession rotates session ID and flushes tool chain', () => {
+    const firstSession = memory.getSessionId();
+    memory.recordToolUse('read_file', true);
+    memory.recordToolUse('edit_file', true);
+    memory.recordToolUse('get_diagnostics', true);
+
+    memory.startSession();
+    const secondSession = memory.getSessionId();
+
+    expect(secondSession).not.toBe(firstSession);
+    // The tool chain from the first session should have been flushed
+    expect(memory.getByType('toolchain')).toHaveLength(1);
+  });
+
+  it('memories are tagged with session ID', () => {
+    const sessionBefore = memory.getSessionId();
+    memory.add('pattern', 'naming', 'camelCase for variables');
+    memory.startSession();
+    memory.add('pattern', 'naming', 'snake_case for Python');
+
+    const all = memory.getByType('pattern');
+    expect(all[0].sessionId).toBe(sessionBefore);
+    expect(all[1].sessionId).toBe(memory.getSessionId());
+  });
+
+  it('formatForContext separates current-session from past-session', () => {
+    memory.add('pattern', 'naming', 'camelCase convention');
+    memory.startSession();
+    memory.add('decision', 'architecture', 'Use MVC pattern');
+
+    const all = [...memory.getByType('pattern'), ...memory.getByType('decision')];
+    const formatted = memory.formatForContext(all);
+
+    expect(formatted).toContain('This Session');
+    expect(formatted).toContain('Past Sessions');
+    expect(formatted).toContain('MVC');
+    expect(formatted).toContain('camelCase');
+  });
+
+  it('search boosts current-session memories', () => {
+    memory.add('pattern', 'naming', 'Use camelCase for naming variables');
+    memory.startSession();
+    memory.add('pattern', 'naming', 'Use camelCase for naming functions');
+
+    const results = memory.search('camelCase naming');
+    // Current session entry should rank first due to session boost
+    expect(results[0].content).toContain('functions');
   });
 });

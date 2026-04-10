@@ -221,6 +221,9 @@ export class ChatState {
     // Reset workspace file relevance so previously discussed files
     // don't dominate context in the new conversation.
     this.workspaceIndex?.resetRelevance();
+    // Rotate agent memory session so new memories are tagged separately
+    // and past-session memories are clearly labeled in context.
+    this.agentMemory?.startSession();
     this.saveHistory();
     this.postMessage({ command: 'chatCleared' });
   }
