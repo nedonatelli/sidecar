@@ -2583,6 +2583,21 @@
           const summary = thinkingDone.querySelector('summary');
           if (summary) summary.textContent = 'Reasoning';
         }
+        // Clean up any orphaned spinners from tool calls that never got a result
+        const orphanedTools = messagesContainer.querySelectorAll('.tool-call.running');
+        for (const tool of orphanedTools) {
+          tool.classList.remove('running');
+          const orphanSpinner = tool.querySelector('.tool-spinner');
+          if (orphanSpinner) orphanSpinner.remove();
+          // Add a neutral badge (no result received)
+          const orphanSummary = tool.querySelector('summary');
+          if (orphanSummary && !orphanSummary.querySelector('.tool-result-badge')) {
+            const badge = document.createElement('span');
+            badge.className = 'tool-result-badge success';
+            badge.textContent = '\u2713';
+            orphanSummary.appendChild(badge);
+          }
+        }
         break;
       }
 
@@ -2893,9 +2908,14 @@
       case 'toolOutput': {
         // Stream output into the matching tool call body (by ID or last running)
         const toolIdForOutput = event.data.toolCallId;
-        const activeToolForOutput = toolIdForOutput
-          ? document.querySelector('.tool-call[data-tool-id="' + toolIdForOutput + '"]')
-          : document.querySelector('.tool-call.running:last-of-type');
+        let activeToolForOutput = null;
+        if (toolIdForOutput) {
+          activeToolForOutput = document.querySelector('.tool-call[data-tool-id="' + toolIdForOutput + '"]');
+        }
+        if (!activeToolForOutput) {
+          const runningForOutput = messagesContainer.querySelectorAll('.tool-call.running');
+          activeToolForOutput = runningForOutput.length > 0 ? runningForOutput[runningForOutput.length - 1] : null;
+        }
         if (activeToolForOutput) {
           const body = activeToolForOutput.querySelector('.tool-call-body');
           if (body) {
@@ -2915,10 +2935,17 @@
         const text = content || '';
         const isError = text.startsWith('\u2717') || text.includes('Error');
 
-        // Find the matching tool call element by ID, or fall back to last running
-        const matchedTool = resultToolId
-          ? document.querySelector('.tool-call[data-tool-id="' + resultToolId + '"]')
-          : document.querySelector('.tool-call.running:last-of-type');
+        // Find the matching tool call element by ID, or fall back to last .running
+        // Note: :last-of-type matches by element type (details), not class, so we
+        // use querySelectorAll + pick the last one for the fallback.
+        let matchedTool = null;
+        if (resultToolId) {
+          matchedTool = document.querySelector('.tool-call[data-tool-id="' + resultToolId + '"]');
+        }
+        if (!matchedTool) {
+          const running = messagesContainer.querySelectorAll('.tool-call.running');
+          matchedTool = running.length > 0 ? running[running.length - 1] : null;
+        }
 
         if (matchedTool) {
           matchedTool.classList.remove('running');
