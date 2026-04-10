@@ -86,8 +86,7 @@ export interface SideCarConfig {
   baseUrl: string;
   apiKey: string;
   includeActiveFile: boolean;
-  planMode: boolean;
-  agentMode: 'cautious' | 'autonomous' | 'manual';
+  agentMode: 'cautious' | 'autonomous' | 'manual' | 'plan';
   agentTemperature: number;
   agentMaxIterations: number;
   agentMaxMessages: number;
@@ -151,8 +150,7 @@ function readConfig(): SideCarConfig {
     baseUrl: cfg.get<string>('baseUrl', 'http://localhost:11434') || 'http://localhost:11434',
     apiKey: cfg.get<string>('apiKey', 'ollama'),
     includeActiveFile: cfg.get<boolean>('includeActiveFile', true),
-    planMode: cfg.get<boolean>('planMode', false),
-    agentMode: cfg.get<'cautious' | 'autonomous' | 'manual'>('agentMode', 'cautious'),
+    agentMode: cfg.get<'cautious' | 'autonomous' | 'manual' | 'plan'>('agentMode', 'cautious'),
     agentTemperature: clampMin(cfg.get<number>('agentTemperature'), 0, 0.2),
     agentMaxIterations: clampMin(cfg.get<number>('agentMaxIterations'), 1, 50),
     agentMaxMessages: clampMin(cfg.get<number>('agentMaxMessages'), 5, 100),

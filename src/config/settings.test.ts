@@ -102,7 +102,6 @@ describe('getConfig', () => {
     expect(config).toHaveProperty('baseUrl');
     expect(config).toHaveProperty('apiKey');
     expect(config).toHaveProperty('includeActiveFile');
-    expect(config).toHaveProperty('planMode');
     expect(config).toHaveProperty('agentMode');
     expect(config).toHaveProperty('agentMaxIterations');
     expect(config).toHaveProperty('agentMaxTokens');
@@ -130,7 +129,6 @@ describe('getConfig', () => {
     expect(config.agentMode).toBe('cautious');
     expect(config.agentMaxIterations).toBe(50);
     expect(config.agentMaxTokens).toBe(100000);
-    expect(config.planMode).toBe(false);
     expect(config.enableInlineCompletions).toBe(false);
     expect(config.completionMaxTokens).toBe(256);
     expect(config.completionDebounceMs).toBe(300);

@@ -23,18 +23,18 @@ export async function handleExecutePlan(state: ChatState): Promise<void> {
   state.messages = state.pendingPlanMessages;
   state.pendingPlan = null;
   state.pendingPlanMessages = [];
-  // Temporarily disable plan mode during execution so we don't generate another plan
+  // Temporarily switch out of plan mode during execution so we execute instead of planning again
   const config = workspace.getConfiguration('sidecar');
-  const previousPlanMode = config.get<boolean>('planMode', false);
-  if (previousPlanMode) {
-    await config.update('planMode', false, true);
+  const previousMode = config.get<'cautious' | 'autonomous' | 'manual' | 'plan'>('agentMode', 'cautious');
+  if (previousMode === 'plan') {
+    await config.update('agentMode', 'cautious', true);
   }
   try {
     await handleUserMessage(state, '');
   } finally {
-    // Restore previous plan mode setting after execution
-    if (previousPlanMode) {
-      await config.update('planMode', true, true);
+    // Restore plan mode after execution
+    if (previousMode === 'plan') {
+      await config.update('agentMode', 'plan', true);
     }
   }
 }
@@ -45,18 +45,18 @@ export async function handleRevisePlan(state: ChatState, feedback: string): Prom
   state.messages = state.pendingPlanMessages;
   state.pendingPlan = null;
   state.pendingPlanMessages = [];
-  // Temporarily disable plan mode during revision so we generate a revised plan, not another plan of a plan
+  // Temporarily switch out of plan mode during revision so we get a revised plan, not another plan of a plan
   const config = workspace.getConfiguration('sidecar');
-  const previousPlanMode = config.get<boolean>('planMode', false);
-  if (previousPlanMode) {
-    await config.update('planMode', false, true);
+  const previousMode = config.get<'cautious' | 'autonomous' | 'manual' | 'plan'>('agentMode', 'cautious');
+  if (previousMode === 'plan') {
+    await config.update('agentMode', 'cautious', true);
   }
   try {
     await handleUserMessage(state, '');
   } finally {
-    // Restore previous plan mode setting after revision
-    if (previousPlanMode) {
-      await config.update('planMode', true, true);
+    // Restore plan mode after revision
+    if (previousMode === 'plan') {
+      await config.update('agentMode', 'plan', true);
     }
   }
 }

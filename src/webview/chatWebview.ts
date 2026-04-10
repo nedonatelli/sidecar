@@ -45,7 +45,6 @@ export interface WebviewMessage {
     | 'acceptAllChanges'
     | 'deleteMessage'
     | 'toggleVerbose'
-    | 'togglePlanMode'
     | 'compactContext'
     | 'showSystemPrompt'
     | 'reconnect'

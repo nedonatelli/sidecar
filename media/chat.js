@@ -447,7 +447,6 @@
     { cmd: '/skills', desc: 'List available Claude Code & SideCar skills' },
     { cmd: '/releases', desc: 'List GitHub releases' },
     { cmd: '/release', desc: 'Show, create, or delete a release' },
-    { cmd: '/plan', desc: 'Toggle plan mode (plan before executing)' },
     { cmd: '/compact', desc: 'Compact conversation context to free tokens' },
   ];
   const autocompleteEl = document.getElementById('slash-autocomplete');
@@ -1057,12 +1056,6 @@
       input.style.height = 'auto';
       return;
     }
-    if (text.trim() === '/plan') {
-      vscode.postMessage({ command: 'togglePlanMode' });
-      input.value = '';
-      input.style.height = 'auto';
-      return;
-    }
     if (text.trim() === '/compact') {
       vscode.postMessage({ command: 'compactContext' });
       input.value = '';
@@ -1145,7 +1138,6 @@
           '`/deps` — Analyze project dependencies\n' +
           '`/scaffold <type>` — Generate code from template\n' +
           '`/verbose` — Toggle verbose mode (show agent reasoning)\n' +
-          '`/plan` — Toggle plan mode (plan before executing)\n' +
           '`/compact` — Compact conversation context to free tokens\n' +
           '`/prompt` — Show the current system prompt',
       );

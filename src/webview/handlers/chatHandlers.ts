@@ -285,7 +285,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
         ].join('\n');
 
     // In plan mode, append structured planning instructions
-    if (config.planMode) {
+    if (config.agentMode === 'plan') {
       systemPrompt +=
         '\n\nPLAN MODE ACTIVE:\n' +
         "You are in plan mode. For the user's request, generate a structured execution plan — do NOT execute anything yet.\n" +
@@ -585,7 +585,6 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
         changelog: state.changelog,
         mcpManager: state.mcpManager,
         approvalMode: config.agentMode,
-        planMode: config.planMode,
         maxIterations: config.agentMaxIterations,
         maxTokens: config.agentMaxTokens,
         confirmFn: (msg, actions) => state.requestConfirm(msg, actions),

@@ -115,11 +115,6 @@
           "default": 0,
           "description": "Override the context token limit for local models (0 = auto-detect with 16K default cap). Increase if you have enough VRAM and want longer conversations."
         },
-        "sidecar.planMode": {
-          "type": "boolean",
-          "default": false,
-          "description": "Generate a plan for approval before executing tools"
-        },
         "sidecar.customTools": {
           "type": "array",
           "default": [],
@@ -208,10 +203,11 @@
           "enum": [
             "cautious",
             "autonomous",
-            "manual"
+            "manual",
+            "plan"
           ],
           "default": "cautious",
-          "description": "Agent approval mode: cautious (confirm writes), autonomous (auto-approve read/write, confirm destructive), manual (confirm everything)"
+          "description": "Agent approval mode: cautious (confirm writes), autonomous (auto-approve read/write, confirm destructive), manual (confirm everything), plan (generate plan before executing)"
         },
         "sidecar.agentTemperature": {
           "type": "number",

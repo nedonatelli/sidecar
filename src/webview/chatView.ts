@@ -135,12 +135,7 @@ export class ChatViewProvider implements WebviewViewProvider {
     }
 
     loadModels(this.state);
-    // Show "plan" in dropdown if plan mode is enabled, otherwise show the approval mode
-    const config = getConfig();
-    this.postMessage({
-      command: 'setAgentMode',
-      agentMode: config.planMode ? 'plan' : config.agentMode,
-    });
+    this.postMessage({ command: 'setAgentMode', agentMode: getConfig().agentMode });
 
     // Show onboarding card on first launch (no history, never dismissed)
     if (this.state.messages.length === 0 && !this.context.globalState.get('sidecar.onboardingComplete', false)) {
@@ -169,24 +164,10 @@ export class ChatViewProvider implements WebviewViewProvider {
       workspace.getConfiguration('sidecar').update('model', msg.model, true);
     },
     changeAgentMode: async (msg) => {
-      const selectedMode = msg.agentMode;
-      if (selectedMode === 'plan') {
-        // Plan mode selected — enable plan mode and set to cautious approval
-        await workspace.getConfiguration('sidecar').update('planMode', true, true);
-        await workspace.getConfiguration('sidecar').update('agentMode', 'cautious', true);
-        this.postMessage({ command: 'setAgentMode', agentMode: 'plan' });
-        this.state.postMessage({
-          command: 'assistantMessage',
-          content: `Plan mode enabled. For each request, I'll generate a structured plan for your approval before executing any changes.`,
-        });
-      } else {
-        // Normal mode selected — disable plan mode and use the selected approval mode
-        await workspace.getConfiguration('sidecar').update('planMode', false, true);
-        await workspace.getConfiguration('sidecar').update('agentMode', selectedMode, true);
-        this.postMessage({ command: 'setAgentMode', agentMode: selectedMode });
-        if (selectedMode === 'autonomous') {
-          this.state.resolveAllConfirms('Allow');
-        }
+      await workspace.getConfiguration('sidecar').update('agentMode', msg.agentMode, true);
+      this.postMessage({ command: 'setAgentMode', agentMode: msg.agentMode });
+      if (msg.agentMode === 'autonomous') {
+        this.state.resolveAllConfirms('Allow');
       }
     },
     confirmResponse: (msg) => this.state.resolveConfirm(msg.confirmId || '', msg.confirmed ? msg.text : undefined),
@@ -242,18 +223,6 @@ export class ChatViewProvider implements WebviewViewProvider {
       this.state.postMessage({
         command: 'assistantMessage',
         content: `Verbose mode ${label}. ${!current ? 'Agent reasoning will be shown during runs.' : 'Agent reasoning hidden.'}`,
-      });
-      this.state.postMessage({ command: 'done' });
-    },
-    togglePlanMode: () => {
-      const current = getConfig().planMode;
-      workspace.getConfiguration('sidecar').update('planMode', !current, true);
-      const label = !current ? 'ON' : 'OFF';
-      this.state.postMessage({
-        command: 'assistantMessage',
-        content: !current
-          ? `Plan mode ${label}. The agent will generate a structured plan before executing any tools. You can review, revise, or execute the plan.`
-          : `Plan mode ${label}. The agent will execute tasks directly.`,
       });
       this.state.postMessage({ command: 'done' });
     },

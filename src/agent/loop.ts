@@ -49,7 +49,6 @@ export interface AgentOptions {
   maxIterations?: number;
   maxTokens?: number;
   approvalMode?: ApprovalMode;
-  planMode?: boolean;
   logger?: AgentLogger;
   changelog?: ChangeLog;
   mcpManager?: MCPManager;
@@ -166,7 +165,7 @@ export async function runAgentLoop(
     let stopReason = 'end_turn';
 
     // In plan mode, first iteration runs without tools to generate a plan
-    const iterTools = options.planMode && iteration === 1 ? [] : tools;
+    const iterTools = options.approvalMode === 'plan' && iteration === 1 ? [] : tools;
 
     // Request timeout — abort if no stream events arrive within the window.
     // We use Promise.race on each .next() call rather than relying on
@@ -434,7 +433,7 @@ export async function runAgentLoop(
     }
 
     // In plan mode, return after first iteration so user can approve
-    if (options.planMode && iteration === 1 && fullText) {
+    if (options.approvalMode === 'plan' && iteration === 1 && fullText) {
       callbacks.onPlanGenerated?.(fullText);
       break;
     }

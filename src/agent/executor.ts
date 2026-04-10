@@ -11,7 +11,7 @@ import { scanFile, formatIssues } from './securityScanner.js';
 
 const execAsync = promisify(exec);
 
-export type ApprovalMode = 'autonomous' | 'cautious' | 'manual';
+export type ApprovalMode = 'autonomous' | 'cautious' | 'manual' | 'plan';
 export type ConfirmFn = (message: string, actions: string[]) => Promise<string | undefined>;
 export type DiffPreviewFn = (filePath: string, proposedContent: string) => Promise<'accept' | 'reject'>;
 export type InlineEditFn = (filePath: string, searchText: string, replaceText: string) => Promise<boolean>;
