@@ -89,6 +89,29 @@ export async function handleInstallModel(state: ChatState, modelName: string): P
     }
   }
 
+  // Check if model supports tool use (required for agent mode)
+  const supportsTools = modelSupportsTools(pullName);
+  if (!supportsTools) {
+    const proceed = await window.showWarningMessage(
+      `⚠️ "${pullName}" does not support tool use. SideCar's agent mode requires tool-calling capabilities for autonomous code execution (file read/write, shell commands, etc). This model will only work in chat-only mode.\n\nDo you want to continue?`,
+      'Yes, Download Anyway',
+      'Cancel',
+    );
+
+    if (proceed !== 'Yes, Download Anyway') {
+      state.postMessage({
+        command: 'assistantMessage',
+        content: `Model download cancelled. Tip: Look for models like qwen3-coder, llama3.1, command-r, or claude models that support tool use.\n\n`,
+      });
+      return;
+    }
+
+    state.postMessage({
+      command: 'assistantMessage',
+      content: `ℹ️ Proceeding with chat-only model. You can still use SideCar for code explanation, refactoring suggestions, and chat — but agent mode (autonomous code changes) won't be available.\n\n`,
+    });
+  }
+
   state.installAbortController = new AbortController();
 
   try {
@@ -99,16 +122,36 @@ export async function handleInstallModel(state: ChatState, modelName: string): P
     });
 
     for await (const progress of state.client.pullModel(pullName, state.installAbortController.signal)) {
+      // Format progress message with percentage, size, and status
+      let progressMessage = progress.status;
+
+      if (progress.total && progress.completed !== undefined) {
+        const percent = Math.round((progress.completed / progress.total) * 100);
+        const completedMB = (progress.completed / 1024 / 1024).toFixed(1);
+        const totalMB = (progress.total / 1024 / 1024).toFixed(1);
+        const progressBar = `[${'█'.repeat(Math.round(percent / 5))}${'░'.repeat(20 - Math.round(percent / 5))}]`;
+        progressMessage = `${progressBar} ${percent}% (${completedMB}MB / ${totalMB}MB) — ${progress.status}`;
+      } else if (progress.total && progress.completed === undefined) {
+        // Layer download starting
+        const totalMB = (progress.total / 1024 / 1024).toFixed(1);
+        progressMessage = `📥 ${progressMessage} (${totalMB}MB)`;
+      }
+
       state.postMessage({
         command: 'installProgress',
         modelName: pullName,
-        progress: progress.status,
+        progress: progressMessage,
       });
     }
 
     state.client.updateModel(pullName);
     state.postMessage({ command: 'installComplete', modelName: pullName });
     state.postMessage({ command: 'setCurrentModel', currentModel: pullName });
+
+    // Give Ollama a moment to register the newly installed model
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    // Reload model list to show the newly installed model in dropdown
     await loadModels(state);
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {

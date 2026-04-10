@@ -1,0 +1,159 @@
+{
+  "version": 1,
+  "savedAt": "2026-04-10T03:03:39.197Z",
+  "memories": [
+    {
+      "id": "pattern-tool:search_files-1775788582989-3cr8ctc",
+      "type": "pattern",
+      "category": "tool:search_files",
+      "content": "Successfully used search_files with input: {\"pattern\":\"/break-this\"}...",
+      "timestamp": 1775788582989,
+      "useCount": 0,
+      "context": "Session: 2026-04-10T02:36:22.989Z"
+    },
+    {
+      "id": "pattern-tool:display_diagram-1775788620905-hqx8msm",
+      "type": "pattern",
+      "category": "tool:display_diagram",
+      "content": "Successfully used display_diagram with input: {\"path\":\"~/ollama-vscode/mermaid-diagrams.md\",\"index\":\"0\"}...",
+      "timestamp": 1775788620905,
+      "useCount": 0,
+      "context": "Session: 2026-04-10T02:37:00.905Z"
+    },
+    {
+      "id": "pattern-tool:display_diagram-1775788621417-tkv8efd",
+      "type": "pattern",
+      "category": "tool:display_diagram",
+      "content": "Successfully used display_diagram with input: {\"index\":\"0\",\"path\":\"./mermaid-diagrams.md\"}...",
+      "timestamp": 1775788621417,
+      "useCount": 0,
+      "context": "Session: 2026-04-10T02:37:01.417Z"
+    },
+    {
+      "id": "pattern-tool:search_files-1775788621801-qoxyuon",
+      "type": "pattern",
+      "category": "tool:search_files",
+      "content": "Successfully used search_files with input: {\"pattern\":\"/mermaid-diagrams\"}...",
+      "timestamp": 1775788621801,
+      "useCount": 0,
+      "context": "Session: 2026-04-10T02:37:01.801Z"
+    },
+    {
+      "id": "pattern-tool:display_diagram-1775788622232-wzln1yc",
+      "type": "pattern",
+      "category": "tool:display_diagram",
+      "content": "Successfully used display_diagram with input: {\"index\":\"0\",\"path\":\"./diagrams/sequence.svg\"}...",
+      "timestamp": 1775788622232,
+      "useCount": 0,
+      "context": "Session: 2026-04-10T02:37:02.232Z"
+    },
+    {
+      "id": "pattern-tool:search_files-1775788622587-3fi46u9",
+      "type": "pattern",
+      "category": "tool:search_files",
+      "content": "Successfully used search_files with input: {\"pattern\":\"/diagrams\"}...",
+      "timestamp": 1775788622587,
+      "useCount": 0,
+      "context": "Session: 2026-04-10T02:37:02.587Z"
+    },
+    {
+      "id": "pattern-tool:display_diagram-1775788623017-0p6iee5",
+      "type": "pattern",
+      "category": "tool:display_diagram",
+      "content": "Successfully used display_diagram with input: {\"index\":\"0\",\"path\":\"./docs/flowcharts.md\"}...",
+      "timestamp": 1775788623017,
+      "useCount": 0,
+      "context": "Session: 2026-04-10T02:37:03.017Z"
+    },
+    {
+      "id": "pattern-tool:display_diagram-1775788623473-rn9mdnf",
+      "type": "pattern",
+      "category": "tool:display_diagram",
+      "content": "Successfully used display_diagram with input: {\"index\":\"0\",\"path\":\"./mermaid-diagrams.md\"}...",
+      "timestamp": 1775788623473,
+      "useCount": 0,
+      "context": "Session: 2026-04-10T02:37:03.473Z"
+    },
+    {
+      "id": "pattern-tool:run_tests-1775788677835-hk8kks4",
+      "type": "pattern",
+      "category": "tool:run_tests",
+      "content": "Successfully used run_tests with input: {}...",
+      "timestamp": 1775788677835,
+      "useCount": 0,
+      "context": "Session: 2026-04-10T02:37:57.835Z"
+    },
+    {
+      "id": "pattern-tool:get_diagnostics-1775789601000-cnd8it7",
+      "type": "pattern",
+      "category": "tool:get_diagnostics",
+      "content": "Successfully used get_diagnostics with input: {\"path\":\"./src/utils.ts\"}...",
+      "timestamp": 1775789601000,
+      "useCount": 0,
+      "context": "Session: 2026-04-10T02:53:21.000Z"
+    },
+    {
+      "id": "pattern-tool:get_diagnostics-1775789602497-xx5iub2",
+      "type": "pattern",
+      "category": "tool:get_diagnostics",
+      "content": "Successfully used get_diagnostics with input: {\"path\":\"./src/test-utils.ts\"}...",
+      "timestamp": 1775789602497,
+      "useCount": 0,
+      "context": "Session: 2026-04-10T02:53:22.497Z"
+    },
+    {
+      "id": "pattern-tool:run_tests-1775789606335-02demks",
+      "type": "pattern",
+      "category": "tool:run_tests",
+      "content": "Successfully used run_tests with input: {}...",
+      "timestamp": 1775789606335,
+      "useCount": 0,
+      "context": "Session: 2026-04-10T02:53:26.335Z"
+    },
+    {
+      "id": "pattern-tool:get_diagnostics-1775789678813-972r6lk",
+      "type": "pattern",
+      "category": "tool:get_diagnostics",
+      "content": "Successfully used get_diagnostics with input: {\"path\":\"./src/main.ts\"}...",
+      "timestamp": 1775789678813,
+      "useCount": 0,
+      "context": "Session: 2026-04-10T02:54:38.813Z"
+    },
+    {
+      "id": "pattern-tool:run_tests-1775789683832-v6gz9ut",
+      "type": "pattern",
+      "category": "tool:run_tests",
+      "content": "Successfully used run_tests with input: {}...",
+      "timestamp": 1775789683832,
+      "useCount": 0,
+      "context": "Session: 2026-04-10T02:54:43.832Z"
+    },
+    {
+      "id": "pattern-tool:web_search-1775789800709-p7ta078",
+      "type": "pattern",
+      "category": "tool:web_search",
+      "content": "Successfully used web_search with input: {\"query\":\"download deadbydawn101/gemma-4-E4B-Agentic-Opus-Reasoning-GeminiCLI-mlx-4bit\"}...",
+      "timestamp": 1775789800709,
+      "useCount": 0,
+      "context": "Session: 2026-04-10T02:56:40.709Z"
+    },
+    {
+      "id": "pattern-tool:web_search-1775789932297-a873lvy",
+      "type": "pattern",
+      "category": "tool:web_search",
+      "content": "Successfully used web_search with input: {\"query\":\"download deadbydawn101/gemma-4-E4B-Agentic-Opus-Reasoning-GeminiCLI-mlx-4bit\"}...",
+      "timestamp": 1775789932297,
+      "useCount": 0,
+      "context": "Session: 2026-04-10T02:58:52.297Z"
+    },
+    {
+      "id": "pattern-tool:web_search-1775790219197-272r8m6",
+      "type": "pattern",
+      "category": "tool:web_search",
+      "content": "Successfully used web_search with input: {\"query\":\"download deadbydawn101/gemma-4-E4B-Agentic-Opus-Reasoning-GeminiCLI-mlx-4bit\"}...",
+      "timestamp": 1775790219197,
+      "useCount": 0,
+      "context": "Session: 2026-04-10T03:03:39.197Z"
+    }
+  ]
+}
