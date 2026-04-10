@@ -410,7 +410,7 @@
   document.getElementById('agent-mode-select').addEventListener('change', (e) => {
     const mode = e.target.value;
     vscode.postMessage({ command: 'changeAgentMode', agentMode: mode });
-    e.target.className = 'agent-mode-select mode-' + mode;
+    e.target.className = 'agent-mode-select mode-' + (mode === 'plan' ? 'plan' : mode);
   });
 
   customModelInput.addEventListener('keydown', (e) => {

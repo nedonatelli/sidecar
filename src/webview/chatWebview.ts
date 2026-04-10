@@ -189,6 +189,7 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
       <option value="cautious">cautious</option>
       <option value="autonomous">autonomous</option>
       <option value="manual">manual</option>
+      <option value="plan">plan</option>
     </select>
     <div id="chat-actions">
       <button id="new-chat-btn" title="New Chat">+</button>

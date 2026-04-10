@@ -135,7 +135,12 @@ export class ChatViewProvider implements WebviewViewProvider {
     }
 
     loadModels(this.state);
-    this.postMessage({ command: 'setAgentMode', agentMode: getConfig().agentMode });
+    // Show "plan" in dropdown if plan mode is enabled, otherwise show the approval mode
+    const config = getConfig();
+    this.postMessage({
+      command: 'setAgentMode',
+      agentMode: config.planMode ? 'plan' : config.agentMode,
+    });
 
     // Show onboarding card on first launch (no history, never dismissed)
     if (this.state.messages.length === 0 && !this.context.globalState.get('sidecar.onboardingComplete', false)) {
@@ -164,10 +169,24 @@ export class ChatViewProvider implements WebviewViewProvider {
       workspace.getConfiguration('sidecar').update('model', msg.model, true);
     },
     changeAgentMode: async (msg) => {
-      await workspace.getConfiguration('sidecar').update('agentMode', msg.agentMode, true);
-      this.postMessage({ command: 'setAgentMode', agentMode: msg.agentMode });
-      if (msg.agentMode === 'autonomous') {
-        this.state.resolveAllConfirms('Allow');
+      const selectedMode = msg.agentMode;
+      if (selectedMode === 'plan') {
+        // Plan mode selected — enable plan mode and set to cautious approval
+        await workspace.getConfiguration('sidecar').update('planMode', true, true);
+        await workspace.getConfiguration('sidecar').update('agentMode', 'cautious', true);
+        this.postMessage({ command: 'setAgentMode', agentMode: 'plan' });
+        this.state.postMessage({
+          command: 'assistantMessage',
+          content: `Plan mode enabled. For each request, I'll generate a structured plan for your approval before executing any changes.`,
+        });
+      } else {
+        // Normal mode selected — disable plan mode and use the selected approval mode
+        await workspace.getConfiguration('sidecar').update('planMode', false, true);
+        await workspace.getConfiguration('sidecar').update('agentMode', selectedMode, true);
+        this.postMessage({ command: 'setAgentMode', agentMode: selectedMode });
+        if (selectedMode === 'autonomous') {
+          this.state.resolveAllConfirms('Allow');
+        }
       }
     },
     confirmResponse: (msg) => this.state.resolveConfirm(msg.confirmId || '', msg.confirmed ? msg.text : undefined),

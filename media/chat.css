@@ -1153,6 +1153,11 @@ body {
   color: #000;
 }
 
+.mode-plan {
+  background: #9b78c8;
+  color: #fff;
+}
+
 #chat-actions {
   display: flex;
   gap: 4px;
