@@ -6,11 +6,16 @@ Last updated: 2026-04-09 (v0.37.1)
 
 ---
 
+## Recently Completed (v0.37.1)
+
+✅ **Large file & monorepo handling** (v0.37.1) — streaming reads with summary mode for files exceeding threshold, lazy indexing for slow/large directories, depth-limited traversal to prevent context bloat, multi-root workspace support via `sidecar.workspaceRoots`, configurable file size and depth limits
+
+---
+
 ## Planned Features
 
 ### Context & Intelligence
 
-- **Large file & monorepo handling** — streaming reads, lazy indexing, depth-limited traversal, `sidecar.workspaceRoots`
 - **RAG over documentation** — embedding-based retrieval over READMEs, wiki, doc comments
 - **Agent memory** — persistent per-workspace memory of patterns, conventions, decisions
 - **Structured context rules** — `.sidecarrules` with typed constraints (`prefer: functional-components`, `ban: any-type`). Compatible with `.cursorrules`/`.clinerules`

@@ -69,6 +69,68 @@ You can also pin files dynamically in chat using `@pin:path`:
 
 Pinned files appear in a dedicated "Pinned Files" section before relevance-scored files.
 
+## Large file & monorepo handling
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.workspaceRoots` | array | `[]` | Specific workspace roots to index (empty = all folders). Use for monorepos to focus on specific sub-projects |
+| `sidecar.maxFileSizeBytes` | number | `102400` (100KB) | Maximum file size to fully read. Larger files get summaries first/last lines |
+| `sidecar.streamingReadThreshold` | number | `51200` (50KB) | Files above this size use summary mode (head/tail lines) instead of full content |
+| `sidecar.maxTraversalDepth` | number | `10` | Maximum directory nesting depth for context inclusion. Set lower for shallow indexing in large projects |
+| `sidecar.enableLazyIndexing` | boolean | `true` | Defer indexing slow/large directories until explicitly needed |
+| `sidecar.maxIndexedFiles` | number | `1000` | Maximum indexed files before lazy-loading remainder. Improves startup time in huge repos |
+
+### Streaming reads
+
+For large files exceeding `streamingReadThreshold`, SideCar automatically uses summary mode:
+- Reads first N lines (default 50)
+- Reads last M lines (default 30)
+- Shows omitted line count in the middle
+
+This keeps context focused on the structure and key parts of files without loading entire file content.
+
+### Multi-root workspaces
+
+Pin specific workspace roots for monorepo development:
+
+```json
+"sidecar.workspaceRoots": ["/path/to/repo/packages/core", "/path/to/repo/packages/ui"]
+```
+
+This is useful for:
+- **Monorepos**: focus indexing on the sub-projects you're actively working on
+- **Multi-root workspaces**: reduce context noise by excluding irrelevant projects
+- **Large codebases**: improve startup time by indexing only relevant directories
+
+If not set (default), SideCar indexes all workspace folders.
+
+### Depth limiting
+
+For deeply nested projects, limit traversal depth to prevent context bloat:
+
+```json
+"sidecar.maxTraversalDepth": 5
+```
+
+Files deeper than this level are excluded from workspace indexing, reducing noise in large projects with many nested directories.
+
+### Ignoring patterns
+
+Create a `.sidecarignore` file in your workspace root (same format as `.gitignore`):
+
+```
+# Ignore build artifacts
+dist/
+build/
+.next/
+
+# Ignore dependencies
+node_modules/
+venv/
+```
+
+Patterns from `.sidecarignore` are merged with default excludes (`.git`, `.sidecar`, `node_modules`, etc.).
+
 ## Auto-fix
 
 | Setting | Type | Default | Description |
