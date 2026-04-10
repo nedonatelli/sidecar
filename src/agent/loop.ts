@@ -402,13 +402,13 @@ export async function runAgentLoop(
           callbacks.onMemory?.(
             'pattern',
             `tool:${toolUse.name}`,
-            `Successfully used ${toolUse.name} with input: ${inputStr.slice(0, 100)}...`,
+            `${toolUse.name} works well with args like: ${inputStr.slice(0, 100)}`,
           );
         } else {
           callbacks.onMemory?.(
             'failure',
             `tool:${toolUse.name}`,
-            `${toolUse.name} failed: ${result.content.slice(0, 120)}`,
+            `${toolUse.name} can fail when: ${result.content.slice(0, 120)}`,
           );
         }
         callbacks.onToolChainRecord?.(toolUse.name, !result.is_error);

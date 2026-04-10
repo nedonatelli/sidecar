@@ -237,7 +237,7 @@ export class AgentMemory {
   formatForContext(memories: MemoryEntry[]): string {
     if (memories.length === 0) return '';
 
-    const parts = ['## Agent Memory\n'];
+    const parts = ['## Agent Memory (learned from past sessions — NOT the current conversation)\n'];
 
     // Group by type
     const byType: Record<string, MemoryEntry[]> = {};
