@@ -10,7 +10,23 @@ const MAX_FILE_SIZE = 100 * 1024; // 100KB
 const INDEX_CACHE_FILE = 'cache/workspace-index.json';
 const INDEX_VERSION = 1;
 const MAX_CONTENT_LENGTH = 10_000; // 10K chars per file
-const EXCLUDE_PATTERN = `**/{node_modules,.git,.sidecar,coverage,out,dist,build,.venv,venv,__pycache__,.next,.turbo,.cache}/**`;
+
+const DEFAULT_EXCLUDES = [
+  'node_modules',
+  '.git',
+  '.sidecar',
+  'coverage',
+  'out',
+  'dist',
+  'build',
+  '.venv',
+  'venv',
+  '__pycache__',
+  '.next',
+  '.turbo',
+  '.cache',
+];
+const EXCLUDE_PATTERN = `**/{${DEFAULT_EXCLUDES.join(',')}}/**`;
 
 const ROOT_CONFIG_FILES = new Set([
   'package.json',
@@ -54,6 +70,8 @@ export class WorkspaceIndex implements Disposable {
   private sidecarDir: SidecarDir | null = null;
   /** Files the agent has accessed this session, for graph context. */
   private recentlyAccessedFiles = new Set<string>();
+  /** Extra exclude patterns from .sidecarignore */
+  private customExcludes = new Set<string>();
 
   constructor(maxContextChars = 20_000) {
     this.maxContextChars = maxContextChars;
@@ -91,6 +109,25 @@ export class WorkspaceIndex implements Disposable {
     const rootUri = folders[0].uri;
     const rootPath = rootUri.fsPath;
     const startTime = Date.now();
+
+    // Load .sidecarignore patterns if the file exists
+    try {
+      const ignoreUri = Uri.joinPath(rootUri, '.sidecarignore');
+      const ignoreBytes = await workspace.fs.readFile(ignoreUri);
+      const ignoreContent = Buffer.from(ignoreBytes).toString('utf-8');
+      for (const line of ignoreContent.split('\n')) {
+        const trimmed = line.trim();
+        if (trimmed && !trimmed.startsWith('#')) {
+          // Strip trailing slashes and glob markers for directory matching
+          this.customExcludes.add(trimmed.replace(/\/?\*?\*?$/, '').replace(/^\//, ''));
+        }
+      }
+      if (this.customExcludes.size > 0) {
+        console.log(`[SideCar] Loaded ${this.customExcludes.size} patterns from .sidecarignore`);
+      }
+    } catch {
+      // .sidecarignore doesn't exist — use defaults only
+    }
 
     // Try to restore from persistent cache first (instant startup)
     let restored = false;
@@ -517,21 +554,17 @@ export class WorkspaceIndex implements Disposable {
 
   private shouldExclude(relativePath: string): boolean {
     const parts = relativePath.split(path.sep);
-    const excluded = new Set([
-      'node_modules',
-      '.git',
-      '.sidecar',
-      'coverage',
-      'out',
-      'dist',
-      'build',
-      '.venv',
-      'venv',
-      '__pycache__',
-      '.next',
-      '.turbo',
-      '.cache',
-    ]);
-    return parts.some((p) => excluded.has(p));
+    const defaultExcludes = new Set(DEFAULT_EXCLUDES);
+    // Check default directory excludes
+    if (parts.some((p) => defaultExcludes.has(p))) return true;
+    // Check custom .sidecarignore patterns
+    if (this.customExcludes.size > 0) {
+      // Match directory names or path prefixes
+      for (const pattern of this.customExcludes) {
+        if (parts.some((p) => p === pattern)) return true;
+        if (relativePath.startsWith(pattern + path.sep) || relativePath === pattern) return true;
+      }
+    }
+    return false;
   }
 }
