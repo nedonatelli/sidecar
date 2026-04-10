@@ -391,6 +391,10 @@
     vscode.postMessage({ command: 'newChat' });
   });
 
+  document.getElementById('compact-btn').addEventListener('click', () => {
+    vscode.postMessage({ command: 'compactContext' });
+  });
+
   document.getElementById('undo-btn').addEventListener('click', () => {
     vscode.postMessage({ command: 'undoChanges' });
   });
@@ -444,6 +448,7 @@
     { cmd: '/releases', desc: 'List GitHub releases' },
     { cmd: '/release', desc: 'Show, create, or delete a release' },
     { cmd: '/plan', desc: 'Toggle plan mode (plan before executing)' },
+    { cmd: '/compact', desc: 'Compact conversation context to free tokens' },
   ];
   const autocompleteEl = document.getElementById('slash-autocomplete');
   let acSelectedIndex = -1;
@@ -1058,6 +1063,12 @@
       input.style.height = 'auto';
       return;
     }
+    if (text.trim() === '/compact') {
+      vscode.postMessage({ command: 'compactContext' });
+      input.value = '';
+      input.style.height = 'auto';
+      return;
+    }
     if (text.trim().startsWith('/revise ')) {
       const feedback = text.trim().slice(8);
       if (feedback) {
@@ -1135,6 +1146,7 @@
           '`/scaffold <type>` — Generate code from template\n' +
           '`/verbose` — Toggle verbose mode (show agent reasoning)\n' +
           '`/plan` — Toggle plan mode (plan before executing)\n' +
+          '`/compact` — Compact conversation context to free tokens\n' +
           '`/prompt` — Show the current system prompt',
       );
       input.value = '';

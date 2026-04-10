@@ -46,6 +46,7 @@ export interface WebviewMessage {
     | 'deleteMessage'
     | 'toggleVerbose'
     | 'togglePlanMode'
+    | 'compactContext'
     | 'showSystemPrompt'
     | 'reconnect'
     | 'dismissOnboarding'
@@ -192,6 +193,7 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
     <div id="chat-actions">
       <button id="new-chat-btn" title="New Chat">+</button>
       <button id="history-btn" title="Conversation History">&#9776;</button>
+      <button id="compact-btn" title="Compact Context">&#9986;</button>
       <button id="undo-btn" title="Undo All Changes">&#8634;</button>
       <button id="export-btn" title="Export as Markdown">&#8681;</button>
     </div>

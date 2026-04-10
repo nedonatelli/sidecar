@@ -238,6 +238,54 @@ export class ChatViewProvider implements WebviewViewProvider {
       });
       this.state.postMessage({ command: 'done' });
     },
+    compactContext: async () => {
+      const msgCount = this.state.messages.length;
+      if (msgCount < 4) {
+        this.state.postMessage({
+          command: 'assistantMessage',
+          content: 'Context is already minimal — nothing to compact.',
+        });
+        this.state.postMessage({ command: 'done' });
+        return;
+      }
+
+      this.state.postMessage({
+        command: 'assistantMessage',
+        content: 'Compacting conversation context...',
+      });
+
+      try {
+        const { ConversationSummarizer } = await import('../agent/conversationSummarizer.js');
+        const summarizer = new ConversationSummarizer(this.state.client);
+        const result = await summarizer.summarize(this.state.messages, {
+          keepRecentTurns: 2,
+          minCharsToSave: 500,
+          maxSummaryLength: 1200,
+          summaryTimeoutMs: 15000,
+        });
+
+        if (result.freedChars > 0) {
+          this.state.messages.splice(0, this.state.messages.length, ...result.messages);
+          this.state.saveHistory();
+          const tokensFreed = Math.round(result.freedChars / 4);
+          this.state.postMessage({
+            command: 'assistantMessage',
+            content: `Compacted: ${result.metadata.turnsSummarized}/${result.metadata.turnsCount} turns summarized, ~${tokensFreed} tokens freed. The conversation context is now smaller and the model will respond faster.`,
+          });
+        } else {
+          this.state.postMessage({
+            command: 'assistantMessage',
+            content: 'Context is already compact — not enough old turns to summarize.',
+          });
+        }
+      } catch (err) {
+        this.state.postMessage({
+          command: 'assistantMessage',
+          content: `Compaction failed: ${err instanceof Error ? err.message : String(err)}`,
+        });
+      }
+      this.state.postMessage({ command: 'done' });
+    },
     listSkills: () => {
       const list = this.state.skillLoader?.listFormatted() || 'No skills loaded.';
       this.state.postMessage({ command: 'assistantMessage', content: list });
