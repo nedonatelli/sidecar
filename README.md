@@ -16,34 +16,51 @@ SideCar will always be free, tips not required but appreciated.
 
 ## Why SideCar?
 
-Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins**. SideCar is a **full agentic coding assistant** — closer to Claude Code or Cursor than to a chatbot.
+Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins**. SideCar is a **full agentic coding assistant** — closer to Claude Code or Cursor than to a chatbot, but free, open-source, and model-agnostic.
 
-| Capability | SideCar | Continue | Llama Coder | Twinny | Copilot (free) |
-|---|---|---|---|---|---|
-| Chat with local models | Yes | Yes | No | Yes | Yes |
-| Inline completions | Yes | Yes | Yes | Yes | Yes |
-| Autonomous agent loop | **Yes** | No | No | No | No |
-| File read/write/edit tools | **Yes** | No | No | No | No |
-| Run commands & tests | **Yes** (persistent shell) | No | No | No | No |
-| Diagnostics integration | **Yes** | No | No | No | No |
-| Security & secrets scanning | **Yes** | No | No | No | No |
-| MCP server support | **Yes** | No | No | No | No |
-| Hooks & scheduled tasks | **Yes** | No | No | No | No |
-| Git integration (commit, PR) | **Yes** | No | No | No | No |
-| Diff preview & undo/rollback | **Yes** | No | No | No | No |
-| Diagram generation | **Yes** | No | No | No | No |
-| Fully offline / self-hosted | Yes | Yes | Yes | Yes | No |
-| Free & open-source | Yes | Yes | Yes | Yes | Freemium |
+### vs. Local Extensions
+
+| Capability | SideCar | Continue | Llama Coder | Twinny |
+|---|---|---|---|---|
+| Autonomous agent loop | **Yes** | No | No | No |
+| File read/write/edit tools | **Yes** | No | No | No |
+| Run commands & tests | **Yes** (persistent shell) | No | No | No |
+| Web search | **Yes** (built-in) | No | No | No |
+| Security & secrets scanning | **Yes** | No | No | No |
+| MCP server support | **Yes** | No | No | No |
+| Git integration (commit, PR, releases) | **Yes** | No | No | No |
+| Diff preview & undo/rollback | **Yes** | No | No | No |
+| Plan mode | **Yes** | No | No | No |
+| Built-in skills (7) | **Yes** | No | No | No |
+| Tree-sitter AST parsing | **Yes** | No | No | No |
+| Persistent codebase indexing | **Yes** | No | No | No |
+| Spending budgets | **Yes** | No | No | No |
+| Free & open-source | Yes | Yes | Yes | Yes |
+
+### vs. Pro Tools
+
+| Capability | SideCar | Copilot | Cursor | Claude Code |
+|---|---|---|---|---|
+| Autonomous agent loop | Yes | Limited | Yes | Yes |
+| Model agnostic (any provider) | **Yes** | No | Partial | No |
+| Fully offline / self-hosted | **Yes** | No | No | No |
+| HuggingFace model install | **Yes** | No | No | No |
+| Custom skills system | **Yes** | No | No | Yes |
+| Context compaction (manual + auto) | **Yes** | Yes | Yes | Yes |
+| Spending budgets & cost tracking | **Yes** | No | No | No |
+| Plan-then-execute mode | **Yes** | No | Yes | Yes |
+| Works in your existing VS Code | **Yes** | Yes | No (fork) | No (CLI) |
+| Monthly subscription | **Free** | $10-19/mo | $20/mo | $20/mo |
 
 ### What sets SideCar apart
 
-- **True agentic autonomy** — SideCar doesn't just answer questions. It reads your code, edits files, runs tests, reads the errors, and iterates until the task is done. Other local AI extensions stop at chat and autocomplete.
-- **No vendor lock-in** — Use Ollama for fully offline operation, the Anthropic API for Claude, or any OpenAI-compatible server (LM Studio, vLLM, llama.cpp, OpenRouter). Same interface, your choice.
-- **Security from the ground up** — Built-in secrets detection and vulnerability scanning run automatically after every file write. No other local-first extension does this.
-- **Extensible with MCP** — Connect external tools (databases, APIs, custom scripts) via the Model Context Protocol. SideCar treats them as first-class tools alongside its built-in ones.
-- **Production-grade safety** — Agent mode controls (cautious/autonomous/manual), iteration limits, token budgets, daily/weekly spending caps, cycle detection, diff preview, and one-click rollback keep you in control.
-- **`.sidecar/` project directory** — Persistent project storage for workspace index cache, agent reasoning logs, session history, plans, and memory. Committed project instructions live alongside gitignored ephemeral data.
-- **Smart context** — AST-based extraction for JS/TS, Python, Rust, Go, and Java/Kotlin files. SideCar sends relevant functions and classes to the model, not entire files.
+- **True agentic autonomy** — SideCar reads your code, edits files, runs tests, reads the errors, and iterates until the task is done. Switch between cautious, autonomous, and manual modes.
+- **No vendor lock-in** — Use Ollama for fully offline operation, Anthropic for Claude, OpenAI-compatible servers (LM Studio, vLLM, OpenRouter), LLMManager, or install GGUF models directly from HuggingFace. Same interface, your choice.
+- **Security from the ground up** — Secrets detection, vulnerability scanning, path traversal protection, sensitive file blocking, workspace hook warnings, and prompt injection sandboxing. No other local-first extension does this.
+- **Extensible with MCP & Skills** — Connect external tools via MCP, create custom skills with markdown files, or use the 7 built-in skills (review, debug, refactor, explain, write-tests, break-this, create-skill).
+- **Production-grade safety** — Agent mode controls, iteration limits, token budgets, daily/weekly spending caps, cycle detection, streaming diff preview, plan mode, and one-click rollback.
+- **Persistent codebase indexing** — File index and symbol graph persist across restarts via `.sidecar/cache/`. Tree-sitter AST parsing for 6 languages. Near-instant startup on subsequent activations.
+- **Smart context** — Tree-sitter AST extraction for TypeScript, JavaScript, Python, Rust, Go, and Java/Kotlin. SideCar sends relevant functions and classes to the model, not entire files.
 
 ## Features
 
