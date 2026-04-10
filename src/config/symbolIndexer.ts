@@ -7,7 +7,7 @@ import { workspace, Uri, Disposable } from 'vscode';
 import * as path from 'path';
 import { SimpleCodeAnalyzer } from '../astContext.js';
 import { getRegexAnalyzer } from '../parsing/registry.js';
-import { SymbolGraph, type SymbolEntry, type ImportEdge } from './symbolGraph.js';
+import { SymbolGraph, type SymbolEntry, type ImportEdge, type CallEdge, type TypeEdge } from './symbolGraph.js';
 import type { SidecarDir } from './sidecarDir.js';
 
 const CACHE_FILE = 'cache/symbol-graph.json';
@@ -161,9 +161,23 @@ export class SymbolIndexer implements Disposable {
       }
     }
 
+    // Map parsed calls/type relations to graph edge types
+    const calls: CallEdge[] = (parsed.calls || []).map((c) => ({
+      callerFile: relativePath,
+      callerName: c.callerName,
+      calleeName: c.calleeName,
+      line: c.line,
+    }));
+    const typeEdges: TypeEdge[] = (parsed.typeRelations || []).map((r) => ({
+      childFile: relativePath,
+      childName: r.childName,
+      parentName: r.parentName,
+      kind: r.kind,
+    }));
+
     // Store content for reference searching
     this.graph.setFileContent(relativePath, content);
-    this.graph.addFile(relativePath, symbols, imports, hash);
+    this.graph.addFile(relativePath, symbols, imports, hash, calls, typeEdges);
   }
 
   /** Update a single file incrementally. */

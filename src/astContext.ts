@@ -17,10 +17,26 @@ export interface CodeElement {
   bindings?: string[];
 }
 
+/** A call site detected during parsing. */
+export interface ParsedCall {
+  callerName: string; // enclosing function/method name, or '<module>' for top-level
+  calleeName: string;
+  line: number; // 1-based
+}
+
+/** A type relationship detected during parsing. */
+export interface ParsedTypeRelation {
+  childName: string;
+  parentName: string;
+  kind: 'extends' | 'implements';
+}
+
 export interface ParsedFile {
   filePath: string;
   elements: CodeElement[];
   content: string;
+  calls?: ParsedCall[];
+  typeRelations?: ParsedTypeRelation[];
 }
 
 /**
@@ -186,6 +202,32 @@ export class SimpleCodeAnalyzer {
 
     const usesBraces = lang !== 'py';
     const CONTROL_KEYWORDS = new Set(['if', 'for', 'while', 'switch', 'catch']);
+
+    // Track call sites and type relations for the symbol graph
+    const calls: ParsedCall[] = [];
+    const typeRelations: ParsedTypeRelation[] = [];
+    // Regex for function calls: identifier followed by ( — excludes keywords/declarations
+    const CALL_PATTERN = /\b([a-zA-Z_$][\w$]*)\s*\(/g;
+    const SKIP_CALL_NAMES = new Set([
+      ...CONTROL_KEYWORDS,
+      'function',
+      'class',
+      'import',
+      'export',
+      'return',
+      'new',
+      'typeof',
+      'instanceof',
+      'delete',
+      'void',
+      'throw',
+      'async',
+      'await',
+      'yield',
+      'super',
+      'this',
+      'require',
+    ]);
 
     // Helper: build content string from line range (deferred to avoid O(n) per element during scan)
     const buildContent = (start: number, end: number) => lines.slice(start, end + 1).join('\n');
@@ -406,10 +448,80 @@ export class SimpleCodeAnalyzer {
       }
     }
 
+    // --- Second pass: extract call sites and type relations ---
+    // Build scope intervals from detected elements for call attribution
+    const scopeIntervals = elements
+      .filter((el) => el.type === 'function' || el.type === 'method' || el.type === 'class')
+      .map((el) => ({ name: el.name, start: el.startLine, end: el.endLine }))
+      .sort((a, b) => a.start - b.start);
+
+    const findScope = (lineIdx: number): string => {
+      // Return the innermost scope containing this line
+      let best = '<module>';
+      for (const s of scopeIntervals) {
+        if (lineIdx >= s.start && lineIdx <= s.end) best = s.name;
+      }
+      return best;
+    };
+
+    if (lang === 'js' || lang === 'jvm') {
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const trimmed = line.trim();
+
+        // Skip import/export/comment lines
+        if (
+          trimmed.startsWith('import ') ||
+          trimmed.startsWith('export ') ||
+          trimmed.startsWith('//') ||
+          trimmed.startsWith('*')
+        )
+          continue;
+
+        // Extract function calls
+        CALL_PATTERN.lastIndex = 0;
+        let callMatch: RegExpExecArray | null;
+        while ((callMatch = CALL_PATTERN.exec(line)) !== null) {
+          const callee = callMatch[1];
+          if (!SKIP_CALL_NAMES.has(callee)) {
+            calls.push({
+              callerName: findScope(i),
+              calleeName: callee,
+              line: i + 1,
+            });
+          }
+        }
+      }
+
+      // Extract type relations from class/interface declarations
+      for (const el of elements) {
+        if (el.type === 'class' || el.type === 'interface') {
+          const declLine = lines[el.startLine] || '';
+          const extendsMatch = declLine.match(/\bextends\s+([a-zA-Z_$][\w$]*)/);
+          if (extendsMatch) {
+            typeRelations.push({ childName: el.name, parentName: extendsMatch[1], kind: 'extends' });
+          }
+          const implMatch = declLine.match(/\bimplements\s+([\w$,\s]+)/);
+          if (implMatch) {
+            const parents = implMatch[1]
+              .split(',')
+              .map((s) => s.trim())
+              .filter(Boolean);
+            for (const p of parents) {
+              const name = p.match(/^([a-zA-Z_$][\w$]*)/)?.[1];
+              if (name) typeRelations.push({ childName: el.name, parentName: name, kind: 'implements' });
+            }
+          }
+        }
+      }
+    }
+
     return {
       filePath,
       elements,
       content,
+      calls: calls.length > 0 ? calls : undefined,
+      typeRelations: typeRelations.length > 0 ? typeRelations : undefined,
     };
   }
 

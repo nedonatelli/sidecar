@@ -1,6 +1,7 @@
 import type { ChatMessage, ContentBlock, ToolResultContentBlock, ToolUseContentBlock } from '../ollama/types.js';
 import { getContentLength } from '../ollama/types.js';
 import { getRegexAnalyzer } from '../parsing/registry.js';
+import { AgentMemory } from './agentMemory.js';
 
 /**
  * Prune conversation history between user turns to keep context manageable.
@@ -195,7 +196,7 @@ function compressText(block: { type: 'text'; text: string }, level: CompressionL
 /**
  * Enhance context with smart code element selection for better relevance
  */
-export function enhanceContextWithSmartElements(context: string, query: string): string {
+export function enhanceContextWithSmartElements(context: string, query: string, agentMemory?: AgentMemory): string {
   // Parse the context to identify code files and their content
   // Extract relevant code elements based on the query using AST analysis
   const fileSections = context.match(/### (.*?)(?=\n### |$)/gs);
@@ -248,6 +249,23 @@ export function enhanceContextWithSmartElements(context: string, query: string):
       const analyzer = getRegexAnalyzer();
       const parsedFile = analyzer.parseFileContent(filePath, rawContent);
       const relevantElements = analyzer.findRelevantElements(parsedFile, query);
+
+      // If we have agent memory, enhance relevance scoring with learned patterns
+      if (agentMemory) {
+        const memoryEntries = agentMemory.getRelevantMemories(query);
+        if (memoryEntries.length > 0) {
+          // Boost relevance scores based on learned patterns
+          for (const element of relevantElements) {
+            for (const memory of memoryEntries) {
+              if (memory.content.toLowerCase().includes(element.name.toLowerCase())) {
+                element.relevanceScore += 0.2;
+              }
+            }
+          }
+          // Re-sort by updated scores
+          relevantElements.sort((a, b) => b.relevanceScore - a.relevanceScore);
+        }
+      }
 
       if (relevantElements.length > 0) {
         enhancedContent = analyzer.extractRelevantContent(parsedFile, relevantElements);

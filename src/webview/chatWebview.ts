@@ -117,7 +117,8 @@ export interface ExtensionMessage {
     | 'verboseLog'
     | 'typingStatus'
     | 'onboarding'
-    | 'skillsMenu';
+    | 'skillsMenu'
+    | 'suggestNextSteps';
   agentMode?: string;
   toolName?: string;
   toolCallId?: string;
@@ -154,6 +155,7 @@ export interface ExtensionMessage {
   expandThinking?: boolean;
   verboseLabel?: string;
   skills?: { id: string; name: string; description: string }[];
+  suggestions?: string[];
 }
 
 export interface LibraryModelUI {

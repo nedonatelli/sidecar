@@ -36,7 +36,11 @@ export interface AgentCallbacks {
   onToolOutput?: (name: string, chunk: string, id?: string) => void;
   onPlanGenerated?: (plan: string) => void;
   /** Record a learned pattern or decision to agent memory. */
-  onMemory?: (type: 'pattern' | 'decision' | 'convention', context: string, content: string) => void;
+  onMemory?: (type: 'pattern' | 'decision' | 'convention' | 'failure', context: string, content: string) => void;
+  /** Record a tool use for chain tracking. */
+  onToolChainRecord?: (toolName: string, succeeded: boolean) => void;
+  /** Flush the tool chain buffer (call at end of loop). */
+  onToolChainFlush?: () => void;
   onIterationStart?: (info: {
     iteration: number;
     maxIterations: number;
@@ -46,6 +50,12 @@ export interface AgentCallbacks {
     messagesRemaining: number;
     atCapacity: boolean;
   }) => void;
+  /** Suggest next steps after the agent loop completes. */
+  onSuggestNextSteps?: (suggestions: string[]) => void;
+  /** Emit a progress summary during multi-step loops. */
+  onProgressSummary?: (summary: string) => void;
+  /** Checkpoint: ask user whether to continue a long-running task. Returns true to continue. */
+  onCheckpoint?: (summary: string, iterationsUsed: number, iterationsRemaining: number) => Promise<boolean>;
   onDone: () => void;
 }
 
@@ -165,6 +175,29 @@ export async function runAgentLoop(
       messagesRemaining,
       atCapacity,
     });
+
+    // Progress summary every 5 iterations (starting at iteration 5)
+    if (iteration > 1 && iteration % 5 === 0 && callbacks.onProgressSummary) {
+      const elapsed = Math.round((Date.now() - startTime) / 1000);
+      const pctTokens = Math.round((estimatedTokens / maxTokens) * 100);
+      callbacks.onProgressSummary(
+        `Iteration ${iteration}/${maxIterations} · ${elapsed}s elapsed · ${pctTokens}% context used · ${messageCount} messages`,
+      );
+    }
+
+    // Checkpoint at 60% of max iterations — let user decide whether to continue
+    if (callbacks.onCheckpoint && iteration === Math.ceil(maxIterations * 0.6) && iteration > 3) {
+      const shouldContinue = await callbacks.onCheckpoint(
+        `Reached iteration ${iteration} of ${maxIterations}. ${Math.round((estimatedTokens / maxTokens) * 100)}% context used.`,
+        iteration,
+        maxIterations - iteration,
+      );
+      if (!shouldContinue) {
+        logger?.info('User stopped at checkpoint');
+        callbacks.onText('\n\nStopped at checkpoint.');
+        break;
+      }
+    }
 
     // Stream response from model
     const assistantContent: ContentBlock[] = [];
@@ -363,15 +396,22 @@ export async function runAgentLoop(
         );
         logger?.logToolResult(toolUse.name, result.content, result.is_error || false);
 
-        // Record successful tool uses as patterns in agent memory
+        // Record tool use in memory — both successes and failures
+        const inputStr = typeof toolUse.input === 'object' ? JSON.stringify(toolUse.input) : String(toolUse.input);
         if (!result.is_error) {
-          const inputStr = typeof toolUse.input === 'object' ? JSON.stringify(toolUse.input) : String(toolUse.input);
           callbacks.onMemory?.(
             'pattern',
             `tool:${toolUse.name}`,
             `Successfully used ${toolUse.name} with input: ${inputStr.slice(0, 100)}...`,
           );
+        } else {
+          callbacks.onMemory?.(
+            'failure',
+            `tool:${toolUse.name}`,
+            `${toolUse.name} failed: ${result.content.slice(0, 120)}`,
+          );
         }
+        callbacks.onToolChainRecord?.(toolUse.name, !result.is_error);
 
         callbacks.onToolResult(toolUse.name, result.content, result.is_error || false, toolUse.id);
         return result;
@@ -473,6 +513,17 @@ export async function runAgentLoop(
     break;
   }
 
+  // Flush tool chain buffer at end of loop
+  callbacks.onToolChainFlush?.();
+
+  // Generate next-step suggestions based on what tools were used
+  if (callbacks.onSuggestNextSteps && iteration > 1) {
+    const suggestions = generateNextStepSuggestions(agentMessages);
+    if (suggestions.length > 0) {
+      callbacks.onSuggestNextSteps(suggestions);
+    }
+  }
+
   logger?.logDone(iteration);
   callbacks.onDone();
   return agentMessages;
@@ -522,6 +573,45 @@ export function compressMessages(messages: ChatMessage[]): number {
   }
 
   return freed;
+}
+
+/**
+ * Analyze the completed agent conversation to suggest relevant follow-up actions.
+ * Scans tool usage to infer what the agent did and what a natural next step would be.
+ */
+function generateNextStepSuggestions(messages: ChatMessage[]): string[] {
+  const suggestions: string[] = [];
+  const toolsUsed = new Set<string>();
+  let hadErrors = false;
+  let wroteFiles = false;
+  let ranTests = false;
+
+  for (const msg of messages) {
+    if (typeof msg.content === 'string' || !Array.isArray(msg.content)) continue;
+    for (const block of msg.content) {
+      if (block.type === 'tool_use') {
+        toolsUsed.add(block.name);
+        if (block.name === 'write_file' || block.name === 'edit_file') wroteFiles = true;
+        if (block.name === 'run_tests') ranTests = true;
+      }
+      if (block.type === 'tool_result' && block.is_error) hadErrors = true;
+    }
+  }
+
+  if (wroteFiles && !ranTests) {
+    suggestions.push('Run tests to verify the changes');
+  }
+  if (hadErrors) {
+    suggestions.push('Review errors and retry the failed steps');
+  }
+  if (wroteFiles) {
+    suggestions.push('Review the diff before committing');
+  }
+  if (toolsUsed.has('search_files') && !wroteFiles) {
+    suggestions.push('Apply the findings — edit the relevant files');
+  }
+
+  return suggestions.slice(0, 3);
 }
 
 /**

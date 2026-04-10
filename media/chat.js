@@ -2586,6 +2586,30 @@
         break;
       }
 
+      case 'suggestNextSteps': {
+        const suggestions = message.suggestions || [];
+        if (suggestions.length > 0) {
+          const container = document.createElement('div');
+          container.className = 'next-steps';
+          const label = document.createElement('span');
+          label.className = 'next-steps-label';
+          label.textContent = 'Next steps:';
+          container.appendChild(label);
+          for (const text of suggestions) {
+            const btn = document.createElement('button');
+            btn.className = 'next-step-btn';
+            btn.textContent = text;
+            btn.addEventListener('click', () => {
+              vscode.postMessage({ type: 'userMessage', content: text });
+            });
+            container.appendChild(btn);
+          }
+          chatMessages.appendChild(container);
+          scrollToBottom();
+        }
+        break;
+      }
+
       case 'changeSummary': {
         // Remove any existing summary panel
         const existingSummary = document.getElementById('change-summary');

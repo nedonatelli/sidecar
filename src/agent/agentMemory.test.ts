@@ -63,12 +63,16 @@ describe('AgentMemory', () => {
 
   it('tracks memory usage', () => {
     const id = memory.add('pattern', 'naming', 'Use camelCase');
-    let entry = memory.search('camelCase')[0];
-    expect(entry.useCount).toBe(0);
 
+    // Manual recordUse increments the underlying entry
     memory.recordUse(id);
-    entry = memory.search('camelCase')[0];
-    expect(entry.useCount).toBe(1);
+    memory.recordUse(id);
+    expect(memory.getByType('pattern')[0].useCount).toBe(2);
+
+    // search() also calls recordUse internally (but returns a spread copy
+    // from before the increment, so check via getByType)
+    memory.search('camelCase');
+    expect(memory.getByType('pattern')[0].useCount).toBe(3);
   });
 
   it('provides memory statistics', () => {
@@ -145,5 +149,93 @@ describe('AgentMemory', () => {
 
     memory.add('pattern', 'naming', 'Pattern 1');
     expect(memory.getCount()).toBe(1);
+  });
+
+  // --- Tool chain tracking ---
+
+  it('flushToolChain stores chains of 3+ tools', () => {
+    memory.recordToolUse('read_file', true);
+    memory.recordToolUse('edit_file', true);
+    memory.recordToolUse('get_diagnostics', true);
+    memory.flushToolChain();
+
+    const chains = memory.getByType('toolchain');
+    expect(chains).toHaveLength(1);
+    expect(chains[0].content).toBe('read_file → edit_file → get_diagnostics');
+  });
+
+  it('flushToolChain deduplicates consecutive repeats', () => {
+    memory.recordToolUse('read_file', true);
+    memory.recordToolUse('read_file', true);
+    memory.recordToolUse('edit_file', true);
+    memory.recordToolUse('edit_file', true);
+    memory.recordToolUse('get_diagnostics', true);
+    memory.flushToolChain();
+
+    const chains = memory.getByType('toolchain');
+    expect(chains).toHaveLength(1);
+    expect(chains[0].content).toBe('read_file → edit_file → get_diagnostics');
+  });
+
+  it('flushToolChain ignores short sequences', () => {
+    memory.recordToolUse('read_file', true);
+    memory.recordToolUse('edit_file', true);
+    memory.flushToolChain();
+
+    expect(memory.getByType('toolchain')).toHaveLength(0);
+  });
+
+  it('recordToolUse flushes on failure', () => {
+    memory.recordToolUse('read_file', true);
+    memory.recordToolUse('edit_file', true);
+    memory.recordToolUse('get_diagnostics', true);
+    // Failure flushes the buffer
+    memory.recordToolUse('run_tests', false);
+
+    const chains = memory.getByType('toolchain');
+    expect(chains).toHaveLength(1);
+  });
+
+  it('does not store duplicate tool chains', () => {
+    memory.recordToolUse('read_file', true);
+    memory.recordToolUse('edit_file', true);
+    memory.recordToolUse('get_diagnostics', true);
+    memory.flushToolChain();
+
+    memory.recordToolUse('read_file', true);
+    memory.recordToolUse('edit_file', true);
+    memory.recordToolUse('get_diagnostics', true);
+    memory.flushToolChain();
+
+    expect(memory.getByType('toolchain')).toHaveLength(1);
+  });
+
+  // --- Co-occurrence ---
+
+  it('getToolCooccurrences builds co-occurrence map from chains', () => {
+    memory.add('toolchain', 'tool-sequence', 'read_file → edit_file → get_diagnostics');
+
+    const cooccur = memory.getToolCooccurrences();
+    expect(cooccur.get('read_file')!.has('edit_file')).toBe(true);
+    expect(cooccur.get('edit_file')!.has('get_diagnostics')).toBe(true);
+  });
+
+  it('suggestNextTools suggests based on co-occurrence', () => {
+    memory.add('toolchain', 'tool-sequence', 'read_file → edit_file → get_diagnostics');
+    memory.add('toolchain', 'tool-sequence', 'search_files → read_file → edit_file');
+
+    const suggestions = memory.suggestNextTools(['read_file']);
+    expect(suggestions).toContain('edit_file');
+    expect(suggestions).toContain('get_diagnostics');
+  });
+
+  // --- Failure recording ---
+
+  it('stores failure memories', () => {
+    memory.add('failure', 'tool:edit_file', 'edit_file failed: file not found');
+
+    const failures = memory.getByType('failure');
+    expect(failures).toHaveLength(1);
+    expect(failures[0].content).toContain('file not found');
   });
 });

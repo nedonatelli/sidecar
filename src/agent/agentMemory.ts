@@ -9,7 +9,7 @@ export interface MemoryEntry {
   /** Unique identifier */
   id: string;
   /** Type: coding pattern, convention, decision, bug, etc. */
-  type: 'pattern' | 'convention' | 'decision' | 'bug' | 'insight' | 'note';
+  type: 'pattern' | 'convention' | 'decision' | 'bug' | 'insight' | 'note' | 'toolchain' | 'failure';
   /** Category for grouping (e.g., "naming", "architecture", "testing") */
   category: string;
   /** The actual memory content */
@@ -89,15 +89,14 @@ export class AgentMemory {
     if (this.memories.size >= this.MAX_MEMORIES) {
       // Remove oldest least-used entry
       let oldestId = '';
-      let oldestTime = Infinity;
-      let _minUseCount = Infinity;
+      let lowestScore = Infinity;
 
       for (const [id, entry] of this.memories) {
-        const score = entry.useCount + (Date.now() - entry.timestamp) / (1000 * 60 * 60); // age factor
-        if (score < oldestTime) {
-          oldestTime = score;
+        // Low use count + old age = lowest score = eviction candidate
+        const score = entry.useCount + (Date.now() - entry.timestamp) / (1000 * 60 * 60);
+        if (score < lowestScore) {
+          lowestScore = score;
           oldestId = id;
-          _minUseCount = entry.useCount;
         }
       }
 
@@ -152,10 +151,17 @@ export class AgentMemory {
         return { ...m, relevanceScore: score };
       });
 
-    return scored
+    const results = scored
       .filter((m) => m.relevanceScore > 0)
       .sort((a, b) => (b.relevanceScore || 0) - (a.relevanceScore || 0))
       .slice(0, maxResults);
+
+    // Track that these memories were actually used
+    for (const m of results) {
+      this.recordUse(m.id);
+    }
+
+    return results;
   }
 
   /**
@@ -258,5 +264,136 @@ export class AgentMemory {
    */
   getCount(): number {
     return this.memories.size;
+  }
+
+  /**
+   * Get memories relevant to a query, with scoring based on content similarity.
+   */
+  getRelevantMemories(query: string, maxResults: number = 5): MemoryEntry[] {
+    const lowerQuery = query.toLowerCase();
+    const scoredMemories: { entry: MemoryEntry; score: number }[] = [];
+
+    for (const entry of this.memories.values()) {
+      let score = 0;
+
+      // Score based on content similarity
+      if (entry.content.toLowerCase().includes(lowerQuery)) {
+        score += 0.5;
+      }
+
+      // Score based on category similarity
+      if (entry.category.toLowerCase().includes(lowerQuery)) {
+        score += 0.3;
+      }
+
+      // Score based on type similarity
+      if (entry.type.toLowerCase().includes(lowerQuery)) {
+        score += 0.2;
+      }
+
+      // Boost score for recent entries
+      const age = (Date.now() - entry.timestamp) / (1000 * 60 * 60 * 24); // days
+      if (age < 7) score += 0.2; // recent entries get a boost
+
+      if (score > 0.1) {
+        scoredMemories.push({ entry, score });
+      }
+    }
+
+    // Sort by score and return top results
+    scoredMemories.sort((a, b) => b.score - a.score);
+    return scoredMemories.slice(0, maxResults).map((item) => item.entry);
+  }
+
+  // --- Tool chain tracking ---
+
+  /** Buffer of tool names used in the current session, for chain detection. */
+  private sessionToolBuffer: string[] = [];
+
+  /**
+   * Record a tool use in the current session. When the session ends or a
+   * chain of 3+ tools is detected, store it as a 'toolchain' memory.
+   */
+  recordToolUse(toolName: string, succeeded: boolean): void {
+    if (succeeded) {
+      this.sessionToolBuffer.push(toolName);
+    } else {
+      // On failure, flush any accumulated chain and start fresh
+      this.flushToolChain();
+      this.sessionToolBuffer = [];
+    }
+  }
+
+  /**
+   * Flush the tool chain buffer — store a 'toolchain' memory if 3+ tools were used.
+   * Call this at the end of an agent loop.
+   */
+  flushToolChain(): void {
+    if (this.sessionToolBuffer.length < 3) {
+      this.sessionToolBuffer = [];
+      return;
+    }
+
+    // Deduplicate consecutive repeats: [read, read, edit, edit, diagnostics] → [read, edit, diagnostics]
+    const deduped: string[] = [];
+    for (const t of this.sessionToolBuffer) {
+      if (deduped[deduped.length - 1] !== t) deduped.push(t);
+    }
+
+    if (deduped.length >= 2) {
+      const chain = deduped.join(' → ');
+      // Check for duplicate chains already stored
+      const isDuplicate = Array.from(this.memories.values()).some((m) => m.type === 'toolchain' && m.content === chain);
+      if (!isDuplicate) {
+        this.add('toolchain', 'tool-sequence', chain);
+      }
+    }
+    this.sessionToolBuffer = [];
+  }
+
+  // --- Co-occurrence scoring ---
+
+  /**
+   * Build a co-occurrence map: for each tool, which other tools appear in the
+   * same toolchain memories? Returns a map of tool → Set<co-occurring tools>.
+   */
+  getToolCooccurrences(): Map<string, Set<string>> {
+    const cooccur = new Map<string, Set<string>>();
+    for (const m of this.memories.values()) {
+      if (m.type !== 'toolchain') continue;
+      const tools = m.content.split(' → ').map((t) => t.trim());
+      for (const tool of tools) {
+        if (!cooccur.has(tool)) cooccur.set(tool, new Set());
+        for (const other of tools) {
+          if (other !== tool) cooccur.get(tool)!.add(other);
+        }
+      }
+    }
+    return cooccur;
+  }
+
+  /**
+   * Suggest likely next tools based on what tools have been used so far
+   * in the current session, using co-occurrence data from past chains.
+   */
+  suggestNextTools(recentTools: string[], maxSuggestions: number = 3): string[] {
+    const cooccur = this.getToolCooccurrences();
+    const candidates = new Map<string, number>();
+    const recentSet = new Set(recentTools);
+
+    for (const tool of recentTools) {
+      const related = cooccur.get(tool);
+      if (!related) continue;
+      for (const r of related) {
+        if (!recentSet.has(r)) {
+          candidates.set(r, (candidates.get(r) || 0) + 1);
+        }
+      }
+    }
+
+    return Array.from(candidates.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, maxSuggestions)
+      .map(([name]) => name);
   }
 }

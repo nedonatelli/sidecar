@@ -135,7 +135,7 @@ describe('SymbolGraph', () => {
     graph.addFile('src/b.ts', [sym('bar', 'src/b.ts')], [imp('src/b.ts', 'src/a', ['foo'])], 'h2');
 
     const json = graph.toJSON();
-    expect(json.version).toBe(1);
+    expect(json.version).toBe(2);
     expect(json.symbols).toHaveLength(2);
     expect(json.imports).toHaveLength(1);
 
@@ -149,7 +149,7 @@ describe('SymbolGraph', () => {
   });
 
   it('fromJSON returns null for wrong version', () => {
-    const data = { version: 999, buildTime: '', symbols: [], imports: [], fileHashes: {} };
+    const data = { version: 999, buildTime: '', symbols: [], imports: [], calls: [], typeEdges: [], fileHashes: {} };
     expect(SymbolGraph.fromJSON(data)).toBeNull();
   });
 
@@ -183,5 +183,142 @@ describe('SymbolGraph', () => {
     expect(ctx).toContain('src/b.ts');
     expect(ctx).toContain('Imports:');
     expect(ctx).toContain('Used by:');
+  });
+
+  it('addFile stores call edges and getCallers retrieves them', () => {
+    const graph = new SymbolGraph();
+    graph.addFile('src/a.ts', [sym('foo', 'src/a.ts'), sym('bar', 'src/a.ts')], [], 'h1', [
+      { callerFile: 'src/a.ts', callerName: 'bar', calleeName: 'foo', line: 10 },
+    ]);
+
+    const callers = graph.getCallers('foo');
+    expect(callers).toHaveLength(1);
+    expect(callers[0].callerName).toBe('bar');
+    expect(callers[0].line).toBe(10);
+  });
+
+  it('getCallsInFile returns calls from a file', () => {
+    const graph = new SymbolGraph();
+    graph.addFile('src/a.ts', [sym('foo', 'src/a.ts')], [], 'h1', [
+      { callerFile: 'src/a.ts', callerName: 'foo', calleeName: 'console', line: 3 },
+      { callerFile: 'src/a.ts', callerName: 'foo', calleeName: 'helper', line: 5 },
+    ]);
+
+    expect(graph.getCallsInFile('src/a.ts')).toHaveLength(2);
+    expect(graph.getCallsInFile('src/b.ts')).toHaveLength(0);
+  });
+
+  it('removeFile cleans up call edge indexes', () => {
+    const graph = new SymbolGraph();
+    graph.addFile('src/a.ts', [sym('foo', 'src/a.ts')], [], 'h1', [
+      { callerFile: 'src/a.ts', callerName: 'foo', calleeName: 'bar', line: 5 },
+    ]);
+
+    expect(graph.getCallers('bar')).toHaveLength(1);
+    graph.removeFile('src/a.ts');
+    expect(graph.getCallers('bar')).toHaveLength(0);
+    expect(graph.getCallsInFile('src/a.ts')).toHaveLength(0);
+  });
+
+  it('addFile stores type edges and getSubtypes retrieves them', () => {
+    const graph = new SymbolGraph();
+    graph.addFile(
+      'src/a.ts',
+      [sym('Child', 'src/a.ts', { type: 'class' })],
+      [],
+      'h1',
+      [],
+      [{ childFile: 'src/a.ts', childName: 'Child', parentName: 'Parent', kind: 'extends' }],
+    );
+
+    const subtypes = graph.getSubtypes('Parent');
+    expect(subtypes).toHaveLength(1);
+    expect(subtypes[0].childName).toBe('Child');
+    expect(subtypes[0].kind).toBe('extends');
+  });
+
+  it('getSupertypes returns parent types for a child', () => {
+    const graph = new SymbolGraph();
+    graph.addFile(
+      'src/a.ts',
+      [sym('MyClass', 'src/a.ts', { type: 'class' })],
+      [],
+      'h1',
+      [],
+      [
+        { childFile: 'src/a.ts', childName: 'MyClass', parentName: 'Base', kind: 'extends' },
+        { childFile: 'src/a.ts', childName: 'MyClass', parentName: 'Serializable', kind: 'implements' },
+      ],
+    );
+
+    const supers = graph.getSupertypes('MyClass');
+    expect(supers).toHaveLength(2);
+    expect(supers.map((s) => s.parentName).sort()).toEqual(['Base', 'Serializable']);
+  });
+
+  it('removeFile cleans up type edge indexes', () => {
+    const graph = new SymbolGraph();
+    graph.addFile(
+      'src/a.ts',
+      [sym('Child', 'src/a.ts', { type: 'class' })],
+      [],
+      'h1',
+      [],
+      [{ childFile: 'src/a.ts', childName: 'Child', parentName: 'Parent', kind: 'extends' }],
+    );
+
+    expect(graph.getSubtypes('Parent')).toHaveLength(1);
+    graph.removeFile('src/a.ts');
+    expect(graph.getSubtypes('Parent')).toHaveLength(0);
+    expect(graph.getTypeEdgesInFile('src/a.ts')).toHaveLength(0);
+  });
+
+  it('toJSON and fromJSON round-trip with calls and type edges', () => {
+    const graph = new SymbolGraph();
+    graph.addFile(
+      'src/a.ts',
+      [sym('foo', 'src/a.ts'), sym('Child', 'src/a.ts', { type: 'class' })],
+      [],
+      'h1',
+      [{ callerFile: 'src/a.ts', callerName: 'foo', calleeName: 'bar', line: 10 }],
+      [{ childFile: 'src/a.ts', childName: 'Child', parentName: 'Base', kind: 'extends' }],
+    );
+
+    const json = graph.toJSON();
+    expect(json.calls).toHaveLength(1);
+    expect(json.typeEdges).toHaveLength(1);
+
+    const restored = SymbolGraph.fromJSON(json);
+    expect(restored).not.toBeNull();
+    expect(restored!.getCallers('bar')).toHaveLength(1);
+    expect(restored!.getSubtypes('Base')).toHaveLength(1);
+  });
+
+  it('getSymbolContext includes callers and type hierarchy', () => {
+    const graph = new SymbolGraph();
+    graph.addFile(
+      'src/a.ts',
+      [sym('MyClass', 'src/a.ts', { type: 'class', exported: true })],
+      [],
+      'h1',
+      [{ callerFile: 'src/b.ts', callerName: 'init', calleeName: 'MyClass', line: 5 }],
+      [{ childFile: 'src/a.ts', childName: 'MyClass', parentName: 'BaseClass', kind: 'extends' }],
+    );
+    graph.addFile(
+      'src/c.ts',
+      [sym('SubClass', 'src/c.ts', { type: 'class' })],
+      [],
+      'h2',
+      [],
+      [{ childFile: 'src/c.ts', childName: 'SubClass', parentName: 'MyClass', kind: 'extends' }],
+    );
+
+    const ctx = graph.getSymbolContext('MyClass', 1000);
+    expect(ctx).toContain('Called by:');
+    expect(ctx).toContain('init');
+    expect(ctx).toContain('Extends/implements:');
+    expect(ctx).toContain('BaseClass');
+    expect(ctx).toContain('Subtypes:');
+    expect(ctx).toContain('SubClass');
   });
 });

@@ -753,6 +753,35 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
             }
           }
         },
+        onToolChainRecord: (toolName, succeeded) => {
+          if (config.enableAgentMemory && state.agentMemory) {
+            state.agentMemory.recordToolUse(toolName, succeeded);
+          }
+        },
+        onToolChainFlush: () => {
+          if (config.enableAgentMemory && state.agentMemory) {
+            state.agentMemory.flushToolChain();
+          }
+        },
+        onSuggestNextSteps: (suggestions) => {
+          if (suggestions.length > 0) {
+            state.postMessage({ command: 'suggestNextSteps', suggestions });
+          }
+        },
+        onProgressSummary: (summary) => {
+          state.postMessage({ command: 'agentProgress', content: summary });
+        },
+        onCheckpoint: async (summary, _used, remaining) => {
+          try {
+            const choice = await state.requestConfirm(
+              `**Checkpoint:** ${summary}\n\n${remaining} iterations remaining. Continue?`,
+              ['Continue', 'Stop here'],
+            );
+            return choice === 'Continue';
+          } catch {
+            return true; // default to continue if prompt fails
+          }
+        },
         onDone: () => {
           flushTextBuffer();
           state.postMessage({ command: 'done' });

@@ -1867,3 +1867,32 @@ body {
   overflow-x: auto;
   font-size: 12px;
 }
+
+/* Next-step suggestions after agent completes */
+.next-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding: 8px 12px;
+  margin: 8px 0;
+  opacity: 0.85;
+}
+.next-steps-label {
+  font-size: 11px;
+  opacity: 0.7;
+  margin-right: 4px;
+}
+.next-step-btn {
+  font-size: 11px;
+  padding: 3px 10px;
+  border: 1px solid var(--vscode-button-secondaryBackground, #333);
+  border-radius: 12px;
+  background: var(--vscode-button-secondaryBackground, #2d2d2d);
+  color: var(--vscode-button-secondaryForeground, #ccc);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.next-step-btn:hover {
+  background: var(--vscode-button-hoverBackground, #444);
+}

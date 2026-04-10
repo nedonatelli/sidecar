@@ -22,6 +22,22 @@ export interface ImportEdge {
   importedNames: string[]; // named imports, or ['*'] for star, ['default'] for default
 }
 
+/** A function/method call from one symbol to another. */
+export interface CallEdge {
+  callerFile: string;
+  callerName: string; // qualified name of the calling function/method
+  calleeName: string; // name of the called function/method
+  line: number; // 1-based line of the call site
+}
+
+/** A type relationship (extends, implements). */
+export interface TypeEdge {
+  childFile: string;
+  childName: string;
+  parentName: string;
+  kind: 'extends' | 'implements';
+}
+
 export interface SymbolReference {
   file: string;
   line: number;
@@ -34,10 +50,12 @@ export interface SymbolGraphData {
   buildTime: string;
   symbols: SymbolEntry[];
   imports: ImportEdge[];
+  calls: CallEdge[];
+  typeEdges: TypeEdge[];
   fileHashes: Record<string, string>;
 }
 
-const GRAPH_VERSION = 1;
+const GRAPH_VERSION = 2;
 
 export class SymbolGraph {
   // Primary storage: symbols indexed by file
@@ -48,13 +66,28 @@ export class SymbolGraph {
   private importsByFile = new Map<string, ImportEdge[]>();
   // Reverse index: which files import a given file
   private importedBy = new Map<string, ImportEdge[]>();
+  // Call edges per file (caller side)
+  private callsByFile = new Map<string, CallEdge[]>();
+  // Reverse call index: callee name → call edges
+  private callsTo = new Map<string, CallEdge[]>();
+  // Type relationship edges per file (child side)
+  private typeEdgesByFile = new Map<string, TypeEdge[]>();
+  // Reverse type index: parent name → type edges
+  private subtypesOf = new Map<string, TypeEdge[]>();
   // File content hashes for incremental rebuild
   private fileHashes = new Map<string, string>();
   // Cached file content for reference searching (populated on demand)
   private fileContents = new Map<string, string>();
 
   /** Add or replace all data for a single file. */
-  addFile(filePath: string, symbols: SymbolEntry[], imports: ImportEdge[], hash: string): void {
+  addFile(
+    filePath: string,
+    symbols: SymbolEntry[],
+    imports: ImportEdge[],
+    hash: string,
+    calls?: CallEdge[],
+    typeEdges?: TypeEdge[],
+  ): void {
     // Remove old data first
     this.removeFile(filePath);
 
@@ -78,6 +111,32 @@ export class SymbolGraph {
           existing.push(edge);
         } else {
           this.importedBy.set(edge.toFile, [edge]);
+        }
+      }
+    }
+
+    // Store call edges
+    if (calls && calls.length > 0) {
+      this.callsByFile.set(filePath, calls);
+      for (const edge of calls) {
+        const existing = this.callsTo.get(edge.calleeName);
+        if (existing) {
+          existing.push(edge);
+        } else {
+          this.callsTo.set(edge.calleeName, [edge]);
+        }
+      }
+    }
+
+    // Store type relationship edges
+    if (typeEdges && typeEdges.length > 0) {
+      this.typeEdgesByFile.set(filePath, typeEdges);
+      for (const edge of typeEdges) {
+        const existing = this.subtypesOf.get(edge.parentName);
+        if (existing) {
+          existing.push(edge);
+        } else {
+          this.subtypesOf.set(edge.parentName, [edge]);
         }
       }
     }
@@ -121,6 +180,40 @@ export class SymbolGraph {
       this.importsByFile.delete(filePath);
     }
 
+    // Remove call edges
+    const oldCalls = this.callsByFile.get(filePath);
+    if (oldCalls) {
+      for (const edge of oldCalls) {
+        const reverseList = this.callsTo.get(edge.calleeName);
+        if (reverseList) {
+          const filtered = reverseList.filter((e) => e.callerFile !== filePath);
+          if (filtered.length > 0) {
+            this.callsTo.set(edge.calleeName, filtered);
+          } else {
+            this.callsTo.delete(edge.calleeName);
+          }
+        }
+      }
+      this.callsByFile.delete(filePath);
+    }
+
+    // Remove type edges
+    const oldTypeEdges = this.typeEdgesByFile.get(filePath);
+    if (oldTypeEdges) {
+      for (const edge of oldTypeEdges) {
+        const reverseList = this.subtypesOf.get(edge.parentName);
+        if (reverseList) {
+          const filtered = reverseList.filter((e) => e.childFile !== filePath);
+          if (filtered.length > 0) {
+            this.subtypesOf.set(edge.parentName, filtered);
+          } else {
+            this.subtypesOf.delete(edge.parentName);
+          }
+        }
+      }
+      this.typeEdgesByFile.delete(filePath);
+    }
+
     this.fileHashes.delete(filePath);
     this.fileContents.delete(filePath);
   }
@@ -156,6 +249,37 @@ export class SymbolGraph {
   getDependents(filePath: string): string[] {
     const edges = this.importedBy.get(filePath) || [];
     return [...new Set(edges.map((e) => e.fromFile))];
+  }
+
+  /** Get all call sites where `symbolName` is called. */
+  getCallers(symbolName: string): CallEdge[] {
+    return this.callsTo.get(symbolName) || [];
+  }
+
+  /** Get all calls made from within a file. */
+  getCallsInFile(filePath: string): CallEdge[] {
+    return this.callsByFile.get(filePath) || [];
+  }
+
+  /** Get types that extend or implement `parentName`. */
+  getSubtypes(parentName: string): TypeEdge[] {
+    return this.subtypesOf.get(parentName) || [];
+  }
+
+  /** Get the extends/implements edges originating from a file. */
+  getTypeEdgesInFile(filePath: string): TypeEdge[] {
+    return this.typeEdgesByFile.get(filePath) || [];
+  }
+
+  /** Get the parent types (extends/implements) for a given child type name. */
+  getSupertypes(childName: string): TypeEdge[] {
+    const results: TypeEdge[] = [];
+    for (const edges of this.typeEdgesByFile.values()) {
+      for (const edge of edges) {
+        if (edge.childName === childName) results.push(edge);
+      }
+    }
+    return results;
   }
 
   /**
@@ -245,6 +369,34 @@ export class SymbolGraph {
         chars += depLine.length;
       }
 
+      // Add callers
+      const callers = this.getCallers(symbolName);
+      if (callers.length > 0 && chars < maxChars) {
+        const callerSummary = callers
+          .slice(0, 5)
+          .map((c) => `${c.callerName} (${c.callerFile}:${c.line})`)
+          .join(', ');
+        const callLine = `  Called by: ${callerSummary}${callers.length > 5 ? ` (+${callers.length - 5} more)` : ''}`;
+        parts.push(callLine);
+        chars += callLine.length;
+      }
+
+      // Add type hierarchy
+      if (def.type === 'class' || def.type === 'interface') {
+        const supertypes = this.getSupertypes(symbolName);
+        if (supertypes.length > 0 && chars < maxChars) {
+          const superLine = `  Extends/implements: ${supertypes.map((e) => e.parentName).join(', ')}`;
+          parts.push(superLine);
+          chars += superLine.length;
+        }
+        const subtypes = this.getSubtypes(symbolName);
+        if (subtypes.length > 0 && chars < maxChars) {
+          const subLine = `  Subtypes: ${subtypes.map((e) => e.childName).join(', ')}`;
+          parts.push(subLine);
+          chars += subLine.length;
+        }
+      }
+
       if (chars > maxChars) break;
     }
 
@@ -308,6 +460,16 @@ export class SymbolGraph {
       imports.push(...edges);
     }
 
+    const calls: CallEdge[] = [];
+    for (const edges of this.callsByFile.values()) {
+      calls.push(...edges);
+    }
+
+    const typeEdges: TypeEdge[] = [];
+    for (const edges of this.typeEdgesByFile.values()) {
+      typeEdges.push(...edges);
+    }
+
     const fileHashes: Record<string, string> = {};
     for (const [k, v] of this.fileHashes) {
       fileHashes[k] = v;
@@ -318,6 +480,8 @@ export class SymbolGraph {
       buildTime: new Date().toISOString(),
       symbols,
       imports,
+      calls,
+      typeEdges,
       fileHashes,
     };
   }
@@ -350,19 +514,43 @@ export class SymbolGraph {
       }
     }
 
-    // Rebuild the graph file by file
-    for (const [filePath, symbols] of byFile) {
-      const imports = importsByFrom.get(filePath) || [];
-      const hash = data.fileHashes[filePath] || '';
-      graph.addFile(filePath, symbols, imports, hash);
+    // Group calls by callerFile
+    const callsByFrom = new Map<string, CallEdge[]>();
+    for (const edge of data.calls || []) {
+      const list = callsByFrom.get(edge.callerFile);
+      if (list) {
+        list.push(edge);
+      } else {
+        callsByFrom.set(edge.callerFile, [edge]);
+      }
     }
 
-    // Also add files that only have imports (no symbols)
-    for (const [filePath, imports] of importsByFrom) {
-      if (!byFile.has(filePath)) {
-        const hash = data.fileHashes[filePath] || '';
-        graph.addFile(filePath, [], imports, hash);
+    // Group type edges by childFile
+    const typeEdgesByFrom = new Map<string, TypeEdge[]>();
+    for (const edge of data.typeEdges || []) {
+      const list = typeEdgesByFrom.get(edge.childFile);
+      if (list) {
+        list.push(edge);
+      } else {
+        typeEdgesByFrom.set(edge.childFile, [edge]);
       }
+    }
+
+    // Collect all files referenced by any edge type
+    const allFiles = new Set<string>();
+    for (const f of byFile.keys()) allFiles.add(f);
+    for (const f of importsByFrom.keys()) allFiles.add(f);
+    for (const f of callsByFrom.keys()) allFiles.add(f);
+    for (const f of typeEdgesByFrom.keys()) allFiles.add(f);
+
+    // Rebuild the graph file by file
+    for (const filePath of allFiles) {
+      const symbols = byFile.get(filePath) || [];
+      const imports = importsByFrom.get(filePath) || [];
+      const fileCalls = callsByFrom.get(filePath) || [];
+      const fileTypeEdges = typeEdgesByFrom.get(filePath) || [];
+      const hash = data.fileHashes[filePath] || '';
+      graph.addFile(filePath, symbols, imports, hash, fileCalls, fileTypeEdges);
     }
 
     return graph;
