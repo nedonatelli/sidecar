@@ -1,29 +1,60 @@
 /**
- * Structured context rules implementation for SideCar
+ * Structured context rules for SideCar
  *
- * This module handles reading and applying .sidecarrules files that define
- * typed constraints for context building, similar to .cursorrules or .clinerules.
+ * Reads .sidecarrules files that define constraints for context building.
+ * Rules use glob-style patterns to match file paths and influence which
+ * files are included in the workspace context sent to the model.
  */
 
 import { workspace, Uri } from 'vscode';
 
 export interface ContextRule {
-  /** Rule type - e.g., "prefer", "ban", "require" */
+  /** How to apply this rule */
   type: 'prefer' | 'ban' | 'require';
-  /** The constraint to apply - e.g., "functional-components", "any-type" */
-  constraint: string;
-  /** Optional description of the rule */
+  /** Glob-style pattern matched against relative file paths */
+  pattern: string;
+  /** Score boost for 'prefer' rules (default 0.3) */
+  boost?: number;
+  /** Optional human-readable description */
   description?: string;
 }
 
 export interface StructuredContextRules {
-  /** List of rules to apply to context building */
   rules: ContextRule[];
 }
 
+const VALID_TYPES = new Set(['prefer', 'ban', 'require']);
+
 /**
- * Read structured context rules from .sidecarrules file in workspace root
- * Returns empty rules if file doesn't exist or is invalid
+ * Simple glob matcher supporting *, **, and ? against relative paths.
+ * Avoids a runtime dependency on minimatch/picomatch.
+ */
+export function matchGlob(pattern: string, filePath: string): boolean {
+  // Normalise separators
+  const p = pattern.replace(/\\/g, '/');
+  const f = filePath.replace(/\\/g, '/');
+
+  // Convert glob to regex:
+  //   **  → match any path segments (including /)
+  //   *   → match within a single segment (no /)
+  //   ?   → match a single non-/ character
+  //   .   → literal dot
+  const regexStr = p
+    .split('**')
+    .map((segment) =>
+      segment
+        .replace(/[.+^${}()|[\]\\]/g, '\\$&') // escape regex specials (except * and ?)
+        .replace(/\*/g, '[^/]*')
+        .replace(/\?/g, '[^/]'),
+    )
+    .join('.*');
+
+  return new RegExp(`^${regexStr}$`).test(f);
+}
+
+/**
+ * Read and validate .sidecarrules from the workspace root.
+ * Returns empty rules if the file is missing or malformed.
  */
 export async function readStructuredContextRules(): Promise<StructuredContextRules> {
   const folders = workspace.workspaceFolders;
@@ -31,116 +62,82 @@ export async function readStructuredContextRules(): Promise<StructuredContextRul
     return { rules: [] };
   }
 
-  const rootUri = folders[0].uri;
-  const rulesUri = Uri.joinPath(rootUri, '.sidecarrules');
+  const rulesUri = Uri.joinPath(folders[0].uri, '.sidecarrules');
 
   try {
-    const rulesBytes = await workspace.fs.readFile(rulesUri);
-    const rulesContent = new TextDecoder().decode(rulesBytes);
+    const bytes = await workspace.fs.readFile(rulesUri);
+    const parsed = JSON.parse(new TextDecoder().decode(bytes));
 
-    // Parse the rules file (simple JSON format for now)
-    const parsed = JSON.parse(rulesContent);
-
-    // Validate structure
     if (!Array.isArray(parsed.rules)) {
-      console.warn('[SideCar] Invalid .sidecarrules format: rules must be an array');
+      console.warn('[SideCar] Invalid .sidecarrules: "rules" must be an array');
       return { rules: [] };
     }
 
-    // Validate individual rules
-    const validRules: ContextRule[] = [];
-    for (const rule of parsed.rules) {
-      if (rule.type && (rule.type === 'prefer' || rule.type === 'ban' || rule.type === 'require') && rule.constraint) {
-        validRules.push({
-          type: rule.type,
-          constraint: rule.constraint,
-          description: rule.description,
+    const valid: ContextRule[] = [];
+    for (const r of parsed.rules) {
+      if (VALID_TYPES.has(r.type) && typeof r.pattern === 'string') {
+        valid.push({
+          type: r.type,
+          pattern: r.pattern,
+          boost: typeof r.boost === 'number' ? r.boost : undefined,
+          description: r.description,
         });
       }
     }
-
-    return { rules: validRules };
+    return { rules: valid };
   } catch {
-    // File doesn't exist or is invalid - return empty rules
     return { rules: [] };
   }
 }
 
 /**
- * Apply context rules to determine which files should be included in context
- * This function filters and scores files based on the defined rules
+ * Apply context rules to a scored file list.
+ *
+ * - **prefer**: adds `boost` (default 0.3) to matching files' scores
+ * - **ban**: removes matching files entirely
+ * - **require**: ensures matching files have at least a minimum score
+ *   so they aren't dropped during top-k selection
  */
-export function applyContextRules(files: string[], rules: StructuredContextRules): string[] {
+export function applyContextRules<T extends { relativePath: string; score: number }>(
+  files: T[],
+  rules: StructuredContextRules,
+): T[] {
   if (!rules.rules || rules.rules.length === 0) {
     return files;
   }
 
-  // Create a map to track scores for each file
-  const fileScores = new Map<string, number>();
+  let result = files;
 
-  // Initialize all files with base score of 1
-  for (const file of files) {
-    fileScores.set(file, 1);
-  }
-
-  // Apply rules based on constraint types
   for (const rule of rules.rules) {
-    if (rule.type === 'prefer') {
-      // Boost score for files matching the constraint
-      if (rule.constraint === 'functional-components') {
-        // For now, we'll just boost files that look like functional components
-        // In a real implementation, this would analyze file content
-        for (const file of files) {
-          if (file.endsWith('.tsx') || file.endsWith('.ts')) {
-            const score = fileScores.get(file) || 1;
-            fileScores.set(file, score * 1.5); // Boost by 50%
+    switch (rule.type) {
+      case 'prefer':
+        for (const f of result) {
+          if (matchGlob(rule.pattern, f.relativePath)) {
+            f.score += rule.boost ?? 0.3;
           }
         }
-      }
-    } else if (rule.type === 'ban') {
-      // Remove files matching the constraint
-      if (rule.constraint === 'any-type') {
-        // In a real implementation, this would check for any-type usage in files
-        // For now, we'll just filter out files that contain "any" in their name
-        // This is a placeholder - real implementation would analyze content
-        const filteredFiles = Array.from(fileScores.keys()).filter((file) => !file.includes('any'));
-        const newScores = new Map<string, number>();
-        for (const file of filteredFiles) {
-          newScores.set(file, fileScores.get(file) || 1);
-        }
-        fileScores.clear();
-        for (const [file, score] of newScores.entries()) {
-          fileScores.set(file, score);
-        }
-      }
-    } else if (rule.type === 'require') {
-      // Ensure files matching the constraint are included when relevant
-      if (rule.constraint === 'test-file') {
-        // For now, we'll ensure test files are included
-        // In a real implementation, this would check if test files are relevant to the query
-        // and include them if they are
-        for (const file of files) {
-          if (file.includes('.test.') || file.includes('-test.') || file.endsWith('.spec.ts')) {
-            const score = fileScores.get(file) || 1;
-            fileScores.set(file, Math.max(score, 2)); // Ensure test files get higher score
+        break;
+
+      case 'ban':
+        result = result.filter((f) => !matchGlob(rule.pattern, f.relativePath));
+        break;
+
+      case 'require':
+        for (const f of result) {
+          if (matchGlob(rule.pattern, f.relativePath) && f.score <= 0) {
+            f.score = rule.boost ?? 0.1;
           }
         }
-      }
+        break;
     }
   }
 
-  // Sort files by score (descending) and return top files
-  const sortedFiles = Array.from(fileScores.entries())
-    .sort((a, b) => b[1] - a[1])
-    .map((entry) => entry[0]);
-
-  return sortedFiles;
+  return result;
 }
 
 /**
- * Get context rules that should be applied to the current workspace
+ * Load context rules for the current workspace.
  */
 export async function getCurrentContextRules(): Promise<StructuredContextRules> {
-  // Load rules regardless of RAG setting - context rules are independent of documentation RAG
   return await readStructuredContextRules();
 }

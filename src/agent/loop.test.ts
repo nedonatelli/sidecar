@@ -173,7 +173,7 @@ describe('parseTextToolCalls', () => {
 // compressMessages — unit tests
 // ---------------------------------------------------------------------------
 describe('compressMessages', () => {
-  it('truncates long tool_result blocks outside the last 4 messages', () => {
+  it('truncates long tool_result blocks outside the last 2 messages', () => {
     const longContent = 'x'.repeat(1500);
     const messages: ChatMessage[] = [
       { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tc1', content: longContent }] },
@@ -192,13 +192,11 @@ describe('compressMessages', () => {
     expect(compressed[0].content.length).toBeLessThan(longContent.length);
   });
 
-  it('does not touch messages in the last 4', () => {
+  it('does not touch messages in the last 2', () => {
     const longContent = 'x'.repeat(1500);
     const messages: ChatMessage[] = [
       { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tc1', content: longContent }] },
       { role: 'assistant', content: 'msg2' },
-      { role: 'user', content: 'msg3' },
-      { role: 'assistant', content: 'msg4' },
     ];
 
     const freed = compressMessages(messages);
@@ -248,7 +246,7 @@ describe('compressMessages', () => {
     const first = messages[0].content as Array<{ type: string; content: string }>;
     expect(first[0].content.length).toBeLessThan(250);
 
-    // Messages near the end (last 4) should be untouched
+    // Messages near the end (last 2) should be untouched
     const nearEnd = messages[messages.length - 2].content as Array<{ type: string; content: string }>;
     expect(nearEnd[0].content.length).toBe(2000);
   });

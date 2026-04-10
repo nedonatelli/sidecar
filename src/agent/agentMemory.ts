@@ -189,10 +189,23 @@ export class AgentMemory {
         return { ...m, relevanceScore: score };
       });
 
-    const results = scored
+    // Cap current-session memories to avoid saturating context with
+    // patterns from the previous turn when the user switches topics.
+    const MAX_SESSION_MEMORIES = 2;
+    const sorted = scored
       .filter((m) => m.relevanceScore > 0)
-      .sort((a, b) => (b.relevanceScore || 0) - (a.relevanceScore || 0))
-      .slice(0, maxResults);
+      .sort((a, b) => (b.relevanceScore || 0) - (a.relevanceScore || 0));
+
+    const results: typeof scored = [];
+    let sessionCount = 0;
+    for (const m of sorted) {
+      if (results.length >= maxResults) break;
+      if (m.sessionId === this.currentSessionId) {
+        if (sessionCount >= MAX_SESSION_MEMORIES) continue;
+        sessionCount++;
+      }
+      results.push(m);
+    }
 
     // Track that these memories were actually used
     for (const m of results) {

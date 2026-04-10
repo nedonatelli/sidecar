@@ -289,4 +289,39 @@ describe('AgentMemory', () => {
     // Current session entry should rank first due to session boost
     expect(results[0].content).toContain('functions');
   });
+
+  it('search caps current-session memories at 2', () => {
+    memory.startSession();
+    // Add 5 current-session memories all matching the query
+    memory.add('pattern', 'styling', 'styling rule alpha for components');
+    memory.add('pattern', 'styling', 'styling rule beta for components');
+    memory.add('pattern', 'styling', 'styling rule gamma for components');
+    memory.add('pattern', 'styling', 'styling rule delta for components');
+    memory.add('pattern', 'styling', 'styling rule epsilon for components');
+
+    const results = memory.search('styling components', undefined, 5);
+    // Should return at most 2 current-session memories even though 5 match
+    expect(results.length).toBeLessThanOrEqual(2);
+  });
+
+  it('search allows past-session memories to fill remaining slots', () => {
+    // Add 3 past-session memories
+    memory.add('pattern', 'testing', 'testing pattern alpha for coverage');
+    memory.add('pattern', 'testing', 'testing pattern beta for coverage');
+    memory.add('pattern', 'testing', 'testing pattern gamma for coverage');
+
+    // Start new session, add 3 more
+    memory.startSession();
+    memory.add('pattern', 'testing', 'testing pattern delta for coverage');
+    memory.add('pattern', 'testing', 'testing pattern epsilon for coverage');
+    memory.add('pattern', 'testing', 'testing pattern zeta for coverage');
+
+    const results = memory.search('testing coverage', undefined, 5);
+    // Should get at most 2 current-session + up to 3 past-session = 5 total
+    expect(results.length).toBe(5);
+
+    const currentSessionId = (memory as unknown as { currentSessionId: string }).currentSessionId;
+    const currentSessionCount = results.filter((r) => r.sessionId === currentSessionId).length;
+    expect(currentSessionCount).toBeLessThanOrEqual(2);
+  });
 });

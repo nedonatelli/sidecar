@@ -7,7 +7,7 @@ import type { SymbolIndexer } from './symbolIndexer.js';
 import type { SidecarDir } from './sidecarDir.js';
 import { readFileStreaming } from './streamingFileReader.js';
 import { getConfig } from './settings.js';
-import { getCurrentContextRules } from './structuredContextRules.js';
+import { getCurrentContextRules, applyContextRules } from './structuredContextRules.js';
 
 const MAX_FILE_SIZE = 100 * 1024; // 100KB
 const INDEX_CACHE_FILE = 'cache/workspace-index.json';
@@ -77,8 +77,6 @@ export class WorkspaceIndex implements Disposable {
 
   /** Active workspace roots (can be a subset if workspaceRoots is configured) */
   private activeRoots: Array<{ uri: Uri; fsPath: string }> = [];
-  /** Structured context rules */
-  // private contextRules: import('./structuredContextRules.js').StructuredContextRules | null = null;
 
   constructor(maxContextChars = 20_000) {
     this.maxContextChars = maxContextChars;
@@ -144,9 +142,6 @@ export class WorkspaceIndex implements Disposable {
     const startTime = Date.now();
     const rootUri = this.activeRoots[0]?.uri || folders[0].uri;
     const rootPath = rootUri.fsPath;
-
-    // Load context rules
-    // Note: contextRules are now always loaded, not cached as a promise
 
     // Load .sidecarignore patterns if the file exists
     try {
@@ -293,7 +288,7 @@ export class WorkspaceIndex implements Disposable {
     }));
 
     // Apply context rules to filter files
-    const filesToConsider = this.applyContextRules(scored, rules);
+    const filesToConsider = applyContextRules(scored, rules);
 
     // Partition: move files with score > 0 to the front, then sort only those.
     const relevant = filesToConsider.filter((f) => f.score > 0);
@@ -588,90 +583,6 @@ export class WorkspaceIndex implements Disposable {
     const configExts = new Set(['.json', '.yaml', '.yml', '.toml']);
     if (configExts.has(ext)) return 0.05;
     return 0.02;
-  }
-
-  /**
-   * Apply context rules to filter and score files for inclusion in context
-   */
-  private applyContextRules(
-    files: Array<FileNode & { score: number }>,
-    rules: import('./structuredContextRules.js').StructuredContextRules,
-  ): Array<FileNode & { score: number }> {
-    if (!rules.rules || rules.rules.length === 0) {
-      return files;
-    }
-
-    // For now, we'll just return all files - the actual implementation
-    // would filter based on the rules
-    const result = [...files];
-
-    // Apply rules based on constraint types:
-    // - "ban: any-type" would exclude files with any-type usage
-    // - "prefer: functional-components" would boost relevance of functional components
-    // - "require: test-file" would ensure test files are included when relevant
-
-    // Create a set of files to exclude for "ban" rules
-    const filesToExclude = new Set<string>();
-
-    // Process rules
-    for (const rule of rules.rules) {
-      if (rule.type === 'prefer') {
-        // Boost score for files matching the constraint
-        if (rule.constraint === 'functional-components') {
-          // Boost files that might contain functional components
-          for (const file of result) {
-            if (file.relativePath.includes('component') || file.relativePath.includes('functional')) {
-              file.score = Math.min(1, file.score + 0.2);
-            }
-          }
-        } else if (rule.constraint === 'test-file') {
-          // Boost test files
-          for (const file of result) {
-            if (
-              file.relativePath.includes('.test.') ||
-              file.relativePath.includes('-test.') ||
-              file.relativePath.includes('test_') ||
-              file.relativePath.endsWith('.spec.ts')
-            ) {
-              file.score = Math.min(1, file.score + 0.3);
-            }
-          }
-        }
-      } else if (rule.type === 'ban') {
-        // Remove files matching the constraint
-        if (rule.constraint === 'any-type') {
-          // This would filter out files with any-type usage
-          // For now, we'll just mark them for exclusion (would need file content analysis)
-          // In a real implementation, we'd check file content for any-type usage
-        } else if (rule.constraint === 'deprecated') {
-          // Filter out deprecated files (e.g., files with "deprecated" in their name)
-          for (const file of result) {
-            if (file.relativePath.includes('deprecated') || file.relativePath.includes('old')) {
-              filesToExclude.add(file.relativePath);
-            }
-          }
-        }
-      } else if (rule.type === 'require') {
-        // Ensure files matching the constraint are included when relevant
-        if (rule.constraint === 'test-file') {
-          // This would ensure test files are included when relevant to the query
-          // For now, we'll just boost their score if they're already in the list
-          for (const file of result) {
-            if (
-              file.relativePath.includes('.test.') ||
-              file.relativePath.includes('-test.') ||
-              file.relativePath.includes('test_') ||
-              file.relativePath.endsWith('.spec.ts')
-            ) {
-              file.score = Math.min(1, file.score + 0.2);
-            }
-          }
-        }
-      }
-    }
-
-    // Filter out files marked for exclusion
-    return result.filter((file) => !filesToExclude.has(file.relativePath));
   }
 
   private rebuildTree(): void {

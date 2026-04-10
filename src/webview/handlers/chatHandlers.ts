@@ -213,6 +213,95 @@ export function classifyError(message: string): {
   return { errorType: 'unknown' };
 }
 
+/**
+ * Compute keyword overlap between two strings.
+ * Returns a ratio in [0, 1] where 0 = no shared keywords, 1 = identical.
+ * Used to detect topic changes between consecutive user messages.
+ */
+export function keywordOverlap(a: string, b: string): number {
+  const stopWords = new Set([
+    'the',
+    'a',
+    'an',
+    'is',
+    'are',
+    'was',
+    'were',
+    'be',
+    'been',
+    'being',
+    'have',
+    'has',
+    'had',
+    'do',
+    'does',
+    'did',
+    'will',
+    'would',
+    'could',
+    'should',
+    'may',
+    'might',
+    'can',
+    'to',
+    'of',
+    'in',
+    'for',
+    'on',
+    'with',
+    'at',
+    'by',
+    'from',
+    'it',
+    'this',
+    'that',
+    'and',
+    'or',
+    'but',
+    'not',
+    'if',
+    'so',
+    'as',
+    'i',
+    'me',
+    'my',
+    'you',
+    'your',
+    'we',
+    'our',
+    'they',
+    'them',
+    'what',
+    'how',
+    'why',
+    'when',
+    'where',
+    'which',
+    'who',
+    'please',
+    'just',
+    'also',
+  ]);
+
+  const tokenize = (s: string) => {
+    const words = s
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((w) => w.length > 2 && !stopWords.has(w));
+    return new Set(words);
+  };
+
+  const setA = tokenize(a);
+  const setB = tokenize(b);
+  if (setA.size === 0 || setB.size === 0) return 0;
+
+  let intersection = 0;
+  for (const w of setA) {
+    if (setB.has(w)) intersection++;
+  }
+  return intersection / Math.max(setA.size, setB.size);
+}
+
 export async function handleUserMessage(state: ChatState, text: string): Promise<void> {
   // Abort any previous agent run BEFORE mutating messages.
   // This prevents race conditions where the old agent loop reads
@@ -246,8 +335,21 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
 
   state.abortController = new AbortController();
 
-  // Decay workspace index relevance so old accesses fade
-  state.workspaceIndex?.decayRelevance();
+  // Decay workspace index relevance so old accesses fade.
+  // If the user switched topics (low keyword overlap with previous query),
+  // reset scores entirely so stale files don't dominate context.
+  if (state.workspaceIndex && text) {
+    const userMsgs = state.messages.filter((m) => m.role === 'user');
+    const prevQuery = userMsgs.length >= 2 ? String(userMsgs[userMsgs.length - 2].content) : '';
+    const overlap = prevQuery ? keywordOverlap(text, prevQuery) : 1;
+    if (overlap < 0.15) {
+      state.workspaceIndex.resetRelevance();
+    } else {
+      state.workspaceIndex.decayRelevance();
+    }
+  } else {
+    state.workspaceIndex?.decayRelevance();
+  }
 
   try {
     const config = getConfig();
@@ -369,7 +471,8 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
           '9. You can create diagrams by writing mermaid code blocks (```mermaid) in your responses — they will be rendered visually in the chat.',
           '10. When the request is ambiguous or there are multiple valid approaches, use the ask_user tool to present options and let the user choose before proceeding. Do NOT guess — ask.',
           '11. If a task requires multiple tool calls, chain them without narrating each step.',
-          '12. ALWAYS write complete, working implementations — never leave placeholder comments like "// TODO", "// implement this", "// add logic here", or stub functions that return dummy values. If the user asks you to build something, build it fully.',
+          '12. ALWAYS write complete, working implementations. Never leave placeholder comments ("// TODO", "// implement this", "// add logic here"), stub functions, hardcoded special cases, or code that only handles one example. If a function should work generically, implement it generically. If the user asks you to build something, build it fully — do not defer work to a hypothetical "real implementation."',
+          '13. Each user message is a NEW request. Focus on what the user is asking NOW. Do not reference, summarize, or anchor on your previous response unless the user explicitly asks about it.',
           '',
           'EXAMPLE WORKFLOW — user asks "add a hello function to utils.ts":',
           '1. Call read_file(path="src/utils.ts") to see current content',
@@ -398,7 +501,8 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
           '10. You can create diagrams by writing mermaid code blocks (```mermaid) in your responses — they will be rendered visually in the chat. Use this for architecture diagrams, flowcharts, sequence diagrams, ER diagrams, class diagrams, etc. when it helps explain concepts.',
           '11. When the request is ambiguous or there are multiple valid approaches, use the ask_user tool to present options and let the user choose before proceeding. Do NOT guess — ask.',
           '12. If a task requires multiple tool calls, chain them without narrating each step.',
-          '13. ALWAYS write complete, working implementations — never leave placeholder comments like "// TODO", "// implement this", "// add logic here", or stub functions that return dummy values. If the user asks you to build something, build it fully.',
+          '13. ALWAYS write complete, working implementations. Never leave placeholder comments ("// TODO", "// implement this", "// add logic here"), stub functions, hardcoded special cases, or code that only handles one example. If a function should work generically, implement it generically. If the user asks you to build something, build it fully — do not defer work to a hypothetical "real implementation."',
+          '14. Each user message is a NEW request. Focus on what the user is asking NOW. Do not reference, summarize, or anchor on your previous response unless the user explicitly asks about it.',
         ].join('\n');
 
     // In plan mode, append structured planning instructions

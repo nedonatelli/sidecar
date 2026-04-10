@@ -130,7 +130,7 @@ export async function runAgentLoop(
       // 1. Summarize old turns
       const summarizer = new ConversationSummarizer(client);
       const summarized = await summarizer.summarize(agentMessages, {
-        keepRecentTurns: 4,
+        keepRecentTurns: 2,
         minCharsToSave: 2000,
         maxSummaryLength: 800,
         summaryTimeoutMs: 5000,
@@ -546,11 +546,11 @@ export function compressMessages(messages: ChatMessage[]): number {
 
     // Distance from the end determines compression level
     const distFromEnd = len - 1 - i;
-    // Last 4 messages: untouched. 4-8: light. 8+: aggressive.
+    // Last 2 messages: untouched. 2-6: light. 6+: aggressive.
     let maxLen: number;
-    if (distFromEnd < 4)
+    if (distFromEnd < 2)
       continue; // keep recent messages intact
-    else if (distFromEnd < 8) maxLen = 1000;
+    else if (distFromEnd < 6) maxLen = 1000;
     else maxLen = 200;
 
     const newContent: ContentBlock[] = [];

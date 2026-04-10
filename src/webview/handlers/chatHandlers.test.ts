@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   classifyError,
   languageToExtension,
+  keywordOverlap,
   handleCreateFile,
   handleMoveFile,
   handleExportChat,
@@ -71,6 +72,46 @@ describe('classifyError', () => {
     expect(classifyError('ECONNREFUSED').errorType).toBe('connection');
     expect(classifyError('UNAUTHORIZED access').errorType).toBe('auth');
     expect(classifyError('TIMEOUT exceeded').errorType).toBe('timeout');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// keywordOverlap
+// ---------------------------------------------------------------------------
+describe('keywordOverlap', () => {
+  it('returns 1 for identical non-trivial strings', () => {
+    expect(keywordOverlap('fix the login bug', 'fix the login bug')).toBeCloseTo(1);
+  });
+
+  it('returns 0 for completely different topics', () => {
+    expect(keywordOverlap('fix the login authentication bug', 'add a chart to the dashboard')).toBe(0);
+  });
+
+  it('returns 0 when both strings are only stop words', () => {
+    expect(keywordOverlap('the a is to', 'and or but not')).toBe(0);
+  });
+
+  it('returns 0 for empty strings', () => {
+    expect(keywordOverlap('', '')).toBe(0);
+    expect(keywordOverlap('fix bug', '')).toBe(0);
+    expect(keywordOverlap('', 'fix bug')).toBe(0);
+  });
+
+  it('filters stop words and short words', () => {
+    // "the" and "is" are stop words, "a" is < 3 chars
+    // Only "broken" and "login" should be compared
+    const overlap = keywordOverlap('the login is broken', 'a broken login page');
+    expect(overlap).toBeGreaterThan(0);
+  });
+
+  it('returns partial overlap for related queries', () => {
+    const overlap = keywordOverlap('refactor the workspace index scoring', 'update workspace index tests');
+    expect(overlap).toBeGreaterThan(0);
+    expect(overlap).toBeLessThan(1);
+  });
+
+  it('is case insensitive', () => {
+    expect(keywordOverlap('Fix Login Bug', 'fix login bug')).toBeCloseTo(1);
   });
 });
 
