@@ -223,6 +223,16 @@ export class OllamaBackend implements ApiBackend {
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
+
+      // If Ollama says the model doesn't support tools, record that immediately
+      if (response.status === 400 && errorText.includes('does not support tools')) {
+        // Record enough failures to immediately disable tools for this model
+        // (instead of waiting for 3 failed attempts)
+        for (let i = 0; i < TOOL_FAILURE_THRESHOLD; i++) {
+          recordToolFailure(model);
+        }
+      }
+
       throw new Error(
         `Ollama request failed: ${response.status} ${response.statusText}${errorText ? ` — ${errorText}` : ''}`,
       );
