@@ -62,8 +62,6 @@ Last updated: 2026-04-10 (v0.40.0)
 ### Context & Intelligence
 
 - **Structured context rules** — `.sidecarrules` with typed constraints (`prefer: functional-components`, `ban: any-type`). Compatible with `.cursorrules`/`.clinerules`
-- ~~**Deep codebase indexing**~~ — ✅ done in v0.40.0 (call sites, type hierarchies)
-- ~~**Cross-file reference awareness**~~ — ✅ done in v0.40.0 (callers/dependents in symbol context)
 - **Multi-repo cross-talk** — impact analysis across dependent repositories via cross-repo symbol registry
 - **Semantic search for file relevance** — ONNX embeddings instead of keyword-only scoring
 
@@ -77,7 +75,6 @@ Last updated: 2026-04-10 (v0.40.0)
 
 ### Agent Capabilities
 
-- ~~**Conversation steering**~~ — ✅ done in v0.40.0 (next-step suggestions, progress summaries, checkpoints)
 - **Chat threads and branching** — parallel branches, named threads, thread picker, per-thread persistence
 - **Custom modes** — user-defined agent modes (Architect, Coder, Debugger) via `sidecar.customModes`
 - **Background agent orchestration** — full spawning with independent state, task coordination, agent dashboard
