@@ -1,11 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const mockFs = {
-  createDirectory: vi.fn().mockResolvedValue(undefined),
-  readFile: vi.fn(),
-  writeFile: vi.fn().mockResolvedValue(undefined),
-  stat: vi.fn(),
-};
+// Using vi.hoisted to prevent hoisting issues with vi.mock
+const { mockFs } = vi.hoisted(() => ({
+  mockFs: {
+    createDirectory: vi.fn().mockResolvedValue(undefined),
+    readFile: vi.fn(),
+    writeFile: vi.fn().mockResolvedValue(undefined),
+    stat: vi.fn(),
+  },
+}));
 
 vi.mock('vscode', () => ({
   workspace: {
