@@ -63,6 +63,7 @@ Last updated: 2026-04-09 (v0.36.0)
 - **Agent diff review & merge** — review agent changes before merging back
 - **Multi-agent task coordination** — parallel agents with dependency layer
 - **Adversarial critic agent** — a parallel "red team" agent that automatically reviews and attacks changes as they're made. Runs security analysis, edge case detection, and architectural smell checking against every write/edit before the PR is even created. Builds on the existing sub-agent infrastructure
+- **Remote headless hand-off** — start a task in VS Code, then "detach" it to run on a remote server or CI environment while you close your laptop. The agent continues in a headless Node.js process, persists progress to `.sidecar/plans/`, and reports results when you reconnect. Check progress from any device via a web dashboard or the VS Code session panel. Requires: a `@sidecar/headless` CLI package that runs the agent loop outside VS Code, a state sync protocol between VS Code and the headless runner, and a notification system (webhook, email, or push) for completion
 
 ### Security & Permissions
 
