@@ -14,6 +14,8 @@ import type { ProposedContentProvider } from '../edits/proposedContentProvider.j
 import type { InlineEditProvider } from '../edits/inlineEditProvider.js';
 import type { ExtensionMessage } from './chatWebview.js';
 import { getConfig } from '../config/settings.js';
+import { DocumentationIndexer } from '../config/documentationIndexer.js';
+import { AgentMemory } from '../agent/agentMemory.js';
 
 /** Maximum number of messages to keep in memory. */
 const MAX_HISTORY_MESSAGES = 200;
@@ -42,6 +44,8 @@ export class ChatState {
   skillLoader: SkillLoader | null = null;
   contentProvider: ProposedContentProvider | null = null;
   inlineEditProvider: InlineEditProvider | null = null;
+  documentationIndexer: DocumentationIndexer | null = null;
+  agentMemory: AgentMemory | null = null;
 
   /** ID of the current auto-saved session, null if conversation is empty/unsaved */
   currentSessionId: string | null = null;

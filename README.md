@@ -195,6 +195,23 @@ Scheduled tasks run autonomously and log to the SideCar Agent output channel.
 - View commit history, diffs, push/pull
 - Browse repo files on GitHub
 
+### Retrieval-Augmented Generation (RAG)
+- **Automatic documentation discovery** — crawls README, docs/, wiki/ folders for `.md` files at startup
+- **Keyword-based search** — retrieves relevant documentation sections for every user message
+- **Context injection** — matched documentation is injected into the system prompt to improve accuracy and consistency
+- **Smart ranking** — title keyword matches score 3x higher than body text; organized by type (heading vs. paragraph)
+- **Configurable limits** — control max entries per query, auto-refresh interval, and enable/disable via settings
+- Example: Ask "how does authentication work?" and the agent automatically includes `docs/AUTHENTICATION.md` in context
+
+### Agent Memory (Persistent Learning)
+- **Pattern tracking** — remembers successful tool uses, coding conventions, and architectural decisions across sessions
+- **Full-text search** — every message queries learned patterns for relevant context
+- **Use-count tracking** — frequently-referenced patterns are boosted in search results
+- **Persistence** — memories stored in `.sidecar/memory/agent-memories.json` and auto-loaded on startup
+- **Configurable limits** — control max entries (with LRU eviction), enable/disable via settings
+- **Automatic recording** — successful tool executions are recorded as patterns without manual intervention
+- Example: After successfully using `formatUserName()` for a task, it's remembered. When a similar task appears later, the function is suggested and injected
+
 ## Requirements
 
 - **[Ollama](https://ollama.com)** installed and in your PATH (for local models)

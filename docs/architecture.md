@@ -38,6 +38,9 @@ SideCar is an AI-powered coding assistant for VS Code that operates as an autono
 - `astContext.ts` - AST-based context for code understanding
 - Context compression and summarization to manage token limits
 - File pattern filtering for workspace inclusion
+- `streamingFileReader.ts` - Streaming reads with summary mode for large files (>50KB)
+- `documentationIndexer.ts` - RAG system: discovers and indexes documentation, provides keyword-based search
+- `agentMemory.ts` - Persistent learning: stores and retrieves patterns, decisions, and conventions
 
 ### 6. Communication Layer
 - `SideCarClient` - LLM API client (Ollama or Anthropic)
@@ -72,10 +75,15 @@ User Input → Webview → Chat Handlers → Agent Loop → LLM → Tool Executi
 - Workspace indexing with file pattern filtering
 - Automatic context compression
 - Conversation summarization to extend context window
+- **Large file handling**: streaming reads with head+tail summary for files >50KB
+- **Monorepo support**: lazy indexing, depth-limited traversal, multi-root workspace configuration
+- **RAG context injection**: automatic documentation discovery and retrieval
+- **Agent memory injection**: learned patterns and conventions injected alongside RAG results
 
 ### Integration Points
 - Git operations (status, diff, commit, push, pull, branch, stash)
 - Testing framework integration
 - Security scanning
 - Custom shell commands
+- **Persistent learning**: automatic recording of successful patterns during agent runs
 - MCP (Model Control Protocol) for external tool integration

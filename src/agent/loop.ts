@@ -33,6 +33,8 @@ export interface AgentCallbacks {
   /** Streaming output from long-running tools (e.g., shell commands). */
   onToolOutput?: (name: string, chunk: string, id?: string) => void;
   onPlanGenerated?: (plan: string) => void;
+  /** Record a learned pattern or decision to agent memory. */
+  onMemory?: (type: 'pattern' | 'decision' | 'convention', context: string, content: string) => void;
   onIterationStart?: (info: {
     iteration: number;
     maxIterations: number;
@@ -353,6 +355,17 @@ export async function runAgentLoop(
           options.streamingDiffPreviewFn,
         );
         logger?.logToolResult(toolUse.name, result.content, result.is_error || false);
+
+        // Record successful tool uses as patterns in agent memory
+        if (!result.is_error) {
+          const inputStr = typeof toolUse.input === 'object' ? JSON.stringify(toolUse.input) : String(toolUse.input);
+          callbacks.onMemory?.(
+            'pattern',
+            `tool:${toolUse.name}`,
+            `Successfully used ${toolUse.name} with input: ${inputStr.slice(0, 100)}...`,
+          );
+        }
+
         callbacks.onToolResult(toolUse.name, result.content, result.is_error || false, toolUse.id);
         return result;
       });

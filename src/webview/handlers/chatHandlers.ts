@@ -451,6 +451,39 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
       }
     }
 
+    // RAG: Retrieve relevant documentation if enabled
+    if (config.enableDocumentationRAG && state.documentationIndexer?.isReady() && text) {
+      const docEntries = state.documentationIndexer.search(text, config.ragMaxDocEntries);
+      if (docEntries.length > 0) {
+        const docContext = state.documentationIndexer.formatForContext(docEntries);
+        if (systemPrompt.length + docContext.length < maxSystemChars) {
+          if (!systemPrompt.includes('---\nThe following sections')) {
+            systemPrompt += INJECTION_BOUNDARY;
+          }
+          const remaining = maxSystemChars - systemPrompt.length;
+          const truncated =
+            docContext.length > remaining ? docContext.slice(0, remaining - 30) + '\n... (docs truncated)' : docContext;
+          systemPrompt += `\n${truncated}`;
+        }
+      }
+    }
+
+    // Agent memory: Retrieve relevant learned patterns and decisions
+    if (config.enableAgentMemory && state.agentMemory && text) {
+      const relevantMemories = state.agentMemory.search(text, undefined, 5);
+      if (relevantMemories.length > 0) {
+        const memoryContext = state.agentMemory.formatForContext(relevantMemories);
+        if (systemPrompt.length + memoryContext.length < maxSystemChars) {
+          const remaining = maxSystemChars - systemPrompt.length;
+          const truncated =
+            memoryContext.length > remaining
+              ? memoryContext.slice(0, remaining - 30) + '\n... (memory truncated)'
+              : memoryContext;
+          systemPrompt += `\n${truncated}`;
+        }
+      }
+    }
+
     if (getWorkspaceEnabled()) {
       // Enforce a tight budget on workspace context.  For local models, tool
       // definitions add ~8-10K chars to the request on top of the system
@@ -662,6 +695,16 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
           state.pendingPlan = plan;
           state.pendingPlanMessages = [...chatMessages];
           state.postMessage({ command: 'planReady', content: plan });
+        },
+        onMemory: (type, category, content) => {
+          // Record learned patterns and decisions to agent memory
+          if (config.enableAgentMemory && state.agentMemory) {
+            try {
+              state.agentMemory.add(type, category, content, `Session: ${new Date().toISOString()}`);
+            } catch (err) {
+              console.warn('Failed to record agent memory:', err);
+            }
+          }
         },
         onDone: () => {
           state.postMessage({ command: 'done' });

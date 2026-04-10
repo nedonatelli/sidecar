@@ -122,6 +122,13 @@ export interface SideCarConfig {
   maxTraversalDepth: number;
   enableLazyIndexing: boolean;
   maxIndexedFiles: number;
+  /* RAG and documentation retrieval */
+  enableDocumentationRAG: boolean;
+  ragMaxDocEntries: number;
+  ragUpdateIntervalMinutes: number;
+  /* Agent memory and learning */
+  enableAgentMemory: boolean;
+  agentMemoryMaxEntries: number;
 }
 
 /**
@@ -193,6 +200,13 @@ function readConfig(): SideCarConfig {
     maxTraversalDepth: clampMin(cfg.get<number>('maxTraversalDepth'), 1, 10),
     enableLazyIndexing: cfg.get<boolean>('enableLazyIndexing', true),
     maxIndexedFiles: clampMin(cfg.get<number>('maxIndexedFiles'), 10, 1000),
+    /* RAG and documentation retrieval */
+    enableDocumentationRAG: cfg.get<boolean>('enableDocumentationRAG', true),
+    ragMaxDocEntries: clampMin(cfg.get<number>('ragMaxDocEntries'), 1, 20),
+    ragUpdateIntervalMinutes: clampMin(cfg.get<number>('ragUpdateIntervalMinutes'), 5, 360),
+    /* Agent memory and learning */
+    enableAgentMemory: cfg.get<boolean>('enableAgentMemory', true),
+    agentMemoryMaxEntries: clampMin(cfg.get<number>('agentMemoryMaxEntries'), 10, 500),
   };
 }
 

@@ -2,11 +2,18 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
-## [0.37.1] - 2026-04-09
+## [0.38.0] - 2026-04-09
+
+### Added
+- **Retrieval-Augmented Generation (RAG)**: automatic discovery and keyword-based indexing of README, docs/, wiki/ folders. Relevant documentation sections injected into system prompt for every message. Configurable max entries per query and auto-refresh interval
+- **Large file & monorepo handling**: streaming file reader with head+tail summary mode for files >50KB threshold. Lazy indexing for slow/large directories with progress tracking. Depth-limited traversal to prevent context bloat. Multi-root workspace support via `sidecar.workspaceRoots` setting. Configurable file size and traversal depth limits
+- **Agent memory (persistent learning)**: JSON-based memory storage in `.sidecar/memory/agent-memories.json`. Tracks patterns (successful tool uses), decisions, and conventions with use-count/relevance scoring. Per-message search and context injection. Automatic recording during agent runs. LRU eviction when limit is reached (default 500 entries)
+- **Configuration**: 8 new settings: `enableDocumentationRAG`, `ragMaxDocEntries`, `ragUpdateIntervalMinutes`, `enableAgentMemory`, `agentMemoryMaxEntries`, `fileSizeThreshold`, `maxTraversalDepth`, `workspaceRoots`
 
 ### Tests
 - **Comprehensive executor tests**: expanded test coverage for tools.ts executor implementations with 115 focused tests covering file I/O, error handling, and tool execution flows. Coverage improved from 26.34% to 64.58%
-- 848 total tests (up from 506)
+- **RAG & memory tests**: 21 new tests for DocumentationIndexer and AgentMemory with persistence validation
+- 871 total tests (up from 848)
 
 ## [0.37.0] - 2026-04-09
 

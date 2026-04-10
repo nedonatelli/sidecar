@@ -2,13 +2,36 @@
 
 Planned improvements and features for SideCar. Audit findings from v0.34.0 comprehensive review are in the Audit Backlog section. All critical fixes were addressed in v0.35.0.
 
-Last updated: 2026-04-09 (v0.37.1)
+Last updated: 2026-04-09 (v0.38.0)
 
 ---
 
-## Recently Completed (v0.37.1)
+## Recently Completed (v0.38.0)
 
-✅ **Large file & monorepo handling** (v0.37.1) — streaming reads with summary mode for files exceeding threshold, lazy indexing for slow/large directories, depth-limited traversal to prevent context bloat, multi-root workspace support via `sidecar.workspaceRoots`, configurable file size and depth limits
+✅ **Large file & monorepo handling** (v0.38.0)
+- Streaming file reader with configurable threshold (default 50KB)
+- Files above threshold use head+tail summary instead of full content
+- Lazy indexing for large directories with progress tracking
+- Depth-limited traversal (configurable, default unlimited)
+- Multi-root workspace support via `sidecar.workspaceRoots` setting
+- Prevents context bloat while maintaining code understanding
+
+✅ **RAG over documentation** (v0.38.0)
+- Automatic discovery in README*, docs/**, wiki/** folders
+- Keyword-based search with title/body scoring (title 3x higher weight)
+- Per-message retrieval injected after skills, before workspace context
+- Respects remaining context budget (gracefully truncates if needed)
+- Configurable via `sidecar.enableDocumentationRAG`, `sidecar.ragMaxDocEntries`, `sidecar.ragUpdateIntervalMinutes`
+
+✅ **Agent memory (persistent learning)** (v0.38.0)
+- JSON-based storage in `.sidecar/memory/agent-memories.json`
+- Tracks patterns (tool uses), decisions, and conventions
+- Use-count tracking and relevance scoring
+- Per-message search injected alongside RAG results
+- Automatic recording of successful tool executions
+- LRU eviction when limit reached (default 500 entries, max 500)
+- Configurable via `sidecar.enableAgentMemory`, `sidecar.agentMemoryMaxEntries`
+- Auto-loads on startup, persists on every change
 
 ---
 
@@ -16,8 +39,6 @@ Last updated: 2026-04-09 (v0.37.1)
 
 ### Context & Intelligence
 
-- **RAG over documentation** — embedding-based retrieval over READMEs, wiki, doc comments
-- **Agent memory** — persistent per-workspace memory of patterns, conventions, decisions
 - **Structured context rules** — `.sidecarrules` with typed constraints (`prefer: functional-components`, `ban: any-type`). Compatible with `.cursorrules`/`.clinerules`
 - **Deep codebase indexing** — extend symbol graph with call sites, type hierarchies, cross-file dependency tracking
 - **Cross-file reference awareness** — surface callers/dependents when editing a symbol

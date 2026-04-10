@@ -20,6 +20,8 @@ import type { SidecarDir } from '../config/sidecarDir.js';
 import type { SkillLoader } from '../agent/skillLoader.js';
 import type { InlineEditProvider } from '../edits/inlineEditProvider.js';
 import { getConfig } from '../config/settings.js';
+import { DocumentationIndexer } from '../config/documentationIndexer.js';
+import { AgentMemory } from '../agent/agentMemory.js';
 
 // Handler modules
 import {
@@ -91,6 +93,24 @@ export class ChatViewProvider implements WebviewViewProvider {
     this.state.contentProvider = contentProvider;
     if (inlineEditProvider) {
       this.state.inlineEditProvider = inlineEditProvider;
+    }
+
+    // Initialize RAG documentation indexer
+    const config = getConfig();
+    if (config.enableDocumentationRAG) {
+      this.state.documentationIndexer = new DocumentationIndexer();
+      // Initialize asynchronously without blocking
+      this.state.documentationIndexer.initialize().catch((err) => {
+        console.warn('Failed to initialize documentation indexer:', err);
+      });
+    }
+
+    // Initialize agent memory
+    if (config.enableAgentMemory && sidecarDir) {
+      this.state.agentMemory = new AgentMemory(sidecarDir.getPath());
+      this.state.agentMemory.load().catch((err) => {
+        console.warn('Failed to load agent memory:', err);
+      });
     }
   }
 
