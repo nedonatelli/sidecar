@@ -29,6 +29,83 @@ const execAsync = promisify(exec);
 let sidecarMdCache: string | null | undefined;
 let sidecarMdWatcher: { dispose(): void } | null = null;
 
+/**
+ * Detect if a user request should automatically trigger plan mode.
+ * Large tasks benefit from planning before execution.
+ */
+function shouldAutoEnablePlanMode(text: string, conversationLength: number): boolean {
+  if (!text) return false;
+
+  // Lowercased text for pattern matching
+  const lower = text.toLowerCase();
+
+  // Strong signals that warrant planning:
+  // 1. Multi-file operations
+  const multiFileKeywords = [
+    'multiple files',
+    'several files',
+    'all files',
+    'across',
+    'refactor',
+    'restructure',
+    'reorganize',
+    'migrate',
+    'update all',
+    'modify all',
+    'change all',
+    'replace all',
+  ];
+  if (multiFileKeywords.some((kw) => lower.includes(kw))) {
+    return true;
+  }
+
+  // 2. Complex system changes
+  const complexKeywords = [
+    'architecture',
+    'design',
+    'overhaul',
+    'complete rewrite',
+    'major change',
+    'breaking change',
+    'large-scale',
+    'comprehensive',
+    'end-to-end',
+  ];
+  if (complexKeywords.some((kw) => lower.includes(kw))) {
+    return true;
+  }
+
+  // 3. Message length heuristics
+  // Long messages often indicate complex tasks
+  const wordCount = text.split(/\s+/).length;
+  const charCount = text.length;
+
+  // If message is very long (>400 words or >2500 chars), probably complex
+  if (wordCount > 400 || charCount > 2500) {
+    return true;
+  }
+
+  // 4. Multiple numbered steps/questions indicate complex task
+  const hasMultipleSteps = (text.match(/^\d+\./gm) || []).length >= 3;
+  if (hasMultipleSteps && charCount > 500) {
+    return true;
+  }
+
+  // 5. Conversation with multiple messages suggests ongoing complexity
+  // If we're deeper in a conversation and suddenly asking for a large task
+  if (conversationLength > 5 && wordCount > 150 && charCount > 1000) {
+    return true;
+  }
+
+  // 6. Explicit complexity markers
+  const complexityMarkers = ['how should i', 'best way to', "what' s the best", 'help me plan', 'create a plan'];
+  if (complexityMarkers.some((marker) => lower.includes(marker))) {
+    return true;
+  }
+
+  return false;
+}
+
 /** Dispose file watchers created by loadSidecarMd. Call on extension deactivate. */
 export function disposeSidecarMdWatcher(): void {
   sidecarMdWatcher?.dispose();
@@ -234,6 +311,17 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     state.client.updateConnection(config.baseUrl, config.apiKey);
     state.client.updateModel(model);
 
+    // Auto-enable plan mode for large/complex tasks
+    let effectiveApprovalMode = config.agentMode;
+    if (effectiveApprovalMode !== 'plan' && shouldAutoEnablePlanMode(text, state.messages.length)) {
+      effectiveApprovalMode = 'plan';
+      state.postMessage({
+        command: 'assistantMessage',
+        content:
+          '🎯 **Plan mode auto-enabled** — This looks like a large task. I will generate a structured plan first before execution. You can then approve, revise, or reject the plan.\n\n',
+      });
+    }
+
     // Build system prompt with workspace context.
     // Use a compact prompt for local models (smaller context windows) and
     // a more detailed one for cloud APIs with larger context budgets.
@@ -285,7 +373,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
         ].join('\n');
 
     // In plan mode, append structured planning instructions
-    if (config.agentMode === 'plan') {
+    if (effectiveApprovalMode === 'plan') {
       systemPrompt +=
         '\n\nPLAN MODE ACTIVE:\n' +
         "You are in plan mode. For the user's request, generate a structured execution plan — do NOT execute anything yet.\n" +
@@ -584,7 +672,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
         logger: state.agentLogger,
         changelog: state.changelog,
         mcpManager: state.mcpManager,
-        approvalMode: config.agentMode,
+        approvalMode: effectiveApprovalMode,
         maxIterations: config.agentMaxIterations,
         maxTokens: config.agentMaxTokens,
         confirmFn: (msg, actions) => state.requestConfirm(msg, actions),
