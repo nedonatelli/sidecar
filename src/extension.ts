@@ -82,8 +82,9 @@ export function activate(context: ExtensionContext) {
     );
   }
 
-  // Load Claude Code and SideCar skills
+  // Load built-in + user + project skills
   const skillLoader = new SkillLoader();
+  skillLoader.setBuiltinPath(path.join(context.extensionPath, 'skills'));
   skillLoader.initialize().catch((err) => console.warn('[SideCar] Skill loading failed:', err));
 
   const workspaceIndex = new WorkspaceIndex();

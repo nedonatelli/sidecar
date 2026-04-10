@@ -21,7 +21,7 @@ export interface Skill {
   /** The full prompt content (everything after frontmatter) */
   content: string;
   /** Where this skill was loaded from */
-  source: 'user' | 'project-claude' | 'project-sidecar';
+  source: 'builtin' | 'user' | 'project-claude' | 'project-sidecar';
   /** Original file path */
   filePath: string;
 }
@@ -87,17 +87,24 @@ async function loadSkillsFromDir(dirPath: string, source: Skill['source']): Prom
 }
 
 /**
- * Manages loading and matching of skills from Claude Code and SideCar
- * skill directories.
+ * Manages loading and matching of skills from built-in defaults,
+ * Claude Code directories, and SideCar skill directories.
  *
  * Scan order (later sources override earlier on name conflict):
- *   1. ~/.claude/commands/          (user-level Claude Code skills)
+ *   0. <extension>/skills/           (built-in default skills)
+ *   1. ~/.claude/commands/           (user-level Claude Code skills)
  *   2. <workspace>/.claude/commands/ (project-level Claude Code skills)
  *   3. <workspace>/.sidecar/skills/  (SideCar native skills)
  */
 export class SkillLoader {
   private skills = new Map<string, Skill>();
   private initialized = false;
+  private builtinSkillsPath: string | null = null;
+
+  /** Set the path to built-in skills bundled with the extension. */
+  setBuiltinPath(skillsPath: string): void {
+    this.builtinSkillsPath = skillsPath;
+  }
 
   /**
    * Scan all skill directories and load skills into memory.
@@ -108,6 +115,12 @@ export class SkillLoader {
 
     const home = os.homedir();
     const root = workspace.workspaceFolders?.[0]?.uri.fsPath;
+
+    // 0. Built-in default skills (lowest priority — user/project can override)
+    if (this.builtinSkillsPath) {
+      const builtinSkills = await loadSkillsFromDir(this.builtinSkillsPath, 'builtin');
+      for (const s of builtinSkills) this.skills.set(s.id, s);
+    }
 
     // 1. User-level Claude Code skills
     const userSkills = await loadSkillsFromDir(path.join(home, '.claude', 'commands'), 'user');
