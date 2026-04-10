@@ -111,39 +111,43 @@ export async function runAgentLoop(
       logger?.logAborted();
       break;
     }
-    const estimatedTokens = Math.ceil(totalChars / CHARS_PER_TOKEN);
-    if (estimatedTokens > maxTokens) {
-      logger?.warn(`Token budget exceeded: ~${estimatedTokens} tokens > ${maxTokens} limit`);
-      callbacks.onText(`\n\n⚠️ Agent stopped: token budget exceeded (~${estimatedTokens} tokens).`);
-      break;
-    }
+    let estimatedTokens = Math.ceil(totalChars / CHARS_PER_TOKEN);
 
-    // Compress context at 70% of budget to extend the loop
+    // Compress context at 70% of budget (or when already over) to extend the loop.
+    // Both strategies are applied: summarization replaces old turns, compression
+    // truncates large tool results. Running both maximises freed space.
     if (estimatedTokens > maxTokens * 0.7) {
-      // First, try conversation summarization for better context retention
+      // 1. Summarize old turns
       const summarizer = new ConversationSummarizer(client);
       const summarized = await summarizer.summarize(agentMessages, {
         keepRecentTurns: 4,
         minCharsToSave: 2000,
         maxSummaryLength: 800,
-        summaryTimeoutMs: 5000, // Don't block too long
+        summaryTimeoutMs: 5000,
       });
-
       if (summarized.freedChars > 0) {
-        // Summarization was successful — use the result
         agentMessages.splice(0, agentMessages.length, ...summarized.messages);
         totalChars -= summarized.freedChars;
         logger?.info(
           `Conversation summarized: ${summarized.metadata.turnsSummarized}/${summarized.metadata.turnsCount} turns compressed, freed ${summarized.freedChars} chars`,
         );
-      } else {
-        // Summarization didn't help (not enough old turns or too small) — fall back to truncation
-        const compressed = compressMessages(agentMessages);
-        if (compressed) {
-          logger?.info(`Context compressed: removed ${compressed} chars of old tool results`);
-          totalChars -= compressed;
-        }
       }
+
+      // 2. Always compress tool results too — they target different content
+      const compressed = compressMessages(agentMessages);
+      if (compressed) {
+        logger?.info(`Context compressed: removed ${compressed} chars of old tool results`);
+        totalChars -= compressed;
+      }
+
+      estimatedTokens = Math.ceil(totalChars / CHARS_PER_TOKEN);
+    }
+
+    // Hard stop only if compaction couldn't bring us under budget
+    if (estimatedTokens > maxTokens) {
+      logger?.warn(`Token budget exceeded after compaction: ~${estimatedTokens} tokens > ${maxTokens} limit`);
+      callbacks.onText(`\n\n⚠️ Agent stopped: token budget exceeded (~${estimatedTokens} tokens).`);
+      break;
     }
 
     logger?.logIteration(iteration, maxIterations);
@@ -410,6 +414,17 @@ export async function runAgentLoop(
         role: 'user',
         content: toolResults,
       });
+
+      // Proactively compress after adding tool results so the next iteration
+      // doesn't open over budget (tool results can be very large).
+      const postToolTokens = Math.ceil(totalChars / CHARS_PER_TOKEN);
+      if (postToolTokens > maxTokens * 0.7) {
+        const compressed = compressMessages(agentMessages);
+        if (compressed) {
+          totalChars -= compressed;
+          logger?.info(`Post-tool compression: removed ${compressed} chars`);
+        }
+      }
 
       // Auto-fix: check for errors after file writes and feed them back
       if (config.autoFixOnFailure && autoFixRetries < config.autoFixMaxRetries) {
