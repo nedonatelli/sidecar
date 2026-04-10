@@ -447,8 +447,15 @@
   ];
   const autocompleteEl = document.getElementById('slash-autocomplete');
   let acSelectedIndex = -1;
+  let loadedSkillCommands = [];
+  let skillsLoadedForAutocomplete = false;
 
   function updateAutocomplete() {
+    // Request skills from extension on first autocomplete trigger
+    if (!skillsLoadedForAutocomplete) {
+      skillsLoadedForAutocomplete = true;
+      vscode.postMessage({ command: 'getSkillsForMenu' });
+    }
     const text = input.value;
     // Only show when text starts with / and is a single line with no spaces yet (or just the command)
     const match = text.match(/^\/(\S*)$/);
@@ -458,7 +465,9 @@
       return;
     }
     const query = match[1].toLowerCase();
-    const filtered = slashCommands.filter((c) => c.cmd.slice(1).startsWith(query));
+    // Merge built-in commands with dynamically loaded skills
+    const allCommands = [...slashCommands, ...loadedSkillCommands];
+    const filtered = allCommands.filter((c) => c.cmd.slice(1).startsWith(query));
     if (filtered.length === 0) {
       autocompleteEl.classList.add('hidden');
       acSelectedIndex = -1;
@@ -2299,9 +2308,16 @@
         break;
 
       case 'skillsMenu': {
-        if (pendingSkillsCallback && msg.skills) {
-          pendingSkillsCallback(msg.skills);
-          pendingSkillsCallback = null;
+        if (msg.skills) {
+          // Update autocomplete list with skill commands
+          loadedSkillCommands = msg.skills
+            .filter((s) => !slashCommands.some((c) => c.cmd === '/' + s.id))
+            .map((s) => ({ cmd: '/' + s.id, desc: s.description || s.name }));
+          // Notify the attach menu callback if waiting
+          if (pendingSkillsCallback) {
+            pendingSkillsCallback(msg.skills);
+            pendingSkillsCallback = null;
+          }
         }
         break;
       }
