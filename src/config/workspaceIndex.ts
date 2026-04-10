@@ -4,8 +4,11 @@ import type { ParsedFile } from '../astContext.js';
 import { getAnalyzer } from '../parsing/registry.js';
 import { LimitedCache } from '../agent/memoryManager.js';
 import type { SymbolIndexer } from './symbolIndexer.js';
+import type { SidecarDir } from './sidecarDir.js';
 
 const MAX_FILE_SIZE = 100 * 1024; // 100KB
+const INDEX_CACHE_FILE = 'cache/workspace-index.json';
+const INDEX_VERSION = 1;
 const MAX_CONTENT_LENGTH = 10_000; // 10K chars per file
 const EXCLUDE_PATTERN = `**/{node_modules,.git,.sidecar,coverage,out,dist,build,.venv,venv,__pycache__,.next,.turbo,.cache}/**`;
 
@@ -30,6 +33,13 @@ export interface FileNode {
   relevanceScore: number;
 }
 
+interface IndexCache {
+  version: number;
+  buildTime: string;
+  fileCount: number;
+  files: Array<{ path: string; size: number; score: number }>;
+}
+
 export class WorkspaceIndex implements Disposable {
   private files = new Map<string, FileNode>();
   private treeCache = '';
@@ -41,11 +51,17 @@ export class WorkspaceIndex implements Disposable {
   private rebuildTimer: ReturnType<typeof setTimeout> | null = null;
   private pinnedPaths = new Set<string>();
   private symbolIndexer: SymbolIndexer | null = null;
+  private sidecarDir: SidecarDir | null = null;
   /** Files the agent has accessed this session, for graph context. */
   private recentlyAccessedFiles = new Set<string>();
 
   constructor(maxContextChars = 20_000) {
     this.maxContextChars = maxContextChars;
+  }
+
+  /** Attach a SidecarDir for index persistence. */
+  setSidecarDir(dir: SidecarDir): void {
+    this.sidecarDir = dir;
   }
 
   /** Attach a symbol indexer to receive file change notifications and provide graph context. */
@@ -74,8 +90,31 @@ export class WorkspaceIndex implements Disposable {
 
     const rootUri = folders[0].uri;
     const rootPath = rootUri.fsPath;
+    const startTime = Date.now();
 
-    // Parallelize file discovery and stat calls
+    // Try to restore from persistent cache first (instant startup)
+    let restored = false;
+    if (this.sidecarDir?.isReady()) {
+      const cache = await this.sidecarDir.readJson<IndexCache>(INDEX_CACHE_FILE);
+      if (cache && cache.version === INDEX_VERSION && cache.files) {
+        for (const f of cache.files) {
+          this.files.set(f.path, {
+            relativePath: f.path,
+            sizeBytes: f.size,
+            relevanceScore: f.score,
+          });
+        }
+        this.rebuildTree();
+        this.ready = true;
+        restored = true;
+        console.log(
+          `[SideCar] Workspace index restored from cache: ${cache.fileCount} files in ${Date.now() - startTime}ms`,
+        );
+      }
+    }
+
+    // Full scan — either as primary (no cache) or background verification
+    const scanStart = Date.now();
     const allUris: Uri[] = [];
     const findPromises = patterns.map((pattern) => workspace.findFiles(pattern, EXCLUDE_PATTERN, 500));
     const foundUris = await Promise.all(findPromises);
@@ -84,6 +123,7 @@ export class WorkspaceIndex implements Disposable {
     }
 
     // Process files in parallel with batching
+    const freshFiles = new Map<string, FileNode>();
     const batchSize = 20;
     for (let i = 0; i < allUris.length; i += batchSize) {
       const batch = allUris.slice(i, i + batchSize);
@@ -95,7 +135,7 @@ export class WorkspaceIndex implements Disposable {
         if (stat.status === 'fulfilled' && stat.value.size <= MAX_FILE_SIZE) {
           const uri = batch[j];
           const relativePath = path.relative(rootPath, uri.fsPath);
-          this.files.set(relativePath, {
+          freshFiles.set(relativePath, {
             relativePath,
             sizeBytes: stat.value.size,
             relevanceScore: this.baseScore(relativePath),
@@ -104,8 +144,23 @@ export class WorkspaceIndex implements Disposable {
       }
     }
 
+    // Replace with fresh data
+    this.files = freshFiles;
     this.rebuildTree();
     this.ready = true;
+
+    const totalMs = Date.now() - startTime;
+    const scanMs = Date.now() - scanStart;
+    if (restored) {
+      console.log(
+        `[SideCar] Workspace index verified: ${this.files.size} files (scan: ${scanMs}ms, total: ${totalMs}ms)`,
+      );
+    } else {
+      console.log(`[SideCar] Workspace indexed from scratch: ${this.files.size} files in ${totalMs}ms`);
+    }
+
+    // Persist the fresh index for next startup
+    this.persistIndex();
 
     // Watch for file changes — debounce rebuilds to avoid thrashing
     this.watcher = workspace.createFileSystemWatcher(new RelativePattern(rootUri, '**/*'));
@@ -370,6 +425,10 @@ export class WorkspaceIndex implements Disposable {
       clearTimeout(this.rebuildTimer);
       this.rebuildTimer = null;
     }
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer);
+      this.persistTimer = null;
+    }
   }
 
   /** Debounce tree rebuilds — coalesce rapid file changes into one rebuild. */
@@ -378,7 +437,37 @@ export class WorkspaceIndex implements Disposable {
     this.rebuildTimer = setTimeout(() => {
       this.rebuildTimer = null;
       this.rebuildTree();
+      this.schedulePersist();
     }, 300);
+  }
+
+  private persistTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Debounce index persistence — write to disk at most every 30 seconds. */
+  private schedulePersist(): void {
+    if (this.persistTimer) return; // already scheduled
+    this.persistTimer = setTimeout(() => {
+      this.persistTimer = null;
+      this.persistIndex();
+    }, 30_000);
+  }
+
+  /** Write the file index to .sidecar/cache/ for fast startup on next activation. */
+  private persistIndex(): void {
+    if (!this.sidecarDir?.isReady()) return;
+    const cache: IndexCache = {
+      version: INDEX_VERSION,
+      buildTime: new Date().toISOString(),
+      fileCount: this.files.size,
+      files: [...this.files.values()].map((f) => ({
+        path: f.relativePath,
+        size: f.sizeBytes,
+        score: f.relevanceScore,
+      })),
+    };
+    this.sidecarDir.writeJson(INDEX_CACHE_FILE, cache).catch((err) => {
+      console.warn('[SideCar] Failed to persist workspace index:', err);
+    });
   }
 
   private baseScore(relativePath: string): number {

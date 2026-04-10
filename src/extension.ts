@@ -88,6 +88,7 @@ export function activate(context: ExtensionContext) {
   skillLoader.initialize().catch((err) => console.warn('[SideCar] Skill loading failed:', err));
 
   const workspaceIndex = new WorkspaceIndex();
+  workspaceIndex.setSidecarDir(sidecarDir);
   context.subscriptions.push(workspaceIndex);
 
   // Initialize symbol graph indexer
