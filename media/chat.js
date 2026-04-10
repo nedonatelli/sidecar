@@ -571,6 +571,9 @@
     { cmd: '/lint', desc: 'Run linter and show results' },
     { cmd: '/deps', desc: 'Analyze project dependencies' },
     { cmd: '/scaffold', desc: 'Generate code from template' },
+    { cmd: '/audit', desc: 'Agent action audit log' },
+    { cmd: '/insights', desc: 'Conversation pattern analysis' },
+    { cmd: '/mcp', desc: 'MCP server status' },
     { cmd: '/verbose', desc: 'Toggle verbose mode (show agent reasoning)' },
     { cmd: '/prompt', desc: 'Show the current system prompt' },
     { cmd: '/skills', desc: 'List available Claude Code & SideCar skills' },
@@ -1172,6 +1175,27 @@
       input.style.height = 'auto';
       return;
     }
+    if (text.trim() === '/audit' || text.trim().startsWith('/audit ')) {
+      appendMessage('user', text);
+      vscode.postMessage({ command: 'audit', text: text.slice(6).trim() });
+      input.value = '';
+      input.style.height = 'auto';
+      return;
+    }
+    if (text.trim() === '/insights') {
+      appendMessage('user', '/insights');
+      vscode.postMessage({ command: 'insights' });
+      input.value = '';
+      input.style.height = 'auto';
+      return;
+    }
+    if (text.trim() === '/mcp') {
+      appendMessage('user', '/mcp');
+      vscode.postMessage({ command: 'mcpStatus' });
+      input.value = '';
+      input.style.height = 'auto';
+      return;
+    }
     if (text.trim() === '/scan') {
       appendMessage('user', '/scan');
       vscode.postMessage({ command: 'scanStaged' });
@@ -1266,6 +1290,9 @@
           '`/lint` — Run linter and show results\n' +
           '`/deps` — Analyze project dependencies\n' +
           '`/scaffold <type>` — Generate code from template\n' +
+          '`/audit [filters]` — Agent action audit log\n' +
+          '`/insights` — Conversation pattern analysis\n' +
+          '`/mcp` — MCP server status\n' +
           '`/verbose` — Toggle verbose mode (show agent reasoning)\n' +
           '`/compact` — Compact conversation context to free tokens\n' +
           '`/prompt` — Show the current system prompt',
@@ -2957,7 +2984,23 @@
           resultBadge.className = 'tool-result-badge ' + (isError ? 'error' : 'success');
           resultBadge.textContent = isError ? '\u2717' : '\u2713';
           const matchedSummary = matchedTool.querySelector('summary');
-          if (matchedSummary) matchedSummary.appendChild(resultBadge);
+          if (matchedSummary) {
+            matchedSummary.appendChild(resultBadge);
+            // Add "Why?" button for model decision explanation
+            const whyBtn = document.createElement('button');
+            whyBtn.className = 'tool-why-btn';
+            whyBtn.textContent = 'Why?';
+            whyBtn.title = 'Explain why this tool was chosen';
+            const whyToolId = resultToolId || matchedTool.getAttribute('data-tool-id') || '';
+            whyBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              whyBtn.disabled = true;
+              whyBtn.textContent = '...';
+              vscode.postMessage({ command: 'explainToolDecision', toolCallId: whyToolId });
+            });
+            matchedSummary.appendChild(whyBtn);
+          }
 
           // Append result output to the tool call body
           if (text) {

@@ -45,6 +45,11 @@ export class MetricsCollector {
     this.toolStartTime = Date.now();
   }
 
+  /** Get elapsed time since the last recordToolStart() call. */
+  getToolDuration(): number {
+    return Date.now() - this.toolStartTime;
+  }
+
   recordToolEnd(name: string, isError: boolean): void {
     this.currentRun?.toolCalls?.push({
       name,

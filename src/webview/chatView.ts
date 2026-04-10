@@ -23,6 +23,7 @@ import type { InlineEditProvider } from '../edits/inlineEditProvider.js';
 import { getConfig } from '../config/settings.js';
 import { DocumentationIndexer } from '../config/documentationIndexer.js';
 import { AgentMemory } from '../agent/agentMemory.js';
+import { AuditLog } from '../agent/auditLog.js';
 
 // Handler modules
 import {
@@ -55,6 +56,10 @@ import {
   handleLint,
   handleDeps,
   handleScaffold,
+  handleAudit,
+  handleInsights,
+  handleExplainToolDecision,
+  handleMcpStatus,
 } from './handlers/agentHandlers.js';
 import {
   handleSaveSession,
@@ -112,6 +117,12 @@ export class ChatViewProvider implements WebviewViewProvider {
       this.state.agentMemory.load().catch((err) => {
         console.warn('Failed to load agent memory:', err);
       });
+    }
+
+    // Initialize audit log
+    if (sidecarDir) {
+      const sessionId = this.state.agentMemory?.getSessionId() || `s-${Date.now()}`;
+      this.state.auditLog = new AuditLog(sidecarDir, sessionId, config.model, config.agentMode);
     }
   }
 
@@ -238,6 +249,10 @@ export class ChatViewProvider implements WebviewViewProvider {
     lint: (msg) => handleLint(this.state, msg.text),
     deps: () => handleDeps(this.state),
     scaffold: (msg) => handleScaffold(this.state, msg.text || ''),
+    audit: (msg) => handleAudit(this.state, msg.text || ''),
+    insights: () => handleInsights(this.state),
+    explainToolDecision: (msg) => handleExplainToolDecision(this.state, msg.toolCallId || ''),
+    mcpStatus: () => handleMcpStatus(this.state),
     generateCommit: () => handleGenerateCommit(this.state),
     revertFile: (msg) => handleRevertFile(this.state, msg.filePath || ''),
     acceptAllChanges: () => handleAcceptAllChanges(this.state),

@@ -1457,6 +1457,35 @@ body {
   color: var(--vscode-errorForeground, #f48771);
 }
 
+.tool-why-btn {
+  font-size: 11px;
+  margin-left: 8px;
+  padding: 1px 6px;
+  border: 1px solid var(--vscode-button-secondaryBorder, var(--vscode-widget-border, rgba(255, 255, 255, 0.1)));
+  border-radius: 3px;
+  background: var(--vscode-button-secondaryBackground, rgba(255, 255, 255, 0.05));
+  color: var(--vscode-button-secondaryForeground, var(--vscode-descriptionForeground, #aaa));
+  cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.tool-call:hover .tool-why-btn,
+.tool-call summary:focus-visible .tool-why-btn {
+  opacity: 1;
+}
+
+.tool-why-btn:hover {
+  background: var(--vscode-button-secondaryHoverBackground, rgba(255, 255, 255, 0.12));
+  color: var(--vscode-foreground, #ccc);
+}
+
+.tool-why-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .tool-call.error {
   border-left-color: var(--vscode-errorForeground, #f48771);
 }

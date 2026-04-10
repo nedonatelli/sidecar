@@ -673,6 +673,13 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     }
 
     state.metricsCollector.startRun();
+    // Track current iteration for audit log
+    let currentIteration = 0;
+    // Update audit log context for this run
+    if (state.auditLog) {
+      const sessionId = state.agentMemory?.getSessionId() || `s-${Date.now()}`;
+      state.auditLog.setContext(sessionId, config.model, effectiveApprovalMode);
+    }
     const updatedMessages = await runAgentLoop(
       state.client,
       chatMessages,
@@ -697,6 +704,8 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
             .join(', ');
           state.postMessage({ command: 'toolCall', toolName: name, toolCallId: id, content: `${name}(${summary})` });
           state.metricsCollector.recordToolStart();
+          // Audit log: record tool call start
+          state.auditLog?.recordToolCall(name, input, id, currentIteration);
           // Verbose: explain tool selection
           if (verbose) {
             verboseLog('Tool Selected', `Invoking ${name} with: ${summary}`);
@@ -712,12 +721,16 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
         onToolResult: (name, result, isError, id) => {
           const preview = result.length > 200 ? result.slice(0, 200) + '...' : result;
           state.postMessage({ command: 'toolResult', toolName: name, toolCallId: id, content: preview });
+          const durationMs = state.metricsCollector.getToolDuration();
           state.metricsCollector.recordToolEnd(name, isError);
+          // Audit log: record tool result with duration
+          state.auditLog?.recordToolResult(name, id, result, isError, durationMs);
         },
         onToolOutput: (name, chunk, id) => {
           state.postMessage({ command: 'toolOutput', content: chunk, toolName: name, toolCallId: id });
         },
         onIterationStart: (info) => {
+          currentIteration = info.iteration;
           state.postMessage({
             command: 'agentProgress',
             iteration: info.iteration,

@@ -50,7 +50,11 @@ export interface WebviewMessage {
     | 'showSystemPrompt'
     | 'reconnect'
     | 'dismissOnboarding'
-    | 'getSkillsForMenu';
+    | 'getSkillsForMenu'
+    | 'audit'
+    | 'insights'
+    | 'explainToolDecision'
+    | 'mcpStatus';
   images?: { mediaType: string; data: string }[];
   text?: string;
   model?: string;
@@ -79,6 +83,7 @@ export interface WebviewMessage {
   draft?: boolean;
   prerelease?: boolean;
   generateNotes?: boolean;
+  toolCallId?: string;
 }
 
 export interface ExtensionMessage {

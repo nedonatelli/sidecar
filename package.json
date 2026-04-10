@@ -2,7 +2,7 @@
   "name": "sidecar-ai",
   "displayName": "SideCar",
   "description": "Autonomous AI agent for coding — run full agent loops with local Ollama, Anthropic Claude, or OpenAI models",
-  "version": "0.40.0",
+  "version": "0.41.0",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -196,7 +196,7 @@
         "sidecar.mcpServers": {
           "type": "object",
           "default": {},
-          "description": "MCP servers to connect to. Format: { \"name\": { \"command\": \"npx\", \"args\": [\"-y\", \"@some/mcp-server\"] } }"
+          "markdownDescription": "MCP servers to connect to. Supports stdio, HTTP, and SSE transports. Also reads `.mcp.json` at workspace root.\n\n**stdio:** `{ \"command\": \"npx\", \"args\": [\"server\"] }`\n\n**HTTP:** `{ \"type\": \"http\", \"url\": \"https://...\", \"headers\": {} }`\n\n**Options:** `tools` (per-tool enable/disable), `maxResultChars` (output limit, default 50000)"
         },
         "sidecar.agentMode": {
           "type": "string",

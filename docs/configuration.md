@@ -230,7 +230,7 @@ Memory is also recorded during agent runs whenever:
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
-| `sidecar.mcpServers` | object | `{}` | MCP server connections. See [MCP Servers](mcp-servers) |
+| `sidecar.mcpServers` | object | `{}` | MCP server connections (stdio, HTTP, SSE). See [MCP Servers](mcp-servers) |
 | `sidecar.hooks` | object | `{}` | Pre/post tool execution hooks. See [Hooks](hooks-and-tasks#tool-hooks) |
 | `sidecar.eventHooks` | object | `{}` | Event-based hooks (`onSave`, `onCreate`, `onDelete`) |
 | `sidecar.scheduledTasks` | array | `[]` | Recurring agent tasks. See [Scheduled Tasks](hooks-and-tasks#scheduled-tasks) |

@@ -32,7 +32,19 @@ vi.mock('@modelcontextprotocol/sdk/client/stdio.js', () => ({
   }),
 }));
 
-import { MCPManager } from './mcpManager.js';
+vi.mock('@modelcontextprotocol/sdk/client/sse.js', () => ({
+  SSEClientTransport: vi.fn().mockImplementation(function () {
+    return {};
+  }),
+}));
+
+vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', () => ({
+  StreamableHTTPClientTransport: vi.fn().mockImplementation(function () {
+    return {};
+  }),
+}));
+
+import { MCPManager, mergeMcpConfigs } from './mcpManager.js';
 
 describe('MCPManager', () => {
   let manager: MCPManager;
@@ -130,8 +142,10 @@ describe('MCPManager', () => {
       working: { command: 'good' },
     });
 
-    // The failing server should be skipped, working server should connect
-    expect(manager.getServerNames()).toEqual(['working']);
+    // The working server should connect; failing server marked as failed
+    const status = manager.getServerStatus();
+    const workingServer = status.find((s) => s.name === 'working');
+    expect(workingServer?.status).toBe('connected');
   });
 
   it('tool executor calls MCP client and extracts text', async () => {
@@ -144,5 +158,167 @@ describe('MCPManager', () => {
 
     const result = await tool!.executor({ uri: 'test.txt' });
     expect(result).toBe('result');
+  });
+
+  // --- New tests for refined MCP capabilities ---
+
+  describe('transport types', () => {
+    it('defaults to stdio transport', async () => {
+      await manager.connect({
+        local: { command: 'echo' },
+      });
+
+      const status = manager.getServerStatus();
+      expect(status[0].transport).toBe('stdio');
+    });
+
+    it('supports explicit stdio type', async () => {
+      await manager.connect({
+        local: { type: 'stdio', command: 'echo' },
+      });
+
+      const status = manager.getServerStatus();
+      expect(status[0].transport).toBe('stdio');
+      expect(status[0].status).toBe('connected');
+    });
+
+    it('supports http transport', async () => {
+      await manager.connect({
+        remote: { type: 'http', url: 'https://example.com/mcp' },
+      });
+
+      const status = manager.getServerStatus();
+      expect(status[0].transport).toBe('http');
+      expect(status[0].status).toBe('connected');
+    });
+
+    it('supports sse transport', async () => {
+      await manager.connect({
+        sse: { type: 'sse', url: 'https://example.com/sse' },
+      });
+
+      const status = manager.getServerStatus();
+      expect(status[0].transport).toBe('sse');
+      expect(status[0].status).toBe('connected');
+    });
+  });
+
+  describe('per-tool enable/disable', () => {
+    it('filters disabled tools', async () => {
+      await manager.connect({
+        fs: {
+          command: 'echo',
+          tools: { write: { enabled: false } },
+        },
+      });
+
+      expect(manager.getToolCount()).toBe(1);
+      expect(manager.getTool('mcp_fs_read')).toBeDefined();
+      expect(manager.getTool('mcp_fs_write')).toBeUndefined();
+    });
+
+    it('keeps tools enabled by default', async () => {
+      await manager.connect({
+        fs: {
+          command: 'echo',
+          tools: { read: { enabled: true } },
+        },
+      });
+
+      expect(manager.getToolCount()).toBe(2);
+    });
+  });
+
+  describe('output size limits', () => {
+    it('truncates oversized output', async () => {
+      const longText = 'x'.repeat(60_000);
+      mockClient.callTool.mockResolvedValue({ content: [{ type: 'text', text: longText }] });
+
+      await manager.connect({
+        fs: { command: 'echo', maxResultChars: 1000 },
+      });
+
+      const tool = manager.getTool('mcp_fs_read')!;
+      const result = await tool.executor({});
+      expect(result.length).toBeLessThan(1200); // 1000 + truncation message
+      expect(result).toContain('truncated');
+    });
+
+    it('does not truncate within limits', async () => {
+      mockClient.callTool.mockResolvedValue({ content: [{ type: 'text', text: 'short' }] });
+
+      await manager.connect({
+        fs: { command: 'echo', maxResultChars: 1000 },
+      });
+
+      const tool = manager.getTool('mcp_fs_read')!;
+      const result = await tool.executor({});
+      expect(result).toBe('short');
+    });
+  });
+
+  describe('server status', () => {
+    it('reports connected server status', async () => {
+      await manager.connect({
+        test: { command: 'echo' },
+      });
+
+      const status = manager.getServerStatus();
+      expect(status).toHaveLength(1);
+      expect(status[0].name).toBe('test');
+      expect(status[0].status).toBe('connected');
+      expect(status[0].toolCount).toBe(2);
+      expect(status[0].connectedSinceMs).toBeDefined();
+    });
+
+    it('reports failed server status with error', async () => {
+      mockClient.connect.mockRejectedValue(new Error('connection refused'));
+
+      await manager.connect({
+        broken: { command: 'bad' },
+      });
+
+      const status = manager.getServerStatus();
+      expect(status).toHaveLength(1);
+      expect(status[0].name).toBe('broken');
+      expect(status[0].status).toBe('failed');
+      expect(status[0].error).toContain('connection refused');
+    });
+
+    it('isServerConnected returns correct values', async () => {
+      await manager.connect({
+        test: { command: 'echo' },
+      });
+
+      expect(manager.isServerConnected('test')).toBe(true);
+      expect(manager.isServerConnected('nonexistent')).toBe(false);
+    });
+
+    it('reports empty status when no servers configured', () => {
+      const status = manager.getServerStatus();
+      expect(status).toEqual([]);
+    });
+  });
+});
+
+describe('mergeMcpConfigs', () => {
+  it('merges configs from multiple sources', () => {
+    const source1 = { a: { command: 'a' } };
+    const source2 = { b: { type: 'http' as const, url: 'https://b.com' } };
+    const merged = mergeMcpConfigs(source1, source2);
+    expect(merged).toHaveProperty('a');
+    expect(merged).toHaveProperty('b');
+  });
+
+  it('later sources override earlier ones', () => {
+    const project = { srv: { command: 'project-cmd' } };
+    const local = { srv: { command: 'local-cmd' } };
+    const merged = mergeMcpConfigs(project, local);
+    expect(merged.srv.command).toBe('local-cmd');
+  });
+
+  it('handles empty sources', () => {
+    const merged = mergeMcpConfigs({}, {});
+    expect(merged).toEqual({});
   });
 });

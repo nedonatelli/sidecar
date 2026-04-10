@@ -31,7 +31,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 | Git integration (commit, PR, releases) | **Yes** | No | No | No |
 | Diff preview & undo/rollback | **Yes** | No | No | No |
 | Plan mode | **Yes** | No | No | No |
-| Built-in skills (7) | **Yes** | No | No | No |
+| Built-in skills (8) | **Yes** | No | No | No |
 | Tree-sitter AST parsing | **Yes** | No | No | No |
 | Persistent codebase indexing | **Yes** | No | No | No |
 | Spending budgets | **Yes** | No | No | No |
@@ -57,7 +57,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 - **True agentic autonomy** — SideCar reads your code, edits files, runs tests, reads the errors, and iterates until the task is done. Switch between cautious, autonomous, and manual modes.
 - **No vendor lock-in** — Use Ollama for fully offline operation, Anthropic for Claude, OpenAI-compatible servers (LM Studio, vLLM, OpenRouter), Kickstand, or install GGUF models directly from HuggingFace. Same interface, your choice.
 - **Security from the ground up** — Secrets detection, vulnerability scanning, path traversal protection, sensitive file blocking, workspace hook warnings, and prompt injection sandboxing. No other local-first extension does this.
-- **Extensible with MCP & Skills** — Connect external tools via MCP, create custom skills with markdown files, or use the 7 built-in skills (review, debug, refactor, explain, write-tests, break-this, create-skill).
+- **Extensible with MCP & Skills** — Connect external tools via MCP, create custom skills with markdown files, or use the 8 built-in skills (review, debug, refactor, explain, write-tests, break-this, create-skill, mcp-builder).
 - **Production-grade safety** — Agent mode controls, iteration limits, token budgets, daily/weekly spending caps, cycle detection, streaming diff preview, plan mode, and one-click rollback.
 - **Persistent codebase indexing** — File index and symbol graph persist across restarts via `.sidecar/cache/`. Tree-sitter AST parsing for 6 languages. Near-instant startup on subsequent activations.
 - **Smart context** — Tree-sitter AST extraction for TypeScript, JavaScript, Python, Rust, Go, and Java/Kotlin. SideCar sends relevant functions and classes to the model, not entire files.
@@ -77,6 +77,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 - **Safety guardrails** — agent mode dropdown (cautious/autonomous/manual) in the header, iteration limits, token budget, daily/weekly spending caps
 - **Thinking/reasoning** — collapsible reasoning blocks from models that support extended thinking (Anthropic) or `<think>` tags (qwen3, deepseek-r1)
 - **Verbose mode** — `/verbose` to show system prompt, per-iteration summaries, and tool selection context during agent runs
+- **Observability** — `/audit` to browse structured tool execution logs, "Why?" button on tool cards for on-demand decision explanations, `/insights` for conversation pattern analysis with usage trends and suggestions
 - **Smart context selection** — AST-based parsing extracts relevant functions, classes, and imports from JS/TS files instead of including whole files in context
 - **Bounded caches** — workspace file content and AST caches use TTL-based eviction to prevent unbounded memory growth during long sessions
 - **Persistent shell** — `run_command` uses a long-lived shell process; env vars, cwd, and aliases persist between calls. Supports configurable timeouts, background commands, and streaming output
@@ -105,7 +106,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 - **Active file context** — includes the currently open file and cursor position
 - **@ references** — `@file:path`, `@folder:path`, `@symbol:name` for precise context inclusion
 - **Image support** — paste screenshots or attach images for vision models
-- **Slash commands** — `/reset`, `/undo`, `/export`, `/model`, `/help`, `/batch`, `/doc`, `/spec`, `/insight`, `/save`, `/sessions`, `/scan`, `/usage`, `/context`, `/test`, `/lint`, `/deps`, `/scaffold`, `/commit`, `/verbose`, `/prompt` — with autocomplete dropdown as you type
+- **Slash commands** — `/reset`, `/undo`, `/export`, `/model`, `/help`, `/batch`, `/doc`, `/spec`, `/insight`, `/save`, `/sessions`, `/scan`, `/usage`, `/context`, `/test`, `/lint`, `/deps`, `/scaffold`, `/commit`, `/verbose`, `/prompt`, `/audit`, `/insights`, `/mcp` — with autocomplete dropdown as you type
 - **Diagram generation** — models can generate Mermaid diagrams in code blocks; rendered natively in chat with syntax highlighting and copy-to-SVG support
 - **Actionable errors** — classified error cards with retry, start Ollama, and settings buttons
 - **Sticky scroll** — auto-scroll pauses when you scroll up, floating button to jump back down
@@ -120,14 +121,25 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 - Same interface for all — just change `sidecar.baseUrl` and optionally `sidecar.provider`
 
 ### MCP (Model Context Protocol)
-- Connect to any MCP server for external tools (Gmail, Slack, databases, custom tools)
+- Connect to any MCP server via **stdio**, **HTTP**, or **SSE** transport
 - MCP tools appear transparently alongside built-in tools
-- Configure via `sidecar.mcpServers` setting:
+- **`.mcp.json` project config** — team-shared server definitions (Claude Code compatible)
+- **Per-tool enable/disable** — filter out dangerous tools per server
+- **Output size limits** — prevent context bloat from large MCP results
+- **Health monitoring** — automatic reconnection with exponential backoff
+- **`/mcp` status command** — check server status, transport, and tool counts
+- **`/mcp-builder` skill** — built-in guide for creating high-quality MCP servers
+- Configure via `sidecar.mcpServers` or `.mcp.json`:
   ```json
   "sidecar.mcpServers": {
     "filesystem": {
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"]
+    },
+    "remote-api": {
+      "type": "http",
+      "url": "https://mcp.example.com/api",
+      "headers": { "Authorization": "Bearer ${TOKEN}" }
     }
   }
   ```

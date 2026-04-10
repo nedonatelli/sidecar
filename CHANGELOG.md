@@ -2,6 +2,31 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.41.0] - 2026-04-10
+
+### Added
+- **Agent action audit log** — every tool execution recorded as structured JSONL in `.sidecar/logs/audit.jsonl` with timestamp, tool name, input, result (500 char), duration, iteration, session, model, and approval mode
+- **`/audit` command** — browse audit log with filters: `/audit errors`, `/audit tool:grep`, `/audit last:20`, `/audit since:2026-04-01`, `/audit clear`
+- **"Why?" button on tool calls** — hover any completed tool card to see a "Why?" button; click for on-demand model explanation of the tool decision (2-3 sentences)
+- **`/insights` command** — conversation pattern analysis with tool performance stats, usage distribution chart, common 2-tool sequences, co-occurrence matrix, hourly activity heatmap, error clusters, actionable suggestions, and learned patterns from memory
+- **MCP HTTP transport** — connect to remote MCP servers via Streamable HTTP (`type: "http"`)
+- **MCP SSE transport** — connect to remote MCP servers via Server-Sent Events (`type: "sse"`)
+- **`.mcp.json` project config** — Claude Code-compatible project-scope MCP server definitions, merged with VS Code settings (local overrides shared)
+- **MCP per-tool enable/disable** — filter out specific tools per server via `tools: { "tool_name": { enabled: false } }`
+- **MCP output size limits** — `maxResultChars` per server (default 50,000) truncates oversized tool results
+- **MCP health monitoring** — automatic reconnection with exponential backoff (2s, 5s, 15s) on connection failure
+- **MCP environment variable expansion** — `${VAR}` references in HTTP headers resolved from env config + process.env
+- **`/mcp` command** — show MCP server connection status, transport type, tool counts, uptime, and errors
+- **`mcp-builder` skill** — built-in guide for creating high-quality MCP servers (TypeScript/Python, tool schemas, annotations, evaluation)
+- `MetricsCollector.getToolDuration()` — read elapsed time since last `recordToolStart()`
+- `AgentMemory.queryAll()` — return all stored memories for analytics/export
+
+### Changed
+- `MCPServerConfig` extended with `type`, `url`, `headers`, `tools`, and `maxResultChars` fields
+- MCP connection startup now merges configs from VS Code settings and `.mcp.json` in parallel
+- MCP `Client` version bumped from `0.4.0` to `0.40.0`
+- Extension MCP connection logic refactored to support all three transport types
+
 ## [0.40.0] - 2026-04-10
 
 ### Added

@@ -13,6 +13,8 @@ import { generateTests } from '../../agent/testGenerator.js';
 import { runLint } from '../../agent/lintFix.js';
 import { analyzeDependencies } from '../../agent/depAnalysis.js';
 import { generateScaffold, getTemplateList } from '../../agent/scaffold.js';
+import { analyzeConversation, formatAnalyticsReport } from '../../agent/conversationAnalytics.js';
+import type { AuditFilter } from '../../agent/auditLog.js';
 
 export async function handleExecutePlan(state: ChatState): Promise<void> {
   if (!state.pendingPlan || state.pendingPlanMessages.length === 0) return;
@@ -249,4 +251,231 @@ export async function handleScaffold(state: ChatState, text: string): Promise<vo
   }
   state.postMessage({ command: 'done' });
   state.postMessage({ command: 'setLoading', isLoading: false });
+}
+
+/**
+ * `/audit` command — display structured audit log of agent tool executions.
+ * Supports optional filters: `/audit errors`, `/audit tool:grep`, `/audit last:20`
+ */
+export async function handleAudit(state: ChatState, args: string): Promise<void> {
+  if (!state.auditLog) {
+    state.postMessage({ command: 'error', content: 'Audit log not available — .sidecar directory not initialized.' });
+    state.postMessage({ command: 'done' });
+    return;
+  }
+
+  // Parse filter arguments
+  const filter: AuditFilter = { limit: 50 };
+  const parts = args.trim().split(/\s+/).filter(Boolean);
+  for (const part of parts) {
+    if (part === 'errors') {
+      filter.errorsOnly = true;
+    } else if (part.startsWith('tool:')) {
+      filter.tool = part.slice(5);
+    } else if (part.startsWith('last:')) {
+      const n = parseInt(part.slice(5), 10);
+      if (!isNaN(n)) filter.limit = n;
+    } else if (part.startsWith('since:')) {
+      filter.since = part.slice(6);
+    } else if (part === 'clear') {
+      await state.auditLog.clear();
+      state.postMessage({ command: 'assistantMessage', content: 'Audit log cleared.' });
+      state.postMessage({ command: 'done' });
+      return;
+    }
+  }
+
+  const entries = await state.auditLog.query(filter);
+  const total = await state.auditLog.count();
+
+  if (entries.length === 0) {
+    state.postMessage({
+      command: 'assistantMessage',
+      content: 'No audit entries found' + (args ? ` matching "${args}"` : '') + '.',
+    });
+    state.postMessage({ command: 'done' });
+    return;
+  }
+
+  // Format as markdown table
+  const lines = [
+    `# Agent Audit Log`,
+    '',
+    `Showing ${entries.length} of ${total} entries${args ? ` (filter: ${args})` : ''}`,
+    '',
+    '| Time | Tool | Duration | Status | Input | Result |',
+    '|------|------|----------|--------|-------|--------|',
+  ];
+
+  for (const entry of entries) {
+    const time = entry.timestamp.split('T')[1]?.split('.')[0] || entry.timestamp;
+    const status = entry.isError ? '✗' : '✓';
+    const inputPreview = Object.entries(entry.input)
+      .map(([k, v]) => {
+        const val = typeof v === 'string' ? v.slice(0, 30) : String(v).slice(0, 30);
+        return `${k}=${val}`;
+      })
+      .join(', ')
+      .slice(0, 60);
+    const resultPreview = entry.result.slice(0, 50).replace(/\n/g, ' ');
+    lines.push(
+      `| ${time} | ${entry.tool} | ${entry.durationMs}ms | ${status} | ${inputPreview || '—'} | ${resultPreview || '—'} |`,
+    );
+  }
+
+  lines.push('', '---', '');
+  lines.push(
+    '**Filters:** `/audit errors` · `/audit tool:<name>` · `/audit last:<n>` · `/audit since:YYYY-MM-DD` · `/audit clear`',
+  );
+
+  const report = lines.join('\n');
+  const doc = await workspace.openTextDocument({ content: report, language: 'markdown' });
+  await window.showTextDocument(doc, { preview: true });
+  state.postMessage({ command: 'done' });
+}
+
+/**
+ * `/insights` command — conversation pattern analysis with usage trends and workflow suggestions.
+ */
+export async function handleInsights(state: ChatState): Promise<void> {
+  if (!state.auditLog) {
+    state.postMessage({
+      command: 'error',
+      content: 'Insights not available — .sidecar directory not initialized.',
+    });
+    state.postMessage({ command: 'done' });
+    return;
+  }
+
+  // Gather all data sources
+  const auditEntries = await state.auditLog.query({ limit: 5000 });
+  const metrics = state.metricsCollector.getHistory();
+  const memories = state.agentMemory?.queryAll() || [];
+
+  if (auditEntries.length === 0 && metrics.length === 0) {
+    state.postMessage({
+      command: 'assistantMessage',
+      content: 'No data for insights yet. Run some agent tasks first, then try `/insights` again.',
+    });
+    state.postMessage({ command: 'done' });
+    return;
+  }
+
+  const analytics = analyzeConversation(auditEntries, metrics, memories);
+  const report = formatAnalyticsReport(analytics, metrics);
+
+  const doc = await workspace.openTextDocument({ content: report, language: 'markdown' });
+  await window.showTextDocument(doc, { preview: true });
+  state.postMessage({ command: 'done' });
+}
+
+/**
+ * Handle "Why?" button click — explain why the model chose a particular tool call.
+ */
+export async function handleExplainToolDecision(state: ChatState, toolCallId: string): Promise<void> {
+  if (!state.auditLog) {
+    state.postMessage({ command: 'assistantMessage', content: 'Audit log not available.' });
+    state.postMessage({ command: 'done' });
+    return;
+  }
+
+  const entry = await state.auditLog.getByToolCallId(toolCallId);
+  if (!entry) {
+    state.postMessage({
+      command: 'assistantMessage',
+      content: 'Could not find audit entry for this tool call.',
+    });
+    state.postMessage({ command: 'done' });
+    return;
+  }
+
+  state.postMessage({ command: 'setLoading', isLoading: true });
+  const config = getConfig();
+  state.client.updateConnection(config.baseUrl, config.apiKey);
+  state.client.updateModel(config.model);
+
+  // Build a focused prompt to explain the tool decision
+  const inputSummary = JSON.stringify(entry.input, null, 2).slice(0, 500);
+  const resultPreview = entry.result.slice(0, 300);
+  const prompt = [
+    `Explain why you chose to call the tool "${entry.tool}" with the following parameters:`,
+    '',
+    '```json',
+    inputSummary,
+    '```',
+    '',
+    `Result (${entry.isError ? 'ERROR' : 'success'}, ${entry.durationMs}ms): ${resultPreview}`,
+    '',
+    'Provide a concise explanation (2-3 sentences) of:',
+    '1. What information or goal motivated this tool call',
+    '2. Why this tool was chosen over alternatives',
+    '3. Whether the result was as expected',
+  ].join('\n');
+
+  try {
+    const explanation = await state.client.complete([{ role: 'user', content: prompt }]);
+    state.postMessage({
+      command: 'assistantMessage',
+      content: `**Why \`${entry.tool}\`?**\n\n${explanation || 'No explanation generated.'}`,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    state.postMessage({
+      command: 'assistantMessage',
+      content: `Could not generate explanation: ${msg}`,
+    });
+  }
+
+  state.postMessage({ command: 'done' });
+  state.postMessage({ command: 'setLoading', isLoading: false });
+}
+
+/**
+ * `/mcp` command — show MCP server status, connected tools, and transport info.
+ */
+export function handleMcpStatus(state: ChatState): void {
+  const status = state.mcpManager.getServerStatus();
+  const totalTools = state.mcpManager.getToolCount();
+
+  if (status.length === 0) {
+    state.postMessage({
+      command: 'assistantMessage',
+      content:
+        '**MCP Servers:** None configured.\n\n' +
+        'Add MCP servers in VS Code settings (`sidecar.mcpServers`) or create a `.mcp.json` file at the workspace root.\n\n' +
+        '```json\n' +
+        '// .mcp.json\n' +
+        '{\n' +
+        '  "mcpServers": {\n' +
+        '    "my-server": {\n' +
+        '      "type": "stdio",\n' +
+        '      "command": "npx",\n' +
+        '      "args": ["my-mcp-server"]\n' +
+        '    }\n' +
+        '  }\n' +
+        '}\n' +
+        '```',
+    });
+    state.postMessage({ command: 'done' });
+    return;
+  }
+
+  const lines = ['**MCP Servers**', ''];
+  const statusIcon = (s: string) =>
+    s === 'connected' ? '\u2713' : s === 'connecting' ? '\u23F3' : s === 'failed' ? '\u2717' : '\u25CB';
+
+  for (const server of status) {
+    const icon = statusIcon(server.status);
+    const uptime = server.connectedSinceMs !== undefined ? ` (up ${Math.round(server.connectedSinceMs / 1000)}s)` : '';
+    lines.push(`${icon} **${server.name}** — ${server.status}${uptime}`);
+    lines.push(`  Transport: ${server.transport} | Tools: ${server.toolCount}`);
+    if (server.error) {
+      lines.push(`  Error: ${server.error}`);
+    }
+  }
+
+  lines.push('', `**Total tools:** ${totalTools}`);
+
+  state.postMessage({ command: 'assistantMessage', content: lines.join('\n') });
+  state.postMessage({ command: 'done' });
 }

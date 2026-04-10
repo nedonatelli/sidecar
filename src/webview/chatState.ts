@@ -16,6 +16,7 @@ import type { ExtensionMessage } from './chatWebview.js';
 import { getConfig } from '../config/settings.js';
 import { DocumentationIndexer } from '../config/documentationIndexer.js';
 import { AgentMemory } from '../agent/agentMemory.js';
+import { AuditLog } from '../agent/auditLog.js';
 
 /** Maximum number of messages to keep in memory. */
 const MAX_HISTORY_MESSAGES = 200;
@@ -46,6 +47,7 @@ export class ChatState {
   inlineEditProvider: InlineEditProvider | null = null;
   documentationIndexer: DocumentationIndexer | null = null;
   agentMemory: AgentMemory | null = null;
+  auditLog: AuditLog | null = null;
 
   /** ID of the current auto-saved session, null if conversation is empty/unsaved */
   currentSessionId: string | null = null;
@@ -224,6 +226,10 @@ export class ChatState {
     // Rotate agent memory session so new memories are tagged separately
     // and past-session memories are clearly labeled in context.
     this.agentMemory?.startSession();
+    // Update audit log with new session ID
+    if (this.auditLog && this.agentMemory) {
+      this.auditLog.setContext(this.agentMemory.getSessionId(), this.client.getModel(), 'cautious');
+    }
     this.saveHistory();
     this.postMessage({ command: 'chatCleared' });
   }

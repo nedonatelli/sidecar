@@ -31,6 +31,9 @@ Type `/` in the chat input to see all available commands. An autocomplete dropdo
 | `/deps` | Analyze dependencies |
 | `/scaffold <type>` | Generate boilerplate |
 | `/commit` | Generate commit and push |
+| `/audit` | Agent action audit log |
+| `/insights` | Conversation pattern analysis |
+| `/mcp` | MCP server status |
 | `/verbose` | Toggle verbose mode |
 | `/prompt` | Show system prompt |
 
@@ -148,6 +151,46 @@ Visualizes what's in the current context window:
 - Workspace files with token counts
 - Conversation history
 - Visual usage bar showing total utilization
+
+### `/audit`
+
+Opens the agent action audit log — a structured record of every tool call made by the agent. Supports filters:
+
+```
+/audit                    Last 50 entries
+/audit errors             Only failed calls
+/audit tool:grep          Filter by tool name
+/audit last:20            Limit to 20 entries
+/audit since:2026-04-01   Entries after a date
+/audit clear              Clear the log
+```
+
+Each entry includes timestamp, tool name, duration, input parameters, result preview, and error status. See [Observability](observability) for details.
+
+### `/insights`
+
+Generates a comprehensive conversation pattern analysis from audit log, metrics, and agent memory:
+
+- Tool performance (calls, errors, avg duration)
+- Usage distribution chart
+- Common tool sequences and co-occurrence
+- Hourly activity heatmap
+- Error clusters
+- Actionable suggestions
+- Learned patterns from memory
+
+See [Observability](observability) for the full report breakdown.
+
+### `/mcp`
+
+Shows the connection status of all configured MCP servers:
+
+- Server name and status (connected/failed/connecting)
+- Transport type (stdio/http/sse)
+- Tool count per server
+- Uptime and error messages
+
+If no servers are configured, shows setup instructions. See [MCP Servers](mcp-servers) for configuration.
 
 ### `/insight`
 

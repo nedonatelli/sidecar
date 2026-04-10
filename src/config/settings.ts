@@ -50,9 +50,22 @@ export function detectProvider(
 // ---------------------------------------------------------------------------
 
 export interface MCPServerConfig {
-  command: string;
+  /** Transport type: "stdio" (default), "http", or "sse" */
+  type?: 'stdio' | 'http' | 'sse';
+  /** Command to spawn (stdio transport) */
+  command?: string;
+  /** Arguments for the command (stdio transport) */
   args?: string[];
+  /** Environment variables (stdio transport, or extra headers source) */
   env?: Record<string, string>;
+  /** URL for HTTP/SSE transport */
+  url?: string;
+  /** Custom headers for HTTP/SSE transport */
+  headers?: Record<string, string>;
+  /** Per-tool overrides: enable/disable specific tools */
+  tools?: Record<string, { enabled?: boolean }>;
+  /** Maximum result size in characters (default 50000) */
+  maxResultChars?: number;
 }
 
 export interface HookConfig {

@@ -2,11 +2,30 @@
 
 Planned improvements and features for SideCar. Audit findings from v0.34.0 comprehensive review are in the Audit Backlog section. All critical fixes were addressed in v0.35.0.
 
-Last updated: 2026-04-10 (v0.40.0)
+Last updated: 2026-04-10 (v0.41.0)
 
 ---
 
-## Recently Completed (v0.40.0)
+## Recently Completed (v0.41.0)
+
+✅ **Observability suite** (v0.41.0)
+- Agent action audit log: structured JSONL in `.sidecar/logs/audit.jsonl`, browsable via `/audit` with filters (`errors`, `tool:name`, `last:N`, `since:date`, `clear`)
+- Model decision explanations: "Why?" button on tool call cards with on-demand LLM reasoning
+- Conversation pattern analysis: `/insights` command with tool performance stats, sequence analysis, co-occurrence matrix, hourly activity heatmap, error clusters, and suggestions
+
+✅ **MCP capability refinement** (v0.41.0)
+- HTTP (Streamable HTTP) and SSE transport support alongside stdio
+- `.mcp.json` project-scope config file (Claude Code compatible format)
+- Per-tool enable/disable via `tools` config
+- Output size limits (`maxResultChars`, default 50K)
+- Health monitoring with automatic reconnection (exponential backoff)
+- `/mcp` status command showing server status, transport, and tool counts
+- `mcp-builder` built-in skill for creating high-quality MCP servers
+- Environment variable expansion in HTTP headers (`${VAR}`)
+
+---
+
+## Previously Completed (v0.40.0)
 
 ✅ **Deep codebase indexing: call sites & type hierarchies** (v0.40.0)
 - Symbol graph extended with `CallEdge` and `TypeEdge` data structures
@@ -103,9 +122,9 @@ Last updated: 2026-04-10 (v0.40.0)
 
 ### Observability
 
-- **Agent action audit log** — structured JSON log, browsable via `/audit` command
-- **Model decision explanations** — "Why?" button on tool calls with on-demand reasoning
-- **Conversation pattern analysis** — `/insights` command with usage trends and workflow suggestions
+- ~~**Agent action audit log** — structured JSON log, browsable via `/audit` command~~ (v0.41.0)
+- ~~**Model decision explanations** — "Why?" button on tool calls with on-demand reasoning~~ (v0.41.0)
+- ~~**Conversation pattern analysis** — `/insights` command with usage trends and workflow suggestions~~ (v0.41.0)
 - **Model comparison / Arena mode** — side-by-side prompt comparison with voting
 - **Real-time code profiling** — MCP server wrapping language profilers
 
@@ -120,7 +139,7 @@ Last updated: 2026-04-10 (v0.40.0)
 - **Bitbucket / Atlassian** — Bitbucket REST API, `GitProvider` interface, auto-detect from remote URL
 - **OpenRouter** — dedicated integration with model browsing, cost display, rate limit awareness
 - **Browser automation** — Playwright MCP for testing web apps
-- **Enhanced MCP support** — UI discovery, one-click install, versioning
+- ~~**Enhanced MCP support** — UI discovery, one-click install, versioning~~ → HTTP/SSE transport, `.mcp.json` project config, per-tool enable/disable, `/mcp` status, health monitoring (v0.41.0)
 - **Extension / plugin API** — `@sidecar/sdk` for custom commands, renderers, tools, hooks
 - **MCP marketplace** — discoverable directory with one-click install
 - **Voice input** — Web Speech API or local STT model

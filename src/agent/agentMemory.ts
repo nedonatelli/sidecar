@@ -146,6 +146,11 @@ export class AgentMemory {
     return id;
   }
 
+  /** Return all stored memories (for analytics/export). */
+  queryAll(): MemoryEntry[] {
+    return Array.from(this.memories.values());
+  }
+
   /**
    * Search memories by category or full-text search on content.
    */

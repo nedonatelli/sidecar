@@ -9,7 +9,7 @@ import { createClient } from './ollama/factory.js';
 import { SideCarClient } from './ollama/client.js';
 import { ProposedContentProvider } from './edits/proposedContentProvider.js';
 import { AgentLogger } from './agent/logger.js';
-import { MCPManager } from './agent/mcpManager.js';
+import { MCPManager, loadProjectMcpConfig, mergeMcpConfigs } from './agent/mcpManager.js';
 import { Scheduler } from './agent/scheduler.js';
 import { handleInlineChat } from './inline/inlineChatProvider.js';
 import { setGrammarsPath } from './parsing/registry.js';
@@ -56,33 +56,40 @@ export function activate(context: ExtensionContext) {
   context.subscriptions.push(mcpManager);
 
   // Defer MCP connection — run after activation completes so it doesn't block startup
+  // Merge configs from VS Code settings + .mcp.json project file
   // Warn if MCP configs come from workspace settings (supply-chain risk: they spawn processes)
-  const mcpServers = config.mcpServers;
-  if (Object.keys(mcpServers).length > 0) {
-    setImmediate(async () => {
-      try {
-        const trust = await checkWorkspaceConfigTrust(
-          'mcpServers',
-          'SideCar: This workspace defines MCP server configs that will spawn external processes. Only trust these from repositories you control.',
-        );
-        if (trust === 'blocked') {
-          console.log('[SideCar] Workspace MCP servers blocked by user');
-          return;
-        }
-        await mcpManager.connect(mcpServers);
-      } catch (err) {
-        console.error('[SideCar] Failed to connect MCP servers:', err);
+  const connectMcp = async () => {
+    try {
+      const settingsServers = getConfig().mcpServers;
+      const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath;
+      const projectServers = workspaceRoot ? await loadProjectMcpConfig(workspaceRoot) : {};
+      const allServers = mergeMcpConfigs(projectServers, settingsServers);
+
+      if (Object.keys(allServers).length === 0) return;
+
+      const trust = await checkWorkspaceConfigTrust(
+        'mcpServers',
+        'SideCar: This workspace defines MCP server configs that may spawn external processes. Only trust these from repositories you control.',
+      );
+      if (trust === 'blocked') {
+        console.log('[SideCar] Workspace MCP servers blocked by user');
+        return;
       }
-    });
+      await mcpManager.connect(allServers);
+    } catch (err) {
+      console.error('[SideCar] Failed to connect MCP servers:', err);
+    }
+  };
+
+  if (Object.keys(config.mcpServers).length > 0 || workspace.workspaceFolders?.length) {
+    setImmediate(connectMcp);
   }
 
   // Reconnect MCP servers when settings change
   context.subscriptions.push(
     workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('sidecar.mcpServers')) {
-        mcpManager
-          .connect(getConfig().mcpServers)
-          .catch((err) => console.error('[SideCar] Failed to reconnect MCP servers:', err));
+        connectMcp().catch((err) => console.error('[SideCar] Failed to reconnect MCP servers:', err));
       }
     }),
   );
