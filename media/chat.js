@@ -2111,9 +2111,11 @@
         nameSpan.title = model.name;
 
         // Create text element for truncation
+        // Extract model name from path (e.g., hf.co/user/gemma-4-E4B -> gemma-4-E4B)
+        const displayName = model.name.includes('/') ? model.name.split('/').pop() : model.name;
         const nameText = document.createElement('span');
         nameText.className = 'name-text';
-        nameText.textContent = model.name;
+        nameText.textContent = displayName;
         nameSpan.appendChild(nameText);
 
         if (model.installed) {
@@ -2172,9 +2174,11 @@
         nameSpan.title = model.name;
 
         // Create text element for truncation
+        // Extract model name from path (e.g., hf.co/user/gemma-4-E4B -> gemma-4-E4B)
+        const displayName = model.name.includes('/') ? model.name.split('/').pop() : model.name;
         const nameText = document.createElement('span');
         nameText.className = 'name-text';
-        nameText.textContent = model.name;
+        nameText.textContent = displayName;
         nameSpan.appendChild(nameText);
 
         if (model.installed) {
