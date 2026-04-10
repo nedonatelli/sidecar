@@ -2,11 +2,33 @@
 
 Planned improvements and features for SideCar. Audit findings from v0.34.0 comprehensive review are in the Audit Backlog section. All critical fixes were addressed in v0.35.0.
 
-Last updated: 2026-04-10 (v0.39.0)
+Last updated: 2026-04-10 (v0.40.0)
 
 ---
 
-## Recently Completed (v0.38.0)
+## Recently Completed (v0.40.0)
+
+✅ **Deep codebase indexing: call sites & type hierarchies** (v0.40.0)
+- Symbol graph extended with `CallEdge` and `TypeEdge` data structures
+- Regex parser extracts call sites and extends/implements from JS/TS/JVM files
+- New query methods: `getCallers()`, `getSubtypes()`, `getSupertypes()`
+- `getSymbolContext()` enriched with caller, supertype, and subtype information
+- Graph persistence bumped to version 2
+
+✅ **Conversation steering** (v0.40.0)
+- Next-step suggestions after agent loop (clickable buttons in webview)
+- Progress summaries every 5 iterations with token/time stats
+- Checkpoint prompt at 60% of max iterations — user can stop or continue
+
+✅ **Enhanced agent memory** (v0.40.0)
+- Tool chain tracking: records sequences, stores chains of 3+, deduplicates
+- Failure learning: tool failures recorded as `failure` type memories
+- `recordUse()` auto-called on search retrieval — use counts reflect real usage
+- Co-occurrence scoring: `getToolCooccurrences()` and `suggestNextTools()`
+
+---
+
+## Previously Completed (v0.38.0)
 
 ✅ **Large file & monorepo handling** (v0.38.0)
 - Streaming file reader with configurable threshold (default 50KB)
@@ -40,8 +62,8 @@ Last updated: 2026-04-10 (v0.39.0)
 ### Context & Intelligence
 
 - **Structured context rules** — `.sidecarrules` with typed constraints (`prefer: functional-components`, `ban: any-type`). Compatible with `.cursorrules`/`.clinerules`
-- **Deep codebase indexing** — extend symbol graph with call sites, type hierarchies, cross-file dependency tracking
-- **Cross-file reference awareness** — surface callers/dependents when editing a symbol
+- ~~**Deep codebase indexing**~~ — ✅ done in v0.40.0 (call sites, type hierarchies)
+- ~~**Cross-file reference awareness**~~ — ✅ done in v0.40.0 (callers/dependents in symbol context)
 - **Multi-repo cross-talk** — impact analysis across dependent repositories via cross-repo symbol registry
 - **Semantic search for file relevance** — ONNX embeddings instead of keyword-only scoring
 
@@ -55,7 +77,7 @@ Last updated: 2026-04-10 (v0.39.0)
 
 ### Agent Capabilities
 
-- **Conversation steering** — clarifying questions, next-step suggestions, mid-task redirection
+- ~~**Conversation steering**~~ — ✅ done in v0.40.0 (next-step suggestions, progress summaries, checkpoints)
 - **Chat threads and branching** — parallel branches, named threads, thread picker, per-thread persistence
 - **Custom modes** — user-defined agent modes (Architect, Coder, Debugger) via `sidecar.customModes`
 - **Background agent orchestration** — full spawning with independent state, task coordination, agent dashboard

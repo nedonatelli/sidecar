@@ -2,10 +2,29 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
-## [0.39.1] - 2026-04-10
+## [0.40.0] - 2026-04-10
+
+### Added
+- **Symbol graph: call site tracking** — indexes which functions call which, with caller file, name, and line number. New `getCallers()`, `getCallsInFile()` query methods
+- **Symbol graph: type relationships** — tracks `extends`/`implements` edges for classes and interfaces. New `getSubtypes()`, `getSupertypes()`, `getTypeEdgesInFile()` query methods
+- **Symbol context enrichment** — `getSymbolContext()` now includes "Called by", "Extends/implements", and "Subtypes" sections for LLM prompt injection
+- **Conversation steering: next-step suggestions** — after the agent loop completes, analyzes tool usage and suggests follow-up actions (e.g. "Run tests to verify the changes") as clickable buttons
+- **Conversation steering: progress summaries** — every 5 iterations, emits iteration count, elapsed time, and context usage percentage
+- **Conversation steering: checkpoint prompts** — at 60% of max iterations, asks the user whether to continue or stop the task
+- **Agent memory: tool chain tracking** — records sequences of tools used together in a session, stores chains of 3+ as `toolchain` memories with deduplication
+- **Agent memory: failure learning** — tool failures now recorded as `failure` type memories alongside successes
+- **Agent memory: co-occurrence scoring** — `getToolCooccurrences()` and `suggestNextTools()` recommend likely next tools based on past chain history
 
 ### Fixed
+- Agent memory `recordUse()` now called automatically when `search()` returns results — use counts reflect real retrieval
+- Agent memory eviction no longer uses unused `_minUseCount` variable
 - Mermaid diagram rendering error (`window.mermaid.initialize is not a function`) caused by ESM-bundled mermaid exporting API under `.default`
+- Agent loop auto-compacts before giving up on token budget exceeded (was stopping without attempting compaction)
+- Anti-preamble prompt rule promoted to CRITICAL block for stronger model compliance
+
+### Changed
+- Symbol graph persistence format bumped to version 2 (includes calls and type edges)
+- System prompt anti-repetition instructions moved above numbered rules for higher model attention
 
 ## [0.39.0] - 2026-04-10
 

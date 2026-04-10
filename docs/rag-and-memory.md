@@ -80,29 +80,35 @@ Agent memory learns from your coding patterns and automatically remembers them a
 
 ### How It Works
 
-1. **Recording** — During agent runs, successful tool executions are automatically recorded as patterns:
-   - Tool name and input are captured
+1. **Recording** — During agent runs, tool executions are automatically recorded:
+   - **Successes** are stored as `pattern` memories with tool name and input
+   - **Failures** are stored as `failure` memories with error details
+   - **Tool chains** — sequences of 3+ tools used together in a session are stored as `toolchain` memories (e.g. `read_file → edit_file → get_diagnostics`)
    - Context metadata is stored (timestamp, relevance category)
    - Entry is persisted to `.sidecar/memory/agent-memories.json`
 
 2. **Searching** — For every user message:
    - Your message is searched against stored patterns
    - Results are ranked by relevance and use-count
+   - `recordUse()` is called automatically on retrieved memories, keeping use-counts accurate
    - Top matches are formatted and injected into context
 
-3. **Scoring** — Memories have two importance metrics:
-   - **Use-count**: Incremented each time the memory is referenced. Frequent patterns score higher
-   - **Recency**: Newer patterns are boosted in search results
+3. **Scoring** — Memories have multiple importance signals:
+   - **Use-count**: Automatically incremented each time a memory is retrieved. Frequent patterns score higher
+   - **Recency**: Newer patterns are boosted in search results (linear decay over 7 days)
+   - **Co-occurrence**: Tool chain memories power `suggestNextTools()`, which recommends likely next tools based on past sequences
 
 4. **Eviction** — When the memory store reaches its limit (default 500 entries):
-   - Oldest entries are evicted first (LRU eviction)
-   - Most-used patterns are preserved
+   - Entries with lowest combined use-count + recency score are evicted first
+   - Most-used and most-recent patterns are preserved
 
 ### Memory Types
 
 Memories are categorized by type to organize learning:
 
 - **Patterns** — Successful tool uses, common approaches for specific tasks
+- **Failures** — Tool executions that produced errors, helping the agent avoid repeating mistakes
+- **Tool chains** — Sequences of tools used together successfully (e.g. `read_file → edit_file → get_diagnostics`)
 - **Decisions** — Architectural choices, coding conventions, established practices
 - **Conventions** — Project-specific naming patterns, folder structures, file organization
 
