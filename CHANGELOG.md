@@ -2,6 +2,11 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.39.1] - 2026-04-10
+
+### Fixed
+- Mermaid diagram rendering error (`window.mermaid.initialize is not a function`) caused by ESM-bundled mermaid exporting API under `.default`
+
 ## [0.39.0] - 2026-04-10
 
 ### Added

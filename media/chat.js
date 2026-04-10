@@ -42,9 +42,12 @@
   function loadMermaid() {
     if (mermaidReady) return mermaidReady;
     mermaidReady = new Promise((resolve, reject) => {
+      // ESM-bundled mermaid sets window.mermaid = { default: { initialize, render, ... } }
+      const unwrap = (m) => (m && m.default && typeof m.default.initialize === 'function' ? m.default : m);
       if (window.mermaid) {
-        window.mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose' });
-        resolve(window.mermaid);
+        const m = unwrap(window.mermaid);
+        m.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose' });
+        resolve(m);
         return;
       }
       const src = window.__mermaidSrc;
@@ -59,9 +62,10 @@
       script.onload = () => {
         console.log('[SideCar] Mermaid loaded, initializing...');
         try {
-          window.mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose' });
+          const m = unwrap(window.mermaid);
+          m.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose' });
           console.log('[SideCar] Mermaid initialized successfully');
-          resolve(window.mermaid);
+          resolve(m);
         } catch (initErr) {
           console.error('[SideCar] Mermaid init failed:', initErr);
           reject(initErr);
