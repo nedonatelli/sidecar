@@ -5,11 +5,12 @@ import { getAnalyzer } from '../parsing/registry.js';
 import { LimitedCache } from '../agent/memoryManager.js';
 import type { SymbolIndexer } from './symbolIndexer.js';
 import type { SidecarDir } from './sidecarDir.js';
+import { readFileStreaming } from './streamingFileReader.js';
+import { getConfig } from './settings.js';
 
 const MAX_FILE_SIZE = 100 * 1024; // 100KB
 const INDEX_CACHE_FILE = 'cache/workspace-index.json';
 const INDEX_VERSION = 1;
-const MAX_CONTENT_LENGTH = 10_000; // 10K chars per file
 
 const DEFAULT_EXCLUDES = [
   'node_modules',
@@ -72,6 +73,10 @@ export class WorkspaceIndex implements Disposable {
   private recentlyAccessedFiles = new Set<string>();
   /** Extra exclude patterns from .sidecarignore */
   private customExcludes = new Set<string>();
+  /** Track which root each file belongs to for multi-root support */
+  private fileRoots = new Map<string, string>();
+  /** Active workspace roots (can be a subset if workspaceRoots is configured) */
+  private activeRoots: Array<{ uri: Uri; fsPath: string }> = [];
 
   constructor(maxContextChars = 20_000) {
     this.maxContextChars = maxContextChars;
@@ -102,13 +107,41 @@ export class WorkspaceIndex implements Disposable {
     this.pinnedPaths.delete(relativePath);
   }
 
+  /**
+   * Determine which workspace roots to use for indexing.
+   * Returns active roots based on configuration (workspaceRoots setting)
+   * or all available workspace folders if not configured.
+   */
+  private getActiveRoots(): Array<{ uri: Uri; fsPath: string }> {
+    const folders = workspace.workspaceFolders;
+    if (!folders || folders.length === 0) return [];
+
+    const config = getConfig();
+    // If workspaceRoots is configured, use only those roots
+    if (config.workspaceRoots && config.workspaceRoots.length > 0) {
+      const roots: Array<{ uri: Uri; fsPath: string }> = [];
+      for (const rootPath of config.workspaceRoots) {
+        const matching = folders.find((f) => f.uri.fsPath === rootPath || f.uri.fsPath.endsWith(rootPath));
+        if (matching) {
+          roots.push({ uri: matching.uri, fsPath: matching.uri.fsPath });
+        }
+      }
+      return roots.length > 0 ? roots : [{ uri: folders[0].uri, fsPath: folders[0].uri.fsPath }];
+    }
+
+    // Default: use all available workspace folders
+    return folders.map((f) => ({ uri: f.uri, fsPath: f.uri.fsPath }));
+  }
+
   async initialize(patterns: string[]): Promise<void> {
     const folders = workspace.workspaceFolders;
     if (!folders || folders.length === 0) return;
 
-    const rootUri = folders[0].uri;
-    const rootPath = rootUri.fsPath;
+    // Determine active roots (can be a subset or all folders)
+    this.activeRoots = this.getActiveRoots();
     const startTime = Date.now();
+    const rootUri = this.activeRoots[0]?.uri || folders[0].uri;
+    const rootPath = rootUri.fsPath;
 
     // Load .sidecarignore patterns if the file exists
     try {
@@ -242,6 +275,7 @@ export class WorkspaceIndex implements Disposable {
     const folders = workspace.workspaceFolders;
     if (!folders || folders.length === 0) return '';
     const rootUri = folders[0].uri;
+    const config = getConfig();
 
     // Score files and select top-k using partial sort (O(n) for scoring,
     // O(n) for partitioning) instead of full O(n log n) sort.
@@ -280,8 +314,13 @@ export class WorkspaceIndex implements Disposable {
           const fileUri = Uri.joinPath(rootUri, filePath);
           let content = this.fileContentCache.get(filePath);
           if (!content) {
-            const bytes = await workspace.fs.readFile(fileUri);
-            content = Buffer.from(bytes).toString('utf-8').slice(0, MAX_CONTENT_LENGTH);
+            // Use streaming reads for large files
+            const fileSize = this.files.get(filePath)?.sizeBytes || 0;
+            const result = await readFileStreaming(fileUri, {
+              maxBytes: config.maxFileSizeBytes,
+              summaryMode: fileSize > config.streamingReadThreshold,
+            });
+            content = result.content;
             this.fileContentCache.set(filePath, content);
           }
           const section = `\n### ${filePath} (pinned)\n\`\`\`\n${content}\n\`\`\`\n`;
@@ -309,8 +348,12 @@ export class WorkspaceIndex implements Disposable {
 
         // Only read from disk if not cached
         if (!content) {
-          const bytes = await workspace.fs.readFile(fileUri);
-          content = Buffer.from(bytes).toString('utf-8').slice(0, MAX_CONTENT_LENGTH);
+          // Use streaming reads for large files
+          const result = await readFileStreaming(fileUri, {
+            maxBytes: config.maxFileSizeBytes,
+            summaryMode: file.sizeBytes > config.streamingReadThreshold,
+          });
+          content = result.content;
           this.fileContentCache.set(file.relativePath, content);
         }
 
@@ -566,5 +609,31 @@ export class WorkspaceIndex implements Disposable {
       }
     }
     return false;
+  }
+
+  /**
+   * Check if a file should be included based on depth limits from config.
+   * Returns true if the file's depth is within the allowed limit.
+   */
+  private isWithinDepthLimit(relativePath: string): boolean {
+    const config = getConfig();
+    if (config.maxTraversalDepth <= 0) return true; // 0 = no limit
+
+    const depth = relativePath.split(path.sep).length - 1;
+    return depth < config.maxTraversalDepth;
+  }
+
+  /**
+   * Get files filtered by depth limit.
+   * Returns a map of files that are within the configured depth limit.
+   */
+  getFilesWithinDepthLimit(): Map<string, FileNode> {
+    const filtered = new Map<string, FileNode>();
+    for (const [path, node] of this.files) {
+      if (this.isWithinDepthLimit(path)) {
+        filtered.set(path, node);
+      }
+    }
+    return filtered;
   }
 }

@@ -115,6 +115,13 @@ export interface SideCarConfig {
   fallbackModel: string;
   dailyBudget: number;
   weeklyBudget: number;
+  /* Large file & monorepo handling */
+  workspaceRoots: string[];
+  maxFileSizeBytes: number;
+  streamingReadThreshold: number;
+  maxTraversalDepth: number;
+  enableLazyIndexing: boolean;
+  maxIndexedFiles: number;
 }
 
 /**
@@ -179,6 +186,13 @@ function readConfig(): SideCarConfig {
     fallbackModel: cfg.get<string>('fallbackModel', ''),
     dailyBudget: clampMin(cfg.get<number>('dailyBudget'), 0, 0),
     weeklyBudget: clampMin(cfg.get<number>('weeklyBudget'), 0, 0),
+    /* Large file & monorepo handling */
+    workspaceRoots: cfg.get<string[]>('workspaceRoots', []),
+    maxFileSizeBytes: clampMin(cfg.get<number>('maxFileSizeBytes'), 10240, 100 * 1024),
+    streamingReadThreshold: clampMin(cfg.get<number>('streamingReadThreshold'), 10240, 50 * 1024),
+    maxTraversalDepth: clampMin(cfg.get<number>('maxTraversalDepth'), 1, 10),
+    enableLazyIndexing: cfg.get<boolean>('enableLazyIndexing', true),
+    maxIndexedFiles: clampMin(cfg.get<number>('maxIndexedFiles'), 10, 1000),
   };
 }
 
