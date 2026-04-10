@@ -257,6 +257,16 @@ body {
   align-items: center;
   gap: 6px;
   font-size: 13px;
+  flex: 1;
+  min-width: 0;
+}
+
+.model-item-name .name-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .model-badge {

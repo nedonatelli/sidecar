@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "savedAt": "2026-04-10T03:03:39.197Z",
+  "savedAt": "2026-04-10T03:14:50.410Z",
   "memories": [
     {
       "id": "pattern-tool:search_files-1775788582989-3cr8ctc",
@@ -154,6 +154,60 @@
       "timestamp": 1775790219197,
       "useCount": 0,
       "context": "Session: 2026-04-10T03:03:39.197Z"
+    },
+    {
+      "id": "pattern-tool:read_file-1775790859824-vps8heu",
+      "type": "pattern",
+      "category": "tool:read_file",
+      "content": "Successfully used read_file with input: {\"path\":\"src/extension.ts\"}...",
+      "timestamp": 1775790859824,
+      "useCount": 0,
+      "context": "Session: 2026-04-10T03:14:19.824Z"
+    },
+    {
+      "id": "pattern-tool:search_files-1775790869358-petdbg5",
+      "type": "pattern",
+      "category": "tool:search_files",
+      "content": "Successfully used search_files with input: {\"pattern\":\"**/webview/**/*.ts\"}...",
+      "timestamp": 1775790869358,
+      "useCount": 0,
+      "context": "Session: 2026-04-10T03:14:29.358Z"
+    },
+    {
+      "id": "pattern-tool:read_file-1775790870418-alqemjt",
+      "type": "pattern",
+      "category": "tool:read_file",
+      "content": "Successfully used read_file with input: {\"path\":\"src/webview/chatView.ts\"}...",
+      "timestamp": 1775790870418,
+      "useCount": 0,
+      "context": "Session: 2026-04-10T03:14:30.418Z"
+    },
+    {
+      "id": "pattern-tool:read_file-1775790879739-xudtyiq",
+      "type": "pattern",
+      "category": "tool:read_file",
+      "content": "Successfully used read_file with input: {\"path\":\"src/webview/chatWebview.ts\"}...",
+      "timestamp": 1775790879739,
+      "useCount": 0,
+      "context": "Session: 2026-04-10T03:14:39.739Z"
+    },
+    {
+      "id": "pattern-tool:list_directory-1775790889563-9rshmen",
+      "type": "pattern",
+      "category": "tool:list_directory",
+      "content": "Successfully used list_directory with input: {\"path\":\"media\"}...",
+      "timestamp": 1775790889563,
+      "useCount": 0,
+      "context": "Session: 2026-04-10T03:14:49.563Z"
+    },
+    {
+      "id": "pattern-tool:read_file-1775790890410-ybvpkna",
+      "type": "pattern",
+      "category": "tool:read_file",
+      "content": "Successfully used read_file with input: {\"path\":\"media/chat.js\"}...",
+      "timestamp": 1775790890410,
+      "useCount": 0,
+      "context": "Session: 2026-04-10T03:14:50.410Z"
     }
   ]
 }

@@ -2108,7 +2108,13 @@
 
         const nameSpan = document.createElement('span');
         nameSpan.className = 'model-item-name';
-        nameSpan.textContent = model.name;
+        nameSpan.title = model.name;
+
+        // Create text element for truncation
+        const nameText = document.createElement('span');
+        nameText.className = 'name-text';
+        nameText.textContent = model.name;
+        nameSpan.appendChild(nameText);
 
         if (model.installed) {
           nameSpan.classList.add('installed');
@@ -2163,7 +2169,13 @@
 
         const nameSpan = document.createElement('span');
         nameSpan.className = 'model-item-name';
-        nameSpan.textContent = model.name;
+        nameSpan.title = model.name;
+
+        // Create text element for truncation
+        const nameText = document.createElement('span');
+        nameText.className = 'name-text';
+        nameText.textContent = model.name;
+        nameSpan.appendChild(nameText);
 
         if (model.installed) {
           nameSpan.classList.add('installed');
