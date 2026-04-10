@@ -52,6 +52,7 @@ Last updated: 2026-04-09 (v0.36.0)
 - **Deep codebase indexing** — symbol graph with imports, exports, call sites, type hierarchies
 - **Cross-file reference awareness** — surface callers/dependents when editing a symbol
 - **Next edit predictions** — anticipate ripple effects from changes
+- **Multi-repo cross-talk** — impact analysis across multiple repositories. When a field changes in one repo, flag breaking changes in dependent repos (even different languages). Requires a cross-repo symbol registry that maps API contracts, shared types, and integration points. Could use git submodules, monorepo support, or a lightweight cross-repo index stored in `.sidecar/`
 - **Extension / plugin API** — `@sidecar/sdk` for custom commands, renderers, tools, hooks
 - **MCP marketplace** — discoverable directory with one-click install
 
@@ -61,6 +62,7 @@ Last updated: 2026-04-09 (v0.36.0)
 - **Agent dashboard** — visual panel for running/completed agents
 - **Agent diff review & merge** — review agent changes before merging back
 - **Multi-agent task coordination** — parallel agents with dependency layer
+- **Adversarial critic agent** — a parallel "red team" agent that automatically reviews and attacks changes as they're made. Runs security analysis, edge case detection, and architectural smell checking against every write/edit before the PR is even created. Builds on the existing sub-agent infrastructure
 
 ### Security & Permissions
 
@@ -75,6 +77,8 @@ Last updated: 2026-04-09 (v0.36.0)
 - **Improved configuration management** — workspace/folder/global scopes, visual inspector, presets
 - **Customizable chat UI themes** — built-in presets, custom CSS injection, font/density controls, VS Code theme sync
 - **Terminal error interception** — monitor the VS Code integrated terminal for error patterns (stack traces, exit codes, compilation failures) and automatically offer to diagnose them in the chat without requiring copy-paste. Use VS Code's terminal data event API to watch output in real-time
+- **Selective regeneration** — "pin and regen" UI for agent-generated code. Select specific sections of a generated file to regenerate while pinning the rest. Instead of re-running the entire generation (which may change parts you liked), mark regions as locked/unlocked and regenerate only the unlocked portions. Could be implemented as a code lens or gutter action on generated blocks
+- **Persistent executive function** — multi-day task state that persists across sessions. When a large refactoring or migration spans multiple days, store a structured "state file" in `.sidecar/plans/` tracking: overall goal, completed steps, remaining steps, key decisions made, files modified, and blockers encountered. On session resume, the agent reads the state file and picks up where it left off without re-briefing
 
 ### Enterprise & Policy
 
