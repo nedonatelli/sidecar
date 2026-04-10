@@ -33,6 +33,7 @@ export interface WebviewMessage {
     | 'generateDoc'
     | 'changeAgentMode'
     | 'confirmResponse'
+    | 'clarifyResponse'
     | 'scanStaged'
     | 'usage'
     | 'context'
@@ -111,6 +112,7 @@ export interface ExtensionMessage {
     | 'agentProgress'
     | 'confirm'
     | 'dismissConfirm'
+    | 'clarify'
     | 'changeSummary'
     | 'verboseLog'
     | 'typingStatus'
@@ -121,6 +123,9 @@ export interface ExtensionMessage {
   toolCallId?: string;
   confirmId?: string;
   confirmActions?: string[];
+  clarifyId?: string;
+  clarifyOptions?: string[];
+  clarifyAllowCustom?: boolean;
   supportsTools?: boolean;
   iteration?: number;
   maxIterations?: number;
@@ -168,8 +173,10 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- CSP: 'unsafe-eval' required by mermaid.js (uses Function() for diagram rendering).
+       connect-src limited to Ollama/Kickstand default ports only. -->
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}' ${webview.cspSource} 'unsafe-eval'; img-src ${webview.cspSource} data: blob:; connect-src http://localhost:* https://localhost:*;">
+    content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}' ${webview.cspSource} 'unsafe-eval'; img-src ${webview.cspSource} data: blob:; connect-src http://localhost:11434 http://localhost:11435 http://127.0.0.1:11434 http://127.0.0.1:11435;">
   <link rel="stylesheet" href="${stylesUri}">
 </head>
 <body>

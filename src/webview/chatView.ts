@@ -18,6 +18,7 @@ import type { MCPManager } from '../agent/mcpManager.js';
 import type { WorkspaceIndex } from '../config/workspaceIndex.js';
 import type { SidecarDir } from '../config/sidecarDir.js';
 import type { SkillLoader } from '../agent/skillLoader.js';
+import { CHARS_PER_TOKEN } from '../config/constants.js';
 import type { InlineEditProvider } from '../edits/inlineEditProvider.js';
 import { getConfig } from '../config/settings.js';
 import { DocumentationIndexer } from '../config/documentationIndexer.js';
@@ -178,7 +179,11 @@ export class ChatViewProvider implements WebviewViewProvider {
       const cfg = getConfig();
       this.state.client.updateConnection(cfg.baseUrl, cfg.apiKey);
       this.state.client.updateModel(msg.model || 'llama3');
-      const { modelSupportsTools } = await import('../ollama/ollamaBackend.js');
+      const { modelSupportsTools, probeModelToolSupport } = await import('../ollama/ollamaBackend.js');
+      // Probe if not already cached, then read synchronously
+      if (this.state.client.isLocalOllama()) {
+        await probeModelToolSupport(cfg.baseUrl, msg.model || '');
+      }
       const supports = modelSupportsTools(msg.model || '');
       this.postMessage({ command: 'setCurrentModel', currentModel: msg.model, supportsTools: supports });
       workspace.getConfiguration('sidecar').update('model', msg.model, true);
@@ -191,6 +196,7 @@ export class ChatViewProvider implements WebviewViewProvider {
       }
     },
     confirmResponse: (msg) => this.state.resolveConfirm(msg.confirmId || '', msg.confirmed ? msg.text : undefined),
+    clarifyResponse: (msg) => this.state.resolveClarification(msg.confirmId || '', msg.text),
     installModel: (msg) => handleInstallModel(this.state, msg.model || ''),
     cancelInstall: () => this.state.cancelInstall(),
     attachFile: () => handleAttachFile(this.state),
@@ -275,7 +281,7 @@ export class ChatViewProvider implements WebviewViewProvider {
         if (result.freedChars > 0) {
           this.state.messages.splice(0, this.state.messages.length, ...result.messages);
           this.state.saveHistory();
-          const tokensFreed = Math.round(result.freedChars / 4);
+          const tokensFreed = Math.round(result.freedChars / CHARS_PER_TOKEN);
           this.state.postMessage({
             command: 'assistantMessage',
             content: `Compacted: ${result.metadata.turnsSummarized}/${result.metadata.turnsCount} turns summarized, ~${tokensFreed} tokens freed. The conversation context is now smaller and the model will respond faster.`,

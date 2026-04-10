@@ -15,6 +15,8 @@ export const workspace = {
   workspaceFolders: [{ uri: { fsPath: '/mock-workspace' }, name: 'mock', index: 0 }],
   getConfiguration: (_section?: string) => ({
     get: <T>(_key: string, defaultValue?: T) => defaultValue,
+    inspect: (_key: string) => ({ workspaceValue: undefined, globalValue: undefined }),
+    update: async () => {},
   }),
   fs: {
     readFile: async (_uri: unknown) => Buffer.from('mock file content'),

@@ -35,9 +35,12 @@ export function disposeShellSession(): void {
 }
 
 /** Optional context passed to tool executors for streaming and cancellation. */
+export type ClarifyFn = (question: string, options: string[], allowCustom?: boolean) => Promise<string | undefined>;
+
 export interface ToolExecutorContext {
   onOutput?: (chunk: string) => void;
   signal?: AbortSignal;
+  clarifyFn?: ClarifyFn;
 }
 
 export interface ToolExecutor {
@@ -953,6 +956,35 @@ export const TOOL_REGISTRY: RegisteredTool[] = [
   { definition: displayDiagramDef, executor: displayDiagram, requiresApproval: false },
   { definition: findReferencesDef, executor: findReferences, requiresApproval: false },
   { definition: webSearchDef, executor: webSearch, requiresApproval: false },
+  {
+    definition: {
+      name: 'ask_user',
+      description:
+        'Ask the user a clarifying question when you need more context to proceed. ' +
+        'Present a question with suggested options the user can pick from. ' +
+        'Use this when the request is ambiguous, there are multiple valid approaches, ' +
+        'or you need the user to choose between alternatives before acting.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          question: { type: 'string', description: 'The question to ask the user' },
+          options: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Suggested options for the user to choose from (2-5 options)',
+          },
+          allow_custom: {
+            type: 'boolean',
+            description: 'Whether the user can type a custom response instead of picking an option. Default: true',
+          },
+        },
+        required: ['question', 'options'],
+      },
+    },
+    // Executor is a placeholder — ask_user is handled specially in executor.ts
+    executor: async () => 'ask_user should be handled by the executor, not called directly',
+    requiresApproval: false,
+  },
 ];
 
 export const SPAWN_AGENT_DEFINITION: ToolDefinition = {

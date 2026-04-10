@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { LLMManagerBackend } from './llmmanagerBackend.js';
+import { KickstandBackend } from './kickstandBackend.js';
 
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
@@ -36,11 +36,11 @@ function chunk(content: string, done = false): string {
   });
 }
 
-describe('LLMManagerBackend', () => {
-  let backend: LLMManagerBackend;
+describe('KickstandBackend', () => {
+  let backend: KickstandBackend;
 
   beforeEach(() => {
-    backend = new LLMManagerBackend('http://localhost:11435', 'test-token');
+    backend = new KickstandBackend('http://localhost:11435', 'test-token');
     mockFetch.mockReset();
   });
 
@@ -158,7 +158,7 @@ describe('LLMManagerBackend', () => {
       });
 
       await expect(backend.complete('model', '', [{ role: 'user', content: 'test' }], 256)).rejects.toThrow(
-        /LLMManager API error 401/,
+        /Kickstand API error 401/,
       );
     });
   });

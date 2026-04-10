@@ -3,7 +3,8 @@ import * as path from 'path';
 import { ChatViewProvider } from './webview/chatView.js';
 import { TerminalManager } from './terminal/manager.js';
 import { SideCarCompletionProvider } from './completions/provider.js';
-import { getConfig, isLocalOllama, isLLMManager, detectProvider, readLLMManagerToken } from './config/settings.js';
+import { getConfig, isLocalOllama, isKickstand, detectProvider, readKickstandToken } from './config/settings.js';
+import { checkWorkspaceConfigTrust } from './config/workspaceTrust.js';
 import { createClient } from './ollama/factory.js';
 import { SideCarClient } from './ollama/client.js';
 import { ProposedContentProvider } from './edits/proposedContentProvider.js';
@@ -55,10 +56,23 @@ export function activate(context: ExtensionContext) {
   context.subscriptions.push(mcpManager);
 
   // Defer MCP connection — run after activation completes so it doesn't block startup
+  // Warn if MCP configs come from workspace settings (supply-chain risk: they spawn processes)
   const mcpServers = config.mcpServers;
   if (Object.keys(mcpServers).length > 0) {
-    setImmediate(() => {
-      mcpManager.connect(mcpServers).catch((err) => console.error('[SideCar] Failed to connect MCP servers:', err));
+    setImmediate(async () => {
+      try {
+        const trust = await checkWorkspaceConfigTrust(
+          'mcpServers',
+          'SideCar: This workspace defines MCP server configs that will spawn external processes. Only trust these from repositories you control.',
+        );
+        if (trust === 'blocked') {
+          console.log('[SideCar] Workspace MCP servers blocked by user');
+          return;
+        }
+        await mcpManager.connect(mcpServers);
+      } catch (err) {
+        console.error('[SideCar] Failed to connect MCP servers:', err);
+      }
     });
   }
 
@@ -154,18 +168,18 @@ export function activate(context: ExtensionContext) {
   // Discover available models on startup, but only when using local backends.
   // Remote-only providers (anthropic, openai) don't benefit from probing localhost.
   const provider = detectProvider(config.baseUrl, config.provider);
-  if (provider === 'ollama' || provider === 'llmmanager') {
+  if (provider === 'ollama' || provider === 'kickstand') {
     setImmediate(() => {
       const ollamaUrl = isLocalOllama(config.baseUrl) ? config.baseUrl : 'http://localhost:11434';
-      const llmManagerUrl = isLLMManager(config.baseUrl) ? config.baseUrl : 'http://localhost:11435';
-      const apiKey = readLLMManagerToken();
-      SideCarClient.discoverAllAvailableModels(ollamaUrl, llmManagerUrl, apiKey)
+      const kickstandUrl = isKickstand(config.baseUrl) ? config.baseUrl : 'http://localhost:11435';
+      const apiKey = readKickstandToken();
+      SideCarClient.discoverAllAvailableModels(ollamaUrl, kickstandUrl, apiKey)
         .then((models) => {
           if (models.length > 0) {
             const modelNames = models.map((m) => m.name).join(', ');
             console.log(`[SideCar] Discovered ${models.length} available models: ${modelNames}`);
           } else {
-            console.log('[SideCar] No models discovered from Ollama or LLMManager');
+            console.log('[SideCar] No models discovered from Ollama or Kickstand');
           }
         })
         .catch((err) => {
@@ -269,12 +283,12 @@ export function activate(context: ExtensionContext) {
       try {
         const cfg = getConfig();
         const ollamaUrl = isLocalOllama(cfg.baseUrl) ? cfg.baseUrl : 'http://localhost:11434';
-        const llmManagerUrl = isLLMManager(cfg.baseUrl) ? cfg.baseUrl : 'http://localhost:11435';
-        const apiKey = readLLMManagerToken();
-        const models = await SideCarClient.discoverAllAvailableModels(ollamaUrl, llmManagerUrl, apiKey);
+        const kickstandUrl = isKickstand(cfg.baseUrl) ? cfg.baseUrl : 'http://localhost:11435';
+        const apiKey = readKickstandToken();
+        const models = await SideCarClient.discoverAllAvailableModels(ollamaUrl, kickstandUrl, apiKey);
 
         if (models.length === 0) {
-          window.showInformationMessage('SideCar: No models found. Make sure Ollama or LLMManager is running.');
+          window.showInformationMessage('SideCar: No models found. Make sure Ollama or Kickstand is running.');
         } else {
           const modelList = models.map((m) => m.name).join(', ');
           window.showInformationMessage(`SideCar: Discovered ${models.length} models: ${modelList}`);

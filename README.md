@@ -6,7 +6,7 @@
 
 [![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/nedonatelli.sidecar-ai)](https://marketplace.visualstudio.com/items?itemName=nedonatelli.sidecar-ai)
 
-**SideCar** is a free, self-hosted VS Code extension that serves as a drop-in replacement for GitHub Copilot and Claude Code. Use local [Ollama](https://ollama.com) models, the [Anthropic API](https://api.anthropic.com), [LLMManager](https://github.com/llmmanager/llmmanager), or any [OpenAI-compatible server](https://nedonatelli.github.io/sidecar/getting-started#using-openai-compatible-servers) (LM Studio, vLLM, llama.cpp, OpenRouter) for AI-powered coding — with full agentic capabilities, inline completions, and tool use.
+**SideCar** is a free, self-hosted VS Code extension that serves as a drop-in replacement for GitHub Copilot and Claude Code. Use local [Ollama](https://ollama.com) models, the [Anthropic API](https://api.anthropic.com), [Kickstand](https://github.com/kickstand/kickstand), or any [OpenAI-compatible server](https://nedonatelli.github.io/sidecar/getting-started#using-openai-compatible-servers) (LM Studio, vLLM, llama.cpp, OpenRouter) for AI-powered coding — with full agentic capabilities, inline completions, and tool use.
 
 > A free, open-source, local-first **autonomous AI agent for coding**. Full agent loop, not just chat. No subscriptions, no data leaving your machine.
 
@@ -55,7 +55,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 ### What sets SideCar apart
 
 - **True agentic autonomy** — SideCar reads your code, edits files, runs tests, reads the errors, and iterates until the task is done. Switch between cautious, autonomous, and manual modes.
-- **No vendor lock-in** — Use Ollama for fully offline operation, Anthropic for Claude, OpenAI-compatible servers (LM Studio, vLLM, OpenRouter), LLMManager, or install GGUF models directly from HuggingFace. Same interface, your choice.
+- **No vendor lock-in** — Use Ollama for fully offline operation, Anthropic for Claude, OpenAI-compatible servers (LM Studio, vLLM, OpenRouter), Kickstand, or install GGUF models directly from HuggingFace. Same interface, your choice.
 - **Security from the ground up** — Secrets detection, vulnerability scanning, path traversal protection, sensitive file blocking, workspace hook warnings, and prompt injection sandboxing. No other local-first extension does this.
 - **Extensible with MCP & Skills** — Connect external tools via MCP, create custom skills with markdown files, or use the 7 built-in skills (review, debug, refactor, explain, write-tests, break-this, create-skill).
 - **Production-grade safety** — Agent mode controls, iteration limits, token budgets, daily/weekly spending caps, cycle detection, streaming diff preview, plan mode, and one-click rollback.
@@ -139,7 +139,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 - **Pre-commit scan** — `/scan` command or `SideCar: Scan Staged Files for Secrets` in the command palette scans staged git files before committing
 - Skips comments, node_modules, lock files, and minified code
 
-### Tool Registry (20+ built-in tools + MCP)
+### Tool Registry (22+ built-in tools + MCP)
 | Tool | Description |
 |------|-------------|
 | `read_file` | Read file contents |
@@ -151,7 +151,12 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 | `list_directory` | List directory contents |
 | `get_diagnostics` | Read compiler errors and warnings |
 | `run_tests` | Run test suites with auto-detection |
+| `git_diff/status/stage/commit/log/push/pull/branch/stash` | Full git workflow |
+| `find_references` | Find symbol references across workspace |
+| `web_search` | Search the web via DuckDuckGo |
 | `display_diagram` | Extract and render diagrams from markdown files |
+| `ask_user` | Ask the user a clarifying question with selectable options |
+| `spawn_agent` | Spawn a sub-agent for parallel tasks |
 
 ### Project Instructions (SIDECAR.md)
 Create a `SIDECAR.md` file in your project root to give SideCar project-specific instructions that persist across sessions:

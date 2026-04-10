@@ -12,10 +12,10 @@ All settings are under the `sidecar.*` prefix. Open VS Code settings (`Cmd+,` / 
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
-| `sidecar.baseUrl` | string | `http://localhost:11434` | API base URL. Ollama: `http://localhost:11434`, Anthropic: `https://api.anthropic.com`, LLMManager: `http://localhost:11435`, OpenAI-compatible: any URL |
-| `sidecar.apiKey` | string | `ollama` | API key. Ignored for local Ollama, required for Anthropic, LLMManager, and some OpenAI-compatible servers |
+| `sidecar.baseUrl` | string | `http://localhost:11434` | API base URL. Ollama: `http://localhost:11434`, Anthropic: `https://api.anthropic.com`, Kickstand: `http://localhost:11435`, OpenAI-compatible: any URL |
+| `sidecar.apiKey` | string | `ollama` | API key. Ignored for local Ollama, required for Anthropic, Kickstand, and some OpenAI-compatible servers |
 | `sidecar.model` | string | `qwen3-coder:30b` | Model for chat (e.g., `qwen3-coder`, `claude-sonnet-4-6`, or any model on your server) |
-| `sidecar.provider` | enum | `auto` | Backend provider: `auto`, `ollama`, `anthropic`, `openai`, `llmmanager`. Auto-detects from URL |
+| `sidecar.provider` | enum | `auto` | Backend provider: `auto`, `ollama`, `anthropic`, `openai`, `kickstand`. Auto-detects from URL |
 | `sidecar.systemPrompt` | string | `""` | Custom system prompt appended to the default |
 
 ### Provider auto-detection
@@ -24,10 +24,10 @@ When `sidecar.provider` is `auto` (default), SideCar detects the backend from th
 
 - **`localhost:11434`** → Ollama (native API)
 - **`anthropic.com`** → Anthropic (Messages API with prompt caching)
-- **`localhost:11435`** → LLMManager (OpenAI-compatible API)
+- **`localhost:11435`** → Kickstand (OpenAI-compatible API)
 - **Everything else** → OpenAI-compatible (`/v1/chat/completions`)
 
-Set `sidecar.provider` explicitly if auto-detection doesn't match your setup — for example, if you're running an Anthropic-compatible proxy on a custom URL, or LLMManager on a non-standard port.
+Set `sidecar.provider` explicitly if auto-detection doesn't match your setup — for example, if you're running an Anthropic-compatible proxy on a custom URL, or Kickstand on a non-standard port.
 
 ## Agent behavior
 

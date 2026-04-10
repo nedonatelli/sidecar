@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { OllamaBackend } from './ollamaBackend.js';
+import {
+  OllamaBackend,
+  probeModelToolSupport,
+  modelSupportsTools,
+  recordToolFailure,
+  recordToolSuccess,
+} from './ollamaBackend.js';
 import type { ChatMessage, ToolDefinition } from './types.js';
 
 const mockFetch = vi.fn();
@@ -125,11 +131,21 @@ describe('OllamaBackend', () => {
     });
 
     it('emits warning and does not send tools for unsupported models', async () => {
+      // First call: probe returns no tool support
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ capabilities: ['completion'] }),
+      });
+
+      // Probe the model so the cache knows it lacks tools
+      await probeModelToolSupport('http://localhost:11434', 'notool-model');
+
+      // Second call: the actual chat request
       mockFetch.mockResolvedValueOnce({
         ok: true,
         body: ndjsonBody([
           {
-            model: 'gemma2:latest',
+            model: 'notool-model',
             message: { role: 'assistant', content: 'response' },
             done: true,
             done_reason: 'stop',
@@ -147,7 +163,7 @@ describe('OllamaBackend', () => {
 
       const events = [];
       for await (const event of backend.streamChat(
-        'gemma2:latest',
+        'notool-model',
         '',
         [{ role: 'user', content: 'hi' }],
         undefined,
@@ -164,8 +180,8 @@ describe('OllamaBackend', () => {
         }),
       );
 
-      // Check that tools were not sent to the API
-      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      // Check that tools were not sent to the API (second fetch call is the chat)
+      const body = JSON.parse(mockFetch.mock.calls[1][1].body);
       expect(body.tools).toBeUndefined();
     });
 
@@ -397,5 +413,86 @@ describe('OllamaBackend', () => {
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
       expect(body.stream).toBe(false);
     });
+  });
+});
+
+describe('probeModelToolSupport', () => {
+  beforeEach(() => {
+    mockFetch.mockReset();
+  });
+
+  it('returns true when capabilities include tools', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ capabilities: ['completion', 'tools'] }),
+    });
+
+    const result = await probeModelToolSupport('http://localhost:11434', 'probe-test-tools');
+    expect(result).toBe(true);
+  });
+
+  it('returns false when capabilities lack tools', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ capabilities: ['completion'] }),
+    });
+
+    const result = await probeModelToolSupport('http://localhost:11434', 'probe-test-notools');
+    expect(result).toBe(false);
+  });
+
+  it('returns true on network error (optimistic)', async () => {
+    mockFetch.mockRejectedValueOnce(new Error('connection refused'));
+
+    const result = await probeModelToolSupport('http://localhost:11434', 'probe-test-error');
+    expect(result).toBe(true);
+  });
+
+  it('returns true when model not found (not installed)', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });
+
+    const result = await probeModelToolSupport('http://localhost:11434', 'probe-test-404');
+    expect(result).toBe(true);
+  });
+
+  it('caches results so subsequent calls skip fetch', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ capabilities: ['completion', 'tools'] }),
+    });
+
+    await probeModelToolSupport('http://localhost:11434', 'probe-test-cache');
+    await probeModelToolSupport('http://localhost:11434', 'probe-test-cache');
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('modelSupportsTools reflects probed result', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ capabilities: ['completion'] }),
+    });
+
+    await probeModelToolSupport('http://localhost:11434', 'probe-test-sync');
+    expect(modelSupportsTools('probe-test-sync')).toBe(false);
+  });
+});
+
+describe('runtime tool failure tracking', () => {
+  it('disables tools after threshold failures', () => {
+    const model = 'failure-test-model';
+    expect(modelSupportsTools(model)).toBe(true);
+    recordToolFailure(model);
+    recordToolFailure(model);
+    expect(modelSupportsTools(model)).toBe(true);
+    recordToolFailure(model);
+    expect(modelSupportsTools(model)).toBe(false);
+  });
+
+  it('resets on success', () => {
+    const model = 'success-test-model';
+    recordToolFailure(model);
+    recordToolFailure(model);
+    recordToolSuccess(model);
+    expect(modelSupportsTools(model)).toBe(true);
   });
 });

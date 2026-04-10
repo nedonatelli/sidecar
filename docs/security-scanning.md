@@ -55,3 +55,27 @@ To reduce false positives, SideCar skips:
 - `node_modules/` and other dependency directories
 - Lock files (`package-lock.json`, `yarn.lock`, etc.)
 - Minified files
+
+## Workspace trust
+
+SideCar warns once per session when workspace-level settings define potentially dangerous configurations. This protects against supply-chain attacks where a malicious `.vscode/settings.json` is committed to a repository.
+
+Trust warnings appear for:
+
+- **MCP server configs** (`sidecar.mcpServers`) — can spawn arbitrary processes
+- **Tool permission overrides** (`sidecar.toolPermissions`) — can auto-allow dangerous tools like `write_file`
+- **Hook commands** (`sidecar.hooks`) — execute shell commands on tool invocations
+
+When prompted, choose **Allow** to trust the workspace config for this session, or **Block** to ignore the workspace-level settings and fall back to your user-level defaults. The decision is remembered for the session — you won't be asked again until you restart VS Code.
+
+## Path traversal protection
+
+`@file:` and `@folder:` references in chat messages are validated to ensure they resolve within the workspace root. Paths containing `../` that would escape the workspace are blocked with a warning. This prevents prompt injection attacks from tricking the agent into reading sensitive files outside the project.
+
+## Tool approval defaults
+
+When no explicit confirmation function is available (e.g., headless or programmatic usage), tool calls default to **deny**. This ensures tools that require approval (file writes, shell commands, git operations) are never auto-approved without a UI to confirm them.
+
+## SVG sanitization
+
+Mermaid diagrams and any SVG content rendered in chat are sanitized using a DOM parser with an allowlist of safe SVG elements. Dangerous elements (`<script>`, `<animate>`, `<set>`) are removed. `<style>` tags are preserved (needed for diagram theming) but `@import` and `url()` directives are stripped. Links (`<a>`) are restricted to fragment-only (`#`) hrefs.

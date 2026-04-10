@@ -2,7 +2,7 @@
   "name": "sidecar-ai",
   "displayName": "SideCar",
   "description": "Autonomous AI agent for coding — run full agent loops with local Ollama, Anthropic Claude, or OpenAI models",
-  "version": "0.38.0",
+  "version": "0.39.0",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -304,10 +304,10 @@
             "ollama",
             "anthropic",
             "openai",
-            "llmmanager"
+            "kickstand"
           ],
           "default": "auto",
-          "description": "LLM provider backend. 'auto' detects from the base URL (localhost:11434 → Ollama, anthropic.com → Anthropic, localhost:11435 → LLMManager, anything else → OpenAI-compatible). Set explicitly for LM Studio, vLLM, llama.cpp, OpenRouter, or LLMManager."
+          "description": "LLM provider backend. 'auto' detects from the base URL (localhost:11434 → Ollama, anthropic.com → Anthropic, localhost:11435 → Kickstand, anything else → OpenAI-compatible). Set explicitly for LM Studio, vLLM, llama.cpp, OpenRouter, or Kickstand."
         },
         "sidecar.fetchUrlContext": {
           "type": "boolean",
@@ -489,6 +489,7 @@
     "format": "prettier --write 'src/**/*.ts'",
     "format:check": "prettier --check 'src/**/*.ts'",
     "check": "npm run compile && npm run lint && npm run test",
+    "bump": "bash scripts/bump-version.sh",
     "prepare": "husky"
   },
   "devDependencies": {

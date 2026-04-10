@@ -3,23 +3,19 @@ import type { ChatMessage, ContentBlock, ToolDefinition, ToolUseContentBlock, St
 import { fetchWithRetry } from './retry.js';
 import { abortableRead, toFunctionTools, parseThinkTags, type ThinkTagState } from './streamUtils.js';
 import { getConfig } from '../config/settings.js';
+import { TOOL_FAILURE_THRESHOLD, MODEL_PROBE_BATCH_SIZE } from '../config/constants.js';
 
 // ---------------------------------------------------------------------------
 // Tool support detection
 // ---------------------------------------------------------------------------
 
-/** Models known to not support tools — fast-path deny list. */
-const MODELS_WITHOUT_TOOL_SUPPORT = new Set([
-  'gemma:latest',
-  'gemma2:latest',
-  'gemma2:2b',
-  'gemma2:9b',
-  'gemma2:27b',
-  'llama2',
-  'mistral',
-  'neural-chat',
-  'starling-lm',
-]);
+/**
+ * Cache of model tool support queried from Ollama's /api/show endpoint.
+ * true = supports tools, false = does not.
+ * Models not in the cache haven't been probed yet — we optimistically
+ * assume tool support until proven otherwise (by probing or runtime failure).
+ */
+const toolCapabilityCache = new Map<string, boolean>();
 
 /**
  * Runtime tool support tracking. If a model is sent tools but never
@@ -27,16 +23,75 @@ const MODELS_WITHOUT_TOOL_SUPPORT = new Set([
  * to avoid wasting context on tool definitions.
  */
 const toolSupportFailures = new Map<string, number>();
-const TOOL_FAILURE_THRESHOLD = 3;
 
+/**
+ * Synchronous check used in the hot path (streamChat).
+ * Returns false if the model is known not to support tools (via probe or runtime failure).
+ * Returns true if the model is known to support tools OR hasn't been probed yet (optimistic).
+ */
 function supportsTools(model: string): boolean {
-  const base = model.split(':')[0];
-  if (MODELS_WITHOUT_TOOL_SUPPORT.has(model) || MODELS_WITHOUT_TOOL_SUPPORT.has(`${base}:latest`)) {
-    return false;
-  }
-  // If this model has failed to use tools multiple times, disable them
+  // Check the probed capability cache first
+  const cached = toolCapabilityCache.get(model);
+  if (cached === false) return false;
+
+  // Check runtime failure count
   const failures = toolSupportFailures.get(model) || 0;
   return failures < TOOL_FAILURE_THRESHOLD;
+}
+
+/**
+ * Query Ollama's /api/show endpoint for a model's capabilities.
+ * Caches the result so subsequent checks are synchronous.
+ * Returns true if the model reports tool support, false otherwise.
+ * On network/parse errors, returns true (optimistic — let runtime detection handle it).
+ */
+export async function probeModelToolSupport(baseUrl: string, model: string): Promise<boolean> {
+  // Return cached result if available
+  const cached = toolCapabilityCache.get(model);
+  if (cached !== undefined) return cached;
+
+  try {
+    const response = await fetch(`${baseUrl}/api/show`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model }),
+      signal: AbortSignal.timeout(3000),
+    });
+
+    if (!response.ok) {
+      // Model might not be installed yet — don't cache, stay optimistic
+      return true;
+    }
+
+    const data = (await response.json()) as { capabilities?: string[] };
+    const hasTools = Array.isArray(data.capabilities) && data.capabilities.includes('tools');
+    toolCapabilityCache.set(model, hasTools);
+    return hasTools;
+  } catch {
+    // Network error or timeout — stay optimistic
+    return true;
+  }
+}
+
+/**
+ * Probe tool support for multiple models in parallel.
+ * Called during model list loading to pre-populate the cache.
+ */
+export async function probeAllModelToolSupport(baseUrl: string, modelNames: string[]): Promise<Map<string, boolean>> {
+  const results = new Map<string, boolean>();
+  const uncached = modelNames.filter((m) => !toolCapabilityCache.has(m));
+
+  // Probe uncached models in parallel (limit concurrency to avoid hammering Ollama)
+  const BATCH_SIZE = MODEL_PROBE_BATCH_SIZE;
+  for (let i = 0; i < uncached.length; i += BATCH_SIZE) {
+    const batch = uncached.slice(i, i + BATCH_SIZE);
+    await Promise.all(batch.map((m) => probeModelToolSupport(baseUrl, m)));
+  }
+
+  for (const name of modelNames) {
+    results.set(name, toolCapabilityCache.get(name) ?? true);
+  }
+  return results;
 }
 
 /** Record that a model was sent tools but did not use them. */
@@ -53,6 +108,10 @@ export function recordToolSuccess(model: string): void {
   toolSupportFailures.delete(model);
 }
 
+/**
+ * Synchronous tool support check. Uses probed capabilities + runtime failure tracking.
+ * For accurate results, call probeModelToolSupport() first (e.g. during model loading).
+ */
 export function modelSupportsTools(model: string): boolean {
   return supportsTools(model);
 }
@@ -224,13 +283,11 @@ export class OllamaBackend implements ApiBackend {
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
 
-      // If Ollama says the model doesn't support tools, record that immediately
+      // If Ollama says the model doesn't support tools, update both caches
       if (response.status === 400 && errorText.includes('does not support tools')) {
-        // Record enough failures to immediately disable tools for this model
-        // (instead of waiting for 3 failed attempts)
-        for (let i = 0; i < TOOL_FAILURE_THRESHOLD; i++) {
-          recordToolFailure(model);
-        }
+        toolCapabilityCache.set(model, false);
+        toolSupportFailures.set(model, TOOL_FAILURE_THRESHOLD);
+        console.warn(`[SideCar] Model "${model}" does not support tools — disabling tool sending`);
       }
 
       throw new Error(

@@ -43,7 +43,7 @@
     if (mermaidReady) return mermaidReady;
     mermaidReady = new Promise((resolve, reject) => {
       if (window.mermaid) {
-        window.mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'strict' });
+        window.mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose' });
         resolve(window.mermaid);
         return;
       }
@@ -52,14 +52,25 @@
         reject(new Error('Mermaid source not configured'));
         return;
       }
+      console.log('[SideCar] Loading mermaid.js from:', src);
       const script = document.createElement('script');
       script.src = src;
       if (window.__nonce) script.setAttribute('nonce', window.__nonce);
       script.onload = () => {
-        window.mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'strict' });
-        resolve(window.mermaid);
+        console.log('[SideCar] Mermaid loaded, initializing...');
+        try {
+          window.mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose' });
+          console.log('[SideCar] Mermaid initialized successfully');
+          resolve(window.mermaid);
+        } catch (initErr) {
+          console.error('[SideCar] Mermaid init failed:', initErr);
+          reject(initErr);
+        }
       };
-      script.onerror = () => reject(new Error('Failed to load mermaid'));
+      script.onerror = (e) => {
+        console.error('[SideCar] Failed to load mermaid.js script:', e);
+        reject(new Error('Failed to load mermaid'));
+      };
       document.head.appendChild(script);
     });
     return mermaidReady;
@@ -84,8 +95,17 @@
       const id = 'mermaid-' + ++mermaidIdCounter;
       const { svg } = await m.render(id, code);
 
+      // Check again after async render — container may have been detached
+      if (!container.parentNode) return;
+
       // Sanitize SVG content to prevent XSS
       const sanitizedSvg = sanitizeSvg(svg);
+      if (!sanitizedSvg) {
+        container.textContent = 'Diagram render produced empty SVG';
+        container.classList.add('diagram-error');
+        container.dataset.mermaidState = 'error';
+        return;
+      }
       container.innerHTML = sanitizedSvg;
       container.classList.add('diagram-rendered');
       container.dataset.mermaidState = 'done';
@@ -102,20 +122,125 @@
         });
       }
     } catch (err) {
+      console.error('[SideCar] Mermaid render failed:', err);
       container.textContent = 'Diagram error: ' + (err.message || err);
       container.classList.add('diagram-error');
       container.dataset.mermaidState = 'error';
     }
   }
 
-  // Sanitize SVG content to prevent XSS
+  // Sanitize SVG content using DOM parsing with an allowlist approach.
+  // The allowlist must include tags that mermaid.js produces (style, a, etc.)
+  const SVG_ALLOWED_TAGS = new Set([
+    // Core SVG structure
+    'svg',
+    'g',
+    'defs',
+    'use',
+    'symbol',
+    // Shapes
+    'path',
+    'rect',
+    'circle',
+    'ellipse',
+    'line',
+    'polyline',
+    'polygon',
+    // Text
+    'text',
+    'tspan',
+    'textpath',
+    // Styling (required by mermaid for themed diagrams)
+    'style',
+    // Links (mermaid click targets)
+    'a',
+    // Gradients & patterns
+    'lineargradient',
+    'radialgradient',
+    'stop',
+    'pattern',
+    // Clipping & masking
+    'clippath',
+    'mask',
+    'marker',
+    // Filters
+    'filter',
+    'fegaussianblur',
+    'feoffset',
+    'feblend',
+    'fecolormatrix',
+    'fecomponenttransfer',
+    'fecomposite',
+    'feflood',
+    'femerge',
+    'femergenode',
+    // Image & embedded content
+    'image',
+    'foreignobject',
+    // Metadata
+    'title',
+    'desc',
+    // HTML inside foreignObject (mermaid uses these for labels)
+    'span',
+    'div',
+    'p',
+    'br',
+    'em',
+    'strong',
+    'i',
+    'b',
+    'pre',
+    'code',
+  ]);
+  const SVG_DANGEROUS_ATTRS = /^on/i;
+  const SVG_DANGEROUS_VALS = /javascript:|data:text\/html/i;
+
   function sanitizeSvg(svgContent) {
-    // Remove potentially dangerous elements and attributes
-    return svgContent
-      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '') // Remove script tags
-      .replace(/on\w+\s*=\s*["'][^"']*["']/gi, '') // Remove event handlers
-      .replace(/<svg[^>]*>/, '<svg xmlns="http://www.w3.org/2000/svg"') // Ensure proper namespace
-      .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, ''); // Remove style tags
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(svgContent, 'image/svg+xml');
+      const errorNode = doc.querySelector('parsererror');
+      if (errorNode) return ''; // Reject unparseable SVG entirely
+
+      function cleanNode(node) {
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          const tag = node.tagName.toLowerCase();
+          // Remove disallowed elements (script, animate, set, etc.)
+          if (!SVG_ALLOWED_TAGS.has(tag)) {
+            node.remove();
+            return;
+          }
+          // Sanitize <style> contents — strip @import and url() to prevent data exfiltration
+          if (tag === 'style' && node.textContent) {
+            node.textContent = node.textContent
+              .replace(/@import\b[^;]*/gi, '/* blocked */')
+              .replace(/url\s*\([^)]*\)/gi, 'url()');
+          }
+          // Remove dangerous attributes
+          for (const attr of [...node.attributes]) {
+            if (SVG_DANGEROUS_ATTRS.test(attr.name) || SVG_DANGEROUS_VALS.test(attr.value)) {
+              node.removeAttribute(attr.name);
+            }
+          }
+          // Sanitize href on <a> — only allow fragment links
+          if (tag === 'a') {
+            const href = node.getAttribute('href') || node.getAttributeNS('http://www.w3.org/1999/xlink', 'href') || '';
+            if (href && !href.startsWith('#')) {
+              node.removeAttribute('href');
+              node.removeAttributeNS('http://www.w3.org/1999/xlink', 'href');
+            }
+          }
+        }
+        for (const child of [...node.childNodes]) {
+          cleanNode(child);
+        }
+      }
+
+      cleanNode(doc.documentElement);
+      return new XMLSerializer().serializeToString(doc.documentElement);
+    } catch {
+      return ''; // If anything goes wrong, return empty SVG
+    }
   }
 
   modelBtn.addEventListener('click', () => {
@@ -2072,10 +2197,14 @@
     }
   });
 
+  let scrollPending = false;
   function scrollToBottom() {
-    if (!userScrolledUp) {
+    if (userScrolledUp || scrollPending) return;
+    scrollPending = true;
+    requestAnimationFrame(() => {
       messagesContainer.scrollTop = messagesContainer.scrollHeight;
-    }
+      scrollPending = false;
+    });
   }
 
   function forceScrollToBottom() {
@@ -2083,6 +2212,14 @@
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
     const scrollBtn = document.getElementById('scroll-to-bottom');
     if (scrollBtn) scrollBtn.classList.add('hidden');
+  }
+
+  function getModelDisplayName(name) {
+    if (name.includes('/')) {
+      const last = name.split('/').pop();
+      return last || name;
+    }
+    return name;
   }
 
   function renderModelList(models) {
@@ -2110,12 +2247,9 @@
         nameSpan.className = 'model-item-name';
         nameSpan.title = model.name;
 
-        // Create text element for truncation
-        // Extract model name from path (e.g., hf.co/user/gemma-4-E4B -> gemma-4-E4B)
-        const displayName = model.name.includes('/') ? model.name.split('/').pop() : model.name;
         const nameText = document.createElement('span');
         nameText.className = 'name-text';
-        nameText.textContent = displayName;
+        nameText.textContent = getModelDisplayName(model.name);
         nameSpan.appendChild(nameText);
 
         if (model.installed) {
@@ -2173,12 +2307,9 @@
         nameSpan.className = 'model-item-name';
         nameSpan.title = model.name;
 
-        // Create text element for truncation
-        // Extract model name from path (e.g., hf.co/user/gemma-4-E4B -> gemma-4-E4B)
-        const displayName = model.name.includes('/') ? model.name.split('/').pop() : model.name;
         const nameText = document.createElement('span');
         nameText.className = 'name-text';
-        nameText.textContent = displayName;
+        nameText.textContent = getModelDisplayName(model.name);
         nameSpan.appendChild(nameText);
 
         if (model.installed) {
@@ -2620,6 +2751,71 @@
         const id = event.data.confirmId;
         const card = document.querySelector(`.confirm-card[data-confirm-id="${id}"]`);
         if (card) card.remove();
+        break;
+      }
+
+      case 'clarify': {
+        finishAssistantMessage();
+        const clarifyId = event.data.clarifyId;
+        const options = event.data.clarifyOptions || [];
+        const allowCustom = event.data.clarifyAllowCustom !== false;
+
+        const card = document.createElement('div');
+        card.className = 'clarify-card';
+        card.dataset.clarifyId = clarifyId;
+
+        const question = document.createElement('div');
+        question.className = 'clarify-question';
+        question.textContent = content || 'I need more information:';
+        card.appendChild(question);
+
+        function sendResponse(value) {
+          vscode.postMessage({ command: 'clarifyResponse', confirmId: clarifyId, text: value });
+          card.remove();
+        }
+
+        // Option buttons
+        if (options.length > 0) {
+          const optionsContainer = document.createElement('div');
+          optionsContainer.className = 'clarify-options';
+          for (const opt of options) {
+            const btn = document.createElement('button');
+            btn.className = 'clarify-option-btn';
+            btn.textContent = opt;
+            btn.addEventListener('click', () => sendResponse(opt));
+            optionsContainer.appendChild(btn);
+          }
+          card.appendChild(optionsContainer);
+        }
+
+        // Custom text input
+        if (allowCustom) {
+          const customRow = document.createElement('div');
+          customRow.className = 'clarify-custom';
+          const input = document.createElement('input');
+          input.type = 'text';
+          input.className = 'clarify-input';
+          input.placeholder = 'Or type your own response...';
+          const submitBtn = document.createElement('button');
+          submitBtn.className = 'clarify-submit-btn';
+          submitBtn.textContent = 'Send';
+          submitBtn.addEventListener('click', () => {
+            const val = input.value.trim();
+            if (val) sendResponse(val);
+          });
+          input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+              const val = input.value.trim();
+              if (val) sendResponse(val);
+            }
+          });
+          customRow.appendChild(input);
+          customRow.appendChild(submitBtn);
+          card.appendChild(customRow);
+        }
+
+        messagesContainer.appendChild(card);
+        scrollToBottom();
         break;
       }
 

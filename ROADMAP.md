@@ -2,7 +2,7 @@
 
 Planned improvements and features for SideCar. Audit findings from v0.34.0 comprehensive review are in the Audit Backlog section. All critical fixes were addressed in v0.35.0.
 
-Last updated: 2026-04-09 (v0.38.0)
+Last updated: 2026-04-10 (v0.39.0)
 
 ---
 
@@ -128,16 +128,16 @@ Remaining findings from seven comprehensive reviews. Fixed items removed.
 
 ### Security
 
-- SVG sanitizer is regex-based (`chat.js:112`), bypassable with `unsafe-eval` CSP
-- `@file:` references (`workspace.ts:104`) have no path traversal validation
-- CSP allows `unsafe-eval` (required by mermaid.js)
-- Event hooks pass unsanitized file paths in env vars (`eventHooks.ts:65`)
+- ~~SVG sanitizer is regex-based (`chat.js:112`), bypassable with `unsafe-eval` CSP~~ → replaced with DOMParser + allowlist
+- ~~`@file:` references (`workspace.ts:104`) have no path traversal validation~~ → path.resolve + startsWith guard
+- ~~CSP allows `unsafe-eval` (required by mermaid.js)~~ → documented why, tightened connect-src to specific ports
+- ~~Event hooks pass unsanitized file paths in env vars (`eventHooks.ts:65`)~~ → control character stripping
 - API keys stored in plaintext `settings.json` — consider VS Code `SecretStorage`
-- GitHub token requests full `repo` scope — overly broad
-- Workspace settings can bypass tool permissions (`executor.ts:52`)
-- MCP configs in workspace settings can spawn arbitrary processes
-- Default `confirmFn` auto-approves — should default to deny
-- Unbounded background command spawning (`shellSession.ts:237`)
+- ~~GitHub token requests full `repo` scope — overly broad~~ → documented why, added createIfNone:false first
+- ~~Workspace settings can bypass tool permissions (`executor.ts:52`)~~ → workspace trust warning added
+- ~~MCP configs in workspace settings can spawn arbitrary processes~~ → workspace trust warning added
+- ~~Default `confirmFn` auto-approves — should default to deny~~ → defaults to 'Deny'
+- ~~Unbounded background command spawning (`shellSession.ts:237`)~~ → 10-process limit with auto-cleanup
 
 ### Architecture
 
@@ -159,7 +159,7 @@ Remaining findings from seven comprehensive reviews. Fixed items removed.
 - Cycle detection only catches exact 2-repetition
 - File content cache not invalidated on change (5-min stale window)
 - Query matching is path-substring only
-- Tool support deny list is static — consider `ollama show` API
+- ~~Tool support deny list is static — consider `ollama show` API~~ → replaced with dynamic `/api/show` capabilities probe
 - Ollama discards non-`'stop'` done_reason for tool calls
 - `autoFixRetries` never resets between file writes
 - Sub-agent token usage not tracked in parent's budget
@@ -228,12 +228,12 @@ Remaining findings from seven comprehensive reviews. Fixed items removed.
 
 ### v0.34.0 (2026-04-09)
 
-- [x] Spending budgets & cost tracking, token compaction fixes, LLMManager discovery
+- [x] Spending budgets & cost tracking, token compaction fixes, Kickstand discovery
 - [x] HuggingFace model install, GitHub release management, mermaid rendering fix
 
 ### v0.30.0–v0.33.0 (2026-04-08–09)
 
-- [x] Context management & tool hardening, Mermaid diagrams, LLMManager backend
+- [x] Context management & tool hardening, Mermaid diagrams, Kickstand backend
 - [x] Claude Code skill compatibility, backend fallback, dual-stage context compression
 
 ### v0.20.0–v0.28.1

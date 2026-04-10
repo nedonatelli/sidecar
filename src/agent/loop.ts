@@ -9,8 +9,10 @@ import type {
 import { SideCarClient } from '../ollama/client.js';
 import { recordToolSuccess, recordToolFailure } from '../ollama/ollamaBackend.js';
 import type { InlineEditFn } from './executor.js';
+import type { ClarifyFn } from './tools.js';
 import { getToolDefinitions, getDiagnostics } from './tools.js';
 import { getConfig } from '../config/settings.js';
+import { CHARS_PER_TOKEN } from '../config/constants.js';
 import {
   executeTool,
   type ApprovalMode,
@@ -58,6 +60,7 @@ export interface AgentOptions {
   diffPreviewFn?: DiffPreviewFn;
   inlineEditFn?: InlineEditFn;
   streamingDiffPreviewFn?: StreamingDiffPreviewFn;
+  clarifyFn?: ClarifyFn;
 }
 
 const DEFAULT_MAX_ITERATIONS = 25;
@@ -108,8 +111,7 @@ export async function runAgentLoop(
       logger?.logAborted();
       break;
     }
-    // Check token budget (estimate: ~3.5 chars per token for typical LLM tokenizers)
-    const estimatedTokens = Math.ceil(totalChars / 3.5);
+    const estimatedTokens = Math.ceil(totalChars / CHARS_PER_TOKEN);
     if (estimatedTokens > maxTokens) {
       logger?.warn(`Token budget exceeded: ~${estimatedTokens} tokens > ${maxTokens} limit`);
       callbacks.onText(`\n\n⚠️ Agent stopped: token budget exceeded (~${estimatedTokens} tokens).`);
@@ -350,6 +352,7 @@ export async function runAgentLoop(
           {
             onOutput: (chunk) => callbacks.onToolOutput?.(toolUse.name, chunk, toolUse.id),
             signal,
+            clarifyFn: options.clarifyFn,
           },
           options.inlineEditFn,
           options.streamingDiffPreviewFn,

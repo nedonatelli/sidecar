@@ -59,9 +59,19 @@ export class EventHookManager implements Disposable {
     }
   }
 
+  /** Strip control characters from env var values to prevent injection. */
+  private sanitizeEnvValue(value: string): string {
+    // Remove null bytes, newlines, and other control characters (keep printable + tab + space)
+    return value.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
+  }
+
   private async runHook(event: string, command: string, cwd: string, extraEnv: Record<string, string>): Promise<void> {
     try {
-      const env = { ...process.env, ...extraEnv, SIDECAR_EVENT: event } as Record<string, string>;
+      const sanitizedEnv: Record<string, string> = {};
+      for (const [key, value] of Object.entries(extraEnv)) {
+        sanitizedEnv[key] = this.sanitizeEnvValue(value);
+      }
+      const env = { ...process.env, ...sanitizedEnv, SIDECAR_EVENT: event } as Record<string, string>;
       await execAsync(command, { cwd, timeout: 15_000, env });
       this.logger?.debug(`Event hook ${event} completed: ${command}`);
     } catch (err) {

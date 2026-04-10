@@ -6,6 +6,14 @@ import type { ChatState } from '../chatState.js';
 import type { ContentBlock } from '../../ollama/types.js';
 import { getContentLength, getContentText } from '../../ollama/types.js';
 import { getConfig, estimateCost } from '../../config/settings.js';
+import { isProviderReachable } from '../../config/providerReachability.js';
+import {
+  CHARS_PER_TOKEN,
+  SYSTEM_PROMPT_BUDGET_FRACTION,
+  DEFAULT_MAX_SYSTEM_CHARS,
+  LOCAL_CONTEXT_CAP,
+  PLAN_MODE_THRESHOLDS,
+} from '../../config/constants.js';
 import { GitCLI } from '../../github/git.js';
 import {
   getWorkspaceContext,
@@ -80,8 +88,7 @@ function shouldAutoEnablePlanMode(text: string, conversationLength: number): boo
   const wordCount = text.split(/\s+/).length;
   const charCount = text.length;
 
-  // If message is very long (>400 words or >2500 chars), probably complex
-  if (wordCount > 400 || charCount > 2500) {
+  if (wordCount > PLAN_MODE_THRESHOLDS.WORD_COUNT || charCount > PLAN_MODE_THRESHOLDS.CHAR_COUNT) {
     return true;
   }
 
@@ -219,7 +226,18 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
   }
 
   if (text) {
-    state.messages.push({ role: 'user', content: text });
+    // If the assistant previously asked a question and the user's response is short
+    // (likely a direct answer, not a new task), inject context so the LLM understands
+    // this is a response to its question, not a fresh request.
+    let messageText = text;
+    if (state.pendingQuestion) {
+      const isShortReply = text.split(/\s+/).length <= 20 && !text.startsWith('/');
+      if (isShortReply) {
+        messageText = `[Responding to your question: "${state.pendingQuestion}"]\n\n${text}`;
+      }
+      state.pendingQuestion = null;
+    }
+    state.messages.push({ role: 'user', content: messageText });
     state.saveHistory();
   }
 
@@ -338,7 +356,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
           '',
           'RULES:',
           '1. Questions → answer with text. Actions (create, edit, fix, run, test) → use tools.',
-          '2. Keep answers short and direct. One paragraph for simple questions. No lists unless asked.',
+          '2. Keep answers short and direct — 1-2 paragraphs max. Do NOT generate long numbered lists. If you must list items, limit to 3-5 and use a single flat list (no nested or restarting numbers).',
           '3. NEVER repeat information you already said in this conversation.',
           '4. Use relative paths from the project root.',
           '5. After editing files, call get_diagnostics to check for errors.',
@@ -346,6 +364,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
           '7. Read files before editing them. Use grep or search_files to find code.',
           '8. If you already answered the question before using a tool, just add new information from the tool result — do not restate your previous answer.',
           '9. You can create diagrams by writing mermaid code blocks (```mermaid) in your responses — they will be rendered visually in the chat.',
+          '10. When the request is ambiguous or there are multiple valid approaches, use the ask_user tool to present options and let the user choose before proceeding. Do NOT guess — ask.',
           '',
           'EXAMPLE WORKFLOW — user asks "add a hello function to utils.ts":',
           '1. Call read_file(path="src/utils.ts") to see current content',
@@ -362,7 +381,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
           'RULES:',
           '1. If the user asks a question or wants a conversation, respond with text — do NOT call tools.',
           '2. If the user asks you to take an action (create, edit, fix, run, test), use the appropriate tools.',
-          '3. Keep responses concise. Give direct answers, not exhaustive lists. Avoid repeating yourself.',
+          '3. Keep responses concise — 1-2 paragraphs max. Do NOT generate long numbered lists. If you must list items, limit to 3-5 and use a single flat list (no nested or restarting numbers). Avoid repeating yourself.',
           '4. Use relative paths from the project root.',
           '5. After editing files, call get_diagnostics to check for errors.',
           '6. After fixing bugs or adding features, call run_tests to verify your changes pass.',
@@ -370,6 +389,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
           '8. For multi-step tasks, plan your approach, then execute step by step.',
           '9. If you already answered before using a tool, only add new information — do not restate what you said.',
           '10. You can create diagrams by writing mermaid code blocks (```mermaid) in your responses — they will be rendered visually in the chat. Use this for architecture diagrams, flowcharts, sequence diagrams, ER diagrams, class diagrams, etc. when it helps explain concepts.',
+          '11. When the request is ambiguous or there are multiple valid approaches, use the ask_user tool to present options and let the user choose before proceeding. Do NOT guess — ask.',
         ].join('\n');
 
     // In plan mode, append structured planning instructions
@@ -400,16 +420,16 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     state.postMessage({ command: 'typingStatus', content: 'Building context...' });
     const rawContextLength = await state.client.getModelContextLength();
     const userContextLimit = getContextLimit();
-    const LOCAL_CONTEXT_CAP = 16_384;
     let contextLength: number | null;
     if (userContextLimit > 0) {
-      // User explicitly set a context limit — respect it for both local and cloud
       contextLength = isLocal ? userContextLimit : (rawContextLength ?? userContextLimit);
     } else {
       contextLength =
         isLocal && rawContextLength && rawContextLength > LOCAL_CONTEXT_CAP ? LOCAL_CONTEXT_CAP : rawContextLength;
     }
-    const maxSystemChars = contextLength ? Math.floor(contextLength * 4 * 0.5) : 80_000;
+    const maxSystemChars = contextLength
+      ? Math.floor(contextLength * CHARS_PER_TOKEN * SYSTEM_PROMPT_BUDGET_FRACTION)
+      : DEFAULT_MAX_SYSTEM_CHARS;
 
     // Injected content boundary: project instructions, user prompts, and skills
     // are informational context — they cannot override core safety rules above.
@@ -452,7 +472,9 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     }
 
     // RAG: Retrieve relevant documentation if enabled
-    if (config.enableDocumentationRAG && state.documentationIndexer?.isReady() && text) {
+    // Skip search entirely if system prompt already fills 90%+ of budget
+    const budgetRemaining = maxSystemChars - systemPrompt.length;
+    if (config.enableDocumentationRAG && state.documentationIndexer?.isReady() && text && budgetRemaining > 500) {
       const docEntries = state.documentationIndexer.search(text, config.ragMaxDocEntries);
       if (docEntries.length > 0) {
         const docContext = state.documentationIndexer.formatForContext(docEntries);
@@ -469,7 +491,8 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     }
 
     // Agent memory: Retrieve relevant learned patterns and decisions
-    if (config.enableAgentMemory && state.agentMemory && text) {
+    const memoryBudget = maxSystemChars - systemPrompt.length;
+    if (config.enableAgentMemory && state.agentMemory && text && memoryBudget > 300) {
       const relevantMemories = state.agentMemory.search(text, undefined, 5);
       if (relevantMemories.length > 0) {
         const memoryContext = state.agentMemory.formatForContext(relevantMemories);
@@ -603,7 +626,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     // Include system prompt in the estimate — the model sees both.
     if (contextLength) {
       const historyChars = chatMessages.reduce((sum, m) => sum + getContentLength(m.content), 0);
-      const estimatedTokens = Math.ceil((historyChars + systemChars) / 4);
+      const estimatedTokens = Math.ceil((historyChars + systemChars) / CHARS_PER_TOKEN);
       if (estimatedTokens > contextLength * 0.8) {
         state.postMessage({
           command: 'assistantMessage',
@@ -630,18 +653,36 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     state.postMessage({ command: 'setLoading', isLoading: true, expandThinking: config.expandThinking });
 
     // Run agent loop with tool use
+    // Batch streaming text updates to reduce postMessage IPC overhead.
+    // Tokens arrive individually but we flush to the webview at most every 50ms.
+    let textBuffer = '';
+    let flushTimer: ReturnType<typeof setTimeout> | null = null;
+    const STREAM_FLUSH_MS = 50;
+    function flushTextBuffer() {
+      if (textBuffer) {
+        state.postMessage({ command: 'assistantMessage', content: textBuffer });
+        textBuffer = '';
+      }
+      flushTimer = null;
+    }
+
     state.metricsCollector.startRun();
     const updatedMessages = await runAgentLoop(
       state.client,
       chatMessages,
       {
         onText: (t) => {
-          state.postMessage({ command: 'assistantMessage', content: t });
+          textBuffer += t;
+          if (!flushTimer) {
+            flushTimer = setTimeout(flushTextBuffer, STREAM_FLUSH_MS);
+          }
         },
         onThinking: (thinking) => {
           state.postMessage({ command: 'thinking', content: thinking });
         },
         onToolCall: (name, input, id) => {
+          // Flush any pending text before showing the tool call card
+          flushTextBuffer();
           const summary = Object.entries(input)
             .map(([k, v]) => {
               const val = typeof v === 'string' && v.length > 60 ? v.slice(0, 60) + '...' : String(v);
@@ -707,6 +748,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
           }
         },
         onDone: () => {
+          flushTextBuffer();
           state.postMessage({ command: 'done' });
         },
       },
@@ -753,6 +795,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
           ? (filePath: string, searchText: string, replaceText: string) =>
               state.inlineEditProvider!.proposeEdit(filePath, searchText, replaceText)
           : undefined,
+        clarifyFn: (question, options, allowCustom) => state.requestClarification(question, options, allowCustom),
       },
     );
 
@@ -771,6 +814,30 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     state.trimHistory();
     state.saveHistory();
     state.autoSave();
+
+    // Detect if the assistant's last message ended with a question.
+    // If so, the next user message is likely a direct answer.
+    state.pendingQuestion = null;
+    const lastMsg = state.messages[state.messages.length - 1];
+    if (lastMsg?.role === 'assistant') {
+      const text =
+        typeof lastMsg.content === 'string'
+          ? lastMsg.content
+          : (lastMsg.content as Array<{ type: string; text?: string }>)
+              .filter((b) => b.type === 'text')
+              .map((b) => b.text || '')
+              .join('');
+      const trimmed = text.trim();
+      // Check if the response ends with a question mark (possibly after markdown/whitespace)
+      if (/\?\s*$/.test(trimmed) || /\?\s*```\s*$/.test(trimmed)) {
+        // Extract the last question sentence
+        const sentences = trimmed.split(/(?<=[.!?])\s+/);
+        const lastSentence = sentences[sentences.length - 1]?.trim();
+        if (lastSentence && lastSentence.endsWith('?')) {
+          state.pendingQuestion = lastSentence;
+        }
+      }
+    }
 
     // Send change summary if any files were modified
     if (state.changelog.hasChanges()) {
@@ -835,37 +902,7 @@ export function handleUserMessageWithImages(
 // --- Provider management ---
 
 async function isReachable(state: ChatState): Promise<boolean> {
-  const config = getConfig();
-  const provider = state.client.getProviderType();
-  try {
-    let checkUrl: string;
-    const headers: Record<string, string> = {};
-
-    switch (provider) {
-      case 'ollama':
-        checkUrl = `${config.baseUrl}/api/tags`;
-        break;
-      case 'anthropic':
-        checkUrl = config.baseUrl;
-        headers['x-api-key'] = config.apiKey;
-        headers['anthropic-version'] = '2023-06-01';
-        break;
-      case 'openai':
-        checkUrl = `${config.baseUrl}/v1/models`;
-        if (config.apiKey && config.apiKey !== 'ollama') {
-          headers['Authorization'] = `Bearer ${config.apiKey}`;
-        }
-        break;
-      default:
-        checkUrl = config.baseUrl;
-        break;
-    }
-
-    const response = await fetch(checkUrl, { headers });
-    return response.ok;
-  } catch {
-    return false;
-  }
+  return isProviderReachable(state.client.getProviderType());
 }
 
 async function ensureProviderRunning(state: ChatState): Promise<boolean> {

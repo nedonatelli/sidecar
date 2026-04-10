@@ -2,7 +2,8 @@ import { window } from 'vscode';
 import type { ChatState } from '../chatState.js';
 import type { LibraryModelUI } from '../chatWebview.js';
 import { getConfig } from '../../config/settings.js';
-import { modelSupportsTools } from '../../ollama/ollamaBackend.js';
+import { isProviderReachable } from '../../config/providerReachability.js';
+import { modelSupportsTools, probeModelToolSupport, probeAllModelToolSupport } from '../../ollama/ollamaBackend.js';
 import { parseHuggingFaceRef, listGGUFFiles, formatSize } from '../../ollama/huggingface.js';
 
 export async function loadModels(state: ChatState): Promise<void> {
@@ -20,6 +21,12 @@ export async function loadModels(state: ChatState): Promise<void> {
     }
 
     const libraryModels = await state.client.listLibraryModels();
+
+    // Probe installed models for tool support via Ollama's /api/show capabilities
+    if (state.client.isLocalOllama()) {
+      const installedNames = libraryModels.filter((m) => m.installed).map((m) => m.name);
+      await probeAllModelToolSupport(config.baseUrl, installedNames);
+    }
 
     const modelsUI: LibraryModelUI[] = libraryModels.map((m) => ({
       name: m.name,
@@ -89,29 +96,6 @@ export async function handleInstallModel(state: ChatState, modelName: string): P
     }
   }
 
-  // Check if model supports tool use (required for agent mode)
-  const supportsTools = modelSupportsTools(pullName);
-  if (!supportsTools) {
-    const proceed = await window.showWarningMessage(
-      `⚠️ "${pullName}" does not support tool use. SideCar's agent mode requires tool-calling capabilities for autonomous code execution (file read/write, shell commands, etc). This model will only work in chat-only mode.\n\nDo you want to continue?`,
-      'Yes, Download Anyway',
-      'Cancel',
-    );
-
-    if (proceed !== 'Yes, Download Anyway') {
-      state.postMessage({
-        command: 'assistantMessage',
-        content: `Model download cancelled. Tip: Look for models like qwen3-coder, llama3.1, command-r, or claude models that support tool use.\n\n`,
-      });
-      return;
-    }
-
-    state.postMessage({
-      command: 'assistantMessage',
-      content: `ℹ️ Proceeding with chat-only model. You can still use SideCar for code explanation, refactoring suggestions, and chat — but agent mode (autonomous code changes) won't be available.\n\n`,
-    });
-  }
-
   state.installAbortController = new AbortController();
 
   try {
@@ -146,10 +130,22 @@ export async function handleInstallModel(state: ChatState, modelName: string): P
 
     state.client.updateModel(pullName);
     state.postMessage({ command: 'installComplete', modelName: pullName });
-    state.postMessage({ command: 'setCurrentModel', currentModel: pullName });
 
     // Give Ollama a moment to register the newly installed model
     await new Promise((resolve) => setTimeout(resolve, 500));
+
+    // Probe the newly installed model for tool support
+    if (state.client.isLocalOllama()) {
+      const hasTools = await probeModelToolSupport(getConfig().baseUrl, pullName);
+      if (!hasTools) {
+        state.postMessage({
+          command: 'assistantMessage',
+          content: `ℹ️ **${pullName}** does not support tool use. You can use it for chat, code explanation, and refactoring suggestions — but agent mode (autonomous code changes) won't be available with this model.\n\n`,
+        });
+      }
+    }
+
+    state.postMessage({ command: 'setCurrentModel', currentModel: pullName });
 
     // Reload model list to show the newly installed model in dropdown
     await loadModels(state);
@@ -168,36 +164,5 @@ export async function handleInstallModel(state: ChatState, modelName: string): P
 }
 
 async function ensureReachable(state: ChatState): Promise<boolean> {
-  const config = getConfig();
-  const provider = state.client.getProviderType();
-  try {
-    let checkUrl: string;
-    const headers: Record<string, string> = {};
-
-    switch (provider) {
-      case 'ollama':
-        checkUrl = `${config.baseUrl}/api/tags`;
-        break;
-      case 'anthropic':
-        checkUrl = config.baseUrl;
-        headers['x-api-key'] = config.apiKey;
-        headers['anthropic-version'] = '2023-06-01';
-        break;
-      case 'llmmanager':
-        checkUrl = `${config.baseUrl}/v1/models`;
-        headers['Authorization'] = `Bearer ${config.apiKey}`;
-        break;
-      case 'openai':
-        checkUrl = `${config.baseUrl}/v1/models`;
-        if (config.apiKey && config.apiKey !== 'ollama') {
-          headers['Authorization'] = `Bearer ${config.apiKey}`;
-        }
-        break;
-    }
-
-    const response = await fetch(checkUrl, { headers });
-    return response.ok;
-  } catch {
-    return false;
-  }
+  return isProviderReachable(state.client.getProviderType());
 }

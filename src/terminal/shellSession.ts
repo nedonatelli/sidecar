@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'child_process';
 import { randomBytes } from 'crypto';
 import * as os from 'os';
+import { MAX_BACKGROUND_COMMANDS } from '../config/constants.js';
 
 export interface ShellExecuteOptions {
   timeout?: number; // ms, default 120_000
@@ -231,10 +232,30 @@ export class ShellSession {
     });
   }
 
+  private static readonly MAX_BG_COMMANDS = MAX_BACKGROUND_COMMANDS;
+
   /**
    * Start a command in the background. Returns an ID to check on it later.
+   * Limited to MAX_BACKGROUND_COMMANDS concurrent processes to prevent resource exhaustion.
    */
   executeBackground(command: string): string {
+    // Enforce concurrency limit
+    if (this.backgroundCommands.size >= ShellSession.MAX_BG_COMMANDS) {
+      // Clean up completed commands first
+      for (const [id, entry] of this.backgroundCommands) {
+        if (entry.done) {
+          this.backgroundCommands.delete(id);
+        }
+      }
+      // If still at limit after cleanup, reject
+      if (this.backgroundCommands.size >= ShellSession.MAX_BG_COMMANDS) {
+        throw new Error(
+          `Background command limit reached (${ShellSession.MAX_BG_COMMANDS}). ` +
+            'Check or wait for existing commands to finish.',
+        );
+      }
+    }
+
     const id = randomBytes(4).toString('hex');
     const proc = spawn(
       this.isWindows ? process.env.COMSPEC || 'cmd.exe' : process.env.SHELL || '/bin/bash',

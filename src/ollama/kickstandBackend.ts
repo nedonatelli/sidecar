@@ -4,24 +4,24 @@ import { fetchWithRetry } from './retry.js';
 import { abortableRead } from './streamUtils.js';
 
 // ---------------------------------------------------------------------------
-// LLMManager API types
+// Kickstand API types
 // ---------------------------------------------------------------------------
 
-interface LLMManagerMessage {
+interface KickstandMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
 }
 
-interface LLMManagerChatRequest {
+interface KickstandChatRequest {
   model: string;
-  messages: LLMManagerMessage[];
+  messages: KickstandMessage[];
   temperature?: number;
   max_tokens?: number;
   stream?: boolean;
-  tools?: LLMManagerTool[];
+  tools?: KickstandTool[];
 }
 
-interface LLMManagerTool {
+interface KickstandTool {
   type: 'function';
   function: {
     name: string;
@@ -34,7 +34,7 @@ interface LLMManagerTool {
   };
 }
 
-interface LLMManagerChatResponse {
+interface KickstandChatResponse {
   id: string;
   object: string;
   created: number;
@@ -62,7 +62,7 @@ interface LLMManagerChatResponse {
   };
 }
 
-interface LLMManagerStreamChunk {
+interface KickstandStreamChunk {
   id: string;
   object: string;
   created: number;
@@ -90,8 +90,8 @@ interface LLMManagerStreamChunk {
 // Message format conversion
 // ---------------------------------------------------------------------------
 
-function toLLMManagerMessages(messages: ChatMessage[], systemPrompt: string): LLMManagerMessage[] {
-  const result: LLMManagerMessage[] = [];
+function toKickstandMessages(messages: ChatMessage[], systemPrompt: string): KickstandMessage[] {
+  const result: KickstandMessage[] = [];
 
   if (systemPrompt) {
     result.push({ role: 'system', content: systemPrompt });
@@ -116,14 +116,14 @@ function extractTextContent(blocks: ContentBlock[]): string {
 }
 
 // ---------------------------------------------------------------------------
-// LLMManager backend
+// Kickstand backend
 // ---------------------------------------------------------------------------
 
 /**
- * Backend for LLMManager API.
- * Connects to a locally-hosted LLMManager instance via HTTP.
+ * Backend for Kickstand API.
+ * Connects to a locally-hosted Kickstand instance via HTTP.
  */
-export class LLMManagerBackend implements ApiBackend {
+export class KickstandBackend implements ApiBackend {
   constructor(
     private baseUrl: string,
     private apiToken: string,
@@ -147,9 +147,9 @@ export class LLMManagerBackend implements ApiBackend {
     signal?: AbortSignal,
     tools?: ToolDefinition[],
   ): AsyncGenerator<StreamEvent> {
-    const llmMessages = toLLMManagerMessages(messages, systemPrompt);
+    const llmMessages = toKickstandMessages(messages, systemPrompt);
 
-    const body: LLMManagerChatRequest = {
+    const body: KickstandChatRequest = {
       model,
       messages: llmMessages,
       stream: true,
@@ -175,11 +175,11 @@ export class LLMManagerBackend implements ApiBackend {
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
-      throw new Error(`LLMManager API error ${response.status}: ${errorText}`);
+      throw new Error(`Kickstand API error ${response.status}: ${errorText}`);
     }
 
     if (!response.body) {
-      throw new Error('No response body from LLMManager');
+      throw new Error('No response body from Kickstand');
     }
 
     const reader = response.body.getReader();
@@ -206,7 +206,7 @@ export class LLMManagerBackend implements ApiBackend {
             if (data === '[DONE]') break;
 
             try {
-              const parsed: LLMManagerStreamChunk = JSON.parse(data);
+              const parsed: KickstandStreamChunk = JSON.parse(data);
               const delta = parsed.choices[0]?.delta;
 
               if (delta?.content) {
@@ -229,7 +229,7 @@ export class LLMManagerBackend implements ApiBackend {
             } catch {
               // Skip lines that aren't valid JSON
               if (data.length > 0) {
-                console.warn('[LLMManager] Failed to parse stream line:', data);
+                console.warn('[Kickstand] Failed to parse stream line:', data);
               }
             }
           }
@@ -247,9 +247,9 @@ export class LLMManagerBackend implements ApiBackend {
     maxTokens: number,
     signal?: AbortSignal,
   ): Promise<string> {
-    const llmMessages = toLLMManagerMessages(messages, systemPrompt);
+    const llmMessages = toKickstandMessages(messages, systemPrompt);
 
-    const body: LLMManagerChatRequest = {
+    const body: KickstandChatRequest = {
       model,
       messages: llmMessages,
       max_tokens: maxTokens,
@@ -265,10 +265,10 @@ export class LLMManagerBackend implements ApiBackend {
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
-      throw new Error(`LLMManager API error ${response.status}: ${errorText}`);
+      throw new Error(`Kickstand API error ${response.status}: ${errorText}`);
     }
 
-    const data: LLMManagerChatResponse = await response.json();
+    const data: KickstandChatResponse = await response.json();
     return data.choices[0]?.message?.content || '';
   }
 }

@@ -2,6 +2,45 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.39.0] - 2026-04-10
+
+### Added
+- **`ask_user` clarification tool**: LLM can present users with selectable options or custom text input when it needs more context. New `clarify` webview card with option buttons and free-text input
+- **Pending question tracking**: when the assistant asks a question in prose, the next short user reply is automatically contextualized as a response
+- **Kickstand rebrand**: LLMManager renamed to Kickstand across all source, config, and docs. Provider `kickstand`, CLI `kick`, token path `~/.config/kickstand/token`
+- **Dynamic tool support probing**: replaced static deny list with live `/api/show` capabilities query. Cached per-session with runtime failure backstop
+- **Version bump automation**: `npm run bump 0.X.0 "summary"` auto-updates package.json, CHANGELOG, ROADMAP, README, docs, and landing page stats
+
+### Security
+- Path traversal validation on `@file:` and `@folder:` references
+- Default `confirmFn` changed from auto-approve to deny
+- Workspace trust warnings for tool permissions and MCP server configs
+- SVG sanitizer replaced with DOMParser + allowlist (was regex-based)
+- Event hook env vars sanitized for control characters
+- Background command limit (10 concurrent) with auto-cleanup
+- CSP `connect-src` tightened to specific Ollama/Kickstand ports
+
+### Performance
+- Provider reachability timeout 5s → 1.5s
+- Streaming text batched at 50ms intervals (~60% fewer postMessage calls)
+- `scrollToBottom` throttled to `requestAnimationFrame`
+- RAG/memory search skipped when system prompt budget 90%+ full
+- Model tool probe batch size 5 → 15
+- Token estimation standardized to `CHARS_PER_TOKEN = 4` (was inconsistent 3.5 vs 4)
+
+### Fixed
+- Mermaid diagrams: sanitizer now allows `<style>` tags, `securityLevel` set to `loose`, added error logging
+- Provider reachability missing `kickstand` case
+- Install-time tool check was using empty runtime data instead of static list
+
+### Refactored
+- Extracted `workspaceTrust.ts`, `providerReachability.ts`, `constants.ts` — eliminated 3 duplicated patterns
+- Path validation and display name helpers extracted
+
+### Stats
+- 879 total tests (66 test files)
+- 22 built-in tools, 7 skills
+
 ## [0.38.0] - 2026-04-09
 
 ### Added
@@ -83,15 +122,15 @@ All notable changes to the SideCar extension will be documented in this file.
 ### Added
 - **Spending budgets**: new `sidecar.dailyBudget` and `sidecar.weeklyBudget` settings (USD). Agent runs are blocked when the limit is reached, with a warning at 80% usage. Completes the cost tracking & budgets roadmap item
 - **Per-run cost tracking**: each agent run now records its estimated cost in metrics history. `/usage` dashboard shows per-run cost column and a new Budget Status section with spent/limit/remaining
-- **LLMManager provider support**: `llmmanager` added as an explicit provider option alongside ollama/anthropic/openai
-- **Dual-backend model discovery**: new `SideCar: Discover Available Models` command and startup discovery that probes both Ollama and LLMManager for available models. Respects configured base URLs instead of hardcoded ports
+- **Kickstand provider support**: `kickstand` added as an explicit provider option alongside ollama/anthropic/openai
+- **Dual-backend model discovery**: new `SideCar: Discover Available Models` command and startup discovery that probes both Ollama and Kickstand for available models. Respects configured base URLs instead of hardcoded ports
 - **Streaming diff preview types**: added `StreamingDiffPreviewFn`, `EditBlock`, and `ProposedContentProvider` type infrastructure for upcoming streaming diff feature
 
 ### Fixed
 - **Token compaction not triggering**: agent loop `totalChars` was initialized to 0 instead of summing existing conversation history, so the 70% compression threshold never fired for accumulated context
 - **Pruned messages re-added**: after `pruneHistory` reduced the message array, the post-loop merge used the pruned length to slice `state.messages`, re-adding the very messages that pruning had removed
-- **Model discovery hardcoded ports**: `discoverAllAvailableModels()` now accepts configurable URLs for both Ollama and LLMManager instead of hardcoding `localhost:11434` and `localhost:11435`
-- **Unnecessary startup discovery**: model discovery on activation now only runs when the detected provider is `ollama` or `llmmanager`, avoiding two 2-second timeout fetches for Anthropic/OpenAI users
+- **Model discovery hardcoded ports**: `discoverAllAvailableModels()` now accepts configurable URLs for both Ollama and Kickstand instead of hardcoding `localhost:11434` and `localhost:11435`
+- **Unnecessary startup discovery**: model discovery on activation now only runs when the detected provider is `ollama` or `kickstand`, avoiding two 2-second timeout fetches for Anthropic/OpenAI users
 - **TypeScript type errors**: added missing imports for `EditBlock`, `ProposedContentProvider` in executor.ts and `StreamingDiffPreviewFn` in loop.ts — zero type errors now
 
 ### Changed
@@ -168,7 +207,7 @@ All notable changes to the SideCar extension will be documented in this file.
 ## [0.30.0] - 2026-04-08
 
 ### Added
-- **LLMManager backend support**: connect to LLMManager inference server on `http://localhost:11435` with automatic token loading from `~/.config/llmmanager/token`. Full streaming, tool use, and fallback support
+- **Kickstand backend support**: connect to Kickstand inference server on `http://localhost:11435` with automatic token loading from `~/.config/kickstand/token`. Full streaming, tool use, and fallback support
 - **Claude Code skill compatibility**: load and use existing Claude Code skills directly — no format conversion needed. Scans `~/.claude/commands/`, `<workspace>/.claude/commands/`, and `.sidecar/skills/` for markdown skill files. Trigger via `/skill-name` slash command or automatic keyword matching. New `/skills` command lists all loaded skills
 - **Backend fallback**: configure a secondary provider via `sidecar.fallbackBaseUrl`, `sidecar.fallbackApiKey`, `sidecar.fallbackModel`. After 2 consecutive failures on the primary, SideCar auto-switches to fallback with a warning. Switches back on success
 - **Docs redesign CSS**: extracted design system stylesheet for the docs site (coral/blue/purple palette, code blocks, callouts, mode grid, nav cards)

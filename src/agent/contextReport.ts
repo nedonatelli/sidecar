@@ -1,5 +1,6 @@
 import type { ChatMessage } from '../ollama/types.js';
 import { getContentText } from '../ollama/types.js';
+import { CHARS_PER_TOKEN } from '../config/constants.js';
 
 export interface ContextSection {
   name: string;
@@ -11,7 +12,7 @@ export interface ContextSection {
  * Estimate tokens from character count (~4 chars per token).
  */
 function estimateTokens(chars: number): number {
-  return Math.ceil(chars / 4);
+  return Math.ceil(chars / CHARS_PER_TOKEN);
 }
 
 /**

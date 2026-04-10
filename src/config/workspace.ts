@@ -100,12 +100,26 @@ export async function resolveAtReferences(text: string): Promise<string> {
   let result = text;
   const attachments: string[] = [];
 
+  const rootPath = root.fsPath;
+
+  /** Resolve a relative path and verify it stays within the workspace root. */
+  function resolveWithinWorkspace(relativePath: string): string | null {
+    const resolved = path.resolve(rootPath, relativePath);
+    if (!resolved.startsWith(rootPath + path.sep) && resolved !== rootPath) return null;
+    return resolved;
+  }
+
   // @file:path — include file content
   const fileRefs = text.matchAll(/@file:([^\s]+)/g);
   for (const match of fileRefs) {
     const filePath = match[1];
+    const resolved = resolveWithinWorkspace(filePath);
+    if (!resolved) {
+      attachments.push(`### @file:${filePath}\n⚠️ Path traversal blocked — must be within workspace`);
+      continue;
+    }
     try {
-      const fileUri = Uri.joinPath(root, filePath);
+      const fileUri = Uri.file(resolved);
       const bytes = await workspace.fs.readFile(fileUri);
       const content = Buffer.from(bytes).toString('utf-8').slice(0, MAX_CONTENT_LENGTH);
       attachments.push(`### @file:${filePath}\n\`\`\`\n${content}\n\`\`\``);
@@ -118,8 +132,13 @@ export async function resolveAtReferences(text: string): Promise<string> {
   const folderRefs = text.matchAll(/@folder:([^\s]+)/g);
   for (const match of folderRefs) {
     const folderPath = match[1];
+    const resolved = resolveWithinWorkspace(folderPath);
+    if (!resolved) {
+      attachments.push(`### @folder:${folderPath}\n⚠️ Path traversal blocked — must be within workspace`);
+      continue;
+    }
     try {
-      const folderUri = Uri.joinPath(root, folderPath);
+      const folderUri = Uri.file(resolved);
       const entries = await workspace.fs.readDirectory(folderUri);
       const listing = entries.map(([name, type]) => `${type === 2 ? '📁 ' : '📄 '}${name}`).join('\n');
       attachments.push(`### @folder:${folderPath}\n\`\`\`\n${listing}\n\`\`\``);

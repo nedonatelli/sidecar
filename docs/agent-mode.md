@@ -53,7 +53,7 @@ The **Stop button** (the Send button toggles to a red Stop during processing) le
 
 ## Built-in tools
 
-SideCar has 19 built-in tools the agent can use:
+SideCar has 22 built-in tools the agent can use:
 
 | Tool | Description |
 |------|-------------|
@@ -76,8 +76,23 @@ SideCar has 19 built-in tools the agent can use:
 | `git_branch` | Create/switch/list branches |
 | `git_stash` | Stash/pop changes |
 | `git_diff` | Show file diffs |
+| `find_references` | Find symbol references across the workspace |
+| `web_search` | Search the web via DuckDuckGo |
+| `display_diagram` | Extract and render diagrams from markdown files |
+| `ask_user` | Ask the user a clarifying question with selectable options |
 
 Additional tools can be added via [MCP servers](mcp-servers) and [custom tools](hooks-and-tasks#custom-tools).
+
+## Clarifying questions
+
+When SideCar encounters an ambiguous request or multiple valid approaches, it can use the `ask_user` tool to ask for clarification before proceeding. This presents a card in chat with:
+
+- **Selectable option buttons** — suggested approaches the user can click to choose
+- **Custom text input** — a free-text field if none of the options fit
+
+The agent loop pauses until the user responds, then continues with the selected approach. This prevents SideCar from guessing wrong on ambiguous tasks.
+
+SideCar also tracks when the assistant asks a question in regular prose (ending with `?`). If the user's next reply is short (under 20 words), SideCar automatically adds context so the LLM understands it's a response to the question, not a new task.
 
 ## Tool permissions
 

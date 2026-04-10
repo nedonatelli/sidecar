@@ -650,6 +650,86 @@ body {
   background: var(--vscode-button-hoverBackground);
 }
 
+/* Clarifying question card */
+.clarify-card {
+  margin: 4px 12px;
+  padding: 12px;
+  border: 1px solid var(--vscode-widget-border);
+  border-radius: 6px;
+  background: var(--vscode-textBlockQuote-background);
+}
+
+.clarify-question {
+  font-size: 13px;
+  color: var(--vscode-foreground);
+  margin-bottom: 10px;
+  font-weight: 500;
+}
+
+.clarify-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.clarify-option-btn {
+  padding: 5px 14px;
+  font-size: 12px;
+  border: 1px solid var(--vscode-button-border, var(--vscode-widget-border));
+  border-radius: 4px;
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+  cursor: pointer;
+  font-family: var(--vscode-font-family);
+  transition: background 0.1s;
+}
+
+.clarify-option-btn:hover {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.clarify-custom {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.clarify-input {
+  flex: 1;
+  padding: 4px 8px;
+  font-size: 12px;
+  border: 1px solid var(--vscode-input-border);
+  border-radius: 3px;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  font-family: var(--vscode-font-family);
+  outline: none;
+}
+
+.clarify-input:focus {
+  border-color: var(--vscode-focusBorder);
+}
+
+.clarify-input::placeholder {
+  color: var(--vscode-input-placeholderForeground);
+}
+
+.clarify-submit-btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  border: 1px solid var(--vscode-button-background);
+  border-radius: 3px;
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  cursor: pointer;
+  font-family: var(--vscode-font-family);
+}
+
+.clarify-submit-btn:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
 #slash-autocomplete {
   border-top: 1px solid var(--vscode-widget-border);
   background: var(--vscode-editor-background);
@@ -1750,11 +1830,14 @@ body {
 
 .diagram-container.diagram-rendered {
   color: inherit;
+  background: var(--vscode-textCodeBlock-background, rgba(0, 0, 0, 0.15));
 }
 
 .diagram-container.diagram-rendered svg {
   max-width: 100%;
   height: auto;
+  display: block;
+  margin: 0 auto;
 }
 
 .diagram-container.diagram-error {

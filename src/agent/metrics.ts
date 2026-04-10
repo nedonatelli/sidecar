@@ -1,4 +1,5 @@
 import type { Memento } from 'vscode';
+import { CHARS_PER_TOKEN } from '../config/constants.js';
 
 export interface ToolCallMetric {
   name: string;
@@ -54,7 +55,8 @@ export class MetricsCollector {
 
   recordTokens(chars: number): void {
     if (this.currentRun) {
-      this.currentRun.totalTokensEstimate = (this.currentRun.totalTokensEstimate || 0) + Math.ceil(chars / 4);
+      this.currentRun.totalTokensEstimate =
+        (this.currentRun.totalTokensEstimate || 0) + Math.ceil(chars / CHARS_PER_TOKEN);
     }
   }
 

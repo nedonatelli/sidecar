@@ -50,6 +50,13 @@ export class ChatState {
   /** ID of the current auto-saved session, null if conversation is empty/unsaved */
   currentSessionId: string | null = null;
 
+  /**
+   * Tracks when the assistant's last message ended with a question.
+   * If set, the next user message is likely a direct response to this question,
+   * and context will be injected to help the LLM understand the relationship.
+   */
+  pendingQuestion: string | null = null;
+
   constructor(
     readonly context: ExtensionContext,
     readonly terminalManager: TerminalManager,
@@ -126,6 +133,32 @@ export class ChatState {
   }
 
   /**
+   * Show a clarification card with selectable options and optional custom text input.
+   * Returns the user's selected option or custom text, or undefined if dismissed.
+   */
+  requestClarification(question: string, options: string[], allowCustom: boolean = true): Promise<string | undefined> {
+    const id = `clarify_${++this.confirmCounter}`;
+    return new Promise((resolve) => {
+      this.pendingConfirms.set(id, resolve);
+      this.postMessage({
+        command: 'clarify',
+        content: question,
+        clarifyId: id,
+        clarifyOptions: options,
+        clarifyAllowCustom: allowCustom,
+      });
+    });
+  }
+
+  resolveClarification(id: string, choice: string | undefined): void {
+    const resolve = this.pendingConfirms.get(id);
+    if (resolve) {
+      this.pendingConfirms.delete(id);
+      resolve(choice);
+    }
+  }
+
+  /**
    * Auto-save the current conversation to the session store.
    * Creates a new session on first save, updates in place after that.
    * Skips if the conversation is empty.
@@ -181,6 +214,7 @@ export class ChatState {
     this.messages = [];
     this.pendingPlan = null;
     this.pendingPlanMessages = [];
+    this.pendingQuestion = null;
     this.changelog.clear();
     this.currentSessionId = null;
     this.chatGeneration++;

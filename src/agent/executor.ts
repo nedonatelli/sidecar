@@ -6,6 +6,7 @@ import { findTool, type ToolExecutorContext } from './tools.js';
 import type { ChangeLog } from './changelog.js';
 import type { MCPManager } from './mcpManager.js';
 import { getConfig } from '../config/settings.js';
+import { checkWorkspaceConfigTrust } from '../config/workspaceTrust.js';
 import type { AgentLogger } from './logger.js';
 import { scanFile, formatIssues } from './securityScanner.js';
 
@@ -18,10 +19,6 @@ export type InlineEditFn = (filePath: string, searchText: string, replaceText: s
 export type StreamingDiffPreviewFn = (filePath: string, proposedContent: string) => Promise<'accept' | 'reject'>;
 
 const WRITE_TOOLS = new Set(['write_file', 'edit_file']);
-
-// Track whether workspace-level hooks have been trusted for this session
-let workspaceHooksTrusted = false;
-let workspaceHooksBlocked = false;
 
 export async function executeTool(
   toolUse: ToolUseContentBlock,
@@ -46,10 +43,45 @@ export async function executeTool(
     };
   }
 
+  // --- ask_user: route through clarification UI ---
+  if (toolUse.name === 'ask_user') {
+    const question = ((toolUse.input as Record<string, unknown>).question as string) || 'What would you like to do?';
+    const options = ((toolUse.input as Record<string, unknown>).options as string[]) || [];
+    const allowCustom = ((toolUse.input as Record<string, unknown>).allow_custom as boolean) !== false;
+    const clarifyFn = executorContext?.clarifyFn;
+
+    if (!clarifyFn) {
+      return {
+        type: 'tool_result',
+        tool_use_id: toolUse.id,
+        content: 'No UI available for user clarification.',
+        is_error: true,
+      };
+    }
+
+    const response = await clarifyFn(question, options, allowCustom);
+    return {
+      type: 'tool_result',
+      tool_use_id: toolUse.id,
+      content: response || '(User dismissed the question without answering)',
+    };
+  }
+
   const config = getConfig();
   // --- Per-tool permissions (highest priority) ---
   const permissions = config.toolPermissions;
-  const explicitPermission = permissions[toolUse.name];
+  let explicitPermission: 'allow' | 'deny' | 'ask' | undefined = permissions[toolUse.name];
+
+  // Warn once per session if tool permissions are defined at workspace level (supply-chain risk)
+  if (explicitPermission) {
+    const trust = await checkWorkspaceConfigTrust(
+      'toolPermissions',
+      'SideCar: This workspace defines tool permission overrides (e.g. auto-allow write_file). Only trust these from repositories you control.',
+    );
+    if (trust === 'blocked') {
+      explicitPermission = undefined;
+    }
+  }
 
   if (explicitPermission === 'deny') {
     return {
@@ -148,7 +180,7 @@ export async function executeTool(
         })
         .join(', ');
 
-      const confirm = confirmFn || (async (_msg: string, actions: string[]) => actions[0]);
+      const confirm = confirmFn || (async (_msg: string, _actions: string[]) => 'Deny');
       const choice = await confirm(`SideCar wants to use **${toolUse.name}**(${inputSummary})`, ['Allow', 'Deny']);
 
       if (choice !== 'Allow') {
@@ -222,26 +254,11 @@ async function runHook(
   if (!command) return;
 
   // Warn once per session if hooks are defined at workspace level (supply-chain risk)
-  if (!workspaceHooksTrusted) {
-    const inspection = workspace.getConfiguration('sidecar').inspect('hooks');
-    if (inspection?.workspaceValue && Object.keys(inspection.workspaceValue as object).length > 0) {
-      const { window: vscWindow } = await import('vscode');
-      const trust = await vscWindow.showWarningMessage(
-        `SideCar: This workspace defines hook commands that will execute shell commands. Only trust hooks from repositories you control.`,
-        { modal: false },
-        'Allow',
-        'Block',
-      );
-      if (trust === 'Block') {
-        workspaceHooksBlocked = true;
-        return;
-      }
-      workspaceHooksTrusted = true;
-    } else {
-      workspaceHooksTrusted = true;
-    }
-  }
-  if (workspaceHooksBlocked) return;
+  const hookTrust = await checkWorkspaceConfigTrust(
+    'hooks',
+    'SideCar: This workspace defines hook commands that will execute shell commands. Only trust hooks from repositories you control.',
+  );
+  if (hookTrust === 'blocked') return;
 
   const cwd = workspace.workspaceFolders?.[0]?.uri.fsPath;
   const env: Record<string, string> = {

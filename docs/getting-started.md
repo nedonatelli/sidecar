@@ -53,16 +53,17 @@ To use Claude models instead of local Ollama:
 
 SideCar uses prompt caching with Anthropic, reducing input token costs by ~90% on cache hits.
 
-## Using LLMManager
+## Using Kickstand
 
-[LLMManager](https://github.com/llmmanager/llmmanager) is a local inference server that manages model loading, unloading, and GPU memory efficiently.
+[Kickstand](https://github.com/kickstand/kickstand) is a local inference server that manages model loading, unloading, and GPU memory efficiently. The CLI command is `kick`.
 
-1. Install and start LLMManager
-2. Set `sidecar.baseUrl` to `http://localhost:11435` (default LLMManager port)
-3. Set `sidecar.model` to the model you want to use
-4. If authentication is required, set `sidecar.apiKey` — or store your token in `~/.config/llmmanager/token` for automatic loading
+1. Install Kickstand and run `kick init` to set up
+2. Start the server with `kick start`
+3. Set `sidecar.baseUrl` to `http://localhost:11435` (default Kickstand port)
+4. Set `sidecar.model` to the model you want to use
+5. If authentication is required, set `sidecar.apiKey` — or store your token in `~/.config/kickstand/token` for automatic loading
 
-SideCar will auto-detect LLMManager by the port number.
+SideCar will auto-detect Kickstand by the port number.
 
 ## Using OpenAI-compatible servers
 
@@ -87,7 +88,7 @@ SideCar auto-detects the provider from the URL. If auto-detection gets it wrong,
 | llama.cpp | `http://localhost:8080` | Auto-detected as OpenAI |
 | OpenRouter | `https://openrouter.ai/api` | Set API key, access 400+ models |
 | text-generation-webui | `http://localhost:5000` | Enable OpenAI extension in the UI |
-| LLMManager | `http://localhost:11435` | Auto-detected as LLMManager |
+| Kickstand | `http://localhost:11435` | Auto-detected as Kickstand |
 | Ollama | `http://localhost:11434` | Auto-detected as Ollama (native API) |
 | Anthropic | `https://api.anthropic.com` | Auto-detected as Anthropic |
 

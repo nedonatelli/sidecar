@@ -3,8 +3,8 @@ import type { ApiBackend } from './backend.js';
 import { AnthropicBackend } from './anthropicBackend.js';
 import { OllamaBackend } from './ollamaBackend.js';
 import { OpenAIBackend } from './openaiBackend.js';
-import { LLMManagerBackend } from './llmmanagerBackend.js';
-import { isLocalOllama, detectProvider, getConfig, readLLMManagerToken } from '../config/settings.js';
+import { KickstandBackend } from './kickstandBackend.js';
+import { isLocalOllama, detectProvider, getConfig, readKickstandToken } from '../config/settings.js';
 
 const DEFAULT_BASE_URL = 'http://localhost:11434';
 
@@ -81,8 +81,8 @@ export class SideCarClient {
         return new OllamaBackend(this.baseUrl);
       case 'anthropic':
         return new AnthropicBackend(this.baseUrl, this.apiKey);
-      case 'llmmanager':
-        return new LLMManagerBackend(this.baseUrl, this.apiKey || readLLMManagerToken());
+      case 'kickstand':
+        return new KickstandBackend(this.baseUrl, this.apiKey || readKickstandToken());
       case 'openai':
         return new OpenAIBackend(this.baseUrl, this.apiKey);
     }
@@ -277,15 +277,15 @@ export class SideCarClient {
     return provider === 'openai';
   }
 
-  getProviderType(): 'ollama' | 'anthropic' | 'openai' | 'llmmanager' {
+  getProviderType(): 'ollama' | 'anthropic' | 'openai' | 'kickstand' {
     return detectProvider(this.baseUrl, getConfig().provider);
   }
 
   async listInstalledModels(): Promise<InstalledModel[]> {
     const provider = this.getProviderType();
 
-    if (provider === 'openai' || provider === 'llmmanager') {
-      // OpenAI-compatible servers and LLMManager use GET /v1/models
+    if (provider === 'openai' || provider === 'kickstand') {
+      // OpenAI-compatible servers and Kickstand use GET /v1/models
       try {
         const headers: Record<string, string> = {};
         if (this.apiKey && this.apiKey !== 'ollama') {
@@ -378,17 +378,17 @@ export class SideCarClient {
   }
 
   /**
-   * Discover and merge available models from both Ollama and LLMManager backends.
+   * Discover and merge available models from both Ollama and Kickstand backends.
    * Uses the configured base URL for the active provider and probes the other
    * backend at its default port only if the active provider isn't already pointing there.
    *
    * @param ollamaUrl   Base URL for Ollama (default: http://localhost:11434)
-   * @param llmManagerUrl Base URL for LLMManager (default: http://localhost:11435)
-   * @param apiKey      Optional API key for LLMManager authentication
+   * @param kickstandUrl Base URL for Kickstand (default: http://localhost:11435)
+   * @param apiKey      Optional API key for Kickstand authentication
    */
   static async discoverAllAvailableModels(
     ollamaUrl = 'http://localhost:11434',
-    llmManagerUrl = 'http://localhost:11435',
+    kickstandUrl = 'http://localhost:11435',
     apiKey?: string,
   ): Promise<InstalledModel[]> {
     const models: InstalledModel[] = [];
@@ -413,9 +413,9 @@ export class SideCarClient {
       // Ollama not available, continue
     }
 
-    // Try LLMManager
+    // Try Kickstand
     try {
-      const url = llmManagerUrl.replace(/\/+$/, '');
+      const url = kickstandUrl.replace(/\/+$/, '');
       const headers: Record<string, string> = {};
       if (apiKey && apiKey !== 'ollama') {
         headers['Authorization'] = `Bearer ${apiKey}`;
@@ -439,7 +439,7 @@ export class SideCarClient {
         }
       }
     } catch {
-      // LLMManager not available, continue
+      // Kickstand not available, continue
     }
 
     return models;
