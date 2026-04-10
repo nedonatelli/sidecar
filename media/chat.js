@@ -34,6 +34,7 @@
   const streamStats = document.getElementById('stream-stats');
   let typingTimerStart = 0;
   let typingTimerInterval = null;
+  let pendingPlanReady = false;
 
   // Mermaid lazy-loader
   let mermaidReady = null; // resolves when mermaid is loaded
@@ -2625,6 +2626,52 @@
             orphanSummary.appendChild(badge);
           }
         }
+
+        // Append plan action buttons to the last assistant message
+        if (pendingPlanReady) {
+          pendingPlanReady = false;
+          const assistantMsgs = messagesContainer.querySelectorAll('.message.assistant');
+          const lastMsg = assistantMsgs.length > 0 ? assistantMsgs[assistantMsgs.length - 1] : null;
+          if (lastMsg) {
+            lastMsg.classList.add('plan-message');
+            const btnRow = document.createElement('div');
+            btnRow.className = 'plan-actions';
+            const execBtn = document.createElement('button');
+            execBtn.textContent = 'Execute Plan';
+            execBtn.className = 'plan-btn plan-execute';
+            execBtn.addEventListener('click', () => {
+              vscode.postMessage({ command: 'executePlan' });
+              execBtn.disabled = true;
+              reviseBtn.disabled = true;
+              rejectBtn.disabled = true;
+              execBtn.textContent = 'Executing...';
+            });
+            const reviseBtn = document.createElement('button');
+            reviseBtn.textContent = 'Revise';
+            reviseBtn.className = 'plan-btn plan-revise';
+            reviseBtn.addEventListener('click', () => {
+              input.value = '/revise ';
+              input.focus();
+              input.style.height = 'auto';
+              input.style.height = input.scrollHeight + 'px';
+            });
+            const rejectBtn = document.createElement('button');
+            rejectBtn.textContent = 'Reject';
+            rejectBtn.className = 'plan-btn plan-reject';
+            rejectBtn.addEventListener('click', () => {
+              lastMsg.style.opacity = '0.5';
+              execBtn.disabled = true;
+              reviseBtn.disabled = true;
+              rejectBtn.disabled = true;
+              appendMessage('assistant', 'Plan rejected.');
+            });
+            btnRow.appendChild(execBtn);
+            btnRow.appendChild(reviseBtn);
+            btnRow.appendChild(rejectBtn);
+            lastMsg.appendChild(btnRow);
+            scrollToBottom();
+          }
+        }
         break;
       }
 
@@ -3077,47 +3124,9 @@
       }
 
       case 'planReady': {
-        const planDiv = document.createElement('div');
-        planDiv.className = 'plan-block';
-        const planContent = document.createElement('pre');
-        planContent.textContent = content || '';
-        planDiv.appendChild(planContent);
-        const btnRow = document.createElement('div');
-        btnRow.className = 'plan-actions';
-        const execBtn = document.createElement('button');
-        execBtn.textContent = 'Execute Plan';
-        execBtn.className = 'plan-btn plan-execute';
-        execBtn.addEventListener('click', () => {
-          vscode.postMessage({ command: 'executePlan' });
-          execBtn.disabled = true;
-          execBtn.textContent = 'Executing...';
-        });
-        const reviseBtn = document.createElement('button');
-        reviseBtn.textContent = 'Revise';
-        reviseBtn.className = 'plan-btn plan-revise';
-        reviseBtn.addEventListener('click', () => {
-          // Focus the chat input with a revision prefix instead of window.prompt()
-          input.value = '/revise ';
-          input.focus();
-          input.style.height = 'auto';
-          input.style.height = input.scrollHeight + 'px';
-        });
-        const rejectBtn = document.createElement('button');
-        rejectBtn.textContent = 'Reject';
-        rejectBtn.className = 'plan-btn plan-reject';
-        rejectBtn.addEventListener('click', () => {
-          planDiv.style.opacity = '0.5';
-          execBtn.disabled = true;
-          reviseBtn.disabled = true;
-          rejectBtn.disabled = true;
-          appendMessage('assistant', 'Plan rejected.');
-        });
-        btnRow.appendChild(execBtn);
-        btnRow.appendChild(reviseBtn);
-        btnRow.appendChild(rejectBtn);
-        planDiv.appendChild(btnRow);
-        messagesContainer.appendChild(planDiv);
-        scrollToBottom();
+        // Just flag it — the action buttons will be appended to the
+        // assistant message once streaming finishes in the 'done' handler.
+        pendingPlanReady = true;
         break;
       }
 

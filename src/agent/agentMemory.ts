@@ -172,14 +172,18 @@ export class AgentMemory {
           if (contentLower.includes(term)) score += 1;
         }
 
-        // Boost recently accessed memories
+        // Light recency tiebreaker — should never overpower keyword relevance.
+        // A memory with zero keyword hits should not outrank one with hits
+        // just because it's newer.
         const ageMinutes = (Date.now() - m.timestamp) / (1000 * 60);
         const recencyBoost = Math.max(0, 1 - ageMinutes / (7 * 24 * 60)); // Decay over week
-        score += recencyBoost * 0.5;
+        score += recencyBoost * 0.15;
 
-        // Boost current-session memories so they rank higher than stale ones
-        if (m.sessionId === this.currentSessionId) {
-          score += 1.0;
+        // Small boost for current-session memories, but only when they
+        // already have some keyword relevance — prevents previous-turn
+        // memories from dominating when the user switches topics.
+        if (m.sessionId === this.currentSessionId && score > 0.5) {
+          score += 0.3;
         }
 
         return { ...m, relevanceScore: score };

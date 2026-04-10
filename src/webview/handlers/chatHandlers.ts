@@ -226,12 +226,13 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
   }
 
   if (text) {
-    // If the assistant previously asked a question and the user's response is short
-    // (likely a direct answer, not a new task), inject context so the LLM understands
-    // this is a response to its question, not a fresh request.
+    // If the assistant previously asked a question and the user's response is very
+    // short (likely a direct answer like "yes", "option 2", "the first one"), inject
+    // context so the LLM understands this is a response to its question.
+    // Threshold kept low (8 words) to avoid hijacking unrelated follow-ups.
     let messageText = text;
     if (state.pendingQuestion) {
-      const isShortReply = text.split(/\s+/).length <= 20 && !text.startsWith('/');
+      const isShortReply = text.split(/\s+/).length <= 8 && !text.startsWith('/');
       if (isShortReply) {
         messageText = `[Responding to your question: "${state.pendingQuestion}"]\n\n${text}`;
       }
@@ -368,6 +369,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
           '9. You can create diagrams by writing mermaid code blocks (```mermaid) in your responses — they will be rendered visually in the chat.',
           '10. When the request is ambiguous or there are multiple valid approaches, use the ask_user tool to present options and let the user choose before proceeding. Do NOT guess — ask.',
           '11. If a task requires multiple tool calls, chain them without narrating each step.',
+          '12. ALWAYS write complete, working implementations — never leave placeholder comments like "// TODO", "// implement this", "// add logic here", or stub functions that return dummy values. If the user asks you to build something, build it fully.',
           '',
           'EXAMPLE WORKFLOW — user asks "add a hello function to utils.ts":',
           '1. Call read_file(path="src/utils.ts") to see current content',
@@ -396,6 +398,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
           '10. You can create diagrams by writing mermaid code blocks (```mermaid) in your responses — they will be rendered visually in the chat. Use this for architecture diagrams, flowcharts, sequence diagrams, ER diagrams, class diagrams, etc. when it helps explain concepts.',
           '11. When the request is ambiguous or there are multiple valid approaches, use the ask_user tool to present options and let the user choose before proceeding. Do NOT guess — ask.',
           '12. If a task requires multiple tool calls, chain them without narrating each step.',
+          '13. ALWAYS write complete, working implementations — never leave placeholder comments like "// TODO", "// implement this", "// add logic here", or stub functions that return dummy values. If the user asks you to build something, build it fully.',
         ].join('\n');
 
     // In plan mode, append structured planning instructions

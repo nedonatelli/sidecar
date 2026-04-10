@@ -74,14 +74,11 @@ export class WorkspaceIndex implements Disposable {
   private recentlyAccessedFiles = new Set<string>();
   /** Extra exclude patterns from .sidecarignore */
   private customExcludes = new Set<string>();
-  /** Track which root each file belongs to for multi-root support */
-  // private fileRoots = new Map<string, string>();
+
   /** Active workspace roots (can be a subset if workspaceRoots is configured) */
   private activeRoots: Array<{ uri: Uri; fsPath: string }> = [];
   /** Structured context rules */
-  private contextRules: Promise<import('./structuredContextRules.js').StructuredContextRules> = Promise.resolve({
-    rules: [],
-  });
+  // private contextRules: import('./structuredContextRules.js').StructuredContextRules | null = null;
 
   constructor(maxContextChars = 20_000) {
     this.maxContextChars = maxContextChars;
@@ -149,7 +146,7 @@ export class WorkspaceIndex implements Disposable {
     const rootPath = rootUri.fsPath;
 
     // Load context rules
-    this.contextRules = getCurrentContextRules();
+    // Note: contextRules are now always loaded, not cached as a promise
 
     // Load .sidecarignore patterns if the file exists
     try {
@@ -286,7 +283,7 @@ export class WorkspaceIndex implements Disposable {
     const config = getConfig();
 
     // Load context rules
-    const rules = await this.contextRules;
+    const rules = await getCurrentContextRules();
 
     // Score files and select top-k using partial sort (O(n) for scoring,
     // O(n) for partitioning) instead of full O(n log n) sort.
@@ -488,10 +485,12 @@ export class WorkspaceIndex implements Disposable {
   /**
    * Decay all relevance scores so old accesses fade over time.
    * Call this at the start of each conversation turn.
-   * Uses a faster decay (0.8) so that when the user changes topic,
+   * Uses aggressive decay (0.5) so that when the user changes topic,
    * previously discussed files don't dominate the context.
+   * After two turns without re-access, a file's score drops to ~25%
+   * of its boosted value, letting query-matched files take over.
    */
-  decayRelevance(factor = 0.8): void {
+  decayRelevance(factor = 0.5): void {
     for (const node of this.files.values()) {
       const base = this.baseScore(node.relativePath);
       node.relevanceScore = Math.max(base, node.relevanceScore * factor);
@@ -611,11 +610,13 @@ export class WorkspaceIndex implements Disposable {
     // - "prefer: functional-components" would boost relevance of functional components
     // - "require: test-file" would ensure test files are included when relevant
 
-    // Example implementation for "prefer" rules:
+    // Create a set of files to exclude for "ban" rules
+    const filesToExclude = new Set<string>();
+
+    // Process rules
     for (const rule of rules.rules) {
       if (rule.type === 'prefer') {
         // Boost score for files matching the constraint
-        // This is a placeholder - actual implementation would be more sophisticated
         if (rule.constraint === 'functional-components') {
           // Boost files that might contain functional components
           for (const file of result) {
@@ -623,21 +624,54 @@ export class WorkspaceIndex implements Disposable {
               file.score = Math.min(1, file.score + 0.2);
             }
           }
+        } else if (rule.constraint === 'test-file') {
+          // Boost test files
+          for (const file of result) {
+            if (
+              file.relativePath.includes('.test.') ||
+              file.relativePath.includes('-test.') ||
+              file.relativePath.includes('test_') ||
+              file.relativePath.endsWith('.spec.ts')
+            ) {
+              file.score = Math.min(1, file.score + 0.3);
+            }
+          }
         }
       } else if (rule.type === 'ban') {
         // Remove files matching the constraint
         if (rule.constraint === 'any-type') {
           // This would filter out files with any-type usage
-          // Placeholder - actual implementation would check file content
-          // For now, we don't filter out files
+          // For now, we'll just mark them for exclusion (would need file content analysis)
+          // In a real implementation, we'd check file content for any-type usage
+        } else if (rule.constraint === 'deprecated') {
+          // Filter out deprecated files (e.g., files with "deprecated" in their name)
+          for (const file of result) {
+            if (file.relativePath.includes('deprecated') || file.relativePath.includes('old')) {
+              filesToExclude.add(file.relativePath);
+            }
+          }
         }
       } else if (rule.type === 'require') {
         // Ensure files matching the constraint are included when relevant
-        // This would be more complex and would require checking query relevance
+        if (rule.constraint === 'test-file') {
+          // This would ensure test files are included when relevant to the query
+          // For now, we'll just boost their score if they're already in the list
+          for (const file of result) {
+            if (
+              file.relativePath.includes('.test.') ||
+              file.relativePath.includes('-test.') ||
+              file.relativePath.includes('test_') ||
+              file.relativePath.endsWith('.spec.ts')
+            ) {
+              file.score = Math.min(1, file.score + 0.2);
+            }
+          }
+        }
       }
     }
 
-    return result;
+    // Filter out files marked for exclusion
+    return result.filter((file) => !filesToExclude.has(file.relativePath));
   }
 
   private rebuildTree(): void {
