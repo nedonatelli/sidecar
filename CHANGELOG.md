@@ -2,6 +2,28 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.37.0] - 2026-04-09
+
+### Added
+- **Streaming diff preview**: live diff editor for file changes in cautious mode with session-based Accept/Reject flow via inline confirmation cards
+- **Plan mode**: `/plan` command toggles plan-first execution. Agent generates a structured plan (numbered steps, risks, scope) before touching files. Execute, Revise, or Reject buttons on plan output
+- **Context compaction button**: `/compact` command and ✂ header button to manually trigger conversation summarization and free tokens on demand
+- **Message copy button**: every message gets a copy button (⎘) that copies raw markdown to clipboard, not rendered HTML
+- **Attach menu with skills browser**: 📎 button now opens a context menu showing "Attach File" plus all available skills with descriptions
+- **Skills autocomplete**: loaded skills appear in the slash command autocomplete dropdown as you type
+- **7 built-in skills**: create-skill, review-code, explain-code, refactor, debug, write-tests, break-this — ship with the extension, overridable by user/project skills
+- **Persistent codebase indexing**: workspace file index cached to `.sidecar/cache/workspace-index.json` for near-instant startup on subsequent activations
+- **`.sidecarignore` support**: custom exclude patterns (gitignore-style) merged with built-in defaults for workspace indexing
+- **`/revise` command**: inline plan revision via chat input instead of `window.prompt()` dialog
+
+### Changed
+- **Attach button**: changed from single-action file picker to context menu with file attach + skills browser
+- **Plan revision UX**: Revise button focuses chat input with `/revise ` prefix instead of `window.prompt()`
+- **README**: updated competitive comparison with two tables (vs. Local Extensions, vs. Pro Tools) reflecting all v0.36.0+ features
+
+### Tests
+- 506 total tests (maintained)
+
 ## [0.36.0] - 2026-04-09
 
 ### Added
