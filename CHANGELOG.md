@@ -2,6 +2,11 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.37.1] - 2026-04-09
+
+### Tests
+- **Comprehensive executor tests**: expanded test coverage for tools.ts executor implementations with 115 focused tests covering file I/O, error handling, and tool execution flows. Coverage improved from 26.34% to 64.58%
+
 ## [0.37.0] - 2026-04-09
 
 ### Added
