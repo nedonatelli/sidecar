@@ -7,6 +7,7 @@ import type { SymbolIndexer } from './symbolIndexer.js';
 import type { SidecarDir } from './sidecarDir.js';
 import { readFileStreaming } from './streamingFileReader.js';
 import { getConfig } from './settings.js';
+import { getCurrentContextRules } from './structuredContextRules.js';
 
 const MAX_FILE_SIZE = 100 * 1024; // 100KB
 const INDEX_CACHE_FILE = 'cache/workspace-index.json';
@@ -74,9 +75,13 @@ export class WorkspaceIndex implements Disposable {
   /** Extra exclude patterns from .sidecarignore */
   private customExcludes = new Set<string>();
   /** Track which root each file belongs to for multi-root support */
-  private fileRoots = new Map<string, string>();
+  // private fileRoots = new Map<string, string>();
   /** Active workspace roots (can be a subset if workspaceRoots is configured) */
   private activeRoots: Array<{ uri: Uri; fsPath: string }> = [];
+  /** Structured context rules */
+  private contextRules: Promise<import('./structuredContextRules.js').StructuredContextRules> = Promise.resolve({
+    rules: [],
+  });
 
   constructor(maxContextChars = 20_000) {
     this.maxContextChars = maxContextChars;
@@ -142,6 +147,9 @@ export class WorkspaceIndex implements Disposable {
     const startTime = Date.now();
     const rootUri = this.activeRoots[0]?.uri || folders[0].uri;
     const rootPath = rootUri.fsPath;
+
+    // Load context rules
+    this.contextRules = getCurrentContextRules();
 
     // Load .sidecarignore patterns if the file exists
     try {
@@ -277,14 +285,21 @@ export class WorkspaceIndex implements Disposable {
     const rootUri = folders[0].uri;
     const config = getConfig();
 
+    // Load context rules
+    const rules = await this.contextRules;
+
     // Score files and select top-k using partial sort (O(n) for scoring,
     // O(n) for partitioning) instead of full O(n log n) sort.
     const scored = [...this.files.values()].map((f) => ({
       ...f,
       score: this.computeScore(f, query, activeFilePath),
     }));
+
+    // Apply context rules to filter files
+    const filesToConsider = this.applyContextRules(scored, rules);
+
     // Partition: move files with score > 0 to the front, then sort only those.
-    const relevant = scored.filter((f) => f.score > 0);
+    const relevant = filesToConsider.filter((f) => f.score > 0);
     relevant.sort((a, b) => b.score - a.score);
 
     // Build context with relevant content first, tree last.
@@ -574,6 +589,55 @@ export class WorkspaceIndex implements Disposable {
     const configExts = new Set(['.json', '.yaml', '.yml', '.toml']);
     if (configExts.has(ext)) return 0.05;
     return 0.02;
+  }
+
+  /**
+   * Apply context rules to filter and score files for inclusion in context
+   */
+  private applyContextRules(
+    files: Array<FileNode & { score: number }>,
+    rules: import('./structuredContextRules.js').StructuredContextRules,
+  ): Array<FileNode & { score: number }> {
+    if (!rules.rules || rules.rules.length === 0) {
+      return files;
+    }
+
+    // For now, we'll just return all files - the actual implementation
+    // would filter based on the rules
+    const result = [...files];
+
+    // Apply rules based on constraint types:
+    // - "ban: any-type" would exclude files with any-type usage
+    // - "prefer: functional-components" would boost relevance of functional components
+    // - "require: test-file" would ensure test files are included when relevant
+
+    // Example implementation for "prefer" rules:
+    for (const rule of rules.rules) {
+      if (rule.type === 'prefer') {
+        // Boost score for files matching the constraint
+        // This is a placeholder - actual implementation would be more sophisticated
+        if (rule.constraint === 'functional-components') {
+          // Boost files that might contain functional components
+          for (const file of result) {
+            if (file.relativePath.includes('component') || file.relativePath.includes('functional')) {
+              file.score = Math.min(1, file.score + 0.2);
+            }
+          }
+        }
+      } else if (rule.type === 'ban') {
+        // Remove files matching the constraint
+        if (rule.constraint === 'any-type') {
+          // This would filter out files with any-type usage
+          // Placeholder - actual implementation would check file content
+          // For now, we don't filter out files
+        }
+      } else if (rule.type === 'require') {
+        // Ensure files matching the constraint are included when relevant
+        // This would be more complex and would require checking query relevance
+      }
+    }
+
+    return result;
   }
 
   private rebuildTree(): void {
