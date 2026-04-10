@@ -31,16 +31,9 @@ const TOOL_FAILURE_THRESHOLD = 3;
 
 function supportsTools(model: string): boolean {
   const base = model.split(':')[0];
-
-  // GGUF models from HuggingFace (e.g., hf.co/user/model) don't support tools
-  if (base.includes('hf.co/')) {
-    return false;
-  }
-
   if (MODELS_WITHOUT_TOOL_SUPPORT.has(model) || MODELS_WITHOUT_TOOL_SUPPORT.has(`${base}:latest`)) {
     return false;
   }
-
   // If this model has failed to use tools multiple times, disable them
   const failures = toolSupportFailures.get(model) || 0;
   return failures < TOOL_FAILURE_THRESHOLD;
