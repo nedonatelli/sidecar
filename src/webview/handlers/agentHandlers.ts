@@ -23,7 +23,20 @@ export async function handleExecutePlan(state: ChatState): Promise<void> {
   state.messages = state.pendingPlanMessages;
   state.pendingPlan = null;
   state.pendingPlanMessages = [];
-  await handleUserMessage(state, '');
+  // Temporarily disable plan mode during execution so we don't generate another plan
+  const config = workspace.getConfiguration('sidecar');
+  const previousPlanMode = config.get<boolean>('planMode', false);
+  if (previousPlanMode) {
+    await config.update('planMode', false, true);
+  }
+  try {
+    await handleUserMessage(state, '');
+  } finally {
+    // Restore previous plan mode setting after execution
+    if (previousPlanMode) {
+      await config.update('planMode', true, true);
+    }
+  }
 }
 
 export async function handleRevisePlan(state: ChatState, feedback: string): Promise<void> {
@@ -32,7 +45,20 @@ export async function handleRevisePlan(state: ChatState, feedback: string): Prom
   state.messages = state.pendingPlanMessages;
   state.pendingPlan = null;
   state.pendingPlanMessages = [];
-  await handleUserMessage(state, '');
+  // Temporarily disable plan mode during revision so we generate a revised plan, not another plan of a plan
+  const config = workspace.getConfiguration('sidecar');
+  const previousPlanMode = config.get<boolean>('planMode', false);
+  if (previousPlanMode) {
+    await config.update('planMode', false, true);
+  }
+  try {
+    await handleUserMessage(state, '');
+  } finally {
+    // Restore previous plan mode setting after revision
+    if (previousPlanMode) {
+      await config.update('planMode', true, true);
+    }
+  }
 }
 
 export async function handleBatch(state: ChatState, text: string): Promise<void> {
