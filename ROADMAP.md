@@ -12,6 +12,7 @@ Last updated: 2026-04-09 (v0.36.0)
 
 - **Streaming diff view** — render file changes as they stream in from the agent
 - **Inline edit enhancement** — extend ghost text to `write_file`, batch edits, syntax highlighting
+- **Next edit suggestions** — after the user or agent makes a change, predict the next logical edit location and pre-position the cursor or suggest the edit. Similar to VS Code's "Next Edit Suggestions" (NES). Requires analyzing ripple effects from the current change (updated imports, renamed references, type mismatches) using the symbol graph
 
 ### Smarter Context
 
@@ -19,6 +20,7 @@ Last updated: 2026-04-09 (v0.36.0)
 - **Large file & monorepo handling** — streaming reads, lazy indexing, depth-limited traversal, `sidecar.workspaceRoots`
 - **RAG over documentation** — embedding-based retrieval over READMEs, wiki, doc comments
 - **Agent memory** — persistent per-workspace memory of patterns, conventions, decisions
+- **Structured context rules** — `.sidecarrules` file with typed constraints (e.g., `prefer: functional-components`, `ban: any-type`, `style: tabs-2`). More structured than free-form SIDECAR.md — parsed into enforceable rules that the agent checks after each edit. Compatible with `.cursorrules` and `.clinerules` formats for easy migration
 
 ### Observability
 
@@ -72,6 +74,11 @@ Last updated: 2026-04-09 (v0.36.0)
 - **Better error handling** — categorized failures with targeted recovery actions
 - **Improved configuration management** — workspace/folder/global scopes, visual inspector, presets
 - **Customizable chat UI themes** — built-in presets, custom CSS injection, font/density controls, VS Code theme sync
+
+### Enterprise & Policy
+
+- **Centralized policy management** — org-level settings enforcement via a `.sidecar-policy.json` file distributed through a shared config repo or internal registry. Policies can enforce: required approval mode, blocked tools, PII redaction rules, allowed LLM providers, token budget caps, and mandatory security scanning. Individual developers cannot override org policies
+- **Team knowledge base** — index shared documentation, wikis, and issue trackers (beyond current MCP-only approach). Built-in connectors for Confluence, Notion, and internal docs sites
 
 ### Real-time Collaboration
 
