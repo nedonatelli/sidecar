@@ -74,6 +74,7 @@ Last updated: 2026-04-09 (v0.36.0)
 - **Better error handling** — categorized failures with targeted recovery actions
 - **Improved configuration management** — workspace/folder/global scopes, visual inspector, presets
 - **Customizable chat UI themes** — built-in presets, custom CSS injection, font/density controls, VS Code theme sync
+- **Terminal error interception** — monitor the VS Code integrated terminal for error patterns (stack traces, exit codes, compilation failures) and automatically offer to diagnose them in the chat without requiring copy-paste. Use VS Code's terminal data event API to watch output in real-time
 
 ### Enterprise & Policy
 
