@@ -1,6 +1,6 @@
 import type { ChatMessage } from '../ollama/types.js';
 import { SideCarClient } from '../ollama/client.js';
-import { runAgentLoop, type AgentCallbacks, type AgentOptions } from './loop.js';
+import { runAgentLoop, MAX_AGENT_DEPTH, type AgentCallbacks, type AgentOptions } from './loop.js';
 
 export interface SubAgentTask {
   id: string;
@@ -25,6 +25,16 @@ export async function spawnSubAgent(
   signal: AbortSignal,
   options: AgentOptions = {},
 ): Promise<SubAgentResult> {
+  const currentDepth = options.depth || 0;
+  if (currentDepth >= MAX_AGENT_DEPTH) {
+    return {
+      id: `sub-${++subAgentCounter}`,
+      task,
+      output: `Cannot spawn sub-agent: maximum nesting depth (${MAX_AGENT_DEPTH}) reached.`,
+      success: false,
+    };
+  }
+
   const id = `sub-${++subAgentCounter}`;
 
   const messages: ChatMessage[] = [];
@@ -71,6 +81,7 @@ export async function spawnSubAgent(
     await runAgentLoop(client, messages, subCallbacks, signal, {
       ...options,
       maxIterations: Math.min(options.maxIterations || 25, 15), // Sub-agents get fewer iterations
+      depth: currentDepth + 1,
     });
 
     parentCallbacks.onText(`\n[Sub-agent ${id} completed]\n`);

@@ -2,6 +2,16 @@ import type { ChatMessage } from '../ollama/types.js';
 import { getContentText, getContentLength } from '../ollama/types.js';
 import type { SideCarClient } from '../ollama/client.js';
 
+/** Truncate text to maxLen, breaking at a word boundary to avoid cutting file paths mid-name. */
+function smartTruncate(text: string, maxLen: number): string {
+  const flat = text.replace(/\n/g, ' ').trim();
+  if (flat.length <= maxLen) return flat;
+  // Find the last space before maxLen so we don't split a path or word
+  const breakpoint = flat.lastIndexOf(' ', maxLen);
+  const cutAt = breakpoint > maxLen * 0.6 ? breakpoint : maxLen;
+  return flat.slice(0, cutAt) + '…';
+}
+
 /**
  * Summarizes older conversation turns to reduce context bloat.
  *
@@ -194,16 +204,16 @@ export class ConversationSummarizer {
       const userMsg = turn[0];
       const userText = typeof userMsg.content === 'string' ? userMsg.content : getContentText(userMsg.content);
 
-      // Extract first 100 chars of user query
-      const userQuery = userText.slice(0, 100).replace(/\n/g, ' ').trim();
+      // Extract user query — use enough chars to preserve file paths and key context
+      const userQuery = smartTruncate(userText, 200);
 
-      // Extract assistant responses (first 150 chars)
+      // Extract assistant responses
       const assistantChunks: string[] = [];
       for (const msg of turn.slice(1)) {
         if (msg.role === 'assistant') {
           const text = getContentText(msg.content);
           if (text.length > 0) {
-            assistantChunks.push(text.slice(0, 150).replace(/\n/g, ' ').trim());
+            assistantChunks.push(smartTruncate(text, 300));
           }
         }
       }

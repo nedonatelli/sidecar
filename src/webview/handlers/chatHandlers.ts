@@ -459,7 +459,7 @@ export async function injectSystemContext(
         const remaining = maxSystemChars - prompt.length;
         const truncated =
           docContext.length > remaining ? docContext.slice(0, remaining - 30) + '\n... (docs truncated)' : docContext;
-        prompt += `\n${truncated}`;
+        prompt += `\n\n## Project Documentation\n${truncated}`;
       }
     }
   }
@@ -476,7 +476,7 @@ export async function injectSystemContext(
           memoryContext.length > remaining
             ? memoryContext.slice(0, remaining - 30) + '\n... (memory truncated)'
             : memoryContext;
-        prompt += `\n${truncated}`;
+        prompt += `\n\n## Agent Memory\n${truncated}`;
       }
     }
   }
@@ -502,7 +502,7 @@ export async function injectSystemContext(
           indexContext.length > contextBudget
             ? indexContext.slice(0, contextBudget - 30) + '\n... (context truncated)'
             : indexContext;
-        prompt += `\n\n${trimmed}`;
+        prompt += `\n\n## Workspace Context\n${trimmed}`;
       }
       const mentionedPaths = [...text.matchAll(/@file:([^\s]+)/g)].map((m) => m[1]);
       if (mentionedPaths.length > 0) {
@@ -514,7 +514,7 @@ export async function injectSystemContext(
         context = enhanceContextWithSmartElements(context, text);
         const trimmed =
           context.length > contextBudget ? context.slice(0, contextBudget - 30) + '\n... (context truncated)' : context;
-        prompt += `\n\n${trimmed}`;
+        prompt += `\n\n## Workspace Context\n${trimmed}`;
       }
     }
   }

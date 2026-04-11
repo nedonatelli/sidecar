@@ -112,7 +112,9 @@ const editFileDef: ToolDefinition = {
 
 const searchFilesDef: ToolDefinition = {
   name: 'search_files',
-  description: 'Search for files matching a glob pattern in the workspace. Returns a list of matching file paths.',
+  description:
+    'Search for files matching a glob pattern in the workspace. Returns a list of matching file paths. ' +
+    'Examples: "**/*.ts" for all TypeScript files, "src/**/test*.js" for test files under src/, "**/package.json" for all package manifests.',
   input_schema: {
     type: 'object',
     properties: {
@@ -124,7 +126,9 @@ const searchFilesDef: ToolDefinition = {
 
 const grepDef: ToolDefinition = {
   name: 'grep',
-  description: 'Search file contents for a text pattern. Returns matching lines with file paths and line numbers.',
+  description:
+    'Search file contents for a text pattern (string or regex). Returns matching lines with file paths and line numbers. ' +
+    'Examples: grep "TODO" to find all TODOs, grep "function handleSubmit" to locate a function, grep "import.*express" path="src/" to find express imports under src/.',
   input_schema: {
     type: 'object',
     properties: {
@@ -139,11 +143,16 @@ const runCommandDef: ToolDefinition = {
   name: 'run_command',
   description:
     'Execute a shell command in a persistent shell session. Environment variables, aliases, and working directory changes persist between calls. ' +
-    'Set timeout (seconds) for long-running commands. Use background=true to start a process in the background and command_id to check on it later.',
+    'Examples: "npm test", "git status", "python main.py". ' +
+    'For long-running processes, set background=true to get a command ID, then call again with just command_id to check output. ' +
+    'The command and command_id parameters are mutually exclusive — provide one or the other, not both.',
   input_schema: {
     type: 'object',
     properties: {
-      command: { type: 'string', description: 'Shell command to run' },
+      command: {
+        type: 'string',
+        description: 'Shell command to run. Mutually exclusive with command_id.',
+      },
       timeout: {
         type: 'number',
         description: 'Timeout in seconds (default: 120). Use higher values for builds/installs.',
@@ -151,10 +160,11 @@ const runCommandDef: ToolDefinition = {
       background: { type: 'boolean', description: 'If true, run in background and return an ID to check later.' },
       command_id: {
         type: 'string',
-        description: 'Check on a background command by its ID (returned from a previous background call).',
+        description:
+          'Check on a background command by its ID (returned from a previous background call). Mutually exclusive with command.',
       },
     },
-    required: ['command'],
+    required: [],
   },
 };
 
@@ -659,7 +669,8 @@ const gitBranchDef: ToolDefinition = {
     properties: {
       action: {
         type: 'string',
-        description: 'Action: "list" (default), "create", or "switch".',
+        enum: ['list', 'create', 'switch'],
+        description: 'Action to perform. Default: "list".',
       },
       name: { type: 'string', description: 'Branch name (required for create/switch).' },
     },
@@ -699,7 +710,8 @@ const gitStashDef: ToolDefinition = {
     properties: {
       action: {
         type: 'string',
-        description: 'Action: "push" (default), "pop", "apply", "list", or "drop".',
+        enum: ['push', 'pop', 'apply', 'list', 'drop'],
+        description: 'Action to perform. Default: "push".',
       },
       message: { type: 'string', description: 'Optional message for push.' },
       index: { type: 'number', description: 'Stash index for pop/apply/drop (default: 0).' },
@@ -990,12 +1002,22 @@ export const TOOL_REGISTRY: RegisteredTool[] = [
 export const SPAWN_AGENT_DEFINITION: ToolDefinition = {
   name: 'spawn_agent',
   description:
-    'Spawn a sub-agent to handle a specific task in parallel. The sub-agent has access to all the same tools. Use this for complex tasks that can be broken into independent parts.',
+    'Spawn a sub-agent to handle a specific, self-contained task in parallel. The sub-agent has access to all tools but runs with a reduced iteration limit (max 15). ' +
+    'Good use cases: "Write unit tests for src/utils/parser.ts", "Refactor the authentication middleware to use async/await", "Search the codebase for all usages of the deprecated API and list them". ' +
+    'Bad use cases: tasks requiring back-and-forth with the user, tasks that depend on the result of another sub-agent. ' +
+    'Sub-agents cannot spawn further sub-agents beyond 3 levels deep.',
   input_schema: {
     type: 'object',
     properties: {
-      task: { type: 'string', description: 'Clear description of what the sub-agent should accomplish' },
-      context: { type: 'string', description: 'Optional: additional context or file contents to provide' },
+      task: {
+        type: 'string',
+        description:
+          'Clear, self-contained description of what the sub-agent should accomplish. Include file paths and specific requirements.',
+      },
+      context: {
+        type: 'string',
+        description: 'Optional: additional context, file contents, or constraints the sub-agent needs to know.',
+      },
     },
     required: ['task'],
   },

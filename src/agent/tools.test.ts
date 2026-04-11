@@ -522,9 +522,9 @@ describe('tools.ts', () => {
       expect(tool?.requiresApproval).toBe(true);
     });
 
-    it('should have command as required parameter', () => {
+    it('should have no required parameters (command and command_id are mutually exclusive)', () => {
       const tool = TOOL_REGISTRY.find((t) => t.definition.name === 'run_command');
-      expect(tool?.definition.input_schema.required).toContain('command');
+      expect(tool?.definition.input_schema.required).toEqual([]);
     });
   });
 

@@ -72,9 +72,12 @@ export interface AgentOptions {
   inlineEditFn?: InlineEditFn;
   streamingDiffPreviewFn?: StreamingDiffPreviewFn;
   clarifyFn?: ClarifyFn;
+  /** Current sub-agent nesting depth (0 = top-level). Used to enforce MAX_AGENT_DEPTH. */
+  depth?: number;
 }
 
 const DEFAULT_MAX_ITERATIONS = 25;
+export const MAX_AGENT_DEPTH = 3;
 
 export async function runAgentLoop(
   client: SideCarClient,
