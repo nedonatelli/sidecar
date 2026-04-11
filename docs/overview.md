@@ -8,6 +8,7 @@ SideCar is an AI-powered coding assistant for VS Code that operates as an autono
 - Run full agent loops with local Ollama or cloud APIs
 - Execute tools automatically based on LLM decisions
 - Generate and execute plans before implementation
+- **Conversation steering** — chat input stays enabled during processing; send a new message to redirect the agent, or press Escape to abort
 - Continuous operation until task completion or user interruption
 
 ### Multi-Modal Interface
@@ -20,7 +21,7 @@ SideCar is an AI-powered coding assistant for VS Code that operates as an autono
 - Built-in tools for file operations, code search, shell commands, Git operations
 - Custom tools defined in settings
 - MCP (Model Control Protocol) integration for external tools
-- Sub-agent spawning for complex tasks
+- Sub-agent spawning for complex tasks (max 3 levels deep, 15 iterations each)
 - Tool execution with approval modes and security checks
 
 ### Context Management

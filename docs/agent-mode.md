@@ -74,7 +74,15 @@ Additional safety mechanisms:
 - **Tool support auto-detection** — if a model fails to use tools after 3 attempts, SideCar stops sending tool definitions to avoid wasting context
 - **Request timeout** — if no tokens arrive within `requestTimeout` seconds, the request is aborted with a user-friendly message
 
-The **Stop button** (the Send button toggles to a red Stop during processing) lets you abort at any time. Partial changes can be reverted with Undo.
+### Conversation steering
+
+The chat input **stays enabled** while SideCar is processing. You can:
+
+- **Type and send a new message** at any time — this aborts the current agent run and starts a new one with your message
+- **Press Escape** to abort the current run (equivalent to clicking Stop)
+- **Click the Send/Stop button** — shows "Stop" when the input is empty (aborts), switches to "Send" when you start typing
+
+This lets you steer the agent mid-run without waiting for it to finish. The backend cleanly aborts the previous loop before processing your new message.
 
 ## Built-in tools
 
@@ -91,7 +99,7 @@ SideCar has 22 built-in tools the agent can use:
 | `list_directory` | List directory contents |
 | `get_diagnostics` | Read compiler errors, warnings, and security findings |
 | `run_tests` | Run test suites with auto-detection |
-| `spawn_agent` | Spawn parallel sub-agents for complex tasks |
+| `spawn_agent` | Spawn parallel sub-agents for complex tasks (max depth: 3, max 15 iterations each) |
 | `git_status` | Show working tree status |
 | `git_stage` | Stage files for commit |
 | `git_commit` | Create a commit |

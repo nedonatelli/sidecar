@@ -2,7 +2,7 @@
 
 Planned improvements and features for SideCar. Audit findings from v0.34.0 comprehensive review are in the Audit Backlog section. All critical fixes were addressed in v0.35.0.
 
-Last updated: 2026-04-10 (v0.42.0)
+Last updated: 2026-04-11 (v0.43.0)
 
 ---
 
@@ -247,22 +247,22 @@ Remaining findings from seven comprehensive reviews. Fixed items removed.
 
 ### Prompt Engineering
 
-- Summarization truncates at 100/150 chars, losing file paths
-- Workspace context lacks section delimiter
-- `spawn_agent` description too vague for local models
-- `run_command` doesn't clarify `command`/`command_id` mutual exclusivity
-- Tool descriptions lack inline examples (grep, run_command)
-- `git_branch`/`git_stash` action params lack `enum` constraints
-- Sub-agent recursion not depth-limited
+- ~~Summarization truncates at 100/150 chars, losing file paths~~ → 200/300 chars with word-boundary smartTruncate
+- ~~Workspace context lacks section delimiter~~ → `## Project Documentation`, `## Agent Memory`, `## Workspace Context` headers
+- ~~`spawn_agent` description too vague for local models~~ → good/bad use cases, iteration/depth limits documented
+- ~~`run_command` doesn't clarify `command`/`command_id` mutual exclusivity~~ → explicit in description + required changed to []
+- ~~Tool descriptions lack inline examples (grep, run_command)~~ → examples added to search_files, grep, run_command
+- ~~`git_branch`/`git_stash` action params lack `enum` constraints~~ → enum arrays added
+- ~~Sub-agent recursion not depth-limited~~ → MAX_AGENT_DEPTH=3 enforced in spawnSubAgent
 
 ### UX/UI
 
-- Touch targets too small: scroll-to-bottom 28px, header buttons ~24px, image remove 16px
-- Spacing not on 8pt grid — mix of 2/4/6/8/10/12/14/16/20px values
-- Font size scale ad hoc (10px below minimum readable)
-- Panel overlays hardcode `top: 42px`
-- Close panel buttons have no padding (~12x18px click target)
-- Model list lacks search/filter
+- ~~Touch targets too small: scroll-to-bottom 28px, header buttons ~24px, image remove 16px~~ → enlarged to 36px/32px min/24px
+- ~~Spacing not on 8pt grid — mix of 2/4/6/8/10/12/14/16/20px values~~ → ~25 off-grid values normalized
+- ~~Font size scale ad hoc (10px below minimum readable)~~ → all 10px bumped to 11px
+- ~~Panel overlays hardcode `top: 42px`~~ → header-wrapper with `position: relative` + `top: 100%`
+- ~~Close panel buttons have no padding (~12x18px click target)~~ → padding + hover background added
+- ~~Model list lacks search/filter~~ → search input with auto-focus on open
 
 ### Code Quality
 

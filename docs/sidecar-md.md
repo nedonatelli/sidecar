@@ -8,6 +8,12 @@ nav_order: 8
 
 Create a `SIDECAR.md` file in your project root to give SideCar project-specific instructions that persist across sessions. This is analogous to `CLAUDE.md` for Claude Code.
 
+## Generating with `/init`
+
+Run `/init` in the chat to auto-generate `SIDECAR.md` from your codebase. SideCar scans config files, the file tree, and sample source files to produce a structured project overview. It prioritizes entry-point files (main, index, app, server, cli) and samples from diverse directories for convention detection.
+
+If `CLAUDE.md`, `.claude/CLAUDE.md`, `.github/copilot-instructions.md`, or `AGENTS.md` files exist in your project, `/init` reads them to inform the generated notes. If a `SIDECAR.md` already exists, you'll be asked to confirm before overwriting.
+
 ## How it works
 
 SideCar reads `SIDECAR.md` on every message and includes it in the system prompt. The file is cached in memory and automatically invalidated when you save changes (via a file watcher).

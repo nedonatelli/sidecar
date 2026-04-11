@@ -34,6 +34,7 @@ Type `/` in the chat input to see all available commands. An autocomplete dropdo
 | `/audit` | Agent action audit log |
 | `/insights` | Conversation pattern analysis |
 | `/mcp` | MCP server status |
+| `/init` | Generate SIDECAR.md project notes |
 | `/verbose` | Toggle verbose mode |
 | `/prompt` | Show system prompt |
 
@@ -268,3 +269,25 @@ You can also enable verbose mode permanently via `sidecar.verboseMode` in settin
 ### `/prompt`
 
 Shows the current system prompt in a collapsible block — the base prompt, SIDECAR.md content, and any custom system prompt you've configured. Useful for debugging unexpected agent behavior.
+
+---
+
+## Project setup
+
+### `/init`
+
+Scans the codebase and generates a `.sidecar/SIDECAR.md` file that provides project context for all future conversations. The generated file includes:
+
+- Project summary and unique value proposition
+- Tech stack (architecturally significant dependencies only)
+- Architecture overview with module relationships
+- Key files and directories table
+- Development commands (install, build, test)
+- Code conventions observed from source samples
+- Important notes and gotchas
+
+**Context gathering**: `/init` reads configuration files (package.json, tsconfig.json, etc.), the workspace file tree, file statistics, and up to 8 sample source files. It prioritizes entry-point files (main, index, app, extension, server, cli) and selects samples from diverse directories. If `CLAUDE.md`, `.github/copilot-instructions.md`, or `AGENTS.md` files exist, their contents are included in the analysis.
+
+**Overwrite protection**: If `SIDECAR.md` already exists, a confirmation dialog asks before overwriting. Cancel to keep the existing file.
+
+The generated file opens in the editor for manual refinement. See [SIDECAR.md](sidecar-md) for details on how this file is used.

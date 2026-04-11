@@ -2,6 +2,21 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.43.0] - 2026-04-11
+
+### Added
+- **Conversation steering** — chat input stays enabled during agent processing. Send a new message to redirect the agent mid-run, or press Escape to abort. The Send button dynamically switches to "Stop" when the input is empty.
+- **`/init` refinements** — confirmation dialog before overwriting existing SIDECAR.md; improved system prompt for higher-quality output (unique value prop, architecture patterns, 120-line cap); entry-point priority sampling with directory diversity; reads CLAUDE.md, AGENTS.md, and copilot-instructions.md if they exist.
+- **Model list search** — search/filter input at the top of the model picker panel, auto-focused on open.
+
+### Fixed
+- **UX/UI audit** (6 items) — touch targets enlarged (scroll-to-bottom 36px, header buttons 32px min, image remove 24px); spacing normalized to 8pt grid; minimum font size raised from 10px to 11px; panel overlays use relative positioning instead of hardcoded `top: 42px`; close buttons got padding and hover backgrounds.
+- **Prompt engineering audit** (7 items) — summarization truncation increased to 200/300 chars with word-boundary-aware `smartTruncate()`; context sections labeled with `## Project Documentation / Agent Memory / Workspace Context` headers; `spawn_agent` description enriched with good/bad examples; `run_command` clarifies `command`/`command_id` mutual exclusivity; inline examples added to `search_files`, `grep`, `run_command`; `enum` constraints on `git_branch` and `git_stash` action params; sub-agent recursion capped at MAX_AGENT_DEPTH=3.
+
+### Stats
+- 1234 total tests (89 test files)
+- 22 built-in tools, 8 skills
+
 ## [0.42.0] - 2026-04-10
 
 ### Added
