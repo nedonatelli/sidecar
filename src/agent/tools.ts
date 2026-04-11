@@ -1025,9 +1025,16 @@ export const SPAWN_AGENT_DEFINITION: ToolDefinition = {
   },
 };
 
+let _customToolCache: RegisteredTool[] | null = null;
+let _customToolConfigSnapshot: string | null = null;
+
 function getCustomToolRegistry(): RegisteredTool[] {
   const configs = getConfig().customTools;
-  return configs.map((cfg) => ({
+  const snapshot = JSON.stringify(configs);
+  if (_customToolCache && _customToolConfigSnapshot === snapshot) {
+    return _customToolCache;
+  }
+  _customToolCache = configs.map((cfg) => ({
     definition: {
       name: `custom_${cfg.name}`,
       description: `[Custom] ${cfg.description}`,
@@ -1046,6 +1053,8 @@ function getCustomToolRegistry(): RegisteredTool[] {
     },
     requiresApproval: true,
   }));
+  _customToolConfigSnapshot = snapshot;
+  return _customToolCache;
 }
 
 export function getToolDefinitions(mcpManager?: MCPManager): ToolDefinition[] {

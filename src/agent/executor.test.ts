@@ -71,14 +71,10 @@ describe('executeTool', () => {
     });
     mockConfig({ toolPermissions: { write_file: 'allow' } });
 
-    const result = await executeTool(
-      makeToolUse('write_file', { path: 'test.ts', content: 'hi' }),
-      'cautious',
-      undefined,
-      undefined,
-      undefined,
-      mockConfirm,
-    );
+    const result = await executeTool(makeToolUse('write_file', { path: 'test.ts', content: 'hi' }), {
+      approvalMode: 'cautious',
+      confirmFn: mockConfirm,
+    });
     expect(result.is_error).toBeFalsy();
     expect(result.content).toBe('file contents');
     expect(mockConfirm).not.toHaveBeenCalled();
@@ -92,14 +88,10 @@ describe('executeTool', () => {
       requiresApproval: true,
     });
 
-    const result = await executeTool(
-      makeToolUse('write_file', { path: 'test.ts' }),
-      'cautious',
-      undefined,
-      undefined,
-      undefined,
-      mockConfirm,
-    );
+    const result = await executeTool(makeToolUse('write_file', { path: 'test.ts' }), {
+      approvalMode: 'cautious',
+      confirmFn: mockConfirm,
+    });
     expect(mockConfirm).toHaveBeenCalled();
     expect(result.content).toBe('written');
   });
@@ -112,14 +104,10 @@ describe('executeTool', () => {
     });
     const denyConfirm = vi.fn().mockResolvedValue('Deny');
 
-    const result = await executeTool(
-      makeToolUse('write_file', { path: 'test.ts' }),
-      'cautious',
-      undefined,
-      undefined,
-      undefined,
-      denyConfirm,
-    );
+    const result = await executeTool(makeToolUse('write_file', { path: 'test.ts' }), {
+      approvalMode: 'cautious',
+      confirmFn: denyConfirm,
+    });
     expect(result.is_error).toBe(true);
     expect(result.content).toContain('denied by user');
   });
@@ -132,14 +120,10 @@ describe('executeTool', () => {
       requiresApproval: false,
     });
 
-    const result = await executeTool(
-      makeToolUse('read_file', { path: 'test.ts' }),
-      'autonomous',
-      undefined,
-      undefined,
-      undefined,
-      mockConfirm,
-    );
+    const result = await executeTool(makeToolUse('read_file', { path: 'test.ts' }), {
+      approvalMode: 'autonomous',
+      confirmFn: mockConfirm,
+    });
     expect(mockConfirm).not.toHaveBeenCalled();
     expect(result.content).toBe('data');
   });
@@ -154,7 +138,10 @@ describe('executeTool', () => {
     mockConfig({ toolPermissions: { write_file: 'allow' } });
 
     const changelog = { snapshotFile: vi.fn().mockResolvedValue(undefined) } as unknown as ChangeLog;
-    await executeTool(makeToolUse('write_file', { path: 'src/main.ts', content: 'new' }), 'autonomous', changelog);
+    await executeTool(makeToolUse('write_file', { path: 'src/main.ts', content: 'new' }), {
+      approvalMode: 'autonomous',
+      changelog,
+    });
     expect(changelog.snapshotFile).toHaveBeenCalledWith('src/main.ts');
   });
 
@@ -186,16 +173,10 @@ describe('executeTool', () => {
 
     const onOutput = vi.fn();
     const controller = new AbortController();
-    await executeTool(
-      makeToolUse('read_file', { path: 'test.ts' }),
-      'autonomous',
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      { onOutput, signal: controller.signal },
-    );
+    await executeTool(makeToolUse('read_file', { path: 'test.ts' }), {
+      approvalMode: 'autonomous',
+      executorContext: { onOutput, signal: controller.signal },
+    });
 
     expect(executor).toHaveBeenCalledTimes(1);
     expect(receivedContext).toBeDefined();
@@ -211,14 +192,10 @@ describe('executeTool', () => {
       requiresApproval: false,
     });
 
-    await executeTool(
-      makeToolUse('read_file', { path: 'test.ts' }),
-      'manual',
-      undefined,
-      undefined,
-      undefined,
-      mockConfirm,
-    );
+    await executeTool(makeToolUse('read_file', { path: 'test.ts' }), {
+      approvalMode: 'manual',
+      confirmFn: mockConfirm,
+    });
     expect(mockConfirm).toHaveBeenCalled();
   });
 });

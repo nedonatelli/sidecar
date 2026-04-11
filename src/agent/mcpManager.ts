@@ -120,29 +120,37 @@ export class MCPManager {
             input_schema: (mcpTool.inputSchema || { type: 'object', properties: {} }) as ToolDefinition['input_schema'],
           },
           executor: async (input: Record<string, unknown>) => {
-            const result = await client.callTool({
-              name: mcpTool.name,
-              arguments: input,
-            });
-            // Extract text from MCP result content array
-            let output: string;
-            if (Array.isArray(result.content)) {
-              output = result.content
-                .map((block: { type: string; text?: string }) => {
-                  if (block.type === 'text' && block.text) return block.text;
-                  return JSON.stringify(block);
-                })
-                .join('\n');
-            } else {
-              output = String(result.content || '(no output)');
+            try {
+              const result = await client.callTool({
+                name: mcpTool.name,
+                arguments: input,
+              });
+              // Extract text from MCP result content array
+              let output: string;
+              if (Array.isArray(result.content)) {
+                output = result.content
+                  .map((block: { type: string; text?: string }) => {
+                    if (block.type === 'text' && block.text) return block.text;
+                    return JSON.stringify(block);
+                  })
+                  .join('\n');
+              } else {
+                output = String(result.content || '(no output)');
+              }
+              // Enforce output size limit
+              if (output.length > maxResultChars) {
+                output =
+                  output.slice(0, maxResultChars) +
+                  `\n\n... (output truncated at ${maxResultChars} chars, ${output.length} total)`;
+              }
+              return output;
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              throw new Error(
+                `MCP tool "${mcpTool.name}" on server "${name}" failed: ${msg}` +
+                  ` (input: ${JSON.stringify(input).slice(0, 200)})`,
+              );
             }
-            // Enforce output size limit
-            if (output.length > maxResultChars) {
-              output =
-                output.slice(0, maxResultChars) +
-                `\n\n... (output truncated at ${maxResultChars} chars, ${output.length} total)`;
-            }
-            return output;
           },
           requiresApproval: true, // MCP tools always require approval
         }));

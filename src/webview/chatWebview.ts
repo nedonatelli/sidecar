@@ -149,7 +149,16 @@ export interface ExtensionMessage {
   messageCount?: number;
   messagesRemaining?: number;
   atCapacity?: boolean;
-  errorType?: 'connection' | 'auth' | 'model' | 'timeout' | 'unknown';
+  errorType?:
+    | 'connection'
+    | 'auth'
+    | 'model'
+    | 'timeout'
+    | 'rate_limit'
+    | 'server_error'
+    | 'content_policy'
+    | 'token_limit'
+    | 'unknown';
   errorAction?: string;
   errorActionCommand?: string;
   content?: string;

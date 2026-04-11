@@ -386,23 +386,22 @@ export async function runAgentLoop(
           return toolResult;
         }
 
-        const result = await executeTool(
-          toolUse,
+        const result = await executeTool(toolUse, {
           approvalMode,
           changelog,
           mcpManager,
           logger,
-          options.confirmFn,
-          options.diffPreviewFn,
-          {
+          confirmFn: options.confirmFn,
+          diffPreviewFn: options.diffPreviewFn,
+          executorContext: {
             onOutput: (chunk) => callbacks.onToolOutput?.(toolUse.name, chunk, toolUse.id),
             signal,
             clarifyFn: options.clarifyFn,
             modeToolPermissions: options.modeToolPermissions,
           },
-          options.inlineEditFn,
-          options.streamingDiffPreviewFn,
-        );
+          inlineEditFn: options.inlineEditFn,
+          streamingDiffPreviewFn: options.streamingDiffPreviewFn,
+        });
         logger?.logToolResult(toolUse.name, result.content, result.is_error || false);
 
         // Record tool use in memory — both successes and failures

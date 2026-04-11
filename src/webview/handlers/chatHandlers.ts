@@ -180,7 +180,16 @@ function getActiveFileContext(): string {
 }
 
 export function classifyError(message: string): {
-  errorType: 'connection' | 'auth' | 'model' | 'timeout' | 'unknown';
+  errorType:
+    | 'connection'
+    | 'auth'
+    | 'model'
+    | 'timeout'
+    | 'rate_limit'
+    | 'server_error'
+    | 'content_policy'
+    | 'token_limit'
+    | 'unknown';
   errorAction?: string;
   errorActionCommand?: string;
 } {
@@ -196,6 +205,23 @@ export function classifyError(message: string): {
   ) {
     return { errorType: 'connection', errorAction: 'Check Connection', errorActionCommand: 'openSettings' };
   }
+  if (lower.includes('429') || lower.includes('rate limit') || lower.includes('too many requests')) {
+    return { errorType: 'rate_limit', errorAction: 'Wait and Retry' };
+  }
+  if (
+    lower.includes('content_policy') ||
+    lower.includes('content policy') ||
+    lower.includes('safety') ||
+    lower.includes('flagged')
+  ) {
+    return { errorType: 'content_policy' };
+  }
+  if (
+    lower.includes('token') &&
+    (lower.includes('limit') || lower.includes('exceed') || lower.includes('too long') || lower.includes('maximum'))
+  ) {
+    return { errorType: 'token_limit', errorAction: 'Reduce Context' };
+  }
   if (
     lower.includes('401') ||
     lower.includes('403') ||
@@ -206,6 +232,18 @@ export function classifyError(message: string): {
   }
   if (lower.includes('404') && (lower.includes('model') || lower.includes('not found'))) {
     return { errorType: 'model', errorAction: 'Install Model' };
+  }
+  if (
+    lower.includes('500') ||
+    lower.includes('502') ||
+    lower.includes('503') ||
+    lower.includes('504') ||
+    lower.includes('internal server error') ||
+    lower.includes('bad gateway') ||
+    lower.includes('service unavailable') ||
+    lower.includes('overloaded')
+  ) {
+    return { errorType: 'server_error', errorAction: 'Retry' };
   }
   if (lower.includes('timeout') || lower.includes('timed out') || lower.includes('etimedout')) {
     return { errorType: 'timeout', errorAction: 'Retry' };

@@ -21,18 +21,33 @@ export type StreamingDiffPreviewFn = (filePath: string, proposedContent: string)
 
 const WRITE_TOOLS = new Set(['write_file', 'edit_file']);
 
+export interface ExecuteToolOptions {
+  approvalMode?: ApprovalMode;
+  changelog?: ChangeLog;
+  mcpManager?: MCPManager;
+  logger?: AgentLogger;
+  confirmFn?: ConfirmFn;
+  diffPreviewFn?: DiffPreviewFn;
+  executorContext?: ToolExecutorContext;
+  inlineEditFn?: InlineEditFn;
+  streamingDiffPreviewFn?: StreamingDiffPreviewFn;
+}
+
 export async function executeTool(
   toolUse: ToolUseContentBlock,
-  approvalMode: ApprovalMode = 'cautious',
-  changelog?: ChangeLog,
-  mcpManager?: MCPManager,
-  logger?: AgentLogger,
-  confirmFn?: ConfirmFn,
-  diffPreviewFn?: DiffPreviewFn,
-  executorContext?: ToolExecutorContext,
-  inlineEditFn?: InlineEditFn,
-  streamingDiffPreviewFn?: StreamingDiffPreviewFn,
+  opts: ExecuteToolOptions = {},
 ): Promise<ToolResultContentBlock> {
+  const {
+    approvalMode = 'cautious',
+    changelog,
+    mcpManager,
+    logger,
+    confirmFn,
+    diffPreviewFn,
+    executorContext,
+    inlineEditFn,
+    streamingDiffPreviewFn,
+  } = opts;
   const tool = findTool(toolUse.name, mcpManager);
 
   if (!tool) {
@@ -202,8 +217,16 @@ export async function executeTool(
     logger?.warn(`[AUTONOMOUS] ${toolUse.name}(${JSON.stringify(toolUse.input).slice(0, 200)})`);
   }
 
-  // --- Pre-hook ---
-  await runHook('pre', toolUse.name, toolUse.input);
+  // --- Pre-hook (blocks execution on failure) ---
+  const hookError = await runHook('pre', toolUse.name, toolUse.input);
+  if (hookError) {
+    return {
+      type: 'tool_result',
+      tool_use_id: toolUse.id,
+      content: `Pre-hook blocked execution: ${hookError}`,
+      is_error: true,
+    };
+  }
 
   // --- Snapshot file before destructive operations ---
   if (changelog && WRITE_TOOLS.has(toolUse.name) && toolUse.input.path) {
@@ -242,26 +265,30 @@ export async function executeTool(
   }
 }
 
+/**
+ * Run a pre/post hook for a tool call.
+ * Returns an error message if the hook failed (pre-hooks block execution), or undefined on success.
+ */
 async function runHook(
   phase: 'pre' | 'post',
   toolName: string,
   input: Record<string, unknown>,
   output?: string,
-): Promise<void> {
+): Promise<string | undefined> {
   const config = getConfig();
   const hooks = config.hooks;
   const toolHook = hooks[toolName]?.[phase];
   const globalHook = hooks['*']?.[phase];
   const command = toolHook || globalHook;
 
-  if (!command) return;
+  if (!command) return undefined;
 
   // Warn once per session if hooks are defined at workspace level (supply-chain risk)
   const hookTrust = await checkWorkspaceConfigTrust(
     'hooks',
     'SideCar: This workspace defines hook commands that will execute shell commands. Only trust hooks from repositories you control.',
   );
-  if (hookTrust === 'blocked') return;
+  if (hookTrust === 'blocked') return undefined;
 
   const cwd = workspace.workspaceFolders?.[0]?.uri.fsPath;
   const env: Record<string, string> = {
@@ -275,7 +302,11 @@ async function runHook(
 
   try {
     await execAsync(command, { cwd, timeout: 15_000, env });
+    return undefined;
   } catch (err) {
-    console.warn(`[SideCar] Hook ${phase}:${toolName} failed:`, err);
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[SideCar] Hook ${phase}:${toolName} failed: ${msg}`);
+    // Pre-hooks block execution on failure; post-hooks only warn
+    return phase === 'pre' ? msg : undefined;
   }
 }
