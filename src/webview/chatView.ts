@@ -24,6 +24,7 @@ import { getConfig } from '../config/settings.js';
 import { DocumentationIndexer } from '../config/documentationIndexer.js';
 import { AgentMemory } from '../agent/agentMemory.js';
 import { AuditLog } from '../agent/auditLog.js';
+import { BackgroundAgentManager } from '../agent/backgroundAgent.js';
 
 // Handler modules
 import {
@@ -74,6 +75,7 @@ export class ChatViewProvider implements WebviewViewProvider {
   private state: ChatState;
   // Retained for potential future use (proposed diff views)
   private readonly _contentProvider: ProposedContentProvider;
+  private bgManager: BackgroundAgentManager;
 
   constructor(
     private readonly context: ExtensionContext,
@@ -125,6 +127,25 @@ export class ChatViewProvider implements WebviewViewProvider {
       const sessionId = this.state.agentMemory?.getSessionId() || `s-${Date.now()}`;
       this.state.auditLog = new AuditLog(sidecarDir, sessionId, config.model, config.agentMode);
     }
+
+    // Initialize background agent manager
+    this.bgManager = new BackgroundAgentManager(
+      {
+        onStatusChange: (run) => this.postMessage({ command: 'bgStatusUpdate', bgRun: run }),
+        onOutput: (runId, chunk) => this.postMessage({ command: 'bgOutput', bgRunId: runId, content: chunk }),
+        onComplete: (run) => {
+          this.postMessage({ command: 'bgComplete', bgRun: run });
+          const summary =
+            run.status === 'completed'
+              ? `Background task **"${run.task}"** completed (${run.toolCalls} tool calls).\n\n${run.output.slice(0, 500)}${run.output.length > 500 ? '…' : ''}`
+              : `Background task **"${run.task}"** failed: ${run.error}`;
+          this.postMessage({ command: 'assistantMessage', content: summary });
+          this.postMessage({ command: 'done' });
+        },
+      },
+      agentLogger,
+      mcpManager,
+    );
   }
 
   resolveWebviewView(
@@ -168,7 +189,12 @@ export class ChatViewProvider implements WebviewViewProvider {
     }
 
     loadModels(this.state);
-    this.postMessage({ command: 'setAgentMode', agentMode: getConfig().agentMode });
+    const initConfig = getConfig();
+    this.postMessage({
+      command: 'setAgentMode',
+      agentMode: initConfig.agentMode,
+      customModes: initConfig.customModes.map((m) => ({ name: m.name, description: m.description })),
+    });
 
     // Show onboarding card on first launch (no history, never dismissed)
     if (this.state.messages.length === 0 && !this.context.globalState.get('sidecar.onboardingComplete', false)) {
@@ -202,7 +228,12 @@ export class ChatViewProvider implements WebviewViewProvider {
     },
     changeAgentMode: async (msg) => {
       await workspace.getConfiguration('sidecar').update('agentMode', msg.agentMode, true);
-      this.postMessage({ command: 'setAgentMode', agentMode: msg.agentMode });
+      const modeConfig = getConfig();
+      this.postMessage({
+        command: 'setAgentMode',
+        agentMode: msg.agentMode,
+        customModes: modeConfig.customModes.map((m) => ({ name: m.name, description: m.description })),
+      });
       if (msg.agentMode === 'autonomous') {
         this.state.resolveAllConfirms('Allow');
       }
@@ -255,6 +286,22 @@ export class ChatViewProvider implements WebviewViewProvider {
     explainToolDecision: (msg) => handleExplainToolDecision(this.state, msg.toolCallId || ''),
     mcpStatus: () => handleMcpStatus(this.state),
     initProject: () => handleInit(this.state),
+    bgStart: (msg) => {
+      const task = msg.text?.trim();
+      if (task) {
+        const id = this.bgManager.start(task);
+        this.postMessage({ command: 'assistantMessage', content: `Background agent **${id}** started: "${task}"` });
+        this.postMessage({ command: 'done' });
+      }
+    },
+    bgStop: (msg) => {
+      this.bgManager.stop(msg.text || '');
+    },
+    bgList: () => this.postMessage({ command: 'bgList', bgRuns: this.bgManager.list() }),
+    bgExpand: (msg) => {
+      const run = this.bgManager.get(msg.text || '');
+      if (run) this.postMessage({ command: 'bgComplete', bgRun: run });
+    },
     generateCommit: () => handleGenerateCommit(this.state),
     revertFile: (msg) => handleRevertFile(this.state, msg.filePath || ''),
     acceptAllChanges: () => handleAcceptAllChanges(this.state),
@@ -351,6 +398,10 @@ export class ChatViewProvider implements WebviewViewProvider {
   /** Abort any running agent loops. Call on extension deactivate. */
   public abort(): void {
     this.state.abort();
+  }
+
+  public dispose(): void {
+    this.bgManager.dispose();
   }
 
   public async undoChanges(): Promise<void> {

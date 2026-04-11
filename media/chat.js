@@ -28,6 +28,7 @@
   let currentAssistantText = '';
   let installingModel = null;
   let cachedModels = [];
+  let bgAgentRuns = [];
   let pendingFile = null;
   let pendingImages = [];
   const imagePreview = document.getElementById('image-preview');
@@ -591,6 +592,7 @@
     { cmd: '/release', desc: 'Show, create, or delete a release' },
     { cmd: '/compact', desc: 'Compact conversation context to free tokens' },
     { cmd: '/init', desc: 'Generate SIDECAR.md project notes from codebase' },
+    { cmd: '/bg', desc: 'Run a task in the background' },
   ];
   const autocompleteEl = document.getElementById('slash-autocomplete');
   let acSelectedIndex = -1;
@@ -1125,6 +1127,7 @@
       '/clone': { syntax: '/clone <url>', desc: 'Clone a Git repository' },
       '/scaffold': { syntax: '/scaffold <type>', desc: 'Generate code from a template' },
       '/revise': { syntax: '/revise <feedback>', desc: 'Revise the current plan with feedback' },
+      '/bg': { syntax: '/bg <task>', desc: 'Spawn a background agent to work on a task autonomously' },
     };
     const bareCmd = text.trim().match(/^(\/\w+)$/);
     if (bareCmd && usageHints[bareCmd[1]]) {
@@ -1178,6 +1181,16 @@
       input.value = '';
       input.style.height = 'auto';
       return;
+    }
+    if (text.startsWith('/bg ')) {
+      const bgTask = text.slice(4).trim();
+      if (bgTask) {
+        appendMessage('user', text);
+        vscode.postMessage({ command: 'bgStart', text: bgTask });
+        input.value = '';
+        input.style.height = 'auto';
+        return;
+      }
     }
     if (text.startsWith('/save ')) {
       vscode.postMessage({ command: 'saveSession', text: text.slice(6).trim() });
@@ -2237,6 +2250,81 @@
     if (status) status.textContent = text;
   }
 
+  function renderBgAgentPanel() {
+    const panel = document.getElementById('bg-agents-panel');
+    const list = document.getElementById('bg-agents-list');
+    const countBadge = document.getElementById('bg-agents-count');
+    if (!panel || !list) return;
+
+    const active = bgAgentRuns.filter((r) => r.status === 'running' || r.status === 'queued');
+    const recent = bgAgentRuns.filter((r) => r.status !== 'running' && r.status !== 'queued');
+
+    if (bgAgentRuns.length === 0) {
+      panel.classList.add('hidden');
+      return;
+    }
+    panel.classList.remove('hidden');
+    if (countBadge) countBadge.textContent = active.length > 0 ? String(active.length) : '';
+
+    list.innerHTML = '';
+    for (const run of [...active, ...recent.slice(-5)]) {
+      const item = document.createElement('div');
+      item.className = 'bg-agent-item';
+
+      const info = document.createElement('div');
+      info.className = 'bg-agent-info';
+
+      const taskSpan = document.createElement('span');
+      taskSpan.className = 'bg-agent-task';
+      taskSpan.textContent = run.task.length > 60 ? run.task.slice(0, 60) + '…' : run.task;
+      taskSpan.title = run.task;
+      info.appendChild(taskSpan);
+
+      const statusSpan = document.createElement('span');
+      statusSpan.className = 'bg-agent-status bg-status-' + run.status;
+      const elapsed = ((run.completedAt || Date.now()) - run.startedAt) / 1000;
+      statusSpan.textContent =
+        run.status === 'running'
+          ? 'Running ' + Math.round(elapsed) + 's'
+          : run.status === 'queued'
+            ? 'Queued'
+            : run.status + (run.toolCalls ? ' (' + run.toolCalls + ' tools)' : '');
+      info.appendChild(statusSpan);
+      item.appendChild(info);
+
+      const actions = document.createElement('div');
+      actions.className = 'bg-agent-actions';
+
+      if (run.status === 'running' || run.status === 'queued') {
+        const stopBtn = document.createElement('button');
+        stopBtn.className = 'bg-agent-stop';
+        stopBtn.title = 'Stop';
+        stopBtn.textContent = '\u25A0';
+        stopBtn.addEventListener('click', () => vscode.postMessage({ command: 'bgStop', text: run.id }));
+        actions.appendChild(stopBtn);
+      }
+
+      const expandBtn = document.createElement('button');
+      expandBtn.className = 'bg-agent-expand';
+      expandBtn.title = 'Toggle output';
+      expandBtn.textContent = '\u25BC';
+      expandBtn.addEventListener('click', () => {
+        const outputEl = item.querySelector('.bg-agent-output');
+        if (outputEl) outputEl.classList.toggle('hidden');
+      });
+      actions.appendChild(expandBtn);
+      item.appendChild(actions);
+
+      const outputDiv = document.createElement('pre');
+      outputDiv.className = 'bg-agent-output hidden';
+      outputDiv.dataset.runId = run.id;
+      outputDiv.textContent = run.output || '(no output yet)';
+      item.appendChild(outputDiv);
+
+      list.appendChild(item);
+    }
+  }
+
   function removeTypingIndicator() {
     if (typingTimerInterval) {
       clearInterval(typingTimerInterval);
@@ -2916,6 +3004,36 @@
         break;
       }
 
+      case 'bgStatusUpdate':
+      case 'bgComplete': {
+        const bgRun = event.data.bgRun;
+        if (bgRun) {
+          const idx = bgAgentRuns.findIndex((r) => r.id === bgRun.id);
+          if (idx >= 0) bgAgentRuns[idx] = bgRun;
+          else bgAgentRuns.push(bgRun);
+          renderBgAgentPanel();
+        }
+        break;
+      }
+
+      case 'bgOutput': {
+        const bgRunId = event.data.bgRunId;
+        const bgChunk = content || '';
+        const bgEntry = bgAgentRuns.find((r) => r.id === bgRunId);
+        if (bgEntry) {
+          bgEntry.output = (bgEntry.output || '') + bgChunk;
+          const outputEl = document.querySelector(`.bg-agent-output[data-run-id="${bgRunId}"]`);
+          if (outputEl) outputEl.textContent = bgEntry.output;
+        }
+        break;
+      }
+
+      case 'bgList': {
+        bgAgentRuns = event.data.bgRuns || [];
+        renderBgAgentPanel();
+        break;
+      }
+
       case 'confirm': {
         finishAssistantMessage();
         const confirmCard = document.createElement('div');
@@ -3197,9 +3315,24 @@
       case 'setAgentMode': {
         const select = document.getElementById('agent-mode-select');
         const mode = event.data.agentMode || 'cautious';
+        const customModes = event.data.customModes || [];
         if (select) {
+          // Rebuild options: keep built-in modes, add/update custom modes
+          const builtIns = ['cautious', 'autonomous', 'manual', 'plan'];
+          // Remove old custom options
+          for (const opt of [...select.options]) {
+            if (!builtIns.includes(opt.value)) opt.remove();
+          }
+          // Add custom modes
+          for (const cm of customModes) {
+            const opt = document.createElement('option');
+            opt.value = cm.name;
+            opt.textContent = cm.name + (cm.description ? ' — ' + cm.description : '');
+            select.appendChild(opt);
+          }
           select.value = mode;
-          select.className = 'agent-mode-select mode-' + mode;
+          const isBuiltIn = builtIns.includes(mode);
+          select.className = 'agent-mode-select mode-' + (isBuiltIn ? mode : 'custom');
         }
         break;
       }

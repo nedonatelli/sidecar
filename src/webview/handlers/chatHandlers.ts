@@ -5,7 +5,7 @@ import { exec } from 'child_process';
 import type { ChatState } from '../chatState.js';
 import type { ContentBlock } from '../../ollama/types.js';
 import { getContentLength, getContentText } from '../../ollama/types.js';
-import { getConfig, estimateCost } from '../../config/settings.js';
+import { getConfig, estimateCost, resolveMode } from '../../config/settings.js';
 import { isProviderReachable } from '../../config/providerReachability.js';
 import {
   CHARS_PER_TOKEN,
@@ -786,8 +786,11 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     state.client.updateConnection(config.baseUrl, config.apiKey);
     state.client.updateModel(model);
 
+    // Resolve custom mode (if any) to its effective approval behavior and system prompt
+    const resolved = resolveMode(config.agentMode, config.customModes);
+
     // Auto-enable plan mode for large/complex tasks
-    let effectiveApprovalMode = config.agentMode;
+    let effectiveApprovalMode = resolved.approvalBehavior;
     if (effectiveApprovalMode !== 'plan' && shouldAutoEnablePlanMode(text, state.messages.length)) {
       effectiveApprovalMode = 'plan';
       state.postMessage({
@@ -810,6 +813,11 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
       root,
       approvalMode: effectiveApprovalMode,
     });
+
+    // Inject custom mode system prompt
+    if (resolved.systemPrompt) {
+      systemPrompt += `\n\n## Active Mode: ${config.agentMode}\n${resolved.systemPrompt}`;
+    }
 
     // Compute context budget
     state.postMessage({ command: 'typingStatus', content: 'Building context...' });
@@ -1031,6 +1039,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
               state.inlineEditProvider!.proposeEdit(filePath, searchText, replaceText)
           : undefined,
         clarifyFn: (question, options, allowCustom) => state.requestClarification(question, options, allowCustom),
+        modeToolPermissions: resolved.toolPermissions,
       },
     );
 

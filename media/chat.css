@@ -1278,6 +1278,11 @@ body {
   color: #fff;
 }
 
+.mode-custom {
+  background: var(--vscode-charts-orange, #d18616);
+  color: #fff;
+}
+
 #chat-actions {
   display: flex;
   gap: 4px;
@@ -1959,4 +1964,143 @@ body {
 }
 .next-step-btn:hover {
   background: var(--vscode-button-hoverBackground, #444);
+}
+
+/* Background agent panel */
+#bg-agents-panel {
+  border-bottom: 1px solid var(--vscode-widget-border);
+  background: var(--vscode-editor-background);
+}
+
+#bg-agents-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--vscode-descriptionForeground);
+}
+
+#bg-agents-count {
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+  font-size: 11px;
+  padding: 0 4px;
+  border-radius: 8px;
+  min-width: 16px;
+  text-align: center;
+  line-height: 16px;
+}
+
+#bg-agents-count:empty {
+  display: none;
+}
+
+#bg-agents-list {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.bg-agent-item {
+  padding: 8px 12px;
+  border-top: 1px solid var(--vscode-widget-border);
+}
+
+.bg-agent-item:first-child {
+  border-top: none;
+}
+
+.bg-agent-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.bg-agent-task {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bg-agent-status {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.bg-status-running {
+  background: var(--vscode-charts-yellow, #cca700);
+  color: #000;
+}
+
+.bg-status-queued {
+  background: var(--vscode-textBlockQuote-background);
+  color: var(--vscode-descriptionForeground);
+}
+
+.bg-status-completed {
+  background: var(--vscode-charts-green, #4ec9b0);
+  color: #000;
+}
+
+.bg-status-failed {
+  background: var(--vscode-errorForeground, #f44);
+  color: #fff;
+}
+
+.bg-status-cancelled {
+  background: var(--vscode-descriptionForeground);
+  color: var(--vscode-editor-background);
+}
+
+.bg-agent-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+  justify-content: flex-end;
+}
+
+.bg-agent-stop,
+.bg-agent-expand {
+  background: none;
+  border: 1px solid var(--vscode-widget-border);
+  color: var(--vscode-editor-foreground);
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 2px 8px;
+  font-size: 12px;
+  min-width: 28px;
+  min-height: 24px;
+}
+
+.bg-agent-stop:hover {
+  background: var(--vscode-errorForeground, #f44);
+  color: #fff;
+  border-color: var(--vscode-errorForeground, #f44);
+}
+
+.bg-agent-expand:hover {
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.bg-agent-output {
+  margin-top: 8px;
+  padding: 8px;
+  background: var(--vscode-textCodeBlock-background, rgba(0, 0, 0, 0.15));
+  border-radius: 4px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  line-height: 1.4;
+  max-height: 200px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
 }

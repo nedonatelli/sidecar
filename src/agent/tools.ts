@@ -41,6 +41,8 @@ export interface ToolExecutorContext {
   onOutput?: (chunk: string) => void;
   signal?: AbortSignal;
   clarifyFn?: ClarifyFn;
+  /** Per-tool permission overrides from the active custom mode. Merged with global toolPermissions (mode wins). */
+  modeToolPermissions?: Record<string, 'allow' | 'deny' | 'ask'>;
 }
 
 export interface ToolExecutor {

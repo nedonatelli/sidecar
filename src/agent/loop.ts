@@ -74,6 +74,8 @@ export interface AgentOptions {
   clarifyFn?: ClarifyFn;
   /** Current sub-agent nesting depth (0 = top-level). Used to enforce MAX_AGENT_DEPTH. */
   depth?: number;
+  /** Per-tool permission overrides from the active custom mode. */
+  modeToolPermissions?: Record<string, 'allow' | 'deny' | 'ask'>;
 }
 
 const DEFAULT_MAX_ITERATIONS = 25;
@@ -396,6 +398,7 @@ export async function runAgentLoop(
             onOutput: (chunk) => callbacks.onToolOutput?.(toolUse.name, chunk, toolUse.id),
             signal,
             clarifyFn: options.clarifyFn,
+            modeToolPermissions: options.modeToolPermissions,
           },
           options.inlineEditFn,
           options.streamingDiffPreviewFn,

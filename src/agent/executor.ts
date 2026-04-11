@@ -69,9 +69,11 @@ export async function executeTool(
   }
 
   const config = getConfig();
-  // --- Per-tool permissions (highest priority) ---
+  // --- Per-tool permissions: mode-level overrides win over global ---
   const permissions = config.toolPermissions;
-  let explicitPermission: 'allow' | 'deny' | 'ask' | undefined = permissions[toolUse.name];
+  const modePermissions = executorContext?.modeToolPermissions;
+  let explicitPermission: 'allow' | 'deny' | 'ask' | undefined =
+    modePermissions?.[toolUse.name] ?? permissions[toolUse.name];
 
   // Warn once per session if tool permissions are defined at workspace level (supply-chain risk)
   if (explicitPermission) {

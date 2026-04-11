@@ -139,6 +139,43 @@
             ]
           }
         },
+        "sidecar.customModes": {
+          "type": "array",
+          "default": [],
+          "description": "Custom agent modes with dedicated system prompts and approval behavior. Example: [{ \"name\": \"architect\", \"description\": \"Design-only mode\", \"systemPrompt\": \"Focus on architecture...\", \"approvalBehavior\": \"manual\" }]",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Mode identifier (lowercase, no spaces)"
+              },
+              "description": {
+                "type": "string",
+                "description": "Short description shown in the mode dropdown"
+              },
+              "systemPrompt": {
+                "type": "string",
+                "description": "Additional system prompt text injected when this mode is active"
+              },
+              "approvalBehavior": {
+                "type": "string",
+                "enum": ["autonomous", "cautious", "manual"],
+                "description": "Tool approval behavior for this mode"
+              },
+              "toolPermissions": {
+                "type": "object",
+                "default": {},
+                "description": "Per-tool permission overrides for this mode",
+                "additionalProperties": {
+                  "type": "string",
+                  "enum": ["allow", "deny", "ask"]
+                }
+              }
+            },
+            "required": ["name", "description", "systemPrompt", "approvalBehavior"]
+          }
+        },
         "sidecar.toolPermissions": {
           "type": "object",
           "default": {},
@@ -200,14 +237,8 @@
         },
         "sidecar.agentMode": {
           "type": "string",
-          "enum": [
-            "cautious",
-            "autonomous",
-            "manual",
-            "plan"
-          ],
           "default": "cautious",
-          "description": "Agent approval mode: cautious (confirm writes), autonomous (auto-approve read/write, confirm destructive), manual (confirm everything), plan (generate plan before executing)"
+          "description": "Agent mode: cautious, autonomous, manual, plan, or a custom mode name from sidecar.customModes"
         },
         "sidecar.agentTemperature": {
           "type": "number",
@@ -243,6 +274,13 @@
           "type": "number",
           "default": 10,
           "description": "Maximum shell output size in MB before truncation"
+        },
+        "sidecar.bgMaxConcurrent": {
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
+          "maximum": 10,
+          "description": "Maximum number of background agents that can run simultaneously"
         },
         "sidecar.includeActiveFile": {
           "type": "boolean",

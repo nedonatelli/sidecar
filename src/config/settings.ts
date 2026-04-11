@@ -92,6 +92,47 @@ export interface CustomToolConfig {
   command: string;
 }
 
+export interface CustomModeConfig {
+  name: string;
+  description: string;
+  systemPrompt: string;
+  approvalBehavior: 'autonomous' | 'cautious' | 'manual';
+  toolPermissions?: Record<string, 'allow' | 'deny' | 'ask'>;
+}
+
+const BUILT_IN_MODES = ['autonomous', 'cautious', 'manual', 'plan'] as const;
+
+/** Resolve an agentMode string to its effective approval behavior, system prompt, and tool permissions. */
+export function resolveMode(
+  agentMode: string,
+  customModes: CustomModeConfig[],
+): {
+  approvalBehavior: 'autonomous' | 'cautious' | 'manual' | 'plan';
+  systemPrompt: string;
+  toolPermissions: Record<string, 'allow' | 'deny' | 'ask'>;
+  isCustom: boolean;
+} {
+  if ((BUILT_IN_MODES as readonly string[]).includes(agentMode)) {
+    return {
+      approvalBehavior: agentMode as 'autonomous' | 'cautious' | 'manual' | 'plan',
+      systemPrompt: '',
+      toolPermissions: {},
+      isCustom: false,
+    };
+  }
+  const custom = customModes.find((m) => m.name === agentMode);
+  if (custom) {
+    return {
+      approvalBehavior: custom.approvalBehavior,
+      systemPrompt: custom.systemPrompt,
+      toolPermissions: custom.toolPermissions || {},
+      isCustom: true,
+    };
+  }
+  // Unknown mode — fall back to cautious
+  return { approvalBehavior: 'cautious', systemPrompt: '', toolPermissions: {}, isCustom: false };
+}
+
 export interface SideCarConfig {
   model: string;
   provider: 'auto' | 'ollama' | 'anthropic' | 'openai' | 'kickstand';
@@ -99,7 +140,7 @@ export interface SideCarConfig {
   baseUrl: string;
   apiKey: string;
   includeActiveFile: boolean;
-  agentMode: 'cautious' | 'autonomous' | 'manual' | 'plan';
+  agentMode: string;
   agentTemperature: number;
   agentMaxIterations: number;
   agentMaxMessages: number;
@@ -113,6 +154,7 @@ export interface SideCarConfig {
   eventHooks: EventHookConfig;
   scheduledTasks: ScheduledTask[];
   customTools: CustomToolConfig[];
+  customModes: CustomModeConfig[];
   mcpServers: Record<string, MCPServerConfig>;
   verboseMode: boolean;
   expandThinking: boolean;
@@ -145,6 +187,8 @@ export interface SideCarConfig {
   /* Semantic search */
   enableSemanticSearch: boolean;
   semanticSearchWeight: number;
+  /* Background agents */
+  bgMaxConcurrent: number;
 }
 
 /**
@@ -180,7 +224,7 @@ function readConfig(): SideCarConfig {
     baseUrl: cfg.get<string>('baseUrl', 'http://localhost:11434') || 'http://localhost:11434',
     apiKey: cfg.get<string>('apiKey', 'ollama'),
     includeActiveFile: cfg.get<boolean>('includeActiveFile', true),
-    agentMode: cfg.get<'cautious' | 'autonomous' | 'manual' | 'plan'>('agentMode', 'cautious'),
+    agentMode: cfg.get<string>('agentMode', 'cautious'),
     agentTemperature: clampMin(cfg.get<number>('agentTemperature'), 0, 0.2),
     agentMaxIterations: clampMin(cfg.get<number>('agentMaxIterations'), 1, 50),
     agentMaxMessages: clampMin(cfg.get<number>('agentMaxMessages'), 5, 100),
@@ -194,6 +238,7 @@ function readConfig(): SideCarConfig {
     eventHooks: cfg.get<EventHookConfig>('eventHooks', {}),
     scheduledTasks: cfg.get<ScheduledTask[]>('scheduledTasks', []),
     customTools: cfg.get<CustomToolConfig[]>('customTools', []),
+    customModes: cfg.get<CustomModeConfig[]>('customModes', []),
     mcpServers: cfg.get<Record<string, MCPServerConfig>>('mcpServers', {}),
     verboseMode: cfg.get<boolean>('verboseMode', false),
     expandThinking: cfg.get<boolean>('expandThinking', false),
@@ -226,6 +271,7 @@ function readConfig(): SideCarConfig {
     /* Semantic search */
     enableSemanticSearch: cfg.get<boolean>('enableSemanticSearch', true),
     semanticSearchWeight: Math.max(0, Math.min(1, cfg.get<number>('semanticSearchWeight', 0.6))),
+    bgMaxConcurrent: clampMin(cfg.get<number>('bgMaxConcurrent'), 1, 3),
   };
 }
 

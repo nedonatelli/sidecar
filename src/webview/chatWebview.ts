@@ -55,7 +55,11 @@ export interface WebviewMessage {
     | 'insights'
     | 'explainToolDecision'
     | 'mcpStatus'
-    | 'initProject';
+    | 'initProject'
+    | 'bgStart'
+    | 'bgStop'
+    | 'bgList'
+    | 'bgExpand';
   images?: { mediaType: string; data: string }[];
   text?: string;
   model?: string;
@@ -124,7 +128,11 @@ export interface ExtensionMessage {
     | 'typingStatus'
     | 'onboarding'
     | 'skillsMenu'
-    | 'suggestNextSteps';
+    | 'suggestNextSteps'
+    | 'bgStatusUpdate'
+    | 'bgOutput'
+    | 'bgComplete'
+    | 'bgList';
   agentMode?: string;
   toolName?: string;
   toolCallId?: string;
@@ -162,6 +170,28 @@ export interface ExtensionMessage {
   verboseLabel?: string;
   skills?: { id: string; name: string; description: string }[];
   suggestions?: string[];
+  customModes?: { name: string; description: string }[];
+  bgRun?: {
+    id: string;
+    task: string;
+    status: string;
+    startedAt: number;
+    completedAt?: number;
+    output: string;
+    error?: string;
+    toolCalls: number;
+  };
+  bgRuns?: {
+    id: string;
+    task: string;
+    status: string;
+    startedAt: number;
+    completedAt?: number;
+    output: string;
+    error?: string;
+    toolCalls: number;
+  }[];
+  bgRunId?: string;
 }
 
 export interface LibraryModelUI {
@@ -237,6 +267,13 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
     <div id="sessions-list"></div>
     <div id="sessions-empty" class="hidden">No saved conversations. Use <code>/save &lt;name&gt;</code> to save one.</div>
   </div>
+  </div>
+  <div id="bg-agents-panel" class="hidden">
+    <div id="bg-agents-header">
+      <span>Background Agents</span>
+      <span id="bg-agents-count"></span>
+    </div>
+    <div id="bg-agents-list"></div>
   </div>
   <div id="messages" role="log" aria-live="polite"></div>
   <button id="scroll-to-bottom" class="hidden" title="Scroll to bottom">&#8595;</button>

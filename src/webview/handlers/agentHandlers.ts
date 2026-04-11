@@ -1,7 +1,7 @@
 import { window, workspace, Uri } from 'vscode';
 import * as path from 'path';
 import type { ChatState } from '../chatState.js';
-import { getConfig } from '../../config/settings.js';
+import { getConfig, resolveMode } from '../../config/settings.js';
 import { handleUserMessage } from './chatHandlers.js';
 import { parseBatchInput, runBatch } from '../../agent/batch.js';
 import { generateInsightReport } from '../../agent/insightReport.js';
@@ -28,7 +28,7 @@ export async function handleExecutePlan(state: ChatState): Promise<void> {
   state.pendingPlanMessages = [];
   // Temporarily switch out of plan mode during execution so we execute instead of planning again
   const config = workspace.getConfiguration('sidecar');
-  const previousMode = config.get<'cautious' | 'autonomous' | 'manual' | 'plan'>('agentMode', 'cautious');
+  const previousMode = config.get<string>('agentMode', 'cautious');
   if (previousMode === 'plan') {
     await config.update('agentMode', 'cautious', true);
   }
@@ -50,7 +50,7 @@ export async function handleRevisePlan(state: ChatState, feedback: string): Prom
   state.pendingPlanMessages = [];
   // Temporarily switch out of plan mode during revision so we get a revised plan, not another plan of a plan
   const config = workspace.getConfiguration('sidecar');
-  const previousMode = config.get<'cautious' | 'autonomous' | 'manual' | 'plan'>('agentMode', 'cautious');
+  const previousMode = config.get<string>('agentMode', 'cautious');
   if (previousMode === 'plan') {
     await config.update('agentMode', 'cautious', true);
   }
@@ -90,7 +90,11 @@ export async function handleBatch(state: ChatState, text: string): Promise<void>
         });
       },
       abortController.signal,
-      { logger: state.agentLogger, mcpManager: state.mcpManager, approvalMode: config.agentMode },
+      {
+        logger: state.agentLogger,
+        mcpManager: state.mcpManager,
+        approvalMode: resolveMode(config.agentMode, config.customModes).approvalBehavior,
+      },
     );
 
     state.postMessage({ command: 'assistantMessage', content: '\nBatch complete.\n' });
