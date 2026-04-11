@@ -545,6 +545,11 @@ export class WorkspaceIndex implements Disposable {
     return this.files.values();
   }
 
+  /** Get the cached file tree string (built during indexing). */
+  getFileTree(): string {
+    return this.treeCache;
+  }
+
   dispose(): void {
     this.watcher?.dispose();
     if (this.rebuildTimer) {

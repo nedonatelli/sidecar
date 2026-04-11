@@ -1,4 +1,4 @@
-import { window, workspace } from 'vscode';
+import { window, workspace, Uri } from 'vscode';
 import * as path from 'path';
 import type { ChatState } from '../chatState.js';
 import { getConfig } from '../../config/settings.js';
@@ -8,6 +8,7 @@ import { generateInsightReport } from '../../agent/insightReport.js';
 import { generateUsageReport } from '../../agent/usageReport.js';
 import { generateContextReport } from '../../agent/contextReport.js';
 import { generateSpec, saveSpec } from '../../agent/specDriven.js';
+import { generateInit } from '../../agent/codebaseInit.js';
 import { generateDocumentation } from '../../agent/docGenerator.js';
 import { generateTests } from '../../agent/testGenerator.js';
 import { runLint } from '../../agent/lintFix.js';
@@ -112,6 +113,64 @@ export async function handleInsight(state: ChatState): Promise<void> {
   const report = generateInsightReport(history);
   const doc = await workspace.openTextDocument({ content: report, language: 'markdown' });
   await window.showTextDocument(doc, { preview: true });
+}
+
+/**
+ * `/init` command — scan the codebase and generate a persistent SIDECAR.md
+ * that provides project context for all future conversations.
+ */
+export async function handleInit(state: ChatState): Promise<void> {
+  state.postMessage({ command: 'setLoading', isLoading: true });
+  state.postMessage({ command: 'assistantMessage', content: 'Scanning codebase and generating SIDECAR.md...' });
+
+  const config = getConfig();
+  state.client.updateConnection(config.baseUrl, config.apiKey);
+  state.client.updateModel(config.model);
+
+  try {
+    const sidecarMd = await generateInit(state.client, state.workspaceIndex);
+    if (!sidecarMd) {
+      state.postMessage({
+        command: 'error',
+        content: 'Failed to generate SIDECAR.md — no workspace open or LLM error.',
+      });
+      state.postMessage({ command: 'setLoading', isLoading: false });
+      return;
+    }
+
+    // Save to .sidecar/SIDECAR.md via SidecarDir if available, otherwise fallback
+    if (state.sidecarDir?.isReady()) {
+      await state.sidecarDir.writeText('SIDECAR.md', sidecarMd);
+      const doc = await workspace.openTextDocument(state.sidecarDir.getUri('SIDECAR.md'));
+      await window.showTextDocument(doc, { preview: true });
+    } else {
+      const rootUri = workspace.workspaceFolders?.[0]?.uri;
+      if (rootUri) {
+        const sidecarDir = Uri.joinPath(rootUri, '.sidecar');
+        try {
+          await workspace.fs.createDirectory(sidecarDir);
+        } catch {
+          // Already exists
+        }
+        const fileUri = Uri.joinPath(sidecarDir, 'SIDECAR.md');
+        await workspace.fs.writeFile(fileUri, Buffer.from(sidecarMd, 'utf-8'));
+        const doc = await workspace.openTextDocument(fileUri);
+        await window.showTextDocument(doc, { preview: true });
+      }
+    }
+
+    state.postMessage({
+      command: 'assistantMessage',
+      content:
+        'SIDECAR.md generated and saved to `.sidecar/SIDECAR.md`. This file will be automatically loaded into context for all future conversations. You can edit it to refine the project notes.',
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    state.postMessage({ command: 'error', content: `Failed to generate SIDECAR.md: ${msg}` });
+  }
+
+  state.postMessage({ command: 'done' });
+  state.postMessage({ command: 'setLoading', isLoading: false });
 }
 
 export async function handleGenerateDoc(state: ChatState): Promise<void> {

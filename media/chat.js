@@ -581,6 +581,7 @@
     { cmd: '/releases', desc: 'List GitHub releases' },
     { cmd: '/release', desc: 'Show, create, or delete a release' },
     { cmd: '/compact', desc: 'Compact conversation context to free tokens' },
+    { cmd: '/init', desc: 'Generate SIDECAR.md project notes from codebase' },
   ];
   const autocompleteEl = document.getElementById('slash-autocomplete');
   let acSelectedIndex = -1;
@@ -1085,6 +1086,27 @@
     const text = input.value.trim();
     if (!text || isLoading) return;
 
+    // Check for slash commands missing required arguments
+    const usageHints = {
+      '/spec': { syntax: '/spec <description>', desc: 'Generate a structured specification for a feature' },
+      '/batch': { syntax: '/batch <tasks>', desc: 'Run multiple tasks (one per line)' },
+      '/save': { syntax: '/save <name>', desc: 'Save the current session with a name' },
+      '/model': { syntax: '/model <name>', desc: 'Switch to a different model' },
+      '/move': { syntax: '/move <source> <dest>', desc: 'Move or rename a file' },
+      '/clone': { syntax: '/clone <url>', desc: 'Clone a Git repository' },
+      '/scaffold': { syntax: '/scaffold <type>', desc: 'Generate code from a template' },
+      '/revise': { syntax: '/revise <feedback>', desc: 'Revise the current plan with feedback' },
+    };
+    const bareCmd = text.trim().match(/^(\/\w+)$/);
+    if (bareCmd && usageHints[bareCmd[1]]) {
+      const hint = usageHints[bareCmd[1]];
+      appendMessage('user', text);
+      appendMessage('assistant', `**Usage:** \`${hint.syntax}\`\n${hint.desc}`);
+      input.value = '';
+      input.style.height = 'auto';
+      return;
+    }
+
     // Check for slash commands
     if (text.startsWith('/batch ') || text.startsWith('/batch\n')) {
       appendMessage('user', text);
@@ -1117,6 +1139,13 @@
     if (text.trim() === '/insight') {
       appendMessage('user', text);
       vscode.postMessage({ command: 'insight' });
+      input.value = '';
+      input.style.height = 'auto';
+      return;
+    }
+    if (text.trim() === '/init') {
+      appendMessage('user', '/init');
+      vscode.postMessage({ command: 'initProject' });
       input.value = '';
       input.style.height = 'auto';
       return;
@@ -1296,6 +1325,7 @@
           '`/mcp` — MCP server status\n' +
           '`/verbose` — Toggle verbose mode (show agent reasoning)\n' +
           '`/compact` — Compact conversation context to free tokens\n' +
+          '`/init` — Generate SIDECAR.md project notes from codebase\n' +
           '`/prompt` — Show the current system prompt',
       );
       input.value = '';

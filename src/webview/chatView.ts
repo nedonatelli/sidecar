@@ -60,6 +60,7 @@ import {
   handleInsights,
   handleExplainToolDecision,
   handleMcpStatus,
+  handleInit,
 } from './handlers/agentHandlers.js';
 import {
   handleSaveSession,
@@ -253,6 +254,7 @@ export class ChatViewProvider implements WebviewViewProvider {
     insights: () => handleInsights(this.state),
     explainToolDecision: (msg) => handleExplainToolDecision(this.state, msg.toolCallId || ''),
     mcpStatus: () => handleMcpStatus(this.state),
+    initProject: () => handleInit(this.state),
     generateCommit: () => handleGenerateCommit(this.state),
     revertFile: (msg) => handleRevertFile(this.state, msg.filePath || ''),
     acceptAllChanges: () => handleAcceptAllChanges(this.state),

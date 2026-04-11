@@ -54,7 +54,8 @@ export interface WebviewMessage {
     | 'audit'
     | 'insights'
     | 'explainToolDecision'
-    | 'mcpStatus';
+    | 'mcpStatus'
+    | 'initProject';
   images?: { mediaType: string; data: string }[];
   text?: string;
   model?: string;
