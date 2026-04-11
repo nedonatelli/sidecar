@@ -32,6 +32,11 @@ body {
   font-size: var(--vscode-font-size, 14px);
 }
 
+#header-wrapper {
+  position: relative;
+  flex-shrink: 0;
+}
+
 #header {
   display: flex;
   align-items: center;
@@ -71,8 +76,8 @@ body {
 #model-btn {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
+  gap: 8px;
+  padding: 4px 8px;
   background: var(--vscode-button-background);
   color: var(--vscode-button-foreground);
   border: none;
@@ -87,7 +92,7 @@ body {
 }
 
 #model-arrow {
-  font-size: 10px;
+  font-size: 11px;
   opacity: 0.7;
 }
 
@@ -138,7 +143,7 @@ body {
 
 #model-panel {
   position: absolute;
-  top: 42px;
+  top: 100%;
   left: 12px;
   right: 12px;
   max-height: 320px;
@@ -171,18 +176,41 @@ body {
   color: var(--vscode-editor-foreground);
   font-size: 18px;
   cursor: pointer;
-  padding: 0;
+  padding: 4px 8px;
   line-height: 1;
   opacity: 0.6;
+  border-radius: 4px;
 }
 
 #close-panel:hover {
   opacity: 1;
+  background: var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
+}
+
+#model-search-row {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--vscode-widget-border);
+}
+
+#model-search-input {
+  width: 100%;
+  padding: 4px 8px;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-widget-border);
+  border-radius: 4px;
+  font-family: var(--vscode-font-family);
+  font-size: 12px;
+}
+
+#model-search-input:focus {
+  outline: none;
+  border-color: var(--vscode-focusBorder, #007acc);
 }
 
 #custom-model-row {
   display: flex;
-  gap: 6px;
+  gap: 8px;
   padding: 8px 12px;
   border-bottom: 1px solid var(--vscode-widget-border);
 }
@@ -255,7 +283,7 @@ body {
 .model-item-name {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   font-size: 13px;
   flex: 1;
   min-width: 0;
@@ -270,8 +298,8 @@ body {
 }
 
 .model-badge {
-  font-size: 10px;
-  padding: 2px 5px;
+  font-size: 11px;
+  padding: 2px 4px;
   background: var(--vscode-textBlockQuote-background);
   color: var(--vscode-editor-foreground);
   opacity: 0.6;
@@ -285,7 +313,7 @@ body {
 }
 
 .model-action {
-  padding: 4px 10px;
+  padding: 4px 8px;
   border: none;
   border-radius: 4px;
   cursor: pointer;
@@ -320,7 +348,7 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 12px;
+  padding: 8px 12px;
   background: var(--vscode-textBlockQuote-background);
   font-size: 12px;
   border-top: 1px solid var(--vscode-widget-border);
@@ -354,7 +382,7 @@ body {
 /* Sessions panel */
 #sessions-panel {
   position: absolute;
-  top: 42px;
+  top: 100%;
   left: 12px;
   right: 12px;
   max-height: 400px;
@@ -387,13 +415,15 @@ body {
   color: var(--vscode-editor-foreground);
   font-size: 18px;
   cursor: pointer;
-  padding: 0;
+  padding: 4px 8px;
   line-height: 1;
   opacity: 0.6;
+  border-radius: 4px;
 }
 
 #close-sessions:hover {
   opacity: 1;
+  background: var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
 }
 
 #sessions-list {
@@ -449,7 +479,7 @@ body {
 .session-date {
   font-size: 11px;
   color: var(--vscode-descriptionForeground);
-  margin-top: 2px;
+  margin-top: 4px;
 }
 
 .session-actions {
@@ -497,8 +527,8 @@ body {
   position: sticky;
   bottom: 4px;
   align-self: center;
-  width: 28px;
-  height: 28px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   border: 1px solid var(--vscode-widget-border);
   background: var(--vscode-editor-background);
@@ -529,10 +559,10 @@ body {
 
 .message-actions {
   position: absolute;
-  top: 2px;
+  top: 4px;
   right: 4px;
   display: flex;
-  gap: 2px;
+  gap: 4px;
   opacity: 0;
   transition: opacity 0.15s;
 }
@@ -548,8 +578,8 @@ body {
   opacity: 0.5;
   cursor: pointer;
   font-size: 14px;
-  padding: 2px 5px;
-  border-radius: 3px;
+  padding: 4px 8px;
+  border-radius: 4px;
   line-height: 1;
 }
 
@@ -583,17 +613,17 @@ body {
 }
 
 .error-card {
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 
 .error-actions {
   display: flex;
   gap: 8px;
-  margin-top: 6px;
+  margin-top: 8px;
 }
 
 .error-action-btn {
-  padding: 4px 10px;
+  padding: 4px 8px;
   font-size: 11px;
   border: 1px solid var(--vscode-button-border, var(--vscode-widget-border));
   border-radius: 3px;
@@ -608,7 +638,7 @@ body {
 
 .confirm-card {
   margin: 4px 12px;
-  padding: 10px 12px;
+  padding: 8px 12px;
   border: 1px solid var(--vscode-widget-border);
   border-radius: 4px;
   background: var(--vscode-textBlockQuote-background);
@@ -662,19 +692,19 @@ body {
 .clarify-question {
   font-size: 13px;
   color: var(--vscode-foreground);
-  margin-bottom: 10px;
+  margin-bottom: 8px;
   font-weight: 500;
 }
 
 .clarify-options {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
   margin-bottom: 8px;
 }
 
 .clarify-option-btn {
-  padding: 5px 14px;
+  padding: 4px 12px;
   font-size: 12px;
   border: 1px solid var(--vscode-button-border, var(--vscode-widget-border));
   border-radius: 4px;
@@ -691,7 +721,7 @@ body {
 
 .clarify-custom {
   display: flex;
-  gap: 6px;
+  gap: 8px;
   align-items: center;
 }
 
@@ -738,7 +768,7 @@ body {
 }
 
 .ac-item {
-  padding: 6px 12px;
+  padding: 8px 12px;
   cursor: pointer;
   display: flex;
   gap: 8px;
@@ -786,12 +816,12 @@ body {
 }
 
 .attach-menu-item {
-  padding: 6px 12px;
+  padding: 8px 12px;
   cursor: pointer;
   font-size: 13px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
 }
 
 .attach-menu-item:hover {
@@ -813,7 +843,7 @@ body {
 
 .attach-menu-divider {
   padding: 4px 12px 2px;
-  font-size: 10px;
+  font-size: 11px;
   text-transform: uppercase;
   opacity: 0.5;
   letter-spacing: 0.5px;
@@ -883,7 +913,7 @@ body {
 .typing-indicator {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   padding: 8px 12px;
   align-self: flex-start;
 }
@@ -977,7 +1007,7 @@ body {
 #file-attachment {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   padding: 4px 12px;
   background: var(--vscode-textBlockQuote-background);
   border-top: 1px solid var(--vscode-widget-border);
@@ -1002,7 +1032,7 @@ body {
   color: var(--vscode-editor-foreground);
   font-size: 14px;
   cursor: pointer;
-  padding: 0 2px;
+  padding: 4px 8px;
   opacity: 0.6;
   line-height: 1;
 }
@@ -1075,8 +1105,8 @@ body {
 }
 
 .message blockquote {
-  margin: 6px 0;
-  padding: 4px 10px;
+  margin: 8px 0;
+  padding: 4px 12px;
   border-left: 3px solid var(--vscode-textBlockQuote-border, #007acc);
   background: var(--vscode-textBlockQuote-background);
   opacity: 0.85;
@@ -1112,7 +1142,7 @@ body {
   background: var(--vscode-textCodeBlock-background, rgba(0, 0, 0, 0.15));
   border: 1px solid var(--vscode-widget-border);
   border-radius: 4px;
-  margin: 6px 0;
+  margin: 8px 0;
   overflow: hidden;
 }
 
@@ -1217,8 +1247,8 @@ body {
 }
 
 .agent-mode-select {
-  font-size: 10px;
-  padding: 1px 4px;
+  font-size: 11px;
+  padding: 2px 4px;
   border-radius: 3px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -1259,8 +1289,10 @@ body {
   color: var(--vscode-editor-foreground);
   border-radius: 4px;
   cursor: pointer;
-  padding: 2px 8px;
+  padding: 4px 8px;
   font-size: 14px;
+  min-width: 32px;
+  min-height: 32px;
 }
 
 #chat-actions button:hover {
@@ -1422,7 +1454,7 @@ body {
 .tool-detail {
   color: var(--vscode-descriptionForeground);
   font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 10px;
+  font-size: 11px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1564,17 +1596,17 @@ body {
 
 .image-remove {
   position: absolute;
-  top: -4px;
-  right: -4px;
+  top: -6px;
+  right: -6px;
   background: var(--vscode-badge-background);
   color: var(--vscode-badge-foreground);
   border: none;
   border-radius: 50%;
-  width: 16px;
-  height: 16px;
-  font-size: 10px;
+  width: 24px;
+  height: 24px;
+  font-size: 12px;
   cursor: pointer;
-  line-height: 16px;
+  line-height: 24px;
   padding: 0;
 }
 

@@ -19,6 +19,7 @@
   const fileAttachment = document.getElementById('file-attachment');
   const fileAttachmentName = document.getElementById('file-attachment-name');
   const removeAttachment = document.getElementById('remove-attachment');
+  const modelSearchInput = document.getElementById('model-search-input');
   const customModelInput = document.getElementById('custom-model-input');
   const customModelUse = document.getElementById('custom-model-use');
 
@@ -26,6 +27,7 @@
   let currentAssistantDiv = null;
   let currentAssistantText = '';
   let installingModel = null;
+  let cachedModels = [];
   let pendingFile = null;
   let pendingImages = [];
   const imagePreview = document.getElementById('image-preview');
@@ -250,10 +252,17 @@
 
   modelBtn.addEventListener('click', () => {
     modelPanel.classList.toggle('hidden');
+    if (!modelPanel.classList.contains('hidden')) {
+      modelSearchInput.focus();
+    }
   });
 
   closePanel.addEventListener('click', () => {
     modelPanel.classList.add('hidden');
+  });
+
+  modelSearchInput.addEventListener('input', () => {
+    renderModelList(cachedModels, modelSearchInput.value.trim());
   });
 
   cancelInstall.addEventListener('click', () => {
@@ -685,6 +694,17 @@
       vscode.postMessage({ command: 'abort' });
       setLoading(false);
     }
+  });
+
+  // Global Escape key — abort processing or dismiss confirm/clarify cards
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    // Don't handle if autocomplete is open (input handler manages that)
+    if (!autocompleteEl.classList.contains('hidden')) return;
+    if (!isLoading) return;
+    e.preventDefault();
+    vscode.postMessage({ command: 'abort' });
+    setLoading(false);
   });
 
   function tryParseMoveCommand(text) {
@@ -2302,12 +2322,25 @@
     return name;
   }
 
-  function renderModelList(models) {
+  function renderModelList(models, filter) {
+    // Cache full list when called without a filter (fresh data from extension)
+    if (filter === undefined) {
+      cachedModels = models;
+      if (modelSearchInput) modelSearchInput.value = '';
+    }
+
     modelList.innerHTML = '';
 
+    // Apply search filter
+    let filtered = models;
+    if (filter) {
+      const q = filter.toLowerCase();
+      filtered = models.filter((m) => m.name.toLowerCase().includes(q));
+    }
+
     // Organize models by tool support
-    const toolModels = models.filter((m) => m.supportsTools !== false);
-    const chatOnlyModels = models.filter((m) => m.supportsTools === false);
+    const toolModels = filtered.filter((m) => m.supportsTools !== false);
+    const chatOnlyModels = filtered.filter((m) => m.supportsTools === false);
 
     // Render tool-supporting models section
     if (toolModels.length > 0) {

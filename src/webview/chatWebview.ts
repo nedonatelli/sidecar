@@ -188,36 +188,40 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
   <link rel="stylesheet" href="${stylesUri}">
 </head>
 <body>
-  <div id="header">
-    <div id="current-model">
-      <button id="model-btn" aria-haspopup="true" aria-expanded="false" aria-label="Select model">
-        <span id="model-name">Loading...</span>
-        <span id="model-arrow">&#9662;</span>
-      </button>
-      <span id="chat-only-badge" class="hidden" title="This model does not support tool calling">
-        <span class="chat-only-icon">ℹ️</span>
-        <span class="chat-only-text">Chat-Only</span>
-      </span>
+  <div id="header-wrapper">
+    <div id="header">
+      <div id="current-model">
+        <button id="model-btn" aria-haspopup="true" aria-expanded="false" aria-label="Select model">
+          <span id="model-name">Loading...</span>
+          <span id="model-arrow">&#9662;</span>
+        </button>
+        <span id="chat-only-badge" class="hidden" title="This model does not support tool calling">
+          <span class="chat-only-icon">ℹ️</span>
+          <span class="chat-only-text">Chat-Only</span>
+        </span>
+      </div>
+      <select id="agent-mode-select" class="agent-mode-select" aria-label="Agent mode">
+        <option value="cautious">cautious</option>
+        <option value="autonomous">autonomous</option>
+        <option value="manual">manual</option>
+        <option value="plan">plan</option>
+      </select>
+      <div id="chat-actions">
+        <button id="new-chat-btn" title="New Chat">+</button>
+        <button id="history-btn" title="Conversation History">&#9776;</button>
+        <button id="compact-btn" title="Compact Context">&#9986;</button>
+        <button id="undo-btn" title="Undo All Changes">&#8634;</button>
+        <button id="export-btn" title="Export as Markdown">&#8681;</button>
+      </div>
     </div>
-    <select id="agent-mode-select" class="agent-mode-select" aria-label="Agent mode">
-      <option value="cautious">cautious</option>
-      <option value="autonomous">autonomous</option>
-      <option value="manual">manual</option>
-      <option value="plan">plan</option>
-    </select>
-    <div id="chat-actions">
-      <button id="new-chat-btn" title="New Chat">+</button>
-      <button id="history-btn" title="Conversation History">&#9776;</button>
-      <button id="compact-btn" title="Compact Context">&#9986;</button>
-      <button id="undo-btn" title="Undo All Changes">&#8634;</button>
-      <button id="export-btn" title="Export as Markdown">&#8681;</button>
-    </div>
-  </div>
-  <div id="activity-bar" class="hidden"></div>
-  <div id="model-panel" class="hidden" role="dialog" aria-label="Model picker">
+    <div id="activity-bar" class="hidden"></div>
+    <div id="model-panel" class="hidden" role="dialog" aria-label="Model picker">
     <div id="model-panel-header">
       <span>Select Model</span>
       <button id="close-panel">&times;</button>
+    </div>
+    <div id="model-search-row">
+      <input id="model-search-input" type="text" placeholder="Search models..." />
     </div>
     <div id="custom-model-row">
       <input id="custom-model-input" type="text" placeholder="Model name or HuggingFace URL..." />
@@ -232,6 +236,7 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
     </div>
     <div id="sessions-list"></div>
     <div id="sessions-empty" class="hidden">No saved conversations. Use <code>/save &lt;name&gt;</code> to save one.</div>
+  </div>
   </div>
   <div id="messages" role="log" aria-live="polite"></div>
   <button id="scroll-to-bottom" class="hidden" title="Scroll to bottom">&#8595;</button>

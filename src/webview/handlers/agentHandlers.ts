@@ -120,6 +120,29 @@ export async function handleInsight(state: ChatState): Promise<void> {
  * that provides project context for all future conversations.
  */
 export async function handleInit(state: ChatState): Promise<void> {
+  // Check if SIDECAR.md already exists and ask before overwriting
+  const rootUri = workspace.workspaceFolders?.[0]?.uri;
+  if (rootUri) {
+    const existingUri = state.sidecarDir?.isReady()
+      ? state.sidecarDir.getUri('SIDECAR.md')
+      : Uri.joinPath(rootUri, '.sidecar', 'SIDECAR.md');
+    try {
+      await workspace.fs.stat(existingUri);
+      const choice = await window.showWarningMessage(
+        'SIDECAR.md already exists. Regenerating will overwrite it.',
+        'Overwrite',
+        'Cancel',
+      );
+      if (choice !== 'Overwrite') {
+        state.postMessage({ command: 'assistantMessage', content: 'Init cancelled — existing SIDECAR.md kept.' });
+        state.postMessage({ command: 'done' });
+        return;
+      }
+    } catch {
+      // File doesn't exist — proceed
+    }
+  }
+
   state.postMessage({ command: 'setLoading', isLoading: true });
   state.postMessage({ command: 'assistantMessage', content: 'Scanning codebase and generating SIDECAR.md...' });
 
