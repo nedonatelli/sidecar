@@ -635,11 +635,12 @@
     acSelectedIndex = -1;
   }
 
-  // Auto-resize textarea
+  // Auto-resize textarea and update send button label
   input.addEventListener('input', () => {
     input.style.height = 'auto';
     input.style.height = Math.min(input.scrollHeight, 120) + 'px';
     updateAutocomplete();
+    updateSendButton();
   });
 
   // Enter to send, Shift+Enter for newline, arrow keys for autocomplete
@@ -677,11 +678,12 @@
   });
 
   sendBtn.addEventListener('click', () => {
-    if (isLoading) {
+    const hasText = input.value.trim().length > 0;
+    if (hasText) {
+      submitMessage();
+    } else if (isLoading) {
       vscode.postMessage({ command: 'abort' });
       setLoading(false);
-    } else {
-      submitMessage();
     }
   });
 
@@ -1084,7 +1086,14 @@
 
   function submitMessage() {
     const text = input.value.trim();
-    if (!text || isLoading) return;
+    if (!text) return;
+
+    // If the agent is already running, abort it first — the extension
+    // backend will handle the race (chatHandlers aborts the previous loop
+    // and bumps chatGeneration before processing the new message).
+    if (isLoading) {
+      vscode.postMessage({ command: 'abort' });
+    }
 
     // Check for slash commands missing required arguments
     const usageHints = {
@@ -2217,12 +2226,21 @@
     if (typing) typing.remove();
   }
 
+  function updateSendButton() {
+    const hasText = input.value.trim().length > 0;
+    if (isLoading && !hasText) {
+      sendBtn.textContent = 'Stop';
+      sendBtn.classList.add('loading');
+    } else {
+      sendBtn.textContent = 'Send';
+      sendBtn.classList.remove('loading');
+    }
+  }
+
   function setLoading(loading) {
     isLoading = loading;
     sendBtn.disabled = false;
-    sendBtn.textContent = loading ? 'Stop' : 'Send';
-    sendBtn.classList.toggle('loading', loading);
-    input.disabled = loading;
+    updateSendButton();
     const activityBar = document.getElementById('activity-bar');
     if (activityBar) activityBar.classList.toggle('hidden', !loading);
   }
