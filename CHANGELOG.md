@@ -2,6 +2,29 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.42.0] - 2026-04-10
+
+### Added
+- **Semantic search** — ONNX embedding index using all-MiniLM-L6-v2 (384-dim, ~23MB). File content is embedded and searched by cosine similarity, blended with heuristic scores. Queries like "authentication logic" now find `src/auth/jwt.ts` even without keyword matches.
+- **Stub validator** — post-generation scanner detects placeholder patterns (TODO, "real implementation", "for now", pass-only bodies) in agent-written code and auto-reprompts the model to finish the implementation.
+- **Streaming diff preview** — file writes in cautious mode open VS Code's diff editor with dual accept/reject UI: notification in the editor + confirmation card in chat. First click wins.
+- **Chat log tmp files** — every conversation is logged as JSONL to `$TMPDIR/sidecar-chatlogs/` for debugging and recovery.
+- **Structured context rules** — `.sidecarrules` files with glob-pattern matching to prefer, ban, or require files in workspace context.
+- **VS Code integration test infrastructure** — `@vscode/test-electron` + `@vscode/test-cli` with 32 integration tests running inside a real VS Code instance.
+
+### Fixed
+- **Message persistence** — `serializeContent()` replaces `getContentText()` for session saves, preserving tool_use, tool_result, and thinking blocks. Messages no longer drop when switching chats.
+- **Recency bias** — topic-change detection resets workspace file scores when keyword overlap < 15%; agent memory session cap at 2; conversation summarizer keeps 2 recent turns (was 4); pending question threshold tightened to 8 words.
+- **Plan mode UI** — accept/reject/revise buttons now attach directly to the streamed assistant message instead of creating a duplicate plan block.
+
+### Changed
+- `handleUserMessage` decomposed into `buildBaseSystemPrompt()`, `injectSystemContext()`, `enrichAndPruneMessages()`, `postLoopProcessing()` for maintainability.
+- System prompt adds anti-stub rule and topic-focus rule for better model output quality.
+
+### Stats
+- 1227 unit tests + 32 integration tests (88 test files, coverage 62.1%)
+- 22 built-in tools, 8 skills
+
 ## [0.41.0] - 2026-04-10
 
 ### Added
