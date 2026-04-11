@@ -73,7 +73,8 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 - **Diagnostics integration** — reads compiler errors and warnings from VS Code's language services
 - **Test-driven loop** — runs tests, feeds failures back to the model, iterates until passing
 - **Undo/rollback** — revert all AI-made file changes with one click
-- **Diff preview** — in cautious mode, file writes open VS Code's diff editor for review before applying
+- **Streaming diff preview** — in cautious mode, file writes open VS Code's diff editor with dual accept/reject UI (editor notification + chat card — first click wins)
+- **Stub validator** — auto-detects placeholder code (TODO, "real implementation", stub functions) in agent output and reprompts the model to finish
 - **Safety guardrails** — agent mode dropdown (cautious/autonomous/manual) in the header, iteration limits, token budget, daily/weekly spending caps
 - **Thinking/reasoning** — collapsible reasoning blocks from models that support extended thinking (Anthropic) or `<think>` tags (qwen3, deepseek-r1)
 - **Verbose mode** — `/verbose` to show system prompt, per-iteration summaries, and tool selection context during agent runs
@@ -101,7 +102,10 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 
 ### AI Chat
 - Streaming responses in a dedicated sidebar panel
+- **Semantic search** — ONNX embeddings (all-MiniLM-L6-v2) for meaning-based file relevance, blended with keyword scoring. "Authentication logic" finds `src/auth/jwt.ts` without keyword matches
 - **Workspace indexing** — persistent file index with relevance scoring replaces per-message glob scan, updated incrementally via file watcher
+- **Structured context rules** — `.sidecarrules` files with glob patterns to prefer, ban, or require files in context
+- **Chat logging** — every conversation logged as JSONL to `$TMPDIR/sidecar-chatlogs/` for debugging and recovery
 - **Rich markdown rendering** — headings, bullet/numbered lists, blockquotes, horizontal rules, bold, italic, code, and links all rendered in assistant messages
 - **Active file context** — includes the currently open file and cursor position
 - **@ references** — `@file:path`, `@folder:path`, `@symbol:name` for precise context inclusion

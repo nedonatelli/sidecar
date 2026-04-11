@@ -24,13 +24,20 @@ SideCar is an AI-powered coding assistant for VS Code that operates as an autono
 - Tool execution with approval modes and security checks
 
 ### Context Management
+- **Semantic search** — ONNX embeddings (all-MiniLM-L6-v2) for meaning-based file relevance, blended with keyword scoring
+- **Structured context rules** — `.sidecarrules` files with glob patterns to prefer, ban, or require files in context
 - Workspace indexing with file pattern filtering
 - Automatic context compression and summarization
 - AST-based code understanding
 - Conversation history management
-d- **Large file & monorepo handling**: streaming reads with summary mode for files >50KB, lazy indexing for large directories, depth-limited traversal
+- **Large file & monorepo handling**: streaming reads with summary mode for files >50KB, lazy indexing for large directories, depth-limited traversal
 - **RAG (Retrieval-Augmented Generation)**: automatic documentation discovery and keyword-based search over README, docs/, wiki/ files
 - **Agent memory**: persistent learning across sessions with pattern tracking, decision recording, and use-count scoring
+
+### Code Quality
+- **Stub validator** — auto-detects placeholder code in agent output and reprompts the model to finish
+- **Streaming diff preview** — cautious mode shows file changes in VS Code's diff editor with dual accept/reject UI
+- **Chat logging** — JSONL tmp files for every conversation for debugging and recovery
 
 ### Integration Points
 - Git operations (status, diff, commit, push, pull, branch, stash)

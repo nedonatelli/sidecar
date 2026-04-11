@@ -30,9 +30,34 @@ Control how much autonomy SideCar has via the agent mode dropdown in the chat he
 | **Autonomous** | Auto-approve | Auto-approve | Confirm |
 | **Manual** | Confirm | Confirm | Confirm |
 
-- **Cautious** is recommended for most use. File reads happen automatically; writes and edits show a diff preview for your approval.
+- **Cautious** is recommended for most use. File reads happen automatically; writes and edits open a **VS Code diff editor** showing the proposed changes. Accept/Reject buttons appear both as a VS Code notification (in the editor) and as a chat card — click whichever is more convenient.
 - **Autonomous** lets SideCar work without interruption. Use for trusted tasks where you'll review changes after.
 - **Manual** requires approval for every tool call, including file reads.
+
+### Diff preview in cautious mode
+
+When the agent proposes a file write or edit in cautious mode:
+
+1. VS Code's diff editor opens immediately, showing the original file on the left and proposed changes on the right
+2. An "Accept / Reject" notification appears in the editor
+3. A parallel confirmation card appears in the chat panel
+4. **First click wins** — respond via whichever is more convenient
+5. On Accept, the file is written; on Reject, the tool call is denied and the agent is informed
+
+For `edit_file` operations, if inline edit (ghost text) is available, edits appear as Tab-to-accept suggestions at the edit location instead.
+
+## Stub validator
+
+After the agent writes or edits files, SideCar automatically scans the output for placeholder patterns:
+
+- TODO/FIXME/HACK comments
+- "implement this" / "placeholder" / "stub" comments
+- "real implementation" / "actual implementation" deferrals
+- `throw new Error('Not implemented')` / `raise NotImplementedError`
+- "for now" hedging, "would need" future deferral
+- Python `pass`-only function bodies, ellipsis-only bodies (`...`)
+
+If placeholders are detected, SideCar reprompts the model to replace them with complete implementations. This happens automatically (1 retry) and the user sees a message in chat when it fires. Issue tracker references like `TODO(#123)` are excluded to avoid false positives.
 
 ## Safety guardrails
 

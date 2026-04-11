@@ -4,9 +4,29 @@ layout: docs
 nav_order: 8
 ---
 
-# Retrieval-Augmented Generation (RAG) & Agent Memory
+# RAG, Semantic Search & Agent Memory
 
-SideCar uses two intelligent systems to improve accuracy and consistency across coding sessions: **Retrieval-Augmented Generation (RAG)** for automatic documentation discovery, and **persistent agent memory** for learning and retaining patterns.
+SideCar uses three intelligent systems to improve accuracy and consistency: **RAG** for documentation discovery, **semantic search** for meaning-based file relevance, and **persistent memory** for learning patterns.
+
+## Semantic Search
+
+SideCar embeds your workspace files using a local ONNX model (all-MiniLM-L6-v2, 384-dimensional) and searches by cosine similarity. This means a query like "authentication logic" finds `src/auth/jwt.ts` even when there's no keyword match in the file path or conversation history.
+
+### How it works
+
+1. **Indexing** — after the workspace index is built, SideCar downloads the embedding model (~23MB, cached in `.sidecar/cache/models/`) and embeds each file's path + first 2048 characters
+2. **Caching** — embeddings are stored as a binary Float32Array in `.sidecar/cache/embeddings.bin` with content hashes, so files are only re-embedded when they change
+3. **Querying** — each user message is embedded and compared against all file vectors by cosine similarity
+4. **Scoring** — semantic similarity is blended with heuristic scoring (path matching, recency, conversation context) using a configurable weight (default 0.6)
+
+### Configuration
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `sidecar.enableSemanticSearch` | `true` | Enable ONNX-based semantic file search |
+| `sidecar.semanticSearchWeight` | `0.6` | Blend ratio (0 = keyword only, 1 = embeddings only) |
+
+The model loads lazily in the background. Until it's ready, SideCar falls back to keyword-based scoring with no impact on usability.
 
 ## RAG: Automatic Documentation Retrieval
 

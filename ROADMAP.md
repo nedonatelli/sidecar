@@ -6,7 +6,52 @@ Last updated: 2026-04-10 (v0.42.0)
 
 ---
 
-## Recently Completed (v0.41.0)
+## Recently Completed (v0.42.0)
+
+✅ **Semantic search** (v0.42.0)
+- ONNX embedding index using all-MiniLM-L6-v2 (384-dim, ~23MB quantized)
+- Cosine similarity search blended with heuristic scoring (configurable weight)
+- Binary cache in `.sidecar/cache/embeddings.bin` with content-hash deduplication
+- Lazy model loading — extension works immediately, embeddings build in background
+- Settings: `sidecar.enableSemanticSearch`, `sidecar.semanticSearchWeight`
+
+✅ **Stub validator** (v0.42.0)
+- Post-generation scanner detects 14 placeholder pattern categories in agent-written code
+- Auto-reprompts the model to finish incomplete implementations (1 retry)
+- Patterns: TODO/FIXME, "real implementation" deferrals, pass-only bodies, "for now" hedging, ellipsis bodies
+- False positive filtering for issue tracker references (TODO(#123))
+
+✅ **Streaming diff preview** (v0.42.0)
+- File writes in cautious mode open VS Code's diff editor immediately
+- Dual accept/reject UI: VS Code notification (in editor) + chat confirmation card — first click wins
+- Session-based lifecycle with `update()`/`finalize()`/`dispose()` for incremental content updates
+
+✅ **Structured context rules** (v0.42.0)
+- `.sidecarrules` JSON files with glob-pattern matching
+- Rule types: `prefer` (boost score), `ban` (exclude), `require` (ensure minimum score)
+- Applied during workspace context building alongside heuristic and semantic scoring
+
+✅ **Chat log tmp files** (v0.42.0)
+- Every conversation logged as JSONL to `$TMPDIR/sidecar-chatlogs/`
+- Records user messages, tool calls, and assistant responses with timestamps
+
+✅ **Message persistence fix** (v0.42.0)
+- `serializeContent()` preserves tool_use, tool_result, and thinking blocks during session save
+- Messages no longer drop when switching between chats
+
+✅ **Recency bias fixes** (v0.42.0)
+- Topic-change detection resets workspace file scores when keyword overlap < 15%
+- Agent memory session cap at 2 per search
+- Conversation summarizer keeps 2 recent turns (was 4)
+- Pending question threshold tightened to 8 words
+
+✅ **Integration test infrastructure** (v0.42.0)
+- `@vscode/test-electron` + `@vscode/test-cli` running 32 integration tests inside real VS Code
+- Unit test coverage: 50.9% → 62.1% (1003 → 1227 tests)
+
+---
+
+## Previously Completed (v0.41.0)
 
 ✅ **Observability suite** (v0.41.0)
 - Agent action audit log: structured JSONL in `.sidecar/logs/audit.jsonl`, browsable via `/audit` with filters (`errors`, `tool:name`, `last:N`, `since:date`, `clear`)
@@ -80,14 +125,11 @@ Last updated: 2026-04-10 (v0.42.0)
 
 ### Context & Intelligence
 
-- **Structured context rules** — `.sidecarrules` with typed constraints (`prefer: functional-components`, `ban: any-type`). Compatible with `.cursorrules`/`.clinerules`
 - **Multi-repo cross-talk** — impact analysis across dependent repositories via cross-repo symbol registry
-- **Semantic search for file relevance** — ONNX embeddings instead of keyword-only scoring
 
 ### Editing & Code Quality
 
 - **Next edit suggestions (NES)** — predict next logical edit location after a change using symbol graph ripple analysis
-- **Streaming diff view** — render file changes as they stream in from the agent
 - **Inline edit enhancement** — extend ghost text to `write_file`, batch edits, syntax highlighting
 - **Selective regeneration** — "pin and regen" UI: lock good sections, regenerate only unlocked portions
 - **Adaptive paste** — intercept paste events and auto-refactor to match local naming, imports, and conventions
