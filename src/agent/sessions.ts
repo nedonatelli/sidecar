@@ -1,6 +1,6 @@
 import type { Memento } from 'vscode';
 import type { ChatMessage } from '../ollama/types.js';
-import { getContentText } from '../ollama/types.js';
+import { serializeContent } from '../ollama/types.js';
 
 export interface SavedSession {
   id: string;
@@ -17,10 +17,10 @@ export class SessionManager {
 
   save(name: string, messages: ChatMessage[]): SavedSession {
     const sessions = this.list();
-    // Strip images for storage
+    // Serialize messages preserving tool calls/results, stripping images
     const cleanMessages = messages.map((m) => ({
       role: m.role,
-      content: typeof m.content === 'string' ? m.content : getContentText(m.content),
+      content: serializeContent(m.content),
     }));
 
     const session: SavedSession = {
@@ -55,7 +55,7 @@ export class SessionManager {
 
     session.messages = messages.map((m) => ({
       role: m.role,
-      content: typeof m.content === 'string' ? m.content : getContentText(m.content),
+      content: serializeContent(m.content),
     }));
     session.updatedAt = Date.now();
     this.globalState.update(STORAGE_KEY, sessions);

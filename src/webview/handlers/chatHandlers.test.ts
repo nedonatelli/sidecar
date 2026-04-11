@@ -3,10 +3,22 @@ import {
   classifyError,
   languageToExtension,
   keywordOverlap,
+  buildBaseSystemPrompt,
+  shouldAutoEnablePlanMode,
+  injectSystemContext,
+  postLoopProcessing,
   handleCreateFile,
   handleMoveFile,
   handleExportChat,
+  handleDeleteMessage,
+  handleAcceptAllChanges,
+  handleRunCommand,
+  handleUndoChanges,
+  handleRevertFile,
+  handleGenerateCommit,
+  handleShowSystemPrompt,
 } from './chatHandlers.js';
+import type { SystemPromptParams } from './chatHandlers.js';
 import { workspace, window } from 'vscode';
 
 // ---------------------------------------------------------------------------
@@ -282,5 +294,712 @@ describe('handleExportChat', () => {
 
     await handleExportChat(state as never);
     expect(window.showSaveDialog).toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// shouldAutoEnablePlanMode
+// ---------------------------------------------------------------------------
+describe('shouldAutoEnablePlanMode', () => {
+  it('returns false for empty text', () => {
+    expect(shouldAutoEnablePlanMode('', 0)).toBe(false);
+  });
+
+  it('returns false for short simple requests', () => {
+    expect(shouldAutoEnablePlanMode('fix the bug in login.ts', 0)).toBe(false);
+  });
+
+  it('triggers on multi-file keywords', () => {
+    expect(shouldAutoEnablePlanMode('refactor the auth module', 0)).toBe(true);
+    expect(shouldAutoEnablePlanMode('update all tests', 0)).toBe(true);
+    expect(shouldAutoEnablePlanMode('migrate the database layer', 0)).toBe(true);
+    expect(shouldAutoEnablePlanMode('restructure the project layout', 0)).toBe(true);
+  });
+
+  it('triggers on complex system keywords', () => {
+    expect(shouldAutoEnablePlanMode('overhaul the API architecture', 0)).toBe(true);
+    expect(shouldAutoEnablePlanMode('do a complete rewrite of the router', 0)).toBe(true);
+    expect(shouldAutoEnablePlanMode('make a large-scale change to logging', 0)).toBe(true);
+  });
+
+  it('triggers on very long messages', () => {
+    const longText = 'word '.repeat(500);
+    expect(shouldAutoEnablePlanMode(longText, 0)).toBe(true);
+  });
+
+  it('triggers on multiple numbered steps with sufficient length', () => {
+    const steps = '1. First do this\n2. Then that\n3. Finally this\n' + 'x'.repeat(500);
+    expect(shouldAutoEnablePlanMode(steps, 0)).toBe(true);
+  });
+
+  it('does not trigger on numbered steps if text is short', () => {
+    const steps = '1. A\n2. B\n3. C';
+    expect(shouldAutoEnablePlanMode(steps, 0)).toBe(false);
+  });
+
+  it('triggers on deep conversation with large task', () => {
+    const mediumText = 'longword '.repeat(160); // > 150 words, > 1000 chars
+    expect(shouldAutoEnablePlanMode(mediumText, 6)).toBe(true);
+  });
+
+  it('does not trigger on deep conversation with short task', () => {
+    expect(shouldAutoEnablePlanMode('fix the bug', 10)).toBe(false);
+  });
+
+  it('triggers on explicit complexity markers', () => {
+    expect(shouldAutoEnablePlanMode('help me plan the migration', 0)).toBe(true);
+    expect(shouldAutoEnablePlanMode("what's the best way to do this", 0)).toBe(true);
+  });
+
+  it('is case insensitive', () => {
+    expect(shouldAutoEnablePlanMode('REFACTOR everything', 0)).toBe(true);
+    expect(shouldAutoEnablePlanMode('ARCHITECTURE review', 0)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildBaseSystemPrompt
+// ---------------------------------------------------------------------------
+describe('buildBaseSystemPrompt', () => {
+  const baseParams: SystemPromptParams = {
+    isLocal: false,
+    extensionVersion: '1.0.0',
+    repoUrl: 'https://github.com/test/repo',
+    docsUrl: 'https://docs.test.com',
+    root: '/test/project',
+    approvalMode: 'cautious',
+  };
+
+  it('includes version and project root', () => {
+    const prompt = buildBaseSystemPrompt(baseParams);
+    expect(prompt).toContain('SideCar v1.0.0');
+    expect(prompt).toContain('/test/project');
+  });
+
+  it('includes core rules', () => {
+    const prompt = buildBaseSystemPrompt(baseParams);
+    expect(prompt).toContain('RULES:');
+    expect(prompt).toContain('get_diagnostics');
+    expect(prompt).toContain('run_tests');
+  });
+
+  it('includes anti-stub rule', () => {
+    const prompt = buildBaseSystemPrompt(baseParams);
+    expect(prompt).toContain('ALWAYS write complete, working implementations');
+    expect(prompt).toContain('Never leave placeholder');
+  });
+
+  it('includes topic-focus rule', () => {
+    const prompt = buildBaseSystemPrompt(baseParams);
+    expect(prompt).toContain('Each user message is a NEW request');
+  });
+
+  it('cloud prompt includes repo and docs URLs', () => {
+    const prompt = buildBaseSystemPrompt(baseParams);
+    expect(prompt).toContain('https://github.com/test/repo');
+    expect(prompt).toContain('https://docs.test.com');
+  });
+
+  it('local prompt is more compact', () => {
+    const localPrompt = buildBaseSystemPrompt({ ...baseParams, isLocal: true });
+    const cloudPrompt = buildBaseSystemPrompt({ ...baseParams, isLocal: false });
+    // Local prompt should not include URLs
+    expect(localPrompt).not.toContain('GitHub:');
+    expect(localPrompt).not.toContain('Docs:');
+    // Both should have rules
+    expect(localPrompt).toContain('RULES:');
+    expect(cloudPrompt).toContain('RULES:');
+  });
+
+  it('local prompt includes example workflow', () => {
+    const prompt = buildBaseSystemPrompt({ ...baseParams, isLocal: true });
+    expect(prompt).toContain('EXAMPLE WORKFLOW');
+    expect(prompt).toContain('edit_file');
+  });
+
+  it('appends plan mode instructions when approvalMode is plan', () => {
+    const prompt = buildBaseSystemPrompt({ ...baseParams, approvalMode: 'plan' });
+    expect(prompt).toContain('PLAN MODE ACTIVE');
+    expect(prompt).toContain('generate a structured execution plan');
+    expect(prompt).toContain('Risks & Considerations');
+    expect(prompt).toContain('Estimated Scope');
+  });
+
+  it('does not include plan mode for cautious mode', () => {
+    const prompt = buildBaseSystemPrompt({ ...baseParams, approvalMode: 'cautious' });
+    expect(prompt).not.toContain('PLAN MODE ACTIVE');
+  });
+
+  it('does not include plan mode for autonomous mode', () => {
+    const prompt = buildBaseSystemPrompt({ ...baseParams, approvalMode: 'autonomous' });
+    expect(prompt).not.toContain('PLAN MODE ACTIVE');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// postLoopProcessing
+// ---------------------------------------------------------------------------
+describe('postLoopProcessing', () => {
+  it('merges agent output with state messages', async () => {
+    const state = {
+      messages: [{ role: 'user' as const, content: 'hello' }],
+      pendingQuestion: null as string | null,
+      changelog: { hasChanges: () => false, getChangeSummary: async () => [] },
+      trimHistory: vi.fn(),
+      saveHistory: vi.fn(),
+      autoSave: vi.fn(),
+      postMessage: vi.fn(),
+      logMessage: vi.fn(),
+    };
+    const updatedMessages = [
+      { role: 'user' as const, content: 'hello' },
+      { role: 'assistant' as const, content: 'hi there' },
+    ];
+
+    await postLoopProcessing(state as never, updatedMessages, 1);
+
+    expect(state.messages).toHaveLength(2);
+    expect(state.messages[1].content).toBe('hi there');
+    expect(state.trimHistory).toHaveBeenCalled();
+    expect(state.saveHistory).toHaveBeenCalled();
+    expect(state.autoSave).toHaveBeenCalled();
+  });
+
+  it('detects pending question when assistant ends with ?', async () => {
+    const state = {
+      messages: [] as Array<{ role: string; content: string }>,
+      pendingQuestion: null as string | null,
+      changelog: { hasChanges: () => false, getChangeSummary: async () => [] },
+      trimHistory: vi.fn(),
+      saveHistory: vi.fn(),
+      autoSave: vi.fn(),
+      postMessage: vi.fn(),
+      logMessage: vi.fn(),
+    };
+    const updatedMessages = [{ role: 'assistant' as const, content: 'Which approach do you prefer?' }];
+
+    await postLoopProcessing(state as never, updatedMessages, 0);
+
+    expect(state.pendingQuestion).toBe('Which approach do you prefer?');
+  });
+
+  it('does not set pendingQuestion for non-question endings', async () => {
+    const state = {
+      messages: [] as Array<{ role: string; content: string }>,
+      pendingQuestion: null as string | null,
+      changelog: { hasChanges: () => false, getChangeSummary: async () => [] },
+      trimHistory: vi.fn(),
+      saveHistory: vi.fn(),
+      autoSave: vi.fn(),
+      postMessage: vi.fn(),
+      logMessage: vi.fn(),
+    };
+    const updatedMessages = [{ role: 'assistant' as const, content: 'Done. The file has been updated.' }];
+
+    await postLoopProcessing(state as never, updatedMessages, 0);
+
+    expect(state.pendingQuestion).toBeNull();
+  });
+
+  it('detects question in content block arrays', async () => {
+    const state = {
+      messages: [] as Array<{ role: string; content: unknown }>,
+      pendingQuestion: null as string | null,
+      changelog: { hasChanges: () => false, getChangeSummary: async () => [] },
+      trimHistory: vi.fn(),
+      saveHistory: vi.fn(),
+      autoSave: vi.fn(),
+      postMessage: vi.fn(),
+      logMessage: vi.fn(),
+    };
+    const updatedMessages = [
+      {
+        role: 'assistant' as const,
+        content: [{ type: 'text' as const, text: 'Should I continue with option A or B?' }],
+      },
+    ];
+
+    await postLoopProcessing(state as never, updatedMessages, 0);
+
+    expect(state.pendingQuestion).toContain('option A or B?');
+  });
+
+  it('preserves messages added by user during agent run', async () => {
+    const state = {
+      messages: [
+        { role: 'user' as const, content: 'first' },
+        { role: 'user' as const, content: 'added while agent ran' },
+      ],
+      pendingQuestion: null as string | null,
+      changelog: { hasChanges: () => false, getChangeSummary: async () => [] },
+      trimHistory: vi.fn(),
+      saveHistory: vi.fn(),
+      autoSave: vi.fn(),
+      postMessage: vi.fn(),
+      logMessage: vi.fn(),
+    };
+    const updatedMessages = [
+      { role: 'user' as const, content: 'first' },
+      { role: 'assistant' as const, content: 'response' },
+    ];
+
+    // prePruneMessageCount was 1 (only 'first' existed before agent ran)
+    await postLoopProcessing(state as never, updatedMessages, 1);
+
+    // Should have agent output + the message added during the run
+    expect(state.messages).toHaveLength(3);
+    expect(state.messages[2].content).toBe('added while agent ran');
+  });
+
+  it('sends change summary when changelog has changes', async () => {
+    const state = {
+      messages: [] as Array<{ role: string; content: string }>,
+      pendingQuestion: null as string | null,
+      changelog: {
+        hasChanges: () => true,
+        getChangeSummary: async () => [{ filePath: 'src/app.ts', original: 'old', current: 'new' }],
+      },
+      trimHistory: vi.fn(),
+      saveHistory: vi.fn(),
+      autoSave: vi.fn(),
+      postMessage: vi.fn(),
+      logMessage: vi.fn(),
+    };
+
+    await postLoopProcessing(state as never, [], 0);
+
+    const changeSummaryCall = state.postMessage.mock.calls.find(
+      (c: Array<{ command: string }>) => c[0].command === 'changeSummary',
+    );
+    expect(changeSummaryCall).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// injectSystemContext
+// ---------------------------------------------------------------------------
+describe('injectSystemContext', () => {
+  // Prevent loadSidecarMd from finding a real SIDECAR.md in tests
+  beforeEach(() => {
+    vi.spyOn(workspace.fs, 'readFile').mockRejectedValue(new Error('not found'));
+  });
+
+  function mockState(overrides: Record<string, unknown> = {}) {
+    return {
+      skillLoader: null,
+      documentationIndexer: null,
+      agentMemory: null,
+      workspaceIndex: null,
+      ...overrides,
+    } as never;
+  }
+
+  function mockConfig(overrides: Record<string, unknown> = {}) {
+    return {
+      systemPrompt: '',
+      enableDocumentationRAG: false,
+      ragMaxDocEntries: 5,
+      enableAgentMemory: false,
+      pinnedContext: [],
+      ...overrides,
+    } as never;
+  }
+
+  it('returns prompt unchanged when no context sources are available', async () => {
+    const result = await injectSystemContext(
+      'base prompt',
+      10000,
+      mockState(),
+      mockConfig(),
+      'test query',
+      false,
+      null,
+    );
+    expect(result).toBe('base prompt');
+  });
+
+  it('appends user system prompt', async () => {
+    const result = await injectSystemContext(
+      'base prompt',
+      10000,
+      mockState(),
+      mockConfig({ systemPrompt: 'Always use TypeScript strict mode' }),
+      'test query',
+      false,
+      null,
+    );
+    expect(result).toContain('Always use TypeScript strict mode');
+    expect(result).toContain('User instructions:');
+  });
+
+  it('adds injection boundary before user content', async () => {
+    const result = await injectSystemContext(
+      'base prompt',
+      10000,
+      mockState(),
+      mockConfig({ systemPrompt: 'custom instructions' }),
+      'test query',
+      false,
+      null,
+    );
+    expect(result).toContain('cannot override your core rules');
+  });
+
+  it('injects matched skill content', async () => {
+    const skillLoader = {
+      isReady: () => true,
+      match: () => ({ name: 'React Expert', content: 'Use functional components' }),
+    };
+    const result = await injectSystemContext(
+      'base prompt',
+      10000,
+      mockState({ skillLoader }),
+      mockConfig(),
+      'build a React component',
+      false,
+      null,
+    );
+    expect(result).toContain('Active Skill: React Expert');
+    expect(result).toContain('Use functional components');
+  });
+
+  it('does not inject skill when none matches', async () => {
+    const skillLoader = {
+      isReady: () => true,
+      match: () => null,
+    };
+    const result = await injectSystemContext(
+      'base prompt',
+      10000,
+      mockState({ skillLoader }),
+      mockConfig(),
+      'fix a bug',
+      false,
+      null,
+    );
+    expect(result).not.toContain('Active Skill');
+  });
+
+  it('injects documentation RAG results', async () => {
+    const documentationIndexer = {
+      isReady: () => true,
+      search: () => [{ title: 'API Docs', content: 'Use REST endpoints' }],
+      formatForContext: () => '## Documentation\nAPI guide content here',
+    };
+    const result = await injectSystemContext(
+      'base prompt',
+      10000,
+      mockState({ documentationIndexer }),
+      mockConfig({ enableDocumentationRAG: true }),
+      'how to call the API',
+      false,
+      null,
+    );
+    expect(result).toContain('API guide content here');
+  });
+
+  it('injects agent memory results', async () => {
+    const agentMemory = {
+      search: () => [{ id: 'm1', content: 'Use camelCase naming', relevanceScore: 0.8 }],
+      formatForContext: () => '## Learned Patterns\n- Use camelCase naming',
+    };
+    const result = await injectSystemContext(
+      'base prompt',
+      10000,
+      mockState({ agentMemory }),
+      mockConfig({ enableAgentMemory: true }),
+      'write a function',
+      false,
+      null,
+    );
+    expect(result).toContain('camelCase naming');
+  });
+
+  it('respects max system chars budget by not appending when full', async () => {
+    const basePrompt = 'x'.repeat(500);
+    const result = await injectSystemContext(
+      basePrompt,
+      500, // budget already fully used by base prompt
+      mockState(),
+      mockConfig({ systemPrompt: 'This should not appear because budget is full' }),
+      'test',
+      false,
+      null,
+    );
+    // System prompt should not be appended since we're already at budget
+    expect(result).not.toContain('This should not appear');
+  });
+
+  it('truncates user system prompt when it exceeds remaining budget', async () => {
+    const longPrompt = 'y'.repeat(5000);
+    const result = await injectSystemContext(
+      'base prompt',
+      1000, // budget leaves room for boundary but not the full 5000-char prompt
+      mockState(),
+      mockConfig({ systemPrompt: longPrompt }),
+      'test',
+      false,
+      null,
+    );
+    // Should have been truncated since 5000 chars >> remaining budget
+    expect(result).toContain('(system prompt truncated)');
+    expect(result.length).toBeLessThan(longPrompt.length);
+  });
+
+  it('skips agent memory when budget is too low', async () => {
+    const agentMemory = {
+      search: vi.fn(),
+      formatForContext: vi.fn(),
+    };
+    await injectSystemContext(
+      'x'.repeat(9900), // nearly fills the 10000 budget
+      10000,
+      mockState({ agentMemory }),
+      mockConfig({ enableAgentMemory: true }),
+      'test',
+      false,
+      null,
+    );
+    // Should not even call search since budget remaining < 300
+    expect(agentMemory.search).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleDeleteMessage
+// ---------------------------------------------------------------------------
+describe('handleDeleteMessage', () => {
+  it('removes message at valid index', () => {
+    const state = {
+      messages: [
+        { role: 'user', content: 'first' },
+        { role: 'assistant', content: 'second' },
+        { role: 'user', content: 'third' },
+      ],
+      saveHistory: vi.fn(),
+    };
+    handleDeleteMessage(state as never, 1);
+    expect(state.messages).toHaveLength(2);
+    expect(state.messages[1].content).toBe('third');
+    expect(state.saveHistory).toHaveBeenCalled();
+  });
+
+  it('ignores negative index', () => {
+    const state = {
+      messages: [{ role: 'user', content: 'stay' }],
+      saveHistory: vi.fn(),
+    };
+    handleDeleteMessage(state as never, -1);
+    expect(state.messages).toHaveLength(1);
+    expect(state.saveHistory).not.toHaveBeenCalled();
+  });
+
+  it('ignores out-of-bounds index', () => {
+    const state = {
+      messages: [{ role: 'user', content: 'stay' }],
+      saveHistory: vi.fn(),
+    };
+    handleDeleteMessage(state as never, 5);
+    expect(state.messages).toHaveLength(1);
+    expect(state.saveHistory).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleAcceptAllChanges
+// ---------------------------------------------------------------------------
+describe('handleAcceptAllChanges', () => {
+  it('clears changelog and posts confirmation', () => {
+    const state = {
+      changelog: { clear: vi.fn() },
+      postMessage: vi.fn(),
+    };
+    handleAcceptAllChanges(state as never);
+    expect(state.changelog.clear).toHaveBeenCalled();
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'assistantMessage', content: expect.stringContaining('accepted') }),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleRunCommand
+// ---------------------------------------------------------------------------
+describe('handleRunCommand', () => {
+  it('returns null when user denies the command', async () => {
+    const state = {
+      requestConfirm: vi.fn().mockResolvedValue('Deny'),
+      postMessage: vi.fn(),
+      terminalManager: { executeCommand: vi.fn() },
+    };
+    const result = await handleRunCommand(state as never, 'rm -rf /');
+    expect(result).toBeNull();
+    expect(state.postMessage).toHaveBeenCalledWith(expect.objectContaining({ content: 'Command cancelled by user.' }));
+  });
+
+  it('uses terminal manager when it returns output', async () => {
+    const state = {
+      requestConfirm: vi.fn().mockResolvedValue('Allow'),
+      postMessage: vi.fn(),
+      terminalManager: { executeCommand: vi.fn().mockResolvedValue('terminal output') },
+    };
+    const result = await handleRunCommand(state as never, 'echo hello');
+    expect(result).toBe('terminal output');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleUndoChanges
+// ---------------------------------------------------------------------------
+describe('handleUndoChanges', () => {
+  it('shows info message when no changes to undo', async () => {
+    const state = {
+      changelog: { hasChanges: () => false },
+    };
+    const infoSpy = vi.spyOn(window, 'showInformationMessage').mockResolvedValue(undefined as never);
+    await handleUndoChanges(state as never);
+    expect(infoSpy).toHaveBeenCalledWith('No changes to undo.');
+  });
+
+  it('rolls back when user confirms', async () => {
+    const state = {
+      changelog: {
+        hasChanges: () => true,
+        getChanges: () => [{ filePath: 'a.ts' }, { filePath: 'b.ts' }],
+        rollbackAll: vi.fn().mockResolvedValue({ restored: 2, deleted: 0, failed: 0 }),
+      },
+      requestConfirm: vi.fn().mockResolvedValue('Undo All'),
+      postMessage: vi.fn(),
+    };
+    vi.spyOn(window, 'showInformationMessage').mockResolvedValue(undefined as never);
+    await handleUndoChanges(state as never);
+    expect(state.changelog.rollbackAll).toHaveBeenCalled();
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('Undid 2 file change') }),
+    );
+  });
+
+  it('does nothing when user cancels', async () => {
+    const state = {
+      changelog: {
+        hasChanges: () => true,
+        getChanges: () => [{ filePath: 'a.ts' }],
+        rollbackAll: vi.fn(),
+      },
+      requestConfirm: vi.fn().mockResolvedValue('Cancel'),
+    };
+    await handleUndoChanges(state as never);
+    expect(state.changelog.rollbackAll).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleRevertFile
+// ---------------------------------------------------------------------------
+describe('handleRevertFile', () => {
+  it('posts success message on successful revert', async () => {
+    const state = {
+      changelog: {
+        rollbackFile: vi.fn().mockResolvedValue(true),
+        hasChanges: () => false,
+      },
+      postMessage: vi.fn(),
+    };
+    await handleRevertFile(state as never, 'src/app.ts');
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('Reverted') }),
+    );
+  });
+
+  it('posts error on failed revert', async () => {
+    const state = {
+      changelog: {
+        rollbackFile: vi.fn().mockResolvedValue(false),
+        hasChanges: () => false,
+      },
+      postMessage: vi.fn(),
+    };
+    await handleRevertFile(state as never, 'src/app.ts');
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'error', content: expect.stringContaining('Failed to revert') }),
+    );
+  });
+
+  it('sends empty changeSummary when no changes remain', async () => {
+    const state = {
+      changelog: {
+        rollbackFile: vi.fn().mockResolvedValue(true),
+        hasChanges: () => false,
+      },
+      postMessage: vi.fn(),
+    };
+    await handleRevertFile(state as never, 'src/app.ts');
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'changeSummary', changeSummary: [] }),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleGenerateCommit (integration)
+// ---------------------------------------------------------------------------
+describe('handleGenerateCommit', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.spyOn(workspace.fs, 'readFile').mockRejectedValue(new Error('not found'));
+  });
+
+  it('posts error when no workspace folder', async () => {
+    const origFolders = workspace.workspaceFolders;
+    (workspace as Record<string, unknown>).workspaceFolders = undefined;
+
+    const state = { postMessage: vi.fn(), client: { updateConnection: vi.fn(), updateModel: vi.fn() } };
+    await handleGenerateCommit(state as never);
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'error', content: expect.stringContaining('No workspace') }),
+    );
+
+    (workspace as Record<string, unknown>).workspaceFolders = origFolders;
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleShowSystemPrompt (integration)
+// ---------------------------------------------------------------------------
+describe('handleShowSystemPrompt', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.spyOn(workspace.fs, 'readFile').mockRejectedValue(new Error('not found'));
+  });
+
+  it('posts the system prompt as verbose log', async () => {
+    const state = {
+      context: { extension: { packageJSON: { version: '1.2.3' } } },
+      postMessage: vi.fn(),
+    };
+    await handleShowSystemPrompt(state as never);
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: 'verboseLog',
+        verboseLabel: 'System Prompt',
+        content: expect.stringContaining('SideCar v1.2.3'),
+      }),
+    );
+  });
+
+  it('includes user system prompt when configured', async () => {
+    // Mock getConfig to return a systemPrompt
+    const settingsMod = await import('../../config/settings.js');
+    vi.spyOn(settingsMod, 'getConfig').mockReturnValue({
+      systemPrompt: 'Always prefer functional style',
+    } as never);
+
+    const state = {
+      context: { extension: { packageJSON: {} } },
+      postMessage: vi.fn(),
+    };
+    await handleShowSystemPrompt(state as never);
+    const call = state.postMessage.mock.calls.find((c: Array<{ command: string }>) => c[0].command === 'verboseLog');
+    expect(call![0].content).toContain('Always prefer functional style');
   });
 });

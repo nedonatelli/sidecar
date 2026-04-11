@@ -2,11 +2,37 @@
 
 export const Uri = {
   file: (path: string) => ({ fsPath: path, scheme: 'file', path }),
+  parse: (str: string) => {
+    const colonIdx = str.indexOf(':');
+    const scheme = colonIdx > 0 ? str.slice(0, colonIdx) : 'file';
+    const pathPart = colonIdx > 0 ? str.slice(colonIdx + 1) : str;
+    return { fsPath: pathPart, scheme, path: pathPart };
+  },
   joinPath: (base: { fsPath: string }, ...segments: string[]) => {
     const joined = [base.fsPath, ...segments].join('/');
     return { fsPath: joined, scheme: 'file', path: joined };
   },
 };
+
+export class EventEmitter<T> {
+  private listeners: Array<(e: T) => void> = [];
+  get event() {
+    return (listener: (e: T) => void) => {
+      this.listeners.push(listener);
+      return {
+        dispose: () => {
+          this.listeners = this.listeners.filter((l) => l !== listener);
+        },
+      };
+    };
+  }
+  fire(data: T) {
+    for (const l of this.listeners) l(data);
+  }
+  dispose() {
+    this.listeners = [];
+  }
+}
 
 const noopDisposable = { dispose: () => {} };
 const noopEvent = () => noopDisposable;
@@ -26,6 +52,7 @@ export const workspace = {
     rename: async (_source: unknown, _target: unknown, _options?: unknown) => {},
     createDirectory: async (_uri: unknown) => {},
   },
+  onDidChangeTextDocument: () => ({ dispose: () => {} }),
   findFiles: async () => [],
   openTextDocument: async (_uri: unknown) => ({ getText: () => 'mock content' }),
   createFileSystemWatcher: () => ({
@@ -44,11 +71,30 @@ export const window = {
   showInformationMessage: async () => undefined,
   showWarningMessage: async () => undefined,
   showErrorMessage: async () => undefined,
+  showTextDocument: async () => undefined,
+  showInputBox: async () => undefined,
+  withProgress: async (_opts: unknown, task: (progress: unknown) => Promise<unknown>) => task({}),
+  onDidCloseTerminal: () => ({ dispose: () => {} }),
+  createTerminal: () => ({
+    show: () => {},
+    sendText: () => {},
+    dispose: () => {},
+  }),
   createOutputChannel: () => ({
     appendLine: () => {},
     show: () => {},
     dispose: () => {},
   }),
+  createStatusBarItem: () => ({
+    text: '',
+    show: () => {},
+    hide: () => {},
+    dispose: () => {},
+  }),
+};
+
+export const authentication = {
+  getSession: async () => null,
 };
 
 export const languages = {
@@ -112,4 +158,31 @@ export class WorkspaceEdit {
 export enum StatusBarAlignment {
   Left = 1,
   Right = 2,
+}
+
+export enum ViewColumn {
+  One = 1,
+  Two = 2,
+  Three = 3,
+}
+
+export enum InlineCompletionTriggerKind {
+  Invoke = 0,
+  Automatic = 1,
+}
+
+export class InlineCompletionItem {
+  constructor(
+    public insertText: string,
+    public range?: Range,
+  ) {}
+}
+
+export class Selection extends Range {}
+
+export enum TextEditorRevealType {
+  Default = 0,
+  InCenter = 1,
+  InCenterIfOutsideViewport = 2,
+  AtTop = 3,
 }

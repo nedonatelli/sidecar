@@ -478,7 +478,7 @@
   },
   "scripts": {
     "compile": "tsc -p ./",
-    "bundle": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:web-tree-sitter --format=cjs --platform=node --sourcemap --minify --tree-shaking=true",
+    "bundle": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:web-tree-sitter --external:@xenova/transformers --format=cjs --platform=node --sourcemap --minify --tree-shaking=true",
     "copy-grammars": "mkdir -p grammars && cp node_modules/web-tree-sitter/tree-sitter.wasm grammars/ && cp node_modules/tree-sitter-wasms/out/tree-sitter-typescript.wasm node_modules/tree-sitter-wasms/out/tree-sitter-tsx.wasm node_modules/tree-sitter-wasms/out/tree-sitter-javascript.wasm node_modules/tree-sitter-wasms/out/tree-sitter-python.wasm node_modules/tree-sitter-wasms/out/tree-sitter-rust.wasm node_modules/tree-sitter-wasms/out/tree-sitter-go.wasm grammars/",
     "build": "npm run compile && npm run bundle && npm run copy-grammars",
     "package": "npm run build && npx @vscode/vsce package",
@@ -511,6 +511,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@xenova/transformers": "^2.17.2",
     "mermaid": "^11.14.0",
     "web-tree-sitter": "^0.24.7"
   },

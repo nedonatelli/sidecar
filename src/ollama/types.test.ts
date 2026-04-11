@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getContentText, getContentLength } from './types.js';
+import { getContentText, getContentLength, serializeContent } from './types.js';
 import type { ContentBlock } from './types.js';
 
 describe('getContentText', () => {
@@ -55,5 +55,82 @@ describe('getContentLength', () => {
 
   it('returns 0 for empty array', () => {
     expect(getContentLength([])).toBe(0);
+  });
+});
+
+describe('serializeContent', () => {
+  it('returns string content as-is', () => {
+    expect(serializeContent('hello')).toBe('hello');
+  });
+
+  it('preserves text blocks', () => {
+    const blocks: ContentBlock[] = [
+      { type: 'text', text: 'Hello' },
+      { type: 'text', text: 'World' },
+    ];
+    const result = serializeContent(blocks);
+    expect(Array.isArray(result)).toBe(true);
+    expect(result).toHaveLength(2);
+  });
+
+  it('preserves tool_use blocks', () => {
+    const blocks: ContentBlock[] = [
+      { type: 'text', text: 'Let me read that file' },
+      { type: 'tool_use', id: 'tc1', name: 'read_file', input: { path: 'src/app.ts' } },
+    ];
+    const result = serializeContent(blocks) as ContentBlock[];
+    expect(result).toHaveLength(2);
+    expect(result[1].type).toBe('tool_use');
+    expect((result[1] as { name: string }).name).toBe('read_file');
+  });
+
+  it('preserves tool_result blocks', () => {
+    const blocks: ContentBlock[] = [{ type: 'tool_result', tool_use_id: 'tc1', content: 'file contents here' }];
+    const result = serializeContent(blocks) as ContentBlock[];
+    expect(result).toHaveLength(1);
+    expect(result[0].type).toBe('tool_result');
+  });
+
+  it('truncates large tool_result content', () => {
+    const longContent = 'x'.repeat(5000);
+    const blocks: ContentBlock[] = [{ type: 'tool_result', tool_use_id: 'tc1', content: longContent }];
+    const result = serializeContent(blocks) as ContentBlock[];
+    const resultBlock = result[0] as { type: string; content: string };
+    expect(resultBlock.content.length).toBeLessThan(longContent.length);
+    expect(resultBlock.content).toContain('(truncated)');
+  });
+
+  it('strips image blocks', () => {
+    const blocks: ContentBlock[] = [
+      { type: 'text', text: 'Here is an image' },
+      {
+        type: 'image',
+        source: { type: 'base64', media_type: 'image/png', data: 'iVBOR...' },
+      },
+    ];
+    const result = serializeContent(blocks);
+    // Single text block remaining → flattened to string
+    expect(result).toBe('Here is an image');
+  });
+
+  it('preserves thinking blocks', () => {
+    const blocks: ContentBlock[] = [
+      { type: 'thinking', thinking: 'Let me analyze this...' },
+      { type: 'text', text: 'Here is my answer' },
+    ];
+    const result = serializeContent(blocks) as ContentBlock[];
+    expect(result).toHaveLength(2);
+    expect(result[0].type).toBe('thinking');
+  });
+
+  it('flattens single text block to string', () => {
+    const blocks: ContentBlock[] = [{ type: 'text', text: 'just text' }];
+    const result = serializeContent(blocks);
+    expect(result).toBe('just text');
+  });
+
+  it('returns empty array for empty input', () => {
+    const result = serializeContent([]);
+    expect(result).toEqual([]);
   });
 });

@@ -26,6 +26,7 @@ import type { MCPManager } from './mcpManager.js';
 import { spawnSubAgent } from './subagent.js';
 import { ConversationSummarizer } from './conversationSummarizer.js';
 import { ToolResultCompressor } from './toolResultCompressor.js';
+import { buildStubReprompt } from './stubValidator.js';
 
 export interface AgentCallbacks {
   onText: (text: string) => void;
@@ -91,6 +92,8 @@ export async function runAgentLoop(
   const tools = getToolDefinitions(mcpManager);
   let iteration = 0;
   let autoFixRetries = 0;
+  let stubFixRetries = 0;
+  const MAX_STUB_RETRIES = 1;
   const startTime = Date.now();
 
   // Cycle detection: track recent tool calls to detect stuck loops
@@ -496,6 +499,23 @@ export async function runAgentLoop(
               ],
             });
           }
+        }
+      }
+
+      // Stub validation: scan written code for placeholder patterns
+      // and reprompt the model to finish the implementation.
+      if (stubFixRetries < MAX_STUB_RETRIES) {
+        const stubReprompt = buildStubReprompt(pendingToolUses);
+        if (stubReprompt) {
+          stubFixRetries++;
+          logger?.info(
+            `Stub validator: found placeholders, reprompting (attempt ${stubFixRetries}/${MAX_STUB_RETRIES})`,
+          );
+          callbacks.onText('\n⚠️ Incomplete code detected — requesting full implementation...\n');
+          agentMessages.push({
+            role: 'user',
+            content: [{ type: 'text' as const, text: stubReprompt }],
+          });
         }
       }
 

@@ -124,7 +124,7 @@ export function activate(context: ExtensionContext) {
     context.subscriptions.push(indexStatus);
     workspaceIndex
       .initialize(getFilePatterns())
-      .then(() => {
+      .then(async () => {
         const count = workspaceIndex.getFileCount();
         console.log(`[SideCar] Workspace indexed: ${count} files`);
         indexStatus.text = `$(check) SideCar: ${count} files indexed`;
@@ -140,6 +140,24 @@ export function activate(context: ExtensionContext) {
             setSymbolGraph(symbolIndexer.getGraph());
           })
           .catch((err) => console.warn('[SideCar] Symbol graph build failed:', err));
+
+        // Build semantic embedding index (background, non-blocking)
+        if (config.enableSemanticSearch) {
+          const { EmbeddingIndex } = await import('./config/embeddingIndex.js');
+          const embeddingIndex = new EmbeddingIndex(sidecarDir);
+          context.subscriptions.push(embeddingIndex);
+          embeddingIndex
+            .initialize()
+            .then(() => {
+              workspaceIndex.setEmbeddingIndex(embeddingIndex);
+              console.log(`[SideCar] Embedding index ready: ${embeddingIndex.getCount()} cached vectors`);
+              // Queue initial embedding for all indexed files
+              for (const file of workspaceIndex.getFiles()) {
+                embeddingIndex.queuePath(file.relativePath, workspace.workspaceFolders![0].uri.fsPath);
+              }
+            })
+            .catch((err) => console.warn('[SideCar] Embedding index failed:', err.message || err));
+        }
       })
       .catch((err) => {
         console.error('[SideCar] Workspace indexing failed:', err);

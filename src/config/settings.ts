@@ -142,6 +142,9 @@ export interface SideCarConfig {
   /* Agent memory and learning */
   enableAgentMemory: boolean;
   agentMemoryMaxEntries: number;
+  /* Semantic search */
+  enableSemanticSearch: boolean;
+  semanticSearchWeight: number;
 }
 
 /**
@@ -220,6 +223,9 @@ function readConfig(): SideCarConfig {
     /* Agent memory and learning */
     enableAgentMemory: cfg.get<boolean>('enableAgentMemory', true),
     agentMemoryMaxEntries: clampMin(cfg.get<number>('agentMemoryMaxEntries'), 10, 500),
+    /* Semantic search */
+    enableSemanticSearch: cfg.get<boolean>('enableSemanticSearch', true),
+    semanticSearchWeight: Math.max(0, Math.min(1, cfg.get<number>('semanticSearchWeight', 0.6))),
   };
 }
 

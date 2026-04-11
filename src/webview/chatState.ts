@@ -1,5 +1,5 @@
 import type { ExtensionContext } from 'vscode';
-import { type ChatMessage, getContentText, getContentLength } from '../ollama/types.js';
+import { type ChatMessage, getContentText, getContentLength, serializeContent } from '../ollama/types.js';
 import { SideCarClient } from '../ollama/client.js';
 import { ChangeLog } from '../agent/changelog.js';
 import { SessionManager } from '../agent/sessions.js';
@@ -17,6 +17,9 @@ import { getConfig } from '../config/settings.js';
 import { DocumentationIndexer } from '../config/documentationIndexer.js';
 import { AgentMemory } from '../agent/agentMemory.js';
 import { AuditLog } from '../agent/auditLog.js';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 
 /** Maximum number of messages to keep in memory. */
 const MAX_HISTORY_MESSAGES = 200;
@@ -52,6 +55,9 @@ export class ChatState {
   /** ID of the current auto-saved session, null if conversation is empty/unsaved */
   currentSessionId: string | null = null;
 
+  /** Path to the current chat log tmp file */
+  private chatLogPath: string | null = null;
+
   /**
    * Tracks when the assistant's last message ended with a question.
    * If set, the next user message is likely a direct response to this question,
@@ -76,10 +82,55 @@ export class ChatState {
     this._postMessage(message);
   }
 
+  /**
+   * Get or create the tmp file path for the current chat log.
+   * Each conversation gets its own file in the OS temp directory.
+   * Format: sidecar-chat-{timestamp}.jsonl
+   */
+  private ensureChatLogPath(): string {
+    if (!this.chatLogPath) {
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const tmpDir = path.join(os.tmpdir(), 'sidecar-chatlogs');
+      if (!fs.existsSync(tmpDir)) {
+        fs.mkdirSync(tmpDir, { recursive: true });
+      }
+      this.chatLogPath = path.join(tmpDir, `sidecar-chat-${timestamp}.jsonl`);
+    }
+    return this.chatLogPath;
+  }
+
+  /**
+   * Append a message to the chat log tmp file.
+   * Each line is a JSON object with role, content, and timestamp.
+   */
+  logMessage(role: string, content: string): void {
+    try {
+      const logPath = this.ensureChatLogPath();
+      const entry = JSON.stringify({
+        timestamp: new Date().toISOString(),
+        role,
+        content,
+      });
+      fs.appendFileSync(logPath, entry + '\n');
+    } catch {
+      // Chat logging is best-effort — never block the user
+    }
+  }
+
+  /** Get the path to the current chat log file, or null if none started. */
+  getChatLogPath(): string | null {
+    return this.chatLogPath;
+  }
+
+  /** Reset the chat log path so a new conversation gets a fresh log file. */
+  resetChatLog(): void {
+    this.chatLogPath = null;
+  }
+
   saveHistory(): void {
     const serializable = this.messages.map((m) => ({
       role: m.role,
-      content: getContentText(m.content),
+      content: serializeContent(m.content),
     }));
     this.context.workspaceState.update('sidecar.chatHistory', serializable);
   }
@@ -220,6 +271,7 @@ export class ChatState {
     this.changelog.clear();
     this.currentSessionId = null;
     this.chatGeneration++;
+    this.resetChatLog();
     // Reset workspace file relevance so previously discussed files
     // don't dominate context in the new conversation.
     this.workspaceIndex?.resetRelevance();

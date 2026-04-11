@@ -165,4 +165,50 @@ describe('ChangeLog', () => {
       expect(changelog.getChanges()).toHaveLength(0);
     });
   });
+
+  describe('getChangeSummary', () => {
+    it('returns original and current content for each change', async () => {
+      files.set('/project/a.ts', 'original');
+      await changelog.snapshotFile('a.ts');
+      files.set('/project/a.ts', 'modified');
+
+      const summary = await changelog.getChangeSummary();
+      expect(summary).toHaveLength(1);
+      expect(summary[0].filePath).toBe('a.ts');
+      expect(summary[0].original).toBe('original');
+      expect(summary[0].current).toBe('modified');
+    });
+
+    it('returns null current when file was deleted', async () => {
+      files.set('/project/b.ts', 'content');
+      await changelog.snapshotFile('b.ts');
+      files.delete('/project/b.ts');
+
+      const summary = await changelog.getChangeSummary();
+      expect(summary).toHaveLength(1);
+      expect(summary[0].original).toBe('content');
+      expect(summary[0].current).toBeNull();
+    });
+
+    it('returns null original for new files', async () => {
+      await changelog.snapshotFile('new.ts');
+      files.set('/project/new.ts', 'new content');
+
+      const summary = await changelog.getChangeSummary();
+      expect(summary).toHaveLength(1);
+      expect(summary[0].original).toBeNull();
+      expect(summary[0].current).toBe('new content');
+    });
+
+    it('returns empty array when no workspace', async () => {
+      const origFolders = (await import('vscode')).workspace.workspaceFolders;
+      const vsc = await import('vscode');
+      (vsc.workspace as Record<string, unknown>).workspaceFolders = undefined;
+
+      const summary = await changelog.getChangeSummary();
+      expect(summary).toEqual([]);
+
+      (vsc.workspace as Record<string, unknown>).workspaceFolders = origFolders;
+    });
+  });
 });

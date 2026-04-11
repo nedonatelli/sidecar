@@ -77,6 +77,8 @@ export class WorkspaceIndex implements Disposable {
 
   /** Active workspace roots (can be a subset if workspaceRoots is configured) */
   private activeRoots: Array<{ uri: Uri; fsPath: string }> = [];
+  /** Semantic embedding index for file-level similarity search */
+  private embeddingIndex: import('./embeddingIndex.js').EmbeddingIndex | null = null;
 
   constructor(maxContextChars = 20_000) {
     this.maxContextChars = maxContextChars;
@@ -90,6 +92,16 @@ export class WorkspaceIndex implements Disposable {
   /** Attach a symbol indexer to receive file change notifications and provide graph context. */
   setSymbolIndexer(indexer: SymbolIndexer): void {
     this.symbolIndexer = indexer;
+  }
+
+  /** Attach a semantic embedding index for similarity-based file scoring. */
+  setEmbeddingIndex(index: import('./embeddingIndex.js').EmbeddingIndex): void {
+    this.embeddingIndex = index;
+  }
+
+  /** Get the embedding index (for extension wiring). */
+  getEmbeddingIndex(): import('./embeddingIndex.js').EmbeddingIndex | null {
+    return this.embeddingIndex;
   }
 
   /** Set pinned paths from settings (replaces previous pins from settings). */
@@ -243,6 +255,7 @@ export class WorkspaceIndex implements Disposable {
             this.files.set(rel, { relativePath: rel, sizeBytes: stat.size, relevanceScore: this.baseScore(rel) });
             this.scheduleRebuild();
             this.symbolIndexer?.queueUpdate(rel);
+            this.embeddingIndex?.queuePath(rel, rootPath);
           }
         },
         () => {},
@@ -252,12 +265,14 @@ export class WorkspaceIndex implements Disposable {
       const rel = path.relative(rootPath, uri.fsPath);
       if (this.shouldExclude(rel)) return;
       this.symbolIndexer?.queueUpdate(rel);
+      this.embeddingIndex?.queuePath(rel, rootPath);
     });
     this.watcher.onDidDelete((uri) => {
       const rel = path.relative(rootPath, uri.fsPath);
       this.files.delete(rel);
       this.scheduleRebuild();
       this.symbolIndexer?.queueDelete(rel);
+      this.embeddingIndex?.removeFile(rel);
     });
   }
 
@@ -280,12 +295,29 @@ export class WorkspaceIndex implements Disposable {
     // Load context rules
     const rules = await getCurrentContextRules();
 
-    // Score files and select top-k using partial sort (O(n) for scoring,
-    // O(n) for partitioning) instead of full O(n log n) sort.
+    // Score files: heuristic scoring first, then blend semantic similarity
+    // if the embedding index is available.
     const scored = [...this.files.values()].map((f) => ({
       ...f,
       score: this.computeScore(f, query, activeFilePath),
     }));
+
+    // Merge semantic similarity scores when available
+    if (config.enableSemanticSearch && this.embeddingIndex?.isReady()) {
+      const weight = config.semanticSearchWeight;
+      const semanticResults = await this.embeddingIndex.search(query, 50);
+      if (semanticResults.length > 0) {
+        const simMap = new Map(semanticResults.map((r) => [r.relativePath, r.similarity]));
+        for (const f of scored) {
+          const sim = simMap.get(f.relativePath);
+          if (sim !== undefined) {
+            // Blend: heuristic * (1 - weight) + semantic * weight
+            // Scale semantic similarity to match heuristic score range (~0-2)
+            f.score = f.score * (1 - weight) + sim * 2 * weight;
+          }
+        }
+      }
+    }
 
     // Apply context rules to filter files
     const filesToConsider = applyContextRules(scored, rules);
@@ -506,6 +538,11 @@ export class WorkspaceIndex implements Disposable {
 
   getFileCount(): number {
     return this.files.size;
+  }
+
+  /** Iterate all indexed files. */
+  getFiles(): IterableIterator<FileNode> {
+    return this.files.values();
   }
 
   dispose(): void {

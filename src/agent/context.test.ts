@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { pruneHistory } from './context.js';
+import { pruneHistory, enhanceContextWithSmartElements } from './context.js';
 import type { ChatMessage } from '../ollama/types.js';
 
 /** Helper to create a realistic multi-turn conversation with tool calls. */
@@ -193,5 +193,49 @@ describe('pruneHistory', () => {
     }, 0);
 
     expect(after).toBeLessThan(before);
+  });
+});
+
+describe('enhanceContextWithSmartElements', () => {
+  it('returns context unchanged when no file sections found', () => {
+    const result = enhanceContextWithSmartElements('plain text without sections', 'query');
+    expect(result).toBe('plain text without sections');
+  });
+
+  it('returns context unchanged for empty input', () => {
+    const result = enhanceContextWithSmartElements('', 'query');
+    expect(result).toBe('');
+  });
+
+  it('preserves non-code file sections', () => {
+    const context = '### README.md\nThis is documentation';
+    const result = enhanceContextWithSmartElements(context, 'docs');
+    expect(result).toContain('README.md');
+    expect(result).toContain('documentation');
+  });
+
+  it('processes code file sections through AST analysis', () => {
+    const context = '### src/app.ts\n```typescript\nexport function hello() { return "world"; }\n```';
+    const result = enhanceContextWithSmartElements(context, 'hello function');
+    // Should contain the file header and some content
+    expect(result).toContain('app.ts');
+  });
+
+  it('handles multiple file sections', () => {
+    const context = [
+      '### src/a.ts\n```typescript\nconst x = 1;\n```',
+      '### src/b.ts\n```typescript\nconst y = 2;\n```',
+    ].join('\n');
+    const result = enhanceContextWithSmartElements(context, 'variables');
+    expect(result).toContain('a.ts');
+    expect(result).toContain('b.ts');
+  });
+
+  it('handles AST parsing failures gracefully', () => {
+    // Malformed code that might trip up the parser
+    const context = '### src/broken.ts\n```typescript\n{{{invalid syntax\n```';
+    const result = enhanceContextWithSmartElements(context, 'broken');
+    // Should still return something (original content as fallback)
+    expect(result).toContain('broken.ts');
   });
 });

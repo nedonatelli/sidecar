@@ -191,6 +191,46 @@ describe('WorkspaceIndex', () => {
     expect(context).toContain('pinned.ts (pinned)');
   });
 
+  it('getFiles returns all indexed file nodes', async () => {
+    vi.spyOn(workspace, 'findFiles').mockResolvedValue([
+      { fsPath: '/mock-workspace/src/a.ts' },
+      { fsPath: '/mock-workspace/src/b.ts' },
+    ] as never);
+    vi.spyOn(workspace.fs, 'stat').mockResolvedValue({ type: 1, size: 100 } as never);
+
+    await index.initialize(['**/*.ts']);
+    const files = [...index.getFiles()];
+    expect(files).toHaveLength(2);
+    expect(files.map((f) => f.relativePath).sort()).toEqual(['src/a.ts', 'src/b.ts']);
+  });
+
+  it('getFiles returns empty iterator when no files indexed', () => {
+    const files = [...index.getFiles()];
+    expect(files).toHaveLength(0);
+  });
+
+  it('setEmbeddingIndex and getEmbeddingIndex round-trip', () => {
+    expect(index.getEmbeddingIndex()).toBeNull();
+    const mockEmbedding = { isReady: () => true } as never;
+    index.setEmbeddingIndex(mockEmbedding);
+    expect(index.getEmbeddingIndex()).toBe(mockEmbedding);
+  });
+
+  it('resetRelevance sets all scores back to base values', async () => {
+    vi.spyOn(workspace, 'findFiles').mockResolvedValue([{ fsPath: '/mock-workspace/src/x.ts' }] as never);
+    vi.spyOn(workspace.fs, 'stat').mockResolvedValue({ type: 1, size: 100 } as never);
+
+    await index.initialize(['**/*.ts']);
+    // Boost the file score
+    index.trackFileAccess('src/x.ts', 'write');
+    // Reset
+    index.resetRelevance();
+    // Score should be back at base level — verify by checking context doesn't boost
+    const files = [...index.getFiles()];
+    // The base score for a .ts file is 0.1, so after reset it should be at that level
+    expect(files[0].relevanceScore).toBeCloseTo(0.1, 1);
+  });
+
   it('pinned files are not duplicated in Relevant Files', async () => {
     vi.spyOn(workspace, 'findFiles').mockResolvedValue([{ fsPath: '/mock-workspace/src/only.ts' }] as never);
     vi.spyOn(workspace.fs, 'stat').mockResolvedValue({ type: 1, size: 100 } as never);

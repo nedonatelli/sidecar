@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { isLocalOllama, isAnthropic, isKickstand, detectProvider, getConfig, clampMin } from './settings.js';
+import {
+  isLocalOllama,
+  isAnthropic,
+  isKickstand,
+  detectProvider,
+  getConfig,
+  clampMin,
+  readKickstandToken,
+  estimateCost,
+} from './settings.js';
 
 describe('isLocalOllama', () => {
   it('returns true for http://localhost:11434', () => {
@@ -176,5 +185,56 @@ describe('clampMin', () => {
 
   it('returns exact minimum when value equals minimum', () => {
     expect(clampMin(1, 1, 25)).toBe(1);
+  });
+});
+
+describe('readKickstandToken', () => {
+  it('returns a non-empty string', () => {
+    const token = readKickstandToken();
+    expect(typeof token).toBe('string');
+    expect(token.length).toBeGreaterThan(0);
+  });
+});
+
+describe('estimateCost', () => {
+  it('returns null for unknown models', () => {
+    expect(estimateCost('llama3:latest', 1000, 500)).toBeNull();
+  });
+
+  it('estimates cost for Claude Opus', () => {
+    const cost = estimateCost('claude-opus-4-6', 1000, 500);
+    expect(cost).not.toBeNull();
+    expect(cost!).toBeGreaterThan(0);
+    // 1000 input * $15/M + 500 output * $75/M = 0.015 + 0.0375 = 0.0525
+    expect(cost!).toBeCloseTo(0.0525, 3);
+  });
+
+  it('estimates cost for Claude Sonnet', () => {
+    const cost = estimateCost('claude-sonnet-4-6', 1000, 500);
+    expect(cost).not.toBeNull();
+    expect(cost!).toBeGreaterThan(0);
+  });
+
+  it('estimates cost for Claude Haiku', () => {
+    const cost = estimateCost('claude-haiku-4-5', 1000, 500);
+    expect(cost).not.toBeNull();
+  });
+
+  it('matches partial model names', () => {
+    // Model strings from providers may include prefixes
+    const cost = estimateCost('anthropic/claude-opus-4-6', 1000, 500);
+    expect(cost).not.toBeNull();
+  });
+});
+
+describe('getConfig semantic search settings', () => {
+  it('includes enableSemanticSearch defaulting to true', () => {
+    const config = getConfig();
+    expect(config.enableSemanticSearch).toBe(true);
+  });
+
+  it('includes semanticSearchWeight defaulting to 0.6', () => {
+    const config = getConfig();
+    expect(config.semanticSearchWeight).toBeCloseTo(0.6);
   });
 });

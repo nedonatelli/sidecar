@@ -58,6 +58,53 @@ export interface ChatMessage {
 }
 
 // Utility functions
+/**
+ * Maximum size for tool result content when persisting messages.
+ * Keeps storage manageable while preserving enough context to be useful.
+ */
+const MAX_PERSISTED_TOOL_RESULT = 2000;
+
+/**
+ * Serialize message content for persistence, preserving structure.
+ * Unlike getContentText(), this keeps tool_use, tool_result, and thinking
+ * blocks so conversations can be fully restored when switching sessions.
+ *
+ * - Images are stripped (base64 data is too large for storage)
+ * - Tool results are truncated to MAX_PERSISTED_TOOL_RESULT chars
+ * - Everything else is kept as-is
+ */
+export function serializeContent(content: string | ContentBlock[]): string | ContentBlock[] {
+  if (typeof content === 'string') return content;
+
+  const serialized: ContentBlock[] = [];
+  for (const block of content) {
+    switch (block.type) {
+      case 'image':
+        // Drop base64 image data — too large for persistent storage
+        break;
+      case 'tool_result':
+        // Truncate large tool results but preserve the block
+        serialized.push({
+          ...block,
+          content:
+            block.content.length > MAX_PERSISTED_TOOL_RESULT
+              ? block.content.slice(0, MAX_PERSISTED_TOOL_RESULT) + '\n... (truncated)'
+              : block.content,
+        });
+        break;
+      default:
+        serialized.push(block);
+        break;
+    }
+  }
+
+  // If only text blocks remain, flatten to string for compact storage
+  if (serialized.length === 1 && serialized[0].type === 'text') {
+    return serialized[0].text;
+  }
+  return serialized;
+}
+
 export function getContentText(content: string | ContentBlock[]): string {
   if (typeof content === 'string') return content;
   return content

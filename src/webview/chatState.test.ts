@@ -128,4 +128,136 @@ describe('ChatState', () => {
     const state = createState();
     expect(state.client.isLocalOllama()).toBe(true);
   });
+
+  it('saveHistory preserves tool_use blocks via serializeContent', () => {
+    mockWorkspaceState.update.mockClear();
+    const state = createState();
+    state.messages = [
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'Reading file' },
+          { type: 'tool_use', id: 'tc1', name: 'read_file', input: { path: 'a.ts' } },
+        ],
+      },
+    ];
+    state.saveHistory();
+
+    const saved = mockWorkspaceState.update.mock.calls[0][1];
+    const content = saved[0].content;
+    expect(Array.isArray(content)).toBe(true);
+    expect(content.some((b: { type: string }) => b.type === 'tool_use')).toBe(true);
+  });
+
+  it('saveHistory preserves tool_result blocks', () => {
+    mockWorkspaceState.update.mockClear();
+    const state = createState();
+    state.messages = [
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'tc1', content: 'result data' }],
+      },
+    ];
+    state.saveHistory();
+
+    const saved = mockWorkspaceState.update.mock.calls[0][1];
+    const content = saved[0].content;
+    expect(Array.isArray(content)).toBe(true);
+    expect(content[0].type).toBe('tool_result');
+  });
+
+  it('logMessage writes to a tmp file', () => {
+    const state = createState();
+    state.logMessage('user', 'test message');
+
+    const logPath = state.getChatLogPath();
+    expect(logPath).not.toBeNull();
+    expect(logPath).toContain('sidecar-chat-');
+
+    // Read the file and verify content
+    const fs = require('fs');
+    const content = fs.readFileSync(logPath!, 'utf-8');
+    const entry = JSON.parse(content.trim());
+    expect(entry.role).toBe('user');
+    expect(entry.content).toBe('test message');
+    expect(entry.timestamp).toBeDefined();
+
+    // Cleanup
+    fs.unlinkSync(logPath!);
+  });
+
+  it('logMessage appends multiple entries', () => {
+    const state = createState();
+    state.logMessage('user', 'first');
+    state.logMessage('assistant', 'second');
+
+    const logPath = state.getChatLogPath()!;
+    const fs = require('fs');
+    const lines = fs.readFileSync(logPath, 'utf-8').trim().split('\n');
+    expect(lines).toHaveLength(2);
+
+    const first = JSON.parse(lines[0]);
+    const second = JSON.parse(lines[1]);
+    expect(first.role).toBe('user');
+    expect(second.role).toBe('assistant');
+
+    fs.unlinkSync(logPath);
+  });
+
+  it('getChatLogPath returns null before any logging', () => {
+    const state = createState();
+    expect(state.getChatLogPath()).toBeNull();
+  });
+
+  it('resetChatLog clears the path so next log gets a new file', async () => {
+    const state = createState();
+    state.logMessage('user', 'first conversation');
+    const firstPath = state.getChatLogPath();
+
+    state.resetChatLog();
+    expect(state.getChatLogPath()).toBeNull();
+
+    // Small delay to ensure the timestamp-based filename differs
+    await new Promise((r) => setTimeout(r, 5));
+
+    state.logMessage('user', 'second conversation');
+    const secondPath = state.getChatLogPath();
+    expect(secondPath).not.toBe(firstPath);
+
+    // Cleanup
+    const fs = require('fs');
+    if (firstPath && fs.existsSync(firstPath)) fs.unlinkSync(firstPath);
+    if (secondPath && fs.existsSync(secondPath)) fs.unlinkSync(secondPath);
+  });
+
+  it('clearChat resets the chat log', () => {
+    const state = createState();
+    state.logMessage('user', 'will be cleared');
+    expect(state.getChatLogPath()).not.toBeNull();
+
+    mockPostMessage.mockClear();
+    state.clearChat();
+    expect(state.getChatLogPath()).toBeNull();
+  });
+
+  it('trimHistory respects message count limit', () => {
+    const state = createState();
+    // Push 250 messages (over the 200 limit)
+    for (let i = 0; i < 250; i++) {
+      state.messages.push({ role: i % 2 === 0 ? 'user' : 'assistant', content: `msg ${i}` });
+    }
+    state.trimHistory();
+    expect(state.messages.length).toBeLessThanOrEqual(200);
+  });
+
+  it('trimHistory respects character size limit', () => {
+    const state = createState();
+    // Push a few very large messages
+    for (let i = 0; i < 10; i++) {
+      state.messages.push({ role: 'user', content: 'x'.repeat(300_000) });
+    }
+    state.trimHistory();
+    const totalChars = state.messages.reduce((s, m) => s + (typeof m.content === 'string' ? m.content.length : 0), 0);
+    expect(totalChars).toBeLessThanOrEqual(2_000_000);
+  });
 });

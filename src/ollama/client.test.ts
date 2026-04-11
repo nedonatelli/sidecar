@@ -261,4 +261,184 @@ describe('SideCarClient', () => {
       expect(result).toBe('OK');
     });
   });
+
+  describe('getModelContextLength', () => {
+    it('returns null for non-Ollama providers', async () => {
+      const client = new SideCarClient('test-model', 'https://api.anthropic.com', 'sk-test');
+      const result = await client.getModelContextLength();
+      expect(result).toBeNull();
+    });
+
+    it('extracts num_ctx from model parameters', async () => {
+      const client = new SideCarClient('test-model');
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          parameters: 'num_ctx 32768\ntemperature 0.8',
+          model_info: {},
+        }),
+      });
+      const result = await client.getModelContextLength();
+      expect(result).toBe(32768);
+    });
+
+    it('falls back to model_info context_length', async () => {
+      const client = new SideCarClient('test-model');
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          model_info: { 'llama.context_length': 8192 },
+        }),
+      });
+      const result = await client.getModelContextLength();
+      expect(result).toBe(8192);
+    });
+
+    it('returns null when API call fails', async () => {
+      const client = new SideCarClient('test-model');
+      mockFetch.mockRejectedValueOnce(new Error('timeout'));
+      const result = await client.getModelContextLength();
+      expect(result).toBeNull();
+    });
+
+    it('returns null when response is not ok', async () => {
+      const client = new SideCarClient('test-model');
+      mockFetch.mockResolvedValueOnce({ ok: false });
+      const result = await client.getModelContextLength();
+      expect(result).toBeNull();
+    });
+
+    it('returns null when no context info in response', async () => {
+      const client = new SideCarClient('test-model');
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ model_info: {} }),
+      });
+      const result = await client.getModelContextLength();
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('listInstalledModels', () => {
+    it('fetches models from Ollama /api/tags', async () => {
+      const client = new SideCarClient('test-model');
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          models: [
+            { name: 'llama3:latest', model: 'llama3', size: 1000, details: {} },
+            { name: 'codellama:7b', model: 'codellama', size: 2000, details: {} },
+          ],
+        }),
+      });
+      const models = await client.listInstalledModels();
+      expect(models).toHaveLength(2);
+      expect(models[0].name).toBe('llama3:latest');
+    });
+
+    it('throws on non-ok response for Ollama', async () => {
+      const client = new SideCarClient('test-model');
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 500 });
+      await expect(client.listInstalledModels()).rejects.toThrow('Failed to list models');
+    });
+
+    it('fetches models from OpenAI /v1/models for remote providers', async () => {
+      const client = new SideCarClient('gpt-4', 'https://api.openai.com', 'sk-test');
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [
+            { id: 'gpt-4', owned_by: 'openai' },
+            { id: 'gpt-3.5-turbo', owned_by: 'openai' },
+          ],
+        }),
+      });
+      const models = await client.listInstalledModels();
+      expect(models).toHaveLength(2);
+      expect(models[0].name).toBe('gpt-4');
+    });
+
+    it('returns empty array when OpenAI endpoint fails', async () => {
+      const client = new SideCarClient('gpt-4', 'https://api.openai.com', 'sk-test');
+      mockFetch.mockRejectedValueOnce(new Error('network'));
+      const models = await client.listInstalledModels();
+      expect(models).toEqual([]);
+    });
+  });
+
+  describe('listLibraryModels', () => {
+    it('includes both installed and library models for Ollama', async () => {
+      const client = new SideCarClient('test-model');
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          models: [{ name: 'llama3:latest', model: 'llama3', size: 1000, details: {} }],
+        }),
+      });
+      const models = await client.listLibraryModels();
+      const installed = models.filter((m) => m.installed);
+      const available = models.filter((m) => !m.installed);
+      expect(installed).toHaveLength(1);
+      expect(available.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('getSystemPrompt', () => {
+    it('returns empty string initially', () => {
+      const client = new SideCarClient('test-model');
+      expect(client.getSystemPrompt()).toBe('');
+    });
+
+    it('returns updated prompt after updateSystemPrompt', () => {
+      const client = new SideCarClient('test-model');
+      client.updateSystemPrompt('You are a helpful assistant');
+      expect(client.getSystemPrompt()).toBe('You are a helpful assistant');
+    });
+  });
+
+  describe('isOpenAI', () => {
+    it('returns false for Ollama', () => {
+      const client = new SideCarClient('test-model');
+      expect(client.isOpenAI()).toBe(false);
+    });
+
+    it('returns true for OpenAI URL', () => {
+      const client = new SideCarClient('gpt-4', 'https://api.openai.com', 'sk-test');
+      expect(client.isOpenAI()).toBe(true);
+    });
+  });
+
+  describe('getProviderType', () => {
+    it('returns ollama for local URL', () => {
+      const client = new SideCarClient('test-model');
+      expect(client.getProviderType()).toBe('ollama');
+    });
+
+    it('returns anthropic for Anthropic URL', () => {
+      const client = new SideCarClient('claude', 'https://api.anthropic.com', 'sk-ant');
+      expect(client.getProviderType()).toBe('anthropic');
+    });
+  });
+
+  describe('completeFIM', () => {
+    it('throws on non-ok response', async () => {
+      const client = new SideCarClient('test-model');
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        text: async () => 'server error',
+      });
+      await expect(client.completeFIM('prefix', 'suffix')).rejects.toThrow('FIM request failed');
+    });
+  });
+
+  describe('complete error handling', () => {
+    it('rethrows AbortError without counting as failure', async () => {
+      const client = new SideCarClient('test-model');
+      const abortError = new Error('Aborted');
+      abortError.name = 'AbortError';
+      mockFetch.mockRejectedValueOnce(abortError);
+      await expect(client.complete([{ role: 'user', content: 'test' }])).rejects.toThrow('Aborted');
+    });
+  });
 });
