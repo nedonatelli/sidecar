@@ -5,9 +5,13 @@
  * The diff view opens immediately when a write/edit tool is invoked in
  * cautious mode. The ProposedContentProvider's onDidChange event enables
  * the diff to update incrementally if content changes.
+ *
+ * Accept/Reject is presented as a VS Code information message at the top
+ * of the editor (where the user is looking at the diff), with a parallel
+ * confirmation in the chat panel as fallback.
  */
 
-import { workspace, commands, Uri, ViewColumn } from 'vscode';
+import { workspace, window, commands, Uri, ViewColumn } from 'vscode';
 import type { ProposedContentProvider } from './proposedContentProvider.js';
 
 export interface DiffPreviewSession {
@@ -22,10 +26,14 @@ export interface DiffPreviewSession {
 /**
  * Open a diff view for a file and return a session that can be updated.
  *
+ * The diff editor opens immediately. Accept/Reject buttons appear both
+ * as a VS Code notification (visible in the editor) and in the chat panel
+ * (via confirmFn). Whichever the user clicks first wins.
+ *
  * @param filePath - Relative path to the file being edited
  * @param proposedContent - Initial proposed content
  * @param contentProvider - The VS Code content provider for the proposed:// scheme
- * @param confirmFn - Function to show accept/reject UI (reuses the chat confirmation system)
+ * @param confirmFn - Function to show accept/reject in the chat panel
  */
 export async function openDiffPreview(
   filePath: string,
@@ -57,8 +65,22 @@ export async function openDiffPreview(
     },
 
     async finalize(): Promise<'accept' | 'reject'> {
-      const choice = await confirmFn(`Apply changes to **${filePath}**?`, ['Accept', 'Reject']);
-      return choice === 'Accept' ? 'accept' : 'reject';
+      // Race: VS Code notification (editor) vs chat confirmation (webview).
+      // The user clicks whichever is more convenient — first response wins.
+      const editorPromise = window.showInformationMessage(
+        `SideCar: Apply changes to ${filePath}?`,
+        { modal: false },
+        'Accept',
+        'Reject',
+      );
+      const chatPromise = confirmFn(`Apply changes to **${filePath}**?`, ['Accept', 'Reject']);
+
+      const result = await Promise.race([
+        editorPromise.then((choice) => (choice === 'Accept' ? ('accept' as const) : ('reject' as const))),
+        chatPromise.then((choice) => (choice === 'Accept' ? ('accept' as const) : ('reject' as const))),
+      ]);
+
+      return result;
     },
 
     dispose() {

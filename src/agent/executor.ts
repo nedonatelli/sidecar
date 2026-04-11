@@ -16,6 +16,7 @@ export type ApprovalMode = 'autonomous' | 'cautious' | 'manual' | 'plan';
 export type ConfirmFn = (message: string, actions: string[]) => Promise<string | undefined>;
 export type DiffPreviewFn = (filePath: string, proposedContent: string) => Promise<'accept' | 'reject'>;
 export type InlineEditFn = (filePath: string, searchText: string, replaceText: string) => Promise<boolean>;
+/** @deprecated Use diffPreviewFn — streaming behavior is now built into openDiffPreview. */
 export type StreamingDiffPreviewFn = (filePath: string, proposedContent: string) => Promise<'accept' | 'reject'>;
 
 const WRITE_TOOLS = new Set(['write_file', 'edit_file']);

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { openDiffPreview } from './streamingDiffPreview.js';
 import { ProposedContentProvider } from './proposedContentProvider.js';
-import { workspace } from 'vscode';
+import { workspace, window } from 'vscode';
 
 describe('openDiffPreview', () => {
   it('throws when no workspace folders', async () => {
@@ -41,7 +41,21 @@ describe('openDiffPreview', () => {
     session.dispose();
   });
 
-  it('finalize returns accept when user accepts', async () => {
+  it('finalize returns accept when user accepts via editor notification', async () => {
+    vi.spyOn(window, 'showInformationMessage').mockResolvedValue('Accept' as never);
+    const provider = new ProposedContentProvider();
+    // Chat confirm never resolves — editor notification wins the race
+    const confirmFn = vi.fn().mockReturnValue(new Promise(() => {}));
+
+    const session = await openDiffPreview('app.ts', 'content', provider, confirmFn);
+    const result = await session.finalize();
+    expect(result).toBe('accept');
+    session.dispose();
+  });
+
+  it('finalize returns accept when user accepts via chat confirm', async () => {
+    // Editor notification never resolves — chat confirm wins the race
+    vi.spyOn(window, 'showInformationMessage').mockReturnValue(new Promise(() => {}) as never);
     const provider = new ProposedContentProvider();
     const confirmFn = vi.fn().mockResolvedValue('Accept');
 
@@ -52,8 +66,20 @@ describe('openDiffPreview', () => {
   });
 
   it('finalize returns reject when user rejects', async () => {
+    vi.spyOn(window, 'showInformationMessage').mockResolvedValue('Reject' as never);
     const provider = new ProposedContentProvider();
-    const confirmFn = vi.fn().mockResolvedValue('Reject');
+    const confirmFn = vi.fn().mockReturnValue(new Promise(() => {}));
+
+    const session = await openDiffPreview('app.ts', 'content', provider, confirmFn);
+    const result = await session.finalize();
+    expect(result).toBe('reject');
+    session.dispose();
+  });
+
+  it('finalize returns reject when user dismisses notification', async () => {
+    vi.spyOn(window, 'showInformationMessage').mockResolvedValue(undefined as never);
+    const provider = new ProposedContentProvider();
+    const confirmFn = vi.fn().mockReturnValue(new Promise(() => {}));
 
     const session = await openDiffPreview('app.ts', 'content', provider, confirmFn);
     const result = await session.finalize();

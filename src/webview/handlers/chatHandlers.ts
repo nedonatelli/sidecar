@@ -30,7 +30,7 @@ import {
 import { runAgentLoop } from '../../agent/loop.js';
 import { pruneHistory, enhanceContextWithSmartElements } from '../../agent/context.js';
 import { computeUnifiedDiff } from '../../agent/diff.js';
-import { commands } from 'vscode';
+// commands import removed — diff preview now handled by streamingDiffPreview.ts
 
 const execAsync = promisify(exec);
 
@@ -1010,24 +1010,10 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
         maxIterations: config.agentMaxIterations,
         maxTokens: config.agentMaxTokens,
         confirmFn: (msg, actions) => state.requestConfirm(msg, actions),
+        // Diff preview: opens VS Code's diff editor showing proposed changes.
+        // Accept/Reject buttons appear both as a VS Code notification (in the
+        // editor) and as a chat confirmation card — first click wins.
         diffPreviewFn: state.contentProvider
-          ? async (filePath: string, proposedContent: string) => {
-              const cp = state.contentProvider!;
-              const key = `/${filePath}`;
-              const proposedUri = cp.addProposal(key, proposedContent);
-              const rootUri = workspace.workspaceFolders?.[0]?.uri;
-              if (!rootUri) {
-                cp.removeProposal(key);
-                return 'reject' as const;
-              }
-              const originalUri = Uri.joinPath(rootUri, filePath);
-              await commands.executeCommand('vscode.diff', originalUri, proposedUri, `SideCar: ${filePath} (proposed)`);
-              const choice = await state.requestConfirm(`Apply changes to **${filePath}**?`, ['Accept', 'Reject']);
-              cp.removeProposal(key);
-              return choice === 'Accept' ? ('accept' as const) : ('reject' as const);
-            }
-          : undefined,
-        streamingDiffPreviewFn: state.contentProvider
           ? async (filePath: string, proposedContent: string) => {
               const { openDiffPreview } = await import('../../edits/streamingDiffPreview.js');
               const session = await openDiffPreview(filePath, proposedContent, state.contentProvider!, (msg, actions) =>
