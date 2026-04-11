@@ -22,41 +22,43 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 
 | Capability | SideCar | Continue | Llama Coder | Twinny |
 |---|---|---|---|---|
-| Autonomous agent loop | **Yes** | No | No | No |
-| File read/write/edit tools | **Yes** | No | No | No |
-| Run commands & tests | **Yes** (persistent shell) | No | No | No |
+| Autonomous agent loop | **Yes** | Yes | No | No |
+| File read/write/edit tools | **Yes** | Yes | No | No |
+| Run commands & tests | **Yes** (persistent shell) | Yes | No | No |
 | Web search | **Yes** (built-in) | No | No | No |
 | Security & secrets scanning | **Yes** | No | No | No |
-| MCP server support | **Yes** | No | No | No |
-| Git integration (commit, PR, releases) | **Yes** | No | No | No |
-| Diff preview & undo/rollback | **Yes** | No | No | No |
+| MCP server support | **Yes** | Yes | No | No |
+| Git integration (commit, PR, releases) | **Yes** | Partial | No | No |
+| Diff preview & undo/rollback | **Yes** | Partial | No | No |
 | Plan mode | **Yes** | No | No | No |
-| Built-in skills (8) | **Yes** | No | No | No |
-| Tree-sitter AST parsing | **Yes** | No | No | No |
-| Persistent codebase indexing | **Yes** | No | No | No |
+| Built-in skills (8) | **Yes** | Yes | No | No |
+| Tree-sitter AST parsing | **Yes** | Yes | No | No |
+| Codebase indexing | **Yes** | Yes | No | No |
 | Spending budgets | **Yes** | No | No | No |
+| Conversation steering (type while processing) | **Yes** | No | No | No |
 | Free & open-source | Yes | Yes | Yes | Yes |
 
 ### vs. Pro Tools
 
 | Capability | SideCar | Copilot | Cursor | Claude Code |
 |---|---|---|---|---|
-| Autonomous agent loop | Yes | Limited | Yes | Yes |
-| Model agnostic (any provider) | **Yes** | No | Partial | No |
+| Autonomous agent loop | Yes | Yes | Yes | Yes |
+| Model agnostic (any provider) | **Yes** | Partial | Partial | No |
 | Fully offline / self-hosted | **Yes** | No | No | No |
 | HuggingFace model install | **Yes** | No | No | No |
-| Custom skills system | **Yes** | No | No | Yes |
+| Custom skills system | **Yes** | Yes | Yes (.cursorrules) | Yes |
 | Context compaction (manual + auto) | **Yes** | Yes | Yes | Yes |
-| Spending budgets & cost tracking | **Yes** | No | No | No |
+| Spending budgets & cost tracking | **Yes** | No | Yes | No |
 | Plan-then-execute mode | **Yes** | No | Yes | Yes |
-| Works in your existing VS Code | **Yes** | Yes | No (fork) | No (CLI) |
-| Monthly subscription | **Free** | $10-19/mo | $20/mo | $20/mo |
+| Conversation steering (type while processing) | **Yes** | No | Yes | Yes |
+| Works in your existing VS Code | **Yes** | Yes | No (fork) | Yes (extension + CLI) |
+| Monthly subscription | **Free** | $10-19/mo | $20/mo | Usage-based |
 
 ### What sets SideCar apart
 
 - **True agentic autonomy** — SideCar reads your code, edits files, runs tests, reads the errors, and iterates until the task is done. Switch between cautious, autonomous, and manual modes.
 - **No vendor lock-in** — Use Ollama for fully offline operation, Anthropic for Claude, OpenAI-compatible servers (LM Studio, vLLM, OpenRouter), Kickstand, or install GGUF models directly from HuggingFace. Same interface, your choice.
-- **Security from the ground up** — Secrets detection, vulnerability scanning, path traversal protection, sensitive file blocking, workspace hook warnings, and prompt injection sandboxing. No other local-first extension does this.
+- **Security from the ground up** — Secrets detection, vulnerability scanning, path traversal protection, sensitive file blocking, workspace hook warnings, and prompt injection sandboxing.
 - **Extensible with MCP & Skills** — Connect external tools via MCP, create custom skills with markdown files, or use the 8 built-in skills (review, debug, refactor, explain, write-tests, break-this, create-skill, mcp-builder).
 - **Production-grade safety** — Agent mode controls, iteration limits, token budgets, daily/weekly spending caps, cycle detection, streaming diff preview, plan mode, and one-click rollback.
 - **Persistent codebase indexing** — File index and symbol graph persist across restarts via `.sidecar/cache/`. Tree-sitter AST parsing for 6 languages. Near-instant startup on subsequent activations.
@@ -69,7 +71,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 - **Agent loop** — multi-step execution (read code, edit, run tests, fix errors) without manual intervention at each step
 - **Agent progress** — live step count, elapsed time, and token usage during agent runs
 - **Activity indicators** — animated progress bar and tool execution pulses so you always know SideCar is working
-- **Stop button** — abort the agent loop at any time (Send button toggles to Stop while processing)
+- **Conversation steering** — chat input stays enabled during processing; send a new message to redirect the agent mid-run, or press Escape to abort. The Send button dynamically switches to Stop when the input is empty
 - **Diagnostics integration** — reads compiler errors and warnings from VS Code's language services
 - **Test-driven loop** — runs tests, feeds failures back to the model, iterates until passing
 - **Undo/rollback** — revert all AI-made file changes with one click
@@ -110,13 +112,13 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 - **Active file context** — includes the currently open file and cursor position
 - **@ references** — `@file:path`, `@folder:path`, `@symbol:name` for precise context inclusion
 - **Image support** — paste screenshots or attach images for vision models
-- **Slash commands** — `/reset`, `/undo`, `/export`, `/model`, `/help`, `/batch`, `/doc`, `/spec`, `/insight`, `/save`, `/sessions`, `/scan`, `/usage`, `/context`, `/test`, `/lint`, `/deps`, `/scaffold`, `/commit`, `/verbose`, `/prompt`, `/audit`, `/insights`, `/mcp` — with autocomplete dropdown as you type
+- **Slash commands** — `/reset`, `/undo`, `/export`, `/model`, `/help`, `/batch`, `/doc`, `/spec`, `/insight`, `/save`, `/sessions`, `/scan`, `/usage`, `/context`, `/test`, `/lint`, `/deps`, `/scaffold`, `/commit`, `/verbose`, `/prompt`, `/audit`, `/insights`, `/mcp`, `/init`, `/compact`, `/move`, `/clone`, `/skills`, `/releases`, `/release` — with autocomplete dropdown as you type
 - **Diagram generation** — models can generate Mermaid diagrams in code blocks; rendered natively in chat with syntax highlighting and copy-to-SVG support
 - **Actionable errors** — classified error cards with retry, start Ollama, and settings buttons
 - **Sticky scroll** — auto-scroll pauses when you scroll up, floating button to jump back down
 - **Chat history persistence** — conversations survive VS Code restarts (per-workspace)
 - **Streaming indicator** — shows token count and generation speed
-- **Model management** — switch models, install new ones from Ollama
+- **Model management** — switch models, install new ones from Ollama, search/filter in the model picker
 
 ### Multi-Backend Support
 - **Ollama** (default) — runs locally, free, no API key needed
@@ -172,10 +174,12 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 | `web_search` | Search the web via DuckDuckGo |
 | `display_diagram` | Extract and render diagrams from markdown files |
 | `ask_user` | Ask the user a clarifying question with selectable options |
-| `spawn_agent` | Spawn a sub-agent for parallel tasks |
+| `spawn_agent` | Spawn a sub-agent for parallel tasks (max depth: 3, 15 iterations each) |
 
 ### Project Instructions (SIDECAR.md)
-Create a `SIDECAR.md` file in your project root to give SideCar project-specific instructions that persist across sessions:
+Run `/init` in the chat to auto-generate a `.sidecar/SIDECAR.md` file from your codebase. SideCar scans config files, the file tree, and sample source files (prioritizing entry points) to produce a structured project overview. It also reads `CLAUDE.md` and `AGENTS.md` if they exist.
+
+Or create one manually:
 
 ```markdown
 # Project: My App
@@ -285,7 +289,7 @@ SideCar auto-detects the provider. To override, set `sidecar.provider` to `"open
 | `sidecar.mcpServers` | `{}` | MCP servers to connect to (see MCP section above) |
 | `sidecar.agentMode` | `cautious` | Agent approval mode: cautious, autonomous, manual |
 | `sidecar.agentTemperature` | `0.2` | Temperature for agent tool-calling requests. Lower = more deterministic |
-| `sidecar.agentMaxIterations` | `50` | Max agent loop iterations |
+| `sidecar.agentMaxIterations` | `25` | Max agent loop iterations |
 | `sidecar.agentMaxTokens` | `100000` | Max tokens per agent run |
 | `sidecar.includeWorkspace` | `true` | Include workspace files in context |
 | `sidecar.includeActiveFile` | `true` | Include active file in context |
