@@ -485,6 +485,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:integration": "tsc -p src/test/integration/tsconfig.json && find src -name '*.js' -not -path 'src/test/*' -delete 2>/dev/null; vscode-test",
     "lint": "eslint src/",
     "format": "prettier --write 'src/**/*.ts'",
     "format:check": "prettier --check 'src/**/*.ts'",
@@ -493,11 +494,14 @@
     "prepare": "husky"
   },
   "devDependencies": {
+    "@types/mocha": "^10.0.10",
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.85.0",
     "@typescript-eslint/eslint-plugin": "^8.58.0",
     "@typescript-eslint/parser": "^8.58.0",
     "@vitest/coverage-v8": "^4.1.2",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^2.15.0",
     "esbuild": "^0.28.0",
     "eslint": "^10.2.0",

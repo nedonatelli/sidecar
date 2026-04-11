@@ -3,14 +3,13 @@
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "outDir": "./out",
-    "rootDir": "./src",
+    "outDir": "../../../out",
+    "rootDir": "../../..",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "types": ["node"],
+    "types": ["node", "mocha", "vscode"],
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "out", "src/test/integration"]
+  "include": ["./**/*.ts"]
 }
