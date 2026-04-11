@@ -35,6 +35,7 @@ Type `/` in the chat input to see all available commands. An autocomplete dropdo
 | `/insights` | Conversation pattern analysis |
 | `/mcp` | MCP server status |
 | `/init` | Generate SIDECAR.md project notes |
+| `/bg <task>` | Run a task in the background |
 | `/verbose` | Toggle verbose mode |
 | `/prompt` | Show system prompt |
 
@@ -291,3 +292,22 @@ Scans the codebase and generates a `.sidecar/SIDECAR.md` file that provides proj
 **Overwrite protection**: If `SIDECAR.md` already exists, a confirmation dialog asks before overwriting. Cancel to keep the existing file.
 
 The generated file opens in the editor for manual refinement. See [SIDECAR.md](sidecar-md) for details on how this file is used.
+
+### `/bg <task>`
+
+Spawns a background agent that works autonomously without blocking the main conversation.
+
+```
+/bg Write unit tests for src/utils/parser.ts
+/bg Refactor the logger to use structured output
+```
+
+Background agents:
+- Run with their own independent LLM client (no shared state with the main chat)
+- Execute in **autonomous mode** with a 15-iteration cap
+- Stream output to a collapsible dashboard panel below the chat header
+- Can be stopped individually via the dashboard
+
+Up to 3 agents run concurrently (configurable via `sidecar.bgMaxConcurrent`). Additional tasks queue automatically. When an agent completes, a summary is posted to the main chat.
+
+See [Agent Mode — Background agents](agent-mode#background-agents) for details.

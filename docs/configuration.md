@@ -33,13 +33,15 @@ Set `sidecar.provider` explicitly if auto-detection doesn't match your setup —
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
-| `sidecar.agentMode` | enum | `cautious` | Approval mode: `cautious`, `autonomous`, `manual` |
+| `sidecar.agentMode` | string | `cautious` | Agent mode: `cautious`, `autonomous`, `manual`, `plan`, or a custom mode name from `sidecar.customModes` |
 | `sidecar.agentTemperature` | number | `0.2` | Temperature for agent tool-calling requests. Lower values (0.1–0.3) produce more deterministic tool selection |
-| `sidecar.agentMaxIterations` | number | `50` | Max agent loop iterations |
+| `sidecar.agentMaxIterations` | number | `25` | Max agent loop iterations |
 | `sidecar.agentMaxTokens` | number | `100000` | Max tokens per agent run |
 | `sidecar.requestTimeout` | number | `120` | Timeout in seconds for each LLM request. Aborts if no tokens arrive within this window. Set to 0 to disable |
 | `sidecar.planMode` | boolean | `false` | Generate a plan for approval before executing tools |
 | `sidecar.toolPermissions` | object | `{}` | Per-tool overrides: `{ "tool_name": "allow" \| "deny" \| "ask" }` |
+| `sidecar.customModes` | array | `[]` | Custom agent modes with dedicated system prompts and approval behavior. See [Custom modes](agent-mode#custom-modes) |
+| `sidecar.bgMaxConcurrent` | number | `3` | Maximum number of background agents that can run simultaneously (1–10) |
 
 ## Context
 
@@ -246,6 +248,7 @@ Memory is also recorded during agent runs whenever:
 | `sidecar.eventHooks` | object | `{}` | Event-based hooks (`onSave`, `onCreate`, `onDelete`) |
 | `sidecar.scheduledTasks` | array | `[]` | Recurring agent tasks. See [Scheduled Tasks](hooks-and-tasks#scheduled-tasks) |
 | `sidecar.customTools` | array | `[]` | Custom shell command tools. See [Custom Tools](hooks-and-tasks#custom-tools) |
+| `sidecar.customModes` | array | `[]` | Custom agent modes. See [Custom modes](agent-mode#custom-modes) |
 
 ### Custom tools example
 

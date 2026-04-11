@@ -154,6 +154,58 @@ SideCar snapshots every file before modifying it. To revert all changes:
 
 After an agent run, a **change summary panel** shows all modified files with inline diffs. You can revert individual files or accept all changes.
 
+## Custom modes
+
+Define your own agent modes with dedicated system prompts and approval behavior via `sidecar.customModes`:
+
+```json
+"sidecar.customModes": [
+  {
+    "name": "architect",
+    "description": "Design only, no file writes",
+    "systemPrompt": "Focus on architecture decisions and API design. Propose changes but do not write files — describe what should change and why.",
+    "approvalBehavior": "manual",
+    "toolPermissions": { "write_file": "deny", "edit_file": "deny" }
+  },
+  {
+    "name": "debugger",
+    "description": "Diagnostic mode",
+    "systemPrompt": "Focus on diagnosing the problem. Read files, check logs, run tests, and explain what's wrong before making changes.",
+    "approvalBehavior": "cautious"
+  }
+]
+```
+
+Each custom mode has:
+- **name** — identifier shown in the mode dropdown
+- **description** — tooltip text in the dropdown
+- **systemPrompt** — additional instructions injected into the system prompt when active
+- **approvalBehavior** — `"autonomous"`, `"cautious"`, or `"manual"` (determines tool approval)
+- **toolPermissions** — optional per-tool overrides (`"allow"`, `"deny"`, `"ask"`) that take priority over global `sidecar.toolPermissions`
+
+Select custom modes from the dropdown alongside built-in modes (cautious, autonomous, manual, plan). Custom modes appear with an orange badge.
+
+## Background agents
+
+Run tasks in parallel without blocking your main conversation using `/bg <task>`:
+
+```
+/bg Write unit tests for src/utils/parser.ts
+/bg Refactor the authentication middleware to use async/await
+```
+
+Each background agent:
+- Gets its own independent client instance (no shared state with the main chat)
+- Runs in **autonomous mode** with a 15-iteration cap
+- Streams output in real-time to a collapsible dashboard panel below the header
+- Can be stopped individually via a stop button
+
+The dashboard shows running, queued, completed, and failed agents with elapsed time and tool call counts. Click the expand button on any agent to see its full output.
+
+**Concurrency**: Up to 3 background agents run simultaneously (configurable via `sidecar.bgMaxConcurrent`). Additional tasks are queued and start automatically when a slot opens.
+
+When a background agent completes, a summary is posted to the main chat so you see the result without checking the dashboard.
+
 ## Plan mode
 
 Enable `sidecar.planMode` to have SideCar generate a plan before executing any tools. You review and approve the plan, then SideCar executes it. Useful for complex tasks where you want to validate the approach first.

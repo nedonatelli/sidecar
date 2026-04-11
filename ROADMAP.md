@@ -137,8 +137,8 @@ Last updated: 2026-04-11 (v0.43.0)
 ### Agent Capabilities
 
 - **Chat threads and branching** — parallel branches, named threads, thread picker, per-thread persistence
-- **Custom modes** — user-defined agent modes (Architect, Coder, Debugger) via `sidecar.customModes`
-- **Background agent orchestration** — full spawning with independent state, task coordination, agent dashboard
+- ~~**Custom modes** — user-defined agent modes (Architect, Coder, Debugger) via `sidecar.customModes`~~ → shipped with system prompts, approval behavior, per-tool permissions, and dropdown integration
+- ~~**Background agent orchestration** — full spawning with independent state, task coordination, agent dashboard~~ → `/bg` command, BackgroundAgentManager with queue + concurrency limits, dashboard panel with live output
 - **Auto mode** — intelligent approval classifier that learns from user patterns
 - **Persistent executive function** — multi-day task state in `.sidecar/plans/` tracking progress, decisions, and blockers across sessions
 

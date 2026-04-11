@@ -56,7 +56,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 
 ### What sets SideCar apart
 
-- **True agentic autonomy** — SideCar reads your code, edits files, runs tests, reads the errors, and iterates until the task is done. Switch between cautious, autonomous, and manual modes.
+- **True agentic autonomy** — SideCar reads your code, edits files, runs tests, reads the errors, and iterates until the task is done. Switch between cautious, autonomous, manual, plan, or custom user-defined modes.
 - **No vendor lock-in** — Use Ollama for fully offline operation, Anthropic for Claude, OpenAI-compatible servers (LM Studio, vLLM, OpenRouter), Kickstand, or install GGUF models directly from HuggingFace. Same interface, your choice.
 - **Security from the ground up** — Secrets detection, vulnerability scanning, path traversal protection, sensitive file blocking, workspace hook warnings, and prompt injection sandboxing.
 - **Extensible with MCP & Skills** — Connect external tools via MCP, create custom skills with markdown files, or use the 8 built-in skills (review, debug, refactor, explain, write-tests, break-this, create-skill, mcp-builder).
@@ -77,7 +77,9 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 - **Undo/rollback** — revert all AI-made file changes with one click
 - **Streaming diff preview** — in cautious mode, file writes open VS Code's diff editor with dual accept/reject UI (editor notification + chat card — first click wins)
 - **Stub validator** — auto-detects placeholder code (TODO, "real implementation", stub functions) in agent output and reprompts the model to finish
-- **Safety guardrails** — agent mode dropdown (cautious/autonomous/manual) in the header, iteration limits, token budget, daily/weekly spending caps
+- **Custom modes** — define your own agent modes (Architect, Debugger, Coder) with dedicated system prompts, approval behavior, and per-tool permissions via `sidecar.customModes`
+- **Background agents** — `/bg <task>` spawns autonomous agents that work in parallel without blocking the main conversation. Dashboard panel shows status, output, and stop controls. Up to 3 concurrent (configurable via `sidecar.bgMaxConcurrent`)
+- **Safety guardrails** — agent mode dropdown (cautious/autonomous/manual/plan/custom) in the header, iteration limits, token budget, daily/weekly spending caps
 - **Thinking/reasoning** — collapsible reasoning blocks from models that support extended thinking (Anthropic) or `<think>` tags (qwen3, deepseek-r1)
 - **Verbose mode** — `/verbose` to show system prompt, per-iteration summaries, and tool selection context during agent runs
 - **Observability** — `/audit` to browse structured tool execution logs, "Why?" button on tool cards for on-demand decision explanations, `/insights` for conversation pattern analysis with usage trends and suggestions
@@ -112,7 +114,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 - **Active file context** — includes the currently open file and cursor position
 - **@ references** — `@file:path`, `@folder:path`, `@symbol:name` for precise context inclusion
 - **Image support** — paste screenshots or attach images for vision models
-- **Slash commands** — `/reset`, `/undo`, `/export`, `/model`, `/help`, `/batch`, `/doc`, `/spec`, `/insight`, `/save`, `/sessions`, `/scan`, `/usage`, `/context`, `/test`, `/lint`, `/deps`, `/scaffold`, `/commit`, `/verbose`, `/prompt`, `/audit`, `/insights`, `/mcp`, `/init`, `/compact`, `/move`, `/clone`, `/skills`, `/releases`, `/release` — with autocomplete dropdown as you type
+- **Slash commands** — `/reset`, `/undo`, `/export`, `/model`, `/help`, `/batch`, `/doc`, `/spec`, `/insight`, `/save`, `/sessions`, `/scan`, `/usage`, `/context`, `/test`, `/lint`, `/deps`, `/scaffold`, `/commit`, `/verbose`, `/prompt`, `/audit`, `/insights`, `/mcp`, `/init`, `/compact`, `/move`, `/clone`, `/skills`, `/releases`, `/release`, `/bg` — with autocomplete dropdown as you type
 - **Diagram generation** — models can generate Mermaid diagrams in code blocks; rendered natively in chat with syntax highlighting and copy-to-SVG support
 - **Actionable errors** — classified error cards with retry, start Ollama, and settings buttons
 - **Sticky scroll** — auto-scroll pauses when you scroll up, floating button to jump back down
@@ -287,7 +289,9 @@ SideCar auto-detects the provider. To override, set `sidecar.provider` to `"open
 | `sidecar.hooks` | `{}` | Pre/post execution hooks (see Hooks section above) |
 | `sidecar.scheduledTasks` | `[]` | Recurring agent tasks (see Scheduled Tasks section above) |
 | `sidecar.mcpServers` | `{}` | MCP servers to connect to (see MCP section above) |
-| `sidecar.agentMode` | `cautious` | Agent approval mode: cautious, autonomous, manual |
+| `sidecar.agentMode` | `cautious` | Agent mode: cautious, autonomous, manual, plan, or a custom mode name |
+| `sidecar.customModes` | `[]` | Custom agent modes with system prompts and approval behavior |
+| `sidecar.bgMaxConcurrent` | `3` | Max background agents running simultaneously (1–10) |
 | `sidecar.agentTemperature` | `0.2` | Temperature for agent tool-calling requests. Lower = more deterministic |
 | `sidecar.agentMaxIterations` | `25` | Max agent loop iterations |
 | `sidecar.agentMaxTokens` | `100000` | Max tokens per agent run |
