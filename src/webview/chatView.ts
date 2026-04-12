@@ -195,11 +195,40 @@ export class ChatViewProvider implements WebviewViewProvider {
       agentMode: initConfig.agentMode,
       customModes: initConfig.customModes.map((m) => ({ name: m.name, description: m.description })),
     });
+    this.pushUiSettings();
+
+    // Re-push UI settings when the user changes chat theme/density/font without
+    // reloading the webview.
+    this.context.subscriptions.push(
+      workspace.onDidChangeConfiguration((e) => {
+        if (
+          e.affectsConfiguration('sidecar.chatDensity') ||
+          e.affectsConfiguration('sidecar.chatFontSize') ||
+          e.affectsConfiguration('sidecar.chatAccentColor')
+        ) {
+          this.pushUiSettings();
+        }
+      }),
+    );
 
     // Show onboarding card on first launch (no history, never dismissed)
     if (this.state.messages.length === 0 && !this.context.globalState.get('sidecar.onboardingComplete', false)) {
       this.postMessage({ command: 'onboarding' });
     }
+  }
+
+  /**
+   * Push chat UI theme settings (density, font size, accent color) to the
+   * webview so it can apply them as CSS custom properties.
+   */
+  private pushUiSettings(): void {
+    const cfg = getConfig();
+    this.postMessage({
+      command: 'uiSettings',
+      chatDensity: cfg.chatDensity,
+      chatFontSize: cfg.chatFontSize,
+      chatAccentColor: cfg.chatAccentColor,
+    });
   }
 
   /** Handler map for O(1) command dispatch instead of linear switch. */
@@ -414,6 +443,33 @@ export class ChatViewProvider implements WebviewViewProvider {
 
   public async sendCodeAction(action: string, code: string, fileName: string): Promise<void> {
     const prompt = `${action} this code from ${fileName}:\n\`\`\`\n${code}\n\`\`\``;
+    if (this.webviewView) {
+      this.webviewView.show(true);
+    }
+    this.postMessage({ command: 'addUserMessage', content: prompt });
+    await handleUserMessage(this.state, prompt);
+  }
+
+  /**
+   * Inject a synthesized prompt into the chat asking the agent to diagnose
+   * a failed terminal command. Called by TerminalErrorWatcher when the user
+   * accepts the "Diagnose in chat" notification.
+   */
+  public async diagnoseTerminalError(event: {
+    commandLine: string;
+    exitCode: number;
+    cwd: string | undefined;
+    output: string;
+  }): Promise<void> {
+    const cwdLine = event.cwd ? `\nWorking directory: ${event.cwd}` : '';
+    const outputBlock = event.output ? `\n\nOutput (tail):\n\`\`\`\n${event.output}\n\`\`\`` : '';
+    const prompt =
+      `A command in my terminal just failed. Help me diagnose and fix it.\n\n` +
+      `Command: \`${event.commandLine}\`\n` +
+      `Exit code: ${event.exitCode}` +
+      cwdLine +
+      outputBlock;
+
     if (this.webviewView) {
       this.webviewView.show(true);
     }

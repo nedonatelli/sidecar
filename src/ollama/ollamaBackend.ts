@@ -1,7 +1,16 @@
 import type { ApiBackend } from './backend.js';
 import type { ChatMessage, ContentBlock, ToolDefinition, ToolUseContentBlock, StreamEvent } from './types.js';
 import { fetchWithRetry } from './retry.js';
-import { abortableRead, toFunctionTools, parseThinkTags, type ThinkTagState } from './streamUtils.js';
+import {
+  abortableRead,
+  toFunctionTools,
+  parseThinkTags,
+  parseTextToolCallsStream,
+  flushTextToolCallsStream,
+  createTextToolCallState,
+  type ThinkTagState,
+  type TextToolCallState,
+} from './streamUtils.js';
 import { getConfig } from '../config/settings.js';
 import { TOOL_FAILURE_THRESHOLD, MODEL_PROBE_BATCH_SIZE } from '../config/constants.js';
 
@@ -304,6 +313,7 @@ export class OllamaBackend implements ApiBackend {
     let toolCallCounter = 0;
     let sawToolCall = false;
     const thinkState: ThinkTagState = { insideThinkTag: false };
+    const textToolState: TextToolCallState = createTextToolCallState(tools);
 
     try {
       let buffer = '';
@@ -327,12 +337,26 @@ export class OllamaBackend implements ApiBackend {
           }
 
           // Emit text content, parsing <think> tags for reasoning models
+          // and intercepting XML-style text tool calls from models that
+          // don't use Ollama's native tool_calls field (e.g. qwen3-coder).
+          let emittedToolCallThisChunk = false;
           if (chunk.message.content) {
-            yield* parseThinkTags(chunk.message.content, thinkState);
+            for (const ev of parseThinkTags(chunk.message.content, thinkState)) {
+              if (ev.type === 'text') {
+                for (const sub of parseTextToolCallsStream(ev.text, textToolState)) {
+                  if (sub.type === 'tool_use') {
+                    sawToolCall = true;
+                    emittedToolCallThisChunk = true;
+                  }
+                  yield sub;
+                }
+              } else {
+                yield ev;
+              }
+            }
           }
 
-          // Emit tool calls
-          let emittedToolCallThisChunk = false;
+          // Emit native tool calls
           if (chunk.message.tool_calls) {
             for (const tc of chunk.message.tool_calls) {
               const toolUse: ToolUseContentBlock = {
@@ -365,6 +389,10 @@ export class OllamaBackend implements ApiBackend {
           }
         }
       }
+      // Drain any text still buffered by the streaming tool-call parser
+      // (e.g. a trailing partial marker that never completed into a real block).
+      yield* flushTextToolCallsStream(textToolState);
+
       // If stream ended inside an unclosed <think> tag, the content was already
       // yielded as thinking events. Emit a note so the UI can finalize the block.
       if (thinkState.insideThinkTag) {

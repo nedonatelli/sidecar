@@ -1,7 +1,16 @@
 import type { ApiBackend } from './backend.js';
 import type { ChatMessage, ContentBlock, ToolDefinition, ToolUseContentBlock, StreamEvent } from './types.js';
 import { fetchWithRetry } from './retry.js';
-import { abortableRead, toFunctionTools, parseThinkTags, type ThinkTagState } from './streamUtils.js';
+import {
+  abortableRead,
+  toFunctionTools,
+  parseThinkTags,
+  parseTextToolCallsStream,
+  flushTextToolCallsStream,
+  createTextToolCallState,
+  type ThinkTagState,
+  type TextToolCallState,
+} from './streamUtils.js';
 import { getConfig } from '../config/settings.js';
 
 // Monotonic counter for generating unique tool call IDs when the API doesn't provide one
@@ -188,6 +197,7 @@ export class OpenAIBackend implements ApiBackend {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     const thinkState: ThinkTagState = { insideThinkTag: false };
+    const textToolState: TextToolCallState = createTextToolCallState(tools);
 
     // Accumulate incremental tool call data keyed by index
     const pendingToolCalls = new Map<number, { id: string; name: string; arguments: string }>();
@@ -242,9 +252,16 @@ export class OpenAIBackend implements ApiBackend {
 
           const delta = choice.delta;
 
-          // Handle text content with <think> tag parsing
+          // Handle text content: <think> tag parsing plus XML-style text
+          // tool-call interception for models that don't use structured tool_calls.
           if (delta.content) {
-            yield* parseThinkTags(delta.content, thinkState);
+            for (const ev of parseThinkTags(delta.content, thinkState)) {
+              if (ev.type === 'text') {
+                yield* parseTextToolCallsStream(ev.text, textToolState);
+              } else {
+                yield ev;
+              }
+            }
           }
 
           // Handle incremental tool calls
@@ -287,6 +304,8 @@ export class OpenAIBackend implements ApiBackend {
           }
         }
       }
+      // Drain any text still buffered by the streaming tool-call parser.
+      yield* flushTextToolCallsStream(textToolState);
     } finally {
       reader.releaseLock();
     }

@@ -2,6 +2,7 @@ import { window, workspace, languages, commands, ExtensionContext, Disposable, S
 import * as path from 'path';
 import { ChatViewProvider } from './webview/chatView.js';
 import { TerminalManager } from './terminal/manager.js';
+import { TerminalErrorWatcher } from './terminal/errorWatcher.js';
 import { SideCarCompletionProvider } from './completions/provider.js';
 import {
   getConfig,
@@ -257,6 +258,25 @@ export function activate(context: ExtensionContext) {
       },
     }),
   );
+
+  // Watch the integrated terminal for failed commands and offer to diagnose
+  // them in the chat. Skips SideCar's own terminal to avoid feedback loops.
+  const terminalErrorWatcher = new TerminalErrorWatcher({
+    enabled: () => getConfig().terminalErrorInterception,
+    ignoredTerminalNames: new Set(['SideCar']),
+    onError: async (event) => {
+      const truncated = event.commandLine.length > 60 ? event.commandLine.slice(0, 57) + '...' : event.commandLine;
+      const choice = await window.showWarningMessage(
+        `Command failed (exit ${event.exitCode}): ${truncated}`,
+        'Diagnose in chat',
+        'Ignore',
+      );
+      if (choice === 'Diagnose in chat') {
+        await chatProvider?.diagnoseTerminalError(event);
+      }
+    },
+  });
+  context.subscriptions.push(terminalErrorWatcher);
 
   // Keyboard shortcuts
   context.subscriptions.push(

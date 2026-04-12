@@ -231,6 +231,10 @@ export interface SideCarConfig {
   mcpServers: Record<string, MCPServerConfig>;
   verboseMode: boolean;
   expandThinking: boolean;
+  chatDensity: 'compact' | 'normal' | 'comfortable';
+  chatFontSize: number;
+  chatAccentColor: string;
+  terminalErrorInterception: boolean;
   requestTimeout: number;
   shellTimeout: number;
   shellMaxOutputMB: number;
@@ -315,6 +319,10 @@ function readConfig(): SideCarConfig {
     mcpServers: cfg.get<Record<string, MCPServerConfig>>('mcpServers', {}),
     verboseMode: cfg.get<boolean>('verboseMode', false),
     expandThinking: cfg.get<boolean>('expandThinking', false),
+    chatDensity: cfg.get<'compact' | 'normal' | 'comfortable'>('chatDensity', 'normal'),
+    chatFontSize: clampMin(cfg.get<number>('chatFontSize'), 10, 13),
+    chatAccentColor: cfg.get<string>('chatAccentColor', ''),
+    terminalErrorInterception: cfg.get<boolean>('terminalErrorInterception', true),
     requestTimeout: clampMin(cfg.get<number>('requestTimeout'), 0, 120),
     shellTimeout: clampMin(cfg.get<number>('shellTimeout'), 1, 120),
     shellMaxOutputMB: clampMin(cfg.get<number>('shellMaxOutputMB'), 1, 10),

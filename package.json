@@ -317,6 +317,29 @@
           "default": false,
           "description": "Show model reasoning blocks expanded by default instead of collapsed"
         },
+        "sidecar.chatDensity": {
+          "type": "string",
+          "enum": ["compact", "normal", "comfortable"],
+          "default": "normal",
+          "description": "Chat UI density — compact shrinks message padding and gaps, comfortable expands them"
+        },
+        "sidecar.chatFontSize": {
+          "type": "number",
+          "default": 13,
+          "minimum": 10,
+          "maximum": 22,
+          "description": "Chat UI base font size in pixels"
+        },
+        "sidecar.chatAccentColor": {
+          "type": "string",
+          "default": "",
+          "description": "Override the chat accent color used for user messages and step indicators (any valid CSS color). Leave empty to inherit from the active VS Code theme."
+        },
+        "sidecar.terminalErrorInterception": {
+          "type": "boolean",
+          "default": true,
+          "description": "Detect non-zero exit codes in the integrated terminal and offer to diagnose the failure in the SideCar chat. Requires VS Code shell integration."
+        },
         "sidecar.pinnedContext": {
           "type": "array",
           "items": {

@@ -132,7 +132,8 @@ export interface ExtensionMessage {
     | 'bgStatusUpdate'
     | 'bgOutput'
     | 'bgComplete'
-    | 'bgList';
+    | 'bgList'
+    | 'uiSettings';
   agentMode?: string;
   toolName?: string;
   toolCallId?: string;
@@ -176,6 +177,9 @@ export interface ExtensionMessage {
   data?: string;
   changeSummary?: { filePath: string; diff: string; isNew: boolean; isDeleted: boolean }[];
   expandThinking?: boolean;
+  chatDensity?: 'compact' | 'normal' | 'comfortable';
+  chatFontSize?: number;
+  chatAccentColor?: string;
   verboseLabel?: string;
   skills?: { id: string; name: string; description: string }[];
   suggestions?: string[];

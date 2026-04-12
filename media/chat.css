@@ -2,6 +2,28 @@
   box-sizing: border-box;
 }
 
+/* Chat UI theme variables — overridden at runtime by applyUiSettings()
+   from the sidecar.chatDensity / chatFontSize / chatAccentColor settings. */
+:root {
+  --sidecar-chat-font-size: 13px;
+  --sidecar-chat-accent: var(--vscode-button-background);
+  --sidecar-msg-padding-y: 8px;
+  --sidecar-msg-padding-x: 12px;
+  --sidecar-msg-gap: 8px;
+}
+
+html[data-chat-density='compact'] {
+  --sidecar-msg-padding-y: 4px;
+  --sidecar-msg-padding-x: 8px;
+  --sidecar-msg-gap: 4px;
+}
+
+html[data-chat-density='comfortable'] {
+  --sidecar-msg-padding-y: 12px;
+  --sidecar-msg-padding-x: 16px;
+  --sidecar-msg-gap: 12px;
+}
+
 /* Global focus-visible styles for keyboard accessibility */
 :focus-visible {
   outline: 2px solid var(--vscode-focusBorder, #007fd4);
@@ -29,7 +51,7 @@ body {
   background: var(--vscode-editor-background);
   color: var(--vscode-editor-foreground);
   font-family: var(--vscode-font-family);
-  font-size: var(--vscode-font-size, 14px);
+  font-size: var(--sidecar-chat-font-size, var(--vscode-font-size, 14px));
 }
 
 #header-wrapper {
@@ -516,10 +538,10 @@ body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 12px;
+  padding: var(--sidecar-msg-padding-x);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--sidecar-msg-gap);
   position: relative;
 }
 
@@ -549,7 +571,7 @@ body {
 
 .message {
   position: relative;
-  padding: 8px 12px;
+  padding: var(--sidecar-msg-padding-y) var(--sidecar-msg-padding-x);
   border-radius: 6px;
   max-width: 80%;
   white-space: pre-wrap;
@@ -595,7 +617,7 @@ body {
 
 .message.user {
   align-self: flex-end;
-  background: var(--vscode-button-background);
+  background: var(--sidecar-chat-accent, var(--vscode-button-background));
   color: var(--vscode-button-foreground);
 }
 
@@ -610,6 +632,29 @@ body {
   align-self: flex-start;
   background: var(--vscode-diffEditor-removedTextBackground);
   color: var(--vscode-errorForeground);
+}
+
+/* Virtualized message shell — DOM children are detached to save memory,
+   but the element keeps its original pixel height so scroll position is
+   preserved. Rehydrated lazily when it scrolls back near the viewport. */
+.message.virtualized {
+  overflow: hidden;
+  opacity: 0.35;
+  box-sizing: border-box;
+  content-visibility: auto;
+}
+.message.virtualized::after {
+  content: '';
+  display: block;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--vscode-editorWidget-border, rgba(128, 128, 128, 0.15)) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  opacity: 0.4;
 }
 
 .error-card {
@@ -1346,6 +1391,64 @@ body {
   color: var(--vscode-errorForeground, #f44747);
 }
 
+/* Reasoning + tool-call timeline. Each thinking/tool block acts as a
+   numbered step; the left border forms a continuous rail down the turn. */
+#messages {
+  counter-reset: sidecar-step;
+}
+
+.thinking-block,
+.tool-call {
+  position: relative;
+}
+
+.thinking-block summary::before,
+.tool-call > summary::before {
+  counter-increment: sidecar-step;
+  content: counter(sidecar-step);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  margin-right: 8px;
+  font-size: 10px;
+  font-weight: 600;
+  font-style: normal;
+  color: var(--vscode-button-foreground, #ffffff);
+  background: var(--vscode-charts-purple, #b180d7);
+  border-radius: 8px;
+  vertical-align: middle;
+}
+
+.tool-call > summary::before {
+  background: var(--vscode-charts-blue, #3794ff);
+}
+
+.step-icon {
+  display: inline-block;
+  margin-right: 4px;
+  font-size: 12px;
+  vertical-align: middle;
+}
+
+.step-label {
+  vertical-align: middle;
+}
+
+.step-duration {
+  margin-left: 8px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--vscode-descriptionForeground);
+  background: var(--vscode-badge-background, rgba(128, 128, 128, 0.18));
+  border-radius: 8px;
+  vertical-align: middle;
+  font-style: normal;
+}
+
 .thinking-block {
   font-size: 11px;
   padding: 4px 12px;
@@ -1353,6 +1456,11 @@ body {
   color: var(--vscode-descriptionForeground);
   border-left: 2px solid var(--vscode-charts-purple, #b180d7);
   cursor: pointer;
+}
+
+.thinking-block.completed {
+  border-left-color: var(--vscode-charts-purple, #b180d7);
+  opacity: 0.85;
 }
 
 .thinking-block summary {

@@ -43,6 +43,63 @@
   let mermaidReady = null; // resolves when mermaid is loaded
   let mermaidIdCounter = 0;
 
+  /**
+   * Apply chat UI theme settings pushed from the extension.
+   * Maps density/font/accent to CSS custom properties on the root element
+   * so CSS rules in chat.css can consume them. Values are validated before
+   * being written to the DOM to keep untrusted strings out of the style.
+   */
+  function applyUiSettings(opts) {
+    if (!opts) return;
+    const root = document.documentElement;
+
+    const density = opts.chatDensity;
+    if (density === 'compact' || density === 'normal' || density === 'comfortable') {
+      root.dataset.chatDensity = density;
+    }
+
+    if (typeof opts.chatFontSize === 'number' && opts.chatFontSize >= 10 && opts.chatFontSize <= 22) {
+      root.style.setProperty('--sidecar-chat-font-size', opts.chatFontSize + 'px');
+    }
+
+    // Only accept CSS colors we can unambiguously validate — hex, rgb(a),
+    // hsl(a), or a short named-color allowlist. Reject anything else so the
+    // user can't smuggle other style properties into the chat through the
+    // settings value.
+    const raw = (opts.chatAccentColor || '').trim();
+    if (raw === '') {
+      root.style.removeProperty('--sidecar-chat-accent');
+    } else if (isSafeCssColor(raw)) {
+      root.style.setProperty('--sidecar-chat-accent', raw);
+    }
+  }
+
+  function isSafeCssColor(value) {
+    if (!value || value.length > 64) return false;
+    // Hex: #rgb, #rgba, #rrggbb, #rrggbbaa
+    if (/^#[0-9a-fA-F]{3,8}$/.test(value)) return true;
+    // Functional notation: rgb(), rgba(), hsl(), hsla() — only digits, %, commas, spaces, dots
+    if (/^(rgb|rgba|hsl|hsla)\(\s*[\d.\s,%\/]+\s*\)$/i.test(value)) return true;
+    // Small allowlist of common named colors
+    const named = new Set([
+      'transparent',
+      'black',
+      'white',
+      'red',
+      'green',
+      'blue',
+      'yellow',
+      'orange',
+      'purple',
+      'pink',
+      'cyan',
+      'magenta',
+      'gray',
+      'grey',
+    ]);
+    return named.has(value.toLowerCase());
+  }
+
   function loadMermaid() {
     if (mermaidReady) return mermaidReady;
     mermaidReady = new Promise((resolve, reject) => {
@@ -1887,6 +1944,154 @@
 
   let messageCounter = 0;
 
+  /**
+   * Close the in-progress reasoning block so the next thinking event opens a
+   * new segment. Stamps the block with an elapsed-time badge and converts its
+   * summary label from "Reasoning..." to "Reasoning" so the timeline reads as
+   * a series of completed steps.
+   */
+  function finalizeCurrentThinking() {
+    const el = document.getElementById('current-thinking');
+    if (!el) return;
+    el.removeAttribute('id');
+    el.classList.add('completed');
+    const label = el.querySelector('.step-label');
+    if (label && label.textContent === 'Reasoning...') {
+      label.textContent = 'Reasoning';
+    }
+    stampStepDuration(el);
+  }
+
+  /**
+   * Append a `.step-duration` badge to an element's summary showing the
+   * elapsed time since its `dataset.stepStart` was recorded. No-op if the
+   * step was too short to bother showing, or if a badge already exists.
+   */
+  function stampStepDuration(el) {
+    if (!el || !el.dataset || !el.dataset.stepStart) return;
+    const summary = el.querySelector('summary');
+    if (!summary || summary.querySelector('.step-duration')) return;
+    const start = Number(el.dataset.stepStart);
+    if (!start || Number.isNaN(start)) return;
+    const elapsed = Date.now() - start;
+    if (elapsed < 500) return;
+    const badge = document.createElement('span');
+    badge.className = 'step-duration';
+    badge.textContent = elapsed < 1000 ? elapsed + 'ms' : (elapsed / 1000).toFixed(1) + 's';
+    summary.appendChild(badge);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Message list virtualization
+  //
+  // Long conversations (200+ turns) grow the DOM node count past the point
+  // where layout, scroll, and streaming updates stay cheap. This module
+  // detaches the inner content of messages that are scrolled far offscreen
+  // and replaces it with an empty shell pinned to the original pixel height.
+  // Scrolling back near a placeholder rehydrates it from `dataset.rawContent`.
+  //
+  // Only text messages (those with `dataset.rawContent`) are virtualized —
+  // rich cards (audit panels, diffs, confirmation prompts, mermaid diagrams)
+  // stay mounted because their structure isn't serialized on the element.
+  // ---------------------------------------------------------------------------
+  const virtualizer = (function () {
+    const DETACH_ROOT_MARGIN = '1200px 0px 1200px 0px';
+    const REATTACH_ROOT_MARGIN = '400px 0px 400px 0px';
+    const MIN_VIRTUALIZABLE_HEIGHT = 48;
+
+    // Disable entirely if IntersectionObserver isn't available (older webviews).
+    const supported = typeof IntersectionObserver !== 'undefined';
+
+    // Map placeholder → { role, raw, wasErr } so we can rebuild on rehydrate.
+    const placeholderData = new WeakMap();
+
+    let detachObserver = null;
+    let reattachObserver = null;
+
+    function ensureObservers() {
+      if (!supported || detachObserver) return;
+      detachObserver = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (entry.isIntersecting) continue;
+            detachMessage(entry.target);
+          }
+        },
+        { root: messagesContainer, rootMargin: DETACH_ROOT_MARGIN },
+      );
+      reattachObserver = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
+            reattachMessage(entry.target);
+          }
+        },
+        { root: messagesContainer, rootMargin: REATTACH_ROOT_MARGIN },
+      );
+    }
+
+    function detachMessage(el) {
+      if (!el || el.classList.contains('virtualized')) return;
+      if (el === currentAssistantDiv) return;
+      if (!el.dataset || !el.dataset.rawContent) return;
+      const height = el.offsetHeight;
+      if (height < MIN_VIRTUALIZABLE_HEIGHT) return;
+
+      const role = el.classList.contains('user') ? 'user' : 'assistant';
+      const wasErr = el.classList.contains('error');
+      placeholderData.set(el, { role, wasErr, raw: el.dataset.rawContent });
+
+      el.classList.add('virtualized');
+      el.style.height = height + 'px';
+      while (el.firstChild) el.removeChild(el.firstChild);
+
+      detachObserver.unobserve(el);
+      reattachObserver.observe(el);
+    }
+
+    function reattachMessage(el) {
+      const data = placeholderData.get(el);
+      if (!data) return;
+
+      el.classList.remove('virtualized');
+      el.style.height = '';
+
+      if (data.role === 'assistant' && !data.wasErr) {
+        try {
+          el.appendChild(renderContent(data.raw, window.currentModelSupportsTools));
+          postProcessMarkdown(el);
+        } catch (err) {
+          console.error('SideCar: virtualizer rehydrate failed:', err);
+          el.textContent = data.raw;
+        }
+      } else {
+        el.textContent = data.raw;
+      }
+      addMessageActions(el);
+
+      placeholderData.delete(el);
+      reattachObserver.unobserve(el);
+      detachObserver.observe(el);
+    }
+
+    function observe(el) {
+      if (!supported || !el || !el.classList || !el.classList.contains('message')) return;
+      if (!el.dataset || !el.dataset.rawContent) return;
+      ensureObservers();
+      detachObserver.observe(el);
+    }
+
+    function reset() {
+      if (!supported) return;
+      if (detachObserver) detachObserver.disconnect();
+      if (reattachObserver) reattachObserver.disconnect();
+      detachObserver = null;
+      reattachObserver = null;
+    }
+
+    return { observe, reset };
+  })();
+
   /** Add copy and delete action buttons to a message div. */
   function addMessageActions(div) {
     // Remove existing actions if present (for re-render cases)
@@ -1946,6 +2151,7 @@
 
     addMessageActions(div);
     messagesContainer.appendChild(div);
+    virtualizer.observe(div);
     scrollToBottom();
     return div;
   }
@@ -2109,26 +2315,34 @@
     streamingSpan = null;
 
     if (currentAssistantDiv && currentAssistantText) {
-      // Store raw content for copy button before re-rendering
+      // Store raw content for copy button (used by rehydration + clipboard)
       currentAssistantDiv.dataset.rawContent = currentAssistantText;
 
-      // Final full render to ensure complete content with all buttons
+      // Incremental finish: only render the slice that streaming left unrendered,
+      // preserving the DOM nodes built by earlier renderStreamingChunk calls.
+      // Avoids an O(N) re-parse on every message finish.
       try {
-        currentAssistantDiv.innerHTML = '';
-        currentAssistantDiv.appendChild(renderContent(currentAssistantText, window.currentModelSupportsTools));
+        const finalSlice = currentAssistantText.slice(Math.max(0, lastRenderedLen));
+        if (finalSlice) {
+          currentAssistantDiv.appendChild(renderContent(finalSlice, window.currentModelSupportsTools));
+        }
       } catch (err) {
         console.error('SideCar: finishAssistantMessage render failed:', err);
-        // Fallback: show raw text rather than losing the content
-        currentAssistantDiv.innerHTML = '';
+        // Fallback: at least surface the raw text rather than losing it.
         const fallback = document.createElement('p');
-        fallback.textContent = currentAssistantText;
+        fallback.textContent = currentAssistantText.slice(Math.max(0, lastRenderedLen));
         currentAssistantDiv.appendChild(fallback);
       }
+
       // Post-processing pass: fix any un-rendered markdown in text nodes
       postProcessMarkdown(currentAssistantDiv);
 
-      // Re-add message action buttons (destroyed by innerHTML clear)
+      // Attach message action buttons (idempotent — removes existing first)
       addMessageActions(currentAssistantDiv);
+
+      // Hand the finished message off to the virtualizer so it can detach
+      // it once the user scrolls far enough to leave it offscreen.
+      virtualizer.observe(currentAssistantDiv);
     }
     currentAssistantDiv = null;
     currentAssistantText = '';
@@ -2638,6 +2852,10 @@
         }
         break;
 
+      case 'uiSettings':
+        applyUiSettings(event.data);
+        break;
+
       case 'setLoading':
         setLoading(event.data.isLoading);
         // Feature 6: Store expandThinking preference
@@ -2950,6 +3168,7 @@
       }
 
       case 'chatCleared':
+        virtualizer.reset();
         messagesContainer.innerHTML = '';
         currentAssistantDiv = null;
         currentAssistantText = '';
@@ -2967,12 +3186,20 @@
           const details = document.createElement('details');
           details.className = 'thinking-block';
           details.id = 'current-thinking';
+          details.dataset.stepStart = String(Date.now());
           // Feature 6: Expand thinking by default if setting is enabled
           if (window.expandThinking) {
             details.open = true;
           }
           const summary = document.createElement('summary');
-          summary.textContent = 'Reasoning...';
+          const icon = document.createElement('span');
+          icon.className = 'step-icon';
+          icon.textContent = '\u{1F9E0}'; // brain
+          summary.appendChild(icon);
+          const label = document.createElement('span');
+          label.className = 'step-label';
+          label.textContent = 'Reasoning...';
+          summary.appendChild(label);
           details.appendChild(summary);
           const body = document.createElement('pre');
           body.className = 'thinking-body';
@@ -3139,6 +3366,9 @@
         // Finish the current assistant message so the next text stream
         // creates a new response block after the tool call/result.
         finishAssistantMessage();
+        // Close out any in-progress reasoning block as a completed step so
+        // the next `thinking` event starts a fresh segment in the timeline.
+        finalizeCurrentThinking();
 
         const toolName = event.data.toolName || (content || '').split('(')[0];
         const toolCallId = event.data.toolCallId || '';
@@ -3148,6 +3378,7 @@
 
         const details = document.createElement('details');
         details.className = 'tool-call running';
+        details.dataset.stepStart = String(Date.now());
         if (toolCallId) details.setAttribute('data-tool-id', toolCallId);
         const summary = document.createElement('summary');
         summary.innerHTML = '';
@@ -3224,6 +3455,7 @@
           matchedTool.classList.remove('running');
           const spinner = matchedTool.querySelector('.tool-spinner');
           if (spinner) spinner.remove();
+          stampStepDuration(matchedTool);
 
           // Add success/error badge
           const resultBadge = document.createElement('span');
