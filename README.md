@@ -4,7 +4,7 @@
 
 # SideCar — AI Coding Assistant for VS Code
 
-<a href="https://marketplace.visualstudio.com/items?itemName=nedonatelli.sidecar-ai"><img src="https://vsmarketplacebadges.dev/version/nedonatelli.sidecar-ai.svg" alt="VS Code Marketplace"></a>
+[![VS Code Marketplace](https://badgen.net/vs-marketplace/v/nedonatelli.sidecar-ai)](https://marketplace.visualstudio.com/items?itemName=nedonatelli.sidecar-ai)
 
 **SideCar** is a free, self-hosted VS Code extension that serves as a drop-in replacement for GitHub Copilot and Claude Code. Use local [Ollama](https://ollama.com) models, the [Anthropic API](https://api.anthropic.com), [Kickstand](https://github.com/kickstand/kickstand), or any [OpenAI-compatible server](https://nedonatelli.github.io/sidecar/getting-started#using-openai-compatible-servers) (LM Studio, vLLM, llama.cpp, OpenRouter) for AI-powered coding — with full agentic capabilities, inline completions, and tool use.
 
