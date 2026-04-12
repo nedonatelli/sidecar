@@ -38,6 +38,38 @@ let sidecarMdCache: string | null | undefined;
 let sidecarMdWatcher: { dispose(): void } | null = null;
 
 /**
+ * Detect terse user messages like "continue", "go on", "keep going" that mean
+ * "resume what you were just doing" rather than "answer this literal word".
+ * Caller should also check that there's a prior assistant message — otherwise
+ * there's nothing to continue.
+ */
+const CONTINUATION_PATTERNS: RegExp[] = [
+  /^continue\.?$/i,
+  /^continue please\.?$/i,
+  /^please continue\.?$/i,
+  /^continue working\.?$/i,
+  /^keep (going|working)\.?$/i,
+  /^go on\.?$/i,
+  /^go ahead\.?$/i,
+  /^carry on\.?$/i,
+  /^proceed\.?$/i,
+  /^resume\.?$/i,
+  /^next\.?$/i,
+  /^and\??$/i,
+  /^more\.?$/i,
+  /^finish (it|this|up)\.?$/i,
+  /^keep at it\.?$/i,
+];
+
+export function isContinuationRequest(text: string): boolean {
+  if (!text) return false;
+  const trimmed = text.trim();
+  if (trimmed.length === 0 || trimmed.length > 30) return false;
+  if (trimmed.startsWith('/')) return false;
+  return CONTINUATION_PATTERNS.some((re) => re.test(trimmed));
+}
+
+/**
  * Detect if a user request should automatically trigger plan mode.
  * Large tasks benefit from planning before execution.
  */
@@ -713,12 +745,24 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     // context so the LLM understands this is a response to its question.
     // Threshold kept low (8 words) to avoid hijacking unrelated follow-ups.
     let messageText = text;
+    const hasPriorAssistant = state.messages.some((m) => m.role === 'assistant');
     if (state.pendingQuestion) {
       const isShortReply = text.split(/\s+/).length <= 8 && !text.startsWith('/');
       if (isShortReply) {
         messageText = `[Responding to your question: "${state.pendingQuestion}"]\n\n${text}`;
       }
       state.pendingQuestion = null;
+    } else if (hasPriorAssistant && isContinuationRequest(text)) {
+      // Terse "continue"-style replies should resume the prior task, not be
+      // taken literally. Tell the model to pick up where it left off — most
+      // common after iteration limits, cycle detection, or partial completion.
+      messageText =
+        `[Continuation request: user said "${text}"]\n\n` +
+        `Resume the work from your most recent response. Pick up exactly where you left off — ` +
+        `do not repeat steps you already completed and do not re-summarize. ` +
+        `If you stopped mid-task (iteration limit, error, cycle detection, or partial answer), ` +
+        `continue executing the remaining steps. If the prior task is fully complete, take the ` +
+        `next logical step toward the user's original goal in this conversation.`;
     }
     state.messages.push({ role: 'user', content: messageText });
     state.logMessage('user', messageText);

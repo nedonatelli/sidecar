@@ -106,10 +106,12 @@ export async function runAgentLoop(
   const startTime = Date.now();
 
   // Cycle detection: track recent tool calls to detect stuck loops.
-  // CYCLE_WINDOW must hold at least 2 full cycles of the longest pattern we want to detect.
+  // CYCLE_WINDOW must hold at least 2 full cycles of the longest pattern we want to detect
+  // and at least MIN_IDENTICAL_REPEATS to evaluate the same-call-in-a-row case.
   const recentToolCalls: string[] = [];
   const CYCLE_WINDOW = 8;
   const MAX_CYCLE_LEN = 4;
+  const MIN_IDENTICAL_REPEATS = 4;
 
   // Work with a copy of messages
   const agentMessages = [...messages];
@@ -345,22 +347,37 @@ export async function runAgentLoop(
     recordToolSuccess(client.getModel());
 
     // Cycle detection: hash the tool calls and check for repetition.
-    // Detects cycles of length 1..MAX_CYCLE_LEN by comparing the last N entries
-    // to the N entries before them. Catches A,A,A,A as well as A,B,C,A,B,C.
+    // Length-1 (same call repeated) requires MIN_IDENTICAL_REPEATS consecutive
+    // hits before bailing — agents legitimately re-run a tool to verify after
+    // an edit, retry tests after a fix, or refine inputs based on prior output.
+    // Length 2..MAX_CYCLE_LEN still trips after two full cycles since A,B,A,B
+    // is a much clearer signal of a stuck loop.
     const callSignature = pendingToolUses.map((tu) => `${tu.name}:${JSON.stringify(tu.input)}`).join('|');
     recentToolCalls.push(callSignature);
     if (recentToolCalls.length > CYCLE_WINDOW) {
       recentToolCalls.shift();
     }
     let cycleDetected = false;
-    for (let len = 1; len <= MAX_CYCLE_LEN && len * 2 <= recentToolCalls.length; len++) {
-      const tail = recentToolCalls.slice(-len);
-      const prev = recentToolCalls.slice(-2 * len, -len);
-      if (tail.length === prev.length && tail.every((v, i) => v === prev[i])) {
+    if (recentToolCalls.length >= MIN_IDENTICAL_REPEATS) {
+      const lastN = recentToolCalls.slice(-MIN_IDENTICAL_REPEATS);
+      if (lastN.every((v) => v === lastN[0])) {
         cycleDetected = true;
-        logger?.warn(`Agent loop cycle detected (length ${len}) — ${callSignature.slice(0, 100)}`);
-        callbacks.onText(`\n\n⚠️ Agent stopped: detected repeating tool call pattern of length ${len}.\n`);
-        break;
+        logger?.warn(
+          `Agent loop cycle detected (${MIN_IDENTICAL_REPEATS} identical calls) — ${callSignature.slice(0, 100)}`,
+        );
+        callbacks.onText(`\n\n⚠️ Agent stopped: same tool call repeated ${MIN_IDENTICAL_REPEATS} times in a row.\n`);
+      }
+    }
+    if (!cycleDetected) {
+      for (let len = 2; len <= MAX_CYCLE_LEN && len * 2 <= recentToolCalls.length; len++) {
+        const tail = recentToolCalls.slice(-len);
+        const prev = recentToolCalls.slice(-2 * len, -len);
+        if (tail.length === prev.length && tail.every((v, i) => v === prev[i])) {
+          cycleDetected = true;
+          logger?.warn(`Agent loop cycle detected (length ${len}) — ${callSignature.slice(0, 100)}`);
+          callbacks.onText(`\n\n⚠️ Agent stopped: detected repeating tool call pattern of length ${len}.\n`);
+          break;
+        }
       }
     }
     if (cycleDetected) break;
