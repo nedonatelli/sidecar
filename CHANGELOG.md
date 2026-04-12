@@ -2,6 +2,24 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.45.0] - 2026-04-11
+
+### Added
+- **Terminal error interception** — SideCar watches the integrated terminal via `onDidStartTerminalShellExecution` / `onDidEndTerminalShellExecution`. On a non-zero exit it captures the command line, exit code, working directory, and ANSI-stripped tail of the output, then offers a **Diagnose in chat** notification that synthesizes a prompt and runs the agent against the failure. Dedupes identical commands within a 30s cooldown, skips SideCar's own terminal, and silently no-ops when shell integration isn't available. Toggle with `sidecar.terminalErrorInterception` (default on).
+- **Reasoning timeline** — agent reasoning is now segmented into discrete steps. Each thinking block closes out when a tool call starts, so consecutive reasoning/tool-call cycles render as separate numbered segments (purple pills for reasoning, blue for tools) with per-step duration badges.
+- **Customizable chat UI themes** — three new live-updating settings: `sidecar.chatDensity` (compact/normal/comfortable), `sidecar.chatFontSize` (10–22), and `sidecar.chatAccentColor`. Applied as CSS custom properties via a new `uiSettings` message and re-pushed when settings change — no reload required. Accent color values pass through an allowlist validator (hex, `rgb(a)`, `hsl(a)`, small named-color set) so settings strings can't smuggle other CSS properties.
+- **Message list virtualization** — long chat sessions (200+ messages) now detach the inner DOM of offscreen text messages via two `IntersectionObserver` instances, preserving pixel height via inline style. Messages rehydrate from stored raw markdown when scrolled back into view. Rich widgets (audit cards, diffs, mermaid diagrams, confirmation panels) stay fully mounted.
+
+### Fixed
+- **Streaming tool-call interception** — qwen3-coder and other models that emit `<function=name><parameter=...>...</parameter></function>` or `<tool_call>{...}</tool_call>` in plain text no longer leak the raw XML into the chat bubble. A new streaming parser in `streamUtils.ts` normalizes these at the Ollama and OpenAI backend boundaries, emitting structured `tool_use` events instead of `text`. Handles chunk-boundary partial markers, unknown tool names (fall through as text), and unclosed blocks (recovered at stream end). Applies to both `OllamaBackend` and `OpenAIBackend` streams.
+- **Incremental markdown finish** — `finishAssistantMessage` no longer wipes the DOM and re-parses the entire message. It now appends only the slice streaming didn't render, preserving code blocks, lists, and headings built during streaming. Removes an O(N) re-parse on every assistant message finish.
+
+### Stats
+- 1265 total tests (90 test files, 17 new)
+- 22 built-in tools, 8 skills
+
+---
+
 ## [0.44.0] - 2026-04-11
 
 ### Added

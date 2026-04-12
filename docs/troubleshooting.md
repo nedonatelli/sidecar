@@ -148,6 +148,17 @@ Adjust the timeout via `sidecar.requestTimeout` (default: 120 seconds). Set to `
 - Check the "SideCar Agent" output channel for connection logs
 - Ensure `npx` / `node` are in your PATH
 
+## Terminal error interception isn't firing
+
+SideCar's terminal error watcher uses VS Code's shell integration API. If the **Diagnose in chat** notification never appears when a command fails, check:
+
+1. **Shell integration is active.** Run `echo $VSCODE_SHELL_INTEGRATION` in your terminal — it should print `1`. If it's empty, your shell isn't integrated. POSIX shells (bash, zsh, fish) and PowerShell integrate automatically in recent VS Code versions; other shells may need manual setup.
+2. **VS Code version is 1.93+.** The shell-execution events (`onDidStartTerminalShellExecution` / `onDidEndTerminalShellExecution`) were added in 1.93. On older versions the watcher silently no-ops.
+3. **The setting is enabled.** Check `sidecar.terminalErrorInterception` in Settings — it defaults to `true` but may have been toggled off.
+4. **The command isn't being deduped.** Identical command lines within a 30-second cooldown window only notify once. Wait 30s and try again, or run a different command.
+5. **You're not in SideCar's own terminal.** The terminal named `SideCar` is skipped to avoid feedback loops from agent-driven shell commands.
+6. **The exit code was actually non-zero.** Some commands that look like errors (e.g., `grep` returning 1 when there are no matches) exit with specific non-zero codes that are intentional. These still trigger the notification — you can dismiss them or disable the feature if they're too noisy.
+
 ## Error cards
 
 SideCar classifies errors and shows actionable cards:

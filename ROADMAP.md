@@ -2,7 +2,43 @@
 
 Planned improvements and features for SideCar. Audit findings from v0.34.0 comprehensive review are in the Audit Backlog section. All critical fixes were addressed in v0.35.0.
 
-Last updated: 2026-04-11 (v0.44.0)
+Last updated: 2026-04-11 (v0.45.0)
+
+---
+
+## Recently Completed (v0.45.0)
+
+✅ **Streaming text tool-call interception** (v0.45.0)
+- New streaming parser in `streamUtils.ts` normalizes `<function=name>...</function>` and `<tool_call>{...}</tool_call>` blocks into structured `tool_use` events at the Ollama and OpenAI backend boundaries
+- qwen3-coder, Hermes, and similar models no longer leak raw XML into chat bubbles
+- Handles chunk-boundary partial markers, unknown tool names, and unclosed bodies
+
+✅ **Incremental markdown parser** (v0.45.0)
+- `finishAssistantMessage` appends only the unrendered tail instead of wiping and re-parsing the entire assistant message
+- Preserves code blocks, lists, and headings built during streaming
+- Removes the per-finish O(N) re-parse cost on long replies
+
+✅ **Message list virtualization** (v0.45.0)
+- `IntersectionObserver`-based detach/reattach of offscreen text messages in long sessions
+- Preserves pixel height via inline style; rehydrates on scroll-back from stored raw markdown
+- Rich widgets (audit cards, diffs, mermaid diagrams, confirmation panels) stay fully mounted
+
+✅ **Enhanced reasoning visualization** (v0.45.0)
+- Thinking blocks close out when a tool call starts, producing discrete numbered steps
+- CSS counter-based step pills (purple for reasoning, blue for tools) with per-step duration badges
+- Each reasoning/tool cycle renders as its own timeline segment
+
+✅ **Customizable chat UI themes** (v0.45.0)
+- `sidecar.chatDensity` (compact/normal/comfortable), `sidecar.chatFontSize` (10–22), `sidecar.chatAccentColor`
+- Applied as CSS custom properties via a new `uiSettings` message, re-pushed on settings change (no reload)
+- Accent color values pass through an allowlist CSS-color validator
+
+✅ **Terminal error interception** (v0.45.0)
+- `TerminalErrorWatcher` subscribes to `onDidStartTerminalShellExecution` / `onDidEndTerminalShellExecution`
+- Drains output tail, strips ANSI, dedupes within a 30s cooldown window
+- On non-zero exit: shows **Diagnose in chat** notification; accepting injects a synthesized prompt with command, exit code, cwd, and output tail
+- Skips SideCar's own terminal; silently no-ops when shell integration is unavailable
+- Toggle with `sidecar.terminalErrorInterception` (default on)
 
 ---
 
@@ -153,14 +189,14 @@ Last updated: 2026-04-11 (v0.44.0)
 
 ### User Experience
 
-- **Enhanced agent reasoning visualization** — timeline view with collapsible reasoning blocks
-- **Customizable chat UI themes** — built-in presets, custom CSS injection, font/density controls, VS Code theme sync
-- **Terminal error interception** — auto-detect errors in VS Code terminal and offer to diagnose in chat
+- ~~**Enhanced agent reasoning visualization** — timeline view with collapsible reasoning blocks~~ → numbered step pills, per-step duration badges, and thinking-segment close-on-tool-call (v0.45.0)
+- ~~**Customizable chat UI themes** — built-in presets, custom CSS injection, font/density controls, VS Code theme sync~~ → `chatDensity`, `chatFontSize`, `chatAccentColor` with live CSS-variable updates and allowlist validation (v0.45.0)
+- ~~**Terminal error interception** — auto-detect errors in VS Code terminal and offer to diagnose in chat~~ → `TerminalErrorWatcher` with dedup, ANSI stripping, and `Diagnose in chat` handoff (v0.45.0)
 - **Background doc sync** — silently update README/JSDoc/Swagger when function signatures change
 - **Zen mode context filtering** — `/focus <module>` to restrict context to one directory
 - **Dependency drift alerts** — real-time feedback on bundle size, vulnerabilities, and duplicates when deps change
-- **Message list virtualization** — virtual scrolling for 200+ message conversations
-- **Incremental markdown parser** — avoid full innerHTML rebuild on each streaming update
+- ~~**Message list virtualization** — virtual scrolling for 200+ message conversations~~ → `IntersectionObserver`-based detach/reattach (v0.45.0)
+- ~~**Incremental markdown parser** — avoid full innerHTML rebuild on each streaming update~~ → `finishAssistantMessage` appends only the unrendered tail (v0.45.0)
 
 ### Observability
 

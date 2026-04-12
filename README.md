@@ -103,14 +103,19 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 ### Code Actions
 - Right-click menu: **Explain**, **Fix**, **Refactor** with SideCar
 - Selected code is sent to the chat with the action
+- **Terminal error interception** — failed commands in the integrated terminal trigger a **Diagnose in chat** notification. Accepting injects a synthesized prompt with the command, exit code, cwd, and ANSI-stripped output tail, then runs the agent against it. Dedupes within a 30s cooldown, skips SideCar's own terminal, and requires VS Code shell integration. Toggle via `sidecar.terminalErrorInterception`
 
 ### AI Chat
 - Streaming responses in a dedicated sidebar panel
 - **Semantic search** — ONNX embeddings (all-MiniLM-L6-v2) for meaning-based file relevance, blended with keyword scoring. "Authentication logic" finds `src/auth/jwt.ts` without keyword matches
 - **Workspace indexing** — persistent file index with relevance scoring replaces per-message glob scan, updated incrementally via file watcher
+- **Reasoning timeline** — agent thinking is split into numbered steps that close when a tool call starts. Each step shows a purple (reasoning) or blue (tool) pill and a per-step duration badge
+- **Customizable UI themes** — `sidecar.chatDensity` (compact/normal/comfortable), `sidecar.chatFontSize`, and `sidecar.chatAccentColor` update live without reloading the webview
+- **Message list virtualization** — offscreen text messages in long sessions are detached via `IntersectionObserver` and rehydrated on scroll-back, keeping 200+ message conversations responsive
 - **Structured context rules** — `.sidecarrules` files with glob patterns to prefer, ban, or require files in context
 - **Chat logging** — every conversation logged as JSONL to `$TMPDIR/sidecar-chatlogs/` for debugging and recovery
 - **Rich markdown rendering** — headings, bullet/numbered lists, blockquotes, horizontal rules, bold, italic, code, and links all rendered in assistant messages
+- **Streaming tool-call normalization** — qwen3-coder and Hermes-style `<function=...>` / `<tool_call>...` output is parsed at the backend boundary and emitted as structured tool calls instead of leaking raw XML into the chat
 - **Active file context** — includes the currently open file and cursor position
 - **@ references** — `@file:path`, `@folder:path`, `@symbol:name` for precise context inclusion
 - **Image support** — paste screenshots or attach images for vision models
@@ -307,6 +312,10 @@ SideCar auto-detects the provider. To override, set `sidecar.provider` to `"open
 | `sidecar.completionMaxTokens` | `256` | Max tokens for completions |
 | `sidecar.verboseMode` | `false` | Show detailed agent reasoning during runs |
 | `sidecar.expandThinking` | `false` | Show reasoning blocks expanded instead of collapsed |
+| `sidecar.chatDensity` | `normal` | Chat UI density: `compact`, `normal`, or `comfortable` (changes message padding and gaps) |
+| `sidecar.chatFontSize` | `13` | Chat UI base font size in pixels (10–22) |
+| `sidecar.chatAccentColor` | `""` | Override the chat accent color (hex, rgb/rgba, hsl/hsla, or named color). Empty = inherit from VS Code theme |
+| `sidecar.terminalErrorInterception` | `true` | Detect non-zero exit codes in the integrated terminal and offer **Diagnose in chat**. Requires VS Code shell integration |
 | `sidecar.requestTimeout` | `120` | Timeout in seconds for each LLM request. Aborts if no tokens arrive within this window. Set to 0 to disable |
 | `sidecar.shellTimeout` | `120` | Default timeout for shell commands in seconds |
 | `sidecar.shellMaxOutputMB` | `10` | Maximum shell output size in MB before truncation |
