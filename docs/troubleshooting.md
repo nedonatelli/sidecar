@@ -152,14 +152,24 @@ Adjust the timeout via `sidecar.requestTimeout` (default: 120 seconds). Set to `
 
 SideCar classifies errors and shows actionable cards:
 
-| Error type | Card action |
-|------------|-------------|
-| Connection | "Check Connection" — opens settings |
-| Auth | "Check API Key" — opens settings |
-| Model | "Install Model" — opens model dropdown |
-| Timeout | "Retry" — resends the last message |
+| Error type | When you'll see it | Card action |
+|------------|--------------------|-------------|
+| Connection | `ECONNREFUSED`, `ENOTFOUND`, network failures | "Check Connection" — opens settings |
+| Auth | 401, 403, "Invalid API key" | "Check API Key" — opens settings (use `SideCar: Set API Key` to update via SecretStorage) |
+| Model | 404 with "model not found" | "Install Model" — opens model dropdown |
+| Rate limit | 429, "rate limit", "too many requests" | "Wait and Retry" |
+| Server error | 500, 502, 503, 504, "overloaded" | "Retry" |
+| Content policy | Anthropic safety violations, "flagged" | (no action — refine your prompt) |
+| Token limit | "token limit exceeded", "too long", "maximum tokens" | "Reduce Context" — try lowering `sidecar.maxFiles` or running `/compact` |
+| Timeout | Request didn't complete within `requestTimeout` | "Retry" — resends the last message |
 
 Click the action button on the error card to resolve common issues quickly.
+
+### Anthropic-specific tips
+
+- **Rate limit (429)**: Anthropic has per-minute and per-day token limits. SideCar automatically retries with exponential backoff. If you hit limits frequently, either upgrade your tier or set `sidecar.dailyBudget` to throttle yourself.
+- **Server error (overloaded)**: Anthropic occasionally returns 529/overloaded during peak demand. Wait 30 seconds and retry, or use the `/model` command to switch to a different provider temporarily.
+- **Token limit**: Long conversations exceed the model's context window. Use `/compact` to summarize older turns, or `/reset` to start fresh.
 
 ## Model returns empty responses
 

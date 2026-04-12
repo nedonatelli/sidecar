@@ -212,7 +212,7 @@ Remaining findings from seven comprehensive reviews. Fixed items removed.
 - ~~`@file:` references (`workspace.ts:104`) have no path traversal validation~~ → path.resolve + startsWith guard
 - ~~CSP allows `unsafe-eval` (required by mermaid.js)~~ → documented why, tightened connect-src to specific ports
 - ~~Event hooks pass unsanitized file paths in env vars (`eventHooks.ts:65`)~~ → control character stripping
-- API keys stored in plaintext `settings.json` — consider VS Code `SecretStorage`
+- ~~API keys stored in plaintext `settings.json` — consider VS Code `SecretStorage`~~ → migrated to SecretStorage with auto-migration on activation and `SideCar: Set API Key` command
 - ~~GitHub token requests full `repo` scope — overly broad~~ → documented why, added createIfNone:false first
 - ~~Workspace settings can bypass tool permissions (`executor.ts:52`)~~ → workspace trust warning added
 - ~~MCP configs in workspace settings can spawn arbitrary processes~~ → workspace trust warning added
@@ -225,25 +225,25 @@ Remaining findings from seven comprehensive reviews. Fixed items removed.
 - Parallel `write_file` to same path races — serialize writes
 - Module-level singletons (`shellSession`, `symbolGraph`) create hidden coupling
 - `messages` array mutated from multiple async paths
-- MCP tool errors lose server/call context
-- Error classifier missing 429, 5xx, content policy, token limit
-- Hook failures silently swallowed — policy hooks don't block
-- Custom tool registry rebuilt every call — cache needed
-- `executeTool` has 10 positional parameters — use options object
+- ~~MCP tool errors lose server/call context~~ → wrapped callTool() in try/catch, errors include server name + tool name + input
+- ~~Error classifier missing 429, 5xx, content policy, token limit~~ → 4 new error types added: rate_limit, server_error, content_policy, token_limit
+- ~~Hook failures silently swallowed — policy hooks don't block~~ → runHook() returns error string; pre-hook failures block tool execution
+- ~~Custom tool registry rebuilt every call — cache needed~~ → cached with JSON snapshot key, rebuilds only on config change
+- ~~`executeTool` has 10 positional parameters — use options object~~ → ExecuteToolOptions interface, function signature is now (toolUse, opts)
 
 ### AI Engineering
 
 - Anthropic backend doesn't use `abortableRead` — stalls can't be cancelled
 - Malformed Anthropic tool input silently becomes `{}`
 - Token estimation inconsistency: chars/3.5 in loop vs chars/4 in pruner
-- Cycle detection only catches exact 2-repetition
-- File content cache not invalidated on change (5-min stale window)
-- Query matching is path-substring only
+- ~~Cycle detection only catches exact 2-repetition~~ → detects cycles of length 1..4 with 8-entry window
+- ~~File content cache not invalidated on change (5-min stale window)~~ → invalidate on watcher change/delete events
+- ~~Query matching is path-substring only~~ → tokenize() splits camelCase/snake_case/paths and matches against query words
 - ~~Tool support deny list is static — consider `ollama show` API~~ → replaced with dynamic `/api/show` capabilities probe
-- Ollama discards non-`'stop'` done_reason for tool calls
-- `autoFixRetries` never resets between file writes
-- Sub-agent token usage not tracked in parent's budget
-- Timeout promise timers never cleared on success
+- ~~Ollama discards non-`'stop'` done_reason for tool calls~~ → emit `tool_use` stop reason whenever tool calls were yielded
+- ~~`autoFixRetries` never resets between file writes~~ → per-file Map<path, retries> tracking
+- ~~Sub-agent token usage not tracked in parent's budget~~ → onCharsConsumed callback + SubAgentResult.charsConsumed propagation
+- ~~Timeout promise timers never cleared on success~~ → clearTimeout in finally after Promise.race
 
 ### Prompt Engineering
 

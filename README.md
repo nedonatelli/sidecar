@@ -58,7 +58,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 
 - **True agentic autonomy** — SideCar reads your code, edits files, runs tests, reads the errors, and iterates until the task is done. Switch between cautious, autonomous, manual, plan, or custom user-defined modes.
 - **No vendor lock-in** — Use Ollama for fully offline operation, Anthropic for Claude, OpenAI-compatible servers (LM Studio, vLLM, OpenRouter), Kickstand, or install GGUF models directly from HuggingFace. Same interface, your choice.
-- **Security from the ground up** — Secrets detection, vulnerability scanning, path traversal protection, sensitive file blocking, workspace hook warnings, and prompt injection sandboxing.
+- **Security from the ground up** — API keys stored in VS Code SecretStorage (OS keychain), secrets detection, vulnerability scanning, path traversal protection, sensitive file blocking, workspace hook warnings, and prompt injection sandboxing.
 - **Extensible with MCP & Skills** — Connect external tools via MCP, create custom skills with markdown files, or use the 8 built-in skills (review, debug, refactor, explain, write-tests, break-this, create-skill, mcp-builder).
 - **Production-grade safety** — Agent mode controls, iteration limits, token budgets, daily/weekly spending caps, cycle detection, streaming diff preview, plan mode, and one-click rollback.
 - **Persistent codebase indexing** — File index and symbol graph persist across restarts via `.sidecar/cache/`. Tree-sitter AST parsing for 6 languages. Near-instant startup on subsequent activations.
@@ -254,15 +254,17 @@ Scheduled tasks run autonomously and log to the SideCar Agent output channel.
 ### Using with Anthropic API
 
 1. Set `sidecar.baseUrl` to `https://api.anthropic.com`
-2. Set `sidecar.apiKey` to your Anthropic API key
+2. Run `SideCar: Set API Key (SecretStorage)` from the command palette and paste your Anthropic API key
 3. Set `sidecar.model` to a Claude model (e.g. `claude-sonnet-4-6`)
+
+API keys are stored encrypted in your OS keychain via VS Code's SecretStorage — never in plaintext settings.
 
 ### Using with OpenAI-compatible servers
 
 Works with LM Studio, vLLM, llama.cpp, text-generation-webui, OpenRouter, and more:
 
 1. Set `sidecar.baseUrl` to your server URL (e.g. `http://localhost:1234`)
-2. Set `sidecar.apiKey` if your server requires it (optional for most local servers)
+2. Run `SideCar: Set API Key (SecretStorage)` if your server requires authentication (optional for most local servers)
 3. Set `sidecar.model` to the model name on your server
 
 SideCar auto-detects the provider. To override, set `sidecar.provider` to `"openai"`.
@@ -282,7 +284,7 @@ SideCar auto-detects the provider. To override, set `sidecar.provider` to `"open
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `sidecar.baseUrl` | `http://localhost:11434` | API base URL |
-| `sidecar.apiKey` | `ollama` | API key (ignored for Ollama) |
+| `sidecar.apiKey` | `ollama` | API key (ignored for Ollama). Stored in VS Code SecretStorage — set via `SideCar: Set API Key` command, plaintext values auto-migrate on activation |
 | `sidecar.model` | `qwen3-coder:30b` | Model for chat |
 | `sidecar.systemPrompt` | `""` | Custom system prompt |
 | `sidecar.toolPermissions` | `{}` | Per-tool overrides: `{ "tool_name": "allow" \| "deny" \| "ask" }` |

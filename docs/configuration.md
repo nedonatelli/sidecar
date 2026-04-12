@@ -13,7 +13,7 @@ All settings are under the `sidecar.*` prefix. Open VS Code settings (`Cmd+,` / 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `sidecar.baseUrl` | string | `http://localhost:11434` | API base URL. Ollama: `http://localhost:11434`, Anthropic: `https://api.anthropic.com`, Kickstand: `http://localhost:11435`, OpenAI-compatible: any URL |
-| `sidecar.apiKey` | string | `ollama` | API key. Ignored for local Ollama, required for Anthropic, Kickstand, and some OpenAI-compatible servers |
+| `sidecar.apiKey` | string | `ollama` | API key. **Stored in VS Code SecretStorage** (see below). Ignored for local Ollama, required for Anthropic, Kickstand, and some OpenAI-compatible servers |
 | `sidecar.model` | string | `qwen3-coder:30b` | Model for chat (e.g., `qwen3-coder`, `claude-sonnet-4-6`, or any model on your server) |
 | `sidecar.provider` | enum | `auto` | Backend provider: `auto`, `ollama`, `anthropic`, `openai`, `kickstand`. Auto-detects from URL |
 | `sidecar.systemPrompt` | string | `""` | Custom system prompt appended to the default |
@@ -28,6 +28,38 @@ When `sidecar.provider` is `auto` (default), SideCar detects the backend from th
 - **Everything else** → OpenAI-compatible (`/v1/chat/completions`)
 
 Set `sidecar.provider` explicitly if auto-detection doesn't match your setup — for example, if you're running an Anthropic-compatible proxy on a custom URL, or Kickstand on a non-standard port.
+
+### API key storage (SecretStorage)
+
+API keys are stored in **VS Code's SecretStorage**, not in plaintext `settings.json`. This applies to both `sidecar.apiKey` and `sidecar.fallbackApiKey`.
+
+**Setting your key:**
+
+Open the command palette (`Cmd+Shift+P` / `Ctrl+Shift+P`) and run:
+
+```
+SideCar: Set API Key (SecretStorage)
+```
+
+A password input prompt appears. The value is stored encrypted in your OS keychain (macOS Keychain, Windows Credential Manager, or libsecret on Linux).
+
+**Migration from plaintext:**
+
+If you previously set `sidecar.apiKey` in `settings.json`, SideCar automatically migrates it to SecretStorage on first activation:
+
+1. Reads the plaintext value from `settings.json`
+2. Stores it in SecretStorage
+3. Clears the plaintext value from `settings.json`
+
+After migration, the setting in `settings.json` will be empty (or back to the default `"ollama"`), and the actual key lives in SecretStorage.
+
+**Why this matters:**
+
+- API keys never appear in `settings.json` — safer when sharing settings, dotfiles, or screenshots
+- Per-machine isolation — settings sync won't push your keys to other devices
+- Standard OS-level secret storage instead of plaintext on disk
+
+The fallback API key (`sidecar.fallbackApiKey`) follows the same pattern but does not have a dedicated command — set it via `settings.json` once and it migrates automatically on the next activation.
 
 ## Agent behavior
 
