@@ -219,6 +219,22 @@ Models that support reasoning output show their thinking in collapsible "Reasoni
 
 Set `sidecar.expandThinking` to `true` to show reasoning blocks expanded by default.
 
+### Reasoning timeline
+
+Since v0.45.0, reasoning is rendered as a **numbered step timeline** rather than one growing pre-formatted block. Each thinking block closes out when a tool call starts, so a typical agent turn renders as a sequence of discrete segments:
+
+```
+[1. 🧠 Reasoning — 2.3s]
+[2. 🔧 read_file — 180ms]
+[3. 🧠 Reasoning — 1.1s]
+[4. 🔧 edit_file — 410ms]
+[5. 🧠 Reasoning — 0.9s]
+```
+
+Each segment gets a numbered pill in the summary row (purple for reasoning, blue for tools) via a CSS counter on the messages container. Duration badges show elapsed wall-clock time — steps under 500ms hide the badge to reduce visual noise. The segmentation makes it easier to see *where* the agent spent its time and *which* reasoning led to *which* tool call.
+
+The `sidecar.expandThinking` setting still controls whether reasoning segments are open or collapsed by default; it applies to every segment in the timeline.
+
 ## Verbose mode
 
 Enable `sidecar.verboseMode` or type `/verbose` to see detailed agent internals:

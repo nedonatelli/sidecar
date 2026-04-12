@@ -18,6 +18,10 @@ SideCar is an AI-powered coding assistant for VS Code that operates as an autono
 - Inline code completion
 - Code review and PR summarization
 - Commit message generation
+- **Reasoning timeline** — agent reasoning renders as numbered steps with purple (thinking) and blue (tool) pills and per-step duration badges. Each reasoning block closes out when a tool call starts, so consecutive think/tool/think cycles read as distinct timeline segments
+- **Customizable chat UI** — `sidecar.chatDensity` (compact/normal/comfortable), `sidecar.chatFontSize`, and `sidecar.chatAccentColor` update live without reloading the webview
+- **Message list virtualization** — offscreen text messages in long sessions detach via `IntersectionObserver` and rehydrate on scroll-back, keeping 200+ message conversations responsive
+- **Streaming tool-call normalization** — models that emit `<function=name>...</function>` or `<tool_call>...</tool_call>` in plain text (qwen3-coder, Hermes-style) are parsed at the backend boundary so the raw XML never leaks into the chat
 
 ### Powerful Tool System
 - Built-in tools for file operations, code search, shell commands, Git operations
@@ -48,6 +52,7 @@ SideCar is an AI-powered coding assistant for VS Code that operates as an autono
 - Security scanning
 - Custom shell commands
 - MCP (Model Control Protocol) for external tool integration
+- **Terminal error interception** — watches the integrated terminal for non-zero exit codes and offers a **Diagnose in chat** notification that injects a synthesized prompt with the command, exit code, cwd, and ANSI-stripped output tail. Dedupes identical commands within a 30s cooldown and requires VS Code shell integration
 
 ## Architecture Overview
 
