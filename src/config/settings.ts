@@ -1,7 +1,80 @@
-import { workspace } from 'vscode';
+import { workspace, type ExtensionContext } from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+
+// ---------------------------------------------------------------------------
+// Secret storage for API keys
+// ---------------------------------------------------------------------------
+// API keys are stored in VS Code's SecretStorage instead of plaintext
+// settings.json. On first activation we migrate any plaintext value into
+// SecretStorage and clear it from settings.
+
+const SECRET_KEY_API = 'sidecar.apiKey';
+const SECRET_KEY_FALLBACK_API = 'sidecar.fallbackApiKey';
+
+let _secretContext: ExtensionContext | null = null;
+let _cachedApiKey: string | null = null;
+let _cachedFallbackApiKey: string | null = null;
+
+/**
+ * Initialize SecretStorage from extension context. Reads existing secrets,
+ * migrates any plaintext values from settings.json into SecretStorage,
+ * and caches them for synchronous access via getConfig().
+ */
+export async function initSecrets(context: ExtensionContext): Promise<void> {
+  _secretContext = context;
+  const cfg = workspace.getConfiguration('sidecar');
+
+  // Migrate apiKey: if a non-default plaintext value exists, move it
+  const existing = await context.secrets.get(SECRET_KEY_API);
+  if (existing) {
+    _cachedApiKey = existing;
+  } else {
+    const plaintext = cfg.get<string>('apiKey', 'ollama');
+    if (plaintext && plaintext !== 'ollama') {
+      await context.secrets.store(SECRET_KEY_API, plaintext);
+      _cachedApiKey = plaintext;
+      // Clear plaintext value
+      await cfg.update('apiKey', undefined, true).then(undefined, () => undefined);
+    } else {
+      _cachedApiKey = plaintext;
+    }
+  }
+
+  // Migrate fallbackApiKey similarly
+  const existingFb = await context.secrets.get(SECRET_KEY_FALLBACK_API);
+  if (existingFb) {
+    _cachedFallbackApiKey = existingFb;
+  } else {
+    const plaintextFb = cfg.get<string>('fallbackApiKey', '');
+    if (plaintextFb) {
+      await context.secrets.store(SECRET_KEY_FALLBACK_API, plaintextFb);
+      _cachedFallbackApiKey = plaintextFb;
+      await cfg.update('fallbackApiKey', undefined, true).then(undefined, () => undefined);
+    } else {
+      _cachedFallbackApiKey = plaintextFb;
+    }
+  }
+
+  _cachedConfig = null; // invalidate config cache to pick up the secrets
+}
+
+/** Update the API key in SecretStorage and refresh the cache. Used by the "Set API Key" command. */
+export async function setApiKeySecret(value: string): Promise<void> {
+  if (!_secretContext) throw new Error('SecretStorage not initialized');
+  await _secretContext.secrets.store(SECRET_KEY_API, value);
+  _cachedApiKey = value;
+  _cachedConfig = null;
+}
+
+/** Update the fallback API key in SecretStorage and refresh the cache. */
+export async function setFallbackApiKeySecret(value: string): Promise<void> {
+  if (!_secretContext) throw new Error('SecretStorage not initialized');
+  await _secretContext.secrets.store(SECRET_KEY_FALLBACK_API, value);
+  _cachedFallbackApiKey = value;
+  _cachedConfig = null;
+}
 
 /**
  * Check whether a base URL points to a local Ollama instance.
@@ -222,7 +295,7 @@ function readConfig(): SideCarConfig {
     provider: cfg.get<'auto' | 'ollama' | 'anthropic' | 'openai' | 'kickstand'>('provider', 'auto'),
     systemPrompt: cfg.get<string>('systemPrompt', ''),
     baseUrl: cfg.get<string>('baseUrl', 'http://localhost:11434') || 'http://localhost:11434',
-    apiKey: cfg.get<string>('apiKey', 'ollama'),
+    apiKey: _cachedApiKey ?? cfg.get<string>('apiKey', 'ollama'),
     includeActiveFile: cfg.get<boolean>('includeActiveFile', true),
     agentMode: cfg.get<string>('agentMode', 'cautious'),
     agentTemperature: clampMin(cfg.get<number>('agentTemperature'), 0, 0.2),
@@ -250,7 +323,7 @@ function readConfig(): SideCarConfig {
     autoFixMaxRetries: clampMin(cfg.get<number>('autoFixMaxRetries'), 0, 3),
     fetchUrlContext: cfg.get<boolean>('fetchUrlContext', true),
     fallbackBaseUrl: cfg.get<string>('fallbackBaseUrl', ''),
-    fallbackApiKey: cfg.get<string>('fallbackApiKey', ''),
+    fallbackApiKey: _cachedFallbackApiKey ?? cfg.get<string>('fallbackApiKey', ''),
     fallbackModel: cfg.get<string>('fallbackModel', ''),
     dailyBudget: clampMin(cfg.get<number>('dailyBudget'), 0, 0),
     weeklyBudget: clampMin(cfg.get<number>('weeklyBudget'), 0, 0),

@@ -10,6 +10,55 @@ import { getConfig } from './settings.js';
 import { getCurrentContextRules, applyContextRules } from './structuredContextRules.js';
 
 const MAX_FILE_SIZE = 100 * 1024; // 100KB
+
+const STOP_WORDS = new Set([
+  'a',
+  'an',
+  'the',
+  'and',
+  'or',
+  'but',
+  'is',
+  'are',
+  'was',
+  'were',
+  'be',
+  'in',
+  'on',
+  'at',
+  'to',
+  'for',
+  'of',
+  'with',
+  'by',
+  'from',
+  'as',
+  'how',
+  'what',
+  'why',
+  'when',
+  'where',
+  'do',
+  'does',
+  'this',
+  'that',
+  'these',
+  'those',
+  'i',
+  'you',
+  'it',
+  'we',
+  'they',
+]);
+
+/** Split text into lowercased tokens, splitting on camelCase, snake_case, kebab-case, paths, and punctuation. */
+function tokenize(text: string): string[] {
+  return text
+    .replace(/([a-z])([A-Z])/g, '$1 $2') // camelCase → camel Case
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length >= 2 && !STOP_WORDS.has(t));
+}
 const INDEX_CACHE_FILE = 'cache/workspace-index.json';
 const INDEX_VERSION = 1;
 
@@ -264,11 +313,14 @@ export class WorkspaceIndex implements Disposable {
     this.watcher.onDidChange((uri) => {
       const rel = path.relative(rootPath, uri.fsPath);
       if (this.shouldExclude(rel)) return;
+      // Invalidate cached file content so the next read picks up the new bytes.
+      this.fileContentCache.delete(rel);
       this.symbolIndexer?.queueUpdate(rel);
       this.embeddingIndex?.queuePath(rel, rootPath);
     });
     this.watcher.onDidDelete((uri) => {
       const rel = path.relative(rootPath, uri.fsPath);
+      this.fileContentCache.delete(rel);
       this.files.delete(rel);
       this.scheduleRebuild();
       this.symbolIndexer?.queueDelete(rel);
@@ -463,7 +515,9 @@ export class WorkspaceIndex implements Disposable {
   }
 
   /**
-   * Compute relevance score for a file based on query terms
+   * Compute relevance score for a file based on query terms.
+   * Combines exact path matching, basename matching, and token-based matching
+   * (splits camelCase/snake_case/kebab-case path tokens against query words).
    */
   private computeScore(file: FileNode, query: string, activeFilePath?: string): number {
     let score = file.relevanceScore;
@@ -472,6 +526,32 @@ export class WorkspaceIndex implements Disposable {
     // asking about this file, so it should dominate over accumulated history.
     if (query.includes(file.relativePath) || query.includes(path.basename(file.relativePath))) {
       score += 1.5;
+    }
+
+    // Token-based matching: split path identifiers into words and match
+    // against query words. Catches "parse util" → parseUtils.ts.
+    const queryWords = tokenize(query);
+    if (queryWords.length > 0) {
+      const pathTokens = tokenize(file.relativePath);
+      const pathTokenSet = new Set(pathTokens);
+      let matches = 0;
+      for (const qw of queryWords) {
+        if (pathTokenSet.has(qw)) {
+          matches += 1;
+        } else {
+          // Substring match on any path token (catches partial words)
+          for (const pt of pathTokens) {
+            if (pt.length >= 3 && (pt.includes(qw) || qw.includes(pt))) {
+              matches += 0.5;
+              break;
+            }
+          }
+        }
+      }
+      if (matches > 0) {
+        // Normalize by query length so longer queries don't dominate
+        score += Math.min(1.2, matches / queryWords.length);
+      }
     }
 
     // Boost if in same directory as active file

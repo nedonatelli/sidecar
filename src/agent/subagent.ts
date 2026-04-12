@@ -13,6 +13,8 @@ export interface SubAgentResult {
   task: string;
   output: string;
   success: boolean;
+  /** Total characters consumed by the sub-agent (counted toward parent's budget). */
+  charsConsumed: number;
 }
 
 let subAgentCounter = 0;
@@ -32,6 +34,7 @@ export async function spawnSubAgent(
       task,
       output: `Cannot spawn sub-agent: maximum nesting depth (${MAX_AGENT_DEPTH}) reached.`,
       success: false,
+      charsConsumed: 0,
     };
   }
 
@@ -48,9 +51,13 @@ export async function spawnSubAgent(
   options.logger?.info(`Sub-agent ${id} spawned: ${task}`);
 
   let output = '';
+  let charsConsumed = 0;
   const subCallbacks: AgentCallbacks = {
     onText: (text) => {
       output += text;
+    },
+    onCharsConsumed: (chars) => {
+      charsConsumed += chars;
     },
     onThinking: (thinking) => {
       options.logger?.debug(`[${id}] thinking: ${thinking.slice(0, 100)}`);
@@ -85,12 +92,12 @@ export async function spawnSubAgent(
     });
 
     parentCallbacks.onText(`\n[Sub-agent ${id} completed]\n`);
-    return { id, task, output, success: true };
+    return { id, task, output, success: true, charsConsumed };
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     options.logger?.error(`Sub-agent ${id} failed: ${errorMsg}`);
     parentCallbacks.onText(`\n[Sub-agent ${id} failed: ${errorMsg}]\n`);
-    return { id, task, output: errorMsg, success: false };
+    return { id, task, output: errorMsg, success: false, charsConsumed };
   } finally {
     // Always restore parent's system prompt
     client.updateSystemPrompt(parentSystemPrompt);

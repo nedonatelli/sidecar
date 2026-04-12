@@ -302,6 +302,7 @@ export class OllamaBackend implements ApiBackend {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let toolCallCounter = 0;
+    let sawToolCall = false;
     const thinkState: ThinkTagState = { insideThinkTag: false };
 
     try {
@@ -331,6 +332,7 @@ export class OllamaBackend implements ApiBackend {
           }
 
           // Emit tool calls
+          let emittedToolCallThisChunk = false;
           if (chunk.message.tool_calls) {
             for (const tc of chunk.message.tool_calls) {
               const toolUse: ToolUseContentBlock = {
@@ -340,12 +342,25 @@ export class OllamaBackend implements ApiBackend {
                 input: tc.function.arguments,
               };
               yield { type: 'tool_use', toolUse };
+              emittedToolCallThisChunk = true;
+              sawToolCall = true;
             }
           }
 
-          // Emit stop when done
+          // Emit stop when done.
+          // Ollama may set done_reason to 'stop' (clean end), 'length' (max tokens),
+          // or omit it entirely when tool calls happen. If we saw any tool calls in
+          // this stream, signal 'tool_use' so the agent loop knows to execute them
+          // regardless of the underlying done_reason.
           if (chunk.done) {
-            const stopReason = chunk.done_reason === 'stop' ? 'end_turn' : chunk.done_reason || 'end_turn';
+            let stopReason: string;
+            if (sawToolCall || emittedToolCallThisChunk) {
+              stopReason = 'tool_use';
+            } else if (chunk.done_reason === 'stop' || !chunk.done_reason) {
+              stopReason = 'end_turn';
+            } else {
+              stopReason = chunk.done_reason;
+            }
             yield { type: 'stop', stopReason };
           }
         }

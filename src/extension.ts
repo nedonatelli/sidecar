@@ -3,7 +3,15 @@ import * as path from 'path';
 import { ChatViewProvider } from './webview/chatView.js';
 import { TerminalManager } from './terminal/manager.js';
 import { SideCarCompletionProvider } from './completions/provider.js';
-import { getConfig, isLocalOllama, isKickstand, detectProvider, readKickstandToken } from './config/settings.js';
+import {
+  getConfig,
+  isLocalOllama,
+  isKickstand,
+  detectProvider,
+  readKickstandToken,
+  initSecrets,
+  setApiKeySecret,
+} from './config/settings.js';
 import { checkWorkspaceConfigTrust } from './config/workspaceTrust.js';
 import { createClient } from './ollama/factory.js';
 import { SideCarClient } from './ollama/client.js';
@@ -35,6 +43,12 @@ export function activate(context: ExtensionContext) {
   // Set grammars path for tree-sitter (lazy-loaded on first parse)
   const grammarsPath = path.join(context.extensionPath, 'grammars');
   setGrammarsPath(grammarsPath);
+
+  // Initialize SecretStorage and migrate any plaintext API keys.
+  // Fire-and-forget: subsequent getConfig() calls pick up the cached secrets.
+  initSecrets(context).catch((err) => {
+    console.warn('[SideCar] Failed to initialize secrets:', err);
+  });
 
   // Read config once upfront for status bar display
   const config = getConfig();
@@ -257,6 +271,17 @@ export function activate(context: ExtensionContext) {
     }),
     commands.registerCommand('sidecar.exportChat', () => {
       chatProvider?.exportChat();
+    }),
+    commands.registerCommand('sidecar.setApiKey', async () => {
+      const value = await window.showInputBox({
+        prompt: 'Enter your API key (stored securely in VS Code SecretStorage)',
+        password: true,
+        ignoreFocusOut: true,
+      });
+      if (value !== undefined) {
+        await setApiKeySecret(value);
+        window.showInformationMessage('SideCar API key saved to SecretStorage.');
+      }
     }),
   );
 

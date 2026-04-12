@@ -53,7 +53,7 @@
         "sidecar.apiKey": {
           "type": "string",
           "default": "ollama",
-          "description": "API key (ignored for local Ollama, required for Anthropic)"
+          "markdownDescription": "API key (ignored for local Ollama, required for Anthropic). **Stored in VS Code SecretStorage** — use the `SideCar: Set API Key (SecretStorage)` command to set securely. Plaintext values here are migrated to SecretStorage on activation."
         },
         "sidecar.model": {
           "type": "string",
@@ -360,7 +360,7 @@
         "sidecar.fallbackApiKey": {
           "type": "string",
           "default": "",
-          "description": "API key for the fallback backend"
+          "markdownDescription": "API key for the fallback backend. **Stored in VS Code SecretStorage** — plaintext values are migrated on activation."
         },
         "sidecar.fallbackModel": {
           "type": "string",
@@ -451,6 +451,10 @@
       {
         "command": "sidecar.exportChat",
         "title": "SideCar: Export Chat"
+      },
+      {
+        "command": "sidecar.setApiKey",
+        "title": "SideCar: Set API Key (SecretStorage)"
       },
       {
         "command": "sidecar.acceptInlineEdit",

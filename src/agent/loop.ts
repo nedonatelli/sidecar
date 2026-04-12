@@ -57,6 +57,8 @@ export interface AgentCallbacks {
   onProgressSummary?: (summary: string) => void;
   /** Checkpoint: ask user whether to continue a long-running task. Returns true to continue. */
   onCheckpoint?: (summary: string, iterationsUsed: number, iterationsRemaining: number) => Promise<boolean>;
+  /** Called when characters are consumed against the budget (for parent token tracking). */
+  onCharsConsumed?: (chars: number) => void;
   onDone: () => void;
 }
 
@@ -96,14 +98,18 @@ export async function runAgentLoop(
   const maxTokens = options.maxTokens || 100_000;
   const tools = getToolDefinitions(mcpManager);
   let iteration = 0;
-  let autoFixRetries = 0;
+  // Per-file auto-fix retry counter — resets for each new file write so a buggy
+  // file doesn't burn the budget for unrelated subsequent writes.
+  const autoFixRetriesByFile = new Map<string, number>();
   let stubFixRetries = 0;
   const MAX_STUB_RETRIES = 1;
   const startTime = Date.now();
 
-  // Cycle detection: track recent tool calls to detect stuck loops
+  // Cycle detection: track recent tool calls to detect stuck loops.
+  // CYCLE_WINDOW must hold at least 2 full cycles of the longest pattern we want to detect.
   const recentToolCalls: string[] = [];
-  const CYCLE_WINDOW = 4;
+  const CYCLE_WINDOW = 8;
+  const MAX_CYCLE_LEN = 4;
 
   // Work with a copy of messages
   const agentMessages = [...messages];
@@ -227,14 +233,21 @@ export async function runAgentLoop(
       while (true) {
         if (signal.aborted) break;
 
-        // Race the next stream event against the timeout
+        // Race the next stream event against the timeout.
+        // Clear the timer when next() wins so we don't leak timers and keep the
+        // event loop alive longer than needed.
         let result: IteratorResult<StreamEvent>;
         if (requestTimeoutMs > 0) {
+          let timeoutId: ReturnType<typeof setTimeout> | undefined;
           const next = iter.next();
           const timeout = new Promise<never>((_, reject) => {
-            setTimeout(() => reject(new Error('__REQUEST_TIMEOUT__')), requestTimeoutMs);
+            timeoutId = setTimeout(() => reject(new Error('__REQUEST_TIMEOUT__')), requestTimeoutMs);
           });
-          result = await Promise.race([next, timeout]);
+          try {
+            result = await Promise.race([next, timeout]);
+          } finally {
+            if (timeoutId !== undefined) clearTimeout(timeoutId);
+          }
         } else {
           result = await iter.next();
         }
@@ -246,10 +259,12 @@ export async function runAgentLoop(
           case 'text':
             fullText += event.text;
             totalChars += event.text.length;
+            callbacks.onCharsConsumed?.(event.text.length);
             callbacks.onText(event.text);
             break;
           case 'thinking':
             totalChars += event.thinking.length;
+            callbacks.onCharsConsumed?.(event.thinking.length);
             callbacks.onThinking?.(event.thinking);
             break;
           case 'warning':
@@ -329,21 +344,26 @@ export async function runAgentLoop(
     // Model used tools successfully — reset any failure tracking
     recordToolSuccess(client.getModel());
 
-    // Cycle detection: hash the tool calls and check for repetition
+    // Cycle detection: hash the tool calls and check for repetition.
+    // Detects cycles of length 1..MAX_CYCLE_LEN by comparing the last N entries
+    // to the N entries before them. Catches A,A,A,A as well as A,B,C,A,B,C.
     const callSignature = pendingToolUses.map((tu) => `${tu.name}:${JSON.stringify(tu.input)}`).join('|');
     recentToolCalls.push(callSignature);
     if (recentToolCalls.length > CYCLE_WINDOW) {
       recentToolCalls.shift();
     }
-    if (recentToolCalls.length >= 2) {
-      const last = recentToolCalls[recentToolCalls.length - 1];
-      const prev = recentToolCalls[recentToolCalls.length - 2];
-      if (last === prev) {
-        logger?.warn(`Agent loop cycle detected: same tool call repeated — ${callSignature.slice(0, 100)}`);
-        callbacks.onText('\n\n⚠️ Agent stopped: detected repeated tool call (possible loop).\n');
+    let cycleDetected = false;
+    for (let len = 1; len <= MAX_CYCLE_LEN && len * 2 <= recentToolCalls.length; len++) {
+      const tail = recentToolCalls.slice(-len);
+      const prev = recentToolCalls.slice(-2 * len, -len);
+      if (tail.length === prev.length && tail.every((v, i) => v === prev[i])) {
+        cycleDetected = true;
+        logger?.warn(`Agent loop cycle detected (length ${len}) — ${callSignature.slice(0, 100)}`);
+        callbacks.onText(`\n\n⚠️ Agent stopped: detected repeating tool call pattern of length ${len}.\n`);
         break;
       }
     }
+    if (cycleDetected) break;
 
     // Build the assistant message content
     if (fullText) {
@@ -375,8 +395,11 @@ export async function runAgentLoop(
             toolUse.input.context as string | undefined,
             callbacks,
             signal,
-            { logger, changelog, approvalMode, maxIterations: Math.min(maxIterations, 15) },
+            { logger, changelog, approvalMode, maxIterations: Math.min(maxIterations, 15), depth: options.depth || 0 },
           );
+          // Charge sub-agent token usage to the parent's budget
+          totalChars += subResult.charsConsumed;
+          callbacks.onCharsConsumed?.(subResult.charsConsumed);
           const toolResult: ToolResultContentBlock = {
             type: 'tool_result',
             tool_use_id: toolUse.id,
@@ -475,31 +498,43 @@ export async function runAgentLoop(
       }
 
       // Auto-fix: check for errors after file writes and feed them back
-      if (config.autoFixOnFailure && autoFixRetries < config.autoFixMaxRetries) {
+      if (config.autoFixOnFailure) {
         const writtenFiles = pendingToolUses
           .filter((tu) => tu.name === 'write_file' || tu.name === 'edit_file')
           .map((tu) => (tu.input.path || tu.input.file_path) as string)
           .filter(Boolean);
 
-        if (writtenFiles.length > 0) {
+        // Only consider files whose per-file retry budget hasn't been exhausted
+        const eligibleFiles = writtenFiles.filter((f) => (autoFixRetriesByFile.get(f) || 0) < config.autoFixMaxRetries);
+
+        if (eligibleFiles.length > 0) {
           // Small delay to let VS Code language services update diagnostics
           await new Promise((r) => setTimeout(r, 500));
 
-          const diagResults = await Promise.allSettled(writtenFiles.map((f) => getDiagnostics({ path: f })));
-          const errors = diagResults
-            .filter((r): r is PromiseFulfilledResult<string> => r.status === 'fulfilled')
-            .map((r) => r.value)
-            .filter((d) => d.includes('[Error]'));
+          const diagResults = await Promise.allSettled(eligibleFiles.map((f) => getDiagnostics({ path: f })));
+          const fileErrors: { file: string; errors: string }[] = [];
+          for (let i = 0; i < eligibleFiles.length; i++) {
+            const r = diagResults[i];
+            if (r.status === 'fulfilled' && r.value.includes('[Error]')) {
+              fileErrors.push({ file: eligibleFiles[i], errors: r.value });
+            }
+          }
 
-          if (errors.length > 0) {
-            autoFixRetries++;
-            callbacks.onText(`\n⚠️ Auto-fixing errors (attempt ${autoFixRetries}/${config.autoFixMaxRetries})...\n`);
+          if (fileErrors.length > 0) {
+            // Increment per-file retry counter
+            for (const { file } of fileErrors) {
+              autoFixRetriesByFile.set(file, (autoFixRetriesByFile.get(file) || 0) + 1);
+            }
+            const attemptSummary = fileErrors
+              .map(({ file }) => `${file} (${autoFixRetriesByFile.get(file)}/${config.autoFixMaxRetries})`)
+              .join(', ');
+            callbacks.onText(`\n⚠️ Auto-fixing errors: ${attemptSummary}\n`);
             agentMessages.push({
               role: 'user',
               content: [
                 {
                   type: 'text' as const,
-                  text: `Errors detected after your edits. Please fix them:\n${errors.join('\n')}`,
+                  text: `Errors detected after your edits. Please fix them:\n${fileErrors.map((fe) => fe.errors).join('\n')}`,
                 },
               ],
             });
