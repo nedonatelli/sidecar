@@ -2,6 +2,32 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [0.44.0] - 2026-04-11
+
+### Added
+- **Custom agent modes** — define your own modes via `sidecar.customModes` with dedicated system prompts, approval behavior (autonomous/cautious/manual), and per-tool permissions. Custom modes appear in the dropdown alongside the built-in modes.
+- **Background agent orchestration** — `/bg <task>` spawns autonomous agents that run independently with their own client and message history. Up to 3 concurrent (configurable via `sidecar.bgMaxConcurrent`), with a collapsible dashboard panel showing status, live output, and stop controls. Completion summaries posted to the main chat.
+- **`SideCar: Set API Key (SecretStorage)` command** — interactive password prompt for setting API keys in VS Code SecretStorage. Plaintext values from settings.json auto-migrate on activation.
+- **Self-knowledge prompt rule** — system prompt now includes Rule 0 telling the model to answer identity questions (version, name, project root) directly from the prompt instead of reading package.json.
+
+### Security
+- **API keys moved to SecretStorage** — `sidecar.apiKey` and `sidecar.fallbackApiKey` are now stored in VS Code's SecretStorage (OS keychain). Plaintext values are migrated automatically on first activation. Settings sync no longer pushes keys to other devices.
+
+### Fixed
+- **5 architecture audit items** — `executeTool` refactored from 10 positional params to an `ExecuteToolOptions` object; MCP tool errors now include server name + tool name + input context; error classifier expanded with `rate_limit` (429), `server_error` (5xx, overloaded), `content_policy`, and `token_limit` types; pre-hook failures now block tool execution (return error tool_result); custom tool registry cached with JSON snapshot key.
+- **Cycle detection** — expanded window from 4 to 8, now detects repeating patterns of length 1–4 (catches A,A,A,A and A,B,C,A,B,C, not just A,B,A,B).
+- **File content cache invalidation** — file watcher now evicts cached content on change/delete events instead of waiting for the 5-min TTL.
+- **Query matching** — new `tokenize()` helper splits camelCase/snake_case/path tokens and matches against query words. "parse util" now scores `parseUtils.ts` higher.
+- **Ollama tool call detection** — emit `stopReason: 'tool_use'` whenever tool calls were yielded in a stream, regardless of `done_reason` value (handles `done_reason: 'length'` or omitted).
+- **autoFixRetries per-file** — replaced single global counter with `Map<file, retries>` so each file gets its own retry budget.
+- **Sub-agent token budget** — sub-agent token usage now counts against the parent's budget via new `onCharsConsumed` callback and `SubAgentResult.charsConsumed` propagation.
+- **Timeout timer leak** — `setTimeout` is now cleared in a `finally` block after `Promise.race` so the winning side doesn't leave a timer keeping the event loop alive.
+- **Stopped tracking `.sidecar/memory/agent-memories.json`** — runtime LRU state was polluting every commit with thousands of unrelated diff lines.
+
+### Stats
+- 1234 total tests (89 test files)
+- 22 built-in tools, 8 skills
+
 ## [0.43.0] - 2026-04-11
 
 ### Added

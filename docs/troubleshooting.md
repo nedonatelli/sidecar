@@ -176,7 +176,7 @@ Click the action button on the error card to resolve common issues quickly.
 If the model responds with nothing (empty content, `done` immediately):
 
 - **Context too large** — local models have a limited context window. SideCar caps local models at 8K tokens. Reduce `sidecar.maxFiles` or unpin large files
-- **Tool definitions overwhelm the model** — ~~~22 tool definitions add ~10K chars. Smaller models may not handle this well. Try a larger model or use chat-only mode
+- **Tool definitions overwhelm the model** — ~22 tool definitions add ~10K chars. Smaller models may not handle this well. Try a larger model or use chat-only mode
 - **Wrong model format** — some models don't support the chat template or tool format. Try a different model
 
 ## Getting help
