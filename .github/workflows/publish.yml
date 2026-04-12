@@ -5,6 +5,12 @@ on:
     tags:
       - 'v*'
 
+# Grant the auto-provisioned GITHUB_TOKEN the ability to create releases.
+# This replaces the previous BOT_PAT approach, which required manually
+# managing a personal access token for a bot account.
+permissions:
+  contents: write
+
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -52,7 +58,7 @@ jobs:
 
       - name: Create GitHub Release
         env:
-          GH_TOKEN: ${{ secrets.BOT_PAT }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "$GITHUB_REF_NAME" \
             --title "$GITHUB_REF_NAME" \
