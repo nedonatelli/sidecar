@@ -269,10 +269,10 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
       </select>
       <div id="chat-actions">
         <button id="new-chat-btn" title="New Chat">+</button>
-        <button id="history-btn" title="Conversation History">&#9776;</button>
+        <button id="history-btn" title="Conversation History">&#128172;</button>
         <button id="compact-btn" title="Compact Context">&#9986;</button>
         <button id="undo-btn" title="Undo All Changes">&#8634;</button>
-        <button id="settings-btn" title="Settings" aria-haspopup="true" aria-expanded="false">&#9881;</button>
+        <button id="settings-btn" title="Settings" aria-haspopup="true" aria-expanded="false">&#9776;</button>
       </div>
     </div>
     <div id="settings-menu" class="hidden" role="menu" aria-label="SideCar settings menu">

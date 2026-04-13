@@ -10,6 +10,22 @@ import type {
 import { fetchWithRetry } from './retry.js';
 import { getConfig } from '../config/settings.js';
 import { abortableRead } from './streamUtils.js';
+import { RateLimitStore, maybeWaitForRateLimit } from './rateLimitState.js';
+import { parseAnthropicRateLimitHeaders } from './rateLimitHeaders.js';
+import { CHARS_PER_TOKEN } from '../config/constants.js';
+
+/** How long we'll wait on a rate-limit reset before telling the user to switch backends. */
+const MAX_RATE_LIMIT_WAIT_MS = 60_000;
+
+/** Rough token estimate for a system+messages payload using the shared chars/token ratio. */
+function estimateRequestTokens(systemPrompt: string, messages: ChatMessage[], maxOutputTokens: number): number {
+  let chars = systemPrompt.length;
+  for (const m of messages) {
+    const c = m.content;
+    chars += typeof c === 'string' ? c.length : c.reduce((sum, b) => sum + JSON.stringify(b).length, 0);
+  }
+  return Math.ceil(chars / CHARS_PER_TOKEN) + maxOutputTokens;
+}
 
 /**
  * Split the system prompt into cached (stable) and dynamic blocks.
@@ -44,7 +60,13 @@ export class AnthropicBackend implements ApiBackend {
   constructor(
     private baseUrl: string,
     private apiKey: string,
+    private rateLimits: RateLimitStore = new RateLimitStore(),
   ) {}
+
+  /** Expose the rate-limit snapshot for status UIs and tests. */
+  getRateLimits(): RateLimitStore {
+    return this.rateLimits;
+  }
 
   private get messagesUrl(): string {
     return `${this.baseUrl}/v1/messages`;
@@ -74,6 +96,17 @@ export class AnthropicBackend implements ApiBackend {
       body.tools = tools;
     }
 
+    // Pre-check against the last known rate-limit budget. Waits the
+    // computed time (if any), or throws RateLimitWaitTooLongError if
+    // the wait would exceed MAX_RATE_LIMIT_WAIT_MS — better than burning
+    // a retry on a request the server is guaranteed to reject.
+    await maybeWaitForRateLimit(
+      this.rateLimits,
+      estimateRequestTokens(systemPrompt, messages, 8192),
+      MAX_RATE_LIMIT_WAIT_MS,
+      signal,
+    );
+
     const response = await fetchWithRetry(this.messagesUrl, {
       method: 'POST',
       headers: {
@@ -84,6 +117,11 @@ export class AnthropicBackend implements ApiBackend {
       body: JSON.stringify(body),
       signal,
     });
+
+    // Update rate-limit state from headers before inspecting `response.ok`
+    // so a 429 response still refreshes the store and future waits land
+    // on the freshest numbers.
+    this.rateLimits.update(parseAnthropicRateLimitHeaders(response.headers));
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
@@ -210,6 +248,13 @@ export class AnthropicBackend implements ApiBackend {
       body.system = buildSystemBlocks(systemPrompt);
     }
 
+    await maybeWaitForRateLimit(
+      this.rateLimits,
+      estimateRequestTokens(systemPrompt, messages, maxTokens),
+      MAX_RATE_LIMIT_WAIT_MS,
+      signal,
+    );
+
     const response = await fetchWithRetry(this.messagesUrl, {
       method: 'POST',
       headers: {
@@ -220,6 +265,8 @@ export class AnthropicBackend implements ApiBackend {
       body: JSON.stringify(body),
       signal,
     });
+
+    this.rateLimits.update(parseAnthropicRateLimitHeaders(response.headers));
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');

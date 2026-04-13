@@ -12,6 +12,21 @@ import {
   type TextToolCallState,
 } from './streamUtils.js';
 import { getConfig } from '../config/settings.js';
+import { RateLimitStore, maybeWaitForRateLimit } from './rateLimitState.js';
+import { parseOpenAIRateLimitHeaders } from './rateLimitHeaders.js';
+import { CHARS_PER_TOKEN } from '../config/constants.js';
+
+/** How long we'll wait on a rate-limit reset before bailing to the caller. */
+const MAX_RATE_LIMIT_WAIT_MS = 60_000;
+
+function estimateRequestTokens(systemPrompt: string, messages: ChatMessage[], maxOutputTokens: number): number {
+  let chars = systemPrompt.length;
+  for (const m of messages) {
+    const c = m.content;
+    chars += typeof c === 'string' ? c.length : c.reduce((sum, b) => sum + JSON.stringify(b).length, 0);
+  }
+  return Math.ceil(chars / CHARS_PER_TOKEN) + maxOutputTokens;
+}
 
 // Monotonic counter for generating unique tool call IDs when the API doesn't provide one
 let toolCallIdCounter = 0;
@@ -139,7 +154,13 @@ export class OpenAIBackend implements ApiBackend {
   constructor(
     private baseUrl: string,
     private apiKey: string,
+    private rateLimits: RateLimitStore = new RateLimitStore(),
   ) {}
+
+  /** Expose the rate-limit snapshot for status UIs and tests. */
+  getRateLimits(): RateLimitStore {
+    return this.rateLimits;
+  }
 
   private get chatUrl(): string {
     return `${this.baseUrl}/v1/chat/completions`;
@@ -176,12 +197,21 @@ export class OpenAIBackend implements ApiBackend {
       body.tools = toFunctionTools(tools);
     }
 
+    await maybeWaitForRateLimit(
+      this.rateLimits,
+      estimateRequestTokens(systemPrompt, messages, 4096),
+      MAX_RATE_LIMIT_WAIT_MS,
+      signal,
+    );
+
     const response = await fetchWithRetry(this.chatUrl, {
       method: 'POST',
       headers: this.getHeaders(),
       body: JSON.stringify(body),
       signal,
     });
+
+    this.rateLimits.update(parseOpenAIRateLimitHeaders(response.headers));
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
@@ -325,12 +355,21 @@ export class OpenAIBackend implements ApiBackend {
       stream: false,
     };
 
+    await maybeWaitForRateLimit(
+      this.rateLimits,
+      estimateRequestTokens(systemPrompt, messages, maxTokens),
+      MAX_RATE_LIMIT_WAIT_MS,
+      signal,
+    );
+
     const response = await fetchWithRetry(this.chatUrl, {
       method: 'POST',
       headers: this.getHeaders(),
       body: JSON.stringify(body),
       signal,
     });
+
+    this.rateLimits.update(parseOpenAIRateLimitHeaders(response.headers));
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');

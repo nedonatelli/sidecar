@@ -5,6 +5,7 @@ import { OllamaBackend } from './ollamaBackend.js';
 import { OpenAIBackend } from './openaiBackend.js';
 import { KickstandBackend } from './kickstandBackend.js';
 import { isLocalOllama, detectProvider, getConfig, readKickstandToken } from '../config/settings.js';
+import { RateLimitStore } from './rateLimitState.js';
 
 const DEFAULT_BASE_URL = 'http://localhost:11434';
 
@@ -55,6 +56,11 @@ export class SideCarClient {
   private apiKey: string;
   private backend: ApiBackend;
 
+  // Rate-limit state — one store per client, passed into each backend
+  // we create, so switching profiles mid-session doesn't lose the
+  // accumulated budget information for a provider the user comes back to.
+  private rateLimits = new RateLimitStore();
+
   // Fallback state
   private consecutiveFailures = 0;
   private usingFallback = false;
@@ -80,12 +86,17 @@ export class SideCarClient {
       case 'ollama':
         return new OllamaBackend(this.baseUrl);
       case 'anthropic':
-        return new AnthropicBackend(this.baseUrl, this.apiKey);
+        return new AnthropicBackend(this.baseUrl, this.apiKey, this.rateLimits);
       case 'kickstand':
-        return new KickstandBackend(this.baseUrl, this.apiKey || readKickstandToken());
+        return new KickstandBackend(this.baseUrl, this.apiKey || readKickstandToken(), this.rateLimits);
       case 'openai':
-        return new OpenAIBackend(this.baseUrl, this.apiKey);
+        return new OpenAIBackend(this.baseUrl, this.apiKey, this.rateLimits);
     }
+  }
+
+  /** Access the rate-limit store for status UIs and diagnostics. */
+  getRateLimits(): RateLimitStore {
+    return this.rateLimits;
   }
 
   private get tagsUrl(): string {
@@ -238,7 +249,13 @@ export class SideCarClient {
   }
 
   updateConnection(baseUrl: string, apiKey: string) {
-    this.baseUrl = baseUrl || DEFAULT_BASE_URL;
+    const newBaseUrl = baseUrl || DEFAULT_BASE_URL;
+    // Reset rate-limit state when the host actually changes — Anthropic's
+    // budget numbers are meaningless against OpenAI and vice versa.
+    if (newBaseUrl !== this.baseUrl) {
+      this.rateLimits.reset();
+    }
+    this.baseUrl = newBaseUrl;
     this.apiKey = apiKey || 'ollama';
     this.primaryBaseUrl = this.baseUrl;
     this.primaryApiKey = this.apiKey;

@@ -2,6 +2,20 @@ import type { ApiBackend } from './backend.js';
 import type { ChatMessage, ContentBlock, ToolDefinition, ToolUseContentBlock, StreamEvent } from './types.js';
 import { fetchWithRetry } from './retry.js';
 import { abortableRead } from './streamUtils.js';
+import { RateLimitStore, maybeWaitForRateLimit } from './rateLimitState.js';
+import { parseOpenAIRateLimitHeaders } from './rateLimitHeaders.js';
+import { CHARS_PER_TOKEN } from '../config/constants.js';
+
+const MAX_RATE_LIMIT_WAIT_MS = 60_000;
+
+function estimateRequestTokens(systemPrompt: string, messages: ChatMessage[], maxOutputTokens: number): number {
+  let chars = systemPrompt.length;
+  for (const m of messages) {
+    const c = m.content;
+    chars += typeof c === 'string' ? c.length : c.reduce((sum, b) => sum + JSON.stringify(b).length, 0);
+  }
+  return Math.ceil(chars / CHARS_PER_TOKEN) + maxOutputTokens;
+}
 
 // ---------------------------------------------------------------------------
 // Kickstand API types
@@ -127,7 +141,12 @@ export class KickstandBackend implements ApiBackend {
   constructor(
     private baseUrl: string,
     private apiToken: string,
+    private rateLimits: RateLimitStore = new RateLimitStore(),
   ) {}
+
+  getRateLimits(): RateLimitStore {
+    return this.rateLimits;
+  }
 
   private get chatUrl(): string {
     return `${this.baseUrl}/v1/chat/completions`;
@@ -166,12 +185,21 @@ export class KickstandBackend implements ApiBackend {
       }));
     }
 
+    await maybeWaitForRateLimit(
+      this.rateLimits,
+      estimateRequestTokens(systemPrompt, messages, 4096),
+      MAX_RATE_LIMIT_WAIT_MS,
+      signal,
+    );
+
     const response = await fetchWithRetry(this.chatUrl, {
       method: 'POST',
       headers: this.getHeaders(),
       body: JSON.stringify(body),
       signal,
     });
+
+    this.rateLimits.update(parseOpenAIRateLimitHeaders(response.headers));
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
@@ -256,12 +284,21 @@ export class KickstandBackend implements ApiBackend {
       stream: false,
     };
 
+    await maybeWaitForRateLimit(
+      this.rateLimits,
+      estimateRequestTokens(systemPrompt, messages, maxTokens),
+      MAX_RATE_LIMIT_WAIT_MS,
+      signal,
+    );
+
     const response = await fetchWithRetry(this.chatUrl, {
       method: 'POST',
       headers: this.getHeaders(),
       body: JSON.stringify(body),
       signal,
     });
+
+    this.rateLimits.update(parseOpenAIRateLimitHeaders(response.headers));
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
