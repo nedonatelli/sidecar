@@ -136,6 +136,23 @@ export class SideCarClient {
     }
   }
 
+  /**
+   * One-shot completion with per-call overrides for model and system prompt.
+   * Used by the adversarial critic so it can run under its own prompt /
+   * model without disturbing the main agent's client state. Does not
+   * participate in the fallback-switching machinery — critic is opportunistic.
+   */
+  async completeWithOverrides(
+    systemPrompt: string,
+    messages: ChatMessage[],
+    overrideModel?: string,
+    maxTokens: number = 1024,
+    signal?: AbortSignal,
+  ): Promise<string> {
+    const model = overrideModel && overrideModel.trim().length > 0 ? overrideModel : this.model;
+    return this.backend.complete(model, systemPrompt, messages, maxTokens, signal);
+  }
+
   private recordSuccess(): void {
     this.consecutiveFailures = 0;
     // If on fallback and primary succeeded, switch back

@@ -373,6 +373,21 @@
           "default": true,
           "description": "Require the agent to run lint and tests for files it edited before declaring completion. Catches cases where the agent reports a change as done without verifying."
         },
+        "sidecar.critic.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run an adversarial critic LLM call after every write_file / edit_file and after every failed run_tests. High-severity findings block the agent until addressed; low-severity findings surface as chat annotations only. Doubles API spend on edit turns — off by default."
+        },
+        "sidecar.critic.model": {
+          "type": "string",
+          "default": "",
+          "description": "Model to use for the adversarial critic call. Empty string (default) means reuse sidecar.model. Set to a cheaper / faster model (e.g. claude-haiku-4-5 when the main model is claude-opus-4-6) to cut cost while keeping the critic enabled."
+        },
+        "sidecar.critic.blockOnHighSeverity": {
+          "type": "boolean",
+          "default": true,
+          "description": "When the critic reports a high-severity finding, inject a synthetic user message forcing the agent to address it before the turn can finish. When false, high-severity findings surface as chat annotations only (same as low-severity)."
+        },
         "sidecar.provider": {
           "type": "string",
           "enum": [

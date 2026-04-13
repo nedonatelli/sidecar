@@ -244,6 +244,9 @@ export interface SideCarConfig {
   autoFixOnFailure: boolean;
   autoFixMaxRetries: number;
   completionGateEnabled: boolean;
+  criticEnabled: boolean;
+  criticModel: string;
+  criticBlockOnHighSeverity: boolean;
   fetchUrlContext: boolean;
   fallbackBaseUrl: string;
   fallbackApiKey: string;
@@ -335,6 +338,9 @@ function readConfig(): SideCarConfig {
     autoFixOnFailure: cfg.get<boolean>('autoFixOnFailure', false),
     autoFixMaxRetries: clampMin(cfg.get<number>('autoFixMaxRetries'), 0, 3),
     completionGateEnabled: cfg.get<boolean>('completionGate.enabled', true),
+    criticEnabled: cfg.get<boolean>('critic.enabled', false),
+    criticModel: cfg.get<string>('critic.model', ''),
+    criticBlockOnHighSeverity: cfg.get<boolean>('critic.blockOnHighSeverity', true),
     fetchUrlContext: cfg.get<boolean>('fetchUrlContext', true),
     fallbackBaseUrl: cfg.get<string>('fallbackBaseUrl', ''),
     fallbackApiKey: _cachedFallbackApiKey ?? cfg.get<string>('fallbackApiKey', ''),
