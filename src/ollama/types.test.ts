@@ -56,6 +56,24 @@ describe('getContentLength', () => {
   it('returns 0 for empty array', () => {
     expect(getContentLength([])).toBe(0);
   });
+
+  it('weights image blocks by their base64 payload size, not a flat constant', () => {
+    // Regression: images used to count as 100 chars regardless of size,
+    // so vision queries would silently blow the token budget. Now an
+    // image is weighted by its decoded byte count (base64 len * 3/4).
+    const smallData = 'a'.repeat(1000); // ~750 decoded bytes
+    const largeData = 'a'.repeat(10_000); // ~7500 decoded bytes
+    const small: ContentBlock[] = [
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: smallData } },
+    ];
+    const large: ContentBlock[] = [
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: largeData } },
+    ];
+    expect(getContentLength(small)).toBe(750);
+    expect(getContentLength(large)).toBe(7500);
+    // Large image should cost far more than the old flat 100.
+    expect(getContentLength(large)).toBeGreaterThan(getContentLength(small) * 5);
+  });
 });
 
 describe('serializeContent', () => {

@@ -264,9 +264,72 @@ const SENSITIVE_PATTERNS = [
   /service.account\.json$/i,
 ];
 
+/**
+ * Paths under these prefixes are SideCar's own internal state. Writes
+ * to them are rejected so a prompt-injected agent can't erase the
+ * audit log, poison persistent memories, or corrupt the cache. Reads
+ * are still allowed — the agent can legitimately consult its own
+ * memory or audit trail.
+ *
+ * Human-editable areas (SIDECAR.md, plans/, specs/, scratchpad/) are
+ * intentionally NOT listed — those are normal working files.
+ */
+const PROTECTED_WRITE_PREFIXES = [
+  '.sidecar/logs/', // repudiation: audit log must not be erasable
+  '.sidecar/memory/', // poisoning: persistent memories must not be forgeable
+  '.sidecar/sessions/', // tampering: session history must not be rewritable
+  '.sidecar/cache/', // corruption: cache invariants would break
+];
+
 function isSensitiveFile(filePath: string): boolean {
   const basename = filePath.split(/[\\/]/).pop() || '';
   return SENSITIVE_PATTERNS.some((p) => p.test(basename));
+}
+
+/**
+ * Check whether a write to the given path should be rejected because
+ * it targets SideCar's protected internal state. Returns an error
+ * message if blocked, or null if the write is allowed.
+ *
+ * Paths are normalised to use forward slashes so the same prefix
+ * check works for Windows-style input.
+ */
+function isProtectedWritePath(filePath: string): string | null {
+  const normalized = filePath.replace(/\\/g, '/');
+  if (normalized === '.sidecar/settings.json') {
+    return `Refusing to write SideCar's own settings file (${filePath}). Ask the user to edit it directly.`;
+  }
+  for (const prefix of PROTECTED_WRITE_PREFIXES) {
+    if (normalized.startsWith(prefix) || normalized.startsWith('./' + prefix)) {
+      return (
+        `Refusing to write under ${prefix} — this path is SideCar's internal state ` +
+        `(audit log, persistent memory, session history, or cache) and must not be modified by the agent. ` +
+        `If you need to reset this state, ask the user to do it directly.`
+      );
+    }
+  }
+  return null;
+}
+
+/**
+ * POSIX-shell-safe single-quoting. Any `'` in the input is escaped as
+ * `'\''` which ends the current quoted string, emits a literal quote,
+ * and opens a new quoted string. Safe even for paths containing
+ * metacharacters like `$`, `` ` ``, `;`, `&`, `|`, space, newline.
+ *
+ * Used by `run_tests` to safely interpolate a model-supplied `file`
+ * argument into a shell command. Note: on Windows, cmd.exe doesn't
+ * interpret single quotes the same way. ShellSession uses bash on
+ * non-Windows and cmd.exe on Windows; for the Windows case we additionally
+ * reject metacharacters below instead of relying on quoting.
+ */
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+/** Reject paths that contain shell metacharacters — belt-and-suspenders on top of `validateFilePath`. */
+function hasShellMetachar(value: string): boolean {
+  return /[\n\r;&|`$<>()!*?[\]{}"'\\]/.test(value);
 }
 
 // --- Tool Executors ---
@@ -287,6 +350,8 @@ async function writeFile(input: Record<string, unknown>): Promise<string> {
   const filePath = input.path as string;
   const pathError = validateFilePath(filePath);
   if (pathError) return pathError;
+  const protectedError = isProtectedWritePath(filePath);
+  if (protectedError) return protectedError;
   const content = input.content as string;
   const fileUri = Uri.joinPath(getRootUri(), filePath);
   // Create parent directories
@@ -302,6 +367,8 @@ async function editFile(input: Record<string, unknown>): Promise<string> {
   const filePath = input.path as string;
   const pathError = validateFilePath(filePath);
   if (pathError) return pathError;
+  const protectedError = isProtectedWritePath(filePath);
+  if (protectedError) return protectedError;
   const search = input.search as string;
   const replace = input.replace as string;
   const fileUri = Uri.joinPath(getRootUri(), filePath);
@@ -507,7 +574,18 @@ async function runTests(input: Record<string, unknown>): Promise<string> {
   }
 
   if (file) {
-    command += ` ${file}`;
+    // Defend against shell injection via the `file` parameter. The model
+    // can (intentionally or via prompt injection) submit
+    // `file: "foo.test.ts; rm -rf ~"`, and an unquoted interpolation
+    // would execute both. Validate as a relative path first, then
+    // reject anything containing shell metacharacters, then single-quote
+    // the final value for POSIX shells.
+    const pathError = validateFilePath(file);
+    if (pathError) return `Invalid file path for run_tests: ${pathError}`;
+    if (hasShellMetachar(file)) {
+      return `Invalid file path for run_tests: "${file}" contains shell metacharacters. Use a plain relative path.`;
+    }
+    command += ` ${shellQuote(file)}`;
   }
 
   // Use persistent shell session for test execution

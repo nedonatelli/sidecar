@@ -39,6 +39,9 @@ const noopEvent = () => noopDisposable;
 
 export const workspace = {
   workspaceFolders: [{ uri: { fsPath: '/mock-workspace' }, name: 'mock', index: 0 }],
+  // Default to trusted — individual tests that need to exercise the
+  // untrusted path override this via vi.spyOn or direct assignment.
+  isTrusted: true,
   getConfiguration: (_section?: string) => ({
     get: <T>(_key: string, defaultValue?: T) => defaultValue,
     inspect: (_key: string) => ({ workspaceValue: undefined, globalValue: undefined }),

