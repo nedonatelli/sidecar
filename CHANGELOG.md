@@ -2,6 +2,32 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- **`sidecar.enableMermaid` setting** (default on) — when disabled, `chatWebview` skips the mermaid URI injection entirely and `chat.js` falls through to plain code-block rendering for ```mermaid fences. Runtime loading was already lazy (script element only injected when the user renders their first diagram), so this lets users who never ask for diagrams skip the 5.2MB mermaid.js download entirely.
+
+### Fixed
+
+- **`/init` overwrite of SIDECAR.md no longer leaves stale editor content.** Writing via `workspace.fs.writeFile` on a file already open in an editor tab left the cached `TextDocument` stale, so the tab kept showing old content after an "Overwrite" confirmation. Now routes through `WorkspaceEdit.replace` against the full document range + `doc.save()` so VS Code's in-memory document stays in sync with disk.
+
+### Refactor / Code Quality
+
+Closed out all remaining cycle-1 audit items from the original v0.34.0 review — 17 items across two commits.
+
+- **`handleUserMessage` decomposed**: 443 → 172 lines via six extracted helpers (`prepareUserMessageText`, `updateWorkspaceRelevance`, `connectWithRetry`, `checkBudgetLimits`, `buildSystemPromptForRun`, `recordRunCost`) and a `createAgentCallbacks` factory that owns the per-run text buffer, flush timer, and current iteration closure. Main function is now pure orchestration.
+- **`ToolRuntime` class**: unified the `shellSession` + `symbolGraph` module globals into one object with a single dispose point and a single injection seam. Backward-compat `disposeShellSession` / `setSymbolGraph` wrappers keep existing tests and extension activation unchanged.
+- **chat.js modularization started**: removed misleading `@ts-nocheck` / `eslint-disable` comments (nothing in `media/` was ever typechecked per tsconfig scoping). Extracted GitHub card rendering (245 lines) to `media/chat/githubCards.js` via `window.SideCar.githubCards` namespace. `chat.js` is now 210 lines smaller (3617 → 3407) and gains a pattern for further subsystem extractions.
+- **`github/api.ts` typed responses**: defined `RawPR`, `RawIssue`, `RawRelease`, `RawRepoContent` raw-payload interfaces and centralized parsing in `parsePR` / `parseIssue` / `parseRelease`. Removes every per-field `as number` / `as string` cast.
+- **`GitHubAction` union type**: 16-member exhaustive union in `github/types.ts` replacing stringly-typed `action?` and `githubAction?` fields on webview messages.
+- **`loop.ts` tool-use/result char counting** delegated to `getContentLength(pendingToolUses) + getContentLength(toolResults)`, removing the hand-rolled duplicate.
+- **`CONTEXT_COMPRESSION_THRESHOLD` constant** extracted so `0.7` no longer collides semantically with `INPUT_TOKEN_RATIO`.
+- **`chat.js` card rendering** collapsed into shared `ghDiv` / `ghStatePill` / `ghLink` / `ghCardTitle` / `ghAuthorMeta` helpers; all six GitHub action branches now build on them.
+- **`isReachable` / `ensureReachable` wrappers deleted**; call sites call `isProviderReachable(state.client.getProviderType())` directly.
+- **Pruning message** now uses `CHARS_PER_TOKEN` constant instead of hardcoded `/ 4`.
+- **ROADMAP backlog reconciled**: struck through nine audit items that were already fixed in earlier work but not reflected — `abortableRead` in the Anthropic backend, malformed tool input rejection, `withFileLock` per-path mutex, messages mutation via generation guard, `deleteRelease` through `this.request`, bracket-notation access cleanup, double workspace-state deserialization replaced with `getSpendBreakdown`, and more.
+
 ## [0.46.0] - 2026-04-12
 
 ### Added
