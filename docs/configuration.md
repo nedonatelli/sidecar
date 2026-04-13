@@ -18,6 +18,22 @@ All settings are under the `sidecar.*` prefix. Open VS Code settings (`Cmd+,` / 
 | `sidecar.provider` | enum | `auto` | Backend provider: `auto`, `ollama`, `anthropic`, `openai`, `kickstand`. Auto-detects from URL |
 | `sidecar.systemPrompt` | string | `""` | Custom system prompt appended to the default |
 
+### Switching backends (recommended)
+
+You don't have to edit these settings by hand. Click the **⚙ gear** in the chat header and pick a backend from the **Backend** section of the settings menu — SideCar's built-in profiles flip `baseUrl`, `provider`, and `model` in one click:
+
+| Profile | Provider | Base URL | Default model |
+|---------|----------|----------|---------------|
+| Local Ollama | `ollama` | `http://localhost:11434` | `qwen2.5-coder:7b` |
+| Anthropic Claude | `anthropic` | `https://api.anthropic.com` | `claude-sonnet-4-6` |
+| Kickstand | `kickstand` | `http://localhost:11435` | *(uses your default)* |
+
+Each profile stores its API key in its own SecretStorage slot (`sidecar.profileKey.<id>`), so switching between profiles preserves keys you've already entered — setting your Anthropic key once won't clobber your Kickstand key, and vice versa. The currently active profile is checkmarked in the menu. The same flow is available from the Command Palette as `SideCar: Switch Backend`.
+
+On first switch to a profile that needs a key, SideCar will surface a warning with a "Set API Key" button that chains into the standard `SideCar: Set API Key` flow — the key is stored under the correct profile slot automatically.
+
+For custom setups (non-standard ports, Anthropic-compatible proxies, etc.) the settings table above is still the right path — the profile switcher only covers the built-in providers.
+
 ### Provider auto-detection
 
 When `sidecar.provider` is `auto` (default), SideCar detects the backend from the URL:

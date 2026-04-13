@@ -141,8 +141,9 @@ Both features skip class methods, destructured parameters, rest parameters, and 
 ### Multi-Backend Support
 - **Ollama** (default) — runs locally, free, no API key needed
 - **Anthropic API** — use Claude models with your API key, with prompt caching for ~90% input token cost reduction
+- **Kickstand** — self-hosted LLM client backend with managed GPU memory
 - **OpenAI-compatible** — works with LM Studio, vLLM, llama.cpp, text-generation-webui, OpenRouter, and any server with a `/v1/chat/completions` endpoint
-- Same interface for all — just change `sidecar.baseUrl` and optionally `sidecar.provider`
+- **One-click profile switcher** — click the ⚙ gear in the chat header to flip between Local Ollama / Anthropic Claude / Kickstand in a single click. Each profile stores its own API key in VS Code's SecretStorage, so switching backends doesn't clobber a key you've already set. Also available as `SideCar: Switch Backend` from the Command Palette.
 
 ### MCP (Model Context Protocol)
 - Connect to any MCP server via **stdio**, **HTTP**, or **SSE** transport
@@ -269,11 +270,18 @@ Scheduled tasks run autonomously and log to the SideCar Agent output channel.
 
 ### Using with Anthropic API
 
+Fastest path (recommended):
+
+1. Click the ⚙ gear in the chat header → **Anthropic Claude** under Backend.
+2. SideCar will prompt for your API key on first switch — paste it and you're done. `baseUrl`, `provider`, and a default Claude model are all set in one click.
+
+Manual path (if you prefer editing settings):
+
 1. Set `sidecar.baseUrl` to `https://api.anthropic.com`
 2. Run `SideCar: Set API Key (SecretStorage)` from the command palette and paste your Anthropic API key
 3. Set `sidecar.model` to a Claude model (e.g. `claude-sonnet-4-6`)
 
-API keys are stored encrypted in your OS keychain via VS Code's SecretStorage — never in plaintext settings.
+API keys are stored encrypted in your OS keychain via VS Code's SecretStorage — never in plaintext settings. Each backend profile uses its own SecretStorage slot, so switching between Ollama ↔ Anthropic ↔ Kickstand preserves the keys you've already entered.
 
 ### Using with OpenAI-compatible servers
 

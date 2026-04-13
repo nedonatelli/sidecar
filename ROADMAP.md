@@ -2,7 +2,7 @@
 
 Planned improvements and features for SideCar. Audit findings from v0.34.0 comprehensive review are in the Audit Backlog section. All critical fixes were addressed in v0.35.0.
 
-Last updated: 2026-04-13 (post-v0.46.0, cycle-1 audit backlog closed)
+Last updated: 2026-04-13 (post-v0.46.0, cycle-1 audit backlog closed, backend profile switcher landed)
 
 ---
 

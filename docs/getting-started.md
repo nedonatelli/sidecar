@@ -43,25 +43,36 @@ You can also install new models directly from the dropdown — SideCar will pull
 
 The default model is `qwen3-coder:30b`. For machines with less RAM, try `qwen3-coder:8b` or `qwen2.5-coder:7b`.
 
+## Switching backends
+
+The fastest way to move between Ollama, Anthropic, and Kickstand is the **⚙ gear button** in the chat header. It opens a settings menu with a Backend section — pick a profile and SideCar flips `baseUrl`, `provider`, and `model` in one click. Each profile keeps its own API key in VS Code's SecretStorage, so switching doesn't clobber keys you've already set. The same flow is available from the Command Palette as `SideCar: Switch Backend`.
+
+The sections below describe each backend in detail and also cover the manual settings path if you prefer editing `settings.json`.
+
 ## Using the Anthropic API
 
-To use Claude models instead of local Ollama:
+**Recommended:** click the ⚙ gear → **Anthropic Claude**. SideCar prompts for your API key on first switch, saves it to the Anthropic-specific SecretStorage slot, and sets `baseUrl` / `provider` / `model` for you.
+
+**Manual:**
 
 1. Set `sidecar.baseUrl` to `https://api.anthropic.com`
-2. Set `sidecar.apiKey` to your Anthropic API key
+2. Run `SideCar: Set API Key (SecretStorage)` from the command palette and paste your Anthropic API key
 3. Set `sidecar.model` to a Claude model (e.g., `claude-sonnet-4-6`)
 
 SideCar uses prompt caching with Anthropic, reducing input token costs by ~90% on cache hits.
+
+> Note: the Anthropic API is a separate paid service from Claude.ai subscriptions — your Max or Pro plan does not include API credits. Get a key at [platform.claude.com](https://platform.claude.com).
 
 ## Using Kickstand
 
 [Kickstand](https://github.com/kickstand/kickstand) is a local inference server that manages model loading, unloading, and GPU memory efficiently. The CLI command is `kick`.
 
-1. Install Kickstand and run `kick init` to set up
-2. Start the server with `kick start`
-3. Set `sidecar.baseUrl` to `http://localhost:11435` (default Kickstand port)
-4. Set `sidecar.model` to the model you want to use
-5. If authentication is required, set `sidecar.apiKey` — or store your token in `~/.config/kickstand/token` for automatic loading
+1. Install Kickstand and run `kick init` to set up.
+2. Start the server with `kick start`.
+3. **Recommended:** click the ⚙ gear → **Kickstand** in the chat header.
+   **Manual:** set `sidecar.baseUrl` to `http://localhost:11435` (default Kickstand port).
+4. Set `sidecar.model` to the model you want to use.
+5. If authentication is required, run `SideCar: Set API Key` — or store your token in `~/.config/kickstand/token` for automatic loading.
 
 SideCar will auto-detect Kickstand by the port number.
 
