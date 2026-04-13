@@ -9,7 +9,7 @@ import { parseHuggingFaceRef, listGGUFFiles, formatSize } from '../../ollama/hug
 export async function loadModels(state: ChatState): Promise<void> {
   const config = getConfig();
   try {
-    const started = await ensureReachable(state);
+    const started = await isProviderReachable(state.client.getProviderType());
     if (!started) {
       state.postMessage({
         command: 'error',
@@ -161,8 +161,4 @@ export async function handleInstallModel(state: ChatState, modelName: string): P
   } finally {
     state.installAbortController = null;
   }
-}
-
-async function ensureReachable(state: ChatState): Promise<boolean> {
-  return isProviderReachable(state.client.getProviderType());
 }

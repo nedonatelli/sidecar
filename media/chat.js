@@ -862,9 +862,46 @@
     return null;
   }
 
+  // --- gh-card builders: shared helpers so each action branch doesn't
+  // re-create the same DOM structure by hand. ---
+  function ghDiv(className, text) {
+    const el = document.createElement('div');
+    el.className = className;
+    if (text !== undefined) el.textContent = text;
+    return el;
+  }
+  function ghStatePill(text, stateClass) {
+    const span = document.createElement('span');
+    span.className = 'gh-state' + (stateClass ? ' ' + stateClass : '');
+    span.textContent = text;
+    return span;
+  }
+  function ghLink(url, label) {
+    const link = document.createElement('span');
+    link.className = 'gh-link';
+    link.textContent = label !== undefined ? label : url;
+    link.addEventListener('click', () => {
+      vscode.postMessage({ command: 'openExternal', url });
+    });
+    return link;
+  }
+  function ghCardTitle(text, pill) {
+    const title = ghDiv('gh-card-title', text);
+    if (pill) {
+      title.appendChild(document.createTextNode(' '));
+      title.appendChild(pill);
+    }
+    return title;
+  }
+  function ghAuthorMeta(author, createdAt) {
+    return ghDiv('gh-meta', 'by ' + author + ' - ' + new Date(createdAt).toLocaleDateString());
+  }
+  function ghPrefix(action) {
+    return action === 'listPRs' || action === 'getPR' || action === 'createPR' ? 'PR' : 'Issue';
+  }
+
   function renderGitHubResult(action, data) {
-    const container = document.createElement('div');
-    container.className = 'message assistant gh-result';
+    const container = ghDiv('message assistant gh-result');
 
     if (action === 'listPRs' || action === 'listIssues') {
       const items = data;
@@ -872,35 +909,14 @@
         container.textContent = action === 'listPRs' ? 'No pull requests found.' : 'No issues found.';
         return container;
       }
+      const prefix = ghPrefix(action);
       for (const item of items) {
-        const card = document.createElement('div');
-        card.className = 'gh-card';
-
-        const title = document.createElement('div');
-        title.className = 'gh-card-title';
-        const prefix = action === 'listPRs' ? 'PR' : 'Issue';
-        title.textContent = prefix + ' #' + item.number + ': ' + item.title;
-
-        const state = document.createElement('span');
-        state.className = 'gh-state ' + item.state;
-        state.textContent = item.state;
-        title.appendChild(document.createTextNode(' '));
-        title.appendChild(state);
-
-        const meta = document.createElement('div');
-        meta.className = 'gh-meta';
-        meta.textContent = 'by ' + item.author + ' - ' + new Date(item.createdAt).toLocaleDateString();
-
-        const link = document.createElement('span');
-        link.className = 'gh-link';
-        link.textContent = item.url;
-        link.addEventListener('click', () => {
-          vscode.postMessage({ command: 'openExternal', url: item.url });
-        });
-
-        card.appendChild(title);
-        card.appendChild(meta);
-        card.appendChild(link);
+        const card = ghDiv('gh-card');
+        card.appendChild(
+          ghCardTitle(prefix + ' #' + item.number + ': ' + item.title, ghStatePill(item.state, item.state)),
+        );
+        card.appendChild(ghAuthorMeta(item.author, item.createdAt));
+        card.appendChild(ghLink(item.url));
         container.appendChild(card);
       }
       return container;
@@ -908,71 +924,32 @@
 
     if (action === 'getPR' || action === 'getIssue') {
       const item = data;
-      const prefix = action === 'getPR' ? 'PR' : 'Issue';
-      const card = document.createElement('div');
-      card.className = 'gh-card';
-
-      const title = document.createElement('div');
-      title.className = 'gh-card-title';
-      title.textContent = prefix + ' #' + item.number + ': ' + item.title;
-
-      const state = document.createElement('span');
-      state.className = 'gh-state ' + item.state;
-      state.textContent = item.state;
-      title.appendChild(document.createTextNode(' '));
-      title.appendChild(state);
-
-      const meta = document.createElement('div');
-      meta.className = 'gh-meta';
-      meta.textContent = 'by ' + item.author + ' - ' + new Date(item.createdAt).toLocaleDateString();
-
-      card.appendChild(title);
-      card.appendChild(meta);
+      const prefix = ghPrefix(action);
+      const card = ghDiv('gh-card');
+      card.appendChild(
+        ghCardTitle(prefix + ' #' + item.number + ': ' + item.title, ghStatePill(item.state, item.state)),
+      );
+      card.appendChild(ghAuthorMeta(item.author, item.createdAt));
 
       if (item.body) {
-        const body = document.createElement('div');
-        body.className = 'gh-body';
-        body.textContent = item.body.slice(0, 500) + (item.body.length > 500 ? '...' : '');
-        card.appendChild(body);
+        card.appendChild(ghDiv('gh-body', item.body.slice(0, 500) + (item.body.length > 500 ? '...' : '')));
       }
-
       if (action === 'getPR' && item.head && item.base) {
-        const branches = document.createElement('div');
-        branches.className = 'gh-meta';
-        branches.textContent = item.head + ' \u2192 ' + item.base;
-        card.appendChild(branches);
+        card.appendChild(ghDiv('gh-meta', item.head + ' \u2192 ' + item.base));
       }
-
       if (item.labels && item.labels.length > 0) {
-        const labels = document.createElement('div');
-        labels.className = 'gh-meta';
-        labels.textContent = 'Labels: ' + item.labels.join(', ');
-        card.appendChild(labels);
+        card.appendChild(ghDiv('gh-meta', 'Labels: ' + item.labels.join(', ')));
       }
-
-      const link = document.createElement('span');
-      link.className = 'gh-link';
-      link.textContent = item.url;
-      link.addEventListener('click', () => {
-        vscode.postMessage({ command: 'openExternal', url: item.url });
-      });
-      card.appendChild(link);
-
+      card.appendChild(ghLink(item.url));
       container.appendChild(card);
       return container;
     }
 
     if (action === 'createPR' || action === 'createIssue') {
       const item = data;
-      const prefix = action === 'createPR' ? 'PR' : 'Issue';
+      const prefix = ghPrefix(action);
       container.textContent = prefix + ' #' + item.number + ' created: ' + item.title;
-      const link = document.createElement('span');
-      link.className = 'gh-link';
-      link.textContent = ' ' + item.url;
-      link.addEventListener('click', () => {
-        vscode.postMessage({ command: 'openExternal', url: item.url });
-      });
-      container.appendChild(link);
+      container.appendChild(ghLink(item.url, ' ' + item.url));
       return container;
     }
 
@@ -1041,51 +1018,24 @@
         return container;
       }
       for (const r of releases) {
-        const card = document.createElement('div');
-        card.className = 'gh-card';
-
-        const title = document.createElement('div');
-        title.className = 'gh-card-title';
-        title.textContent = r.name || r.tagName;
-
-        const tag = document.createElement('span');
-        tag.className = 'gh-state open';
-        tag.textContent = r.tagName;
-        title.appendChild(document.createTextNode(' '));
-        title.appendChild(tag);
-
+        const card = ghDiv('gh-card');
+        const title = ghCardTitle(r.name || r.tagName, ghStatePill(r.tagName, 'open'));
         if (r.draft) {
-          const draft = document.createElement('span');
-          draft.className = 'gh-state closed';
-          draft.textContent = 'draft';
           title.appendChild(document.createTextNode(' '));
-          title.appendChild(draft);
+          title.appendChild(ghStatePill('draft', 'closed'));
         }
         if (r.prerelease) {
-          const pre = document.createElement('span');
-          pre.className = 'gh-state';
-          pre.textContent = 'pre-release';
           title.appendChild(document.createTextNode(' '));
-          title.appendChild(pre);
+          title.appendChild(ghStatePill('pre-release'));
         }
-
-        const meta = document.createElement('div');
-        meta.className = 'gh-meta';
-        meta.textContent = r.publishedAt ? new Date(r.publishedAt).toLocaleDateString() : 'unpublished';
-        if (r.assets && r.assets.length > 0) {
-          meta.textContent += ' \u2022 ' + r.assets.length + ' asset' + (r.assets.length === 1 ? '' : 's');
-        }
-
-        const link = document.createElement('span');
-        link.className = 'gh-link';
-        link.textContent = r.url;
-        link.addEventListener('click', () => {
-          vscode.postMessage({ command: 'openExternal', url: r.url });
-        });
-
         card.appendChild(title);
-        card.appendChild(meta);
-        card.appendChild(link);
+
+        let metaText = r.publishedAt ? new Date(r.publishedAt).toLocaleDateString() : 'unpublished';
+        if (r.assets && r.assets.length > 0) {
+          metaText += ' \u2022 ' + r.assets.length + ' asset' + (r.assets.length === 1 ? '' : 's');
+        }
+        card.appendChild(ghDiv('gh-meta', metaText));
+        card.appendChild(ghLink(r.url));
         container.appendChild(card);
       }
       return container;
@@ -1093,31 +1043,18 @@
 
     if (action === 'getRelease') {
       const r = data;
-      const card = document.createElement('div');
-      card.className = 'gh-card';
-
-      const title = document.createElement('div');
-      title.className = 'gh-card-title';
-      title.textContent = (r.name || r.tagName) + ' (' + r.tagName + ')';
-
-      const meta = document.createElement('div');
-      meta.className = 'gh-meta';
-      meta.textContent = r.publishedAt ? 'Published ' + new Date(r.publishedAt).toLocaleDateString() : 'Draft';
-
-      card.appendChild(title);
-      card.appendChild(meta);
+      const card = ghDiv('gh-card');
+      card.appendChild(ghCardTitle((r.name || r.tagName) + ' (' + r.tagName + ')'));
+      card.appendChild(
+        ghDiv('gh-meta', r.publishedAt ? 'Published ' + new Date(r.publishedAt).toLocaleDateString() : 'Draft'),
+      );
 
       if (r.body) {
-        const body = document.createElement('div');
-        body.className = 'gh-body';
-        body.textContent = r.body.slice(0, 800) + (r.body.length > 800 ? '...' : '');
-        card.appendChild(body);
+        card.appendChild(ghDiv('gh-body', r.body.slice(0, 800) + (r.body.length > 800 ? '...' : '')));
       }
 
       if (r.assets && r.assets.length > 0) {
-        const assetsDiv = document.createElement('div');
-        assetsDiv.className = 'gh-meta';
-        assetsDiv.textContent =
+        const assetsText =
           'Assets: ' +
           r.assets
             .map(function (a) {
@@ -1125,17 +1062,10 @@
               return a.name + ' (' + mb + ' MB, ' + a.downloadCount + ' downloads)';
             })
             .join(', ');
-        card.appendChild(assetsDiv);
+        card.appendChild(ghDiv('gh-meta', assetsText));
       }
 
-      const link = document.createElement('span');
-      link.className = 'gh-link';
-      link.textContent = r.url;
-      link.addEventListener('click', () => {
-        vscode.postMessage({ command: 'openExternal', url: r.url });
-      });
-      card.appendChild(link);
-
+      card.appendChild(ghLink(r.url));
       container.appendChild(card);
       return container;
     }
@@ -1143,13 +1073,7 @@
     if (action === 'createRelease') {
       const r = data;
       container.textContent = 'Release created: ' + (r.name || r.tagName);
-      const link = document.createElement('span');
-      link.className = 'gh-link';
-      link.textContent = ' ' + r.url;
-      link.addEventListener('click', () => {
-        vscode.postMessage({ command: 'openExternal', url: r.url });
-      });
-      container.appendChild(link);
+      container.appendChild(ghLink(r.url, ' ' + r.url));
       return container;
     }
 

@@ -17,6 +17,15 @@ export const CHARS_PER_TOKEN = 4;
 export const INPUT_TOKEN_RATIO = 0.7;
 
 /**
+ * Agent loop context-compression trigger: when estimated tokens exceed this
+ * fraction of the budget, the loop runs summarization + tool-result
+ * compression to reclaim space before the next turn. Sized so compression
+ * runs early enough to leave headroom for the model's next response while
+ * still amortizing the cost across multiple turns.
+ */
+export const CONTEXT_COMPRESSION_THRESHOLD = 0.7;
+
+/**
  * Context budget: fraction of estimated context window to reserve for the system prompt.
  * The remaining budget is for conversation history + tool results.
  */

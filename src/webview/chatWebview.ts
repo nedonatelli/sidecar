@@ -71,7 +71,7 @@ export interface WebviewMessage {
   filePath?: string;
   sourcePath?: string;
   destPath?: string;
-  action?: string;
+  action?: import('../github/types.js').GitHubAction;
   url?: string;
   repo?: string;
   number?: number;
@@ -171,7 +171,7 @@ export interface ExtensionMessage {
   progress?: string;
   fileName?: string;
   fileContent?: string;
-  githubAction?: string;
+  githubAction?: import('../github/types.js').GitHubAction;
   githubData?: unknown;
   mediaType?: string;
   data?: string;

@@ -1,4 +1,4 @@
-import { window, workspace, Uri } from 'vscode';
+import { window, workspace, Uri, WorkspaceEdit, Range } from 'vscode';
 import * as path from 'path';
 import type { ChatState } from '../chatState.js';
 import { getConfig, resolveMode } from '../../config/settings.js';
@@ -165,26 +165,47 @@ export async function handleInit(state: ChatState): Promise<void> {
       return;
     }
 
-    // Save to .sidecar/SIDECAR.md via SidecarDir if available, otherwise fallback
-    if (state.sidecarDir?.isReady()) {
-      await state.sidecarDir.writeText('SIDECAR.md', sidecarMd);
-      const doc = await workspace.openTextDocument(state.sidecarDir.getUri('SIDECAR.md'));
-      await window.showTextDocument(doc, { preview: true });
-    } else {
-      const rootUri = workspace.workspaceFolders?.[0]?.uri;
-      if (rootUri) {
-        const sidecarDir = Uri.joinPath(rootUri, '.sidecar');
-        try {
-          await workspace.fs.createDirectory(sidecarDir);
-        } catch {
-          // Already exists
-        }
-        const fileUri = Uri.joinPath(sidecarDir, 'SIDECAR.md');
-        await workspace.fs.writeFile(fileUri, Buffer.from(sidecarMd, 'utf-8'));
-        const doc = await workspace.openTextDocument(fileUri);
-        await window.showTextDocument(doc, { preview: true });
-      }
+    // Resolve the target URI for .sidecar/SIDECAR.md.
+    const targetUri = state.sidecarDir?.isReady()
+      ? state.sidecarDir.getUri('SIDECAR.md')
+      : (() => {
+          const root = workspace.workspaceFolders?.[0]?.uri;
+          return root ? Uri.joinPath(root, '.sidecar', 'SIDECAR.md') : null;
+        })();
+
+    if (!targetUri) {
+      state.postMessage({ command: 'error', content: 'No workspace folder open to write SIDECAR.md.' });
+      state.postMessage({ command: 'setLoading', isLoading: false });
+      return;
     }
+
+    // Ensure .sidecar/ exists, and create an empty file on first run so we
+    // can obtain a TextDocument handle below.
+    try {
+      await workspace.fs.createDirectory(Uri.file(path.dirname(targetUri.fsPath)));
+    } catch {
+      // Already exists
+    }
+    try {
+      await workspace.fs.stat(targetUri);
+    } catch {
+      await workspace.fs.writeFile(targetUri, new Uint8Array());
+    }
+
+    // Apply the update through a WorkspaceEdit so VS Code's in-memory model
+    // stays in sync with disk. Writing via workspace.fs.writeFile on a file
+    // that's already open in an editor tab leaves the cached TextDocument
+    // stale, so the tab keeps showing old content until manual revert.
+    const doc = await workspace.openTextDocument(targetUri);
+    const fullRange = doc.validateRange(new Range(0, 0, doc.lineCount, 0));
+    const edit = new WorkspaceEdit();
+    edit.replace(targetUri, fullRange, sidecarMd);
+    const applied = await workspace.applyEdit(edit);
+    if (!applied) {
+      throw new Error('Failed to apply SIDECAR.md edit');
+    }
+    await doc.save();
+    await window.showTextDocument(doc, { preview: true });
 
     state.postMessage({
       command: 'assistantMessage',

@@ -648,7 +648,7 @@ export async function enrichAndPruneMessages(
     const after = prunedMessages.reduce((s, m) => s + getContentLength(m.content), 0);
     state.postMessage({
       command: 'verboseLog',
-      content: `Pruned conversation: ${chatMessages.length} → ${prunedMessages.length} messages, ~${Math.round((before - after) / 4)} tokens freed`,
+      content: `Pruned conversation: ${chatMessages.length} → ${prunedMessages.length} messages, ~${Math.round((before - after) / CHARS_PER_TOKEN)} tokens freed`,
       verboseLabel: 'Context Pruning',
     });
   }
@@ -805,7 +805,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
         });
         await new Promise((r) => setTimeout(r, retryDelays[attempt]));
         if (state.abortController?.signal.aborted) return;
-        started = await isReachable(state);
+        started = await isProviderReachable(state.client.getProviderType());
         if (started) break;
       }
     }
@@ -1188,12 +1188,8 @@ export function handleUserMessageWithImages(
 
 // --- Provider management ---
 
-async function isReachable(state: ChatState): Promise<boolean> {
-  return isProviderReachable(state.client.getProviderType());
-}
-
 async function ensureProviderRunning(state: ChatState): Promise<boolean> {
-  if (await isReachable(state)) return true;
+  if (await isProviderReachable(state.client.getProviderType())) return true;
 
   if (!state.client.isLocalOllama()) return false;
 
@@ -1210,7 +1206,7 @@ async function ensureProviderRunning(state: ChatState): Promise<boolean> {
 
   for (let i = 0; i < 30; i++) {
     await new Promise((r) => setTimeout(r, 500));
-    if (await isReachable(state)) return true;
+    if (await isProviderReachable(state.client.getProviderType())) return true;
   }
 
   return false;

@@ -258,9 +258,9 @@ Remaining findings from seven comprehensive reviews. Fixed items removed.
 ### Architecture
 
 - `handleUserMessage` is 500+ lines — needs decomposition
-- Parallel `write_file` to same path races — serialize writes
+- ~~Parallel `write_file` to same path races — serialize writes~~ → per-path mutex via [`withFileLock`](src/agent/fileLock.ts) wrapping every tool that writes at [executor.ts:292](src/agent/executor.ts#L292)
 - Module-level singletons (`shellSession`, `symbolGraph`) create hidden coupling
-- `messages` array mutated from multiple async paths
+- ~~`messages` array mutated from multiple async paths~~ → previous run aborted + `chatGeneration` bumped **before** any new mutation at [chatHandlers.ts:737-741](src/webview/handlers/chatHandlers.ts#L737-L741); stale completions dropped via generation check at [chatHandlers.ts:1136](src/webview/handlers/chatHandlers.ts#L1136)
 - ~~MCP tool errors lose server/call context~~ → wrapped callTool() in try/catch, errors include server name + tool name + input
 - ~~Error classifier missing 429, 5xx, content policy, token limit~~ → 4 new error types added: rate_limit, server_error, content_policy, token_limit
 - ~~Hook failures silently swallowed — policy hooks don't block~~ → runHook() returns error string; pre-hook failures block tool execution
@@ -269,9 +269,9 @@ Remaining findings from seven comprehensive reviews. Fixed items removed.
 
 ### AI Engineering
 
-- Anthropic backend doesn't use `abortableRead` — stalls can't be cancelled
-- Malformed Anthropic tool input silently becomes `{}`
-- Token estimation inconsistency: chars/3.5 in loop vs chars/4 in pruner
+- ~~Anthropic backend doesn't use `abortableRead` — stalls can't be cancelled~~ → streams read through [`abortableRead`](src/ollama/streamUtils.ts) at [anthropicBackend.ts:108](src/ollama/anthropicBackend.ts#L108)
+- ~~Malformed Anthropic tool input silently becomes `{}`~~ → raw JSON surfaced via `_malformedInputRaw` at [anthropicBackend.ts:154-169](src/ollama/anthropicBackend.ts#L154-L169) and rejected up-front in [executor.ts:77-85](src/agent/executor.ts#L77-L85) with a descriptive error instead of calling the tool with empty args
+- ~~Token estimation inconsistency: chars/3.5 in loop vs chars/4 in pruner~~ → single `CHARS_PER_TOKEN` constant at [constants.ts:8](src/config/constants.ts#L8) used everywhere (loop, metrics, contextReport, chatHandlers pruning message)
 - ~~Cycle detection only catches exact 2-repetition~~ → detects cycles of length 1..4 with 8-entry window
 - ~~File content cache not invalidated on change (5-min stale window)~~ → invalidate on watcher change/delete events
 - ~~Query matching is path-substring only~~ → tokenize() splits camelCase/snake_case/paths and matches against query words
@@ -302,15 +302,16 @@ Remaining findings from seven comprehensive reviews. Fixed items removed.
 
 ### Code Quality
 
-- `loop.ts:91` — hand-rolled char counting duplicates `getContentLength()`
-- `chat.js:527` — 6 card rendering branches repeat identical DOM construction
-- `chatHandlers.ts:624` — bracket-notation private field access
-- Duplicated `isReachable`/`ensureReachable` with divergent provider coverage
-- `deleteRelease()` bypasses shared `request()` helper
-- `api.ts` responses typed as `Record<string, unknown>` with manual casting
-- Stringly-typed GitHub actions — define `GitHubAction` union type
-- Magic number `0.7` for input/output ratio duplicated
-- Double workspace state deserialization in budget check
+- ~~`/init` wrote SIDECAR.md via `workspace.fs.writeFile`, leaving open editor tabs showing stale in-memory content until manual revert~~ → routed through `WorkspaceEdit.replace` against the full document range + `doc.save()` so VS Code's in-memory `TextDocument` stays in sync with disk ([agentHandlers.ts:168-209](src/webview/handlers/agentHandlers.ts#L168-L209))
+- ~~`loop.ts:91` — hand-rolled char counting duplicates `getContentLength()`~~ → tool-use / tool-result accounting now calls `getContentLength(pendingToolUses)` + `getContentLength(toolResults)` at [loop.ts:565-566](src/agent/loop.ts#L565-L566)
+- ~~`chat.js:527` — 6 card rendering branches repeat identical DOM construction~~ → shared `ghDiv` / `ghStatePill` / `ghLink` / `ghCardTitle` / `ghAuthorMeta` helpers at [chat.js:865-900](media/chat.js#L865-L900); all 6 action branches rebuilt on them
+- ~~`chatHandlers.ts:624` — bracket-notation private field access~~ → already removed in earlier refactor; no bracket-notation access remains in [chatHandlers.ts](src/webview/handlers/chatHandlers.ts)
+- ~~Duplicated `isReachable`/`ensureReachable` with divergent provider coverage~~ → both wrappers deleted; call sites call `isProviderReachable(state.client.getProviderType())` directly ([chatHandlers.ts:808](src/webview/handlers/chatHandlers.ts#L808), [modelHandlers.ts:12](src/webview/handlers/modelHandlers.ts#L12))
+- ~~`deleteRelease()` bypasses shared `request()` helper~~ → already routed through `this.request<void>` at [api.ts:236](src/github/api.ts#L236) with shared 204-No-Content handling at [api.ts:47-49](src/github/api.ts#L47-L49)
+- ~~`api.ts` responses typed as `Record<string, unknown>` with manual casting~~ → typed raw response interfaces (`RawPR`, `RawIssue`, `RawRelease`, `RawRepoContent`) in [github/types.ts](src/github/types.ts); parsing centralized in `parsePR` / `parseIssue` / `parseRelease` — no per-field `as number` / `as string` casts
+- ~~Stringly-typed GitHub actions — define `GitHubAction` union type~~ → [`GitHubAction`](src/github/types.ts) union with 16 members; `action?` and `githubAction?` fields in [chatWebview.ts:74](src/webview/chatWebview.ts#L74), [:174](src/webview/chatWebview.ts#L174) now use it
+- ~~Magic number `0.7` for input/output ratio duplicated~~ → `INPUT_TOKEN_RATIO` (billing split) kept; dedicated `CONTEXT_COMPRESSION_THRESHOLD` constant added at [constants.ts:20](src/config/constants.ts#L20) and wired into [loop.ts:178](src/agent/loop.ts#L178), [:577](src/agent/loop.ts#L577)
+- ~~Double workspace state deserialization in budget check~~ → replaced with single-pass `getSpendBreakdown()` at [chatHandlers.ts:839](src/webview/handlers/chatHandlers.ts#L839)
 - `chat.js` — 800+ lines with `@ts-nocheck`, unminified, no code splitting
 - 5.2MB mermaid.min.js — consider lighter alternative or web worker
 

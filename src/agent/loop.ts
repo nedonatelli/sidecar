@@ -13,7 +13,7 @@ import type { InlineEditFn } from './executor.js';
 import type { ClarifyFn } from './tools.js';
 import { getToolDefinitions, getDiagnostics } from './tools.js';
 import { getConfig } from '../config/settings.js';
-import { CHARS_PER_TOKEN } from '../config/constants.js';
+import { CHARS_PER_TOKEN, CONTEXT_COMPRESSION_THRESHOLD } from '../config/constants.js';
 import {
   executeTool,
   type ApprovalMode,
@@ -175,7 +175,7 @@ export async function runAgentLoop(
     // Compress context at 70% of budget (or when already over) to extend the loop.
     // Both strategies are applied: summarization replaces old turns, compression
     // truncates large tool results. Running both maximises freed space.
-    if (estimatedTokens > maxTokens * 0.7) {
+    if (estimatedTokens > maxTokens * CONTEXT_COMPRESSION_THRESHOLD) {
       // 1. Summarize old turns
       const summarizer = new ConversationSummarizer(client);
       const summarized = await summarizer.summarize(agentMessages, {
@@ -560,16 +560,10 @@ export async function runAgentLoop(
         if (tr) recordGateToolCall(gateState, pendingToolUses[idx], tr);
       }
 
-      // Count tool call and result tokens toward the budget
-      for (const tu of pendingToolUses) {
-        totalChars += tu.name.length;
-        for (const v of Object.values(tu.input)) {
-          totalChars += typeof v === 'string' ? v.length : String(v).length;
-        }
-      }
-      for (const tr of toolResults) {
-        totalChars += tr.content.length;
-      }
+      // Count tool call and result tokens toward the budget. Delegates to
+      // getContentLength so tool_use / tool_result accounting stays in one place.
+      totalChars += getContentLength(pendingToolUses);
+      totalChars += getContentLength(toolResults);
 
       // Add tool results as a user message (Anthropic API format)
       agentMessages.push({
@@ -580,7 +574,7 @@ export async function runAgentLoop(
       // Proactively compress after adding tool results so the next iteration
       // doesn't open over budget (tool results can be very large).
       const postToolTokens = Math.ceil(totalChars / CHARS_PER_TOKEN);
-      if (postToolTokens > maxTokens * 0.7) {
+      if (postToolTokens > maxTokens * CONTEXT_COMPRESSION_THRESHOLD) {
         const compressed = compressMessages(agentMessages);
         if (compressed) {
           totalChars -= compressed;

@@ -1,4 +1,13 @@
-import type { GitHubPR, GitHubIssue, GitHubRepoFile, GitHubRelease } from './types.js';
+import type {
+  GitHubPR,
+  GitHubIssue,
+  GitHubRepoFile,
+  GitHubRelease,
+  RawPR,
+  RawIssue,
+  RawRelease,
+  RawRepoContent,
+} from './types.js';
 
 const BASE_URL = 'https://api.github.com';
 
@@ -51,36 +60,41 @@ export class GitHubAPI {
     return response.json() as Promise<T>;
   }
 
+  private parsePR(pr: RawPR): GitHubPR {
+    return {
+      number: pr.number,
+      title: pr.title,
+      state: pr.merged ? 'merged' : pr.state,
+      author: pr.user?.login ?? 'unknown',
+      url: pr.html_url,
+      createdAt: pr.created_at,
+      body: pr.body ?? undefined,
+      head: pr.head?.ref,
+      base: pr.base?.ref,
+    };
+  }
+
+  private parseIssue(issue: RawIssue): GitHubIssue {
+    return {
+      number: issue.number,
+      title: issue.title,
+      state: issue.state,
+      author: issue.user?.login ?? 'unknown',
+      url: issue.html_url,
+      labels: issue.labels.map((l) => l.name),
+      createdAt: issue.created_at,
+      body: issue.body ?? undefined,
+    };
+  }
+
   async listPRs(owner: string, repo: string, state: string = 'open'): Promise<GitHubPR[]> {
-    const data = await this.request<Array<Record<string, unknown>>>(
-      `/repos/${owner}/${repo}/pulls?state=${state}&per_page=20`,
-    );
-    return data.map((pr) => ({
-      number: pr.number as number,
-      title: pr.title as string,
-      state: pr.state as string,
-      author: ((pr.user as Record<string, unknown>)?.login as string) ?? 'unknown',
-      url: pr.html_url as string,
-      createdAt: pr.created_at as string,
-      body: pr.body as string | undefined,
-      head: ((pr.head as Record<string, unknown>)?.ref as string) ?? undefined,
-      base: ((pr.base as Record<string, unknown>)?.ref as string) ?? undefined,
-    }));
+    const data = await this.request<RawPR[]>(`/repos/${owner}/${repo}/pulls?state=${state}&per_page=20`);
+    return data.map((pr) => this.parsePR({ ...pr, merged: false }));
   }
 
   async getPR(owner: string, repo: string, number: number): Promise<GitHubPR> {
-    const pr = await this.request<Record<string, unknown>>(`/repos/${owner}/${repo}/pulls/${number}`);
-    return {
-      number: pr.number as number,
-      title: pr.title as string,
-      state: (pr.merged as boolean) ? 'merged' : (pr.state as string),
-      author: ((pr.user as Record<string, unknown>)?.login as string) ?? 'unknown',
-      url: pr.html_url as string,
-      createdAt: pr.created_at as string,
-      body: pr.body as string | undefined,
-      head: ((pr.head as Record<string, unknown>)?.ref as string) ?? undefined,
-      base: ((pr.base as Record<string, unknown>)?.ref as string) ?? undefined,
-    };
+    const pr = await this.request<RawPR>(`/repos/${owner}/${repo}/pulls/${number}`);
+    return this.parsePR(pr);
   }
 
   async createPR(
@@ -91,115 +105,73 @@ export class GitHubAPI {
     base: string,
     body?: string,
   ): Promise<GitHubPR> {
-    const pr = await this.request<Record<string, unknown>>(`/repos/${owner}/${repo}/pulls`, {
+    const pr = await this.request<RawPR>(`/repos/${owner}/${repo}/pulls`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title, head, base, body }),
     });
-    return {
-      number: pr.number as number,
-      title: pr.title as string,
-      state: pr.state as string,
-      author: ((pr.user as Record<string, unknown>)?.login as string) ?? 'unknown',
-      url: pr.html_url as string,
-      createdAt: pr.created_at as string,
-      body: pr.body as string | undefined,
-      head,
-      base,
-    };
+    return this.parsePR(pr);
   }
 
   async listIssues(owner: string, repo: string, state: string = 'open'): Promise<GitHubIssue[]> {
-    const data = await this.request<Array<Record<string, unknown>>>(
-      `/repos/${owner}/${repo}/issues?state=${state}&per_page=20`,
-    );
-    return data
-      .filter((issue) => !issue.pull_request)
-      .map((issue) => ({
-        number: issue.number as number,
-        title: issue.title as string,
-        state: issue.state as string,
-        author: ((issue.user as Record<string, unknown>)?.login as string) ?? 'unknown',
-        url: issue.html_url as string,
-        labels: (issue.labels as Array<Record<string, unknown>>)?.map((l) => l.name as string) ?? [],
-        createdAt: issue.created_at as string,
-        body: issue.body as string | undefined,
-      }));
+    const data = await this.request<RawIssue[]>(`/repos/${owner}/${repo}/issues?state=${state}&per_page=20`);
+    return data.filter((issue) => !issue.pull_request).map((issue) => this.parseIssue(issue));
   }
 
   async getIssue(owner: string, repo: string, number: number): Promise<GitHubIssue> {
-    const issue = await this.request<Record<string, unknown>>(`/repos/${owner}/${repo}/issues/${number}`);
-    return {
-      number: issue.number as number,
-      title: issue.title as string,
-      state: issue.state as string,
-      author: ((issue.user as Record<string, unknown>)?.login as string) ?? 'unknown',
-      url: issue.html_url as string,
-      labels: (issue.labels as Array<Record<string, unknown>>)?.map((l) => l.name as string) ?? [],
-      createdAt: issue.created_at as string,
-      body: issue.body as string | undefined,
-    };
+    const issue = await this.request<RawIssue>(`/repos/${owner}/${repo}/issues/${number}`);
+    return this.parseIssue(issue);
   }
 
   async createIssue(owner: string, repo: string, title: string, body?: string): Promise<GitHubIssue> {
-    const issue = await this.request<Record<string, unknown>>(`/repos/${owner}/${repo}/issues`, {
+    const issue = await this.request<RawIssue>(`/repos/${owner}/${repo}/issues`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title, body }),
     });
-    return {
-      number: issue.number as number,
-      title: issue.title as string,
-      state: issue.state as string,
-      author: ((issue.user as Record<string, unknown>)?.login as string) ?? 'unknown',
-      url: issue.html_url as string,
-      labels: [],
-      createdAt: issue.created_at as string,
-      body: issue.body as string | undefined,
-    };
+    return this.parseIssue(issue);
   }
 
   // --- Releases ---
 
-  private parseRelease(r: Record<string, unknown>): GitHubRelease {
-    const assets = (r.assets as Array<Record<string, unknown>> | undefined) ?? [];
+  private parseRelease(r: RawRelease): GitHubRelease {
     return {
-      id: r.id as number,
-      tagName: r.tag_name as string,
-      name: (r.name as string) || (r.tag_name as string),
-      body: (r.body as string) || '',
-      draft: r.draft as boolean,
-      prerelease: r.prerelease as boolean,
-      url: r.html_url as string,
-      createdAt: r.created_at as string,
-      publishedAt: (r.published_at as string) || '',
-      assets: assets.map((a) => ({
-        name: a.name as string,
-        size: a.size as number,
-        downloadUrl: a.browser_download_url as string,
-        downloadCount: a.download_count as number,
+      id: r.id,
+      tagName: r.tag_name,
+      name: r.name || r.tag_name,
+      body: r.body || '',
+      draft: r.draft,
+      prerelease: r.prerelease,
+      url: r.html_url,
+      createdAt: r.created_at,
+      publishedAt: r.published_at || '',
+      assets: r.assets.map((a) => ({
+        name: a.name,
+        size: a.size,
+        downloadUrl: a.browser_download_url,
+        downloadCount: a.download_count,
       })),
     };
   }
 
   async listReleases(owner: string, repo: string): Promise<GitHubRelease[]> {
-    const data = await this.request<Array<Record<string, unknown>>>(`/repos/${owner}/${repo}/releases?per_page=20`);
+    const data = await this.request<RawRelease[]>(`/repos/${owner}/${repo}/releases?per_page=20`);
     return data.map((r) => this.parseRelease(r));
   }
 
   async getRelease(owner: string, repo: string, tagOrId: string): Promise<GitHubRelease> {
     // Try by tag first, fall back to by ID
     try {
-      const r = await this.request<Record<string, unknown>>(`/repos/${owner}/${repo}/releases/tags/${tagOrId}`);
+      const r = await this.request<RawRelease>(`/repos/${owner}/${repo}/releases/tags/${tagOrId}`);
       return this.parseRelease(r);
     } catch {
-      const r = await this.request<Record<string, unknown>>(`/repos/${owner}/${repo}/releases/${tagOrId}`);
+      const r = await this.request<RawRelease>(`/repos/${owner}/${repo}/releases/${tagOrId}`);
       return this.parseRelease(r);
     }
   }
 
   async getLatestRelease(owner: string, repo: string): Promise<GitHubRelease> {
-    const r = await this.request<Record<string, unknown>>(`/repos/${owner}/${repo}/releases/latest`);
+    const r = await this.request<RawRelease>(`/repos/${owner}/${repo}/releases/latest`);
     return this.parseRelease(r);
   }
 
@@ -216,7 +188,7 @@ export class GitHubAPI {
       generateNotes?: boolean;
     },
   ): Promise<GitHubRelease> {
-    const r = await this.request<Record<string, unknown>>(`/repos/${owner}/${repo}/releases`, {
+    const r = await this.request<RawRelease>(`/repos/${owner}/${repo}/releases`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -240,12 +212,12 @@ export class GitHubAPI {
 
   async listRepoContents(owner: string, repo: string, repoPath: string = ''): Promise<GitHubRepoFile[]> {
     const endpoint = repoPath ? `/repos/${owner}/${repo}/contents/${repoPath}` : `/repos/${owner}/${repo}/contents`;
-    const data = await this.request<Array<Record<string, unknown>>>(endpoint);
+    const data = await this.request<RawRepoContent[]>(endpoint);
     return data.map((item) => ({
-      name: item.name as string,
+      name: item.name,
       type: item.type === 'dir' ? 'dir' : 'file',
-      path: item.path as string,
-      url: item.html_url as string,
+      path: item.path,
+      url: item.html_url,
     }));
   }
 }
