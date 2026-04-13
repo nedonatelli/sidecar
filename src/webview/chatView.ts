@@ -455,6 +455,11 @@ export class ChatViewProvider implements WebviewViewProvider {
     void loadModels(this.state);
   }
 
+  /** Access the current session's audit log for cross-subsystem logging (event hooks). */
+  public getAuditLog() {
+    return this.state.auditLog;
+  }
+
   public async sendCodeAction(action: string, code: string, fileName: string): Promise<void> {
     const prompt = `${action} this code from ${fileName}:\n\`\`\`\n${code}\n\`\`\``;
     if (this.webviewView) {

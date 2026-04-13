@@ -122,6 +122,22 @@ export class ShellSession {
       let timedOut = false;
       let resolved = false;
 
+      // A ring buffer that always holds the last ~30% of max output,
+      // regardless of how long the stream runs. When the main `output`
+      // buffer has to be truncated mid-stream, we assemble the final
+      // head+tail form from the frozen head + this ring. Without the
+      // ring, the "tail" portion came from `output.slice(-tailSize)`,
+      // which progressively lost the *actual* tail on each successive
+      // truncation because the old tail had already been dropped and
+      // replaced by the marker text. For shell commands this matters
+      // because errors and exit diagnostics tend to live in the final
+      // chunks of output — exactly the bytes the old logic discarded.
+      const tailMax = Math.floor(this.maxOutputSize * 0.3);
+      let tailRing = '';
+      // Tracks raw output volume before any truncation, so the marker
+      // can report accurate totals.
+      let totalCharsSeen = 0;
+
       const finish = (exitCode: number) => {
         if (resolved) return;
         resolved = true;
@@ -199,20 +215,27 @@ export class ShellSession {
         if (safeLen > 0) {
           const safe = buffer.slice(0, safeLen);
           output += safe;
+          totalCharsSeen += safe.length;
+          tailRing = (tailRing + safe).slice(-tailMax);
           buffer = buffer.slice(safeLen);
           onOutput?.(safe);
         }
 
-        // Enforce max output size — keep head + tail
+        // Enforce max output size — keep head + tail with a ring-buffer-
+        // based tail that tracks the most-recent bytes independent of
+        // how many times we've truncated. Head stays frozen (first ~50%
+        // of max) so the command banner / initial progress info is
+        // preserved; tail comes from the ring buffer so the latest
+        // output is always represented, not whatever the previous
+        // truncation happened to leave behind.
         if (output.length > this.maxOutputSize) {
-          const headSize = Math.floor(this.maxOutputSize * 0.7);
-          const tailSize = Math.floor(this.maxOutputSize * 0.2);
+          const headSize = Math.floor(this.maxOutputSize * 0.5);
           output =
             output.slice(0, headSize) +
             '\n\n... (output truncated, ' +
-            output.length +
-            ' chars total) ...\n\n' +
-            output.slice(-tailSize);
+            totalCharsSeen +
+            ' chars total — middle dropped, head and most-recent tail preserved) ...\n\n' +
+            tailRing;
         }
       };
 

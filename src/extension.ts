@@ -429,8 +429,12 @@ export function activate(context: ExtensionContext) {
     }),
   );
 
-  // Event-based hooks (file save, create, delete)
-  const eventHookManager = new EventHookManager(agentLogger);
+  // Event-based hooks (file save, create, delete). The audit-log
+  // provider is a lazy getter so EventHookManager can fetch the
+  // *current* session's AuditLog each time a hook fires — ChatState
+  // can be recreated, so a reference captured at construction would
+  // go stale.
+  const eventHookManager = new EventHookManager(agentLogger, () => chatProvider?.getAuditLog() ?? null);
   const eventHooks = config.eventHooks;
   if (eventHooks.onSave || eventHooks.onCreate || eventHooks.onDelete) {
     eventHookManager.start(eventHooks);

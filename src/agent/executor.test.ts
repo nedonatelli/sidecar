@@ -249,4 +249,99 @@ describe('executeTool', () => {
     });
     expect(mockConfirm).toHaveBeenCalled();
   });
+
+  // ------------------------------------------------------------------
+  // Irrecoverable-operation escalated confirmation gate
+  // ------------------------------------------------------------------
+  describe('irrecoverable operation gate', () => {
+    // Each case simulates a destructive tool call, confirms the user
+    // must type CONFIRM exactly to proceed, and verifies that the gate
+    // runs even in autonomous mode (which would otherwise skip approval).
+
+    const destructiveCases: Array<{ label: string; cmd: string; match: RegExp }> = [
+      { label: 'rm -rf', cmd: 'rm -rf ~/Projects', match: /rm -rf/ },
+      { label: 'git push --force', cmd: 'git push --force origin main', match: /Force push/ },
+      { label: 'git push -f', cmd: 'git push -f origin main', match: /Force push/ },
+      { label: 'git reset --hard', cmd: 'git reset --hard HEAD~3', match: /Hard reset/ },
+      { label: 'git branch -D', cmd: 'git branch -D feature-x', match: /Force branch delete/ },
+      { label: 'git clean -fdx', cmd: 'git clean -fdx', match: /git clean/ },
+      { label: 'DROP DATABASE', cmd: 'psql -c "DROP DATABASE prod"', match: /DROP \/ TRUNCATE/ },
+      { label: 'TRUNCATE TABLE', cmd: 'mysql -e "TRUNCATE TABLE users"', match: /DROP \/ TRUNCATE/ },
+    ];
+
+    for (const { label, cmd, match } of destructiveCases) {
+      it(`fires on ${label} in autonomous mode and requires CONFIRM to proceed`, async () => {
+        const executor = vi.fn().mockResolvedValue('done');
+        mockedFindTool.mockReturnValue({
+          definition: { name: 'run_command', description: '', input_schema: { type: 'object', properties: {} } },
+          executor,
+          requiresApproval: false,
+        });
+
+        // User types the wrong thing → the gate rejects.
+        const clarifyReject = vi.fn().mockResolvedValue('nope');
+        const rejected = await executeTool(makeToolUse('run_command', { command: cmd }), {
+          approvalMode: 'autonomous',
+          confirmFn: vi.fn().mockResolvedValue('Allow'),
+          executorContext: { clarifyFn: clarifyReject },
+        });
+        expect(rejected.is_error).toBe(true);
+        expect(rejected.content).toMatch(match);
+        expect(executor).not.toHaveBeenCalled();
+        // The gate actually asked the user for a typed confirmation.
+        expect(clarifyReject).toHaveBeenCalled();
+
+        // User types CONFIRM exactly → the tool runs.
+        executor.mockClear();
+        const clarifyAccept = vi.fn().mockResolvedValue('CONFIRM');
+        const accepted = await executeTool(makeToolUse('run_command', { command: cmd }), {
+          approvalMode: 'autonomous',
+          confirmFn: vi.fn().mockResolvedValue('Allow'),
+          executorContext: { clarifyFn: clarifyAccept },
+        });
+        expect(accepted.is_error).toBeFalsy();
+        expect(executor).toHaveBeenCalledTimes(1);
+        expect(clarifyAccept).toHaveBeenCalled();
+      });
+    }
+
+    it('does NOT fire on benign run_command calls', async () => {
+      const executor = vi.fn().mockResolvedValue('ok');
+      mockedFindTool.mockReturnValue({
+        definition: { name: 'run_command', description: '', input_schema: { type: 'object', properties: {} } },
+        executor,
+        requiresApproval: false,
+      });
+      const clarify = vi.fn();
+      const result = await executeTool(makeToolUse('run_command', { command: 'npm test' }), {
+        approvalMode: 'autonomous',
+        executorContext: { clarifyFn: clarify },
+      });
+      expect(result.is_error).toBeFalsy();
+      expect(executor).toHaveBeenCalled();
+      expect(clarify).not.toHaveBeenCalled();
+    });
+
+    it('falls back to a re-confirm dialog when clarifyFn is unavailable', async () => {
+      const executor = vi.fn().mockResolvedValue('ok');
+      mockedFindTool.mockReturnValue({
+        definition: { name: 'run_command', description: '', input_schema: { type: 'object', properties: {} } },
+        executor,
+        requiresApproval: false,
+      });
+
+      // First call to confirmFn: the primary "Allow/Deny". Second call:
+      // the escalated "Yes, proceed / Cancel" re-confirm.
+      const confirm = vi.fn().mockResolvedValueOnce('Allow').mockResolvedValueOnce('Cancel');
+      const result = await executeTool(makeToolUse('run_command', { command: 'rm -rf /tmp/pwn' }), {
+        approvalMode: 'cautious',
+        confirmFn: confirm,
+        // no clarifyFn in executorContext
+      });
+      expect(result.is_error).toBe(true);
+      expect(result.content).toMatch(/Irrecoverable operation cancelled/);
+      expect(confirm).toHaveBeenCalledTimes(2);
+      expect(executor).not.toHaveBeenCalled();
+    });
+  });
 });

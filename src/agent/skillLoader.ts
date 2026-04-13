@@ -109,6 +109,14 @@ export class SkillLoader {
   /**
    * Scan all skill directories and load skills into memory.
    * Call once during extension activation or on first use.
+   *
+   * Name collisions: later sources still override earlier ones to
+   * preserve the documented "user > builtin, project > user"
+   * precedence, but we now log a warning when a workspace-sourced
+   * skill shadows a user-level or built-in skill with the same id.
+   * Cycle-2 audit concern: a cloned repo could ship a malicious
+   * `/review-code` that silently replaces the user's expected one;
+   * the warning gives the user a trail to notice the override.
    */
   async initialize(): Promise<void> {
     this.skills.clear();
@@ -126,16 +134,34 @@ export class SkillLoader {
     const userSkills = await loadSkillsFromDir(path.join(home, '.claude', 'commands'), 'user');
     for (const s of userSkills) this.skills.set(s.id, s);
 
-    // 2. Project-level Claude Code skills
+    // 2. Project-level Claude Code skills — warn on shadowing
     if (root) {
       const projectClaude = await loadSkillsFromDir(path.join(root, '.claude', 'commands'), 'project-claude');
-      for (const s of projectClaude) this.skills.set(s.id, s);
+      for (const s of projectClaude) {
+        const existing = this.skills.get(s.id);
+        if (existing && (existing.source === 'builtin' || existing.source === 'user')) {
+          console.warn(
+            `[SideCar] Workspace skill "/${s.id}" at ${s.filePath} shadows an existing ${existing.source} skill. ` +
+              `Make sure you trust this workspace before relying on its skill definitions.`,
+          );
+        }
+        this.skills.set(s.id, s);
+      }
     }
 
-    // 3. SideCar native skills
+    // 3. SideCar native skills — warn on shadowing
     if (root) {
       const sidecarSkills = await loadSkillsFromDir(path.join(root, '.sidecar', 'skills'), 'project-sidecar');
-      for (const s of sidecarSkills) this.skills.set(s.id, s);
+      for (const s of sidecarSkills) {
+        const existing = this.skills.get(s.id);
+        if (existing && (existing.source === 'builtin' || existing.source === 'user')) {
+          console.warn(
+            `[SideCar] Workspace skill "/${s.id}" at ${s.filePath} shadows an existing ${existing.source} skill. ` +
+              `Make sure you trust this workspace before relying on its skill definitions.`,
+          );
+        }
+        this.skills.set(s.id, s);
+      }
     }
 
     this.initialized = true;
@@ -145,6 +171,11 @@ export class SkillLoader {
         `[SideCar] Loaded ${count} skills from ${userSkills.length} user + ${root ? 'project' : '0 project'} directories`,
       );
     }
+  }
+
+  /** Whether a skill came from a workspace-local directory (vs. user or built-in). */
+  static isWorkspaceSourced(skill: Skill): boolean {
+    return skill.source === 'project-claude' || skill.source === 'project-sidecar';
   }
 
   /** Get a skill by exact id (filename without .md). */
