@@ -1,7 +1,7 @@
 import type { Webview } from 'vscode';
 import { Uri } from 'vscode';
 import type { ChatMessage } from '../ollama/types.js';
-import { getConfig } from '../config/settings.js';
+import { getConfig, BUILT_IN_BACKEND_PROFILES, detectActiveProfile } from '../config/settings.js';
 import * as crypto from 'crypto';
 
 export interface WebviewMessage {
@@ -60,13 +60,15 @@ export interface WebviewMessage {
     | 'bgStart'
     | 'bgStop'
     | 'bgList'
-    | 'bgExpand';
+    | 'bgExpand'
+    | 'switchBackend';
   images?: { mediaType: string; data: string }[];
   text?: string;
   model?: string;
   agentMode?: string;
   confirmId?: string;
   confirmed?: boolean;
+  profileId?: string;
   code?: string;
   language?: string;
   filePath?: string;
@@ -223,10 +225,16 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
   // users who never want diagrams can set `sidecar.enableMermaid = false`
   // to skip even the URI injection so chat.js renders ```mermaid as plain
   // code instead.
-  const mermaidEnabled = getConfig().enableMermaid;
+  const cfg = getConfig();
+  const mermaidEnabled = cfg.enableMermaid;
   const mermaidUri = mermaidEnabled
     ? webview.asWebviewUri(Uri.joinPath(extensionUri, 'media', 'mermaid.min.js'))
     : null;
+  const activeProfile = detectActiveProfile(cfg.baseUrl);
+  const backendProfilesJson = JSON.stringify(
+    BUILT_IN_BACKEND_PROFILES.map((p) => ({ id: p.id, name: p.name, description: p.description })),
+  );
+  const activeProfileId = activeProfile?.id ?? null;
   const nonce = crypto.randomBytes(16).toString('base64');
 
   return `<!DOCTYPE html>
@@ -264,7 +272,17 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
         <button id="history-btn" title="Conversation History">&#9776;</button>
         <button id="compact-btn" title="Compact Context">&#9986;</button>
         <button id="undo-btn" title="Undo All Changes">&#8634;</button>
-        <button id="export-btn" title="Export as Markdown">&#8681;</button>
+        <button id="settings-btn" title="Settings" aria-haspopup="true" aria-expanded="false">&#9881;</button>
+      </div>
+    </div>
+    <div id="settings-menu" class="hidden" role="menu" aria-label="SideCar settings menu">
+      <div class="settings-menu-section">
+        <div class="settings-menu-label">Backend</div>
+        <div id="backend-profile-list"></div>
+      </div>
+      <div class="settings-menu-section">
+        <button class="settings-menu-item" data-action="exportChat" role="menuitem">Export chat as Markdown</button>
+        <button class="settings-menu-item" data-action="openSettings" role="menuitem">Open SideCar settings...</button>
       </div>
     </div>
     <div id="activity-bar" class="hidden"></div>
@@ -322,7 +340,7 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
     <button id="send">Send</button>
   </div>
 
-  <script nonce="${nonce}">window.__mermaidSrc = ${mermaidUri ? `"${mermaidUri}"` : 'null'}; window.__mermaidEnabled = ${mermaidEnabled}; window.__nonce = "${nonce}";</script>
+  <script nonce="${nonce}">window.__mermaidSrc = ${mermaidUri ? `"${mermaidUri}"` : 'null'}; window.__mermaidEnabled = ${mermaidEnabled}; window.__nonce = "${nonce}"; window.__backendProfiles = ${backendProfilesJson}; window.__activeBackendProfileId = ${activeProfileId ? `"${activeProfileId}"` : 'null'};</script>
   <!-- Load helper modules before chat.js so window.SideCar.* is populated. -->
   <script nonce="${nonce}" src="${githubCardsUri}"></script>
   <script nonce="${nonce}" src="${scriptUri}"></script>

@@ -178,6 +178,78 @@ body {
   z-index: 100;
 }
 
+/* Settings menu — context menu anchored to the gear button in the header. */
+#settings-menu {
+  position: absolute;
+  top: 100%;
+  right: 12px;
+  min-width: 280px;
+  max-width: 360px;
+  background: var(--vscode-editor-background);
+  border: 1px solid var(--vscode-widget-border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  z-index: 120;
+  padding: 4px 0;
+}
+
+#settings-menu.hidden {
+  display: none;
+}
+
+.settings-menu-section {
+  padding: 4px 0;
+}
+
+.settings-menu-section + .settings-menu-section {
+  border-top: 1px solid var(--vscode-widget-border);
+}
+
+.settings-menu-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  opacity: 0.6;
+  padding: 6px 12px 4px;
+}
+
+.settings-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--vscode-editor-foreground);
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  border-radius: 0;
+}
+
+.settings-menu-item:hover,
+.settings-menu-item:focus-visible {
+  background: var(--vscode-list-hoverBackground);
+  outline: none;
+}
+
+.backend-profile.active {
+  font-weight: 500;
+}
+
+.backend-profile-name {
+  font-size: 13px;
+}
+
+.backend-profile-desc {
+  font-size: 11px;
+  opacity: 0.7;
+  margin-top: 2px;
+  white-space: normal;
+  line-height: 1.35;
+}
+
 #model-panel.hidden {
   display: none;
 }

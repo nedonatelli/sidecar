@@ -316,10 +316,47 @@ export function activate(context: ExtensionContext) {
         password: true,
         ignoreFocusOut: true,
       });
-      if (value !== undefined) {
+      if (value === undefined) return;
+
+      // If the user is currently on a profile with a dedicated secret slot,
+      // store it there too so switching profiles later restores the right key.
+      const { detectActiveProfile, setProfileApiKey, getConfig: readConfig } = await import('./config/settings.js');
+      const activeProfile = detectActiveProfile(readConfig().baseUrl);
+      if (activeProfile && activeProfile.secretKey) {
+        await setProfileApiKey(activeProfile, value);
+        window.showInformationMessage(`SideCar API key saved for ${activeProfile.name}.`);
+      } else {
         await setApiKeySecret(value);
         window.showInformationMessage('SideCar API key saved to SecretStorage.');
       }
+    }),
+    commands.registerCommand('sidecar.switchBackend', async (profileId?: string) => {
+      const { BUILT_IN_BACKEND_PROFILES, applyBackendProfile } = await import('./config/settings.js');
+      let profile = profileId ? BUILT_IN_BACKEND_PROFILES.find((p) => p.id === profileId) : undefined;
+      if (!profile) {
+        const pick = await window.showQuickPick(
+          BUILT_IN_BACKEND_PROFILES.map((p) => ({
+            label: p.name,
+            description: p.description,
+            detail: p.baseUrl,
+            id: p.id,
+          })),
+          { title: 'Switch SideCar backend', placeHolder: 'Choose a backend profile' },
+        );
+        if (!pick) return;
+        profile = BUILT_IN_BACKEND_PROFILES.find((p) => p.id === pick.id);
+      }
+      if (!profile) return;
+      const result = await applyBackendProfile(profile);
+      if (result.status === 'missing-key') {
+        const action = await window.showWarningMessage(result.message, 'Set API Key');
+        if (action === 'Set API Key') {
+          commands.executeCommand('sidecar.setApiKey');
+        }
+      } else {
+        window.showInformationMessage(result.message);
+      }
+      chatProvider?.reloadModels();
     }),
   );
 

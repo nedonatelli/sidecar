@@ -599,8 +599,76 @@
     vscode.postMessage({ command: 'undoChanges' });
   });
 
-  document.getElementById('export-btn').addEventListener('click', () => {
-    vscode.postMessage({ command: 'exportChat' });
+  // --- Settings menu (gear button in the header) ---
+  // Replaces the old Export button — holds backend profile switching,
+  // export, and an "Open settings" escape hatch. Values injected from
+  // chatWebview.ts as window.__backendProfiles / window.__activeBackendProfileId.
+  const settingsBtn = document.getElementById('settings-btn');
+  const settingsMenu = document.getElementById('settings-menu');
+  const backendProfileList = document.getElementById('backend-profile-list');
+
+  function renderBackendProfiles() {
+    backendProfileList.innerHTML = '';
+    const profiles = window.__backendProfiles || [];
+    const activeId = window.__activeBackendProfileId;
+    for (const p of profiles) {
+      const btn = document.createElement('button');
+      btn.className = 'settings-menu-item backend-profile' + (p.id === activeId ? ' active' : '');
+      btn.setAttribute('role', 'menuitem');
+      btn.dataset.profileId = p.id;
+      const name = document.createElement('div');
+      name.className = 'backend-profile-name';
+      name.textContent = (p.id === activeId ? '\u2713 ' : '') + p.name;
+      const desc = document.createElement('div');
+      desc.className = 'backend-profile-desc';
+      desc.textContent = p.description;
+      btn.appendChild(name);
+      btn.appendChild(desc);
+      btn.addEventListener('click', () => {
+        closeSettingsMenu();
+        vscode.postMessage({ command: 'switchBackend', profileId: p.id });
+      });
+      backendProfileList.appendChild(btn);
+    }
+  }
+
+  function openSettingsMenu() {
+    renderBackendProfiles();
+    settingsMenu.classList.remove('hidden');
+    settingsBtn.setAttribute('aria-expanded', 'true');
+  }
+  function closeSettingsMenu() {
+    settingsMenu.classList.add('hidden');
+    settingsBtn.setAttribute('aria-expanded', 'false');
+  }
+
+  settingsBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (settingsMenu.classList.contains('hidden')) {
+      openSettingsMenu();
+    } else {
+      closeSettingsMenu();
+    }
+  });
+  // Click-outside to dismiss
+  document.addEventListener('click', (e) => {
+    if (settingsMenu.classList.contains('hidden')) return;
+    if (!settingsMenu.contains(e.target) && e.target !== settingsBtn) {
+      closeSettingsMenu();
+    }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !settingsMenu.classList.contains('hidden')) {
+      closeSettingsMenu();
+    }
+  });
+  settingsMenu.querySelectorAll('.settings-menu-item[data-action]').forEach((item) => {
+    item.addEventListener('click', () => {
+      const action = item.dataset.action;
+      closeSettingsMenu();
+      if (action === 'exportChat') vscode.postMessage({ command: 'exportChat' });
+      else if (action === 'openSettings') vscode.postMessage({ command: 'openSettings' });
+    });
   });
 
   document.getElementById('scroll-to-bottom').addEventListener('click', () => {

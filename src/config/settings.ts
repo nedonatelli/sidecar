@@ -76,6 +76,115 @@ export async function setFallbackApiKeySecret(value: string): Promise<void> {
   _cachedConfig = null;
 }
 
+// ---------------------------------------------------------------------------
+// Backend profiles — one-click switching between Ollama / Anthropic /
+// Kickstand without hand-editing four separate settings.
+// ---------------------------------------------------------------------------
+
+export interface BackendProfile {
+  /** Stable identifier used in messages and SecretStorage keys. */
+  id: string;
+  /** Human-readable label shown in the chat menu. */
+  name: string;
+  /** Provider type the client will instantiate. */
+  provider: 'ollama' | 'anthropic' | 'openai' | 'kickstand';
+  /** API base URL to bake into sidecar.baseUrl. */
+  baseUrl: string;
+  /** Default model to select when switching to this profile. */
+  defaultModel: string;
+  /** SecretStorage key for this profile's API key. `null` means no key (local Ollama). */
+  secretKey: string | null;
+  /** Short description shown in the menu under the name. */
+  description: string;
+}
+
+export const BUILT_IN_BACKEND_PROFILES: readonly BackendProfile[] = [
+  {
+    id: 'local-ollama',
+    name: 'Local Ollama',
+    provider: 'ollama',
+    baseUrl: 'http://localhost:11434',
+    defaultModel: 'qwen2.5-coder:7b',
+    secretKey: null,
+    description: 'Self-hosted models via Ollama (free, private, no API key required)',
+  },
+  {
+    id: 'anthropic',
+    name: 'Anthropic Claude',
+    provider: 'anthropic',
+    baseUrl: 'https://api.anthropic.com',
+    defaultModel: 'claude-sonnet-4-6',
+    secretKey: 'sidecar.profileKey.anthropic',
+    description: 'Claude via the Anthropic API (pay-per-token, requires API key from platform.claude.com)',
+  },
+  {
+    id: 'kickstand',
+    name: 'Kickstand',
+    provider: 'kickstand',
+    baseUrl: 'http://localhost:11435',
+    defaultModel: '',
+    secretKey: 'sidecar.profileKey.kickstand',
+    description: 'Self-hosted Kickstand LLM client backend',
+  },
+] as const;
+
+/** Match the current baseUrl against a built-in profile, if any. */
+export function detectActiveProfile(baseUrl: string): BackendProfile | null {
+  return BUILT_IN_BACKEND_PROFILES.find((p) => p.baseUrl === baseUrl) ?? null;
+}
+
+/**
+ * Apply a backend profile: write baseUrl / provider / model into workspace
+ * config and copy the profile's stored secret (if any) into the active
+ * `sidecar.apiKey` secret so runtime picks it up. Returns a status hint
+ * the caller can surface to the user.
+ */
+export async function applyBackendProfile(
+  profile: BackendProfile,
+): Promise<{ status: 'applied' | 'missing-key'; message: string }> {
+  if (!_secretContext) throw new Error('SecretStorage not initialized');
+  const cfg = workspace.getConfiguration('sidecar');
+
+  await cfg.update('provider', profile.provider, true);
+  await cfg.update('baseUrl', profile.baseUrl, true);
+  if (profile.defaultModel) {
+    await cfg.update('model', profile.defaultModel, true);
+  }
+
+  if (profile.secretKey) {
+    const stored = await _secretContext.secrets.get(profile.secretKey);
+    if (!stored) {
+      return {
+        status: 'missing-key',
+        message: `Switched to ${profile.name}, but no API key is stored for this profile yet. Run "SideCar: Set API Key" to set it, then switch again.`,
+      };
+    }
+    await _secretContext.secrets.store(SECRET_KEY_API, stored);
+    _cachedApiKey = stored;
+  } else {
+    // Local profiles with no key — reset to the harmless default string
+    await _secretContext.secrets.store(SECRET_KEY_API, 'ollama');
+    _cachedApiKey = 'ollama';
+  }
+
+  _cachedConfig = null;
+  return { status: 'applied', message: `Switched to ${profile.name} (${profile.defaultModel || 'no default model'})` };
+}
+
+/**
+ * Save an API key for a specific profile. Used by the "Set API Key" flow
+ * when the user is currently on a profile with a non-null `secretKey`.
+ * Also copies it into the active slot so it takes effect immediately.
+ */
+export async function setProfileApiKey(profile: BackendProfile, value: string): Promise<void> {
+  if (!_secretContext) throw new Error('SecretStorage not initialized');
+  if (!profile.secretKey) return;
+  await _secretContext.secrets.store(profile.secretKey, value);
+  await _secretContext.secrets.store(SECRET_KEY_API, value);
+  _cachedApiKey = value;
+  _cachedConfig = null;
+}
+
 /**
  * Check whether a base URL points to a local Ollama instance.
  */

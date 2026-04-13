@@ -521,6 +521,10 @@
         "title": "SideCar: Set API Key (SecretStorage)"
       },
       {
+        "command": "sidecar.switchBackend",
+        "title": "SideCar: Switch Backend"
+      },
+      {
         "command": "sidecar.acceptInlineEdit",
         "title": "SideCar: Accept Inline Edit"
       },

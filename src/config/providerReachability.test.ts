@@ -54,4 +54,34 @@ describe('isProviderReachable', () => {
     const headers = mockFetch.mock.calls[0][1].headers;
     expect(headers['Authorization']).toContain('Bearer');
   });
+
+  it('checks /v1/models for anthropic (not the bare root URL)', async () => {
+    // Regression: probing https://api.anthropic.com/ returns 404 and
+    // used to make reachability reports "Cannot reach API" even when
+    // the API and key were both fine. Must hit /v1/models instead.
+    mockFetch.mockResolvedValueOnce({ ok: true, status: 200 });
+    await isProviderReachable('anthropic');
+    expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining('/v1/models'), expect.anything());
+  });
+
+  it('treats a 401 from anthropic as reachable (auth is a separate problem)', async () => {
+    // Regression: a bad key must not masquerade as an outage. The
+    // actual chat request will surface a specific 401 error that's
+    // more useful than "cannot reach API".
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 401 });
+    const result = await isProviderReachable('anthropic');
+    expect(result).toBe(true);
+  });
+
+  it('treats a 500 from anthropic as unreachable', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 503 });
+    const result = await isProviderReachable('anthropic');
+    expect(result).toBe(false);
+  });
+
+  it('returns false for anthropic on network error', async () => {
+    mockFetch.mockRejectedValueOnce(new Error('ENOTFOUND'));
+    const result = await isProviderReachable('anthropic');
+    expect(result).toBe(false);
+  });
 });

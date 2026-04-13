@@ -307,6 +307,9 @@ export class ChatViewProvider implements WebviewViewProvider {
     openSettings: async () => {
       await commands.executeCommand('workbench.action.openSettings', 'sidecar');
     },
+    switchBackend: async (msg) => {
+      await commands.executeCommand('sidecar.switchBackend', msg.profileId);
+    },
     scanStaged: async () => {
       await commands.executeCommand('sidecar.scanStaged');
     },
@@ -445,6 +448,11 @@ export class ChatViewProvider implements WebviewViewProvider {
 
   public async exportChat(): Promise<void> {
     await handleExportChat(this.state);
+  }
+
+  /** Refresh the model list after a backend profile switch. */
+  public reloadModels(): void {
+    void loadModels(this.state);
   }
 
   public async sendCodeAction(action: string, code: string, fileName: string): Promise<void> {
