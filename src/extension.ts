@@ -4,6 +4,7 @@ import { ChatViewProvider } from './webview/chatView.js';
 import { TerminalManager } from './terminal/manager.js';
 import { TerminalErrorWatcher } from './terminal/errorWatcher.js';
 import { registerJsDocSync } from './docs/jsDocSyncProvider.js';
+import { registerReadmeSync } from './docs/readmeSyncProvider.js';
 import { SideCarCompletionProvider } from './completions/provider.js';
 import {
   getConfig,
@@ -264,6 +265,11 @@ export function activate(context: ExtensionContext) {
   // @param tags that no longer match the function signature and surfaces
   // them as diagnostics with Add / Remove quick-fix actions.
   context.subscriptions.push(registerJsDocSync());
+
+  // Register the README sync checker. Watches README.md and every src/
+  // source file; on save of either, re-checks the README's fenced code
+  // blocks for calls whose arg count no longer matches the current export.
+  context.subscriptions.push(registerReadmeSync());
 
   // Watch the integrated terminal for failed commands and offer to diagnose
   // them in the chat. Skips SideCar's own terminal to avoid feedback loops.

@@ -236,6 +236,7 @@ export interface SideCarConfig {
   chatAccentColor: string;
   terminalErrorInterception: boolean;
   jsDocSyncEnabled: boolean;
+  readmeSyncEnabled: boolean;
   requestTimeout: number;
   shellTimeout: number;
   shellMaxOutputMB: number;
@@ -326,6 +327,7 @@ function readConfig(): SideCarConfig {
     chatAccentColor: cfg.get<string>('chatAccentColor', ''),
     terminalErrorInterception: cfg.get<boolean>('terminalErrorInterception', true),
     jsDocSyncEnabled: cfg.get<boolean>('jsDocSync.enabled', true),
+    readmeSyncEnabled: cfg.get<boolean>('readmeSync.enabled', true),
     requestTimeout: clampMin(cfg.get<number>('requestTimeout'), 0, 120),
     shellTimeout: clampMin(cfg.get<number>('shellTimeout'), 1, 120),
     shellMaxOutputMB: clampMin(cfg.get<number>('shellMaxOutputMB'), 1, 10),

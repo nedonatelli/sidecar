@@ -345,6 +345,11 @@
           "default": true,
           "description": "On save, check TypeScript / JavaScript files for JSDoc @param tags that no longer match the function signature. Stale tags are surfaced as diagnostics with quick-fix actions to add, remove, or rename them."
         },
+        "sidecar.readmeSync.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "On save and open, check fenced code blocks in README.md for calls to workspace-exported functions whose argument count no longer matches the current signature. Stale calls are surfaced as diagnostics with a quick-fix that rewrites the arguments."
+        },
         "sidecar.pinnedContext": {
           "type": "array",
           "items": {
