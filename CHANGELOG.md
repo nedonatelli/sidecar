@@ -2,7 +2,7 @@
 
 All notable changes to the SideCar extension will be documented in this file.
 
-## [Unreleased]
+## [0.46.0] - 2026-04-12
 
 ### Added
 
@@ -15,6 +15,10 @@ All notable changes to the SideCar extension will be documented in this file.
 ### Changed
 
 - **Cycle detection loosened for length-1 patterns.** Requires 4 consecutive identical tool calls to trip, up from 2, so agents can legitimately re-run a tool to verify after edits or retry tests after fixes without getting cut off. Length 2..4 cycle detection is unchanged (two full cycles still bails out, since A,B,A,B is a much clearer loop signal).
+
+### Stats
+- 1459 total tests (97 test files, 194 new since v0.45.0)
+- 22 built-in tools, 8 skills
 
 ## [0.45.0] - 2026-04-11
 
