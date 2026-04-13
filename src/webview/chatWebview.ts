@@ -1,6 +1,7 @@
 import type { Webview } from 'vscode';
 import { Uri } from 'vscode';
 import type { ChatMessage } from '../ollama/types.js';
+import { getConfig } from '../config/settings.js';
 import * as crypto from 'crypto';
 
 export interface WebviewMessage {
@@ -216,7 +217,16 @@ export interface LibraryModelUI {
 export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string {
   const stylesUri = webview.asWebviewUri(Uri.joinPath(extensionUri, 'media', 'chat.css'));
   const scriptUri = webview.asWebviewUri(Uri.joinPath(extensionUri, 'media', 'chat.js'));
-  const mermaidUri = webview.asWebviewUri(Uri.joinPath(extensionUri, 'media', 'mermaid.min.js'));
+  const githubCardsUri = webview.asWebviewUri(Uri.joinPath(extensionUri, 'media', 'chat', 'githubCards.js'));
+  // Mermaid: the 5.2MB bundle is already lazy-loaded at runtime (script
+  // element is only injected when the user sees their first diagram), but
+  // users who never want diagrams can set `sidecar.enableMermaid = false`
+  // to skip even the URI injection so chat.js renders ```mermaid as plain
+  // code instead.
+  const mermaidEnabled = getConfig().enableMermaid;
+  const mermaidUri = mermaidEnabled
+    ? webview.asWebviewUri(Uri.joinPath(extensionUri, 'media', 'mermaid.min.js'))
+    : null;
   const nonce = crypto.randomBytes(16).toString('base64');
 
   return `<!DOCTYPE html>
@@ -312,7 +322,9 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
     <button id="send">Send</button>
   </div>
 
-  <script nonce="${nonce}">window.__mermaidSrc = "${mermaidUri}"; window.__nonce = "${nonce}";</script>
+  <script nonce="${nonce}">window.__mermaidSrc = ${mermaidUri ? `"${mermaidUri}"` : 'null'}; window.__mermaidEnabled = ${mermaidEnabled}; window.__nonce = "${nonce}";</script>
+  <!-- Load helper modules before chat.js so window.SideCar.* is populated. -->
+  <script nonce="${nonce}" src="${githubCardsUri}"></script>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;

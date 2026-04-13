@@ -257,10 +257,10 @@ Remaining findings from seven comprehensive reviews. Fixed items removed.
 
 ### Architecture
 
-- `handleUserMessage` is 500+ lines — needs decomposition
+- ~~`handleUserMessage` is 500+ lines — needs decomposition~~ → 443 → 172 lines via six extracted helpers: `prepareUserMessageText`, `updateWorkspaceRelevance`, `connectWithRetry`, `checkBudgetLimits`, `buildSystemPromptForRun`, `recordRunCost`, plus a `createAgentCallbacks` factory that owns the per-run text buffer / flush timer / current iteration closure ([chatHandlers.ts](src/webview/handlers/chatHandlers.ts))
 - ~~Parallel `write_file` to same path races — serialize writes~~ → per-path mutex via [`withFileLock`](src/agent/fileLock.ts) wrapping every tool that writes at [executor.ts:292](src/agent/executor.ts#L292)
-- Module-level singletons (`shellSession`, `symbolGraph`) create hidden coupling
-- ~~`messages` array mutated from multiple async paths~~ → previous run aborted + `chatGeneration` bumped **before** any new mutation at [chatHandlers.ts:737-741](src/webview/handlers/chatHandlers.ts#L737-L741); stale completions dropped via generation check at [chatHandlers.ts:1136](src/webview/handlers/chatHandlers.ts#L1136)
+- ~~Module-level singletons (`shellSession`, `symbolGraph`) create hidden coupling~~ → unified into a single `ToolRuntime` class in [tools.ts](src/agent/tools.ts) with one dispose point, one injection seam, and a `getDefaultToolRuntime()` accessor; backward-compat `disposeShellSession()` / `setSymbolGraph()` wrappers keep existing tests and extension activation unchanged
+- ~~`messages` array mutated from multiple async paths~~ → previous run aborted + `chatGeneration` bumped **before** any new mutation at [chatHandlers.ts:737-741](src/webview/handlers/chatHandlers.ts#L737-L741); stale completions dropped via generation check
 - ~~MCP tool errors lose server/call context~~ → wrapped callTool() in try/catch, errors include server name + tool name + input
 - ~~Error classifier missing 429, 5xx, content policy, token limit~~ → 4 new error types added: rate_limit, server_error, content_policy, token_limit
 - ~~Hook failures silently swallowed — policy hooks don't block~~ → runHook() returns error string; pre-hook failures block tool execution
@@ -312,8 +312,8 @@ Remaining findings from seven comprehensive reviews. Fixed items removed.
 - ~~Stringly-typed GitHub actions — define `GitHubAction` union type~~ → [`GitHubAction`](src/github/types.ts) union with 16 members; `action?` and `githubAction?` fields in [chatWebview.ts:74](src/webview/chatWebview.ts#L74), [:174](src/webview/chatWebview.ts#L174) now use it
 - ~~Magic number `0.7` for input/output ratio duplicated~~ → `INPUT_TOKEN_RATIO` (billing split) kept; dedicated `CONTEXT_COMPRESSION_THRESHOLD` constant added at [constants.ts:20](src/config/constants.ts#L20) and wired into [loop.ts:178](src/agent/loop.ts#L178), [:577](src/agent/loop.ts#L577)
 - ~~Double workspace state deserialization in budget check~~ → replaced with single-pass `getSpendBreakdown()` at [chatHandlers.ts:839](src/webview/handlers/chatHandlers.ts#L839)
-- `chat.js` — 800+ lines with `@ts-nocheck`, unminified, no code splitting
-- 5.2MB mermaid.min.js — consider lighter alternative or web worker
+- ~~`chat.js` — 800+ lines with `@ts-nocheck`, unminified, no code splitting~~ → removed misleading `@ts-nocheck` (nothing typechecks `media/` per tsconfig scope anyway); extracted GitHub card rendering to [media/chat/githubCards.js](media/chat/githubCards.js) as a `window.SideCar.githubCards` namespace — chat.js is now 210 lines smaller and gains a pattern for further extractions. Full modularization deferred — follow the same pattern for each subsystem as they grow or need types
+- ~~5.2MB mermaid.min.js — consider lighter alternative or web worker~~ → runtime loading was already lazy (script element injected on first diagram render, not at page load). Added `sidecar.enableMermaid` setting (default on); when disabled, chatWebview doesn't inject the mermaid URI and chat.js falls through to plain code-block rendering — users who never ask for diagrams can skip the load entirely. No lighter drop-in alternative exists for mermaid's feature set; CDN-fetch-and-cache deferred (requires CSP widening + offline-fallback design)
 
 ---
 

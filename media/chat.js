@@ -1,6 +1,9 @@
-// @ts-nocheck
-/* eslint-disable */
-// SideCar chat webview script — extracted from chatWebview.ts
+// SideCar chat webview script.
+// Plain browser JS (IIFE) — not checked by the repo tsconfig (which only
+// includes src/**/*) and not linted by eslint.config.mjs (scoped to
+// src/**/*.ts). No @ts-nocheck needed. Helper modules live under
+// media/chat/ and attach to the window.SideCar namespace before this file
+// runs — see chatWebview.getChatWebviewHtml for the script load order.
 
 (function () {
   const vscode = acquireVsCodeApi();
@@ -862,229 +865,15 @@
     return null;
   }
 
-  // --- gh-card builders: shared helpers so each action branch doesn't
-  // re-create the same DOM structure by hand. ---
-  function ghDiv(className, text) {
-    const el = document.createElement('div');
-    el.className = className;
-    if (text !== undefined) el.textContent = text;
-    return el;
-  }
-  function ghStatePill(text, stateClass) {
-    const span = document.createElement('span');
-    span.className = 'gh-state' + (stateClass ? ' ' + stateClass : '');
-    span.textContent = text;
-    return span;
-  }
-  function ghLink(url, label) {
-    const link = document.createElement('span');
-    link.className = 'gh-link';
-    link.textContent = label !== undefined ? label : url;
-    link.addEventListener('click', () => {
-      vscode.postMessage({ command: 'openExternal', url });
-    });
-    return link;
-  }
-  function ghCardTitle(text, pill) {
-    const title = ghDiv('gh-card-title', text);
-    if (pill) {
-      title.appendChild(document.createTextNode(' '));
-      title.appendChild(pill);
-    }
-    return title;
-  }
-  function ghAuthorMeta(author, createdAt) {
-    return ghDiv('gh-meta', 'by ' + author + ' - ' + new Date(createdAt).toLocaleDateString());
-  }
-  function ghPrefix(action) {
-    return action === 'listPRs' || action === 'getPR' || action === 'createPR' ? 'PR' : 'Issue';
-  }
-
+  // GitHub card rendering lives in media/chat/githubCards.js. Delegating
+  // here keeps chat.js focused on chat/agent-loop logic while the card
+  // builder can evolve independently.
   function renderGitHubResult(action, data) {
-    const container = ghDiv('message assistant gh-result');
-
-    if (action === 'listPRs' || action === 'listIssues') {
-      const items = data;
-      if (!items || items.length === 0) {
-        container.textContent = action === 'listPRs' ? 'No pull requests found.' : 'No issues found.';
-        return container;
-      }
-      const prefix = ghPrefix(action);
-      for (const item of items) {
-        const card = ghDiv('gh-card');
-        card.appendChild(
-          ghCardTitle(prefix + ' #' + item.number + ': ' + item.title, ghStatePill(item.state, item.state)),
-        );
-        card.appendChild(ghAuthorMeta(item.author, item.createdAt));
-        card.appendChild(ghLink(item.url));
-        container.appendChild(card);
-      }
-      return container;
-    }
-
-    if (action === 'getPR' || action === 'getIssue') {
-      const item = data;
-      const prefix = ghPrefix(action);
-      const card = ghDiv('gh-card');
-      card.appendChild(
-        ghCardTitle(prefix + ' #' + item.number + ': ' + item.title, ghStatePill(item.state, item.state)),
-      );
-      card.appendChild(ghAuthorMeta(item.author, item.createdAt));
-
-      if (item.body) {
-        card.appendChild(ghDiv('gh-body', item.body.slice(0, 500) + (item.body.length > 500 ? '...' : '')));
-      }
-      if (action === 'getPR' && item.head && item.base) {
-        card.appendChild(ghDiv('gh-meta', item.head + ' \u2192 ' + item.base));
-      }
-      if (item.labels && item.labels.length > 0) {
-        card.appendChild(ghDiv('gh-meta', 'Labels: ' + item.labels.join(', ')));
-      }
-      card.appendChild(ghLink(item.url));
-      container.appendChild(card);
-      return container;
-    }
-
-    if (action === 'createPR' || action === 'createIssue') {
-      const item = data;
-      const prefix = ghPrefix(action);
-      container.textContent = prefix + ' #' + item.number + ' created: ' + item.title;
-      container.appendChild(ghLink(item.url, ' ' + item.url));
-      return container;
-    }
-
-    if (action === 'log') {
-      const commits = data;
-      if (!commits || commits.length === 0) {
-        container.textContent = 'No commits found.';
-        return container;
-      }
-      for (const c of commits) {
-        const row = document.createElement('div');
-        row.className = 'gh-commit';
-        const hash = document.createElement('span');
-        hash.className = 'gh-commit-hash';
-        hash.textContent = c.hash;
-        const msg = document.createTextNode('  ' + c.message + '  ');
-        const meta = document.createElement('span');
-        meta.className = 'gh-meta-inline';
-        meta.textContent = '(' + c.author + ', ' + c.date + ')';
-        row.appendChild(hash);
-        row.appendChild(msg);
-        row.appendChild(meta);
-        container.appendChild(row);
-      }
-      return container;
-    }
-
-    if (action === 'diff') {
-      const result = data;
-      const summary = document.createElement('div');
-      summary.className = 'gh-meta';
-      summary.textContent = result.summary;
-      container.appendChild(summary);
-      if (result.diff && result.diff !== 'No diff output.') {
-        container.appendChild(renderContent('```diff\n' + result.diff + '\n```', window.currentModelSupportsTools));
-      }
-      return container;
-    }
-
-    if (action === 'browse') {
-      const files = data;
-      if (!files || files.length === 0) {
-        container.textContent = 'No files found.';
-        return container;
-      }
-      for (const f of files) {
-        const row = document.createElement('div');
-        row.className = 'gh-file-item';
-        const icon = f.type === 'dir' ? '\uD83D\uDCC1 ' : '\uD83D\uDCC4 ';
-        const link = document.createElement('span');
-        link.className = 'gh-link';
-        link.textContent = icon + f.name;
-        link.addEventListener('click', () => {
-          vscode.postMessage({ command: 'openExternal', url: f.url });
-        });
-        row.appendChild(link);
-        container.appendChild(row);
-      }
-      return container;
-    }
-
-    if (action === 'listReleases') {
-      const releases = data;
-      if (!releases || releases.length === 0) {
-        container.textContent = 'No releases found.';
-        return container;
-      }
-      for (const r of releases) {
-        const card = ghDiv('gh-card');
-        const title = ghCardTitle(r.name || r.tagName, ghStatePill(r.tagName, 'open'));
-        if (r.draft) {
-          title.appendChild(document.createTextNode(' '));
-          title.appendChild(ghStatePill('draft', 'closed'));
-        }
-        if (r.prerelease) {
-          title.appendChild(document.createTextNode(' '));
-          title.appendChild(ghStatePill('pre-release'));
-        }
-        card.appendChild(title);
-
-        let metaText = r.publishedAt ? new Date(r.publishedAt).toLocaleDateString() : 'unpublished';
-        if (r.assets && r.assets.length > 0) {
-          metaText += ' \u2022 ' + r.assets.length + ' asset' + (r.assets.length === 1 ? '' : 's');
-        }
-        card.appendChild(ghDiv('gh-meta', metaText));
-        card.appendChild(ghLink(r.url));
-        container.appendChild(card);
-      }
-      return container;
-    }
-
-    if (action === 'getRelease') {
-      const r = data;
-      const card = ghDiv('gh-card');
-      card.appendChild(ghCardTitle((r.name || r.tagName) + ' (' + r.tagName + ')'));
-      card.appendChild(
-        ghDiv('gh-meta', r.publishedAt ? 'Published ' + new Date(r.publishedAt).toLocaleDateString() : 'Draft'),
-      );
-
-      if (r.body) {
-        card.appendChild(ghDiv('gh-body', r.body.slice(0, 800) + (r.body.length > 800 ? '...' : '')));
-      }
-
-      if (r.assets && r.assets.length > 0) {
-        const assetsText =
-          'Assets: ' +
-          r.assets
-            .map(function (a) {
-              const mb = (a.size / (1024 * 1024)).toFixed(1);
-              return a.name + ' (' + mb + ' MB, ' + a.downloadCount + ' downloads)';
-            })
-            .join(', ');
-        card.appendChild(ghDiv('gh-meta', assetsText));
-      }
-
-      card.appendChild(ghLink(r.url));
-      container.appendChild(card);
-      return container;
-    }
-
-    if (action === 'createRelease') {
-      const r = data;
-      container.textContent = 'Release created: ' + (r.name || r.tagName);
-      container.appendChild(ghLink(r.url, ' ' + r.url));
-      return container;
-    }
-
-    if (action === 'deleteRelease') {
-      container.textContent = typeof data === 'string' ? data : 'Release deleted.';
-      return container;
-    }
-
-    // Fallback: plain text
-    container.textContent = typeof data === 'string' ? data : JSON.stringify(data);
-    return container;
+    return window.SideCar.githubCards.renderGitHubResult(
+      { vscode, renderContent, currentModelSupportsTools: window.currentModelSupportsTools },
+      action,
+      data,
+    );
   }
 
   function submitMessage() {
@@ -1734,8 +1523,10 @@
       const filePath = match[2] ? match[2].trim() : '';
       const code = match[3];
 
-      // Render mermaid blocks as diagrams
-      if (lang.toLowerCase() === 'mermaid') {
+      // Render mermaid blocks as diagrams, unless mermaid is disabled via
+      // settings — in which case fall through to the normal code-block path
+      // so users who never use diagrams don't pay the 5.2MB load cost.
+      if (lang.toLowerCase() === 'mermaid' && window.__mermaidEnabled !== false) {
         const diagramBlock = document.createElement('div');
         diagramBlock.className = 'diagram-block';
         const diagramHeader = document.createElement('div');

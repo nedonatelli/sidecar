@@ -231,6 +231,7 @@ export interface SideCarConfig {
   mcpServers: Record<string, MCPServerConfig>;
   verboseMode: boolean;
   expandThinking: boolean;
+  enableMermaid: boolean;
   chatDensity: 'compact' | 'normal' | 'comfortable';
   chatFontSize: number;
   chatAccentColor: string;
@@ -325,6 +326,7 @@ function readConfig(): SideCarConfig {
     mcpServers: cfg.get<Record<string, MCPServerConfig>>('mcpServers', {}),
     verboseMode: cfg.get<boolean>('verboseMode', false),
     expandThinking: cfg.get<boolean>('expandThinking', false),
+    enableMermaid: cfg.get<boolean>('enableMermaid', true),
     chatDensity: cfg.get<'compact' | 'normal' | 'comfortable'>('chatDensity', 'normal'),
     chatFontSize: clampMin(cfg.get<number>('chatFontSize'), 10, 13),
     chatAccentColor: cfg.get<string>('chatAccentColor', ''),

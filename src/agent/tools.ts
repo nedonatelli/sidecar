@@ -15,23 +15,55 @@ const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
 
 // ---------------------------------------------------------------------------
-// Persistent shell session — shared across agent tool calls so that
-// environment variables, cwd changes, and shell state persist.
+// Tool runtime — cohesive container for tool-execution state that used to
+// live as loose module-level singletons (persistent shell session + symbol
+// graph index). One object means:
+//   - single dispose point
+//   - single injection seam (for sub-agents or tests)
+//   - obvious ownership: extension owns one; tests can construct their own
+//
+// Each tool executor reads from `ctx.runtime ?? getDefaultToolRuntime()`, so
+// extension activation populates the default instance while tests and
+// future parallel agent contexts can still pass their own.
 // ---------------------------------------------------------------------------
-let shellSession: ShellSession | null = null;
+export class ToolRuntime {
+  private shell: ShellSession | null = null;
+  symbolGraph: SymbolGraph | null = null;
+
+  /**
+   * Lazily-constructed persistent shell session. State (cwd, env vars,
+   * aliases) survives across tool calls — important so that `cd src/ && ls`
+   * followed by `pwd` reports the new cwd.
+   */
+  getShellSession(): ShellSession {
+    if (this.shell && this.shell.isAlive) return this.shell;
+    const config = getConfig();
+    const maxOutput = (config.shellMaxOutputMB || 10) * 1024 * 1024;
+    this.shell = new ShellSession(getRoot(), undefined, maxOutput);
+    return this.shell;
+  }
+
+  /** Tear down the persistent shell; safe to call repeatedly. */
+  dispose(): void {
+    this.shell?.dispose();
+    this.shell = null;
+  }
+}
+
+const defaultRuntime = new ToolRuntime();
+
+/** Access the process-wide default ToolRuntime. Extension owns this one. */
+export function getDefaultToolRuntime(): ToolRuntime {
+  return defaultRuntime;
+}
 
 function getShellSession(): ShellSession {
-  if (shellSession && shellSession.isAlive) return shellSession;
-  const config = getConfig();
-  const maxOutput = (config.shellMaxOutputMB || 10) * 1024 * 1024;
-  shellSession = new ShellSession(getRoot(), undefined, maxOutput);
-  return shellSession;
+  return defaultRuntime.getShellSession();
 }
 
 /** Call on extension deactivate to clean up the shell process. */
 export function disposeShellSession(): void {
-  shellSession?.dispose();
-  shellSession = null;
+  defaultRuntime.dispose();
 }
 
 /** Optional context passed to tool executors for streaming and cancellation. */
@@ -792,10 +824,12 @@ async function displayDiagram(input: Record<string, unknown>): Promise<string> {
 }
 
 // --- Symbol graph integration ---
-let symbolGraph: SymbolGraph | null = null;
+// The symbol graph lives on the default ToolRuntime (see top of file).
+// Extension activation calls setSymbolGraph() to wire the real indexer
+// in; tests pass a mock directly.
 
-export function setSymbolGraph(graph: SymbolGraph): void {
-  symbolGraph = graph;
+export function setSymbolGraph(graph: SymbolGraph | null): void {
+  defaultRuntime.symbolGraph = graph;
 }
 
 const findReferencesDef: ToolDefinition = {
@@ -818,7 +852,8 @@ const findReferencesDef: ToolDefinition = {
 };
 
 async function findReferences(input: Record<string, unknown>): Promise<string> {
-  if (!symbolGraph) {
+  const graph = defaultRuntime.symbolGraph;
+  if (!graph) {
     return 'Symbol graph is not available. The workspace may still be indexing.';
   }
 
@@ -828,7 +863,7 @@ async function findReferences(input: Record<string, unknown>): Promise<string> {
   if (!symbolName) return 'Error: symbol name is required.';
 
   // Look up definitions
-  let definitions = symbolGraph.lookupSymbol(symbolName);
+  let definitions = graph.lookupSymbol(symbolName);
   if (filterFile) {
     definitions = definitions.filter((d) => d.filePath === filterFile || d.filePath.includes(filterFile));
   }
@@ -850,7 +885,7 @@ async function findReferences(input: Record<string, unknown>): Promise<string> {
   // Show dependents (files that import the defining file)
   const allDependents = new Set<string>();
   for (const def of definitions) {
-    for (const dep of symbolGraph.getDependents(def.filePath)) {
+    for (const dep of graph.getDependents(def.filePath)) {
       allDependents.add(dep);
     }
   }
@@ -866,7 +901,7 @@ async function findReferences(input: Record<string, unknown>): Promise<string> {
   }
 
   // Find actual usage sites
-  const references = symbolGraph.findReferences(symbolName);
+  const references = graph.findReferences(symbolName);
   const filtered = filterFile
     ? references.filter((r) => r.file === filterFile || r.file.includes(filterFile))
     : references;

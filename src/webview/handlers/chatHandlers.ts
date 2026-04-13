@@ -29,6 +29,9 @@ import {
   resolveUrlReferences,
 } from '../../config/workspace.js';
 import { runAgentLoop } from '../../agent/loop.js';
+import type { AgentCallbacks } from '../../agent/loop.js';
+import type { ChatMessage } from '../../ollama/types.js';
+import type { ApprovalMode } from '../../agent/executor.js';
 import { pruneHistory, enhanceContextWithSmartElements } from '../../agent/context.js';
 import { computeUnifiedDiff } from '../../agent/diff.js';
 // commands import removed — diff preview now handled by streamingDiffPreview.ts
@@ -728,6 +731,330 @@ export async function postLoopProcessing(
 
 // ---------------------------------------------------------------------------
 
+/**
+ * Enrich the raw user text with a prefix that tells the model how to
+ * interpret short replies. Three cases:
+ *   - pendingQuestion + short reply → wrap as "[Responding to your question]"
+ *   - prior assistant + continuation keyword → "[Continuation request]" directive
+ *   - everything else → unchanged
+ * Consumes `state.pendingQuestion` on the first path.
+ */
+function prepareUserMessageText(state: ChatState, text: string): string {
+  const hasPriorAssistant = state.messages.some((m) => m.role === 'assistant');
+  if (state.pendingQuestion) {
+    const isShortReply = text.split(/\s+/).length <= 8 && !text.startsWith('/');
+    const wrapped = isShortReply ? `[Responding to your question: "${state.pendingQuestion}"]\n\n${text}` : text;
+    state.pendingQuestion = null;
+    return wrapped;
+  }
+  if (hasPriorAssistant && isContinuationRequest(text)) {
+    return (
+      `[Continuation request: user said "${text}"]\n\n` +
+      `Resume the work from your most recent response. Pick up exactly where you left off — ` +
+      `do not repeat steps you already completed and do not re-summarize. ` +
+      `If you stopped mid-task (iteration limit, error, cycle detection, or partial answer), ` +
+      `continue executing the remaining steps. If the prior task is fully complete, take the ` +
+      `next logical step toward the user's original goal in this conversation.`
+    );
+  }
+  return text;
+}
+
+/**
+ * Decay (or reset) workspace index relevance scores for this turn.
+ * Resets entirely when the new message's keyword overlap with the previous
+ * user message is < 15% — that's the topic-change heuristic that keeps
+ * stale files from dominating context after a pivot.
+ */
+function updateWorkspaceRelevance(state: ChatState, text: string): void {
+  if (!state.workspaceIndex) return;
+  if (!text) {
+    state.workspaceIndex.decayRelevance();
+    return;
+  }
+  const userMsgs = state.messages.filter((m) => m.role === 'user');
+  const prevQuery = userMsgs.length >= 2 ? String(userMsgs[userMsgs.length - 2].content) : '';
+  const overlap = prevQuery ? keywordOverlap(text, prevQuery) : 1;
+  if (overlap < 0.15) {
+    state.workspaceIndex.resetRelevance();
+  } else {
+    state.workspaceIndex.decayRelevance();
+  }
+}
+
+/**
+ * Reach the configured provider, retrying up to 3 times with 2s/4s/8s
+ * backoff. Posts typing status between attempts and respects the abort
+ * signal. Returns true on success.
+ */
+async function connectWithRetry(state: ChatState): Promise<boolean> {
+  state.postMessage({ command: 'typingStatus', content: 'Connecting to model...' });
+  let started = await ensureProviderRunning(state);
+  if (started) return true;
+
+  const retryDelays = [2000, 4000, 8000];
+  for (let attempt = 0; attempt < retryDelays.length; attempt++) {
+    state.postMessage({
+      command: 'typingStatus',
+      content: `Connection failed — retrying (${attempt + 1}/${retryDelays.length})...`,
+    });
+    await new Promise((r) => setTimeout(r, retryDelays[attempt]));
+    if (state.abortController?.signal.aborted) return false;
+    started = await isProviderReachable(state.client.getProviderType());
+    if (started) return true;
+  }
+  return false;
+}
+
+/**
+ * Check daily/weekly spending limits. Returns `'blocked'` if a hard limit
+ * is reached (and posts a user-facing message), otherwise `'ok'`. Also
+ * posts a soft warning when usage crosses the 80% threshold.
+ */
+function checkBudgetLimits(state: ChatState, config: ReturnType<typeof getConfig>): 'blocked' | 'ok' {
+  if (config.dailyBudget <= 0 && config.weeklyBudget <= 0) return 'ok';
+  const { daily: dailySpend, weekly: weeklySpend } = state.metricsCollector.getSpendBreakdown();
+
+  if (config.dailyBudget > 0 && dailySpend >= config.dailyBudget) {
+    state.postMessage({
+      command: 'assistantMessage',
+      content: `⚠️ **Daily spending limit reached** — $${dailySpend.toFixed(4)} of $${config.dailyBudget.toFixed(2)} budget used today. Adjust \`sidecar.dailyBudget\` in settings to continue.`,
+    });
+    return 'blocked';
+  }
+  if (config.weeklyBudget > 0 && weeklySpend >= config.weeklyBudget) {
+    state.postMessage({
+      command: 'assistantMessage',
+      content: `⚠️ **Weekly spending limit reached** — $${weeklySpend.toFixed(4)} of $${config.weeklyBudget.toFixed(2)} budget used this week. Adjust \`sidecar.weeklyBudget\` in settings to continue.`,
+    });
+    return 'blocked';
+  }
+
+  if (config.dailyBudget > 0 && dailySpend >= config.dailyBudget * 0.8) {
+    state.postMessage({
+      command: 'assistantMessage',
+      content: `💰 Approaching daily budget: $${dailySpend.toFixed(4)} of $${config.dailyBudget.toFixed(2)} (${Math.round((dailySpend / config.dailyBudget) * 100)}% used)\n\n`,
+    });
+  } else if (config.weeklyBudget > 0 && weeklySpend >= config.weeklyBudget * 0.8) {
+    state.postMessage({
+      command: 'assistantMessage',
+      content: `💰 Approaching weekly budget: $${weeklySpend.toFixed(4)} of $${config.weeklyBudget.toFixed(2)} (${Math.round((weeklySpend / config.weeklyBudget) * 100)}% used)\n\n`,
+    });
+  }
+  return 'ok';
+}
+
+/**
+ * Build the full system prompt for this run (base + custom mode override
+ * + injected context: SIDECAR.md, skills, RAG, memory, workspace) and
+ * return it along with the resolved context window length.
+ */
+async function buildSystemPromptForRun(
+  state: ChatState,
+  config: ReturnType<typeof getConfig>,
+  text: string,
+  effectiveApprovalMode: ApprovalMode,
+  resolvedSystemPrompt: string | undefined,
+): Promise<{ systemPrompt: string; contextLength: number | null }> {
+  const isLocal = state.client.isLocalOllama();
+  const pkg = state.context.extension?.packageJSON || {};
+  const extensionVersion = pkg.version || 'unknown';
+  const root = getWorkspaceRoot();
+  let systemPrompt = buildBaseSystemPrompt({
+    isLocal,
+    extensionVersion,
+    repoUrl: pkg.repository?.url || 'https://github.com/nedonatelli/sidecar',
+    docsUrl: 'https://nedonatelli.github.io/sidecar/',
+    root,
+    approvalMode: effectiveApprovalMode,
+  });
+
+  if (resolvedSystemPrompt) {
+    systemPrompt += `\n\n## Active Mode: ${config.agentMode}\n${resolvedSystemPrompt}`;
+  }
+
+  state.postMessage({ command: 'typingStatus', content: 'Building context...' });
+  const rawContextLength = await state.client.getModelContextLength();
+  const userContextLimit = getContextLimit();
+  let contextLength: number | null;
+  if (userContextLimit > 0) {
+    contextLength = isLocal ? userContextLimit : (rawContextLength ?? userContextLimit);
+  } else {
+    contextLength =
+      isLocal && rawContextLength && rawContextLength > LOCAL_CONTEXT_CAP ? LOCAL_CONTEXT_CAP : rawContextLength;
+  }
+  const maxSystemChars = contextLength
+    ? Math.floor(contextLength * CHARS_PER_TOKEN * SYSTEM_PROMPT_BUDGET_FRACTION)
+    : DEFAULT_MAX_SYSTEM_CHARS;
+
+  systemPrompt = await injectSystemContext(systemPrompt, maxSystemChars, state, config, text, isLocal, contextLength);
+  return { systemPrompt, contextLength };
+}
+
+/**
+ * Build the streaming-text + tool-result callback bundle that the agent
+ * loop drives. All per-run mutable state (text buffer, flush timer,
+ * current iteration) lives inside this factory's closure so handleUserMessage
+ * doesn't need to carry it. The returned `flush` lets the caller push any
+ * pending text before a tool card renders — onDone calls it internally.
+ */
+function createAgentCallbacks(
+  state: ChatState,
+  config: ReturnType<typeof getConfig>,
+  chatMessages: ChatMessage[],
+): AgentCallbacks {
+  const verbose = config.verboseMode;
+  const verboseLog = (label: string, content: string) => {
+    if (verbose) {
+      state.postMessage({ command: 'verboseLog', content, verboseLabel: label });
+    }
+  };
+
+  // Stream coalescing: tokens arrive individually but we flush to the
+  // webview at most every 50ms to reduce postMessage IPC overhead.
+  let textBuffer = '';
+  let flushTimer: ReturnType<typeof setTimeout> | null = null;
+  const STREAM_FLUSH_MS = 50;
+  const flushTextBuffer = () => {
+    if (textBuffer) {
+      state.postMessage({ command: 'assistantMessage', content: textBuffer });
+      textBuffer = '';
+    }
+    flushTimer = null;
+  };
+
+  let currentIteration = 0;
+
+  return {
+    onText: (t) => {
+      textBuffer += t;
+      if (!flushTimer) {
+        flushTimer = setTimeout(flushTextBuffer, STREAM_FLUSH_MS);
+      }
+    },
+    onThinking: (thinking) => {
+      state.postMessage({ command: 'thinking', content: thinking });
+    },
+    onToolCall: (name, input, id) => {
+      // Flush any pending text before showing the tool call card
+      flushTextBuffer();
+      const summary = Object.entries(input)
+        .map(([k, v]) => {
+          const val = typeof v === 'string' && v.length > 60 ? v.slice(0, 60) + '...' : String(v);
+          return `${k}: ${val}`;
+        })
+        .join(', ');
+      state.postMessage({ command: 'toolCall', toolName: name, toolCallId: id, content: `${name}(${summary})` });
+      state.logMessage('tool', `${name}(${summary})`);
+      state.metricsCollector.recordToolStart();
+      state.auditLog?.recordToolCall(name, input, id, currentIteration);
+      if (verbose) {
+        verboseLog('Tool Selected', `Invoking ${name} with: ${summary}`);
+      }
+      if (state.workspaceIndex && typeof input.path === 'string') {
+        const accessType = name === 'read_file' ? 'read' : 'write';
+        if (['read_file', 'write_file', 'edit_file'].includes(name)) {
+          state.workspaceIndex.trackFileAccess(input.path as string, accessType);
+        }
+      }
+    },
+    onToolResult: (name, result, isError, id) => {
+      const preview = result.length > 200 ? result.slice(0, 200) + '...' : result;
+      state.postMessage({ command: 'toolResult', toolName: name, toolCallId: id, content: preview });
+      const durationMs = state.metricsCollector.getToolDuration();
+      state.metricsCollector.recordToolEnd(name, isError);
+      state.auditLog?.recordToolResult(name, id, result, isError, durationMs);
+    },
+    onToolOutput: (name, chunk, id) => {
+      state.postMessage({ command: 'toolOutput', content: chunk, toolName: name, toolCallId: id });
+    },
+    onIterationStart: (info) => {
+      currentIteration = info.iteration;
+      state.postMessage({
+        command: 'agentProgress',
+        iteration: info.iteration,
+        maxIterations: info.maxIterations,
+        elapsedMs: info.elapsedMs,
+        estimatedTokens: info.estimatedTokens,
+        messageCount: info.messageCount,
+        messagesRemaining: info.messagesRemaining,
+        atCapacity: info.atCapacity,
+      });
+      if (verbose) {
+        const elapsed = (info.elapsedMs / 1000).toFixed(1);
+        const capacityWarning = info.atCapacity ? ' ⚠️ At message limit!' : '';
+        verboseLog(
+          `Iteration ${info.iteration}/${info.maxIterations}`,
+          `Starting iteration ${info.iteration}. Elapsed: ${elapsed}s, ~${info.estimatedTokens} tokens used, ${info.messageCount} messages${capacityWarning}`,
+        );
+      }
+    },
+    onPlanGenerated: (plan) => {
+      state.pendingPlan = plan;
+      state.pendingPlanMessages = [...chatMessages];
+      state.postMessage({ command: 'planReady', content: plan });
+    },
+    onMemory: (type, category, content) => {
+      if (config.enableAgentMemory && state.agentMemory) {
+        try {
+          state.agentMemory.add(type, category, content, `Session: ${new Date().toISOString()}`);
+        } catch (err) {
+          console.warn('Failed to record agent memory:', err);
+        }
+      }
+    },
+    onToolChainRecord: (toolName, succeeded) => {
+      if (config.enableAgentMemory && state.agentMemory) {
+        state.agentMemory.recordToolUse(toolName, succeeded);
+      }
+    },
+    onToolChainFlush: () => {
+      if (config.enableAgentMemory && state.agentMemory) {
+        state.agentMemory.flushToolChain();
+      }
+    },
+    onSuggestNextSteps: (suggestions) => {
+      if (suggestions.length > 0) {
+        state.postMessage({ command: 'suggestNextSteps', suggestions });
+      }
+    },
+    onProgressSummary: (summary) => {
+      state.postMessage({ command: 'agentProgress', content: summary });
+    },
+    onCheckpoint: async (summary, _used, remaining) => {
+      try {
+        const choice = await state.requestConfirm(
+          `**Checkpoint:** ${summary}\n\n${remaining} iterations remaining. Continue?`,
+          ['Continue', 'Stop here'],
+        );
+        return choice === 'Continue';
+      } catch {
+        return true;
+      }
+    },
+    onDone: () => {
+      flushTextBuffer();
+      state.postMessage({ command: 'done' });
+    },
+  };
+}
+
+/**
+ * Record estimated cost for the in-flight agent run against the model's
+ * per-token pricing. Called from the `finally` block — currentRun hasn't
+ * been pushed yet, so we read the live token counter via the public
+ * getter rather than reaching into the private field.
+ */
+function recordRunCost(state: ChatState): void {
+  const runConfig = getConfig();
+  const currentTokens = state.metricsCollector.getCurrentRunTokens();
+  if (currentTokens <= 0) return;
+  const inputTokens = Math.round(currentTokens * INPUT_TOKEN_RATIO);
+  const outputTokens = currentTokens - inputTokens;
+  const runCost = estimateCost(runConfig.model, inputTokens, outputTokens);
+  state.metricsCollector.recordCost(runCost);
+}
+
 export async function handleUserMessage(state: ChatState, text: string): Promise<void> {
   // Abort any previous agent run BEFORE mutating messages.
   // This prevents race conditions where the old agent loop reads
@@ -741,30 +1068,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
   }
 
   if (text) {
-    // If the assistant previously asked a question and the user's response is very
-    // short (likely a direct answer like "yes", "option 2", "the first one"), inject
-    // context so the LLM understands this is a response to its question.
-    // Threshold kept low (8 words) to avoid hijacking unrelated follow-ups.
-    let messageText = text;
-    const hasPriorAssistant = state.messages.some((m) => m.role === 'assistant');
-    if (state.pendingQuestion) {
-      const isShortReply = text.split(/\s+/).length <= 8 && !text.startsWith('/');
-      if (isShortReply) {
-        messageText = `[Responding to your question: "${state.pendingQuestion}"]\n\n${text}`;
-      }
-      state.pendingQuestion = null;
-    } else if (hasPriorAssistant && isContinuationRequest(text)) {
-      // Terse "continue"-style replies should resume the prior task, not be
-      // taken literally. Tell the model to pick up where it left off — most
-      // common after iteration limits, cycle detection, or partial completion.
-      messageText =
-        `[Continuation request: user said "${text}"]\n\n` +
-        `Resume the work from your most recent response. Pick up exactly where you left off — ` +
-        `do not repeat steps you already completed and do not re-summarize. ` +
-        `If you stopped mid-task (iteration limit, error, cycle detection, or partial answer), ` +
-        `continue executing the remaining steps. If the prior task is fully complete, take the ` +
-        `next logical step toward the user's original goal in this conversation.`;
-    }
+    const messageText = prepareUserMessageText(state, text);
     state.messages.push({ role: 'user', content: messageText });
     state.logMessage('user', messageText);
     state.saveHistory();
@@ -774,41 +1078,11 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
 
   state.abortController = new AbortController();
 
-  // Decay workspace index relevance so old accesses fade.
-  // If the user switched topics (low keyword overlap with previous query),
-  // reset scores entirely so stale files don't dominate context.
-  if (state.workspaceIndex && text) {
-    const userMsgs = state.messages.filter((m) => m.role === 'user');
-    const prevQuery = userMsgs.length >= 2 ? String(userMsgs[userMsgs.length - 2].content) : '';
-    const overlap = prevQuery ? keywordOverlap(text, prevQuery) : 1;
-    if (overlap < 0.15) {
-      state.workspaceIndex.resetRelevance();
-    } else {
-      state.workspaceIndex.decayRelevance();
-    }
-  } else {
-    state.workspaceIndex?.decayRelevance();
-  }
+  updateWorkspaceRelevance(state, text);
 
   try {
     const config = getConfig();
-    state.postMessage({ command: 'typingStatus', content: 'Connecting to model...' });
-    let started = await ensureProviderRunning(state);
-
-    // Auto-retry with backoff if initial connection fails
-    if (!started) {
-      const retryDelays = [2000, 4000, 8000];
-      for (let attempt = 0; attempt < retryDelays.length; attempt++) {
-        state.postMessage({
-          command: 'typingStatus',
-          content: `Connection failed — retrying (${attempt + 1}/${retryDelays.length})...`,
-        });
-        await new Promise((r) => setTimeout(r, retryDelays[attempt]));
-        if (state.abortController?.signal.aborted) return;
-        started = await isProviderReachable(state.client.getProviderType());
-        if (started) break;
-      }
-    }
+    const started = await connectWithRetry(state);
 
     if (!started) {
       state.postMessage(
@@ -831,53 +1105,19 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
       return;
     }
 
-    // Budget enforcement: block agent runs when spending limits are exceeded.
-    if (config.dailyBudget > 0 || config.weeklyBudget > 0) {
-      // Single pass over the persisted history — previously each of
-      // getDailySpend() / getWeeklySpend() called workspaceState.get()
-      // which deserializes the whole run array.
-      const { daily: dailySpend, weekly: weeklySpend } = state.metricsCollector.getSpendBreakdown();
-
-      if (config.dailyBudget > 0 && dailySpend >= config.dailyBudget) {
-        state.postMessage({
-          command: 'assistantMessage',
-          content: `⚠️ **Daily spending limit reached** — $${dailySpend.toFixed(4)} of $${config.dailyBudget.toFixed(2)} budget used today. Adjust \`sidecar.dailyBudget\` in settings to continue.`,
-        });
-        state.postMessage({ command: 'setLoading', isLoading: false });
-        return;
-      }
-      if (config.weeklyBudget > 0 && weeklySpend >= config.weeklyBudget) {
-        state.postMessage({
-          command: 'assistantMessage',
-          content: `⚠️ **Weekly spending limit reached** — $${weeklySpend.toFixed(4)} of $${config.weeklyBudget.toFixed(2)} budget used this week. Adjust \`sidecar.weeklyBudget\` in settings to continue.`,
-        });
-        state.postMessage({ command: 'setLoading', isLoading: false });
-        return;
-      }
-
-      // Warn when approaching limits (80% threshold)
-      if (config.dailyBudget > 0 && dailySpend >= config.dailyBudget * 0.8) {
-        state.postMessage({
-          command: 'assistantMessage',
-          content: `💰 Approaching daily budget: $${dailySpend.toFixed(4)} of $${config.dailyBudget.toFixed(2)} (${Math.round((dailySpend / config.dailyBudget) * 100)}% used)\n\n`,
-        });
-      } else if (config.weeklyBudget > 0 && weeklySpend >= config.weeklyBudget * 0.8) {
-        state.postMessage({
-          command: 'assistantMessage',
-          content: `💰 Approaching weekly budget: $${weeklySpend.toFixed(4)} of $${config.weeklyBudget.toFixed(2)} (${Math.round((weeklySpend / config.weeklyBudget) * 100)}% used)\n\n`,
-        });
-      }
+    if (checkBudgetLimits(state, config) === 'blocked') {
+      state.postMessage({ command: 'setLoading', isLoading: false });
+      return;
     }
 
-    const model = config.model;
     state.client.updateConnection(config.baseUrl, config.apiKey);
-    state.client.updateModel(model);
+    state.client.updateModel(config.model);
 
     // Resolve custom mode (if any) to its effective approval behavior and system prompt
     const resolved = resolveMode(config.agentMode, config.customModes);
 
     // Auto-enable plan mode for large/complex tasks
-    let effectiveApprovalMode = resolved.approvalBehavior;
+    let effectiveApprovalMode: ApprovalMode = resolved.approvalBehavior;
     if (effectiveApprovalMode !== 'plan' && shouldAutoEnablePlanMode(text, state.messages.length)) {
       effectiveApprovalMode = 'plan';
       state.postMessage({
@@ -887,43 +1127,13 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
       });
     }
 
-    // Build system prompt
-    const isLocal = state.client.isLocalOllama();
-    const pkg = state.context.extension?.packageJSON || {};
-    const extensionVersion = pkg.version || 'unknown';
-    const root = getWorkspaceRoot();
-    let systemPrompt = buildBaseSystemPrompt({
-      isLocal,
-      extensionVersion,
-      repoUrl: pkg.repository?.url || 'https://github.com/nedonatelli/sidecar',
-      docsUrl: 'https://nedonatelli.github.io/sidecar/',
-      root,
-      approvalMode: effectiveApprovalMode,
-    });
-
-    // Inject custom mode system prompt
-    if (resolved.systemPrompt) {
-      systemPrompt += `\n\n## Active Mode: ${config.agentMode}\n${resolved.systemPrompt}`;
-    }
-
-    // Compute context budget
-    state.postMessage({ command: 'typingStatus', content: 'Building context...' });
-    const rawContextLength = await state.client.getModelContextLength();
-    const userContextLimit = getContextLimit();
-    let contextLength: number | null;
-    if (userContextLimit > 0) {
-      contextLength = isLocal ? userContextLimit : (rawContextLength ?? userContextLimit);
-    } else {
-      contextLength =
-        isLocal && rawContextLength && rawContextLength > LOCAL_CONTEXT_CAP ? LOCAL_CONTEXT_CAP : rawContextLength;
-    }
-    const maxSystemChars = contextLength
-      ? Math.floor(contextLength * CHARS_PER_TOKEN * SYSTEM_PROMPT_BUDGET_FRACTION)
-      : DEFAULT_MAX_SYSTEM_CHARS;
-
-    // Inject additional context (SIDECAR.md, skills, RAG, memory, workspace)
-    systemPrompt = await injectSystemContext(systemPrompt, maxSystemChars, state, config, text, isLocal, contextLength);
-
+    const { systemPrompt, contextLength } = await buildSystemPromptForRun(
+      state,
+      config,
+      text,
+      effectiveApprovalMode,
+      resolved.systemPrompt,
+    );
     state.client.updateSystemPrompt(systemPrompt);
 
     // Snapshot the chat generation so we can detect if clearChat() was
@@ -936,41 +1146,15 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     const chatMessages = [...state.messages];
     await enrichAndPruneMessages(chatMessages, config, systemPrompt, contextLength, state, config.verboseMode);
 
-    // Verbose mode helper
-    const verbose = config.verboseMode;
-    const verboseLog = (label: string, content: string) => {
-      if (verbose) {
-        state.postMessage({ command: 'verboseLog', content, verboseLabel: label });
-      }
-    };
-
     // Feature 5: System prompt inspector — send assembled prompt in verbose mode
-    if (verbose) {
-      verboseLog('System Prompt', systemPrompt);
+    if (config.verboseMode) {
+      state.postMessage({ command: 'verboseLog', content: systemPrompt, verboseLabel: 'System Prompt' });
     }
 
-    // Send expandThinking preference to webview
     state.postMessage({ command: 'typingStatus', content: 'Sending to model...' });
     state.postMessage({ command: 'setLoading', isLoading: true, expandThinking: config.expandThinking });
 
-    // Run agent loop with tool use
-    // Batch streaming text updates to reduce postMessage IPC overhead.
-    // Tokens arrive individually but we flush to the webview at most every 50ms.
-    let textBuffer = '';
-    let flushTimer: ReturnType<typeof setTimeout> | null = null;
-    const STREAM_FLUSH_MS = 50;
-    function flushTextBuffer() {
-      if (textBuffer) {
-        state.postMessage({ command: 'assistantMessage', content: textBuffer });
-        textBuffer = '';
-      }
-      flushTimer = null;
-    }
-
     state.metricsCollector.startRun();
-    // Track current iteration for audit log
-    let currentIteration = 0;
-    // Update audit log context for this run
     if (state.auditLog) {
       const sessionId = state.agentMemory?.getSessionId() || `s-${Date.now()}`;
       state.auditLog.setContext(sessionId, config.model, effectiveApprovalMode);
@@ -978,124 +1162,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     const updatedMessages = await runAgentLoop(
       state.client,
       chatMessages,
-      {
-        onText: (t) => {
-          textBuffer += t;
-          if (!flushTimer) {
-            flushTimer = setTimeout(flushTextBuffer, STREAM_FLUSH_MS);
-          }
-        },
-        onThinking: (thinking) => {
-          state.postMessage({ command: 'thinking', content: thinking });
-        },
-        onToolCall: (name, input, id) => {
-          // Flush any pending text before showing the tool call card
-          flushTextBuffer();
-          const summary = Object.entries(input)
-            .map(([k, v]) => {
-              const val = typeof v === 'string' && v.length > 60 ? v.slice(0, 60) + '...' : String(v);
-              return `${k}: ${val}`;
-            })
-            .join(', ');
-          state.postMessage({ command: 'toolCall', toolName: name, toolCallId: id, content: `${name}(${summary})` });
-          state.logMessage('tool', `${name}(${summary})`);
-          state.metricsCollector.recordToolStart();
-          // Audit log: record tool call start
-          state.auditLog?.recordToolCall(name, input, id, currentIteration);
-          // Verbose: explain tool selection
-          if (verbose) {
-            verboseLog('Tool Selected', `Invoking ${name} with: ${summary}`);
-          }
-          // Track file access for workspace index relevance
-          if (state.workspaceIndex && typeof input.path === 'string') {
-            const accessType = name === 'read_file' ? 'read' : 'write';
-            if (['read_file', 'write_file', 'edit_file'].includes(name)) {
-              state.workspaceIndex.trackFileAccess(input.path as string, accessType);
-            }
-          }
-        },
-        onToolResult: (name, result, isError, id) => {
-          const preview = result.length > 200 ? result.slice(0, 200) + '...' : result;
-          state.postMessage({ command: 'toolResult', toolName: name, toolCallId: id, content: preview });
-          const durationMs = state.metricsCollector.getToolDuration();
-          state.metricsCollector.recordToolEnd(name, isError);
-          // Audit log: record tool result with duration
-          state.auditLog?.recordToolResult(name, id, result, isError, durationMs);
-        },
-        onToolOutput: (name, chunk, id) => {
-          state.postMessage({ command: 'toolOutput', content: chunk, toolName: name, toolCallId: id });
-        },
-        onIterationStart: (info) => {
-          currentIteration = info.iteration;
-          state.postMessage({
-            command: 'agentProgress',
-            iteration: info.iteration,
-            maxIterations: info.maxIterations,
-            elapsedMs: info.elapsedMs,
-            estimatedTokens: info.estimatedTokens,
-            messageCount: info.messageCount,
-            messagesRemaining: info.messagesRemaining,
-            atCapacity: info.atCapacity,
-          });
-          // Feature 4: Per-iteration narrative
-          if (verbose) {
-            const elapsed = (info.elapsedMs / 1000).toFixed(1);
-            const capacityWarning = info.atCapacity ? ' ⚠️ At message limit!' : '';
-            verboseLog(
-              `Iteration ${info.iteration}/${info.maxIterations}`,
-              `Starting iteration ${info.iteration}. Elapsed: ${elapsed}s, ~${info.estimatedTokens} tokens used, ${info.messageCount} messages${capacityWarning}`,
-            );
-          }
-        },
-        onPlanGenerated: (plan) => {
-          state.pendingPlan = plan;
-          state.pendingPlanMessages = [...chatMessages];
-          state.postMessage({ command: 'planReady', content: plan });
-        },
-        onMemory: (type, category, content) => {
-          // Record learned patterns and decisions to agent memory
-          if (config.enableAgentMemory && state.agentMemory) {
-            try {
-              state.agentMemory.add(type, category, content, `Session: ${new Date().toISOString()}`);
-            } catch (err) {
-              console.warn('Failed to record agent memory:', err);
-            }
-          }
-        },
-        onToolChainRecord: (toolName, succeeded) => {
-          if (config.enableAgentMemory && state.agentMemory) {
-            state.agentMemory.recordToolUse(toolName, succeeded);
-          }
-        },
-        onToolChainFlush: () => {
-          if (config.enableAgentMemory && state.agentMemory) {
-            state.agentMemory.flushToolChain();
-          }
-        },
-        onSuggestNextSteps: (suggestions) => {
-          if (suggestions.length > 0) {
-            state.postMessage({ command: 'suggestNextSteps', suggestions });
-          }
-        },
-        onProgressSummary: (summary) => {
-          state.postMessage({ command: 'agentProgress', content: summary });
-        },
-        onCheckpoint: async (summary, _used, remaining) => {
-          try {
-            const choice = await state.requestConfirm(
-              `**Checkpoint:** ${summary}\n\n${remaining} iterations remaining. Continue?`,
-              ['Continue', 'Stop here'],
-            );
-            return choice === 'Continue';
-          } catch {
-            return true; // default to continue if prompt fails
-          }
-        },
-        onDone: () => {
-          flushTextBuffer();
-          state.postMessage({ command: 'done' });
-        },
-      },
+      createAgentCallbacks(state, config, chatMessages),
       state.abortController.signal,
       {
         logger: state.agentLogger,
@@ -1153,18 +1220,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     const classified = classifyError(errorMessage);
     state.postMessage({ command: 'error', content: `Error: ${errorMessage}`, ...classified });
   } finally {
-    // Record estimated cost for this run before finalizing metrics.
-    // currentRun hasn't been pushed yet, so token count is on the
-    // in-flight run — use the public getter rather than reaching into
-    // the private field via bracket notation.
-    const runConfig = getConfig();
-    const currentTokens = state.metricsCollector.getCurrentRunTokens();
-    if (currentTokens > 0) {
-      const inputTokens = Math.round(currentTokens * INPUT_TOKEN_RATIO);
-      const outputTokens = currentTokens - inputTokens;
-      const runCost = estimateCost(runConfig.model, inputTokens, outputTokens);
-      state.metricsCollector.recordCost(runCost);
-    }
+    recordRunCost(state);
     state.metricsCollector.endRun();
     state.abortController = null;
     // Always ensure loading indicator is cleared, regardless of how we got here

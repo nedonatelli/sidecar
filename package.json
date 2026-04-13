@@ -317,6 +317,11 @@
           "default": false,
           "description": "Show model reasoning blocks expanded by default instead of collapsed"
         },
+        "sidecar.enableMermaid": {
+          "type": "boolean",
+          "default": true,
+          "description": "Render ```mermaid code blocks as diagrams. Disable to skip the 5.2MB mermaid.js load and render mermaid blocks as plain code — useful if you never ask for diagrams and want a smaller runtime footprint."
+        },
         "sidecar.chatDensity": {
           "type": "string",
           "enum": ["compact", "normal", "comfortable"],
