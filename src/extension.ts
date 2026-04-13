@@ -5,6 +5,7 @@ import { TerminalManager } from './terminal/manager.js';
 import { TerminalErrorWatcher } from './terminal/errorWatcher.js';
 import { registerJsDocSync } from './docs/jsDocSyncProvider.js';
 import { registerReadmeSync } from './docs/readmeSyncProvider.js';
+import { registerReviewPanel } from './agent/reviewPanel.js';
 import { SideCarCompletionProvider } from './completions/provider.js';
 import {
   getConfig,
@@ -270,6 +271,11 @@ export function activate(context: ExtensionContext) {
   // source file; on save of either, re-checks the README's fenced code
   // blocks for calls whose arg count no longer matches the current export.
   context.subscriptions.push(registerReadmeSync());
+
+  // Register the agent diff review panel. Shares the PendingEditStore with
+  // the chat view so files queued during review-mode agent runs show up
+  // here for the user to accept or discard before they hit disk.
+  context.subscriptions.push(registerReviewPanel(context, chatProvider.pendingEditStore, proposedContentProvider));
 
   // Watch the integrated terminal for failed commands and offer to diagnose
   // them in the chat. Skips SideCar's own terminal to avoid feedback loops.

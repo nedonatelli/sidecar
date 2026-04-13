@@ -173,21 +173,21 @@ export interface CustomModeConfig {
   toolPermissions?: Record<string, 'allow' | 'deny' | 'ask'>;
 }
 
-const BUILT_IN_MODES = ['autonomous', 'cautious', 'manual', 'plan'] as const;
+const BUILT_IN_MODES = ['autonomous', 'cautious', 'manual', 'plan', 'review'] as const;
 
 /** Resolve an agentMode string to its effective approval behavior, system prompt, and tool permissions. */
 export function resolveMode(
   agentMode: string,
   customModes: CustomModeConfig[],
 ): {
-  approvalBehavior: 'autonomous' | 'cautious' | 'manual' | 'plan';
+  approvalBehavior: 'autonomous' | 'cautious' | 'manual' | 'plan' | 'review';
   systemPrompt: string;
   toolPermissions: Record<string, 'allow' | 'deny' | 'ask'>;
   isCustom: boolean;
 } {
   if ((BUILT_IN_MODES as readonly string[]).includes(agentMode)) {
     return {
-      approvalBehavior: agentMode as 'autonomous' | 'cautious' | 'manual' | 'plan',
+      approvalBehavior: agentMode as 'autonomous' | 'cautious' | 'manual' | 'plan' | 'review',
       systemPrompt: '',
       toolPermissions: {},
       isCustom: false,

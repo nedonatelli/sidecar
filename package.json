@@ -238,7 +238,7 @@
         "sidecar.agentMode": {
           "type": "string",
           "default": "cautious",
-          "description": "Agent mode: cautious, autonomous, manual, plan, or a custom mode name from sidecar.customModes"
+          "description": "Agent mode: cautious, autonomous, manual, plan, review, or a custom mode name from sidecar.customModes"
         },
         "sidecar.agentTemperature": {
           "type": "number",
@@ -434,6 +434,12 @@
           "type": "webview",
           "id": "sidecar.chatView",
           "name": "Chat"
+        },
+        {
+          "id": "sidecar.reviewPanel",
+          "name": "Pending Agent Changes",
+          "icon": "$(diff)",
+          "when": "true"
         }
       ]
     },
@@ -501,6 +507,30 @@
       {
         "command": "sidecar.rejectInlineEdit",
         "title": "SideCar: Dismiss Inline Edit"
+      },
+      {
+        "command": "sidecar.review.acceptFile",
+        "title": "SideCar: Accept Pending Change",
+        "icon": "$(check)"
+      },
+      {
+        "command": "sidecar.review.discardFile",
+        "title": "SideCar: Discard Pending Change",
+        "icon": "$(close)"
+      },
+      {
+        "command": "sidecar.review.acceptAll",
+        "title": "SideCar: Accept All Pending Changes",
+        "icon": "$(check-all)"
+      },
+      {
+        "command": "sidecar.review.discardAll",
+        "title": "SideCar: Discard All Pending Changes",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "sidecar.review.openDiff",
+        "title": "SideCar: Show Pending Diff"
       }
     ],
     "keybindings": [
@@ -552,6 +582,30 @@
           "command": "sidecar.refactorSelection",
           "when": "editorHasSelection",
           "group": "sidecar@3"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "sidecar.review.acceptAll",
+          "when": "view == sidecar.reviewPanel",
+          "group": "navigation@1"
+        },
+        {
+          "command": "sidecar.review.discardAll",
+          "when": "view == sidecar.reviewPanel",
+          "group": "navigation@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "sidecar.review.acceptFile",
+          "when": "view == sidecar.reviewPanel && viewItem == sidecar.reviewEntry",
+          "group": "inline@1"
+        },
+        {
+          "command": "sidecar.review.discardFile",
+          "when": "view == sidecar.reviewPanel && viewItem == sidecar.reviewEntry",
+          "group": "inline@2"
         }
       ]
     }

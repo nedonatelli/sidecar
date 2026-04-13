@@ -2,6 +2,7 @@ import type { ExtensionContext } from 'vscode';
 import { type ChatMessage, getContentText, getContentLength, serializeContent } from '../ollama/types.js';
 import { SideCarClient } from '../ollama/client.js';
 import { ChangeLog } from '../agent/changelog.js';
+import { PendingEditStore } from '../agent/pendingEdits.js';
 import { SessionManager } from '../agent/sessions.js';
 import { MetricsCollector } from '../agent/metrics.js';
 import type { AgentLogger } from '../agent/logger.js';
@@ -41,6 +42,7 @@ export class ChatState {
   private pendingConfirms = new Map<string, (choice: string | undefined) => void>();
   private confirmCounter = 0;
   changelog = new ChangeLog();
+  pendingEdits = new PendingEditStore();
   sessionManager: SessionManager;
   metricsCollector: MetricsCollector;
   workspaceIndex: WorkspaceIndex | null = null;

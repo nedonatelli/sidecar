@@ -10,6 +10,7 @@ import {
   CancellationToken,
 } from 'vscode';
 import { ChatState } from './chatState.js';
+import type { PendingEditStore } from '../agent/pendingEdits.js';
 import { getChatWebviewHtml, type WebviewMessage, type ExtensionMessage } from './chatWebview.js';
 import type { TerminalManager } from '../terminal/manager.js';
 import type { ProposedContentProvider } from '../edits/proposedContentProvider.js';
@@ -76,6 +77,11 @@ export class ChatViewProvider implements WebviewViewProvider {
   // Retained for potential future use (proposed diff views)
   private readonly _contentProvider: ProposedContentProvider;
   private bgManager: BackgroundAgentManager;
+
+  /** Exposed so the review panel can share the same pending-edit store. */
+  get pendingEditStore(): PendingEditStore {
+    return this.state.pendingEdits;
+  }
 
   constructor(
     private readonly context: ExtensionContext,

@@ -1124,6 +1124,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
           : undefined,
         clarifyFn: (question, options, allowCustom) => state.requestClarification(question, options, allowCustom),
         modeToolPermissions: resolved.toolPermissions,
+        pendingEdits: state.pendingEdits,
       },
     );
 

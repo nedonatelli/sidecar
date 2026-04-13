@@ -9,10 +9,11 @@ import { getConfig } from '../config/settings.js';
 import { checkWorkspaceConfigTrust } from '../config/workspaceTrust.js';
 import type { AgentLogger } from './logger.js';
 import { scanFile, formatIssues } from './securityScanner.js';
+import type { PendingEditStore } from './pendingEdits.js';
 
 const execAsync = promisify(exec);
 
-export type ApprovalMode = 'autonomous' | 'cautious' | 'manual' | 'plan';
+export type ApprovalMode = 'autonomous' | 'cautious' | 'manual' | 'plan' | 'review';
 export type ConfirmFn = (message: string, actions: string[]) => Promise<string | undefined>;
 export type DiffPreviewFn = (filePath: string, proposedContent: string) => Promise<'accept' | 'reject'>;
 export type InlineEditFn = (filePath: string, searchText: string, replaceText: string) => Promise<boolean>;
@@ -31,6 +32,12 @@ export interface ExecuteToolOptions {
   executorContext?: ToolExecutorContext;
   inlineEditFn?: InlineEditFn;
   streamingDiffPreviewFn?: StreamingDiffPreviewFn;
+  /**
+   * Shadow store for review mode. When `approvalMode === 'review'`, file
+   * writes are captured here instead of hitting disk, and reads consult the
+   * store first so the agent sees a consistent view of its own changes.
+   */
+  pendingEdits?: PendingEditStore;
 }
 
 export async function executeTool(
@@ -47,6 +54,7 @@ export async function executeTool(
     executorContext,
     inlineEditFn,
     streamingDiffPreviewFn,
+    pendingEdits,
   } = opts;
   const tool = findTool(toolUse.name, mcpManager);
 
@@ -57,6 +65,15 @@ export async function executeTool(
       content: `Unknown tool: ${toolUse.name}`,
       is_error: true,
     };
+  }
+
+  // --- Review mode: intercept file I/O and redirect to the shadow store ---
+  // Runs BEFORE approval / hooks so the user doesn't get prompted for edits
+  // that are merely queued, not actually hitting disk.
+  if (approvalMode === 'review' && pendingEdits) {
+    const intercepted = await handleReviewModeTool(toolUse, pendingEdits, logger);
+    if (intercepted) return intercepted;
+    // null → not a file I/O tool; fall through to normal execution.
   }
 
   // --- ask_user: route through clarification UI ---
@@ -262,6 +279,115 @@ export async function executeTool(
       content: `Error: ${err instanceof Error ? err.message : String(err)}`,
       is_error: true,
     };
+  }
+}
+
+/**
+ * Review-mode interception. Returns a tool result when the tool is one we
+ * should redirect into the shadow store (read_file / write_file / edit_file),
+ * or `null` to signal "let the normal executor handle this."
+ *
+ * Reads return pending content when available so the agent sees a coherent
+ * view of its own edits. Writes / edits capture the proposed result into
+ * the store without touching disk. The revert baseline is locked on the
+ * first capture for a given file; subsequent edits update only the
+ * post-content so the user ultimately sees one before/after pair per file.
+ */
+async function handleReviewModeTool(
+  toolUse: ToolUseContentBlock,
+  pendingEdits: PendingEditStore,
+  logger?: AgentLogger,
+): Promise<ToolResultContentBlock | null> {
+  const root = workspace.workspaceFolders?.[0]?.uri;
+  if (!root) return null;
+
+  // --- read_file: prefer pending content when present ---
+  if (toolUse.name === 'read_file') {
+    const relPath = toolUse.input.path as string | undefined;
+    if (!relPath) return null;
+    const absPath = Uri.joinPath(root, relPath).fsPath;
+    const pending = pendingEdits.get(absPath);
+    if (pending) {
+      logger?.info(`[REVIEW] Served pending content for read_file ${relPath}`);
+      return {
+        type: 'tool_result',
+        tool_use_id: toolUse.id,
+        content: pending.newContent,
+      };
+    }
+    return null; // fall through to disk read
+  }
+
+  // --- write_file: queue the full new content ---
+  if (toolUse.name === 'write_file') {
+    const relPath = toolUse.input.path as string | undefined;
+    const content = toolUse.input.content as string | undefined;
+    if (!relPath || content === undefined) return null;
+    const absPath = Uri.joinPath(root, relPath).fsPath;
+    const diskBaseline = await readDiskOrNull(root, relPath);
+    pendingEdits.record(absPath, diskBaseline, content, 'write_file');
+    logger?.info(`[REVIEW] Captured write_file for ${relPath} (${content.length} bytes pending)`);
+    return {
+      type: 'tool_result',
+      tool_use_id: toolUse.id,
+      content: `Pending write queued for review: ${relPath}`,
+    };
+  }
+
+  // --- edit_file: apply search/replace against the pending or disk version ---
+  if (toolUse.name === 'edit_file') {
+    const relPath = toolUse.input.path as string | undefined;
+    const search = toolUse.input.search as string | undefined;
+    const replace = toolUse.input.replace as string | undefined;
+    if (!relPath || search === undefined || replace === undefined) return null;
+    const absPath = Uri.joinPath(root, relPath).fsPath;
+    const existing = pendingEdits.get(absPath);
+    // Build the base text we're editing — pending version if we've already
+    // queued changes to this file this session, otherwise the disk version.
+    const base = existing ? existing.newContent : await readDiskOrNull(root, relPath);
+    if (base === null) {
+      return {
+        type: 'tool_result',
+        tool_use_id: toolUse.id,
+        content: `Error: cannot edit ${relPath} — file does not exist`,
+        is_error: true,
+      };
+    }
+    if (!base.includes(search)) {
+      return {
+        type: 'tool_result',
+        tool_use_id: toolUse.id,
+        content: `Error: Search text not found in ${relPath}`,
+        is_error: true,
+      };
+    }
+    const newContent = base.replace(search, replace);
+    // Pass the disk baseline only if this is the first capture — record()
+    // ignores the baseline on subsequent updates so we can safely pass null.
+    const baselineForRecord = existing ? null : base;
+    pendingEdits.record(absPath, baselineForRecord, newContent, 'edit_file');
+    logger?.info(`[REVIEW] Captured edit_file for ${relPath}`);
+    return {
+      type: 'tool_result',
+      tool_use_id: toolUse.id,
+      content: `Pending edit queued for review: ${relPath}`,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Read the current disk contents of a workspace-relative file, or return
+ * null if the file doesn't exist. Used to capture the revert baseline on
+ * first write in review mode.
+ */
+async function readDiskOrNull(root: Uri, relPath: string): Promise<string | null> {
+  try {
+    const bytes = await workspace.fs.readFile(Uri.joinPath(root, relPath));
+    return Buffer.from(bytes).toString('utf-8');
+  } catch {
+    return null;
   }
 }
 

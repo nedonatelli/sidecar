@@ -33,6 +33,7 @@ import {
   checkCompletionGate,
   buildGateInjection,
 } from './completionGate.js';
+import type { PendingEditStore } from './pendingEdits.js';
 
 export interface AgentCallbacks {
   onText: (text: string) => void;
@@ -84,6 +85,12 @@ export interface AgentOptions {
   depth?: number;
   /** Per-tool permission overrides from the active custom mode. */
   modeToolPermissions?: Record<string, 'allow' | 'deny' | 'ask'>;
+  /**
+   * Shadow store for review-mode edits. When set and approvalMode is
+   * 'review', the executor captures write_file / edit_file calls here
+   * instead of touching disk. Forwarded from extension activation.
+   */
+  pendingEdits?: PendingEditStore;
 }
 
 const DEFAULT_MAX_ITERATIONS = 25;
@@ -486,6 +493,7 @@ export async function runAgentLoop(
           },
           inlineEditFn: options.inlineEditFn,
           streamingDiffPreviewFn: options.streamingDiffPreviewFn,
+          pendingEdits: options.pendingEdits,
         });
         logger?.logToolResult(toolUse.name, result.content, result.is_error || false);
 
