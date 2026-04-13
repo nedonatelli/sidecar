@@ -457,6 +457,17 @@ async function runCommand(input: Record<string, unknown>, context?: ToolExecutor
 
 async function listDirectory(input: Record<string, unknown>): Promise<string> {
   const dirPath = (input.path as string) || '.';
+  // `.` is the workspace root itself — skip validation for the empty
+  // path, otherwise run the same relative-path guard every other file
+  // tool uses. Cycle-2 audit: this used to accept raw paths without
+  // validateFilePath, so a crafted input like `../../..` or an
+  // absolute path could at least attempt a readDirectory outside
+  // the workspace boundary. VS Code's fs layer enforces workspace
+  // trust independently, but belt-and-suspenders is the right shape.
+  if (dirPath !== '.' && dirPath !== '') {
+    const pathError = validateFilePath(dirPath);
+    if (pathError) return pathError;
+  }
   const dirUri = Uri.joinPath(getRootUri(), dirPath);
   const entries = await workspace.fs.readDirectory(dirUri);
   return entries.map(([name, type]) => `${type === 2 ? '📁 ' : '📄 '}${name}`).join('\n');

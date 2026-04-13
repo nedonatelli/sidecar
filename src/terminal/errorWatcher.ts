@@ -29,20 +29,12 @@ export interface TerminalErrorWatcherOptions {
 const DEFAULT_MAX_OUTPUT = 4000;
 const DEFAULT_COOLDOWN_MS = 30_000;
 
-/**
- * Strip ANSI escape sequences (CSI cursor codes, color codes, OSC titles)
- * from terminal output so the captured snippet is plain readable text.
- */
-export function stripAnsi(text: string): string {
-  // CSI sequences (most common): ESC [ ... letter
-  // OSC sequences: ESC ] ... BEL or ESC \
-  // Two-byte escapes (ESC + Fp/Fs final byte 0x30-0x7E): DECKPAM (ESC =),
-  // DECKPNM (ESC >), DECSC (ESC 7), DECRC (ESC 8), and similar.
-  return text
-    .replace(/\x1B\[[0-9;?]*[ -/]*[@-~]/g, '')
-    .replace(/\x1B\][^\x07\x1B]*(?:\x07|\x1B\\)/g, '')
-    .replace(/\x1B[0-?@-~]/g, '');
-}
+// stripAnsi lives in ./ansi.ts so shellSession can import it without
+// pulling in the VS Code event loop dependencies this file has. We
+// re-import and re-export here so existing callers (including
+// errorWatcher's own internal usage below) keep working without churn.
+import { stripAnsi } from './ansi.js';
+export { stripAnsi };
 
 /**
  * Pure decision function: given an exit code, terminal name, and the recent

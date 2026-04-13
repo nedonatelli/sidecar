@@ -140,6 +140,15 @@ export async function runAgentLoop(
   const MAX_CYCLE_LEN = 4;
   const MIN_IDENTICAL_REPEATS = 4;
 
+  // Per-iteration tool-call burst cap. The loop will dispatch as many
+  // tool_use blocks as the model emits in a single streaming turn;
+  // without a ceiling, a runaway or prompt-injected model can issue
+  // 30+ shell commands before cycle detection (which looks at *patterns*
+  // across iterations, not counts within one) kicks in. 12 is generous
+  // for legitimate multi-step workflows (read + edit + diagnostics +
+  // tests typically take 4-8) but cuts off burst-bomb scenarios.
+  const MAX_TOOL_CALLS_PER_ITERATION = 12;
+
   // Completion gate: tracks edits / lint / test runs across the turn and
   // refuses to let the loop terminate until the agent has verified its work.
   // See completionGate.ts for the rule set.
@@ -411,6 +420,25 @@ export async function runAgentLoop(
 
     // Model used tools successfully — reset any failure tracking
     recordToolSuccess(client.getModel());
+
+    // Per-iteration tool-call burst cap. Cycle detection fires on
+    // repeating *patterns* across iterations, not on burst volume
+    // within a single iteration, so a runaway or prompt-injected
+    // model that emits 30+ tool_use blocks in one streaming turn
+    // would slip through. Cap at MAX_TOOL_CALLS_PER_ITERATION and
+    // terminate the loop if exceeded — the user can re-ask with a
+    // narrower scope if they really need more.
+    if (pendingToolUses.length > MAX_TOOL_CALLS_PER_ITERATION) {
+      logger?.warn(
+        `Agent loop tool-call burst cap exceeded: ${pendingToolUses.length} tool calls in one iteration ` +
+          `(max ${MAX_TOOL_CALLS_PER_ITERATION}). First call: ${pendingToolUses[0].name}`,
+      );
+      callbacks.onText(
+        `\n\n⚠️ Agent stopped: ${pendingToolUses.length} tool calls in a single turn exceeds the ` +
+          `${MAX_TOOL_CALLS_PER_ITERATION}-call burst cap. Ask again with a narrower scope.\n`,
+      );
+      break;
+    }
 
     // Cycle detection: hash the tool calls and check for repetition.
     // Length-1 (same call repeated) requires MIN_IDENTICAL_REPEATS consecutive

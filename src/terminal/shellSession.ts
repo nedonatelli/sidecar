@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from 'child_process';
 import { randomBytes } from 'crypto';
 import * as os from 'os';
 import { MAX_BACKGROUND_COMMANDS } from '../config/constants.js';
+import { stripAnsi } from './ansi.js';
 
 export interface ShellExecuteOptions {
   timeout?: number; // ms, default 120_000
@@ -125,7 +126,14 @@ export class ShellSession {
         if (resolved) return;
         resolved = true;
         cleanup();
-        resolve({ stdout: output, exitCode, timedOut });
+        // Strip ANSI escape sequences from the final stdout before
+        // handing it to the caller. Raw escapes used to leak into the
+        // agent's tool-result view and the audit log, where they bloat
+        // token counts and corrupt downstream rendering. We keep the
+        // streaming onOutput callback raw so live terminals still see
+        // colors mid-execution — the strip only applies to the text
+        // the caller receives after completion.
+        resolve({ stdout: stripAnsi(output), exitCode, timedOut });
       };
 
       // Timeout handler

@@ -2,6 +2,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { workspace } from 'vscode';
 import type { MCPServerConfig } from '../config/settings.js';
 import type { ToolDefinition } from '../ollama/types.js';
 import type { RegisteredTool } from './tools.js';
@@ -88,6 +89,25 @@ export class MCPManager {
       reconnectAttempts: 0,
     };
     this.connections.push(conn);
+
+    // Hard-block stdio transports in untrusted workspaces. stdio = spawn
+    // an arbitrary command with the user's full privileges; a cloned
+    // repo's `.mcp.json` shouldn't get to do that before the user has
+    // reviewed the workspace. Cycle-1 added a config-level *warning*
+    // via checkWorkspaceConfigTrust, but warnings are dismissable. This
+    // is the hard gate: refuse to start stdio MCP servers when VS Code
+    // has not marked the workspace as trusted. HTTP/SSE transports are
+    // still allowed because they don't spawn local processes — the
+    // worst they can do is receive data the user sends through them,
+    // which the header-expansion fix above also bounds.
+    if (transportType === 'stdio' && !workspace.isTrusted) {
+      conn.status = 'disconnected';
+      conn.error =
+        `Refused to start stdio MCP server "${name}" because this workspace is not trusted. ` +
+        `If you want to run it, trust the workspace from the VS Code command palette first.`;
+      console.warn(`[SideCar] ${conn.error}`);
+      return;
+    }
 
     try {
       const transport = this.createTransport(transportType, config);
@@ -208,11 +228,24 @@ export class MCPManager {
   }
 
   /**
-   * Resolve ${VAR} references in header values using env config + process.env.
+   * Resolve `${VAR}` references in HTTP/SSE header values.
+   *
+   * IMPORTANT: expansion is scoped to the server's own `env` block,
+   * NOT to `process.env`. Cycle-2 audit caught this as a real key-leak
+   * vector: a malicious MCP config could declare
+   * `headers: { Authorization: "${ANTHROPIC_API_KEY}" }` and, when
+   * process.env was part of the lookup, SideCar would cheerfully send
+   * its own Anthropic API key to the remote server. Now only explicit
+   * per-server env values are substituted; unresolved placeholders are
+   * left as empty strings, matching the previous behavior for missing
+   * vars but without the key-exfil path. If a server legitimately
+   * needs a shared env var forwarded, the user can put it in the
+   * per-server `env` block, which still spawns with the full process
+   * env for stdio transports.
    */
   private resolveEnvVars(headers: Record<string, string>, env?: Record<string, string>): Record<string, string> {
     const resolved: Record<string, string> = {};
-    const envMap = { ...process.env, ...env };
+    const envMap: Record<string, string> = { ...(env || {}) };
     for (const [key, value] of Object.entries(headers)) {
       resolved[key] = value.replace(/\$\{(\w+)\}/g, (_, varName) => envMap[varName] || '');
     }
