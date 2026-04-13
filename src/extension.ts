@@ -3,6 +3,7 @@ import * as path from 'path';
 import { ChatViewProvider } from './webview/chatView.js';
 import { TerminalManager } from './terminal/manager.js';
 import { TerminalErrorWatcher } from './terminal/errorWatcher.js';
+import { registerJsDocSync } from './docs/jsDocSyncProvider.js';
 import { SideCarCompletionProvider } from './completions/provider.js';
 import {
   getConfig,
@@ -258,6 +259,11 @@ export function activate(context: ExtensionContext) {
       },
     }),
   );
+
+  // Register the JSDoc staleness checker. On save of a TS/JS file, finds
+  // @param tags that no longer match the function signature and surfaces
+  // them as diagnostics with Add / Remove quick-fix actions.
+  context.subscriptions.push(registerJsDocSync());
 
   // Watch the integrated terminal for failed commands and offer to diagnose
   // them in the chat. Skips SideCar's own terminal to avoid feedback loops.

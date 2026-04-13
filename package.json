@@ -340,6 +340,11 @@
           "default": true,
           "description": "Detect non-zero exit codes in the integrated terminal and offer to diagnose the failure in the SideCar chat. Requires VS Code shell integration."
         },
+        "sidecar.jsDocSync.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "On save, check TypeScript / JavaScript files for JSDoc @param tags that no longer match the function signature. Stale tags are surfaced as diagnostics with quick-fix actions to add, remove, or rename them."
+        },
         "sidecar.pinnedContext": {
           "type": "array",
           "items": {
