@@ -65,7 +65,7 @@ The fallback API key (`sidecar.fallbackApiKey`) follows the same pattern but doe
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
-| `sidecar.agentMode` | string | `cautious` | Agent mode: `cautious`, `autonomous`, `manual`, `plan`, or a custom mode name from `sidecar.customModes` |
+| `sidecar.agentMode` | string | `cautious` | Agent mode: `cautious`, `autonomous`, `manual`, `plan`, `review`, or a custom mode name from `sidecar.customModes`. See [Agent Mode → Approval modes](agent-mode#approval-modes) for the behavior of each |
 | `sidecar.agentTemperature` | number | `0.2` | Temperature for agent tool-calling requests. Lower values (0.1–0.3) produce more deterministic tool selection |
 | `sidecar.agentMaxIterations` | number | `25` | Max agent loop iterations |
 | `sidecar.agentMaxTokens` | number | `100000` | Max tokens per agent run |
@@ -173,6 +173,27 @@ Patterns from `.sidecarignore` are merged with default excludes (`.git`, `.sidec
 | `sidecar.autoFixMaxRetries` | number | `3` | Max auto-fix retry attempts |
 
 When enabled, SideCar automatically runs VS Code's language diagnostics after the agent writes or edits a file. If errors are found, they're fed back to the model to self-correct — up to the configured retry limit.
+
+## Completion gate
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.completionGate.enabled` | boolean | `true` | Refuse to let the agent declare a turn done until lint and the colocated tests for edited files have actually run |
+
+When enabled, SideCar tracks every `write_file` / `edit_file` call against every `run_tests` / `eslint` / `tsc` / `vitest` / `jest` / `pytest` / `npm test` invocation during the turn. At the natural termination point, if any edited source file has a colocated `.test.ts` / `.spec.ts` that wasn't exercised, or if lint never ran, the gate injects a synthetic user message into the loop demanding the checks before the turn can end. Capped at 2 injections per turn to prevent loops — after exhaustion the loop terminates with a warning rather than hanging.
+
+This catches the failure mode where the model reports a change as "ready for use" without ever running the checks it claims pass. See [Agent Mode → Safety guardrails](agent-mode#safety-guardrails) for the full mechanism.
+
+## Background doc sync
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.jsDocSync.enabled` | boolean | `true` | On save and open of any TS/JS file, flag orphan and missing JSDoc `@param` tags with quick fixes |
+| `sidecar.readmeSync.enabled` | boolean | `true` | On save and open of `README.md` (and on save of any `src/` source file), flag fenced code-block calls whose argument count no longer matches the current workspace-exported function |
+
+**JSDoc sync** scans the leading JSDoc block for every top-level `function` / arrow-const declaration and compares each `@param` entry against the signature. Orphan tags (tags with no matching parameter) and missing tags (parameters with no documentation) surface as warning diagnostics. Two quick fixes are offered per finding: "Remove orphan @param" and "Add missing @param" — both preserve the JSDoc block's indentation and `*` prefix. Functions with destructured or rest parameters are skipped.
+
+**README sync** scans fenced `ts` / `tsx` / `js` / `jsx` / `typescript` / `javascript` code blocks in `README.md` for direct calls to workspace-exported functions. Exported functions are indexed from `src/**/*.{ts,tsx,js,jsx}` on activation and refreshed incrementally on file save / create / change / delete, so README drift surfaces immediately after you rename or change a function signature. Quick fix rewrites the call to match the signature: drops trailing arguments when there are too many, or appends the missing parameter names as placeholders when there are too few. Method calls (`obj.foo(...)`), constructor calls (`new Foo(...)`), and control-flow keywords (`if (x)`, `while (y)`) are excluded. Only single-line call expressions with no nested parens in their arguments are checked — nested or multi-line calls are silently skipped rather than mis-flagged.
 
 ## Spending budgets
 

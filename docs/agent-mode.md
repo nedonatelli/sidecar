@@ -29,10 +29,12 @@ Control how much autonomy SideCar has via the agent mode dropdown in the chat he
 | **Cautious** (default) | Auto-approve | Confirm | Confirm |
 | **Autonomous** | Auto-approve | Auto-approve | Confirm |
 | **Manual** | Confirm | Confirm | Confirm |
+| **Review** | Auto-approve | Buffered — see below | Confirm |
 
 - **Cautious** is recommended for most use. File reads happen automatically; writes and edits open a **VS Code diff editor** showing the proposed changes. Accept/Reject buttons appear both as a VS Code notification (in the editor) and as a chat card — click whichever is more convenient.
 - **Autonomous** lets SideCar work without interruption. Use for trusted tasks where you'll review changes after.
 - **Manual** requires approval for every tool call, including file reads.
+- **Review** is the safest mode for large multi-file changes. Writes and edits never hit disk during the agent run — they're buffered into a **Pending Agent Changes** panel where you can review each file's diff and accept or discard it before anything is persisted. See the section below.
 
 ### Diff preview in cautious mode
 
@@ -45,6 +47,28 @@ When the agent proposes a file write or edit in cautious mode:
 5. On Accept, the file is written; on Reject, the tool call is denied and the agent is informed
 
 For `edit_file` operations, if inline edit (ghost text) is available, edits appear as Tab-to-accept suggestions at the edit location instead.
+
+### Review mode — batch diff review
+
+Review mode is designed for multi-file refactors and anything else you'd want to audit before it touches disk. When `sidecar.agentMode` is set to `review`:
+
+1. **Nothing hits disk during the run.** Every `write_file` and `edit_file` call is captured into an in-memory `PendingEditStore` with the file's pre-edit content as a revert baseline.
+2. **Reads stay consistent with the agent's view.** If the agent later calls `read_file` on a path it has already edited this session, the executor returns the pending content instead of the disk content. The agent sees a coherent picture of its own in-progress work without the user having to approve each individual step.
+3. **The Pending Agent Changes panel** (in the SideCar activity bar, below the chat) refreshes live as the store changes. Each entry shows the basename, its workspace-relative directory, an icon indicating "new file" (diff-added) or "modified file" (diff-modified), and a tooltip with the last tool that touched it.
+4. **Clicking any file opens VS Code's native diff editor** via `vscode.diff`. The left (baseline) side shows the content captured at the first write, not whatever's currently on disk — the diff stays stable even if you edit the file outside SideCar while a review is pending.
+5. **Resolve pending changes** via:
+   - **Inline icons** on each row: ✓ to accept (writes the pending content to disk, creating parent directories for new files), ✕ to discard.
+   - **Panel title bar** commands: Accept All / Discard All. Discard All asks for modal confirmation since it can't be undone.
+   - **Command palette**: `SideCar: Accept Pending Change`, `SideCar: Discard Pending Change`, `SideCar: Accept All Pending Changes`, `SideCar: Discard All Pending Changes`, `SideCar: Show Pending Diff`.
+
+**Session semantics:** multiple edits to the same file collapse into a single pending entry with one consolidated before → after diff. The revert baseline is locked on the first capture, so successive edits in the same turn don't lose the original state. If you run the agent again without resolving previous pending edits, the new edits add to the same store — carry-forward is intentional so you can chain multiple agent turns before reviewing.
+
+**v1 limitations** (deferred to follow-up work):
+
+- No hunk-level accept/reject — it's all-or-nothing per file.
+- No persistence across VS Code window reloads. If VS Code restarts mid-review, the pending edits are lost.
+- No conflict detection. If you modify a file on disk while a review is pending, Accept will overwrite your edits silently.
+- No in-chat affordance to toggle into review mode for a single turn — change `sidecar.agentMode` or use a custom mode.
 
 ## Stub validator
 
@@ -70,7 +94,8 @@ If placeholders are detected, SideCar reprompts the model to replace them with c
 
 Additional safety mechanisms:
 
-- **Cycle detection** — if the agent repeats the same tool call with identical arguments, it halts automatically to prevent infinite loops
+- **Cycle detection** — detects repeating tool-call patterns and halts to prevent infinite loops. Length-1 patterns (the same call repeated) require 4 consecutive identical calls to trip, so agents can legitimately re-run a tool to verify after edits or retry tests after fixes without getting cut off. Length 2..4 patterns (A,B,A,B or A,B,C,A,B,C) still trip after two full cycles, since they're a much clearer signal of a stuck loop.
+- **Completion gate** — forces the agent to verify its work before declaring a task done. On every agent turn, SideCar tracks which files were edited (`write_file` / `edit_file`) and which verification commands ran (`run_tests`, `eslint`, `tsc`, `vitest`, `jest`, `pytest`, `npm test`). If the agent tries to terminate a turn without having run lint or the colocated tests for a file it edited, a synthetic user message is injected into the loop demanding the checks before the turn can end. Capped at 2 injections per turn — after exhaustion the loop terminates with a warning rather than hanging. Catches the failure mode where the model reports a change as "ready for use" without ever running the checks it claims pass. Toggle with `sidecar.completionGate.enabled` (default on).
 - **Tool support auto-detection** — if a model fails to use tools after 3 attempts, SideCar stops sending tool definitions to avoid wasting context
 - **Request timeout** — if no tokens arrive within `requestTimeout` seconds, the request is aborted with a user-friendly message
 

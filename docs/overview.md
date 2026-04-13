@@ -9,7 +9,10 @@ SideCar is an AI-powered coding assistant for VS Code that operates as an autono
 - Execute tools automatically based on LLM decisions
 - Generate and execute plans before implementation
 - **Conversation steering** — chat input stays enabled during processing; send a new message to redirect the agent, or press Escape to abort
+- **"Continue" recognition** — terse replies like `continue`, `go on`, `keep going`, `proceed`, `next` are automatically rewritten into directives that resume the agent's most recent task instead of being taken literally
 - **Custom modes** — user-defined agent modes (Architect, Debugger, Coder) with dedicated system prompts and approval behavior
+- **Review mode** — new approval mode that buffers every agent file edit into a Pending Agent Changes panel instead of touching disk. Click any file to see its diff, accept or discard per-file or all-at-once before anything is persisted
+- **Completion gate** — refuses to let the agent declare a turn done until lint and the colocated tests for edited files have actually run, catching the "ready for use" fabrication failure mode
 - **Background agents** — `/bg <task>` spawns autonomous agents that work in parallel without blocking the main chat (up to 3 concurrent, with dashboard)
 - Continuous operation until task completion or user interruption
 
@@ -44,6 +47,8 @@ SideCar is an AI-powered coding assistant for VS Code that operates as an autono
 ### Code Quality
 - **Stub validator** — auto-detects placeholder code in agent output and reprompts the model to finish
 - **Streaming diff preview** — cautious mode shows file changes in VS Code's diff editor with dual accept/reject UI
+- **JSDoc staleness diagnostics** — on save, detects orphan `@param` tags and missing parameter documentation. Surfaces as warnings with "Remove orphan" and "Add missing" quick fixes that preserve JSDoc indentation. Toggle with `sidecar.jsDocSync.enabled`
+- **README sync** — on save of `README.md` or any `src/` source file, detects calls in fenced ts/tsx/js/jsx code blocks whose argument count no longer matches the current signature. Quick fix rewrites the call — drops extras or appends missing parameter names as placeholders. Toggle with `sidecar.readmeSync.enabled`
 - **Chat logging** — JSONL tmp files for every conversation for debugging and recovery
 
 ### Integration Points

@@ -192,7 +192,7 @@ Last updated: 2026-04-11 (v0.45.0)
 - ~~**Enhanced agent reasoning visualization** — timeline view with collapsible reasoning blocks~~ → numbered step pills, per-step duration badges, and thinking-segment close-on-tool-call (v0.45.0)
 - ~~**Customizable chat UI themes** — built-in presets, custom CSS injection, font/density controls, VS Code theme sync~~ → `chatDensity`, `chatFontSize`, `chatAccentColor` with live CSS-variable updates and allowlist validation (v0.45.0)
 - ~~**Terminal error interception** — auto-detect errors in VS Code terminal and offer to diagnose in chat~~ → `TerminalErrorWatcher` with dedup, ANSI stripping, and `Diagnose in chat` handoff (v0.45.0)
-- **Background doc sync** — silently update README/JSDoc/Swagger when function signatures change
+- **Background doc sync** — silently update README/JSDoc/Swagger when function signatures change *(2/3 shipped: [JSDoc staleness diagnostics](src/docs/jsDocSync.ts) flag orphan/missing `@param` tags with quick fixes; [README sync](src/docs/readmeSync.ts) flags stale call arity in fenced code blocks with rewrite quick fixes. Swagger deferred — framework-specific, no in-repo OpenAPI spec to dogfood against; will revisit when a real use case lands.)*
 - **Zen mode context filtering** — `/focus <module>` to restrict context to one directory
 - **Dependency drift alerts** — real-time feedback on bundle size, vulnerabilities, and duplicates when deps change
 - ~~**Message list virtualization** — virtual scrolling for 200+ message conversations~~ → `IntersectionObserver`-based detach/reattach (v0.45.0)
