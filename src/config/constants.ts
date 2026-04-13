@@ -8,6 +8,15 @@
 export const CHARS_PER_TOKEN = 4;
 
 /**
+ * Cost estimation ratio: for a completed agent run where we only know the
+ * total token count (not the input/output split), approximate the split as
+ * 70/30. This matches the observed ratio in mixed chat + tool-use runs
+ * where prompt context dominates over generated output. Used by
+ * `chatHandlers` when recording per-run cost.
+ */
+export const INPUT_TOKEN_RATIO = 0.7;
+
+/**
  * Context budget: fraction of estimated context window to reserve for the system prompt.
  * The remaining budget is for conversation history + tool results.
  */

@@ -19,6 +19,14 @@ export interface ToolUseContentBlock {
   id: string;
   name: string;
   input: Record<string, unknown>;
+  /**
+   * Populated when the backend received structured tool input that failed
+   * to parse as JSON (truncated stream, malformed delta, etc). The
+   * executor surfaces this as an explicit error tool_result so the agent
+   * sees "your tool input was malformed, here's the raw text, please
+   * retry" instead of silently calling the tool with `{}`.
+   */
+  _malformedInputRaw?: string;
 }
 
 export interface ToolResultContentBlock {

@@ -13,6 +13,7 @@ import {
   DEFAULT_MAX_SYSTEM_CHARS,
   LOCAL_CONTEXT_CAP,
   PLAN_MODE_THRESHOLDS,
+  INPUT_TOKEN_RATIO,
 } from '../../config/constants.js';
 import { GitCLI } from '../../github/git.js';
 import {
@@ -832,8 +833,10 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
 
     // Budget enforcement: block agent runs when spending limits are exceeded.
     if (config.dailyBudget > 0 || config.weeklyBudget > 0) {
-      const dailySpend = state.metricsCollector.getDailySpend();
-      const weeklySpend = state.metricsCollector.getWeeklySpend();
+      // Single pass over the persisted history — previously each of
+      // getDailySpend() / getWeeklySpend() called workspaceState.get()
+      // which deserializes the whole run array.
+      const { daily: dailySpend, weekly: weeklySpend } = state.metricsCollector.getSpendBreakdown();
 
       if (config.dailyBudget > 0 && dailySpend >= config.dailyBudget) {
         state.postMessage({
@@ -1151,11 +1154,13 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     state.postMessage({ command: 'error', content: `Error: ${errorMessage}`, ...classified });
   } finally {
     // Record estimated cost for this run before finalizing metrics.
+    // currentRun hasn't been pushed yet, so token count is on the
+    // in-flight run — use the public getter rather than reaching into
+    // the private field via bracket notation.
     const runConfig = getConfig();
-    // currentRun hasn't been pushed yet, so token count is on the in-flight run
-    const currentTokens = state.metricsCollector['currentRun']?.totalTokensEstimate || 0;
+    const currentTokens = state.metricsCollector.getCurrentRunTokens();
     if (currentTokens > 0) {
-      const inputTokens = Math.round(currentTokens * 0.7);
+      const inputTokens = Math.round(currentTokens * INPUT_TOKEN_RATIO);
       const outputTokens = currentTokens - inputTokens;
       const runCost = estimateCost(runConfig.model, inputTokens, outputTokens);
       state.metricsCollector.recordCost(runCost);
@@ -1527,6 +1532,20 @@ export async function handleShowSystemPrompt(state: ChatState): Promise<void> {
 
 export function handleDeleteMessage(state: ChatState, index: number): void {
   if (index < 0 || index >= state.messages.length) return;
+  // Refuse to splice while an agent run is in flight. The running loop
+  // operates on a shallow copy of state.messages, so splicing here
+  // doesn't affect the loop's view — but it corrupts the index bookkeeping
+  // that postLoopProcessing uses to merge the loop's output back in,
+  // producing wrong newUserMessages or losing messages entirely. Users
+  // should abort the run first (Escape), then delete.
+  if (state.abortController) {
+    state.postMessage({
+      command: 'error',
+      content: 'Cannot delete a message while the agent is running. Press Escape to stop the run first.',
+      errorType: 'unknown',
+    });
+    return;
+  }
   state.messages.splice(index, 1);
   state.saveHistory();
 }

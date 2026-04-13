@@ -34,6 +34,16 @@ const MAX_HISTORY_CHARS = 2_000_000; // ~2MB
  */
 export class ChatState {
   client: SideCarClient;
+  /**
+   * Conversation history. Mutation invariant: mutations are safe from
+   * the chat handlers on the main event loop as long as no agent run is
+   * in flight. When `abortController` is non-null, any splice / pop
+   * that removes a pre-existing message will corrupt the merge
+   * bookkeeping in `postLoopProcessing` — callers must either abort
+   * the run first or append-only. The agent loop itself does NOT write
+   * to this array directly; it operates on a shallow copy and its
+   * return value is merged back in via `postLoopProcessing`.
+   */
   messages: ChatMessage[] = [];
   pendingPlan: string | null = null;
   pendingPlanMessages: ChatMessage[] = [];

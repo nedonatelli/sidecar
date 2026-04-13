@@ -1,6 +1,7 @@
 import { workspace, Uri } from 'vscode';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import * as path from 'path';
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../ollama/types.js';
 import { findTool, type ToolExecutorContext } from './tools.js';
 import type { ChangeLog } from './changelog.js';
@@ -10,6 +11,7 @@ import { checkWorkspaceConfigTrust } from '../config/workspaceTrust.js';
 import type { AgentLogger } from './logger.js';
 import { scanFile, formatIssues } from './securityScanner.js';
 import type { PendingEditStore } from './pendingEdits.js';
+import { withFileLock } from './fileLock.js';
 
 const execAsync = promisify(exec);
 
@@ -63,6 +65,28 @@ export async function executeTool(
       type: 'tool_result',
       tool_use_id: toolUse.id,
       content: `Unknown tool: ${toolUse.name}`,
+      is_error: true,
+    };
+  }
+
+  // --- Reject malformed tool input up front ---
+  // The backend sets _malformedInputRaw when the model's streamed tool
+  // input failed JSON parsing. Previously we silently substituted {} and
+  // let the tool fail with an opaque "missing required arg" error — now
+  // the agent gets a specific message with the raw text it emitted.
+  if (toolUse._malformedInputRaw !== undefined) {
+    const truncated =
+      toolUse._malformedInputRaw.length > 500
+        ? `${toolUse._malformedInputRaw.slice(0, 500)}... [truncated]`
+        : toolUse._malformedInputRaw;
+    logger?.warn(`Tool ${toolUse.name} received malformed JSON input: ${truncated}`);
+    return {
+      type: 'tool_result',
+      tool_use_id: toolUse.id,
+      content:
+        `Error: the JSON input for tool '${toolUse.name}' was malformed and could not be parsed. ` +
+        `Please retry with valid JSON — double-check that strings are properly quoted, ` +
+        `braces are balanced, and no characters were truncated.\n\nRaw input received:\n${truncated}`,
       is_error: true,
     };
   }
@@ -245,14 +269,27 @@ export async function executeTool(
     };
   }
 
-  // --- Snapshot file before destructive operations ---
-  if (changelog && WRITE_TOOLS.has(toolUse.name) && toolUse.input.path) {
-    await changelog.snapshotFile(toolUse.input.path as string);
-  }
+  // --- Snapshot + execute ---
+  // Write tools run under a per-path file lock so two concurrent writes
+  // to the same path serialize rather than race on disk. The snapshot is
+  // taken under the lock too, so a second caller can't read the pre-edit
+  // state while the first caller's write is mid-flight. Non-write tools
+  // and write tools without a path (shouldn't happen in practice) skip
+  // the lock entirely.
+  const filePathForLock: string | undefined =
+    WRITE_TOOLS.has(toolUse.name) && typeof toolUse.input.path === 'string'
+      ? (toolUse.input.path as string)
+      : undefined;
 
-  // --- Execute tool ---
+  const runTool = async (): Promise<string> => {
+    if (changelog && filePathForLock) {
+      await changelog.snapshotFile(filePathForLock);
+    }
+    return tool.executor(toolUse.input, executorContext);
+  };
+
   try {
-    const result = await tool.executor(toolUse.input, executorContext);
+    const result = filePathForLock ? await withFileLock(resolveAbsPath(filePathForLock), runTool) : await runTool();
 
     // --- Post-hook ---
     await runHook('post', toolUse.name, toolUse.input, result);
@@ -375,6 +412,19 @@ async function handleReviewModeTool(
   }
 
   return null;
+}
+
+/**
+ * Resolve a workspace-relative (or absolute) path to an absolute path
+ * using the first workspace folder as the root. Falls back to the input
+ * unchanged if no workspace is open — the file lock keyed on a raw
+ * relative path still serializes correctly as long as every caller
+ * refers to the same file with the same string.
+ */
+function resolveAbsPath(filePath: string): string {
+  const root = workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!root) return filePath;
+  return path.isAbsolute(filePath) ? filePath : path.resolve(root, filePath);
 }
 
 /**

@@ -41,6 +41,13 @@ export class GitHubAPI {
       throw new Error(`GitHub API error ${response.status}: ${body}`);
     }
 
+    // 204 No Content (DELETE endpoints, some PUT endpoints) — skip the
+    // JSON parse that would otherwise throw on an empty body. Callers
+    // that expect a 204 should type T as `void`.
+    if (response.status === 204) {
+      return undefined as T;
+    }
+
     return response.json() as Promise<T>;
   }
 
@@ -226,13 +233,8 @@ export class GitHubAPI {
   }
 
   async deleteRelease(owner: string, repo: string, releaseId: number): Promise<void> {
-    await fetch(`${BASE_URL}/repos/${owner}/${repo}/releases/${releaseId}`, {
+    await this.request<void>(`/repos/${owner}/${repo}/releases/${releaseId}`, {
       method: 'DELETE',
-      headers: {
-        Authorization: `Bearer ${this.token}`,
-        Accept: 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28',
-      },
     });
   }
 

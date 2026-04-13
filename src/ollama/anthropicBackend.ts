@@ -9,6 +9,7 @@ import type {
 } from './types.js';
 import { fetchWithRetry } from './retry.js';
 import { getConfig } from '../config/settings.js';
+import { abortableRead } from './streamUtils.js';
 
 /**
  * Split the system prompt into cached (stable) and dynamic blocks.
@@ -104,7 +105,7 @@ export class AnthropicBackend implements ApiBackend {
     try {
       let buffer = '';
       while (true) {
-        const { done, value } = await reader.read();
+        const { done, value } = await abortableRead(reader, signal);
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
@@ -151,16 +152,21 @@ export class AnthropicBackend implements ApiBackend {
               currentThinking = false;
               if (currentToolUse) {
                 let input: Record<string, unknown> = {};
+                let malformedRaw: string | undefined;
                 try {
                   input = JSON.parse(currentToolUse.inputJson || '{}');
                 } catch {
-                  // Malformed JSON, use empty
+                  // Malformed JSON — surface the raw text to the executor
+                  // so it can return a descriptive error instead of
+                  // silently calling the tool with `{}`.
+                  malformedRaw = currentToolUse.inputJson;
                 }
                 const toolUse: ToolUseContentBlock = {
                   type: 'tool_use',
                   id: currentToolUse.id,
                   name: currentToolUse.name,
                   input,
+                  ...(malformedRaw !== undefined ? { _malformedInputRaw: malformedRaw } : {}),
                 };
                 yield { type: 'tool_use', toolUse };
                 currentToolUse = null;

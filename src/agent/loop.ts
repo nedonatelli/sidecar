@@ -6,6 +6,7 @@ import type {
   ToolUseContentBlock,
   ToolResultContentBlock,
 } from '../ollama/types.js';
+import { getContentLength } from '../ollama/types.js';
 import { SideCarClient } from '../ollama/client.js';
 import { recordToolSuccess, recordToolFailure } from '../ollama/ollamaBackend.js';
 import type { InlineEditFn } from './executor.js';
@@ -156,17 +157,11 @@ export async function runAgentLoop(
 
   // Initialize totalChars from existing conversation history so the
   // compression threshold accounts for all context, not just new output.
+  // Uses the shared getContentLength helper so tool_use blocks and tool
+  // inputs are counted consistently with the rest of the codebase.
   let totalChars = 0;
   for (const msg of agentMessages) {
-    if (typeof msg.content === 'string') {
-      totalChars += msg.content.length;
-    } else if (Array.isArray(msg.content)) {
-      for (const block of msg.content) {
-        if ('text' in block && typeof block.text === 'string') totalChars += block.text.length;
-        else if ('content' in block && typeof block.content === 'string') totalChars += block.content.length;
-        else if ('thinking' in block && typeof block.thinking === 'string') totalChars += block.thinking.length;
-      }
-    }
+    totalChars += getContentLength(msg.content);
   }
 
   while (iteration < maxIterations) {

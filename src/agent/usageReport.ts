@@ -1,6 +1,7 @@
 import type { AgentRunMetrics } from './metrics.js';
 import type { MetricsCollector } from './metrics.js';
 import { estimateCost, getConfig } from '../config/settings.js';
+import { INPUT_TOKEN_RATIO } from '../config/constants.js';
 
 export function generateUsageReport(metrics: AgentRunMetrics[], collector?: MetricsCollector): string {
   if (metrics.length === 0) {
@@ -16,7 +17,7 @@ export function generateUsageReport(metrics: AgentRunMetrics[], collector?: Metr
 
   // Use per-run cost data when available, fall back to aggregate estimation
   const totalCostFromRuns = metrics.reduce((s, m) => s + (m.costUsd ?? 0), 0);
-  const inputTokens = Math.round(totalTokens * 0.7);
+  const inputTokens = Math.round(totalTokens * INPUT_TOKEN_RATIO);
   const outputTokens = totalTokens - inputTokens;
   const estimatedCost = estimateCost(model, inputTokens, outputTokens);
   const cost = totalCostFromRuns > 0 ? totalCostFromRuns : estimatedCost;

@@ -119,4 +119,37 @@ export class MetricsCollector {
     const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysSinceMonday).getTime();
     return this.getSpendSince(startOfWeek);
   }
+
+  /**
+   * Combined daily + weekly spend in a single `getHistory()` read. The
+   * budget check in `handleUserMessage` needs both numbers at once;
+   * calling `getDailySpend()` and `getWeeklySpend()` separately
+   * deserializes the persisted history twice. This helper computes both
+   * sums in one pass.
+   */
+  getSpendBreakdown(): { daily: number; weekly: number } {
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const daysSinceMonday = now.getDay() === 0 ? 6 : now.getDay() - 1;
+    const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysSinceMonday).getTime();
+    const history = this.getHistory();
+    let daily = 0;
+    let weekly = 0;
+    for (const run of history) {
+      if (run.costUsd === null || run.costUsd === undefined) continue;
+      if (run.timestamp >= startOfWeek) weekly += run.costUsd;
+      if (run.timestamp >= startOfDay) daily += run.costUsd;
+    }
+    return { daily, weekly };
+  }
+
+  /**
+   * Estimated token count for the run currently in progress (if any).
+   * Returns 0 when no run is active. Exposed as a public getter so
+   * callers don't need to reach into `this.currentRun` via
+   * bracket-notation private access, which was flagged by the audit.
+   */
+  getCurrentRunTokens(): number {
+    return this.currentRun?.totalTokensEstimate ?? 0;
+  }
 }
