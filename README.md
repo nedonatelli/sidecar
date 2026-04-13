@@ -56,11 +56,11 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 
 ### What sets SideCar apart
 
-- **True agentic autonomy** — SideCar reads your code, edits files, runs tests, reads the errors, and iterates until the task is done. Switch between cautious, autonomous, manual, plan, or custom user-defined modes.
+- **True agentic autonomy** — SideCar reads your code, edits files, runs tests, reads the errors, and iterates until the task is done. Switch between cautious, autonomous, manual, plan, review, or custom user-defined modes.
 - **No vendor lock-in** — Use Ollama for fully offline operation, Anthropic for Claude, OpenAI-compatible servers (LM Studio, vLLM, OpenRouter), Kickstand, or install GGUF models directly from HuggingFace. Same interface, your choice.
 - **Security from the ground up** — API keys stored in VS Code SecretStorage (OS keychain), secrets detection, vulnerability scanning, path traversal protection, sensitive file blocking, workspace hook warnings, and prompt injection sandboxing.
 - **Extensible with MCP & Skills** — Connect external tools via MCP, create custom skills with markdown files, or use the 8 built-in skills (review, debug, refactor, explain, write-tests, break-this, create-skill, mcp-builder).
-- **Production-grade safety** — Agent mode controls, iteration limits, token budgets, daily/weekly spending caps, cycle detection, streaming diff preview, plan mode, and one-click rollback.
+- **Production-grade safety** — Agent mode controls (including new **review mode** for batch diff review), iteration limits, token budgets, daily/weekly spending caps, cycle detection, streaming diff preview, plan mode, **completion gate** (refuses to let the agent finish without running lint and tests for edited files), and one-click rollback.
 - **Persistent codebase indexing** — File index and symbol graph persist across restarts via `.sidecar/cache/`. Tree-sitter AST parsing for 6 languages. Near-instant startup on subsequent activations.
 - **Smart context** — Tree-sitter AST extraction for TypeScript, JavaScript, Python, Rust, Go, and Java/Kotlin. SideCar sends relevant functions and classes to the model, not entire files.
 
@@ -76,10 +76,13 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 - **Test-driven loop** — runs tests, feeds failures back to the model, iterates until passing
 - **Undo/rollback** — revert all AI-made file changes with one click
 - **Streaming diff preview** — in cautious mode, file writes open VS Code's diff editor with dual accept/reject UI (editor notification + chat card — first click wins)
+- **Review mode** — new approval mode that buffers every `write_file` / `edit_file` into an in-memory shadow store instead of touching disk, then surfaces pending changes in a dedicated **Pending Agent Changes** TreeView. Click any file to open VS Code's native diff editor; accept or discard per-file or all-at-once before anything is persisted. Read-through is transparent — when the agent reads a file it's edited this session, it sees its own pending content
+- **Completion gate** — deterministic barrier that refuses to let the agent declare a turn done until lint and the colocated tests for edited files have actually run. Catches the "ready for use" fabrication failure mode by tracking every `write_file` / `edit_file` against every `eslint` / `tsc` / `vitest` / `jest` / `pytest` / `run_tests` invocation during the turn. Toggle via `sidecar.completionGate.enabled`
 - **Stub validator** — auto-detects placeholder code (TODO, "real implementation", stub functions) in agent output and reprompts the model to finish
+- **Smart "continue" recognition** — terse replies like `continue`, `go on`, `keep going`, `proceed`, `next` are rewritten into a directive that tells the model to pick up from its most recent response, skipping completed steps
 - **Custom modes** — define your own agent modes (Architect, Debugger, Coder) with dedicated system prompts, approval behavior, and per-tool permissions via `sidecar.customModes`
 - **Background agents** — `/bg <task>` spawns autonomous agents that work in parallel without blocking the main conversation. Dashboard panel shows status, output, and stop controls. Up to 3 concurrent (configurable via `sidecar.bgMaxConcurrent`)
-- **Safety guardrails** — agent mode dropdown (cautious/autonomous/manual/plan/custom) in the header, iteration limits, token budget, daily/weekly spending caps
+- **Safety guardrails** — agent mode dropdown (cautious/autonomous/manual/plan/review/custom) in the header, iteration limits, token budget, daily/weekly spending caps
 - **Thinking/reasoning** — collapsible reasoning blocks from models that support extended thinking (Anthropic) or `<think>` tags (qwen3, deepseek-r1)
 - **Verbose mode** — `/verbose` to show system prompt, per-iteration summaries, and tool selection context during agent runs
 - **Observability** — `/audit` to browse structured tool execution logs, "Why?" button on tool cards for on-demand decision explanations, `/insights` for conversation pattern analysis with usage trends and suggestions
@@ -104,6 +107,14 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 - Right-click menu: **Explain**, **Fix**, **Refactor** with SideCar
 - Selected code is sent to the chat with the action
 - **Terminal error interception** — failed commands in the integrated terminal trigger a **Diagnose in chat** notification. Accepting injects a synthesized prompt with the command, exit code, cwd, and ANSI-stripped output tail, then runs the agent against it. Dedupes within a 30s cooldown, skips SideCar's own terminal, and requires VS Code shell integration. Toggle via `sidecar.terminalErrorInterception`
+
+### Background Doc Sync
+On every save, SideCar keeps your documentation in sync with your code — no AI round-trips, no external indexer, just local string analysis over the file you're editing:
+
+- **JSDoc staleness diagnostics** — scans TypeScript / JavaScript files for `@param` tags that no longer match the function signature. Orphan tags (the JSDoc describes a parameter that no longer exists) and missing tags (a parameter with no matching `@param` entry) surface as warning diagnostics with one-click quick fixes to remove or add the tag, preserving JSDoc indentation and the `*` prefix. Toggle via `sidecar.jsDocSync.enabled`
+- **README sync** — on save of `README.md` (and on save of any `src/` source file, so drift surfaces immediately when you rename an API), scans fenced ts/tsx/js/jsx code blocks for calls to workspace-exported functions whose argument count no longer matches the current signature. Quick fix rewrites the call: drops trailing args when there are too many, appends missing parameter names as placeholders when there are too few. Toggle via `sidecar.readmeSync.enabled`
+
+Both features skip class methods, destructured parameters, rest parameters, and multi-line calls — the analyzer is conservative by design to avoid false positives in user-facing docs. See [docs/background-doc-sync](https://nedonatelli.github.io/sidecar/background-doc-sync) for the full rule set.
 
 ### AI Chat
 - Streaming responses in a dedicated sidebar panel
@@ -296,7 +307,7 @@ SideCar auto-detects the provider. To override, set `sidecar.provider` to `"open
 | `sidecar.hooks` | `{}` | Pre/post execution hooks (see Hooks section above) |
 | `sidecar.scheduledTasks` | `[]` | Recurring agent tasks (see Scheduled Tasks section above) |
 | `sidecar.mcpServers` | `{}` | MCP servers to connect to (see MCP section above) |
-| `sidecar.agentMode` | `cautious` | Agent mode: cautious, autonomous, manual, plan, or a custom mode name |
+| `sidecar.agentMode` | `cautious` | Agent mode: cautious, autonomous, manual, plan, review, or a custom mode name |
 | `sidecar.customModes` | `[]` | Custom agent modes with system prompts and approval behavior |
 | `sidecar.bgMaxConcurrent` | `3` | Max background agents running simultaneously (1–10) |
 | `sidecar.agentTemperature` | `0.2` | Temperature for agent tool-calling requests. Lower = more deterministic |
@@ -316,6 +327,9 @@ SideCar auto-detects the provider. To override, set `sidecar.provider` to `"open
 | `sidecar.chatFontSize` | `13` | Chat UI base font size in pixels (10–22) |
 | `sidecar.chatAccentColor` | `""` | Override the chat accent color (hex, rgb/rgba, hsl/hsla, or named color). Empty = inherit from VS Code theme |
 | `sidecar.terminalErrorInterception` | `true` | Detect non-zero exit codes in the integrated terminal and offer **Diagnose in chat**. Requires VS Code shell integration |
+| `sidecar.jsDocSync.enabled` | `true` | Flag orphan and missing JSDoc `@param` tags on save of TS/JS files, with quick-fix actions |
+| `sidecar.readmeSync.enabled` | `true` | Flag stale call arity in README.md fenced code blocks on save of README.md or any `src/` source file |
+| `sidecar.completionGate.enabled` | `true` | Refuse to let the agent declare a turn done until lint and the colocated tests for edited files have actually run |
 | `sidecar.requestTimeout` | `120` | Timeout in seconds for each LLM request. Aborts if no tokens arrive within this window. Set to 0 to disable |
 | `sidecar.shellTimeout` | `120` | Default timeout for shell commands in seconds |
 | `sidecar.shellMaxOutputMB` | `10` | Maximum shell output size in MB before truncation |

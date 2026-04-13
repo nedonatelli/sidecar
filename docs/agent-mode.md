@@ -208,7 +208,7 @@ Each custom mode has:
 - **approvalBehavior** — `"autonomous"`, `"cautious"`, or `"manual"` (determines tool approval)
 - **toolPermissions** — optional per-tool overrides (`"allow"`, `"deny"`, `"ask"`) that take priority over global `sidecar.toolPermissions`
 
-Select custom modes from the dropdown alongside built-in modes (cautious, autonomous, manual, plan). Custom modes appear with an orange badge.
+Select custom modes from the dropdown alongside built-in modes (cautious, autonomous, manual, plan, review). Custom modes appear with an orange badge.
 
 ## Background agents
 

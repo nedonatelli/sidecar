@@ -216,7 +216,7 @@ SideCar monitors MCP server health automatically:
 - MCP tools are **discovered automatically** when the server starts
 - They appear in the agent's tool list with an `mcp_<server>_<tool>` prefix
 - Descriptions are prefixed with `[MCP: <server>]` for clarity
-- Tool calls go through the same **approval flow** (cautious/autonomous/manual)
+- Tool calls go through the same **approval flow** (cautious/autonomous/manual/review)
 - **Tool permissions** (`sidecar.toolPermissions`) apply to MCP tools by their prefixed name
 - All MCP tools **require approval** regardless of approval mode
 

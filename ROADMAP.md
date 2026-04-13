@@ -182,7 +182,7 @@ Last updated: 2026-04-12 (v0.46.0)
 
 - **Worktree-isolated agents** — each agent in its own git worktree
 - **Agent dashboard** — visual panel for running/completed agents
-- **Agent diff review & merge** — review agent changes before merging back
+- ~~**Agent diff review & merge** — review agent changes before merging back~~ → new `review` approval mode buffers every `write_file` / `edit_file` into a `PendingEditStore` shadow, surfaces pending changes in a dedicated [Pending Agent Changes TreeView](src/agent/reviewPanel.ts) with accept/discard per-file and all-at-once, opens VS Code's native diff editor for each file, and keeps reads consistent by serving pending content to the agent's own `read_file` calls (v0.46.0)
 - **Multi-agent task coordination** — parallel agents with dependency layer
 - **Adversarial critic agent** — parallel red-team agent that attacks changes as they're made
 - **Remote headless hand-off** — detach tasks to run on a remote server via `@sidecar/headless` CLI
