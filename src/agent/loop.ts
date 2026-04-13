@@ -27,6 +27,12 @@ import { spawnSubAgent } from './subagent.js';
 import { ConversationSummarizer } from './conversationSummarizer.js';
 import { ToolResultCompressor } from './toolResultCompressor.js';
 import { buildStubReprompt } from './stubValidator.js';
+import {
+  createGateState,
+  recordToolCall as recordGateToolCall,
+  checkCompletionGate,
+  buildGateInjection,
+} from './completionGate.js';
 
 export interface AgentCallbacks {
   onText: (text: string) => void;
@@ -112,6 +118,12 @@ export async function runAgentLoop(
   const CYCLE_WINDOW = 8;
   const MAX_CYCLE_LEN = 4;
   const MIN_IDENTICAL_REPEATS = 4;
+
+  // Completion gate: tracks edits / lint / test runs across the turn and
+  // refuses to let the loop terminate until the agent has verified its work.
+  // See completionGate.ts for the rule set.
+  const gateState = createGateState();
+  const MAX_GATE_INJECTIONS = 2;
 
   // Work with a copy of messages
   const agentMessages = [...messages];
@@ -340,6 +352,39 @@ export async function runAgentLoop(
           recordToolFailure(client.getModel());
         }
       }
+
+      // Completion gate: if the agent edited source files this turn but
+      // never ran lint / tests for them, push a synthetic user message back
+      // into the loop demanding verification. Skip in plan mode (which
+      // intentionally returns after one turn for user approval) and when
+      // the run was aborted.
+      if (
+        !signal.aborted &&
+        options.approvalMode !== 'plan' &&
+        config.completionGateEnabled !== false &&
+        gateState.editedFiles.size > 0 &&
+        gateState.gateInjections < MAX_GATE_INJECTIONS
+      ) {
+        const findings = await checkCompletionGate(gateState);
+        if (findings.length > 0) {
+          gateState.gateInjections++;
+          const injection = buildGateInjection(findings, gateState.gateInjections, MAX_GATE_INJECTIONS);
+          logger?.info(
+            `Completion gate fired (#${gateState.gateInjections}/${MAX_GATE_INJECTIONS}): ${findings.length} unverified edit(s)`,
+          );
+          callbacks.onText('\n\n🔒 Verifying changes before completion...\n');
+          agentMessages.push({
+            role: 'user',
+            content: [{ type: 'text' as const, text: injection }],
+          });
+          continue;
+        }
+      } else if (gateState.editedFiles.size > 0 && gateState.gateInjections >= MAX_GATE_INJECTIONS) {
+        logger?.warn(
+          `Completion gate exhausted (${MAX_GATE_INJECTIONS} injections) — allowing termination with unverified edits`,
+        );
+      }
+
       break;
     }
 
@@ -484,6 +529,13 @@ export async function runAgentLoop(
           logger?.warn(`Tool ${pendingToolUses[idx].name} threw: ${errMsg}`);
           callbacks.onToolResult(pendingToolUses[idx].name, `Internal error: ${errMsg}`, true, pendingToolUses[idx].id);
         }
+      }
+
+      // Feed successful tool calls into the completion gate so it can track
+      // which files were edited and which verification commands have run.
+      for (let idx = 0; idx < pendingToolUses.length; idx++) {
+        const tr = toolResults[idx];
+        if (tr) recordGateToolCall(gateState, pendingToolUses[idx], tr);
       }
 
       // Count tool call and result tokens toward the budget

@@ -358,6 +358,11 @@
           "default": 3,
           "description": "Maximum auto-fix attempts before stopping"
         },
+        "sidecar.completionGate.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Require the agent to run lint and tests for files it edited before declaring completion. Catches cases where the agent reports a change as done without verifying."
+        },
         "sidecar.provider": {
           "type": "string",
           "enum": [

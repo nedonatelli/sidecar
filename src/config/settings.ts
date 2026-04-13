@@ -241,6 +241,7 @@ export interface SideCarConfig {
   pinnedContext: string[];
   autoFixOnFailure: boolean;
   autoFixMaxRetries: number;
+  completionGateEnabled: boolean;
   fetchUrlContext: boolean;
   fallbackBaseUrl: string;
   fallbackApiKey: string;
@@ -329,6 +330,7 @@ function readConfig(): SideCarConfig {
     pinnedContext: cfg.get<string[]>('pinnedContext', []),
     autoFixOnFailure: cfg.get<boolean>('autoFixOnFailure', false),
     autoFixMaxRetries: clampMin(cfg.get<number>('autoFixMaxRetries'), 0, 3),
+    completionGateEnabled: cfg.get<boolean>('completionGate.enabled', true),
     fetchUrlContext: cfg.get<boolean>('fetchUrlContext', true),
     fallbackBaseUrl: cfg.get<string>('fallbackBaseUrl', ''),
     fallbackApiKey: _cachedFallbackApiKey ?? cfg.get<string>('fallbackApiKey', ''),
