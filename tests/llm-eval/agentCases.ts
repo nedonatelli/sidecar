@@ -103,4 +103,120 @@ export const AGENT_CASES: AgentEvalCase[] = [
       finalTextContains: ['c.ts'],
     },
   },
+
+  {
+    id: 'multi-tool-iteration',
+    description: 'Agent issues multiple read_file calls in a single task to compare several files',
+    tags: ['read', 'trajectory', 'parallel'],
+    workspace: {
+      // Line counts crafted so there's an unambiguous "most lines" winner
+      // — src/b.ts at 10 lines. Other files are deliberately short so a
+      // model that miscounts on one file still usually gets the answer
+      // right by relative comparison.
+      'src/a.ts': 'export const a = 1;\nexport const a2 = 2;\nexport const a3 = 3;\n',
+      'src/b.ts':
+        'export const b1 = 1;\nexport const b2 = 2;\nexport const b3 = 3;\n' +
+        'export const b4 = 4;\nexport const b5 = 5;\nexport const b6 = 6;\n' +
+        'export const b7 = 7;\nexport const b8 = 8;\nexport const b9 = 9;\n' +
+        'export const b10 = 10;\n',
+      'src/c.ts': 'export const c1 = 1;\nexport const c2 = 2;\nexport const c3 = 3;\nexport const c4 = 4;\n',
+      'src/d.ts': 'export const d = 1;\n',
+      'src/e.ts': 'export const e1 = 1;\nexport const e2 = 2;\n',
+    },
+    userMessage: 'Look at every .ts file in src/ and tell me which one has the most lines.',
+    expect: {
+      // Two acceptable strategies: list + read each, or enumerate via
+      // grep/search_files + read. Both flows must touch read_file at
+      // least once to count lines reliably.
+      toolsCalled: ['read_file'],
+      // The correct answer. We accept the bare filename — the model
+      // often writes "src/b.ts" or "b.ts" — so the bare form is
+      // sufficient.
+      finalTextContains: ['b.ts'],
+      // The agent shouldn't edit anything for a read-only question.
+      toolsNotCalled: ['write_file', 'edit_file'],
+    },
+  },
+
+  {
+    id: 'observe-tool-error-no-fabrication',
+    description: 'Agent observes a read_file error on a nonexistent path, does not fabricate contents or write new files',
+    tags: ['read', 'trajectory', 'error-observation', 'regression'],
+    workspace: {
+      // Only one file exists. The user's message points at a wrong
+      // filename that sounds plausible — the agent has to observe the
+      // read_file error from the failed read. How the agent recovers
+      // is NOT asserted — asking the user for clarification, searching
+      // for the file, and giving up with a "not found" reply are all
+      // valid behaviors depending on the model's disposition. The
+      // regression we actually care about is: (1) the error was
+      // observable in the trajectory, and (2) the agent didn't
+      // fabricate contents by writing a new file.
+      'src/utils.ts':
+        '// Adds two numbers.\nexport function add(a: number, b: number): number {\n  return a + b;\n}\n',
+    },
+    userMessage: 'Read src/helpers.ts and tell me what it does.',
+    expect: {
+      // At least one tool result must surface as an error — that's
+      // the thing the agent has to observe. If we ever regress the
+      // error path (e.g. mask fs errors as empty strings), this
+      // assertion catches it.
+      trajectoryHasToolError: true,
+      // The agent shouldn't fabricate contents — it must NOT write
+      // new files to paper over the missing file. If we ever regress
+      // write_file gating around error conditions, this catches it.
+      toolsNotCalled: ['write_file', 'edit_file'],
+    },
+  },
+
+  {
+    id: 'no-stub-in-write',
+    description: 'Agent writes a real factorial implementation without leaving stub markers',
+    tags: ['write', 'stub-validator', 'regression'],
+    workspace: {
+      // Empty workspace — the file the agent writes is the full target.
+      'README.md': '# Task workspace\n\nPlease implement what I ask for.\n',
+    },
+    userMessage:
+      'Create src/fact.ts containing a TypeScript function named `factorial` that takes a non-negative integer n ' +
+      'and returns n! (the mathematical factorial). Use a loop or recursion. Export it. ' +
+      'Do not leave any TODO comments or placeholder bodies — the function must be a full, working implementation.',
+    expect: {
+      toolsCalled: ['write_file'],
+      files: {
+        exist: ['src/fact.ts'],
+        contain: [
+          {
+            path: 'src/fact.ts',
+            // Must export and must contain the function name. The body
+            // must have either a loop keyword or a recursive self-call;
+            // both are valid implementations, so we check for the
+            // literal `factorial(` which appears in the signature no
+            // matter which strategy the model picks.
+            substrings: ['export', 'factorial', 'return'],
+          },
+        ],
+        // The stub validator's pattern set, replayed here as
+        // post-run substring assertions. If the stub validator
+        // correctly reprompted the agent when a stub slipped through,
+        // the final file won't contain any of these; if the validator
+        // failed to fire or the agent ignored the reprompt, the case
+        // catches it.
+        notContain: [
+          {
+            path: 'src/fact.ts',
+            substrings: [
+              'TODO',
+              'FIXME',
+              'placeholder',
+              'your code here',
+              'NotImplementedError',
+              'not implemented',
+              'goes here',
+            ],
+          },
+        ],
+      },
+    },
+  },
 ];

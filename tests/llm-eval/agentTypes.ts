@@ -105,6 +105,14 @@ export interface AgentExpectations {
   /** Assistant final-text predicates (case-insensitive substring). */
   finalTextContains?: string[];
   finalTextNotContains?: string[];
+  /**
+   * When `true`, at least one `tool_result` event in the trajectory
+   * must have `isError === true`. Useful for cases that deliberately
+   * give the agent a bad input and want to pin that the agent
+   * observed the error at all (recovery assertions are separate —
+   * use `toolsCalled` to assert it then tried a recovery tool).
+   */
+  trajectoryHasToolError?: boolean;
 }
 
 /**

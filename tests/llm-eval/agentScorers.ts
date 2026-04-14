@@ -138,6 +138,14 @@ export function scoreAgentCase(evalCase: AgentEvalCase, run: AgentRun): AgentCas
     }
   }
 
+  // --- trajectory error observation ---
+  if (expect.trajectoryHasToolError === true) {
+    const hasError = run.trajectory.some((e) => e.type === 'tool_result' && e.isError);
+    if (!hasError) {
+      failures.push(`trajectoryHasToolError: expected at least one tool_result with isError=true, but none observed`);
+    }
+  }
+
   return {
     id: evalCase.id,
     description: evalCase.description,
