@@ -359,9 +359,15 @@ export function activate(context: ExtensionContext) {
       }
       chatProvider?.reloadModels();
     }),
-    commands.registerCommand('sidecar.switchBackend', async (profileId?: string) => {
+    commands.registerCommand('sidecar.switchBackend', async (profileId?: unknown) => {
       const { BUILT_IN_BACKEND_PROFILES, applyBackendProfile } = await import('./config/settings.js');
-      let profile = profileId ? BUILT_IN_BACKEND_PROFILES.find((p) => p.id === profileId) : undefined;
+      // Runtime guard: the command is invocable from the webview, a
+      // markdown hover link, the command palette, and other commands.
+      // Only a string is a meaningful profile ID; anything else means
+      // "show the picker". Without the guard a stray {profileId: 42}
+      // silently drops through the `find(...)` call and returns undefined.
+      const requestedId = typeof profileId === 'string' ? profileId : undefined;
+      let profile = requestedId ? BUILT_IN_BACKEND_PROFILES.find((p) => p.id === requestedId) : undefined;
       if (!profile) {
         const pick = await window.showQuickPick(
           BUILT_IN_BACKEND_PROFILES.map((p) => ({

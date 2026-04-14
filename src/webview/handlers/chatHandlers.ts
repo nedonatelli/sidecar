@@ -78,7 +78,7 @@ const CONTINUATION_PATTERNS: RegExp[] = [
   /^keep at it\.?$/i,
 ];
 
-export function isContinuationRequest(text: string): boolean {
+function isContinuationRequest(text: string): boolean {
   if (!text) return false;
   const trimmed = text.trim();
   if (trimmed.length === 0 || trimmed.length > 30) return false;

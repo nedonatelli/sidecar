@@ -162,7 +162,16 @@ export class ShellSession {
 
   private async executeInternal(command: string, options: ShellExecuteOptions): Promise<ShellResult> {
     const proc = this.ensureProcess();
-    const { timeout = 120_000, onOutput, signal } = options;
+    const { timeout = 120_000, onOutput: rawOnOutput, signal } = options;
+    // Every consumer of streamed shell output in SideCar lands in the
+    // webview via `postMessage({command: 'toolOutput', ...})`, where it
+    // is inserted as DOM `textContent`. The webview has no ANSI renderer,
+    // so raw escape sequences display as garbage (`^[[31m`), bloat the
+    // tool-call detail pane, and flow into any consumer that re-uses
+    // the stream (background agent capture, verbose logs). Strip at
+    // source — one place, one guarantee — instead of threading stripAnsi
+    // through every consumer.
+    const onOutput = rawOnOutput ? (chunk: string) => rawOnOutput(stripAnsi(chunk)) : undefined;
     const sentinel = makeSentinel();
 
     return new Promise<ShellResult>((resolve) => {
@@ -190,13 +199,11 @@ export class ShellSession {
         if (resolved) return;
         resolved = true;
         cleanup();
-        // Strip ANSI escape sequences from the final stdout before
-        // handing it to the caller. Raw escapes used to leak into the
-        // agent's tool-result view and the audit log, where they bloat
-        // token counts and corrupt downstream rendering. We keep the
-        // streaming onOutput callback raw so live terminals still see
-        // colors mid-execution — the strip only applies to the text
-        // the caller receives after completion.
+        // Strip ANSI escape sequences from the final stdout too. The
+        // streaming onOutput wrapper above already strips each chunk,
+        // but `output` is the accumulated pre-wrap buffer (built from
+        // raw `data` events), so the final blob still contains the
+        // original escape sequences until we strip here.
         resolve({ stdout: stripAnsi(output), exitCode, timedOut });
       };
 

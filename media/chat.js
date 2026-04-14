@@ -388,11 +388,20 @@
         for (const skill of skills) {
           const item = document.createElement('div');
           item.className = 'attach-menu-item attach-menu-skill';
-          item.innerHTML =
-            '<strong>/' +
-            skill.id +
-            '</strong>' +
-            (skill.description ? '<span class="attach-menu-desc">' + skill.description + '</span>' : '');
+          // Build nodes with createElement + textContent so skill
+          // frontmatter (user-authored, potentially hostile in cloned
+          // repos) can't inject markup or DOM-clobber event handlers.
+          // CSP blocks inline <script> but not DOM-level attribute
+          // injection via innerHTML.
+          const strong = document.createElement('strong');
+          strong.textContent = '/' + skill.id;
+          item.appendChild(strong);
+          if (skill.description) {
+            const desc = document.createElement('span');
+            desc.className = 'attach-menu-desc';
+            desc.textContent = skill.description;
+            item.appendChild(desc);
+          }
           item.title = skill.description || skill.name;
           item.addEventListener('click', () => {
             input.value = '/' + skill.id + ' ';
@@ -732,8 +741,13 @@
     const activeId = window.__activeBackendProfileId;
     for (const p of profiles) {
       const btn = document.createElement('button');
-      btn.className = 'settings-menu-item backend-profile' + (p.id === activeId ? ' active' : '');
+      const isActive = p.id === activeId;
+      btn.className = 'settings-menu-item backend-profile' + (isActive ? ' active' : '');
       btn.setAttribute('role', 'menuitem');
+      // aria-current exposes "this is the currently-selected one" to
+      // screen readers; the visible checkmark was previously the only
+      // indicator.
+      if (isActive) btn.setAttribute('aria-current', 'true');
       btn.dataset.profileId = p.id;
       const name = document.createElement('div');
       name.className = 'backend-profile-name';
@@ -759,6 +773,9 @@
   function closeSettingsMenu() {
     settingsMenu.classList.add('hidden');
     settingsBtn.setAttribute('aria-expanded', 'false');
+    // Return focus to the gear button so keyboard users and screen
+    // readers don't lose their place after Escape or click-outside.
+    settingsBtn.focus();
   }
 
   settingsBtn.addEventListener('click', (e) => {
