@@ -40,6 +40,7 @@ const DENIED_SETTING_KEYS: ReadonlySet<string> = new Set([
   'fallbackBaseUrl',
   'provider',
   'delegateTask.workerBaseUrl',
+  'delegateTask.maxIterations',
   // self-escalation: permissions, custom executables, hooks
   'toolPermissions',
   'hooks',

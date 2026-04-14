@@ -398,6 +398,13 @@ export interface SideCarConfig {
   delegateTaskEnabled: boolean;
   delegateTaskWorkerModel: string;
   delegateTaskWorkerBaseUrl: string;
+  /**
+   * Hard cap on iterations a delegated worker agent may run. The
+   * worker is intentionally focused on read-only research, so a
+   * tight cap protects against runaway loops. The main agent loop
+   * uses `agentMaxIterations` instead.
+   */
+  delegateTaskMaxIterations: number;
   /* Outbound exfiltration defense */
   outboundAllowlist: string[];
 }
@@ -501,6 +508,7 @@ function readConfig(): SideCarConfig {
     delegateTaskEnabled: cfg.get<boolean>('delegateTask.enabled', true),
     delegateTaskWorkerModel: cfg.get<string>('delegateTask.workerModel', ''),
     delegateTaskWorkerBaseUrl: cfg.get<string>('delegateTask.workerBaseUrl', 'http://localhost:11434'),
+    delegateTaskMaxIterations: clampMin(cfg.get<number>('delegateTask.maxIterations'), 1, 10),
     /* Outbound exfiltration defense */
     outboundAllowlist: cfg.get<string[]>('outboundAllowlist', []),
   };

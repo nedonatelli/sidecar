@@ -370,6 +370,15 @@
           "tags": ["sidecar", "cost", "agent"],
           "markdownDescription": "Base URL of the Ollama instance the `delegate_task` worker connects to. Must point at a local or reachable Ollama server — never Anthropic or OpenAI (defeats the purpose)."
         },
+        "sidecar.delegateTask.maxIterations": {
+          "type": "number",
+          "default": 10,
+          "minimum": 1,
+          "maximum": 25,
+          "order": 45,
+          "tags": ["sidecar", "cost", "agent"],
+          "markdownDescription": "Hard cap on agent iterations for a delegated worker run. Workers are scoped to focused read-only research, so a tight cap protects against runaway loops and unintended cost. Raise this only if your delegated tasks legitimately need more steps (e.g. deep multi-file analysis). The main agent loop is bounded separately by `#sidecar.agentMaxIterations#`."
+        },
         "sidecar.outboundAllowlist": {
           "type": "array",
           "items": {

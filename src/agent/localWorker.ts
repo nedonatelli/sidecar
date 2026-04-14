@@ -130,11 +130,19 @@ export async function runLocalWorker(
 
   const workerTools = filterToolsForWorker(getToolDefinitions(options.mcpManager));
 
+  // Worker cap: the config value is the ceiling (clampMin guarantees a
+  // valid number). If the caller passed their own maxIterations, honor
+  // it only when it's *lower* than the configured cap — the cap is a
+  // guardrail against runaway loops, not a floor.
+  const workerCap = cfg.delegateTaskMaxIterations;
+  const workerMaxIterations =
+    options.maxIterations !== undefined ? Math.min(options.maxIterations, workerCap) : workerCap;
+
   try {
     await runAgentLoop(workerClient, messages, workerCallbacks, signal, {
       ...options,
       approvalMode: 'autonomous',
-      maxIterations: Math.min(options.maxIterations || 25, 10),
+      maxIterations: workerMaxIterations,
       depth: (options.depth || 0) + 1,
       toolOverride: workerTools,
       modeToolPermissions: Object.fromEntries(Array.from(WORKER_ALLOWED_TOOLS).map((n) => [n, 'allow' as const])),

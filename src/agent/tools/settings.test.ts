@@ -295,6 +295,7 @@ describe('settings tools', () => {
           'baseUrl',
           'customModes',
           'customTools',
+          'delegateTask.maxIterations',
           'delegateTask.workerBaseUrl',
           'eventHooks',
           'fallbackApiKey',
