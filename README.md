@@ -40,7 +40,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 | Codebase indexing | **Yes** | Yes | No | No |
 | Spending budgets | **Yes** | No | No | No |
 | Session spend tracker (status bar) | **Yes** | No | No | No |
-| Hybrid cost-aware delegation | **Yes** | No | No | No |
+| Hybrid cost-aware delegation | **Partial** | No | No | No |
 | Getting-started walkthrough | **Yes** | No | No | No |
 | Conversation steering (type while processing) | **Yes** | No | No | No |
 | Free & open-source | Yes | Yes | Yes | Yes |
@@ -56,7 +56,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 | Custom skills system | **Yes** | Yes | Yes (.cursorrules) | Yes |
 | Context compaction (manual + auto) | **Yes** | Yes | Yes | Yes |
 | Spending budgets & cost tracking | **Yes** | No | Yes | No |
-| Hybrid local-worker delegation | **Yes** | No | No | No |
+| Hybrid local-worker delegation | **Partial** | No | No | No |
 | Prompt pruner & pre-request caching | **Yes** | No | No | Partial |
 | Plan-then-execute mode | **Yes** | No | Yes | Yes |
 | Review mode (batch diff review) | **Yes** | No | Partial | No |
