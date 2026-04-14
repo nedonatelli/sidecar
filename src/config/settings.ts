@@ -382,6 +382,13 @@ export interface SideCarConfig {
   semanticSearchWeight: number;
   /* Background agents */
   bgMaxConcurrent: number;
+  /* Prompt pruning (paid backends) */
+  promptPruningEnabled: boolean;
+  promptPruningMaxToolResultTokens: number;
+  /* Hybrid delegation to local Ollama worker (paid backends only) */
+  delegateTaskEnabled: boolean;
+  delegateTaskWorkerModel: string;
+  delegateTaskWorkerBaseUrl: string;
 }
 
 /**
@@ -476,6 +483,13 @@ function readConfig(): SideCarConfig {
     enableSemanticSearch: cfg.get<boolean>('enableSemanticSearch', true),
     semanticSearchWeight: Math.max(0, Math.min(1, cfg.get<number>('semanticSearchWeight', 0.6))),
     bgMaxConcurrent: clampMin(cfg.get<number>('bgMaxConcurrent'), 1, 3),
+    /* Prompt pruning (paid backends) */
+    promptPruningEnabled: cfg.get<boolean>('promptPruning.enabled', true),
+    promptPruningMaxToolResultTokens: clampMin(cfg.get<number>('promptPruning.maxToolResultTokens'), 200, 2000),
+    /* Hybrid delegation to local Ollama worker */
+    delegateTaskEnabled: cfg.get<boolean>('delegateTask.enabled', true),
+    delegateTaskWorkerModel: cfg.get<string>('delegateTask.workerModel', ''),
+    delegateTaskWorkerBaseUrl: cfg.get<string>('delegateTask.workerBaseUrl', 'http://localhost:11434'),
   };
 }
 

@@ -181,12 +181,26 @@ export interface StreamWarningEvent {
   message: string;
 }
 
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationInputTokens: number;
+  cacheReadInputTokens: number;
+}
+
+export interface StreamUsageEvent {
+  type: 'usage';
+  model: string;
+  usage: TokenUsage;
+}
+
 export type StreamEvent =
   | StreamTextEvent
   | StreamToolUseEvent
   | StreamThinkingEvent
   | StreamStopEvent
-  | StreamWarningEvent;
+  | StreamWarningEvent
+  | StreamUsageEvent;
 
 // Anthropic Messages API types
 
@@ -206,7 +220,12 @@ export interface AnthropicResponse {
   model: string;
   content: AnthropicContentBlock[];
   stop_reason: 'end_turn' | 'max_tokens' | 'stop_sequence' | 'tool_use';
-  usage: { input_tokens: number; output_tokens: number };
+  usage: {
+    input_tokens: number;
+    output_tokens: number;
+    cache_creation_input_tokens?: number;
+    cache_read_input_tokens?: number;
+  };
 }
 
 // Streaming event types
@@ -229,6 +248,12 @@ export interface AnthropicStreamEvent {
     thinking?: string;
     partial_json?: string;
     stop_reason?: string;
+  };
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    cache_creation_input_tokens?: number;
+    cache_read_input_tokens?: number;
   };
   error?: { type: string; message: string };
 }

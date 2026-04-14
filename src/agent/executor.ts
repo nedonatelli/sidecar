@@ -10,19 +10,55 @@ import { getConfig } from '../config/settings.js';
 import { checkWorkspaceConfigTrust } from '../config/workspaceTrust.js';
 import type { AgentLogger } from './logger.js';
 import { scanFile, formatIssues } from './securityScanner.js';
+import { detectStubs } from './stubValidator.js';
+import { reportSecurityIssues, reportStubs } from './sidecarDiagnostics.js';
 import type { PendingEditStore } from './pendingEdits.js';
 import { withFileLock } from './fileLock.js';
 
 const execAsync = promisify(exec);
 
 export type ApprovalMode = 'autonomous' | 'cautious' | 'manual' | 'plan' | 'review';
-export type ConfirmFn = (message: string, actions: string[]) => Promise<string | undefined>;
+export interface ConfirmOptions {
+  /**
+   * When set, the confirmation is shown as a native blocking VS Code
+   * modal (`showWarningMessage` with `modal: true`) rather than an
+   * inline chat card. Reserved for destructive tools — the user must
+   * click a button before anything else in the editor responds.
+   */
+  modal?: boolean;
+  /**
+   * Optional long-form detail shown under the primary message in a
+   * native modal. Ignored by inline-chat confirms which render the
+   * message verbatim.
+   */
+  detail?: string;
+}
+export type ConfirmFn = (message: string, actions: string[], options?: ConfirmOptions) => Promise<string | undefined>;
 export type DiffPreviewFn = (filePath: string, proposedContent: string) => Promise<'accept' | 'reject'>;
 export type InlineEditFn = (filePath: string, searchText: string, replaceText: string) => Promise<boolean>;
 /** @deprecated Use diffPreviewFn — streaming behavior is now built into openDiffPreview. */
 export type StreamingDiffPreviewFn = (filePath: string, proposedContent: string) => Promise<'accept' | 'reject'>;
 
 const WRITE_TOOLS = new Set(['write_file', 'edit_file']);
+
+/**
+ * Tools whose approval prompts are escalated to a native VS Code modal
+ * (`showWarningMessage` with `modal: true`) rather than an inline chat
+ * card. Matches the user's mental model: "if it could break something,
+ * block the editor until I decide." Write tools are not in this set
+ * because they go through the diff-preview path, which is already a
+ * native-feeling confirmation surface.
+ */
+const NATIVE_MODAL_APPROVAL_TOOLS = new Set([
+  'run_command',
+  'run_tests',
+  'git_stage',
+  'git_commit',
+  'git_push',
+  'git_pull',
+  'git_branch',
+  'git_stash',
+]);
 
 /**
  * Detect tool calls that are destructive and hard or impossible to
@@ -319,7 +355,17 @@ export async function executeTool(
         .join(', ');
 
       const confirm = confirmFn || (async (_msg: string, _actions: string[]) => 'Deny');
-      const choice = await confirm(`SideCar wants to use **${toolUse.name}**(${inputSummary})`, ['Allow', 'Deny']);
+      const isDestructive = NATIVE_MODAL_APPROVAL_TOOLS.has(toolUse.name);
+      // Destructive tools get a native blocking modal so the user can't
+      // miss the prompt while scrolled away from the chat view. The
+      // message is intentionally short (fits the toast title line);
+      // the full input summary goes in the modal detail.
+      const choice = isDestructive
+        ? await confirm(`Allow SideCar to run ${toolUse.name}?`, ['Allow', 'Deny'], {
+            modal: true,
+            detail: inputSummary,
+          })
+        : await confirm(`SideCar wants to use **${toolUse.name}**(${inputSummary})`, ['Allow', 'Deny']);
 
       if (choice !== 'Allow') {
         return {
@@ -420,12 +466,40 @@ export async function executeTool(
     await runHook('post', toolUse.name, toolUse.input, result);
 
     // --- Security scan after file writes ---
+    // Additionally publishes findings as native VS Code diagnostics so
+    // the Problems panel lights up the same way eslint / tsc would.
+    // The in-result `securityWarnings` text is kept for agent-loop
+    // reprompts (the model needs to SEE the issues to fix them); the
+    // diagnostic collection is purely a user-facing surface.
     let securityWarnings = '';
     if (WRITE_TOOLS.has(toolUse.name) && toolUse.input.path) {
-      const issues = await scanFile(toolUse.input.path as string);
+      const relPath = toolUse.input.path as string;
+      const issues = await scanFile(relPath);
       if (issues.length > 0) {
         securityWarnings = `\n\n⚠️ Security scan:\n${formatIssues(issues)}`;
-        logger?.warn(`[SECURITY] ${issues.length} issue(s) in ${toolUse.input.path}`);
+        logger?.warn(`[SECURITY] ${issues.length} issue(s) in ${relPath}`);
+      }
+      // Resolve absolute path for the DiagnosticCollection — workspace
+      // folders keep it workspace-relative otherwise.
+      const root = workspace.workspaceFolders?.[0]?.uri;
+      if (root) {
+        const absPath = Uri.joinPath(root, relPath).fsPath;
+        reportSecurityIssues(absPath, issues);
+
+        // Stub / placeholder scan — detect TODO / FIXME / unimplemented
+        // markers the agent may have emitted and publish them under the
+        // sidecar-stubs source. Uses the new file content directly from
+        // the tool input so it works in both write and review modes.
+        const writtenContent =
+          typeof toolUse.input.content === 'string'
+            ? (toolUse.input.content as string)
+            : typeof toolUse.input.replace === 'string'
+              ? (toolUse.input.replace as string)
+              : '';
+        if (writtenContent) {
+          const stubs = detectStubs(relPath, writtenContent);
+          reportStubs(absPath, writtenContent, stubs);
+        }
       }
     }
 

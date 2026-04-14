@@ -4,7 +4,7 @@ import { exec, execFile } from 'child_process';
 import { promisify } from 'util';
 import type { ToolDefinition } from '../ollama/types.js';
 import type { MCPManager } from './mcpManager.js';
-import { getConfig } from '../config/settings.js';
+import { getConfig, detectProvider } from '../config/settings.js';
 import { scanFile, formatIssues } from './securityScanner.js';
 import { GitCLI } from '../github/git.js';
 import { ShellSession } from '../terminal/shellSession.js';
@@ -1125,6 +1125,42 @@ export const TOOL_REGISTRY: RegisteredTool[] = [
   },
 ];
 
+/**
+ * `delegate_task` — offload read-only research to a local Ollama worker.
+ * Only exposed to the model when the active backend is paid (Anthropic,
+ * OpenAI). On local-first setups it's a no-op and intentionally hidden
+ * so the orchestrator doesn't waste tokens describing it.
+ *
+ * The worker runs on a separate SideCarClient instance pointed at
+ * localhost:11434, with a read-only tool subset. Its token usage does
+ * not touch the frontier model's bill.
+ */
+export const DELEGATE_TASK_DEFINITION: ToolDefinition = {
+  name: 'delegate_task',
+  description:
+    'Offload a focused, read-only research task to a local Ollama worker model, saving tokens on this paid backend. ' +
+    'The worker can read files, grep, search, list directories, inspect diagnostics, find references, and query git — but CANNOT write, edit, run commands, or make changes. It returns a structured summary. ' +
+    'IDEAL use cases: "Find all callers of the deprecated authenticate() function", "Read the three files in src/agent/ and summarize how tool execution flows", "Grep for any TODO comments related to caching and list them with file:line". ' +
+    'BAD use cases: tasks requiring code changes, tasks needing user interaction, tasks where you need the exact raw bytes of a file (the worker summarizes), tasks that are trivially small (< 500 tokens of tool output). ' +
+    'Use this liberally for codebase exploration on large repos — every delegated file read is a token you do not pay for.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      task: {
+        type: 'string',
+        description:
+          'Clear, self-contained description of what the worker should investigate. Include file paths or symbol names when you have them.',
+      },
+      context: {
+        type: 'string',
+        description:
+          'Optional: additional context from prior turns the worker needs to understand the task (e.g. constraints, what has been tried).',
+      },
+    },
+    required: ['task'],
+  },
+};
+
 export const SPAWN_AGENT_DEFINITION: ToolDefinition = {
   name: 'spawn_agent',
   description:
@@ -1182,7 +1218,17 @@ function getCustomToolRegistry(): RegisteredTool[] {
 }
 
 export function getToolDefinitions(mcpManager?: MCPManager): ToolDefinition[] {
-  const builtIn = [...TOOL_REGISTRY.map((t) => t.definition), SPAWN_AGENT_DEFINITION];
+  const cfg = getConfig();
+  const builtIn: ToolDefinition[] = [...TOOL_REGISTRY.map((t) => t.definition), SPAWN_AGENT_DEFINITION];
+
+  // Only advertise delegate_task when we're paying per token AND the
+  // user hasn't opted out. Pointless on local-only setups — both
+  // orchestrator and worker would run the same Ollama backend.
+  const provider = detectProvider(cfg.baseUrl, cfg.provider);
+  if (cfg.delegateTaskEnabled && (provider === 'anthropic' || provider === 'openai')) {
+    builtIn.push(DELEGATE_TASK_DEFINITION);
+  }
+
   const custom = getCustomToolRegistry().map((t) => t.definition);
   const mcp = mcpManager ? mcpManager.getToolDefinitions() : [];
   return [...builtIn, ...custom, ...mcp];

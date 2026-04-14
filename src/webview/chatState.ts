@@ -166,10 +166,34 @@ export class ChatState {
   }
 
   /**
-   * Show an inline confirmation card in the chat and await the user's choice.
-   * Returns the label of the button clicked, or undefined if dismissed.
+   * Show a confirmation prompt and await the user's choice. Returns the
+   * label of the button clicked, or undefined if dismissed.
+   *
+   * By default the prompt renders as an inline chat card so the user
+   * sees the approval alongside the tool-call record. When `options.modal`
+   * is set, a native blocking VS Code modal (`showWarningMessage` with
+   * `modal: true`) is shown instead — used for destructive tools like
+   * `run_command` and git mutations so the user can't miss the prompt
+   * while focused elsewhere.
    */
-  requestConfirm(message: string, actions: string[]): Promise<string | undefined> {
+  async requestConfirm(
+    message: string,
+    actions: string[],
+    options?: { modal?: boolean; detail?: string },
+  ): Promise<string | undefined> {
+    if (options?.modal) {
+      // Native modal path: strip markdown bold markers from the
+      // message, forward actions as button titles. Returns undefined
+      // when the user dismisses the modal via Esc or close.
+      const { window } = await import('vscode');
+      const cleanMessage = message.replace(/\*\*/g, '');
+      const items = actions.map((title) => ({ title }));
+      const picked = await window.showWarningMessage(cleanMessage, { modal: true, detail: options.detail }, ...items);
+      return picked?.title;
+    }
+
+    // Default inline-chat path — unchanged, always used for non-destructive
+    // approvals and every read-only tool.
     const id = `confirm_${++this.confirmCounter}`;
     return new Promise((resolve) => {
       this.pendingConfirms.set(id, resolve);

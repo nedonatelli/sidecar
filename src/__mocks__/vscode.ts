@@ -100,10 +100,52 @@ export const authentication = {
   getSession: async () => null,
 };
 
+// Minimal in-memory DiagnosticCollection that tests can introspect.
+// Keyed by fsPath so tests can poke at .get() without constructing
+// full Uri objects.
+class MockDiagnosticCollection {
+  private readonly store = new Map<string, unknown[]>();
+  constructor(public readonly name: string) {}
+  set(uri: { fsPath: string }, diagnostics: unknown[]): void {
+    this.store.set(uri.fsPath, diagnostics);
+  }
+  get(uri: { fsPath: string }): unknown[] | undefined {
+    return this.store.get(uri.fsPath);
+  }
+  delete(uri: { fsPath: string }): void {
+    this.store.delete(uri.fsPath);
+  }
+  clear(): void {
+    this.store.clear();
+  }
+  dispose(): void {
+    this.store.clear();
+  }
+  get size(): number {
+    return this.store.size;
+  }
+  forEach(cb: (uri: { fsPath: string }, diagnostics: unknown[]) => void): void {
+    for (const [fsPath, diagnostics] of this.store) {
+      cb({ fsPath }, diagnostics);
+    }
+  }
+}
+
 export const languages = {
   getDiagnostics: (_uri?: unknown) => [],
   registerInlineCompletionItemProvider: () => ({ dispose: () => {} }),
+  createDiagnosticCollection: (name: string) => new MockDiagnosticCollection(name),
 };
+
+export class Diagnostic {
+  public source?: string;
+  public code?: string | number;
+  constructor(
+    public range: unknown,
+    public message: string,
+    public severity: DiagnosticSeverity = DiagnosticSeverity.Error,
+  ) {}
+}
 
 export const env = {
   clipboard: { writeText: async () => {} },
@@ -146,6 +188,24 @@ export class Range {
     public start: Position,
     public end: Position,
   ) {}
+  get isEmpty(): boolean {
+    return this.start.line === this.end.line && this.start.character === this.end.character;
+  }
+}
+
+export const CodeActionKind = {
+  QuickFix: { value: 'quickfix' },
+  RefactorRewrite: { value: 'refactor.rewrite' },
+  Empty: { value: '' },
+};
+
+export class CodeAction {
+  public diagnostics?: unknown[];
+  public command?: { command: string; title: string; arguments?: unknown[] };
+  constructor(
+    public title: string,
+    public kind?: { value: string },
+  ) {}
 }
 
 export class WorkspaceEdit {
@@ -182,6 +242,19 @@ export class InlineCompletionItem {
 }
 
 export class Selection extends Range {}
+
+export class ThemeColor {
+  constructor(public id: string) {}
+}
+
+export class FileDecoration {
+  public propagate?: boolean;
+  constructor(
+    public badge?: string,
+    public tooltip?: string,
+    public color?: ThemeColor,
+  ) {}
+}
 
 export enum TextEditorRevealType {
   Default = 0,

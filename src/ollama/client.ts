@@ -6,6 +6,7 @@ import { OpenAIBackend } from './openaiBackend.js';
 import { KickstandBackend } from './kickstandBackend.js';
 import { isLocalOllama, detectProvider, getConfig, readKickstandToken } from '../config/settings.js';
 import { RateLimitStore } from './rateLimitState.js';
+import { spendTracker } from './spendTracker.js';
 
 const DEFAULT_BASE_URL = 'http://localhost:11434';
 
@@ -26,6 +27,22 @@ const LIBRARY_MODELS = [
   'gemma',
   'gemma2',
   'phi',
+];
+
+// Fallback Claude model catalog for when /v1/models is unreachable or
+// returns an empty list (older keys, proxies that don't expose it).
+// Keep this roughly aligned with Anthropic's published current models.
+const ANTHROPIC_FALLBACK_MODELS = [
+  'claude-opus-4-5',
+  'claude-opus-4-1',
+  'claude-opus-4',
+  'claude-sonnet-4-5',
+  'claude-sonnet-4',
+  'claude-haiku-4-5',
+  'claude-3-7-sonnet-latest',
+  'claude-3-5-sonnet-latest',
+  'claude-3-5-haiku-latest',
+  'claude-3-opus-latest',
 ];
 
 export interface InstalledModel {
@@ -117,7 +134,10 @@ export class SideCarClient {
     tools?: ToolDefinition[],
   ): AsyncGenerator<StreamEvent> {
     try {
-      yield* this.backend.streamChat(this.model, this.systemPrompt, messages, signal, tools);
+      for await (const event of this.backend.streamChat(this.model, this.systemPrompt, messages, signal, tools)) {
+        if (event.type === 'usage') spendTracker.record(event.model, event.usage);
+        yield event;
+      }
       this.recordSuccess();
     } catch (err) {
       // Don't count user aborts as failures
@@ -125,7 +145,10 @@ export class SideCarClient {
       if (this.switchToFallback()) {
         console.warn(`[SideCar] Primary backend failed, switching to fallback: ${(err as Error).message}`);
         yield { type: 'warning', message: 'Primary backend unavailable — using fallback.' };
-        yield* this.backend.streamChat(this.model, this.systemPrompt, messages, signal, tools);
+        for await (const event of this.backend.streamChat(this.model, this.systemPrompt, messages, signal, tools)) {
+          if (event.type === 'usage') spendTracker.record(event.model, event.usage);
+          yield event;
+        }
         return;
       }
       throw err;
@@ -317,6 +340,25 @@ export class SideCarClient {
 
   async listInstalledModels(): Promise<InstalledModel[]> {
     const provider = this.getProviderType();
+
+    if (provider === 'anthropic') {
+      const fallback = (): InstalledModel[] =>
+        ANTHROPIC_FALLBACK_MODELS.map((id) => ({ name: id, model: id, size: 0 }));
+      try {
+        const response = await fetch(`${this.baseUrl}/v1/models`, {
+          headers: {
+            'x-api-key': this.apiKey,
+            'anthropic-version': '2023-06-01',
+          },
+        });
+        if (!response.ok) return fallback();
+        const data = (await response.json()) as { data?: { id: string; display_name?: string }[] };
+        const fetched = (data.data || []).map((m) => ({ name: m.id, model: m.id, size: 0 }));
+        return fetched.length > 0 ? fetched : fallback();
+      } catch {
+        return fallback();
+      }
+    }
 
     if (provider === 'openai' || provider === 'kickstand') {
       // OpenAI-compatible servers and Kickstand use GET /v1/models

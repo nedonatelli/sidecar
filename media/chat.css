@@ -1995,59 +1995,109 @@ body {
   opacity: 0.7;
 }
 
-/* Onboarding card */
-.onboarding-card {
-  background: var(--vscode-textBlockQuote-background);
-  border: 1px solid var(--vscode-textBlockQuote-border, #007acc);
-  border-radius: 8px;
-  padding: 16px 20px;
-  margin: 8px 0;
+/* ----- Persistent empty-state welcome card ----- */
+.empty-state-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+  margin: 16px 8px;
+  background: var(--vscode-editorWidget-background, rgba(127, 127, 127, 0.04));
+  border: 1px solid var(--vscode-widget-border, var(--vscode-editorWidget-border, rgba(127, 127, 127, 0.2)));
+  border-radius: 6px;
 }
-
-.onboarding-title {
-  font-size: 1.2em;
-  font-weight: 700;
-  margin-bottom: 4px;
+.empty-state-title {
+  font-size: 1.35em;
+  font-weight: 600;
+  letter-spacing: 0.3px;
 }
-
-.onboarding-subtitle {
+.empty-state-subtitle {
   font-size: 0.9em;
   color: var(--vscode-descriptionForeground);
-  margin-bottom: 12px;
+  margin-top: -6px;
 }
-
-.onboarding-features {
-  list-style: none;
-  padding: 0;
-  margin: 0 0 14px;
-}
-
-.onboarding-features li {
-  padding: 4px 0;
-  font-size: 0.9em;
+.empty-state-status {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--vscode-textBlockQuote-background, rgba(127, 127, 127, 0.08));
+  border-left: 2px solid var(--vscode-focusBorder, #007acc);
+  border-radius: 3px;
+  font-size: 0.85em;
+  color: var(--vscode-descriptionForeground);
 }
-
-.onboarding-icon {
-  flex-shrink: 0;
-  width: 20px;
-  text-align: center;
+.empty-state-status-icon {
+  color: var(--vscode-charts-green, #89d185);
+  font-size: 0.7em;
+  line-height: 1;
 }
-
-.onboarding-dismiss {
-  background: var(--vscode-button-background);
-  color: var(--vscode-button-foreground);
-  border: none;
-  border-radius: 4px;
-  padding: 6px 16px;
+.empty-state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.empty-state-action {
+  padding: 6px 12px;
+  font-size: 12px;
+  font-family: inherit;
+  background: var(--vscode-button-secondaryBackground, transparent);
+  color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+  border: 1px solid var(--vscode-button-border, var(--vscode-contrastBorder, rgba(127, 127, 127, 0.35)));
+  border-radius: 3px;
   cursor: pointer;
-  font-size: 0.9em;
 }
-
-.onboarding-dismiss:hover {
-  background: var(--vscode-button-hoverBackground);
+.empty-state-action:hover {
+  background: var(--vscode-button-secondaryHoverBackground, var(--vscode-list-hoverBackground));
+}
+.empty-state-section-title {
+  font-size: 0.75em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--vscode-descriptionForeground);
+  margin-top: 4px;
+}
+.empty-state-chips {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.empty-state-chip {
+  text-align: left;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-family: inherit;
+  background: transparent;
+  color: inherit;
+  border: 1px solid var(--vscode-widget-border, rgba(127, 127, 127, 0.2));
+  border-radius: 3px;
+  cursor: pointer;
+  line-height: 1.3;
+}
+.empty-state-chip:hover {
+  background: var(--vscode-list-hoverBackground);
+  border-color: var(--vscode-focusBorder, #007acc);
+}
+.empty-state-hints {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 14px;
+  margin: 0;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+}
+.empty-state-hints dt {
+  font-family: var(--vscode-editor-font-family, monospace);
+  padding: 2px 6px;
+  background: var(--vscode-textCodeBlock-background, rgba(127, 127, 127, 0.12));
+  border-radius: 2px;
+  width: max-content;
+  font-size: 10px;
+}
+.empty-state-hints dd {
+  margin: 0;
+  align-self: center;
 }
 
 /* Mermaid diagram blocks */
@@ -2283,4 +2333,96 @@ body {
   overflow-y: auto;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* ----- Custom tooltips (fast, no 500ms browser delay) -----
+ * Use data-tooltip="..." + aria-label="..." on any element instead of
+ * the native `title` attribute. 150ms delay feels instant without
+ * flashing on passthrough hovers. */
+[data-tooltip] {
+  position: relative;
+}
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 8px;
+  background: var(--vscode-editorHoverWidget-background, #252526);
+  color: var(--vscode-editorHoverWidget-foreground, #cccccc);
+  border: 1px solid var(--vscode-editorHoverWidget-border, rgba(127, 127, 127, 0.3));
+  border-radius: 3px;
+  font-size: 11px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 1000;
+  transition: opacity 80ms ease-out;
+  transition-delay: 0ms;
+}
+[data-tooltip]:hover::after,
+[data-tooltip]:focus-visible::after {
+  opacity: 1;
+  transition-delay: 150ms;
+}
+
+/* ----- Message context menu (right-click on a chat message) ----- */
+.chat-context-menu {
+  position: fixed;
+  z-index: 2000;
+  min-width: 160px;
+  padding: 4px 0;
+  background: var(--vscode-menu-background, var(--vscode-editorWidget-background, #252526));
+  color: var(--vscode-menu-foreground, var(--vscode-editorWidget-foreground, #cccccc));
+  border: 1px solid var(--vscode-menu-border, var(--vscode-editorWidget-border, rgba(127, 127, 127, 0.35)));
+  border-radius: 3px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  font-size: 12px;
+  user-select: none;
+}
+.chat-context-menu.hidden {
+  display: none;
+}
+.chat-context-menu-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 18px;
+  width: 100%;
+  padding: 5px 14px;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.chat-context-menu-item:hover,
+.chat-context-menu-item:focus {
+  background: var(--vscode-menu-selectionBackground, var(--vscode-list-activeSelectionBackground, #094771));
+  color: var(--vscode-menu-selectionForeground, var(--vscode-list-activeSelectionForeground, #ffffff));
+  outline: none;
+}
+.chat-context-menu-label {
+  flex: 0 1 auto;
+}
+.chat-context-menu-detail {
+  flex: 0 0 auto;
+  font-size: 11px;
+  opacity: 0.65;
+  font-style: italic;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-context-menu-item:hover .chat-context-menu-detail,
+.chat-context-menu-item:focus .chat-context-menu-detail {
+  opacity: 0.85;
+}
+.chat-context-menu-sep {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--vscode-menu-separatorBackground, rgba(127, 127, 127, 0.3));
 }

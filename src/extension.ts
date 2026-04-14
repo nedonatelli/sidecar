@@ -1,4 +1,15 @@
-import { window, workspace, languages, commands, ExtensionContext, Disposable, StatusBarAlignment } from 'vscode';
+import {
+  window,
+  workspace,
+  languages,
+  commands,
+  ExtensionContext,
+  Disposable,
+  StatusBarAlignment,
+  ThemeColor,
+  MarkdownString,
+  ProgressLocation,
+} from 'vscode';
 import * as path from 'path';
 import { ChatViewProvider } from './webview/chatView.js';
 import { TerminalManager } from './terminal/manager.js';
@@ -19,6 +30,9 @@ import {
 import { checkWorkspaceConfigTrust } from './config/workspaceTrust.js';
 import { createClient } from './ollama/factory.js';
 import { SideCarClient } from './ollama/client.js';
+import { spendTracker, formatUsd } from './ollama/spendTracker.js';
+import { healthStatus, type HealthSnapshot } from './ollama/healthStatus.js';
+import { dispose as disposeDiagnostics, clearAll as clearSidecarDiagnostics } from './agent/sidecarDiagnostics.js';
 import { ProposedContentProvider } from './edits/proposedContentProvider.js';
 import { AgentLogger } from './agent/logger.js';
 import { MCPManager, loadProjectMcpConfig, mergeMcpConfigs } from './agent/mcpManager.js';
@@ -38,6 +52,8 @@ import { runPreCommitScan } from './agent/preCommitScan.js';
 import { disposeShellSession, setSymbolGraph } from './agent/tools.js';
 import { disposeSidecarMdWatcher } from './webview/handlers/chatHandlers.js';
 import { InlineEditProvider } from './edits/inlineEditProvider.js';
+import { SidecarCodeActionProvider } from './edits/sidecarCodeActionProvider.js';
+import { PendingEditDecorationProvider } from './edits/pendingEditDecorationProvider.js';
 
 let chatProvider: ChatViewProvider | undefined;
 
@@ -277,6 +293,13 @@ export function activate(context: ExtensionContext) {
   // here for the user to accept or discard before they hit disk.
   context.subscriptions.push(registerReviewPanel(context, chatProvider.pendingEditStore, proposedContentProvider));
 
+  // File decoration provider — puts a "P" badge on every file with
+  // pending agent edits in the Explorer, editor tabs, and any other
+  // FileDecoration consumer. Rolls up to parent folders the same way
+  // git's M/A/D indicators do.
+  const pendingDecorations = new PendingEditDecorationProvider(chatProvider.pendingEditStore);
+  context.subscriptions.push(window.registerFileDecorationProvider(pendingDecorations), pendingDecorations);
+
   // Watch the integrated terminal for failed commands and offer to diagnose
   // them in the chat. Skips SideCar's own terminal to avoid feedback loops.
   const terminalErrorWatcher = new TerminalErrorWatcher({
@@ -317,18 +340,24 @@ export function activate(context: ExtensionContext) {
         ignoreFocusOut: true,
       });
       if (value === undefined) return;
+      const trimmed = value.trim();
+      if (!trimmed) {
+        window.showWarningMessage('SideCar API key was empty — not saved.');
+        return;
+      }
 
       // If the user is currently on a profile with a dedicated secret slot,
       // store it there too so switching profiles later restores the right key.
       const { detectActiveProfile, setProfileApiKey, getConfig: readConfig } = await import('./config/settings.js');
       const activeProfile = detectActiveProfile(readConfig().baseUrl);
       if (activeProfile && activeProfile.secretKey) {
-        await setProfileApiKey(activeProfile, value);
+        await setProfileApiKey(activeProfile, trimmed);
         window.showInformationMessage(`SideCar API key saved for ${activeProfile.name}.`);
       } else {
-        await setApiKeySecret(value);
+        await setApiKeySecret(trimmed);
         window.showInformationMessage('SideCar API key saved to SecretStorage.');
       }
+      chatProvider?.reloadModels();
     }),
     commands.registerCommand('sidecar.switchBackend', async (profileId?: string) => {
       const { BUILT_IN_BACKEND_PROFILES, applyBackendProfile } = await import('./config/settings.js');
@@ -360,16 +389,33 @@ export function activate(context: ExtensionContext) {
     }),
   );
 
-  // Code actions (right-click menu)
+  // Code actions (right-click menu + lightbulb). The command accepts
+  // optional args from the CodeActionProvider so that a lightbulb click
+  // on a diagnostic can forward the exact range + diagnostic message,
+  // while plain keyboard / context-menu invocations still fall back to
+  // reading the active editor's selection.
+  interface CodeActionArgs {
+    code?: string;
+    fileName?: string;
+    diagnostic?: string;
+  }
   function registerCodeAction(commandId: string, action: string) {
-    return commands.registerCommand(commandId, () => {
-      const editor = window.activeTextEditor;
-      if (!editor) return;
-      const selection = editor.document.getText(editor.selection);
-      if (!selection) return;
-      const fileName = path.basename(editor.document.fileName);
+    return commands.registerCommand(commandId, (args?: CodeActionArgs) => {
+      let code = args?.code;
+      let fileName = args?.fileName;
+      const diagnostic = args?.diagnostic;
+
+      if (!code || !fileName) {
+        const editor = window.activeTextEditor;
+        if (!editor) return;
+        const fallbackCode = editor.document.getText(editor.selection);
+        if (!fallbackCode) return;
+        code = fallbackCode;
+        fileName = path.basename(editor.document.fileName);
+      }
+
       commands.executeCommand('sidecar.chatView.focus');
-      chatProvider?.sendCodeAction(action, selection, fileName);
+      chatProvider?.sendCodeAction(action, code, fileName, diagnostic);
     });
   }
 
@@ -379,6 +425,16 @@ export function activate(context: ExtensionContext) {
     registerCodeAction('sidecar.refactorSelection', 'Refactor'),
   );
 
+  // Lightbulb provider — registers SideCar as a CodeActionProvider for
+  // every language, so its Fix/Explain/Refactor options show up in the
+  // native 💡 menu alongside other providers instead of being hidden
+  // behind our custom editor context menu.
+  context.subscriptions.push(
+    languages.registerCodeActionsProvider({ scheme: 'file' }, new SidecarCodeActionProvider(), {
+      providedCodeActionKinds: SidecarCodeActionProvider.providedCodeActionKinds,
+    }),
+  );
+
   // Inline chat (Cmd+I)
   context.subscriptions.push(
     commands.registerCommand('sidecar.inlineChat', () => {
@@ -386,19 +442,64 @@ export function activate(context: ExtensionContext) {
     }),
   );
 
-  // Code review + PR summary
+  // Code review + PR summary. Each wraps its async work in a native
+  // VS Code progress notification so a user who invoked the command
+  // from the palette (and may not have the chat view open) gets a
+  // visible spinner and title until the operation completes. Errors
+  // thrown by the underlying function close the progress toast
+  // automatically and propagate to VS Code's default error handling.
   context.subscriptions.push(
-    commands.registerCommand('sidecar.reviewChanges', () => {
-      reviewCurrentChanges(createClient());
+    commands.registerCommand('sidecar.reviewChanges', async () => {
+      await window.withProgress(
+        {
+          location: ProgressLocation.Notification,
+          title: 'SideCar — Reviewing changes',
+          cancellable: false,
+        },
+        async (progress) => {
+          progress.report({ message: 'Collecting diff and running the model...' });
+          await reviewCurrentChanges(createClient());
+        },
+      );
     }),
-    commands.registerCommand('sidecar.summarizePR', () => {
-      summarizePR(createClient());
+    commands.registerCommand('sidecar.summarizePR', async () => {
+      await window.withProgress(
+        {
+          location: ProgressLocation.Notification,
+          title: 'SideCar — Summarizing pull request',
+          cancellable: false,
+        },
+        async (progress) => {
+          progress.report({ message: 'Fetching diff and generating summary...' });
+          await summarizePR(createClient());
+        },
+      );
     }),
-    commands.registerCommand('sidecar.generateCommitMessage', () => {
-      generateCommitMessage(createClient());
+    commands.registerCommand('sidecar.generateCommitMessage', async () => {
+      await window.withProgress(
+        {
+          location: ProgressLocation.Notification,
+          title: 'SideCar — Generating commit message',
+          cancellable: false,
+        },
+        async (progress) => {
+          progress.report({ message: 'Reading staged changes and drafting...' });
+          await generateCommitMessage(createClient());
+        },
+      );
     }),
-    commands.registerCommand('sidecar.scanStaged', () => {
-      runPreCommitScan();
+    commands.registerCommand('sidecar.scanStaged', async () => {
+      await window.withProgress(
+        {
+          location: ProgressLocation.Notification,
+          title: 'SideCar — Scanning staged files for secrets',
+          cancellable: false,
+        },
+        async (progress) => {
+          progress.report({ message: 'Reading git staged diff...' });
+          await runPreCommitScan();
+        },
+      );
     }),
     commands.registerCommand('sidecar.discoverModels', async () => {
       const message = window.createStatusBarItem(StatusBarAlignment.Left);
@@ -425,6 +526,117 @@ export function activate(context: ExtensionContext) {
         );
       } finally {
         message.dispose();
+      }
+    }),
+
+    // Keyboard-first model switcher — opens a native QuickPick with the
+    // installed models of whichever backend is currently active. Shares
+    // its change-model path with the webview dropdown via
+    // `ChatViewProvider.setModel` so both surfaces stay consistent.
+    commands.registerCommand('sidecar.selectModel', async () => {
+      if (!chatProvider) {
+        window.showWarningMessage('SideCar: chat view not ready yet — try again in a moment.');
+        return;
+      }
+
+      interface ModelQuickPickItem {
+        label: string;
+        description?: string;
+        detail?: string;
+        modelName: string;
+        needsInstall: boolean;
+      }
+
+      const quickPick = window.createQuickPick<ModelQuickPickItem>();
+      quickPick.title = 'SideCar — Select Model';
+      quickPick.placeholder = 'Loading models...';
+      quickPick.busy = true;
+      quickPick.show();
+
+      try {
+        const client = chatProvider.client;
+        const currentModel = getConfig().model;
+        const provider = client.getProviderType();
+        const libraryModels = await client.listLibraryModels();
+
+        if (libraryModels.length === 0) {
+          quickPick.hide();
+          const action = await window.showWarningMessage(
+            'SideCar: no models found for the active backend.',
+            'Switch Backend',
+            'Set API Key',
+          );
+          if (action === 'Switch Backend') await commands.executeCommand('sidecar.switchBackend');
+          if (action === 'Set API Key') await commands.executeCommand('sidecar.setApiKey');
+          return;
+        }
+
+        // Installed first, then library (Ollama only), with the current
+        // model flagged so users can see at a glance what's active.
+        const installed = libraryModels.filter((m) => m.installed);
+        const notInstalled = libraryModels.filter((m) => !m.installed);
+        const providerLabel =
+          provider === 'ollama'
+            ? 'Ollama'
+            : provider === 'anthropic'
+              ? 'Anthropic'
+              : provider === 'openai'
+                ? 'OpenAI'
+                : 'Kickstand';
+
+        const items: ModelQuickPickItem[] = installed.map((m) => ({
+          label: m.name === currentModel ? `$(check) ${m.name}` : m.name,
+          description: m.name === currentModel ? `active · ${providerLabel}` : providerLabel,
+          modelName: m.name,
+          needsInstall: false,
+        }));
+
+        if (notInstalled.length > 0) {
+          items.push(
+            ...notInstalled.map((m) => ({
+              label: `$(cloud-download) ${m.name}`,
+              description: 'not installed — click to pull via Ollama',
+              modelName: m.name,
+              needsInstall: true,
+            })),
+          );
+        }
+
+        quickPick.items = items;
+        quickPick.busy = false;
+        quickPick.placeholder = 'Pick a model, or start typing to filter';
+        quickPick.matchOnDescription = true;
+
+        const picked = await new Promise<ModelQuickPickItem | undefined>((resolve) => {
+          quickPick.onDidAccept(() => {
+            resolve(quickPick.selectedItems[0]);
+            quickPick.hide();
+          });
+          quickPick.onDidHide(() => resolve(undefined));
+        });
+
+        if (!picked) return;
+        if (picked.needsInstall) {
+          // Hand off to the existing install path in the webview so the
+          // user gets the streaming progress bar they already know.
+          await commands.executeCommand('sidecar.chatView.focus');
+          window.showInformationMessage(
+            `SideCar: ${picked.modelName} is not installed yet. Use the chat view's Install button to pull it.`,
+          );
+          return;
+        }
+
+        if (picked.modelName === currentModel) {
+          window.showInformationMessage(`SideCar: ${picked.modelName} is already active.`);
+          return;
+        }
+
+        await chatProvider.setModel(picked.modelName);
+        window.showInformationMessage(`SideCar: switched to ${picked.modelName}.`);
+      } catch (err) {
+        window.showErrorMessage(`SideCar: Failed to list models: ${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        quickPick.dispose();
       }
     }),
   );
@@ -509,15 +721,179 @@ export function activate(context: ExtensionContext) {
     }),
   );
 
-  // Status bar — use cached config values
+  // Status bar — use cached config values. Text, icon, and background
+  // colour all reflect the current health of the active backend so
+  // the user can tell at a glance whether SideCar is working.
   const statusBar = window.createStatusBarItem(StatusBarAlignment.Right, 100);
   statusBar.command = 'sidecar.toggleChat';
-  statusBar.text = `$(hubot) ${cachedModel.split(':')[0]}`;
-  statusBar.tooltip = `SideCar — ${isLocalOllama(cachedBaseUrl) ? 'Ollama' : 'Anthropic'} (${cachedModel})`;
+
+  function providerLabel(baseUrl: string): string {
+    if (isLocalOllama(baseUrl)) return 'Ollama';
+    if (baseUrl.includes('anthropic')) return 'Anthropic';
+    if (baseUrl.includes('openai')) return 'OpenAI';
+    if (isKickstand(baseUrl)) return 'Kickstand';
+    return 'Remote';
+  }
+
+  function renderStatusBar(health: HealthSnapshot): void {
+    const shortModel = cachedModel.split(':')[0];
+    const provider = providerLabel(cachedBaseUrl);
+
+    let icon: string;
+    let bgColor: ThemeColor | undefined;
+    let statusLine: string;
+    switch (health.status) {
+      case 'error':
+        icon = '$(error)';
+        bgColor = new ThemeColor('statusBarItem.errorBackground');
+        statusLine = `**Disconnected** — ${health.detail ?? 'backend error'}`;
+        break;
+      case 'degraded':
+        icon = '$(warning)';
+        bgColor = new ThemeColor('statusBarItem.warningBackground');
+        statusLine = `**Degraded** — ${health.detail ?? 'rate-limited'}`;
+        break;
+      case 'ok':
+        icon = '$(hubot)';
+        bgColor = undefined;
+        statusLine = '**Ready** — last request succeeded';
+        break;
+      default:
+        icon = '$(hubot)';
+        bgColor = undefined;
+        statusLine = 'Ready — no requests yet this session';
+    }
+
+    statusBar.text = `${icon} ${shortModel}`;
+    statusBar.backgroundColor = bgColor;
+
+    // Rich MarkdownString tooltip with current state + clickable command
+    // links so the user can jump straight to recovery actions without
+    // leaving the hover.
+    const md = new MarkdownString('', true);
+    md.isTrusted = true;
+    md.supportHtml = false;
+    md.appendMarkdown(`### SideCar\n\n`);
+    md.appendMarkdown(`${statusLine}\n\n`);
+    md.appendMarkdown(`**Model:** \`${cachedModel}\`  \n`);
+    md.appendMarkdown(`**Backend:** ${provider}\n\n`);
+    if (health.lastError && health.status === 'error') {
+      md.appendMarkdown(`---\n\n**Last error:**\n\n\`\`\`\n${health.lastError}\n\`\`\`\n\n`);
+    }
+    md.appendMarkdown(`[Toggle chat](command:sidecar.toggleChat) · `);
+    md.appendMarkdown(`[Switch backend](command:sidecar.switchBackend) · `);
+    md.appendMarkdown(`[Set API key](command:sidecar.setApiKey)`);
+    statusBar.tooltip = md;
+  }
+
+  renderStatusBar(healthStatus.get());
   statusBar.show();
   context.subscriptions.push(statusBar);
+  context.subscriptions.push(healthStatus.onDidChange((snap) => renderStatusBar(snap)));
 
-  // Invalidate cached config when core settings change
+  // Spend status bar — tracks estimated session cost for remote API models
+  const spendBar = window.createStatusBarItem(StatusBarAlignment.Right, 99);
+  spendBar.command = 'sidecar.showSpend';
+  spendBar.text = `$(credit-card) ${formatUsd(0)}`;
+  spendBar.tooltip = 'SideCar — estimated session spend (click for breakdown)';
+  spendBar.hide();
+  context.subscriptions.push(spendBar);
+  context.subscriptions.push(
+    spendTracker.onDidChange((snap) => {
+      if (snap.byModel.length === 0) {
+        spendBar.hide();
+        return;
+      }
+      spendBar.text = `$(credit-card) ${formatUsd(snap.totalUsd)}`;
+      spendBar.tooltip = `SideCar — ${formatUsd(snap.totalUsd)} estimated across ${snap.totalRequests} request(s). Click for breakdown.`;
+      spendBar.show();
+    }),
+  );
+  context.subscriptions.push(
+    commands.registerCommand('sidecar.showSpend', async () => {
+      const snap = spendTracker.snapshot();
+      if (snap.byModel.length === 0) {
+        window.showInformationMessage('SideCar: no remote API spend tracked this session.');
+        return;
+      }
+      const items = snap.byModel.map((m) => ({
+        label: `${formatUsd(m.costUsd)}  ·  ${m.model}`,
+        description: `${m.requests} request(s)`,
+        detail: `in ${m.usage.inputTokens.toLocaleString()} · out ${m.usage.outputTokens.toLocaleString()} · cache write ${m.usage.cacheCreationInputTokens.toLocaleString()} · cache read ${m.usage.cacheReadInputTokens.toLocaleString()}`,
+      }));
+      const sessionMinutes = Math.max(1, Math.round((Date.now() - snap.sessionStart) / 60_000));
+      items.unshift({
+        label: `$(info) Total: ${formatUsd(snap.totalUsd)}`,
+        description: `${snap.totalRequests} request(s) over ${sessionMinutes} min`,
+        detail: 'Estimated — list prices; actual billing may differ. Click "Reset" below to clear.',
+      });
+      items.push({
+        label: '$(trash) Reset session spend',
+        description: '',
+        detail: '',
+      });
+      const picked = await window.showQuickPick(items, {
+        title: 'SideCar — Session Spend (estimated)',
+        placeHolder: 'Claude API session cost breakdown',
+      });
+      if (picked?.label.startsWith('$(trash)')) {
+        spendTracker.reset();
+        window.showInformationMessage('SideCar session spend reset.');
+      }
+    }),
+  );
+  context.subscriptions.push(
+    commands.registerCommand('sidecar.resetSpend', () => {
+      spendTracker.reset();
+      window.showInformationMessage('SideCar session spend reset.');
+    }),
+  );
+
+  // Diagnostics collection — owns the Problems panel entries for
+  // SideCar-detected secrets, stubs, and vulnerability patterns. The
+  // executor pushes into it after write operations; the command
+  // below lets the user manually clear stale entries.
+  context.subscriptions.push(disposeDiagnostics());
+  context.subscriptions.push(
+    commands.registerCommand('sidecar.clearDiagnostics', () => {
+      clearSidecarDiagnostics();
+      window.showInformationMessage('SideCar diagnostics cleared from Problems panel.');
+    }),
+  );
+
+  // Getting-started walkthrough — opens the native Welcome editor at
+  // the SideCar page. Users can reopen it any time from the Command
+  // Palette without our extension needing to own the UI surface.
+  context.subscriptions.push(
+    commands.registerCommand('sidecar.openWalkthrough', () => {
+      commands.executeCommand(
+        'workbench.action.openWalkthrough',
+        `${context.extension.id}#sidecar.gettingStarted`,
+        false,
+      );
+    }),
+  );
+
+  // First-install auto-open. Gated behind a globalState flag so
+  // existing users and every subsequent launch skip it. Fires after a
+  // short delay so it doesn't compete with VS Code's own Welcome page
+  // during workbench startup — that race has been known to leave the
+  // walkthrough stuck behind a blank Welcome tab.
+  const WALKTHROUGH_SEEN_KEY = 'sidecar.walkthroughSeen';
+  if (!context.globalState.get<boolean>(WALKTHROUGH_SEEN_KEY, false)) {
+    setTimeout(() => {
+      commands.executeCommand(
+        'workbench.action.openWalkthrough',
+        `${context.extension.id}#sidecar.gettingStarted`,
+        false,
+      );
+      void context.globalState.update(WALKTHROUGH_SEEN_KEY, true);
+    }, 1500);
+  }
+
+  // Invalidate cached config when core settings change. Health state
+  // is reset too — switching backend or key means we no longer know
+  // whether the new target is healthy until the next request lands.
   context.subscriptions.push(
     workspace.onDidChangeConfiguration((e) => {
       if (
@@ -528,8 +904,8 @@ export function activate(context: ExtensionContext) {
         const newConfig = getConfig();
         cachedModel = newConfig.model;
         cachedBaseUrl = newConfig.baseUrl;
-        statusBar.text = `$(hubot) ${cachedModel.split(':')[0]}`;
-        statusBar.tooltip = `SideCar — ${isLocalOllama(cachedBaseUrl) ? 'Ollama' : 'Anthropic'} (${cachedModel})`;
+        healthStatus.reset();
+        renderStatusBar(healthStatus.get());
       }
     }),
   );

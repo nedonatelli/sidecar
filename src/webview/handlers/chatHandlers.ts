@@ -16,6 +16,8 @@ import {
   INPUT_TOKEN_RATIO,
 } from '../../config/constants.js';
 import { GitCLI } from '../../github/git.js';
+import { surfaceNativeToast } from '../errorSurface.js';
+import { healthStatus } from '../../ollama/healthStatus.js';
 import {
   getWorkspaceContext,
   getWorkspaceEnabled,
@@ -1221,7 +1223,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
         approvalMode: effectiveApprovalMode,
         maxIterations: config.agentMaxIterations,
         maxTokens: config.agentMaxTokens,
-        confirmFn: (msg, actions) => state.requestConfirm(msg, actions),
+        confirmFn: (msg, actions, options) => state.requestConfirm(msg, actions, options),
         // Diff preview: opens VS Code's diff editor showing proposed changes.
         // Accept/Reject buttons appear both as a VS Code notification (in the
         // editor) and as a chat confirmation card — first click wins.
@@ -1259,6 +1261,10 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
 
     // Ensure loading state is cleared after normal completion
     state.postMessage({ command: 'setLoading', isLoading: false });
+    // Health check green — the last round-trip made it to the model and
+    // back without erroring, so the status bar should reflect a healthy
+    // backend (clears any stale red from a previous failed request).
+    healthStatus.setOk();
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
       state.autoSave();
@@ -1269,6 +1275,10 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     const errorMessage = err instanceof Error ? err.message : 'Unknown error';
     const classified = classifyError(errorMessage);
     state.postMessage({ command: 'error', content: `Error: ${errorMessage}`, ...classified });
+    // Additionally surface high-severity errors (auth, connection, model)
+    // as native toasts with one-click recovery actions. Fire-and-forget —
+    // the toast is additive and must not block error handling flow.
+    void surfaceNativeToast(errorMessage, classified);
   } finally {
     recordRunCost(state);
     state.metricsCollector.endRun();

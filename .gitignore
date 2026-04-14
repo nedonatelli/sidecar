@@ -7,3 +7,4 @@ dist/
 docs/market-notes.md
 coverage/
 grammars/
+.env

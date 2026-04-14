@@ -5,18 +5,18 @@ import { getConfig } from '../../config/settings.js';
 import { isProviderReachable } from '../../config/providerReachability.js';
 import { modelSupportsTools, probeModelToolSupport, probeAllModelToolSupport } from '../../ollama/ollamaBackend.js';
 import { parseHuggingFaceRef, listGGUFFiles, formatSize } from '../../ollama/huggingface.js';
+import { surfaceProviderError } from '../errorSurface.js';
 
 export async function loadModels(state: ChatState): Promise<void> {
   const config = getConfig();
   try {
     const started = await isProviderReachable(state.client.getProviderType());
     if (!started) {
-      state.postMessage({
-        command: 'error',
-        content: state.client.isLocalOllama()
-          ? 'Cannot start Ollama. Make sure Ollama is installed and in your PATH.'
-          : `Cannot reach API at ${config.baseUrl}. Check your baseUrl and apiKey settings.`,
-      });
+      const message = state.client.isLocalOllama()
+        ? 'Cannot start Ollama. Make sure Ollama is installed and in your PATH.'
+        : `Cannot reach API at ${config.baseUrl}. Check your baseUrl and apiKey settings.`;
+      state.postMessage({ command: 'error', content: message });
+      void surfaceProviderError(message, 'connection');
       return;
     }
 
@@ -39,12 +39,11 @@ export async function loadModels(state: ChatState): Promise<void> {
     state.postMessage({ command: 'setCurrentModel', currentModel: config.model, supportsTools });
   } catch (err) {
     console.error('Failed to load models:', err);
-    state.postMessage({
-      command: 'error',
-      content: state.client.isLocalOllama()
-        ? 'Cannot connect to Ollama. Make sure Ollama is running on localhost:11434.'
-        : `Cannot connect to API at ${config.baseUrl}.`,
-    });
+    const message = state.client.isLocalOllama()
+      ? 'Cannot connect to Ollama. Make sure Ollama is running on localhost:11434.'
+      : `Cannot connect to API at ${config.baseUrl}.`;
+    state.postMessage({ command: 'error', content: message });
+    void surfaceProviderError(message, 'connection');
   }
 }
 

@@ -11,3 +11,4 @@ tsconfig.json
 *.md
 !README.md
 !CHANGELOG.md
+!media/walkthroughs/**

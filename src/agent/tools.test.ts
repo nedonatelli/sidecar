@@ -42,7 +42,11 @@ vi.mock('../config/settings.js', () => ({
     shellMaxOutputMB: 10,
     shellTimeout: 120,
     customTools: [],
+    baseUrl: 'http://localhost:11434',
+    provider: 'auto',
+    delegateTaskEnabled: false,
   })),
+  detectProvider: vi.fn(() => 'ollama'),
 }));
 
 // Mock terminal/shellSession

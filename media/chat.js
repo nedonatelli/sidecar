@@ -595,10 +595,6 @@
     vscode.postMessage({ command: 'compactContext' });
   });
 
-  document.getElementById('undo-btn').addEventListener('click', () => {
-    vscode.postMessage({ command: 'undoChanges' });
-  });
-
   // --- Settings menu (gear button in the header) ---
   // Replaces the old Export button — holds backend profile switching,
   // export, and an "Open settings" escape hatch. Values injected from
@@ -690,9 +686,6 @@
   // Slash command definitions for autocomplete
   const slashCommands = [
     { cmd: '/help', desc: 'Show available commands' },
-    { cmd: '/reset', desc: 'Clear chat' },
-    { cmd: '/undo', desc: 'Rollback file changes' },
-    { cmd: '/export', desc: 'Export chat as Markdown' },
     { cmd: '/model', desc: 'Switch model' },
     { cmd: '/batch', desc: 'Run multiple tasks' },
     { cmd: '/doc', desc: 'Generate documentation' },
@@ -718,7 +711,6 @@
     { cmd: '/skills', desc: 'List available Claude Code & SideCar skills' },
     { cmd: '/releases', desc: 'List GitHub releases' },
     { cmd: '/release', desc: 'Show, create, or delete a release' },
-    { cmd: '/compact', desc: 'Compact conversation context to free tokens' },
     { cmd: '/init', desc: 'Generate SIDECAR.md project notes from codebase' },
     { cmd: '/bg', desc: 'Run a task in the background' },
   ];
@@ -1119,12 +1111,6 @@
       input.style.height = 'auto';
       return;
     }
-    if (text.trim() === '/compact') {
-      vscode.postMessage({ command: 'compactContext' });
-      input.value = '';
-      input.style.height = 'auto';
-      return;
-    }
     if (text.trim().startsWith('/revise ')) {
       const feedback = text.trim().slice(8);
       if (feedback) {
@@ -1148,25 +1134,6 @@
       input.style.height = 'auto';
       return;
     }
-    if (text.trim() === '/reset') {
-      vscode.postMessage({ command: 'newChat' });
-      input.value = '';
-      input.style.height = 'auto';
-      return;
-    }
-    if (text.trim() === '/undo') {
-      vscode.postMessage({ command: 'undoChanges' });
-      input.value = '';
-      input.style.height = 'auto';
-      return;
-    }
-    if (text.trim() === '/export') {
-      appendMessage('user', text);
-      vscode.postMessage({ command: 'exportChat' });
-      input.value = '';
-      input.style.height = 'auto';
-      return;
-    }
     if (text.match(/^\/model\s+(.+)$/i)) {
       const modelName = text.match(/^\/model\s+(.+)$/i)[1].trim();
       vscode.postMessage({ command: 'changeModel', model: modelName });
@@ -1178,11 +1145,8 @@
       appendMessage('user', '/help');
       appendMessage(
         'assistant',
-        '**Available commands:**\n' +
+        '**Available chat commands:**\n' +
           '`/help` — Show this list\n' +
-          '`/reset` — Clear chat\n' +
-          '`/undo` — Rollback file changes\n' +
-          '`/export` — Export chat as Markdown\n' +
           '`/model <name>` — Switch model\n' +
           '`/batch <tasks>` — Run multiple tasks\n' +
           '`/doc` — Generate documentation\n' +
@@ -1204,9 +1168,9 @@
           '`/insights` — Conversation pattern analysis\n' +
           '`/mcp` — MCP server status\n' +
           '`/verbose` — Toggle verbose mode (show agent reasoning)\n' +
-          '`/compact` — Compact conversation context to free tokens\n' +
           '`/init` — Generate SIDECAR.md project notes from codebase\n' +
-          '`/prompt` — Show the current system prompt',
+          '`/prompt` — Show the current system prompt\n\n' +
+          '**Tip:** Clear chat, export, compact context, and undo all live in the header buttons and the Command Palette (`SideCar:` prefix) — no slash command needed.',
       );
       input.value = '';
       input.style.height = 'auto';
@@ -1919,7 +1883,336 @@
     div.appendChild(actions);
   }
 
+  // ------------------------------------------------------------------
+  // Message context menu — right-click on a message opens a small themed
+  // popover with Copy / Delete (and Copy Code when the click originated
+  // on a code block). Dynamic items keep the menu relevant to whatever
+  // the user actually right-clicked on.
+  // ------------------------------------------------------------------
+  const contextMenuEl = document.createElement('div');
+  contextMenuEl.className = 'chat-context-menu hidden';
+  contextMenuEl.setAttribute('role', 'menu');
+  document.body.appendChild(contextMenuEl);
+
+  function hideContextMenu() {
+    contextMenuEl.classList.add('hidden');
+    contextMenuEl.innerHTML = '';
+  }
+
+  function showContextMenu(x, y, items) {
+    contextMenuEl.innerHTML = '';
+    for (const item of items) {
+      if (item.separator) {
+        const sep = document.createElement('div');
+        sep.className = 'chat-context-menu-sep';
+        contextMenuEl.appendChild(sep);
+        continue;
+      }
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'chat-context-menu-item';
+      btn.setAttribute('role', 'menuitem');
+
+      // Two-part label layout: bold action on the left, muted detail on
+      // the right. The detail disambiguates items that share a label —
+      // critical for "Why?" when multiple things can be explained.
+      const labelSpan = document.createElement('span');
+      labelSpan.className = 'chat-context-menu-label';
+      labelSpan.textContent = item.label;
+      btn.appendChild(labelSpan);
+      if (item.detail) {
+        const detailSpan = document.createElement('span');
+        detailSpan.className = 'chat-context-menu-detail';
+        detailSpan.textContent = item.detail;
+        btn.appendChild(detailSpan);
+      }
+
+      btn.addEventListener('click', () => {
+        hideContextMenu();
+        item.action();
+      });
+      contextMenuEl.appendChild(btn);
+    }
+    contextMenuEl.classList.remove('hidden');
+
+    // Position the menu, keeping it inside the viewport.
+    const rect = contextMenuEl.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const left = Math.min(x, vw - rect.width - 4);
+    const top = Math.min(y, vh - rect.height - 4);
+    contextMenuEl.style.left = Math.max(0, left) + 'px';
+    contextMenuEl.style.top = Math.max(0, top) + 'px';
+  }
+
+  function buildMessageMenuItems(messageDiv, codeBlock) {
+    const items = [];
+
+    if (codeBlock) {
+      // Code block found under the click — prepend code-specific actions.
+      const codeEl = codeBlock.querySelector('pre > code');
+      const code = codeEl ? codeEl.textContent || '' : '';
+      items.push({
+        label: 'Copy code',
+        action: () => {
+          navigator.clipboard.writeText(code);
+        },
+      });
+      const saveBtn = codeBlock.querySelector('.code-save-btn[data-action="save"]');
+      if (saveBtn) {
+        items.push({
+          label: 'Save code as...',
+          action: () => saveBtn.click(),
+        });
+      }
+      items.push({ separator: true });
+    }
+
+    items.push({
+      label: 'Copy message',
+      action: () => {
+        const raw = messageDiv.dataset.rawContent || messageDiv.innerText;
+        navigator.clipboard.writeText(raw);
+      },
+    });
+
+    items.push({
+      label: 'Delete message',
+      action: () => {
+        const index = parseInt(messageDiv.dataset.msgIndex, 10);
+        if (!isNaN(index)) {
+          vscode.postMessage({ command: 'deleteMessage', index });
+          messageDiv.remove();
+        }
+      },
+    });
+
+    return items;
+  }
+
+  /** Build menu items for a right-click on a .tool-call element. */
+  function buildToolCallMenuItems(toolCallEl) {
+    const items = [];
+    const toolId = toolCallEl.getAttribute('data-tool-id') || '';
+    // Human-readable tool name for menu item descriptions. Pulled from
+    // the rendered summary so the user sees the same label the inline
+    // tool-call uses, not the raw snake_case name.
+    const nameEl = toolCallEl.querySelector('.tool-name');
+    const toolName = nameEl ? (nameEl.textContent || '').trim() : 'tool';
+
+    // Mirror the existing "Why?" inline button: only expose the
+    // explanation action once the tool has finished running AND we
+    // have an id to route the explainToolDecision request to.
+    const isRunning = toolCallEl.classList.contains('running');
+    if (toolId && !isRunning) {
+      items.push({
+        label: 'Why?',
+        detail: toolName,
+        action: () => {
+          vscode.postMessage({ command: 'explainToolDecision', toolCallId: toolId });
+          // Reflect the pending state on the inline button if present.
+          const inlineBtn = toolCallEl.querySelector('.tool-why-btn');
+          if (inlineBtn) {
+            inlineBtn.disabled = true;
+            inlineBtn.textContent = '...';
+          }
+        },
+      });
+    }
+    const body = toolCallEl.querySelector('.tool-call-body');
+    if (body && body.textContent) {
+      items.push({
+        label: 'Copy output',
+        detail: toolName,
+        action: () => {
+          navigator.clipboard.writeText(body.textContent || '');
+        },
+      });
+    }
+    return items;
+  }
+
+  messagesContainer.addEventListener('contextmenu', (e) => {
+    // Tool-call elements live as siblings of .message inside messagesContainer,
+    // so check them first — otherwise a click inside a tool-call that also
+    // happens to be inside a .message ancestor would pick the wrong menu.
+    const toolCallEl = e.target.closest('.tool-call');
+    if (toolCallEl && messagesContainer.contains(toolCallEl)) {
+      const items = buildToolCallMenuItems(toolCallEl);
+      if (items.length === 0) return;
+      e.preventDefault();
+      showContextMenu(e.clientX, e.clientY, items);
+      return;
+    }
+
+    const messageDiv = e.target.closest('.message');
+    if (!messageDiv) return;
+    // If the user right-clicked on the action buttons strip, let the
+    // native menu through — those buttons are not the message content.
+    if (e.target.closest('.message-actions')) return;
+    e.preventDefault();
+    const codeBlock = e.target.closest('.code-block');
+    showContextMenu(e.clientX, e.clientY, buildMessageMenuItems(messageDiv, codeBlock));
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!contextMenuEl.contains(e.target)) hideContextMenu();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') hideContextMenu();
+  });
+  window.addEventListener('blur', hideContextMenu);
+  window.addEventListener('resize', hideContextMenu);
+
+  // ------------------------------------------------------------------
+  // Persistent empty-state welcome card. Rendered when the chat has no
+  // messages — first launch, after Clear Chat, or when the user opens
+  // the sidebar with a fresh session. Replaces the old one-shot
+  // onboarding card, which disappeared after dismissal and left new
+  // users with a blank panel on subsequent clears.
+  //
+  // The card offers:
+  //   - A one-line status of the active backend + model
+  //   - Quick action buttons that postMessage a whitelist of commands
+  //     (Set API Key, Switch Backend, Show Commands palette)
+  //   - Example prompt chips that pre-fill the input on click
+  //   - Keyboard shortcut hints
+  //
+  // It is hidden automatically by appendMessage the moment the first
+  // real message lands.
+  // ------------------------------------------------------------------
+  let emptyStateEl = null;
+
+  function hideEmptyState() {
+    if (emptyStateEl) {
+      emptyStateEl.remove();
+      emptyStateEl = null;
+    }
+  }
+
+  function runExtensionCommand(commandId, args) {
+    vscode.postMessage({ command: 'executeExtensionCommand', commandId, args: args || [] });
+  }
+
+  function renderEmptyState() {
+    hideEmptyState();
+    const card = document.createElement('div');
+    card.className = 'empty-state-card';
+
+    const title = document.createElement('div');
+    title.className = 'empty-state-title';
+    title.textContent = 'SideCar';
+    card.appendChild(title);
+
+    const subtitle = document.createElement('div');
+    subtitle.className = 'empty-state-subtitle';
+    subtitle.textContent = 'Local-first AI coding assistant for VS Code';
+    card.appendChild(subtitle);
+
+    // Backend status line — updates whenever window.currentModel changes.
+    const status = document.createElement('div');
+    status.className = 'empty-state-status';
+    const modelName = window.currentModel || 'loading...';
+    const statusIcon = document.createElement('span');
+    statusIcon.className = 'empty-state-status-icon';
+    statusIcon.textContent = '●';
+    const statusText = document.createElement('span');
+    statusText.textContent = 'Active model: ' + modelName;
+    status.appendChild(statusIcon);
+    status.appendChild(statusText);
+    card.appendChild(status);
+
+    // Quick actions — each one postMessages to run a real VS Code command.
+    const actions = document.createElement('div');
+    actions.className = 'empty-state-actions';
+    const quickActions = [
+      { label: 'Set / Refresh API Key', cmd: 'sidecar.setApiKey' },
+      { label: 'Switch Backend', cmd: 'sidecar.switchBackend' },
+      { label: 'Browse Commands', cmd: 'workbench.action.quickOpen', args: ['>SideCar: '] },
+    ];
+    for (const action of quickActions) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'empty-state-action';
+      btn.textContent = action.label;
+      btn.addEventListener('click', () => runExtensionCommand(action.cmd, action.args));
+      actions.appendChild(btn);
+    }
+    card.appendChild(actions);
+
+    // Starter prompt chips — click to pre-fill the input so the user
+    // can edit before sending rather than auto-submitting.
+    const chipsTitle = document.createElement('div');
+    chipsTitle.className = 'empty-state-section-title';
+    chipsTitle.textContent = 'Try asking...';
+    card.appendChild(chipsTitle);
+
+    const starters = [
+      'Summarize the codebase in this workspace',
+      'Find all TODO comments and list them with file:line',
+      'Review the last 5 commits for bugs or risky changes',
+      'What does the file in the active editor do?',
+    ];
+    const chipsContainer = document.createElement('div');
+    chipsContainer.className = 'empty-state-chips';
+    for (const text of starters) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'empty-state-chip';
+      chip.textContent = text;
+      chip.addEventListener('click', () => {
+        const inputEl = document.getElementById('input');
+        if (inputEl) {
+          inputEl.value = text;
+          inputEl.focus();
+          // Trigger the autoresize handler the input uses elsewhere.
+          inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      });
+      chipsContainer.appendChild(chip);
+    }
+    card.appendChild(chipsContainer);
+
+    // Keyboard shortcut hints — the three most common bindings.
+    const hintsTitle = document.createElement('div');
+    hintsTitle.className = 'empty-state-section-title';
+    hintsTitle.textContent = 'Shortcuts';
+    card.appendChild(hintsTitle);
+
+    const isMac = navigator.platform.toLowerCase().includes('mac');
+    const mod = isMac ? '⌘' : 'Ctrl';
+    const hints = [
+      [mod + '⇧I', 'Toggle SideCar chat'],
+      [mod + 'I', 'Inline chat in the editor'],
+      [mod + '⇧P', 'Command palette — type "SideCar:"'],
+    ];
+    const hintList = document.createElement('dl');
+    hintList.className = 'empty-state-hints';
+    for (const [keys, desc] of hints) {
+      const dt = document.createElement('dt');
+      dt.textContent = keys;
+      const dd = document.createElement('dd');
+      dd.textContent = desc;
+      hintList.appendChild(dt);
+      hintList.appendChild(dd);
+    }
+    card.appendChild(hintList);
+
+    messagesContainer.appendChild(card);
+    emptyStateEl = card;
+  }
+
+  function maybeRenderEmptyState() {
+    // Only render when no real messages are present. Ignores the card
+    // itself if it's already there.
+    const realMessages = messagesContainer.querySelector('.message');
+    if (!realMessages && !emptyStateEl) {
+      renderEmptyState();
+    }
+  }
+
   function appendMessage(role, content, isError = false) {
+    hideEmptyState();
     const div = document.createElement('div');
     div.className = 'message ' + role + (isError ? ' error' : '');
     div.dataset.msgIndex = String(messageCounter++);
@@ -1940,6 +2233,7 @@
   }
 
   function startAssistantMessage() {
+    hideEmptyState();
     currentAssistantText = '';
     lastRenderedLen = 0;
     if (renderTimer) {
@@ -2633,6 +2927,9 @@
             appendMessage(msg.role, text);
           }
         }
+        // After restoring history (or when none exists), show the empty
+        // state if the chat is still blank. This is the first-paint path.
+        maybeRenderEmptyState();
         break;
 
       case 'uiSettings':
@@ -2675,54 +2972,11 @@
         break;
       }
 
-      case 'onboarding': {
-        const card = document.createElement('div');
-        card.className = 'onboarding-card';
-
-        const title = document.createElement('div');
-        title.className = 'onboarding-title';
-        title.textContent = 'Welcome to SideCar';
-        card.appendChild(title);
-
-        const subtitle = document.createElement('div');
-        subtitle.className = 'onboarding-subtitle';
-        subtitle.textContent = 'Your free, local-first AI coding assistant';
-        card.appendChild(subtitle);
-
-        const features = [
-          ['Type a question or instruction to get started', '💬'],
-          ['Use @file:path to include specific files as context', '📎'],
-          ['Use @pin:path to pin files for persistent context', '📌'],
-          ['Type / to see all slash commands', '⌨️'],
-          ['Switch between cautious / autonomous modes in the header', '🔧'],
-          ['Paste a URL to include web page content automatically', '🌐'],
-        ];
-        const list = document.createElement('ul');
-        list.className = 'onboarding-features';
-        for (const [text, icon] of features) {
-          const li = document.createElement('li');
-          const iconSpan = document.createElement('span');
-          iconSpan.className = 'onboarding-icon';
-          iconSpan.textContent = icon;
-          li.appendChild(iconSpan);
-          li.appendChild(document.createTextNode(text));
-          list.appendChild(li);
-        }
-        card.appendChild(list);
-
-        const btn = document.createElement('button');
-        btn.className = 'onboarding-dismiss';
-        btn.textContent = 'Got it';
-        btn.addEventListener('click', () => {
-          card.remove();
-          vscode.postMessage({ command: 'dismissOnboarding' });
-        });
-        card.appendChild(btn);
-
-        messagesContainer.appendChild(card);
-        scrollToBottom();
+      // The legacy one-shot 'onboarding' card was replaced by the persistent
+      // empty-state welcome (see renderEmptyState below). Kept as a no-op
+      // case so older extension builds posting this command don't error.
+      case 'onboarding':
         break;
-      }
 
       case 'assistantMessage':
         updateTypingStatus('Generating response...');
@@ -2956,6 +3210,8 @@
         currentAssistantDiv = null;
         currentAssistantText = '';
         messageCounter = 0;
+        emptyStateEl = null; // innerHTML wipe already detached it
+        maybeRenderEmptyState();
         break;
 
       case 'addUserMessage':
@@ -3322,9 +3578,13 @@
 
       case 'setCurrentModel':
         modelName.textContent = event.data.currentModel || 'Select Model';
+        window.currentModel = event.data.currentModel || '';
         window.currentModelSupportsTools = event.data.supportsTools !== false;
         updateChatOnlyBadge();
         modelPanel.classList.add('hidden');
+        // If the empty state is showing, re-render so the model line
+        // reflects the new backend immediately.
+        if (emptyStateEl) renderEmptyState();
         break;
 
       case 'setAgentMode': {

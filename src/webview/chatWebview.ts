@@ -61,7 +61,8 @@ export interface WebviewMessage {
     | 'bgStop'
     | 'bgList'
     | 'bgExpand'
-    | 'switchBackend';
+    | 'switchBackend'
+    | 'executeExtensionCommand';
   images?: { mediaType: string; data: string }[];
   text?: string;
   model?: string;
@@ -92,6 +93,10 @@ export interface WebviewMessage {
   prerelease?: boolean;
   generateNotes?: boolean;
   toolCallId?: string;
+  /** Command ID for 'executeExtensionCommand'. Must be in the handler's allowlist. */
+  commandId?: string;
+  /** Arguments forwarded to the command for 'executeExtensionCommand'. */
+  args?: unknown[];
 }
 
 export interface ExtensionMessage {
@@ -268,11 +273,10 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
         <option value="plan">plan</option>
       </select>
       <div id="chat-actions">
-        <button id="new-chat-btn" title="New Chat">+</button>
-        <button id="history-btn" title="Conversation History">&#128172;</button>
-        <button id="compact-btn" title="Compact Context">&#9986;</button>
-        <button id="undo-btn" title="Undo All Changes">&#8634;</button>
-        <button id="settings-btn" title="Settings" aria-haspopup="true" aria-expanded="false">&#9776;</button>
+        <button id="new-chat-btn" data-tooltip="New Chat" aria-label="New Chat">+</button>
+        <button id="history-btn" data-tooltip="Conversation History" aria-label="Conversation History">&#128172;</button>
+        <button id="compact-btn" data-tooltip="Compact Context" aria-label="Compact Context">&#9986;</button>
+        <button id="settings-btn" data-tooltip="Settings" aria-label="Settings" aria-haspopup="true" aria-expanded="false">&#9776;</button>
       </div>
     </div>
     <div id="settings-menu" class="hidden" role="menu" aria-label="SideCar settings menu">
@@ -317,7 +321,7 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
     <div id="bg-agents-list"></div>
   </div>
   <div id="messages" role="log" aria-live="polite"></div>
-  <button id="scroll-to-bottom" class="hidden" title="Scroll to bottom">&#8595;</button>
+  <button id="scroll-to-bottom" class="hidden" data-tooltip="Scroll to bottom" aria-label="Scroll to bottom">&#8595;</button>
   <div id="agent-progress" class="hidden">
     <span id="progress-step"></span>
     <span id="progress-time"></span>
@@ -335,7 +339,7 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
   <div id="image-preview" class="hidden"></div>
   <div id="slash-autocomplete" class="hidden" role="listbox" aria-label="Slash commands"></div>
   <div id="input-area">
-    <button id="attach-btn" title="Attach file">&#128206;</button>
+    <button id="attach-btn" data-tooltip="Attach file" aria-label="Attach file">&#128206;</button>
     <textarea id="input" rows="1" placeholder="Ask SideCar..."></textarea>
     <button id="send">Send</button>
   </div>

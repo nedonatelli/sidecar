@@ -57,7 +57,7 @@ vi.mock('vscode', () => {
   };
 });
 
-import { ReviewTreeProvider, applyPendingEdit, openReviewDiff } from './reviewPanel.js';
+import { ReviewTreeProvider, applyPendingEdit, openReviewDiff, computeReviewBadge } from './reviewPanel.js';
 import { PendingEditStore, type PendingEdit } from './pendingEdits.js';
 import type { ProposedContentProvider } from '../edits/proposedContentProvider.js';
 
@@ -237,5 +237,25 @@ describe('openReviewDiff', () => {
     await openReviewDiff(makeEdit('/test/mod.ts', { originalContent: 'x' }), cp);
     const args2 = mockExecuteCommand.mock.calls[0] as unknown as [string, unknown, unknown, string];
     expect(args2[3]).toContain('pending review');
+  });
+});
+
+describe('computeReviewBadge', () => {
+  it('returns undefined when there are no pending edits (clears the badge)', () => {
+    expect(computeReviewBadge(0)).toBeUndefined();
+  });
+
+  it('returns undefined for negative counts as a defensive guard', () => {
+    expect(computeReviewBadge(-1)).toBeUndefined();
+  });
+
+  it('uses singular wording for exactly one pending edit', () => {
+    const badge = computeReviewBadge(1);
+    expect(badge).toEqual({ value: 1, tooltip: '1 pending agent change' });
+  });
+
+  it('uses plural wording for two or more pending edits', () => {
+    expect(computeReviewBadge(2)).toEqual({ value: 2, tooltip: '2 pending agent changes' });
+    expect(computeReviewBadge(17)).toEqual({ value: 17, tooltip: '17 pending agent changes' });
   });
 });

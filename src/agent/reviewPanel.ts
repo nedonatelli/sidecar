@@ -26,6 +26,23 @@ import type { ProposedContentProvider } from '../edits/proposedContentProvider.j
 
 const VIEW_ID = 'sidecar.reviewPanel';
 
+/**
+ * Pure helper that produces the `ViewBadge` value for the pending-review
+ * count shown on the SideCar activity bar icon. Extracted so tests can
+ * pin the singular/plural wording and the zero → undefined contract
+ * without having to mock `window.createTreeView`.
+ *
+ * Returns `undefined` when there's nothing to show — assigning that to
+ * `treeView.badge` clears the badge in VS Code, per the API contract.
+ */
+export function computeReviewBadge(count: number): { value: number; tooltip: string } | undefined {
+  if (count <= 0) return undefined;
+  return {
+    value: count,
+    tooltip: count === 1 ? '1 pending agent change' : `${count} pending agent changes`,
+  };
+}
+
 /** Scheme we register for showing pending content in the diff editor. */
 const BEFORE_SCHEME_KEY = (absPath: string): string => `review-before/${encodeURIComponent(absPath)}`;
 const AFTER_SCHEME_KEY = (absPath: string): string => `review-after/${encodeURIComponent(absPath)}`;
@@ -139,6 +156,17 @@ export function registerReviewPanel(
   const provider = new ReviewTreeProvider(store);
   const treeView = window.createTreeView(VIEW_ID, { treeDataProvider: provider });
 
+  // Activity-bar badge — mirrors the count of pending edits onto the
+  // SideCar icon in the sidebar so the user sees at a glance that
+  // there's something awaiting review. VS Code aggregates TreeView
+  // badges up to the containing view container, matching how Source
+  // Control shows the number of changed files on its gutter icon.
+  const refreshBadge = (): void => {
+    treeView.badge = computeReviewBadge(store.size);
+  };
+  refreshBadge();
+  const badgeSub = store.onChanged(refreshBadge);
+
   // --- Per-file accept ---
   const acceptFile = commands.registerCommand('sidecar.review.acceptFile', async (edit?: PendingEdit) => {
     const target = edit ?? (await pickPendingEdit(store, 'Select a file to accept'));
@@ -218,10 +246,11 @@ export function registerReviewPanel(
     await openReviewDiff(target, contentProvider);
   });
 
-  context.subscriptions.push(treeView, acceptFile, discardFile, acceptAll, discardAll, openDiff);
+  context.subscriptions.push(treeView, acceptFile, discardFile, acceptAll, discardAll, openDiff, badgeSub);
 
   return {
     dispose(): void {
+      badgeSub.dispose();
       treeView.dispose();
       acceptFile.dispose();
       discardFile.dispose();

@@ -25,6 +25,7 @@ import type { AgentLogger } from './logger.js';
 import type { ChangeLog } from './changelog.js';
 import type { MCPManager } from './mcpManager.js';
 import { spawnSubAgent } from './subagent.js';
+import { runLocalWorker } from './localWorker.js';
 import { ConversationSummarizer } from './conversationSummarizer.js';
 import { ToolResultCompressor } from './toolResultCompressor.js';
 import { buildStubReprompt } from './stubValidator.js';
@@ -105,6 +106,13 @@ export interface AgentOptions {
    * instead of touching disk. Forwarded from extension activation.
    */
   pendingEdits?: PendingEditStore;
+  /**
+   * Override the tool list sent to the model. Used by the local
+   * delegate-task worker to hand the model a read-only subset so it
+   * can't attempt writes or recursively re-delegate. When unset, the
+   * loop calls `getToolDefinitions()` for the full catalog.
+   */
+  toolOverride?: ToolDefinition[];
 }
 
 const DEFAULT_MAX_ITERATIONS = 25;
@@ -123,7 +131,7 @@ export async function runAgentLoop(
   const changelog = options.changelog;
   const mcpManager = options.mcpManager;
   const maxTokens = options.maxTokens || 100_000;
-  const tools = getToolDefinitions(mcpManager);
+  const tools = options.toolOverride ?? getToolDefinitions(mcpManager);
   let iteration = 0;
   // Per-file auto-fix retry counter — resets for each new file write so a buggy
   // file doesn't burn the budget for unrelated subsequent writes.
@@ -516,6 +524,27 @@ export async function runAgentLoop(
             tool_use_id: toolUse.id,
             content: subResult.output || '(no output)',
             is_error: !subResult.success,
+          };
+          return toolResult;
+        }
+
+        // Handle delegate_task — offload to a local Ollama worker.
+        // The worker's token consumption does NOT count against the
+        // orchestrator's paid-budget char counter. That's the entire
+        // point of the tool: shift heavy I/O onto the free backend.
+        if (toolUse.name === 'delegate_task') {
+          const workerResult = await runLocalWorker(
+            toolUse.input.task as string,
+            toolUse.input.context as string | undefined,
+            callbacks,
+            signal,
+            { logger, changelog, mcpManager, depth: options.depth || 0 },
+          );
+          const toolResult: ToolResultContentBlock = {
+            type: 'tool_result',
+            tool_use_id: toolUse.id,
+            content: workerResult.output,
+            is_error: !workerResult.success,
           };
           return toolResult;
         }

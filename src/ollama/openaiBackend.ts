@@ -14,6 +14,7 @@ import {
 import { getConfig } from '../config/settings.js';
 import { RateLimitStore, maybeWaitForRateLimit } from './rateLimitState.js';
 import { parseOpenAIRateLimitHeaders } from './rateLimitHeaders.js';
+import { prunePrompt } from './promptPruner.js';
 import { CHARS_PER_TOKEN } from '../config/constants.js';
 
 /** How long we'll wait on a rate-limit reset before bailing to the caller. */
@@ -185,12 +186,16 @@ export class OpenAIBackend implements ApiBackend {
     signal?: AbortSignal,
     tools?: ToolDefinition[],
   ): AsyncGenerator<StreamEvent> {
-    const { agentTemperature } = getConfig();
+    const cfg = getConfig();
+    const pruned = prunePrompt(systemPrompt, messages, {
+      enabled: cfg.promptPruningEnabled,
+      maxToolResultTokens: cfg.promptPruningMaxToolResultTokens,
+    });
     const body: Record<string, unknown> = {
       model,
-      messages: toOpenAIMessages(messages, systemPrompt),
+      messages: toOpenAIMessages(pruned.messages, pruned.systemPrompt),
       stream: true,
-      ...(tools && tools.length > 0 ? { temperature: agentTemperature } : {}),
+      ...(tools && tools.length > 0 ? { temperature: cfg.agentTemperature } : {}),
     };
 
     if (tools && tools.length > 0) {
@@ -199,7 +204,7 @@ export class OpenAIBackend implements ApiBackend {
 
     await maybeWaitForRateLimit(
       this.rateLimits,
-      estimateRequestTokens(systemPrompt, messages, 4096),
+      estimateRequestTokens(pruned.systemPrompt, pruned.messages, 4096),
       MAX_RATE_LIMIT_WAIT_MS,
       signal,
     );

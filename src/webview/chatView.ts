@@ -217,10 +217,10 @@ export class ChatViewProvider implements WebviewViewProvider {
       }),
     );
 
-    // Show onboarding card on first launch (no history, never dismissed)
-    if (this.state.messages.length === 0 && !this.context.globalState.get('sidecar.onboardingComplete', false)) {
-      this.postMessage({ command: 'onboarding' });
-    }
+    // The persistent empty-state welcome card in the webview handles
+    // the first-launch experience now — it renders whenever the chat
+    // is empty, on every load, and automatically hides when the first
+    // message arrives. No need to post an 'onboarding' trigger.
   }
 
   /**
@@ -249,17 +249,7 @@ export class ChatViewProvider implements WebviewViewProvider {
     },
     abort: () => this.state.abort(),
     changeModel: async (msg) => {
-      const cfg = getConfig();
-      this.state.client.updateConnection(cfg.baseUrl, cfg.apiKey);
-      this.state.client.updateModel(msg.model || 'llama3');
-      const { modelSupportsTools, probeModelToolSupport } = await import('../ollama/ollamaBackend.js');
-      // Probe if not already cached, then read synchronously
-      if (this.state.client.isLocalOllama()) {
-        await probeModelToolSupport(cfg.baseUrl, msg.model || '');
-      }
-      const supports = modelSupportsTools(msg.model || '');
-      this.postMessage({ command: 'setCurrentModel', currentModel: msg.model, supportsTools: supports });
-      workspace.getConfiguration('sidecar').update('model', msg.model, true);
+      await this.setModel(msg.model || 'llama3');
     },
     changeAgentMode: async (msg) => {
       await workspace.getConfiguration('sidecar').update('agentMode', msg.agentMode, true);
@@ -418,6 +408,32 @@ export class ChatViewProvider implements WebviewViewProvider {
     dismissOnboarding: () => {
       this.context.globalState.update('sidecar.onboardingComplete', true);
     },
+    executeExtensionCommand: async (msg) => {
+      // Whitelist of commands the empty-state welcome card (and any
+      // other webview-initiated button) is allowed to invoke directly
+      // through the extension host. Gated so the webview can't execute
+      // arbitrary VS Code commands — a compromised webview would
+      // otherwise be able to run anything.
+      const allowed = new Set([
+        'sidecar.setApiKey',
+        'sidecar.switchBackend',
+        'sidecar.showSpend',
+        'sidecar.discoverModels',
+        'sidecar.clearChat',
+        'sidecar.exportChat',
+        'workbench.action.quickOpen',
+      ]);
+      const commandId = msg.commandId;
+      const args = msg.args ?? [];
+      if (!commandId || !allowed.has(commandId)) {
+        this.state.postMessage({
+          command: 'error',
+          content: `Refused to execute command from webview: ${commandId ?? '(missing)'}`,
+        });
+        return;
+      }
+      await commands.executeCommand(commandId, ...args);
+    },
   };
 
   private async dispatch(msg: WebviewMessage): Promise<void> {
@@ -450,9 +466,39 @@ export class ChatViewProvider implements WebviewViewProvider {
     await handleExportChat(this.state);
   }
 
+  /** Active SideCar client — exposed so the Quick Pick model switcher
+   *  (and any other palette command) can list models without poking
+   *  into `state` directly. */
+  public get client() {
+    return this.state.client;
+  }
+
   /** Refresh the model list after a backend profile switch. */
   public reloadModels(): void {
+    const cfg = getConfig();
+    this.state.client.updateConnection(cfg.baseUrl, cfg.apiKey);
+    if (cfg.model) this.state.client.updateModel(cfg.model);
     void loadModels(this.state);
+  }
+
+  /**
+   * Shared entry point for changing the active model. Called by the
+   * webview dropdown (`changeModel` handler) and the `sidecar.selectModel`
+   * command so keyboard-first and click-first model switching go through
+   * the exact same reconnect + probe + persist path.
+   */
+  public async setModel(model: string): Promise<void> {
+    if (!model) return;
+    const cfg = getConfig();
+    this.state.client.updateConnection(cfg.baseUrl, cfg.apiKey);
+    this.state.client.updateModel(model);
+    const { modelSupportsTools, probeModelToolSupport } = await import('../ollama/ollamaBackend.js');
+    if (this.state.client.isLocalOllama()) {
+      await probeModelToolSupport(cfg.baseUrl, model);
+    }
+    const supports = modelSupportsTools(model);
+    this.postMessage({ command: 'setCurrentModel', currentModel: model, supportsTools: supports });
+    await workspace.getConfiguration('sidecar').update('model', model, true);
   }
 
   /** Access the current session's audit log for cross-subsystem logging (event hooks). */
@@ -460,8 +506,11 @@ export class ChatViewProvider implements WebviewViewProvider {
     return this.state.auditLog;
   }
 
-  public async sendCodeAction(action: string, code: string, fileName: string): Promise<void> {
-    const prompt = `${action} this code from ${fileName}:\n\`\`\`\n${code}\n\`\`\``;
+  public async sendCodeAction(action: string, code: string, fileName: string, diagnostic?: string): Promise<void> {
+    let prompt = `${action} this code from ${fileName}:\n\`\`\`\n${code}\n\`\`\``;
+    if (diagnostic) {
+      prompt += `\n\nDiagnostic reported by the editor:\n\`\`\`\n${diagnostic}\n\`\`\``;
+    }
     if (this.webviewView) {
       this.webviewView.show(true);
     }

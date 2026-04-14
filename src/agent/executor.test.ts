@@ -117,6 +117,54 @@ describe('executeTool', () => {
     expect(result.content).toContain('denied by user');
   });
 
+  it('requests a native modal confirmation for destructive tools', async () => {
+    // run_command is in NATIVE_MODAL_APPROVAL_TOOLS, so the executor
+    // should forward `{modal: true, detail: ...}` to confirmFn, which
+    // the webview state routes to window.showWarningMessage({modal:true}).
+    const executor = vi.fn().mockResolvedValue('ran');
+    mockedFindTool.mockReturnValue({
+      definition: { name: 'run_command', description: '', input_schema: { type: 'object', properties: {} } },
+      executor,
+      requiresApproval: true,
+    });
+
+    await executeTool(makeToolUse('run_command', { command: 'npm test' }), {
+      approvalMode: 'cautious',
+      confirmFn: mockConfirm,
+    });
+
+    expect(mockConfirm).toHaveBeenCalled();
+    const call = (mockConfirm as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    const [message, actions, options] = call;
+    expect(message).toBe('Allow SideCar to run run_command?');
+    expect(actions).toEqual(['Allow', 'Deny']);
+    expect(options).toMatchObject({ modal: true });
+    expect(options.detail).toContain('npm test');
+  });
+
+  it('uses an inline (non-modal) confirmation for non-destructive approvals', async () => {
+    // search_files is not in NATIVE_MODAL_APPROVAL_TOOLS — the old
+    // inline-card path should still be used even when approval is
+    // required, so the user isn't interrupted by a blocking dialog
+    // for a harmless read.
+    const executor = vi.fn().mockResolvedValue('matches');
+    mockedFindTool.mockReturnValue({
+      definition: { name: 'search_files', description: '', input_schema: { type: 'object', properties: {} } },
+      executor,
+      requiresApproval: true,
+    });
+
+    await executeTool(makeToolUse('search_files', { pattern: '**/*.ts' }), {
+      approvalMode: 'cautious',
+      confirmFn: mockConfirm,
+    });
+
+    const call = (mockConfirm as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    const options = call[2];
+    // Either no options object passed, or modal is not set — both are fine.
+    expect(options?.modal).toBeFalsy();
+  });
+
   it('does not require approval in autonomous mode for read tools', async () => {
     const executor = vi.fn().mockResolvedValue('data');
     mockedFindTool.mockReturnValue({
