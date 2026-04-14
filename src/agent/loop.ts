@@ -1,12 +1,4 @@
-import type {
-  ChatMessage,
-  ContentBlock,
-  StreamEvent,
-  ToolDefinition,
-  ToolUseContentBlock,
-  ToolResultContentBlock,
-} from '../ollama/types.js';
-import { getContentLength } from '../ollama/types.js';
+import type { ChatMessage, ToolDefinition, ToolUseContentBlock, ToolResultContentBlock } from '../ollama/types.js';
 import { SideCarClient } from '../ollama/client.js';
 import { recordToolSuccess, recordToolFailure } from '../ollama/ollamaBackend.js';
 import type { InlineEditFn } from './executor.js';
@@ -29,7 +21,11 @@ import { spawnSubAgent } from './subagent.js';
 import { runLocalWorker } from './localWorker.js';
 import { compressMessages, applyBudgetCompression, maybeCompressPostTool } from './loop/compression.js';
 import { initLoopState } from './loop/state.js';
-export { compressMessages };
+import { parseTextToolCalls, stripRepeatedContent } from './loop/textParsing.js';
+import { streamOneTurn, resolveTurnContent } from './loop/streamTurn.js';
+import { exceedsBurstCap, detectCycleAndBail } from './loop/cycleDetection.js';
+import { pushAssistantMessage, pushToolResultsMessage, accountToolTokens } from './loop/messageBuild.js';
+export { compressMessages, parseTextToolCalls, stripRepeatedContent };
 import { buildStubReprompt } from './stubValidator.js';
 import { recordToolCall as recordGateToolCall, checkCompletionGate, buildGateInjection } from './completionGate.js';
 import type { PendingEditStore } from './pendingEdits.js';
@@ -146,7 +142,6 @@ export async function runAgentLoop(
   // in-place mutations propagate both ways automatically.
   const { maxIterations, approvalMode, tools, logger, changelog, mcpManager, startTime } = state;
   const agentMessages = state.messages;
-  const recentToolCalls = state.recentToolCalls;
   const autoFixRetriesByFile = state.autoFixRetriesByFile;
   const criticInjectionsByFile = state.criticInjectionsByFile;
   const gateState = state.gateState;
@@ -162,14 +157,9 @@ export async function runAgentLoop(
   let totalChars = state.totalChars;
   let stubFixRetries = state.stubFixRetries;
 
-  // These constants are still local because the helpers that consume
-  // them (cycle detection, gate, critic, stub validator) haven't been
-  // extracted yet. Will migrate out in phases 2 and 3.
+  // Constants for the policy checks still inline in the iteration
+  // body (gate, stub validator, critic). Will migrate out in phase 3.
   const MAX_STUB_RETRIES = 1;
-  const CYCLE_WINDOW = 8;
-  const MAX_CYCLE_LEN = 4;
-  const MIN_IDENTICAL_REPEATS = 4;
-  const MAX_TOOL_CALLS_PER_ITERATION = 12;
   const MAX_GATE_INJECTIONS = 2;
   const MAX_CRITIC_INJECTIONS_PER_FILE = 2;
   const maxTokens = state.maxTokens;
@@ -234,113 +224,36 @@ export async function runAgentLoop(
       }
     }
 
-    // Stream response from model
-    const assistantContent: ContentBlock[] = [];
-    let fullText = '';
-    const pendingToolUses: ToolUseContentBlock[] = [];
-    let stopReason = 'end_turn';
-
-    // In plan mode, first iteration runs without tools to generate a plan
-    const iterTools = options.approvalMode === 'plan' && iteration === 1 ? [] : tools;
-
-    // Request timeout — abort if no stream events arrive within the window.
-    // We use Promise.race on each .next() call rather than relying on
-    // AbortSignal propagation through fetch, which is unreliable in Node.
+    // Stream the next turn. Extracted into loop/streamTurn.ts.
+    // streamOneTurn handles the per-event timeout, abort, and the
+    // full event-type switch; resolveTurnContent runs post-stream
+    // cleanup (strip repeated paragraphs, parse text tool calls).
+    state.totalChars = totalChars;
     const requestTimeoutMs = config.requestTimeout * 1000;
+    const rawTurn = await streamOneTurn(client, state, signal, callbacks, requestTimeoutMs);
+    totalChars = state.totalChars;
 
-    const stream = client.streamChat(agentMessages, signal, iterTools);
-    const iter = stream[Symbol.asyncIterator]();
-    try {
-      while (true) {
-        if (signal.aborted) break;
-
-        // Race the next stream event against the timeout.
-        // Clear the timer when next() wins so we don't leak timers and keep the
-        // event loop alive longer than needed.
-        let result: IteratorResult<StreamEvent>;
-        if (requestTimeoutMs > 0) {
-          let timeoutId: ReturnType<typeof setTimeout> | undefined;
-          const next = iter.next();
-          const timeout = new Promise<never>((_, reject) => {
-            timeoutId = setTimeout(() => reject(new Error('__REQUEST_TIMEOUT__')), requestTimeoutMs);
-          });
-          try {
-            result = await Promise.race([next, timeout]);
-          } finally {
-            if (timeoutId !== undefined) clearTimeout(timeoutId);
-          }
-        } else {
-          result = await iter.next();
-        }
-
-        if (result.done) break;
-        const event = result.value;
-
-        switch (event.type) {
-          case 'text':
-            fullText += event.text;
-            totalChars += event.text.length;
-            callbacks.onCharsConsumed?.(event.text.length);
-            callbacks.onText(event.text);
-            break;
-          case 'thinking':
-            totalChars += event.thinking.length;
-            callbacks.onCharsConsumed?.(event.thinking.length);
-            callbacks.onThinking?.(event.thinking);
-            break;
-          case 'warning':
-            callbacks.onText(`\n⚠️ ${event.message}\n`);
-            break;
-          case 'tool_use':
-            pendingToolUses.push(event.toolUse);
-            logger?.logToolCall(event.toolUse.name, event.toolUse.input);
-            callbacks.onToolCall(event.toolUse.name, event.toolUse.input, event.toolUse.id);
-            break;
-          case 'stop':
-            stopReason = event.stopReason;
-            break;
-        }
-      }
-    } catch (err) {
-      if (err instanceof Error && err.message === '__REQUEST_TIMEOUT__') {
-        const msg =
-          `Request timed out after ${config.requestTimeout}s waiting for the model. ` +
-          `The model may be loading or the prompt may be too large. ` +
-          `You can increase sidecar.requestTimeout in settings.`;
-        logger?.warn(msg);
-        callbacks.onText(`\n\n⚠️ ${msg}\n`);
-        // Best-effort cleanup — the generator may not support return()
-        try {
-          iter.return?.(undefined);
-        } catch {
-          /* stream cleanup is best-effort */
-        }
-        break;
-      }
-      if (err instanceof Error && err.name === 'AbortError') {
-        break;
-      }
-      throw err;
+    // Surface timeout as a user-visible notification before breaking.
+    if (rawTurn.terminated === 'timeout') {
+      const msg =
+        `Request timed out after ${config.requestTimeout}s waiting for the model. ` +
+        `The model may be loading or the prompt may be too large. ` +
+        `You can increase sidecar.requestTimeout in settings.`;
+      logger?.warn(msg);
+      callbacks.onText(`\n\n⚠️ ${msg}\n`);
+      break;
+    }
+    if (rawTurn.terminated === 'aborted') {
+      break;
     }
 
-    // Strip repeated content from the model's output.
-    // Some models echo blocks of text from earlier in the conversation.
-    if (fullText) {
-      fullText = stripRepeatedContent(fullText, agentMessages);
-    }
-
-    // If no structured tool calls came through, try parsing text-based tool calls
-    if (pendingToolUses.length === 0 && fullText) {
-      const parsed = parseTextToolCalls(fullText, tools);
-      for (const tu of parsed) {
-        pendingToolUses.push(tu);
-        logger?.logToolCall(tu.name, tu.input);
-        callbacks.onToolCall(tu.name, tu.input, tu.id);
-      }
-      if (parsed.length > 0) {
-        stopReason = 'tool_use';
-      }
-    }
+    const resolved = resolveTurnContent(rawTurn, state, callbacks);
+    const fullText = resolved.fullText;
+    const pendingToolUses = resolved.pendingToolUses;
+    const stopReason = resolved.stopReason;
+    // Recompute iterTools for downstream usage (empty-turn tool-failure
+    // heuristic still references it — will fold in with phase 3).
+    const iterTools = state.approvalMode === 'plan' && iteration === 1 ? [] : tools;
 
     // If no tools to execute and no text, the model has nothing to do — stop.
     // Previously this used `continue` which could loop infinitely when
@@ -398,76 +311,16 @@ export async function runAgentLoop(
     // Model used tools successfully — reset any failure tracking
     recordToolSuccess(client.getModel());
 
-    // Per-iteration tool-call burst cap. Cycle detection fires on
-    // repeating *patterns* across iterations, not on burst volume
-    // within a single iteration, so a runaway or prompt-injected
-    // model that emits 30+ tool_use blocks in one streaming turn
-    // would slip through. Cap at MAX_TOOL_CALLS_PER_ITERATION and
-    // terminate the loop if exceeded — the user can re-ask with a
-    // narrower scope if they really need more.
-    if (pendingToolUses.length > MAX_TOOL_CALLS_PER_ITERATION) {
-      logger?.warn(
-        `Agent loop tool-call burst cap exceeded: ${pendingToolUses.length} tool calls in one iteration ` +
-          `(max ${MAX_TOOL_CALLS_PER_ITERATION}). First call: ${pendingToolUses[0].name}`,
-      );
-      callbacks.onText(
-        `\n\n⚠️ Agent stopped: ${pendingToolUses.length} tool calls in a single turn exceeds the ` +
-          `${MAX_TOOL_CALLS_PER_ITERATION}-call burst cap. Ask again with a narrower scope.\n`,
-      );
-      break;
-    }
+    // Per-iteration burst cap + cycle detection. Both extracted into
+    // loop/cycleDetection.ts. Each returns `true` when the loop
+    // should terminate; each is responsible for emitting the
+    // user-visible explanation via callbacks.onText before returning.
+    if (exceedsBurstCap(pendingToolUses, state, callbacks)) break;
+    if (detectCycleAndBail(pendingToolUses, state, callbacks)) break;
 
-    // Cycle detection: hash the tool calls and check for repetition.
-    // Length-1 (same call repeated) requires MIN_IDENTICAL_REPEATS consecutive
-    // hits before bailing — agents legitimately re-run a tool to verify after
-    // an edit, retry tests after a fix, or refine inputs based on prior output.
-    // Length 2..MAX_CYCLE_LEN still trips after two full cycles since A,B,A,B
-    // is a much clearer signal of a stuck loop.
-    const callSignature = pendingToolUses.map((tu) => `${tu.name}:${JSON.stringify(tu.input)}`).join('|');
-    recentToolCalls.push(callSignature);
-    if (recentToolCalls.length > CYCLE_WINDOW) {
-      recentToolCalls.shift();
-    }
-    let cycleDetected = false;
-    if (recentToolCalls.length >= MIN_IDENTICAL_REPEATS) {
-      const lastN = recentToolCalls.slice(-MIN_IDENTICAL_REPEATS);
-      if (lastN.every((v) => v === lastN[0])) {
-        cycleDetected = true;
-        logger?.warn(
-          `Agent loop cycle detected (${MIN_IDENTICAL_REPEATS} identical calls) — ${callSignature.slice(0, 100)}`,
-        );
-        callbacks.onText(`\n\n⚠️ Agent stopped: same tool call repeated ${MIN_IDENTICAL_REPEATS} times in a row.\n`);
-      }
-    }
-    if (!cycleDetected) {
-      for (let len = 2; len <= MAX_CYCLE_LEN && len * 2 <= recentToolCalls.length; len++) {
-        const tail = recentToolCalls.slice(-len);
-        const prev = recentToolCalls.slice(-2 * len, -len);
-        if (tail.length === prev.length && tail.every((v, i) => v === prev[i])) {
-          cycleDetected = true;
-          logger?.warn(`Agent loop cycle detected (length ${len}) — ${callSignature.slice(0, 100)}`);
-          callbacks.onText(`\n\n⚠️ Agent stopped: detected repeating tool call pattern of length ${len}.\n`);
-          break;
-        }
-      }
-    }
-    if (cycleDetected) break;
-
-    // Build the assistant message content
-    if (fullText) {
-      assistantContent.push({ type: 'text', text: fullText });
-    }
-    for (const tu of pendingToolUses) {
-      assistantContent.push(tu);
-    }
-
-    // Add assistant message to history
-    if (assistantContent.length > 0) {
-      agentMessages.push({
-        role: 'assistant',
-        content: assistantContent,
-      });
-    }
+    // Build + append the assistant message (text + tool_use blocks).
+    // Extracted into loop/messageBuild.ts.
+    pushAssistantMessage(state, fullText, pendingToolUses);
 
     // If the model wants to use tools, execute them and loop
     if ((stopReason === 'tool_use' || pendingToolUses.length > 0) && pendingToolUses.length > 0) {
@@ -587,16 +440,14 @@ export async function runAgentLoop(
         if (tr) recordGateToolCall(gateState, pendingToolUses[idx], tr);
       }
 
-      // Count tool call and result tokens toward the budget. Delegates to
-      // getContentLength so tool_use / tool_result accounting stays in one place.
-      totalChars += getContentLength(pendingToolUses);
-      totalChars += getContentLength(toolResults);
-
-      // Add tool results as a user message (Anthropic API format)
-      agentMessages.push({
-        role: 'user',
-        content: toolResults,
-      });
+      // Tool-use + tool-result token accounting and history append.
+      // Extracted into loop/messageBuild.ts — the helper mutates
+      // state.totalChars and state.messages directly, so we sync
+      // `totalChars` across the call.
+      state.totalChars = totalChars;
+      accountToolTokens(state, pendingToolUses, toolResults);
+      pushToolResultsMessage(state, toolResults);
+      totalChars = state.totalChars;
 
       // Proactively compress after adding tool results so the next iteration
       // doesn't open over budget. Extracted into loop/compression.ts.
@@ -979,150 +830,6 @@ function generateNextStepSuggestions(messages: ChatMessage[]): string[] {
   return suggestions.slice(0, 3);
 }
 
-/**
- * Parse tool calls from model text output when the model doesn't use structured tool_use blocks.
- * Handles common formats:
- *   - <function=name><parameter=key>value</parameter></function>
- *   - <tool_call>{"name":"...","arguments":{...}}</tool_call>
- *   - ```json\n{"name":"...","arguments":{...}}\n```
- */
-export function parseTextToolCalls(text: string, tools: ToolDefinition[]): ToolUseContentBlock[] {
-  const toolNames = new Set(tools.map((t) => t.name));
-  const results: ToolUseContentBlock[] = [];
-  let idCounter = 0;
-
-  // Single combined regex matches all three patterns in one pass.
-  // Groups: (1) function=name, (2) function body,
-  //         (3) tool_call body, (4) json code fence body
-  const combined =
-    /<function=(\w+)>([\s\S]*?)<\/function>|<tool_call>\s*([\s\S]*?)\s*<\/tool_call>|```(?:json)?\s*\n?\s*(\{[\s\S]*?\})\s*\n?\s*```/g;
-
-  // Track which pattern type matched first (for priority: fn > tool_call > json)
-  let firstType: 'fn' | 'tc' | 'json' | null = null;
-  let match;
-
-  while ((match = combined.exec(text)) !== null) {
-    // Pattern 1: <function=name><parameter=key>value</parameter></function>
-    if (match[1] !== undefined) {
-      if (firstType === null) firstType = 'fn';
-      if (firstType !== 'fn') continue; // stick with first pattern type found
-      const name = match[1];
-      if (!toolNames.has(name)) continue;
-      const body = match[2];
-      const input: Record<string, unknown> = {};
-      const paramPattern = /<parameter=(\w+)>([\s\S]*?)<\/parameter>/g;
-      let pm;
-      while ((pm = paramPattern.exec(body)) !== null) {
-        input[pm[1]] = pm[2].trim();
-      }
-      results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
-    }
-    // Pattern 2: <tool_call>JSON</tool_call>
-    else if (match[3] !== undefined) {
-      if (firstType === null) firstType = 'tc';
-      if (firstType !== 'tc') continue;
-      try {
-        const parsed = JSON.parse(match[3]);
-        const name = parsed.name || parsed.function?.name;
-        const args = parsed.arguments || parsed.function?.arguments || parsed.parameters || {};
-        if (name && toolNames.has(name)) {
-          const input = typeof args === 'string' ? JSON.parse(args) : args;
-          results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
-        }
-      } catch {
-        /* skip malformed */
-      }
-    }
-    // Pattern 3: ```json\n{...}\n```
-    else if (match[4] !== undefined) {
-      if (firstType === null) firstType = 'json';
-      if (firstType !== 'json') continue;
-      try {
-        const parsed = JSON.parse(match[4]);
-        const name = parsed.name || parsed.tool || parsed.function;
-        const args = parsed.arguments || parsed.parameters || parsed.input || {};
-        if (name && typeof name === 'string' && toolNames.has(name)) {
-          const input = typeof args === 'string' ? JSON.parse(args) : args;
-          results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
-        }
-      } catch {
-        /* skip malformed */
-      }
-    }
-  }
-
-  return results;
-}
-
-/**
- * Strip blocks of text that the model is repeating verbatim from earlier
- * assistant messages in the conversation. This prevents the model from
- * echoing stale content (e.g., commit summaries, status updates) that
- * got stuck in the conversation history.
- *
- * Only strips blocks of 200+ characters to avoid false positives.
- * Skips content inside code blocks (``` fences) to avoid breaking code examples.
- */
-export function stripRepeatedContent(text: string, messages: ChatMessage[]): string {
-  // Build a Set of substantial paragraphs from previous assistant messages for O(1) lookup.
-  const seenParagraphs = new Set<string>();
-  for (const msg of messages) {
-    if (msg.role !== 'assistant') continue;
-    const texts: string[] = [];
-    if (typeof msg.content === 'string') {
-      texts.push(msg.content);
-    } else if (Array.isArray(msg.content)) {
-      for (const block of msg.content) {
-        if (block.type === 'text' && block.text) {
-          texts.push(block.text);
-        }
-      }
-    }
-    for (const t of texts) {
-      for (const paragraph of t.split(/\n\n+/)) {
-        const trimmed = paragraph.trim();
-        if (trimmed.length >= 200) {
-          seenParagraphs.add(trimmed);
-        }
-      }
-    }
-  }
-
-  if (seenParagraphs.size === 0) return text;
-
-  // Split the new text into paragraphs, preserving code blocks intact.
-  // Code blocks should never be stripped even if they match previous content.
-  const parts: string[] = [];
-  const codeBlockRegex = /```[\s\S]*?```/g;
-  let lastEnd = 0;
-  let cbMatch;
-  while ((cbMatch = codeBlockRegex.exec(text)) !== null) {
-    if (cbMatch.index > lastEnd) {
-      parts.push(text.slice(lastEnd, cbMatch.index));
-    }
-    // Mark code blocks with a sentinel so we skip them during filtering
-    parts.push('\0CB\0' + cbMatch[0]);
-    lastEnd = cbMatch.index + cbMatch[0].length;
-  }
-  if (lastEnd < text.length) {
-    parts.push(text.slice(lastEnd));
-  }
-
-  // Filter paragraphs in non-code-block segments
-  const filtered: string[] = [];
-  for (const part of parts) {
-    if (part.startsWith('\0CB\0')) {
-      filtered.push(part.slice(4)); // Remove sentinel, keep code block
-      continue;
-    }
-    const paragraphs = part.split(/\n\n+/);
-    const kept = paragraphs.filter((p) => !seenParagraphs.has(p.trim()));
-    filtered.push(kept.join('\n\n'));
-  }
-
-  // Clean up leftover whitespace from removals
-  return filtered
-    .join('')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-}
+// parseTextToolCalls + stripRepeatedContent were extracted into
+// ./loop/textParsing.ts. Re-exported at the top of this file so
+// existing imports in loop.test.ts keep working.
