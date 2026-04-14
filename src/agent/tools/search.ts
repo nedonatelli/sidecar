@@ -3,7 +3,7 @@ import * as path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import type { ToolDefinition } from '../../ollama/types.js';
-import { getRoot } from './shared.js';
+import { getRoot, type ToolExecutorContext } from './shared.js';
 import { getDefaultToolRuntime } from './runtime.js';
 
 const execFileAsync = promisify(execFile);
@@ -11,6 +11,10 @@ const execFileAsync = promisify(execFile);
 // Search tools: search_files (glob), grep (content), find_references (symbol
 // graph). `find_references` reads the symbol graph off the default
 // ToolRuntime — populated by extension activation via `setSymbolGraph()`.
+// Per-call runtimes (background agents) don't carry their own graph, so
+// find_references falls back to the default's graph even when a per-call
+// runtime is supplied. Symbol graphs are workspace-shared read-only data
+// — only the shell session is per-agent state worth isolating.
 
 export const searchFilesDef: ToolDefinition = {
   name: 'search_files',
@@ -100,8 +104,13 @@ export async function grep(input: Record<string, unknown>): Promise<string> {
   }
 }
 
-export async function findReferences(input: Record<string, unknown>): Promise<string> {
-  const graph = getDefaultToolRuntime().symbolGraph;
+export async function findReferences(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
+  // Prefer the per-call runtime's graph if it carries one, otherwise
+  // fall back to the workspace-shared default. Background agents don't
+  // populate their own graph, so in practice this almost always falls
+  // through — the explicit check keeps the door open for future tests
+  // or sub-agents that want to inject a mock graph.
+  const graph = context?.toolRuntime?.symbolGraph ?? getDefaultToolRuntime().symbolGraph;
   if (!graph) {
     return 'Symbol graph is not available. The workspace may still be indexing.';
   }

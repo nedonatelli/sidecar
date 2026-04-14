@@ -1,6 +1,11 @@
 import { workspace, Uri } from 'vscode';
 import * as path from 'path';
 import type { ToolDefinition } from '../../ollama/types.js';
+// `import type` only — the actual runtime.ts module imports getRoot from
+// here, so a value-level import would create a true cycle. Type-only
+// imports are erased at compile time and are the canonical way to break
+// cycles in TypeScript.
+import type { ToolRuntime } from './runtime.js';
 
 // Re-exported so sibling tool modules can import ToolDefinition from a
 // single shared entrypoint if they prefer.
@@ -20,6 +25,15 @@ export interface ToolExecutorContext {
   clarifyFn?: ClarifyFn;
   /** Per-tool permission overrides from the active custom mode. Merged with global toolPermissions (mode wins). */
   modeToolPermissions?: Record<string, 'allow' | 'deny' | 'ask'>;
+  /**
+   * Per-call ToolRuntime. When set, tools that need a persistent shell
+   * session (run_command, run_tests) or workspace-scoped state (symbol
+   * graph) resolve them from this runtime rather than the process-wide
+   * `defaultRuntime` singleton. Used by BackgroundAgentManager so parallel
+   * background agents don't trample each other's shell cwd/env/alias
+   * state. Callers that don't pass a runtime fall through to the default.
+   */
+  toolRuntime?: ToolRuntime;
 }
 
 export interface ToolExecutor {

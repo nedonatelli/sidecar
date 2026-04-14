@@ -4,6 +4,7 @@ import { getConfig } from '../config/settings.js';
 import { runAgentLoop } from './loop.js';
 import type { AgentLogger } from './logger.js';
 import type { MCPManager } from './mcpManager.js';
+import { ToolRuntime } from './tools/runtime.js';
 
 export interface BackgroundAgentRun {
   id: string;
@@ -142,6 +143,14 @@ export class BackgroundAgentManager implements Disposable {
         'Be concise — focus on doing, not explaining.',
     );
 
+    // Per-run ToolRuntime so parallel background agents don't share a
+    // ShellSession. Without this, two agents that both `cd` somewhere
+    // or set env vars would trample each other — the persistent shell
+    // survives across tool calls within a run, which is exactly what
+    // makes it unsafe to share across runs. Disposed in finally so the
+    // child shell process is torn down even on failure/cancel.
+    const toolRuntime = new ToolRuntime();
+
     const messages = [{ role: 'user' as const, content: run.task }];
     this.logger?.info(`[${run.id}] Starting: ${run.task}`);
 
@@ -171,6 +180,7 @@ export class BackgroundAgentManager implements Disposable {
           mcpManager: this.mcpManager,
           approvalMode: 'autonomous',
           maxIterations: 15,
+          toolRuntime,
         },
       );
 
@@ -189,6 +199,7 @@ export class BackgroundAgentManager implements Disposable {
       this.logger?.error(`[${run.id}] Failed: ${msg}`);
       this.callbacks.onComplete(serializeRun(run));
     } finally {
+      toolRuntime.dispose();
       this.drainQueue();
     }
   }

@@ -12,6 +12,7 @@ import { recordToolSuccess, recordToolFailure } from '../ollama/ollamaBackend.js
 import type { InlineEditFn } from './executor.js';
 import type { ClarifyFn } from './tools.js';
 import { getToolDefinitions, getDiagnostics } from './tools.js';
+import type { ToolRuntime } from './tools/runtime.js';
 import { getConfig } from '../config/settings.js';
 import { CHARS_PER_TOKEN, CONTEXT_COMPRESSION_THRESHOLD } from '../config/constants.js';
 import {
@@ -113,6 +114,15 @@ export interface AgentOptions {
    * loop calls `getToolDefinitions()` for the full catalog.
    */
   toolOverride?: ToolDefinition[];
+  /**
+   * Per-run ToolRuntime. When set, tools that need a persistent shell
+   * session (run_command, run_tests) resolve it from this runtime
+   * rather than the process-wide default — the whole point being
+   * that parallel background agents can each cd/export/alias without
+   * stomping on each other. The loop threads this into the executor
+   * context on every tool call. Caller owns disposal.
+   */
+  toolRuntime?: ToolRuntime;
 }
 
 const DEFAULT_MAX_ITERATIONS = 25;
@@ -561,6 +571,7 @@ export async function runAgentLoop(
             signal,
             clarifyFn: options.clarifyFn,
             modeToolPermissions: options.modeToolPermissions,
+            toolRuntime: options.toolRuntime,
           },
           inlineEditFn: options.inlineEditFn,
           streamingDiffPreviewFn: options.streamingDiffPreviewFn,

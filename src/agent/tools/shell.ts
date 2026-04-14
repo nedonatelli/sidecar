@@ -2,11 +2,25 @@ import { workspace, Uri } from 'vscode';
 import type { ToolDefinition } from '../../ollama/types.js';
 import { getConfig } from '../../config/settings.js';
 import { validateFilePath, shellQuote, hasShellMetachar, getRootUri, type ToolExecutorContext } from './shared.js';
-import { getShellSession } from './runtime.js';
+import { getDefaultToolRuntime } from './runtime.js';
+import type { ShellSession } from '../../terminal/shellSession.js';
 
 // Shell tools: run_command (generic shell) and run_tests (test-runner
-// auto-detection). Both route through the persistent ShellSession on the
-// default ToolRuntime so cwd/env/alias state survives across calls.
+// auto-detection). Both route through a persistent ShellSession — per-call
+// ToolRuntime when the caller supplies one (background agents), otherwise
+// the process-wide default. cwd/env/alias state survives across calls
+// within the same session but stays isolated across runtimes.
+
+/**
+ * Resolve the ShellSession for this tool call. When a per-call
+ * `toolRuntime` is present on the context (BackgroundAgentManager
+ * constructs one per run so parallel agents don't share cwd/env state),
+ * we use its session. Otherwise we fall back to the process-wide default.
+ */
+function resolveShellSession(context?: ToolExecutorContext): ShellSession {
+  const runtime = context?.toolRuntime ?? getDefaultToolRuntime();
+  return runtime.getShellSession();
+}
 
 export const runCommandDef: ToolDefinition = {
   name: 'run_command',
@@ -69,7 +83,7 @@ export async function runCommand(input: Record<string, unknown>, context?: ToolE
 
   // Check on a background command
   if (input.command_id) {
-    const session = getShellSession();
+    const session = resolveShellSession(context);
     const status = session.checkBackground(input.command_id as string);
     if (!status) return `No background command found with ID: ${input.command_id}`;
     const header = status.done
@@ -80,13 +94,13 @@ export async function runCommand(input: Record<string, unknown>, context?: ToolE
 
   // Start a background command
   if (input.background) {
-    const session = getShellSession();
+    const session = resolveShellSession(context);
     const id = session.executeBackground(command);
     return `Background command started with ID: ${id}\nUse run_command with command_id="${id}" to check on it.`;
   }
 
   // Normal execution through the persistent shell session
-  const session = getShellSession();
+  const session = resolveShellSession(context);
   const config = getConfig();
   const timeoutSec = (input.timeout as number) || config.shellTimeout || 120;
   try {
@@ -103,7 +117,7 @@ export async function runCommand(input: Record<string, unknown>, context?: ToolE
   }
 }
 
-export async function runTests(input: Record<string, unknown>): Promise<string> {
+export async function runTests(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   let command = input.command as string | undefined;
   const file = input.file as string | undefined;
 
@@ -162,7 +176,7 @@ export async function runTests(input: Record<string, unknown>): Promise<string> 
   }
 
   // Use persistent shell session for test execution
-  const session = getShellSession();
+  const session = resolveShellSession(context);
   const config = getConfig();
   const timeoutSec = config.shellTimeout || 120;
   try {
