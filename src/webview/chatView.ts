@@ -456,6 +456,7 @@ export class ChatViewProvider implements WebviewViewProvider {
 
   public dispose(): void {
     this.bgManager.dispose();
+    this.state.dispose();
   }
 
   public async undoChanges(): Promise<void> {

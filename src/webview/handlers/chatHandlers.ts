@@ -1,4 +1,4 @@
-import { window, workspace, Uri, RelativePattern } from 'vscode';
+import { window, workspace, Uri } from 'vscode';
 import * as path from 'path';
 import { promisify } from 'util';
 import { exec } from 'child_process';
@@ -41,8 +41,18 @@ import { computeUnifiedDiff } from '../../agent/diff.js';
 
 const execAsync = promisify(exec);
 
-let sidecarMdCache: string | null | undefined;
-let sidecarMdWatcher: { dispose(): void } | null = null;
+/**
+ * Legacy disposer kept for backward compatibility with extension
+ * deactivate. SIDECAR.md caching moved onto ChatState (see
+ * `ChatState.loadSidecarMd` + `ChatState.dispose`) so this is now a
+ * no-op — ChatState.dispose() tears down the watcher when the state
+ * is recreated, and extension shutdown tears down the whole state.
+ * Left exported so the existing `extension.ts` import keeps working
+ * without a coordinated two-file change.
+ */
+export function disposeSidecarMdWatcher(): void {
+  // No-op — the watcher lives on ChatState now. See chatState.ts.
+}
 
 /**
  * Detect terse user messages like "continue", "go on", "keep going" that mean
@@ -150,59 +160,6 @@ export function shouldAutoEnablePlanMode(text: string, conversationLength: numbe
   }
 
   return false;
-}
-
-/** Dispose file watchers created by loadSidecarMd. Call on extension deactivate. */
-export function disposeSidecarMdWatcher(): void {
-  sidecarMdWatcher?.dispose();
-  sidecarMdWatcher = null;
-  sidecarMdCache = undefined;
-}
-
-async function loadSidecarMd(): Promise<string | null> {
-  if (sidecarMdCache !== undefined) return sidecarMdCache;
-
-  const rootUri = workspace.workspaceFolders?.[0]?.uri;
-  if (!rootUri) return null;
-
-  // Check .sidecar/SIDECAR.md first, fall back to root SIDECAR.md
-  const candidates = [Uri.joinPath(rootUri, '.sidecar', 'SIDECAR.md'), Uri.joinPath(rootUri, 'SIDECAR.md')];
-
-  sidecarMdCache = null;
-  for (const fileUri of candidates) {
-    try {
-      const bytes = await workspace.fs.readFile(fileUri);
-      const content = Buffer.from(bytes).toString('utf-8').trim();
-      if (content) {
-        sidecarMdCache = content;
-        break;
-      }
-    } catch {
-      // Not found — try next
-    }
-  }
-
-  // Watch for changes at both locations and invalidate cache
-  if (!sidecarMdWatcher) {
-    const invalidate = () => {
-      sidecarMdCache = undefined;
-    };
-    const watcher1 = workspace.createFileSystemWatcher(new RelativePattern(rootUri, 'SIDECAR.md'));
-    const watcher2 = workspace.createFileSystemWatcher(new RelativePattern(rootUri, '.sidecar/SIDECAR.md'));
-    for (const w of [watcher1, watcher2]) {
-      w.onDidChange(invalidate);
-      w.onDidCreate(invalidate);
-      w.onDidDelete(invalidate);
-    }
-    sidecarMdWatcher = {
-      dispose: () => {
-        watcher1.dispose();
-        watcher2.dispose();
-      },
-    };
-  }
-
-  return sidecarMdCache;
 }
 
 function getActiveFileContext(): string {
@@ -576,7 +533,7 @@ export async function injectSystemContext(
 
   // SIDECAR.md — only in trusted workspaces
   if (workspaceTrusted) {
-    const sidecarMd = await loadSidecarMd();
+    const sidecarMd = await state.loadSidecarMd();
     if (sidecarMd) {
       prompt = ensureBoundary(prompt);
       const remaining = maxSystemChars - prompt.length;
@@ -1696,7 +1653,7 @@ export async function handleShowSystemPrompt(state: ChatState): Promise<void> {
   const docsUrl = 'https://nedonatelli.github.io/sidecar/';
   let systemPrompt = `You are SideCar v${extensionVersion}, an AI coding assistant running inside VS Code. GitHub: ${repoUrl} | Docs: ${docsUrl}\nProject root: ${getWorkspaceRoot()}\n\n(Use /verbose to see the full prompt sent during agent runs)`;
 
-  const sidecarMd = await loadSidecarMd();
+  const sidecarMd = await state.loadSidecarMd();
   if (sidecarMd) {
     systemPrompt += `\n\nProject instructions (from SIDECAR.md):\n${sidecarMd}`;
   }

@@ -658,6 +658,11 @@ describe('injectSystemContext', () => {
       documentationIndexer: null,
       agentMemory: null,
       workspaceIndex: null,
+      // loadSidecarMd now lives on ChatState (moved off module-level
+      // globals in the cycle-2 architecture pass). Stub it to resolve
+      // to null so injectSystemContext doesn't crash — individual
+      // tests that need a real SIDECAR.md value can override.
+      loadSidecarMd: async () => null,
       ...overrides,
     } as never;
   }
@@ -1051,6 +1056,7 @@ describe('handleShowSystemPrompt', () => {
     const state = {
       context: { extension: { packageJSON: { version: '1.2.3' } } },
       postMessage: vi.fn(),
+      loadSidecarMd: async () => null,
     };
     await handleShowSystemPrompt(state as never);
     expect(state.postMessage).toHaveBeenCalledWith(
@@ -1072,6 +1078,7 @@ describe('handleShowSystemPrompt', () => {
     const state = {
       context: { extension: { packageJSON: {} } },
       postMessage: vi.fn(),
+      loadSidecarMd: async () => null,
     };
     await handleShowSystemPrompt(state as never);
     const call = state.postMessage.mock.calls.find((c: Array<{ command: string }>) => c[0].command === 'verboseLog');

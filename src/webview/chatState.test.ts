@@ -260,4 +260,41 @@ describe('ChatState', () => {
     const totalChars = state.messages.reduce((s, m) => s + (typeof m.content === 'string' ? m.content.length : 0), 0);
     expect(totalChars).toBeLessThanOrEqual(2_000_000);
   });
+
+  // Cycle-2 architecture regression — ChatState used to leak its
+  // PendingEditStore and the module-level SIDECAR.md watcher every
+  // time the webview toggled off/on. The new dispose() tears both
+  // down cascadingly.
+  describe('dispose()', () => {
+    it('is idempotent — calling twice does not throw', () => {
+      const state = createState();
+      expect(() => state.dispose()).not.toThrow();
+      expect(() => state.dispose()).not.toThrow();
+    });
+
+    it('aborts an in-flight run', () => {
+      const state = createState();
+      state.abortController = new AbortController();
+      const spy = vi.spyOn(state.abortController, 'abort');
+      state.dispose();
+      expect(spy).toHaveBeenCalled();
+      expect(state.abortController).toBeNull();
+    });
+
+    it('disposes the PendingEditStore it owns', () => {
+      const state = createState();
+      const spy = vi.spyOn(state.pendingEdits, 'dispose');
+      state.dispose();
+      expect(spy).toHaveBeenCalled();
+    });
+
+    it('after dispose, loadSidecarMd resolves to null without reading disk', async () => {
+      const state = createState();
+      state.dispose();
+      // The disposed state short-circuits rather than touching the
+      // filesystem — a subsequent load call would otherwise create
+      // a new watcher that never gets cleaned up.
+      expect(await state.loadSidecarMd()).toBeNull();
+    });
+  });
 });

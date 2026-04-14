@@ -1,4 +1,4 @@
-import type { ExtensionContext } from 'vscode';
+import { workspace, Uri, RelativePattern, type ExtensionContext, type Disposable } from 'vscode';
 import { type ChatMessage, getContentText, getContentLength, serializeContent } from '../ollama/types.js';
 import { SideCarClient } from '../ollama/client.js';
 import { ChangeLog } from '../agent/changelog.js';
@@ -69,6 +69,20 @@ export class ChatState {
 
   /** Path to the current chat log tmp file */
   private chatLogPath: string | null = null;
+
+  /**
+   * SIDECAR.md content cache. `undefined` = not yet loaded; `null` =
+   * checked but file absent or empty; `string` = cached content. The
+   * cache used to live as a module-level global in chatHandlers.ts
+   * and leaked watchers across webview toggles, which the cycle-2
+   * architecture audit flagged as HIGH. Moved onto ChatState so it
+   * shares the state's lifetime and gets torn down by `dispose()`.
+   */
+  private sidecarMdCache: string | null | undefined;
+  private sidecarMdWatcher: Disposable | null = null;
+
+  /** Tracks whether this state has been disposed, to reject late callers. */
+  private disposed = false;
 
   /**
    * Tracks when the assistant's last message ended with a question.
@@ -320,5 +334,95 @@ export class ChatState {
     }
     this.saveHistory();
     this.postMessage({ command: 'chatCleared' });
+  }
+
+  /**
+   * Load SIDECAR.md content (cached, with filesystem watcher for
+   * cache invalidation). Checks `.sidecar/SIDECAR.md` first, falls
+   * back to `SIDECAR.md` at the project root. Returns the trimmed
+   * content, or null if neither file exists or both are empty.
+   *
+   * The cache and its watcher live on `ChatState` so they're torn
+   * down by `dispose()` when the state is recreated — without this,
+   * toggling the webview off and on leaked a file-system watcher
+   * per cycle.
+   */
+  async loadSidecarMd(): Promise<string | null> {
+    if (this.disposed) return null;
+    if (this.sidecarMdCache !== undefined) return this.sidecarMdCache;
+
+    const rootUri = workspace.workspaceFolders?.[0]?.uri;
+    if (!rootUri) return null;
+
+    // Check .sidecar/SIDECAR.md first, fall back to root SIDECAR.md
+    const candidates = [Uri.joinPath(rootUri, '.sidecar', 'SIDECAR.md'), Uri.joinPath(rootUri, 'SIDECAR.md')];
+
+    this.sidecarMdCache = null;
+    for (const fileUri of candidates) {
+      try {
+        const bytes = await workspace.fs.readFile(fileUri);
+        const content = Buffer.from(bytes).toString('utf-8').trim();
+        if (content) {
+          this.sidecarMdCache = content;
+          break;
+        }
+      } catch {
+        // Not found — try next
+      }
+    }
+
+    // Watch for changes at both locations and invalidate cache. Wire
+    // the watcher once per state instance; it's disposed by `dispose()`.
+    if (!this.sidecarMdWatcher) {
+      const invalidate = () => {
+        this.sidecarMdCache = undefined;
+      };
+      const watcher1 = workspace.createFileSystemWatcher(new RelativePattern(rootUri, 'SIDECAR.md'));
+      const watcher2 = workspace.createFileSystemWatcher(new RelativePattern(rootUri, '.sidecar/SIDECAR.md'));
+      for (const w of [watcher1, watcher2]) {
+        w.onDidChange(invalidate);
+        w.onDidCreate(invalidate);
+        w.onDidDelete(invalidate);
+      }
+      this.sidecarMdWatcher = {
+        dispose: () => {
+          watcher1.dispose();
+          watcher2.dispose();
+        },
+      };
+    }
+
+    return this.sidecarMdCache;
+  }
+
+  /**
+   * Tear down every resource owned by this ChatState. Safe to call
+   * multiple times. Idempotent.
+   *
+   * Disposes:
+   *   - The in-flight agent-loop abort controller (so outstanding
+   *     promises reject cleanly)
+   *   - Every pending confirmation prompt (resolves them as 'Reject'
+   *     so awaiting callers unwind)
+   *   - The PendingEditStore (the field-initialized one we own)
+   *   - The SIDECAR.md filesystem watcher (previously a module-level
+   *     leak in chatHandlers.ts)
+   *
+   * What we deliberately do NOT dispose: workspaceIndex, sidecarDir,
+   * skillLoader, contentProvider, inlineEditProvider, documentationIndexer,
+   * agentMemory, auditLog, mcpManager, terminalManager, agentLogger.
+   * Those are all owned by the extension host and passed in via the
+   * constructor or setters — their lifetime is longer than any single
+   * ChatState instance.
+   */
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.abort();
+    this.abortController = null;
+    this.pendingEdits.dispose();
+    this.sidecarMdWatcher?.dispose();
+    this.sidecarMdWatcher = null;
+    this.sidecarMdCache = undefined;
   }
 }
