@@ -12,6 +12,7 @@ import type { AgentLogger } from './logger.js';
 import { scanFile, formatIssues } from './securityScanner.js';
 import { detectStubs } from './stubValidator.js';
 import { reportSecurityIssues, reportStubs } from './sidecarDiagnostics.js';
+import { scanToolOutput, buildInjectionWarning } from './injectionScanner.js';
 import type { PendingEditStore } from './pendingEdits.js';
 import { withFileLock } from './fileLock.js';
 
@@ -125,9 +126,25 @@ function detectIrrecoverable(toolUse: ToolUseContentBlock): string | null {
  * retrieved data, so they stay unwrapped. Any literal `</tool_output`
  * sequences in the content are softened with an embedded space so
  * they can't terminate the wrapper prematurely.
+ *
+ * Third layer of defense: `scanToolOutput` runs the content through a
+ * heuristic classifier and, if injection patterns match, prepends a
+ * warning banner inside the wrapper. The banner is short and explicit
+ * so the model sees corroborating evidence for the "data not
+ * instructions" rule. Matches are also logged via the provided logger.
  */
-function wrapToolOutput(toolName: string, content: string): string {
+function wrapToolOutput(toolName: string, content: string, logger?: AgentLogger): string {
   const safe = content.replace(/<\/tool_output/g, '</ tool_output');
+  const matches = scanToolOutput(safe);
+  if (matches.length > 0) {
+    const categories = matches.map((m) => m.category).join(', ');
+    logger?.warn(
+      `[injection-scanner] ${toolName} output flagged — categories: ${categories}. ` +
+        `First match: ${matches[0].snippet}`,
+    );
+    const banner = buildInjectionWarning(matches);
+    return `<tool_output tool="${toolName}">\n${banner}\n\n${safe}\n</tool_output>`;
+  }
   return `<tool_output tool="${toolName}">\n${safe}\n</tool_output>`;
 }
 
@@ -506,7 +523,7 @@ export async function executeTool(
     return {
       type: 'tool_result',
       tool_use_id: toolUse.id,
-      content: wrapToolOutput(toolUse.name, result + securityWarnings),
+      content: wrapToolOutput(toolUse.name, result + securityWarnings, logger),
     };
   } catch (err) {
     return {
