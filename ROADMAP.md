@@ -2,7 +2,76 @@
 
 Planned improvements and features for SideCar. Audit findings from v0.34.0 comprehensive review are in the Audit Backlog section. All critical fixes were addressed in v0.35.0.
 
-Last updated: 2026-04-14 (v0.47.0 + cycle-2 audit security + prompt-engineering + architecture/AI-eng passes — 2 CRITICAL + 15 HIGH + several MEDIUM closed)
+Last updated: 2026-04-14 (v0.47.0 + cycle-2 audit security + prompt-engineering + architecture/AI-eng passes — 2 CRITICAL + 15 HIGH + several MEDIUM closed; `tools.ts` god-module split completed)
+
+---
+
+## Planned Features
+
+### Context & Intelligence
+
+- **Multi-repo cross-talk** — impact analysis across dependent repositories via cross-repo symbol registry
+
+### Editing & Code Quality
+
+- **Next edit suggestions (NES)** — predict next logical edit location after a change using symbol graph ripple analysis
+- **Inline edit enhancement** — extend ghost text to `write_file`, batch edits, syntax highlighting
+- **Selective regeneration** — "pin and regen" UI: lock good sections, regenerate only unlocked portions
+- **Adaptive paste** — intercept paste events and auto-refactor to match local naming, imports, and conventions
+
+### Agent Capabilities
+
+- **Chat threads and branching** — parallel branches, named threads, thread picker, per-thread persistence
+- **Auto mode** — intelligent approval classifier that learns from user patterns
+- **Persistent executive function** — multi-day task state in `.sidecar/plans/` tracking progress, decisions, and blockers across sessions
+
+### Multi-Agent
+
+- **Worktree-isolated agents** — each agent in its own git worktree
+- **Agent dashboard** — visual panel for running/completed agents
+- **Multi-agent task coordination** — parallel agents with dependency layer
+- **Adversarial critic agent** — parallel red-team agent that attacks changes as they're made
+- **Remote headless hand-off** — detach tasks to run on a remote server via `@sidecar/headless` CLI
+
+### User Experience
+
+- **Background doc sync** — silently update README/JSDoc/Swagger when function signatures change *(2/3 shipped: [JSDoc staleness diagnostics](src/docs/jsDocSync.ts) flag orphan/missing `@param` tags with quick fixes; [README sync](src/docs/readmeSync.ts) flags stale call arity in fenced code blocks with rewrite quick fixes. Swagger deferred — framework-specific, no in-repo OpenAPI spec to dogfood against; will revisit when a real use case lands.)*
+- **Zen mode context filtering** — `/focus <module>` to restrict context to one directory
+- **Dependency drift alerts** — real-time feedback on bundle size, vulnerabilities, and duplicates when deps change
+
+### Observability
+
+- **Model comparison / Arena mode** — side-by-side prompt comparison with voting
+- **Real-time code profiling** — MCP server wrapping language profilers
+
+### Security & Permissions
+
+- **Granular permission controls** — per-category tool permissions, upfront scope requests
+- **Enhanced sandboxing** — constrained environments for dangerous tools
+- **Customizable code analysis rules** — `sidecar.analysisRules` with regex patterns and severity
+
+### Providers & Integration
+
+- **Bitbucket / Atlassian** — Bitbucket REST API, `GitProvider` interface, auto-detect from remote URL
+- **OpenRouter** — dedicated integration with model browsing, cost display, rate limit awareness
+- **Browser automation** — Playwright MCP for testing web apps
+- **Extension / plugin API** — `@sidecar/sdk` for custom commands, renderers, tools, hooks
+- **MCP marketplace** — discoverable directory with one-click install
+- **Voice input** — Web Speech API or local STT model
+
+### Enterprise & Collaboration
+
+- **Centralized policy management** — `.sidecar-policy.json` for org-level enforcement of approval modes, blocked tools, PII redaction, provider restrictions
+- **Team knowledge base** — built-in connectors for Confluence, Notion, internal docs
+- **Real-time collaboration Phase 1** — VS Code Live Share integration (shared chat, presence, host/guest roles)
+- **Real-time collaboration Phase 2** — shared agent control (multi-user approval, message attribution)
+- **Real-time collaboration Phase 3** — concurrent editing with CRDT/OT conflict resolution
+- **Real-time collaboration Phase 4** — standalone `@sidecar/collab-server` WebSocket package
+
+### Technical Debt
+
+- Config sub-object grouping (30+ fields → sub-objects)
+- Real tokenizer integration (`js-tiktoken` for accurate counting)
 
 ---
 
@@ -113,7 +182,7 @@ changes), 0 regressions.
 
 **Deferred for a dedicated session** (each is weeks of work):
 - `chatHandlers.ts` split into directory (1708 lines)
-- `tools.ts` god-module decomposition (~950 lines)
+- ~~`tools.ts` god-module decomposition (~950 lines)~~ → **completed 2026-04-14**. Split into [`src/agent/tools/`](src/agent/tools/) with one file per subsystem (`fs`, `search`, `shell`, `diagnostics`, `git`, `knowledge`) plus `shared.ts` (path validation, sensitive-file blocklist, shell helpers) and `runtime.ts` (ToolRuntime container). `tools.ts` is now a 249-line orchestrator that composes `TOOL_REGISTRY` and re-exports types for backward compatibility. 1694 tests still pass.
 - `runAgentLoop` god-function decomposition (~700 lines)
 - `PolicyHook` interface for loop mechanics
 - Backend anticorruption layer (`normalizeStream`)
@@ -338,87 +407,6 @@ regressions, total suite at 1674 passing.
 
 ---
 
-## Planned Features
-
-### Context & Intelligence
-
-- **Multi-repo cross-talk** — impact analysis across dependent repositories via cross-repo symbol registry
-
-### Editing & Code Quality
-
-- **Next edit suggestions (NES)** — predict next logical edit location after a change using symbol graph ripple analysis
-- **Inline edit enhancement** — extend ghost text to `write_file`, batch edits, syntax highlighting
-- **Selective regeneration** — "pin and regen" UI: lock good sections, regenerate only unlocked portions
-- **Adaptive paste** — intercept paste events and auto-refactor to match local naming, imports, and conventions
-
-### Agent Capabilities
-
-- **Chat threads and branching** — parallel branches, named threads, thread picker, per-thread persistence
-- ~~**Custom modes** — user-defined agent modes (Architect, Coder, Debugger) via `sidecar.customModes`~~ → shipped with system prompts, approval behavior, per-tool permissions, and dropdown integration
-- ~~**Background agent orchestration** — full spawning with independent state, task coordination, agent dashboard~~ → `/bg` command, BackgroundAgentManager with queue + concurrency limits, dashboard panel with live output
-- **Auto mode** — intelligent approval classifier that learns from user patterns
-- **Persistent executive function** — multi-day task state in `.sidecar/plans/` tracking progress, decisions, and blockers across sessions
-
-### Multi-Agent
-
-- **Worktree-isolated agents** — each agent in its own git worktree
-- **Agent dashboard** — visual panel for running/completed agents
-- ~~**Agent diff review & merge** — review agent changes before merging back~~ → new `review` approval mode buffers every `write_file` / `edit_file` into a `PendingEditStore` shadow, surfaces pending changes in a dedicated [Pending Agent Changes TreeView](src/agent/reviewPanel.ts) with accept/discard per-file and all-at-once, opens VS Code's native diff editor for each file, and keeps reads consistent by serving pending content to the agent's own `read_file` calls (v0.46.0)
-- **Multi-agent task coordination** — parallel agents with dependency layer
-- **Adversarial critic agent** — parallel red-team agent that attacks changes as they're made
-- **Remote headless hand-off** — detach tasks to run on a remote server via `@sidecar/headless` CLI
-
-### User Experience
-
-- ~~**Enhanced agent reasoning visualization** — timeline view with collapsible reasoning blocks~~ → numbered step pills, per-step duration badges, and thinking-segment close-on-tool-call (v0.45.0)
-- ~~**Customizable chat UI themes** — built-in presets, custom CSS injection, font/density controls, VS Code theme sync~~ → `chatDensity`, `chatFontSize`, `chatAccentColor` with live CSS-variable updates and allowlist validation (v0.45.0)
-- ~~**Terminal error interception** — auto-detect errors in VS Code terminal and offer to diagnose in chat~~ → `TerminalErrorWatcher` with dedup, ANSI stripping, and `Diagnose in chat` handoff (v0.45.0)
-- **Background doc sync** — silently update README/JSDoc/Swagger when function signatures change *(2/3 shipped: [JSDoc staleness diagnostics](src/docs/jsDocSync.ts) flag orphan/missing `@param` tags with quick fixes; [README sync](src/docs/readmeSync.ts) flags stale call arity in fenced code blocks with rewrite quick fixes. Swagger deferred — framework-specific, no in-repo OpenAPI spec to dogfood against; will revisit when a real use case lands.)*
-- **Zen mode context filtering** — `/focus <module>` to restrict context to one directory
-- **Dependency drift alerts** — real-time feedback on bundle size, vulnerabilities, and duplicates when deps change
-- ~~**Message list virtualization** — virtual scrolling for 200+ message conversations~~ → `IntersectionObserver`-based detach/reattach (v0.45.0)
-- ~~**Incremental markdown parser** — avoid full innerHTML rebuild on each streaming update~~ → `finishAssistantMessage` appends only the unrendered tail (v0.45.0)
-
-### Observability
-
-- ~~**Agent action audit log** — structured JSON log, browsable via `/audit` command~~ (v0.41.0)
-- ~~**Model decision explanations** — "Why?" button on tool calls with on-demand reasoning~~ (v0.41.0)
-- ~~**Conversation pattern analysis** — `/insights` command with usage trends and workflow suggestions~~ (v0.41.0)
-- **Model comparison / Arena mode** — side-by-side prompt comparison with voting
-- **Real-time code profiling** — MCP server wrapping language profilers
-
-### Security & Permissions
-
-- **Granular permission controls** — per-category tool permissions, upfront scope requests
-- **Enhanced sandboxing** — constrained environments for dangerous tools
-- **Customizable code analysis rules** — `sidecar.analysisRules` with regex patterns and severity
-
-### Providers & Integration
-
-- **Bitbucket / Atlassian** — Bitbucket REST API, `GitProvider` interface, auto-detect from remote URL
-- **OpenRouter** — dedicated integration with model browsing, cost display, rate limit awareness
-- **Browser automation** — Playwright MCP for testing web apps
-- ~~**Enhanced MCP support** — UI discovery, one-click install, versioning~~ → HTTP/SSE transport, `.mcp.json` project config, per-tool enable/disable, `/mcp` status, health monitoring (v0.41.0)
-- **Extension / plugin API** — `@sidecar/sdk` for custom commands, renderers, tools, hooks
-- **MCP marketplace** — discoverable directory with one-click install
-- **Voice input** — Web Speech API or local STT model
-
-### Enterprise & Collaboration
-
-- **Centralized policy management** — `.sidecar-policy.json` for org-level enforcement of approval modes, blocked tools, PII redaction, provider restrictions
-- **Team knowledge base** — built-in connectors for Confluence, Notion, internal docs
-- **Real-time collaboration Phase 1** — VS Code Live Share integration (shared chat, presence, host/guest roles)
-- **Real-time collaboration Phase 2** — shared agent control (multi-user approval, message attribution)
-- **Real-time collaboration Phase 3** — concurrent editing with CRDT/OT conflict resolution
-- **Real-time collaboration Phase 4** — standalone `@sidecar/collab-server` WebSocket package
-
-### Technical Debt
-
-- Config sub-object grouping (30+ fields → sub-objects)
-- Real tokenizer integration (`js-tiktoken` for accurate counting)
-
----
-
 ## Audit Backlog (v0.34.0)
 
 Remaining findings from seven comprehensive reviews. Fixed items removed.
@@ -514,7 +502,7 @@ positives from the automated pass have been dropped.
 - **MEDIUM** MCP stdio command spawn is warned-on but not blocked by workspace trust — [mcpManager.ts:182-187](src/agent/mcpManager.ts#L182-L187). Cycle 1 added the warning; cycle 2 should escalate untrusted workspaces to a block with an explicit opt-in, since the existing warning is ignorable.
 - **MEDIUM** Persistent shell session output is not ANSI-stripped before being returned to the agent or logged — [shellSession.ts](src/terminal/shellSession.ts). Command output containing escape sequences can reshape downstream terminal rendering when users export logs, and bloats token accounting. Fix: strip `\x1b\[[0-9;]*[A-Za-z]` on the output-chunk path.
 - **MEDIUM** Head+tail truncation of large shell output silently drops the middle — [shellSession.ts:199-208](src/terminal/shellSession.ts#L199-L208). The real error line is often exactly in the dropped window. Fix: prefer the tail over the head for error-indicative runs (non-zero exit), or keep a small sliding window of the last few lines regardless of head capture.
-- **LOW** `list_directory` tool accepts a raw `path` without passing it through `validateFilePath` — [tools.ts:391-396](src/agent/tools.ts#L391-L396). `workspace.fs.readDirectory` does enforce workspace trust, but the belt-and-suspenders guard every other file tool uses is missing here.
+- ~~**LOW** `list_directory` tool accepts a raw `path` without passing it through `validateFilePath`~~ → **fixed** in the cycle-2 security pass. [`listDirectory` in tools/fs.ts](src/agent/tools/fs.ts) now runs `validateFilePath` on any non-empty, non-`.` path before touching `workspace.fs.readDirectory`.
 
 ### Architecture
 
@@ -588,7 +576,7 @@ Second pass of the same cycle, this time driven by the library skills (`threat-m
 
 #### Architecture — software-architecture (bounded contexts, coupling, DDD)
 
-- **HIGH** `src/agent/tools.ts` is a god module. 950+ lines house 22 tool definitions, executors, sensitive-file blocklist, path validation, symbol-graph integration, shell session access, and the registry. Split into `tools/{fs,git,shell,search,diagnostics,knowledge}.ts`, same pattern as the `handleUserMessage` decomposition.
+- ~~**HIGH** `src/agent/tools.ts` is a god module~~ → **fixed 2026-04-14**. Split into [`src/agent/tools/`](src/agent/tools/) with one file per subsystem (`fs`, `search`, `shell`, `diagnostics`, `git`, `knowledge`) plus `shared.ts` and `runtime.ts`. `tools.ts` is now a 249-line orchestrator composing `TOOL_REGISTRY` and re-exporting types for backward compat. Same pattern as the `handleUserMessage` decomposition. 1694 tests still pass.
 - **HIGH** No anticorruption layer between backend clients and the agent loop. Each backend emits slightly different stream events (`thinking` blocks only from Anthropic, different tool-call ID schemes, different `done_reason` mappings) and the loop special-cases them. Introduce a `normalizeStream(backend.streamChat(...))` adapter so the loop consumes a canonical `StreamEvent` shape. Adding a new backend becomes one file, not three.
 - **HIGH** `runAgentLoop` is the next god-function decomposition target. 700+ lines owning streaming, compression, cycle detection, memory writes, tool execution, checkpoints, cost tracking, abort handling. Same extraction pattern as `handleUserMessage`: `streamTurn`, `applyCompression`, `recordMemoryFromResult`, `maybeCheckpoint` → orchestrator drops to ~150 lines.
 - **HIGH** Agent policies are tangled into loop mechanics. Cycle detection, completion gate, stub validator, memory retrieval, skill injection, plan-mode triggering, context compression — all domain services mixed into the mechanical loop. Register them via a small "policy hook" interface (`beforeIteration`, `afterToolResult`, `onTermination`) so each is independently testable and extensible.
