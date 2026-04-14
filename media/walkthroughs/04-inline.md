@@ -1,6 +1,6 @@
 ## Inline editing and the lightbulb
 
-You don't have to leave the editor to use SideCar.
+SideCar brings AI coding directly into your editor without interrupting your workflow.
 
 ### Inline chat — `⌘I` / `Ctrl+I`
 

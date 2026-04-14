@@ -1,6 +1,6 @@
 ## Pick a backend
 
-SideCar works with several backends. Pick whichever matches how you want to run the assistant:
+SideCar works with several backends. Choose the one that best fits your workflow:
 
 ### Local (free, private, recommended default)
 
@@ -10,7 +10,7 @@ Install [Ollama](https://ollama.com), then pull a code-tuned model:
 ollama pull qwen3-coder:30b
 ```
 
-SideCar auto-detects `http://localhost:11434` — no API key needed. Nothing leaves your machine.
+SideCar auto-detects `http://localhost:11434` — no API key needed. Everything stays on your machine.
 
 ### Anthropic / OpenAI (frontier models)
 

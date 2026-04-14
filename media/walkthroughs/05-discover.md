@@ -24,6 +24,19 @@ When SideCar's security scanner detects a leaked secret or a stub in code it jus
 
 In `review` mode, any file the agent proposes to change gets a **P** badge in the Explorer and the editor tabs, matching how git marks modified files. The **Pending Agent Changes** view in the sidebar shows the full list — accept or discard individually or in bulk.
 
+### Advanced features
+
+- **Slash commands** — `/init`, `/help`, `/doc`, `/spec`, `/insight`, `/scan`, `/usage`, `/context`, `/test`, `/lint`, `/deps`, `/scaffold`, `/commit`, `/verbose`, `/prompt`, `/audit`, `/insights`, `/mcp`, `/bg`, `/move`, `/clone`, `/skills`, `/releases`, `/release`
+- **Background agents** — `/bg <task>` to run tasks in parallel
+- **MCP integration** — connect external tools via Model Context Protocol
+- **Custom skills** — create your own AI capabilities with markdown files
+
 ---
 
 **You're set.** SideCar's settings live under `SideCar:` in the VS Code Settings UI. If you ever need to revisit this walkthrough, open the Command Palette and run `SideCar: Open Walkthrough`.
+
+### Need help?
+
+- Visit [SideCar Documentation](https://nedonatelli.github.io/sidecar/)
+- Report issues on [GitHub Issues](https://github.com/nedonatelli/sidecar/issues)
+- Join the community for support and tips
