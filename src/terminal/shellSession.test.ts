@@ -110,4 +110,34 @@ describeUnix('ShellSession', () => {
     expect(status!.done).toBe(true);
     expect(status!.output).toContain('bg_output');
   });
+
+  it('wipes shell functions defined in prior turns (state-pollution guard)', async () => {
+    // Canonical cycle-2 audit attack: an earlier turn installs a
+    // malicious shell function, a later turn calls the shadowed
+    // command, and the user approves it thinking it's innocuous.
+    // After the hardening prefix runs, the function should be gone
+    // and the real command should execute.
+    //
+    // We probe by invoking the function directly rather than with
+    // `declare -F` — zsh's `declare` doesn't differentiate defined
+    // vs undefined functions, but a missing command returns non-zero
+    // in every POSIX shell.
+    session = new ShellSession(os.tmpdir());
+    await session.execute('poisoned() { echo "PWNED"; }; echo "defined ok"');
+    const result = await session.execute('poisoned 2>/dev/null && echo "still there" || echo "cleaned"');
+    expect(result.stdout).toContain('cleaned');
+    expect(result.stdout).not.toContain('PWNED');
+  });
+
+  it('preserves legitimate env vars and cwd across commands (no over-scrub)', async () => {
+    // Regression: the hardening must not wipe the env vars or cwd the
+    // persistent shell session is there to track. Existing tests cover
+    // this for normal commands; this one runs *after* the function
+    // hardening path to make sure the prefix doesn't accidentally reset
+    // exported variables too.
+    session = new ShellSession(os.tmpdir());
+    await session.execute('export PERSIST_VAR=keep_me; helper_fn() { echo nope; }');
+    const result = await session.execute('echo $PERSIST_VAR');
+    expect(result.stdout).toContain('keep_me');
+  });
 });

@@ -29,6 +29,50 @@ function makeSentinel(): string {
 }
 
 /**
+ * Per-command state-pollution hardening for POSIX shells.
+ *
+ * The persistent shell session is a known attack surface: an earlier turn
+ * can define a shell function (or alias) that silently reroutes subsequent
+ * commands the user later approves in cautious mode. The classic example is
+ * `alias ls='rm -rf ~'` followed by a `run_command ls` call that the user
+ * sees as innocuous in the approval modal.
+ *
+ * The session already spawns bash/zsh with startup-file suppression, which
+ * turns off alias expansion by default in non-interactive stdin mode. Shell
+ * *functions* still persist though, so we reset the namespace before every
+ * command. Bash and zsh have different builtin names for this, so we
+ * dispatch on the shell path stored at session construction.
+ *
+ * What we intentionally do NOT reset: cwd, environment variables, exported
+ * PATH. Those are the legitimate persistence the shell session exists to
+ * provide. PATH poisoning is a separate concern mitigated by the native
+ * modal approval for `run_command` in v0.47.0 — the user sees every command
+ * string before it runs.
+ *
+ * Windows cmd.exe doesn't have the same function/alias namespace, so the
+ * Windows path is a no-op.
+ */
+function hardeningPrefixFor(shellPath: string): string {
+  const isZsh = shellPath.endsWith('/zsh') || shellPath.endsWith('/zsh5');
+  if (isZsh) {
+    // zsh: `unalias -m '*'` wipes every alias, `unfunction -m '*'` wipes
+    // every function. `-m` with a glob pattern matches all. Suppress
+    // stderr in case the shell has no aliases/functions to unset.
+    return "unalias -m '*' 2>/dev/null; unfunction -m '*' 2>/dev/null; ";
+  }
+  // bash (default): `shopt -u expand_aliases` is defense-in-depth on the
+  // alias path (non-interactive shells already default to it off).
+  // `compgen -A function` lists user-defined functions one per line,
+  // which we then iterate and unset with `unset -f`. `builtin` prefixes
+  // keep a poisoned alias or function shadowing these commands from
+  // short-circuiting the reset.
+  return (
+    '\\builtin shopt -u expand_aliases 2>/dev/null; ' +
+    'while \\builtin read -r __sc_fn; do \\builtin unset -f "$__sc_fn" 2>/dev/null; done < <(\\builtin compgen -A function 2>/dev/null); '
+  );
+}
+
+/**
  * Persistent shell session that maintains state (cwd, env vars) across commands.
  *
  * Uses a long-lived shell process with sentinel-based command completion detection.
@@ -43,12 +87,16 @@ export class ShellSession {
   private backgroundCommands = new Map<string, BackgroundCommand>();
   private maxOutputSize: number;
   private isWindows: boolean;
+  /** Captured at construction time so the hardening prefix knows which
+   *  shell dialect to emit (bash vs zsh vs windows). */
+  private shellPath: string;
 
   constructor(cwd: string, env?: Record<string, string>, maxOutputSize: number = 10 * 1024 * 1024) {
     this.cwd = cwd;
     this.env = { ...(process.env as Record<string, string>), ...env };
     this.maxOutputSize = maxOutputSize;
     this.isWindows = os.platform() === 'win32';
+    this.shellPath = this.isWindows ? process.env.COMSPEC || 'cmd.exe' : process.env.SHELL || '/bin/bash';
   }
 
   get isAlive(): boolean {
@@ -58,7 +106,7 @@ export class ShellSession {
   private ensureProcess(): ChildProcess {
     if (this.isAlive && this.proc) return this.proc;
 
-    const shellPath = this.isWindows ? process.env.COMSPEC || 'cmd.exe' : process.env.SHELL || '/bin/bash';
+    const shellPath = this.shellPath;
 
     // Suppress startup files to avoid unexpected output.
     // bash: --norc --noprofile
@@ -255,10 +303,18 @@ export class ShellSession {
       // Write the command + sentinel echo to stdin.
       // Run the command directly (no subshell) so exports, cd, etc. persist.
       // Redirect stderr to stdout for unified output.
+      //
+      // On POSIX shells, prepend the hardening prefix (see
+      // POSIX_HARDENING_PREFIX docs above) so alias / function pollution
+      // from an earlier turn can't silently hijack this command. The
+      // prefix runs in the same logical line as the user command so its
+      // effect is scoped to this execute() call; subsequent commands run
+      // the prefix again on the next invocation.
       if (this.isWindows) {
         proc.stdin?.write(`${command}\r\necho ${sentinel}_%ERRORLEVEL%_END\r\n`);
       } else {
-        proc.stdin?.write(`${command} 2>&1\necho "${sentinel}_$?_END"\n`);
+        const hardening = hardeningPrefixFor(this.shellPath);
+        proc.stdin?.write(`${hardening}${command} 2>&1\necho "${sentinel}_$?_END"\n`);
       }
     });
   }
