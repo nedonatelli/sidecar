@@ -11,10 +11,10 @@ import { SideCarClient } from '../ollama/client.js';
 import { recordToolSuccess, recordToolFailure } from '../ollama/ollamaBackend.js';
 import type { InlineEditFn } from './executor.js';
 import type { ClarifyFn } from './tools.js';
-import { getToolDefinitions, getDiagnostics } from './tools.js';
+import { getDiagnostics } from './tools.js';
 import type { ToolRuntime } from './tools/runtime.js';
 import { getConfig } from '../config/settings.js';
-import { CHARS_PER_TOKEN, CONTEXT_COMPRESSION_THRESHOLD } from '../config/constants.js';
+import { CHARS_PER_TOKEN } from '../config/constants.js';
 import {
   executeTool,
   type ApprovalMode,
@@ -27,15 +27,11 @@ import type { ChangeLog } from './changelog.js';
 import type { MCPManager } from './mcpManager.js';
 import { spawnSubAgent } from './subagent.js';
 import { runLocalWorker } from './localWorker.js';
-import { ConversationSummarizer } from './conversationSummarizer.js';
-import { ToolResultCompressor } from './toolResultCompressor.js';
+import { compressMessages, applyBudgetCompression, maybeCompressPostTool } from './loop/compression.js';
+import { initLoopState } from './loop/state.js';
+export { compressMessages };
 import { buildStubReprompt } from './stubValidator.js';
-import {
-  createGateState,
-  recordToolCall as recordGateToolCall,
-  checkCompletionGate,
-  buildGateInjection,
-} from './completionGate.js';
+import { recordToolCall as recordGateToolCall, checkCompletionGate, buildGateInjection } from './completionGate.js';
 import type { PendingEditStore } from './pendingEdits.js';
 import {
   CRITIC_SYSTEM_PROMPT,
@@ -125,7 +121,7 @@ export interface AgentOptions {
   toolRuntime?: ToolRuntime;
 }
 
-const DEFAULT_MAX_ITERATIONS = 25;
+// DEFAULT_MAX_ITERATIONS moved to loop/state.ts along with initLoopState.
 export const MAX_AGENT_DEPTH = 3;
 
 export async function runAgentLoop(
@@ -135,61 +131,48 @@ export async function runAgentLoop(
   signal: AbortSignal,
   options: AgentOptions = {},
 ): Promise<ChatMessage[]> {
-  const maxIterations = options.maxIterations || DEFAULT_MAX_ITERATIONS;
-  const approvalMode = options.approvalMode || 'cautious';
-  const logger = options.logger;
-  const changelog = options.changelog;
-  const mcpManager = options.mcpManager;
-  const maxTokens = options.maxTokens || 100_000;
-  const tools = options.toolOverride ?? getToolDefinitions(mcpManager);
-  let iteration = 0;
-  // Per-file auto-fix retry counter — resets for each new file write so a buggy
-  // file doesn't burn the budget for unrelated subsequent writes.
-  const autoFixRetriesByFile = new Map<string, number>();
-  let stubFixRetries = 0;
-  const MAX_STUB_RETRIES = 1;
-  const startTime = Date.now();
+  // Centralized state container. Immutable inputs (maxIterations,
+  // approvalMode, tools, etc.) and mutable state (messages array,
+  // iteration counter, totalChars, cycle-detection ring, retry maps,
+  // gate state) all live on `state` so extracted helpers can mutate
+  // one object instead of taking a dozen parameters. The init logic
+  // matches what runAgentLoop used to do inline — copy messages,
+  // default options, derive tools, seed totalChars from getContentLength.
+  const state = initLoopState(messages, options);
 
-  // Cycle detection: track recent tool calls to detect stuck loops.
-  // CYCLE_WINDOW must hold at least 2 full cycles of the longest pattern we want to detect
-  // and at least MIN_IDENTICAL_REPEATS to evaluate the same-call-in-a-row case.
-  const recentToolCalls: string[] = [];
+  // Alias state fields so references in the rest of the body stay
+  // concise. Reference-type aliases (arrays, maps, the gate state
+  // object, the messages array) share the same object as state.*, so
+  // in-place mutations propagate both ways automatically.
+  const { maxIterations, approvalMode, tools, logger, changelog, mcpManager, startTime } = state;
+  const agentMessages = state.messages;
+  const recentToolCalls = state.recentToolCalls;
+  const autoFixRetriesByFile = state.autoFixRetriesByFile;
+  const criticInjectionsByFile = state.criticInjectionsByFile;
+  const gateState = state.gateState;
+
+  // Primitives (iteration, totalChars, stubFixRetries) can't alias by
+  // reference. Keep local mutable copies and sync with `state.xxx`
+  // immediately around each extracted-helper call — helpers that read
+  // or mutate these fields see the latest value, and the local stays
+  // authoritative for the inline code blocks that haven't been
+  // extracted yet. Phase 4 will collapse these aliases once every
+  // mutation site goes through an extracted helper.
+  let iteration = state.iteration;
+  let totalChars = state.totalChars;
+  let stubFixRetries = state.stubFixRetries;
+
+  // These constants are still local because the helpers that consume
+  // them (cycle detection, gate, critic, stub validator) haven't been
+  // extracted yet. Will migrate out in phases 2 and 3.
+  const MAX_STUB_RETRIES = 1;
   const CYCLE_WINDOW = 8;
   const MAX_CYCLE_LEN = 4;
   const MIN_IDENTICAL_REPEATS = 4;
-
-  // Per-iteration tool-call burst cap. The loop will dispatch as many
-  // tool_use blocks as the model emits in a single streaming turn;
-  // without a ceiling, a runaway or prompt-injected model can issue
-  // 30+ shell commands before cycle detection (which looks at *patterns*
-  // across iterations, not counts within one) kicks in. 12 is generous
-  // for legitimate multi-step workflows (read + edit + diagnostics +
-  // tests typically take 4-8) but cuts off burst-bomb scenarios.
   const MAX_TOOL_CALLS_PER_ITERATION = 12;
-
-  // Completion gate: tracks edits / lint / test runs across the turn and
-  // refuses to let the loop terminate until the agent has verified its work.
-  // See completionGate.ts for the rule set.
-  const gateState = createGateState();
   const MAX_GATE_INJECTIONS = 2;
-
-  // Adversarial critic: per-file cap on blocking injections so the agent
-  // can't be trapped in an infinite critic loop if the model can't address
-  // a particular finding. Matches the completion-gate pattern.
-  const criticInjectionsByFile = new Map<string, number>();
   const MAX_CRITIC_INJECTIONS_PER_FILE = 2;
-
-  // Work with a copy of messages
-  const agentMessages = [...messages];
-
-  // Initialize totalChars from existing conversation history so the
-  // compression threshold accounts for all context, not just new output.
-  // Uses the shared getContentLength helper so tool_use blocks and tool
-  // inputs are counted consistently with the rest of the codebase.
-  let totalChars = 0;
-  for (const msg of agentMessages) {
-    totalChars += getContentLength(msg.content);
-  }
+  const maxTokens = state.maxTokens;
 
   while (iteration < maxIterations) {
     iteration++;
@@ -197,40 +180,16 @@ export async function runAgentLoop(
       logger?.logAborted();
       break;
     }
-    let estimatedTokens = Math.ceil(totalChars / CHARS_PER_TOKEN);
-
-    // Compress context at 70% of budget (or when already over) to extend the loop.
-    // Both strategies are applied: summarization replaces old turns, compression
-    // truncates large tool results. Running both maximises freed space.
-    if (estimatedTokens > maxTokens * CONTEXT_COMPRESSION_THRESHOLD) {
-      // 1. Summarize old turns
-      const summarizer = new ConversationSummarizer(client);
-      const summarized = await summarizer.summarize(agentMessages, {
-        keepRecentTurns: 2,
-        minCharsToSave: 2000,
-        maxSummaryLength: 800,
-        summaryTimeoutMs: 5000,
-      });
-      if (summarized.freedChars > 0) {
-        agentMessages.splice(0, agentMessages.length, ...summarized.messages);
-        totalChars -= summarized.freedChars;
-        logger?.info(
-          `Conversation summarized: ${summarized.metadata.turnsSummarized}/${summarized.metadata.turnsCount} turns compressed, freed ${summarized.freedChars} chars`,
-        );
-      }
-
-      // 2. Always compress tool results too — they target different content
-      const compressed = compressMessages(agentMessages);
-      if (compressed) {
-        logger?.info(`Context compressed: removed ${compressed} chars of old tool results`);
-        totalChars -= compressed;
-      }
-
-      estimatedTokens = Math.ceil(totalChars / CHARS_PER_TOKEN);
-    }
-
-    // Hard stop only if compaction couldn't bring us under budget
-    if (estimatedTokens > maxTokens) {
+    // Pre-turn budget compression. Extracted into loop/compression.ts.
+    // Sync `totalChars` into state before the call, invoke, sync back
+    // out. When compaction can't bring us below the hard ceiling the
+    // helper returns 'exhausted' and we bail with a user-visible
+    // notification.
+    state.totalChars = totalChars;
+    const compressionOutcome = await applyBudgetCompression(client, state);
+    totalChars = state.totalChars;
+    const estimatedTokens = Math.ceil(totalChars / CHARS_PER_TOKEN);
+    if (compressionOutcome === 'exhausted') {
       logger?.warn(`Token budget exceeded after compaction: ~${estimatedTokens} tokens > ${maxTokens} limit`);
       callbacks.onText(`\n\n⚠️ Agent stopped: token budget exceeded (~${estimatedTokens} tokens).`);
       break;
@@ -640,15 +599,10 @@ export async function runAgentLoop(
       });
 
       // Proactively compress after adding tool results so the next iteration
-      // doesn't open over budget (tool results can be very large).
-      const postToolTokens = Math.ceil(totalChars / CHARS_PER_TOKEN);
-      if (postToolTokens > maxTokens * CONTEXT_COMPRESSION_THRESHOLD) {
-        const compressed = compressMessages(agentMessages);
-        if (compressed) {
-          totalChars -= compressed;
-          logger?.info(`Post-tool compression: removed ${compressed} chars`);
-        }
-      }
+      // doesn't open over budget. Extracted into loop/compression.ts.
+      state.totalChars = totalChars;
+      maybeCompressPostTool(state);
+      totalChars = state.totalChars;
 
       // Auto-fix: check for errors after file writes and feed them back
       if (config.autoFixOnFailure) {
@@ -982,51 +936,9 @@ function extractAgentIntent(fullText: string): string | undefined {
   return trimmed.length > 500 ? `${trimmed.slice(0, 500)}...` : trimmed;
 }
 
-/**
- * Compress old tool results in the message history to free up context space.
- * Uses a tiered approach: messages further from the current iteration get
- * compressed more aggressively.
- * Returns the number of characters freed.
- */
-export function compressMessages(messages: ChatMessage[]): number {
-  let freed = 0;
-  const len = messages.length;
-  const compressor = new ToolResultCompressor();
-
-  for (let i = 0; i < len; i++) {
-    const msg = messages[i];
-    if (typeof msg.content === 'string' || !Array.isArray(msg.content)) continue;
-
-    // Distance from the end determines compression level
-    const distFromEnd = len - 1 - i;
-    // Last 2 messages: untouched. 2-6: light. 6+: aggressive.
-    let maxLen: number;
-    if (distFromEnd < 2)
-      continue; // keep recent messages intact
-    else if (distFromEnd < 6) maxLen = 1000;
-    else maxLen = 200;
-
-    const newContent: ContentBlock[] = [];
-    for (const block of msg.content) {
-      if (block.type === 'tool_result' && block.content.length > maxLen) {
-        const original = block.content.length;
-        // Use intelligent compression instead of dumb truncation
-        const compressionResult = compressor.compress(block.content, maxLen);
-        const compressed = compressionResult.content;
-        newContent.push({ ...block, content: compressed });
-        freed += original - compressed.length;
-      } else if (block.type === 'thinking' && distFromEnd >= 8) {
-        // Drop old thinking blocks to save space
-        freed += block.thinking.length;
-      } else {
-        newContent.push(block);
-      }
-    }
-    messages[i] = { ...msg, content: newContent };
-  }
-
-  return freed;
-}
+// compressMessages was extracted into ./loop/compression.ts and is
+// re-exported below so the existing tests in loop.test.ts keep working
+// without a coordinated import rewrite.
 
 /**
  * Analyze the completed agent conversation to suggest relevant follow-up actions.
