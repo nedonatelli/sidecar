@@ -30,7 +30,6 @@ Last updated: 2026-04-14 (v0.47.0 + cycle-2 audit security + prompt-engineering 
 - **Worktree-isolated agents** — each agent in its own git worktree
 - **Agent dashboard** — visual panel for running/completed agents
 - **Multi-agent task coordination** — parallel agents with dependency layer
-- **Adversarial critic agent** — parallel red-team agent that attacks changes as they're made
 - **Remote headless hand-off** — detach tasks to run on a remote server via `@sidecar/headless` CLI
 
 ### User Experience
@@ -72,6 +71,18 @@ Last updated: 2026-04-14 (v0.47.0 + cycle-2 audit security + prompt-engineering 
 
 - Config sub-object grouping (30+ fields → sub-objects)
 - Real tokenizer integration (`js-tiktoken` for accurate counting)
+
+---
+
+## Recently Completed (post-v0.47.0, 2026-04-14)
+
+✅ **Adversarial critic verification pass** — [critic.ts](src/agent/critic.ts) was already fully built (355 lines, 35 unit tests) but had no loop-side integration tests. Exported `runCriticChecks` + `RunCriticOptions` as a test seam and added 13 integration tests covering trigger selection (edit vs test_failure), severity dispatch (high blocks, low annotates, blockOnHighSeverity toggle), per-file injection cap enforcement across multiple turns, malformed-response handling, network-error swallowing, and early abort. Total suite: 1753 passing. Feature now gated on `sidecar.critic.enabled` (default off) — a cheaper `criticModel` override is recommended for paid backends. Removed from Planned Features — was never really "planned," just stale.
+
+✅ **Per-run ToolRuntime for background agents** (cycle-2 arch MEDIUM) — fix for parallel background agents sharing a single `defaultRuntime.shellSession`. `BackgroundAgentManager.executeRun` now constructs a fresh `ToolRuntime` per run and threads it through `AgentOptions.toolRuntime` → `ToolExecutorContext.toolRuntime` → `resolveShellSession(context)` in [tools/shell.ts](src/agent/tools/shell.ts). 20 new tests across [tools/runtime.test.ts](src/agent/tools/runtime.test.ts), [tools/shell.test.ts](src/agent/tools/shell.test.ts), and [backgroundAgent.test.ts](src/agent/backgroundAgent.test.ts). Parallel-run isolation verified with deferred promises. Foreground chat sessions continue to use the default runtime with no behavior change.
+
+✅ **OpenAI backend profile + agent setting tools** — new `openai` entry in `BUILT_IN_BACKEND_PROFILES` (gpt-4o default, `sidecar.profileKey.openai` secret slot) picks up automatically in the Switch Backend QuickPick. Three new agent tools in [tools/settings.ts](src/agent/tools/settings.ts): `switch_backend` (enum of built-in profiles), `get_setting` (read-only, blocks secrets), and `update_setting` (user-scope writes with a 17-key security denylist for secrets, backend identity, tool permissions, MCP servers, hooks, outbound allowlist, system prompt, and context paths). New `alwaysRequireApproval` field on `RegisteredTool` forces an approval modal on every call — even in autonomous mode, even when `toolPermissions: allow` is set — so the user's durable configuration never changes without an explicit click.
+
+✅ **tools.ts god-module split** — 1340-line `src/agent/tools.ts` decomposed into `src/agent/tools/` with one file per subsystem (`fs`, `search`, `shell`, `diagnostics`, `git`, `knowledge`, `settings`) plus `shared.ts` (path validation, sensitive-file guard, shell helpers) and `runtime.ts` (ToolRuntime container). `tools.ts` is now a 260-line orchestrator composing `TOOL_REGISTRY` and re-exporting types for backward compat. Every pre-split import site resolves without edits. Closes cycle-2 architecture HIGH.
 
 ---
 

@@ -773,7 +773,13 @@ export async function runAgentLoop(
 // Adversarial critic runner
 // ---------------------------------------------------------------------------
 
-interface RunCriticOptions {
+/**
+ * Options for `runCriticChecks`. Exported so the integration test at
+ * critic.runner.test.ts can build fixtures without dragging in a full
+ * runAgentLoop simulation — every dependency the runner touches comes
+ * in through this interface.
+ */
+export interface RunCriticOptions {
   client: SideCarClient;
   config: ReturnType<typeof getConfig>;
   pendingToolUses: ToolUseContentBlock[];
@@ -796,8 +802,11 @@ interface RunCriticOptions {
  * model response) is logged and swallowed so the main loop can proceed.
  * Findings are always surfaced to the chat via `onText` regardless of
  * whether they block — users want to see the review even when it's passive.
+ *
+ * Exported for test access. Not part of the public loop API — the in-loop
+ * call site at the top of the file is the one that matters for runtime.
  */
-async function runCriticChecks(opts: RunCriticOptions): Promise<string | null> {
+export async function runCriticChecks(opts: RunCriticOptions): Promise<string | null> {
   const {
     client,
     config,

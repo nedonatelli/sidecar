@@ -221,7 +221,20 @@ When you're paying per token, SideCar stacks four cost-cutting layers so the fro
 - **Pre-commit scan** — `/scan` command or `SideCar: Scan Staged Files for Secrets` in the command palette scans staged git files before committing
 - Skips comments, node_modules, lock files, and minified code
 
-### Tool Registry (23+ built-in tools + MCP)
+### Adversarial Critic
+A second LLM call whose only job is to find reasons the main agent's change is wrong — logic bugs, security issues, regressions, off-by-one errors, concurrency bugs, exception-handling gaps. Purely adversarial: the critic system prompt forbids praise, suggestions, or style nits. If it can't find a real problem, it says "NO ISSUES" and stops.
+
+**When it fires:** after every successful `write_file` / `edit_file`, and after every `run_tests` that errored (with the failing output plus recent edit diffs for correlation).
+
+**How findings are surfaced:**
+- **High severity** — injected as a synthetic user message that blocks the turn until the agent either fixes the underlying issue or explains why the reviewer is wrong. Capped at 2 injections per file per turn so the agent can't be trapped in an infinite critic loop.
+- **Low severity** — rendered as a chat annotation with the `🔍 Critic review` header. Informational only, the agent never sees them.
+
+**Enabling it:** set `sidecar.critic.enabled` to `true`. The critic uses your main model by default — on paid backends you'll want to set `sidecar.critic.model` to something cheaper (e.g. Haiku 4.5 to critique Sonnet's output). `sidecar.critic.blockOnHighSeverity` controls whether high-severity findings actually block the loop or just surface as annotations.
+
+**Cost:** each critic call is a full round trip with a 1024-token budget. On Ollama it's free but adds a few seconds per edit; on paid backends it roughly doubles the per-iteration cost unless you use a cheaper critic model.
+
+### Tool Registry (26+ built-in tools + MCP)
 | Tool | Description |
 |------|-------------|
 | `read_file` | Read file contents |
@@ -237,6 +250,9 @@ When you're paying per token, SideCar stacks four cost-cutting layers so the fro
 | `find_references` | Find symbol references across workspace |
 | `web_search` | Search the web via DuckDuckGo |
 | `display_diagram` | Extract and render diagrams from markdown files |
+| `switch_backend` | Switch to a different backend profile (ollama / anthropic / openai / kickstand). Always requires user approval |
+| `get_setting` | Read the current value of a `sidecar.*` setting. Secrets are blocked |
+| `update_setting` | Update a `sidecar.*` setting at user scope. Security-sensitive keys are denied; every call requires an approval modal |
 | `ask_user` | Ask the user a clarifying question with selectable options |
 | `spawn_agent` | Spawn a sub-agent for parallel tasks (max depth: 3, 15 iterations each) |
 | `delegate_task` *(paid backends only)* | Offload read-only research to a local Ollama worker. Orchestrator pays nothing for the worker's tokens |
