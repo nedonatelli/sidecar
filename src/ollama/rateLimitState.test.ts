@@ -92,7 +92,7 @@ describe('RateLimitStore', () => {
   });
 
   describe('describe', () => {
-    it('formats tokens + requests + reset', () => {
+    it('formats tokens and requests as used/limit (progress-bar convention)', () => {
       const s = new RateLimitStore();
       s.update({
         tokensLimit: 50000,
@@ -102,9 +102,42 @@ describe('RateLimitStore', () => {
         requestsRemaining: 49,
       });
       const desc = s.describe();
-      expect(desc).toContain('49,850/50,000 tokens');
-      expect(desc).toContain('49/50 requests');
+      // 50000 - 49850 = 150 used, 50 - 49 = 1 used
+      expect(desc).toContain('150/50,000 tokens');
+      expect(desc).toContain('1/50 requests');
       expect(desc).toContain('reset in 45s');
+    });
+
+    it('shows the blocking bucket reset when tokens are near-exhausted', () => {
+      const s = new RateLimitStore();
+      s.update({
+        tokensLimit: 200000,
+        tokensRemaining: 7902,
+        tokensResetSec: 617,
+        requestsLimit: 500,
+        requestsRemaining: 499,
+        requestsResetSec: 1,
+      });
+      const desc = s.describe();
+      // Tokens are the real blocker (~96% used, reset in 617s), so the
+      // displayed reset should reflect that — not the non-blocking
+      // requests bucket's 1s reset.
+      expect(desc).toContain('192,098/200,000 tokens');
+      expect(desc).toContain('1/500 requests');
+      expect(desc).toContain('reset in 617s');
+    });
+
+    it('falls back to the sooner reset when neither bucket is near-exhausted', () => {
+      const s = new RateLimitStore();
+      s.update({
+        tokensLimit: 50000,
+        tokensRemaining: 45000,
+        tokensResetSec: 60,
+        requestsLimit: 50,
+        requestsRemaining: 45,
+        requestsResetSec: 10,
+      });
+      expect(s.describe()).toContain('reset in 10s');
     });
   });
 

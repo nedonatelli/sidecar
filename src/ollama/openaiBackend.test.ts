@@ -361,4 +361,59 @@ describe('OpenAIBackend', () => {
       );
     });
   });
+
+  describe('streamChat request body', () => {
+    it('includes max_tokens so OpenAI does not reserve the model default against TPM', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        body: sseBody([chunk('ok', true), '[DONE]']),
+      });
+
+      for await (const _e of backend.streamChat('test', '', [{ role: 'user', content: 'hi' }])) {
+        // consume
+      }
+
+      const call = mockFetch.mock.calls[0];
+      const sentBody = JSON.parse(call[1].body);
+      expect(sentBody.max_tokens).toBe(4096);
+    });
+
+    it('sets stream_options.include_usage so the final chunk carries usage totals', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        body: sseBody([chunk('ok', true), '[DONE]']),
+      });
+
+      for await (const _e of backend.streamChat('test', '', [{ role: 'user', content: 'hi' }])) {
+        // consume
+      }
+
+      const sentBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(sentBody.stream_options).toEqual({ include_usage: true });
+    });
+
+    it('emits a usage event when OpenAI reports one on the final chunk', async () => {
+      const usageChunk = JSON.stringify({
+        choices: [],
+        usage: { prompt_tokens: 1234, completion_tokens: 56, total_tokens: 1290 },
+      });
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        body: sseBody([chunk('hi', true), usageChunk, '[DONE]']),
+      });
+
+      const events = [];
+      for await (const event of backend.streamChat('gpt-4o', '', [{ role: 'user', content: 'hi' }])) {
+        events.push(event);
+      }
+
+      const usageEvent = events.find((e) => e.type === 'usage');
+      expect(usageEvent).toBeDefined();
+      if (usageEvent?.type === 'usage') {
+        expect(usageEvent.usage.inputTokens).toBe(1234);
+        expect(usageEvent.usage.outputTokens).toBe(56);
+        expect(usageEvent.model).toBe('gpt-4o');
+      }
+    });
+  });
 });

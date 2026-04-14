@@ -20,6 +20,19 @@ import { CHARS_PER_TOKEN } from '../config/constants.js';
 /** How long we'll wait on a rate-limit reset before bailing to the caller. */
 const MAX_RATE_LIMIT_WAIT_MS = 60_000;
 
+/**
+ * Cap on completion tokens per request. OpenAI's rate limiter reserves
+ * `max_tokens` against the TPM bucket at request time, even though
+ * billing only counts tokens actually produced. When `max_tokens` is
+ * omitted, OpenAI defaults to the model's max output (e.g. ~16k for
+ * gpt-4o), which drains a 200k TPM bucket in ~10 requests even though
+ * real spend stays tiny. 4096 matches our local estimator and is
+ * plenty for the small completions an agent produces between tool
+ * calls (the loop continues with a follow-up request if a completion
+ * hits the cap, so truncation is graceful).
+ */
+const MAX_OUTPUT_TOKENS = 4096;
+
 function estimateRequestTokens(systemPrompt: string, messages: ChatMessage[], maxOutputTokens: number): number {
   let chars = systemPrompt.length;
   for (const m of messages) {
@@ -27,6 +40,43 @@ function estimateRequestTokens(systemPrompt: string, messages: ChatMessage[], ma
     chars += typeof c === 'string' ? c.length : c.reduce((sum, b) => sum + JSON.stringify(b).length, 0);
   }
   return Math.ceil(chars / CHARS_PER_TOKEN) + maxOutputTokens;
+}
+
+/**
+ * Size a raw string value in approximate tokens. Shared between the
+ * estimator above and the verbose-mode breakdown logger so both agree
+ * on the char→token ratio.
+ */
+function approxTokens(s: string): number {
+  return Math.ceil(s.length / CHARS_PER_TOKEN);
+}
+
+/**
+ * Log a one-line breakdown of what's inside the outgoing request body
+ * — system prompt size, message history size, tool definitions size —
+ * when verbose mode is on. Helps diagnose why a chat is burning TPM
+ * faster than expected: in practice one of the three buckets is
+ * usually dominant and compacting it lands the biggest win.
+ */
+function logRequestSizeBreakdown(
+  model: string,
+  systemPrompt: string,
+  messages: OpenAIMessage[],
+  tools: unknown[] | undefined,
+): void {
+  if (!getConfig().verboseMode) return;
+  const systemTokens = approxTokens(systemPrompt);
+  const historyChars = messages.reduce((sum, m) => sum + (typeof m.content === 'string' ? m.content.length : 0), 0);
+  const historyTokens = Math.ceil(historyChars / CHARS_PER_TOKEN);
+  const toolsTokens = tools ? approxTokens(JSON.stringify(tools)) : 0;
+  const total = systemTokens + historyTokens + toolsTokens;
+  console.log(
+    `[SideCar openai ${model}] request breakdown ≈ ` +
+      `system=${systemTokens.toLocaleString()}t · ` +
+      `history=${historyTokens.toLocaleString()}t · ` +
+      `tools=${toolsTokens.toLocaleString()}t · ` +
+      `total=${total.toLocaleString()}t`,
+  );
 }
 
 // Monotonic counter for generating unique tool call IDs when the API doesn't provide one
@@ -71,6 +121,14 @@ interface OpenAIChatChunk {
     };
     finish_reason: string | null;
   }[];
+  // Present only on the final chunk when the request body included
+  // `stream_options: { include_usage: true }`. OpenAI ships this
+  // separately from the choice chunks (choices is []).
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -191,20 +249,34 @@ export class OpenAIBackend implements ApiBackend {
       enabled: cfg.promptPruningEnabled,
       maxToolResultTokens: cfg.promptPruningMaxToolResultTokens,
     });
+    const openaiMessages = toOpenAIMessages(pruned.messages, pruned.systemPrompt);
+    const functionTools = tools && tools.length > 0 ? toFunctionTools(tools) : undefined;
+
     const body: Record<string, unknown> = {
       model,
-      messages: toOpenAIMessages(pruned.messages, pruned.systemPrompt),
+      messages: openaiMessages,
       stream: true,
+      // Cap reservation against the TPM bucket — see MAX_OUTPUT_TOKENS
+      // rationale above. Omitting this made OpenAI reserve the model's
+      // full default output cap per request and drain the bucket in
+      // ~10 requests at low actual spend.
+      max_tokens: MAX_OUTPUT_TOKENS,
+      // Ask OpenAI to include `usage` on the final stream chunk so we
+      // can emit a StreamUsageEvent and feed spendTracker with real
+      // numbers instead of heuristic estimates.
+      stream_options: { include_usage: true },
       ...(tools && tools.length > 0 ? { temperature: cfg.agentTemperature } : {}),
     };
 
-    if (tools && tools.length > 0) {
-      body.tools = toFunctionTools(tools);
+    if (functionTools) {
+      body.tools = functionTools;
     }
+
+    logRequestSizeBreakdown(model, pruned.systemPrompt, openaiMessages, functionTools);
 
     await maybeWaitForRateLimit(
       this.rateLimits,
-      estimateRequestTokens(pruned.systemPrompt, pruned.messages, 4096),
+      estimateRequestTokens(pruned.systemPrompt, pruned.messages, MAX_OUTPUT_TOKENS),
       MAX_RATE_LIMIT_WAIT_MS,
       signal,
     );
@@ -280,6 +352,34 @@ export class OpenAIBackend implements ApiBackend {
             chunk = JSON.parse(data);
           } catch {
             continue;
+          }
+
+          // Usage-only chunk (OpenAI emits this as the last chunk when
+          // stream_options.include_usage=true is set). choices[] is
+          // empty — don't treat the absence of a choice as a parse skip.
+          if (chunk.usage) {
+            const u = chunk.usage;
+            yield {
+              type: 'usage',
+              model,
+              usage: {
+                inputTokens: u.prompt_tokens ?? 0,
+                outputTokens: u.completion_tokens ?? 0,
+                cacheCreationInputTokens: 0,
+                cacheReadInputTokens: 0,
+              },
+            };
+            // Also log actual usage side-by-side with the earlier
+            // request-size estimate so we can tell how close the
+            // estimator is to the real OpenAI count.
+            if (getConfig().verboseMode) {
+              console.log(
+                `[SideCar openai ${model}] actual usage: ` +
+                  `prompt=${(u.prompt_tokens ?? 0).toLocaleString()}t · ` +
+                  `completion=${(u.completion_tokens ?? 0).toLocaleString()}t · ` +
+                  `total=${(u.total_tokens ?? 0).toLocaleString()}t`,
+              );
+            }
           }
 
           const choice = chunk.choices?.[0];

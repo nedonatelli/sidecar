@@ -172,6 +172,13 @@ export class KickstandBackend implements ApiBackend {
       model,
       messages: llmMessages,
       stream: true,
+      // Same rationale as OpenAIBackend — omitting max_tokens lets a
+      // rate-limited OpenAI-compatible server reserve its model
+      // default against the TPM bucket, which drains the budget long
+      // before actual consumption matches. Cap at a safe agent-loop
+      // completion size; if a turn legitimately needs more, the loop
+      // continues with a follow-up request.
+      max_tokens: 4096,
     };
 
     if (tools && tools.length > 0) {

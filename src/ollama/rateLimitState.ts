@@ -120,26 +120,54 @@ export class RateLimitStore {
   /**
    * Render a one-line human summary of the current budget state.
    * Returns `null` if nothing has been reported yet.
+   *
+   * Format is `used/limit` to match the conventional progress-bar
+   * reading of `X/Y` — the provider headers report `remaining`, we
+   * subtract to get `used`. Previously this displayed `remaining/limit`
+   * which read the wrong way (`7,902/200,000 tokens` looks like "only
+   * 7.9k consumed" when it actually meant "only 7.9k left").
+   *
+   * Reset time reflects the *blocking* bucket if one is near
+   * exhausted, not the min of both — so users don't see "reset in 1s"
+   * while actually waiting 10 minutes for the token bucket to refill.
    */
   describe(): string | null {
     const s = this.snapshot;
     if (!s) return null;
     const parts: string[] = [];
+
     if (s.tokensRemaining !== undefined && s.tokensLimit !== undefined) {
-      parts.push(`${s.tokensRemaining.toLocaleString()}/${s.tokensLimit.toLocaleString()} tokens`);
+      const used = Math.max(0, s.tokensLimit - s.tokensRemaining);
+      parts.push(`${used.toLocaleString()}/${s.tokensLimit.toLocaleString()} tokens`);
     } else if (s.tokensRemaining !== undefined) {
       parts.push(`${s.tokensRemaining.toLocaleString()} tokens remaining`);
     }
+
     if (s.requestsRemaining !== undefined && s.requestsLimit !== undefined) {
-      parts.push(`${s.requestsRemaining}/${s.requestsLimit} requests`);
+      const used = Math.max(0, s.requestsLimit - s.requestsRemaining);
+      parts.push(`${used}/${s.requestsLimit} requests`);
     }
-    const nextReset = Math.min(
-      s.tokensResetSec ?? Number.POSITIVE_INFINITY,
-      s.requestsResetSec ?? Number.POSITIVE_INFINITY,
-    );
-    if (Number.isFinite(nextReset)) {
-      parts.push(`reset in ${nextReset}s`);
+
+    // Pick the reset that actually matters. If one bucket is
+    // near-exhausted, its reset time is the one the user is waiting
+    // on; the other bucket's sooner reset is misleading noise.
+    const tokensNearExhausted =
+      s.tokensRemaining !== undefined && s.tokensLimit !== undefined && s.tokensRemaining <= s.tokensLimit * 0.05;
+    const requestsNearExhausted = s.requestsRemaining !== undefined && s.requestsRemaining <= 1;
+
+    let resetSec: number | undefined;
+    if (tokensNearExhausted && s.tokensResetSec !== undefined) {
+      resetSec = s.tokensResetSec;
+    } else if (requestsNearExhausted && s.requestsResetSec !== undefined) {
+      resetSec = s.requestsResetSec;
+    } else {
+      const candidates = [s.tokensResetSec, s.requestsResetSec].filter((n): n is number => n !== undefined);
+      if (candidates.length > 0) resetSec = Math.min(...candidates);
     }
+    if (resetSec !== undefined) {
+      parts.push(`reset in ${resetSec}s`);
+    }
+
     return parts.length > 0 ? parts.join(' · ') : null;
   }
 }
