@@ -4,6 +4,14 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+### Added — tool output compression
+
+- **`grep` grouping and deduping** — matches are now grouped under each file path once instead of repeating the path on every line, long match bodies are middle-truncated around the keyword, and runs of identical match lines collapse to `(×N)` counters ([compression.ts](src/agent/tools/compression.ts)). Typical savings on multi-file greps: 40–60%.
+- **`git_diff` header stripping** — drops `index abc..def` blob hashes, the redundant `diff --git a/x b/x` preamble, and `new file mode` / `rename from` / `similarity index` metadata before returning the diff to the agent. Actual change lines and hunk headers are preserved verbatim so the model still reasons about the diff correctly.
+- **`read_file` compact and outline modes** — new optional `mode` parameter on `read_file`. `compact` strips block comments, full-line `//` and `#` comments (shebangs preserved), trailing whitespace, and runs of blank lines. `outline` returns only top-level signatures (imports, classes, functions, types) via a language-agnostic declaration regex. Default `full` mode is unchanged, and the tool description warns the agent to stay in `full` mode when it plans to call `edit_file` afterwards (so the `search` argument still matches the file verbatim).
+
+Compression strategies inspired by the [rtk-ai](https://github.com/rtk-ai/rtk) project (Apache 2.0). Implemented natively in TypeScript rather than shelling out — SideCar stays self-hosted with no external binary dependency.
+
 ## [0.48.0] - 2026-04-14
 
 Cycle-2 audit hardening pass plus two new user-facing capabilities: the agent can now switch backends and update SideCar settings via natural-language prompts (behind a mandatory approval modal), and OpenAI is a first-class backend profile. 21 commits since v0.47.0, 123 net new tests (1630 → 1753), zero regressions.

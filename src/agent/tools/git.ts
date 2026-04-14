@@ -3,6 +3,7 @@ import { promisify } from 'util';
 import type { ToolDefinition } from '../../ollama/types.js';
 import { GitCLI } from '../../github/git.js';
 import { getRoot } from './shared.js';
+import { compressGitDiff } from './compression.js';
 
 const execAsync = promisify(exec);
 
@@ -36,7 +37,10 @@ export async function gitDiffTool(input: Record<string, unknown>): Promise<strin
   try {
     const git = new GitCLI();
     const result = await git.diff(input.ref1 as string | undefined, input.ref2 as string | undefined);
-    return `${result.summary}\n\n${result.diff}`;
+    // Drop blob hashes and redundant diff --git preambles — these
+    // carry no information the model uses when reasoning about a
+    // change, so there's no cost to stripping them.
+    return `${result.summary}\n\n${compressGitDiff(result.diff)}`;
   } catch (err) {
     return `git diff failed: ${err instanceof Error ? err.message : String(err)}`;
   }

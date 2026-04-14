@@ -2,6 +2,7 @@ import { workspace, Uri } from 'vscode';
 import * as path from 'path';
 import type { ToolDefinition } from '../../ollama/types.js';
 import { validateFilePath, isSensitiveFile, isProtectedWritePath, getRootUri } from './shared.js';
+import { compactSourceFile, outlineSourceFile } from './compression.js';
 
 // Filesystem tools: read_file / write_file / edit_file / list_directory.
 // All four route through VS Code's workspace.fs (rather than node:fs) so
@@ -11,15 +12,23 @@ import { validateFilePath, isSensitiveFile, isProtectedWritePath, getRootUri } f
 export const readFileDef: ToolDefinition = {
   name: 'read_file',
   description:
-    'Read the full contents of a file at the given relative path. ' +
+    'Read the contents of a file at the given relative path. ' +
     'Use when you already know the filename and need to see its current contents before editing or analyzing it. ' +
     'Not for searching file contents — use `grep` for text matches, `search_files` for glob filename matches, or `list_directory` to explore a folder first. ' +
     'Binary files (images, PDFs, compiled artifacts) return unreadable output; prefer `list_directory` to confirm the file type first. ' +
-    'Example: `read_file(path="src/utils.ts")`.',
+    'Modes: `full` (default) returns the raw file. `compact` strips block comments, full-line // and # comments, trailing whitespace, and runs of blank lines — use it when reading a large file just to understand what it does, before editing. `outline` returns only top-level signatures (imports, classes, functions, types) — use it for a high-level map of a large file you do NOT plan to edit. ' +
+    'If you plan to call `edit_file` after reading, use `full` mode — the `search` argument has to match the file verbatim, and compact/outline strip text that might be inside your search string. ' +
+    'Example: `read_file(path="src/utils.ts")` for full contents, `read_file(path="src/large.ts", mode="compact")` for a leaner read.',
   input_schema: {
     type: 'object',
     properties: {
       path: { type: 'string', description: 'Relative file path from the project root' },
+      mode: {
+        type: 'string',
+        enum: ['full', 'compact', 'outline'],
+        description:
+          'Output mode. `full` (default) returns raw file contents. `compact` strips comments and blank-line runs. `outline` returns signatures only.',
+      },
     },
     required: ['path'],
   },
@@ -96,7 +105,11 @@ export async function readFile(input: Record<string, unknown>): Promise<string> 
   }
   const fileUri = Uri.joinPath(getRootUri(), filePath);
   const bytes = await workspace.fs.readFile(fileUri);
-  return Buffer.from(bytes).toString('utf-8');
+  const text = Buffer.from(bytes).toString('utf-8');
+  const mode = input.mode as string | undefined;
+  if (mode === 'compact') return compactSourceFile(text);
+  if (mode === 'outline') return outlineSourceFile(text);
+  return text;
 }
 
 export async function writeFile(input: Record<string, unknown>): Promise<string> {

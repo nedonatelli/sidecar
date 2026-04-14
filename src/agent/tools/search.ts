@@ -5,6 +5,7 @@ import { promisify } from 'util';
 import type { ToolDefinition } from '../../ollama/types.js';
 import { getRoot, type ToolExecutorContext } from './shared.js';
 import { getDefaultToolRuntime } from './runtime.js';
+import { compressGrepOutput } from './compression.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -94,9 +95,13 @@ export async function grep(input: Record<string, unknown>): Promise<string> {
       timeout: 15_000,
       maxBuffer: 512 * 1024,
     });
-    // Limit output
+    // Cap raw lines first, then fold into the grouped/deduped form so
+    // the model sees one file header per path and long match lines get
+    // clipped around the keyword.
     const lines = stdout.split('\n').slice(0, 200);
-    return lines.join('\n') || 'No matches found.';
+    const capped = lines.join('\n');
+    if (!capped.trim()) return 'No matches found.';
+    return compressGrepOutput(capped);
   } catch (err) {
     const error = err as { stdout?: string; code?: number };
     if (error.code === 1) return 'No matches found.';
