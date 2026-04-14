@@ -2,7 +2,7 @@
 
 Planned improvements and features for SideCar. Audit findings from v0.34.0 comprehensive review are in the Audit Backlog section. All critical fixes were addressed in v0.35.0.
 
-Last updated: 2026-04-14 (v0.47.0 + cycle-2 audit security + prompt-engineering passes — 2 CRITICAL + 10 HIGH + several MEDIUM closed)
+Last updated: 2026-04-14 (v0.47.0 + cycle-2 audit security + prompt-engineering + architecture/AI-eng passes — 2 CRITICAL + 15 HIGH + several MEDIUM closed)
 
 ---
 
@@ -61,6 +61,63 @@ Large native VS Code integration pass plus cost-control and hybrid-delegation wo
 ✅ **Anthropic `listInstalledModels` fix** — now hits `/v1/models` with `x-api-key` + `anthropic-version` headers. Before: fell through to Ollama `/api/tags` and threw "Cannot connect to API" even with a valid key
 
 ✅ **`SideCar: Set / Refresh API Key` command** — renamed, icon added, surfaced in chat view title bar, trims whitespace on save, reloads models after save so the UI recovers without a window reload
+
+---
+
+## Cycle-2 audit architecture + AI-engineering pass (post-v0.47.0, 2026-04-14)
+
+Closed the small-to-medium HIGH items from cycle-2 Architecture and
+AI Engineering in a five-commit pass:
+
+✅ **ChatState.dispose() + hoist SIDECAR.md cache off module globals**
+(commit `fab3a50`) — two related Architecture HIGH findings. `sidecarMdCache`
+and `sidecarMdWatcher` moved from free-floating module globals in
+chatHandlers.ts onto private fields of `ChatState` with a new
+`loadSidecarMd()` method. `ChatState.dispose()` is idempotent and
+tears down the abort controller, pending confirmations, the owned
+`PendingEditStore`, and the watcher. `ChatViewProvider.dispose()`
+cascades through.
+
+✅ **Review-mode overlay for grep / search_files / list_directory**
+(commit `6baef11`) — cycle-2 AI-engineering HIGH. New
+`computePendingOverlay` helper runs after the normal executor path
+and appends a `⚠ Pending edits (review mode)` section listing
+shadow-store matches the disk scan misses. grep re-runs the pattern
+against pending content; search_files and list_directory overlay
+pending new files with explicit tags.
+
+✅ **Thinking + tool_use atomic compression**
+(commit `291ba02`) — cycle-2 AI-engineering HIGH. `compressMessage`
+detects the atomic thinking→tool_use chain and downgrades thinking
+compression from `heavy` to `medium` for that message so Anthropic
+Extended Thinking's signed-thinking verification doesn't fail on
+replay. Standalone thinking still gets dropped at heavy level.
+
+✅ **Doc "RAG" → "Doc Index" rename**
+(commit `f503627`) — cycle-2 AI-engineering HIGH. Class-level docs,
+README, and docs/rag-and-memory.md all updated to accurately describe
+the keyword-tokenized paragraph index instead of misleadingly calling
+it RAG. Setting keys kept for backward compatibility. The audit's
+"either rename or build real RAG" offer is answered with the rename;
+a future retriever-fusion layer (separate HIGH item) will build on
+the existing embedding index.
+
+✅ **Audit reconciliation** — the cycle-2 "MCP tool result content is
+not counted toward `totalChars`" finding is stale. MCP tools use the
+same `executor` interface as native tools, and `getContentLength`
+already counts them via the `tool_result` block branch. No code change
+needed. Marked in the backlog for closure.
+
+Tests: 1694 passing (+15 new regression tests across the four code
+changes), 0 regressions.
+
+**Deferred for a dedicated session** (each is weeks of work):
+- `chatHandlers.ts` split into directory (1708 lines)
+- `tools.ts` god-module decomposition (~950 lines)
+- `runAgentLoop` god-function decomposition (~700 lines)
+- `PolicyHook` interface for loop mechanics
+- Backend anticorruption layer (`normalizeStream`)
+- Real retriever-fusion layer (`Retriever` interface + reciprocal-rank)
 
 ---
 
@@ -461,8 +518,8 @@ positives from the automated pass have been dropped.
 
 ### Architecture
 
-- **HIGH** Module-level `sidecarMdCache` and `sidecarMdWatcher` in chatHandlers.ts — [chatHandlers.ts:41-42](src/webview/handlers/chatHandlers.ts#L41-L42). Loose globals that only get cleared on full extension deactivate; if `ChatState` is recreated (webview toggled off/on), the stale watcher and cache persist across sessions. Move onto `ChatState` or `SidecarDir` so they share the state's lifetime.
-- **HIGH** `ChatState` has no `dispose()` method — [chatState.ts](src/webview/chatState.ts). It owns a `documentationIndexer`, `agentMemory`, `auditLog`, and potentially a `MetricsCollector`, all of which hold timers, watchers, or file handles. Recreating the state mid-session leaks them. Add a dispose that cascades.
+- ~~**HIGH** Module-level `sidecarMdCache` and `sidecarMdWatcher` in chatHandlers.ts~~ → **fixed** in commit `fab3a50`. Both cache and watcher hoisted onto `ChatState` as private fields, `loadSidecarMd` is now a method on the state. Watcher lifetime is tied to the state instance so webview toggles tear it down cleanly. The free-function `disposeSidecarMdWatcher` export is kept as a no-op shim for backward compat with the existing extension.ts deactivate import.
+- ~~**HIGH** `ChatState` has no `dispose()` method~~ → **fixed** in commit `fab3a50`. `ChatState.dispose()` is idempotent and tears down the abort controller, pending confirmations, the owned `PendingEditStore`, and the SIDECAR.md watcher. `ChatViewProvider.dispose()` cascades through to it. Deliberately does NOT dispose workspaceIndex / sidecarDir / skillLoader / agentMemory / auditLog — those are owned by the extension host and have longer lifetimes than any single ChatState. 4 regression tests cover the idempotent-double-dispose, abort-in-flight, PendingEditStore teardown, and loadSidecarMd short-circuit-after-dispose cases.
 - **MEDIUM** `chatHandlers.ts` is still 1708 lines after the v0.46.0 `handleUserMessage` decomposition — the file now bundles message preparation, budget gating, prompt assembly, cost tracking, and 14 other exported handlers. Split into `chatHandlers/` directory with one file per subsystem (`systemPrompt.ts`, `budget.ts`, `messagePrep.ts`, etc.).
 - **MEDIUM** `BackgroundAgentManager` runs parallel agents that all share the *same* persistent `defaultRuntime.shellSession` — [backgroundAgent.ts](src/agent/backgroundAgent.ts). Two agents that both `cd` somewhere will trample each other's cwd. Fix: give each background agent its own `ToolRuntime` instance, which `ToolRuntime` is already designed for.
 - **MEDIUM** Two sites still call `workspace.getConfiguration('sidecar')` directly instead of routing through `getConfig()` — [chatView.ts:262-265](src/webview/chatView.ts#L262-L265). Bypasses the config cache so settings changes don't propagate until reload.
@@ -473,9 +530,9 @@ positives from the automated pass have been dropped.
 ### AI Engineering
 
 - ~~**CRITICAL** Image content blocks are weighted at a flat 100 chars in `getContentLength()`~~ → **already fixed** at [types.ts:130-139](src/ollama/types.ts#L130-L139). Image blocks are now counted as `Math.ceil((data.length * 3) / 4)` — base64 decoded byte count minus the ~33% overhead. Regression test at [types.test.ts:61-74](src/ollama/types.test.ts#L61). (audit: cycle-2 AI engineering, skill-driven re-run)
-- **HIGH** Review mode intercepts file I/O tools (`read_file` / `write_file` / `edit_file`) but not `grep`, `search_files`, or `list_directory` — [executor.ts:97-101](src/agent/executor.ts#L97-L101). The agent sees pending-edit content via `read_file`, but `grep` hits the disk version, so the agent's own view of the workspace is internally inconsistent mid-turn. Fix: wrap search/list results so they filter through the pending store, or at least annotate results with "pending edits exist for N of these files".
-- **HIGH** MCP tool result content is not counted toward `totalChars` — [executor.ts:288](src/agent/executor.ts#L288). An MCP tool that returns 50KB is invisible to the budget, so the next iteration opens with more tokens than the loop thinks. Fix: have the executor return `{ content, charsConsumed }` and fold it in alongside `getContentLength(toolResults)` in loop.ts.
-- **HIGH** Heavy-compression drops thinking blocks without dropping any paired `tool_use` in the same message — [context.ts](src/agent/context.ts) — orphan blocks can confuse downstream models expecting a thinking→tool_use chain. Fix: treat `thinking` and the tool_use blocks in the same message as an atomic unit during compression.
+- ~~**HIGH** Review mode intercepts file I/O tools but not `grep` / `search_files` / `list_directory`~~ → **fixed** in commit `6baef11`. New `computePendingOverlay` helper runs AFTER the normal executor path in review mode, appending a `⚠ Pending edits (review mode)` section to the tool output that lists matches from the shadow store. For grep: re-runs the pattern against pending file contents. For search_files: tests the glob against pending file paths, tagging results as "(pending new file)" or "(pending edit)". For list_directory: adds pending files that are direct children of the requested dir. 8 regression tests.
+- ~~**HIGH** MCP tool result content is not counted toward `totalChars`~~ → **already correct** (stale audit entry). MCP tools use the same `executor` interface as native tools, return strings through `wrapToolOutput`, land as `ToolResultContentBlock`s, and `getContentLength(toolResults)` at [loop.ts:623](src/agent/loop.ts#L623) counts them identically via the `tool_result` branch in [types.ts:128](src/ollama/types.ts#L128).
+- ~~**HIGH** Heavy-compression drops thinking blocks without dropping any paired `tool_use` in the same message~~ → **fixed** in commit `291ba02`. `compressMessage` detects the atomic thinking→tool_use chain and downgrades the thinking-block compression level for that message from `heavy` to `medium` (truncate instead of drop). Other block types in the same message still get the full level — the bulk of the savings comes from `tool_result` bodies, not thinking. Standalone thinking (no paired tool_use) still drops at heavy level. 3 regression tests.
 - **MEDIUM** `estimateCost()` silently returns `null` for any model not in `MODEL_COSTS`, covering 100% of Ollama — [settings.ts:500-505](src/config/settings.ts#L500). `/usage` never shows non-zero spend for local users, which is fine, but users of less common API providers (Groq, Fireworks, custom Bedrock) also get zeros with no warning. Surface a one-time "no pricing data for model X" hint.
 - **MEDIUM** Anthropic prompt cache boundary isn't guaranteed to align with a stable prefix — [chatHandlers.ts:485-492](src/webview/handlers/chatHandlers.ts#L485). `injectSystemContext` adds sections after the cache break, but if section order shifts the cache hit rate tanks silently. Add a regression test that asserts the cached-prefix bytes are byte-stable across runs with the same inputs.
 - **MEDIUM** `ConversationSummarizer` keeps "last N turns" with no per-turn size cap — [conversationSummarizer.ts](src/agent/conversationSummarizer.ts). A single oversized reasoning turn still dominates the context even when the loop thinks it's compressing. Add a `maxCharsPerRecentTurn` cap and summarize individual turns that exceed it.
@@ -561,7 +618,7 @@ Second pass of the same cycle, this time driven by the library skills (`threat-m
 
 - **HIGH** No rate-limit awareness; `fetchWithRetry` reacts to 429s but doesn't pre-check. [retry.ts](src/ollama/retry.ts). Anthropic tier 1 (50 RPM / 50K TPM) burns quickly with a 60K-token system prompt. Token-bucket pre-check using `getContentLength` would prevent the round-trip.
 - **HIGH** No evaluation harness for LLM behavior. 1505 unit tests cover deterministic code; zero cover agent correctness. When we tweak the system prompt, add a tool, or change compression, there's no signal that answer quality regressed. Add `tests/llm-eval/` with 20-50 real user requests, expected tool-use trajectories, and LLM-as-judge scoring. Single highest-leverage addition for preventing quality regressions from the refactors in flight.
-- **HIGH** Doc "RAG" isn't actually RAG. [documentationIndexer.ts](src/config/documentationIndexer.ts) is a keyword-tokenized paragraph index, not an embedding retriever. Current naming sets misleading expectations and forfeits chunking / reranking benefits. Either rename to "doc index" and stop calling it RAG, or build actual RAG on top of `embeddingIndex.ts` with recursive chunking.
+- ~~**HIGH** Doc "RAG" isn't actually RAG~~ → **renamed** in commit `f503627`. The class and setting keys are kept for backward compatibility (renaming the keys would break existing user configs), but every user-facing surface now calls it the "Doc Index" and explicitly says it's keyword-tokenized, not embedding-based. `documentationIndexer.ts` class-level comment explicitly says "NOT RAG" and points at `embeddingIndex.ts` for the real semantic retriever. README section renamed from "Retrieval-Augmented Generation (RAG)" to "Documentation Index". `docs/rag-and-memory.md` restructured to name the three retrieval systems (Doc Index, Semantic Search, Agent Memory) and flag the legacy "RAG" naming as a misnomer. A future cycle will add the retriever-fusion layer (separate HIGH item below).
 - **HIGH** Semantic search, doc index, and agent memory are parallel retrievers concatenated sequentially with no fusion. Each source appends to context in turn, wasting budget on low-value hits. Introduce a `Retriever` interface returning `{score, source, content}` and do reciprocal-rank fusion across all sources.
 - **MEDIUM** No reranker stage. After retrieval, context goes straight into the system prompt. A cheap cross-encoder reranker dramatically improves precision per context-budget token. Matters most for paid API users.
 - **MEDIUM** Anthropic Batch API is unused for non-interactive workloads (half the cost). Candidates: `/insight`, `/usage`, `/audit` aggregation, semantic-index embedding jobs, background sub-agents, adversarial critic.
