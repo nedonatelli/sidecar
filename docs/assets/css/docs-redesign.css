@@ -1,10 +1,10 @@
 /* SideCar Docs Redesign — Design System
- * Fonts: JetBrains Mono (mono/UI), Syne (display/headings)
+ * Fonts: JetBrains Mono (mono/UI), Inter (display/headings — matches landing page)
  * Colors: Coral #e86040, Blue #7ab4d8, Purple #9b78c8
  * Background: #0a090e → #0f0e15 → #16141f
  *
  * Import fonts in HTML head:
- * <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Syne:wght@400;500;700;800&display=swap" rel="stylesheet">
+ * <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
  */
 
 :root {
@@ -24,7 +24,7 @@
   --text-2:    #9088a8;
   --text-3:    #504868;
   --mono:      'JetBrains Mono', monospace;
-  --sans:      'Syne', sans-serif;
+  --sans:      'Inter', sans-serif;
   --sidebar-w: 256px;
   --nav-h:     56px;
 }
