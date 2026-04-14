@@ -25,7 +25,27 @@ export interface DocumentationEntry {
 
 /**
  * Documentation indexer that crawls README, JSDoc comments, doc files, etc.
- * Builds a searchable index of documentation for RAG-based retrieval.
+ *
+ * **This is NOT RAG.** It's a keyword-tokenized paragraph index with
+ * heuristic scoring (TF, title boost, recency). Query matching splits
+ * camelCase/snake_case identifiers into words and counts shared tokens.
+ * No embeddings, no chunking, no reranking — all of which the audit
+ * flagged as HIGH because the historic "RAG" naming implied otherwise.
+ *
+ * For real embedding-based semantic retrieval, see `embeddingIndex.ts`
+ * (gated by `sidecar.enableSemanticSearch`). The semantic index runs
+ * ONNX all-MiniLM-L6-v2 against file contents and blends cosine
+ * similarity with the keyword heuristic score.
+ *
+ * Keeping both feels redundant but serves different purposes: the
+ * doc index is fast, cheap, and targets human-written prose
+ * (README sections, JSDoc paragraphs) which benefits from exact term
+ * matches ("install", "TypeScript", "API key"). The semantic index
+ * targets code files and benefits from embedding-level similarity
+ * ("auth flow" matching `jwt.ts`, `login.ts`, etc.) where no shared
+ * token exists. Future work (see cycle-2 audit) is a retriever fusion
+ * layer that merges results from both sources with reciprocal-rank
+ * scoring instead of concatenating them.
  */
 export class DocumentationIndexer {
   private entries = new Map<string, DocumentationEntry>();

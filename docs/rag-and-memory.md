@@ -1,12 +1,18 @@
 ---
-title: RAG & Agent Memory
+title: Doc Index, Semantic Search & Agent Memory
 layout: docs
 nav_order: 8
 ---
 
-# RAG, Semantic Search & Agent Memory
+# Doc Index, Semantic Search & Agent Memory
 
-SideCar uses three intelligent systems to improve accuracy and consistency: **RAG** for documentation discovery, **semantic search** for meaning-based file relevance, and **persistent memory** for learning patterns.
+SideCar uses three retrieval systems to improve accuracy and consistency:
+
+1. **Doc Index** — keyword-tokenized paragraph index over README / `docs/` / `wiki/`. Fast, cheap, and tuned for human-written prose where exact term matches win.
+2. **Semantic Search** — ONNX `all-MiniLM-L6-v2` embeddings over workspace files with cosine similarity. Tuned for code where embeddings match intent across files that share no keywords.
+3. **Agent Memory** — persistent pattern store that learns from successful tool invocations and injects relevant memories into future turns.
+
+> **Note on naming:** earlier docs called the Doc Index "RAG", which was misleading — it's a keyword paragraph index, not a retrieval-augmented-generation pipeline with embeddings, chunking, and reranking. The Semantic Search feature (below) uses real embeddings over code. A future retriever-fusion layer will merge results from both sources with reciprocal-rank scoring instead of concatenating them.
 
 ## Semantic Search
 
@@ -28,11 +34,13 @@ SideCar embeds your workspace files using a local ONNX model (all-MiniLM-L6-v2, 
 
 The model loads lazily in the background. Until it's ready, SideCar falls back to keyword-based scoring with no impact on usability.
 
-## RAG: Automatic Documentation Retrieval
+## Doc Index: Automatic Documentation Retrieval
 
 ### What It Does
 
-RAG automatically discovers and indexes your project's documentation, then retrieves relevant sections for every user message. This helps the agent understand your project's conventions, architecture, and best practices without requiring you to manually paste documentation into every chat.
+The Doc Index automatically discovers and indexes your project's documentation, then retrieves relevant sections for every user message using keyword scoring. This helps the agent understand your project's conventions, architecture, and best practices without requiring you to manually paste documentation into every chat.
+
+**This is keyword retrieval, not embedding RAG.** Queries are tokenized (split on camelCase, snake_case, whitespace, punctuation) and scored by shared token count, with headings weighted 3x over body text. No vectors, no chunking, no reranking. For semantic similarity across code files, use **Semantic Search** above — the two features are complementary, not redundant.
 
 ### How It Works
 
@@ -77,17 +85,17 @@ We use JWT tokens for stateless authentication. Tokens are signed with the RS256
 
 ### Configuration
 
-RAG is enabled by default but fully configurable:
+The Doc Index is enabled by default but fully configurable:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `sidecar.enableDocumentationRAG` | `true` | Enable/disable RAG feature |
+| `sidecar.enableDocumentationRAG` | `true` | Enable/disable the Doc Index. Key is named `...RAG` for backward compatibility with existing user configs; it controls the keyword-based index, not embedding RAG. |
 | `sidecar.ragMaxDocEntries` | `5` | Max documentation sections per message (1-20) |
 | `sidecar.ragUpdateIntervalMinutes` | `60` | Re-index documentation every N minutes (5-360, or 0 to disable) |
 
 ### Tips
 
-- **Keep docs up-to-date**: RAG is only as good as your documentation. Update README and docs/ when conventions change
+- **Keep docs up-to-date**: the Doc Index is only as good as your documentation. Update README and docs/ when conventions change
 - **Use headings**: Documentation is indexed by heading level. Use clear, descriptive headings for better retrieval
 - **Organize by topic**: Create separate files or sections for different domains (Authentication, API, Database, etc.)
 - **Include examples**: Code examples in docs are indexed along with text, helping the agent suggest relevant patterns
@@ -174,42 +182,43 @@ Agent memory is enabled by default:
 - **Let it learn**: Don't worry about memory size — the agent will record patterns automatically as you work
 - **Clear if stale**: If you want to reset learned patterns (e.g., after major refactoring), delete `.sidecar/memory/agent-memories.json`
 - **Review recordings**: For visibility into what the agent has learned, check the JSON file directly
-- **Combine with RAG**: Agent memory works alongside RAG. RAG handles documented knowledge, memory handles learned patterns
+- **Combine with the Doc Index**: Agent memory works alongside the Doc Index. The index surfaces documented knowledge, memory surfaces learned patterns.
 
-## RAG + Memory Together
+## Doc Index + Semantic Search + Memory Together
 
-The two systems work synergistically:
+The three systems work synergistically — and they're deliberately separate so each can specialize:
 
-1. **RAG** provides official knowledge from your documentation
-2. **Agent Memory** adds learned patterns from actual experience
-3. Both are searched and injected for every message
-4. The agent can cross-reference documented conventions with learned patterns
+1. **Doc Index** surfaces official knowledge from your markdown documentation via keyword matching (exact term wins).
+2. **Semantic Search** surfaces relevant code files via embedding similarity (intent wins — "auth flow" finds `jwt.ts`).
+3. **Agent Memory** adds learned patterns from actual tool usage across prior sessions.
+
+All three are searched and injected for every message. The agent can cross-reference documented conventions with semantically relevant code and with learned patterns from prior work.
 
 ### Example Workflow
 
 **Session 1**: You ask the agent to implement a user authentication service
 
-1. RAG retrieves `docs/AUTHENTICATION.md` from your docs
-2. Agent reads your JWT documentation
-3. Agent writes `src/auth/jwt.ts` successfully
+1. **Doc Index** retrieves `docs/AUTHENTICATION.md` by matching the word "authentication"
+2. **Semantic Search** surfaces `src/auth/jwt.ts` by embedding similarity even though your query doesn't mention JWT
+3. Agent reads both, writes the new service consistent with your existing shape
 4. A pattern is recorded: "Successfully used JWT for authentication in TypeScript"
 
 **Session 2**: You reload VS Code and ask the agent to add login to a new service
 
-1. RAG retrieves the same `docs/AUTHENTICATION.md` (documented knowledge)
-2. Agent memory retrieves the "JWT authentication" pattern (learned experience)
-3. Agent now has both the spec and a working example
-4. New pattern is recorded: "Used JWT for second authentication service"
+1. **Doc Index** retrieves the same `docs/AUTHENTICATION.md`
+2. **Semantic Search** retrieves the newly-written `src/auth/jwt.ts` plus the session 1 example
+3. **Agent Memory** retrieves the "JWT authentication" pattern
+4. Agent has the spec, a working example, and a learned precedent — three complementary signals
 5. On future messages, JWT authentication ranks higher in memory search
 
 ## Troubleshooting
 
-### RAG isn't finding my documentation
+### The Doc Index isn't finding my documentation
 
 - **Check file locations**: Documentation must be in `README*`, `docs/**`, `doc/**`, or `wiki/**`
 - **Check file types**: Only `.md` files are indexed
 - **Re-index**: Set `sidecar.ragUpdateIntervalMinutes` to 0 and set to desired value to force a refresh
-- **Verify settings**: Check that `sidecar.enableDocumentationRAG` is `true`
+- **Verify settings**: Check that `sidecar.enableDocumentationRAG` is `true` (key name kept for backward compatibility)
 
 ### Agent memory seems stale
 

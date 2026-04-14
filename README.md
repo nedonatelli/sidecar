@@ -285,10 +285,13 @@ Scheduled tasks run autonomously and log to the SideCar Agent output channel.
 - View commit history, diffs, push/pull
 - Browse repo files on GitHub
 
-### Retrieval-Augmented Generation (RAG)
+### Documentation Index
+
+> **Note:** this is a keyword-tokenized paragraph index, **not** embedding-based RAG. For semantic similarity retrieval over code files, see the **Semantic Search** feature below which uses ONNX all-MiniLM-L6-v2 embeddings. The two work together: the doc index targets human-written prose (README sections, JSDoc paragraphs) where exact term matching wins, and semantic search targets code where embedding similarity matches "auth flow" to `jwt.ts` without a shared keyword.
+
 - **Automatic documentation discovery** — crawls README, docs/, wiki/ folders for `.md` files at startup
-- **Keyword-based search** — retrieves relevant documentation sections for every user message
-- **Context injection** — matched documentation is injected into the system prompt to improve accuracy and consistency
+- **Keyword-based search** — retrieves relevant documentation sections for every user message by tokenizing the query and scoring entries by term overlap
+- **Context injection** — matched documentation is injected into the system prompt under a `## Project Documentation` section to improve accuracy and consistency
 - **Smart ranking** — title keyword matches score 3x higher than body text; organized by type (heading vs. paragraph)
 - **Configurable limits** — control max entries per query, auto-refresh interval, and enable/disable via settings
 - Example: Ask "how does authentication work?" and the agent automatically includes `docs/AUTHENTICATION.md` in context
