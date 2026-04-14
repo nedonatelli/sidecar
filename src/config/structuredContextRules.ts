@@ -55,10 +55,20 @@ export function matchGlob(pattern: string, filePath: string): boolean {
 /**
  * Read and validate .sidecarrules from the workspace root.
  * Returns empty rules if the file is missing or malformed.
+ *
+ * Workspace-trust gate: .sidecarrules can elevate arbitrary workspace
+ * files into the agent's context via `prefer` and `require` rules. In
+ * an untrusted workspace, a cloned repo could use this to smuggle
+ * attacker-planted content into the prompt. Match the same trust
+ * boundary we apply to SIDECAR.md, workspace skills, doc RAG, and
+ * agent memory in `injectSystemContext`.
  */
 export async function readStructuredContextRules(): Promise<StructuredContextRules> {
   const folders = workspace.workspaceFolders;
   if (!folders || folders.length === 0) {
+    return { rules: [] };
+  }
+  if (!workspace.isTrusted) {
     return { rules: [] };
   }
 

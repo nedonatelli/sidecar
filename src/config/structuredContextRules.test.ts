@@ -1,5 +1,11 @@
-import { describe, it, expect } from 'vitest';
-import { applyContextRules, matchGlob, StructuredContextRules } from './structuredContextRules.js';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { workspace } from 'vscode';
+import {
+  applyContextRules,
+  matchGlob,
+  readStructuredContextRules,
+  StructuredContextRules,
+} from './structuredContextRules.js';
 
 describe('matchGlob', () => {
   it('matches exact paths', () => {
@@ -100,5 +106,21 @@ describe('applyContextRules', () => {
     expect(result.map((f) => f.relativePath)).toEqual(['src/components/Button.tsx', 'src/utils.test.ts']);
     expect(result[0].score).toBeCloseTo(0.5); // boosted
     expect(result[1].score).toBeGreaterThan(0); // rescued
+  });
+});
+
+describe('readStructuredContextRules — workspace trust', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('returns empty rules when the workspace is not trusted', async () => {
+    // .sidecarrules ships with cloned repos — a malicious prefer/require
+    // rule could smuggle attacker-planted files into context. In an
+    // untrusted workspace we must not read or apply the file at all,
+    // matching the SIDECAR.md / skills / RAG / memory gates.
+    vi.spyOn(workspace, 'isTrusted', 'get').mockReturnValue(false);
+    const result = await readStructuredContextRules();
+    expect(result.rules).toEqual([]);
   });
 });
