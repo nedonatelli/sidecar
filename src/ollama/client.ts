@@ -73,10 +73,12 @@ export class SideCarClient {
   private apiKey: string;
   private backend: ApiBackend;
 
-  // Rate-limit state — one store per client, passed into each backend
-  // we create, so switching profiles mid-session doesn't lose the
-  // accumulated budget information for a provider the user comes back to.
-  private rateLimits = new RateLimitStore();
+  // Rate-limit state — one store per provider, so switching profiles
+  // mid-session preserves each provider's accumulated budget info AND
+  // keeps them isolated. A shared store would merge fields across
+  // providers (update() keeps old values when new ones are absent),
+  // leaking one provider's remaining-token counts into another's view.
+  private rateLimitsByProvider = new Map<'ollama' | 'anthropic' | 'openai' | 'kickstand', RateLimitStore>();
 
   // Fallback state
   private consecutiveFailures = 0;
@@ -103,17 +105,26 @@ export class SideCarClient {
       case 'ollama':
         return new OllamaBackend(this.baseUrl);
       case 'anthropic':
-        return new AnthropicBackend(this.baseUrl, this.apiKey, this.rateLimits);
+        return new AnthropicBackend(this.baseUrl, this.apiKey, this.rateLimitsFor('anthropic'));
       case 'kickstand':
-        return new KickstandBackend(this.baseUrl, this.apiKey || readKickstandToken(), this.rateLimits);
+        return new KickstandBackend(this.baseUrl, this.apiKey || readKickstandToken(), this.rateLimitsFor('kickstand'));
       case 'openai':
-        return new OpenAIBackend(this.baseUrl, this.apiKey, this.rateLimits);
+        return new OpenAIBackend(this.baseUrl, this.apiKey, this.rateLimitsFor('openai'));
     }
   }
 
-  /** Access the rate-limit store for status UIs and diagnostics. */
+  private rateLimitsFor(provider: 'ollama' | 'anthropic' | 'openai' | 'kickstand'): RateLimitStore {
+    let store = this.rateLimitsByProvider.get(provider);
+    if (!store) {
+      store = new RateLimitStore();
+      this.rateLimitsByProvider.set(provider, store);
+    }
+    return store;
+  }
+
+  /** Access the rate-limit store for the currently active provider. */
   getRateLimits(): RateLimitStore {
-    return this.rateLimits;
+    return this.rateLimitsFor(detectProvider(this.baseUrl, getConfig().provider));
   }
 
   private get tagsUrl(): string {
@@ -273,11 +284,6 @@ export class SideCarClient {
 
   updateConnection(baseUrl: string, apiKey: string) {
     const newBaseUrl = baseUrl || DEFAULT_BASE_URL;
-    // Reset rate-limit state when the host actually changes — Anthropic's
-    // budget numbers are meaningless against OpenAI and vice versa.
-    if (newBaseUrl !== this.baseUrl) {
-      this.rateLimits.reset();
-    }
     this.baseUrl = newBaseUrl;
     this.apiKey = apiKey || 'ollama';
     this.primaryBaseUrl = this.baseUrl;

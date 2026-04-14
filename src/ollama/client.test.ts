@@ -186,6 +186,27 @@ describe('SideCarClient', () => {
     });
   });
 
+  describe('rate-limit store isolation', () => {
+    it('gives each provider its own store so budgets do not leak across backends', () => {
+      const client = new SideCarClient('claude-sonnet', 'https://api.anthropic.com', 'sk-ant');
+
+      const anthropicStore = client.getRateLimits();
+      anthropicStore.update({ tokensLimit: 200000, tokensRemaining: 7944, tokensResetSec: 617 });
+      expect(anthropicStore.getSnapshot()?.tokensRemaining).toBe(7944);
+
+      client.updateConnection('https://api.openai.com', 'sk-openai');
+      const openaiStore = client.getRateLimits();
+
+      expect(openaiStore).not.toBe(anthropicStore);
+      expect(openaiStore.getSnapshot()).toBeNull();
+
+      client.updateConnection('https://api.anthropic.com', 'sk-ant');
+      const anthropicStoreAgain = client.getRateLimits();
+      expect(anthropicStoreAgain).toBe(anthropicStore);
+      expect(anthropicStoreAgain.getSnapshot()?.tokensRemaining).toBe(7944);
+    });
+  });
+
   describe('isLocalOllama', () => {
     it('returns true for localhost:11434', () => {
       expect(new SideCarClient('m', 'http://localhost:11434').isLocalOllama()).toBe(true);
