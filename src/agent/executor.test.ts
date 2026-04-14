@@ -403,4 +403,103 @@ describe('executeTool', () => {
       expect(executor).not.toHaveBeenCalled();
     });
   });
+
+  describe('review-mode overlay for search tools', () => {
+    // Regression for the cycle-2 AI-engineering finding: review mode
+    // intercepts read_file / write_file / edit_file but not grep,
+    // search_files, or list_directory, so the agent's workspace view
+    // went out of sync with itself mid-turn. The overlay appends a
+    // "Pending edits …" section listing matches the disk scan misses.
+    let store: import('./pendingEdits.js').PendingEditStore;
+    beforeEach(async () => {
+      const { PendingEditStore } = await import('./pendingEdits.js');
+      store = new PendingEditStore();
+      mockedFindTool.mockImplementation(
+        (name: string) =>
+          ({
+            definition: {
+              name,
+              description: '',
+              input_schema: { type: 'object', properties: {} },
+            },
+            executor: async () => 'disk output',
+            requiresApproval: false,
+          }) as unknown as ReturnType<typeof findTool>,
+      );
+    });
+
+    it('grep: includes pending-file matches missing from the disk scan', async () => {
+      store.record(
+        '/mock-workspace/src/new.ts',
+        null,
+        'const tokenFromPending = "abc";\nconsole.log(tokenFromPending);',
+        'write_file',
+      );
+      const result = await executeTool(makeToolUse('grep', { pattern: 'tokenFromPending' }), {
+        pendingEdits: store,
+      });
+      expect(result.content).toContain('Pending edits (review mode)');
+      expect(result.content).toContain('src/new.ts:1');
+      expect(result.content).toContain('tokenFromPending');
+    });
+
+    it('grep: respects a path scope when checking pending files', async () => {
+      store.record('/mock-workspace/src/a.ts', null, 'match A', 'write_file');
+      store.record('/mock-workspace/other/b.ts', null, 'match B', 'write_file');
+      const result = await executeTool(makeToolUse('grep', { pattern: 'match', path: 'src/' }), {
+        pendingEdits: store,
+      });
+      expect(result.content).toContain('src/a.ts');
+      expect(result.content).not.toContain('other/b.ts');
+    });
+
+    it('search_files: adds pending-only matches with a "(pending new file)" tag', async () => {
+      store.record('/mock-workspace/src/fresh.test.ts', null, 'test content', 'write_file');
+      store.record('/mock-workspace/src/existing.test.ts', 'old', 'new', 'edit_file');
+      const result = await executeTool(makeToolUse('search_files', { pattern: '**/*.test.ts' }), {
+        pendingEdits: store,
+      });
+      expect(result.content).toContain('Pending edits matching this glob');
+      expect(result.content).toContain('src/fresh.test.ts (pending new file)');
+      expect(result.content).toContain('src/existing.test.ts (pending edit)');
+    });
+
+    it('search_files: does not match pending files outside the glob', async () => {
+      store.record('/mock-workspace/src/a.ts', null, 'x', 'write_file');
+      const result = await executeTool(makeToolUse('search_files', { pattern: '**/*.md' }), {
+        pendingEdits: store,
+      });
+      expect(result.content).not.toContain('a.ts');
+    });
+
+    it('list_directory: adds pending files that are direct children of the requested dir', async () => {
+      store.record('/mock-workspace/src/agent/new.ts', null, 'x', 'write_file');
+      store.record('/mock-workspace/src/webview/other.ts', null, 'x', 'write_file');
+      const result = await executeTool(makeToolUse('list_directory', { path: 'src/agent' }), {
+        pendingEdits: store,
+      });
+      expect(result.content).toContain('new.ts (pending new file)');
+      expect(result.content).not.toContain('other.ts');
+    });
+
+    it('list_directory: skips pending files deeper than the requested dir', async () => {
+      store.record('/mock-workspace/src/agent/sub/deep.ts', null, 'x', 'write_file');
+      const result = await executeTool(makeToolUse('list_directory', { path: 'src/agent' }), {
+        pendingEdits: store,
+      });
+      // deep.ts is nested two levels below src/agent — should NOT be
+      // listed as a direct child.
+      expect(result.content).not.toContain('deep.ts');
+    });
+
+    it('overlay is a no-op when review mode is not active (no PendingEditStore)', async () => {
+      const result = await executeTool(makeToolUse('grep', { pattern: 'x' }));
+      expect(result.content).not.toContain('Pending edits');
+    });
+
+    it('overlay is a no-op when the pending store is empty', async () => {
+      const result = await executeTool(makeToolUse('grep', { pattern: 'x' }), { pendingEdits: store });
+      expect(result.content).not.toContain('Pending edits');
+    });
+  });
 });

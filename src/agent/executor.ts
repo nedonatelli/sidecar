@@ -520,10 +520,23 @@ export async function executeTool(
       }
     }
 
+    // Review-mode overlay: for search tools that hit the disk directly
+    // (`grep`, `search_files`, `list_directory`), append a section listing
+    // pending-edit matches that the disk scan would miss. Without this
+    // step the agent's own view of the workspace goes out of sync with
+    // itself mid-turn — `read_file` returns pending content but grep
+    // returns disk content for the same file. Only runs in review mode
+    // (i.e., when the caller passed a PendingEditStore).
+    let finalContent = result + securityWarnings;
+    if (pendingEdits && REVIEW_OVERLAY_TOOLS.has(toolUse.name)) {
+      const overlay = computePendingOverlay(toolUse, pendingEdits);
+      if (overlay) finalContent += overlay;
+    }
+
     return {
       type: 'tool_result',
       tool_use_id: toolUse.id,
-      content: wrapToolOutput(toolUse.name, result + securityWarnings, logger),
+      content: wrapToolOutput(toolUse.name, finalContent, logger),
     };
   } catch (err) {
     return {
@@ -533,6 +546,128 @@ export async function executeTool(
       is_error: true,
     };
   }
+}
+
+/**
+ * Tools whose disk output needs augmenting with the pending-edit
+ * shadow store in review mode. `read_file` / `write_file` / `edit_file`
+ * are already handled upstream by `handleReviewModeTool`; these three
+ * run on disk and get a post-process overlay so the agent sees a
+ * consistent workspace view across all its retrieval paths.
+ */
+const REVIEW_OVERLAY_TOOLS = new Set(['grep', 'search_files', 'list_directory']);
+
+/**
+ * Compute the review-mode overlay for a search-style tool. Returns a
+ * formatted string to append to the tool result, or an empty string
+ * if there's nothing to add.
+ *
+ * - `grep`: re-run the pattern against pending file contents; include
+ *   any match not already in the disk-based result.
+ * - `search_files`: run the glob against every pending file path;
+ *   include matches that exist only in the pending store (new files)
+ *   or that the disk scan would miss.
+ * - `list_directory`: add any pending file whose parent directory
+ *   matches the requested path.
+ *
+ * The overlay is always preceded by a `⚠ Pending edits` banner so the
+ * model can tell disk-world from shadow-store entries at a glance.
+ */
+function computePendingOverlay(toolUse: ToolUseContentBlock, pendingEdits: PendingEditStore): string {
+  const all = pendingEdits.getAll();
+  if (all.length === 0) return '';
+
+  const root = workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!root) return '';
+
+  const toRel = (abs: string): string => {
+    const prefix = root.endsWith('/') || root.endsWith('\\') ? root : root + '/';
+    return abs.startsWith(prefix) ? abs.slice(prefix.length).replace(/\\/g, '/') : abs.replace(/\\/g, '/');
+  };
+
+  if (toolUse.name === 'grep') {
+    const pattern = (toolUse.input.pattern as string) || '';
+    const scopePath = (toolUse.input.path as string | undefined)?.replace(/\\/g, '/');
+    if (!pattern) return '';
+    let re: RegExp;
+    try {
+      re = new RegExp(pattern);
+    } catch {
+      // Pattern wasn't a valid regex — treat it as a literal substring
+      // the same way the default grep path does.
+      re = new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    }
+    const hits: string[] = [];
+    for (const edit of all) {
+      const rel = toRel(edit.filePath);
+      if (scopePath && !rel.startsWith(scopePath)) continue;
+      const lines = edit.newContent.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        if (re.test(lines[i])) {
+          hits.push(`${rel}:${i + 1}: ${lines[i].trim().slice(0, 200)}`);
+          if (hits.length >= 50) break;
+        }
+      }
+      if (hits.length >= 50) break;
+    }
+    if (hits.length === 0) return '';
+    return (
+      `\n\n⚠ Pending edits (review mode) — the agent has queued changes to these files this session. ` +
+      `Results below are from the pending (in-memory) version, not disk:\n` +
+      hits.map((h) => `  ${h}`).join('\n')
+    );
+  }
+
+  if (toolUse.name === 'search_files') {
+    const patternInput = (toolUse.input.pattern as string) || '';
+    if (!patternInput) return '';
+    // Convert the glob to a regex the same way VS Code's glob matcher
+    // approximates it. Good-enough for review-mode annotation.
+    const regexStr = patternInput
+      .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+      .replace(/\*\*/g, '§§')
+      .replace(/\*/g, '[^/]*')
+      .replace(/§§/g, '.*')
+      .replace(/\?/g, '[^/]');
+    const re = new RegExp('^' + regexStr + '$');
+    const hits: string[] = [];
+    for (const edit of all) {
+      const rel = toRel(edit.filePath);
+      if (re.test(rel)) {
+        const tag = edit.originalContent === null ? ' (pending new file)' : ' (pending edit)';
+        hits.push(rel + tag);
+      }
+    }
+    if (hits.length === 0) return '';
+    return (
+      `\n\n⚠ Pending edits matching this glob — review mode has queued changes to these files. ` +
+      `Disk-based search_files above may not reflect them:\n` +
+      hits.map((h) => `  ${h}`).join('\n')
+    );
+  }
+
+  if (toolUse.name === 'list_directory') {
+    const requested = ((toolUse.input.path as string | undefined) || '').replace(/\\/g, '/').replace(/\/$/, '');
+    const scope = requested === '' || requested === '.' ? '' : requested + '/';
+    const hits: string[] = [];
+    for (const edit of all) {
+      const rel = toRel(edit.filePath);
+      if (scope && !rel.startsWith(scope)) continue;
+      // Only include files that are direct children of the requested dir,
+      // not arbitrary descendants — matches list_directory's disk semantics.
+      const afterScope = scope ? rel.slice(scope.length) : rel;
+      if (afterScope.includes('/')) continue;
+      const tag = edit.originalContent === null ? ' (pending new file)' : ' (pending edit)';
+      hits.push(afterScope + tag);
+    }
+    if (hits.length === 0) return '';
+    return (
+      `\n\n⚠ Pending edits in this directory — review mode has queued changes that the disk listing above doesn't reflect:\n` +
+      hits.map((h) => `  ${h}`).join('\n')
+    );
+  }
+
+  return '';
 }
 
 /**
