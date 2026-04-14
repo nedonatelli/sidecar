@@ -370,10 +370,56 @@ describe('buildBaseSystemPrompt', () => {
     approvalMode: 'cautious',
   };
 
-  it('includes version and project root', () => {
+  it('includes the version but NOT the project root (cache-stability fix)', () => {
+    // Regression for the cycle-2 prompt-engineer finding:
+    // `${p.root}` used to live in the identity block, which made the
+    // base prompt's cached prefix diverge at byte N for every project.
+    // Moved out of the base prompt into the late `## Session` block
+    // injected by injectSystemContext, which lands after the
+    // `## Workspace Structure` cache marker.
     const prompt = buildBaseSystemPrompt(baseParams);
     expect(prompt).toContain('SideCar v1.0.0');
-    expect(prompt).toContain('/test/project');
+    expect(prompt).not.toContain('/test/project');
+    // The facts block still points the model at where to look it up.
+    expect(prompt).toContain('Facts about yourself');
+  });
+
+  it('includes the tool-selection decision tree', () => {
+    // Addition for the cycle-2 prompt-engineer finding: the base prompt
+    // had no guidance on when to reach for grep vs search_files vs
+    // read_file vs list_directory. The tree is pure stable copy so it
+    // also pads the cacheable prefix past Anthropic's 1024-token floor.
+    const prompt = buildBaseSystemPrompt(baseParams);
+    expect(prompt).toContain('Choosing a tool');
+    expect(prompt).toContain('`read_file`');
+    expect(prompt).toContain('`grep`');
+    expect(prompt).toContain('`search_files`');
+    expect(prompt).toContain('`run_tests`');
+  });
+
+  it('uses positive framing with trailing contrast notes', () => {
+    // Regression for the cycle-2 prompt-engineer finding: rules used
+    // to open with "don't restate", "don't defer", "don't ask
+    // permission". Transformer attention to negation is unreliable,
+    // so positive directives are the main form and warnings live in
+    // trailing "(Avoid …)" clauses.
+    const prompt = buildBaseSystemPrompt(baseParams);
+    expect(prompt).toContain('Open with the answer or action');
+    expect(prompt).toContain('Write complete, working implementations');
+    expect(prompt).toContain('Chain tool calls');
+    // Contrast notes still present for the avoidable behaviors.
+    expect(prompt).toContain('(Avoid preamble');
+    expect(prompt).toContain('(Avoid `// TODO` placeholders');
+  });
+
+  it('includes a filled-in plan-mode example when approvalMode is plan', () => {
+    const prompt = buildBaseSystemPrompt({ ...baseParams, approvalMode: 'plan' });
+    expect(prompt).toContain('PLAN MODE ACTIVE');
+    expect(prompt).toContain('Example output');
+    // The example is concrete — references a real-world shape the
+    // model can pattern-match rather than a prose description.
+    expect(prompt).toContain('Plan: add GitHub OAuth callback handler');
+    expect(prompt).toContain('github-callback.ts');
   });
 
   it('includes core rules', () => {
@@ -390,7 +436,7 @@ describe('buildBaseSystemPrompt', () => {
 
   it('includes topic-focus rule', () => {
     const prompt = buildBaseSystemPrompt(baseParams);
-    expect(prompt).toContain('Each user message is a new request');
+    expect(prompt).toContain('Each user message is a fresh request');
   });
 
   it('includes tool-output-as-data guard rail', () => {
@@ -627,7 +673,12 @@ describe('injectSystemContext', () => {
     } as never;
   }
 
-  it('returns prompt unchanged when no context sources are available', async () => {
+  it('returns base prompt plus Session block when no other context is available', async () => {
+    // The Session block (project root + optional active file) is
+    // always appended so the model has the workspace path even when
+    // every other injection source is disabled or empty. It lands
+    // after the `## Workspace Structure` cache marker so it doesn't
+    // invalidate cross-project prompt caching.
     const result = await injectSystemContext(
       'base prompt',
       10000,
@@ -637,7 +688,9 @@ describe('injectSystemContext', () => {
       false,
       null,
     );
-    expect(result).toBe('base prompt');
+    expect(result).toContain('base prompt');
+    expect(result).toContain('## Session');
+    expect(result).toContain('Project root:');
   });
 
   it('appends user system prompt', async () => {
