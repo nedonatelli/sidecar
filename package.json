@@ -696,7 +696,7 @@
         {
           "id": "sidecar-view-container",
           "title": "SideCar",
-          "icon": "media/SideCar.png"
+          "icon": "media/sidecar_silhouette.svg"
         }
       ]
     },
