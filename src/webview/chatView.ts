@@ -32,6 +32,7 @@ import {
   handleUserMessage,
   handleUserMessageWithImages,
   handleAttachFile,
+  handleDroppedPaths,
   handleSaveCodeBlock,
   handleCreateFile,
   handleRunCommand,
@@ -268,6 +269,7 @@ export class ChatViewProvider implements WebviewViewProvider {
     installModel: (msg) => handleInstallModel(this.state, msg.model || ''),
     cancelInstall: () => this.state.cancelInstall(),
     attachFile: () => handleAttachFile(this.state),
+    droppedPaths: (msg) => handleDroppedPaths(this.state, msg.paths || []),
     saveCodeBlock: (msg) => handleSaveCodeBlock(msg.code || '', msg.language),
     createFile: (msg) => handleCreateFile(this.state, msg.code || '', msg.filePath || ''),
     runCommand: async (msg) => {

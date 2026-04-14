@@ -32,7 +32,10 @@
   let installingModel = null;
   let cachedModels = [];
   let bgAgentRuns = [];
-  let pendingFile = null;
+  // Attached files live as an array so drag-drop can accumulate several
+  // at once. handleAttachFile (single file button flow) and
+  // handleDroppedPaths (drag-drop bulk flow) both append into this list.
+  let pendingFiles = [];
   let pendingImages = [];
   const imagePreview = document.getElementById('image-preview');
   let streamStartTime = 0;
@@ -428,9 +431,129 @@
     showAttachMenu();
   });
 
+  // The original single-file "×" button removes whichever file the user
+  // has clicked within the chip list; legacy selector is kept so the CSS
+  // still applies to the hit target, but per-chip close buttons are the
+  // primary interaction.
   removeAttachment.addEventListener('click', () => {
-    pendingFile = null;
-    fileAttachment.classList.add('hidden');
+    pendingFiles = [];
+    renderPendingFiles();
+  });
+
+  function renderPendingFiles() {
+    if (!pendingFiles || pendingFiles.length === 0) {
+      fileAttachment.classList.add('hidden');
+      fileAttachmentName.textContent = '';
+      fileAttachment.querySelectorAll('.attachment-chip').forEach((el) => el.remove());
+      return;
+    }
+    fileAttachment.classList.remove('hidden');
+    fileAttachment.querySelectorAll('.attachment-chip').forEach((el) => el.remove());
+    fileAttachmentName.textContent =
+      pendingFiles.length === 1
+        ? 'Attached: ' + pendingFiles[0].fileName
+        : 'Attached ' + pendingFiles.length + ' files';
+    for (let i = 0; i < pendingFiles.length; i++) {
+      const chip = document.createElement('span');
+      chip.className = 'attachment-chip';
+      const label = document.createElement('span');
+      label.className = 'attachment-chip-name';
+      label.textContent = pendingFiles[i].fileName;
+      label.title = pendingFiles[i].fileName;
+      const close = document.createElement('button');
+      close.className = 'attachment-chip-remove';
+      close.type = 'button';
+      close.textContent = '\u00D7';
+      close.setAttribute('aria-label', 'Remove attachment');
+      const idx = i;
+      close.addEventListener('click', () => {
+        pendingFiles.splice(idx, 1);
+        renderPendingFiles();
+      });
+      chip.appendChild(label);
+      chip.appendChild(close);
+      fileAttachment.appendChild(chip);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Drag-and-drop for files and folders.
+  //
+  // VS Code explorer drags surface as `text/uri-list` (newline-separated
+  // file:// URIs). OS drags populate `dataTransfer.files` with File
+  // objects that expose a `path` property in the Electron webview context.
+  // We collect whichever we get and hand the paths to the extension via
+  // `droppedPaths` — the extension reads them and posts `filesAttached`
+  // back, which slots into the existing pendingFiles[] flow.
+  // ---------------------------------------------------------------------------
+  const dropOverlay = document.createElement('div');
+  dropOverlay.id = 'drop-overlay';
+  dropOverlay.className = 'hidden';
+  dropOverlay.innerHTML = '<div class="drop-overlay-inner">Drop files or folders to attach</div>';
+  document.body.appendChild(dropOverlay);
+
+  let dragDepth = 0;
+
+  function hasFileDrag(e) {
+    const types = e?.dataTransfer?.types;
+    if (!types) return false;
+    for (const t of types) {
+      if (t === 'Files' || t === 'text/uri-list') return true;
+    }
+    return false;
+  }
+
+  document.addEventListener('dragenter', (e) => {
+    if (!hasFileDrag(e)) return;
+    dragDepth++;
+    dropOverlay.classList.remove('hidden');
+  });
+
+  document.addEventListener('dragover', (e) => {
+    if (!hasFileDrag(e)) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+  });
+
+  document.addEventListener('dragleave', (e) => {
+    if (!hasFileDrag(e)) return;
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) dropOverlay.classList.add('hidden');
+  });
+
+  document.addEventListener('drop', (e) => {
+    if (!hasFileDrag(e)) return;
+    e.preventDefault();
+    dragDepth = 0;
+    dropOverlay.classList.add('hidden');
+
+    const paths = [];
+    const seen = new Set();
+
+    const uriList = e.dataTransfer?.getData('text/uri-list') || '';
+    if (uriList) {
+      for (const line of uriList.split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        if (seen.has(trimmed)) continue;
+        seen.add(trimmed);
+        paths.push(trimmed);
+      }
+    }
+
+    if (e.dataTransfer?.files) {
+      for (const file of e.dataTransfer.files) {
+        const p = file.path;
+        if (p && !seen.has(p)) {
+          seen.add(p);
+          paths.push(p);
+        }
+      }
+    }
+
+    if (paths.length > 0) {
+      vscode.postMessage({ command: 'droppedPaths', paths });
+    }
   });
 
   customModelUse.addEventListener('click', () => {
@@ -1198,18 +1321,24 @@
     }
 
     let messageText = text;
-    let displayText = text;
+    const displayText = text;
 
-    if (pendingFile) {
-      messageText = '[File: ' + pendingFile.fileName + ']\n```\n' + pendingFile.fileContent + '\n```\n\n' + text;
-      displayText = text;
+    if (pendingFiles.length > 0) {
+      let prefix = '';
+      for (const f of pendingFiles) {
+        prefix += '[File: ' + f.fileName + ']\n```\n' + f.fileContent + '\n```\n\n';
+      }
+      messageText = prefix + text;
       const div = appendMessage('user', displayText);
       const label = document.createElement('span');
       label.className = 'attachment-label';
-      label.textContent = 'Attached: ' + pendingFile.fileName;
+      label.textContent =
+        pendingFiles.length === 1
+          ? 'Attached: ' + pendingFiles[0].fileName
+          : 'Attached ' + pendingFiles.length + ' files: ' + pendingFiles.map((f) => f.fileName).join(', ');
       div.appendChild(label);
-      pendingFile = null;
-      fileAttachment.classList.add('hidden');
+      pendingFiles = [];
+      renderPendingFiles();
     } else {
       appendMessage('user', displayText);
     }
@@ -3648,9 +3777,17 @@
         break;
 
       case 'fileAttached':
-        pendingFile = { fileName: event.data.fileName, fileContent: event.data.fileContent };
-        fileAttachmentName.textContent = 'Attached: ' + event.data.fileName;
-        fileAttachment.classList.remove('hidden');
+        pendingFiles.push({ fileName: event.data.fileName, fileContent: event.data.fileContent });
+        renderPendingFiles();
+        break;
+
+      case 'filesAttached':
+        if (Array.isArray(event.data.files)) {
+          for (const f of event.data.files) {
+            pendingFiles.push({ fileName: f.fileName, fileContent: f.fileContent });
+          }
+          renderPendingFiles();
+        }
         break;
 
       case 'imageAttached':

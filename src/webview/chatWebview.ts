@@ -62,6 +62,7 @@ export interface WebviewMessage {
     | 'bgList'
     | 'bgExpand'
     | 'switchBackend'
+    | 'droppedPaths'
     | 'executeExtensionCommand';
   images?: { mediaType: string; data: string }[];
   text?: string;
@@ -97,6 +98,8 @@ export interface WebviewMessage {
   commandId?: string;
   /** Arguments forwarded to the command for 'executeExtensionCommand'. */
   args?: unknown[];
+  /** Filesystem paths dropped into the chat webview. */
+  paths?: string[];
 }
 
 export interface ExtensionMessage {
@@ -111,6 +114,7 @@ export interface ExtensionMessage {
     | 'installProgress'
     | 'installComplete'
     | 'fileAttached'
+    | 'filesAttached'
     | 'imageAttached'
     | 'fileMoved'
     | 'githubResult'
@@ -179,6 +183,8 @@ export interface ExtensionMessage {
   progress?: string;
   fileName?: string;
   fileContent?: string;
+  /** Batch of files from a drag-drop or multi-select attach. */
+  files?: { fileName: string; fileContent: string }[];
   githubAction?: import('../github/types.js').GitHubAction;
   githubData?: unknown;
   mediaType?: string;

@@ -1,4 +1,4 @@
-import { window, workspace, Uri } from 'vscode';
+import { window, workspace, Uri, FileType } from 'vscode';
 import * as path from 'path';
 import { promisify } from 'util';
 import { exec } from 'child_process';
@@ -1439,6 +1439,126 @@ export async function handleAttachFile(state: ChatState): Promise<void> {
       }
       state.postMessage({ command: 'fileAttached', fileName, fileContent });
     }
+  }
+}
+
+// Caps for drag-drop: we'd rather quietly truncate than flood the model
+// with 50MB of junk. These match handleAttachFile's per-file ceiling and
+// pick round numbers for the multi-file limits.
+const MAX_ATTACHMENT_BYTES = 500_000;
+const MAX_ATTACHMENTS_PER_DROP = 20;
+const MAX_FOLDER_ENTRIES = 10;
+const SKIPPED_DIR_ENTRIES = new Set(['node_modules', '.git', 'dist', 'out', 'build', '.next', '.turbo', '.venv']);
+
+function isProbablyBinary(bytes: Uint8Array): boolean {
+  const sample = bytes.subarray(0, Math.min(bytes.length, 8192));
+  for (let i = 0; i < sample.length; i++) {
+    if (sample[i] === 0) return true;
+  }
+  return false;
+}
+
+/**
+ * Handle files/folders dropped onto the chat webview. Files are read and
+ * posted as `filesAttached`; folders have their immediate children read
+ * (non-recursive) and filtered to a handful of text files. Size, count,
+ * and binary-content limits protect the model context from getting
+ * flooded by an accidental drop.
+ */
+export async function handleDroppedPaths(state: ChatState, paths: string[]): Promise<void> {
+  if (!paths || paths.length === 0) return;
+
+  const collected: { fileName: string; fileContent: string }[] = [];
+  const skipped: string[] = [];
+
+  const tryReadFile = async (uri: Uri, displayName: string, size: number): Promise<void> => {
+    if (collected.length >= MAX_ATTACHMENTS_PER_DROP) return;
+    if (size > MAX_ATTACHMENT_BYTES) {
+      skipped.push(`${displayName} (>${Math.floor(MAX_ATTACHMENT_BYTES / 1000)}KB)`);
+      return;
+    }
+    try {
+      const bytes = await workspace.fs.readFile(uri);
+      if (isProbablyBinary(bytes)) {
+        skipped.push(`${displayName} (binary)`);
+        return;
+      }
+      collected.push({ fileName: displayName, fileContent: Buffer.from(bytes).toString('utf-8') });
+    } catch {
+      skipped.push(`${displayName} (unreadable)`);
+    }
+  };
+
+  for (const raw of paths) {
+    if (collected.length >= MAX_ATTACHMENTS_PER_DROP) break;
+    if (!raw) continue;
+
+    // The webview sends either file:// URIs or raw fsPaths; normalize both.
+    let uri: Uri;
+    try {
+      uri = raw.startsWith('file://') ? Uri.parse(raw) : Uri.file(raw);
+    } catch {
+      skipped.push(`${raw} (invalid path)`);
+      continue;
+    }
+
+    let stat;
+    try {
+      stat = await workspace.fs.stat(uri);
+    } catch {
+      skipped.push(`${path.basename(raw)} (not found)`);
+      continue;
+    }
+
+    if (stat.type === FileType.File) {
+      await tryReadFile(uri, path.basename(uri.fsPath), stat.size);
+      continue;
+    }
+
+    if (stat.type === FileType.Directory) {
+      let entries: [string, FileType][];
+      try {
+        entries = (await workspace.fs.readDirectory(uri)) as [string, FileType][];
+      } catch {
+        skipped.push(`${path.basename(raw)} (unreadable folder)`);
+        continue;
+      }
+      const folderName = path.basename(uri.fsPath);
+      let taken = 0;
+      for (const [name, type] of entries) {
+        if (collected.length >= MAX_ATTACHMENTS_PER_DROP) break;
+        if (taken >= MAX_FOLDER_ENTRIES) break;
+        if (name.startsWith('.')) continue;
+        if (SKIPPED_DIR_ENTRIES.has(name)) continue;
+        if (type !== FileType.File) continue;
+        const childUri = Uri.joinPath(uri, name);
+        try {
+          const childStat = await workspace.fs.stat(childUri);
+          await tryReadFile(childUri, `${folderName}/${name}`, childStat.size);
+          taken++;
+        } catch {
+          skipped.push(`${folderName}/${name} (unreadable)`);
+        }
+      }
+      if (entries.length > taken) {
+        skipped.push(`${folderName}/ (${entries.length - taken} more entries not attached)`);
+      }
+      continue;
+    }
+
+    skipped.push(`${path.basename(raw)} (unsupported type)`);
+  }
+
+  if (collected.length > 0) {
+    state.postMessage({ command: 'filesAttached', files: collected });
+  }
+
+  if (skipped.length > 0) {
+    const suffix =
+      collected.length > 0 ? ` Attached ${collected.length} file${collected.length === 1 ? '' : 's'}.` : '';
+    window.showInformationMessage(
+      `SideCar: skipped ${skipped.length} dropped item${skipped.length === 1 ? '' : 's'} — ${skipped.slice(0, 3).join(', ')}${skipped.length > 3 ? '…' : ''}.${suffix}`,
+    );
   }
 }
 

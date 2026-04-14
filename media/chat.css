@@ -1123,12 +1123,73 @@ body {
 /* File attachment chip */
 #file-attachment {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   padding: 4px 12px;
   background: var(--vscode-textBlockQuote-background);
   border-top: 1px solid var(--vscode-widget-border);
   font-size: 12px;
+}
+
+.attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px 2px 8px;
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+  border-radius: 10px;
+  font-size: 11px;
+  max-width: 220px;
+}
+
+.attachment-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-chip-remove {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+  opacity: 0.7;
+}
+
+.attachment-chip-remove:hover {
+  opacity: 1;
+}
+
+#drop-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--vscode-editor-background);
+  background: color-mix(in srgb, var(--vscode-editor-background) 70%, transparent);
+  border: 2px dashed var(--vscode-focusBorder);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  pointer-events: none;
+}
+
+#drop-overlay.hidden {
+  display: none;
+}
+
+.drop-overlay-inner {
+  padding: 16px 24px;
+  background: var(--vscode-editor-background);
+  border: 1px solid var(--vscode-focusBorder);
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--vscode-editor-foreground);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
 }
 
 #file-attachment.hidden {

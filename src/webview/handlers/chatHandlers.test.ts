@@ -17,9 +17,10 @@ import {
   handleRevertFile,
   handleGenerateCommit,
   handleShowSystemPrompt,
+  handleDroppedPaths,
 } from './chatHandlers.js';
 import type { SystemPromptParams } from './chatHandlers.js';
-import { workspace, window } from 'vscode';
+import { workspace, window, FileType } from 'vscode';
 
 // ---------------------------------------------------------------------------
 // classifyError
@@ -1083,5 +1084,116 @@ describe('handleShowSystemPrompt', () => {
     await handleShowSystemPrompt(state as never);
     const call = state.postMessage.mock.calls.find((c: Array<{ command: string }>) => c[0].command === 'verboseLog');
     expect(call![0].content).toContain('Always prefer functional style');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleDroppedPaths
+// ---------------------------------------------------------------------------
+describe('handleDroppedPaths', () => {
+  let state: { postMessage: ReturnType<typeof vi.fn> };
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    state = { postMessage: vi.fn() };
+  });
+
+  it('is a no-op for empty input', async () => {
+    await handleDroppedPaths(state as never, []);
+    expect(state.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('reads a single dropped file and posts filesAttached', async () => {
+    vi.spyOn(workspace.fs, 'stat').mockResolvedValue({ type: FileType.File, size: 42 } as never);
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from('hello world') as never);
+
+    await handleDroppedPaths(state as never, ['/abs/path/hello.txt']);
+
+    expect(state.postMessage).toHaveBeenCalledWith({
+      command: 'filesAttached',
+      files: [{ fileName: 'hello.txt', fileContent: 'hello world' }],
+    });
+  });
+
+  it('accepts file:// URIs from the VS Code explorer', async () => {
+    vi.spyOn(workspace.fs, 'stat').mockResolvedValue({ type: FileType.File, size: 5 } as never);
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from('abc') as never);
+
+    await handleDroppedPaths(state as never, ['file:///abs/path/a.ts']);
+
+    const call = state.postMessage.mock.calls[0]?.[0] as { command: string; files: { fileName: string }[] };
+    expect(call.command).toBe('filesAttached');
+    expect(call.files[0].fileName).toBe('a.ts');
+  });
+
+  it('skips oversized files', async () => {
+    vi.spyOn(workspace.fs, 'stat').mockResolvedValue({ type: FileType.File, size: 600_000 } as never);
+    const readSpy = vi.spyOn(workspace.fs, 'readFile');
+    vi.spyOn(window, 'showInformationMessage').mockResolvedValue(undefined as never);
+
+    await handleDroppedPaths(state as never, ['/abs/huge.log']);
+
+    expect(readSpy).not.toHaveBeenCalled();
+    // No files to attach, so no filesAttached message
+    expect(state.postMessage).not.toHaveBeenCalled();
+    expect(window.showInformationMessage).toHaveBeenCalled();
+  });
+
+  it('skips binary-looking files (content contains NUL bytes)', async () => {
+    vi.spyOn(workspace.fs, 'stat').mockResolvedValue({ type: FileType.File, size: 10 } as never);
+    const binary = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01, 0x02, 0x03]);
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(binary as never);
+    vi.spyOn(window, 'showInformationMessage').mockResolvedValue(undefined as never);
+
+    await handleDroppedPaths(state as never, ['/abs/image.png']);
+
+    expect(state.postMessage).not.toHaveBeenCalled();
+    expect(window.showInformationMessage).toHaveBeenCalled();
+  });
+
+  it('lists immediate children of a dropped folder', async () => {
+    vi.spyOn(workspace.fs, 'stat').mockImplementation(async (uri: { fsPath: string }) => {
+      if (uri.fsPath.endsWith('/folder')) return { type: FileType.Directory, size: 0 } as never;
+      return { type: FileType.File, size: 20 } as never;
+    });
+    vi.spyOn(workspace.fs, 'readDirectory').mockResolvedValue([
+      ['a.ts', FileType.File],
+      ['b.ts', FileType.File],
+      ['sub', FileType.Directory],
+      ['.hidden', FileType.File],
+      ['node_modules', FileType.Directory],
+    ] as never);
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from('content') as never);
+
+    await handleDroppedPaths(state as never, ['/abs/folder']);
+
+    const msg = state.postMessage.mock.calls[0]?.[0] as {
+      command: string;
+      files: { fileName: string; fileContent: string }[];
+    };
+    expect(msg.command).toBe('filesAttached');
+    expect(msg.files.map((f) => f.fileName)).toEqual(['folder/a.ts', 'folder/b.ts']);
+  });
+
+  it('reports and skips nonexistent paths', async () => {
+    vi.spyOn(workspace.fs, 'stat').mockRejectedValue(new Error('ENOENT'));
+    vi.spyOn(window, 'showInformationMessage').mockResolvedValue(undefined as never);
+
+    await handleDroppedPaths(state as never, ['/abs/missing.ts']);
+
+    expect(state.postMessage).not.toHaveBeenCalled();
+    expect(window.showInformationMessage).toHaveBeenCalled();
+  });
+
+  it('caps total attachments at MAX_ATTACHMENTS_PER_DROP', async () => {
+    vi.spyOn(workspace.fs, 'stat').mockResolvedValue({ type: FileType.File, size: 10 } as never);
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from('x') as never);
+    vi.spyOn(window, 'showInformationMessage').mockResolvedValue(undefined as never);
+
+    const paths = Array.from({ length: 30 }, (_, i) => `/abs/file${i}.ts`);
+    await handleDroppedPaths(state as never, paths);
+
+    const msg = state.postMessage.mock.calls[0]?.[0] as { files: unknown[] };
+    expect(msg.files.length).toBe(20);
   });
 });

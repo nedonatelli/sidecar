@@ -163,6 +163,13 @@ export enum DiagnosticSeverity {
   Hint = 3,
 }
 
+export enum FileType {
+  Unknown = 0,
+  File = 1,
+  Directory = 2,
+  SymbolicLink = 64,
+}
+
 export class RelativePattern {
   constructor(
     public base: unknown,
