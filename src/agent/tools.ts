@@ -103,11 +103,16 @@ function getRootUri(): Uri {
 
 const readFileDef: ToolDefinition = {
   name: 'read_file',
-  description: 'Read the contents of a file at the given path (relative to project root).',
+  description:
+    'Read the full contents of a file at the given relative path. ' +
+    'Use when you already know the filename and need to see its current contents before editing or analyzing it. ' +
+    'Not for searching file contents — use `grep` for text matches, `search_files` for glob filename matches, or `list_directory` to explore a folder first. ' +
+    'Binary files (images, PDFs, compiled artifacts) return unreadable output; prefer `list_directory` to confirm the file type first. ' +
+    'Example: `read_file(path="src/utils.ts")`.',
   input_schema: {
     type: 'object',
     properties: {
-      path: { type: 'string', description: 'Relative file path' },
+      path: { type: 'string', description: 'Relative file path from the project root' },
     },
     required: ['path'],
   },
@@ -115,12 +120,17 @@ const readFileDef: ToolDefinition = {
 
 const writeFileDef: ToolDefinition = {
   name: 'write_file',
-  description: 'Create or overwrite a file with the given content.',
+  description:
+    'Create a new file, or overwrite an existing file completely, with the given content. ' +
+    'Use when creating a brand-new file or when replacing >50% of an existing file. ' +
+    'Not for surgical changes to an existing file — use `edit_file` for small targeted edits, which is safer because it leaves the rest of the file untouched and reviewable. ' +
+    '**Overwrites existing content silently** — call `read_file` first if there is any chance the file already exists and you need to preserve parts of it. ' +
+    'Example: `write_file(path="src/hello.ts", content="export const hello = () => \'hi\';")`.',
   input_schema: {
     type: 'object',
     properties: {
-      path: { type: 'string', description: 'Relative file path' },
-      content: { type: 'string', description: 'File content to write' },
+      path: { type: 'string', description: 'Relative file path from the project root' },
+      content: { type: 'string', description: 'Full file content to write' },
     },
     required: ['path', 'content'],
   },
@@ -128,17 +138,23 @@ const writeFileDef: ToolDefinition = {
 
 const editFileDef: ToolDefinition = {
   name: 'edit_file',
-  description: 'Edit an existing file by replacing a search string with a replacement string.',
+  description:
+    'Edit an existing file by replacing an exact search string with a replacement. ' +
+    'Use for surgical changes — renaming a function, updating a single line, adding an import. ' +
+    'Not for creating a file or doing a full rewrite — use `write_file` for those. ' +
+    'Not for multi-location changes in one call — call `edit_file` once per location, each with a unique search string. ' +
+    'The `search` argument must match exactly one location in the file; include enough surrounding context to guarantee uniqueness, otherwise the tool returns an error listing the match count. ' +
+    'Example: `edit_file(path="src/utils.ts", search="function greet(name: string)", replace="function greet(name: string, greeting = \'Hello\')")`.',
   input_schema: {
     type: 'object',
     properties: {
-      path: { type: 'string', description: 'Relative file path' },
+      path: { type: 'string', description: 'Relative file path from the project root' },
       search: {
         type: 'string',
         description:
-          'Exact text to find in the file. Must be unique — include enough surrounding context to match only one location. Only the first match is replaced.',
+          'Exact text to find in the file. Must be unique — include enough surrounding context to match only one location. Only the first match is replaced; if the search text appears multiple times the call returns an error.',
       },
-      replace: { type: 'string', description: 'Text to replace it with' },
+      replace: { type: 'string', description: 'Text to replace the search match with' },
     },
     required: ['path', 'search', 'replace'],
   },
@@ -204,11 +220,19 @@ const runCommandDef: ToolDefinition = {
 
 const listDirectoryDef: ToolDefinition = {
   name: 'list_directory',
-  description: 'List the contents of a directory. Returns file and folder names.',
+  description:
+    'List the files and folders in a directory, one entry per line with type markers. ' +
+    'Use when orienting yourself in an unfamiliar project, or when you need to confirm a file exists before reading it. ' +
+    'Not for finding files by pattern (use `search_files` for globs like `**/*.test.ts`) or for searching contents (use `grep`). ' +
+    'Empty path or `.` lists the project root. ' +
+    'Example: `list_directory(path="src/agent")`.',
   input_schema: {
     type: 'object',
     properties: {
-      path: { type: 'string', description: 'Relative directory path (empty or "." for project root)' },
+      path: {
+        type: 'string',
+        description: 'Relative directory path from the project root (empty or "." for project root)',
+      },
     },
     required: [],
   },
@@ -476,7 +500,12 @@ async function listDirectory(input: Record<string, unknown>): Promise<string> {
 const getDiagnosticsDef: ToolDefinition = {
   name: 'get_diagnostics',
   description:
-    'Get compiler errors, warnings, and linting issues from VS Code. Returns diagnostics for a specific file or all files if no path given.',
+    "Fetch compiler errors, warnings, and lint issues from VS Code's language services for a file or the whole workspace. " +
+    'Use after every `write_file` / `edit_file` to verify your change type-checks — per the operating rules, this is mandatory for any code edit. ' +
+    "Also use before starting a task to understand what is already broken in the file, or before a final hand-off to confirm you've left the workspace clean. " +
+    'Not for running tests (use `run_tests`) or for custom lint commands (use `run_command "npm run lint"` if the editor integration isn\'t picking them up). ' +
+    'Omit `path` to get a project-wide summary. ' +
+    'Example after an edit: `get_diagnostics(path="src/utils.ts")`.',
   input_schema: {
     type: 'object',
     properties: {
@@ -489,16 +518,25 @@ const getDiagnosticsDef: ToolDefinition = {
 const runTestsDef: ToolDefinition = {
   name: 'run_tests',
   description:
-    'Run the project test suite. Optionally specify a test file or pattern. Returns test output with pass/fail results.',
+    'Run the project test suite with auto-detection of the test runner (npm test, pytest, cargo test, go test, gradle test). ' +
+    'Use after fixing a bug or landing a new feature — per the operating rules, every bug fix finishes with `run_tests`. ' +
+    'Not for arbitrary shell commands (use `run_command`) or for fetching type errors (use `get_diagnostics`). ' +
+    'Prefer this over `run_command "npm test"` so the detection logic handles whichever runner the project uses. ' +
+    "Pass `file` to narrow to a single test file when you've already isolated the failure. " +
+    'Example: `run_tests(file="tests/auth.test.ts")`.',
   input_schema: {
     type: 'object',
     properties: {
       command: {
         type: 'string',
         description:
-          'Test command to run (e.g. "npm test", "pytest", "go test ./..."). If omitted, tries common test runners.',
+          'Optional: explicit test command to run (e.g. "npm test -- --coverage", "pytest -k myfunc"). Omit to auto-detect from project config files.',
       },
-      file: { type: 'string', description: 'Optional: specific test file to run' },
+      file: {
+        type: 'string',
+        description:
+          'Optional: relative path to a single test file to run (e.g. "tests/auth.test.ts"). Appended to the detected or provided command.',
+      },
     },
     required: [],
   },
@@ -618,12 +656,19 @@ async function runTests(input: Record<string, unknown>): Promise<string> {
 const gitDiffDef: ToolDefinition = {
   name: 'git_diff',
   description:
-    'Get the git diff for the current workspace. Shows staged and unstaged changes. Optionally compare between two refs.',
+    'Show the git diff for the current workspace — staged + unstaged changes by default, or a comparison between two refs when both are given. ' +
+    'Use to understand what a user has been working on, to draft a commit message, or to review changes before staging. Prefer this over `run_command "git diff"` for structured output. ' +
+    'Not for file-level changes the agent itself just made — the review-mode shadow store and the pending-changes TreeView cover those. ' +
+    'Examples: `git_diff()` for working tree, `git_diff(ref1="HEAD~3")` for the last three commits, `git_diff(ref1="main", ref2="feature/x")` to compare branches.',
   input_schema: {
     type: 'object',
     properties: {
-      ref1: { type: 'string', description: 'Optional: first ref (e.g. "HEAD~3", "main").' },
-      ref2: { type: 'string', description: 'Optional: second ref to compare against ref1.' },
+      ref1: { type: 'string', description: 'Optional: first ref (e.g. "HEAD~3", "main", a commit SHA).' },
+      ref2: {
+        type: 'string',
+        description:
+          'Optional: second ref to compare against ref1. If omitted with ref1 set, diffs ref1 against the working tree.',
+      },
     },
     required: [],
   },
@@ -641,7 +686,11 @@ async function gitDiffTool(input: Record<string, unknown>): Promise<string> {
 
 const gitStatusDef: ToolDefinition = {
   name: 'git_status',
-  description: 'Show the working tree status: staged, unstaged, and untracked files.',
+  description:
+    'Show the working tree status: which files are staged, modified, or untracked. ' +
+    'Use as the first step before committing — pair with `git_diff` to see the actual content changes, then `git_stage` + `git_commit`. ' +
+    'Also useful for answering "what have I been working on" before the user commits. ' +
+    'Not a replacement for `git_diff` — status shows filenames, diff shows content.',
   input_schema: {
     type: 'object',
     properties: {},
@@ -659,14 +708,19 @@ async function gitStatus(): Promise<string> {
 
 const gitStageDef: ToolDefinition = {
   name: 'git_stage',
-  description: 'Stage files for commit. Can stage specific files or all changes.',
+  description:
+    'Stage files for the next commit — specific paths, or every modified/new file if `files` is omitted. ' +
+    'Use before `git_commit`. Prefer explicit file lists over staging-everything so the user reviews what ships. ' +
+    'Not for unstaging (there is no unstage tool — ask the user to handle that manually). ' +
+    'Examples: `git_stage(files=["src/a.ts", "src/b.ts"])` for specific files, `git_stage()` to stage all changes.',
   input_schema: {
     type: 'object',
     properties: {
       files: {
         type: 'array',
         items: { type: 'string' },
-        description: 'Files to stage (relative paths). If omitted, stages all modified and new files.',
+        description:
+          'Files to stage (relative paths from the project root). If omitted, stages all modified and new files.',
       },
     },
     required: [],
@@ -684,13 +738,17 @@ async function gitStage(input: Record<string, unknown>): Promise<string> {
 const gitCommitDef: ToolDefinition = {
   name: 'git_commit',
   description:
-    'Create a git commit with the currently staged changes. Automatically appends a Co-Authored-By trailer for SideCar. Stage files first with git_stage.',
+    'Create a git commit from the currently staged changes. Automatically appends a Co-Authored-By trailer for SideCar. ' +
+    "Use after `git_stage`. The user must have explicitly asked for a commit — per the operating rules, don't auto-commit as part of a larger task unless the user says so. " +
+    'Not for unstaged changes (call `git_stage` first). Not for amending (call `run_command "git commit --amend"` directly when that\'s what the user actually wants). ' +
+    'Follow conventional-commits format. Example: `git_commit(message="fix: handle null callback in UserCard")`.',
   input_schema: {
     type: 'object',
     properties: {
       message: {
         type: 'string',
-        description: 'Commit message. Follow conventional commits format (type: description).',
+        description:
+          'Commit message in conventional-commits format ("fix: …", "feat: …", "refactor: …"). Can span multiple lines for a body; first line is the subject.',
       },
     },
     required: ['message'],
@@ -707,7 +765,11 @@ async function gitCommit(input: Record<string, unknown>): Promise<string> {
 
 const gitLogDef: ToolDefinition = {
   name: 'git_log',
-  description: 'Show recent commit history.',
+  description:
+    'Show recent commit history — hash, message, author, date. ' +
+    'Use when the user asks "what changed recently" or when you need context on how a file evolved before editing it. ' +
+    'Not for full diffs (pair with `git_diff(ref1="<hash>")` for content). ' +
+    'Defaults to the last 10 commits. Example: `git_log(count=20)` for the last 20.',
   input_schema: {
     type: 'object',
     properties: {
@@ -730,13 +792,18 @@ async function gitLog(input: Record<string, unknown>): Promise<string> {
 
 const gitPushDef: ToolDefinition = {
   name: 'git_push',
-  description: 'Push commits to the remote repository. Optionally set upstream for new branches.',
+  description:
+    'Push local commits on the current branch to the remote. ' +
+    "Use only when the user has explicitly asked to push — pushing is irreversible from the agent's side and visible to collaborators. " +
+    'Pass `setUpstream=true` when pushing a newly-created branch for the first time (git otherwise errors with "The current branch has no upstream"). ' +
+    'Not for force-push — call `run_command "git push --force-with-lease"` explicitly, and expect the irrecoverable-operation confirmation gate to fire. ' +
+    'Example: `git_push()` for an existing branch, `git_push(setUpstream=true)` for a new one.',
   input_schema: {
     type: 'object',
     properties: {
       setUpstream: {
         type: 'boolean',
-        description: 'If true, sets the upstream tracking branch (for new branches). Default: false.',
+        description: 'If true, sets the upstream tracking branch for a newly-created branch. Default: false.',
       },
     },
     required: [],
@@ -758,11 +825,16 @@ async function gitPush(input: Record<string, unknown>): Promise<string> {
 
 const gitPullDef: ToolDefinition = {
   name: 'git_pull',
-  description: 'Pull changes from the remote repository.',
+  description:
+    'Pull changes from the remote on the current branch. ' +
+    'Use when the user explicitly asks to sync with remote or when a push was rejected because the branch is behind. ' +
+    'If pull results in merge conflicts, surface them and ask the user to resolve — the agent does not have a reliable conflict-resolution workflow. ' +
+    'Pass `rebase=true` to rebase local commits on top of the remote instead of merging (cleaner history when you know nobody else has your commits). ' +
+    'Example: `git_pull()` for a plain merge pull, `git_pull(rebase=true)` for a rebase pull.',
   input_schema: {
     type: 'object',
     properties: {
-      rebase: { type: 'boolean', description: 'If true, pull with rebase instead of merge. Default: false.' },
+      rebase: { type: 'boolean', description: 'If true, pull with rebase instead of merge. Default: false (merge).' },
     },
     required: [],
   },
@@ -786,16 +858,21 @@ async function gitPull(input: Record<string, unknown>): Promise<string> {
 
 const gitBranchDef: ToolDefinition = {
   name: 'git_branch',
-  description: 'List, create, or switch branches.',
+  description:
+    'Manage git branches: list all, create a new one, or switch to an existing one. ' +
+    'Use when starting a new feature (`create`), moving between work streams (`switch`), or checking what branches exist (`list`). ' +
+    'Not for deleting branches — no delete action is exposed here on purpose; call `run_command "git branch -d <name>"` if the user asks, and expect the irrecoverable-operation gate. ' +
+    'Examples: `git_branch(action="list")`, `git_branch(action="create", name="feature/oauth")`, `git_branch(action="switch", name="main")`.',
   input_schema: {
     type: 'object',
     properties: {
       action: {
         type: 'string',
         enum: ['list', 'create', 'switch'],
-        description: 'Action to perform. Default: "list".',
+        description:
+          'Action to perform. "list" shows all branches, "create" makes a new branch, "switch" checks out an existing one. Default: "list".',
       },
-      name: { type: 'string', description: 'Branch name (required for create/switch).' },
+      name: { type: 'string', description: 'Branch name (required for `create` and `switch`).' },
     },
     required: [],
   },
@@ -827,17 +904,21 @@ async function gitBranch(input: Record<string, unknown>): Promise<string> {
 
 const gitStashDef: ToolDefinition = {
   name: 'git_stash',
-  description: 'Stash or restore working directory changes.',
+  description:
+    'Stash the current working-tree changes or restore a previously-stashed state. ' +
+    'Use when the user wants to park in-progress work to switch branches cleanly, or to try a different approach without losing the current one. ' +
+    'Actions: `push` saves current changes and resets the working tree; `pop` restores the most recent stash and drops it; `apply` restores without dropping; `list` shows saved stashes; `drop` removes a stash. ' +
+    'Examples: `git_stash(action="push", message="WIP: auth refactor")`, `git_stash(action="pop")`, `git_stash(action="list")`.',
   input_schema: {
     type: 'object',
     properties: {
       action: {
         type: 'string',
         enum: ['push', 'pop', 'apply', 'list', 'drop'],
-        description: 'Action to perform. Default: "push".',
+        description: 'Action to perform. Default: "push" (save current changes).',
       },
-      message: { type: 'string', description: 'Optional message for push.' },
-      index: { type: 'number', description: 'Stash index for pop/apply/drop (default: 0).' },
+      message: { type: 'string', description: 'Optional message attached to a `push` stash for later identification.' },
+      index: { type: 'number', description: 'Stash index for `pop`/`apply`/`drop`. Default: 0 (most recent stash).' },
     },
     required: [],
   },
@@ -857,7 +938,11 @@ async function gitStash(input: Record<string, unknown>): Promise<string> {
 const displayDiagramDef: ToolDefinition = {
   name: 'display_diagram',
   description:
-    'Display a diagram from a markdown file. Parses markdown to extract diagram code blocks and returns the specified diagram by index.',
+    'Extract a diagram code block (mermaid, graphviz, plantuml, dot) from a markdown file and return it for rendering in chat. ' +
+    'Use when the user asks "show me the diagram in docs/architecture.md" or when you want to reference an existing diagram while explaining code. ' +
+    'Not for generating new diagrams — to draw something new, emit a ```mermaid code block directly in your chat response (SideCar renders it inline). ' +
+    'Use `index` to select a specific diagram when a file contains more than one. ' +
+    'Example: `display_diagram(path="docs/agent-loop-diagram.md", index=0)`.',
   input_schema: {
     type: 'object',
     properties: {
@@ -867,7 +952,8 @@ const displayDiagramDef: ToolDefinition = {
       },
       index: {
         type: 'number',
-        description: 'Index of the diagram to display (0-based). Default: 0',
+        description:
+          'Zero-based index of the diagram block when the file contains multiple. Default: 0 (first diagram).',
       },
     },
     required: ['path'],
@@ -924,16 +1010,22 @@ export function setSymbolGraph(graph: SymbolGraph | null): void {
 const findReferencesDef: ToolDefinition = {
   name: 'find_references',
   description:
-    'Find all references to a symbol (function, class, type, variable) across the workspace. ' +
-    'Returns the definition location, files that import it, and lines where it is used. ' +
-    'Use this to understand impact before refactoring or to find callers of a function.',
+    'Find every reference to a symbol (function, class, type, variable) across the workspace using the tree-sitter symbol graph. ' +
+    'Returns the definition location, files that import the defining module, and every usage site with file:line. ' +
+    'Use before refactoring to understand blast radius, to find callers of a function, or to check whether a symbol is even used anywhere. ' +
+    'Prefer this over `grep "functionName"` when you want semantic results — it won\'t match comments, strings, or unrelated identifiers with the same name, and it shows the export chain. ' +
+    'Not for free-text search (use `grep`) or for finding files by name (use `search_files`). ' +
+    'Example: `find_references(symbol="handleUserMessage")`, or `find_references(symbol="User", file="src/models/")` to scope to a subtree.',
   input_schema: {
     type: 'object',
     properties: {
-      symbol: { type: 'string', description: 'Name of the symbol to find references for' },
+      symbol: {
+        type: 'string',
+        description: 'Name of the symbol to find references for (function, class, type, variable)',
+      },
       file: {
         type: 'string',
-        description: 'Optional: restrict search to references involving this file (as definer or user)',
+        description: 'Optional: restrict search to references involving this file or directory (as definer or user).',
       },
     },
     required: ['symbol'],
@@ -1019,14 +1111,18 @@ async function findReferences(input: Record<string, unknown>): Promise<string> {
 const webSearchDef: ToolDefinition = {
   name: 'web_search',
   description:
-    'Search the web for information. Use this to find documentation, solutions to error messages, ' +
-    'library APIs, or any information not available in the local codebase. Returns titles, URLs, and snippets.',
+    'Search the web via DuckDuckGo and return titles, URLs, and snippets. ' +
+    'Use to find current documentation, solutions to error messages, library API references, or any information not in the local codebase. ' +
+    'Not for looking things up inside the workspace (use `grep` / `search_files` / `read_file`). ' +
+    'Not for exfiltrating secrets: queries that contain credential-shaped substrings (API keys, JWTs, private-key headers) are blocked with an error, because the query becomes part of the URL logged by the search engine. ' +
+    'Example: `web_search(query="typescript satisfies operator vs type assertion")`, `web_search(query="node.js AggregateError example")`.',
   input_schema: {
     type: 'object',
     properties: {
       query: {
         type: 'string',
-        description: 'Search query (e.g., "react useEffect cleanup function", "python asyncio timeout")',
+        description:
+          'Search query. Keep it specific — a few technical terms works better than a full sentence. Example: "react useEffect cleanup function", "python asyncio timeout".',
       },
     },
     required: ['query'],
@@ -1098,10 +1194,11 @@ export const TOOL_REGISTRY: RegisteredTool[] = [
     definition: {
       name: 'ask_user',
       description:
-        'Ask the user a clarifying question when you need more context to proceed. ' +
-        'Present a question with suggested options the user can pick from. ' +
-        'Use this when the request is ambiguous, there are multiple valid approaches, ' +
-        'or you need the user to choose between alternatives before acting.',
+        'Ask the user a clarifying question with suggested options they can pick from. ' +
+        'Use when a request is genuinely ambiguous and the alternatives have meaningfully different outcomes. ' +
+        "Not for clearly-stated requests — per the operating rules, proceed directly on those and don't ask permission for every small action. " +
+        'Not for decisions the agent can make safely from context (file naming, test framework choice when one is already in use, code style matching the surrounding file). ' +
+        'Example: `ask_user(question="Which auth flow should the callback use?", options=["OAuth code exchange", "Implicit (deprecated)", "Password grant"], allow_custom=true)`.',
       input_schema: {
         type: 'object',
         properties: {

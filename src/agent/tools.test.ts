@@ -517,6 +517,46 @@ describe('tools.ts', () => {
       expect(SPAWN_AGENT_DEFINITION.description).toBeDefined();
       expect(SPAWN_AGENT_DEFINITION.description.length).toBeGreaterThan(0);
     });
+
+    // Cycle-2 prompt-engineer audit: tool descriptions were inconsistent —
+    // some had rich hints + examples, others were bare one-liners. The
+    // rewrite standardized every registry tool on the shape
+    // "description + when to use + when NOT to use + example".
+    //
+    // This test pins the minimum-length floor (bare one-liners used to
+    // pass the non-empty check above) so a future edit that drops
+    // specificity fails loudly. The 150-char threshold is empirical —
+    // the shortest rewritten description lands around 200 chars, and
+    // anything under 150 almost certainly omitted "when NOT to use" or
+    // the example.
+    it('every built-in tool description carries "when to use" + example specificity (≥150 chars)', () => {
+      // Carve out tools that have a narrow, well-named job where
+      // verbose descriptions hurt more than they help. These are the
+      // names only; the rest of the registry must pass the threshold.
+      const allowShortDescriptions = new Set<string>(['git_status']);
+      for (const tool of TOOL_REGISTRY) {
+        if (allowShortDescriptions.has(tool.definition.name)) continue;
+        expect(
+          tool.definition.description.length,
+          `Tool "${tool.definition.name}" description is too short (${tool.definition.description.length} chars). Follow the "description + when to use + when NOT to use + example" shape so the model has enough context to pick the right tool.`,
+        ).toBeGreaterThanOrEqual(150);
+      }
+    });
+
+    it('every built-in tool description mentions an example or a concrete call', () => {
+      // Looks for either the word "example" or a backtick-wrapped call
+      // form. Passes on descriptions like "Example: `read_file(...)`"
+      // and "Examples: `grep(...)`, `grep(pattern=...)`" alike.
+      const shapeRegex = /example|`[a-z_]+\(/i;
+      const allowMissing = new Set<string>(['git_status']);
+      for (const tool of TOOL_REGISTRY) {
+        if (allowMissing.has(tool.definition.name)) continue;
+        expect(
+          shapeRegex.test(tool.definition.description),
+          `Tool "${tool.definition.name}" description has no example or concrete call form. The rewrite target was "description + when to use + when NOT to use + example".`,
+        ).toBe(true);
+      }
+    });
   });
 
   describe('run_command executor', () => {
