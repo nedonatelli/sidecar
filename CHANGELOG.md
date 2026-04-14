@@ -4,13 +4,56 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
-### Added — tool output compression
+## [0.49.0] - 2026-04-14
 
-- **`grep` grouping and deduping** — matches are now grouped under each file path once instead of repeating the path on every line, long match bodies are middle-truncated around the keyword, and runs of identical match lines collapse to `(×N)` counters ([compression.ts](src/agent/tools/compression.ts)). Typical savings on multi-file greps: 40–60%.
-- **`git_diff` header stripping** — drops `index abc..def` blob hashes, the redundant `diff --git a/x b/x` preamble, and `new file mode` / `rename from` / `similarity index` metadata before returning the diff to the agent. Actual change lines and hunk headers are preserved verbatim so the model still reasons about the diff correctly.
-- **`read_file` compact and outline modes** — new optional `mode` parameter on `read_file`. `compact` strips block comments, full-line `//` and `#` comments (shebangs preserved), trailing whitespace, and runs of blank lines. `outline` returns only top-level signatures (imports, classes, functions, types) via a language-agnostic declaration regex. Default `full` mode is unchanged, and the tool description warns the agent to stay in `full` mode when it plans to call `edit_file` afterwards (so the `search` argument still matches the file verbatim).
+Cost-control and user-experience pass plus a cycle-2 audit burn-down. Headline items: OpenAI / Kickstand `max_tokens` fix that stops TPM bucket drain at tiny real spend, per-provider rate-limit isolation, drag-and-drop files/folders into the chat, native tool-output compression for grep/git/read_file, configurable delegate worker cap, and a terminal-error prompt-injection gap closed. 9 commits since v0.48.0, 45 net new tests (1753 → 1798), zero regressions.
 
-Compression strategies inspired by the [rtk-ai](https://github.com/rtk-ai/rtk) project (Apache 2.0). Implemented natively in TypeScript rather than shelling out — SideCar stays self-hosted with no external binary dependency.
+### Fixed — backend cost controls
+
+- **`max_tokens` cap on OpenAI and Kickstand streamChat** — OpenAI's rate limiter reserves `max_tokens` (or the model's default output cap when omitted) against the per-minute token bucket at request time, even though billing only counts tokens actually produced. `streamChat` was omitting `max_tokens` entirely, so each request drained ~16k from the TPM bucket regardless of actual completion size. Users hitting $0.17 in real spend saw `7,902/200,000 tokens remaining` because the reservation wasn't refunding cleanly. `max_tokens=4096` is now sent on every streaming request (matches the local estimator); same fix applied to `kickstandBackend.streamChat`. [openaiBackend.ts](src/ollama/openaiBackend.ts), [kickstandBackend.ts](src/ollama/kickstandBackend.ts)
+- **OpenAI usage event parsing** — streaming requests now include `stream_options: { include_usage: true }` and the parser emits a `StreamUsageEvent` with real `prompt_tokens` / `completion_tokens` from OpenAI's final chunk, so `spendTracker` records actual consumption instead of heuristic estimates.
+- **Per-provider rate-limit store isolation** — `SideCarClient` held a single shared `RateLimitStore` across every backend it constructed; because `update()` merged fields (keeping old values when a new update omitted them), one provider's remaining-token counts leaked into another provider's view when users switched profiles mid-session. Each provider now gets its own lazily-created store via a `Map<ProviderType, RateLimitStore>`, and `getRateLimits()` returns the current provider's store. Removed the `reset()`-on-baseUrl-change workaround in `updateConnection` — no longer needed since each provider is isolated, and it was wiping legitimate same-provider state on host-only changes. [client.ts](src/ollama/client.ts)
+- **`describe()` display now shows `used/limit`** — `X/Y` conventionally reads as "used out of total" (progress bars), but `RateLimitStore.describe()` showed `remaining/limit`, so users saw `7,902/200,000 tokens` and thought "only 8k consumed" when it meant the opposite. Display now subtracts `remaining` from `limit` and reports `used/limit` with the blocking-bucket reset time. [rateLimitState.ts](src/ollama/rateLimitState.ts)
+- **Verbose-mode request-body breakdown log** — when `sidecar.verboseMode=true`, every OpenAI request logs a one-line breakdown of `system=Xk · history=Yk · tools=Zk · total=Nk` before sending, plus the actual `prompt_tokens` / `completion_tokens` after the response. Makes it trivial to diagnose "why is my TPM bucket empty" by identifying the dominant input bucket. [openaiBackend.ts](src/ollama/openaiBackend.ts)
+
+### Added — user-facing features
+
+- **Drag-and-drop files and folders into the chat** — dropped files are read on the extension host and attached as `pendingFiles[]` chips above the input, with per-chip remove buttons. Accepts both VS Code explorer drags (`text/uri-list`) and OS file-manager drags (`dataTransfer.files[].path`). Folders expand shallowly, skipping dotfiles and the usual junk directories (`node_modules`, `.git`, `dist`, `out`, `build`, `.next`, `.turbo`, `.venv`). Per-file cap 500KB (matches the existing attach-file button), overall cap 20 attachments per drop, binary content rejected via NUL-byte sniff. Skipped items surface in an info toast with a short reason list. [chatHandlers.ts:1446+](src/webview/handlers/chatHandlers.ts), [chat.js](media/chat.js)
+- **Native tool-output compression for grep, git_diff, and read_file** — new [`src/agent/tools/compression.ts`](src/agent/tools/compression.ts) module with pure-function helpers:
+  - `grep` now groups matches under each file path once instead of repeating the path per line, middle-truncates long match bodies around the keyword, and collapses identical consecutive lines with a `(×N)` counter. Typical savings on multi-file greps: 40–60%.
+  - `git_diff` drops `index abc..def` blob hashes, the redundant `diff --git a/x b/x` preamble, and `new file mode` / `rename from` / `similarity index` metadata before returning the diff. Actual change lines and hunk headers preserved verbatim so the model still reasons about the diff correctly.
+  - `read_file` gains an optional `mode` parameter. `compact` strips block comments, full-line `//` and `#` comments (shebangs preserved), trailing whitespace, and runs of blank lines. `outline` returns only top-level signatures (imports, classes, functions, types) via a language-agnostic declaration regex that requires zero leading indentation. Default `full` mode is unchanged; the tool description warns the agent to stay in `full` when it plans to call `edit_file` afterwards (so the `search` argument still matches the file verbatim).
+  - Strategies inspired by the [rtk-ai](https://github.com/rtk-ai/rtk) project (Apache 2.0). Implemented natively in TypeScript rather than shelling out — SideCar stays self-hosted with no external binary dependency.
+  - 26 new unit tests in [compression.test.ts](src/agent/tools/compression.test.ts) cover every helper including edge cases (empty input, binary-content grep lines, shebang preservation, outline fallback for files with no declarations).
+- **Configurable `delegate_task` worker iteration cap** — new `sidecar.delegateTask.maxIterations` setting (default 10, min 1, max 25 in package.json UI). Worker iterations were hardcoded to 10 in [localWorker.ts](src/agent/localWorker.ts); users who legitimately need deeper delegated research can now raise the ceiling without editing source. Added to the `update_setting` denylist so the agent can't raise its own iteration cap via the self-configuration tool.
+
+### Fixed — security
+
+- **Terminal-error prompt-injection gap** (cycle-2 LLM surface HIGH) — `diagnoseTerminalError` was synthesizing a user message containing raw captured stderr inside a markdown code block, bypassing the tool-output injection scanner entirely (which only runs on tool *results*, not synthesized user messages). A hostile Makefile or npm script emitting stderr like `[SYSTEM] Ignore previous instructions` landed verbatim as trusted user input. New [`wrapUntrustedTerminalOutput`](src/agent/injectionScanner.ts) helper runs the same 6-pattern `scanToolOutput` on captured output and wraps it in an explicit `<terminal_output source="stderr" trust="untrusted">` envelope with a SIDECAR SECURITY NOTICE banner prepended when patterns match. 5 new regression tests.
+- **Skill description DOM-clobber** (cycle-2 security MEDIUM) — [chat.js attach menu](media/chat.js) was building `item.innerHTML = '<strong>/' + skill.id + '</strong>' + skill.description`, which let user-authored skill frontmatter (potentially hostile in cloned repos) smuggle markup past CSP via DOM-level attribute injection. Replaced with `createElement` + `textContent` like the rest of the webview already does.
+- **Shell output ANSI strip on the streaming path** (cycle-2 security MEDIUM) — `ShellSession.executeInternal` already stripped the final `output` buffer but passed streaming chunks raw to `onOutput`, where they flowed into the webview's `textContent +=` and displayed as garbage `^[[31m` sequences, bloating the tool-call detail pane. The wrapper now applies `stripAnsi` to each chunk at source, so one place gives one guarantee.
+- **`switchBackend` runtime type guard** (cycle-2 UX LOW) — [`sidecar.switchBackend`](src/extension.ts) command type-narrows `profileId` via `typeof profileId === 'string'` before the `BUILT_IN_BACKEND_PROFILES.find(...)` lookup. A stray non-string from a markdown-hover link or a foreign postMessage no longer silently drops through to the picker.
+
+### Fixed — accessibility
+
+- **Settings menu returns focus on close** (cycle-2 UX MEDIUM) — `closeSettingsMenu` now calls `settingsBtn.focus()` so keyboard and screen-reader users don't lose their place after Escape / click-outside dismissal.
+- **`aria-current="true"` on active backend profile** (cycle-2 UX LOW) — the visible checkmark on the active backend profile is now also announced to assistive tech via `aria-current`.
+
+### Fixed — code hygiene
+
+- **`isContinuationRequest` file-local** (cycle-2 arch LOW) — was exported from [chatHandlers.ts](src/webview/handlers/chatHandlers.ts) for no reason; only consumed within the same file. Now file-local. `classifyError` and `keywordOverlap` stay exported because they have their own test coverage in [chatHandlers.test.ts](src/webview/handlers/chatHandlers.test.ts).
+- **README "Partial" label** — downgraded "Hybrid cost-aware delegation" from "Yes" to "Partial" in the comparison tables. `delegate_task` offloads read-only research to a local Ollama worker; it is not a general-purpose multi-agent execution system.
+
+### Closed — stale audit entries
+
+Five cycle-2 findings were actually already fixed but never struck:
+
+- HIGH "No rate-limit awareness" — `maybeWaitForRateLimit` has been in every backend's `streamChat` path since v0.47.0.
+- HIGH "Indirect prompt injection via `web_search` results" — already flows through the executor's `wrapToolOutput` + `scanToolOutput`.
+- HIGH "Indirect prompt injection via git metadata (log / PR / issue bodies)" — same path.
+- MEDIUM "`BackgroundAgentManager` shared `shellSession`" — closed by the per-run `ToolRuntime` fix in commit `e32ab49`.
+- MEDIUM "MCP header `${VAR}` expansion pulls from unfiltered `process.env`" — `resolveEnvVars` in [mcpManager.ts](src/agent/mcpManager.ts) has been scoped to the per-server `env` block since cycle-1.
+- MEDIUM "chatView.ts direct `getConfiguration('sidecar')` reads" — the remaining calls are writes, which must use raw `getConfiguration` by design.
 
 ## [0.48.0] - 2026-04-14
 
