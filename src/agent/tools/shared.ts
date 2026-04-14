@@ -30,6 +30,15 @@ export interface RegisteredTool {
   definition: ToolDefinition;
   executor: ToolExecutor;
   requiresApproval: boolean;
+  /**
+   * When true, approval is required on every call regardless of approval
+   * mode or per-tool `toolPermissions` overrides. Reserved for tools that
+   * change SideCar's own runtime state (backend profile, user settings) —
+   * the user's durable configuration must not change without an explicit
+   * click, even if the agent is running in autonomous mode or the user
+   * previously auto-allowed the tool.
+   */
+  alwaysRequireApproval?: boolean;
 }
 
 export function getRoot(): string {

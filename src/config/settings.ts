@@ -118,6 +118,15 @@ export const BUILT_IN_BACKEND_PROFILES: readonly BackendProfile[] = [
     description: 'Claude via the Anthropic API (pay-per-token, requires API key from platform.claude.com)',
   },
   {
+    id: 'openai',
+    name: 'OpenAI',
+    provider: 'openai',
+    baseUrl: 'https://api.openai.com',
+    defaultModel: 'gpt-4o',
+    secretKey: 'sidecar.profileKey.openai',
+    description: 'GPT models via the OpenAI API (pay-per-token, requires API key from platform.openai.com)',
+  },
+  {
     id: 'kickstand',
     name: 'Kickstand',
     provider: 'kickstand',

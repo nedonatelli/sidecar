@@ -40,6 +40,14 @@ import {
   gitStash,
 } from './tools/git.js';
 import { webSearchDef, webSearch, displayDiagramDef, displayDiagram } from './tools/knowledge.js';
+import {
+  switchBackendDef,
+  switchBackend,
+  getSettingDef,
+  getSetting,
+  updateSettingDef,
+  updateSetting,
+} from './tools/settings.js';
 
 // ---------------------------------------------------------------------------
 // tools.ts is the slim composition layer. Each tool category lives under
@@ -85,6 +93,23 @@ export const TOOL_REGISTRY: RegisteredTool[] = [
   { definition: displayDiagramDef, executor: displayDiagram, requiresApproval: false },
   { definition: findReferencesDef, executor: findReferences, requiresApproval: false },
   { definition: webSearchDef, executor: webSearch, requiresApproval: false },
+  // Settings tools. `alwaysRequireApproval: true` on the two mutating
+  // tools ensures the user sees a modal even in autonomous mode and
+  // even when `toolPermissions` sets them to `allow` — the user's
+  // durable configuration never changes without an explicit click.
+  { definition: getSettingDef, executor: getSetting, requiresApproval: false },
+  {
+    definition: switchBackendDef,
+    executor: switchBackend,
+    requiresApproval: true,
+    alwaysRequireApproval: true,
+  },
+  {
+    definition: updateSettingDef,
+    executor: updateSetting,
+    requiresApproval: true,
+    alwaysRequireApproval: true,
+  },
   {
     definition: {
       name: 'ask_user',

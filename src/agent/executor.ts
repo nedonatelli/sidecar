@@ -277,7 +277,13 @@ export async function executeTool(
 
   // --- Determine approval ---
   let needsApproval: boolean;
-  if (explicitPermission === 'allow') {
+  if (tool.alwaysRequireApproval) {
+    // Non-negotiable: tools that mutate SideCar's own runtime state
+    // (backend profile, user settings) ignore autonomous mode and
+    // ignore any explicit `toolPermissions: allow` override. The
+    // user's durable configuration must not change without a click.
+    needsApproval = true;
+  } else if (explicitPermission === 'allow') {
     needsApproval = false;
   } else if (explicitPermission === 'ask') {
     needsApproval = true;
