@@ -9,7 +9,7 @@ Press `⌘⇧P` (Mac) or `Ctrl+Shift+P` and type **`SideCar:`**. Every user-faci
 | `SideCar: Toggle Chat` | Open or hide the chat sidebar |
 | `SideCar: Inline Chat` | Inline prompt in the editor |
 | `SideCar: Set / Refresh API Key` | Paste or rotate your key |
-| `SideCar: Switch Backend` | Pick Ollama, Anthropic, OpenAI, or Kickstand |
+| `SideCar: Switch Backend` | Pick Ollama, Anthropic, OpenAI, or Kickstand *(coming soon)* |
 | `SideCar: Show Session Spend` | Breakdown of tokens & $ for paid backends |
 | `SideCar: Review Changes` | Get an AI review of your working tree |
 | `SideCar: Summarize Pull Request` | Fetch a PR and generate a summary |

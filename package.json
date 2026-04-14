@@ -53,7 +53,7 @@
             "sidecar",
             "backend"
           ],
-          "markdownDescription": "Base URL for the active LLM backend.\n\n| Backend | URL |\n|---|---|\n| Ollama (local) | `http://localhost:11434` |\n| Anthropic | `https://api.anthropic.com` |\n| OpenAI | `https://api.openai.com` |\n| Kickstand | `http://localhost:11435` |\n\nSwitch backends the easy way: `SideCar: Switch Backend` in the Command Palette."
+          "markdownDescription": "Base URL for the active LLM backend.\n\n| Backend | URL |\n|---|---|\n| Ollama (local) | `http://localhost:11434` |\n| Anthropic | `https://api.anthropic.com` |\n| OpenAI | `https://api.openai.com` |\n| Kickstand *(coming soon)* | `http://localhost:11435` |\n\nSwitch backends the easy way: `SideCar: Switch Backend` in the Command Palette."
         },
         "sidecar.apiKey": {
           "type": "string",
@@ -86,11 +86,11 @@
             "kickstand"
           ],
           "enumDescriptions": [
-            "Detect from the base URL: localhost:11434 → Ollama, anthropic.com → Anthropic, localhost:11435 → Kickstand, anything else → OpenAI-compatible.",
+            "Detect from the base URL: localhost:11434 → Ollama, anthropic.com → Anthropic, localhost:11435 → Kickstand (coming soon), anything else → OpenAI-compatible.",
             "Local Ollama (http://localhost:11434). Free, private, no key needed.",
             "Anthropic Claude API. Requires an API key stored via `SideCar: Set / Refresh API Key`.",
             "OpenAI-compatible API (OpenAI, LM Studio, vLLM, llama.cpp, OpenRouter, together.ai). Requires an API key.",
-            "Kickstand self-hosted LLM server (http://localhost:11435). Reads its token from `~/.config/kickstand/token`."
+            "Kickstand self-hosted LLM server (http://localhost:11435). Coming soon — not yet officially released; the backend adapter ships today for anyone running a local dev build. Reads its token from `~/.config/kickstand/token`."
           ],
           "default": "auto",
           "order": 3,

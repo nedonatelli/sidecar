@@ -12,8 +12,8 @@ All settings are under the `sidecar.*` prefix. Open VS Code settings (`Cmd+,` / 
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
-| `sidecar.baseUrl` | string | `http://localhost:11434` | API base URL. Ollama: `http://localhost:11434`, Anthropic: `https://api.anthropic.com`, Kickstand: `http://localhost:11435`, OpenAI-compatible: any URL |
-| `sidecar.apiKey` | string | `ollama` | API key. **Stored in VS Code SecretStorage** (see below). Ignored for local Ollama, required for Anthropic, Kickstand, and some OpenAI-compatible servers |
+| `sidecar.baseUrl` | string | `http://localhost:11434` | API base URL. Ollama: `http://localhost:11434`, Anthropic: `https://api.anthropic.com`, OpenAI: `https://api.openai.com`, Kickstand *(coming soon)*: `http://localhost:11435`, OpenAI-compatible: any URL |
+| `sidecar.apiKey` | string | `ollama` | API key. **Stored in VS Code SecretStorage** (see below). Ignored for local Ollama, required for Anthropic, OpenAI, and some OpenAI-compatible servers |
 | `sidecar.model` | string | `qwen3-coder:30b` | Model for chat (e.g., `qwen3-coder`, `claude-sonnet-4-6`, or any model on your server) |
 | `sidecar.provider` | enum | `auto` | Backend provider: `auto`, `ollama`, `anthropic`, `openai`, `kickstand`. Auto-detects from URL |
 | `sidecar.systemPrompt` | string | `""` | Custom system prompt appended to the default |
@@ -26,9 +26,10 @@ You don't have to edit these settings by hand. Click the **⚙ gear** in the cha
 |---------|----------|----------|---------------|
 | Local Ollama | `ollama` | `http://localhost:11434` | `qwen2.5-coder:7b` |
 | Anthropic Claude | `anthropic` | `https://api.anthropic.com` | `claude-sonnet-4-6` |
-| Kickstand | `kickstand` | `http://localhost:11435` | *(uses your default)* |
+| OpenAI | `openai` | `https://api.openai.com` | `gpt-4o` |
+| Kickstand *(coming soon)* | `kickstand` | `http://localhost:11435` | *(uses your default)* |
 
-Each profile stores its API key in its own SecretStorage slot (`sidecar.profileKey.<id>`), so switching between profiles preserves keys you've already entered — setting your Anthropic key once won't clobber your Kickstand key, and vice versa. The currently active profile is checkmarked in the menu. The same flow is available from the Command Palette as `SideCar: Switch Backend`.
+Each profile stores its API key in its own SecretStorage slot (`sidecar.profileKey.<id>`), so switching between profiles preserves keys you've already entered — setting your Anthropic key once won't clobber your OpenAI key, and vice versa. The currently active profile is checkmarked in the menu. The same flow is available from the Command Palette as `SideCar: Switch Backend`. Kickstand is not yet officially released; the profile is available for anyone running a local dev build.
 
 On first switch to a profile that needs a key, SideCar will surface a warning with a "Set API Key" button that chains into the standard `SideCar: Set API Key` flow — the key is stored under the correct profile slot automatically.
 
@@ -40,10 +41,10 @@ When `sidecar.provider` is `auto` (default), SideCar detects the backend from th
 
 - **`localhost:11434`** → Ollama (native API)
 - **`anthropic.com`** → Anthropic (Messages API with prompt caching)
-- **`localhost:11435`** → Kickstand (OpenAI-compatible API)
+- **`localhost:11435`** → Kickstand *(coming soon)* — OpenAI-compatible API, not yet officially released
 - **Everything else** → OpenAI-compatible (`/v1/chat/completions`)
 
-Set `sidecar.provider` explicitly if auto-detection doesn't match your setup — for example, if you're running an Anthropic-compatible proxy on a custom URL, or Kickstand on a non-standard port.
+Set `sidecar.provider` explicitly if auto-detection doesn't match your setup — for example, if you're running an Anthropic-compatible proxy on a custom URL, or a local Kickstand dev build on a non-standard port.
 
 ### API key storage (SecretStorage)
 

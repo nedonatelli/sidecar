@@ -43,7 +43,7 @@ Press `⌘⇧P` (`Ctrl+Shift+P` on Windows/Linux) and type **`SideCar:`** — ev
 - `SideCar: Inline Chat` — inline edit prompt in the editor (`⌘I`)
 - `SideCar: Select Model` — keyboard-first model picker
 - `SideCar: Set / Refresh API Key` — paste or rotate your key
-- `SideCar: Switch Backend` — flip between Ollama / Anthropic / OpenAI / Kickstand
+- `SideCar: Switch Backend` — flip between Ollama / Anthropic / OpenAI / Kickstand *(coming soon)*
 - `SideCar: Show Session Spend` — `$` breakdown for the current session on paid backends
 - `SideCar: Open Walkthrough` — reopen the getting-started page
 
@@ -62,7 +62,7 @@ The default model is `qwen3-coder:30b`. For machines with less RAM, try `qwen3-c
 
 ## Switching backends
 
-The fastest way to move between Ollama, Anthropic, and Kickstand is the **⚙ gear button** in the chat header. It opens a settings menu with a Backend section — pick a profile and SideCar flips `baseUrl`, `provider`, and `model` in one click. Each profile keeps its own API key in VS Code's SecretStorage, so switching doesn't clobber keys you've already set. The same flow is available from the Command Palette as `SideCar: Switch Backend`.
+The fastest way to move between Ollama, Anthropic, OpenAI, and Kickstand *(coming soon)* is the **⚙ gear button** in the chat header. It opens a settings menu with a Backend section — pick a profile and SideCar flips `baseUrl`, `provider`, and `model` in one click. Each profile keeps its own API key in VS Code's SecretStorage, so switching doesn't clobber keys you've already set. The same flow is available from the Command Palette as `SideCar: Switch Backend`.
 
 The sections below describe each backend in detail and also cover the manual settings path if you prefer editing `settings.json`.
 
@@ -80,18 +80,21 @@ SideCar uses prompt caching with Anthropic, reducing input token costs by ~90% o
 
 > Note: the Anthropic API is a separate paid service from Claude.ai subscriptions — your Max or Pro plan does not include API credits. Get a key at [platform.claude.com](https://platform.claude.com).
 
-## Using Kickstand
+## Using Kickstand *(coming soon)*
 
-[Kickstand](https://github.com/kickstand/kickstand) is a local inference server that manages model loading, unloading, and GPU memory efficiently. The CLI command is `kick`.
+Kickstand is not yet officially released — the backend adapter ships in SideCar today for anyone running a local dev build, but the first-party Kickstand product release is still in progress. Watch for the announcement.
 
-1. Install Kickstand and run `kick init` to set up.
-2. Start the server with `kick start`.
-3. **Recommended:** click the ⚙ gear → **Kickstand** in the chat header.
+Once released, Kickstand will be a local inference server that manages model loading, unloading, and GPU memory efficiently. CLI command: `kick`.
+
+If you're already running a local dev build:
+
+1. Start the server with `kick start`.
+2. **Recommended:** click the ⚙ gear → **Kickstand (coming soon)** in the chat header.
    **Manual:** set `sidecar.baseUrl` to `http://localhost:11435` (default Kickstand port).
-4. Set `sidecar.model` to the model you want to use.
-5. If authentication is required, run `SideCar: Set API Key` — or store your token in `~/.config/kickstand/token` for automatic loading.
+3. Set `sidecar.model` to the model you want to use.
+4. If authentication is required, run `SideCar: Set API Key` — or store your token in `~/.config/kickstand/token` for automatic loading.
 
-SideCar will auto-detect Kickstand by the port number.
+SideCar auto-detects Kickstand by the port number.
 
 ## Using OpenAI-compatible servers
 
@@ -116,7 +119,7 @@ SideCar auto-detects the provider from the URL. If auto-detection gets it wrong,
 | llama.cpp | `http://localhost:8080` | Auto-detected as OpenAI |
 | OpenRouter | `https://openrouter.ai/api` | Set API key, access 400+ models |
 | text-generation-webui | `http://localhost:5000` | Enable OpenAI extension in the UI |
-| Kickstand | `http://localhost:11435` | Auto-detected as Kickstand |
+| Kickstand *(coming soon)* | `http://localhost:11435` | Auto-detected as Kickstand |
 | Ollama | `http://localhost:11434` | Auto-detected as Ollama (native API) |
 | Anthropic | `https://api.anthropic.com` | Auto-detected as Anthropic |
 

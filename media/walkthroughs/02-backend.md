@@ -16,9 +16,9 @@ SideCar auto-detects `http://localhost:11434` — no API key needed. Everything 
 
 Open `Switch Backend` below to pick a profile, then `Set API Key` to paste your key. Keys are stored in VS Code's SecretStorage, never in `settings.json`.
 
-### Kickstand (self-hosted)
+### Kickstand *(coming soon)*
 
-If you're running a Kickstand instance on `localhost:11435`, select it from the backend picker — the token is read from `~/.config/kickstand/token` automatically.
+Kickstand is not yet officially released. The backend adapter ships today for anyone running a local dev build on `localhost:11435` — select it from the backend picker and the token is read from `~/.config/kickstand/token` automatically. Watch for the first-party Kickstand release announcement.
 
 ---
 
