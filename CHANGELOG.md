@@ -4,6 +4,28 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.49.1] - 2026-04-14
+
+Patch release. No behavior changes for the shipping agent flow — cosmetic, docs, and developer tooling only.
+
+### Changed
+
+- **Activity bar icon** — replaced the white-rectangle placeholder PNG with a traced SVG scooter silhouette ([media/sidecar_silhouette.svg](media/sidecar_silhouette.svg)). Uses `fill="currentColor"` so VS Code's `--vscode-activityBar-foreground` tints the icon automatically on both light and dark themes. `preserveAspectRatio="xMidYMid slice"` fills the square slot vertically; wide-aspect content is cropped slightly at the edges but the cargo box (SideCar identity signal) remains visible. The top-level marketplace-listing icon at [package.json:23](package.json#L23) is unchanged — still `media/SideCar.png`.
+- **Kickstand "(coming soon)" labeling** — every user-facing mention of Kickstand in the settings UI (profile picker, `sidecar.baseUrl` description, `sidecar.provider` enum), README, walkthroughs (`02-backend.md`, `05-discover.md`), and published docs (`configuration.md`, `getting-started.md`) now carries a `(coming soon)` tag. The Kickstand backend adapter ships today for anyone running a local dev build, but the first-party release is still in progress — the labeling prevents readers from assuming it's a sign-up-and-go product. Runtime state labels (e.g. "active · Kickstand" in the model picker) are deliberately left plain since they fire only when a user is actively connected.
+
+### Added — developer tooling
+
+- **Agent-loop eval harness** — extends the existing prompt-only LLM eval layer with a second layer that runs `runAgentLoop` end-to-end against a sandboxed temp-dir workspace. New files under [tests/llm-eval/](tests/llm-eval/):
+  - `workspaceSandbox.ts` — per-case temp dir + real-node-fs-backed `workspace.fs` swap, reverted on teardown.
+  - `agentTypes.ts` — `TrajectoryEvent`, `AgentEvalCase`, `AgentExpectations` (tool-call presence, partial-input matching, workspace file assertions, final-text substrings).
+  - `agentHarness.ts` — `runAgentCase` + backend picker. Defaults to local Ollama since agent-loop cases burn real tokens.
+  - `agentScorers.ts` — deterministic scorers that walk the trajectory and post-run workspace snapshot; tool-call input matching is substring-based for string fields so "src/a.ts" matches "./src/a.ts" matches "a.ts".
+  - `agentCases.ts` — 3 starter cases (read-single-file, rename-function, grep-for-todo).
+  - `agent.eval.ts` — vitest runner, mirrors `prompt.eval.ts`. Skips cleanly via `describe.skipIf` when no backend is available.
+  - Architectural finding: `runAgentLoop` does NOT require `ChatState`. All the UI plumbing (`PendingEditStore`, `SkillLoader`, `AgentMemory`, `WorkspaceIndex`) lives on `ChatState` and is optional for headless execution. The agent core takes `(client, messages, callbacks, signal, options)` — clean separation. This finding unblocks future headless automation and makes subsequent refactors of the loop itself safer.
+  - Run via `npm run eval:llm` — same entry point as the prompt layer. End-to-end verification: all 3 agent cases pass against local Ollama (qwen3-coder:30b) in ~32s. Main unit suite (1798 tests) unchanged.
+  - Closes the cycle-2 ai-engineering HIGH finding: *"No evaluation harness for LLM behavior."*
+
 ## [0.49.0] - 2026-04-14
 
 Cost-control and user-experience pass plus a cycle-2 audit burn-down. Headline items: OpenAI / Kickstand `max_tokens` fix that stops TPM bucket drain at tiny real spend, per-provider rate-limit isolation, drag-and-drop files/folders into the chat, native tool-output compression for grep/git/read_file, configurable delegate worker cap, and a terminal-error prompt-injection gap closed. 9 commits since v0.48.0, 45 net new tests (1753 → 1798), zero regressions.
