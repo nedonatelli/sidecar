@@ -26,6 +26,7 @@ import { DocumentationIndexer } from '../config/documentationIndexer.js';
 import { AgentMemory } from '../agent/agentMemory.js';
 import { AuditLog } from '../agent/auditLog.js';
 import { BackgroundAgentManager } from '../agent/backgroundAgent.js';
+import { wrapUntrustedTerminalOutput } from '../agent/injectionScanner.js';
 
 // Handler modules
 import {
@@ -532,14 +533,23 @@ export class ChatViewProvider implements WebviewViewProvider {
     cwd: string | undefined;
     output: string;
   }): Promise<void> {
+    // Terminal output is attacker-controlled — a hostile Makefile /
+    // npm script can emit stderr like `[SYSTEM] Ignore all previous
+    // instructions` and, historically, that text flowed verbatim into
+    // the user message here, bypassing the tool-output injection
+    // scanner entirely (which only runs on tool *results*, not on
+    // synthesized user messages). `wrapUntrustedTerminalOutput` runs
+    // the same scanner on the captured output and wraps it in an
+    // explicit `<terminal_output trust="untrusted">` envelope with a
+    // warning banner when patterns are detected.
     const cwdLine = event.cwd ? `\nWorking directory: ${event.cwd}` : '';
-    const outputBlock = event.output ? `\n\nOutput (tail):\n\`\`\`\n${event.output}\n\`\`\`` : '';
+    const wrappedOutputBlock = wrapUntrustedTerminalOutput(event.output || '');
     const prompt =
       `A command in my terminal just failed. Help me diagnose and fix it.\n\n` +
       `Command: \`${event.commandLine}\`\n` +
       `Exit code: ${event.exitCode}` +
       cwdLine +
-      outputBlock;
+      wrappedOutputBlock;
 
     if (this.webviewView) {
       this.webviewView.show(true);
