@@ -110,6 +110,21 @@ function compressMessage(msg: ChatMessage, level: CompressionLevel): ChatMessage
     return msg;
   }
 
+  // Detect a paired thinking → tool_use chain inside this message.
+  // Anthropic's Extended Thinking mode signs each tool_use with its
+  // preceding thinking block; dropping thinking while keeping the
+  // tool_use produces a "thinking must precede tool_use" validation
+  // error when the compressed history is replayed on the next turn.
+  // When the chain is present, we downgrade the thinking-block
+  // compression level for THIS message to `medium` (truncate instead
+  // of drop) so the atomic unit stays intact. Other block types
+  // (tool_result, text) still get the full `level` compression — the
+  // bulk of the savings comes from those, not from thinking.
+  const hasThinking = msg.content.some((b) => b.type === 'thinking');
+  const hasToolUse = msg.content.some((b) => b.type === 'tool_use');
+  const atomicChain = hasThinking && hasToolUse;
+  const thinkingLevel: CompressionLevel = atomicChain && level === 'heavy' ? 'medium' : level;
+
   // Content block arrays — compress individual blocks
   const newContent: ContentBlock[] = [];
   for (const block of msg.content) {
@@ -121,13 +136,18 @@ function compressMessage(msg: ChatMessage, level: CompressionLevel): ChatMessage
         newContent.push(compressToolUse(block, level));
         break;
       case 'thinking':
-        // Light: keep full thinking. Medium: truncate. Heavy: drop.
-        if (level === 'light') {
+        // Light: keep full thinking. Medium: truncate. Heavy: drop
+        // UNLESS this message is an atomic thinking→tool_use chain,
+        // in which case `thinkingLevel` was downgraded to medium above.
+        if (thinkingLevel === 'light') {
           newContent.push(block);
-        } else if (level === 'medium' && block.thinking.length > 200) {
+        } else if (thinkingLevel === 'medium' && block.thinking.length > 200) {
           newContent.push({ ...block, thinking: block.thinking.slice(0, 150) + '...' });
+        } else if (thinkingLevel === 'medium') {
+          // Preserve short thinking blocks intact at medium level.
+          newContent.push(block);
         }
-        // Heavy: omit entirely
+        // Heavy: omit entirely (only reachable when atomicChain is false)
         break;
       case 'text':
         newContent.push(compressText(block, level));

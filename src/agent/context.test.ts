@@ -67,15 +67,24 @@ describe('pruneHistory', () => {
     }
   });
 
-  it('strips thinking blocks from old turns', () => {
+  it('preserves thinking blocks that are part of an atomic thinking→tool_use chain', () => {
+    // Regression for the cycle-2 AI-engineering finding: heavy
+    // compression used to drop thinking blocks unconditionally, which
+    // broke Extended Thinking's signed-thinking verification when a
+    // tool_use followed the thinking in the same message. `pruneHistory`
+    // now keeps both intact when the message is an atomic chain.
     const msgs = buildConversation(5);
     const pruned = pruneHistory(msgs, 50_000);
 
-    // The oldest assistant message should have thinking removed (heavy compression)
+    // The oldest assistant message should still have its thinking
+    // alongside its tool_use — the chain is atomic.
     const oldAssistant = pruned[1]; // second message = first assistant response
     if (Array.isArray(oldAssistant?.content)) {
       const hasThinking = oldAssistant.content.some((b) => b.type === 'thinking');
-      expect(hasThinking).toBe(false);
+      const hasToolUse = oldAssistant.content.some((b) => b.type === 'tool_use');
+      if (hasToolUse) {
+        expect(hasThinking).toBe(true);
+      }
     }
   });
 
@@ -193,6 +202,101 @@ describe('pruneHistory', () => {
     }, 0);
 
     expect(after).toBeLessThan(before);
+  });
+
+  describe('thinking + tool_use atomic chain (cycle-2 regression)', () => {
+    // The bug: heavy compression dropped thinking blocks unconditionally,
+    // which broke the atomic thinking→tool_use chain that Anthropic's
+    // Extended Thinking mode relies on for signed-thinking verification.
+    // Fix: keep thinking intact when the same message also contains a
+    // tool_use block; only drop standalone thinking blocks at heavy level.
+    function countBlocksOfType(msgs: ChatMessage[], type: string): number {
+      let n = 0;
+      for (const m of msgs) {
+        if (Array.isArray(m.content)) {
+          for (const b of m.content) if (b.type === type) n++;
+        }
+      }
+      return n;
+    }
+
+    function buildMessagesWithThinkingChain(): ChatMessage[] {
+      // 8 turns, each with a thinking + tool_use chain in the assistant
+      // response. The older turns get compressed at heavy level by
+      // pruneHistory, which is where the atomic-chain rule must fire.
+      const msgs: ChatMessage[] = [];
+      for (let t = 0; t < 8; t++) {
+        msgs.push({ role: 'user', content: `Task ${t}: ${'context '.repeat(80)}` });
+        msgs.push({
+          role: 'assistant',
+          content: [
+            { type: 'thinking', thinking: 'thinking '.repeat(200) },
+            { type: 'tool_use', id: `tc_${t}`, name: 'read_file', input: { path: `f${t}.ts` } },
+          ],
+        });
+        msgs.push({
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: `tc_${t}`, content: 'x'.repeat(4000) }],
+        });
+      }
+      return msgs;
+    }
+
+    it('keeps thinking blocks alive when the same message has a tool_use (atomic chain)', () => {
+      const msgs = buildMessagesWithThinkingChain();
+      // Squeeze hard enough that heavy compression fires on the oldest turns.
+      const pruned = pruneHistory(msgs, 10_000);
+      // Any surviving tool_use block MUST have a thinking block in the
+      // same message — otherwise we've orphaned the chain.
+      for (const m of pruned) {
+        if (!Array.isArray(m.content)) continue;
+        const hasToolUse = m.content.some((b) => b.type === 'tool_use');
+        const hasThinking = m.content.some((b) => b.type === 'thinking');
+        if (hasToolUse) {
+          expect(hasThinking).toBe(true);
+        }
+      }
+    });
+
+    it('still compresses tool_result payloads in the same atomic-chain message', () => {
+      // Atomic chain protection must not block compression of the
+      // bulky tool_result blocks — those are where the savings live.
+      const msgs = buildMessagesWithThinkingChain();
+      const originalToolResultChars = msgs.reduce((sum, m) => {
+        if (!Array.isArray(m.content)) return sum;
+        return sum + m.content.reduce((s, b) => (b.type === 'tool_result' ? s + b.content.length : s), 0);
+      }, 0);
+
+      const pruned = pruneHistory(msgs, 10_000);
+      const prunedToolResultChars = pruned.reduce((sum, m) => {
+        if (!Array.isArray(m.content)) return sum;
+        return sum + m.content.reduce((s, b) => (b.type === 'tool_result' ? s + b.content.length : s), 0);
+      }, 0);
+
+      expect(prunedToolResultChars).toBeLessThan(originalToolResultChars);
+    });
+
+    it('still drops thinking blocks that have NO paired tool_use (heavy compression)', () => {
+      // Standalone reasoning without any tool action in the same message
+      // is still disposable at heavy level.
+      const msgs: ChatMessage[] = [];
+      for (let t = 0; t < 8; t++) {
+        msgs.push({ role: 'user', content: `Task ${t}: ${'context '.repeat(80)}` });
+        msgs.push({
+          role: 'assistant',
+          content: [
+            { type: 'thinking', thinking: 'standalone thinking '.repeat(200) },
+            { type: 'text', text: 'Here is my answer.' },
+          ],
+        });
+      }
+
+      const originalThinking = countBlocksOfType(msgs, 'thinking');
+      const pruned = pruneHistory(msgs, 5_000);
+      const prunedThinking = countBlocksOfType(pruned, 'thinking');
+      // At least one standalone thinking block got compressed/dropped.
+      expect(prunedThinking).toBeLessThan(originalThinking);
+    });
   });
 });
 
