@@ -389,6 +389,8 @@ export interface SideCarConfig {
   delegateTaskEnabled: boolean;
   delegateTaskWorkerModel: string;
   delegateTaskWorkerBaseUrl: string;
+  /* Outbound exfiltration defense */
+  outboundAllowlist: string[];
 }
 
 /**
@@ -490,6 +492,8 @@ function readConfig(): SideCarConfig {
     delegateTaskEnabled: cfg.get<boolean>('delegateTask.enabled', true),
     delegateTaskWorkerModel: cfg.get<string>('delegateTask.workerModel', ''),
     delegateTaskWorkerBaseUrl: cfg.get<string>('delegateTask.workerBaseUrl', 'http://localhost:11434'),
+    /* Outbound exfiltration defense */
+    outboundAllowlist: cfg.get<string[]>('outboundAllowlist', []),
   };
 }
 

@@ -1,5 +1,6 @@
 import { workspace, commands, Uri, CancellationToken, SymbolInformation } from 'vscode';
 import * as path from 'path';
+import { getConfig } from './settings.js';
 
 export interface WorkspaceFile {
   relativePath: string;
@@ -254,6 +255,48 @@ function isPrivateUrl(urlStr: string): boolean {
 }
 
 /**
+ * Outbound-host allowlist check for URL fetching.
+ *
+ * When `sidecar.outboundAllowlist` is non-empty, a URL is only fetched
+ * if its hostname matches one of the configured patterns. Empty list
+ * (the default) allows every public URL — existing behaviour, since
+ * SSRF and private-IP blocking via `isPrivateUrl` still applies.
+ *
+ * Patterns support a leading `*.` wildcard for subdomain matching
+ * (`*.github.com` matches `api.github.com` and `raw.github.com` but
+ * not `github.com` itself — add both entries to cover that case).
+ * Exact hostnames also work: `github.com`, `example.org`.
+ *
+ * Exported for testing; callers go through `isAllowedOutboundHost`
+ * which reads the current config.
+ */
+export function matchAllowlistHost(host: string, allowlist: readonly string[]): boolean {
+  if (allowlist.length === 0) return true;
+  const lower = host.toLowerCase();
+  for (const pattern of allowlist) {
+    const p = pattern.toLowerCase().trim();
+    if (!p) continue;
+    if (p.startsWith('*.')) {
+      const suffix = p.slice(2);
+      if (lower.endsWith('.' + suffix)) return true;
+    } else if (lower === p) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isAllowedOutboundHost(urlStr: string): boolean {
+  const allowlist = getConfig().outboundAllowlist;
+  if (!allowlist || allowlist.length === 0) return true;
+  try {
+    return matchAllowlistHost(new URL(urlStr).hostname, allowlist);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Detect URLs in the message text, fetch readable content, and append it.
  */
 export async function resolveUrlReferences(text: string): Promise<string> {
@@ -268,6 +311,7 @@ export async function resolveUrlReferences(text: string): Promise<string> {
     if (seen.has(url)) continue;
     seen.add(url);
     if (isPrivateUrl(url)) continue; // SSRF protection
+    if (!isAllowedOutboundHost(url)) continue; // outbound allowlist (when configured)
     try {
       const response = await fetch(url, {
         signal: AbortSignal.timeout(URL_FETCH_TIMEOUT),

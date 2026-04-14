@@ -370,6 +370,16 @@
           "tags": ["sidecar", "cost", "agent"],
           "markdownDescription": "Base URL of the Ollama instance the `delegate_task` worker connects to. Must point at a local or reachable Ollama server — never Anthropic or OpenAI (defeats the purpose)."
         },
+        "sidecar.outboundAllowlist": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "order": 4,
+          "tags": ["sidecar", "security"],
+          "markdownDescription": "Outbound host allowlist for URL fetching in chat.\n\nWhen non-empty, SideCar only fetches URLs whose hostname matches one of these entries. Empty (the default) allows every public URL — SSRF and private-IP blocking still apply.\n\nPatterns support a leading `*.` wildcard for subdomains:\n\n- `github.com` — exact match only\n- `*.github.com` — any subdomain (`api.github.com`, `raw.github.com`)\n\nPairs with the built-in exfiltration defense on `web_search`, which refuses to send queries containing credential-shaped tokens regardless of this setting."
+        },
         "sidecar.includeActiveFile": {
           "type": "boolean",
           "default": true,

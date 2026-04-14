@@ -14,6 +14,7 @@ import {
   getContextLimit,
   resolveFileReferences,
   resolveAtReferences,
+  matchAllowlistHost,
 } from './workspace.js';
 import { workspace } from 'vscode';
 
@@ -248,5 +249,42 @@ describe('resolveAtReferences', () => {
     const result = await resolveAtReferences('@file:test.ts');
     expect(result).toBe('@file:test.ts');
     (workspace as Record<string, unknown>).workspaceFolders = orig;
+  });
+});
+
+describe('matchAllowlistHost', () => {
+  it('allows every host when the allowlist is empty (default behavior)', () => {
+    expect(matchAllowlistHost('github.com', [])).toBe(true);
+    expect(matchAllowlistHost('attacker.xyz', [])).toBe(true);
+  });
+
+  it('allows exact hostname matches', () => {
+    expect(matchAllowlistHost('github.com', ['github.com'])).toBe(true);
+    expect(matchAllowlistHost('api.github.com', ['github.com'])).toBe(false);
+  });
+
+  it('allows subdomains under a *.pattern wildcard', () => {
+    const list = ['*.github.com'];
+    expect(matchAllowlistHost('api.github.com', list)).toBe(true);
+    expect(matchAllowlistHost('raw.github.com', list)).toBe(true);
+    expect(matchAllowlistHost('github.com', list)).toBe(false); // bare suffix not matched by *.pattern
+    expect(matchAllowlistHost('githubhacker.com', list)).toBe(false);
+  });
+
+  it('combines bare and wildcard entries for same-origin + subdomains', () => {
+    const list = ['github.com', '*.github.com'];
+    expect(matchAllowlistHost('github.com', list)).toBe(true);
+    expect(matchAllowlistHost('api.github.com', list)).toBe(true);
+    expect(matchAllowlistHost('otherhost.com', list)).toBe(false);
+  });
+
+  it('is case-insensitive on both sides', () => {
+    expect(matchAllowlistHost('GitHub.COM', ['github.com'])).toBe(true);
+    expect(matchAllowlistHost('API.GitHub.com', ['*.GITHUB.COM'])).toBe(true);
+  });
+
+  it('ignores empty / whitespace-only entries', () => {
+    expect(matchAllowlistHost('github.com', ['', '   ', 'github.com'])).toBe(true);
+    expect(matchAllowlistHost('attacker.xyz', ['', '   '])).toBe(false);
   });
 });
