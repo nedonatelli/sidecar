@@ -2,7 +2,7 @@
 
 Planned improvements and features for SideCar. Audit findings from v0.34.0 comprehensive review are in the Audit Backlog section. All critical fixes were addressed in v0.35.0.
 
-Last updated: 2026-04-14 (v0.47.0 + cycle-2 audit security + prompt-engineering + architecture/AI-eng passes — 2 CRITICAL + 15 HIGH + several MEDIUM closed; `tools.ts` god-module split completed)
+Last updated: 2026-04-14 (v0.48.0 released — cycle-2 security + prompt-engineering + architecture passes complete, settings agent tools + OpenAI profile + per-run ToolRuntime for background agents + tools.ts god-module split + adversarial critic verification pass)
 
 ---
 
