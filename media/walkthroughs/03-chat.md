@@ -10,7 +10,7 @@ Press `⌘⇧I` (Mac) or `Ctrl+Shift+I` (Windows/Linux) to toggle the SideCar ch
 - Paste a URL to include the page content as context
 - Right-click any message to copy, delete, or re-run
 
-**Agent modes** control how much autonomy the agent has:
+**Agent modes** in the header dropdown control how much autonomy the agent has:
 
 | Mode | Behavior |
 |------|------|

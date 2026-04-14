@@ -39,4 +39,4 @@ In `review` mode, any file the agent proposes to change gets a **P** badge in th
 
 - Visit [SideCar Documentation](https://nedonatelli.github.io/sidecar/)
 - Report issues on [GitHub Issues](https://github.com/nedonatelli/sidecar/issues)
-- Join the community for support and tips
+- Browse the source on [GitHub](https://github.com/nedonatelli/sidecar)
