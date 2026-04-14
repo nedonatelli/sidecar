@@ -111,7 +111,7 @@ This lets you steer the agent mid-run without waiting for it to finish. The back
 
 ## Built-in tools
 
-SideCar has 22 built-in tools the agent can use:
+SideCar has 23 built-in tools the agent can use (`delegate_task` is only exposed when the active backend is paid, so local-only users see 22):
 
 | Tool | Description |
 |------|-------------|
@@ -125,6 +125,7 @@ SideCar has 22 built-in tools the agent can use:
 | `get_diagnostics` | Read compiler errors, warnings, and security findings |
 | `run_tests` | Run test suites with auto-detection |
 | `spawn_agent` | Spawn parallel sub-agents for complex tasks (max depth: 3, max 15 iterations each) |
+| `delegate_task` *(paid backends only)* | Offload read-only research to a local Ollama worker — see below |
 | `git_status` | Show working tree status |
 | `git_stage` | Stage files for commit |
 | `git_commit` | Create a commit |
@@ -140,6 +141,39 @@ SideCar has 22 built-in tools the agent can use:
 | `ask_user` | Ask the user a clarifying question with selectable options |
 
 Additional tools can be added via [MCP servers](mcp-servers) and [custom tools](hooks-and-tasks#custom-tools).
+
+### Hybrid delegation — `delegate_task`
+
+When the active backend is paid (Anthropic, OpenAI), SideCar exposes a `delegate_task` tool to the orchestrator. This is a hybrid-architecture tool that lets the frontier model offload read-only research to a **local Ollama worker** so you don't pay for tokens spent on file reads and greps.
+
+**How it works:**
+
+1. The frontier model calls `delegate_task({task, context?})` when it needs to explore the codebase — "find all callers of `authenticate()`", "summarize how tool execution flows through `src/agent/`", "grep for TODO comments related to caching".
+2. SideCar spawns a fresh `SideCarClient` pointed at `http://localhost:11434` (or the configured `sidecar.delegateTask.workerBaseUrl`) with its own system prompt and a **read-only** tool subset: `read_file`, `grep`, `search_files`, `list_directory`, `get_diagnostics`, `find_references`, `git_*`, `display_diagram`.
+3. The worker runs its own mini agent loop (max 10 iterations) with `autonomous` approval mode and produces a compact structured summary — file paths, symbol names, line numbers, recommendations.
+4. The summary is returned to the orchestrator as the `tool_result`. The orchestrator never sees the raw file contents or grep output.
+5. **The worker's token consumption does not count against the orchestrator's char budget.** Local Ollama is free; the paid model only pays for reasoning and synthesis.
+
+**Design choices:**
+
+- **Read-only by design** — the worker cannot write files, run commands, or make changes. If the task asks for edits, the worker is instructed to describe what *should* change and leave the actual edits to the orchestrator.
+- **Not exposed to the worker** — the worker doesn't know `delegate_task` or `spawn_agent` exist, so it can't recursively delegate or spiral.
+- **Hidden from local-only setups** — the tool definition is only added to `getToolDefinitions()` when the provider is `anthropic` or `openai`. Local Ollama users don't see a pointless option.
+- **Configurable worker** — `sidecar.delegateTask.workerModel` picks which Ollama model runs the worker (default: same as chat). A code-tuned model like `qwen3-coder:30b` or `deepseek-coder:33b` gives the best research results.
+
+**Example savings** — in a typical "refactor this module" task where the frontier model needs to read 8-12 files to understand the current shape, delegating the reads to a local worker cuts the paid-model input tokens by 60-80% on the first turn, then the worker's structured summary caches well into subsequent turns.
+
+Toggle via `sidecar.delegateTask.enabled` (default on). See [Cost controls](configuration#cost-controls-paid-backends) for configuration details.
+
+## Tool approval and modal dialogs
+
+When the agent calls a tool that requires approval, the prompt location depends on what the tool does:
+
+- **Write tools** (`write_file`, `edit_file`) — go through the **streaming diff preview**. The proposed content opens in VS Code's native diff editor; accept or reject via an editor notification, a chat card, or keyboard shortcuts. Whichever you click first wins.
+- **Destructive tools** (`run_command`, `run_tests`, `git_stage`, `git_commit`, `git_push`, `git_pull`, `git_branch`, `git_stash`) — open a **native blocking modal** (`showWarningMessage({modal: true})`) that you must dismiss before the editor responds to anything else. The modal body contains a short title (`Allow SideCar to run run_command?`) and a detail line with the full input (`command: npm test`). You can't miss the prompt while scrolled away from chat, and it can't auto-dismiss.
+- **Read-only tools** (`grep`, `search_files`, `find_references`, `list_directory`, `get_diagnostics`, `git_diff`, `git_status`, `git_log`, `git_branch list`) — keep the existing **inline chat card** since they're quick, non-destructive, and don't justify a blocking interruption.
+
+The rule of thumb: **if it could break something, block the editor until you decide.** If it's just reading data, use the quieter in-chat surface.
 
 ## Clarifying questions
 

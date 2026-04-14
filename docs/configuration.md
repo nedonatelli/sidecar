@@ -49,15 +49,15 @@ Set `sidecar.provider` explicitly if auto-detection doesn't match your setup —
 
 API keys are stored in **VS Code's SecretStorage**, not in plaintext `settings.json`. This applies to both `sidecar.apiKey` and `sidecar.fallbackApiKey`.
 
-**Setting your key:**
+**Setting or refreshing your key:**
 
-Open the command palette (`Cmd+Shift+P` / `Ctrl+Shift+P`) and run:
+Three equivalent ways to set or rotate your key:
 
-```
-SideCar: Set API Key (SecretStorage)
-```
+1. Open the command palette (`Cmd+Shift+P` / `Ctrl+Shift+P`) and run `SideCar: Set / Refresh API Key`.
+2. Click the `$(key)` icon in the chat view's title bar.
+3. Let a native error toast prompt you — when an auth error fires, the `Set API Key` action button on the toast runs the same flow.
 
-A password input prompt appears. The value is stored encrypted in your OS keychain (macOS Keychain, Windows Credential Manager, or libsecret on Linux).
+A password input prompt appears. Values are trimmed of whitespace on save (defense-in-depth trim also fires at the `AnthropicBackend` constructor, in case an existing stored key has a stray newline from an earlier paste). Empty input is rejected with a warning. The value is stored encrypted in your OS keychain (macOS Keychain, Windows Credential Manager, or libsecret on Linux). After saving, SideCar automatically refreshes the model list so the UI recovers from any "Cannot connect" error state without requiring a window reload.
 
 **Migration from plaintext:**
 
@@ -226,6 +226,25 @@ Set spending limits to prevent runaway costs when using paid APIs (Anthropic, Op
 Budget tracking uses the per-run cost estimates stored in metrics history. View current spending with the `/usage` command, which shows a Budget Status table with spent/limit/remaining for each active budget.
 
 Budgets reset on calendar boundaries — daily at midnight local time, weekly on Monday midnight.
+
+## Cost controls (paid backends)
+
+Four additional settings that pair with the spending budgets above to drive down the cost of agent runs on Anthropic / OpenAI. See the **Cost controls** section in the README for the full rationale.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.promptPruning.enabled` | boolean | `true` | Prune prompts before sending to paid backends. Collapses whitespace, head+tail truncates oversized tool results, and dedupes repeated file content. Safe for agent loops — only lossy on tool output, never on user or assistant messages |
+| `sidecar.promptPruning.maxToolResultTokens` | number | `2000` | Maximum token count for any single `tool_result` block sent to a paid backend. Longer results are head+tail truncated with an elision marker. Raise this for frontier models with large context windows; lower it to reduce cost on exploration-heavy tasks. Clamped to `[200, 20000]` |
+| `sidecar.delegateTask.enabled` | boolean | `true` | Expose the `delegate_task` tool to paid backends. The orchestrator can offload read-only research to a local Ollama worker and receive a compact summary. No-op on local-only setups |
+| `sidecar.delegateTask.workerModel` | string | `""` | Ollama model used by the `delegate_task` worker. Empty = reuse the chat model. Recommended: a code-tuned model like `qwen3-coder:30b` or `deepseek-coder:33b` |
+| `sidecar.delegateTask.workerBaseUrl` | string | `http://localhost:11434` | Base URL of the Ollama instance the worker connects to. Must be local or reachable — not an Anthropic / OpenAI URL |
+
+**Session spend tracker** is not a setting — it's always on for Anthropic requests when they return usage data. The `$(credit-card) $0.12` status bar item shows up the moment a paid backend incurs cost. Click it for a per-model breakdown. Manage via:
+
+- `SideCar: Show Session Spend` — QuickPick with totals, request counts, and per-model token breakdown
+- `SideCar: Reset Session Spend` — clear the tally (does not affect the Anthropic-side totals in their Console)
+
+The price table is a hardcoded best-effort at list prices for Claude Opus 4.6/4.5, Sonnet 4.6/4.5, Haiku 4.5, and the 3.x fallbacks. Enterprise and committed-spend discounts are **not** reflected. Use the Anthropic Console for authoritative monthly totals.
 
 ## Inline completions
 

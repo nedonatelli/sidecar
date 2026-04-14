@@ -26,15 +26,22 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 | File read/write/edit tools | **Yes** | Yes | No | No |
 | Run commands & tests | **Yes** (persistent shell) | Yes | No | No |
 | Web search | **Yes** (built-in) | No | No | No |
-| Security & secrets scanning | **Yes** | No | No | No |
+| Security & secrets scanning | **Yes** (Problems panel) | No | No | No |
 | MCP server support | **Yes** | Yes | No | No |
 | Git integration (commit, PR, releases) | **Yes** | Partial | No | No |
 | Diff preview & undo/rollback | **Yes** | Partial | No | No |
 | Plan mode | **Yes** | No | No | No |
+| Review mode (accept/discard per file) | **Yes** | No | No | No |
+| Pending-change file decorations | **Yes** | No | No | No |
+| Activity-bar review badge | **Yes** | No | No | No |
+| Native lightbulb code actions | **Yes** | Partial | No | No |
 | Built-in skills (8) | **Yes** | Yes | No | No |
 | Tree-sitter AST parsing | **Yes** | Yes | No | No |
 | Codebase indexing | **Yes** | Yes | No | No |
 | Spending budgets | **Yes** | No | No | No |
+| Session spend tracker (status bar) | **Yes** | No | No | No |
+| Hybrid cost-aware delegation | **Yes** | No | No | No |
+| Getting-started walkthrough | **Yes** | No | No | No |
 | Conversation steering (type while processing) | **Yes** | No | No | No |
 | Free & open-source | Yes | Yes | Yes | Yes |
 
@@ -49,7 +56,14 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 | Custom skills system | **Yes** | Yes | Yes (.cursorrules) | Yes |
 | Context compaction (manual + auto) | **Yes** | Yes | Yes | Yes |
 | Spending budgets & cost tracking | **Yes** | No | Yes | No |
+| Hybrid local-worker delegation | **Yes** | No | No | No |
+| Prompt pruner & pre-request caching | **Yes** | No | No | Partial |
 | Plan-then-execute mode | **Yes** | No | Yes | Yes |
+| Review mode (batch diff review) | **Yes** | No | Partial | No |
+| Native Problems panel integration | **Yes** | No | No | No |
+| Status bar health indicator | **Yes** | Partial | No | No |
+| Getting-started walkthrough | **Yes** | Yes | No | No |
+| Native modal approval for destructive tools | **Yes** | No | No | Partial |
 | Conversation steering (type while processing) | **Yes** | No | Yes | Yes |
 | Works in your existing VS Code | **Yes** | Yes | No (fork) | Yes (extension + CLI) |
 | Monthly subscription | **Free** | $10-19/mo | $20/mo | Usage-based |
@@ -58,9 +72,11 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 
 - **True agentic autonomy** — SideCar reads your code, edits files, runs tests, reads the errors, and iterates until the task is done. Switch between cautious, autonomous, manual, plan, review, or custom user-defined modes.
 - **No vendor lock-in** — Use Ollama for fully offline operation, Anthropic for Claude, OpenAI-compatible servers (LM Studio, vLLM, OpenRouter), Kickstand, or install GGUF models directly from HuggingFace. Same interface, your choice.
-- **Security from the ground up** — API keys stored in VS Code SecretStorage (OS keychain), secrets detection, vulnerability scanning, path traversal protection, sensitive file blocking, workspace hook warnings, and prompt injection sandboxing.
+- **Feels like a first-party VS Code extension** — status bar health indicator (red/yellow/green on backend state), native error toasts with one-click recovery actions, lightbulb code actions on diagnostics (Fix / Explain / Refactor), Problems panel integration for agent-detected secrets and stubs, file decorations on pending changes, activity-bar badge for pending-review count, a five-step Welcome-page walkthrough, and a command palette surface with a consistent `SideCar:` category. No shadow UIs — every action lives where VS Code users already look for it.
+- **Hybrid cost-aware architecture** — when using paid backends, SideCar combines Anthropic prompt caching, a lossy-but-bounded prompt pruner (whitespace / tool-result head-tail truncation / duplicate dedup — 90% reduction on realistic agent loops), and a `delegate_task` tool that offloads read-only research to a local Ollama worker so the frontier model only pays for reasoning and synthesis. A session spend tracker in the status bar shows live `$` accumulated per model so you always know what the current run is costing.
+- **Security from the ground up** — API keys stored in VS Code SecretStorage (OS keychain), secrets detection, vulnerability scanning, path traversal protection, sensitive file blocking, workspace hook warnings, and prompt injection sandboxing. Secret findings and stub code are published to the native Problems panel via `sidecar-secrets` / `sidecar-stubs` sources, just like tsc and eslint findings.
 - **Extensible with MCP & Skills** — Connect external tools via MCP, create custom skills with markdown files, or use the 8 built-in skills (review, debug, refactor, explain, write-tests, break-this, create-skill, mcp-builder).
-- **Production-grade safety** — Agent mode controls (including new **review mode** for batch diff review), iteration limits, token budgets, daily/weekly spending caps, cycle detection, streaming diff preview, plan mode, **completion gate** (refuses to let the agent finish without running lint and tests for edited files), and one-click rollback.
+- **Production-grade safety** — Agent mode controls (including **review mode** for batch diff review), iteration limits, token budgets, daily/weekly spending caps, cycle detection, streaming diff preview, plan mode, **completion gate** (refuses to let the agent finish without running lint and tests for edited files), native blocking modal approval for destructive tools (`run_command`, `run_tests`, git mutations), and one-click rollback.
 - **Persistent codebase indexing** — File index and symbol graph persist across restarts via `.sidecar/cache/`. Tree-sitter AST parsing for 6 languages. Near-instant startup on subsequent activations.
 - **Smart context** — Tree-sitter AST extraction for TypeScript, JavaScript, Python, Rust, Go, and Java/Kotlin. SideCar sends relevant functions and classes to the model, not entire files.
 
@@ -103,10 +119,29 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 - Falls back to Messages API for Anthropic
 - Debounced with in-flight cancellation
 
-### Code Actions
-- Right-click menu: **Explain**, **Fix**, **Refactor** with SideCar
-- Selected code is sent to the chat with the action
+### Code Actions & Lightbulb
+- **Editor context menu** — right-click a selection: **Explain**, **Fix**, **Refactor** with SideCar
+- **Native lightbulb on diagnostics** — when VS Code shows a red or yellow squiggle, press `⌘.` / `Ctrl+.` (or click the 💡) and you'll see **Fix with SideCar** / **Explain this error with SideCar** alongside the built-in Quick Fix suggestions. **Refactor with SideCar** appears in the Refactor submenu on any selection. Code actions are wired through a `CodeActionProvider` registered for all `file` scheme documents, so they surface natively rather than only in a custom menu. Each action forwards the line content + the formatted diagnostic (`[typescript] TS2339 error: Property 'foo' does not exist`) to chat.
 - **Terminal error interception** — failed commands in the integrated terminal trigger a **Diagnose in chat** notification. Accepting injects a synthesized prompt with the command, exit code, cwd, and ANSI-stripped output tail, then runs the agent against it. Dedupes within a 30s cooldown, skips SideCar's own terminal, and requires VS Code shell integration. Toggle via `sidecar.terminalErrorInterception`
+
+### Native VS Code Integration (v0.47.0)
+
+SideCar is built to feel like a first-party VS Code extension. Every high-traffic touchpoint uses the same patterns the built-in tools (git, Problems, Source Control) use:
+
+- **Status bar health indicator** — the `$(hubot) <model>` item in the bottom-right reflects live backend state. Green on ok, yellow on rate-limited, red on auth / connection error with `statusBarItem.errorBackground`. Hover tooltip is a `MarkdownString` with the last error body and clickable `command:` links for one-click recovery (`Toggle chat`, `Switch backend`, `Set API key`).
+- **Session spend status bar** — a `$(credit-card) $0.1234` item appears the moment a paid backend incurs cost, clickable to open a QuickPick breakdown with per-model totals, request counts, input/output/cache-read/cache-write token counts, and a reset action. Hidden on local-only setups.
+- **Native error toasts with recovery actions** — auth / connection / model errors promote from inline chat messages into `window.showErrorMessage` toasts with action buttons that execute real VS Code commands. Rate-limit and validation errors stay in-chat so you aren't buried under toast spam.
+- **Problems panel integration** — leaked API keys, SQL concat queries, eval calls, and `// TODO: implement` stubs detected in agent-written code are published to VS Code's native Problems panel with source tags `sidecar-secrets`, `sidecar-vulns`, or `sidecar-stubs`. Filter the Problems panel with `source:sidecar-*` to scope to SideCar-only findings. Click any entry to jump to the offending line. New command: `SideCar: Clear Diagnostics`.
+- **File decorations for pending edits** — in review mode, every file the agent has queued for review gets a `P` badge in the Explorer and editor tabs with the `gitDecoration.modifiedResourceForeground` color. Parent folders show the rollup indicator (matching git's M/A/D convention). Accept or discard the edit and the badge disappears instantly.
+- **Activity-bar badge for pending-review count** — the SideCar icon in the Activity Bar shows a numeric badge when there are pending review-mode edits, aggregated automatically from the TreeView via `TreeView.badge`. Same mechanism Source Control uses for the changed-file count.
+- **Getting-started walkthrough** — `contributes.walkthroughs` registers a five-step Welcome editor page (Welcome → Pick a backend → Open the chat → Inline editing and the lightbulb → Discover every action) that auto-opens on first install and can be reopened any time via `SideCar: Open Walkthrough`.
+- **Empty-state welcome card** — when the chat view is empty (first launch, after Clear Chat, fresh session), SideCar renders a compact welcome card showing the active model + backend with a health indicator, three quick-action buttons (`Set / Refresh API Key`, `Switch Backend`, `Browse Commands`), four clickable starter prompt chips, and platform-aware keyboard shortcut hints.
+- **Quick Pick model switcher** — `SideCar: Select Model` opens a native QuickPick for keyboard-first model switching: installed models are listed first with a `$(check)` marker on the active one, then library models with `$(cloud-download)` for not-yet-pulled. Empty-state recovery via a warning with `Switch Backend` / `Set API Key` actions.
+- **Native modal approval for destructive tools** — `run_command`, `run_tests`, `git_stage`, `git_commit`, `git_push`, `git_pull`, `git_branch`, `git_stash` now show a blocking `showWarningMessage({modal: true})` instead of an inline chat card. You can't miss the prompt while scrolled away from chat, and approval can't auto-dismiss. Non-destructive tool approvals keep the existing inline card flow.
+- **Progress notifications for long operations** — `sidecar.reviewChanges`, `sidecar.summarizePR`, `sidecar.generateCommitMessage`, `sidecar.scanStaged` wrap their async work in `window.withProgress({location: Notification})` so palette-triggered actions show a bottom-right spinner even when the chat view is hidden.
+- **Command palette with consistent `SideCar:` category** — every user-facing action is in the palette with a `SideCar:` prefix, appropriate icon, and `when` clauses gating internal / context-sensitive commands (inline-edit commands gated on `sidecar.hasInlineEdit`, selection commands gated on `editorHasSelection`).
+- **Right-click context menu on chat messages** — right-click any message for **Copy message** / **Delete message**. Right-click a code block for **Copy code** / **Save code as...**. Right-click a tool invocation for **Why? · *tool_name*** / **Copy output · *tool_name***. Menu items support optional muted `detail` suffixes so multiple "Why?" entries stay unambiguous.
+- **Custom 150ms tooltips** — replaced the browser's 500-1000ms HTML `title` delay with themed CSS tooltips styled via `--vscode-editorHoverWidget-*` tokens. Hover any header button and you get near-instant feedback.
 
 ### Background Doc Sync
 On every save, SideCar keeps your documentation in sync with your code — no AI round-trips, no external indexer, just local string analysis over the file you're editing:
@@ -130,7 +165,7 @@ Both features skip class methods, destructured parameters, rest parameters, and 
 - **Active file context** — includes the currently open file and cursor position
 - **@ references** — `@file:path`, `@folder:path`, `@symbol:name` for precise context inclusion
 - **Image support** — paste screenshots or attach images for vision models
-- **Slash commands** — `/reset`, `/undo`, `/export`, `/model`, `/help`, `/batch`, `/doc`, `/spec`, `/insight`, `/save`, `/sessions`, `/scan`, `/usage`, `/context`, `/test`, `/lint`, `/deps`, `/scaffold`, `/commit`, `/verbose`, `/prompt`, `/audit`, `/insights`, `/mcp`, `/init`, `/compact`, `/move`, `/clone`, `/skills`, `/releases`, `/release`, `/bg` — with autocomplete dropdown as you type
+- **Slash commands** — `/model`, `/help`, `/batch`, `/doc`, `/spec`, `/insight`, `/save`, `/sessions`, `/scan`, `/usage`, `/context`, `/test`, `/lint`, `/deps`, `/scaffold`, `/commit`, `/verbose`, `/prompt`, `/audit`, `/insights`, `/mcp`, `/init`, `/move`, `/clone`, `/skills`, `/releases`, `/release`, `/bg` — with autocomplete dropdown as you type. Actions that duplicated header buttons or palette commands (`/reset`, `/export`, `/compact`, `/undo`) were removed in v0.47.0; use the buttons or `SideCar:` palette entries instead
 - **Diagram generation** — models can generate Mermaid diagrams in code blocks; rendered natively in chat with syntax highlighting and copy-to-SVG support
 - **Actionable errors** — classified error cards with retry, start Ollama, and settings buttons
 - **Sticky scroll** — auto-scroll pauses when you scroll up, floating button to jump back down
@@ -144,6 +179,16 @@ Both features skip class methods, destructured parameters, rest parameters, and 
 - **Kickstand** — self-hosted LLM client backend with managed GPU memory
 - **OpenAI-compatible** — works with LM Studio, vLLM, llama.cpp, text-generation-webui, OpenRouter, and any server with a `/v1/chat/completions` endpoint
 - **One-click profile switcher** — click the ⚙ gear in the chat header to flip between Local Ollama / Anthropic Claude / Kickstand in a single click. Each profile stores its own API key in VS Code's SecretStorage, so switching backends doesn't clobber a key you've already set. Also available as `SideCar: Switch Backend` from the Command Palette.
+
+### Cost Controls (Paid Backends)
+
+When you're paying per token, SideCar stacks four cost-cutting layers so the frontier model only pays for reasoning and synthesis:
+
+- **Session spend tracker** — every Anthropic streaming response reports its `input_tokens`, `output_tokens`, `cache_creation_input_tokens`, and `cache_read_input_tokens`. SideCar multiplies them against a built-in Claude price table (Opus 4.6/4.5, Sonnet 4.6/4.5, Haiku 4.5 + 3.x fallbacks) and displays the running session total as a `$(credit-card) $0.1234` status bar item. Click it for a per-model QuickPick breakdown with request counts, token totals, and session minutes. `SideCar: Reset Session Spend` clears the tally; `SideCar: Show Session Spend` opens the breakdown manually. Uses list prices — consult the Anthropic Console for authoritative billing.
+- **Anthropic prompt caching** — tool definitions and conversation history carry `cache_control: { type: 'ephemeral' }` breakpoints so agent loops cache-read the stable prefix instead of re-sending it every turn. 90% cache-read discount on the cached bytes, 25% cache-write premium on the delta. Pairs with the system-prompt cache split to keep the effective cost of long agent runs low.
+- **Prompt pruner** — lossy-but-bounded pipeline that runs before serialization for Anthropic and OpenAI requests. Three transforms: collapse runs of 3+ blank lines, head+tail truncate oversize `tool_result` blocks with an explicit `[...N bytes elided...]` marker, and replace duplicate tool_result bodies with a back-reference. Measured **90.2% reduction** on a realistic fixture (30,676 → 3,008 bytes). Safe for agent loops — only lossy on tool output, never on user or assistant messages. Toggle via `sidecar.promptPruning.enabled` (default on); tune the per-tool-result ceiling via `sidecar.promptPruning.maxToolResultTokens` (default 2000).
+- **`delegate_task` tool (hybrid architecture)** — exposed only to paid backends. Lets the frontier orchestrator offload read-only research (file reads, greps, searches, symbol lookups, git queries) to a local Ollama worker running on its own `SideCarClient`. The worker executes its own mini agent loop with a read-only tool subset and returns a compact structured summary. Token consumption never touches the orchestrator's paid-budget accounting. Settings: `sidecar.delegateTask.enabled` (default on), `sidecar.delegateTask.workerModel` (defaults to chat model), `sidecar.delegateTask.workerBaseUrl` (default `http://localhost:11434`). No-op on local-only setups.
+- **Budgets** — `sidecar.dailyBudget` and `sidecar.weeklyBudget` cap total spend in USD; agent runs are blocked when the limit is reached.
 
 ### MCP (Model Context Protocol)
 - Connect to any MCP server via **stdio**, **HTTP**, or **SSE** transport
@@ -176,7 +221,7 @@ Both features skip class methods, destructured parameters, rest parameters, and 
 - **Pre-commit scan** — `/scan` command or `SideCar: Scan Staged Files for Secrets` in the command palette scans staged git files before committing
 - Skips comments, node_modules, lock files, and minified code
 
-### Tool Registry (22+ built-in tools + MCP)
+### Tool Registry (23+ built-in tools + MCP)
 | Tool | Description |
 |------|-------------|
 | `read_file` | Read file contents |
@@ -194,6 +239,7 @@ Both features skip class methods, destructured parameters, rest parameters, and 
 | `display_diagram` | Extract and render diagrams from markdown files |
 | `ask_user` | Ask the user a clarifying question with selectable options |
 | `spawn_agent` | Spawn a sub-agent for parallel tasks (max depth: 3, 15 iterations each) |
+| `delegate_task` *(paid backends only)* | Offload read-only research to a local Ollama worker. Orchestrator pays nothing for the worker's tokens |
 
 ### Project Instructions (SIDECAR.md)
 Run `/init` in the chat to auto-generate a `.sidecar/SIDECAR.md` file from your codebase. SideCar scans config files, the file tree, and sample source files (prioritizing entry points) to produce a structured project overview. It also reads `CLAUDE.md` and `AGENTS.md` if they exist.
@@ -278,7 +324,7 @@ Fastest path (recommended):
 Manual path (if you prefer editing settings):
 
 1. Set `sidecar.baseUrl` to `https://api.anthropic.com`
-2. Run `SideCar: Set API Key (SecretStorage)` from the command palette and paste your Anthropic API key
+2. Run `SideCar: Set / Refresh API Key` from the command palette and paste your Anthropic API key
 3. Set `sidecar.model` to a Claude model (e.g. `claude-sonnet-4-6`)
 
 API keys are stored encrypted in your OS keychain via VS Code's SecretStorage — never in plaintext settings. Each backend profile uses its own SecretStorage slot, so switching between Ollama ↔ Anthropic ↔ Kickstand preserves the keys you've already entered.
@@ -288,7 +334,7 @@ API keys are stored encrypted in your OS keychain via VS Code's SecretStorage �
 Works with LM Studio, vLLM, llama.cpp, text-generation-webui, OpenRouter, and more:
 
 1. Set `sidecar.baseUrl` to your server URL (e.g. `http://localhost:1234`)
-2. Run `SideCar: Set API Key (SecretStorage)` if your server requires authentication (optional for most local servers)
+2. Run `SideCar: Set / Refresh API Key` if your server requires authentication (optional for most local servers)
 3. Set `sidecar.model` to the model name on your server
 
 SideCar auto-detects the provider. To override, set `sidecar.provider` to `"openai"`.

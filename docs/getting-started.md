@@ -6,6 +6,8 @@ nav_order: 2
 
 # Getting Started
 
+> **Tip:** the **Get Started with SideCar** walkthrough auto-opens in VS Code's Welcome editor the first time you install SideCar. It walks through the five essentials in under a minute and auto-checks off each step as you run the relevant command. Reopen it any time with `SideCar: Open Walkthrough` from the Command Palette.
+
 ## Install Ollama
 
 Download and install [Ollama](https://ollama.com) for your platform. After installation, verify it's working:
@@ -26,11 +28,26 @@ Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/item
 
 ## Your first chat
 
-1. Click the **SideCar** icon in the activity bar (left sidebar)
-2. Type a message in the chat input
-3. SideCar auto-launches Ollama if it's not already running
+1. Click the **SideCar** icon in the activity bar (left sidebar) or press `⌘⇧I` (`Ctrl+Shift+I` on Windows/Linux) to toggle the chat panel.
+2. The empty-state welcome card shows you the active model, three quick-action buttons, and four starter prompts you can click to pre-fill the input.
+3. Type a message in the chat input or click a starter prompt.
+4. SideCar auto-launches Ollama if it's not already running.
 
 SideCar will automatically include your active file and workspace context in the conversation.
+
+## Discover every action
+
+Press `⌘⇧P` (`Ctrl+Shift+P` on Windows/Linux) and type **`SideCar:`** — every user-facing action is in the palette with a consistent prefix and icon. Useful ones to remember:
+
+- `SideCar: Toggle Chat` — open or hide the chat sidebar
+- `SideCar: Inline Chat` — inline edit prompt in the editor (`⌘I`)
+- `SideCar: Select Model` — keyboard-first model picker
+- `SideCar: Set / Refresh API Key` — paste or rotate your key
+- `SideCar: Switch Backend` — flip between Ollama / Anthropic / OpenAI / Kickstand
+- `SideCar: Show Session Spend` — `$` breakdown for the current session on paid backends
+- `SideCar: Open Walkthrough` — reopen the getting-started page
+
+**Code actions on diagnostics** — when VS Code shows a red or yellow squiggle on a line, press `⌘.` / `Ctrl+.` and you'll see **Fix with SideCar** and **Explain this error with SideCar** alongside the built-in Quick Fix suggestions. **Refactor with SideCar** appears in the Refactor submenu on any selection.
 
 ## Choosing a model
 
@@ -56,7 +73,7 @@ The sections below describe each backend in detail and also cover the manual set
 **Manual:**
 
 1. Set `sidecar.baseUrl` to `https://api.anthropic.com`
-2. Run `SideCar: Set API Key (SecretStorage)` from the command palette and paste your Anthropic API key
+2. Run `SideCar: Set / Refresh API Key` from the command palette and paste your Anthropic API key
 3. Set `sidecar.model` to a Claude model (e.g., `claude-sonnet-4-6`)
 
 SideCar uses prompt caching with Anthropic, reducing input token costs by ~90% on cache hits.

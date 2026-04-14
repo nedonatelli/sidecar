@@ -2,7 +2,65 @@
 
 Planned improvements and features for SideCar. Audit findings from v0.34.0 comprehensive review are in the Audit Backlog section. All critical fixes were addressed in v0.35.0.
 
-Last updated: 2026-04-13 (post-v0.46.0, cycle-1 audit backlog closed, backend profile switcher landed, cycle-2 audit backlog opened)
+Last updated: 2026-04-14 (v0.47.0 — native-feel pass, cost controls, hybrid delegation)
+
+---
+
+## Recently Completed (v0.47.0)
+
+Large native VS Code integration pass plus cost-control and hybrid-delegation work for paid backends. 14 new native surfaces, one new agent tool, prompt pruner + caching pipeline, 171 new tests.
+
+### Cost controls & delegation
+
+✅ **Session spend tracker** — `SpendTracker` singleton with Claude price table (Opus 4.6/4.5, Sonnet 4.6/4.5, Haiku 4.5 + 3.x fallbacks). Credit-card status bar item with QuickPick breakdown. Commands: `SideCar: Show Session Spend`, `SideCar: Reset Session Spend` ([spendTracker.ts](src/ollama/spendTracker.ts))
+
+✅ **Anthropic prompt caching** — `cache_control` breakpoints on tool definitions + message history so agent loops cache-read the stable prefix ([anthropicBackend.ts](src/ollama/anthropicBackend.ts))
+
+✅ **Prompt pruner** — whitespace collapse, head+tail tool-result truncation, duplicate tool-result dedup. 90.2% reduction on realistic verbose fixtures. Settings: `sidecar.promptPruning.enabled`, `sidecar.promptPruning.maxToolResultTokens` ([promptPruner.ts](src/ollama/promptPruner.ts))
+
+✅ **`delegate_task` tool** — hybrid-architecture tool on paid backends that offloads read-only research to a local Ollama worker. Worker runs on its own `SideCarClient` with a read-only tool subset, returns a structured summary. Token usage doesn't touch paid-budget accounting. Settings: `sidecar.delegateTask.enabled`, `.workerModel`, `.workerBaseUrl` ([localWorker.ts](src/agent/localWorker.ts))
+
+✅ **`StreamEvent` usage event + `TokenUsage` type** — backends emit usage at `message_stop`, client forwards to spend tracker transparently ([types.ts](src/ollama/types.ts))
+
+### Native VS Code integration
+
+✅ **Native error toasts with one-click recovery actions** — `errorSurface.ts` promotes auth / connection / model errors to `window.showErrorMessage` with `Set API Key` / `Switch Backend` buttons that execute real VS Code commands ([errorSurface.ts](src/webview/errorSurface.ts))
+
+✅ **Status bar health indicator** — `healthStatus.ts` drives the model status bar item's icon / background color / MarkdownString tooltip. Red on error, green on ok. Tooltip has clickable `command:` links for one-click recovery ([healthStatus.ts](src/ollama/healthStatus.ts))
+
+✅ **Lightbulb code actions** — `SidecarCodeActionProvider` contributes `Fix with SideCar` (QuickFix on diagnostics), `Explain this error with SideCar`, and `Refactor with SideCar` (RefactorRewrite) to VS Code's native code actions menu ([sidecarCodeActionProvider.ts](src/edits/sidecarCodeActionProvider.ts))
+
+✅ **Native modal approval for destructive tools** — `run_command`, `run_tests`, and git mutation tools now open a blocking `showWarningMessage({modal: true})` instead of the inline chat card. User can't miss the prompt while scrolled away from chat ([executor.ts](src/agent/executor.ts))
+
+✅ **Persistent empty-state welcome card** — replaces the legacy one-shot onboarding. Renders when chat is empty, shows active model / quick-action buttons / starter prompt chips / platform-aware shortcut hints. Auto-hides on first message, reappears on Clear Chat ([chat.js](media/chat.js))
+
+✅ **File decoration provider for pending agent edits** — `P` badge with `gitDecoration.modifiedResourceForeground` color on every file with a pending review-mode edit. Propagates to parent folders like git's M/A/D markers ([pendingEditDecorationProvider.ts](src/edits/pendingEditDecorationProvider.ts))
+
+✅ **Problem markers in the Problems panel** — `sidecarDiagnostics.ts` publishes security scan results with source tags `sidecar-secrets`, `sidecar-vulns`, `sidecar-stubs`. Leaked keys, eval calls, TODO stubs appear natively alongside tsc/eslint findings ([sidecarDiagnostics.ts](src/agent/sidecarDiagnostics.ts))
+
+✅ **Getting-started walkthroughs contribution** — five-step `contributes.walkthroughs` page in VS Code's Welcome editor. Auto-opens on first install, reopenable via `SideCar: Open Walkthrough` ([media/walkthroughs/](media/walkthroughs/))
+
+✅ **Quick Pick model switcher** — `sidecar.selectModel` opens a native QuickPick with installed models (flagged with `$(check)` for active) and library models (flagged with `$(cloud-download)` for not-yet-installed). Shares the model-switch path with the webview dropdown via a new public `ChatViewProvider.setModel(name)` ([extension.ts](src/extension.ts))
+
+✅ **Activity bar badge for pending-review count** — `treeView.badge = {value, tooltip}` on the `sidecar.reviewPanel` TreeView. VS Code aggregates the badge up to the Activity Bar icon automatically ([reviewPanel.ts](src/agent/reviewPanel.ts))
+
+✅ **Native progress notifications for long operations** — `window.withProgress({location: ProgressLocation.Notification})` wraps `sidecar.reviewChanges`, `sidecar.summarizePR`, `sidecar.generateCommitMessage`, `sidecar.scanStaged` ([extension.ts](src/extension.ts))
+
+### Command palette audit & polish
+
+✅ **Consistent `SideCar:` category across every palette command** — added `"category": "SideCar"` + icons to every command, fixed three inconsistent titles, gated tree-item-only commands from the palette via `menus.commandPalette` with `when` clauses
+
+✅ **Settings polish** — `enumDescriptions` on `sidecar.provider` / `sidecar.chatDensity`, upgraded ~30 `description` → `markdownDescription` with code formatting and cross-setting links, `order` fields for logical clustering (backend → context → agent → cost → UI), `tags` for filter chips, `minimum`/`maximum` guardrails
+
+✅ **Right-click context menu on chat messages** — delegated `contextmenu` handler with dynamic items (Copy message / Delete message / Copy code / Save code as... / Why? / Copy output). Each item supports an optional `detail` suffix so "Why?" entries are labeled with the tool name ([chat.js](media/chat.js))
+
+✅ **Custom 150ms tooltips on chat view buttons** — `[data-tooltip]` + `aria-label` pattern replaces HTML `title` (500-1000ms delay), styled with `--vscode-editorHoverWidget-*` tokens ([chat.css](media/chat.css))
+
+✅ **Killed duplicate slash commands** — `/reset`, `/export`, `/compact`, `/undo` removed; they duplicated header buttons or palette commands. `/help` autocomplete updated
+
+✅ **Anthropic `listInstalledModels` fix** — now hits `/v1/models` with `x-api-key` + `anthropic-version` headers. Before: fell through to Ollama `/api/tags` and threw "Cannot connect to API" even with a valid key
+
+✅ **`SideCar: Set / Refresh API Key` command** — renamed, icon added, surfaced in chat view title bar, trims whitespace on save, reloads models after save so the UI recovers without a window reload
 
 ---
 
