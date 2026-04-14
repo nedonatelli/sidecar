@@ -25,8 +25,9 @@ import { parseTextToolCalls, stripRepeatedContent } from './loop/textParsing.js'
 import { streamOneTurn, resolveTurnContent } from './loop/streamTurn.js';
 import { exceedsBurstCap, detectCycleAndBail } from './loop/cycleDetection.js';
 import { pushAssistantMessage, pushToolResultsMessage, accountToolTokens } from './loop/messageBuild.js';
+import { applyStubCheck } from './loop/stubCheck.js';
 export { compressMessages, parseTextToolCalls, stripRepeatedContent };
-import { buildStubReprompt } from './stubValidator.js';
+// buildStubReprompt moved behind loop/stubCheck.ts.
 import { recordToolCall as recordGateToolCall, checkCompletionGate, buildGateInjection } from './completionGate.js';
 import type { PendingEditStore } from './pendingEdits.js';
 import {
@@ -158,8 +159,7 @@ export async function runAgentLoop(
   let stubFixRetries = state.stubFixRetries;
 
   // Constants for the policy checks still inline in the iteration
-  // body (gate, stub validator, critic). Will migrate out in phase 3.
-  const MAX_STUB_RETRIES = 1;
+  // body (gate, critic). Will migrate out as phase 3 progresses.
   const MAX_GATE_INJECTIONS = 2;
   const MAX_CRITIC_INJECTIONS_PER_FILE = 2;
   const maxTokens = state.maxTokens;
@@ -500,22 +500,13 @@ export async function runAgentLoop(
         }
       }
 
-      // Stub validation: scan written code for placeholder patterns
-      // and reprompt the model to finish the implementation.
-      if (stubFixRetries < MAX_STUB_RETRIES) {
-        const stubReprompt = buildStubReprompt(pendingToolUses);
-        if (stubReprompt) {
-          stubFixRetries++;
-          logger?.info(
-            `Stub validator: found placeholders, reprompting (attempt ${stubFixRetries}/${MAX_STUB_RETRIES})`,
-          );
-          callbacks.onText('\n⚠️ Incomplete code detected — requesting full implementation...\n');
-          agentMessages.push({
-            role: 'user',
-            content: [{ type: 'text' as const, text: stubReprompt }],
-          });
-        }
-      }
+      // Stub validator — scan written code for placeholder patterns
+      // and reprompt on first hit. Extracted into loop/stubCheck.ts.
+      // Sync stubFixRetries through state across the call so the
+      // per-run attempt counter stays authoritative.
+      state.stubFixRetries = stubFixRetries;
+      applyStubCheck(state, pendingToolUses, callbacks);
+      stubFixRetries = state.stubFixRetries;
 
       // Adversarial critic: fire an independent LLM call whose job is to
       // attack the most recent edits (and root-cause any test failures).
