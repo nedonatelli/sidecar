@@ -87,7 +87,7 @@ export interface BackendProfile {
   /** Human-readable label shown in the chat menu. */
   name: string;
   /** Provider type the client will instantiate. */
-  provider: 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq';
+  provider: 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks';
   /** API base URL to bake into sidecar.baseUrl. */
   baseUrl: string;
   /** Default model to select when switching to this profile. */
@@ -145,6 +145,16 @@ export const BUILT_IN_BACKEND_PROFILES: readonly BackendProfile[] = [
     secretKey: 'sidecar.profileKey.groq',
     description:
       'Groq LPU inference — thousands of tokens/sec on open-weight models like Llama 3.3, Mixtral, DeepSeek R1 distills. Free tier with rate limits; paid tier for higher throughput. Requires an API key from console.groq.com.',
+  },
+  {
+    id: 'fireworks',
+    name: 'Fireworks',
+    provider: 'fireworks',
+    baseUrl: 'https://api.fireworks.ai/inference/v1',
+    defaultModel: 'accounts/fireworks/models/qwen2p5-coder-32b-instruct',
+    secretKey: 'sidecar.profileKey.fireworks',
+    description:
+      'Fireworks serves open-weight models (DeepSeek V3, Qwen 2.5 Coder, Llama 3.3, Mixtral) via a fast OpenAI-compatible endpoint. Cheaper than OpenAI for comparable capability. Requires an API key from fireworks.ai.',
   },
   {
     id: 'kickstand',
@@ -248,6 +258,14 @@ export function isGroq(baseUrl: string): boolean {
 }
 
 /**
+ * Check whether a base URL points at Fireworks. Matches
+ * `api.fireworks.ai` and any proxy containing `fireworks.ai`.
+ */
+export function isFireworks(baseUrl: string): boolean {
+  return baseUrl.includes('fireworks.ai');
+}
+
+/**
  * Read the Kickstand API token from ~/.config/kickstand/token
  */
 export function readKickstandToken(): string {
@@ -265,14 +283,15 @@ export function readKickstandToken(): string {
 /** Determine which backend provider to use based on URL and explicit setting. */
 export function detectProvider(
   baseUrl: string,
-  provider: 'auto' | 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'groq' | 'openrouter',
-): 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' {
+  provider: 'auto' | 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks',
+): 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks' {
   if (provider !== 'auto') return provider;
   if (isLocalOllama(baseUrl)) return 'ollama';
   if (isAnthropic(baseUrl)) return 'anthropic';
   if (isKickstand(baseUrl)) return 'kickstand';
   if (isOpenRouter(baseUrl)) return 'openrouter';
   if (isGroq(baseUrl)) return 'groq';
+  if (isFireworks(baseUrl)) return 'fireworks';
   return 'openai';
 }
 
@@ -366,7 +385,7 @@ export function resolveMode(
 
 export interface SideCarConfig {
   model: string;
-  provider: 'auto' | 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'groq' | 'openrouter';
+  provider: 'auto' | 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks';
   systemPrompt: string;
   baseUrl: string;
   apiKey: string;
@@ -477,7 +496,7 @@ function readConfig(): SideCarConfig {
   const cfg = workspace.getConfiguration('sidecar');
   return {
     model: cfg.get<string>('model', 'qwen3-coder:30b') || 'qwen3-coder:30b',
-    provider: cfg.get<'auto' | 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'groq'>(
+    provider: cfg.get<'auto' | 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks'>(
       'provider',
       'auto',
     ),

@@ -6,6 +6,7 @@ import { OpenAIBackend } from './openaiBackend.js';
 import { KickstandBackend } from './kickstandBackend.js';
 import { OpenRouterBackend } from './openrouterBackend.js';
 import { GroqBackend } from './groqBackend.js';
+import { FireworksBackend } from './fireworksBackend.js';
 import { isLocalOllama, detectProvider, getConfig, readKickstandToken } from '../config/settings.js';
 import { RateLimitStore } from './rateLimitState.js';
 import { spendTracker } from './spendTracker.js';
@@ -82,7 +83,7 @@ export class SideCarClient {
   // providers (update() keeps old values when new ones are absent),
   // leaking one provider's remaining-token counts into another's view.
   private rateLimitsByProvider = new Map<
-    'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq',
+    'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks',
     RateLimitStore
   >();
 
@@ -118,13 +119,15 @@ export class SideCarClient {
         return new OpenRouterBackend(this.baseUrl, this.apiKey, this.rateLimitsFor('openrouter'));
       case 'groq':
         return new GroqBackend(this.baseUrl, this.apiKey, this.rateLimitsFor('groq'));
+      case 'fireworks':
+        return new FireworksBackend(this.baseUrl, this.apiKey, this.rateLimitsFor('fireworks'));
       case 'openai':
         return new OpenAIBackend(this.baseUrl, this.apiKey, this.rateLimitsFor('openai'));
     }
   }
 
   private rateLimitsFor(
-    provider: 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq',
+    provider: 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks',
   ): RateLimitStore {
     let store = this.rateLimitsByProvider.get(provider);
     if (!store) {
@@ -366,7 +369,7 @@ export class SideCarClient {
     return provider === 'openai';
   }
 
-  getProviderType(): 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' {
+  getProviderType(): 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks' {
     return detectProvider(this.baseUrl, getConfig().provider);
   }
 
@@ -392,7 +395,13 @@ export class SideCarClient {
       }
     }
 
-    if (provider === 'openai' || provider === 'kickstand' || provider === 'openrouter' || provider === 'groq') {
+    if (
+      provider === 'openai' ||
+      provider === 'kickstand' ||
+      provider === 'openrouter' ||
+      provider === 'groq' ||
+      provider === 'fireworks'
+    ) {
       // OpenAI-compatible servers (including Kickstand and OpenRouter)
       // all use GET /v1/models. OpenRouter enriches each entry with
       // `top_provider` + `pricing` fields, but we only surface the id

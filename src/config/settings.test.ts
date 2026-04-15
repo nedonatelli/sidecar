@@ -5,6 +5,7 @@ import {
   isKickstand,
   isOpenRouter,
   isGroq,
+  isFireworks,
   detectProvider,
   getConfig,
   clampMin,
@@ -103,6 +104,19 @@ describe('isGroq', () => {
   });
 });
 
+describe('isFireworks', () => {
+  it('returns true for fireworks.ai hosts', () => {
+    expect(isFireworks('https://api.fireworks.ai/inference/v1')).toBe(true);
+    expect(isFireworks('https://api.fireworks.ai')).toBe(true);
+  });
+
+  it('returns false for other providers', () => {
+    expect(isFireworks('https://api.anthropic.com')).toBe(false);
+    expect(isFireworks('https://api.groq.com')).toBe(false);
+    expect(isFireworks('http://localhost:11434')).toBe(false);
+  });
+});
+
 describe('detectProvider', () => {
   it('returns explicit provider when not auto', () => {
     expect(detectProvider('http://anything.com', 'openai')).toBe('openai');
@@ -111,6 +125,7 @@ describe('detectProvider', () => {
     expect(detectProvider('http://anything.com', 'kickstand')).toBe('kickstand');
     expect(detectProvider('http://anything.com', 'openrouter')).toBe('openrouter');
     expect(detectProvider('http://anything.com', 'groq')).toBe('groq');
+    expect(detectProvider('http://anything.com', 'fireworks')).toBe('fireworks');
   });
 
   it('auto-detects ollama from localhost:11434', () => {
@@ -132,6 +147,10 @@ describe('detectProvider', () => {
 
   it('auto-detects groq from api.groq.com', () => {
     expect(detectProvider('https://api.groq.com/openai/v1', 'auto')).toBe('groq');
+  });
+
+  it('auto-detects fireworks from fireworks.ai', () => {
+    expect(detectProvider('https://api.fireworks.ai/inference/v1', 'auto')).toBe('fireworks');
   });
 
   it('defaults to openai for unknown URLs', () => {
