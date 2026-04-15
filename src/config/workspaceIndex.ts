@@ -100,6 +100,11 @@ export interface FileNode {
   relevanceScore: number;
 }
 
+export interface RankedFile extends FileNode {
+  /** Combined heuristic + semantic score for this query. */
+  score: number;
+}
+
 interface IndexCache {
   version: number;
   buildTime: string;
@@ -333,6 +338,73 @@ export class WorkspaceIndex implements Disposable {
   }
 
   /**
+   * Score and rank files for a query. Runs heuristic scoring, blends in
+   * semantic similarity if the embedding index is available, applies
+   * context rules, and returns the score>0 files sorted descending.
+   *
+   * Extracted from `getRelevantContext` so retrievers (for reciprocal-rank
+   * fusion) and the legacy pre-formatted render path can share the same
+   * ranking pipeline.
+   */
+  async rankFiles(query: string, activeFilePath?: string): Promise<RankedFile[]> {
+    if (this.files.size === 0) return [];
+    const config = getConfig();
+
+    const rules = await getCurrentContextRules();
+
+    const scored: RankedFile[] = [...this.files.values()].map((f) => ({
+      ...f,
+      score: this.computeScore(f, query, activeFilePath),
+    }));
+
+    if (config.enableSemanticSearch && this.embeddingIndex?.isReady()) {
+      const weight = config.semanticSearchWeight;
+      const semanticResults = await this.embeddingIndex.search(query, 50);
+      if (semanticResults.length > 0) {
+        const simMap = new Map(semanticResults.map((r) => [r.relativePath, r.similarity]));
+        for (const f of scored) {
+          const sim = simMap.get(f.relativePath);
+          if (sim !== undefined) {
+            // Heuristic * (1 - weight) + semantic * weight, scaled so that
+            // the semantic side lands in the same ~0–2 range as the heuristic.
+            f.score = f.score * (1 - weight) + sim * 2 * weight;
+          }
+        }
+      }
+    }
+
+    const filesToConsider = applyContextRules(scored, rules) as RankedFile[];
+    const relevant = filesToConsider.filter((f) => f.score > 0);
+    relevant.sort((a, b) => b.score - a.score);
+    return relevant;
+  }
+
+  /**
+   * Read a file from the workspace with streaming + per-index caching.
+   * Returns null if the file can't be read. Shared between the legacy
+   * render path and retrievers so both benefit from the same LRU.
+   */
+  async loadFileContent(relativePath: string): Promise<string | null> {
+    const folders = workspace.workspaceFolders;
+    if (!folders || folders.length === 0) return null;
+    const cached = this.fileContentCache.get(relativePath);
+    if (cached) return cached;
+    try {
+      const config = getConfig();
+      const fileUri = Uri.joinPath(folders[0].uri, relativePath);
+      const size = this.files.get(relativePath)?.sizeBytes ?? 0;
+      const result = await readFileStreaming(fileUri, {
+        maxBytes: config.maxFileSizeBytes,
+        summaryMode: size > config.streamingReadThreshold,
+      });
+      this.fileContentCache.set(relativePath, result.content);
+      return result.content;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Returns context string with file tree + relevant file contents,
    * staying within the token budget.
    */
@@ -344,39 +416,7 @@ export class WorkspaceIndex implements Disposable {
     const rootUri = folders[0].uri;
     const config = getConfig();
 
-    // Load context rules
-    const rules = await getCurrentContextRules();
-
-    // Score files: heuristic scoring first, then blend semantic similarity
-    // if the embedding index is available.
-    const scored = [...this.files.values()].map((f) => ({
-      ...f,
-      score: this.computeScore(f, query, activeFilePath),
-    }));
-
-    // Merge semantic similarity scores when available
-    if (config.enableSemanticSearch && this.embeddingIndex?.isReady()) {
-      const weight = config.semanticSearchWeight;
-      const semanticResults = await this.embeddingIndex.search(query, 50);
-      if (semanticResults.length > 0) {
-        const simMap = new Map(semanticResults.map((r) => [r.relativePath, r.similarity]));
-        for (const f of scored) {
-          const sim = simMap.get(f.relativePath);
-          if (sim !== undefined) {
-            // Blend: heuristic * (1 - weight) + semantic * weight
-            // Scale semantic similarity to match heuristic score range (~0-2)
-            f.score = f.score * (1 - weight) + sim * 2 * weight;
-          }
-        }
-      }
-    }
-
-    // Apply context rules to filter files
-    const filesToConsider = applyContextRules(scored, rules);
-
-    // Partition: move files with score > 0 to the front, then sort only those.
-    const relevant = filesToConsider.filter((f) => f.score > 0);
-    relevant.sort((a, b) => b.score - a.score);
+    const relevant = await this.rankFiles(query, activeFilePath);
 
     // Build context with relevant content first, tree last.
     const parts: string[] = [];

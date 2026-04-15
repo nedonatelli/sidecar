@@ -5,6 +5,7 @@ export { Retriever, RetrievalHit } from './retriever';
 export { reciprocalRankFusion } from './fusion';
 export { DocRetriever } from './docRetriever';
 export { MemoryRetriever } from './memoryRetriever';
+export { SemanticRetriever } from './semanticRetriever';
 
 /**
  * Run a set of retrievers in parallel and fuse their rankings with RRF.
