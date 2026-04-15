@@ -761,11 +761,18 @@ describe('injectSystemContext', () => {
     expect(result).not.toContain('Active Skill');
   });
 
-  it('injects documentation RAG results', async () => {
+  it('injects documentation RAG results via fused retrievers', async () => {
     const documentationIndexer = {
       isReady: () => true,
-      search: () => [{ title: 'API Docs', content: 'Use REST endpoints' }],
-      formatForContext: () => '## Documentation\nAPI guide content here',
+      search: () => [
+        {
+          title: 'API Docs',
+          content: 'API guide content here',
+          filePath: 'docs/api.md',
+          lineNumber: 10,
+          relevanceScore: 5,
+        },
+      ],
     };
     const result = await injectSystemContext(
       'base prompt',
@@ -777,12 +784,22 @@ describe('injectSystemContext', () => {
       null,
     );
     expect(result).toContain('API guide content here');
+    expect(result).toContain('## Retrieved Context');
   });
 
-  it('injects agent memory results', async () => {
+  it('injects agent memory results via fused retrievers', async () => {
     const agentMemory = {
-      search: () => [{ id: 'm1', content: 'Use camelCase naming', relevanceScore: 0.8 }],
-      formatForContext: () => '## Learned Patterns\n- Use camelCase naming',
+      search: () => [
+        {
+          id: 'm1',
+          type: 'convention' as const,
+          category: 'naming',
+          content: 'Use camelCase naming',
+          timestamp: Date.now(),
+          useCount: 1,
+          relevanceScore: 0.8,
+        },
+      ],
     };
     const result = await injectSystemContext(
       'base prompt',
@@ -794,6 +811,7 @@ describe('injectSystemContext', () => {
       null,
     );
     expect(result).toContain('camelCase naming');
+    expect(result).toContain('## Retrieved Context');
   });
 
   it('respects max system chars budget by not appending when full', async () => {

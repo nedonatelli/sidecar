@@ -33,6 +33,7 @@ import {
 import { runAgentLoop } from '../../agent/loop.js';
 import type { AgentCallbacks } from '../../agent/loop.js';
 import { SkillLoader } from '../../agent/skillLoader.js';
+import { DocRetriever, MemoryRetriever, fuseRetrievers, renderFusedContext } from '../../agent/retrieval/index.js';
 import type { ChatMessage } from '../../ollama/types.js';
 import type { ApprovalMode } from '../../agent/executor.js';
 import { pruneHistory, enhanceContextWithSmartElements } from '../../agent/context.js';
@@ -573,45 +574,34 @@ export async function injectSystemContext(
     }
   }
 
-  // RAG documentation — only in trusted workspaces (docs are
-  // attacker-controlled in a cloned repo)
-  const budgetRemaining = maxSystemChars - prompt.length;
-  if (
-    workspaceTrusted &&
-    config.enableDocumentationRAG &&
-    state.documentationIndexer?.isReady() &&
-    text &&
-    budgetRemaining > 500
-  ) {
-    const docEntries = state.documentationIndexer.search(text, config.ragMaxDocEntries);
-    if (docEntries.length > 0) {
-      const docContext = state.documentationIndexer.formatForContext(docEntries);
-      if (prompt.length + docContext.length < maxSystemChars) {
+  // RAG documentation + agent memory — only in trusted workspaces.
+  // Both sources are attacker-controlled in a cloned repo (docs) or
+  // could be poisoned by a prior prompt-injected session (memory), so
+  // they skip entirely when the workspace is untrusted. Both retrievers
+  // share a single budget and are fused with reciprocal-rank fusion so
+  // that a strong memory hit can displace a weak doc hit (and vice versa)
+  // instead of each source getting its own fixed allocation.
+  const retrievalBudget = maxSystemChars - prompt.length;
+  if (workspaceTrusted && text && retrievalBudget > 500) {
+    const retrievers = [];
+    if (config.enableDocumentationRAG && state.documentationIndexer) {
+      retrievers.push(new DocRetriever(state.documentationIndexer));
+    }
+    if (config.enableAgentMemory && state.agentMemory) {
+      retrievers.push(new MemoryRetriever(state.agentMemory));
+    }
+    if (retrievers.length > 0) {
+      const topK = Math.max(config.ragMaxDocEntries, 5);
+      const fused = await fuseRetrievers(retrievers, text, topK, topK);
+      const fusedContext = renderFusedContext(fused);
+      if (fusedContext && prompt.length + fusedContext.length < maxSystemChars) {
         prompt = ensureBoundary(prompt);
         const remaining = maxSystemChars - prompt.length;
         const truncated =
-          docContext.length > remaining ? docContext.slice(0, remaining - 30) + '\n... (docs truncated)' : docContext;
-        prompt += `\n\n## Project Documentation\n${truncated}`;
-      }
-    }
-  }
-
-  // Agent memory — only in trusted workspaces. Persistent memories
-  // stored in .sidecar/memory/ could be poisoned by a prior (prompt-
-  // injected) session, and loading them into a new session would
-  // propagate the attack across the trust boundary.
-  const memoryBudget = maxSystemChars - prompt.length;
-  if (workspaceTrusted && config.enableAgentMemory && state.agentMemory && text && memoryBudget > 300) {
-    const relevantMemories = state.agentMemory.search(text, undefined, 5);
-    if (relevantMemories.length > 0) {
-      const memoryContext = state.agentMemory.formatForContext(relevantMemories);
-      if (prompt.length + memoryContext.length < maxSystemChars) {
-        const remaining = maxSystemChars - prompt.length;
-        const truncated =
-          memoryContext.length > remaining
-            ? memoryContext.slice(0, remaining - 30) + '\n... (memory truncated)'
-            : memoryContext;
-        prompt += `\n\n## Agent Memory\n${truncated}`;
+          fusedContext.length > remaining
+            ? fusedContext.slice(0, remaining - 40) + '\n... (retrieved context truncated)'
+            : fusedContext;
+        prompt += `\n\n${truncated}`;
       }
     }
   }
