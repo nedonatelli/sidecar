@@ -17,9 +17,9 @@ import { streamOneTurn, resolveTurnContent } from './loop/streamTurn.js';
 import { exceedsBurstCap, detectCycleAndBail } from './loop/cycleDetection.js';
 import { pushAssistantMessage, pushToolResultsMessage, accountToolTokens } from './loop/messageBuild.js';
 import { runCriticChecks, type RunCriticOptions } from './loop/criticHook.js';
-import { recordGateToolUses, maybeInjectCompletionGate } from './loop/gate.js';
+import { HookBus, type PolicyHook, type HookContext } from './loop/policyHook.js';
+import { defaultPolicyHooks } from './loop/builtInHooks.js';
 import { executeToolUses } from './loop/executeToolUses.js';
-import { applyPostTurnPolicies } from './loop/postTurnPolicies.js';
 import { notifyIterationStart, maybeEmitProgressSummary, shouldStopAtCheckpoint } from './loop/notifications.js';
 import { finalize } from './loop/finalize.js';
 export { compressMessages, parseTextToolCalls, stripRepeatedContent };
@@ -111,6 +111,17 @@ export interface AgentOptions {
    * context on every tool call. Caller owns disposal.
    */
   toolRuntime?: ToolRuntime;
+  /**
+   * Extra policy hooks registered after the four built-in ones
+   * (auto-fix, stub validator, critic, completion gate). Runs in
+   * registration order inside the same HookBus as the built-ins;
+   * later hooks see the mutations earlier hooks made to state.messages.
+   *
+   * Intended for plugin / skill / CLAUDE.md-driven policy extension.
+   * Leave unset for the default behavior — the built-ins run the same
+   * way they did before v0.54.
+   */
+  extraPolicyHooks?: PolicyHook[];
 }
 
 // DEFAULT_MAX_ITERATIONS moved to loop/state.ts along with initLoopState.
@@ -132,6 +143,17 @@ export async function runAgentLoop(
   // references here are just `state.xxx` — no shadow locals, no
   // sync-around-helper-call dance.
   const state = initLoopState(messages, options);
+
+  // Build the policy hook bus. Four built-in hooks ship by default
+  // (auto-fix, stub validator, critic, completion gate); extra hooks
+  // supplied via options.extraPolicyHooks register after the built-ins
+  // and see the built-ins' mutations. This replaces the direct helper
+  // calls the orchestrator made in v0.53.
+  const hookBus = new HookBus();
+  hookBus.registerAll(defaultPolicyHooks());
+  if (options.extraPolicyHooks) {
+    hookBus.registerAll(options.extraPolicyHooks);
+  }
 
   while (state.iteration < state.maxIterations) {
     state.iteration++;
@@ -200,8 +222,22 @@ export async function runAgentLoop(
         }
       }
 
-      const gateOutcome = await maybeInjectCompletionGate(state, config, options, signal, callbacks);
-      if (gateOutcome === 'injected') continue;
+      // Empty-response phase: the model produced no tool calls this
+      // turn. Any hook that implements onEmptyResponse gets a chance
+      // to inject a reprompt and keep the loop running (the completion
+      // gate is the built-in that does this). If nothing mutates, we
+      // break out of the loop.
+      const emptyCtx: HookContext = {
+        client,
+        config,
+        options,
+        signal,
+        callbacks,
+        pendingToolUses: [],
+        fullText,
+      };
+      const emptyMutated = await hookBus.runEmptyResponse(state, emptyCtx);
+      if (emptyMutated) continue;
 
       break;
     }
@@ -225,10 +261,6 @@ export async function runAgentLoop(
     // helper.
     const toolResults = await executeToolUses(state, pendingToolUses, client, options, callbacks, signal);
 
-    // Feed tool calls into the gate state so the next empty-response
-    // turn can decide whether to inject a verification reprompt.
-    recordGateToolUses(state, pendingToolUses, toolResults);
-
     // Token accounting and history append for the tool results.
     accountToolTokens(state, pendingToolUses, toolResults);
     pushToolResultsMessage(state, toolResults);
@@ -237,10 +269,25 @@ export async function runAgentLoop(
     // iteration doesn't open over budget.
     maybeCompressPostTool(state);
 
-    // Post-turn policies: auto-fix → stub validator → adversarial
-    // critic. Each may push a synthetic user message asking the
-    // agent to do more work before ending the turn.
-    await applyPostTurnPolicies(state, client, config, pendingToolUses, toolResults, fullText, callbacks, signal);
+    // afterToolResults phase: all four built-in hooks fire here in
+    // registration order (auto-fix → stub → critic → completion gate
+    // tool tracking). Any user-supplied extraPolicyHooks run after the
+    // built-ins. Each hook may push a synthetic user message asking
+    // the agent to do more work before ending the turn — the return
+    // value is currently informational only, because the loop
+    // continues iterating regardless (the tool call sequence is what
+    // decides termination via the empty-response branch above).
+    const afterCtx: HookContext = {
+      client,
+      config,
+      options,
+      signal,
+      callbacks,
+      pendingToolUses,
+      toolResults,
+      fullText,
+    };
+    await hookBus.runAfter(state, afterCtx);
 
     // Plan mode: return after first iteration for user approval.
     if (options.approvalMode === 'plan' && state.iteration === 1 && fullText) {
