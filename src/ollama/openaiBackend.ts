@@ -176,9 +176,9 @@ export function toOpenAIMessages(messages: ChatMessage[], systemPrompt: string):
  */
 export class OpenAIBackend implements ApiBackend {
   constructor(
-    private baseUrl: string,
-    private apiKey: string,
-    private rateLimits: RateLimitStore = new RateLimitStore(),
+    protected baseUrl: string,
+    protected apiKey: string,
+    protected rateLimits: RateLimitStore = new RateLimitStore(),
   ) {}
 
   /** Expose the rate-limit snapshot for status UIs and tests. */
@@ -186,16 +186,25 @@ export class OpenAIBackend implements ApiBackend {
     return this.rateLimits;
   }
 
-  private get chatUrl(): string {
+  protected get chatUrl(): string {
     return `${this.baseUrl}/v1/chat/completions`;
   }
 
-  private get modelsUrl(): string {
+  protected get modelsUrl(): string {
     return `${this.baseUrl}/v1/models`;
   }
 
-  private getHeaders(): Record<string, string> {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  /**
+   * Header hook for subclasses that need to attach provider-specific
+   * metadata (e.g. OpenRouter's HTTP-Referer and X-Title identifiers
+   * used for their public leaderboard). Returns nothing by default.
+   */
+  protected extraHeaders(): Record<string, string> {
+    return {};
+  }
+
+  protected getHeaders(): Record<string, string> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json', ...this.extraHeaders() };
     if (this.apiKey && this.apiKey !== 'ollama') {
       headers['Authorization'] = `Bearer ${this.apiKey}`;
     }

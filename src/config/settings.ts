@@ -448,10 +448,7 @@ function readConfig(): SideCarConfig {
   const cfg = workspace.getConfiguration('sidecar');
   return {
     model: cfg.get<string>('model', 'qwen3-coder:30b') || 'qwen3-coder:30b',
-    provider: cfg.get<'auto' | 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'openrouter'>(
-      'provider',
-      'auto',
-    ),
+    provider: cfg.get<'auto' | 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter'>('provider', 'auto'),
     systemPrompt: cfg.get<string>('systemPrompt', ''),
     baseUrl: cfg.get<string>('baseUrl', 'http://localhost:11434') || 'http://localhost:11434',
     apiKey: _cachedApiKey ?? cfg.get<string>('apiKey', 'ollama'),

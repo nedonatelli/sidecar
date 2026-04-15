@@ -4,6 +4,7 @@ import { AnthropicBackend } from './anthropicBackend.js';
 import { OllamaBackend } from './ollamaBackend.js';
 import { OpenAIBackend } from './openaiBackend.js';
 import { KickstandBackend } from './kickstandBackend.js';
+import { OpenRouterBackend } from './openrouterBackend.js';
 import { isLocalOllama, detectProvider, getConfig, readKickstandToken } from '../config/settings.js';
 import { RateLimitStore } from './rateLimitState.js';
 import { spendTracker } from './spendTracker.js';
@@ -113,11 +114,7 @@ export class SideCarClient {
       case 'kickstand':
         return new KickstandBackend(this.baseUrl, this.apiKey || readKickstandToken(), this.rateLimitsFor('kickstand'));
       case 'openrouter':
-        // Temporary: OpenRouter speaks the OpenAI-compatible dialect so
-        // the base class works end-to-end today. A dedicated
-        // OpenRouterBackend with referrer headers + model catalog lands
-        // in the next F.4 commit and will replace this branch.
-        return new OpenAIBackend(this.baseUrl, this.apiKey, this.rateLimitsFor('openrouter'));
+        return new OpenRouterBackend(this.baseUrl, this.apiKey, this.rateLimitsFor('openrouter'));
       case 'openai':
         return new OpenAIBackend(this.baseUrl, this.apiKey, this.rateLimitsFor('openai'));
     }
