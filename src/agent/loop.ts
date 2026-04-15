@@ -3,7 +3,6 @@ import { SideCarClient } from '../ollama/client.js';
 import { recordToolSuccess, recordToolFailure } from '../ollama/ollamaBackend.js';
 import type { InlineEditFn } from './executor.js';
 import type { ClarifyFn } from './tools.js';
-import { getDiagnostics } from './tools.js';
 import type { ToolRuntime } from './tools/runtime.js';
 import { getConfig } from '../config/settings.js';
 import { CHARS_PER_TOKEN } from '../config/constants.js';
@@ -28,6 +27,7 @@ import { pushAssistantMessage, pushToolResultsMessage, accountToolTokens } from 
 import { applyStubCheck } from './loop/stubCheck.js';
 import { applyCritic, runCriticChecks, type RunCriticOptions } from './loop/criticHook.js';
 import { recordGateToolUses, maybeInjectCompletionGate } from './loop/gate.js';
+import { applyAutoFix } from './loop/autoFix.js';
 export { compressMessages, parseTextToolCalls, stripRepeatedContent };
 // runCriticChecks + RunCriticOptions were extracted into
 // ./loop/criticHook.ts. Re-exported so critic.runner.test.ts still
@@ -135,7 +135,6 @@ export async function runAgentLoop(
   // in-place mutations propagate both ways automatically.
   const { maxIterations, approvalMode, tools, logger, changelog, mcpManager, startTime } = state;
   const agentMessages = state.messages;
-  const autoFixRetriesByFile = state.autoFixRetriesByFile;
 
   // Primitives (iteration, totalChars, stubFixRetries) can't alias by
   // reference. Keep local mutable copies and sync with `state.xxx`
@@ -416,50 +415,11 @@ export async function runAgentLoop(
       maybeCompressPostTool(state);
       totalChars = state.totalChars;
 
-      // Auto-fix: check for errors after file writes and feed them back
-      if (config.autoFixOnFailure) {
-        const writtenFiles = pendingToolUses
-          .filter((tu) => tu.name === 'write_file' || tu.name === 'edit_file')
-          .map((tu) => (tu.input.path || tu.input.file_path) as string)
-          .filter(Boolean);
-
-        // Only consider files whose per-file retry budget hasn't been exhausted
-        const eligibleFiles = writtenFiles.filter((f) => (autoFixRetriesByFile.get(f) || 0) < config.autoFixMaxRetries);
-
-        if (eligibleFiles.length > 0) {
-          // Small delay to let VS Code language services update diagnostics
-          await new Promise((r) => setTimeout(r, 500));
-
-          const diagResults = await Promise.allSettled(eligibleFiles.map((f) => getDiagnostics({ path: f })));
-          const fileErrors: { file: string; errors: string }[] = [];
-          for (let i = 0; i < eligibleFiles.length; i++) {
-            const r = diagResults[i];
-            if (r.status === 'fulfilled' && r.value.includes('[Error]')) {
-              fileErrors.push({ file: eligibleFiles[i], errors: r.value });
-            }
-          }
-
-          if (fileErrors.length > 0) {
-            // Increment per-file retry counter
-            for (const { file } of fileErrors) {
-              autoFixRetriesByFile.set(file, (autoFixRetriesByFile.get(file) || 0) + 1);
-            }
-            const attemptSummary = fileErrors
-              .map(({ file }) => `${file} (${autoFixRetriesByFile.get(file)}/${config.autoFixMaxRetries})`)
-              .join(', ');
-            callbacks.onText(`\n⚠️ Auto-fixing errors: ${attemptSummary}\n`);
-            agentMessages.push({
-              role: 'user',
-              content: [
-                {
-                  type: 'text' as const,
-                  text: `Errors detected after your edits. Please fix them:\n${fileErrors.map((fe) => fe.errors).join('\n')}`,
-                },
-              ],
-            });
-          }
-        }
-      }
+      // Auto-fix on diagnostics — post-turn policy. Extracted into
+      // loop/autoFix.ts. Honors the per-file retry budget stored on
+      // state.autoFixRetriesByFile so a persistently broken file
+      // can't loop the retry indefinitely.
+      await applyAutoFix(state, pendingToolUses, config, callbacks);
 
       // Stub validator — scan written code for placeholder patterns
       // and reprompt on first hit. Extracted into loop/stubCheck.ts.
