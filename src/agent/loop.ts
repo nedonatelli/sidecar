@@ -1,4 +1,4 @@
-import type { ChatMessage, ToolDefinition, ToolResultContentBlock } from '../ollama/types.js';
+import type { ChatMessage, ToolDefinition } from '../ollama/types.js';
 import { SideCarClient } from '../ollama/client.js';
 import { recordToolSuccess, recordToolFailure } from '../ollama/ollamaBackend.js';
 import type { InlineEditFn } from './executor.js';
@@ -6,18 +6,10 @@ import type { ClarifyFn } from './tools.js';
 import type { ToolRuntime } from './tools/runtime.js';
 import { getConfig } from '../config/settings.js';
 import { CHARS_PER_TOKEN } from '../config/constants.js';
-import {
-  executeTool,
-  type ApprovalMode,
-  type ConfirmFn,
-  type DiffPreviewFn,
-  type StreamingDiffPreviewFn,
-} from './executor.js';
+import { type ApprovalMode, type ConfirmFn, type DiffPreviewFn, type StreamingDiffPreviewFn } from './executor.js';
 import type { AgentLogger } from './logger.js';
 import type { ChangeLog } from './changelog.js';
 import type { MCPManager } from './mcpManager.js';
-import { spawnSubAgent } from './subagent.js';
-import { runLocalWorker } from './localWorker.js';
 import { compressMessages, applyBudgetCompression, maybeCompressPostTool } from './loop/compression.js';
 import { initLoopState } from './loop/state.js';
 import { parseTextToolCalls, stripRepeatedContent } from './loop/textParsing.js';
@@ -28,6 +20,7 @@ import { applyStubCheck } from './loop/stubCheck.js';
 import { applyCritic, runCriticChecks, type RunCriticOptions } from './loop/criticHook.js';
 import { recordGateToolUses, maybeInjectCompletionGate } from './loop/gate.js';
 import { applyAutoFix } from './loop/autoFix.js';
+import { executeToolUses } from './loop/executeToolUses.js';
 export { compressMessages, parseTextToolCalls, stripRepeatedContent };
 // runCriticChecks + RunCriticOptions were extracted into
 // ./loop/criticHook.ts. Re-exported so critic.runner.test.ts still
@@ -133,7 +126,7 @@ export async function runAgentLoop(
   // concise. Reference-type aliases (arrays, maps, the gate state
   // object, the messages array) share the same object as state.*, so
   // in-place mutations propagate both ways automatically.
-  const { maxIterations, approvalMode, tools, logger, changelog, mcpManager, startTime } = state;
+  const { maxIterations, tools, logger, startTime } = state;
   const agentMessages = state.messages;
 
   // Primitives (iteration, totalChars, stubFixRetries) can't alias by
@@ -286,114 +279,19 @@ export async function runAgentLoop(
 
     // If the model wants to use tools, execute them and loop
     if ((stopReason === 'tool_use' || pendingToolUses.length > 0) && pendingToolUses.length > 0) {
-      const toolResults: ToolResultContentBlock[] = [];
-
-      // Execute tools in parallel for better performance
-      const executionPromises = pendingToolUses.map(async (toolUse) => {
-        // Handle spawn_agent specially — it needs the client and runtime context
-        if (toolUse.name === 'spawn_agent') {
-          const subResult = await spawnSubAgent(
-            client,
-            toolUse.input.task as string,
-            toolUse.input.context as string | undefined,
-            callbacks,
-            signal,
-            { logger, changelog, approvalMode, maxIterations: Math.min(maxIterations, 15), depth: options.depth || 0 },
-          );
-          // Charge sub-agent token usage to the parent's budget
-          totalChars += subResult.charsConsumed;
-          callbacks.onCharsConsumed?.(subResult.charsConsumed);
-          const toolResult: ToolResultContentBlock = {
-            type: 'tool_result',
-            tool_use_id: toolUse.id,
-            content: subResult.output || '(no output)',
-            is_error: !subResult.success,
-          };
-          return toolResult;
-        }
-
-        // Handle delegate_task — offload to a local Ollama worker.
-        // The worker's token consumption does NOT count against the
-        // orchestrator's paid-budget char counter. That's the entire
-        // point of the tool: shift heavy I/O onto the free backend.
-        if (toolUse.name === 'delegate_task') {
-          const workerResult = await runLocalWorker(
-            toolUse.input.task as string,
-            toolUse.input.context as string | undefined,
-            callbacks,
-            signal,
-            { logger, changelog, mcpManager, depth: options.depth || 0 },
-          );
-          const toolResult: ToolResultContentBlock = {
-            type: 'tool_result',
-            tool_use_id: toolUse.id,
-            content: workerResult.output,
-            is_error: !workerResult.success,
-          };
-          return toolResult;
-        }
-
-        const result = await executeTool(toolUse, {
-          approvalMode,
-          changelog,
-          mcpManager,
-          logger,
-          confirmFn: options.confirmFn,
-          diffPreviewFn: options.diffPreviewFn,
-          executorContext: {
-            onOutput: (chunk) => callbacks.onToolOutput?.(toolUse.name, chunk, toolUse.id),
-            signal,
-            clarifyFn: options.clarifyFn,
-            modeToolPermissions: options.modeToolPermissions,
-            toolRuntime: options.toolRuntime,
-          },
-          inlineEditFn: options.inlineEditFn,
-          streamingDiffPreviewFn: options.streamingDiffPreviewFn,
-          pendingEdits: options.pendingEdits,
-        });
-        logger?.logToolResult(toolUse.name, result.content, result.is_error || false);
-
-        // Record tool use in memory — both successes and failures
-        const inputStr = typeof toolUse.input === 'object' ? JSON.stringify(toolUse.input) : String(toolUse.input);
-        if (!result.is_error) {
-          callbacks.onMemory?.(
-            'pattern',
-            `tool:${toolUse.name}`,
-            `${toolUse.name} works well with args like: ${inputStr.slice(0, 100)}`,
-          );
-        } else {
-          callbacks.onMemory?.(
-            'failure',
-            `tool:${toolUse.name}`,
-            `${toolUse.name} can fail when: ${result.content.slice(0, 120)}`,
-          );
-        }
-        callbacks.onToolChainRecord?.(toolUse.name, !result.is_error);
-
-        callbacks.onToolResult(toolUse.name, result.content, result.is_error || false, toolUse.id);
-        return result;
-      });
-
-      // Execute all tools in parallel — use allSettled so one failure
-      // doesn't abort the others
-      const settled = await Promise.allSettled(executionPromises);
-      for (let idx = 0; idx < settled.length; idx++) {
-        const outcome = settled[idx];
-        if (outcome.status === 'fulfilled') {
-          toolResults.push(outcome.value);
-        } else {
-          // Promise rejected — turn it into an error tool result
-          const errMsg = outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason);
-          toolResults.push({
-            type: 'tool_result',
-            tool_use_id: pendingToolUses[idx].id,
-            content: `Internal error: ${errMsg}`,
-            is_error: true,
-          });
-          logger?.warn(`Tool ${pendingToolUses[idx].name} threw: ${errMsg}`);
-          callbacks.onToolResult(pendingToolUses[idx].name, `Internal error: ${errMsg}`, true, pendingToolUses[idx].id);
-        }
-      }
+      // Parallel tool execution with spawn_agent / delegate_task /
+      // normal executeTool dispatch. Extracted into
+      // loop/executeToolUses.ts. Returns a result array aligned 1:1
+      // with pendingToolUses; rejected promises are promoted to
+      // synthetic error tool_result blocks inside the helper so the
+      // caller never has to worry about index alignment.
+      //
+      // state.totalChars is mutated directly by the helper for
+      // spawn_agent sub-agents (parent pays for sub-agent tokens),
+      // so we sync the local `totalChars` across the call.
+      state.totalChars = totalChars;
+      const toolResults = await executeToolUses(state, pendingToolUses, client, options, callbacks, signal);
+      totalChars = state.totalChars;
 
       // Feed tool calls into the gate state so the next empty-response
       // turn can decide whether to inject a verification reprompt.
