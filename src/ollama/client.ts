@@ -387,8 +387,13 @@ export class SideCarClient {
       }
     }
 
-    if (provider === 'openai' || provider === 'kickstand') {
-      // OpenAI-compatible servers and Kickstand use GET /v1/models
+    if (provider === 'openai' || provider === 'kickstand' || provider === 'openrouter') {
+      // OpenAI-compatible servers (including Kickstand and OpenRouter)
+      // all use GET /v1/models. OpenRouter enriches each entry with
+      // `top_provider` + `pricing` fields, but we only surface the id
+      // in the basic model picker here — the richer catalog is exposed
+      // via OpenRouterBackend.listOpenRouterModels() for features that
+      // need the pricing overlay.
       try {
         const headers: Record<string, string> = {};
         if (this.apiKey && this.apiKey !== 'ollama') {
@@ -396,12 +401,18 @@ export class SideCarClient {
         }
         const response = await fetch(`${this.baseUrl}/v1/models`, { headers });
         if (!response.ok) return [];
-        const data = (await response.json()) as { data: { id: string; owned_by?: string }[] };
+        const data = (await response.json()) as {
+          data: { id: string; name?: string; owned_by?: string; top_provider?: { name?: string } }[];
+        };
         return (data.data || []).map((m) => ({
           name: m.id,
           model: m.id,
           size: 0,
-          details: { parameter_size: '', quantization_level: '', family: m.owned_by || '' },
+          details: {
+            parameter_size: '',
+            quantization_level: '',
+            family: m.owned_by || m.top_provider?.name || '',
+          },
         }));
       } catch {
         return [];

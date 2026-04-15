@@ -127,6 +127,16 @@ export const BUILT_IN_BACKEND_PROFILES: readonly BackendProfile[] = [
     description: 'GPT models via the OpenAI API (pay-per-token, requires API key from platform.openai.com)',
   },
   {
+    id: 'openrouter',
+    name: 'OpenRouter',
+    provider: 'openrouter',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    defaultModel: 'anthropic/claude-sonnet-4.5',
+    secretKey: 'sidecar.profileKey.openrouter',
+    description:
+      'One key unlocks hundreds of models across providers (Anthropic, OpenAI, Google, Mistral, Meta, and more). Requires an API key from openrouter.ai/keys. Per-model pricing pulled live from their catalog.',
+  },
+  {
     id: 'kickstand',
     name: 'Kickstand (coming soon)',
     provider: 'kickstand',
