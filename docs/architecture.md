@@ -52,8 +52,13 @@ SideCar is an AI-powered coding assistant for VS Code that operates as an autono
 - [`src/agent/retrieval/`](../src/agent/retrieval/) - Unified `Retriever` interface + reciprocal-rank fusion across documentation index, agent memory, and workspace semantic search (`SemanticRetriever` wraps `WorkspaceIndex.rankFiles`). All three sources compete under a single shared budget inside `injectSystemContext` via `fuseRetrievers()`. `ConversationSummarizer` has a per-turn cap (default 220 chars) that usually skips the LLM compression round-trip entirely
 
 ### 6. Communication Layer
-- `SideCarClient` - LLM API client (Ollama or Anthropic)
-- `ollamaBackend.ts` - Ollama-specific functionality
+- `SideCarClient` - LLM API client routes to the right backend per provider
+- `ollamaBackend.ts` - Ollama native `/api/chat` protocol
+- `anthropicBackend.ts` - Anthropic Messages API with thinking + tool_use blocks
+- `openaiBackend.ts` - OpenAI-compatible `/v1/chat/completions` (OpenAI, LM Studio, vLLM, llama.cpp)
+- `kickstandBackend.ts` - Kickstand self-hosted (OpenAI-compatible wrapper)
+- `openrouterBackend.ts` - OpenRouter with referrer headers + catalog pricing (subclass of OpenAIBackend)
+- `openAiSseStream.ts` - Shared OpenAI-compatible SSE parser (anticorruption layer). Every backend that speaks `/v1/chat/completions` delegates here for stream framing, tool_call reconstruction, think-tag parsing, text tool-call interception, usage events, and finish_reason mapping. Adding a new OpenAI-compatible provider becomes a ~50-line subclass
 - `mcpManager.ts` - Manages MCP servers for external tool integration
 - `circuitBreaker.ts` - Per-provider three-state circuit breaker (closed → open after 5 consecutive failures → half-open after 60s cooldown). Fast-fails when a provider is demonstrably down instead of hanging on a dead request
 - `streamTurn.ts` - Captures partial assistant text when a stream dies mid-turn and fires `onStreamFailure` so `/resume` can re-dispatch with a continuation hint

@@ -2,7 +2,7 @@
 
 Planned improvements and features for SideCar. Audit findings from v0.34.0 comprehensive review are in the Audit Backlog section. All critical fixes were addressed in v0.35.0.
 
-Last updated: 2026-04-14 (v0.52.0 released — retriever fusion completed by wrapping workspace semantic search as the third `Retriever`, per-provider circuit breaker for LLM backends with 5-failure trip + 60s cooldown + half-open probe, `/resume` slash command that captures mid-stream failures and re-dispatches with a continuation hint, and prompt cache byte-stability regression tests. Three cycle-2 audit items closed.)
+Last updated: 2026-04-15 (v0.53.0 released — OpenRouter as a first-class backend provider with referrer headers + catalog pricing, shared `streamOpenAiSse` anticorruption layer factored out so every OpenAI-compatible backend delegates SSE parsing to one place, Kickstand consolidation picking up previously-missing features, and runtime `MODEL_COSTS` overlay populated from the OpenRouter catalog. Last HIGH cycle-2 audit item closed.)
 
 ---
 
@@ -52,7 +52,7 @@ Last updated: 2026-04-14 (v0.52.0 released — retriever fusion completed by wra
 ### Providers & Integration
 
 - **Bitbucket / Atlassian** — Bitbucket REST API, `GitProvider` interface, auto-detect from remote URL
-- **OpenRouter** — dedicated integration with model browsing, cost display, rate limit awareness
+- ~~**OpenRouter** — dedicated integration with model browsing, cost display, rate limit awareness~~ → **shipped 2026-04-15 in v0.53.0**. Dedicated [`OpenRouterBackend`](src/ollama/openrouterBackend.ts) subclass with referrer + title headers, rich catalog fetch via `listOpenRouterModels()`, first-class entry in `BUILT_IN_BACKEND_PROFILES`, and a runtime `MODEL_COSTS` overlay populated from OpenRouter's per-model pricing (no more hand-maintaining prices for hundreds of proxied models). Per-generation real cost tracking via `/generation/{id}` still deferred.
 - **Browser automation** — Playwright MCP for testing web apps
 - **Extension / plugin API** — `@sidecar/sdk` for custom commands, renderers, tools, hooks
 - **MCP marketplace** — discoverable directory with one-click install
@@ -81,7 +81,7 @@ Items that are known, named, and understood — but intentionally scoped out of 
 ### Architectural (HIGH audit items)
 
 - **Policy-hook interface for `runAgentLoop`** — registration bus for `beforeIteration` / `afterToolResult` / `onTermination`. Today the four post-turn policies (autoFix → stub → critic → gate) are still called directly from `loop.ts`. Moving them behind a hook bus would close the v0.50 decomposition story and make it trivial to add or disable policies from user config. *Source: v0.50.0 deferral, reaffirmed v0.51.0 + v0.52.0. ~1 day.*
-- **Backend anticorruption layer (`normalizeStream`)** — each backend writes to a common normalized stream shape so `SideCarClient` only speaks one dialect. Unblocks OpenRouter, Groq, Fireworks, custom Bedrock, etc. *Source: v0.51.0 deferral. ~1.5 days.*
+- ~~**Backend anticorruption layer (`normalizeStream`)**~~ → **fixed 2026-04-15 in v0.53.0**. See `Recently Completed` below — `streamOpenAiSse` helper + OpenAI/Kickstand/OpenRouter delegation.
 - **`chatHandlers.ts` split** — 1,708 lines, the largest remaining god-module after the v0.50 `loop.ts` decomposition. Same extraction pattern as `tools.ts` and `loop.ts`: single-responsibility helpers, shared state container, re-exports for backward compat. Could bundle with a `SideCarConfig` split. *Source: cycle-2 audit, v0.52.0 deferral. ~2 days.*
 
 ### Retrieval polish (MEDIUM)
@@ -295,7 +295,7 @@ changes), 0 regressions.
 - ~~`tools.ts` god-module decomposition (~950 lines)~~ → **completed 2026-04-14**. Split into [`src/agent/tools/`](src/agent/tools/) with one file per subsystem (`fs`, `search`, `shell`, `diagnostics`, `git`, `knowledge`) plus `shared.ts` (path validation, sensitive-file blocklist, shell helpers) and `runtime.ts` (ToolRuntime container). `tools.ts` is now a 249-line orchestrator that composes `TOOL_REGISTRY` and re-exports types for backward compatibility. 1694 tests still pass.
 - ~~`runAgentLoop` god-function decomposition (~700 lines)~~ → **completed 2026-04-14 in v0.50.0**. 1216-line god function → 255-line orchestrator + 14 helpers under [`src/agent/loop/`](src/agent/loop/) across 9 commits. 79% reduction.
 - `PolicyHook` interface for loop mechanics (follow-up to the runAgentLoop decomposition — policies are still called directly from the orchestrator rather than registered through a hook bus)
-- Backend anticorruption layer (`normalizeStream`)
+- ~~Backend anticorruption layer (`normalizeStream`)~~ → **completed 2026-04-15 in v0.53.0**. New [`src/ollama/openAiSseStream.ts`](src/ollama/openAiSseStream.ts) factors OpenAI-compatible SSE parsing into a reusable helper; OpenAIBackend + Kickstand + OpenRouter all delegate to it. Unblocks OpenRouter (shipped in the same release) + future LM Studio / vLLM / Groq / Fireworks integrations as tiny subclass wrappers.
 - ~~Real retriever-fusion layer (`Retriever` interface + reciprocal-rank)~~ → **completed 2026-04-14 across v0.51.0 + v0.52.0**. v0.51 shipped the `Retriever` interface, RRF fusion, and adapters for documentation index + agent memory in [`src/agent/retrieval/`](src/agent/retrieval/). v0.52 wrapped workspace semantic search as the third retriever by splitting `WorkspaceIndex.getRelevantContext()` into `rankFiles` / `loadFileContent` / render-helper phases, so all three sources now compete under a single shared budget inside `injectSystemContext`.
 
 ---
@@ -687,7 +687,7 @@ Second pass of the same cycle, this time driven by the library skills (`threat-m
 #### Architecture — software-architecture (bounded contexts, coupling, DDD)
 
 - ~~**HIGH** `src/agent/tools.ts` is a god module~~ → **fixed 2026-04-14**. Split into [`src/agent/tools/`](src/agent/tools/) with one file per subsystem (`fs`, `search`, `shell`, `diagnostics`, `git`, `knowledge`) plus `shared.ts` and `runtime.ts`. `tools.ts` is now a 249-line orchestrator composing `TOOL_REGISTRY` and re-exporting types for backward compat. Same pattern as the `handleUserMessage` decomposition. 1694 tests still pass.
-- **HIGH** No anticorruption layer between backend clients and the agent loop. Each backend emits slightly different stream events (`thinking` blocks only from Anthropic, different tool-call ID schemes, different `done_reason` mappings) and the loop special-cases them. Introduce a `normalizeStream(backend.streamChat(...))` adapter so the loop consumes a canonical `StreamEvent` shape. Adding a new backend becomes one file, not three.
+- ~~**HIGH** No anticorruption layer between backend clients and the agent loop~~ → **fixed 2026-04-15 in v0.53.0**. New [`src/ollama/openAiSseStream.ts`](src/ollama/openAiSseStream.ts) factors the OpenAI-compatible SSE parsing (framing, tool_call reconstruction, think-tag handling, text tool-call interception, usage event emission, finish_reason → StreamEvent.stop mapping) out of OpenAIBackend into a reusable helper. Every OpenAI-compatible backend delegates stream parsing to one place — OpenAIBackend shrinks 501 → 323 lines, Kickstand 318 → 248 lines. Unblocked OpenRouter as the first real proof-of-concept integration to use the new layer; future LM Studio / vLLM / Groq / Fireworks integrations will ship as tiny subclass wrappers.
 - ~~**HIGH** `runAgentLoop` is the next god-function decomposition target~~ → **completed in v0.50.0**. 1216-line god function split into a 255-line orchestrator plus 14 focused helper modules under [`src/agent/loop/`](src/agent/loop/) across 9 commits (phases 1 → 2 → 3a-e → 4). Each helper owns one clear responsibility and takes a single `LoopState` parameter. Re-exports preserved for test compatibility. Every phase verified end-to-end against the LLM eval harness (the other half of this session's work). 79% reduction in loop.ts. **Deferred to a follow-up**: policy-hook interface (`beforeIteration` / `afterToolResult` / `onTermination` registration bus) — current decomposition gets file-level separation but policies are still called directly from the orchestrator rather than registered through a hook bus.
 - **HIGH** Agent policies are tangled into loop mechanics. Cycle detection, completion gate, stub validator, memory retrieval, skill injection, plan-mode triggering, context compression — all domain services mixed into the mechanical loop. Register them via a small "policy hook" interface (`beforeIteration`, `afterToolResult`, `onTermination`) so each is independently testable and extensible.
 - **MEDIUM** `SideCarConfig` is a fat shared kernel (DDD anti-pattern). One giant config interface imported by every module; any field change fans out the rebuild everywhere. Split into scoped slices (`BackendConfig`, `ChatUIConfig`, `ToolConfig`, `ObservabilityConfig`, `BudgetConfig`).

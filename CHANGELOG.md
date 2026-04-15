@@ -4,6 +4,38 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.53.0] - 2026-04-15
+
+OpenRouter + anticorruption layer release. Two parts, one theme: rationalize the OpenAI-compatible backend story by factoring shared SSE parsing into one place, then ship OpenRouter as the first user-facing win of the new architecture. Closes the last HIGH cycle-2 audit item (backend anticorruption layer) and unlocks hundreds of models behind a single API key.
+
+### Added
+
+- **New provider: OpenRouter.** One API key unlocks hundreds of models across providers (Anthropic, OpenAI, Google, Mistral, Meta, Cohere, and more) through a single OpenAI-compatible endpoint. New [`OpenRouterBackend`](src/ollama/openrouterBackend.ts) subclass inherits streaming/auth/rate-limiting from `OpenAIBackend` and adds two pieces of OpenRouter-specific polish: HTTP-Referer + X-Title headers (identifies traffic on OpenRouter's public leaderboard at <https://openrouter.ai/rankings>), and `listOpenRouterModels()` which hits the rich `/v1/models` catalog returning per-model pricing, context window, and upstream provider metadata. Available from the "Switch Backend" quick-pick alongside Ollama / Anthropic / OpenAI / Kickstand, with its own SecretStorage slot and a sensible default model (`anthropic/claude-sonnet-4.5`).
+- **Runtime `MODEL_COSTS` overlay populated from provider catalogs.** Hardcoded [`modelCosts.json`](src/config/modelCosts.json) was fine at ~15 models but OpenRouter proxies hundreds and growing. New `registerModelCost(id, cost)` + `ingestOpenRouterCatalog(models)` in [`settings.ts`](src/config/settings.ts) populate a runtime overlay `Map<modelId, ModelCostEntry>` that takes priority over the static substring-match lookup. `estimateCost()` now has a three-tier resolution: exact-id hit in the overlay → substring match against the static table → warn-once + null. OpenRouter returns pricing as decimal per-single-token strings (`"0.000003"`); the ingester scales them to per-1M-tokens units so the rest of the cost arithmetic works unchanged. `ChatViewProvider.reloadModels()` detects an active OpenRouter backend and kicks off a fire-and-forget catalog refresh so switching backends Just Works.
+
+### Refactored
+
+- **`streamOpenAiSse` anticorruption layer.** The ~180-line OpenAI-compatible SSE parsing block moved out of [`openaiBackend.ts`](src/ollama/openaiBackend.ts) into a reusable helper at [`src/ollama/openAiSseStream.ts`](src/ollama/openAiSseStream.ts). Handles SSE framing, `[DONE]` sentinel, incremental `tool_calls` reconstruction, `<think>` tag parsing, text-level tool-call interception, `usage` event emission, and `finish_reason` → `StreamEvent.stop` translation. Protocol quirks that differ between providers (auth headers, request body shape, rate-limit header formats) stay on the calling backend. Pure extraction — zero behavior changes. `OpenAIBackend` shrinks 501 → 323 lines (35% reduction) as `streamChat` ends in a single `yield* streamOpenAiSse(...)` delegation. Unlocks OpenRouter, LM Studio, vLLM, llama.cpp, Groq, Fireworks, and any other OpenAI-compatible provider without duplicating the parsing logic.
+- **Kickstand backend consolidation.** [`kickstandBackend.ts`](src/ollama/kickstandBackend.ts) now delegates SSE parsing to `streamOpenAiSse`. Shrinks 318 → 248 lines (22%) and picks up `<think>` tag parsing, text-level tool-call interception, incremental `tool_call` accumulation, and `usage` events for free — all capabilities the old hand-rolled parser silently lacked.
+- **`ProviderType` union extended with `'openrouter'`** across every consuming site ([`settings.ts`](src/config/settings.ts), [`providerReachability.ts`](src/config/providerReachability.ts), [`circuitBreaker.ts`](src/ollama/circuitBreaker.ts), [`client.ts`](src/ollama/client.ts)). New `isOpenRouter()` predicate (matches `openrouter.ai` hosts); `detectProvider()` auto-detects it before falling through to the `openai` default.
+- **`OpenAIBackend` internals made subclass-friendly.** `baseUrl` / `apiKey` / `rateLimits` / `chatUrl` / `modelsUrl` / `getHeaders` are now `protected`. New `extraHeaders()` hook returns `{}` by default and subclasses override it to attach provider-specific metadata — `OpenRouterBackend` uses this for its referrer + title headers without duplicating any of `streamChat`'s request-building code.
+
+### Closes cycle-2 audit items
+
+- HIGH: backend anticorruption layer (`normalizeStream`). Last HIGH from cycle-2.
+
+### Deferred
+
+- Per-generation real cost tracking via OpenRouter's `/generation/{id}` endpoint (currently we trust the pre-request estimate).
+- `OpenRouterBackend.complete` override — falls through to the inherited OpenAI path which works but doesn't emit usage events for the one-shot completion path.
+- LLM-as-judge scoring in the eval harness (still deferred from v0.50).
+- Policy hooks for `runAgentLoop` (`beforeIteration` / `afterToolResult` / `onTermination`) — still on the HIGH list as the last architectural deferral from v0.50.
+
+### Stats
+
+- 1861 total tests (121 test files)
+- 23 built-in tools, 8 skills
+
 ## [0.52.0] - 2026-04-14
 
 Reliability + retriever-fusion completion release. Two themes bundled: finishing the retriever-fusion story deferred from v0.51 by wrapping workspace semantic search as the third `Retriever`, and a reliability pass aimed at stream failures — the kind of mid-turn error that used to just lose the user's in-flight reasoning. Plus two pieces of passive infrastructure (circuit breaker, prompt cache byte-stability tests) that catch classes of failures before they reach users.
