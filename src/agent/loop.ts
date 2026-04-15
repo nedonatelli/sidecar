@@ -1,4 +1,4 @@
-import type { ChatMessage, ToolDefinition, ToolUseContentBlock, ToolResultContentBlock } from '../ollama/types.js';
+import type { ChatMessage, ToolDefinition, ToolResultContentBlock } from '../ollama/types.js';
 import { SideCarClient } from '../ollama/client.js';
 import { recordToolSuccess, recordToolFailure } from '../ollama/ollamaBackend.js';
 import type { InlineEditFn } from './executor.js';
@@ -26,23 +26,15 @@ import { streamOneTurn, resolveTurnContent } from './loop/streamTurn.js';
 import { exceedsBurstCap, detectCycleAndBail } from './loop/cycleDetection.js';
 import { pushAssistantMessage, pushToolResultsMessage, accountToolTokens } from './loop/messageBuild.js';
 import { applyStubCheck } from './loop/stubCheck.js';
+import { applyCritic, runCriticChecks, type RunCriticOptions } from './loop/criticHook.js';
 export { compressMessages, parseTextToolCalls, stripRepeatedContent };
-// buildStubReprompt moved behind loop/stubCheck.ts.
+// runCriticChecks + RunCriticOptions were extracted into
+// ./loop/criticHook.ts. Re-exported so critic.runner.test.ts still
+// imports them from './loop.js' without a coordinated rewrite.
+export { runCriticChecks };
+export type { RunCriticOptions };
 import { recordToolCall as recordGateToolCall, checkCompletionGate, buildGateInjection } from './completionGate.js';
 import type { PendingEditStore } from './pendingEdits.js';
-import {
-  CRITIC_SYSTEM_PROMPT,
-  buildEditCriticPrompt,
-  buildTestFailureCriticPrompt,
-  parseCriticResponse,
-  splitBySeverity,
-  formatFindingsForChat,
-  buildCriticInjection,
-  type CriticTrigger,
-  type CriticFinding,
-} from './critic.js';
-import { computeUnifiedDiff } from './diff.js';
-import { workspace, Uri } from 'vscode';
 
 export interface AgentCallbacks {
   onText: (text: string) => void;
@@ -144,7 +136,6 @@ export async function runAgentLoop(
   const { maxIterations, approvalMode, tools, logger, changelog, mcpManager, startTime } = state;
   const agentMessages = state.messages;
   const autoFixRetriesByFile = state.autoFixRetriesByFile;
-  const criticInjectionsByFile = state.criticInjectionsByFile;
   const gateState = state.gateState;
 
   // Primitives (iteration, totalChars, stubFixRetries) can't alias by
@@ -159,9 +150,8 @@ export async function runAgentLoop(
   let stubFixRetries = state.stubFixRetries;
 
   // Constants for the policy checks still inline in the iteration
-  // body (gate, critic). Will migrate out as phase 3 progresses.
+  // body (gate). Will migrate out in phase 3c.
   const MAX_GATE_INJECTIONS = 2;
-  const MAX_CRITIC_INJECTIONS_PER_FILE = 2;
   const maxTokens = state.maxTokens;
 
   while (iteration < maxIterations) {
@@ -508,32 +498,11 @@ export async function runAgentLoop(
       applyStubCheck(state, pendingToolUses, callbacks);
       stubFixRetries = state.stubFixRetries;
 
-      // Adversarial critic: fire an independent LLM call whose job is to
-      // attack the most recent edits (and root-cause any test failures).
-      // High-severity findings inject a synthetic user message forcing the
-      // agent to address them before the turn can finish; low-severity
-      // findings surface as chat annotations only. Disabled by default.
-      if (config.criticEnabled && !signal.aborted) {
-        const criticInjection = await runCriticChecks({
-          client,
-          config,
-          pendingToolUses,
-          toolResults,
-          changelog,
-          fullText,
-          callbacks,
-          logger,
-          signal,
-          criticInjectionsByFile,
-          maxPerFile: MAX_CRITIC_INJECTIONS_PER_FILE,
-        });
-        if (criticInjection) {
-          agentMessages.push({
-            role: 'user',
-            content: [{ type: 'text' as const, text: criticInjection }],
-          });
-        }
-      }
+      // Adversarial critic — post-turn policy. Extracted into
+      // loop/criticHook.ts. The wrapper reads config.criticEnabled,
+      // short-circuits on abort, and pushes the synthetic blocking
+      // injection into history when the critic returns one.
+      await applyCritic(state, client, config, pendingToolUses, toolResults, fullText, callbacks, signal);
 
       // Continue the loop — model will respond to tool results
       continue;
@@ -565,222 +534,10 @@ export async function runAgentLoop(
   return agentMessages;
 }
 
-// ---------------------------------------------------------------------------
-// Adversarial critic runner
-// ---------------------------------------------------------------------------
-
-/**
- * Options for `runCriticChecks`. Exported so the integration test at
- * critic.runner.test.ts can build fixtures without dragging in a full
- * runAgentLoop simulation — every dependency the runner touches comes
- * in through this interface.
- */
-export interface RunCriticOptions {
-  client: SideCarClient;
-  config: ReturnType<typeof getConfig>;
-  pendingToolUses: ToolUseContentBlock[];
-  toolResults: ToolResultContentBlock[];
-  changelog: ChangeLog | undefined;
-  fullText: string;
-  callbacks: AgentCallbacks;
-  logger: AgentLogger | undefined;
-  signal: AbortSignal;
-  criticInjectionsByFile: Map<string, number>;
-  maxPerFile: number;
-}
-
-/**
- * Run the adversarial critic against the current iteration's edits and any
- * failed test runs. Returns a synthetic user-message string if high-severity
- * findings should block the turn, or null to let the loop continue normally.
- *
- * The critic is opportunistic: any exception (network, parse error, bad
- * model response) is logged and swallowed so the main loop can proceed.
- * Findings are always surfaced to the chat via `onText` regardless of
- * whether they block — users want to see the review even when it's passive.
- *
- * Exported for test access. Not part of the public loop API — the in-loop
- * call site at the top of the file is the one that matters for runtime.
- */
-export async function runCriticChecks(opts: RunCriticOptions): Promise<string | null> {
-  const {
-    client,
-    config,
-    pendingToolUses,
-    toolResults,
-    changelog,
-    fullText,
-    callbacks,
-    logger,
-    signal,
-    criticInjectionsByFile,
-    maxPerFile,
-  } = opts;
-
-  // Build the set of triggers: one per successful edit, plus one per
-  // failed run_tests. A turn can have multiple triggers — we fire the
-  // critic on each independently so per-trigger findings are traceable.
-  const triggers: CriticTrigger[] = [];
-
-  // --- Edit triggers ---
-  const editedFiles: { filePath: string; diff: string }[] = [];
-  for (let i = 0; i < pendingToolUses.length; i++) {
-    const tu = pendingToolUses[i];
-    const tr = toolResults[i];
-    if (!tr || tr.is_error) continue;
-    if (tu.name !== 'write_file' && tu.name !== 'edit_file') continue;
-
-    const filePath = (tu.input.path ?? tu.input.file_path) as string | undefined;
-    if (!filePath) continue;
-
-    const diff = await buildCriticDiff(filePath, changelog);
-    if (!diff) continue;
-
-    editedFiles.push({ filePath, diff });
-    triggers.push({
-      kind: 'edit',
-      filePath,
-      diff,
-      intent: extractAgentIntent(fullText),
-    });
-  }
-
-  // --- Test-failure triggers ---
-  for (let i = 0; i < pendingToolUses.length; i++) {
-    const tu = pendingToolUses[i];
-    const tr = toolResults[i];
-    if (!tr || !tr.is_error) continue;
-    if (tu.name !== 'run_tests') continue;
-
-    triggers.push({
-      kind: 'test_failure',
-      testOutput: tr.content,
-      recentEdits: editedFiles.slice(),
-    });
-  }
-
-  if (triggers.length === 0) return null;
-
-  // --- Fire the critic for each trigger, collecting findings ---
-  const highFindings: CriticFinding[] = [];
-  const blockedFiles = new Set<string>();
-
-  for (const trigger of triggers) {
-    if (signal.aborted) return null;
-
-    // Per-file injection cap: skip edit triggers whose file has already
-    // been blocked twice this turn. Test-failure triggers aren't capped
-    // because there's no single "file" to scope them to.
-    if (trigger.kind === 'edit') {
-      const used = criticInjectionsByFile.get(trigger.filePath) ?? 0;
-      if (used >= maxPerFile) {
-        logger?.info(`Critic: skipping ${trigger.filePath} — cap reached (${used}/${maxPerFile})`);
-        continue;
-      }
-    }
-
-    let raw: string;
-    try {
-      const userPrompt =
-        trigger.kind === 'edit' ? buildEditCriticPrompt(trigger) : buildTestFailureCriticPrompt(trigger);
-      raw = await client.completeWithOverrides(
-        CRITIC_SYSTEM_PROMPT,
-        [{ role: 'user', content: userPrompt }],
-        config.criticModel || undefined,
-        1024,
-        signal,
-      );
-    } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') return null;
-      logger?.warn(`Critic call failed: ${err instanceof Error ? err.message : String(err)}`);
-      continue;
-    }
-
-    const parsed = parseCriticResponse(raw);
-    if (parsed.malformed) {
-      logger?.warn(`Critic returned malformed response; skipping this trigger`);
-      continue;
-    }
-    if (parsed.explicitlyClean || parsed.findings.length === 0) continue;
-
-    const { high } = splitBySeverity(parsed.findings);
-
-    // Surface every finding (high + low) to the chat as an annotation.
-    // Users want visibility even for passive (non-blocking) reviews.
-    const chatText = formatFindingsForChat(parsed.findings, trigger);
-    if (chatText) callbacks.onText(chatText);
-
-    // High-severity findings accumulate into the blocking injection iff
-    // the config says we should block on them.
-    if (config.criticBlockOnHighSeverity && high.length > 0) {
-      highFindings.push(...high);
-      if (trigger.kind === 'edit') blockedFiles.add(trigger.filePath);
-    }
-  }
-
-  if (highFindings.length === 0) return null;
-
-  // Increment the per-file injection counter for every file that will be
-  // blocked this turn so successive iterations can't re-block indefinitely.
-  for (const filePath of blockedFiles) {
-    criticInjectionsByFile.set(filePath, (criticInjectionsByFile.get(filePath) ?? 0) + 1);
-  }
-
-  // Use the max per-file attempt across blocked files as the "attempt"
-  // number in the injection banner — gives the model a sense of urgency
-  // on the final retry.
-  let attempt = 1;
-  for (const filePath of blockedFiles) {
-    attempt = Math.max(attempt, criticInjectionsByFile.get(filePath) ?? 1);
-  }
-
-  logger?.info(
-    `Critic: blocking with ${highFindings.length} high-severity finding(s) across ${blockedFiles.size} file(s), attempt ${attempt}/${maxPerFile}`,
-  );
-
-  return buildCriticInjection(highFindings, attempt, maxPerFile);
-}
-
-/**
- * Compute a unified diff for a file that was just written or edited,
- * using the ChangeLog's pre-edit snapshot as the baseline. Falls back to
- * "null → current" (showing the full file as an addition) when no
- * snapshot exists — the critic still sees the content, just without a
- * proper before/after.
- */
-async function buildCriticDiff(filePath: string, changelog: ChangeLog | undefined): Promise<string | null> {
-  const rootUri = workspace.workspaceFolders?.[0]?.uri;
-  if (!rootUri) return null;
-
-  let currentContent: string | null = null;
-  try {
-    const bytes = await workspace.fs.readFile(Uri.joinPath(rootUri, filePath));
-    currentContent = Buffer.from(bytes).toString('utf-8');
-  } catch {
-    return null; // file disappeared mid-turn
-  }
-
-  const snapshot = changelog?.getChanges().find((c) => c.filePath === filePath);
-  const originalContent = snapshot?.originalContent ?? null;
-
-  return computeUnifiedDiff(filePath, originalContent, currentContent);
-}
-
-/**
- * Extract the agent's stated intent from its most recent text emission.
- * Grabs the first 500 chars of non-empty text so the critic sees what
- * the agent said it was trying to do without burning tokens on the full
- * stream-of-consciousness.
- */
-function extractAgentIntent(fullText: string): string | undefined {
-  const trimmed = fullText.trim();
-  if (trimmed.length === 0) return undefined;
-  return trimmed.length > 500 ? `${trimmed.slice(0, 500)}...` : trimmed;
-}
-
-// compressMessages was extracted into ./loop/compression.ts and is
-// re-exported below so the existing tests in loop.test.ts keep working
-// without a coordinated import rewrite.
+// The adversarial critic runner (runCriticChecks, RunCriticOptions,
+// buildCriticDiff, extractAgentIntent) lives in ./loop/criticHook.ts.
+// runCriticChecks + RunCriticOptions are re-exported near the top of
+// this file so critic.runner.test.ts keeps its existing import path.
 
 /**
  * Analyze the completed agent conversation to suggest relevant follow-up actions.
