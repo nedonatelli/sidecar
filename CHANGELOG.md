@@ -4,6 +4,35 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.52.0] - 2026-04-14
+
+Reliability + retriever-fusion completion release. Two themes bundled: finishing the retriever-fusion story deferred from v0.51 by wrapping workspace semantic search as the third `Retriever`, and a reliability pass aimed at stream failures — the kind of mid-turn error that used to just lose the user's in-flight reasoning. Plus two pieces of passive infrastructure (circuit breaker, prompt cache byte-stability tests) that catch classes of failures before they reach users.
+
+### Added
+
+- **Semantic workspace search as a `Retriever`.** Finishes the retriever-fusion story from v0.51. `WorkspaceIndex.getRelevantContext()` was split into reusable phases: `rankFiles(query, activeFilePath)` runs the existing heuristic + semantic + context-rules pipeline and returns a sorted `RankedFile[]`, `loadFileContent(relativePath)` exposes the streaming + cache-aware file read, and three new render helpers (`getPinnedFilesSection`, `getFileDependenciesSection`, `getWorkspaceStructureSection`) handle the non-ranking pieces independently. Legacy `getRelevantContext()` stays for backward compat but is no longer called from `injectSystemContext`. New [`src/agent/retrieval/semanticRetriever.ts`](src/agent/retrieval/semanticRetriever.ts) wraps the index as a `Retriever`; each hit is a truncated file snippet (3000-char cap) so a single large file can't dominate fused output against memory/doc snippets. `injectSystemContext` now builds a three-retriever list (docs, memory, workspace) and runs them through `fuseRetrievers()` under a single shared budget — a strong workspace file can outrank a weak doc hit and vice versa.
+- **Per-provider circuit breaker for LLM backends.** New [`src/ollama/circuitBreaker.ts`](src/ollama/circuitBreaker.ts): three-state machine (`closed` → `open` after 5 consecutive failures → `half-open` after 60s cooldown → `closed` on successful probe). Exactly one probe allowed in `half-open`; a failed probe reopens with a fresh cooldown so a flaky provider doesn't get to burn extra user requests. Per-provider isolation via `Map<ProviderType, BreakerEntry>`, matching the same pattern as the v0.48.0 rate-limit store split. Wired into `SideCarClient.streamChat` and `.complete`: `guard()` before dispatch throws `BackendCircuitOpenError` with the cooldown remainder when open, `recordSuccess` / `recordFailure` after the call close the loop. User aborts still short-circuit before `recordFailure` so a user Ctrl+C doesn't count toward opening. Complements the existing fallback-switching machinery — the fallback only triggers inside a request, while the breaker holds state across requests.
+- **`/resume` partial-stream recovery.** When a backend stream dies mid-turn (network drop, provider timeout, transient 5xx), the agent loop used to lose whatever text had already been emitted and the user had to re-ask from scratch. Now `streamOneTurn` catches non-abort throws and, if any text had been accumulated before the failure, fires a new `onStreamFailure(partial, error)` callback on `AgentCallbacks` before re-throwing. `chatHandlers` stashes the partial on `ChatState.pendingPartialAssistant`, and a new `/resume` slash command re-dispatches the last turn with a hint that says "you were mid-sentence, here's the partial, pick up where you left off, don't repeat verbatim". Any normal `handleUserMessage` call discards a stale partial at the top so old partials never replay. Listener errors in `onStreamFailure` are swallowed so they can't mask the original backend error.
+- **Prompt cache byte-stability regression tests.** New test block in [`chatHandlers.test.ts`](src/webview/handlers/chatHandlers.test.ts) pins the invariants that keep Anthropic's prompt cache hitting: (1) byte-identical inputs must produce byte-identical output, (2) the per-session fields must live strictly inside the `## Session` block which must come after the `## Workspace Structure` cache marker, (3) the cached prefix must not contain timestamps, epoch ms, or random-id-looking hex strings. Catches the classic "I sprinkled `new Date().toISOString()` into an injection section" regression before it hits prod.
+
+### Closes cycle-2 audit items
+
+- HIGH: retriever fusion for semantic search + doc index + agent memory (closes the v0.51 deferral).
+- MEDIUM: Anthropic prompt cache boundary byte-stability regression tests.
+- MEDIUM: No circuit breaker around failing backends.
+
+### Deferred
+
+- `resumeFrom` as a webview button affordance — the slash command works end-to-end but a one-click button in the error toast would be smoother. Follow-up if users ask for it.
+- LLM-as-judge scoring in the eval harness.
+- Policy-hook interface for `runAgentLoop` (`beforeIteration` / `afterToolResult` / `onTermination`) — still on the HIGH audit list.
+- Backend anticorruption layer (`normalizeStream`) — still on the HIGH audit list, enables OpenRouter / Groq / Fireworks.
+
+### Stats
+
+- 1840 total tests (119 test files)
+- 23 built-in tools, 8 skills
+
 ## [0.51.0] - 2026-04-14
 
 Context budget release. Four independent features, all targeting the same underlying problem: SideCar was spending tokens (and real money) on work that should have been cached, fused, or capped. The theme that tied them together was an actual user incident — a $0.17 real OpenAI spend that still tripped a rate-limit because every turn was pushing ~100k tokens of context through requests that didn't need to be that large.

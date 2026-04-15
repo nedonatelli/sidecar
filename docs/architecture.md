@@ -49,12 +49,14 @@ SideCar is an AI-powered coding assistant for VS Code that operates as an autono
 - `streamingFileReader.ts` - Streaming reads with summary mode for large files (>50KB)
 - `documentationIndexer.ts` - Doc Index: discovers and indexes documentation, provides keyword-based search
 - `agentMemory.ts` - Persistent learning: stores and retrieves patterns, decisions, and conventions
-- [`src/agent/retrieval/`](../src/agent/retrieval/) - Unified `Retriever` interface + reciprocal-rank fusion. Doc index and agent memory run through `fuseRetrievers()` so they share a single context budget instead of each getting a fixed allocation. `ConversationSummarizer` has a per-turn cap (default 220 chars) that usually skips the LLM compression round-trip entirely
+- [`src/agent/retrieval/`](../src/agent/retrieval/) - Unified `Retriever` interface + reciprocal-rank fusion across documentation index, agent memory, and workspace semantic search (`SemanticRetriever` wraps `WorkspaceIndex.rankFiles`). All three sources compete under a single shared budget inside `injectSystemContext` via `fuseRetrievers()`. `ConversationSummarizer` has a per-turn cap (default 220 chars) that usually skips the LLM compression round-trip entirely
 
 ### 6. Communication Layer
 - `SideCarClient` - LLM API client (Ollama or Anthropic)
 - `ollamaBackend.ts` - Ollama-specific functionality
 - `mcpManager.ts` - Manages MCP servers for external tool integration
+- `circuitBreaker.ts` - Per-provider three-state circuit breaker (closed → open after 5 consecutive failures → half-open after 60s cooldown). Fast-fails when a provider is demonstrably down instead of hanging on a dead request
+- `streamTurn.ts` - Captures partial assistant text when a stream dies mid-turn and fires `onStreamFailure` so `/resume` can re-dispatch with a continuation hint
 
 ## Data Flow
 
