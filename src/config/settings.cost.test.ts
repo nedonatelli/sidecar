@@ -1,5 +1,12 @@
-import { describe, it, expect, vi } from 'vitest';
-import { estimateCost, clampMin, _resetUnknownModelWarnings } from './settings.js';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import {
+  estimateCost,
+  clampMin,
+  _resetUnknownModelWarnings,
+  _resetRuntimeModelCosts,
+  registerModelCost,
+  ingestOpenRouterCatalog,
+} from './settings.js';
 
 describe('estimateCost', () => {
   it('calculates cost for Claude Opus', () => {
@@ -60,6 +67,82 @@ describe('estimateCost', () => {
       expect(warn.mock.calls[0][0]).toContain("unknown model 'unknown-model-alpha'");
 
       estimateCost('unknown-model-beta', 100, 100);
+      expect(warn).toHaveBeenCalledTimes(2);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});
+
+describe('runtime model cost overlay', () => {
+  beforeEach(() => {
+    _resetRuntimeModelCosts();
+    _resetUnknownModelWarnings();
+  });
+
+  it('registerModelCost exposes a previously unknown model', () => {
+    // Sanity check — the id is not in the static table.
+    const before = estimateCost('anthropic/claude-sonnet-4.5', 1_000_000, 1_000_000);
+    expect(before).toBeNull();
+
+    registerModelCost('anthropic/claude-sonnet-4.5', { input: 3, output: 15 });
+    const after = estimateCost('anthropic/claude-sonnet-4.5', 1_000_000, 1_000_000);
+    expect(after).toBeCloseTo(3 + 15);
+  });
+
+  it('runtime overlay wins over substring match against the static table', () => {
+    // The static table has claude-haiku-4-5 at $0.8 / $4.
+    // A runtime override should take precedence even though the substring
+    // match would also hit.
+    registerModelCost('claude-haiku-4-5', { input: 99, output: 99 });
+    const cost = estimateCost('claude-haiku-4-5', 1_000_000, 1_000_000);
+    expect(cost).toBeCloseTo(99 + 99);
+  });
+
+  it('ingestOpenRouterCatalog registers pricing in per-1M-token units', () => {
+    const registered = ingestOpenRouterCatalog([
+      // $3 / $15 per M expressed as OpenRouter strings: per-single-token.
+      { id: 'anthropic/claude-sonnet-4.5', pricing: { prompt: '0.000003', completion: '0.000015' } },
+      // $0.15 / $0.60 per M — gpt-4o-mini-style pricing.
+      { id: 'openai/gpt-4o-mini', pricing: { prompt: '0.00000015', completion: '0.0000006' } },
+    ]);
+    expect(registered).toBe(2);
+
+    const sonnetCost = estimateCost('anthropic/claude-sonnet-4.5', 1_000_000, 1_000_000);
+    expect(sonnetCost).toBeCloseTo(3 + 15);
+
+    const miniCost = estimateCost('openai/gpt-4o-mini', 1_000_000, 1_000_000);
+    expect(miniCost).toBeCloseTo(0.15 + 0.6);
+  });
+
+  it('ingestOpenRouterCatalog skips entries with missing or malformed pricing', () => {
+    const registered = ingestOpenRouterCatalog([
+      { id: 'with-prompt-only', pricing: { prompt: '0.000001' } },
+      { id: 'with-completion-only', pricing: { completion: '0.000001' } },
+      { id: 'with-nothing' },
+      { id: 'with-nan', pricing: { prompt: 'not-a-number', completion: '0.000001' } },
+      { id: 'valid', pricing: { prompt: '0.000002', completion: '0.000008' } },
+    ]);
+    expect(registered).toBe(1);
+    expect(estimateCost('valid', 1_000_000, 1_000_000)).toBeCloseTo(2 + 8);
+    expect(estimateCost('with-prompt-only', 1_000_000, 1_000_000)).toBeNull();
+  });
+
+  it('clears the warned-unknown flag when a model gets registered', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      // Trip the warning once.
+      estimateCost('anthropic/claude-sonnet-4.5', 100, 100);
+      expect(warn).toHaveBeenCalledTimes(1);
+
+      // Register after the warning fired — the flag should clear so a
+      // subsequent unknown lookup of the SAME id would warn again if
+      // pricing somehow disappeared.
+      registerModelCost('anthropic/claude-sonnet-4.5', { input: 3, output: 15 });
+      // Now remove it by resetting the runtime overlay and check that
+      // estimateCost warns a second time (flag was cleared).
+      _resetRuntimeModelCosts();
+      estimateCost('anthropic/claude-sonnet-4.5', 100, 100);
       expect(warn).toHaveBeenCalledTimes(2);
     } finally {
       warn.mockRestore();

@@ -485,6 +485,33 @@ export class ChatViewProvider implements WebviewViewProvider {
     this.state.client.updateConnection(cfg.baseUrl, cfg.apiKey);
     if (cfg.model) this.state.client.updateModel(cfg.model);
     void loadModels(this.state);
+    // If the active backend is OpenRouter, pull the catalog so the
+    // cost tracker can price its full menagerie of fully-qualified
+    // model ids (anthropic/claude-sonnet-4.5, openai/gpt-4o, etc.)
+    // that won't match any substring in the static modelCosts.json.
+    // Fire-and-forget — cost tracking is best-effort telemetry and
+    // must not block the model list refresh.
+    void this.refreshOpenRouterCostsIfActive(cfg.baseUrl, cfg.apiKey);
+  }
+
+  /**
+   * Fetch the OpenRouter catalog and feed it into the runtime cost
+   * overlay. No-op when the active backend isn't OpenRouter.
+   */
+  private async refreshOpenRouterCostsIfActive(baseUrl: string, apiKey: string): Promise<void> {
+    const { detectProvider, ingestOpenRouterCatalog } = await import('../config/settings.js');
+    if (detectProvider(baseUrl, getConfig().provider) !== 'openrouter') return;
+    try {
+      const { OpenRouterBackend } = await import('../ollama/openrouterBackend.js');
+      const backend = new OpenRouterBackend(baseUrl, apiKey);
+      const catalog = await backend.listOpenRouterModels();
+      const registered = ingestOpenRouterCatalog(catalog);
+      if (registered > 0 && getConfig().verboseMode) {
+        console.log(`[SideCar openrouter] ingested pricing for ${registered} models from the catalog`);
+      }
+    } catch (err) {
+      console.warn('[SideCar openrouter] failed to refresh cost catalog:', err);
+    }
   }
 
   /**
