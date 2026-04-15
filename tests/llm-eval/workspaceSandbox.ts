@@ -61,6 +61,11 @@ interface VscodeWorkspaceMutable {
     createDirectory: (uri: unknown) => Promise<void>;
     delete?: (uri: unknown, options?: unknown) => Promise<void>;
   };
+  findFiles?: (
+    include: unknown,
+    exclude?: unknown,
+    maxResults?: number,
+  ) => Promise<Array<{ fsPath: string; scheme: string; path: string }>>;
 }
 
 const FILE_TYPE_FILE = 1;
@@ -90,6 +95,7 @@ export async function installSandbox(fixture: WorkspaceFixture, caseId: string):
   const mutable = workspace as unknown as VscodeWorkspaceMutable;
   const origFolders = mutable.workspaceFolders;
   const origFs = { ...mutable.fs };
+  const origFindFiles = mutable.findFiles;
 
   // Point workspace.workspaceFolders at the temp dir so tools that read
   // `workspace.workspaceFolders[0].uri.fsPath` via getRoot() land in the sandbox.
@@ -126,18 +132,128 @@ export async function installSandbox(fixture: WorkspaceFixture, caseId: string):
     },
   };
 
+  // workspace.findFiles powers the `search_files` tool. The default
+  // vscode mock returns [] unconditionally, so search_files always
+  // reports "No files found" in the eval harness. Swap in a
+  // minimatch-style walker that applies the include glob against
+  // every file under the sandbox root and respects the exclude
+  // pattern (used to skip node_modules / .git / dist etc. in the
+  // real tool). Minimal glob grammar — enough to cover the
+  // patterns the agent emits in practice (`**/*.ts`, `src/**/*.test.ts`,
+  // `**/README.md`) without pulling in a dependency.
+  mutable.findFiles = async (include, exclude, maxResults) => {
+    const includePattern = typeof include === 'string' ? include : String(include);
+    const excludePattern = typeof exclude === 'string' ? exclude : '';
+    const includeRe = globToRegExp(includePattern);
+    const excludeRe = excludePattern ? globToRegExp(excludePattern) : null;
+    const limit = typeof maxResults === 'number' && maxResults > 0 ? maxResults : 200;
+
+    const results: Array<{ fsPath: string; scheme: string; path: string }> = [];
+    for (const relPath of await listAllFiles(root, root)) {
+      if (excludeRe && excludeRe.test(relPath)) continue;
+      if (!includeRe.test(relPath)) continue;
+      const abs = path.join(root, relPath);
+      results.push({ fsPath: abs, scheme: 'file', path: abs });
+      if (results.length >= limit) break;
+    }
+    return results;
+  };
+
   return {
     root,
     snapshot: async () => walk(root, root),
     teardown: async () => {
       mutable.workspaceFolders = origFolders;
       mutable.fs = origFs;
+      mutable.findFiles = origFindFiles;
       // Best-effort cleanup — don't throw if another process is still
       // holding a file handle (shell session on Windows is the most
       // likely culprit).
       await fs.rm(root, { recursive: true, force: true }).catch(() => {});
     },
   };
+}
+
+/**
+ * Convert a VS Code style glob to a RegExp that matches a relative
+ * path (forward-slash separated). Supports the subset we actually
+ * need for eval cases:
+ *
+ *   `**`                → any path segment(s), including empty
+ *   `*`                 → any single segment (no `/`)
+ *   `?`                 → any single character
+ *   `.`                 → literal `.`
+ *   `{a,b}`             → alternation (one level, no nesting)
+ *
+ * Any other character is matched literally. This is deliberately
+ * minimal — for bigger grammars bring in minimatch. The real
+ * `workspace.findFiles` supports the full VS Code glob spec; we
+ * just cover enough for the tool-use patterns the agent emits.
+ */
+function globToRegExp(glob: string): RegExp {
+  let out = '';
+  let i = 0;
+  while (i < glob.length) {
+    const c = glob[i];
+    if (c === '*' && glob[i + 1] === '*') {
+      // `**/` → any number of path segments (possibly empty)
+      if (glob[i + 2] === '/') {
+        out += '(?:.*/)?';
+        i += 3;
+      } else {
+        out += '.*';
+        i += 2;
+      }
+    } else if (c === '*') {
+      out += '[^/]*';
+      i++;
+    } else if (c === '?') {
+      out += '[^/]';
+      i++;
+    } else if (c === '.') {
+      out += '\\.';
+      i++;
+    } else if (c === '{') {
+      const end = glob.indexOf('}', i);
+      if (end === -1) {
+        out += '\\{';
+        i++;
+      } else {
+        const inner = glob.slice(i + 1, end);
+        out += '(?:' + inner.split(',').join('|') + ')';
+        i = end + 1;
+      }
+    } else if (/[\\^$+|()[\]]/.test(c)) {
+      out += '\\' + c;
+      i++;
+    } else {
+      out += c;
+      i++;
+    }
+  }
+  return new RegExp('^' + out + '$');
+}
+
+/**
+ * Recursively list every file under `dir` as a forward-slash
+ * separated relative path from `rootForRelative`. Used by the
+ * `findFiles` mock to iterate candidates for glob matching.
+ */
+async function listAllFiles(dir: string, rootForRelative: string): Promise<string[]> {
+  const out: string[] = [];
+  const entries = await fs
+    .readdir(dir, { withFileTypes: true })
+    .catch(() => [] as Array<{ name: string; isDirectory: () => boolean }>);
+  for (const entry of entries) {
+    const abs = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      const sub = await listAllFiles(abs, rootForRelative);
+      for (const s of sub) out.push(s);
+    } else {
+      out.push(path.relative(rootForRelative, abs).split(path.sep).join('/'));
+    }
+  }
+  return out;
 }
 
 /** Recursively read every file under `dir`, returning a flat fixture-shaped map. */

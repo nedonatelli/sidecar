@@ -219,4 +219,105 @@ export const AGENT_CASES: AgentEvalCase[] = [
       },
     },
   },
+
+  {
+    id: 'fix-simple-bug',
+    description: 'Agent reads a buggy arithmetic function, identifies the bug, and edits it to a correct form',
+    tags: ['read', 'edit', 'bugfix', 'regression'],
+    workspace: {
+      // `add` function subtracts instead. A smart agent that can
+      // read the comment ("Adds two numbers") and the body
+      // (`return a - b`) should spot the mismatch immediately.
+      'src/math.ts':
+        '// Adds two numbers and returns the sum.\n' +
+        'export function add(a: number, b: number): number {\n' +
+        '  return a - b;\n' +
+        '}\n',
+    },
+    userMessage:
+      "There's a bug in src/math.ts — the `add` function subtracts instead of adding. Fix it so it correctly returns a + b.",
+    expect: {
+      toolsCalled: ['read_file'],
+      files: {
+        contain: [
+          {
+            path: 'src/math.ts',
+            // Signature must still exist; return statement must still
+            // exist; both parameters must still be referenced in the
+            // fixed body.
+            substrings: ['function add', 'return', 'a', 'b'],
+          },
+        ],
+        // The bug itself must be gone. We check both `a - b` and
+        // `b - a` orderings since either would be wrong. A correct
+        // fix writes `a + b` or `b + a`, both of which are absent
+        // from these substrings.
+        notContain: [
+          {
+            path: 'src/math.ts',
+            substrings: ['a - b', 'b - a'],
+          },
+        ],
+      },
+    },
+  },
+
+  {
+    id: 'search-files-glob',
+    description: 'Agent uses search_files with a glob pattern to count test files, not list_directory + filter',
+    tags: ['search', 'trajectory', 'tool-selection'],
+    workspace: {
+      'src/calc.ts': 'export const calc = 1;\n',
+      'src/utils.ts': 'export const utils = 1;\n',
+      'src/calc.test.ts': 'import { calc } from "./calc";\n',
+      'src/utils.test.ts': 'import { utils } from "./utils";\n',
+      'src/index.ts': 'export * from "./calc";\nexport * from "./utils";\n',
+      'README.md': '# Test project\n',
+    },
+    // "How many" forces the agent to use the results, not hand them
+    // back verbatim — the earlier "list them" framing produced a
+    // clarification question instead of an answer on qwen3-coder.
+    // The count is the closed-form answer we can actually assert on.
+    userMessage:
+      'How many TypeScript test files are in this workspace? Use the glob pattern **/*.test.ts to find them. Give me just the count.',
+    expect: {
+      // The agent should reach for search_files (glob-based file
+      // finder) rather than list_directory + filter. If we ever
+      // regress the search_files description or add a tool that
+      // shadows it, this case catches the regression.
+      toolsCalled: ['search_files'],
+      // Final text must contain the answer. "2" is specific enough
+      // that false positives are unlikely, and any correct answer
+      // must contain it.
+      finalTextContains: ['2'],
+    },
+  },
+
+  {
+    id: 'write-multi-file-batch',
+    description: 'Agent writes multiple files in a single task via parallel write_file dispatch',
+    tags: ['write', 'parallel', 'trajectory'],
+    workspace: {
+      'README.md': '# Empty workspace\n',
+    },
+    userMessage:
+      'Create two TypeScript files in src/: `src/one.ts` that exports `const ONE = 1` and `src/two.ts` that ' +
+      'exports `const TWO = 2`. Both should be new files.',
+    expect: {
+      toolsCalled: ['write_file'],
+      // Two specific write_file calls must appear. Partial-input
+      // matching tolerates "./src/one.ts" vs "src/one.ts" naming.
+      toolCallMatches: [
+        { name: 'write_file', inputPartial: { path: 'one.ts' } },
+        { name: 'write_file', inputPartial: { path: 'two.ts' } },
+      ],
+      files: {
+        exist: ['src/one.ts', 'src/two.ts'],
+        contain: [
+          { path: 'src/one.ts', substrings: ['ONE', '1'] },
+          { path: 'src/two.ts', substrings: ['TWO', '2'] },
+        ],
+      },
+    },
+  },
 ];
