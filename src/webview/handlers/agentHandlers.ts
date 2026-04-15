@@ -16,6 +16,7 @@ import { analyzeDependencies } from '../../agent/depAnalysis.js';
 import { generateScaffold, getTemplateList } from '../../agent/scaffold.js';
 import { analyzeConversation, formatAnalyticsReport } from '../../agent/conversationAnalytics.js';
 import type { AuditFilter } from '../../agent/auditLog.js';
+import { getOrComputeReport } from './reportCache.js';
 
 export async function handleExecutePlan(state: ChatState): Promise<void> {
   if (!state.pendingPlan || state.pendingPlanMessages.length === 0) return;
@@ -266,7 +267,14 @@ export async function handleSpec(state: ChatState, description: string): Promise
 
 export async function handleUsage(state: ChatState): Promise<void> {
   const history = state.metricsCollector.getHistory();
-  const report = generateUsageReport(history, state.metricsCollector);
+  // Fingerprint: history length + timestamp of latest entry. Changes
+  // whenever a new metric row is appended, which is the only mutation
+  // that affects the generated report.
+  const lastTs = history.length > 0 ? ((history[history.length - 1] as { timestamp?: number }).timestamp ?? 0) : 0;
+  const fingerprint = `u:${history.length}:${lastTs}`;
+  const { value: report } = await getOrComputeReport('usage', fingerprint, () =>
+    generateUsageReport(history, state.metricsCollector),
+  );
   const doc = await workspace.openTextDocument({ content: report, language: 'markdown' });
   await window.showTextDocument(doc, { preview: true });
 }
@@ -454,7 +462,9 @@ export async function handleInsights(state: ChatState): Promise<void> {
     return;
   }
 
-  // Gather all data sources
+  // Gather data sources up-front so the fingerprint can reflect their
+  // current sizes. The expensive work is in analyzeConversation() walking
+  // every audit row, so the cache key below guards that call.
   const auditEntries = await state.auditLog.query({ limit: 5000 });
   const metrics = state.metricsCollector.getHistory();
   const memories = state.agentMemory?.queryAll() || [];
@@ -468,8 +478,12 @@ export async function handleInsights(state: ChatState): Promise<void> {
     return;
   }
 
-  const analytics = analyzeConversation(auditEntries, metrics, memories);
-  const report = formatAnalyticsReport(analytics, metrics);
+  const lastAuditTs = auditEntries.length > 0 ? (auditEntries[auditEntries.length - 1].timestamp ?? '') : '';
+  const fingerprint = `i:${auditEntries.length}:${metrics.length}:${memories.length}:${lastAuditTs}`;
+  const { value: report } = await getOrComputeReport('insights', fingerprint, () => {
+    const analytics = analyzeConversation(auditEntries, metrics, memories);
+    return formatAnalyticsReport(analytics, metrics);
+  });
 
   const doc = await workspace.openTextDocument({ content: report, language: 'markdown' });
   await window.showTextDocument(doc, { preview: true });
