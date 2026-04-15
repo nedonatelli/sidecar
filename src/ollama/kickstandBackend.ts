@@ -1,7 +1,7 @@
 import type { ApiBackend } from './backend.js';
-import type { ChatMessage, ContentBlock, ToolDefinition, ToolUseContentBlock, StreamEvent } from './types.js';
+import type { ChatMessage, ContentBlock, ToolDefinition, StreamEvent } from './types.js';
 import { fetchWithRetry } from './retry.js';
-import { abortableRead } from './streamUtils.js';
+import { streamOpenAiSse } from './openAiSseStream.js';
 import { RateLimitStore, maybeWaitForRateLimit } from './rateLimitState.js';
 import { parseOpenAIRateLimitHeaders } from './rateLimitHeaders.js';
 import { CHARS_PER_TOKEN } from '../config/constants.js';
@@ -76,29 +76,9 @@ interface KickstandChatResponse {
   };
 }
 
-interface KickstandStreamChunk {
-  id: string;
-  object: string;
-  created: number;
-  model: string;
-  choices: {
-    index: number;
-    delta: {
-      role?: string;
-      content?: string | null;
-      tool_calls?: Array<{
-        index: number;
-        id?: string;
-        type?: string;
-        function?: {
-          name?: string;
-          arguments?: string;
-        };
-      }>;
-    };
-    finish_reason: string | null;
-  }[];
-}
+// KickstandStreamChunk removed — the SSE parser lives in openAiSseStream.ts
+// now and owns its own OpenAIChatChunk type. Kickstand streams the same
+// dialect, so there's nothing left for this file to describe.
 
 // ---------------------------------------------------------------------------
 // Message format conversion
@@ -213,66 +193,16 @@ export class KickstandBackend implements ApiBackend {
       throw new Error(`Kickstand API error ${response.status}: ${errorText}`);
     }
 
-    if (!response.body) {
-      throw new Error('No response body from Kickstand');
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    try {
-      let done = false;
-      while (!done) {
-        const result = await abortableRead(reader, signal);
-        done = result.done;
-        const chunk = result.value;
-
-        if (chunk) {
-          buffer += decoder.decode(chunk, { stream: true });
-
-          const lines = buffer.split('\n');
-          buffer = lines[lines.length - 1];
-
-          for (const line of lines.slice(0, -1)) {
-            if (!line.startsWith('data: ')) continue;
-
-            const data = line.slice(6);
-            if (data === '[DONE]') break;
-
-            try {
-              const parsed: KickstandStreamChunk = JSON.parse(data);
-              const delta = parsed.choices[0]?.delta;
-
-              if (delta?.content) {
-                yield { type: 'text', text: delta.content };
-              }
-
-              if (delta?.tool_calls) {
-                for (const toolCall of delta.tool_calls) {
-                  if (toolCall.function?.name) {
-                    const toolUse: ToolUseContentBlock = {
-                      type: 'tool_use',
-                      id: toolCall.id || `tool-${Date.now()}`,
-                      name: toolCall.function.name,
-                      input: toolCall.function.arguments ? JSON.parse(toolCall.function.arguments) : {},
-                    };
-                    yield { type: 'tool_use', toolUse };
-                  }
-                }
-              }
-            } catch {
-              // Skip lines that aren't valid JSON
-              if (data.length > 0) {
-                console.warn('[Kickstand] Failed to parse stream line:', data);
-              }
-            }
-          }
-        }
-      }
-    } finally {
-      reader.releaseLock();
-    }
+    // Delegate SSE parsing to the shared OpenAI-compatible helper.
+    // Kickstand's stream protocol is identical to OpenAI's
+    // /v1/chat/completions, so the helper picks up think-tag parsing,
+    // text tool-call interception, incremental tool_call accumulation,
+    // and usage event emission for free — all capabilities the old
+    // hand-rolled parser was missing.
+    yield* streamOpenAiSse(response, model, tools, signal, {
+      providerLabel: 'kickstand',
+      toolCallIdPrefix: 'kickstand',
+    });
   }
 
   async complete(
