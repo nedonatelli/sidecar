@@ -29,7 +29,9 @@ SideCar is an AI-powered coding assistant for VS Code that operates as an autono
   - `messageBuild.ts` pushes assistant + tool-result messages and accounts tokens
   - `executeToolUses.ts` dispatches tool calls in parallel (spawn_agent, delegate_task, normal)
   - `gate.ts`, `autoFix.ts`, `stubCheck.ts`, `criticHook.ts` are the four post-turn policies
-  - `postTurnPolicies.ts` composes the three mutation policies (autoFix → stub → critic)
+  - `policyHook.ts` — `PolicyHook` interface + `HookBus` registration class. Orchestrator calls `hookBus.runAfter()` / `hookBus.runEmptyResponse()` instead of calling policies directly; `AgentOptions.extraPolicyHooks` lets callers register additional hooks
+  - `builtInHooks.ts` — `defaultPolicyHooks()` wraps the four policies as `PolicyHook` adapters so they register into the bus
+  - `postTurnPolicies.ts` still exists but is now only used by legacy callers (the orchestrator routes through the bus)
   - `notifications.ts` emits iteration telemetry + checkpoint prompts
   - `finalize.ts` runs the post-loop teardown + next-step suggestions
   - `textParsing.ts` parses model text output for tool-call patterns and strips repeated content
@@ -58,7 +60,9 @@ SideCar is an AI-powered coding assistant for VS Code that operates as an autono
 - `openaiBackend.ts` - OpenAI-compatible `/v1/chat/completions` (OpenAI, LM Studio, vLLM, llama.cpp)
 - `kickstandBackend.ts` - Kickstand self-hosted (OpenAI-compatible wrapper)
 - `openrouterBackend.ts` - OpenRouter with referrer headers + catalog pricing (subclass of OpenAIBackend)
-- `openAiSseStream.ts` - Shared OpenAI-compatible SSE parser (anticorruption layer). Every backend that speaks `/v1/chat/completions` delegates here for stream framing, tool_call reconstruction, think-tag parsing, text tool-call interception, usage events, and finish_reason mapping. Adding a new OpenAI-compatible provider becomes a ~50-line subclass
+- `groqBackend.ts` - Groq LPU inference (empty-body subclass of OpenAIBackend — pure plumbing, no protocol quirks)
+- `fireworksBackend.ts` - Fireworks open-weight model hosting (empty-body subclass of OpenAIBackend)
+- `openAiSseStream.ts` - Shared OpenAI-compatible SSE parser (anticorruption layer). Every backend that speaks `/v1/chat/completions` delegates here for stream framing, tool_call reconstruction, think-tag parsing, text tool-call interception, usage events, and finish_reason mapping. Adding a new OpenAI-compatible provider becomes a ~10-line subclass (see Groq and Fireworks)
 - `mcpManager.ts` - Manages MCP servers for external tool integration
 - `circuitBreaker.ts` - Per-provider three-state circuit breaker (closed → open after 5 consecutive failures → half-open after 60s cooldown). Fast-fails when a provider is demonstrably down instead of hanging on a dead request
 - `streamTurn.ts` - Captures partial assistant text when a stream dies mid-turn and fires `onStreamFailure` so `/resume` can re-dispatch with a continuation hint

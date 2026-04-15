@@ -4,6 +4,35 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.54.0] - 2026-04-15
+
+Policy hook capstone + two new providers. The architectural story wraps up: the four built-in post-turn policies (auto-fix, stub validator, adversarial critic, completion gate) now live behind a uniform `PolicyHook` interface + `HookBus` registration mechanism, closing the last cycle-2 HIGH architectural audit item. The v0.53 anticorruption layer gets its first real payoff with Groq + Fireworks shipping as tiny subclass wrappers — two new providers in ~200 lines of glue.
+
+### Added
+
+- **`PolicyHook` interface + `HookBus`.** Closes the last cycle-2 HIGH architectural deferral from v0.50 ("agent policies are tangled into loop mechanics; register them via a small policy hook interface"). New [`src/agent/loop/policyHook.ts`](src/agent/loop/policyHook.ts) defines a `PolicyHook` interface with four optional phases (`beforeIteration`, `afterToolResults`, `onEmptyResponse`, `onTermination`), a `HookContext` carrying per-call environment, and a `HookBus` class that registers hooks, runs them per-phase in order, catches + logs per-hook errors so a buggy hook can't crash the whole run, and aggregates `HookResult.mutated` into a single boolean per phase. `runAgentLoop` builds the bus at the top of each run, registers [`defaultPolicyHooks()`](src/agent/loop/builtInHooks.ts) (auto-fix → stub validator → critic → completion gate), and replaces the three direct call sites with `hookBus.runAfter()` + `hookBus.runEmptyResponse()`. The four built-in hooks in [`builtInHooks.ts`](src/agent/loop/builtInHooks.ts) are mechanical wraps around the existing helpers — `applyAutoFix`, `applyStubCheck`, `applyCritic`, `recordGateToolUses`, `maybeInjectCompletionGate` — so zero behavior changes. `AgentOptions` gains `extraPolicyHooks?: PolicyHook[]` which registers after the built-ins, unblocking plugin / skill / CLAUDE.md-driven policy extension without touching loop.ts.
+- **New provider: Groq.** LPU inference serves open-weight models (Llama 3.3, Mixtral, DeepSeek R1 distills) at thousands of tokens/sec through an OpenAI-compatible endpoint. Free tier available. [`src/ollama/groqBackend.ts`](src/ollama/groqBackend.ts) is an empty subclass of `OpenAIBackend` — every thing else is plumbing: `'groq'` added to `ProviderType` across `circuitBreaker.ts` / `client.ts` / `settings.ts` / `providerReachability.ts`, new `isGroq()` predicate, new `BUILT_IN_BACKEND_PROFILES` entry with default model `llama-3.3-70b-versatile` and its own `SecretStorage` slot, new `package.json` enum entry with user-facing description pointing at `console.groq.com`.
+- **New provider: Fireworks.** Hosts open-weight models (DeepSeek V3, Qwen 2.5 Coder, Llama 3.3, Mixtral) at cheaper-than-OpenAI pricing through an OpenAI-compatible endpoint. Same subclass pattern as Groq: [`src/ollama/fireworksBackend.ts`](src/ollama/fireworksBackend.ts) is an empty subclass plus glue. Default model is the agent-loop-friendly `accounts/fireworks/models/qwen2p5-coder-32b-instruct`, base URL `https://api.fireworks.ai/inference/v1`, registration via `isFireworks()` + `detectProvider()` fall-through + new profile entry + new package.json enum entry.
+
+### Proves
+
+The v0.53 anticorruption layer promised that adding a new OpenAI-compatible provider would become a tiny subclass + a few plumbing touchpoints. Groq and Fireworks together needed zero lines of streaming code, zero tool-call handling, zero SSE parsing — just two empty subclass declarations and the usual provider-type / profile / reachability glue.
+
+### Closes cycle-2 audit items
+
+- HIGH: agent policies tangled into loop mechanics (policy hook interface). **The cycle-2 architectural audit is now fully closed.**
+
+### Deferred
+
+- User-config-driven hook loading: the interface lands, but registration via `sidecar.policies` setting or CLAUDE.md is a follow-up.
+- Per-provider cost overlays for Groq / Fireworks: neither exposes a rich model catalog endpoint with pricing, so they fall back to the static `modelCosts.json` substring match (which doesn't know about Groq/Fireworks model ids yet — unknown-model warnings will fire until pricing is added).
+- Manual `max_tokens` TPM verification: still on the list from v0.48 onwards.
+
+### Stats
+
+- 1877 total tests (122 test files)
+- 23 built-in tools, 8 skills
+
 ## [0.53.0] - 2026-04-15
 
 OpenRouter + anticorruption layer release. Two parts, one theme: rationalize the OpenAI-compatible backend story by factoring shared SSE parsing into one place, then ship OpenRouter as the first user-facing win of the new architecture. Closes the last HIGH cycle-2 audit item (backend anticorruption layer) and unlocks hundreds of models behind a single API key.
