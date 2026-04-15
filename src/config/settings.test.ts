@@ -4,6 +4,7 @@ import {
   isAnthropic,
   isKickstand,
   isOpenRouter,
+  isGroq,
   detectProvider,
   getConfig,
   clampMin,
@@ -89,6 +90,19 @@ describe('isOpenRouter', () => {
   });
 });
 
+describe('isGroq', () => {
+  it('returns true for groq.com hosts', () => {
+    expect(isGroq('https://api.groq.com/openai/v1')).toBe(true);
+    expect(isGroq('https://api.groq.com')).toBe(true);
+  });
+
+  it('returns false for other providers', () => {
+    expect(isGroq('https://api.anthropic.com')).toBe(false);
+    expect(isGroq('https://openrouter.ai/api/v1')).toBe(false);
+    expect(isGroq('http://localhost:11434')).toBe(false);
+  });
+});
+
 describe('detectProvider', () => {
   it('returns explicit provider when not auto', () => {
     expect(detectProvider('http://anything.com', 'openai')).toBe('openai');
@@ -96,6 +110,7 @@ describe('detectProvider', () => {
     expect(detectProvider('http://anything.com', 'ollama')).toBe('ollama');
     expect(detectProvider('http://anything.com', 'kickstand')).toBe('kickstand');
     expect(detectProvider('http://anything.com', 'openrouter')).toBe('openrouter');
+    expect(detectProvider('http://anything.com', 'groq')).toBe('groq');
   });
 
   it('auto-detects ollama from localhost:11434', () => {
@@ -113,6 +128,10 @@ describe('detectProvider', () => {
 
   it('auto-detects openrouter from openrouter.ai', () => {
     expect(detectProvider('https://openrouter.ai/api/v1', 'auto')).toBe('openrouter');
+  });
+
+  it('auto-detects groq from api.groq.com', () => {
+    expect(detectProvider('https://api.groq.com/openai/v1', 'auto')).toBe('groq');
   });
 
   it('defaults to openai for unknown URLs', () => {

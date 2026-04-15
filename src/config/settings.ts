@@ -87,7 +87,7 @@ export interface BackendProfile {
   /** Human-readable label shown in the chat menu. */
   name: string;
   /** Provider type the client will instantiate. */
-  provider: 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter';
+  provider: 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq';
   /** API base URL to bake into sidecar.baseUrl. */
   baseUrl: string;
   /** Default model to select when switching to this profile. */
@@ -135,6 +135,16 @@ export const BUILT_IN_BACKEND_PROFILES: readonly BackendProfile[] = [
     secretKey: 'sidecar.profileKey.openrouter',
     description:
       'One key unlocks hundreds of models across providers (Anthropic, OpenAI, Google, Mistral, Meta, and more). Requires an API key from openrouter.ai/keys. Per-model pricing pulled live from their catalog.',
+  },
+  {
+    id: 'groq',
+    name: 'Groq',
+    provider: 'groq',
+    baseUrl: 'https://api.groq.com/openai/v1',
+    defaultModel: 'llama-3.3-70b-versatile',
+    secretKey: 'sidecar.profileKey.groq',
+    description:
+      'Groq LPU inference — thousands of tokens/sec on open-weight models like Llama 3.3, Mixtral, DeepSeek R1 distills. Free tier with rate limits; paid tier for higher throughput. Requires an API key from console.groq.com.',
   },
   {
     id: 'kickstand',
@@ -230,6 +240,14 @@ export function isOpenRouter(baseUrl: string): boolean {
 }
 
 /**
+ * Check whether a base URL points at Groq. Matches `api.groq.com`
+ * and any user-supplied proxy containing `groq.com`.
+ */
+export function isGroq(baseUrl: string): boolean {
+  return baseUrl.includes('groq.com');
+}
+
+/**
  * Read the Kickstand API token from ~/.config/kickstand/token
  */
 export function readKickstandToken(): string {
@@ -247,13 +265,14 @@ export function readKickstandToken(): string {
 /** Determine which backend provider to use based on URL and explicit setting. */
 export function detectProvider(
   baseUrl: string,
-  provider: 'auto' | 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'openrouter',
-): 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' {
+  provider: 'auto' | 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'groq' | 'openrouter',
+): 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' {
   if (provider !== 'auto') return provider;
   if (isLocalOllama(baseUrl)) return 'ollama';
   if (isAnthropic(baseUrl)) return 'anthropic';
   if (isKickstand(baseUrl)) return 'kickstand';
   if (isOpenRouter(baseUrl)) return 'openrouter';
+  if (isGroq(baseUrl)) return 'groq';
   return 'openai';
 }
 
@@ -347,7 +366,7 @@ export function resolveMode(
 
 export interface SideCarConfig {
   model: string;
-  provider: 'auto' | 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'openrouter';
+  provider: 'auto' | 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'groq' | 'openrouter';
   systemPrompt: string;
   baseUrl: string;
   apiKey: string;
@@ -458,7 +477,10 @@ function readConfig(): SideCarConfig {
   const cfg = workspace.getConfiguration('sidecar');
   return {
     model: cfg.get<string>('model', 'qwen3-coder:30b') || 'qwen3-coder:30b',
-    provider: cfg.get<'auto' | 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter'>('provider', 'auto'),
+    provider: cfg.get<'auto' | 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'groq'>(
+      'provider',
+      'auto',
+    ),
     systemPrompt: cfg.get<string>('systemPrompt', ''),
     baseUrl: cfg.get<string>('baseUrl', 'http://localhost:11434') || 'http://localhost:11434',
     apiKey: _cachedApiKey ?? cfg.get<string>('apiKey', 'ollama'),

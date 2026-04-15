@@ -84,14 +84,16 @@
             "anthropic",
             "openai",
             "openrouter",
+            "groq",
             "kickstand"
           ],
           "enumDescriptions": [
-            "Detect from the base URL: localhost:11434 → Ollama, anthropic.com → Anthropic, openrouter.ai → OpenRouter, localhost:11435 → Kickstand (coming soon), anything else → OpenAI-compatible.",
+            "Detect from the base URL: localhost:11434 → Ollama, anthropic.com → Anthropic, openrouter.ai → OpenRouter, groq.com → Groq, localhost:11435 → Kickstand (coming soon), anything else → OpenAI-compatible.",
             "Local Ollama (http://localhost:11434). Free, private, no key needed.",
             "Anthropic Claude API. Requires an API key stored via `SideCar: Set / Refresh API Key`.",
             "OpenAI-compatible API (OpenAI, LM Studio, vLLM, llama.cpp, together.ai). Requires an API key.",
             "OpenRouter (https://openrouter.ai/api/v1). One API key unlocks hundreds of models across providers (Anthropic, OpenAI, Google, Mistral, Meta, and more) with per-model pricing pulled live from their catalog. Requires an OpenRouter API key.",
+            "Groq (https://api.groq.com/openai/v1). LPU inference serves open-weight models (Llama 3.3, Mixtral, DeepSeek R1 distills) at thousands of tokens/sec. Free tier with rate limits. Requires a Groq API key from console.groq.com.",
             "Kickstand self-hosted LLM server (http://localhost:11435). Coming soon — not yet officially released; the backend adapter ships today for anyone running a local dev build. Reads its token from `~/.config/kickstand/token`."
           ],
           "default": "auto",

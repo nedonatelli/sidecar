@@ -11,7 +11,7 @@ import { getConfig, type SideCarConfig } from './settings.js';
  * network errors and timeouts return false.
  */
 export async function isProviderReachable(
-  providerType: 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter',
+  providerType: 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq',
   config?: SideCarConfig,
 ): Promise<boolean> {
   const cfg = config || getConfig();
@@ -42,6 +42,15 @@ export async function isProviderReachable(
         // (helps pinpoint bad keys via the returned error).
         checkUrl = `${cfg.baseUrl}/v1/models`;
         if (cfg.apiKey) {
+          headers['Authorization'] = `Bearer ${cfg.apiKey}`;
+        }
+        break;
+      case 'groq':
+        // Groq is OpenAI-compatible; /openai/v1/models is the catalog
+        // endpoint. Requires auth — probing without a key returns 401
+        // which we count as reachable (bad key, but the server is up).
+        checkUrl = `${cfg.baseUrl}/models`;
+        if (cfg.apiKey && cfg.apiKey !== 'ollama') {
           headers['Authorization'] = `Bearer ${cfg.apiKey}`;
         }
         break;
