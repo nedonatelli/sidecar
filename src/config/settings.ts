@@ -527,15 +527,34 @@ export function getConfig(): SideCarConfig {
 // Cost estimation
 // ---------------------------------------------------------------------------
 
-const MODEL_COSTS: Record<string, { input: number; output: number }> = {
-  'claude-opus-4-6': { input: 15, output: 75 },
-  'claude-sonnet-4-6': { input: 3, output: 15 },
-  'claude-haiku-4-5': { input: 0.8, output: 4 },
-};
+import modelCostsJson from './modelCosts.json';
+
+type ModelCostEntry = { input: number; output: number };
+const MODEL_COSTS: Record<string, ModelCostEntry> = (modelCostsJson as { models: Record<string, ModelCostEntry> })
+  .models;
+
+const warnedUnknownModels = new Set<string>();
+
+/**
+ * Test-only: reset the once-per-model warning state.
+ * Safe to call in production but no reason to.
+ */
+export function _resetUnknownModelWarnings(): void {
+  warnedUnknownModels.clear();
+}
 
 export function estimateCost(model: string, inputTokens: number, outputTokens: number): number | null {
   const key = Object.keys(MODEL_COSTS).find((k) => model.includes(k));
-  if (!key) return null;
+  if (!key) {
+    if (!warnedUnknownModels.has(model)) {
+      warnedUnknownModels.add(model);
+      console.warn(
+        `[SideCar cost] unknown model '${model}' — cost estimate unavailable. ` +
+          `Add pricing to src/config/modelCosts.json to enable tracking.`,
+      );
+    }
+    return null;
+  }
   const costs = MODEL_COSTS[key];
   return (inputTokens * costs.input + outputTokens * costs.output) / 1_000_000;
 }

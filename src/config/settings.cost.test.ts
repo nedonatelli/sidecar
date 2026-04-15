@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { estimateCost, clampMin } from './settings.js';
+import { describe, it, expect, vi } from 'vitest';
+import { estimateCost, clampMin, _resetUnknownModelWarnings } from './settings.js';
 
 describe('estimateCost', () => {
   it('calculates cost for Claude Opus', () => {
@@ -24,8 +24,14 @@ describe('estimateCost', () => {
   });
 
   it('returns null for unknown models', () => {
-    expect(estimateCost('llama3', 10000, 5000)).toBeNull();
-    expect(estimateCost('gpt-4', 10000, 5000)).toBeNull();
+    _resetUnknownModelWarnings();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(estimateCost('llama3', 10000, 5000)).toBeNull();
+      expect(estimateCost('totally-made-up-model', 10000, 5000)).toBeNull();
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('matches partial model names', () => {
@@ -33,8 +39,31 @@ describe('estimateCost', () => {
     expect(estimateCost('models/claude-sonnet-4-6', 1000, 500)).not.toBeNull();
   });
 
+  it('prices new OpenAI models from modelCosts.json', () => {
+    expect(estimateCost('gpt-4o-mini', 1_000_000, 1_000_000)).toBeCloseTo(0.15 + 0.6);
+    expect(estimateCost('gpt-4o', 1_000_000, 1_000_000)).toBeCloseTo(2.5 + 10);
+    expect(estimateCost('gpt-5-mini', 1_000_000, 1_000_000)).toBeCloseTo(0.25 + 2);
+  });
+
   it('returns 0 for zero tokens', () => {
     expect(estimateCost('claude-sonnet-4-6', 0, 0)).toBe(0);
+  });
+
+  it('warns exactly once per unknown model', () => {
+    _resetUnknownModelWarnings();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      estimateCost('unknown-model-alpha', 100, 100);
+      estimateCost('unknown-model-alpha', 200, 200);
+      estimateCost('unknown-model-alpha', 300, 300);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0][0]).toContain("unknown model 'unknown-model-alpha'");
+
+      estimateCost('unknown-model-beta', 100, 100);
+      expect(warn).toHaveBeenCalledTimes(2);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
 
