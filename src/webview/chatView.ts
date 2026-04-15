@@ -55,6 +55,7 @@ import {
   handleSpec,
   handleGenerateDoc,
   handleUsage,
+  handleResume,
   handleContext,
   handleGenerateTests,
   handleLint,
@@ -307,6 +308,7 @@ export class ChatViewProvider implements WebviewViewProvider {
       await commands.executeCommand('sidecar.scanStaged');
     },
     usage: () => handleUsage(this.state),
+    resume: () => handleResume(this.state),
     context: () => handleContext(this.state),
     generateTests: () => handleGenerateTests(this.state),
     lint: (msg) => handleLint(this.state, msg.text),

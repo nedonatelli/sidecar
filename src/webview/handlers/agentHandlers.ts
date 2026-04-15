@@ -265,6 +265,48 @@ export async function handleSpec(state: ChatState, description: string): Promise
   state.postMessage({ command: 'setLoading', isLoading: false });
 }
 
+/**
+ * `/resume` — continue a response that was cut off mid-stream.
+ *
+ * When a backend stream fails partway through (network drop, provider
+ * timeout, transient error), the agent loop captures whatever text had
+ * been streamed before the throw into `state.pendingPartialAssistant`.
+ * This command consumes that partial and re-dispatches the last turn
+ * with a "please continue from where you left off" hint synthesized
+ * from the partial. The underlying message history is untouched — the
+ * failed turn never appended an assistant message — so the model sees
+ * the same inputs as before plus the continuation nudge.
+ *
+ * Clears `pendingPartialAssistant` after consumption so repeated /resume
+ * calls don't replay the same partial over and over.
+ */
+export async function handleResume(state: ChatState): Promise<void> {
+  const partial = state.pendingPartialAssistant;
+  if (!partial || partial.length === 0) {
+    state.postMessage({
+      command: 'assistantMessage',
+      content:
+        'No partial response to resume. /resume picks up where a stream failed mid-turn — it only has something to do after an error.',
+    });
+    state.postMessage({ command: 'done' });
+    return;
+  }
+
+  // Truncate the preview so a huge partial doesn't balloon the hint.
+  const preview = partial.length > 600 ? partial.slice(0, 600) + '\n... (partial truncated)' : partial;
+  const hint =
+    `Your previous response was cut off mid-stream by a backend failure. ` +
+    `You had emitted the following text before the connection dropped:\n\n` +
+    `---\n${preview}\n---\n\n` +
+    `Please continue from exactly where you left off. Do not repeat the text above verbatim; ` +
+    `pick up the next sentence or action as if the stream had not broken.`;
+
+  // Consume the partial before dispatching so a second failure doesn't
+  // replay against the already-used partial.
+  state.pendingPartialAssistant = null;
+  await handleUserMessage(state, hint);
+}
+
 export async function handleUsage(state: ChatState): Promise<void> {
   const history = state.metricsCollector.getHistory();
   // Fingerprint: history length + timestamp of latest entry. Changes

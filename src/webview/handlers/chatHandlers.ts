@@ -1119,6 +1119,20 @@ function createAgentCallbacks(
     onProgressSummary: (summary) => {
       state.postMessage({ command: 'agentProgress', content: summary });
     },
+    onStreamFailure: (partial, error) => {
+      // Stash the partial so /resume can pick it up on the user's next turn.
+      // Flushing the text buffer first makes sure the webview has rendered
+      // whatever made it through before the failure, so the user can see
+      // exactly where the cutoff happened.
+      flushTextBuffer();
+      state.pendingPartialAssistant = partial;
+      if (verbose) {
+        verboseLog(
+          'Stream failure captured',
+          `Saved ${partial.length} chars of partial assistant content. Run /resume to continue from the cutoff. Error: ${error.message}`,
+        );
+      }
+    },
     onCheckpoint: async (summary, _used, remaining) => {
       try {
         const choice = await state.requestConfirm(
@@ -1171,6 +1185,12 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     state.logMessage('user', messageText);
     state.saveHistory();
   }
+
+  // Any new normal turn discards a stale captured partial so we never
+  // replay an old one. /resume bypasses this path — it reads the
+  // partial itself, then hands off to handleResumeTurn below which
+  // clears it after consumption.
+  state.pendingPartialAssistant = null;
 
   state.postMessage({ command: 'setLoading', isLoading: true });
 

@@ -151,6 +151,18 @@ export async function streamOneTurn(
     } else if (err instanceof Error && err.name === 'AbortError') {
       terminated = 'aborted';
     } else {
+      // Capture the partial before re-throwing so /resume can pick it up.
+      // Fire only when we actually accumulated text — empty-partial
+      // failures aren't resumable in any useful sense. Listener errors
+      // must not mask the original throw, so swallow them here.
+      const partial = fullTextParts.join('');
+      if (partial.length > 0 && callbacks.onStreamFailure) {
+        try {
+          callbacks.onStreamFailure(partial, err as Error);
+        } catch {
+          /* listener errors cannot mask the underlying backend failure */
+        }
+      }
       throw err;
     }
   }

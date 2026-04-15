@@ -853,6 +853,7 @@
     { cmd: '/release', desc: 'Show, create, or delete a release' },
     { cmd: '/init', desc: 'Generate SIDECAR.md project notes from codebase' },
     { cmd: '/bg', desc: 'Run a task in the background' },
+    { cmd: '/resume', desc: 'Resume a response that was cut off mid-stream' },
   ];
   const autocompleteEl = document.getElementById('slash-autocomplete');
   let acSelectedIndex = -1;
@@ -1213,6 +1214,13 @@
     if (text.trim() === '/usage') {
       appendMessage('user', '/usage');
       vscode.postMessage({ command: 'usage' });
+      input.value = '';
+      input.style.height = 'auto';
+      return;
+    }
+    if (text.trim() === '/resume') {
+      appendMessage('user', '/resume');
+      vscode.postMessage({ command: 'resume' });
       input.value = '';
       input.style.height = 'auto';
       return;

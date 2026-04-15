@@ -47,6 +47,15 @@ export class ChatState {
   messages: ChatMessage[] = [];
   pendingPlan: string | null = null;
   pendingPlanMessages: ChatMessage[] = [];
+  /**
+   * Captured assistant text from a stream that died mid-turn. `null` if
+   * no partial is available or the partial has been consumed. Populated
+   * by the `onStreamFailure` callback in the agent loop and consumed by
+   * the `/resume` slash command, which re-issues the failed turn with
+   * the partial as a "continue from here" hint. Cleared on any
+   * successful turn so we never replay a stale partial.
+   */
+  pendingPartialAssistant: string | null = null;
   abortController: AbortController | null = null;
   installAbortController: AbortController | null = null;
   private pendingConfirms = new Map<string, (choice: string | undefined) => void>();
@@ -317,6 +326,7 @@ export class ChatState {
     this.messages = [];
     this.pendingPlan = null;
     this.pendingPlanMessages = [];
+    this.pendingPartialAssistant = null;
     this.pendingQuestion = null;
     this.changelog.clear();
     this.currentSessionId = null;

@@ -61,6 +61,15 @@ export interface AgentCallbacks {
   onCheckpoint?: (summary: string, iterationsUsed: number, iterationsRemaining: number) => Promise<boolean>;
   /** Called when characters are consumed against the budget (for parent token tracking). */
   onCharsConsumed?: (chars: number) => void;
+  /**
+   * Fired when a stream fails mid-turn with a recoverable (non-abort)
+   * error after at least some text had already been received. `partial`
+   * is the concatenated text accumulated before the throw — caller
+   * stashes it so a later `/resume` command can re-issue the turn with
+   * the partial as a continuation hint. Fires before the error
+   * propagates, so listeners shouldn't throw from this handler.
+   */
+  onStreamFailure?: (partial: string, error: Error) => void;
   onDone: () => void;
 }
 
