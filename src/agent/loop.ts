@@ -27,13 +27,13 @@ import { exceedsBurstCap, detectCycleAndBail } from './loop/cycleDetection.js';
 import { pushAssistantMessage, pushToolResultsMessage, accountToolTokens } from './loop/messageBuild.js';
 import { applyStubCheck } from './loop/stubCheck.js';
 import { applyCritic, runCriticChecks, type RunCriticOptions } from './loop/criticHook.js';
+import { recordGateToolUses, maybeInjectCompletionGate } from './loop/gate.js';
 export { compressMessages, parseTextToolCalls, stripRepeatedContent };
 // runCriticChecks + RunCriticOptions were extracted into
 // ./loop/criticHook.ts. Re-exported so critic.runner.test.ts still
 // imports them from './loop.js' without a coordinated rewrite.
 export { runCriticChecks };
 export type { RunCriticOptions };
-import { recordToolCall as recordGateToolCall, checkCompletionGate, buildGateInjection } from './completionGate.js';
 import type { PendingEditStore } from './pendingEdits.js';
 
 export interface AgentCallbacks {
@@ -136,7 +136,6 @@ export async function runAgentLoop(
   const { maxIterations, approvalMode, tools, logger, changelog, mcpManager, startTime } = state;
   const agentMessages = state.messages;
   const autoFixRetriesByFile = state.autoFixRetriesByFile;
-  const gateState = state.gateState;
 
   // Primitives (iteration, totalChars, stubFixRetries) can't alias by
   // reference. Keep local mutable copies and sync with `state.xxx`
@@ -149,9 +148,6 @@ export async function runAgentLoop(
   let totalChars = state.totalChars;
   let stubFixRetries = state.stubFixRetries;
 
-  // Constants for the policy checks still inline in the iteration
-  // body (gate). Will migrate out in phase 3c.
-  const MAX_GATE_INJECTIONS = 2;
   const maxTokens = state.maxTokens;
 
   while (iteration < maxIterations) {
@@ -263,37 +259,14 @@ export async function runAgentLoop(
         }
       }
 
-      // Completion gate: if the agent edited source files this turn but
-      // never ran lint / tests for them, push a synthetic user message back
-      // into the loop demanding verification. Skip in plan mode (which
-      // intentionally returns after one turn for user approval) and when
-      // the run was aborted.
-      if (
-        !signal.aborted &&
-        options.approvalMode !== 'plan' &&
-        config.completionGateEnabled !== false &&
-        gateState.editedFiles.size > 0 &&
-        gateState.gateInjections < MAX_GATE_INJECTIONS
-      ) {
-        const findings = await checkCompletionGate(gateState);
-        if (findings.length > 0) {
-          gateState.gateInjections++;
-          const injection = buildGateInjection(findings, gateState.gateInjections, MAX_GATE_INJECTIONS);
-          logger?.info(
-            `Completion gate fired (#${gateState.gateInjections}/${MAX_GATE_INJECTIONS}): ${findings.length} unverified edit(s)`,
-          );
-          callbacks.onText('\n\n🔒 Verifying changes before completion...\n');
-          agentMessages.push({
-            role: 'user',
-            content: [{ type: 'text' as const, text: injection }],
-          });
-          continue;
-        }
-      } else if (gateState.editedFiles.size > 0 && gateState.gateInjections >= MAX_GATE_INJECTIONS) {
-        logger?.warn(
-          `Completion gate exhausted (${MAX_GATE_INJECTIONS} injections) — allowing termination with unverified edits`,
-        );
-      }
+      // Completion gate (empty-response branch) — extracted into
+      // loop/gate.ts. Returns 'injected' when the gate pushed a
+      // synthetic user message demanding verification; the loop
+      // continues to give the agent another turn to verify. Returns
+      // 'skip' in every other case (disabled, no edits to verify,
+      // cap exhausted, or check came back clean).
+      const gateOutcome = await maybeInjectCompletionGate(state, config, options, signal, callbacks);
+      if (gateOutcome === 'injected') continue;
 
       break;
     }
@@ -423,12 +396,10 @@ export async function runAgentLoop(
         }
       }
 
-      // Feed successful tool calls into the completion gate so it can track
-      // which files were edited and which verification commands have run.
-      for (let idx = 0; idx < pendingToolUses.length; idx++) {
-        const tr = toolResults[idx];
-        if (tr) recordGateToolCall(gateState, pendingToolUses[idx], tr);
-      }
+      // Feed tool calls into the gate state so the next empty-response
+      // turn can decide whether to inject a verification reprompt.
+      // Extracted into loop/gate.ts.
+      recordGateToolUses(state, pendingToolUses, toolResults);
 
       // Tool-use + tool-result token accounting and history append.
       // Extracted into loop/messageBuild.ts — the helper mutates
