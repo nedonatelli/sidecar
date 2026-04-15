@@ -47,8 +47,9 @@ SideCar is an AI-powered coding assistant for VS Code that operates as an autono
 - Context compression and summarization to manage token limits
 - File pattern filtering for workspace inclusion
 - `streamingFileReader.ts` - Streaming reads with summary mode for large files (>50KB)
-- `documentationIndexer.ts` - RAG system: discovers and indexes documentation, provides keyword-based search
+- `documentationIndexer.ts` - Doc Index: discovers and indexes documentation, provides keyword-based search
 - `agentMemory.ts` - Persistent learning: stores and retrieves patterns, decisions, and conventions
+- [`src/agent/retrieval/`](../src/agent/retrieval/) - Unified `Retriever` interface + reciprocal-rank fusion. Doc index and agent memory run through `fuseRetrievers()` so they share a single context budget instead of each getting a fixed allocation. `ConversationSummarizer` has a per-turn cap (default 220 chars) that usually skips the LLM compression round-trip entirely
 
 ### 6. Communication Layer
 - `SideCarClient` - LLM API client (Ollama or Anthropic)

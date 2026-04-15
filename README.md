@@ -234,7 +234,7 @@ A second LLM call whose only job is to find reasons the main agent's change is w
 
 **Cost:** each critic call is a full round trip with a 1024-token budget. On Ollama it's free but adds a few seconds per edit; on paid backends it roughly doubles the per-iteration cost unless you use a cheaper critic model.
 
-### Tool Registry (26+ built-in tools + MCP)
+### Tool Registry (23+ built-in tools + MCP)
 | Tool | Description |
 |------|-------------|
 | `read_file` | Read file contents |

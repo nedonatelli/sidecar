@@ -4,6 +4,29 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.51.0] - 2026-04-14
+
+Context budget release. Four independent features, all targeting the same underlying problem: SideCar was spending tokens (and real money) on work that should have been cached, fused, or capped. The theme that tied them together was an actual user incident — a $0.17 real OpenAI spend that still tripped a rate-limit because every turn was pushing ~100k tokens of context through requests that didn't need to be that large.
+
+### Added
+
+- **Retriever fusion with reciprocal-rank fusion.** New [`src/agent/retrieval/`](src/agent/retrieval/) module exposes a unified `Retriever` interface (`retriever.ts`), standard RRF ranking (`fusion.ts`, 60-constant dampening), and adapters for the documentation index (`docRetriever.ts`) and persistent agent memory (`memoryRetriever.ts`). `injectSystemContext()` now runs these adapters in parallel through `fuseRetrievers()` and renders the fused top-K under a single `## Retrieved Context` header — a strong memory hit can now displace a weak doc hit (and vice versa) instead of each source getting its own fixed allocation. Not-ready retrievers are skipped silently and thrown errors are swallowed so one bad source can't break injection. `WorkspaceIndex` is intentionally left out of fusion for this release — it already does its own semantic + heuristic + pinning blend internally and returns a pre-formatted string, so wrapping it would be a rewrite rather than an adapter. Deferred.
+- **Unknown-model cost warning + JSON-sourced pricing table.** The hardcoded `MODEL_COSTS` table moved into [`src/config/modelCosts.json`](src/config/modelCosts.json) so pricing can be updated without a TypeScript change, and expanded to cover the common OpenAI lineup (4o, 4o-mini, 4.1, 4.1-mini, 5, 5-mini, o1, o1-mini) plus older Claude 3.x models. `estimateCost()` now emits a one-time `console.warn` for unknown model ids so you find out when a new provider ships something we don't have pricing for — previously it silently returned `null`, which is why the OpenAI cost panel stayed empty despite real spending. Dedup via module-level `Set<string>`; test-only reset helper for unit coverage. `tsconfig.json` gains `resolveJsonModule: true`.
+- **ConversationSummarizer per-turn cap.** New `maxCharsPerTurn` option on `SummarizeOptions` bounds each turn's contribution to the pre-LLM facts list. With a 220-char default (`DEFAULT_MAX_CHARS_PER_TURN`), a typical 10-turn window aggregates to ~2.2k chars — well under the default 800-char `maxSummaryLength`, which means the LLM compression round-trip is skipped entirely in the common case. Big agent loops with multi-thousand-char replies no longer balloon the summarizer's input and force an unnecessary LLM call. The assembled `Turn N: query → reply` line is hard-capped after smart-truncation of each half, so pathological query+reply pairs can't blow past the budget either. No new SideCarConfig knob; the default kicks in automatically via [`src/agent/loop/compression.ts`](src/agent/loop/compression.ts).
+- **Report cache for `/usage` and `/insights`.** New [`src/webview/handlers/reportCache.ts`](src/webview/handlers/reportCache.ts) with `getOrComputeReport(key, fingerprint, compute, ttlMs)` keyed on a caller-supplied fingerprint plus a 5-minute TTL. Either a fingerprint change OR age beyond the TTL triggers a recompute, so the cache can't go stale even if the underlying data changes in a way the fingerprint didn't catch. `handleUsage()` fingerprints on history length + last metric timestamp; `handleInsights()` fingerprints on audit count + metrics count + memory count + last audit timestamp. `/insights` in particular was walking up to 5000 audit rows through `analyzeConversation()` on every call, even when nothing had changed since the last run.
+
+### Deferred
+
+- Semantic workspace search adapter (would require rewriting `WorkspaceIndex.getRelevantContext` instead of wrapping it).
+- SideCarConfig + settings UI exposure for `maxCharsPerTurn` (the default is a working value; reopen if tuning is needed).
+- Policy-hook interface for `runAgentLoop` (`beforeIteration` / `afterToolResult` / `onTermination`) — still on the HIGH audit list.
+- Eval cases that exercise fusion / cost warning / summarizer cap end-to-end. The underlying retrievers + agent memory aren't yet plumbed through the LLM eval workspace sandbox, so they stay as unit-level coverage for now.
+
+### Stats
+
+- 1816 total tests (116 test files)
+- 23 built-in tools, 8 skills
+
 ## [0.50.0] - 2026-04-14
 
 Architectural + testing release. No user-facing feature changes — every change is under the hood. The main event: `runAgentLoop` (SideCar's core agent loop) was a 1,216-line god function that nobody wanted to touch. It's now a 255-line orchestrator plus 14 focused helper modules under [`src/agent/loop/`](src/agent/loop/), each with a single clear responsibility. The second event: the LLM evaluation harness shipped in v0.49.1 was extended from 3 baseline cases to 11 agent-loop cases, and every single decomposition phase was verified against those cases before commit — zero behavioral regressions across 9 refactor commits.
