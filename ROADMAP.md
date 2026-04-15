@@ -74,6 +74,43 @@ Last updated: 2026-04-14 (v0.52.0 released — retriever fusion completed by wra
 
 ---
 
+## Deferred (Tracked but not scheduled)
+
+Items that are known, named, and understood — but intentionally scoped out of the current release. Kept here so they don't get lost between CHANGELOG entries. Each line carries the source release and a brief "why" so a later reader can decide whether the premise is still valid.
+
+### Architectural (HIGH audit items)
+
+- **Policy-hook interface for `runAgentLoop`** — registration bus for `beforeIteration` / `afterToolResult` / `onTermination`. Today the four post-turn policies (autoFix → stub → critic → gate) are still called directly from `loop.ts`. Moving them behind a hook bus would close the v0.50 decomposition story and make it trivial to add or disable policies from user config. *Source: v0.50.0 deferral, reaffirmed v0.51.0 + v0.52.0. ~1 day.*
+- **Backend anticorruption layer (`normalizeStream`)** — each backend writes to a common normalized stream shape so `SideCarClient` only speaks one dialect. Unblocks OpenRouter, Groq, Fireworks, custom Bedrock, etc. *Source: v0.51.0 deferral. ~1.5 days.*
+- **`chatHandlers.ts` split** — 1,708 lines, the largest remaining god-module after the v0.50 `loop.ts` decomposition. Same extraction pattern as `tools.ts` and `loop.ts`: single-responsibility helpers, shared state container, re-exports for backward compat. Could bundle with a `SideCarConfig` split. *Source: cycle-2 audit, v0.52.0 deferral. ~2 days.*
+
+### Retrieval polish (MEDIUM)
+
+- **Reranker stage** — after retrieval, fused hits go straight into the system prompt. A cheap cross-encoder reranker would dramatically improve precision per context-budget token; matters most for paid API users. *Source: cycle-2 audit.*
+- **Reranker budget caps per source** — the current `fuseRetrievers` shares one budget across all three sources but doesn't cap per source, so a hot workspace could theoretically starve docs + memory entirely. No real incident has triggered this yet; note for future. *Source: v0.52.0 loose end.*
+
+### Eval harness gaps
+
+- **LLM-as-judge scoring** — deterministic predicates (tool presence / absence, partial-input matching, file-state) give crisper regression signal than a second-model scoring hop, so this was intentionally skipped in v0.50. Reopen if we start shipping features where correctness is fuzzy rather than binary. *Source: v0.50.0 deferral.*
+- **Eval cases for retriever fusion / cost warning / summarizer cap** — these features currently only have unit-level coverage. End-to-end eval cases would need doc-indexer / agent-memory fixture plumbing in the workspace sandbox, which doesn't exist yet. *Source: v0.51.0 deferral.*
+- **Eval cases for the auto-fix path and critic path** — neither is reachable by the current harness. Auto-fix needs a `languages.getDiagnostics` mock, critic needs a critic config. *Source: v0.50.0 deferral.*
+
+### User-facing polish
+
+- **`/resume` as a webview button affordance** — the slash command works end-to-end but a one-click "Resume from partial" button in the error toast would be smoother. Follow-up if users actually ask for it. *Source: v0.52.0 deferral.*
+- **`maxCharsPerTurn` as a SideCarConfig setting** — the ConversationSummarizer default (220) is a working value. Exposing it through `package.json` contribution points is one more setting to document and support; skip until someone asks. *Source: v0.51.0 scope decision.*
+
+### Manual verification tasks
+
+- **Empirical `max_tokens` TPM fix verification.** The v0.48.0 fix (adding `max_tokens: 4096` + `stream_options: { include_usage: true }` to OpenAI `streamChat`) addressed the rate-limit incident on paper but has never been validated on a real OpenAI session. To close: turn on `sidecar.verboseMode`, run a real OpenAI session, capture the `[SideCar openai] request breakdown` lines, confirm 4096 is reserved instead of the 16k default, and paste output into a future CHANGELOG as a "validated fixes" note. *Source: v0.48.0 loose end, reaffirmed v0.52.0.*
+
+### External provider integrations
+
+- **Anthropic Batch API for non-interactive workloads** — half the cost for async jobs. Candidates: `/insight`, `/usage`, `/audit` aggregation, semantic-index embedding jobs, background sub-agents, adversarial critic. *Source: cycle-2 audit MEDIUM.*
+- **Provider `usage` response integration for `MODEL_COSTS`** — `modelCosts.json` is currently manually maintained. Pulling per-request pricing from provider `usage` responses would auto-update. *Source: v0.51.0 deferral.*
+
+---
+
 ## Recently Completed (v0.50.0, 2026-04-14)
 
 ✅ **`runAgentLoop` god-function decomposition** (cycle-2 ai-engineering HIGH) — 1,216-line god function split into a thin 255-line orchestrator plus 14 focused helper modules under [`src/agent/loop/`](src/agent/loop/). Same extraction pattern as the successful [`tools.ts` split](src/agent/tools/) and [`handleUserMessage` decomposition](src/webview/handlers/chatHandlers.ts). 79% size reduction in loop.ts.
