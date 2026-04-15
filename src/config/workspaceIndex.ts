@@ -405,6 +405,73 @@ export class WorkspaceIndex implements Disposable {
   }
 
   /**
+   * Render the pinned-files section as a standalone markdown block.
+   * Returns an empty string when there are no pinned files or the
+   * budget is too small to hold even the header.
+   *
+   * Extracted so injectSystemContext can inject pinned files
+   * independently of the retriever-fusion ranked-files path, which is
+   * now handled by SemanticRetriever.
+   */
+  async getPinnedFilesSection(maxChars: number = this.maxContextChars): Promise<string> {
+    if (this.pinnedPaths.size === 0) return '';
+    const folders = workspace.workspaceFolders;
+    if (!folders || folders.length === 0) return '';
+
+    const pinnedFiles = new Set<string>();
+    for (const pinPath of this.pinnedPaths) {
+      for (const f of this.files.keys()) {
+        if (f === pinPath || f.startsWith(pinPath + path.sep)) {
+          pinnedFiles.add(f);
+        }
+      }
+    }
+    if (pinnedFiles.size === 0) return '';
+
+    const parts: string[] = ['\n## Pinned Files\n'];
+    let charCount = parts[0].length;
+
+    for (const filePath of pinnedFiles) {
+      if (charCount >= maxChars) break;
+      const content = await this.loadFileContent(filePath);
+      if (!content) continue;
+      const section = `\n### ${filePath} (pinned)\n\`\`\`\n${content}\n\`\`\`\n`;
+      if (charCount + section.length > maxChars) continue;
+      parts.push(section);
+      charCount += section.length;
+    }
+
+    return parts.length > 1 ? parts.join('') : '';
+  }
+
+  /**
+   * Render the file-dependencies (symbol graph) section independently.
+   * Returns '' when the symbol indexer isn't wired up, there are no
+   * recently accessed files, or the budget is too small.
+   */
+  getFileDependenciesSection(maxChars: number = 2000): string {
+    if (!this.symbolIndexer || this.recentlyAccessedFiles.size === 0) return '';
+    if (maxChars < 100) return '';
+    const graphContext = this.symbolIndexer.getGraph().getFileGraphContext([...this.recentlyAccessedFiles], maxChars);
+    return graphContext ? `\n## File Dependencies\n${graphContext}\n` : '';
+  }
+
+  /**
+   * Render the workspace file tree as a standalone markdown block.
+   * Truncates the tree body to fit `maxChars`. Callers are expected to
+   * inject this last so it lands in the uncached suffix after the
+   * `## Workspace Structure` cache marker.
+   */
+  getWorkspaceStructureSection(maxChars: number): string {
+    if (!this.treeCache) return '';
+    const full = `\n## Workspace Structure\n\`\`\`\n${this.treeCache}\n\`\`\`\n`;
+    if (full.length <= maxChars) return full;
+    if (maxChars < 200) return '';
+    const remaining = maxChars - 50;
+    return `\n## Workspace Structure\n\`\`\`\n${this.treeCache.slice(0, remaining)}\n...\n\`\`\`\n`;
+  }
+
+  /**
    * Returns context string with file tree + relevant file contents,
    * staying within the token budget.
    */

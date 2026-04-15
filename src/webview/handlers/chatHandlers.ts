@@ -33,7 +33,13 @@ import {
 import { runAgentLoop } from '../../agent/loop.js';
 import type { AgentCallbacks } from '../../agent/loop.js';
 import { SkillLoader } from '../../agent/skillLoader.js';
-import { DocRetriever, MemoryRetriever, fuseRetrievers, renderFusedContext } from '../../agent/retrieval/index.js';
+import {
+  DocRetriever,
+  MemoryRetriever,
+  SemanticRetriever,
+  fuseRetrievers,
+  renderFusedContext,
+} from '../../agent/retrieval/index.js';
 import type { ChatMessage } from '../../ollama/types.js';
 import type { ApprovalMode } from '../../agent/executor.js';
 import { pruneHistory, enhanceContextWithSmartElements } from '../../agent/context.js';
@@ -574,21 +580,40 @@ export async function injectSystemContext(
     }
   }
 
-  // RAG documentation + agent memory — only in trusted workspaces.
-  // Both sources are attacker-controlled in a cloned repo (docs) or
-  // could be poisoned by a prior prompt-injected session (memory), so
-  // they skip entirely when the workspace is untrusted. Both retrievers
-  // share a single budget and are fused with reciprocal-rank fusion so
-  // that a strong memory hit can displace a weak doc hit (and vice versa)
-  // instead of each source getting its own fixed allocation.
+  // Retriever fusion — docs, agent memory, and workspace semantic
+  // search all run through a single reciprocal-rank fusion pass so
+  // they share one context budget instead of each getting a fixed
+  // allocation. Docs and memory are skipped entirely in untrusted
+  // workspaces (attacker-authored content is a prompt-injection
+  // vector); workspace semantic search is safe because the base
+  // system prompt treats tool output and file contents as data, not
+  // instructions. The pinned-files and workspace-tree sections below
+  // are still injected independently — they carry user intent
+  // (pins) and navigational metadata (tree) that don't fit the
+  // per-hit ranking model.
+  const activeFilePath = window.activeTextEditor
+    ? path.relative(getWorkspaceRoot(), window.activeTextEditor.document.uri.fsPath)
+    : undefined;
+
+  if (getWorkspaceEnabled() && state.workspaceIndex?.isReady()) {
+    state.workspaceIndex.setPinnedPaths(config.pinnedContext);
+    const pinRefs = extractPinReferences(text);
+    for (const pin of pinRefs) {
+      state.workspaceIndex.addPin(pin);
+    }
+  }
+
   const retrievalBudget = maxSystemChars - prompt.length;
-  if (workspaceTrusted && text && retrievalBudget > 500) {
+  if (text && retrievalBudget > 500) {
     const retrievers = [];
-    if (config.enableDocumentationRAG && state.documentationIndexer) {
+    if (workspaceTrusted && config.enableDocumentationRAG && state.documentationIndexer) {
       retrievers.push(new DocRetriever(state.documentationIndexer));
     }
-    if (config.enableAgentMemory && state.agentMemory) {
+    if (workspaceTrusted && config.enableAgentMemory && state.agentMemory) {
       retrievers.push(new MemoryRetriever(state.agentMemory));
+    }
+    if (getWorkspaceEnabled() && state.workspaceIndex?.isReady()) {
+      retrievers.push(new SemanticRetriever(state.workspaceIndex, activeFilePath));
     }
     if (retrievers.length > 0) {
       const topK = Math.max(config.ragMaxDocEntries, 5);
@@ -606,29 +631,36 @@ export async function injectSystemContext(
     }
   }
 
-  // Workspace context
+  // Pinned files + file dependencies + workspace tree. Each carries
+  // information that doesn't fit the per-hit ranking model used by
+  // fusion: pinned files are user-pinned regardless of query relevance,
+  // the dep graph is a whole-graph view of recent activity, and the
+  // tree is navigational metadata. These land under a single
+  // "## Workspace Context" heading for backward-compat, then the tree
+  // is appended last under its own marker so the cache boundary stays
+  // stable.
   if (getWorkspaceEnabled()) {
     const toolOverheadChars = isLocal ? 10_000 : 0;
     const contextBudget = Math.max(0, maxSystemChars - prompt.length - toolOverheadChars);
 
     if (state.workspaceIndex?.isReady()) {
-      state.workspaceIndex.setPinnedPaths(config.pinnedContext);
-      const pinRefs = extractPinReferences(text);
-      for (const pin of pinRefs) {
-        state.workspaceIndex.addPin(pin);
+      const pinnedSection = await state.workspaceIndex.getPinnedFilesSection(contextBudget);
+      if (pinnedSection) {
+        prompt += `\n\n## Workspace Context${pinnedSection}`;
       }
 
-      const activeFilePath = window.activeTextEditor
-        ? path.relative(getWorkspaceRoot(), window.activeTextEditor.document.uri.fsPath)
-        : undefined;
-      const indexContext = await state.workspaceIndex.getRelevantContext(text, activeFilePath);
-      if (indexContext) {
-        const trimmed =
-          indexContext.length > contextBudget
-            ? indexContext.slice(0, contextBudget - 30) + '\n... (context truncated)'
-            : indexContext;
-        prompt += `\n\n## Workspace Context\n${trimmed}`;
+      const depBudget = Math.max(0, maxSystemChars - prompt.length - toolOverheadChars);
+      const depSection = state.workspaceIndex.getFileDependenciesSection(Math.min(2000, depBudget));
+      if (depSection) {
+        prompt += depSection;
       }
+
+      const treeBudget = Math.max(0, maxSystemChars - prompt.length - toolOverheadChars);
+      const treeSection = state.workspaceIndex.getWorkspaceStructureSection(treeBudget);
+      if (treeSection) {
+        prompt += treeSection;
+      }
+
       const mentionedPaths = [...text.matchAll(/@file:([^\s]+)/g)].map((m) => m[1]);
       if (mentionedPaths.length > 0) {
         state.workspaceIndex.updateRelevance(mentionedPaths);
