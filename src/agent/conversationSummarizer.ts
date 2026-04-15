@@ -46,9 +46,24 @@ export interface SummarizeOptions {
   minCharsToSave?: number;
   /** Max chars in the generated summary. Default: 800 */
   maxSummaryLength?: number;
+  /**
+   * Max chars any single turn may contribute to the per-turn facts list
+   * before it's truncated. Capping this bounds the pre-LLM `facts` aggregate
+   * at roughly `oldTurns.length * maxCharsPerTurn`, which makes it far more
+   * likely to fit inside `maxSummaryLength` directly and skip the LLM
+   * round-trip. Default: 220 (enough to preserve a query and a short reply).
+   */
+  maxCharsPerTurn?: number;
   /** Timeout for the summarization LLM call (ms). Default: 10000 */
   summaryTimeoutMs?: number;
 }
+
+/**
+ * Default per-turn contribution cap. Kept below `maxSummaryLength / 4` so
+ * the fact concatenation of a typical 10-turn window stays within the
+ * default summary budget without needing an LLM compression pass.
+ */
+export const DEFAULT_MAX_CHARS_PER_TURN = 220;
 
 export class ConversationSummarizer {
   private client: SideCarClient;
@@ -66,6 +81,7 @@ export class ConversationSummarizer {
     const keepRecentTurns = options.keepRecentTurns ?? 4;
     const minCharsToSave = options.minCharsToSave ?? 2000;
     const maxSummaryLength = options.maxSummaryLength ?? 800;
+    const maxCharsPerTurn = options.maxCharsPerTurn ?? DEFAULT_MAX_CHARS_PER_TURN;
     const summaryTimeoutMs = options.summaryTimeoutMs ?? 10000;
 
     // Edge case: too few messages to bother
@@ -120,7 +136,7 @@ export class ConversationSummarizer {
 
     // Try to summarize the old turns
     try {
-      const summary = await this.generateSummary(oldTurns, maxSummaryLength, summaryTimeoutMs);
+      const summary = await this.generateSummary(oldTurns, maxSummaryLength, maxCharsPerTurn, summaryTimeoutMs);
 
       // Build new message array: summary block + recent turns
       const newMessages: ChatMessage[] = [];
@@ -195,7 +211,18 @@ export class ConversationSummarizer {
    * Generate a compact summary of old turns using the LLM.
    * Extracts key facts: files examined, issues found, decisions made, progress.
    */
-  private async generateSummary(oldTurns: Array<ChatMessage[]>, maxLength: number, timeoutMs: number): Promise<string> {
+  private async generateSummary(
+    oldTurns: Array<ChatMessage[]>,
+    maxLength: number,
+    maxCharsPerTurn: number,
+    timeoutMs: number,
+  ): Promise<string> {
+    // Budget the user query and the assistant reply to roughly half the
+    // per-turn cap each. The final trim after join ensures the assembled
+    // line never exceeds maxCharsPerTurn even with the "Turn N: " prefix.
+    const queryBudget = Math.max(60, Math.floor(maxCharsPerTurn * 0.45));
+    const replyBudget = Math.max(60, Math.floor(maxCharsPerTurn * 0.55));
+
     // Build a compact representation of what happened in these turns
     const facts: string[] = [];
 
@@ -204,27 +231,26 @@ export class ConversationSummarizer {
       const userMsg = turn[0];
       const userText = typeof userMsg.content === 'string' ? userMsg.content : getContentText(userMsg.content);
 
-      // Extract user query — use enough chars to preserve file paths and key context
-      const userQuery = smartTruncate(userText, 200);
+      const userQuery = smartTruncate(userText, queryBudget);
 
-      // Extract assistant responses
       const assistantChunks: string[] = [];
       for (const msg of turn.slice(1)) {
         if (msg.role === 'assistant') {
           const text = getContentText(msg.content);
           if (text.length > 0) {
-            assistantChunks.push(smartTruncate(text, 300));
+            assistantChunks.push(smartTruncate(text, replyBudget));
           }
         }
       }
 
-      // Record this turn's essence
       const turnSummary =
         assistantChunks.length > 0
           ? `Turn ${i + 1}: ${userQuery} → ${assistantChunks[0]}`
           : `Turn ${i + 1}: ${userQuery}`;
 
-      facts.push(turnSummary);
+      // Hard cap the assembled line so a wide query+reply pair can't blow
+      // past the per-turn budget.
+      facts.push(turnSummary.length > maxCharsPerTurn ? turnSummary.slice(0, maxCharsPerTurn - 1) + '…' : turnSummary);
     }
 
     // If facts alone are small enough, just use them

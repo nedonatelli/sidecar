@@ -319,6 +319,70 @@ describe('ConversationSummarizer', () => {
     });
   });
 
+  describe('per-turn cap', () => {
+    it('bounds each assembled fact line to maxCharsPerTurn so factsSummary fits without an LLM call', async () => {
+      // Huge queries + huge replies — without a per-turn cap, facts would
+      // overflow maxSummaryLength and force an LLM round-trip. With the cap,
+      // each "Turn N: ..." line stays under the cap and the mocked client
+      // should never be asked to compress further.
+      const bigQuery = 'X'.repeat(2000);
+      const bigReply = 'Y'.repeat(2000);
+      const messages: ChatMessage[] = [];
+      for (let i = 0; i < 8; i++) {
+        messages.push({ role: 'user', content: bigQuery });
+        messages.push({ role: 'assistant', content: bigReply });
+      }
+
+      // Spy on the mock client's complete() to assert it wasn't called.
+      mockClient.complete.mockClear();
+
+      const maxCharsPerTurn = 100;
+      const result = await summarizer.summarize(messages, {
+        keepRecentTurns: 1,
+        minCharsToSave: 1,
+        maxSummaryLength: 5000, // well above 8 * 100
+        maxCharsPerTurn,
+      });
+
+      // With 7 old turns × 100 chars/turn = ~700 chars, the facts string
+      // fits within maxSummaryLength and the LLM path is skipped entirely.
+      expect(mockClient.complete).not.toHaveBeenCalled();
+
+      // Summary lines are all bounded by maxCharsPerTurn.
+      const summary = result.messages[0].content as string;
+      const factLines = summary.split('\n').filter((line) => line.startsWith('Turn '));
+      expect(factLines.length).toBeGreaterThan(0);
+      for (const line of factLines) {
+        expect(line.length).toBeLessThanOrEqual(maxCharsPerTurn);
+      }
+    });
+
+    it('defaults to DEFAULT_MAX_CHARS_PER_TURN when caller omits the option', async () => {
+      const bigQuery = 'Q'.repeat(2000);
+      const bigReply = 'R'.repeat(2000);
+      const messages: ChatMessage[] = [];
+      for (let i = 0; i < 8; i++) {
+        messages.push({ role: 'user', content: bigQuery });
+        messages.push({ role: 'assistant', content: bigReply });
+      }
+
+      mockClient.complete.mockClear();
+      const result = await summarizer.summarize(messages, {
+        keepRecentTurns: 1,
+        minCharsToSave: 1,
+        maxSummaryLength: 5000,
+      });
+
+      // Default 220 chars/turn × 7 turns = ~1540 < 5000, so LLM not needed.
+      expect(mockClient.complete).not.toHaveBeenCalled();
+      const summary = result.messages[0].content as string;
+      const factLines = summary.split('\n').filter((line) => line.startsWith('Turn '));
+      for (const line of factLines) {
+        expect(line.length).toBeLessThanOrEqual(220);
+      }
+    });
+  });
+
   describe('integration with real-like scenarios', () => {
     it('handles agent loop scenario (many turns with tool results)', async () => {
       const messages: ChatMessage[] = [];
