@@ -1,16 +1,8 @@
 import type { ApiBackend } from './backend.js';
-import type { ChatMessage, ContentBlock, ToolDefinition, ToolUseContentBlock, StreamEvent } from './types.js';
+import type { ChatMessage, ContentBlock, ToolDefinition, StreamEvent } from './types.js';
 import { fetchWithRetry } from './retry.js';
-import {
-  abortableRead,
-  toFunctionTools,
-  parseThinkTags,
-  parseTextToolCallsStream,
-  flushTextToolCallsStream,
-  createTextToolCallState,
-  type ThinkTagState,
-  type TextToolCallState,
-} from './streamUtils.js';
+import { toFunctionTools } from './streamUtils.js';
+import { streamOpenAiSse } from './openAiSseStream.js';
 import { getConfig } from '../config/settings.js';
 import { RateLimitStore, maybeWaitForRateLimit } from './rateLimitState.js';
 import { parseOpenAIRateLimitHeaders } from './rateLimitHeaders.js';
@@ -79,12 +71,14 @@ function logRequestSizeBreakdown(
   );
 }
 
-// Monotonic counter for generating unique tool call IDs when the API doesn't provide one
-let toolCallIdCounter = 0;
-
 // ---------------------------------------------------------------------------
-// OpenAI-compatible API types
+// OpenAI-compatible message types
 // ---------------------------------------------------------------------------
+//
+// The SSE response side (OpenAIChatChunk, OpenAIToolCallDelta, the
+// ~180-line streaming parser) lives in openAiSseStream.ts so every
+// backend that speaks /v1/chat/completions can share it. This file
+// only keeps the request-side message shape and the format conversion.
 
 interface OpenAIMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -99,35 +93,6 @@ interface OpenAIToolCall {
   function: {
     name: string;
     arguments: string;
-  };
-}
-
-interface OpenAIToolCallDelta {
-  index: number;
-  id?: string;
-  function?: {
-    name?: string;
-    arguments?: string;
-  };
-}
-
-interface OpenAIChatChunk {
-  choices: {
-    index: number;
-    delta: {
-      role?: string;
-      content?: string | null;
-      tool_calls?: OpenAIToolCallDelta[];
-    };
-    finish_reason: string | null;
-  }[];
-  // Present only on the final chunk when the request body included
-  // `stream_options: { include_usage: true }`. OpenAI ships this
-  // separately from the choice chunks (choices is []).
-  usage?: {
-    prompt_tokens?: number;
-    completion_tokens?: number;
-    total_tokens?: number;
   };
 }
 
@@ -297,153 +262,10 @@ export class OpenAIBackend implements ApiBackend {
       );
     }
 
-    if (!response.body) {
-      throw new Error('OpenAI API returned an empty response body');
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    const thinkState: ThinkTagState = { insideThinkTag: false };
-    const textToolState: TextToolCallState = createTextToolCallState(tools);
-
-    // Accumulate incremental tool call data keyed by index
-    const pendingToolCalls = new Map<number, { id: string; name: string; arguments: string }>();
-
-    try {
-      let buffer = '';
-      while (true) {
-        const { done, value } = await abortableRead(reader, signal);
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed || !trimmed.startsWith('data: ')) continue;
-
-          const data = trimmed.slice(6);
-          if (data === '[DONE]') {
-            // Flush any remaining tool calls
-            for (const [, tc] of pendingToolCalls) {
-              if (tc.name) {
-                let parsedArgs: Record<string, unknown> = {};
-                try {
-                  parsedArgs = JSON.parse(tc.arguments || '{}');
-                } catch {
-                  /* malformed args */
-                }
-                const toolUse: ToolUseContentBlock = {
-                  type: 'tool_use',
-                  id: tc.id || `openai_tc_${++toolCallIdCounter}`,
-                  name: tc.name,
-                  input: parsedArgs,
-                };
-                yield { type: 'tool_use', toolUse };
-              }
-            }
-            pendingToolCalls.clear();
-            continue;
-          }
-
-          let chunk: OpenAIChatChunk;
-          try {
-            chunk = JSON.parse(data);
-          } catch {
-            continue;
-          }
-
-          // Usage-only chunk (OpenAI emits this as the last chunk when
-          // stream_options.include_usage=true is set). choices[] is
-          // empty — don't treat the absence of a choice as a parse skip.
-          if (chunk.usage) {
-            const u = chunk.usage;
-            yield {
-              type: 'usage',
-              model,
-              usage: {
-                inputTokens: u.prompt_tokens ?? 0,
-                outputTokens: u.completion_tokens ?? 0,
-                cacheCreationInputTokens: 0,
-                cacheReadInputTokens: 0,
-              },
-            };
-            // Also log actual usage side-by-side with the earlier
-            // request-size estimate so we can tell how close the
-            // estimator is to the real OpenAI count.
-            if (getConfig().verboseMode) {
-              console.log(
-                `[SideCar openai ${model}] actual usage: ` +
-                  `prompt=${(u.prompt_tokens ?? 0).toLocaleString()}t · ` +
-                  `completion=${(u.completion_tokens ?? 0).toLocaleString()}t · ` +
-                  `total=${(u.total_tokens ?? 0).toLocaleString()}t`,
-              );
-            }
-          }
-
-          const choice = chunk.choices?.[0];
-          if (!choice) continue;
-
-          const delta = choice.delta;
-
-          // Handle text content: <think> tag parsing plus XML-style text
-          // tool-call interception for models that don't use structured tool_calls.
-          if (delta.content) {
-            for (const ev of parseThinkTags(delta.content, thinkState)) {
-              if (ev.type === 'text') {
-                yield* parseTextToolCallsStream(ev.text, textToolState);
-              } else {
-                yield ev;
-              }
-            }
-          }
-
-          // Handle incremental tool calls
-          if (delta.tool_calls) {
-            for (const tc of delta.tool_calls) {
-              const existing = pendingToolCalls.get(tc.index) || { id: '', name: '', arguments: '' };
-              if (tc.id) existing.id = tc.id;
-              if (tc.function?.name) existing.name = tc.function.name;
-              if (tc.function?.arguments) existing.arguments += tc.function.arguments;
-              pendingToolCalls.set(tc.index, existing);
-            }
-          }
-
-          // Handle finish reasons
-          if (choice.finish_reason === 'tool_calls' || choice.finish_reason === 'function_call') {
-            // Flush accumulated tool calls
-            for (const [, tc] of pendingToolCalls) {
-              if (tc.name) {
-                let parsedArgs: Record<string, unknown> = {};
-                try {
-                  parsedArgs = JSON.parse(tc.arguments || '{}');
-                } catch {
-                  /* malformed args */
-                }
-                const toolUse: ToolUseContentBlock = {
-                  type: 'tool_use',
-                  id: tc.id || `openai_tc_${++toolCallIdCounter}`,
-                  name: tc.name,
-                  input: parsedArgs,
-                };
-                yield { type: 'tool_use', toolUse };
-              }
-            }
-            pendingToolCalls.clear();
-            yield { type: 'stop', stopReason: 'tool_use' };
-          } else if (choice.finish_reason === 'stop') {
-            yield { type: 'stop', stopReason: 'end_turn' };
-          } else if (choice.finish_reason === 'length') {
-            yield { type: 'stop', stopReason: 'max_tokens' };
-          }
-        }
-      }
-      // Drain any text still buffered by the streaming tool-call parser.
-      yield* flushTextToolCallsStream(textToolState);
-    } finally {
-      reader.releaseLock();
-    }
+    yield* streamOpenAiSse(response, model, tools, signal, {
+      providerLabel: 'openai',
+      toolCallIdPrefix: 'openai',
+    });
   }
 
   async complete(
