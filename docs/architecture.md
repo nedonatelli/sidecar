@@ -20,11 +20,19 @@ SideCar is an AI-powered coding assistant for VS Code that operates as an autono
 - Manages chat state and history
 
 ### 3. Agent Loop System
-- `runAgentLoop` - Core autonomous agent execution engine
-- Manages conversation flow with LLM
-- Executes tools in response to model requests
-- Handles iteration limits and context management
-- Implements cycle detection and token budgeting
+- `runAgentLoop` — thin 255-line orchestrator in [`src/agent/loop.ts`](../src/agent/loop.ts) that reads top-to-bottom as one iteration's pseudo-code
+- [`src/agent/loop/`](../src/agent/loop/) — 14 focused helpers, each taking a single `LoopState` container:
+  - `state.ts` bundles all run state into one object
+  - `compression.ts` handles pre-turn + post-tool context compression
+  - `streamTurn.ts` owns the streamChat request loop with per-event timeout
+  - `cycleDetection.ts` implements the burst cap + cycle detection
+  - `messageBuild.ts` pushes assistant + tool-result messages and accounts tokens
+  - `executeToolUses.ts` dispatches tool calls in parallel (spawn_agent, delegate_task, normal)
+  - `gate.ts`, `autoFix.ts`, `stubCheck.ts`, `criticHook.ts` are the four post-turn policies
+  - `postTurnPolicies.ts` composes the three mutation policies (autoFix → stub → critic)
+  - `notifications.ts` emits iteration telemetry + checkpoint prompts
+  - `finalize.ts` runs the post-loop teardown + next-step suggestions
+  - `textParsing.ts` parses model text output for tool-call patterns and strips repeated content
 
 ### 4. Tool System
 - `tools.ts` - Registry of available tools for the agent

@@ -2,7 +2,7 @@
 
 Planned improvements and features for SideCar. Audit findings from v0.34.0 comprehensive review are in the Audit Backlog section. All critical fixes were addressed in v0.35.0.
 
-Last updated: 2026-04-14 (v0.48.0 released and burn-down in progress for v0.49.0 — cycle-2 webview hardening + terminal injection gap closed + several MEDIUM/LOW security, a11y, code-quality items resolved, stale audit findings struck)
+Last updated: 2026-04-14 (v0.50.0 released — runAgentLoop god-function decomposition into src/agent/loop/ subdirectory complete, agent-loop LLM eval harness shipped with 11 trajectory-asserted cases, two cycle-2 ai-engineering HIGH items closed)
 
 ---
 
@@ -73,6 +73,46 @@ Last updated: 2026-04-14 (v0.48.0 released and burn-down in progress for v0.49.0
 - Real tokenizer integration (`js-tiktoken` for accurate counting)
 
 ---
+
+## Recently Completed (v0.50.0, 2026-04-14)
+
+✅ **`runAgentLoop` god-function decomposition** (cycle-2 ai-engineering HIGH) — 1,216-line god function split into a thin 255-line orchestrator plus 14 focused helper modules under [`src/agent/loop/`](src/agent/loop/). Same extraction pattern as the successful [`tools.ts` split](src/agent/tools/) and [`handleUserMessage` decomposition](src/webview/handlers/chatHandlers.ts). 79% size reduction in loop.ts.
+
+Helpers extracted across four phases:
+
+- **Phase 1** (commits `2cf6ead`, `997cc44`): `state.ts` (LoopState interface + `initLoopState` factory that bundles all run state into one object), `compression.ts` (`applyBudgetCompression` + `maybeCompressPostTool` + `compressMessages` moved from bottom of loop.ts), `streamTurn.ts` (`streamOneTurn` + `resolveTurnContent` handling the per-event timeout race, abort/timeout markers instead of exceptions, and post-stream cleanup), `textParsing.ts` (`parseTextToolCalls` + `stripRepeatedContent`), `cycleDetection.ts` (`exceedsBurstCap` + `detectCycleAndBail` with their constants), `messageBuild.ts` (assistant + tool-result message push helpers, token accounting).
+
+- **Phase 3** (commits `de159c8`, `99e4248`, `ba4b17a`, `e9a4e4a`, `bf9f530`): five post-turn policy + execution helpers. `stubCheck.ts` + `criticHook.ts` (the full adversarial critic runner moved here — runCriticChecks, RunCriticOptions, buildCriticDiff, extractAgentIntent — plus a thin `applyCritic` wrapper) + `gate.ts` (`recordGateToolUses` post-tool + `maybeInjectCompletionGate` empty-response branch) + `autoFix.ts` (diagnostic-driven reprompt with per-file retry budget) + `executeToolUses.ts` (the biggest extraction — parallel tool execution with spawn_agent / delegate_task / normal dispatch, Promise.allSettled result promotion, per-call agent-memory recording).
+
+- **Phase 4** (commit `9452333`): `finalize.ts` (post-loop teardown + `generateNextStepSuggestions` moved from loop.ts bottom), `postTurnPolicies.ts` (composer for autoFix → stubCheck → critic), `notifications.ts` (iteration-start telemetry + progress summary + checkpoint prompt). Primitive state aliases (iteration, totalChars, stubFixRetries) collapsed — every reference in runAgentLoop now reads state directly via `state.xxx`. Resulting orchestrator reads top-to-bottom as pseudo-code for one iteration: abort check → compression → notifications → checkpoint → stream turn → empty-response gate → cycle checks → assistant message → tool execution → tool-result accounting → compression → post-turn policies → plan-mode return.
+
+Size progression: 1216 → 876 → 835 → 765 → 652 → 629 → 591 → 417 → 255 lines across 9 commits. Each phase left the tree green (typecheck + 1798 unit tests + 6 then 11 eval cases).
+
+Re-exports preserved (`compressMessages`, `parseTextToolCalls`, `stripRepeatedContent`, `runCriticChecks`, `RunCriticOptions`) so existing import sites in `loop.test.ts` and `critic.runner.test.ts` stay unchanged.
+
+✅ **LLM evaluation harness — agent-loop layer** (cycle-2 ai-engineering HIGH) — extends the existing prompt-only `tests/llm-eval/` harness with a second layer that runs `runAgentLoop` end-to-end against a sandboxed temp-dir workspace. Closes the "No evaluation harness for LLM behavior. When we tweak the system prompt, add a tool, or change compression, there's no signal that answer quality regressed" audit finding.
+
+Architectural finding that unlocked the build: despite the earlier prompt-eval README claim, `runAgentLoop` does NOT need `ChatState`. All the UI plumbing (`PendingEditStore`, `SkillLoader`, `AgentMemory`, `WorkspaceIndex`) lives on ChatState and is optional for headless execution. The agent core takes `(client, messages, callbacks, signal, options)` — clean separation. This also unblocks future headless automation.
+
+Harness files under [`tests/llm-eval/`](tests/llm-eval/):
+
+- `workspaceSandbox.ts` — per-case temp dir + real-node-fs-backed `workspace.fs` swap + `workspace.findFiles` mock with minimatch-style glob matching (supports `**`, `*`, `?`, `.`, `{a,b}`). Reverts the mutations on teardown for test isolation.
+- `agentTypes.ts` — `TrajectoryEvent`, `AgentEvalCase`, `AgentExpectations` with `toolsCalled` / `toolsNotCalled` / `toolCallMatches` (partial-input substring matching) / `files.{exist,notExist,contain,notContain,equal}` / `finalTextContains` / `trajectoryHasToolError` predicates.
+- `agentHarness.ts` — `runAgentCase` end-to-end runner + backend picker. Defaults to local Ollama since agent-loop cases burn real tokens; Anthropic + OpenAI opt-in via `SIDECAR_EVAL_BACKEND` env var.
+- `agentScorers.ts` — deterministic scorer that walks the trajectory and post-run workspace snapshot, collecting failure strings for every violated predicate. Substring matching for tool-call inputs tolerates "src/a.ts" vs "./src/a.ts" vs "a.ts".
+- `agentCases.ts` — 11 starter cases:
+  - `read-single-file`, `rename-function`, `grep-for-todo` (read / edit / search trajectories)
+  - `multi-tool-iteration` (parallel `read_file` dispatch)
+  - `observe-tool-error-no-fabrication` (tool error observation + non-fabrication discipline)
+  - `no-stub-in-write` (stub validator indirect coverage)
+  - `fix-simple-bug` (read + edit bug-fix trajectory with file-content regression)
+  - `search-files-glob` (`search_files` tool + glob matching)
+  - `write-multi-file-batch` (parallel `write_file` dispatch)
+  - `plan-mode-no-tools` (`approvalMode: 'plan'` short-circuit, assertion that no tools fire)
+  - `search-then-edit-multi-file` (multi-step `grep` → `edit_file`, also incidentally exercises `maybeInjectCompletionGate` when the agent edits without verifying)
+- `agent.eval.ts` — vitest runner mirroring `prompt.eval.ts`. Skips cleanly via `describe.skipIf` when no backend is available.
+
+Runs via `npm run eval:llm`. Full suite takes ~90s against local Ollama (qwen3-coder:30b). Every runAgentLoop decomposition phase was verified end-to-end against the eval suite before commit — zero behavioral regressions across 9 refactor commits.
 
 ## Recently Completed (post-v0.48.0, 2026-04-14 — v0.49.0 burn-down)
 
@@ -216,8 +256,8 @@ changes), 0 regressions.
 **Deferred for a dedicated session** (each is weeks of work):
 - `chatHandlers.ts` split into directory (1708 lines)
 - ~~`tools.ts` god-module decomposition (~950 lines)~~ → **completed 2026-04-14**. Split into [`src/agent/tools/`](src/agent/tools/) with one file per subsystem (`fs`, `search`, `shell`, `diagnostics`, `git`, `knowledge`) plus `shared.ts` (path validation, sensitive-file blocklist, shell helpers) and `runtime.ts` (ToolRuntime container). `tools.ts` is now a 249-line orchestrator that composes `TOOL_REGISTRY` and re-exports types for backward compatibility. 1694 tests still pass.
-- `runAgentLoop` god-function decomposition (~700 lines)
-- `PolicyHook` interface for loop mechanics
+- ~~`runAgentLoop` god-function decomposition (~700 lines)~~ → **completed 2026-04-14 in v0.50.0**. 1216-line god function → 255-line orchestrator + 14 helpers under [`src/agent/loop/`](src/agent/loop/) across 9 commits. 79% reduction.
+- `PolicyHook` interface for loop mechanics (follow-up to the runAgentLoop decomposition — policies are still called directly from the orchestrator rather than registered through a hook bus)
 - Backend anticorruption layer (`normalizeStream`)
 - Real retriever-fusion layer (`Retriever` interface + reciprocal-rank)
 
@@ -611,7 +651,7 @@ Second pass of the same cycle, this time driven by the library skills (`threat-m
 
 - ~~**HIGH** `src/agent/tools.ts` is a god module~~ → **fixed 2026-04-14**. Split into [`src/agent/tools/`](src/agent/tools/) with one file per subsystem (`fs`, `search`, `shell`, `diagnostics`, `git`, `knowledge`) plus `shared.ts` and `runtime.ts`. `tools.ts` is now a 249-line orchestrator composing `TOOL_REGISTRY` and re-exporting types for backward compat. Same pattern as the `handleUserMessage` decomposition. 1694 tests still pass.
 - **HIGH** No anticorruption layer between backend clients and the agent loop. Each backend emits slightly different stream events (`thinking` blocks only from Anthropic, different tool-call ID schemes, different `done_reason` mappings) and the loop special-cases them. Introduce a `normalizeStream(backend.streamChat(...))` adapter so the loop consumes a canonical `StreamEvent` shape. Adding a new backend becomes one file, not three.
-- **HIGH** `runAgentLoop` is the next god-function decomposition target. 700+ lines owning streaming, compression, cycle detection, memory writes, tool execution, checkpoints, cost tracking, abort handling. Same extraction pattern as `handleUserMessage`: `streamTurn`, `applyCompression`, `recordMemoryFromResult`, `maybeCheckpoint` → orchestrator drops to ~150 lines.
+- ~~**HIGH** `runAgentLoop` is the next god-function decomposition target~~ → **completed in v0.50.0**. 1216-line god function split into a 255-line orchestrator plus 14 focused helper modules under [`src/agent/loop/`](src/agent/loop/) across 9 commits (phases 1 → 2 → 3a-e → 4). Each helper owns one clear responsibility and takes a single `LoopState` parameter. Re-exports preserved for test compatibility. Every phase verified end-to-end against the LLM eval harness (the other half of this session's work). 79% reduction in loop.ts. **Deferred to a follow-up**: policy-hook interface (`beforeIteration` / `afterToolResult` / `onTermination` registration bus) — current decomposition gets file-level separation but policies are still called directly from the orchestrator rather than registered through a hook bus.
 - **HIGH** Agent policies are tangled into loop mechanics. Cycle detection, completion gate, stub validator, memory retrieval, skill injection, plan-mode triggering, context compression — all domain services mixed into the mechanical loop. Register them via a small "policy hook" interface (`beforeIteration`, `afterToolResult`, `onTermination`) so each is independently testable and extensible.
 - **MEDIUM** `SideCarConfig` is a fat shared kernel (DDD anti-pattern). One giant config interface imported by every module; any field change fans out the rebuild everywhere. Split into scoped slices (`BackendConfig`, `ChatUIConfig`, `ToolConfig`, `ObservabilityConfig`, `BudgetConfig`).
 - **MEDIUM** `ChatState` is a god object. Handlers take `state: ChatState` and pull whatever they need, so real dependencies are invisible. Extract role interfaces (`MessageStore`, `ProviderClients`, `ObservabilitySink`, `EditBuffer`) and have handlers accept only what they use.
@@ -638,7 +678,7 @@ Second pass of the same cycle, this time driven by the library skills (`threat-m
 #### AI engineering — ai-engineering (production LLM app patterns)
 
 - ~~**HIGH** No rate-limit awareness; `fetchWithRetry` reacts to 429s but doesn't pre-check~~ → **already fixed** (stale audit entry). Every backend's `streamChat` and `complete` path now awaits [`maybeWaitForRateLimit`](src/ollama/rateLimitState.ts) before issuing the request, using `estimateRequestTokens(systemPrompt, messages, MAX_OUTPUT_TOKENS)` to pre-check against the `RateLimitStore` snapshot populated from provider headers. Added in v0.47.0, tightened in v0.48.0 post-bump work (per-provider store isolation + `max_tokens` reservation fix + `describe()` used/limit display).
-- **HIGH** No evaluation harness for LLM behavior. 1505 unit tests cover deterministic code; zero cover agent correctness. When we tweak the system prompt, add a tool, or change compression, there's no signal that answer quality regressed. Add `tests/llm-eval/` with 20-50 real user requests, expected tool-use trajectories, and LLM-as-judge scoring. Single highest-leverage addition for preventing quality regressions from the refactors in flight.
+- ~~**HIGH** No evaluation harness for LLM behavior~~ → **completed in v0.50.0**. Built in two passes: first the prompt-only layer ([`prompt.eval.ts`](tests/llm-eval/prompt.eval.ts) + 4 base-prompt regression cases), then the agent-loop layer ([`agent.eval.ts`](tests/llm-eval/agent.eval.ts) + [`workspaceSandbox.ts`](tests/llm-eval/workspaceSandbox.ts) + 11 trajectory-asserted cases). The agent-loop layer runs `runAgentLoop` end-to-end against a sandboxed temp-dir workspace with real-fs-backed `workspace.fs` and a minimatch-style `workspace.findFiles` mock, captures every tool call / tool result / text event via AgentCallbacks, and scores via deterministic predicates (tool presence / absence, partial-input matching, post-run file content, final text substrings, `trajectoryHasToolError`). Runs via `npm run eval:llm` against local Ollama by default (free) or Anthropic / OpenAI via `SIDECAR_EVAL_BACKEND` env var. 11 cases pass in ~90s. **LLM-as-judge scoring deferred to a later iteration** — deterministic checks give crisper regression signal and don't need a second model hop.
 - ~~**HIGH** Doc "RAG" isn't actually RAG~~ → **renamed** in commit `f503627`. The class and setting keys are kept for backward compatibility (renaming the keys would break existing user configs), but every user-facing surface now calls it the "Doc Index" and explicitly says it's keyword-tokenized, not embedding-based. `documentationIndexer.ts` class-level comment explicitly says "NOT RAG" and points at `embeddingIndex.ts` for the real semantic retriever. README section renamed from "Retrieval-Augmented Generation (RAG)" to "Documentation Index". `docs/rag-and-memory.md` restructured to name the three retrieval systems (Doc Index, Semantic Search, Agent Memory) and flag the legacy "RAG" naming as a misnomer. A future cycle will add the retriever-fusion layer (separate HIGH item below).
 - **HIGH** Semantic search, doc index, and agent memory are parallel retrievers concatenated sequentially with no fusion. Each source appends to context in turn, wasting budget on low-value hits. Introduce a `Retriever` interface returning `{score, source, content}` and do reciprocal-rank fusion across all sources.
 - **MEDIUM** No reranker stage. After retrieval, context goes straight into the system prompt. A cheap cross-encoder reranker dramatically improves precision per context-budget token. Matters most for paid API users.

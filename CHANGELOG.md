@@ -4,6 +4,94 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.50.0] - 2026-04-14
+
+Architectural + testing release. No user-facing feature changes — every change is under the hood. The main event: `runAgentLoop` (SideCar's core agent loop) was a 1,216-line god function that nobody wanted to touch. It's now a 255-line orchestrator plus 14 focused helper modules under [`src/agent/loop/`](src/agent/loop/), each with a single clear responsibility. The second event: the LLM evaluation harness shipped in v0.49.1 was extended from 3 baseline cases to 11 agent-loop cases, and every single decomposition phase was verified against those cases before commit — zero behavioral regressions across 9 refactor commits.
+
+### Refactor — `runAgentLoop` decomposition
+
+Closes cycle-2 ai-engineering HIGH finding: *"runAgentLoop is the next god-function decomposition target. 700+ lines owning streaming, compression, cycle detection, memory writes, tool execution, checkpoints, cost tracking, abort handling."*
+
+Same extraction pattern as the already-successful `tools.ts` split (v0.48.0) and `handleUserMessage` decomposition (v0.46.0): single-responsibility helpers, a `LoopState` container object threaded through every call, re-exports preserved on the public module so existing import sites don't need a coordinated rewrite.
+
+**loop.ts size progression** (9 commits, each left the tree green):
+
+| Phase | Commit | `loop.ts` lines | Delta |
+|---|---|---:|---:|
+| pre-refactor | — | 1,216 | — |
+| phase 1: state + compression | `2cf6ead` | 876 | −340 |
+| phase 2: stream + cycle + message + text | `997cc44` | 835 | −41 |
+| phase 3a: stubCheck | `de159c8` | 765 | −70 |
+| phase 3b: criticHook | `99e4248` | 652 | −113 |
+| phase 3c: gate | `ba4b17a` | 629 | −23 |
+| phase 3d: autoFix | `e9a4e4a` | 591 | −38 |
+| phase 3e: executeToolUses | `bf9f530` | 417 | −174 |
+| phase 4: finalize + composer + notifications + orchestrator swap | `9452333` | **255** | −162 |
+
+**79% reduction in loop.ts.** The resulting orchestrator reads top-to-bottom as pseudo-code for one iteration: abort check → compression → notifications → checkpoint → stream turn → empty-response gate → cycle checks → assistant message → tool execution → tool-result accounting → post-turn policies → plan-mode return → (next iteration).
+
+**14 new helper modules under [`src/agent/loop/`](src/agent/loop/)** — each takes a `LoopState` parameter, owns one clear responsibility, and imports only what it touches:
+
+- [`state.ts`](src/agent/loop/state.ts) — `LoopState` interface + `initLoopState` factory. Bundles all the mutable + immutable per-run state (messages, iteration counter, totalChars, cycle-detection ring, retry maps, gate state, tools, approval mode) into one reference that helpers can mutate in place.
+- [`compression.ts`](src/agent/loop/compression.ts) — `applyBudgetCompression` (pre-turn summarization + tool-result compression when estimated tokens exceed 70% of budget) + `maybeCompressPostTool` (lighter mid-turn compression after tool results are added) + `compressMessages` (moved here from the bottom of loop.ts where it was tangled with unrelated helpers).
+- [`streamTurn.ts`](src/agent/loop/streamTurn.ts) — `streamOneTurn` handles the streamChat request, per-event timeout race, the full event-type switch, and converts abort / timeout into a `terminated` marker instead of throwing (simpler branching at the call site). `resolveTurnContent` runs post-stream cleanup (strip repeated paragraphs, fall back to text-level tool-call parsing).
+- [`textParsing.ts`](src/agent/loop/textParsing.ts) — `parseTextToolCalls` + `stripRepeatedContent` moved here. Pure functions, independently unit-tested.
+- [`cycleDetection.ts`](src/agent/loop/cycleDetection.ts) — `exceedsBurstCap` (12-call per-iteration cap) + `detectCycleAndBail` (length-1 repeat needs 4 consecutive identical calls, length-2..4 patterns trip after two full cycles). Constants now live with the logic they govern.
+- [`messageBuild.ts`](src/agent/loop/messageBuild.ts) — `pushAssistantMessage`, `pushToolResultsMessage`, `accountToolTokens`. Three small mutation helpers that keep the orchestration body from inlining the same 10 lines three times.
+- [`stubCheck.ts`](src/agent/loop/stubCheck.ts) — `applyStubCheck` owns the stub-validator reprompt ceremony and the `state.stubFixRetries` counter.
+- [`criticHook.ts`](src/agent/loop/criticHook.ts) — `runCriticChecks` + `buildCriticDiff` + `extractAgentIntent` + `RunCriticOptions` moved verbatim from the bottom of loop.ts, plus a new in-loop `applyCritic` wrapper that reads config and pushes the blocking injection into history.
+- [`gate.ts`](src/agent/loop/gate.ts) — `recordGateToolUses` (post-tool recording into gateState) + `maybeInjectCompletionGate` (empty-response branch check + synthetic verification reprompt). Returns `'injected'` / `'skip'` so the orchestrator knows whether to `continue` or `break`.
+- [`autoFix.ts`](src/agent/loop/autoFix.ts) — `applyAutoFix` polls diagnostics after a 500ms settle delay, honors the per-file retry budget on `state.autoFixRetriesByFile`, injects an error-reprompt user message when any written file has errors.
+- [`executeToolUses.ts`](src/agent/loop/executeToolUses.ts) — the biggest helper. Parallel tool execution via `Promise.allSettled` with spawn_agent / delegate_task / normal `executeTool` dispatch. Rejected promises are promoted to synthetic error tool_result blocks so the returned array is always 1:1 with pendingToolUses. Charges spawn_agent sub-agent token usage to `state.totalChars`; explicitly does NOT charge delegate_task worker usage (free-backend offload).
+- [`postTurnPolicies.ts`](src/agent/loop/postTurnPolicies.ts) — composer for `applyAutoFix` → `applyStubCheck` → `applyCritic`. Three lines in one module so the orchestrator body stays a one-liner.
+- [`notifications.ts`](src/agent/loop/notifications.ts) — `notifyIterationStart` (emits `onIterationStart` with iteration / elapsed / estimated tokens / message count / remaining budget / atCapacity), `maybeEmitProgressSummary` (every 5 iterations starting at iteration 5), `shouldStopAtCheckpoint` (60%-of-max checkpoint prompt).
+- [`finalize.ts`](src/agent/loop/finalize.ts) — `finalize(state, callbacks)` runs the post-loop teardown (flush tool-chain buffer, emit next-step suggestions when iteration > 1, log done, fire onDone, return state.messages). `generateNextStepSuggestions` moved here from the bottom of loop.ts.
+
+Re-exports preserved on `loop.ts`: `compressMessages`, `parseTextToolCalls`, `stripRepeatedContent`, `runCriticChecks`, `RunCriticOptions`. Every existing import site (`loop.test.ts`, `critic.runner.test.ts`, and the 10+ files that call `runAgentLoop`) stays unchanged.
+
+**Deferred to a follow-up**: policy-hook interface (`beforeIteration` / `afterToolResult` / `onTermination` registration bus). The current decomposition gets file-level separation, but policies are still called directly from the orchestrator rather than registered through a hook bus — that's a separable feature to layer on top.
+
+### Added — agent-loop LLM eval harness expansion
+
+Closes cycle-2 ai-engineering HIGH finding: *"No evaluation harness for LLM behavior."* v0.49.1 shipped the agent-loop layer with 3 starter cases; v0.50.0 extends it to 11 cases covering every reachable code path plus a `workspace.findFiles` sandbox fix.
+
+**New agent eval cases** (all pass against local Ollama `qwen3-coder:30b` in ~90s total):
+
+- `multi-tool-iteration` — forces parallel `Promise.allSettled` path in tool execution with a 5-file line-counting task
+- `observe-tool-error-no-fabrication` — asserts the agent observes a `read_file` error on a nonexistent path and doesn't fabricate content by writing a new file
+- `no-stub-in-write` — indirect stub-validator coverage via a factorial-implementation prompt with stub-marker assertions on the written file
+- `fix-simple-bug` — read + edit trajectory on a real arithmetic bug with file-content assertions
+- `search-files-glob` — exercises `search_files` tool + glob matching (new coverage)
+- `write-multi-file-batch` — parallel `write_file` dispatch in `executeToolUses`
+- `plan-mode-no-tools` — `approvalMode: 'plan'` short-circuit path, asserts no tools fire on iteration 1
+- `search-then-edit-multi-file` — multi-step grep → edit across multiple files; **also incidentally triggers `maybeInjectCompletionGate` for real** (the agent edits without verifying and the gate injects its synthetic reprompt)
+
+**New scorer predicate**: `trajectoryHasToolError: boolean` — asserts at least one `tool_result` event had `isError=true`. Useful for cases that deliberately give the agent a bad input and want to pin that the error was observed.
+
+**Sandbox fix**: `workspace.findFiles` was unconditionally returning `[]` in the vitest vscode mock, which silently made every prior eval run think `search_files` had no matches. [`workspaceSandbox.ts`](tests/llm-eval/workspaceSandbox.ts) now overrides it with a minimatch-style walker backed by real `node:fs` that supports `**`, `*`, `?`, `.`, and `{a,b}` glob syntax and respects the exclude pattern. `search_files` now actually hits its real code path in eval runs.
+
+**Coverage by policy/path** (✅ = exercised end-to-end in at least one case):
+
+| Path | Coverage |
+|---|---|
+| `streamOneTurn` happy path | ✅ every case |
+| `executeToolUses` normal dispatch | ✅ every tool-using case |
+| `recordGateToolUses` | ✅ every edit case |
+| `maybeInjectCompletionGate` | ✅ search-then-edit-multi-file (bonus discovery) |
+| `accountToolTokens` | ✅ every case |
+| `applyStubCheck` | ✅ no-stub-in-write (indirect) |
+| Plan-mode short-circuit | ✅ plan-mode-no-tools |
+| `finalize` / next-step suggestions | ✅ every case |
+| `applyAutoFix` | ❌ needs `languages.getDiagnostics` mock (deferred) |
+| `applyCritic` | ❌ disabled by default (deferred) |
+| Burst cap / cycle detection / sub-agent / compression exhaustion | ❌ hard to trigger reliably |
+
+### Engineering discipline
+
+- **Zero regressions across 9 refactor commits.** The eval harness built earlier in the release is exactly the safety net that made the refactor safe to ship. Without it, every phase would have required hope-and-pray manual testing.
+- **Bisect hygiene.** Each phase is its own commit, each left `tsc --noEmit` + `npm test` + `npm run eval:llm` green. If anything breaks in a future session, `git bisect` lands on the single helper extraction that introduced the regression.
+- Main unit suite: 1,798 passing at every phase boundary (unchanged from v0.49.1).
+
 ## [0.49.1] - 2026-04-14
 
 Patch release. No behavior changes for the shipping agent flow — cosmetic, docs, and developer tooling only.

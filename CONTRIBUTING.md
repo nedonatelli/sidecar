@@ -37,9 +37,9 @@ scripts/          # Automation scripts
 | `config/constants.ts` | Centralized magic numbers (token estimation, context budgets, limits) |
 | `config/workspaceTrust.ts` | Per-session trust decisions for workspace-level configs |
 | `config/providerReachability.ts` | Health check for all LLM provider types |
-| `agent/tools.ts` | Tool registry, definitions, and executors |
+| `agent/tools/` | Tool registry, definitions, and executors — `tools.ts` is a thin composer over per-subsystem files (`fs`, `search`, `shell`, `git`, `diagnostics`, `knowledge`, `settings`) |
 | `agent/executor.ts` | Tool approval flow, permission checks, special tool routing |
-| `agent/loop.ts` | Main agent iteration loop with streaming callbacks |
+| `agent/loop.ts` + `agent/loop/` | Main agent iteration loop. `loop.ts` is a thin 255-line orchestrator; every responsibility (state, compression, streaming, cycle detection, tool execution, policies, finalization) lives in a focused helper under `agent/loop/` |
 
 ## Running tests
 
