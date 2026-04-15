@@ -87,7 +87,7 @@ export interface BackendProfile {
   /** Human-readable label shown in the chat menu. */
   name: string;
   /** Provider type the client will instantiate. */
-  provider: 'ollama' | 'anthropic' | 'openai' | 'kickstand';
+  provider: 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter';
   /** API base URL to bake into sidecar.baseUrl. */
   baseUrl: string;
   /** Default model to select when switching to this profile. */
@@ -211,6 +211,15 @@ export function isKickstand(baseUrl: string): boolean {
 }
 
 /**
+ * Check whether a base URL points at OpenRouter. Matches both the
+ * canonical `openrouter.ai` host and any user-supplied proxy that
+ * contains `openrouter` in the hostname.
+ */
+export function isOpenRouter(baseUrl: string): boolean {
+  return baseUrl.includes('openrouter.ai');
+}
+
+/**
  * Read the Kickstand API token from ~/.config/kickstand/token
  */
 export function readKickstandToken(): string {
@@ -228,12 +237,13 @@ export function readKickstandToken(): string {
 /** Determine which backend provider to use based on URL and explicit setting. */
 export function detectProvider(
   baseUrl: string,
-  provider: 'auto' | 'ollama' | 'anthropic' | 'openai' | 'kickstand',
-): 'ollama' | 'anthropic' | 'openai' | 'kickstand' {
+  provider: 'auto' | 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'openrouter',
+): 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' {
   if (provider !== 'auto') return provider;
   if (isLocalOllama(baseUrl)) return 'ollama';
   if (isAnthropic(baseUrl)) return 'anthropic';
   if (isKickstand(baseUrl)) return 'kickstand';
+  if (isOpenRouter(baseUrl)) return 'openrouter';
   return 'openai';
 }
 
@@ -327,7 +337,7 @@ export function resolveMode(
 
 export interface SideCarConfig {
   model: string;
-  provider: 'auto' | 'ollama' | 'anthropic' | 'openai' | 'kickstand';
+  provider: 'auto' | 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'openrouter';
   systemPrompt: string;
   baseUrl: string;
   apiKey: string;
@@ -438,7 +448,10 @@ function readConfig(): SideCarConfig {
   const cfg = workspace.getConfiguration('sidecar');
   return {
     model: cfg.get<string>('model', 'qwen3-coder:30b') || 'qwen3-coder:30b',
-    provider: cfg.get<'auto' | 'ollama' | 'anthropic' | 'openai' | 'kickstand'>('provider', 'auto'),
+    provider: cfg.get<'auto' | 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'openrouter'>(
+      'provider',
+      'auto',
+    ),
     systemPrompt: cfg.get<string>('systemPrompt', ''),
     baseUrl: cfg.get<string>('baseUrl', 'http://localhost:11434') || 'http://localhost:11434',
     apiKey: _cachedApiKey ?? cfg.get<string>('apiKey', 'ollama'),

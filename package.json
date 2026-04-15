@@ -83,13 +83,15 @@
             "ollama",
             "anthropic",
             "openai",
+            "openrouter",
             "kickstand"
           ],
           "enumDescriptions": [
-            "Detect from the base URL: localhost:11434 → Ollama, anthropic.com → Anthropic, localhost:11435 → Kickstand (coming soon), anything else → OpenAI-compatible.",
+            "Detect from the base URL: localhost:11434 → Ollama, anthropic.com → Anthropic, openrouter.ai → OpenRouter, localhost:11435 → Kickstand (coming soon), anything else → OpenAI-compatible.",
             "Local Ollama (http://localhost:11434). Free, private, no key needed.",
             "Anthropic Claude API. Requires an API key stored via `SideCar: Set / Refresh API Key`.",
-            "OpenAI-compatible API (OpenAI, LM Studio, vLLM, llama.cpp, OpenRouter, together.ai). Requires an API key.",
+            "OpenAI-compatible API (OpenAI, LM Studio, vLLM, llama.cpp, together.ai). Requires an API key.",
+            "OpenRouter (https://openrouter.ai/api/v1). One API key unlocks hundreds of models across providers (Anthropic, OpenAI, Google, Mistral, Meta, and more) with per-model pricing pulled live from their catalog. Requires an OpenRouter API key.",
             "Kickstand self-hosted LLM server (http://localhost:11435). Coming soon — not yet officially released; the backend adapter ships today for anyone running a local dev build. Reads its token from `~/.config/kickstand/token`."
           ],
           "default": "auto",

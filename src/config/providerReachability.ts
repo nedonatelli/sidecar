@@ -11,7 +11,7 @@ import { getConfig, type SideCarConfig } from './settings.js';
  * network errors and timeouts return false.
  */
 export async function isProviderReachable(
-  providerType: 'ollama' | 'anthropic' | 'openai' | 'kickstand',
+  providerType: 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter',
   config?: SideCarConfig,
 ): Promise<boolean> {
   const cfg = config || getConfig();
@@ -33,6 +33,17 @@ export async function isProviderReachable(
       case 'kickstand':
         checkUrl = `${cfg.baseUrl}/v1/models`;
         headers['Authorization'] = `Bearer ${cfg.apiKey}`;
+        break;
+      case 'openrouter':
+        // OpenRouter's /v1/models endpoint is public and doesn't need
+        // auth to list the catalog, so this probes connectivity without
+        // a round-trip to the slower chat endpoint. If a key is set we
+        // still include it so the request counts as authenticated
+        // (helps pinpoint bad keys via the returned error).
+        checkUrl = `${cfg.baseUrl}/v1/models`;
+        if (cfg.apiKey) {
+          headers['Authorization'] = `Bearer ${cfg.apiKey}`;
+        }
         break;
       case 'openai':
         checkUrl = `${cfg.baseUrl}/v1/models`;

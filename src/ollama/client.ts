@@ -79,7 +79,10 @@ export class SideCarClient {
   // keeps them isolated. A shared store would merge fields across
   // providers (update() keeps old values when new ones are absent),
   // leaking one provider's remaining-token counts into another's view.
-  private rateLimitsByProvider = new Map<'ollama' | 'anthropic' | 'openai' | 'kickstand', RateLimitStore>();
+  private rateLimitsByProvider = new Map<
+    'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter',
+    RateLimitStore
+  >();
 
   // Fallback state
   private consecutiveFailures = 0;
@@ -109,12 +112,18 @@ export class SideCarClient {
         return new AnthropicBackend(this.baseUrl, this.apiKey, this.rateLimitsFor('anthropic'));
       case 'kickstand':
         return new KickstandBackend(this.baseUrl, this.apiKey || readKickstandToken(), this.rateLimitsFor('kickstand'));
+      case 'openrouter':
+        // Temporary: OpenRouter speaks the OpenAI-compatible dialect so
+        // the base class works end-to-end today. A dedicated
+        // OpenRouterBackend with referrer headers + model catalog lands
+        // in the next F.4 commit and will replace this branch.
+        return new OpenAIBackend(this.baseUrl, this.apiKey, this.rateLimitsFor('openrouter'));
       case 'openai':
         return new OpenAIBackend(this.baseUrl, this.apiKey, this.rateLimitsFor('openai'));
     }
   }
 
-  private rateLimitsFor(provider: 'ollama' | 'anthropic' | 'openai' | 'kickstand'): RateLimitStore {
+  private rateLimitsFor(provider: 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter'): RateLimitStore {
     let store = this.rateLimitsByProvider.get(provider);
     if (!store) {
       store = new RateLimitStore();
@@ -355,7 +364,7 @@ export class SideCarClient {
     return provider === 'openai';
   }
 
-  getProviderType(): 'ollama' | 'anthropic' | 'openai' | 'kickstand' {
+  getProviderType(): 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' {
     return detectProvider(this.baseUrl, getConfig().provider);
   }
 

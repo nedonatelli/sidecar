@@ -3,6 +3,7 @@ import {
   isLocalOllama,
   isAnthropic,
   isKickstand,
+  isOpenRouter,
   detectProvider,
   getConfig,
   clampMin,
@@ -75,12 +76,26 @@ describe('isKickstand', () => {
   });
 });
 
+describe('isOpenRouter', () => {
+  it('returns true for openrouter.ai hosts', () => {
+    expect(isOpenRouter('https://openrouter.ai/api/v1')).toBe(true);
+    expect(isOpenRouter('https://openrouter.ai/api')).toBe(true);
+  });
+
+  it('returns false for other providers', () => {
+    expect(isOpenRouter('https://api.anthropic.com')).toBe(false);
+    expect(isOpenRouter('https://api.openai.com/v1')).toBe(false);
+    expect(isOpenRouter('http://localhost:11434')).toBe(false);
+  });
+});
+
 describe('detectProvider', () => {
   it('returns explicit provider when not auto', () => {
     expect(detectProvider('http://anything.com', 'openai')).toBe('openai');
     expect(detectProvider('http://anything.com', 'anthropic')).toBe('anthropic');
     expect(detectProvider('http://anything.com', 'ollama')).toBe('ollama');
     expect(detectProvider('http://anything.com', 'kickstand')).toBe('kickstand');
+    expect(detectProvider('http://anything.com', 'openrouter')).toBe('openrouter');
   });
 
   it('auto-detects ollama from localhost:11434', () => {
@@ -94,6 +109,10 @@ describe('detectProvider', () => {
   it('auto-detects kickstand from localhost:11435', () => {
     expect(detectProvider('http://localhost:11435', 'auto')).toBe('kickstand');
     expect(detectProvider('http://127.0.0.1:11435', 'auto')).toBe('kickstand');
+  });
+
+  it('auto-detects openrouter from openrouter.ai', () => {
+    expect(detectProvider('https://openrouter.ai/api/v1', 'auto')).toBe('openrouter');
   });
 
   it('defaults to openai for unknown URLs', () => {
