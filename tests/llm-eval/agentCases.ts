@@ -320,4 +320,90 @@ export const AGENT_CASES: AgentEvalCase[] = [
       },
     },
   },
+
+  {
+    id: 'plan-mode-no-tools',
+    description: 'In plan mode the agent produces a plan without calling any tools (first-iteration short-circuit)',
+    tags: ['plan-mode', 'trajectory', 'regression'],
+    workspace: {
+      'src/auth.ts':
+        '// Session-based authentication module.\n' +
+        'export async function login(username: string, password: string): Promise<boolean> {\n' +
+        '  // TODO: validate credentials\n' +
+        '  return true;\n' +
+        '}\n',
+    },
+    userMessage:
+      'Plan out how you would add rate limiting to the login function in src/auth.ts. Give me a list of concrete ' +
+      'steps you would take — do not make any edits yet, just the plan.',
+    // Plan mode: the agent loop strips tools from the first iteration's
+    // request and short-circuits via `onPlanGenerated` + break after
+    // the first turn. Nothing downstream (cycle check, tool execution,
+    // post-turn policies, finalize) fires normally — we're testing the
+    // one-shot plan path specifically.
+    approvalMode: 'plan',
+    maxIterations: 2,
+    expect: {
+      // In plan mode the agent receives an empty tool list for the
+      // first iteration's streamChat call, so it literally cannot
+      // emit tool_use blocks. If we ever regress the iterTools gate
+      // in streamTurn.ts (currently `state.approvalMode === 'plan'
+      // && state.iteration === 1 ? [] : state.tools`), this case
+      // catches it: tool calls would start appearing in the
+      // trajectory.
+      toolsNotCalled: [
+        'read_file',
+        'write_file',
+        'edit_file',
+        'run_command',
+        'grep',
+        'search_files',
+        'list_directory',
+        'run_tests',
+        'get_diagnostics',
+      ],
+      // The plan should mention the concept and the target. We
+      // accept loose substring matching because plan structure
+      // varies model-to-model.
+      finalTextContains: ['rate', 'auth'],
+    },
+  },
+
+  {
+    id: 'search-then-edit-multi-file',
+    description: 'Agent uses grep to locate all files containing a string, then edits each to replace it',
+    tags: ['search', 'edit', 'trajectory', 'regression'],
+    workspace: {
+      // Two files contain "legacy" and must be updated; one file
+      // contains a different word and must stay untouched. Tests
+      // both the search → edit flow and the "don't touch unrelated
+      // files" discipline.
+      'src/foo.ts': '// legacy comment\nexport const foo = "foo";\n',
+      'src/bar.ts': '// legacy comment\nexport const bar = "bar";\n',
+      'src/baz.ts': '// modern comment\nexport const baz = "baz";\n',
+    },
+    userMessage:
+      'Find every file in src/ that contains the word "legacy" and replace "legacy" with "modern" in each of them. ' +
+      'Do not touch any file that does not contain "legacy".',
+    expect: {
+      // The agent should discover the files via grep (or
+      // search_files if it prefers glob), not by blind-reading each
+      // one. Either is acceptable — we just want to pin that SOME
+      // search tool is used.
+      toolsCalled: ['grep'],
+      // Edits must land on both matching files; the untouched file
+      // must keep its original content.
+      files: {
+        contain: [
+          { path: 'src/foo.ts', substrings: ['modern'] },
+          { path: 'src/bar.ts', substrings: ['modern'] },
+          { path: 'src/baz.ts', substrings: ['modern comment'] },
+        ],
+        notContain: [
+          { path: 'src/foo.ts', substrings: ['legacy'] },
+          { path: 'src/bar.ts', substrings: ['legacy'] },
+        ],
+      },
+    },
+  },
 ];
