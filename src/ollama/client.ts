@@ -7,6 +7,7 @@ import { KickstandBackend } from './kickstandBackend.js';
 import { isLocalOllama, detectProvider, getConfig, readKickstandToken } from '../config/settings.js';
 import { RateLimitStore } from './rateLimitState.js';
 import { spendTracker } from './spendTracker.js';
+import { circuitBreaker } from './circuitBreaker.js';
 
 const DEFAULT_BASE_URL = 'http://localhost:11434';
 
@@ -144,22 +145,30 @@ export class SideCarClient {
     signal?: AbortSignal,
     tools?: ToolDefinition[],
   ): AsyncGenerator<StreamEvent> {
+    // Fast-fail when the breaker is open so the user sees a clear error
+    // instead of the request hanging on a dead provider. Advances an
+    // open breaker to half-open once the cooldown has elapsed.
+    circuitBreaker.guard(this.getProviderType());
     try {
       for await (const event of this.backend.streamChat(this.model, this.systemPrompt, messages, signal, tools)) {
         if (event.type === 'usage') spendTracker.record(event.model, event.usage);
         yield event;
       }
       this.recordSuccess();
+      circuitBreaker.recordSuccess(this.getProviderType());
     } catch (err) {
       // Don't count user aborts as failures
       if (err instanceof Error && err.name === 'AbortError') throw err;
+      circuitBreaker.recordFailure(this.getProviderType());
       if (this.switchToFallback()) {
         console.warn(`[SideCar] Primary backend failed, switching to fallback: ${(err as Error).message}`);
         yield { type: 'warning', message: 'Primary backend unavailable — using fallback.' };
+        circuitBreaker.guard(this.getProviderType());
         for await (const event of this.backend.streamChat(this.model, this.systemPrompt, messages, signal, tools)) {
           if (event.type === 'usage') spendTracker.record(event.model, event.usage);
           yield event;
         }
+        circuitBreaker.recordSuccess(this.getProviderType());
         return;
       }
       throw err;
@@ -167,15 +176,21 @@ export class SideCarClient {
   }
 
   async complete(messages: ChatMessage[], maxTokens: number = 256, signal?: AbortSignal): Promise<string> {
+    circuitBreaker.guard(this.getProviderType());
     try {
       const result = await this.backend.complete(this.model, this.systemPrompt, messages, maxTokens, signal);
       this.recordSuccess();
+      circuitBreaker.recordSuccess(this.getProviderType());
       return result;
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') throw err;
+      circuitBreaker.recordFailure(this.getProviderType());
       if (this.switchToFallback()) {
         console.warn(`[SideCar] Primary backend failed, switching to fallback: ${(err as Error).message}`);
-        return this.backend.complete(this.model, this.systemPrompt, messages, maxTokens, signal);
+        circuitBreaker.guard(this.getProviderType());
+        const result = await this.backend.complete(this.model, this.systemPrompt, messages, maxTokens, signal);
+        circuitBreaker.recordSuccess(this.getProviderType());
+        return result;
       }
       throw err;
     }
