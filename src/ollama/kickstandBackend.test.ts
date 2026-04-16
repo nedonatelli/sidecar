@@ -1,4 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+// Stub the kickstand token file so the bearer-token test is deterministic
+// regardless of whether the host has ~/.config/kickstand/token set up.
+// Without this, the assertion on line ~93 is wrapped in an `if (Authorization)`
+// guard that silently no-ops on hosts without the token file (CI, fresh
+// installs) — the test then passes without actually verifying the behavior.
+// Same pattern as providerReachability.test.ts.
+vi.mock('fs', async () => {
+  const actual = await vi.importActual<typeof import('fs')>('fs');
+  return {
+    ...actual,
+    existsSync: (p: string) => (p.includes('kickstand/token') ? true : actual.existsSync(p)),
+    readFileSync: (p: string, enc?: BufferEncoding) =>
+      p.includes('kickstand/token') ? 'test-kickstand-token' : actual.readFileSync(p, enc),
+  };
+});
+
 import { KickstandBackend } from './kickstandBackend.js';
 
 const mockFetch = vi.fn();
@@ -87,12 +104,12 @@ describe('KickstandBackend', () => {
       const call = mockFetch.mock.calls[0];
       const headers = call[1].headers;
       expect(headers).toHaveProperty('Content-Type', 'application/json');
-      // Token is read from disk — may or may not be present in CI,
-      // but the header key should exist if the file is present.
-      // We just verify the structure is correct.
-      if (headers.Authorization) {
-        expect(headers.Authorization).toMatch(/^Bearer .+$/);
-      }
+      // With the fs mock at the top of this file, the token file is always
+      // "present" — so Authorization must be set and must carry the stubbed
+      // bearer value verbatim. Prior to the mock this assertion was wrapped
+      // in an `if (headers.Authorization)` guard that made the test a silent
+      // no-op on hosts without the real token file.
+      expect(headers.Authorization).toBe('Bearer test-kickstand-token');
     });
 
     it('sets stream: true in request body', async () => {
