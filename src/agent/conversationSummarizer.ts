@@ -13,6 +13,67 @@ function smartTruncate(text: string, maxLen: number): string {
 }
 
 /**
+ * Tool names that mutate files in the workspace. Any `tool_use` block with
+ * one of these names contributes a line to the `## Code changes` section
+ * of the structured summary. Kept permissive — OK to include a tool here
+ * that doesn't actually change files (the section is informational, not
+ * load-bearing), but missing a real mutator means the summary under-reports.
+ */
+const CODE_CHANGE_TOOL_PATTERN =
+  /^(write_file|edit_file|delete_file|create_file|rename_file|move_file|apply_edit|apply_patch)$/;
+
+/** Plausible path-carrying input keys across the built-in file tools. */
+const PATH_KEYS = ['path', 'filePath', 'file_path', 'file', 'target', 'source'] as const;
+
+/** Pull a path string out of a `tool_use` input record, tolerating the key variation across tools. */
+function pathFromToolInput(input: unknown): string | null {
+  if (!input || typeof input !== 'object') return null;
+  const obj = input as Record<string, unknown>;
+  for (const key of PATH_KEYS) {
+    const v = obj[key];
+    if (typeof v === 'string' && v.length > 0) return v;
+  }
+  return null;
+}
+
+/**
+ * Walk the old turns and emit one bullet per (path, tool) touched. Dedups
+ * by path keeping the last tool that touched it — reflects the final
+ * intent after a write → edit → edit sequence on the same file.
+ */
+function extractCodeChanges(turns: Array<ChatMessage[]>): string[] {
+  const lastToolByPath = new Map<string, string>();
+  for (const turn of turns) {
+    for (const msg of turn) {
+      if (!Array.isArray(msg.content)) continue;
+      for (const block of msg.content) {
+        if (block.type !== 'tool_use') continue;
+        if (!CODE_CHANGE_TOOL_PATTERN.test(block.name)) continue;
+        const p = pathFromToolInput(block.input);
+        if (p) lastToolByPath.set(p, block.name);
+      }
+    }
+  }
+  return Array.from(lastToolByPath.entries()).map(([p, tool]) => `- \`${p}\` (${tool})`);
+}
+
+/**
+ * Assemble the structured Markdown summary from pre-computed fact lines and
+ * detected code-change entries. Keeps both sections when non-empty; omits
+ * sections that have no content so the summary never includes empty headers.
+ */
+function assembleStructuredSummary(factLines: string[], codeChanges: string[]): string {
+  const parts: string[] = [];
+  if (factLines.length > 0) {
+    parts.push('## Facts established\n' + factLines.map((l) => `- ${l}`).join('\n'));
+  }
+  if (codeChanges.length > 0) {
+    parts.push('## Code changes\n' + codeChanges.join('\n'));
+  }
+  return parts.join('\n\n');
+}
+
+/**
  * Summarizes older conversation turns to reduce context bloat.
  *
  * Strategy:
@@ -208,8 +269,22 @@ export class ConversationSummarizer {
   }
 
   /**
-   * Generate a compact summary of old turns using the LLM.
-   * Extracts key facts: files examined, issues found, decisions made, progress.
+   * Generate a compact, structured summary of old turns.
+   *
+   * Output format is always Markdown with two optional sections:
+   *
+   *   ## Facts established
+   *   - Turn 1: <query> → <reply>
+   *   - ...
+   *
+   *   ## Code changes
+   *   - `path/to/file.ts` (edit_file)
+   *   - ...
+   *
+   * When the deterministic per-turn extraction fits in `maxLength` we return
+   * it directly (fast path, no LLM round-trip). Otherwise the LLM is asked to
+   * compress the fact lines further while keeping the same section headers,
+   * so the caller always sees a consistent structure regardless of path.
    */
   private async generateSummary(
     oldTurns: Array<ChatMessage[]>,
@@ -249,32 +324,49 @@ export class ConversationSummarizer {
           : `Turn ${i + 1}: ${userQuery}`;
 
       // Hard cap the assembled line so a wide query+reply pair can't blow
-      // past the per-turn budget.
+      // past the per-turn budget. Measured against maxCharsPerTurn directly —
+      // the `- ` bullet prefix added by assembleStructuredSummary isn't
+      // counted so callers with very tight caps still get consistent bullet
+      // widths across summaries.
       facts.push(turnSummary.length > maxCharsPerTurn ? turnSummary.slice(0, maxCharsPerTurn - 1) + '…' : turnSummary);
     }
 
-    // If facts alone are small enough, just use them
-    const factsSummary = facts.join('\n');
-    if (factsSummary.length <= maxLength) {
-      return factsSummary;
+    // Extract code changes from tool_use blocks in the old turns. This is
+    // deterministic (pulled from structured tool-call data, not prose), so
+    // it survives the fast path and the LLM path identically.
+    const codeChanges = extractCodeChanges(oldTurns);
+
+    // Fast path: if the structured assembly fits, return it as-is and skip
+    // the LLM round-trip entirely.
+    const structured = assembleStructuredSummary(facts, codeChanges);
+    if (structured.length <= maxLength) {
+      return structured;
     }
 
-    // Otherwise, ask the LLM to compress further
-    const prompt = `Summarize these conversation turns into ${Math.floor(maxLength / 4)} words or less. Focus on:
-- Files/code examined
-- Issues or errors found
-- Solutions attempted
-- Key decisions made
+    // Slow path: ask the LLM to compress the fact lines into fewer, denser
+    // bullets under the same `## Facts established` header. We pass the
+    // detected code changes verbatim — the LLM shouldn't re-invent them.
+    const factBudget = Math.max(100, maxLength - (codeChanges.length > 0 ? 60 + codeChanges.join('\n').length : 0));
+    const prompt = `Compress the raw conversation turns below into a Markdown document with this exact structure:
 
-Turns:
+## Facts established
+- <concise bullet — one finding, decision, or key insight per line>
+- ...
+
+${codeChanges.length > 0 ? '## Code changes\n(Use the code-change list provided below verbatim — do not regenerate or reformat.)\n\n' : ''}Constraints:
+- Keep the entire response under ${factBudget} characters.
+- Every fact bullet must be self-contained — no references to "turn N" or other bullets.
+- Prefer concrete nouns (file paths, function names, error messages) over vague prose.
+- Omit the "Code changes" section entirely if the list below is empty.
+
+Raw turns:
 ${facts.join('\n')}
 
-Compact summary:`;
+${codeChanges.length > 0 ? 'Code changes (verbatim):\n' + codeChanges.join('\n') + '\n\n' : ''}Structured summary:`;
 
     try {
       const summarizeMessages: ChatMessage[] = [{ role: 'user', content: prompt }];
 
-      // Request summary with timeout
       const summaryPromise = new Promise<string>((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error('Summarization timeout')), timeoutMs);
 
@@ -282,7 +374,6 @@ Compact summary:`;
           .complete(summarizeMessages, maxLength)
           .then((result) => {
             clearTimeout(timer);
-            // Extract text summary (may contain other blocks)
             const text =
               typeof result === 'string'
                 ? result
@@ -294,17 +385,29 @@ Compact summary:`;
                         : [{ type: 'text' as const, text: String(result) }],
                   );
 
-            // Clean up and truncate
-            const clean = text.trim().replace(/^(Compact summary:?|Summary:?)\s*/i, '');
-            resolve(clean.slice(0, maxLength));
+            // Strip any "Structured summary:" / "Summary:" preamble the model
+            // may echo before the first header, then truncate to budget.
+            const clean = text.trim().replace(/^(Structured summary:?|Compact summary:?|Summary:?)\s*/i, '');
+
+            // If the model ignored the schema (no `## Facts established`
+            // header at all), fall back to the deterministic assembly so the
+            // caller always gets a well-formed structured summary.
+            const hasExpectedHeader = /^##\s+Facts established/m.test(clean);
+            resolve(
+              hasExpectedHeader
+                ? clean.slice(0, maxLength)
+                : assembleStructuredSummary(facts, codeChanges).slice(0, maxLength),
+            );
           })
           .catch(reject);
       });
 
       return await summaryPromise;
     } catch {
-      // Fall back to simple fact concatenation
-      return factsSummary.slice(0, maxLength);
+      // On LLM failure / timeout, return the deterministic structured form
+      // clamped to the caller's budget. Worst case: a tail-truncated but
+      // still structurally-valid summary.
+      return assembleStructuredSummary(facts, codeChanges).slice(0, maxLength);
     }
   }
 }

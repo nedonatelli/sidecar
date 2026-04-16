@@ -348,12 +348,15 @@ describe('ConversationSummarizer', () => {
       // fits within maxSummaryLength and the LLM path is skipped entirely.
       expect(mockClient.complete).not.toHaveBeenCalled();
 
-      // Summary lines are all bounded by maxCharsPerTurn.
+      // Summary lines are all bounded by maxCharsPerTurn. Fact lines now
+      // carry a bullet prefix ("- Turn N: ..."), so we strip it before
+      // checking against the per-turn cap.
       const summary = result.messages[0].content as string;
-      const factLines = summary.split('\n').filter((line) => line.startsWith('Turn '));
+      const factLines = summary.split('\n').filter((line) => /^- Turn /.test(line));
       expect(factLines.length).toBeGreaterThan(0);
       for (const line of factLines) {
-        expect(line.length).toBeLessThanOrEqual(maxCharsPerTurn);
+        const withoutBullet = line.replace(/^- /, '');
+        expect(withoutBullet.length).toBeLessThanOrEqual(maxCharsPerTurn);
       }
     });
 
@@ -376,10 +379,137 @@ describe('ConversationSummarizer', () => {
       // Default 220 chars/turn × 7 turns = ~1540 < 5000, so LLM not needed.
       expect(mockClient.complete).not.toHaveBeenCalled();
       const summary = result.messages[0].content as string;
-      const factLines = summary.split('\n').filter((line) => line.startsWith('Turn '));
+      const factLines = summary.split('\n').filter((line) => /^- Turn /.test(line));
       for (const line of factLines) {
-        expect(line.length).toBeLessThanOrEqual(220);
+        const withoutBullet = line.replace(/^- /, '');
+        expect(withoutBullet.length).toBeLessThanOrEqual(220);
       }
+    });
+  });
+
+  describe('structured output format', () => {
+    it('emits a ## Facts established header with bulleted turn lines', async () => {
+      const messages: ChatMessage[] = [];
+      for (let i = 0; i < 6; i++) {
+        messages.push({ role: 'user', content: `Query ${i}. `.repeat(10) });
+        messages.push({ role: 'assistant', content: `Reply ${i}. `.repeat(10) });
+      }
+
+      const result = await summarizer.summarize(messages, { keepRecentTurns: 1, minCharsToSave: 50 });
+      const summary = result.messages[0].content as string;
+
+      expect(summary).toMatch(/^\[Earlier conversation summary/);
+      expect(summary).toContain('## Facts established');
+      // Every fact line is a bullet.
+      const factLines = summary.split('\n').filter((l) => /^- Turn /.test(l));
+      expect(factLines.length).toBeGreaterThan(0);
+    });
+
+    it('includes a ## Code changes section when tool_use blocks write files', async () => {
+      const messages: ChatMessage[] = [];
+      for (let i = 0; i < 5; i++) {
+        messages.push({
+          role: 'user',
+          content: `Task ${i} that needs enough prose to clear the min-chars-to-save gate`,
+        });
+        messages.push({
+          role: 'assistant',
+          content: [
+            { type: 'text' as const, text: `Working on task ${i}` },
+            {
+              type: 'tool_use' as const,
+              id: `t${i}`,
+              name: 'write_file',
+              input: { path: `src/file${i}.ts`, content: 'x' },
+            },
+          ],
+        });
+      }
+
+      const result = await summarizer.summarize(messages, { keepRecentTurns: 1, minCharsToSave: 50 });
+      const summary = result.messages[0].content as string;
+
+      expect(summary).toContain('## Code changes');
+      expect(summary).toContain('`src/file0.ts` (write_file)');
+      expect(summary).toContain('`src/file3.ts` (write_file)');
+    });
+
+    it('deduplicates code changes by path, keeping the last tool that touched it', async () => {
+      const messages: ChatMessage[] = [];
+      // Enough early-turn content to clear minCharsToSave.
+      for (let i = 0; i < 3; i++) {
+        messages.push({
+          role: 'user',
+          content: `Setup turn ${i} with prose that adds to the accumulated character count`.repeat(3),
+        });
+        messages.push({ role: 'assistant', content: `Reply ${i}`.repeat(3) });
+      }
+      // Now the file gets touched: first written, then edited, then deleted.
+      messages.push({ role: 'user', content: 'Do three operations on the same file' });
+      messages.push({
+        role: 'assistant',
+        content: [
+          { type: 'tool_use' as const, id: 'a', name: 'write_file', input: { path: 'src/x.ts', content: 'v1' } },
+          {
+            type: 'tool_use' as const,
+            id: 'b',
+            name: 'edit_file',
+            input: { path: 'src/x.ts', search: 'v1', replace: 'v2' },
+          },
+          { type: 'tool_use' as const, id: 'c', name: 'delete_file', input: { path: 'src/x.ts' } },
+        ],
+      });
+      // One kept turn so old turns include the tool_use block above.
+      messages.push({ role: 'user', content: 'next' });
+      messages.push({ role: 'assistant', content: 'ok' });
+
+      const result = await summarizer.summarize(messages, { keepRecentTurns: 1, minCharsToSave: 50 });
+      const summary = result.messages[0].content as string;
+
+      expect(summary).toContain('## Code changes');
+      // Only one entry for src/x.ts, tagged with the last-seen tool (delete_file).
+      const matches = summary.match(/`src\/x\.ts`/g) ?? [];
+      expect(matches).toHaveLength(1);
+      expect(summary).toContain('`src/x.ts` (delete_file)');
+    });
+
+    it('omits the ## Code changes section when no file-mutation tool_use blocks were seen', async () => {
+      const messages: ChatMessage[] = [];
+      for (let i = 0; i < 6; i++) {
+        messages.push({ role: 'user', content: `Explain ${i}. `.repeat(10) });
+        messages.push({ role: 'assistant', content: `Explanation ${i}. `.repeat(10) });
+      }
+
+      const result = await summarizer.summarize(messages, { keepRecentTurns: 1, minCharsToSave: 50 });
+      const summary = result.messages[0].content as string;
+
+      expect(summary).toContain('## Facts established');
+      expect(summary).not.toContain('## Code changes');
+    });
+
+    it('falls back to the deterministic structured form when the LLM ignores the schema', async () => {
+      // Force the LLM path with tight maxSummaryLength relative to fact count.
+      const bigQuery = 'Q'.repeat(500);
+      const bigReply = 'R'.repeat(500);
+      const messages: ChatMessage[] = [];
+      for (let i = 0; i < 8; i++) {
+        messages.push({ role: 'user', content: bigQuery });
+        messages.push({ role: 'assistant', content: bigReply });
+      }
+
+      // LLM returns freeform prose with no ## Facts established header.
+      mockClient.complete.mockResolvedValueOnce('Just some prose without any section headers at all.');
+
+      const result = await summarizer.summarize(messages, {
+        keepRecentTurns: 1,
+        minCharsToSave: 50,
+        maxSummaryLength: 400, // tight, forces LLM path
+        maxCharsPerTurn: 200,
+      });
+      const summary = result.messages[0].content as string;
+
+      // Deterministic fallback kicked in — the structured header must be present.
+      expect(summary).toContain('## Facts established');
     });
   });
 
