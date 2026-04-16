@@ -9,7 +9,6 @@ import {
   detectProvider,
   getConfig,
   clampMin,
-  readKickstandToken,
   estimateCost,
 } from './settings.js';
 
@@ -242,14 +241,6 @@ describe('clampMin', () => {
 
   it('returns exact minimum when value equals minimum', () => {
     expect(clampMin(1, 1, 25)).toBe(1);
-  });
-});
-
-describe('readKickstandToken', () => {
-  it('returns a non-empty string', () => {
-    const token = readKickstandToken();
-    expect(typeof token).toBe('string');
-    expect(token.length).toBeGreaterThan(0);
   });
 });
 

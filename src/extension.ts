@@ -23,9 +23,10 @@ import {
   isLocalOllama,
   isKickstand,
   detectProvider,
-  readKickstandToken,
   initSecrets,
   setApiKeySecret,
+  setHuggingFaceToken,
+  clearHuggingFaceToken,
 } from './config/settings.js';
 import { checkWorkspaceConfigTrust } from './config/workspaceTrust.js';
 import { createClient } from './ollama/factory.js';
@@ -231,8 +232,7 @@ export function activate(context: ExtensionContext) {
     setImmediate(() => {
       const ollamaUrl = isLocalOllama(config.baseUrl) ? config.baseUrl : 'http://localhost:11434';
       const kickstandUrl = isKickstand(config.baseUrl) ? config.baseUrl : 'http://localhost:11435';
-      const apiKey = readKickstandToken();
-      SideCarClient.discoverAllAvailableModels(ollamaUrl, kickstandUrl, apiKey)
+      SideCarClient.discoverAllAvailableModels(ollamaUrl, kickstandUrl)
         .then((models) => {
           if (models.length > 0) {
             const modelNames = models.map((m) => m.name).join(', ');
@@ -358,6 +358,37 @@ export function activate(context: ExtensionContext) {
         window.showInformationMessage('SideCar API key saved to SecretStorage.');
       }
       chatProvider?.reloadModels();
+    }),
+    commands.registerCommand('sidecar.setHuggingFaceToken', async () => {
+      const pick = await window.showQuickPick(
+        [
+          { label: 'Set / Update token', id: 'set' },
+          { label: 'Clear stored token', id: 'clear' },
+        ],
+        {
+          title: 'SideCar: HuggingFace access token',
+          placeHolder: 'Used to download gated Safetensors models (Llama, Gemma, etc.)',
+        },
+      );
+      if (!pick) return;
+      if (pick.id === 'clear') {
+        await clearHuggingFaceToken();
+        window.showInformationMessage('HuggingFace token removed.');
+        return;
+      }
+      const value = await window.showInputBox({
+        prompt: 'Paste your HuggingFace access token (https://huggingface.co/settings/tokens)',
+        password: true,
+        ignoreFocusOut: true,
+      });
+      if (value === undefined) return;
+      const trimmed = value.trim();
+      if (!trimmed) {
+        window.showWarningMessage('HuggingFace token was empty — not saved.');
+        return;
+      }
+      await setHuggingFaceToken(trimmed);
+      window.showInformationMessage('HuggingFace token saved to SecretStorage.');
     }),
     commands.registerCommand('sidecar.switchBackend', async (profileId?: unknown) => {
       const { BUILT_IN_BACKEND_PROFILES, applyBackendProfile } = await import('./config/settings.js');
@@ -516,8 +547,7 @@ export function activate(context: ExtensionContext) {
         const cfg = getConfig();
         const ollamaUrl = isLocalOllama(cfg.baseUrl) ? cfg.baseUrl : 'http://localhost:11434';
         const kickstandUrl = isKickstand(cfg.baseUrl) ? cfg.baseUrl : 'http://localhost:11435';
-        const apiKey = readKickstandToken();
-        const models = await SideCarClient.discoverAllAvailableModels(ollamaUrl, kickstandUrl, apiKey);
+        const models = await SideCarClient.discoverAllAvailableModels(ollamaUrl, kickstandUrl);
 
         if (models.length === 0) {
           window.showInformationMessage('SideCar: No models found. Make sure Ollama or Kickstand is running.');

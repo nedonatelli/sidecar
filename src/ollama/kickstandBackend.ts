@@ -120,7 +120,6 @@ function extractTextContent(blocks: ContentBlock[]): string {
 export class KickstandBackend implements ApiBackend {
   constructor(
     private baseUrl: string,
-    private apiToken: string,
     private rateLimits: RateLimitStore = new RateLimitStore(),
   ) {}
 
@@ -135,7 +134,6 @@ export class KickstandBackend implements ApiBackend {
   private getHeaders(): Record<string, string> {
     return {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${this.apiToken}`,
     };
   }
 

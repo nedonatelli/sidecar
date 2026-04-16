@@ -40,7 +40,7 @@ describe('KickstandBackend', () => {
   let backend: KickstandBackend;
 
   beforeEach(() => {
-    backend = new KickstandBackend('http://localhost:11435', 'test-token');
+    backend = new KickstandBackend('http://localhost:11435');
     mockFetch.mockReset();
   });
 
@@ -74,7 +74,7 @@ describe('KickstandBackend', () => {
       expect(events).toContainEqual({ type: 'text', text: 'ok' });
     });
 
-    it('sends Authorization header with token', async () => {
+    it('does not send Authorization header', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         body: sseBody([chunk('test', true), '[DONE]']),
@@ -84,15 +84,10 @@ describe('KickstandBackend', () => {
         // consume events
       }
 
-      expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:11435/v1/chat/completions',
-        expect.objectContaining({
-          headers: expect.objectContaining({
-            Authorization: 'Bearer test-token',
-            'Content-Type': 'application/json',
-          }),
-        }),
-      );
+      const call = mockFetch.mock.calls[0];
+      const headers = call[1].headers;
+      expect(headers).toEqual({ 'Content-Type': 'application/json' });
+      expect(headers).not.toHaveProperty('Authorization');
     });
 
     it('sets stream: true in request body', async () => {

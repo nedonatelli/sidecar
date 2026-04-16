@@ -1,7 +1,4 @@
 import { workspace, type ExtensionContext } from 'vscode';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
 
 // ---------------------------------------------------------------------------
 // Secret storage for API keys
@@ -12,6 +9,7 @@ import * as os from 'os';
 
 const SECRET_KEY_API = 'sidecar.apiKey';
 const SECRET_KEY_FALLBACK_API = 'sidecar.fallbackApiKey';
+const SECRET_KEY_HF_TOKEN = 'sidecar.huggingfaceToken';
 
 let _secretContext: ExtensionContext | null = null;
 let _cachedApiKey: string | null = null;
@@ -74,6 +72,28 @@ export async function setFallbackApiKeySecret(value: string): Promise<void> {
   await _secretContext.secrets.store(SECRET_KEY_FALLBACK_API, value);
   _cachedFallbackApiKey = value;
   _cachedConfig = null;
+}
+
+/**
+ * Fetch the HuggingFace token from SecretStorage. Used by the safetensors
+ * import flow to authenticate downloads of gated models (Llama, Gemma, etc.).
+ * Returns undefined if no token has been set.
+ */
+export async function getHuggingFaceToken(): Promise<string | undefined> {
+  if (!_secretContext) return undefined;
+  return (await _secretContext.secrets.get(SECRET_KEY_HF_TOKEN)) ?? undefined;
+}
+
+/** Store the HuggingFace token in SecretStorage. */
+export async function setHuggingFaceToken(value: string): Promise<void> {
+  if (!_secretContext) throw new Error('SecretStorage not initialized');
+  await _secretContext.secrets.store(SECRET_KEY_HF_TOKEN, value);
+}
+
+/** Remove the HuggingFace token from SecretStorage. */
+export async function clearHuggingFaceToken(): Promise<void> {
+  if (!_secretContext) return;
+  await _secretContext.secrets.delete(SECRET_KEY_HF_TOKEN);
 }
 
 // ---------------------------------------------------------------------------
@@ -263,21 +283,6 @@ export function isGroq(baseUrl: string): boolean {
  */
 export function isFireworks(baseUrl: string): boolean {
   return baseUrl.includes('fireworks.ai');
-}
-
-/**
- * Read the Kickstand API token from ~/.config/kickstand/token
- */
-export function readKickstandToken(): string {
-  try {
-    const tokenPath = path.join(os.homedir(), '.config', 'kickstand', 'token');
-    if (fs.existsSync(tokenPath)) {
-      return fs.readFileSync(tokenPath, 'utf-8').trim();
-    }
-  } catch (error) {
-    console.warn('[Kickstand] Failed to read token file:', error);
-  }
-  return 'kickstand';
 }
 
 /** Determine which backend provider to use based on URL and explicit setting. */

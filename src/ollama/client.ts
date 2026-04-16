@@ -7,7 +7,7 @@ import { KickstandBackend } from './kickstandBackend.js';
 import { OpenRouterBackend } from './openrouterBackend.js';
 import { GroqBackend } from './groqBackend.js';
 import { FireworksBackend } from './fireworksBackend.js';
-import { isLocalOllama, detectProvider, getConfig, readKickstandToken } from '../config/settings.js';
+import { isLocalOllama, detectProvider, getConfig } from '../config/settings.js';
 import { RateLimitStore } from './rateLimitState.js';
 import { spendTracker } from './spendTracker.js';
 import { circuitBreaker } from './circuitBreaker.js';
@@ -114,7 +114,7 @@ export class SideCarClient {
       case 'anthropic':
         return new AnthropicBackend(this.baseUrl, this.apiKey, this.rateLimitsFor('anthropic'));
       case 'kickstand':
-        return new KickstandBackend(this.baseUrl, this.apiKey || readKickstandToken(), this.rateLimitsFor('kickstand'));
+        return new KickstandBackend(this.baseUrl, this.rateLimitsFor('kickstand'));
       case 'openrouter':
         return new OpenRouterBackend(this.baseUrl, this.apiKey, this.rateLimitsFor('openrouter'));
       case 'groq':
@@ -442,7 +442,20 @@ export class SideCarClient {
     return data.models ?? [];
   }
 
-  async listLibraryModels(): Promise<LibraryModel[]> {
+  /**
+   * List models available to the current backend.
+   *
+   * For Ollama this is driven entirely by `/api/tags` — whatever Ollama
+   * reports as locally installed is what the user can actually use. By
+   * default we *also* append a small hardcoded list of popular library
+   * models marked `installed: false` so brand-new users with an empty
+   * Ollama have something to click. Callers that render the main chat
+   * dropdown should pass `{ includeSuggestions: false }` so uninstalled
+   * suggestions don't pollute the "active model" picker — the chat UX
+   * should only surface models Ollama can actually run right now.
+   */
+  async listLibraryModels(options: { includeSuggestions?: boolean } = {}): Promise<LibraryModel[]> {
+    const { includeSuggestions = true } = options;
     const installed = await this.listInstalledModels();
     const installedNames = new Set(installed.map((m) => m.name.split(':')[0]));
 
@@ -451,8 +464,7 @@ export class SideCarClient {
       installed: true,
     }));
 
-    // Only show library models for Ollama (local pull support)
-    if (this.getProviderType() === 'ollama') {
+    if (includeSuggestions && this.getProviderType() === 'ollama') {
       for (const name of LIBRARY_MODELS) {
         if (!installedNames.has(name)) {
           results.push({ name, installed: false });
@@ -517,7 +529,6 @@ export class SideCarClient {
   static async discoverAllAvailableModels(
     ollamaUrl = 'http://localhost:11434',
     kickstandUrl = 'http://localhost:11435',
-    apiKey?: string,
   ): Promise<InstalledModel[]> {
     const models: InstalledModel[] = [];
     const seen = new Set<string>();
@@ -544,12 +555,7 @@ export class SideCarClient {
     // Try Kickstand
     try {
       const url = kickstandUrl.replace(/\/+$/, '');
-      const headers: Record<string, string> = {};
-      if (apiKey && apiKey !== 'ollama') {
-        headers['Authorization'] = `Bearer ${apiKey}`;
-      }
       const llmmResponse = await fetch(`${url}/v1/models`, {
-        headers,
         signal: AbortSignal.timeout(2000),
       });
       if (llmmResponse.ok) {
