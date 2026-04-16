@@ -1134,7 +1134,8 @@
     "src/**/*.ts": [
       "prettier --write",
       "eslint --max-warnings=0",
-      "bash -c 'tsc --noEmit'"
+      "bash -c 'tsc --noEmit'",
+      "bash -c 'vitest run --silent'"
     ],
     "media/**/*.{js,css}": [
       "prettier --write"
