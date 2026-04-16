@@ -482,6 +482,44 @@
           ],
           "markdownDescription": "Outbound host allowlist for URL fetching in chat.\n\nWhen non-empty, SideCar only fetches URLs whose hostname matches one of these entries. Empty (the default) allows every public URL — SSRF and private-IP blocking still apply.\n\nPatterns support a leading `*.` wildcard for subdomains:\n\n- `github.com` — exact match only\n- `*.github.com` — any subdomain (`api.github.com`, `raw.github.com`)\n\nPairs with the built-in exfiltration defense on `web_search`, which refuses to send queries containing credential-shaped tokens regardless of this setting."
         },
+        "sidecar.terminalExecution.enabled": {
+          "type": "boolean",
+          "default": true,
+          "order": 14,
+          "tags": [
+            "sidecar"
+          ],
+          "markdownDescription": "Route the agent's `run_command` tool through VS Code's shell-integration API so the user sees commands execute in a dedicated *SideCar Agent* terminal (as opposed to the hidden `child_process.spawn` path `ShellSession` used previously). Gives transparency on SSH / Dev Containers / WSL / Codespaces where `child_process.exec` escapes the remote sandbox. Set to `false` to keep everything on `ShellSession`."
+        },
+        "sidecar.terminalExecution.terminalName": {
+          "type": "string",
+          "default": "SideCar Agent",
+          "order": 15,
+          "tags": [
+            "sidecar"
+          ],
+          "markdownDescription": "Display name for the reusable agent terminal when `terminalExecution.enabled` is true."
+        },
+        "sidecar.terminalExecution.fallbackToChildProcess": {
+          "type": "boolean",
+          "default": true,
+          "order": 16,
+          "tags": [
+            "sidecar"
+          ],
+          "markdownDescription": "When shell integration is unavailable (bare shell without the VS Code init script, older VS Code version), fall back to the `ShellSession` / `child_process` execution path. Set to `false` to make commands fail loudly instead of silently falling back — useful for debugging terminal-integration setup issues."
+        },
+        "sidecar.terminalExecution.shellIntegrationTimeoutMs": {
+          "type": "number",
+          "default": 2000,
+          "minimum": 100,
+          "maximum": 10000,
+          "order": 17,
+          "tags": [
+            "sidecar"
+          ],
+          "markdownDescription": "Milliseconds to wait for `shellIntegration` to attach to a freshly created terminal before falling back to `ShellSession`. Shell integration attaches asynchronously after the terminal's shell loads VS Code's init script, so a short wait is normal. Raise if your shell startup is slow; lower to fail faster on shells that won't ever integrate."
+        },
         "sidecar.includeActiveFile": {
           "type": "boolean",
           "default": true,

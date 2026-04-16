@@ -480,6 +480,11 @@ export interface SideCarConfig {
   delegateTaskMaxIterations: number;
   /* Outbound exfiltration defense */
   outboundAllowlist: string[];
+  /* Terminal-integrated shell execution for run_command (v0.59) */
+  terminalExecutionEnabled: boolean;
+  terminalExecutionTerminalName: string;
+  terminalExecutionFallbackToChildProcess: boolean;
+  terminalExecutionShellIntegrationTimeoutMs: number;
 }
 
 /**
@@ -596,6 +601,15 @@ function readConfig(): SideCarConfig {
     delegateTaskMaxIterations: clampMin(cfg.get<number>('delegateTask.maxIterations'), 1, 10),
     /* Outbound exfiltration defense */
     outboundAllowlist: cfg.get<string[]>('outboundAllowlist', []),
+    /* Terminal-integrated shell execution (v0.59) */
+    terminalExecutionEnabled: cfg.get<boolean>('terminalExecution.enabled', true),
+    terminalExecutionTerminalName: cfg.get<string>('terminalExecution.terminalName', 'SideCar Agent'),
+    terminalExecutionFallbackToChildProcess: cfg.get<boolean>('terminalExecution.fallbackToChildProcess', true),
+    terminalExecutionShellIntegrationTimeoutMs: clampMin(
+      cfg.get<number>('terminalExecution.shellIntegrationTimeoutMs'),
+      100,
+      2000,
+    ),
   };
 }
 

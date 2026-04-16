@@ -78,10 +78,17 @@ export const window = {
   showInputBox: async () => undefined,
   withProgress: async (_opts: unknown, task: (progress: unknown) => Promise<unknown>) => task({}),
   onDidCloseTerminal: () => ({ dispose: () => {} }),
+  onDidEndTerminalShellExecution: () => ({ dispose: () => {} }),
+  onDidChangeTerminalShellIntegration: () => ({ dispose: () => {} }),
   createTerminal: () => ({
     show: () => {},
     sendText: () => {},
     dispose: () => {},
+    exitStatus: undefined,
+    // No shellIntegration by default — tests that exercise the
+    // AgentTerminalExecutor happy path override this via
+    // `vi.spyOn(window, 'createTerminal').mockReturnValue(...)`.
+    shellIntegration: undefined,
   }),
   createOutputChannel: () => ({
     appendLine: () => {},
