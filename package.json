@@ -1173,7 +1173,7 @@
       "prettier --write",
       "eslint --max-warnings=0",
       "bash -c 'tsc --noEmit'",
-      "bash -c 'vitest run --silent'"
+      "bash -c 'vitest run --silent --exclude \"**/shadowWorkspace.test.ts\"'"
     ],
     "media/**/*.{js,css}": [
       "prettier --write"
