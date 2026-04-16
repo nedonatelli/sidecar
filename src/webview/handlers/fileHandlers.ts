@@ -1,12 +1,9 @@
 import { window, workspace, Uri, FileType } from 'vscode';
 import * as path from 'path';
-import { promisify } from 'util';
-import { exec } from 'child_process';
 import type { ChatState } from '../chatState.js';
 import { computeUnifiedDiff } from '../../agent/diff.js';
 import { languageToExtension } from './messageUtils.js';
-
-const execAsync = promisify(exec);
+import { ShellSession } from '../../terminal/shellSession.js';
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.svg']);
 
@@ -251,17 +248,23 @@ export async function handleRunCommand(state: ChatState, command: string): Promi
     return terminalOutput;
   }
 
+  // Fallback path — terminal manager couldn't run the command (e.g. no
+  // shell integration available). Route through ShellSession rather
+  // than raw child_process.exec so the hardened per-command prefix
+  // (alias/function namespace reset from shellSession.ts) still applies.
+  // Previously this path bypassed that hardening, which meant an earlier
+  // turn's shell function or alias could silently hijack what the user
+  // approved in the confirmation modal. Audit cycle-2 MEDIUM #13.
   const cwd = workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!cwd) return '(no workspace folder)';
+  const session = new ShellSession(cwd);
   try {
-    const { stdout, stderr } = await execAsync(command, {
-      cwd,
-      timeout: 30_000,
-      maxBuffer: 1024 * 1024,
-    });
-    return stdout || stderr || '(no output)';
+    const result = await session.execute(command, { timeout: 30_000 });
+    return result.stdout.trim() || '(no output)';
   } catch (err) {
-    const error = err as { stdout?: string; stderr?: string; message?: string };
-    return error.stderr || error.stdout || error.message || 'Command failed';
+    return err instanceof Error ? err.message : 'Command failed';
+  } finally {
+    session.dispose();
   }
 }
 

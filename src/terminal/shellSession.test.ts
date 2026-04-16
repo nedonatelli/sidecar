@@ -140,4 +140,77 @@ describeUnix('ShellSession', () => {
     const result = await session.execute('echo $PERSIST_VAR');
     expect(result.stdout).toContain('keep_me');
   });
+
+  describe('accumulated-output integrity across the sentinel boundary', () => {
+    // Regression: checkSentinel used to `output = preOutput`, which
+    // discarded every byte from prior chunks for any command whose
+    // output exceeded a single ~200-char buffer window. No existing
+    // test caught this because they all used short commands.
+
+    it('preserves every line from a multi-chunk command run', async () => {
+      // ~5 KB of output guarantees multiple buffer trim cycles before
+      // the sentinel arrives — the bug path.
+      session = new ShellSession(os.tmpdir(), undefined, 100 * 1024);
+      const result = await session.execute('for i in $(seq 1 200); do printf "LINE_%03d\\n" "$i"; done');
+      expect(result.exitCode).toBe(0);
+      // Every line 001–200 must appear in the captured output. Prior
+      // to the fix, only the tail ~200 chars survived. The final line
+      // doesn't carry a trailing newline because checkSentinel strips
+      // one (`.replace(/\n$/, '')`), so assert on the bare form.
+      expect(result.stdout).toContain('LINE_001\n');
+      expect(result.stdout).toContain('LINE_100\n');
+      expect(result.stdout).toContain('LINE_200');
+    });
+  });
+
+  describe('tail-preferred truncation on non-zero exit (audit cycle-2 MEDIUM #15)', () => {
+    // Each test spawns a fresh session with a tight maxOutputSize so a
+    // brief shell command reliably overflows the buffer and triggers
+    // truncation. That exercises the wasTruncated path and the
+    // failureTailRing assembly without needing megabytes of output.
+    // Commands that should produce non-zero exit are wrapped in
+    // `bash -c` so `exit N` doesn't kill the persistent outer shell
+    // (same pattern as the existing "captures exit codes via subcommand"
+    // test at line ~33).
+
+    it('keeps head+tail assembly when the truncated command exits zero', async () => {
+      // maxOutputSize = 1024 means 512-byte head + 307-byte ring + marker
+      session = new ShellSession(os.tmpdir(), undefined, 1024);
+      const result = await session.execute('for i in $(seq 1 200); do printf "LINE_%03d_aaaaaaaaaaaa\\n" "$i"; done');
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('output truncated');
+      // Zero-exit path keeps head bytes — the early lines must survive.
+      expect(result.stdout).toContain('LINE_001_');
+      // Tail also preserved via ring.
+      expect(result.stdout).toContain('LINE_200_');
+    });
+
+    it('rewrites to tail-only when the truncated command exits non-zero', async () => {
+      session = new ShellSession(os.tmpdir(), undefined, 1024);
+      const result = await session.execute(
+        'bash -c \'for i in $(seq 1 200); do printf "LINE_%03d_bbbbbbbbbbbb\\n" "$i"; done; exit 7\'',
+      );
+      expect(result.exitCode).toBe(7);
+      // Non-zero-exit path drops the head and spends the full byte
+      // budget on the tail. The marker explicitly says so.
+      expect(result.stdout).toContain('command exited 7');
+      expect(result.stdout).toContain('head dropped');
+      // Early lines are gone; late lines (where errors live in real runs)
+      // are preserved.
+      expect(result.stdout).not.toContain('LINE_001_');
+      expect(result.stdout).toContain('LINE_200_');
+    });
+
+    it('does not invoke the failure-tail rewrite when output never exceeded the cap', async () => {
+      session = new ShellSession(os.tmpdir(), undefined, 1024);
+      // Small failing command — exits non-zero but output is tiny,
+      // so no truncation should happen and no failure-tail marker
+      // should appear.
+      const result = await session.execute("bash -c 'echo quick_fail; exit 3'");
+      expect(result.exitCode).toBe(3);
+      expect(result.stdout).toContain('quick_fail');
+      expect(result.stdout).not.toContain('head dropped');
+      expect(result.stdout).not.toContain('output truncated');
+    });
+  });
 });

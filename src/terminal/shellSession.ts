@@ -190,21 +190,44 @@ export class ShellSession {
       // because errors and exit diagnostics tend to live in the final
       // chunks of output — exactly the bytes the old logic discarded.
       const tailMax = Math.floor(this.maxOutputSize * 0.3);
+      // Larger tail window used when the command exits non-zero. For
+      // failures the error diagnostics are almost always in the last
+      // portion of output, so we drop the head-banner and spend the
+      // full byte budget on recent bytes. 80% leaves room for the
+      // truncation marker and a small breathing margin.
+      const failureTailMax = Math.floor(this.maxOutputSize * 0.8);
       let tailRing = '';
+      let failureTailRing = '';
       // Tracks raw output volume before any truncation, so the marker
       // can report accurate totals.
       let totalCharsSeen = 0;
+      // True once we've had to drop bytes from the primary `output`
+      // buffer. Reused at finish() to choose between the head+tail
+      // assembly (zero exit) and the tail-preferred assembly (non-zero).
+      let wasTruncated = false;
 
       const finish = (exitCode: number) => {
         if (resolved) return;
         resolved = true;
         cleanup();
+        // When the command failed AND we had to truncate, reassemble
+        // from the failure-tail ring so the user sees the actual error
+        // output instead of the head-banner. For zero-exit runs we
+        // keep the head+tail balance — the user wants the start
+        // context of a long successful run (compile header, test
+        // summary) AND the final bytes. Audit cycle-2 MEDIUM #15.
+        let stdout = output;
+        if (wasTruncated && exitCode !== 0) {
+          stdout =
+            `... (command exited ${exitCode}; head dropped, showing last ${failureTailRing.length} of ${totalCharsSeen} chars) ...\n\n` +
+            failureTailRing;
+        }
         // Strip ANSI escape sequences from the final stdout too. The
         // streaming onOutput wrapper above already strips each chunk,
         // but `output` is the accumulated pre-wrap buffer (built from
         // raw `data` events), so the final blob still contains the
         // original escape sequences until we strip here.
-        resolve({ stdout: stripAnsi(output), exitCode, timedOut });
+        resolve({ stdout: stripAnsi(stdout), exitCode, timedOut });
       };
 
       // Timeout handler
@@ -247,14 +270,37 @@ export class ShellSession {
         const exitCodeStr = afterSentinel.slice(0, endIdx);
         const exitCode = parseInt(exitCodeStr, 10);
 
-        // Everything before the sentinel line is command output.
+        // `preOutput` is the content of `buffer` BEFORE the sentinel mark.
+        // buffer at this point holds the held-back 200-char trailing
+        // window from prior chunks + everything in this chunk before the
+        // sentinel — none of which has been moved to `output` yet (onData
+        // deliberately holds back 200 chars so split-across-chunks
+        // sentinels can be detected). Append to output — don't overwrite.
+        // Previously this line was `output = preOutput`, which silently
+        // discarded every byte from prior chunks for any command whose
+        // output was longer than a single ~200-char buffer window. That
+        // bug was latent because every existing test used short commands
+        // that fit inside one buffer window.
         const preOutput = buffer.slice(0, idx).replace(/\n$/, '');
-        // Flush any buffered content to onOutput before finishing
-        if (preOutput.length > output.length) {
-          const remaining = preOutput.slice(output.length);
-          if (remaining) onOutput?.(remaining);
+        if (preOutput.length > 0) {
+          output += preOutput;
+          totalCharsSeen += preOutput.length;
+          tailRing = (tailRing + preOutput).slice(-tailMax);
+          failureTailRing = (failureTailRing + preOutput).slice(-failureTailMax);
+          onOutput?.(preOutput);
+          // Re-apply the head+tail truncation if the final append pushed
+          // us over the cap.
+          if (output.length > this.maxOutputSize) {
+            wasTruncated = true;
+            const headSize = Math.floor(this.maxOutputSize * 0.5);
+            output =
+              output.slice(0, headSize) +
+              '\n\n... (output truncated, ' +
+              totalCharsSeen +
+              ' chars total — middle dropped, head and most-recent tail preserved) ...\n\n' +
+              tailRing;
+          }
         }
-        output = preOutput;
         finish(isNaN(exitCode) ? 0 : exitCode);
         return true;
       };
@@ -272,6 +318,7 @@ export class ShellSession {
           output += safe;
           totalCharsSeen += safe.length;
           tailRing = (tailRing + safe).slice(-tailMax);
+          failureTailRing = (failureTailRing + safe).slice(-failureTailMax);
           buffer = buffer.slice(safeLen);
           onOutput?.(safe);
         }
@@ -282,8 +329,11 @@ export class ShellSession {
         // of max) so the command banner / initial progress info is
         // preserved; tail comes from the ring buffer so the latest
         // output is always represented, not whatever the previous
-        // truncation happened to leave behind.
+        // truncation happened to leave behind. If exit code ends up
+        // non-zero, finish() will re-assemble from failureTailRing
+        // instead — see audit cycle-2 MEDIUM #15.
         if (output.length > this.maxOutputSize) {
+          wasTruncated = true;
           const headSize = Math.floor(this.maxOutputSize * 0.5);
           output =
             output.slice(0, headSize) +
