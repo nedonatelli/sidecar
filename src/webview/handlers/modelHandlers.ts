@@ -1,10 +1,20 @@
-import { window } from 'vscode';
+import { window, commands } from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
 import type { ChatState } from '../chatState.js';
 import type { LibraryModelUI } from '../chatWebview.js';
-import { getConfig } from '../../config/settings.js';
+import { getConfig, getHuggingFaceToken } from '../../config/settings.js';
 import { isProviderReachable } from '../../config/providerReachability.js';
 import { modelSupportsTools, probeModelToolSupport, probeAllModelToolSupport } from '../../ollama/ollamaBackend.js';
-import { parseHuggingFaceRef, listGGUFFiles, formatSize } from '../../ollama/huggingface.js';
+import {
+  parseHuggingFaceRef,
+  inspectHFRepo,
+  formatSize,
+  checkKnownGGUFIssues,
+  type HFModelRef,
+  type SafetensorsRepo,
+} from '../../ollama/huggingface.js';
+import { importSafetensorsModel, type ImportProgress, type Quantization } from '../../ollama/hfSafetensorsImport.js';
 import { surfaceProviderError } from '../errorSurface.js';
 
 export async function loadModels(state: ChatState): Promise<void> {
@@ -20,7 +30,11 @@ export async function loadModels(state: ChatState): Promise<void> {
       return;
     }
 
-    const libraryModels = await state.client.listLibraryModels();
+    // The chat UX should only surface models the backend can actually
+    // run *right now*, so we ask for the installed-only view. The
+    // `sidecar.selectModel` command palette picker still uses the
+    // default (with suggestions) for new-user discovery.
+    const libraryModels = await state.client.listLibraryModels({ includeSuggestions: false });
 
     // Probe installed models for tool support via Ollama's /api/show capabilities
     if (state.client.isLocalOllama()) {
@@ -35,6 +49,31 @@ export async function loadModels(state: ChatState): Promise<void> {
     }));
 
     state.postMessage({ command: 'setModels', models: modelsUI });
+
+    // Reconcile the persisted model against what's actually installed.
+    // If `config.model` is stale — e.g. the user typed an HF-style name
+    // into the custom-model input before v0.55 and got it saved without
+    // a matching pull — every chat turn will 404 until they manually
+    // fix it. We don't overwrite the setting silently (a transient
+    // Ollama outage would clobber the user's real preference), but we
+    // warn loudly in the chat so the stale state is visible.
+    if (state.client.isLocalOllama()) {
+      const installed = libraryModels.filter((m) => m.installed).map((m) => m.name);
+      const configBase = config.model.split(':')[0];
+      const hit = installed.some((name) => name === config.model || name.split(':')[0] === configBase);
+      if (!hit && installed.length > 0) {
+        state.postMessage({
+          command: 'assistantMessage',
+          content: `⚠️ Your selected model **${config.model}** is not installed in Ollama. Installed models: ${installed.map((n) => `\`${n}\``).join(', ')}. Pick one from the dropdown or install **${config.model}** to continue.\n\n`,
+        });
+      } else if (!hit && installed.length === 0) {
+        state.postMessage({
+          command: 'assistantMessage',
+          content: `⚠️ No models are installed in Ollama yet. Paste a model name or HuggingFace URL into the custom-model input to get started — try \`Qwen/Qwen2.5-0.5B-Instruct\` for a quick first install.\n\n`,
+        });
+      }
+    }
+
     const supportsTools = modelSupportsTools(config.model);
     state.postMessage({ command: 'setCurrentModel', currentModel: config.model, supportsTools });
   } catch (err) {
@@ -47,54 +86,384 @@ export async function loadModels(state: ChatState): Promise<void> {
   }
 }
 
+/** Quantization options shown in the quick-pick for safetensors imports. */
+const QUANT_OPTIONS: Array<{ label: Quantization; description: string; sizeMultiplier: number }> = [
+  { label: 'q4_K_M', description: 'Recommended — ~4x smaller, minimal quality loss', sizeMultiplier: 0.3 },
+  { label: 'q5_K_M', description: 'Slightly larger, slightly better quality', sizeMultiplier: 0.36 },
+  { label: 'q6_K', description: 'Near-lossless quality, larger file', sizeMultiplier: 0.42 },
+  { label: 'q8_0', description: 'Almost full quality, ~half the original size', sizeMultiplier: 0.55 },
+  { label: 'f16', description: 'No quantization — full original weights', sizeMultiplier: 1.0 },
+];
+
 export async function handleInstallModel(state: ChatState, modelName: string): Promise<void> {
-  // Detect HuggingFace URLs and convert to Ollama pull syntax
   let pullName = modelName;
   const hfRef = parseHuggingFaceRef(modelName);
+
   if (hfRef) {
-    state.postMessage({
-      command: 'assistantMessage',
-      content: `Detected HuggingFace model: **${hfRef.org}/${hfRef.repo}**\nFetching available GGUF files...\n\n`,
-    });
-
-    const ggufFiles = await listGGUFFiles(hfRef);
-
-    if (ggufFiles.length === 0) {
-      // No GGUF files found — pull the repo directly (Ollama will pick the default)
-      pullName = hfRef.ollamaName;
-      state.postMessage({
-        command: 'assistantMessage',
-        content: `No GGUF files found — pulling \`${pullName}\` directly.\n\n`,
-      });
-    } else {
-      // Show VS Code quick pick for quantization selection
-      const items = ggufFiles.map((f) => ({
-        label: f.filename,
-        description: formatSize(f.size),
-        detail: f.ollamaName,
-      }));
-
-      const picked = await window.showQuickPick(items, {
-        placeHolder: `Select a GGUF quantization for ${hfRef.org}/${hfRef.repo} (${ggufFiles.length} files)`,
-        title: 'HuggingFace Model — Choose Quantization',
-      });
-
-      if (!picked) {
-        state.postMessage({
-          command: 'assistantMessage',
-          content: 'Model installation cancelled.\n\n',
-        });
-        return;
-      }
-
-      pullName = picked.detail!;
-      state.postMessage({
-        command: 'assistantMessage',
-        content: `Installing **${picked.label}** (${picked.description})...\n\n`,
-      });
-    }
+    const handled = await handleHuggingFaceInstall(state, hfRef, modelName);
+    if (!handled.shouldFallThroughToPull) return;
+    pullName = handled.pullName;
   }
 
+  await runOllamaPull(state, pullName);
+}
+
+interface HFInstallResult {
+  shouldFallThroughToPull: boolean;
+  pullName: string;
+}
+
+/**
+ * Handle the HuggingFace-specific part of an install: classify the repo,
+ * show any quick-pick UI, and either delegate to the safetensors import
+ * flow (returning `shouldFallThroughToPull: false`) or return a resolved
+ * `pullName` that the plain pull flow will consume.
+ */
+async function handleHuggingFaceInstall(
+  state: ChatState,
+  hfRef: HFModelRef,
+  originalInput: string,
+): Promise<HFInstallResult> {
+  state.postMessage({
+    command: 'assistantMessage',
+    content: hfRef.isExplicit
+      ? `Detected HuggingFace model: **${hfRef.org}/${hfRef.repo}**\nInspecting repo...\n\n`
+      : `Checking if **${hfRef.org}/${hfRef.repo}** is a HuggingFace model...\n\n`,
+  });
+
+  let hfToken = await getHuggingFaceToken();
+  let inspection = await inspectHFRepo(hfRef, { hfToken });
+
+  // If the repo is gated and we don't have a token yet, the first inspection
+  // bails out early (HF's raw config.json endpoint 401s without auth).
+  // Prompt for a token and re-run the classifier once — if the user sets
+  // one, we'll continue normally; if not, we cancel.
+  if (inspection.kind === 'gated-auth-required') {
+    const granted = await promptForHuggingFaceToken(state, hfRef);
+    if (!granted) {
+      return { shouldFallThroughToPull: false, pullName: '' };
+    }
+    hfToken = await getHuggingFaceToken();
+    inspection = await inspectHFRepo(hfRef, { hfToken });
+  }
+
+  if (inspection.kind === 'not-found') {
+    // Bare `org/repo` input that HF doesn't know — could be a legit
+    // Ollama community model like `hhao/qwen2.5-coder`. Fall through
+    // to a plain pull with the user's original string.
+    if (!hfRef.isExplicit) {
+      state.postMessage({
+        command: 'assistantMessage',
+        content: `Not on HuggingFace — trying Ollama registry for **${originalInput}**...\n\n`,
+      });
+      return { shouldFallThroughToPull: true, pullName: originalInput };
+    }
+    state.postMessage({
+      command: 'assistantMessage',
+      content: `**Error:** Repository \`${hfRef.org}/${hfRef.repo}\` was not found on HuggingFace. Double-check the org and repo name — a typo or a model that hasn't been published yet will both land here.\n\n`,
+    });
+    return { shouldFallThroughToPull: false, pullName: '' };
+  }
+
+  if (inspection.kind === 'network-error') {
+    state.postMessage({
+      command: 'assistantMessage',
+      content: `**Error:** Couldn't reach the HuggingFace API (${inspection.message}). Check your internet connection and try again.\n\n`,
+    });
+    return { shouldFallThroughToPull: false, pullName: '' };
+  }
+
+  if (inspection.kind === 'no-weights') {
+    state.postMessage({
+      command: 'assistantMessage',
+      content: `**Error:** \`${hfRef.org}/${hfRef.repo}\` publishes no weight files SideCar knows how to install (no \`.gguf\` or \`.safetensors\`). If this is a PyTorch-only repo, look for a community mirror like \`bartowski/${hfRef.repo}-GGUF\`.\n\n`,
+    });
+    return { shouldFallThroughToPull: false, pullName: '' };
+  }
+
+  if (inspection.kind === 'unsupported-arch') {
+    state.postMessage({
+      command: 'assistantMessage',
+      content: `**Error:** \`${hfRef.org}/${hfRef.repo}\` uses architecture \`${inspection.architecture}\`, which llama.cpp's GGUF converter doesn't support yet. Look for a community GGUF conversion — e.g. \`bartowski/${hfRef.repo}-GGUF\` or \`unsloth/${hfRef.repo}-GGUF\` — and try again with that URL.\n\n`,
+    });
+    return { shouldFallThroughToPull: false, pullName: '' };
+  }
+
+  if (inspection.kind === 'gated-auth-required') {
+    // User declined to set a token, or the follow-up inspection still
+    // returned gated — either way, we can't proceed.
+    state.postMessage({
+      command: 'assistantMessage',
+      content: `**Error:** \`${hfRef.org}/${hfRef.repo}\` is gated and requires a HuggingFace access token. Run **SideCar: Set / Clear HuggingFace Token** and try again.\n\n`,
+    });
+    return { shouldFallThroughToPull: false, pullName: '' };
+  }
+
+  if (inspection.kind === 'gguf') {
+    const ggufWarning = checkKnownGGUFIssues(hfRef.repo);
+    if (ggufWarning) {
+      const choice = await window.showWarningMessage(
+        `${hfRef.org}/${hfRef.repo} may not load in Ollama after pulling.`,
+        { modal: true, detail: ggufWarning },
+        'Pull Anyway',
+        'Cancel',
+      );
+      if (choice !== 'Pull Anyway') {
+        state.postMessage({
+          command: 'assistantMessage',
+          content: `Model installation cancelled. Try \`ollama pull qwen3.5\` from the terminal for the official library version.\n\n`,
+        });
+        return { shouldFallThroughToPull: false, pullName: '' };
+      }
+    }
+
+    const pullName = await pickGGUFFile(state, hfRef, inspection.files);
+    if (pullName === null) {
+      return { shouldFallThroughToPull: false, pullName: '' };
+    }
+    return { shouldFallThroughToPull: true, pullName };
+  }
+
+  // inspection.kind === 'safetensors' — run the convert-and-import flow.
+  await runSafetensorsImport(state, hfRef, inspection.repo, hfToken);
+  return { shouldFallThroughToPull: false, pullName: '' };
+}
+
+/**
+ * Show a modal prompt explaining the repo is gated and launch the
+ * `sidecar.setHuggingFaceToken` command if the user agrees. Returns true
+ * if a token is now present in SecretStorage, false if the user cancelled
+ * or didn't actually enter one.
+ */
+async function promptForHuggingFaceToken(state: ChatState, hfRef: HFModelRef): Promise<boolean> {
+  const choice = await window.showWarningMessage(
+    `${hfRef.org}/${hfRef.repo} is a gated model. SideCar needs a HuggingFace access token to download it.`,
+    { modal: true, detail: 'Get one at https://huggingface.co/settings/tokens (read access is enough).' },
+    'Set Token',
+    'Cancel',
+  );
+  if (choice !== 'Set Token') {
+    state.postMessage({ command: 'assistantMessage', content: 'Model installation cancelled.\n\n' });
+    return false;
+  }
+  await commands.executeCommand('sidecar.setHuggingFaceToken');
+  const token = await getHuggingFaceToken();
+  return Boolean(token);
+}
+
+/**
+ * Show a quick-pick for GGUF quantizations, stream a confirmation message,
+ * and return the resolved Ollama pull name. Returns null if the user cancels.
+ */
+async function pickGGUFFile(
+  state: ChatState,
+  hfRef: HFModelRef,
+  files: Array<{ filename: string; size: number; ollamaName: string }>,
+): Promise<string | null> {
+  const items = files.map((f) => ({
+    label: f.filename,
+    description: formatSize(f.size),
+    detail: f.ollamaName,
+  }));
+
+  const picked = await window.showQuickPick(items, {
+    placeHolder: `Select a GGUF quantization for ${hfRef.org}/${hfRef.repo} (${files.length} files)`,
+    title: 'HuggingFace Model — Choose Quantization',
+  });
+
+  if (!picked) {
+    state.postMessage({ command: 'assistantMessage', content: 'Model installation cancelled.\n\n' });
+    return null;
+  }
+
+  state.postMessage({
+    command: 'assistantMessage',
+    content: `Installing **${picked.label}** (${picked.description})...\n\n`,
+  });
+  return picked.detail!;
+}
+
+/**
+ * Run the full safetensors → GGUF import flow: pick a quantization,
+ * download the weights, shell out to `ollama create`, and reload the
+ * model list at the end. The caller (`handleHuggingFaceInstall`) has
+ * already resolved any gated-repo token prompts before we get here.
+ */
+async function runSafetensorsImport(
+  state: ChatState,
+  hfRef: HFModelRef,
+  repo: SafetensorsRepo,
+  hfToken: string | undefined,
+): Promise<void> {
+  // Pick a quantization. Show the estimated final size so the user can
+  // pick between "small and fast" and "full-fidelity but huge".
+  const quantItems = QUANT_OPTIONS.map((q) => ({
+    label: q.label,
+    description: `~${formatSize(repo.totalBytes * q.sizeMultiplier)} final size`,
+    detail: q.description,
+    quant: q.label,
+  }));
+  const pickedQuant = await window.showQuickPick(quantItems, {
+    placeHolder: `Choose a quantization for ${hfRef.org}/${hfRef.repo} (${formatSize(repo.totalBytes)} download)`,
+    title: 'HuggingFace Safetensors — Choose Quantization',
+  });
+  if (!pickedQuant) {
+    state.postMessage({ command: 'assistantMessage', content: 'Model installation cancelled.\n\n' });
+    return;
+  }
+
+  // Stage directory lives under globalStorage so it survives workspace
+  // switches but isn't committed to any project. Uses the extension's
+  // own storage space per the "don't use .sidecar/ for generated state" rule.
+  const stagingDir = path.join(state.context.globalStorageUri.fsPath, 'hf-imports', `${hfRef.org}__${hfRef.repo}`);
+  fs.mkdirSync(stagingDir, { recursive: true });
+
+  // Disk-space preflight: converters typically write a temp buffer roughly
+  // the same size as the weights, so require 2x. Fail loudly rather than
+  // crashing mid-convert.
+  try {
+    const stat = fs.statfsSync(stagingDir);
+    const freeBytes = Number(stat.bavail) * Number(stat.bsize);
+    const requiredBytes = repo.totalBytes * 2;
+    if (freeBytes < requiredBytes) {
+      state.postMessage({
+        command: 'assistantMessage',
+        content: `**Error:** Not enough free disk space. Need ~${formatSize(requiredBytes)}, have ${formatSize(freeBytes)} available in ${stagingDir}. Free some space and try again.\n\n`,
+      });
+      return;
+    }
+  } catch {
+    // `statfs` is Node 18.15+ but may fail on unusual filesystems — skip
+    // the preflight silently rather than blocking the install.
+  }
+
+  state.postMessage({
+    command: 'assistantMessage',
+    content: `Downloading **${hfRef.org}/${hfRef.repo}** (${formatSize(repo.totalBytes)}) and converting to GGUF with quantization \`${pickedQuant.quant}\`. This can take 5–30 minutes depending on model size and hardware.\n\n`,
+  });
+
+  state.installAbortController = new AbortController();
+  const ollamaName = `hf.co/${hfRef.org}/${hfRef.repo}`;
+
+  try {
+    state.postMessage({ command: 'installProgress', modelName: ollamaName, progress: 'Preparing download...' });
+
+    for await (const event of importSafetensorsModel({
+      ref: hfRef,
+      repo,
+      quantization: pickedQuant.quant,
+      hfToken,
+      stagingDir,
+      ollamaName,
+      signal: state.installAbortController.signal,
+    })) {
+      state.postMessage({
+        command: 'installProgress',
+        modelName: ollamaName,
+        progress: renderImportProgress(event),
+      });
+    }
+
+    state.client.updateModel(ollamaName);
+    state.postMessage({ command: 'installComplete', modelName: ollamaName });
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    if (state.client.isLocalOllama()) {
+      const hasTools = await probeModelToolSupport(getConfig().baseUrl, ollamaName);
+      if (!hasTools) {
+        state.postMessage({
+          command: 'assistantMessage',
+          content: `ℹ️ **${ollamaName}** does not support tool use. You can use it for chat, code explanation, and refactoring suggestions — but agent mode (autonomous code changes) won't be available with this model.\n\n`,
+        });
+      }
+    }
+
+    state.postMessage({ command: 'setCurrentModel', currentModel: ollamaName });
+    await loadModels(state);
+  } catch (err) {
+    if (err instanceof Error && (err.name === 'AbortError' || err.message === 'Aborted')) {
+      state.postMessage({ command: 'installComplete', modelName: ollamaName });
+      state.postMessage({
+        command: 'assistantMessage',
+        content: `Install cancelled. Partially downloaded files are kept in \`${stagingDir}\` so a retry can resume where you left off.\n\n`,
+      });
+      return;
+    }
+    state.postMessage({
+      command: 'error',
+      content: `Failed to install ${ollamaName}: ${err instanceof Error ? err.message : String(err)}`,
+    });
+  } finally {
+    state.installAbortController = null;
+  }
+}
+
+/** Render an ImportProgress event as a single-line progress string for the webview. */
+function renderImportProgress(event: ImportProgress): string {
+  switch (event.phase) {
+    case 'download': {
+      const { overallCompleted, overallTotal, file } = event;
+      const percent = overallTotal > 0 ? Math.round((overallCompleted / overallTotal) * 100) : 0;
+      const bar = `[${'█'.repeat(Math.round(percent / 5))}${'░'.repeat(20 - Math.round(percent / 5))}]`;
+      const completedGB = (overallCompleted / 1024 / 1024 / 1024).toFixed(2);
+      const totalGB = (overallTotal / 1024 / 1024 / 1024).toFixed(2);
+      const shortFile = file.split('/').pop() ?? file;
+      return `${bar} ${percent}% (${completedGB}GB / ${totalGB}GB) — downloading ${shortFile}`;
+    }
+    case 'convert':
+      return `Converting to GGUF — ${event.line}`;
+    case 'cleanup':
+      return 'Cleaning up staging files...';
+    case 'done':
+      return 'Installed.';
+  }
+}
+
+/**
+ * Try to load a model into Ollama's inference engine. Returns null on success
+ * or an error message string if the model fails to load (e.g. unsupported
+ * architecture in HF-sourced GGUFs). This catches the class of bugs where
+ * `ollama pull` succeeds but the model can't actually run.
+ */
+async function verifyModelLoads(baseUrl: string, model: string): Promise<string | null> {
+  try {
+    const response = await fetch(`${baseUrl}/api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, prompt: '', keep_alive: '30s' }),
+      signal: AbortSignal.timeout(30000),
+    });
+    if (response.ok) return null;
+
+    let detail = `${response.status} ${response.statusText}`;
+    try {
+      const body = (await response.json()) as { error?: string };
+      if (body.error) detail = body.error;
+    } catch {
+      /* use status line */
+    }
+
+    if (response.status === 500 && detail.includes('unable to load model')) {
+      return (
+        `Ollama pulled the model successfully but cannot load it: ${detail}\n\n` +
+        'This usually means the GGUF was built with a model architecture that ' +
+        "Ollama's engine doesn't fully support for HuggingFace imports yet. " +
+        'Check if an official Ollama library version exists (e.g. `ollama pull qwen3.5`).'
+      );
+    }
+    return `Model verification failed: ${detail}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Run `ollama pull` against a resolved pull name. This is the plain-vanilla
+ * path used for both direct Ollama library models and GGUF HuggingFace repos
+ * (after `pickGGUFFile` has resolved the user's quantization choice).
+ */
+async function runOllamaPull(state: ChatState, pullName: string): Promise<void> {
   state.installAbortController = new AbortController();
 
   try {
@@ -105,7 +474,6 @@ export async function handleInstallModel(state: ChatState, modelName: string): P
     });
 
     for await (const progress of state.client.pullModel(pullName, state.installAbortController.signal)) {
-      // Format progress message with percentage, size, and status
       let progressMessage = progress.status;
 
       if (progress.total && progress.completed !== undefined) {
@@ -115,7 +483,6 @@ export async function handleInstallModel(state: ChatState, modelName: string): P
         const progressBar = `[${'█'.repeat(Math.round(percent / 5))}${'░'.repeat(20 - Math.round(percent / 5))}]`;
         progressMessage = `${progressBar} ${percent}% (${completedMB}MB / ${totalMB}MB) — ${progress.status}`;
       } else if (progress.total && progress.completed === undefined) {
-        // Layer download starting
         const totalMB = (progress.total / 1024 / 1024).toFixed(1);
         progressMessage = `📥 ${progressMessage} (${totalMB}MB)`;
       }
@@ -127,13 +494,25 @@ export async function handleInstallModel(state: ChatState, modelName: string): P
       });
     }
 
+    state.postMessage({ command: 'installProgress', modelName: pullName, progress: 'Verifying model loads...' });
+
+    if (state.client.isLocalOllama()) {
+      const loadError = await verifyModelLoads(getConfig().baseUrl, pullName);
+      if (loadError) {
+        state.postMessage({ command: 'installComplete', modelName: pullName });
+        state.postMessage({
+          command: 'assistantMessage',
+          content: `**Warning:** ${loadError}\n\n`,
+        });
+        return;
+      }
+    }
+
     state.client.updateModel(pullName);
     state.postMessage({ command: 'installComplete', modelName: pullName });
 
-    // Give Ollama a moment to register the newly installed model
     await new Promise((resolve) => setTimeout(resolve, 500));
 
-    // Probe the newly installed model for tool support
     if (state.client.isLocalOllama()) {
       const hasTools = await probeModelToolSupport(getConfig().baseUrl, pullName);
       if (!hasTools) {
@@ -145,8 +524,6 @@ export async function handleInstallModel(state: ChatState, modelName: string): P
     }
 
     state.postMessage({ command: 'setCurrentModel', currentModel: pullName });
-
-    // Reload model list to show the newly installed model in dropdown
     await loadModels(state);
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
