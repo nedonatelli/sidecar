@@ -1,3 +1,6 @@
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 import type { ApiBackend } from './backend.js';
 import type { ChatMessage, ContentBlock, ToolDefinition, StreamEvent } from './types.js';
 import { fetchWithRetry } from './retry.js';
@@ -5,6 +8,25 @@ import { streamOpenAiSse } from './openAiSseStream.js';
 import { RateLimitStore, maybeWaitForRateLimit } from './rateLimitState.js';
 import { parseOpenAIRateLimitHeaders } from './rateLimitHeaders.js';
 import { CHARS_PER_TOKEN } from '../config/constants.js';
+
+/**
+ * Read the auto-generated Kickstand bearer token from the well-known
+ * file path (`~/.config/kickstand/token`). Kickstand creates this file
+ * on first run — SideCar reads it silently so the user never has to
+ * copy-paste a key. Returns an empty string if the file doesn't exist
+ * (e.g. Kickstand hasn't been started yet).
+ */
+function readKickstandToken(): string {
+  try {
+    const tokenPath = path.join(os.homedir(), '.config', 'kickstand', 'token');
+    if (fs.existsSync(tokenPath)) {
+      return fs.readFileSync(tokenPath, 'utf-8').trim();
+    }
+  } catch {
+    // Token file not found or unreadable — Kickstand may not be installed
+  }
+  return '';
+}
 
 const MAX_RATE_LIMIT_WAIT_MS = 60_000;
 
@@ -132,9 +154,12 @@ export class KickstandBackend implements ApiBackend {
   }
 
   private getHeaders(): Record<string, string> {
-    return {
-      'Content-Type': 'application/json',
-    };
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const token = readKickstandToken();
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    return headers;
   }
 
   async *streamChat(
