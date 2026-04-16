@@ -269,3 +269,147 @@ export class KickstandBackend implements ApiBackend {
     return data.choices[0]?.message?.content || '';
   }
 }
+
+// ---------------------------------------------------------------------------
+// Kickstand model management (pull, load, unload, registry list)
+// ---------------------------------------------------------------------------
+
+function kickstandHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const token = readKickstandToken();
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  return headers;
+}
+
+/** Progress event emitted by {@link kickstandPullModel}. */
+export interface KickstandPullEvent {
+  status: 'downloading' | 'done' | 'error';
+  repo?: string;
+  filename?: string;
+  format?: string;
+  local_path?: string;
+  message?: string;
+}
+
+/**
+ * Pull a model from HuggingFace via Kickstand's `/api/v1/models/pull` SSE
+ * endpoint. Yields progress events as they arrive. The caller should
+ * display status updates and stop on `done` or `error`.
+ */
+export async function* kickstandPullModel(
+  baseUrl: string,
+  repo: string,
+  filename?: string,
+  hfToken?: string,
+  signal?: AbortSignal,
+): AsyncGenerator<KickstandPullEvent> {
+  const url = `${baseUrl.replace(/\/+$/, '')}/api/v1/models/pull`;
+  const body: Record<string, unknown> = { repo };
+  if (filename) body.filename = filename;
+  if (hfToken) body.token = hfToken;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: kickstandHeaders(),
+    body: JSON.stringify(body),
+    signal,
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    yield { status: 'error', message: `Kickstand pull failed (${response.status}): ${text}` };
+    return;
+  }
+
+  if (!response.body) {
+    yield { status: 'error', message: 'Kickstand returned an empty response body' };
+    return;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith('data:')) continue;
+        const json = trimmed.slice(5).trim();
+        if (!json) continue;
+        try {
+          yield JSON.parse(json) as KickstandPullEvent;
+        } catch {
+          // skip malformed SSE lines
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+/** Model entry from Kickstand's registry list. */
+export interface KickstandRegistryModel {
+  model_id: string;
+  hf_repo: string;
+  filename: string;
+  quant: string | null;
+  size_bytes: number | null;
+  local_path: string;
+  status: 'ready' | 'downloading' | 'error';
+  format: 'gguf' | 'mlx';
+  loaded: boolean;
+}
+
+/** List all models in Kickstand's registry (downloaded + loaded state). */
+export async function kickstandListRegistry(baseUrl: string): Promise<KickstandRegistryModel[]> {
+  const url = `${baseUrl.replace(/\/+$/, '')}/api/v1/models`;
+  const response = await fetch(url, { headers: kickstandHeaders(), signal: AbortSignal.timeout(5000) });
+  if (!response.ok) return [];
+  return (await response.json()) as KickstandRegistryModel[];
+}
+
+/** Load a model into GPU memory. */
+export async function kickstandLoadModel(
+  baseUrl: string,
+  modelId: string,
+  opts: { n_gpu_layers?: number; n_ctx?: number } = {},
+): Promise<{ status: string; model_id: string; socket?: string }> {
+  const url = `${baseUrl.replace(/\/+$/, '')}/api/v1/models/${encodeURIComponent(modelId)}/load`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: kickstandHeaders(),
+    body: JSON.stringify({ n_gpu_layers: opts.n_gpu_layers ?? -1, n_ctx: opts.n_ctx ?? 4096 }),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`Kickstand load failed (${response.status}): ${text}`);
+  }
+  return response.json();
+}
+
+/** Unload a model from GPU memory. */
+export async function kickstandUnloadModel(
+  baseUrl: string,
+  modelId: string,
+): Promise<{ status: string; model_id: string }> {
+  const url = `${baseUrl.replace(/\/+$/, '')}/api/v1/models/${encodeURIComponent(modelId)}/unload`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: kickstandHeaders(),
+    body: '{}',
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`Kickstand unload failed (${response.status}): ${text}`);
+  }
+  return response.json();
+}

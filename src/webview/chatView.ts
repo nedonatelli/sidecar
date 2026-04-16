@@ -305,6 +305,18 @@ export class ChatViewProvider implements WebviewViewProvider {
     switchBackend: async (msg) => {
       await commands.executeCommand('sidecar.switchBackend', msg.profileId);
     },
+    kickstandLoad: async (msg) => {
+      if (msg.modelId) {
+        const { handleKickstandLoadModel } = await import('./handlers/modelHandlers.js');
+        await handleKickstandLoadModel(this.state, msg.modelId);
+      }
+    },
+    kickstandUnload: async (msg) => {
+      if (msg.modelId) {
+        const { handleKickstandUnloadModel } = await import('./handlers/modelHandlers.js');
+        await handleKickstandUnloadModel(this.state, msg.modelId);
+      }
+    },
     scanStaged: async () => {
       await commands.executeCommand('sidecar.scanStaged');
     },

@@ -62,6 +62,8 @@ export interface WebviewMessage {
     | 'bgList'
     | 'bgExpand'
     | 'switchBackend'
+    | 'kickstandLoad'
+    | 'kickstandUnload'
     | 'droppedPaths'
     | 'executeExtensionCommand';
   images?: { mediaType: string; data: string }[];
@@ -71,6 +73,7 @@ export interface WebviewMessage {
   confirmId?: string;
   confirmed?: boolean;
   profileId?: string;
+  modelId?: string;
   code?: string;
   language?: string;
   filePath?: string;

@@ -4,10 +4,27 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.56.0] - 2026-04-16
+
+Kickstand QoL release — first-class model management for the Kickstand backend, plus fixes for the Ollama HF import path.
+
 ### Added
 
-- **Post-pull warmup verification.** After `ollama pull` completes, SideCar now attempts to load the model via `/api/generate` before declaring success. If Ollama returns a 500 (e.g. unsupported architecture in an HF-sourced GGUF), the error is surfaced immediately with a clear diagnostic instead of failing silently on the first chat message.
-- **Known-problematic HF GGUF detection.** SideCar now recognises GGUF repos that are known to fail at load time due to metadata incompatibilities with Ollama's engine. Currently covers Qwen3.5 — HuggingFace-sourced GGUFs encode `head_count_kv` as a scalar while Ollama expects an array. Users see a modal warning with a suggestion to use the official library model (`ollama pull qwen3.5`) before downloading tens of gigabytes, with a "Pull Anyway" escape hatch.
+- **Kickstand model pull.** Typing a HuggingFace repo name (e.g. `Qwen/Qwen2.5-0.5B-Instruct-GGUF`) into the model input on the Kickstand backend now pulls the model via Kickstand's `/api/v1/models/pull` SSE endpoint with real-time progress, then auto-loads it into GPU memory. Previously, non-Ollama backends silently set the model name without downloading anything.
+- **Kickstand load / unload.** New `kickstandLoad` and `kickstandUnload` webview message handlers let the chat UI load downloaded models into GPU memory or free VRAM by unloading them. Backed by Kickstand's `/api/v1/models/{id}/load` and `/unload` endpoints.
+- **No-model onboarding prompt.** After switching backends, if no models are available, SideCar now shows a provider-specific hint (e.g. "Paste a HuggingFace repo name" for Kickstand, "Run `ollama pull`" for Ollama) instead of silently landing on an empty model name.
+- **Post-pull warmup verification.** After `ollama pull` completes, SideCar attempts to load the model via `/api/generate` before declaring success. If Ollama returns a 500 (e.g. unsupported architecture in an HF-sourced GGUF), the error is surfaced immediately instead of failing silently on the first chat message.
+- **Known-problematic HF GGUF detection.** SideCar now recognises GGUF repos known to fail at load time due to metadata incompatibilities with Ollama's engine. Currently covers Qwen3.5, with a modal warning and suggestion to use the official library model before downloading.
+
+### Fixed
+
+- **Kickstand auth flow.** SideCar no longer prompts for an API key when switching to Kickstand. The auto-generated bearer token (`~/.config/kickstand/token`) is read silently by `KickstandBackend`. The profile's `secretKey` is now `null`, and `readKickstandToken` was removed from settings.ts — the token lives entirely inside the backend module.
+- **HF inspection skipped for non-Ollama backends.** Typing a model name like `google/gemma-4-26B-A4B` on the Kickstand backend no longer triggers HuggingFace repo inspection and the misleading "unsupported architecture" error. The HF classifier is gated on `isLocalOllama()`.
+- **Model reconciliation on backend switch.** Switching backends now queries the new backend for available models and auto-selects the first one, instead of keeping the previous backend's model name (which would 404 on every chat request).
+
+### Changed
+
+- **Kickstand profile label.** Renamed from "Kickstand (coming soon)" to "Kickstand" with an updated description.
 
 ## [0.55.0] - 2026-04-15
 

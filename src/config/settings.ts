@@ -178,13 +178,13 @@ export const BUILT_IN_BACKEND_PROFILES: readonly BackendProfile[] = [
   },
   {
     id: 'kickstand',
-    name: 'Kickstand (coming soon)',
+    name: 'Kickstand',
     provider: 'kickstand',
     baseUrl: 'http://localhost:11435',
     defaultModel: '',
     secretKey: null,
     description:
-      'Self-hosted Kickstand LLM client backend — not yet officially released. The backend code ships today for anyone running a local dev build, but the first-party Kickstand release is still in progress.',
+      'Self-hosted Kickstand LLM client backend — manage, load, and run GGUF and MLX models locally with GPU acceleration. No API key required; SideCar reads the auto-generated token automatically.',
   },
 ] as const;
 

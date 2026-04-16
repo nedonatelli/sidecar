@@ -15,6 +15,12 @@ import {
   type SafetensorsRepo,
 } from '../../ollama/huggingface.js';
 import { importSafetensorsModel, type ImportProgress, type Quantization } from '../../ollama/hfSafetensorsImport.js';
+import {
+  kickstandPullModel,
+  kickstandLoadModel,
+  kickstandListRegistry,
+  kickstandUnloadModel,
+} from '../../ollama/kickstandBackend.js';
 import { surfaceProviderError } from '../errorSurface.js';
 
 export async function loadModels(state: ChatState): Promise<void> {
@@ -114,7 +120,14 @@ export async function handleInstallModel(state: ChatState, modelName: string): P
     return;
   }
 
-  // Non-Ollama backends: just pass the model name to the client directly.
+  // Kickstand backend: pull from HuggingFace via Kickstand's own API,
+  // then load the model into GPU memory.
+  if (state.client.getProviderType() === 'kickstand') {
+    await runKickstandInstall(state, modelName);
+    return;
+  }
+
+  // Other non-Ollama backends: just pass the model name to the client directly.
   state.client.updateModel(modelName);
   state.postMessage({ command: 'setCurrentModel', currentModel: modelName });
   await loadModels(state);
@@ -469,6 +482,194 @@ async function verifyModelLoads(baseUrl: string, model: string): Promise<string 
     return null;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Kickstand install (pull + load)
+// ---------------------------------------------------------------------------
+
+/**
+ * Install a model via Kickstand: pull from HuggingFace, then load into GPU.
+ *
+ * The input can be:
+ * - A bare HF repo (`google/gemma-4-26B-A4B`) — Kickstand treats it as an MLX pull
+ * - A repo + GGUF filename (`Qwen/Qwen2.5-0.5B-Instruct-GGUF/qwen2.5-0.5b-instruct-q4_k_m.gguf`)
+ * - Just a repo name for a GGUF repo — we let the user pick a file
+ */
+async function runKickstandInstall(state: ChatState, modelName: string): Promise<void> {
+  const config = getConfig();
+  const baseUrl = config.baseUrl;
+
+  // Check if the model is already in the registry
+  try {
+    const registry = await kickstandListRegistry(baseUrl);
+    const existing = registry.find((m) => m.model_id === modelName || m.hf_repo === modelName);
+    if (existing && existing.status === 'ready') {
+      if (existing.loaded) {
+        state.postMessage({
+          command: 'assistantMessage',
+          content: `**${existing.model_id}** is already loaded and ready to use.\n\n`,
+        });
+        state.client.updateModel(existing.model_id);
+        state.postMessage({ command: 'setCurrentModel', currentModel: existing.model_id });
+        return;
+      }
+      // Model downloaded but not loaded — load it
+      state.postMessage({
+        command: 'assistantMessage',
+        content: `**${existing.model_id}** is downloaded. Loading into GPU...\n\n`,
+      });
+      try {
+        await kickstandLoadModel(baseUrl, existing.model_id);
+        state.client.updateModel(existing.model_id);
+        state.postMessage({ command: 'setCurrentModel', currentModel: existing.model_id });
+        state.postMessage({
+          command: 'assistantMessage',
+          content: `**${existing.model_id}** loaded successfully.\n\n`,
+        });
+      } catch (err) {
+        state.postMessage({
+          command: 'error',
+          content: `Failed to load ${existing.model_id}: ${err instanceof Error ? err.message : String(err)}`,
+        });
+      }
+      await loadModels(state);
+      return;
+    }
+  } catch {
+    // Registry unreachable — fall through to pull
+  }
+
+  // Pull the model from HuggingFace via Kickstand
+  // Parse repo vs repo/filename
+  const parts = modelName.split('/');
+  let repo: string;
+  let filename: string | undefined;
+  if (parts.length >= 3) {
+    // e.g. "Qwen/Qwen2.5-0.5B-Instruct-GGUF/qwen2.5-0.5b-instruct-q4_k_m.gguf"
+    repo = `${parts[0]}/${parts[1]}`;
+    filename = parts.slice(2).join('/');
+  } else {
+    repo = modelName;
+  }
+
+  state.postMessage({
+    command: 'assistantMessage',
+    content: `Pulling **${modelName}** via Kickstand...\n\n`,
+  });
+  state.postMessage({ command: 'installProgress', modelName, progress: 'Starting pull...' });
+
+  state.installAbortController = new AbortController();
+
+  try {
+    let modelId = modelName;
+
+    for await (const event of kickstandPullModel(
+      baseUrl,
+      repo,
+      filename,
+      undefined,
+      state.installAbortController.signal,
+    )) {
+      if (event.status === 'downloading') {
+        state.postMessage({
+          command: 'installProgress',
+          modelName,
+          progress: `Downloading ${event.format ?? ''} from ${event.repo ?? repo}...`,
+        });
+      } else if (event.status === 'done') {
+        state.postMessage({ command: 'installProgress', modelName, progress: 'Download complete.' });
+        // The local_path tells us the model_id for loading
+        if (event.local_path) {
+          // Re-read registry to find the model_id
+          const registry = await kickstandListRegistry(baseUrl);
+          const pulled = registry.find((m) => m.local_path === event.local_path);
+          if (pulled) modelId = pulled.model_id;
+        }
+      } else if (event.status === 'error') {
+        state.postMessage({ command: 'installComplete', modelName });
+        state.postMessage({
+          command: 'error',
+          content: `Kickstand pull failed: ${event.message ?? 'unknown error'}`,
+        });
+        return;
+      }
+    }
+
+    // Auto-load after successful pull
+    state.postMessage({ command: 'installProgress', modelName, progress: 'Loading model into GPU...' });
+    try {
+      await kickstandLoadModel(baseUrl, modelId);
+    } catch (err) {
+      state.postMessage({ command: 'installComplete', modelName });
+      state.postMessage({
+        command: 'assistantMessage',
+        content: `**Warning:** Model pulled successfully but failed to load: ${err instanceof Error ? err.message : String(err)}\n\nThe model is downloaded — you can try loading it manually.\n\n`,
+      });
+      await loadModels(state);
+      return;
+    }
+
+    state.client.updateModel(modelId);
+    state.postMessage({ command: 'installComplete', modelName: modelId });
+    state.postMessage({ command: 'setCurrentModel', currentModel: modelId });
+    state.postMessage({
+      command: 'assistantMessage',
+      content: `**${modelId}** installed and loaded.\n\n`,
+    });
+    await loadModels(state);
+  } catch (err) {
+    if (err instanceof Error && (err.name === 'AbortError' || err.message === 'Aborted')) {
+      state.postMessage({ command: 'installComplete', modelName });
+      return;
+    }
+    state.postMessage({
+      command: 'error',
+      content: `Failed to install ${modelName}: ${err instanceof Error ? err.message : String(err)}`,
+    });
+  } finally {
+    state.installAbortController = null;
+  }
+}
+
+/**
+ * Load or unload a Kickstand model from the chat UI.
+ * Exported so webview message handlers can call them directly.
+ */
+export async function handleKickstandLoadModel(state: ChatState, modelId: string): Promise<void> {
+  const config = getConfig();
+  state.postMessage({ command: 'assistantMessage', content: `Loading **${modelId}** into GPU...\n\n` });
+  try {
+    await kickstandLoadModel(config.baseUrl, modelId);
+    state.client.updateModel(modelId);
+    state.postMessage({ command: 'setCurrentModel', currentModel: modelId });
+    state.postMessage({ command: 'assistantMessage', content: `**${modelId}** loaded.\n\n` });
+  } catch (err) {
+    state.postMessage({
+      command: 'error',
+      content: `Failed to load ${modelId}: ${err instanceof Error ? err.message : String(err)}`,
+    });
+  }
+  await loadModels(state);
+}
+
+export async function handleKickstandUnloadModel(state: ChatState, modelId: string): Promise<void> {
+  const config = getConfig();
+  state.postMessage({ command: 'assistantMessage', content: `Unloading **${modelId}**...\n\n` });
+  try {
+    await kickstandUnloadModel(config.baseUrl, modelId);
+    state.postMessage({ command: 'assistantMessage', content: `**${modelId}** unloaded.\n\n` });
+  } catch (err) {
+    state.postMessage({
+      command: 'error',
+      content: `Failed to unload ${modelId}: ${err instanceof Error ? err.message : String(err)}`,
+    });
+  }
+  await loadModels(state);
+}
+
+// ---------------------------------------------------------------------------
+// Ollama pull
+// ---------------------------------------------------------------------------
 
 /**
  * Run `ollama pull` against a resolved pull name. This is the plain-vanilla

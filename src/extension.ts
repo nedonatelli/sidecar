@@ -440,6 +440,14 @@ export function activate(context: ExtensionContext) {
             await chatProvider.setModel(best);
           } else if (!hit && models.length === 0) {
             await workspace.getConfiguration('sidecar').update('model', '', true);
+            const providerType = chatProvider.client.getProviderType();
+            const hint =
+              providerType === 'kickstand'
+                ? 'Paste a HuggingFace repo name (e.g. `Qwen/Qwen2.5-0.5B-Instruct-GGUF`) into the model input to pull and load it.'
+                : providerType === 'ollama'
+                  ? 'Run `ollama pull <model>` from the terminal or paste a model name into the model input.'
+                  : 'Enter a model name in the model input to get started.';
+            window.showInformationMessage(`SideCar: No models available on ${profile!.name}. ${hint}`);
           }
         } catch {
           // Backend unreachable — loadModels will surface a connection error

@@ -55,7 +55,7 @@ vi.mock('../../config/settings.js', () => ({
     },
     {
       id: 'kickstand',
-      name: 'Kickstand (coming soon)',
+      name: 'Kickstand',
       provider: 'kickstand',
       baseUrl: 'http://localhost:11435',
       defaultModel: '',
