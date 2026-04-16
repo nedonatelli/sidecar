@@ -96,16 +96,28 @@ const QUANT_OPTIONS: Array<{ label: Quantization; description: string; sizeMulti
 ];
 
 export async function handleInstallModel(state: ChatState, modelName: string): Promise<void> {
-  let pullName = modelName;
-  const hfRef = parseHuggingFaceRef(modelName);
+  // The HuggingFace inspection + safetensors/GGUF classification flow
+  // only applies to local Ollama. Other backends (Kickstand, Anthropic,
+  // OpenRouter, etc.) have their own model management and don't need
+  // HF repo analysis — just pass the name through to the pull/load API.
+  if (state.client.isLocalOllama()) {
+    let pullName = modelName;
+    const hfRef = parseHuggingFaceRef(modelName);
 
-  if (hfRef) {
-    const handled = await handleHuggingFaceInstall(state, hfRef, modelName);
-    if (!handled.shouldFallThroughToPull) return;
-    pullName = handled.pullName;
+    if (hfRef) {
+      const handled = await handleHuggingFaceInstall(state, hfRef, modelName);
+      if (!handled.shouldFallThroughToPull) return;
+      pullName = handled.pullName;
+    }
+
+    await runOllamaPull(state, pullName);
+    return;
   }
 
-  await runOllamaPull(state, pullName);
+  // Non-Ollama backends: just pass the model name to the client directly.
+  state.client.updateModel(modelName);
+  state.postMessage({ command: 'setCurrentModel', currentModel: modelName });
+  await loadModels(state);
 }
 
 interface HFInstallResult {

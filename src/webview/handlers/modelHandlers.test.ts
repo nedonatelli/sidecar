@@ -186,7 +186,6 @@ describe('handleInstallModel', () => {
 
     const state = mockState();
     state.client.pullModel = vi.fn().mockReturnValue(mockPull());
-    state.client.isLocalOllama = vi.fn().mockReturnValue(false); // skip tool probe
 
     mockFetch.mockResolvedValue({ ok: true, json: async () => ({}) });
     state.client.listLibraryModels = vi.fn().mockResolvedValue([]);
@@ -322,7 +321,6 @@ describe('handleInstallModel', () => {
   it('invokes safetensors import when repo has a supported architecture', async () => {
     const state = mockState();
     state.client.pullModel = vi.fn();
-    state.client.isLocalOllama = vi.fn().mockReturnValue(false); // skip tool probe
     state.client.listLibraryModels = vi.fn().mockResolvedValue([]);
 
     mockHFInfo([
@@ -381,7 +379,6 @@ describe('handleInstallModel', () => {
 
     const state = mockState();
     state.client.pullModel = vi.fn().mockReturnValue(mockPull());
-    state.client.isLocalOllama = vi.fn().mockReturnValue(false);
     state.client.listLibraryModels = vi.fn().mockResolvedValue([]);
 
     // HF API says 404
@@ -447,7 +444,6 @@ describe('handleInstallModel', () => {
 
     const state = mockState();
     state.client.pullModel = vi.fn().mockReturnValue(mockPull());
-    state.client.isLocalOllama = vi.fn().mockReturnValue(false);
     state.client.listLibraryModels = vi.fn().mockResolvedValue([]);
 
     mockHFInfo([{ rfilename: 'Qwen3.5-27B.Q4_K_M.gguf', size: 15_000_000_000 }]);
@@ -518,6 +514,24 @@ describe('handleInstallModel', () => {
     expect(state.client.pullModel).not.toHaveBeenCalled();
     expect(state.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ content: expect.stringContaining('cancelled') }),
+    );
+  });
+
+  it('skips HF inspection for non-Ollama backends and sets the model directly', async () => {
+    const state = mockState();
+    state.client.isLocalOllama = vi.fn().mockReturnValue(false);
+    state.client.listLibraryModels = vi.fn().mockResolvedValue([]);
+
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({}) });
+
+    await handleInstallModel(state as never, 'google/gemma-4-26B-A4B');
+
+    // Should NOT have tried HF inspection or ollama pull
+    expect(state.client.pullModel).not.toHaveBeenCalled();
+    // Should have set the model directly
+    expect(state.client.updateModel).toHaveBeenCalledWith('google/gemma-4-26B-A4B');
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'setCurrentModel', currentModel: 'google/gemma-4-26B-A4B' }),
     );
   });
 });
