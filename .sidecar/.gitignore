@@ -1,6 +1,0 @@
-# Ephemeral / machine-specific — do not commit
-cache/
-sessions/
-logs/
-scratchpad/
-memory/
