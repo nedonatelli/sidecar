@@ -4,6 +4,24 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.57.0] - 2026-04-16
+
+Architecture, robustness, and review UX — the biggest internal release since v0.50.
+
+### Added
+
+- **Review slash commands.** `/review`, `/pr-summary`, and `/commit-message` are now available in the chat panel, routing to the existing `reviewCurrentChanges()`, `summarizePR()`, and `generateCommitMessage()` functions with autocomplete support.
+- **Resume button on stream failure.** When a backend stream is interrupted, the chat now shows a clickable **Resume** button instead of requiring the user to know about `/resume`.
+- **Memory inspector.** `/memories` lists all agent memories grouped by type with counts. `/memory-search <query>` searches memories and displays matching results inline in chat.
+- **Per-tool rate limiting.** New `toolBudget.ts` enforces per-tool call budgets across the agent loop (e.g. grep: 15, web_search: 5, default: 20). When a tool exceeds its budget, the agent receives an error result directing it to use a different approach.
+- **Kickstand auto-start.** When the Kickstand backend is selected but not running, SideCar now spawns `kick serve` as a detached process and polls `/api/v1/health` until ready (up to 15s). Same pattern as the existing Ollama auto-start.
+- **CLAUDE.md.** Added Claude Code guidance file with build commands, architecture overview, and project conventions.
+
+### Changed
+
+- **chatHandlers.ts decomposed.** The 1,955-line god-module has been split into four focused submodules: `messageUtils.ts` (continuation detection, error classification, relevance), `systemPrompt.ts` (base prompt, context injection, message enrichment), `fileHandlers.ts` (attach/drop/save/create/move/undo/revert), and the orchestrator shell (764 lines). All exports preserved via re-export for backward compatibility.
+- **Kickstand reachability probe.** Switched from `/v1/models` to `/api/v1/health` with the auto-read bearer token, giving a cleaner liveness signal.
+
 ## [0.56.0] - 2026-04-16
 
 Kickstand QoL release — first-class model management for the Kickstand backend, plus fixes for the Ollama HF import path.
