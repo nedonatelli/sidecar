@@ -4,6 +4,33 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Post-pull warmup verification.** After `ollama pull` completes, SideCar now attempts to load the model via `/api/generate` before declaring success. If Ollama returns a 500 (e.g. unsupported architecture in an HF-sourced GGUF), the error is surfaced immediately with a clear diagnostic instead of failing silently on the first chat message.
+- **Known-problematic HF GGUF detection.** SideCar now recognises GGUF repos that are known to fail at load time due to metadata incompatibilities with Ollama's engine. Currently covers Qwen3.5 — HuggingFace-sourced GGUFs encode `head_count_kv` as a scalar while Ollama expects an array. Users see a modal warning with a suggestion to use the official library model (`ollama pull qwen3.5`) before downloading tens of gigabytes, with a "Pull Anyway" escape hatch.
+
+## [0.55.0] - 2026-04-15
+
+HuggingFace Safetensors import. Models that publish only `.safetensors` weights (most base/instruct releases on HF — Llama, Gemma, Qwen, Mistral, etc.) can now be installed directly from the chat install box. SideCar inspects the repo, classifies it as GGUF or Safetensors, downloads the weights to staging, and shells out to `ollama create -q` to produce a quantized GGUF locally. Closes the long-standing "no-gguf dead-end" UX where non-GGUF HF URLs would just bounce back with an error.
+
+### Added
+
+- **HuggingFace Safetensors → GGUF import flow.** New [`src/ollama/hfSafetensorsImport.ts`](src/ollama/hfSafetensorsImport.ts) is a three-phase async generator: `download` (streams every weight shard + tokenizer/config file to a staging dir under `globalStorageUri/hf-imports/`, with throttled byte-level progress, file-level resume on size match, and graceful abort), `convert` (spawns `ollama create <name> -q <quant> -f Modelfile` and yields stdout/stderr lines as progress), `cleanup` (removes the staging dir on success since the GGUF now lives in Ollama's blob store). Cancellation wired through `AbortSignal` — the download loop exits cleanly and the `ollama create` child receives `SIGTERM`.
+- **`inspectHFRepo` classifier.** Replaces `listGGUFFiles` in [`src/ollama/huggingface.ts`](src/ollama/huggingface.ts) with a richer six-variant union: `gguf`, `safetensors`, `gated-auth-required`, `unsupported-arch`, `no-weights`, `not-found`, `network-error`. Reads `architectures[0]` from `config.json` and gates on a hand-maintained allowlist of 19 families that llama.cpp's `convert_hf_to_gguf.py` supports (Llama, Mistral, Mixtral, Gemma 1/2/3, Phi 1/3, Qwen 2/2MoE/3/3MoE, DeepSeek V2/V3, StarCoder2, Falcon, StableLM, Cohere, InternLM2). Short-circuits on gated repos when no token is present so we don't surface a misleading "couldn't read config.json" error before ever asking for credentials.
+- **Bare `org/repo` input recognition.** `parseHuggingFaceRef` now matches `meta-llama/Llama-3.2-3B-Instruct` (the format you get from copy-pasting an HF page title) in addition to URLs and `hf.co/...` shorthand. Bare inputs are tagged `isExplicit: false` and fall through to a plain `ollama pull` if HF returns 404, so legit Ollama community models like `hhao/qwen2.5-coder` keep working.
+- **Quantization picker for safetensors imports.** Quick-pick lists `q4_K_M` (default), `q5_K_M`, `q6_K`, `q8_0`, `f16` with size estimates derived from the weight total and the typical compression ratio. Picked value is passed to `ollama create -q`.
+- **HuggingFace token storage.** New `getHuggingFaceToken` / `setHuggingFaceToken` / `clearHuggingFaceToken` helpers in [`settings.ts`](src/config/settings.ts) (parallel to the API-key SecretStorage pattern) plus a `sidecar.setHuggingFaceToken` command that's automatically invoked when the install flow encounters a gated repo with no stored token. Token is sent as a `Bearer` header on both the model-info API call and every weight download.
+- **Disk-space preflight.** Before starting a multi-gigabyte download, `fs.statfsSync` checks for at least 2× the weight total (covers the converter's temp buffer) and bails with a clear error if there isn't enough free space — better than failing mid-convert at 90%.
+
+### Fixed
+
+- **Gated-repo error message.** Previously inspecting a gated model like `meta-llama/Llama-3.2-3B-Instruct` returned `"Couldn't reach the HuggingFace API (Could not read config.json — repo may be private or malformed.)"`, because the classifier tried to fetch `config.json` before asking for a token. The classifier now short-circuits to the new `gated-auth-required` variant on first contact, and the handler prompts for a token + re-runs the inspection.
+
+### Stats
+
+- 1902 total tests (122 test files)
+- 23 built-in tools, 8 skills
+
 ## [0.54.0] - 2026-04-15
 
 Policy hook capstone + two new providers. The architectural story wraps up: the four built-in post-turn policies (auto-fix, stub validator, adversarial critic, completion gate) now live behind a uniform `PolicyHook` interface + `HookBus` registration mechanism, closing the last cycle-2 HIGH architectural audit item. The v0.53 anticorruption layer gets its first real payoff with Groq + Fireworks shipping as tiny subclass wrappers — two new providers in ~200 lines of glue.
