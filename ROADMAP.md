@@ -2,11 +2,241 @@
 
 Planned improvements and features for SideCar. Audit findings from v0.34.0 comprehensive review are in the Audit Backlog section. All critical fixes were addressed in v0.35.0.
 
-Last updated: 2026-04-16 (v0.58.0 released — cost-aware defaults (Haiku as Anthropic default, 3× cheaper for the "I just switched provider" case), structured `/compact` output with `## Facts established` + `## Code changes` sections, model-attribution git trailers on every agent commit, and three host-dependent test failures closed — the suite is now deterministic regardless of whether `~/.config/kickstand/token` or 40 GB of `tmpdir` space exist on the runner. Also the largest vision expansion to date: **25 new v0.58+ roadmap entries** covering Shadow Workspaces, Typed Facets, Fork & Parallel Solve, Skills 2.0, Project Knowledge Index (LanceDB + Merkle fingerprints), NotebookLM-style source-grounded research mode, and more.)
+Last updated: 2026-04-16 (**v0.58.1 security patch shipped** — closes the last two workspace-trust coverage gaps audited in cycle-3: `scheduledTasks` was running autonomous agent loops on workspace-config timers with no trust prompt, and `customTools` was registering attacker-controlled shell commands as named tools. Both fixes follow the existing `checkWorkspaceConfigTrust` idiom. **Roadmap reorganized** into an explicit Release Plan (v0.59 → v1.0), Cross-Cutting Refactor Themes, a Coverage Plan tracking toward 80/70/80/80 stmts/branches/funcs/lines, and a Feature Specifications shelf of 25+ detailed entries cross-linked from the release plan.)
 
 ---
 
-## Planned Features
+## Release Plan
+
+Each release ships **1–2 features** plus a paired **refactor beat** (code-quality/architecture work aligned with the feature surface) and a **coverage focus** (testing work chosen to climb toward the 80/70/80/80 target). Audit findings (cycle-3) and Deferred items are folded into the release whose scope they naturally belong to. Anchor links below point to the full Feature Specifications later in this file.
+
+**Release cadence assumption**: ~1 release every 1–2 weeks based on v0.52 → v0.58.1 pace. At that cadence v0.59 → v0.79 is ~5 months; v1.0 realistic by end of year.
+
+**Coverage floor policy**: starting v0.59, CI enforces a monotonic coverage ratchet via `--coverage.thresholds`. PRs that drop any of the four metrics fail CI. New code ships with ≥80% coverage per-file by policy.
+
+### v0.58.1 — Security patch ✅ *shipped 2026-04-16*
+- Workspace-trust gates for `sidecar.scheduledTasks` (CRITICAL) and `sidecar.customTools` (HIGH)
+- Deleted empty `src/chat/` directory
+- Tag: [`v0.58.1`](https://github.com/nedonatelli/sidecar/releases/tag/v0.58.1)
+
+### v0.59 — Sandbox primitives
+- **Features**: [Shadow Workspaces](#shadow-workspaces) · [Shell-Integrated Agent Command Execution](#shell-integrated-agent-command-execution)
+- **Refactor beat**: Shell subsystem unification — merge `ShellSession` / `run_command` / `TerminalErrorWatcher` / `execAsync` fallback into one hardened path. Folds audit finding #13 (hardened prefix lost on fallback) and #15 (head+tail truncation wrong for non-zero exit).
+- **Coverage focus**: exclude `*/types.ts` + `src/__mocks__/**` from denominator; establish CI ratchet at current floor (62/54/61/62). Target ≥63/55/62/63 stmts/branches/funcs/lines.
+- **Manual task folded in**: Empirical `max_tokens` TPM fix verification on a real OpenAI session (v0.48.0 loose end).
+- **Acceptance**: Every agent `write_file` lands in `.sidecar/shadows/<task-id>/`; every agent `run_shell_command` renders in a *SideCar Agent* terminal; coverage CI gate in place.
+
+### v0.60 — Approval gates
+- **Features**: [Regression Guard Hooks](#regression-guard-hooks--declarative-post-edit-verification) · [Audit Mode](#audit-mode--virtual-fs-write-buffer-with-treeview-approval)
+- **Refactor beat**: Hook + approval pattern unification — single approval surface for `Audit Buffer` / `Pending Changes` / `Regression Guard feedback`. Folds audit finding #7 (secret redaction in `SIDECAR_INPUT`/`SIDECAR_OUTPUT` env vars before they reach child processes).
+- **Coverage focus**: `src/review/` subsystem (`commitMessage.ts` · `prSummary.ts` · `reviewer.ts`) — currently ~27% each. Target ≥65/57/64/65.
+- **Acceptance**: Declarative guards fire on post-write / post-turn / pre-completion triggers; Audit `agentMode` buffers writes to an in-memory FS with VS Code treeview approval.
+
+### v0.61 — Retrieval core
+- **Feature**: [Project Knowledge Index](#project-knowledge-index--symbol-level-vectors--graph-fusion-in-an-on-disk-vector-db)
+- **Refactor beat**: Embedding subsystem perf — async reads replacing sync `fs.readFileSync` in tight loops; `workspace.onDidChangeConfiguration` listener dispose; embedding batch-size tuning. Folds audit findings #4 and #10.
+- **Coverage focus**: `src/parsing/treeSitterAnalyzer.ts` (0% → ≥80%) — PKI's symbol-chunking work touches it; write tests as feature ships. Target ≥67/59/66/67.
+- **Acceptance**: LanceDB-backed symbol-level index with graph-walk retrieval surfaces call/import/used-by relationships in `project_knowledge_search` results.
+
+### v0.62 — Retrieval quality
+- **Features**: [Merkle-Addressed Semantic Fingerprint](#merkle-addressed-semantic-fingerprint--keystroke-live-structural-index) · [RAG-Native Eval Metrics (RAGAs) + Qualitative LLM-as-Judge (G-Eval)](#rag-native-eval-metrics-ragas--qualitative-llm-as-judge-g-eval)
+- **Refactor beat**: Retrieval infrastructure cleanup — reranker cross-encoder, per-source budget caps, fusion parallelization, `onToolOutput` backpressure (audit #11). Folds deferred *Reranker stage*, *Per-source budget caps*, *Eval cases for retriever fusion / cost warning / summarizer cap*, and the reopened *LLM-as-judge scoring* deferral.
+- **Coverage focus**: `fireworksBackend` / `groqBackend` / `openaiBackend` — thin OpenAI-compat wrappers, mirror `openrouterBackend` test shape. Target ≥70/62/69/70.
+- **Acceptance**: Keystroke-live Merkle root updates; RAG-eval suite runs `faithfulness` / `answerRelevancy` / `contextPrecision` / `contextRecall` against every existing retrieval test case.
+
+### v0.63 — Skills core
+- **Feature**: [First-Class Skills 2.0 — Typed Personas with Tool Allowlists, Preferred Models, and Composition](#first-class-skills-20--typed-personas-with-tool-allowlists-preferred-models-and-composition)
+- **Refactor beat**: `executor.ts` god-function decomposition (audit #5) — split the 413-line `executeTool` into `executor/{approval,reviewMode,securityPipeline,diffPreview}.ts` following the `loop.ts` (v0.50) and `chatHandlers.ts` (v0.57) extraction pattern.
+- **Coverage focus**: each newly-extracted `executor/*.ts` submodule ships with ≥80% coverage — testability is one of the decomposition's payoffs. Target ≥72/64/71/72.
+- **Acceptance**: `allowed-tools` frontmatter enforced at runtime; `preferred-model` scoped `updateModel()` swap; skill stacking via `/with`; three scope modes (turn / task / session).
+
+### v0.64 — Skills distribution + model routing
+- **Features**: [Skill Sync & Registry](#skill-sync--registry--git-native-distribution-across-machines-and-projects) · [Role-Based Model Routing & Hot-Swap](#role-based-model-routing--hot-swap)
+- **Refactor beat**: Backend abstraction maturity — unify retry / circuit-breaker / rate-limit / outbound-allowlist via a single `sidecarFetch` helper (audit #3). `npm outdated` review with focus on `@xenova/transformers` v2 → v3 migration (audit #18).
+- **Coverage focus**: `kickstandBackend` (36.52% → ≥80%) · `hfSafetensorsImport` (0% → ≥80% via fs-mock pattern). Also add `settings.ts` decomposition (`config/settings/{backends,agent,completion,retrieval,security,telemetry}.ts`) to support Model Routing's new rules schema. Target ≥74/66/73/74.
+- **Deferred folded in**: Provider `usage` response integration for MODEL_COSTS auto-update.
+- **Acceptance**: `~/.sidecar/user-skills/` git-clone sync works across machines; `sidecar.modelRouting.rules` routes each dispatch role to the right model.
+
+### v0.65 — Loop ergonomics (big test-hardening release)
+- **Features**: [Steer Queue & Rich Interrupt UI](#steer-queue--rich-interrupt-ui) (extension of existing Human-in-the-Loop Steerability) · [Multi-File Edit Streams — DAG-Dispatched Parallel Writes](#multi-file-edit-streams--dag-dispatched-parallel-writes)
+- **Refactor beat**: Loop subsystem test hardening — unit tests for all 14 `src/agent/loop/` helpers (audit #6), shared test-helper module (`src/__tests__/helpers/`) that bundles the `fs` / `os` / `workspace` / `child_process` mocks we keep rediscovering, bounded `SideCarClient._modelUsageLog` ring-buffer (audit #8).
+- **Coverage focus**: the biggest single-release jump. `chatHandlers.ts` (19.63% — largest single-file gap even post-decomposition), `scheduler` / `eventHooks` / `lintFix` / `localWorker` / `inlineChatProvider` (audit #12). Target ≥78/68/77/78.
+- **Deferred folded in**: `/resume` webview button affordance — pairs with the Steer Queue's new interrupt UI.
+- **Acceptance**: FIFO steer queue with same-urgency coalescing; atomic multi-file edit DAG review; every `loop/*.ts` helper has branch-coverage tests; shared test-helper module in use across ≥5 test files.
+
+### v0.66 — Facets
+- **Feature**: [Typed Sub-Agent Facets & Expert Panel](#typed-sub-agent-facets--expert-panel)
+- **Refactor beat**: Tool-registration DSL — collapse the ~300 lines of `{ definition, executor, requiresApproval }` boilerplate across 23+ tools into a decorator or fluent-builder pattern. Handler registry pattern for `webview/handlers/` — typed message-kind → handler map replaces the manual switch in `chatView.ts`.
+- **Coverage focus**: webview handlers — `agentHandlers` · `githubHandlers` · `systemPrompt`. Facets UI touches all three. Target ≥80/70/79/80 — **enters the target band**.
+- **Acceptance**: Expert Panel UI with multi-select facet dispatch; typed RPC across facets; each facet runs in its own Shadow Workspace.
+
+### v0.67 — Fork & compare
+- **Feature**: [Fork & Parallel Solve (Multi-Path Reasoning)](#fork--parallel-solve-multi-path-reasoning)
+- **Refactor beat**: Parallel execution primitives extraction — shadow-worktree orchestration, `AbortSignal` propagation unification, shared cross-fork telemetry. Folds deferred *Anthropic Batch API for non-interactive workloads* as the batching substrate for parallel-fork dispatch.
+- **Coverage focus**: `src/terminal/errorWatcher.ts` (34.84% → ≥80%) — Shell unification from v0.59 left branches untouched. Maintain ≥80/70/80/80.
+- **Acceptance**: `/fork <task>` spawns N parallel approaches with side-by-side review; Hybrid hunk-picking across forks; per-fork metrics table (LOC / tests / benchmarks / guards).
+
+### v0.68 — Reasoning
+- **Feature**: [Advanced Thinking Visualization & Depth Control](#advanced-thinking-visualization--depth-control)
+- **Refactor beat**: `ollama/types.ts` split into domain modules: `types/{messages,tools,streaming,usage}.ts` — has grown organically into 300+ lines of mixed concerns.
+- **Coverage focus**: steady ≥80/70/80/80 drumbeat; opportunistic backfill of paths the feature touches.
+- **Acceptance**: Live Thinking Panel with four modes (single / self-debate / tree-of-thought / red-team); steerable mid-stream via the Steer Queue; persistent traces at `.sidecar/thinking/<task-id>.md` with `/replay`.
+
+### v0.69 — Native VS Code integration
+- **Features**: [`@sidecar` Native Chat Participant](#sidecar-native-chat-participant) · [Zero-Latency Local Autocomplete via Speculative Decoding](#zero-latency-local-autocomplete-via-speculative-decoding)
+- **Refactor beat**: FIM + completion subsystem cleanup — draft-model plumbing, `InlineCompletionProvider` consolidation, `completeFIM` signature normalization across backends.
+- **Coverage focus**: `src/completions/provider.ts` + `src/ollama/client.ts completeFIM` path. Maintain ≥80/70/80/80.
+- **Acceptance**: `@sidecar` registered as a first-class VS Code chat participant with slash-command parity (`/review`, `/commit-message`, etc.); SideCar backends exposed as `LanguageModelChat` providers for other participants to consume; speculative decoding delivers measured 2–4× tok/s on supported model pairs.
+
+### v0.70 — Live awareness
+- **Features**: [Live Diagnostic Subscription & Reactive Fixer](#live-diagnostic-subscription--reactive-fixer) · [Inline Code Visualization Dashboards (MCP-backed)](#inline-code-visualization-dashboards-mcp-backed)
+- **Refactor beat**: Diagnostics push/pull abstraction — unify the existing `get_diagnostics` pull tool with the new `onDidChangeDiagnostics` subscription behind one provider. Eval-harness gap closure: auto-fix and critic paths (deferred from v0.50.0) get their required mocks and land in the llm-eval suite.
+- **Coverage focus**: diagnostics + auto-fix + critic paths. Maintain ≥80/70/80/80.
+- **Acceptance**: Push-based diagnostic subscription with reactive fix loop gated by Shadow Workspace; interactive `VizSpec` dashboard rendering in the chat panel under diffs.
+
+### v0.71 — Jupyter notebooks
+- **Feature**: [First-Class Jupyter Notebook Support](#first-class-jupyter-notebook-support)
+- **Refactor beat**: File-type plugin architecture — generalized cell/segment-aware handling the notebook work introduces can be reused by ERD entities (v0.77), source chunks (v0.72), tutorial walkthroughs.
+- **Coverage focus**: 8 new cell-aware tools; roundtrip-fidelity property tests (500 fuzz notebooks). Maintain ≥80/70/80/80.
+- **Acceptance**: `read_notebook` / `edit_notebook_cell` / `run_notebook_cell` etc. via native `NotebookEdit` API; cell-granular diff tiles in Pending Changes; auto-bridge cell outputs to Visual Verification.
+
+### v0.72 — Literature
+- **Feature**: [Literature Synthesis & PDF/Zotero Bridge](#literature-synthesis--pdfzotero-bridge)
+- **Refactor beat**: Source-backend abstraction — shared PDF / YouTube / Web / audio source plumbing (prepares the v0.79 NotebookLM Mode expansion).
+- **Coverage focus**: source indexer pipeline. Maintain ≥80/70/80/80.
+- **Acceptance**: PDF indexing via `pdf-parse`; Zotero SQLite read-through; citation insertion respecting document style.
+
+### v0.73 — Database integration (safe core)
+- **Feature**: [First-Class Database Integration (SQL + NoSQL)](#first-class-database-integration-sql--nosql) — Tier 1 only (read-only query + introspection)
+- **Refactor beat**: `DatabaseProvider` abstraction mirroring `ApiBackend` anticorruption layer.
+- **Coverage focus**: `DatabaseProvider` drivers (SQLite / Postgres / MySQL / DuckDB). Maintain ≥80/70/80/80.
+- **Acceptance**: `db_list_tables` / `db_describe_table` / `db_query` work against four dialects with parameterized queries + hard timeouts; results render as sortable tables in the chat panel.
+
+### v0.74 — Visual verification
+- **Feature**: [Browser-Agent Live Preview Verification (Screenshot-in-the-Loop)](#browser-agent-live-preview-verification-screenshot-in-the-loop)
+- **Refactor beat**: Integration-layer maturity — share the Playwright MCP client between visual-verification and the Browser-Automation integration entry.
+- **Coverage focus**: Playwright tool wrappers + VLM-verdict pipeline. Maintain ≥80/70/80/80.
+- **Acceptance**: `screenshot_page` + `analyze_screenshot` + cheap-deterministic pre-filter loop delivers visual self-correction on a matplotlib FIR plot scenario end-to-end.
+
+### v0.75 — Research Assistant
+- **Feature**: [Research Assistant — Structured Lab Notebook, Experiment Manifests, and Hypothesis Graph](#research-assistant--structured-lab-notebook-experiment-manifests-and-hypothesis-graph)
+- **Refactor beat**: Integration-layer maturity — `.sidecar/research/` store, hypothesis-graph data model, experiment-manifest reproducibility harness.
+- **Coverage focus**: new research tools + reproducibility harness. Maintain ≥80/70/80/80.
+- **Acceptance**: `/experiment run` reproduces against pinned git SHA + requirements hash; hypothesis graph renders; reviewer-simulation personas ship.
+
+### v0.76 — Doc-to-Test
+- **Feature**: [Doc-to-Test Synthesis Loop](#doc-to-test-synthesis-loop)
+- **Refactor beat**: Constraint-extraction infrastructure shared with the Literature + Research Assistant layers.
+- **Coverage focus**: constraint extractor + test synthesis templates. Maintain ≥80/70/80/80.
+- **Acceptance**: A source paper's mathematical identities become `pytest` tests that fail when the implementation doesn't satisfy them; Doc/Impl Mismatch review classifies failures and proposes fixes.
+
+### v0.77 — Database integration (writes + migrations)
+- **Feature**: [Database Integration Tier 2](#first-class-database-integration-sql--nosql) — writes routed through Audit Mode + ORM-aware migrations (Prisma / TypeORM / Sequelize / Alembic / Flyway / Knex / Rails)
+- **Acceptance**: `db_execute` writes buffer in Audit treeview; `db_migrate_up` runs migrations inside a DuckDB-backed shadow DB before touching the real one.
+
+### v0.78 — Database integration (NoSQL via MCP)
+- **Feature**: [Database Integration Tier 3](#first-class-database-integration-sql--nosql) — MongoDB / Redis / DynamoDB / Cassandra / Elasticsearch as `mcp-sidecar-<engine>` servers
+- **Acceptance**: At least the Mongo + Redis servers ship with install paths in the MCP marketplace entry.
+
+### v0.79 — NotebookLM parity
+- **Feature**: [NotebookLM-Style Source-Grounded Research Mode](#notebooklm-style-source-grounded-research-mode)
+- **Acceptance**: `/notebook` mode enters source-grounded state with mandatory inline citations; YouTube / web URL / audio / slides sources index alongside PDFs; five study-aid generators emit tracked markdown; opt-in two-voice podcast pipeline ships.
+
+### v1.0 — GA
+- **Final decompositions**: `src/extension.ts` (987 lines — audit #16) · `stubCheck` async patterns (audit #17) · `package.json` command descriptions sweep (audit #14) · `chatView.ts` decomposition unlocks its 0% → coverage uplift
+- **Unused-export sweep**: audit of every `export` in `src/` for actual consumers; drop what's dead
+- **CLAUDE.md refresh**: sync architectural notes against the post-v0.79 reality
+- **Acceptance**: Coverage ≥80/70/80/80 sustained across all four metrics; public marketplace for Skill Sync & Registry (v0.64) goes live.
+
+### Unscheduled / Vision Shelf
+Kept for future consideration — not promised to any specific release. See *Deferred* section below for brief rationale on each.
+
+- Semantic Time Travel · GPU-Native Hot-Swapping · GPU-Aware Load Balancing · Memory Guardrails · Multi-repo cross-talk · Semantic Agentic Search for Monorepos · Auto Mode · Next Edit Suggestions · Adaptive Paste · Selective Regeneration · Persistent Executive Function · LaTeX Agentic Debugging · Integrated LaTeX Preview & Compilation · Inline Edit Enhancement · Zen Mode Context Filtering · Dependency Drift Alerts · Most Enterprise & Collaboration entries · Voice Input · `@sidecar/sdk` Extension API · MCP Marketplace · Agentic Task Delegation via MCP · Model Comparison / Arena Mode · Real-time Code Profiling · Bitbucket/Atlassian integration · `maxCharsPerTurn` as a SideCarConfig setting (pending demand)
+
+---
+
+## Cross-Cutting Refactor Themes
+
+Three themes span multiple releases and are worth tracking at the roadmap level, not buried inside release notes.
+
+### Theme 1 — God-module decomposition
+
+Single-responsibility extraction for files over ~700 lines, using the same pattern each time: extract helpers to a subdirectory, bundle shared state, keep re-exports for backward-compat, verify with a full test+eval pass.
+
+| File | Size | Status |
+|---|---|---|
+| `tools.ts` | was ~1,200 lines | ✅ decomposed in v0.47 |
+| `loop.ts` | was 1,216 lines → 255 lines | ✅ decomposed in v0.50 |
+| `chatHandlers.ts` | was 1,955 lines → 770 lines | ✅ decomposed in v0.57 |
+| `executor.ts` | 413-line `executeTool` in a ~900-line file | 🔜 v0.63 |
+| `settings.ts` | large and growing with each feature | 🔜 v0.64 |
+| `extension.ts` | 987 lines | 🔜 v1.0 |
+| `chatView.ts` | 695 lines, currently 0% coverage | 🔜 v1.0 (decomposition unlocks testability) |
+
+### Theme 2 — Test-surface hardening
+
+Shared mocks for `fs` / `os` / `workspace` / `child_process`; branch coverage for decomposed subsystems; eval harness expansion for fuzzy paths; CI ratchet preventing coverage regressions.
+
+| Track | Status / target |
+|---|---|
+| 3 host-dependent bugs closed | ✅ v0.58.0 (kickstand token × 2, `fs.statfsSync`) |
+| CI coverage ratchet | 🔜 v0.59 |
+| Shared test-helper module | 🔜 v0.65 |
+| Unit coverage for `src/agent/loop/` helpers (14 files, 3 covered today) | 🔜 v0.65 |
+| Eval harness: retriever fusion / cost warning / summarizer cap fixtures | 🔜 v0.62 |
+| Eval harness: auto-fix + critic paths | 🔜 v0.70 |
+| Subsystem unit tests (scheduler · eventHooks · lintFix · localWorker · inlineChatProvider) | 🔜 v0.65 |
+
+### Theme 3 — Boilerplate reduction
+
+Collapse duplicated plumbing: tool registration, backend retry/breaker/rate-limit, content-block types, shell execution paths.
+
+| Track | Status / target |
+|---|---|
+| Shell execution unification (`ShellSession` / `run_command` / `TerminalErrorWatcher` / execAsync) | 🔜 v0.59 |
+| Backend abstraction maturity (`sidecarFetch` with shared retry / breaker / rate-limit / allowlist) | 🔜 v0.64 |
+| Tool-registration DSL (replace `{ definition, executor, requiresApproval }` triples) | 🔜 v0.66 |
+| Handler registry pattern (webview/handlers typed-message-kind → handler map) | 🔜 v0.66 |
+| `ollama/types.ts` split into `types/{messages,tools,streaming,usage}.ts` | 🔜 v0.68 |
+| `settings.ts` split into domain modules | 🔜 v0.64 |
+
+---
+
+## Coverage Plan
+
+**Current (v0.58.1)**: 61.12% stmts · 53.51% branches · 60.73% funcs · 61.88% lines across 1939 tests / 124 files.
+
+**Target**: 80% stmts · 70% branches · 80% funcs · 80% lines (the 80/70/80/80 split reflects that branch coverage is harder to pay for — error paths, concurrent races, partial failures — so it carries a lower bar).
+
+### Per-release coverage targets
+
+| Release | Target (stmts/branch/funcs/lines) | Expected delta | Focus |
+|---|---|---|---|
+| v0.59 | ≥63/55/62/63 | +1–2 pp (mostly "free" from `*/types.ts` exclusion) | CI ratchet setup |
+| v0.60 | ≥65/57/64/65 | +2 pp | `src/review/` |
+| v0.61 | ≥67/59/66/67 | +2 pp | `parsing/treeSitterAnalyzer.ts` (0% → ≥80%) |
+| v0.62 | ≥70/62/69/70 | +3 pp | backends (fireworks/groq/openai) |
+| v0.63 | ≥72/64/71/72 | +2 pp | executor/ decomposition |
+| v0.64 | ≥74/66/73/74 | +2 pp | kickstandBackend + hfSafetensorsImport |
+| v0.65 | ≥78/68/77/78 | +4 pp — biggest single-release jump | loop/ helpers + chatHandlers + subsystems |
+| v0.66 | ≥80/70/79/80 | +2 pp | webview handlers |
+| v0.67 | ≥80/70/80/80 — **target band hit** | +0–1 pp | terminal/errorWatcher |
+| v0.68–v0.79 | steady ≥80/70/80/80 | maintenance | opportunistic per feature |
+| v1.0 | sustained ≥80/70/80/80 | final lift | `chatView.ts` decomposition + `extension.ts` |
+
+### Enforcement mechanisms
+
+1. **CI ratchet** (v0.59): `vitest run --coverage.thresholds.stmts=62 --branches=54 --funcs=61 --lines=62` with thresholds bumped every release. Drops fail CI.
+2. **New-code policy** (v0.59): every new file lands with ≥80% coverage by policy; per-PR coverage-diff check in CI (codecov-style) blocks merges that add uncovered code.
+3. **Denominator hygiene** (v0.59): exclude `*/types.ts`, `*/constants.ts`, `src/__mocks__/**` from coverage — structural, not behavioral.
+4. **Quarterly coverage-gap triage**: review remaining zero-coverage files with explicit decision per file — "test it" / "refactor-then-test" / "exclude with rationale in `vitest.config.ts`".
+5. **Branch coverage deserves its own attention**: 53.51% branches is the worst current metric. Error-path coverage gaps hide real bugs. Every new test suite deliberately covers the error branches, not just happy paths.
+
+---
+
+## Feature Specifications
+
+Detailed specifications for every entry in the release plan above. Each entry describes the problem, the mechanism, integration points with other roadmap items, and the configuration surface. Organized thematically for reading coherence; navigate from the Release Plan via the anchor links above.
 
 ### Context & Intelligence
 
@@ -806,44 +1036,47 @@ Last updated: 2026-04-16 (v0.58.0 released — cost-aware defaults (Haiku as Ant
 
 ---
 
-## Deferred (Tracked but not scheduled)
+## Deferred — Folded into release plan
 
-Items that are known, named, and understood — but intentionally scoped out of the current release. Kept here so they don't get lost between CHANGELOG entries. Each line carries the source release and a brief "why" so a later reader can decide whether the premise is still valid.
+During the v0.58.1 reorganization, the previous Deferred backlog was audited and folded. Every item that had a natural release home moved into the Release Plan above; closed items were marked done. The full resolution is kept here for traceability so future readers can see where each deferral ended up.
 
-### Architectural (HIGH audit items)
+### Closed — already shipped
 
-- ~~**Policy-hook interface for `runAgentLoop`**~~ → **fixed 2026-04-15 in v0.54.0**. New [`src/agent/loop/policyHook.ts`](src/agent/loop/policyHook.ts) ships a `PolicyHook` interface with four phases (`beforeIteration`, `afterToolResults`, `onEmptyResponse`, `onTermination`) + a `HookBus` registration class. `runAgentLoop` builds the bus on every run, registers the four built-in hooks via [`defaultPolicyHooks()`](src/agent/loop/builtInHooks.ts) (auto-fix → stub → critic → gate), and replaces the direct call sites with `hookBus.runAfter()` / `hookBus.runEmptyResponse()`. `AgentOptions.extraPolicyHooks` lets callers register additional hooks after the built-ins. **User-config-driven hook loading** (`sidecar.policies` setting, CLAUDE.md-driven registration) is the follow-up.
-- ~~**Backend anticorruption layer (`normalizeStream`)**~~ → **fixed 2026-04-15 in v0.53.0**. See `Recently Completed` below — `streamOpenAiSse` helper + OpenAI/Kickstand/OpenRouter delegation.
-- **`chatHandlers.ts` split** — 1,708 lines, the largest remaining god-module after the v0.50 `loop.ts` decomposition. Same extraction pattern as `tools.ts` and `loop.ts`: single-responsibility helpers, shared state container, re-exports for backward compat. Could bundle with a `SideCarConfig` split. *Source: cycle-2 audit, v0.52.0 deferral. ~2 days.*
+- ~~**Policy-hook interface for `runAgentLoop`**~~ → shipped v0.54.0 as `src/agent/loop/policyHook.ts` + `HookBus`.
+- ~~**Backend anticorruption layer (`normalizeStream`)**~~ → shipped v0.53.0 as `streamOpenAiSse` helper.
+- ~~**`chatHandlers.ts` split**~~ → shipped v0.57.0. File is now 770 lines (verified); decomposed into `messageUtils.ts` / `systemPrompt.ts` / `fileHandlers.ts` / orchestrator shell per the v0.57.0 CHANGELOG.
+- ~~**LLM-as-judge scoring**~~ → reopened and folded into v0.62's [RAG-Native Eval Metrics + G-Eval](#rag-native-eval-metrics-ragas--qualitative-llm-as-judge-g-eval) entry.
 
-### Retrieval polish (MEDIUM)
+### Folded into a specific release
 
-- **Reranker stage** — after retrieval, fused hits go straight into the system prompt. A cheap cross-encoder reranker would dramatically improve precision per context-budget token; matters most for paid API users. *Source: cycle-2 audit.*
-- **Reranker budget caps per source** — the current `fuseRetrievers` shares one budget across all three sources but doesn't cap per source, so a hot workspace could theoretically starve docs + memory entirely. No real incident has triggered this yet; note for future. *Source: v0.52.0 loose end.*
+| Previous Deferred item | Target release | Reason |
+|---|---|---|
+| Reranker stage (cycle-2 MEDIUM) | v0.62 | Pairs naturally with Merkle + RAG-Eval; the eval metrics will measure whether reranking earns its compute. |
+| Per-source budget caps (v0.52.0 loose end) | v0.62 | Bundles with the reranker work — same retrieval-infra cleanup. |
+| Eval cases for retriever fusion / cost warning / summarizer cap (v0.51.0) | v0.62 | Fixture plumbing lands with RAG-Eval's harness expansion. |
+| Eval cases for auto-fix + critic paths (v0.50.0) | v0.70 | Live Diagnostic Subscription release is the natural moment to expand diagnostic-path eval. |
+| `/resume` webview button (v0.52.0) | v0.65 | Same webview surface as Steer Queue's new interrupt UI. |
+| Empirical `max_tokens` TPM fix verification (v0.48.0 manual task) | v0.59 | Attach as manual verification task to v0.59. |
+| Anthropic Batch API for non-interactive workloads (cycle-2 MEDIUM) | v0.67 | Fork & Parallel Solve is the batching substrate (parallel-fork dispatch). |
+| Provider `usage` → `MODEL_COSTS` auto-update (v0.51.0) | v0.64 | Role-Based Model Routing release — spend tracking becomes prominent. |
 
-### Eval harness gaps
+### Still deferred — no scheduled release
 
-- **LLM-as-judge scoring** — deterministic predicates (tool presence / absence, partial-input matching, file-state) give crisper regression signal than a second-model scoring hop, so this was intentionally skipped in v0.50. Reopen if we start shipping features where correctness is fuzzy rather than binary. *Source: v0.50.0 deferral.*
-- **Eval cases for retriever fusion / cost warning / summarizer cap** — these features currently only have unit-level coverage. End-to-end eval cases would need doc-indexer / agent-memory fixture plumbing in the workspace sandbox, which doesn't exist yet. *Source: v0.51.0 deferral.*
-- **Eval cases for the auto-fix path and critic path** — neither is reachable by the current harness. Auto-fix needs a `languages.getDiagnostics` mock, critic needs a critic config. *Source: v0.50.0 deferral.*
-
-### User-facing polish
-
-- **`/resume` as a webview button affordance** — the slash command works end-to-end but a one-click "Resume from partial" button in the error toast would be smoother. Follow-up if users actually ask for it. *Source: v0.52.0 deferral.*
-- **`maxCharsPerTurn` as a SideCarConfig setting** — the ConversationSummarizer default (220) is a working value. Exposing it through `package.json` contribution points is one more setting to document and support; skip until someone asks. *Source: v0.51.0 scope decision.*
-
-### Manual verification tasks
-
-- **Empirical `max_tokens` TPM fix verification.** The v0.48.0 fix (adding `max_tokens: 4096` + `stream_options: { include_usage: true }` to OpenAI `streamChat`) addressed the rate-limit incident on paper but has never been validated on a real OpenAI session. To close: turn on `sidecar.verboseMode`, run a real OpenAI session, capture the `[SideCar openai] request breakdown` lines, confirm 4096 is reserved instead of the 16k default, and paste output into a future CHANGELOG as a "validated fixes" note. *Source: v0.48.0 loose end, reaffirmed v0.52.0.*
-
-### External provider integrations
-
-- **Anthropic Batch API for non-interactive workloads** — half the cost for async jobs. Candidates: `/insight`, `/usage`, `/audit` aggregation, semantic-index embedding jobs, background sub-agents, adversarial critic. *Source: cycle-2 audit MEDIUM.*
-- **Provider `usage` response integration for `MODEL_COSTS`** — `modelCosts.json` is currently manually maintained. Pulling per-request pricing from provider `usage` responses would auto-update. *Source: v0.51.0 deferral.*
+- **`maxCharsPerTurn` as a `SideCarConfig` setting** — the ConversationSummarizer default (220) is a working value. Exposing it through `package.json` contribution points is one more setting to document and support; skip until someone asks. *Source: v0.51.0 scope decision.*
 
 ---
 
-## Recently Completed (v0.58.0, 2026-04-16)
+## Release History
+
+Rolling log of what shipped in each release, newest first. Each subsection preserves the context that was written at release time — file:line references, reasoning, test-count stats, stats progression. Serves as both a changelog appendix and an architectural lineage trace.
+
+### v0.58.1 — Security patch (2026-04-16)
+
+- ✅ **`scheduledTasks` workspace-trust gate (CRITICAL)** — closed the last autonomous-agent-over-workspace-config hole. `checkWorkspaceConfigTrust('scheduledTasks', …)` now gates `scheduler.start()` the same way every other workspace-config-driven execution surface is gated.
+- ✅ **`customTools` workspace-trust gate (HIGH)** — cached trust decision in `_customToolsTrusted` so `getCustomToolRegistry()` stays synchronous; blocked repos have their custom tool definitions dropped before they reach the tool list. +3 tests.
+- ✅ **Empty `src/chat/` directory removed** — leftover from v0.57.0 decomposition.
+
+### v0.58.0 (2026-04-16)
 
 ✅ **Haiku as the Anthropic default** — flipped `BUILT_IN_BACKEND_PROFILES[anthropic].defaultModel` from `claude-sonnet-4-6` to `claude-haiku-4-5`, plus a new provider-aware fallback in `readConfig()` at [settings.ts:500-526](src/config/settings.ts#L500-L526) that substitutes Haiku when the user switches provider to Anthropic without updating the model field. Users with explicit Sonnet/Opus settings are unaffected; users who switch-and-forget now land on a 3×-cheaper working default instead of either `claude-sonnet-4-6` cost or an invalid `qwen3-coder:30b` model error. Exposed constants `OLLAMA_DEFAULT_MODEL` and `ANTHROPIC_DEFAULT_MODEL` so downstream code can reference them without re-declaring. +4 tests covering the provider-aware fallback and backend-profile default.
 
@@ -870,7 +1103,7 @@ Pattern recap: each of these tests read real OS state (home-dir paths, disk free
 
 ✅ **Stats** — 9 commits since v0.57.0, 1940 total tests passing (4 skipped, 0 failing), tsc + eslint clean, pre-commit hooks green including the new vitest step.
 
-## Recently Completed (v0.50.0, 2026-04-14)
+### v0.50.0 (2026-04-14)
 
 ✅ **`runAgentLoop` god-function decomposition** (cycle-2 ai-engineering HIGH) — 1,216-line god function split into a thin 255-line orchestrator plus 14 focused helper modules under [`src/agent/loop/`](src/agent/loop/). Same extraction pattern as the successful [`tools.ts` split](src/agent/tools/) and [`handleUserMessage` decomposition](src/webview/handlers/chatHandlers.ts). 79% size reduction in loop.ts.
 
@@ -910,7 +1143,7 @@ Harness files under [`tests/llm-eval/`](tests/llm-eval/):
 
 Runs via `npm run eval:llm`. Full suite takes ~90s against local Ollama (qwen3-coder:30b). Every runAgentLoop decomposition phase was verified end-to-end against the eval suite before commit — zero behavioral regressions across 9 refactor commits.
 
-## Recently Completed (post-v0.48.0, 2026-04-14 — v0.49.0 burn-down)
+### v0.49.0 burn-down (post-v0.48.0, 2026-04-14)
 
 ✅ **Terminal-error injection gap closed** (cycle-2 LLM surface HIGH) — `diagnoseTerminalError` previously synthesized a user message containing raw stderr inside a markdown code block, bypassing the tool-output injection scanner entirely. A hostile Makefile/npm script emitting `[SYSTEM] Ignore previous instructions` landed verbatim as trusted user input. New [`wrapUntrustedTerminalOutput` helper in injectionScanner.ts](src/agent/injectionScanner.ts) runs the same 6-pattern scanner on captured output and wraps it in a `<terminal_output source="stderr" trust="untrusted">` envelope, prepending a SIDECAR SECURITY NOTICE banner when matches are found. 5 new regression tests covering benign passthrough, injection banner, banner-before-envelope ordering.
 
@@ -932,7 +1165,7 @@ Runs via `npm run eval:llm`. Full suite takes ~90s against local Ollama (qwen3-c
   - MEDIUM "MCP header `${VAR}` expansion pulls from unfiltered `process.env`" — `resolveEnvVars` has been scoped to the per-server `env` block only since cycle-1.
   - MEDIUM "chatView.ts direct `getConfiguration('sidecar')` reads" — only `.update()` writes remain, which have to use raw getConfiguration by design.
 
-## Recently Completed (post-v0.47.0, 2026-04-14)
+### Post-v0.47.0 (2026-04-14)
 
 ✅ **Adversarial critic verification pass** — [critic.ts](src/agent/critic.ts) was already fully built (355 lines, 35 unit tests) but had no loop-side integration tests. Exported `runCriticChecks` + `RunCriticOptions` as a test seam and added 13 integration tests covering trigger selection (edit vs test_failure), severity dispatch (high blocks, low annotates, blockOnHighSeverity toggle), per-file injection cap enforcement across multiple turns, malformed-response handling, network-error swallowing, and early abort. Total suite: 1753 passing. Feature now gated on `sidecar.critic.enabled` (default off) — a cheaper `criticModel` override is recommended for paid backends. Removed from Planned Features — was never really "planned," just stale.
 
@@ -944,7 +1177,7 @@ Runs via `npm run eval:llm`. Full suite takes ~90s against local Ollama (qwen3-c
 
 ---
 
-## Recently Completed (v0.47.0)
+### v0.47.0
 
 Large native VS Code integration pass plus cost-control and hybrid-delegation work for paid backends. 14 new native surfaces, one new agent tool, prompt pruner + caching pipeline, 171 new tests.
 
@@ -1002,7 +1235,13 @@ Large native VS Code integration pass plus cost-control and hybrid-delegation wo
 
 ---
 
-## Cycle-2 audit architecture + AI-engineering pass (post-v0.47.0, 2026-04-14)
+---
+
+## Audit Archive
+
+Historical audit cycles in reverse-chronological order. Cycle-3 findings (v0.58.1, 2026-04-16) are folded into the Release Plan above — closed items from cycle-1 and cycle-2 are preserved here for lineage.
+
+### Cycle-2 audit — architecture + AI-engineering pass (post-v0.47.0, 2026-04-14)
 
 Closed the small-to-medium HIGH items from cycle-2 Architecture and
 AI Engineering in a five-commit pass:
@@ -1059,7 +1298,7 @@ changes), 0 regressions.
 
 ---
 
-## Cycle-2 audit prompt-engineering pass (post-v0.47.0, 2026-04-14)
+### Cycle-2 audit — prompt-engineering pass (post-v0.47.0, 2026-04-14)
 
 Closed **all 11** cycle-2 prompt-engineer findings across two commits:
 `e23f641` (system prompt rewrite) and `ec772f7` (tool description
@@ -1101,7 +1340,7 @@ tree, positive framing, and plan-mode example).
 
 ---
 
-## Cycle-2 audit security pass (post-v0.47.0, 2026-04-14)
+### Cycle-2 audit — security pass (post-v0.47.0, 2026-04-14)
 
 Closed every CRITICAL and every Security/Safety HIGH finding from the
 cycle-2 audit backlog in a focused 4-commit pass. 44 new tests, zero
@@ -1125,7 +1364,7 @@ regressions, total suite at 1674 passing.
 
 ---
 
-## Recently Completed (v0.45.0)
+### v0.45.0
 
 ✅ **Streaming text tool-call interception** (v0.45.0)
 - New streaming parser in `streamUtils.ts` normalizes `<function=name>...</function>` and `<tool_call>{...}</tool_call>` blocks into structured `tool_use` events at the Ollama and OpenAI backend boundaries
@@ -1161,7 +1400,7 @@ regressions, total suite at 1674 passing.
 
 ---
 
-## Recently Completed (v0.42.0)
+### v0.42.0
 
 ✅ **Semantic search** (v0.42.0)
 - ONNX embedding index using all-MiniLM-L6-v2 (384-dim, ~23MB quantized)
@@ -1206,7 +1445,7 @@ regressions, total suite at 1674 passing.
 
 ---
 
-## Previously Completed (v0.41.0)
+### v0.41.0
 
 ✅ **Observability suite** (v0.41.0)
 - Agent action audit log: structured JSONL in `.sidecar/logs/audit.jsonl`, browsable via `/audit` with filters (`errors`, `tool:name`, `last:N`, `since:date`, `clear`)
@@ -1225,7 +1464,7 @@ regressions, total suite at 1674 passing.
 
 ---
 
-## Previously Completed (v0.40.0)
+### v0.40.0
 
 ✅ **Deep codebase indexing: call sites & type hierarchies** (v0.40.0)
 - Symbol graph extended with `CallEdge` and `TypeEdge` data structures
@@ -1247,7 +1486,7 @@ regressions, total suite at 1674 passing.
 
 ---
 
-## Previously Completed (v0.38.0)
+### v0.38.0
 
 ✅ **Large file & monorepo handling** (v0.38.0)
 - Streaming file reader with configurable threshold (default 50KB)
@@ -1276,7 +1515,7 @@ regressions, total suite at 1674 passing.
 
 ---
 
-## Audit Backlog (v0.34.0)
+### Audit Backlog (v0.34.0)
 
 Remaining findings from seven comprehensive reviews. Fixed items removed.
 
@@ -1355,7 +1594,7 @@ Remaining findings from seven comprehensive reviews. Fixed items removed.
 
 ---
 
-## Audit Backlog (cycle 2, 2026-04-13)
+### Audit Backlog (cycle 2, 2026-04-13)
 
 Fresh comprehensive pass over the post-v0.46.0 codebase. Four parallel
 reviewers: Security, Architecture, AI Engineering + Prompt, UX + Code
@@ -1503,6 +1742,12 @@ Second pass of the same cycle, this time driven by the library skills (`threat-m
 - [x] **Anthropic max_tokens** — raised from 4096 to 8192
 - [x] **OpenAI tool call ID fix** — monotonic counter prevents collision
 - [x] **edit_file docs** — search uniqueness and first-match behavior specified
+
+---
+
+## Legacy Release Notes (pre-v0.38)
+
+Compact release notes for very early versions. Kept for historical reference; the current release-note style is the more detailed format in the Release History section above.
 
 ### v0.35.0 (2026-04-09)
 
