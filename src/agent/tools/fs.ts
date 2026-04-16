@@ -1,7 +1,13 @@
 import { workspace, Uri } from 'vscode';
 import * as path from 'path';
 import type { ToolDefinition } from '../../ollama/types.js';
-import { validateFilePath, isSensitiveFile, isProtectedWritePath, getRootUri } from './shared.js';
+import {
+  validateFilePath,
+  isSensitiveFile,
+  isProtectedWritePath,
+  resolveRootUri,
+  type ToolExecutorContext,
+} from './shared.js';
 import { compactSourceFile, outlineSourceFile } from './compression.js';
 
 // Filesystem tools: read_file / write_file / edit_file / list_directory.
@@ -96,14 +102,17 @@ export const listDirectoryDef: ToolDefinition = {
   },
 };
 
-export async function readFile(input: Record<string, unknown>): Promise<string> {
+export async function readFile(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   const filePath = input.path as string;
   const pathError = validateFilePath(filePath);
   if (pathError) return pathError;
   if (isSensitiveFile(filePath)) {
     return `Warning: "${filePath}" appears to contain secrets or credentials. Reading this file would send its contents to the LLM provider. Use read_file on a non-sensitive file instead, or ask the user to provide the needed information directly.`;
   }
-  const fileUri = Uri.joinPath(getRootUri(), filePath);
+  // resolveRootUri consults `context.cwd` first so ShadowWorkspace-pinned
+  // reads see the shadow's state (including the agent's own in-progress
+  // writes) instead of main-tree content.
+  const fileUri = Uri.joinPath(resolveRootUri(context), filePath);
   const bytes = await workspace.fs.readFile(fileUri);
   const text = Buffer.from(bytes).toString('utf-8');
   const mode = input.mode as string | undefined;
@@ -112,24 +121,25 @@ export async function readFile(input: Record<string, unknown>): Promise<string> 
   return text;
 }
 
-export async function writeFile(input: Record<string, unknown>): Promise<string> {
+export async function writeFile(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   const filePath = input.path as string;
   const pathError = validateFilePath(filePath);
   if (pathError) return pathError;
   const protectedError = isProtectedWritePath(filePath);
   if (protectedError) return protectedError;
   const content = input.content as string;
-  const fileUri = Uri.joinPath(getRootUri(), filePath);
-  // Create parent directories
+  const rootUri = resolveRootUri(context);
+  const fileUri = Uri.joinPath(rootUri, filePath);
+  // Create parent directories in the same root the file write targets.
   const dir = path.dirname(filePath);
   if (dir && dir !== '.') {
-    await workspace.fs.createDirectory(Uri.joinPath(getRootUri(), dir));
+    await workspace.fs.createDirectory(Uri.joinPath(rootUri, dir));
   }
   await workspace.fs.writeFile(fileUri, Buffer.from(content, 'utf-8'));
   return `File written: ${filePath}`;
 }
 
-export async function editFile(input: Record<string, unknown>): Promise<string> {
+export async function editFile(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   const filePath = input.path as string;
   const pathError = validateFilePath(filePath);
   if (pathError) return pathError;
@@ -137,7 +147,7 @@ export async function editFile(input: Record<string, unknown>): Promise<string> 
   if (protectedError) return protectedError;
   const search = input.search as string;
   const replace = input.replace as string;
-  const fileUri = Uri.joinPath(getRootUri(), filePath);
+  const fileUri = Uri.joinPath(resolveRootUri(context), filePath);
   const bytes = await workspace.fs.readFile(fileUri);
   const text = Buffer.from(bytes).toString('utf-8');
   if (!text.includes(search)) {
@@ -148,7 +158,7 @@ export async function editFile(input: Record<string, unknown>): Promise<string> 
   return `File edited: ${filePath}`;
 }
 
-export async function listDirectory(input: Record<string, unknown>): Promise<string> {
+export async function listDirectory(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   const dirPath = (input.path as string) || '.';
   // `.` is the workspace root itself — skip validation for the empty
   // path, otherwise run the same relative-path guard every other file
@@ -161,7 +171,7 @@ export async function listDirectory(input: Record<string, unknown>): Promise<str
     const pathError = validateFilePath(dirPath);
     if (pathError) return pathError;
   }
-  const dirUri = Uri.joinPath(getRootUri(), dirPath);
+  const dirUri = Uri.joinPath(resolveRootUri(context), dirPath);
   const entries = await workspace.fs.readDirectory(dirUri);
   return entries.map(([name, type]) => `${type === 2 ? '📁 ' : '📄 '}${name}`).join('\n');
 }

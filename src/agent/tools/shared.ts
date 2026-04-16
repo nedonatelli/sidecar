@@ -41,6 +41,21 @@ export interface ToolExecutorContext {
    * to embed which models contributed to the session.
    */
   client?: SideCarClient;
+  /**
+   * Working-directory override. When set, all path-resolving tool calls
+   * (`read_file`, `write_file`, `edit_file`, `list_directory`,
+   * `run_command`, `run_tests`, `git_*`) resolve relative paths against
+   * this directory instead of `workspace.workspaceFolders[0]`. Used by
+   * ShadowWorkspace to route every file operation into the shadow
+   * worktree at `.sidecar/shadows/<task-id>/` so the main working tree
+   * stays pristine until the user accepts the task's diff.
+   *
+   * Must be an absolute path. Tools use `resolveRoot(context)` /
+   * `resolveRootUri(context)` to consult this field before falling back
+   * to the workspace root, so the shadow override is transparent to
+   * existing tool logic.
+   */
+  cwd?: string;
 }
 
 export interface ToolExecutor {
@@ -72,6 +87,31 @@ export function getRootUri(): Uri {
     throw new Error('No workspace folder open. Open a folder or workspace first.');
   }
   return folder.uri;
+}
+
+/**
+ * Resolve the effective working-directory path for a tool call. When the
+ * caller passes a `context.cwd` override (ShadowWorkspace uses this to
+ * pin writes into the shadow worktree), use it; otherwise fall back to
+ * the first workspace folder. All tools that read or write files should
+ * use this helper instead of calling `getRoot()` / `getRootUri()` directly
+ * so the shadow override is transparent to their existing logic.
+ *
+ * Returns an empty string when neither is available — consistent with
+ * `getRoot()`'s existing behavior.
+ */
+export function resolveRoot(context?: ToolExecutorContext): string {
+  return context?.cwd ?? getRoot();
+}
+
+/**
+ * URI equivalent of `resolveRoot` for the `workspace.fs` APIs. Throws the
+ * same way `getRootUri` does when no workspace folder is open and no
+ * `context.cwd` was supplied.
+ */
+export function resolveRootUri(context?: ToolExecutorContext): Uri {
+  if (context?.cwd) return Uri.file(context.cwd);
+  return getRootUri();
 }
 
 /** Reject obviously invalid file paths that indicate the model hallucinated. */
