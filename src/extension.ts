@@ -50,7 +50,7 @@ import { SymbolIndexer } from './config/symbolIndexer.js';
 import { SkillLoader } from './agent/skillLoader.js';
 import { getFilePatterns } from './config/workspace.js';
 import { runPreCommitScan } from './agent/preCommitScan.js';
-import { disposeShellSession, setSymbolGraph } from './agent/tools.js';
+import { disposeShellSession, setSymbolGraph, initCustomToolsTrust } from './agent/tools.js';
 import { disposeSidecarMdWatcher } from './webview/handlers/chatHandlers.js';
 import { InlineEditProvider } from './edits/inlineEditProvider.js';
 import { SidecarCodeActionProvider } from './edits/sidecarCodeActionProvider.js';
@@ -770,22 +770,48 @@ export function activate(context: ExtensionContext) {
     }),
   );
 
-  // Scheduled tasks
+  // Scheduled tasks — gated on workspace trust the same way MCP servers,
+  // hooks, toolPermissions, and SIDECAR.md are. Without this check a
+  // hostile `.vscode/settings.json` that sets `sidecar.scheduledTasks`
+  // could auto-start an autonomous agent loop on a timer just by opening
+  // the repo, since `runTask` dispatches `runAgentLoop` with
+  // `approvalMode: 'autonomous'`.
   const scheduler = new Scheduler(agentLogger, mcpManager);
-  const scheduledTasks = config.scheduledTasks;
-  if (scheduledTasks.length > 0) {
-    scheduler.start(scheduledTasks);
-  }
   context.subscriptions.push(scheduler);
+
+  const startSchedulerGated = async (tasks: typeof config.scheduledTasks): Promise<void> => {
+    if (tasks.length === 0) return;
+    const trust = await checkWorkspaceConfigTrust(
+      'scheduledTasks',
+      'SideCar: This workspace defines scheduled tasks that will run an autonomous agent loop on a timer. Only trust these from repositories you control.',
+    );
+    if (trust === 'blocked') {
+      console.log('[SideCar] Workspace scheduledTasks blocked by user');
+      return;
+    }
+    scheduler.start(tasks);
+  };
+
+  if (config.scheduledTasks.length > 0) {
+    void startSchedulerGated(config.scheduledTasks);
+  }
 
   context.subscriptions.push(
     workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('sidecar.scheduledTasks')) {
         scheduler.stop();
-        scheduler.start(getConfig().scheduledTasks);
+        void startSchedulerGated(getConfig().scheduledTasks);
+      }
+      if (e.affectsConfiguration('sidecar.customTools')) {
+        void initCustomToolsTrust();
       }
     }),
   );
+
+  // Prompt for trust once at activation if the workspace declares custom
+  // tools. Done fire-and-forget because the sync tool-registry path treats
+  // "not yet checked" as trusted when no workspace-level value exists.
+  void initCustomToolsTrust();
 
   // Status bar — use cached config values. Text, icon, and background
   // colour all reflect the current health of the active backend so
