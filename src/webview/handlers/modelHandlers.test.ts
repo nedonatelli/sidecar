@@ -13,6 +13,30 @@ vi.mock('../../ollama/hfSafetensorsImport.js', () => ({
   importSafetensorsModel: (opts: unknown) => mockImport(opts),
 }));
 
+// Stub fs.statfsSync so the safetensors-import disk-space preflight in
+// `runSafetensorsImportFlow` always sees plenty of free space. Without
+// this, a host with less than 2× the test-repo-size free in os.tmpdir()
+// (e.g. ~40 GB for the 20 GB fixture below) aborts early and
+// `importSafetensorsModel` never gets called, producing the misleading
+// "expected toHaveBeenCalledWith but received 0 calls" failure. Other fs
+// functions pass through unchanged so real mkdirSync / writeFileSync
+// continue to work in tests that use the temp staging dir.
+vi.mock('fs', async () => {
+  const actual = await vi.importActual<typeof import('fs')>('fs');
+  return {
+    ...actual,
+    statfsSync: () => ({
+      type: 0,
+      bsize: 4096,
+      blocks: BigInt(1_000_000_000),
+      bfree: BigInt(500_000_000),
+      bavail: BigInt(500_000_000),
+      files: BigInt(0),
+      ffree: BigInt(0),
+    }),
+  };
+});
+
 // Mock the HF token helper so the default is "no token set".
 const mockGetHFToken = vi.fn(async () => undefined);
 vi.mock('../../config/settings.js', async () => {
