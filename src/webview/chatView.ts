@@ -1,5 +1,6 @@
 import {
   workspace,
+  window,
   env,
   commands,
   WebviewView,
@@ -519,11 +520,51 @@ export class ChatViewProvider implements WebviewViewProvider {
    * webview dropdown (`changeModel` handler) and the `sidecar.selectModel`
    * command so keyboard-first and click-first model switching go through
    * the exact same reconnect + probe + persist path.
+   *
+   * For local Ollama we verify that the requested model is actually
+   * installed before persisting to global settings. Without this guard,
+   * typing a not-yet-pulled name into the custom-model input silently
+   * writes the name to `sidecar.model`, so every subsequent chat turn
+   * hits Ollama's `/api/chat` with a model it doesn't have and 404s —
+   * a soft-bricked state that's hard to diagnose because the dropdown
+   * happily displays the stuck name. Remote backends (Anthropic, OpenAI,
+   * OpenRouter, etc.) don't have an "installed" concept, so we skip the
+   * check and trust the provider.
    */
   public async setModel(model: string): Promise<void> {
     if (!model) return;
     const cfg = getConfig();
     this.state.client.updateConnection(cfg.baseUrl, cfg.apiKey);
+
+    if (this.state.client.isLocalOllama()) {
+      try {
+        const installed = await this.state.client.listInstalledModels();
+        const hit = installed.some((m) => m.name === model || m.name.split(':')[0] === model.split(':')[0]);
+        if (!hit) {
+          const action = await window.showWarningMessage(
+            `SideCar: ${model} is not installed in Ollama. Install it first, then select it.`,
+            'Install Model',
+            'Cancel',
+          );
+          if (action === 'Install Model') {
+            // Route into the normal install path — this handles bare
+            // `org/repo`, HuggingFace URLs, and plain Ollama library
+            // names uniformly. On success the install flow will post
+            // its own `setCurrentModel` update so we don't need to
+            // recurse back through `setModel`.
+            await handleInstallModel(this.state, model);
+          }
+          return;
+        }
+      } catch (err) {
+        // If Ollama is unreachable, fall through — the check is a guard
+        // against silent corruption, not a connectivity gate. The user
+        // will see a clearer "cannot reach Ollama" error from the next
+        // chat request anyway.
+        console.warn('setModel: could not verify installed models:', err);
+      }
+    }
+
     this.state.client.updateModel(model);
     const { modelSupportsTools, probeModelToolSupport } = await import('../ollama/ollamaBackend.js');
     if (this.state.client.isLocalOllama()) {
