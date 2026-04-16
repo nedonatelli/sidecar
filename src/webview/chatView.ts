@@ -317,6 +317,57 @@ export class ChatViewProvider implements WebviewViewProvider {
         await handleKickstandUnloadModel(this.state, msg.modelId);
       }
     },
+    reviewChanges: async () => {
+      await commands.executeCommand('sidecar.reviewChanges');
+    },
+    prSummary: async () => {
+      await commands.executeCommand('sidecar.summarizePR');
+    },
+    commitMessage: async () => {
+      await commands.executeCommand('sidecar.generateCommitMessage');
+    },
+    listMemories: async () => {
+      if (!this.state.agentMemory) {
+        this.state.postMessage({
+          command: 'assistantMessage',
+          content: 'Agent memory is not enabled. Set `sidecar.enableAgentMemory` to true.\n\n',
+        });
+        return;
+      }
+      const memories = this.state.agentMemory.queryAll();
+      if (memories.length === 0) {
+        this.state.postMessage({ command: 'assistantMessage', content: 'No agent memories stored yet.\n\n' });
+        return;
+      }
+      const byType = new Map<string, number>();
+      for (const m of memories) byType.set(m.type, (byType.get(m.type) ?? 0) + 1);
+      const stats = this.state.agentMemory.getStats();
+      let content = `**Agent Memories** — ${memories.length} entries\n\n`;
+      content += `| Type | Count |\n|------|-------|\n`;
+      for (const [type, count] of byType) content += `| ${type} | ${count} |\n`;
+      content += `\nTotal entries: ${stats.totalCount}. Use \`/memory-search <query>\` to search.\n\n`;
+      this.state.postMessage({ command: 'assistantMessage', content });
+    },
+    searchMemories: async (msg) => {
+      if (!this.state.agentMemory || !msg.text) {
+        this.state.postMessage({
+          command: 'assistantMessage',
+          content: 'Agent memory is not enabled or no query provided.\n\n',
+        });
+        return;
+      }
+      const results = this.state.agentMemory.search(msg.text, undefined, 10);
+      if (results.length === 0) {
+        this.state.postMessage({ command: 'assistantMessage', content: `No memories found for "${msg.text}".\n\n` });
+        return;
+      }
+      let content = `**Memory search:** "${msg.text}" — ${results.length} results\n\n`;
+      for (const m of results) {
+        content += `- **[${m.type}]** ${m.content.slice(0, 120)}${m.content.length > 120 ? '...' : ''} *(used ${m.useCount}x)*\n`;
+      }
+      content += '\n';
+      this.state.postMessage({ command: 'assistantMessage', content });
+    },
     scanStaged: async () => {
       await commands.executeCommand('sidecar.scanStaged');
     },

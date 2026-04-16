@@ -854,6 +854,11 @@
     { cmd: '/init', desc: 'Generate SIDECAR.md project notes from codebase' },
     { cmd: '/bg', desc: 'Run a task in the background' },
     { cmd: '/resume', desc: 'Resume a response that was cut off mid-stream' },
+    { cmd: '/review', desc: 'Review current git changes' },
+    { cmd: '/pr-summary', desc: 'Generate PR title and summary' },
+    { cmd: '/commit-message', desc: 'Generate and copy a commit message' },
+    { cmd: '/memories', desc: 'Browse agent memories' },
+    { cmd: '/memory-search', desc: 'Search agent memories' },
   ];
   const autocompleteEl = document.getElementById('slash-autocomplete');
   let acSelectedIndex = -1;
@@ -1249,6 +1254,42 @@
     if (text.trim() === '/scan') {
       appendMessage('user', '/scan');
       vscode.postMessage({ command: 'scanStaged' });
+      input.value = '';
+      input.style.height = 'auto';
+      return;
+    }
+    if (text.trim() === '/review') {
+      appendMessage('user', '/review');
+      vscode.postMessage({ command: 'reviewChanges' });
+      input.value = '';
+      input.style.height = 'auto';
+      return;
+    }
+    if (text.trim() === '/pr-summary') {
+      appendMessage('user', '/pr-summary');
+      vscode.postMessage({ command: 'prSummary' });
+      input.value = '';
+      input.style.height = 'auto';
+      return;
+    }
+    if (text.trim() === '/commit-message') {
+      appendMessage('user', '/commit-message');
+      vscode.postMessage({ command: 'commitMessage' });
+      input.value = '';
+      input.style.height = 'auto';
+      return;
+    }
+    if (text.trim() === '/memories') {
+      appendMessage('user', '/memories');
+      vscode.postMessage({ command: 'listMemories' });
+      input.value = '';
+      input.style.height = 'auto';
+      return;
+    }
+    if (text.trim().startsWith('/memory-search ')) {
+      const query = text.trim().slice('/memory-search '.length).trim();
+      appendMessage('user', '/memory-search ' + query);
+      vscode.postMessage({ command: 'searchMemories', text: query });
       input.value = '';
       input.style.height = 'auto';
       return;
@@ -3169,6 +3210,25 @@
           }
           progressEl.classList.remove('hidden');
         }
+        break;
+      }
+
+      case 'resumeAvailable': {
+        // Show a clickable resume button in the chat
+        const resumeBtn = document.createElement('button');
+        resumeBtn.className = 'resume-button';
+        resumeBtn.textContent = '▶ Resume';
+        resumeBtn.title = 'Continue from where the response was cut off';
+        resumeBtn.addEventListener('click', () => {
+          vscode.postMessage({ command: 'resume' });
+          resumeBtn.disabled = true;
+          resumeBtn.textContent = 'Resuming...';
+        });
+        const resumeWrapper = document.createElement('div');
+        resumeWrapper.style.padding = '8px 0';
+        resumeWrapper.appendChild(resumeBtn);
+        messagesContainer.appendChild(resumeWrapper);
+        scrollToBottom();
         break;
       }
 

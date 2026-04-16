@@ -2487,3 +2487,22 @@ body {
   margin: 4px 0;
   background: var(--vscode-menu-separatorBackground, rgba(127, 127, 127, 0.3));
 }
+
+/* Resume button shown after stream failure */
+.resume-button {
+  display: inline-block;
+  padding: 6px 16px;
+  border: 1px solid var(--vscode-button-border, transparent);
+  border-radius: 4px;
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  font-size: 13px;
+  cursor: pointer;
+}
+.resume-button:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+.resume-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

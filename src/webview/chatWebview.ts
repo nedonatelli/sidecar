@@ -64,6 +64,11 @@ export interface WebviewMessage {
     | 'switchBackend'
     | 'kickstandLoad'
     | 'kickstandUnload'
+    | 'reviewChanges'
+    | 'prSummary'
+    | 'commitMessage'
+    | 'listMemories'
+    | 'searchMemories'
     | 'droppedPaths'
     | 'executeExtensionCommand';
   images?: { mediaType: string; data: string }[];
@@ -148,6 +153,7 @@ export interface ExtensionMessage {
     | 'bgOutput'
     | 'bgComplete'
     | 'bgList'
+    | 'resumeAvailable'
     | 'uiSettings';
   agentMode?: string;
   toolName?: string;

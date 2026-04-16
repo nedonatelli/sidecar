@@ -346,6 +346,12 @@ function createAgentCallbacks(
     onStreamFailure: (partial, error) => {
       flushTextBuffer();
       state.pendingPartialAssistant = partial;
+      // Surface a resume affordance so the user doesn't have to know about /resume
+      state.postMessage({
+        command: 'assistantMessage',
+        content: `\n\n⚠️ Stream interrupted: ${error.message}\n\nType \`/resume\` or click **Resume** below to continue from where it left off.\n\n`,
+      });
+      state.postMessage({ command: 'resumeAvailable' });
       if (verbose) {
         verboseLog(
           'Stream failure captured',
