@@ -4,6 +4,21 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **`system_monitor` tool.** Read-only CPU/RAM/VRAM probe (via `nvidia-smi`, `rocm-smi`, or macOS `system_profiler`) the agent can call before a heavy build, model download, or parallel sub-agent run to decide whether to throttle.
+- **Model-attribution git trailers.** Every agent-authored commit now carries `X-AI-Model: <model> (<role>, <n> calls)` trailers via a new `SideCarClient.buildModelTrailers()` that aggregates the session's model-usage log. When multiple models contribute, an `X-AI-Model-Count: N` line is appended. Threaded through `ToolExecutorContext.client` so direct callers (tests, scripts) get the plain `Co-Authored-By` block unchanged.
+
+### Changed
+
+- **Default Anthropic model is now `claude-haiku-4-5`** (was `claude-sonnet-4-6`). Applies in two places: the built-in Anthropic backend profile, and a new provider-aware fallback in `readConfig()` that substitutes Haiku when the user switches provider to Anthropic without updating the model field. Cuts per-request cost 3× for the common case of a user who expected a sensible default after switching. Users with an explicit Sonnet/Opus setting are unaffected.
+- **Plan-mode system prompt refreshed** in Claude Code style — explicit 6-step exploration/design workflow with `ExitPlanMode` guidance and a read-only guardrail note.
+- **Context compression preserves `thinking` blocks paired with `tool_use`.** Anthropic's Extended Thinking API rejects dropping a thinking block while keeping its paired tool_use (400 Bad Request). The compressor now truncates such blocks to 200 chars instead of dropping; standalone thinking blocks 8+ messages from the end are still dropped as before.
+
+### Fixed
+
+- **`.sidecar/` ignore rules clarified for Multi-User Agent Shadows.** Top-level tracked (so `shadow.json` commits with the repo); ephemeral subdirs (`cache/`, `memory/`, `history-index/`, `sessions/`, `logs/`, `scratchpad/`) gitignored to prevent per-machine merge churn.
+
 ## [0.57.0] - 2026-04-16
 
 Architecture, robustness, and review UX — the biggest internal release since v0.50.
