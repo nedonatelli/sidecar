@@ -69,6 +69,10 @@ export interface LoopState {
   // Per-file critic injection counter. criticHook.ts is the only writer.
   criticInjectionsByFile: Map<string, number>;
 
+  // Per-tool call counts for budget enforcement. toolBudget.ts is
+  // the only reader; executeToolUses.ts is the only writer.
+  toolCallCounts: Map<string, number>;
+
   // Completion-gate state (tracks edited files and verification calls).
   // gate.ts + executeToolUses.ts both touch it.
   gateState: ReturnType<typeof createGateState>;
@@ -109,6 +113,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     autoFixRetriesByFile: new Map<string, number>(),
     stubFixRetries: 0,
     criticInjectionsByFile: new Map<string, number>(),
+    toolCallCounts: new Map<string, number>(),
     gateState: createGateState(),
   };
 }

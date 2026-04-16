@@ -1,4 +1,24 @@
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 import { getConfig, type SideCarConfig } from './settings.js';
+
+/**
+ * Read the auto-generated Kickstand bearer token for reachability probes.
+ * Duplicated from kickstandBackend.ts to avoid a circular dependency
+ * (providerReachability is imported by settings consumers, not backend modules).
+ */
+function readKickstandTokenForProbe(): string {
+  try {
+    const tokenPath = path.join(os.homedir(), '.config', 'kickstand', 'token');
+    if (fs.existsSync(tokenPath)) {
+      return fs.readFileSync(tokenPath, 'utf-8').trim();
+    }
+  } catch {
+    // Token file not found or unreadable
+  }
+  return '';
+}
 
 /**
  * Check whether the configured LLM provider is reachable.
@@ -30,10 +50,15 @@ export async function isProviderReachable(
         headers['x-api-key'] = cfg.apiKey;
         headers['anthropic-version'] = '2023-06-01';
         break;
-      case 'kickstand':
-        checkUrl = `${cfg.baseUrl}/v1/models`;
-        headers['Authorization'] = `Bearer ${cfg.apiKey}`;
+      case 'kickstand': {
+        // Kickstand's /v1/models (OAI-compatible) is unprotected, so we
+        // can probe it without auth. But use the health endpoint for a
+        // cleaner signal.
+        checkUrl = `${cfg.baseUrl}/api/v1/health`;
+        const token = readKickstandTokenForProbe();
+        if (token) headers['Authorization'] = `Bearer ${token}`;
         break;
+      }
       case 'openrouter':
         // OpenRouter's /v1/models endpoint is public and doesn't need
         // auth to list the catalog, so this probes connectivity without
@@ -79,4 +104,46 @@ export async function isProviderReachable(
   } catch {
     return false;
   }
+}
+
+/**
+ * Attempt to start a Kickstand server if one isn't already running.
+ * Spawns `kick serve` as a detached child process and polls the health
+ * endpoint until it responds or the timeout expires.
+ *
+ * Returns true if the server is reachable after the attempt.
+ */
+export async function ensureKickstandRunning(baseUrl = 'http://localhost:11435'): Promise<boolean> {
+  // Already running?
+  try {
+    const resp = await fetch(`${baseUrl}/api/v1/health`, { signal: AbortSignal.timeout(1500) });
+    if (resp.ok) return true;
+  } catch {
+    // Not running — try to start it
+  }
+
+  try {
+    const { spawn } = await import('child_process');
+    const child = spawn('kick', ['serve'], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    child.unref();
+  } catch {
+    // `kick` not on PATH — can't auto-start
+    return false;
+  }
+
+  // Poll health endpoint for up to 15 seconds
+  for (let i = 0; i < 30; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    try {
+      const resp = await fetch(`${baseUrl}/api/v1/health`, { signal: AbortSignal.timeout(1000) });
+      if (resp.ok) return true;
+    } catch {
+      // Keep polling
+    }
+  }
+
+  return false;
 }

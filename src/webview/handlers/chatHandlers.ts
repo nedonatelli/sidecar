@@ -1373,6 +1373,12 @@ export function handleUserMessageWithImages(
 async function ensureProviderRunning(state: ChatState): Promise<boolean> {
   if (await isProviderReachable(state.client.getProviderType())) return true;
 
+  // Auto-start Kickstand if the provider is kickstand
+  if (state.client.getProviderType() === 'kickstand') {
+    const { ensureKickstandRunning } = await import('../../config/providerReachability.js');
+    return ensureKickstandRunning(getConfig().baseUrl);
+  }
+
   if (!state.client.isLocalOllama()) return false;
 
   try {

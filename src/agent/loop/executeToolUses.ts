@@ -5,6 +5,7 @@ import { executeTool } from '../executor.js';
 import { spawnSubAgent } from '../subagent.js';
 import { runLocalWorker } from '../localWorker.js';
 import type { LoopState } from './state.js';
+import { checkToolBudget } from './toolBudget.js';
 
 // ---------------------------------------------------------------------------
 // Parallel tool execution for runAgentLoop.
@@ -107,6 +108,18 @@ export async function executeToolUses(
  */
 async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): Promise<ToolResultContentBlock> {
   const { state, options, callbacks, signal } = ctx;
+
+  // Per-tool rate limiting: check budget before executing
+  const budgetError = checkToolBudget(state, toolUse.name);
+  if (budgetError) {
+    callbacks.onToolResult(toolUse.name, budgetError, true, toolUse.id);
+    return {
+      type: 'tool_result',
+      tool_use_id: toolUse.id,
+      content: budgetError,
+      is_error: true,
+    };
+  }
 
   if (toolUse.name === 'spawn_agent') {
     return runSpawnAgent(ctx, toolUse);
