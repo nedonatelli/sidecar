@@ -142,6 +142,7 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
       clarifyFn: options.clarifyFn,
       modeToolPermissions: options.modeToolPermissions,
       toolRuntime: options.toolRuntime,
+      client: ctx.client,
     },
     inlineEditFn: options.inlineEditFn,
     streamingDiffPreviewFn: options.streamingDiffPreviewFn,

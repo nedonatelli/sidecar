@@ -8,3 +8,10 @@ docs/market-notes.md
 coverage/
 grammars/
 .env
+# SideCar — ignore ephemeral/machine-specific subdirs, but let shadow.json through
+.sidecar/cache/
+.sidecar/memory/
+.sidecar/history-index/
+.sidecar/sessions/
+.sidecar/logs/
+.sidecar/scratchpad/

@@ -92,13 +92,20 @@ export class GitCLI {
     return output ? `Staged:\n${output}` : 'No changes to stage.';
   }
 
-  async commit(message: string): Promise<string> {
+  async commit(message: string, extraTrailers?: string): Promise<string> {
     const staged = await this.exec(['diff', '--cached', '--stat']);
     if (!staged) {
       return 'Nothing to commit — no staged changes. Use git_stage first.';
     }
 
-    const fullMessage = `${message}\n\nCo-Authored-By: SideCar <274544454+SideCarAI-Bot@users.noreply.github.com>`;
+    // Git trailers live at the tail of the commit message, separated from the
+    // body by a blank line. We always append the SideCar Co-Authored-By, then
+    // add any caller-supplied trailers (e.g. X-AI-Model entries) right after.
+    const trailerBlock = [
+      'Co-Authored-By: SideCar <274544454+SideCarAI-Bot@users.noreply.github.com>',
+      ...(extraTrailers ? [extraTrailers] : []),
+    ].join('\n');
+    const fullMessage = `${message}\n\n${trailerBlock}`;
     await this.exec(['commit', '-m', fullMessage]);
 
     const log = await this.exec(['log', '--oneline', '-1']);

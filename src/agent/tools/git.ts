@@ -2,7 +2,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import type { ToolDefinition } from '../../ollama/types.js';
 import { GitCLI } from '../../github/git.js';
-import { getRoot } from './shared.js';
+import { getRoot, type ToolExecutorContext } from './shared.js';
 import { compressGitDiff } from './compression.js';
 
 const execAsync = promisify(exec);
@@ -117,9 +117,14 @@ export const gitCommitDef: ToolDefinition = {
   },
 };
 
-export async function gitCommit(input: Record<string, unknown>): Promise<string> {
+export async function gitCommit(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   try {
-    return await new GitCLI().commit(input.message as string);
+    // When a client is available (agent-loop path), stamp the commit with
+    // X-AI-Model trailers so the record carries which model(s) authored it.
+    // Direct callers (tests, one-off scripts) pass no client and get the
+    // plain Co-Authored-By block.
+    const extraTrailers = context?.client?.buildModelTrailers();
+    return await new GitCLI().commit(input.message as string, extraTrailers);
   } catch (err) {
     return `git commit failed: ${err instanceof Error ? err.message : String(err)}`;
   }

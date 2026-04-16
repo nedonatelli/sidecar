@@ -462,4 +462,101 @@ describe('SideCarClient', () => {
       await expect(client.complete([{ role: 'user', content: 'test' }])).rejects.toThrow('Aborted');
     });
   });
+
+  describe('model usage log', () => {
+    function stubOllamaResponse() {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          model: 'test-model',
+          message: { role: 'assistant', content: 'ok' },
+          done: true,
+        }),
+      });
+    }
+
+    it('buildModelTrailers falls back to the configured model when no calls yet', () => {
+      const client = new SideCarClient('qwen3-coder:30b');
+      expect(client.buildModelTrailers()).toBe('X-AI-Model: qwen3-coder:30b');
+    });
+
+    it('records each complete() call in the usage log', async () => {
+      const client = new SideCarClient('test-model');
+      stubOllamaResponse();
+      await client.complete([{ role: 'user', content: 'hi' }]);
+      const log = client.getModelUsageLog();
+      expect(log).toHaveLength(1);
+      expect(log[0].model).toBe('test-model');
+      expect(log[0].role).toBe('complete');
+      expect(log[0].timestamp).toBeInstanceOf(Date);
+    });
+
+    it('records each streamChat() call in the usage log', async () => {
+      const client = new SideCarClient('test-model');
+      // streamChat uses the backend's async generator; mock an empty SSE stream.
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        body: {
+          getReader: () => ({
+            read: async () => ({ done: true, value: undefined }),
+            releaseLock: () => {},
+          }),
+        },
+      });
+      const gen = client.streamChat([{ role: 'user', content: 'hi' }]);
+      // Drain to force the generator's preamble (the usage-log entry is
+      // recorded synchronously at call time, but drain anyway to be safe).
+      for await (const _ of gen) {
+        void _;
+      }
+      const log = client.getModelUsageLog();
+      expect(log).toHaveLength(1);
+      expect(log[0].role).toBe('chat');
+    });
+
+    it('buildModelTrailers emits one line per unique model with call counts', async () => {
+      const client = new SideCarClient('test-model');
+      stubOllamaResponse();
+      stubOllamaResponse();
+      await client.complete([{ role: 'user', content: 'a' }]);
+      await client.complete([{ role: 'user', content: 'b' }]);
+      const trailers = client.buildModelTrailers();
+      expect(trailers).toContain('X-AI-Model: test-model (complete, 2 calls)');
+      // Only one model used — no count summary line.
+      expect(trailers).not.toContain('X-AI-Model-Count');
+    });
+
+    it('buildModelTrailers emits Count trailer and merges roles when multiple models are used', async () => {
+      const client = new SideCarClient('model-a');
+      stubOllamaResponse();
+      await client.complete([{ role: 'user', content: 'a' }]);
+      client.updateModel('model-b');
+      stubOllamaResponse();
+      await client.complete([{ role: 'user', content: 'b' }]);
+      const trailers = client.buildModelTrailers();
+      expect(trailers).toContain('X-AI-Model: model-a (complete, 1 call)');
+      expect(trailers).toContain('X-AI-Model: model-b (complete, 1 call)');
+      expect(trailers).toContain('X-AI-Model-Count: 2');
+    });
+
+    it('clearModelUsageLog resets the log', async () => {
+      const client = new SideCarClient('test-model');
+      stubOllamaResponse();
+      await client.complete([{ role: 'user', content: 'a' }]);
+      expect(client.getModelUsageLog()).toHaveLength(1);
+      client.clearModelUsageLog();
+      expect(client.getModelUsageLog()).toHaveLength(0);
+      // After clearing, the trailer falls back to the configured model again.
+      expect(client.buildModelTrailers()).toBe('X-AI-Model: test-model');
+    });
+
+    it('getModelUsageLog returns a copy (not a live reference)', async () => {
+      const client = new SideCarClient('test-model');
+      stubOllamaResponse();
+      await client.complete([{ role: 'user', content: 'a' }]);
+      const snapshot = client.getModelUsageLog();
+      snapshot.push({ model: 'injected', role: 'chat', timestamp: new Date() });
+      expect(client.getModelUsageLog()).toHaveLength(1);
+    });
+  });
 });

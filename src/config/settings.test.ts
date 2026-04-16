@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { workspace } from 'vscode';
 import {
   isLocalOllama,
   isAnthropic,
@@ -10,6 +11,10 @@ import {
   getConfig,
   clampMin,
   estimateCost,
+  BUILT_IN_BACKEND_PROFILES,
+  ANTHROPIC_DEFAULT_MODEL,
+  OLLAMA_DEFAULT_MODEL,
+  __resetConfigCacheForTests,
 } from './settings.js';
 
 describe('isLocalOllama', () => {
@@ -272,6 +277,51 @@ describe('estimateCost', () => {
     // Model strings from providers may include prefixes
     const cost = estimateCost('anthropic/claude-opus-4-6', 1000, 500);
     expect(cost).not.toBeNull();
+  });
+});
+
+describe('getConfig provider-aware model default', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    __resetConfigCacheForTests();
+  });
+
+  function stubConfig(overrides: Record<string, unknown>): void {
+    vi.spyOn(workspace, 'getConfiguration').mockReturnValue({
+      get: <T>(key: string, defaultValue?: T) => (key in overrides ? (overrides[key] as T) : (defaultValue as T)),
+      inspect: () => ({ workspaceValue: undefined, globalValue: undefined }),
+      update: async () => {},
+      has: () => false,
+    } as unknown as ReturnType<typeof workspace.getConfiguration>);
+    __resetConfigCacheForTests();
+  }
+
+  it('substitutes Haiku when provider=anthropic and model is still the Ollama default', () => {
+    stubConfig({ provider: 'anthropic', baseUrl: 'https://api.anthropic.com' });
+    expect(getConfig().model).toBe(ANTHROPIC_DEFAULT_MODEL);
+  });
+
+  it('respects an explicit anthropic model (does not override Sonnet)', () => {
+    stubConfig({ provider: 'anthropic', baseUrl: 'https://api.anthropic.com', model: 'claude-sonnet-4-6' });
+    expect(getConfig().model).toBe('claude-sonnet-4-6');
+  });
+
+  it('leaves the Ollama default alone when provider is ollama', () => {
+    stubConfig({ provider: 'ollama', baseUrl: 'http://localhost:11434' });
+    expect(getConfig().model).toBe(OLLAMA_DEFAULT_MODEL);
+  });
+
+  it('auto-detects Anthropic from the base URL when provider=auto', () => {
+    stubConfig({ provider: 'auto', baseUrl: 'https://api.anthropic.com' });
+    expect(getConfig().model).toBe(ANTHROPIC_DEFAULT_MODEL);
+  });
+});
+
+describe('BUILT_IN_BACKEND_PROFILES', () => {
+  it('uses Haiku (not Sonnet) as the Anthropic profile default', () => {
+    const anthropic = BUILT_IN_BACKEND_PROFILES.find((p) => p.id === 'anthropic');
+    expect(anthropic?.defaultModel).toBe(ANTHROPIC_DEFAULT_MODEL);
+    expect(anthropic?.defaultModel).toBe('claude-haiku-4-5');
   });
 });
 

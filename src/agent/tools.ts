@@ -40,6 +40,7 @@ import {
   gitStash,
 } from './tools/git.js';
 import { webSearchDef, webSearch, displayDiagramDef, displayDiagram } from './tools/knowledge.js';
+import { systemMonitorDef, systemMonitor } from './tools/systemMonitor.js';
 import {
   switchBackendDef,
   switchBackend,
@@ -93,6 +94,7 @@ export const TOOL_REGISTRY: RegisteredTool[] = [
   { definition: displayDiagramDef, executor: displayDiagram, requiresApproval: false },
   { definition: findReferencesDef, executor: findReferences, requiresApproval: false },
   { definition: webSearchDef, executor: webSearch, requiresApproval: false },
+  { definition: systemMonitorDef, executor: systemMonitor, requiresApproval: false },
   // Settings tools. `alwaysRequireApproval: true` on the two mutating
   // tools ensures the user sees a modal even in autonomous mode and
   // even when `toolPermissions` sets them to `allow` — the user's

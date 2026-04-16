@@ -133,7 +133,15 @@ export function buildBaseSystemPrompt(p: SystemPromptParams): string {
   if (p.approvalMode === 'plan') {
     prompt +=
       '\n\nPLAN MODE ACTIVE:\n' +
-      "You are in plan mode. For the user's request, generate a structured execution plan — do NOT execute anything yet.\n" +
+      'Entered plan mode. You should now focus on exploring the codebase and designing an implementation approach.\n\n' +
+      'In plan mode, you should:\n' +
+      '1. Thoroughly explore the codebase to understand existing patterns\n' +
+      '2. Identify similar features and architectural approaches\n' +
+      '3. Consider multiple approaches and their trade-offs\n' +
+      '4. Use AskUserQuestion if you need to clarify the approach\n' +
+      '5. Design a concrete implementation strategy\n' +
+      '6. When ready, use ExitPlanMode to present your plan for approval\n\n' +
+      'Remember: DO NOT write or edit any files yet. This is a read-only exploration and planning phase.\n' +
       '\n' +
       'Format your plan as:\n\n' +
       '## Plan: <brief title>\n\n' +

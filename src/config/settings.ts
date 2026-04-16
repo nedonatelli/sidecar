@@ -118,6 +118,15 @@ export interface BackendProfile {
   description: string;
 }
 
+/** Shipped default model (Ollama). Also used as a sentinel: when `sidecar.model`
+ *  still matches this string, the user hasn't picked a model yet, so `readConfig`
+ *  is free to substitute a provider-appropriate default. */
+export const OLLAMA_DEFAULT_MODEL = 'qwen3-coder:30b';
+
+/** Default model when the resolved provider is Anthropic and no explicit
+ *  model has been set. Haiku is chosen over Sonnet/Opus for cost. */
+export const ANTHROPIC_DEFAULT_MODEL = 'claude-haiku-4-5';
+
 export const BUILT_IN_BACKEND_PROFILES: readonly BackendProfile[] = [
   {
     id: 'local-ollama',
@@ -133,7 +142,7 @@ export const BUILT_IN_BACKEND_PROFILES: readonly BackendProfile[] = [
     name: 'Anthropic Claude',
     provider: 'anthropic',
     baseUrl: 'https://api.anthropic.com',
-    defaultModel: 'claude-sonnet-4-6',
+    defaultModel: ANTHROPIC_DEFAULT_MODEL,
     secretKey: 'sidecar.profileKey.anthropic',
     description: 'Claude via the Anthropic API (pay-per-token, requires API key from platform.claude.com)',
   },
@@ -499,14 +508,23 @@ export function clampMin(value: number | undefined, min: number, fallback: numbe
 
 function readConfig(): SideCarConfig {
   const cfg = workspace.getConfiguration('sidecar');
+  const rawModel = cfg.get<string>('model', OLLAMA_DEFAULT_MODEL) || OLLAMA_DEFAULT_MODEL;
+  const rawProvider = cfg.get<
+    'auto' | 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks'
+  >('provider', 'auto');
+  const rawBaseUrl = cfg.get<string>('baseUrl', 'http://localhost:11434') || 'http://localhost:11434';
+  // Provider-aware default: if the user switched provider to Anthropic but left
+  // the model field at the shipped Ollama default, use Haiku (cheapest valid
+  // Anthropic model) instead of sending an invalid qwen3 name to Anthropic.
+  const model =
+    rawModel === OLLAMA_DEFAULT_MODEL && detectProvider(rawBaseUrl, rawProvider) === 'anthropic'
+      ? ANTHROPIC_DEFAULT_MODEL
+      : rawModel;
   return {
-    model: cfg.get<string>('model', 'qwen3-coder:30b') || 'qwen3-coder:30b',
-    provider: cfg.get<'auto' | 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks'>(
-      'provider',
-      'auto',
-    ),
+    model,
+    provider: rawProvider,
     systemPrompt: cfg.get<string>('systemPrompt', ''),
-    baseUrl: cfg.get<string>('baseUrl', 'http://localhost:11434') || 'http://localhost:11434',
+    baseUrl: rawBaseUrl,
     apiKey: _cachedApiKey ?? cfg.get<string>('apiKey', 'ollama'),
     includeActiveFile: cfg.get<boolean>('includeActiveFile', true),
     agentMode: cfg.get<string>('agentMode', 'cautious'),
@@ -586,6 +604,13 @@ export function getConfig(): SideCarConfig {
     _cachedConfig = readConfig();
   }
   return _cachedConfig;
+}
+
+/** Test-only hook to drop the memoized config so the next `getConfig()`
+ *  re-reads via `workspace.getConfiguration`. Production code invalidates
+ *  via the `onDidChangeConfiguration` listener, which tests don't exercise. */
+export function __resetConfigCacheForTests(): void {
+  _cachedConfig = null;
 }
 
 // ---------------------------------------------------------------------------

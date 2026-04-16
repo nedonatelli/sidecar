@@ -70,12 +70,23 @@ export interface PullProgress {
   completed?: number;
 }
 
+/** One entry per LLM call — records which model handled which role in the session. */
+export interface ModelUsageEntry {
+  model: string;
+  /** 'chat' for streaming turns, 'complete' for one-shot completions (commit msg, review, etc.) */
+  role: 'chat' | 'complete';
+  timestamp: Date;
+}
+
 export class SideCarClient {
   private model: string;
   private systemPrompt: string;
   private baseUrl: string;
   private apiKey: string;
   private backend: ApiBackend;
+
+  /** Running log of every model used in this client's lifetime. */
+  private _modelUsageLog: ModelUsageEntry[] = [];
 
   // Rate-limit state — one store per provider, so switching profiles
   // mid-session preserves each provider's accumulated budget info AND
@@ -159,6 +170,7 @@ export class SideCarClient {
     signal?: AbortSignal,
     tools?: ToolDefinition[],
   ): AsyncGenerator<StreamEvent> {
+    this._modelUsageLog.push({ model: this.model, role: 'chat', timestamp: new Date() });
     // Fast-fail when the breaker is open so the user sees a clear error
     // instead of the request hanging on a dead provider. Advances an
     // open breaker to half-open once the cooldown has elapsed.
@@ -190,6 +202,7 @@ export class SideCarClient {
   }
 
   async complete(messages: ChatMessage[], maxTokens: number = 256, signal?: AbortSignal): Promise<string> {
+    this._modelUsageLog.push({ model: this.model, role: 'complete', timestamp: new Date() });
     circuitBreaker.guard(this.getProviderType());
     try {
       const result = await this.backend.complete(this.model, this.systemPrompt, messages, maxTokens, signal);
@@ -305,6 +318,56 @@ export class SideCarClient {
 
   updateModel(model: string) {
     this.model = model;
+  }
+
+  /** Return a copy of every model call recorded in this session. */
+  getModelUsageLog(): ModelUsageEntry[] {
+    return [...this._modelUsageLog];
+  }
+
+  /** Reset the log — call after a commit so the next session starts clean. */
+  clearModelUsageLog(): void {
+    this._modelUsageLog = [];
+  }
+
+  /**
+   * Build the git trailer block that describes which models contributed.
+   * Deduplicates by model name and emits one `X-AI-Model` trailer per unique
+   * model, plus a `X-AI-Model-Count` summary when more than one was used.
+   *
+   * Example output (two models):
+   *   X-AI-Model: claude-sonnet-4-5 (chat, 3 calls)
+   *   X-AI-Model: qwen3-coder:30b (complete, 1 call)
+   *   X-AI-Model-Count: 2
+   */
+  buildModelTrailers(): string {
+    if (this._modelUsageLog.length === 0) {
+      // Fall back to the currently configured model so there's always a trailer.
+      return `X-AI-Model: ${this.model}`;
+    }
+
+    // Aggregate: model → { roles, count }
+    const agg = new Map<string, { roles: Set<string>; count: number }>();
+    for (const entry of this._modelUsageLog) {
+      const existing = agg.get(entry.model);
+      if (existing) {
+        existing.roles.add(entry.role);
+        existing.count++;
+      } else {
+        agg.set(entry.model, { roles: new Set([entry.role]), count: 1 });
+      }
+    }
+
+    const lines: string[] = [];
+    for (const [model, { roles, count }] of agg) {
+      const roleStr = [...roles].join(', ');
+      const callStr = count === 1 ? '1 call' : `${count} calls`;
+      lines.push(`X-AI-Model: ${model} (${roleStr}, ${callStr})`);
+    }
+    if (agg.size > 1) {
+      lines.push(`X-AI-Model-Count: ${agg.size}`);
+    }
+    return lines.join('\n');
   }
 
   updateSystemPrompt(prompt: string) {

@@ -489,7 +489,7 @@ describe('buildBaseSystemPrompt', () => {
   it('appends plan mode instructions when approvalMode is plan', () => {
     const prompt = buildBaseSystemPrompt({ ...baseParams, approvalMode: 'plan' });
     expect(prompt).toContain('PLAN MODE ACTIVE');
-    expect(prompt).toContain('generate a structured execution plan');
+    expect(prompt).toContain('Entered plan mode');
     expect(prompt).toContain('Risks & Considerations');
     expect(prompt).toContain('Estimated Scope');
   });

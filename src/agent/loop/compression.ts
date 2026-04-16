@@ -17,8 +17,9 @@ import type { LoopState } from './state.js';
 //   - last 2 messages: untouched
 //   - 2..6 from end: max 1000 chars per tool_result
 //   - 6+ from end: max 200 chars
-// Old `thinking` blocks (8+ from end) are dropped entirely because
-// nothing downstream re-reads them.
+// Old `thinking` blocks (8+ from end) are dropped when standalone, or
+// truncated to 200 chars when paired with a tool_use (Anthropic requires
+// thinking blocks to precede their tool_use — dropping them causes a 400).
 //
 // Returns the number of characters freed so the caller can update
 // totalChars accounting.
@@ -39,6 +40,14 @@ export function compressMessages(messages: ChatMessage[]): number {
     else if (distFromEnd < 6) maxLen = 1000;
     else maxLen = 200;
 
+    // Detect whether this message contains a tool_use block. Anthropic's
+    // Extended Thinking API requires that every thinking block immediately
+    // precede its paired tool_use in the same message. Dropping the
+    // thinking block while keeping the tool_use produces a 400 Bad Request
+    // ("thinking must precede tool_use"). When the pair is present we
+    // truncate the thinking block instead of dropping it.
+    const hasToolUse = msg.content.some((b) => b.type === 'tool_use');
+
     const newContent: ContentBlock[] = [];
     for (const block of msg.content) {
       if (block.type === 'tool_result' && block.content.length > maxLen) {
@@ -48,7 +57,20 @@ export function compressMessages(messages: ChatMessage[]): number {
         newContent.push({ ...block, content: compressed });
         freed += original - compressed.length;
       } else if (block.type === 'thinking' && distFromEnd >= 8) {
-        freed += block.thinking.length;
+        if (hasToolUse) {
+          // Atomic thinking→tool_use chain: truncate instead of drop so
+          // Anthropic's signed-thinking verification stays intact.
+          const maxThinkingChars = 200;
+          if (block.thinking.length > maxThinkingChars) {
+            freed += block.thinking.length - maxThinkingChars;
+            newContent.push({ ...block, thinking: block.thinking.slice(0, maxThinkingChars) + '… (truncated)' });
+          } else {
+            newContent.push(block);
+          }
+        } else {
+          // Standalone thinking with no tool_use — safe to drop entirely.
+          freed += block.thinking.length;
+        }
       } else {
         newContent.push(block);
       }

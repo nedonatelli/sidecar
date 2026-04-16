@@ -6,6 +6,7 @@ import type { ToolDefinition } from '../../ollama/types.js';
 // imports are erased at compile time and are the canonical way to break
 // cycles in TypeScript.
 import type { ToolRuntime } from './runtime.js';
+import type { SideCarClient } from '../../ollama/client.js';
 
 // Re-exported so sibling tool modules can import ToolDefinition from a
 // single shared entrypoint if they prefer.
@@ -34,6 +35,12 @@ export interface ToolExecutorContext {
    * state. Callers that don't pass a runtime fall through to the default.
    */
   toolRuntime?: ToolRuntime;
+  /**
+   * The active SideCarClient for this agent turn. When present, tools that
+   * generate git trailers (git_commit) can call `client.buildModelTrailers()`
+   * to embed which models contributed to the session.
+   */
+  client?: SideCarClient;
 }
 
 export interface ToolExecutor {
