@@ -182,7 +182,7 @@ export const BUILT_IN_BACKEND_PROFILES: readonly BackendProfile[] = [
     provider: 'kickstand',
     baseUrl: 'http://localhost:11435',
     defaultModel: '',
-    secretKey: 'sidecar.profileKey.kickstand',
+    secretKey: null,
     description:
       'Self-hosted Kickstand LLM client backend — not yet officially released. The backend code ships today for anyone running a local dev build, but the first-party Kickstand release is still in progress.',
   },

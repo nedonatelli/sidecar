@@ -59,7 +59,7 @@ vi.mock('../../config/settings.js', () => ({
       provider: 'kickstand',
       baseUrl: 'http://localhost:11435',
       defaultModel: '',
-      secretKey: 'sidecar.profileKey.kickstand',
+      secretKey: null,
     },
   ],
   applyBackendProfile: mockApplyBackendProfile,
