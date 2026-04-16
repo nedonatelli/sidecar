@@ -423,6 +423,28 @@ export function activate(context: ExtensionContext) {
         window.showInformationMessage(result.message);
       }
       chatProvider?.reloadModels();
+
+      // Reconcile the active model against what the new backend actually
+      // has. The profile's defaultModel may be empty or stale — pick the
+      // first available model so the user isn't stuck on a phantom name.
+      if (chatProvider) {
+        try {
+          const models = await chatProvider.client.listInstalledModels();
+          const cfg = getConfig();
+          const hit = models.some(
+            (m: { name: string }) => m.name === cfg.model || m.name.split(':')[0] === cfg.model.split(':')[0],
+          );
+          if (!hit && models.length > 0) {
+            const best = models[0].name;
+            await workspace.getConfiguration('sidecar').update('model', best, true);
+            await chatProvider.setModel(best);
+          } else if (!hit && models.length === 0) {
+            await workspace.getConfiguration('sidecar').update('model', '', true);
+          }
+        } catch {
+          // Backend unreachable — loadModels will surface a connection error
+        }
+      }
     }),
   );
 
