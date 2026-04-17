@@ -281,11 +281,32 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
           <span class="chat-only-text">Chat-Only</span>
         </span>
       </div>
+      <!--
+        v0.62.2 q.1 — per-option tooltips explain what each mode
+        actually does so new users don't need to dig through settings
+        docs. Previously the picker listed only 4 of 6 shipped modes
+        (review and audit were missing entirely, making those agent
+        tiers invisible to anyone who didn't edit settings.json).
+      -->
       <select id="agent-mode-select" class="agent-mode-select" aria-label="Agent mode">
-        <option value="cautious">cautious</option>
-        <option value="autonomous">autonomous</option>
-        <option value="manual">manual</option>
-        <option value="plan">plan</option>
+        <option value="cautious" title="Ask before every write / command. Safest; slowest.">
+          cautious
+        </option>
+        <option value="autonomous" title="Run tools without asking. Fastest; trust the agent.">
+          autonomous
+        </option>
+        <option value="manual" title="Model proposes; you approve each step explicitly.">
+          manual
+        </option>
+        <option value="plan" title="Produce a step-by-step plan first, then execute after approval.">
+          plan
+        </option>
+        <option value="review" title="Buffer writes into a pending-review TreeView; accept per-file before they hit disk.">
+          review
+        </option>
+        <option value="audit" title="All-or-nothing buffered writes + delete support; atomic accept/reject.">
+          audit
+        </option>
       </select>
       <div id="chat-actions">
         <button id="new-chat-btn" data-tooltip="New Chat" aria-label="New Chat">+</button>
