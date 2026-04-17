@@ -353,6 +353,50 @@ describe('AnthropicBackend', () => {
       // Should not crash, just end without a stop event
       expect(events.find((e) => e.type === 'stop')).toBeUndefined();
     });
+
+    // v0.62.3 — mid-stream network death on the Anthropic SSE path.
+    // Parallel to the test in openAiSseStream.test.ts but exercising
+    // Anthropic's own parser, which has a different state machine
+    // (events-by-type vs. choices[].delta). An error mid-read must
+    // propagate so the agent loop can abort or retry rather than
+    // hang on a half-open stream.
+    it('propagates a mid-stream reader error', async () => {
+      const encoder = new TextEncoder();
+      const firstChunk = encoder.encode(
+        `event: content_block_delta\ndata: ${sse({ type: 'content_block_delta', delta: { type: 'text_delta', text: 'partial' } })}\n\n`,
+      );
+      let readCount = 0;
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        body: {
+          getReader: () => ({
+            read: async () => {
+              readCount += 1;
+              if (readCount === 1) return { done: false, value: firstChunk };
+              throw new Error('ECONNRESET: socket closed mid-stream');
+            },
+            releaseLock: () => {},
+          }),
+        },
+      });
+
+      const events: Array<{ type: string; text?: string }> = [];
+      let thrown: unknown = null;
+      try {
+        for await (const event of backend.streamChat('claude-3', '', [{ role: 'user', content: 'hi' }])) {
+          events.push(event as { type: string; text?: string });
+        }
+      } catch (err) {
+        thrown = err;
+      }
+
+      // Text delivered before the drop survives in the consumer's buffer.
+      expect(events.find((e) => e.type === 'text' && e.text === 'partial')).toBeDefined();
+      // And the generator surfaces the network error so the caller
+      // can back off / retry rather than hang.
+      expect(thrown).toBeInstanceOf(Error);
+      expect((thrown as Error).message).toContain('ECONNRESET');
+    });
   });
 
   describe('complete', () => {

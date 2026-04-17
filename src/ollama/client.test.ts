@@ -559,4 +559,156 @@ describe('SideCarClient', () => {
       expect(client.getModelUsageLog()).toHaveLength(1);
     });
   });
+
+  // v0.62.3 — mid-stream config rotation safety. The invariant under
+  // test: the backend's streamChat() packs `this.model` /
+  // `this.systemPrompt` / `this.baseUrl` / `this.apiKey` into the HTTP
+  // request body + headers synchronously when it's first called. Once
+  // fetch is in flight, a later `updateModel` / `updateConnection` /
+  // `updateSystemPrompt` MUST NOT affect the request that's already on
+  // the wire — rotation only takes effect for the NEXT call. If this
+  // invariant broke, a user rotating mid-turn would see a half-stream
+  // from model-a followed by broken model-b continuation.
+  describe('mid-stream config rotation', () => {
+    /** One-chunk NDJSON Ollama stream that resolves immediately. Simple
+     *  enough to let us test the "request body was captured at call time"
+     *  invariant without orchestrating chunk-level timing. */
+    function makeOllamaStream(model: string, content: string): unknown {
+      const chunk = JSON.stringify({
+        model,
+        message: { role: 'assistant', content },
+        done: true,
+      });
+      const bytes = new TextEncoder().encode(chunk + '\n');
+      let delivered = false;
+      return {
+        ok: true,
+        body: {
+          getReader: () => ({
+            read: async () => {
+              if (delivered) return { done: true, value: undefined };
+              delivered = true;
+              return { done: false, value: bytes };
+            },
+            releaseLock: () => {},
+          }),
+        },
+      };
+    }
+
+    it('updateModel after the stream starts does NOT retarget the in-flight request', async () => {
+      const client = new SideCarClient('model-a');
+      mockFetch.mockResolvedValueOnce(makeOllamaStream('model-a', 'hi'));
+
+      const gen = client.streamChat([{ role: 'user', content: 'hello' }]);
+      // Pull the first value — this forces the generator to execute up
+      // to its first yield, which means the backend's fetch() has been
+      // issued with the body it's going to carry for this whole stream.
+      await gen.next();
+
+      // Rotation lands AFTER the request was sent. The still-active
+      // stream keeps draining the model-a response.
+      client.updateModel('model-b');
+      for await (const _ of gen) void _;
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      const body = JSON.parse((mockFetch.mock.calls[0][1] as { body: string }).body);
+      expect(body.model).toBe('model-a');
+
+      // The NEXT call picks up the rotated model.
+      mockFetch.mockResolvedValueOnce(makeOllamaStream('model-b', 'ok'));
+      const gen2 = client.streamChat([{ role: 'user', content: 'follow' }]);
+      for await (const _ of gen2) void _;
+      const body2 = JSON.parse((mockFetch.mock.calls[1][1] as { body: string }).body);
+      expect(body2.model).toBe('model-b');
+    });
+
+    it('updateSystemPrompt mid-stream does NOT retarget the in-flight stream', async () => {
+      const client = new SideCarClient('model-a');
+      client.updateSystemPrompt('prompt-one');
+      mockFetch.mockResolvedValueOnce(makeOllamaStream('model-a', 'hi'));
+
+      const gen = client.streamChat([{ role: 'user', content: 'hello' }]);
+      await gen.next();
+      client.updateSystemPrompt('prompt-two');
+      for await (const _ of gen) void _;
+
+      const body = JSON.parse((mockFetch.mock.calls[0][1] as { body: string }).body);
+      // Ollama prepends the system prompt as the first message in the
+      // messages array (role: 'system'). Pin the exact shape so the
+      // test doesn't silently pass on absence.
+      expect(body.messages[0]).toEqual({ role: 'system', content: 'prompt-one' });
+    });
+
+    it('updateConnection mid-stream does NOT swap the in-flight backend', async () => {
+      const client = new SideCarClient('model-a');
+      mockFetch.mockResolvedValueOnce(makeOllamaStream('model-a', 'hi'));
+
+      const gen = client.streamChat([{ role: 'user', content: 'hello' }]);
+      await gen.next();
+
+      // Rotate to a different backend family (Anthropic). The in-flight
+      // stream is already targeted at Ollama and must complete there.
+      client.updateConnection('https://api.anthropic.com', 'sk-rotated');
+      for await (const _ of gen) void _;
+
+      const firstUrl = mockFetch.mock.calls[0][0] as string;
+      expect(firstUrl).toContain('/api/chat');
+      expect(firstUrl).not.toContain('anthropic.com');
+
+      // The next call hits the newly-configured backend.
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          content: [{ type: 'text', text: 'ok' }],
+          stop_reason: 'end_turn',
+          usage: { input_tokens: 1, output_tokens: 1 },
+        }),
+      });
+      await client.complete([{ role: 'user', content: 'follow' }]);
+      const secondUrl = mockFetch.mock.calls[1][0] as string;
+      expect(secondUrl).toContain('api.anthropic.com');
+      expect(secondUrl).toContain('/v1/messages');
+      const secondHeaders = (mockFetch.mock.calls[1][1] as { headers: Record<string, string> }).headers;
+      expect(secondHeaders['x-api-key']).toBe('sk-rotated');
+    });
+
+    it('API key rotation mid-stream does not alter the request already on the wire', async () => {
+      const client = new SideCarClient('claude-sonnet', 'https://api.anthropic.com', 'sk-original');
+
+      // Minimal Anthropic SSE response — just enough frames for the
+      // stream to close cleanly.
+      const frames = [
+        'event: message_start\ndata: {"type":"message_start","message":{"id":"m1","model":"claude-sonnet","usage":{"input_tokens":1,"output_tokens":0}}}\n\n',
+        'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hi"}}\n\n',
+        'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}\n\n',
+        'event: message_stop\ndata: {"type":"message_stop"}\n\n',
+      ];
+      const encoder = new TextEncoder();
+      let idx = 0;
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        body: {
+          getReader: () => ({
+            read: async () => {
+              if (idx >= frames.length) return { done: true, value: undefined };
+              const frame = frames[idx++];
+              return { done: false, value: encoder.encode(frame) };
+            },
+            releaseLock: () => {},
+          }),
+        },
+      });
+
+      const gen = client.streamChat([{ role: 'user', content: 'hi' }]);
+      await gen.next();
+      client.updateConnection('https://api.anthropic.com', 'sk-rotated');
+      for await (const _ of gen) void _;
+
+      // The first (and only) fetch that happened carries the ORIGINAL
+      // key. Rotation can't reach back and rewrite a sent header.
+      const firstHeaders = (mockFetch.mock.calls[0][1] as { headers: Record<string, string> }).headers;
+      expect(firstHeaders['x-api-key']).toBe('sk-original');
+    });
+  });
 });

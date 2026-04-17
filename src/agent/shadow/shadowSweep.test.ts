@@ -136,6 +136,54 @@ describe('sweepStaleShadows', () => {
     expect(result.prunedWorktrees).toEqual([]);
     expect(result.removedDirs).toEqual([]);
   });
+
+  // v0.62.3 — partial sweep failure. A filesystem error on one orphan
+  // (locked file, permission denied, etc.) must NOT abort the sweep
+  // for everything else; the failure should be captured in `errors`
+  // and the loop should continue. Previously tested only the happy
+  // path; this pins the "keep going on per-entry failures" contract
+  // using a child file locked via chmod 0 — rmSync recursively removing
+  // the parent hits the locked entry and throws, which we assert gets
+  // captured as an error while the sibling orphan still gets cleaned.
+  it('continues sweeping when one orphan directory removal fails', async () => {
+    // Skip on non-Unix platforms — chmod 0 only reliably blocks
+    // removal on Unix file systems.
+    if (process.platform === 'win32') return;
+
+    tmp = initTmpRepo();
+    const shadowsRoot = path.join(tmp, '.sidecar', 'shadows');
+    fs.mkdirSync(shadowsRoot, { recursive: true });
+
+    const goodOrphan = path.join(shadowsRoot, 'task-good');
+    const badOrphan = path.join(shadowsRoot, 'task-bad');
+    fs.mkdirSync(goodOrphan);
+    fs.mkdirSync(badOrphan);
+    fs.writeFileSync(path.join(goodOrphan, 'a.txt'), 'a');
+    fs.writeFileSync(path.join(badOrphan, 'b.txt'), 'b');
+    // Lock the bad orphan's parent so fs.rmSync can't unlink its
+    // contents. chmod 0 on the *directory* means "can't list, can't
+    // modify" — rmSync then fails with EACCES even with force:true.
+    fs.chmodSync(badOrphan, 0o000);
+
+    try {
+      const result = await sweepStaleShadows(tmp);
+
+      // The good orphan got removed…
+      expect(result.removedDirs.some((d) => d.includes('task-good'))).toBe(true);
+      expect(fs.existsSync(goodOrphan)).toBe(false);
+      // …the bad one is reported as an error but didn't crash the sweep.
+      expect(result.errors.some((e) => e.path.includes('task-bad'))).toBe(true);
+      // Bad orphan is still on disk because the delete threw.
+      expect(fs.existsSync(badOrphan)).toBe(true);
+    } finally {
+      // Restore perms so afterEach cleanup can unlink.
+      try {
+        fs.chmodSync(badOrphan, 0o755);
+      } catch {
+        // Best-effort.
+      }
+    }
+  });
 });
 
 describe('formatSweepResult', () => {

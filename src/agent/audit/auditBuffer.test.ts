@@ -355,4 +355,76 @@ describe('AuditBuffer', () => {
       expect(buf.hasCommits).toBe(true);
     });
   });
+
+  // v0.62.3 — concurrent buffer operations. Two tool executions can
+  // land on the same singleton buffer in quick succession (both agents
+  // in background mode targeting the same workspace, or even one agent
+  // issuing parallel tool calls). The buffer's internal Map is
+  // synchronous for get/set but awaits on readDisk + persist — so two
+  // writes can interleave. These tests pin the observable invariants:
+  // last-write-wins on same-path updates, and concurrent different-
+  // path writes both land without clobbering each other's entries.
+  describe('concurrent buffer operations', () => {
+    it('concurrent writes to different paths both land', async () => {
+      const a = buf.write('a.ts', 'A', readDisk);
+      const b = buf.write('b.ts', 'B', readDisk);
+      const c = buf.write('c.ts', 'C', readDisk);
+      await Promise.all([a, b, c]);
+      expect(buf.size).toBe(3);
+      expect(buf.read('a.ts').content).toBe('A');
+      expect(buf.read('b.ts').content).toBe('B');
+      expect(buf.read('c.ts').content).toBe('C');
+    });
+
+    it('concurrent writes to the SAME path: last to resolve wins (no lost writes mid-sequence)', async () => {
+      // Issue three writes to the same path interleaved. The buffer's
+      // contract is a Map — .set() is last-write-wins, and we need to
+      // know which won, not guess.
+      const writes = await Promise.all([
+        buf.write('x.ts', 'v1', readDisk),
+        buf.write('x.ts', 'v2', readDisk),
+        buf.write('x.ts', 'v3', readDisk),
+      ]);
+      expect(writes).toHaveLength(3);
+      expect(buf.size).toBe(1); // one entry, not three
+      // The content should be one of v1/v2/v3 — which one depends on
+      // promise resolution order, which is stable in a given runtime
+      // but we assert the WEAKER invariant: it's one of the requested
+      // values, not undefined or a mangled mix.
+      expect(['v1', 'v2', 'v3']).toContain(buf.read('x.ts').content);
+    });
+
+    it('originalContent captured ONCE even under concurrent writes to the same path', async () => {
+      // Critical invariant: if two writes race on the same path, both
+      // see the same original on-disk content as the baseline. Without
+      // the `existing?.originalContent ??` short-circuit at the top of
+      // write(), a second concurrent write would re-read disk and
+      // capture the FIRST write's output as its "original" — poisoning
+      // the rollback-on-failure path. Issue two parallel writes to an
+      // existing file, then assert both resolve with the same baseline.
+      await Promise.all([buf.write('existing.ts', 'race-A', readDisk), buf.write('existing.ts', 'race-B', readDisk)]);
+      const entry = buf.list()[0];
+      // Baseline must be the real disk content, not whichever race
+      // winner overwrote first.
+      expect(entry.originalContent).toBe('original content');
+    });
+
+    it('concurrent flushes: second flush sees the buffer already drained by the first', async () => {
+      // Two flushers racing on the same buffer. The first drains every
+      // entry; the second sees an empty buffer and returns applied=[].
+      // Nothing should double-write.
+      await buf.write('a.ts', 'A', readDisk);
+      await buf.write('b.ts', 'B', readDisk);
+
+      const [r1, r2] = await Promise.all([buf.flush(writeDisk, deleteDisk), buf.flush(writeDisk, deleteDisk)]);
+
+      // One flush drained both, the other drained nothing. (Order
+      // depends on event-loop scheduling but the UNION is stable.)
+      const totalApplied = r1.applied.length + r2.applied.length;
+      expect(totalApplied).toBe(2);
+      expect(buf.isEmpty).toBe(true);
+      // writeDisk was called exactly twice — once per path, no doubles.
+      expect(writeDisk).toHaveBeenCalledTimes(2);
+    });
+  });
 });

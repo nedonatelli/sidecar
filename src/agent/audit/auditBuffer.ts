@@ -116,6 +116,17 @@ export class AuditBuffer {
   private readonly entries = new Map<string, BufferedChange>();
   private commits: BufferedCommit[] = [];
   private persistence: AuditBufferPersistence | null = null;
+  /**
+   * Serializes `flush()` calls. Without this, two concurrent flushes
+   * (two user clicks, two agents, etc.) both snapshot the entries map
+   * synchronously at the top of flush() and both iterate it — resulting
+   * in every write landing on disk twice. The lock makes the second
+   * flush wait for the first to drain the buffer, then it sees an empty
+   * buffer and returns `applied=[]` cleanly. Chained rather than mutex-
+   * based so a crash mid-flush doesn't deadlock subsequent calls — the
+   * chain always advances via the finally block below.
+   */
+  private flushChain: Promise<void> = Promise.resolve();
 
   /**
    * Wire a persistence layer (v0.61 a.3). Optional — a buffer without
@@ -293,6 +304,25 @@ export class AuditBuffer {
    * the v0.60 MVP command handlers pass `undefined` for accept-all.
    */
   async flush(
+    writeDisk: WriteDiskFn,
+    deleteDisk: DeleteDiskFn,
+    paths?: string[],
+    executeCommit?: ExecuteCommitFn,
+  ): Promise<{ applied: string[]; committed: string[] }> {
+    // Serialize with any in-flight flush so concurrent callers don't
+    // both iterate the same snapshot and double-write each entry.
+    const prior = this.flushChain;
+    let release!: () => void;
+    this.flushChain = new Promise<void>((r) => (release = r));
+    try {
+      await prior;
+      return await this._doFlush(writeDisk, deleteDisk, paths, executeCommit);
+    } finally {
+      release();
+    }
+  }
+
+  private async _doFlush(
     writeDisk: WriteDiskFn,
     deleteDisk: DeleteDiskFn,
     paths?: string[],

@@ -145,4 +145,124 @@ describe('streamOpenAiSse', () => {
       }
     }).rejects.toThrow('empty response body');
   });
+
+  // v0.62.3 — mid-stream connection death. The existing suite covers
+  // initial-fetch failures via retry.test.ts, but not a stream that
+  // starts fine, yields some frames, then the TCP connection dies
+  // before `data: [DONE]`. Ollama process crashes, laptop drops from
+  // WiFi, provider LB kills long-lived connections — all hit this
+  // codepath. The generator must propagate the error; swallowing it
+  // would leave the agent loop waiting forever.
+  describe('mid-stream connection death', () => {
+    it('propagates the error when the body stream errors after some frames', async () => {
+      // The enqueue + error sequencing inside `start()` may or may not
+      // deliver the enqueued chunk depending on the platform's internal
+      // buffering semantics; what matters for the agent loop is that
+      // the error surfaces so the caller can give up. Deliver one frame
+      // on the first read and error on the second so the order is
+      // deterministic.
+      const encoder = new TextEncoder();
+      let readCount = 0;
+      const firstChunk = encoder.encode(
+        `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: 'partial' }, finish_reason: null }] })}\n\n`,
+      );
+      const response = {
+        body: {
+          getReader: () => ({
+            read: async () => {
+              readCount += 1;
+              if (readCount === 1) return { done: false, value: firstChunk };
+              // Simulate the kernel dropping the socket — the reader's
+              // promise rejects with the underlying network error.
+              throw new Error('ECONNRESET: connection reset by peer');
+            },
+            releaseLock: () => {},
+          }),
+        },
+      } as unknown as Response;
+
+      const received: StreamEvent[] = [];
+      let thrown: unknown = null;
+      try {
+        for await (const ev of streamOpenAiSse(response, 'gpt-4o', undefined, undefined)) {
+          received.push(ev);
+        }
+      } catch (err) {
+        thrown = err;
+      }
+
+      // The 'partial' text yielded before the drop survives.
+      const texts = received.filter((e) => e.type === 'text').map((e: any) => e.text);
+      expect(texts.join('')).toBe('partial');
+      // And the generator ends by throwing so the caller knows the
+      // stream failed rather than hanging forever.
+      expect(thrown).toBeInstanceOf(Error);
+      expect((thrown as Error).message).toContain('ECONNRESET');
+    });
+
+    it('propagates an abrupt close mid-frame (no trailing [DONE])', async () => {
+      // Same failure family as ECONNRESET but seen as a clean stream
+      // close instead of an error — the upstream LB sometimes half-
+      // closes the response without a terminating DONE sentinel. The
+      // stream SHOULD end gracefully (no error), and the consumer sees
+      // only the frames that made it through. We're pinning that this
+      // DOESN'T hang and DOESN'T re-throw.
+      const encoder = new TextEncoder();
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: 'before drop' }, finish_reason: null }] })}\n\n`,
+            ),
+          );
+          // Close without [DONE] — connection closed normally but
+          // early.
+          controller.close();
+        },
+      });
+      const response = new Response(body, { status: 200 });
+
+      const events: StreamEvent[] = [];
+      for await (const ev of streamOpenAiSse(response, 'gpt-4o', undefined, undefined)) {
+        events.push(ev);
+      }
+      const texts = events.filter((e) => e.type === 'text').map((e: any) => e.text);
+      expect(texts.join('')).toBe('before drop');
+    });
+
+    it('propagates an error thrown by the reader after the first chunk', async () => {
+      // Different shape from controller.error(): some environments
+      // (Node's undici in particular) surface a mid-stream network
+      // drop as a rejection from the NEXT reader.read() rather than
+      // flowing through controller.error(). Cover both.
+      const encoder = new TextEncoder();
+      let readCount = 0;
+      const firstChunk = encoder.encode(
+        `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: 'chunk' }, finish_reason: null }] })}\n\n`,
+      );
+      const response = {
+        body: {
+          getReader: () => ({
+            read: async () => {
+              readCount += 1;
+              if (readCount === 1) return { done: false, value: firstChunk };
+              throw new Error('socket hang up');
+            },
+            releaseLock: () => {},
+          }),
+        },
+      } as unknown as Response;
+
+      let thrown: unknown = null;
+      try {
+        for await (const _ of streamOpenAiSse(response, 'gpt-4o', undefined, undefined)) {
+          void _;
+        }
+      } catch (err) {
+        thrown = err;
+      }
+      expect(thrown).toBeInstanceOf(Error);
+      expect((thrown as Error).message).toContain('socket hang up');
+    });
+  });
 });
