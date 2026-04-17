@@ -81,6 +81,15 @@ v0.59+ opt-in feature: run agent tasks in an ephemeral git worktree at `.sidecar
 
 The `cwdOverride` option on `AgentOptions` threads through `executeToolUses.ts` into every per-tool `ToolExecutorContext.cwd`, and `fs.ts` tools resolve relative paths via `resolveRootUri(context)` — so fs writes land in the shadow transparently when enabled.
 
+### Audit Mode (`src/agent/audit/`)
+
+v0.60+ `sidecar.agentMode: 'audit'` tier. An alternative to Shadow Workspaces for the "don't let the agent silently touch disk" failure mode — lighter-weight (no git worktree) but in-memory-only.
+
+- `auditBuffer.ts` — process-wide singleton `AuditBuffer` accessed via `getDefaultAuditBuffer()`. Every `write_file` / `edit_file` / `delete_file` in `fs.ts` diverts into a `Map<path, BufferedChange>` when audit mode is active. Read-through: `read_file` returns buffered content for paths the agent already wrote. Atomic `flush(writeDisk, deleteDisk, paths?)` — any per-write failure rolls back everything already applied and throws `AuditFlushError`.
+- `reviewCommands.ts` — three `sidecar.audit.*` commands (`review` / `acceptAll` / `rejectAll`) backed by an `AuditReviewUi` abstraction so tests bypass `window.*`. Review opens a `showQuickPick`; `vscode.diff` renders per-file diff against captured `originalContent`. Accept flushes via `workspace.fs.writeFile` + `workspace.fs.delete({ useTrash: true })`.
+
+Scope is the agent's file-authoring surface only — shell commands still run normally. Match the threat model: `write_file` is how hallucinations become persistent damage, so that's what we gate.
+
 ### Terminal Execution (`src/terminal/`)
 
 - `shellSession.ts` — long-lived `child_process.spawn`-based shell with per-command alias/function namespace reset. Fallback path for agent commands when shell integration isn't available.

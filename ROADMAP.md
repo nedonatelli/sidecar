@@ -25,11 +25,11 @@ Each release ships **1–2 features** plus a paired **refactor beat** (code-qual
 - **Coverage ratchet shipped**: CI gate at 60/53/60/61; `*/types.ts`, `*/constants.ts`, `src/__mocks__/**`, `src/test/**`, `*.d.ts` excluded from the denominator.
 - **Tag**: [`v0.59.0`](https://github.com/nedonatelli/sidecar/releases/tag/v0.59.0). +40 tests, 1984 total.
 
-### v0.60 — Approval gates
-- **Features**: [Regression Guard Hooks](#regression-guard-hooks--declarative-post-edit-verification) · [Audit Mode](#audit-mode--virtual-fs-write-buffer-with-treeview-approval)
-- **Refactor beat**: Hook + approval pattern unification — single approval surface for `Audit Buffer` / `Pending Changes` / `Regression Guard feedback`. Folds audit finding #7 (secret redaction in `SIDECAR_INPUT`/`SIDECAR_OUTPUT` env vars before they reach child processes).
-- **Coverage focus**: `src/review/` subsystem (`commitMessage.ts` · `prSummary.ts` · `reviewer.ts`) — currently ~27% each. Target ≥65/57/64/65.
-- **Acceptance**: Declarative guards fire on post-write / post-turn / pre-completion triggers; Audit `agentMode` buffers writes to an in-memory FS with VS Code treeview approval.
+### v0.60 — Approval gates ✅ *shipped 2026-04-16*
+- **Features shipped**: [Regression Guard Hooks](#regression-guard-hooks--declarative-post-edit-verification) (full — `sidecar.regressionGuards` entries fire on post-write / post-turn / pre-completion triggers through the existing `HookBus`; blocking guards inject synthetic user messages with stdout + exit, non-blocking guards surface via `callbacks.onText`; scope globs + per-guard attempt budget + global `strict`/`warn`/`off` mode + workspace-trust gate) · [Audit Mode](#audit-mode--virtual-fs-write-buffer-with-treeview-approval) (MVP — `sidecar.agentMode: 'audit'` buffers every `write_file`/`edit_file`/`delete_file` into an in-memory `AuditBuffer` with read-through; three review commands drive bulk accept/reject + per-file diff; atomic flush with rollback via `workspace.fs`. Per-file accept/reject, persistence across reloads, conflict detection, and git-commit buffering deferred to v0.61.)
+- **Refactor beat shipped**: Secret redaction (`redactSecrets()` in `securityScanner.ts`) wired into hook + custom-tool env vars (audit finding #7). Hook + approval pattern unification (single abstract surface across Audit Buffer / Pending Changes / Regression Guard feedback) ***deferred to v0.61*** — all three currently use distinct UI patterns and unifying is a cross-cutting refactor that doesn't belong on v0.60's critical path.
+- **Coverage ratchet shipped**: `src/review/` lifted from ~27% to 100/85.7/100/100 each. Aggregate 60.99 → 61.79 stmts · 53.37 → 54.06 branches · 61.11 → 61.80 funcs · 61.76 → 62.63 lines. CI ratchet bumped to 61/53/61/62.
+- **Tag**: [`v0.60.0`](https://github.com/nedonatelli/sidecar/releases/tag/v0.60.0). +91 tests, 2075 total.
 
 ### v0.61 — Retrieval core
 - **Feature**: [Project Knowledge Index](#project-knowledge-index--symbol-level-vectors--graph-fusion-in-an-on-disk-vector-db)
@@ -203,7 +203,7 @@ Collapse duplicated plumbing: tool registration, backend retry/breaker/rate-limi
 
 ## Coverage Plan
 
-**Current (v0.59.0)**: 60.99% stmts · 53.37% branches · 61.11% funcs · 61.76% lines across 1984 tests / 128 files. (Numbers dipped slightly after v0.59's denominator hygiene — `*/types.ts` files were type-only and counted as near-100% covered; removing them from the denominator lowered the aggregate but the new numbers reflect actual behavioral-code coverage more honestly.)
+**Current (v0.60.0)**: 61.79% stmts · 54.06% branches · 61.80% funcs · 62.63% lines across 2075 tests / 131 files. CI ratchet at 61/53/61/62. (v0.59.0 baseline after denominator hygiene was 60.99/53.37/61.11/61.76; v0.60's `src/review/` lift bumped every metric ~1 pp.)
 
 **Target**: 80% stmts · 70% branches · 80% funcs · 80% lines (the 80/70/80/80 split reflects that branch coverage is harder to pay for — error paths, concurrent races, partial failures — so it carries a lower bar).
 
@@ -1068,6 +1068,17 @@ During the v0.58.1 reorganization, the previous Deferred backlog was audited and
 ## Release History
 
 Rolling log of what shipped in each release, newest first. Each subsection preserves the context that was written at release time — file:line references, reasoning, test-count stats, stats progression. Serves as both a changelog appendix and an architectural lineage trace.
+
+### v0.60.0 (2026-04-16)
+
+Second Release-Plan entry. Theme: **approval gates** — the agent's file-authoring surface and side-effect surface both get hard gates the user (or a declarative script) controls, so a runaway agent can't silently damage a repo and a passing lint suite can't mask a broken invariant.
+
+- ✅ **Audit Mode** (step d, full feature) — new `sidecar.agentMode: 'audit'` tier. Every `write_file` / `edit_file` / `delete_file` call is intercepted in [`fs.ts`](src/agent/tools/fs.ts) and routed to an in-memory [`AuditBuffer`](src/agent/audit/auditBuffer.ts) instead of disk. `read_file` sees buffered content for paths already written this session (read-through). Three user-facing commands in [`reviewCommands.ts`](src/agent/audit/reviewCommands.ts) close the loop: review (QuickPick with bulk-action + per-file rows, clicking a file opens VS Code's native diff editor with captured `originalContent` vs. buffered new content), acceptAll (atomic flush via `workspace.fs.writeFile` + `workspace.fs.delete({ useTrash: true })` with automatic parent-directory creation; any per-write failure triggers rollback of already-applied entries and surfaces `AuditFlushError` with applied/failed lists, preserving the buffer for retry), rejectAll (modal warning-dialog confirmation, clears without touching disk). Handlers sit behind `AuditReviewUi` abstraction for testability. New settings: `sidecar.audit.autoApproveReads` (default `true`), `sidecar.audit.bufferGitCommits` (default `true`; feature flag for v0.61). +32 tests total (19 for `AuditBuffer`, 13 for review commands). **Deferred to v0.61**: per-file accept/reject · persistence across extension reloads · conflict detection on disk-edit during review · git-commit side-effect buffering.
+- ✅ **Regression Guard Hooks** (step c) — declarative guards in `sidecar.regressionGuards` as a `PolicyHook` registered on the existing `HookBus` after the four built-in hooks. Each entry: `name`, `command`, `trigger` (`post-write` · `post-turn` · `pre-completion`), optional `blocking`/`timeoutMs`/`scope`/`maxAttempts`/`workingDir`. Blocking guards with exit != 0 inject synthetic user messages containing stdout + exit so the agent can revise; non-blocking guards surface via `callbacks.onText`. Scope globs filter by touched files; per-guard attempt budget emits a one-time escalation message on persistent failure. Global `sidecar.regressionGuards.mode` (`strict` / `warn` / `off`) toggles all guards without editing individual entries. First-time workspace-trust gate via `checkWorkspaceConfigTrust('regressionGuards', …)` — same contract as `hooks`, `mcpServers`, `customTools`, `scheduledTasks`. +24 tests.
+- ✅ **Secret redaction in hook + custom-tool env vars** (step b, audit cycle-3 MEDIUM #7) — new `redactSecrets()` in [`securityScanner.ts`](src/agent/securityScanner.ts) replaces every match of the existing `SECRET_PATTERNS` with `[REDACTED:<name>]`. Called by [`executor.ts`](src/agent/executor.ts) before setting `SIDECAR_INPUT` / `SIDECAR_OUTPUT` on hook child-process environments, and by [`tools.ts`](src/agent/tools.ts) before forwarding user input to a `custom_*` tool's subprocess. Closes the case where an API key in tool input/output would be inherited verbatim by every hook-spawned subprocess. +10 tests.
+- ✅ **`src/review/` subsystem coverage lift + CI ratchet bump** (step a) — review-feature trio (`commitMessage.ts` · `prSummary.ts` · `reviewer.ts`) from ~27% to 100 / 85.7 / 100 / 100 each. Aggregate 60.99 → 61.79 stmts · 53.37 → 54.06 branches · 61.11 → 61.80 funcs · 61.76 → 62.63 lines. CI ratchet bumped to 61/53/61/62. +25 new tests.
+
+**Explicitly deferred to v0.61** (scoped out of v0.60 MVP): per-file Audit accept/reject UI · Audit buffer persistence across extension reloads · Audit conflict detection against mid-review disk edits · `sidecar.audit.bufferGitCommits` wiring (setting exists, commit side-effect not yet buffered) · Hook + approval pattern unification (single abstract surface across Audit Buffer / Pending Changes / Regression Guard feedback).
 
 ### v0.59.0 (2026-04-16)
 
