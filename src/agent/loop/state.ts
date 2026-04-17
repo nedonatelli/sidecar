@@ -69,6 +69,16 @@ export interface LoopState {
   // Per-file critic injection counter. criticHook.ts is the only writer.
   criticInjectionsByFile: Map<string, number>;
 
+  // Per-test-output-hash critic injection counter (v0.63.0). Bounds
+  // the `test_failure` trigger path which was otherwise unbounded —
+  // if tests keep failing with the SAME normalized output, the
+  // critic used to re-fire every turn and could burn $1-2 of spend
+  // before the outer maxIterations cap tripped. Now capped at
+  // MAX_CRITIC_INJECTIONS_PER_TEST_HASH. criticHook.ts is the only
+  // writer. Keyed by a normalized hash (timestamps + memory addresses
+  // stripped) so cosmetic re-runs of the same failure collapse.
+  criticInjectionsByTestHash: Map<string, number>;
+
   // Per-tool call counts for budget enforcement. toolBudget.ts is
   // the only reader; executeToolUses.ts is the only writer.
   toolCallCounts: Map<string, number>;
@@ -113,6 +123,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     autoFixRetriesByFile: new Map<string, number>(),
     stubFixRetries: 0,
     criticInjectionsByFile: new Map<string, number>(),
+    criticInjectionsByTestHash: new Map<string, number>(),
     toolCallCounts: new Map<string, number>(),
     gateState: createGateState(),
   };

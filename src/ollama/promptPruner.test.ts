@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   collapseWhitespace,
   truncateToolResult,
+  truncateGrepResult,
+  truncateForTool,
   truncateAllToolResults,
   dedupeToolResults,
   buildToolUseIdMap,
@@ -347,5 +349,132 @@ describe('formatPruneStats', () => {
       truncatedByTool: {},
     });
     expect(line).toBe('Pruner: deduped 500B');
+  });
+});
+
+// v0.63.0 — per-tool truncation dispatch. Grep output has
+// matches distributed throughout, so head+tail (the default
+// strategy) elides the middle matches — which are usually the
+// most-interesting ones. The grep-aware strategy keeps whole
+// lines from the head and drops the tail, preserving the natural
+// file:line ordering of matches and producing a contiguous window.
+describe('truncateGrepResult (v0.63.0)', () => {
+  // Build a fake grep output of N matches, one per line.
+  function fakeGrepOutput(matchCount: number): string {
+    const lines: string[] = [];
+    for (let i = 1; i <= matchCount; i++) {
+      lines.push(`src/file${i}.ts:${i}:  const foo = bar.baz(${i});`);
+    }
+    return lines.join('\n');
+  }
+
+  it('is a no-op when the output fits under the budget', () => {
+    const small = fakeGrepOutput(5);
+    const result = truncateGrepResult(small, 4000);
+    expect(result.saved).toBe(0);
+    expect(result.text).toBe(small);
+  });
+
+  it('keeps whole lines from the head (no mid-line truncation) when over budget', () => {
+    const big = fakeGrepOutput(5000);
+    const result = truncateGrepResult(big, 100); // ~400 chars budget
+    // Every kept line is a complete grep match line (no mid-line cuts).
+    const lines = result.text.split('\n');
+    // Last line is the elision marker — everything before must be a full match.
+    for (let i = 0; i < lines.length - 1; i++) {
+      expect(lines[i]).toMatch(/^src\/file\d+\.ts:\d+:/);
+    }
+  });
+
+  it('appends an elision marker telling the agent how many matches were dropped', () => {
+    const big = fakeGrepOutput(1000);
+    const result = truncateGrepResult(big, 200);
+    expect(result.text).toContain('elided by SideCar prompt pruner');
+    expect(result.text).toMatch(/kept first \d+ of 1000 matches/);
+    // The marker also suggests narrowing the query — an actionable
+    // hint the default head+tail marker cannot give.
+    expect(result.text).toContain('Narrow the grep query');
+  });
+
+  it('respects file:line ordering — head matches survive, tail matches get elided', () => {
+    const big = fakeGrepOutput(500);
+    const result = truncateGrepResult(big, 100);
+    // The first match must still be present.
+    expect(result.text).toContain('src/file1.ts:1:');
+    // The last match must be gone (elided).
+    expect(result.text).not.toContain('src/file500.ts:500:');
+  });
+
+  it('handles a pathological single-line-overflow case by falling back to byte-slice', () => {
+    const oneLine = 'src/file.ts:1:  ' + 'x'.repeat(50_000);
+    const result = truncateGrepResult(oneLine, 100);
+    // Budget is blown by one line; fall back to byte-truncate.
+    expect(result.text.length).toBeLessThan(oneLine.length);
+    expect(result.saved).toBeGreaterThan(0);
+  });
+});
+
+describe('truncateForTool dispatch (v0.63.0)', () => {
+  it('dispatches grep to truncateGrepResult', () => {
+    const grepOut =
+      ['src/foo.ts:1:match a', 'src/bar.ts:2:match b', 'src/baz.ts:3:match c'].join('\n') + '\n' + 'x'.repeat(10_000); // force over budget
+
+    const result = truncateForTool('grep', grepOut, 100);
+    // Grep strategy appends a kept-first-of marker; head+tail does not.
+    expect(result.text).toContain('kept first');
+  });
+
+  it('falls through to truncateToolResult (head+tail) for any other tool name', () => {
+    const readOut = 'function foo() {\n  return 42;\n}\n' + 'x'.repeat(10_000);
+    const result = truncateForTool('read_file', readOut, 100);
+    // Head+tail inserts an elision marker with bytes-elided count.
+    expect(result.text).toContain('bytes elided');
+    // And it does NOT append the grep-specific "kept first" marker.
+    expect(result.text).not.toContain('kept first');
+  });
+
+  it('falls through to truncateToolResult when tool name is undefined (legacy callers)', () => {
+    const text = 'x'.repeat(10_000);
+    const result = truncateForTool(undefined, text, 100);
+    expect(result.saved).toBeGreaterThan(0);
+    // Default strategy, not grep-aware.
+    expect(result.text).not.toContain('kept first');
+  });
+
+  it('truncateAllToolResults applies grep dispatch end-to-end', () => {
+    const grepOut = Array.from({ length: 500 }, (_, i) => `src/file${i}.ts:${i}:match`).join('\n');
+    const messages: ChatMessage[] = [
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'tu_grep',
+            name: 'grep',
+            input: { pattern: 'match' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'tu_grep',
+            content: grepOut,
+            is_error: false,
+          } satisfies ToolResultContentBlock,
+        ],
+      },
+    ];
+
+    const toolNames = buildToolUseIdMap(messages);
+    const { messages: out, saved, byTool } = truncateAllToolResults(messages, 100, toolNames);
+    expect(saved).toBeGreaterThan(0);
+    expect(byTool.grep).toBeGreaterThan(0);
+    // The resulting tool_result carries the grep-aware marker, not the
+    // generic bytes-elided one.
+    const resultBlock = (out[1].content as Array<{ type: string; content?: string }>)[0];
+    expect(resultBlock.content).toContain('kept first');
   });
 });

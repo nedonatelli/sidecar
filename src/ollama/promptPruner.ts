@@ -68,6 +68,11 @@ export function collapseWhitespace(text: string): { text: string; saved: number 
  * insert an elision marker in the middle. Preserves error messages at the
  * top and the failing line at the bottom, which is typically where the
  * signal lives in tool output (cat'd file, compile error, test failure).
+ *
+ * This is the DEFAULT strategy — used for every tool that doesn't have
+ * a dedicated per-tool strategy (see `truncateGrepResult` for the one
+ * specialized case). See `docs/agent-loop-diagram.md#prompt-pruner-safety-model`
+ * for the full list of truncation-friendly vs. truncation-hostile tools.
  */
 export function truncateToolResult(text: string, maxTokens: number): { text: string; saved: number } {
   const maxChars = maxTokens * CHARS_PER_TOKEN;
@@ -87,6 +92,79 @@ export function truncateToolResult(text: string, maxTokens: number): { text: str
   const marker = ELISION_MARK.replace('%d', String(elided));
   const result = head + marker + tail;
   return { text: result, saved: text.length - result.length };
+}
+
+/**
+ * Grep-aware truncation (v0.63.0). Unlike the default head+tail
+ * transform, this keeps whole lines from the head and drops the tail
+ * entirely. Grep output is line-uniform: one match per line, typically
+ * `path:line:content`. Head+tail would elide matches 40-160 of a
+ * 200-match result, leaving only 1-40 and 160-200, which are usually
+ * the least-interesting matches (boilerplate imports + trailing tests).
+ *
+ * Keeping the first-K-matches instead preserves the natural grep
+ * ordering (file-sorted, then line-sorted within a file) and lets the
+ * agent see a contiguous window of the most-likely-relevant matches.
+ *
+ * When matches are elided, the marker tells the agent how many were
+ * dropped and suggests narrowing the query — actionable guidance that
+ * the default head+tail marker can't provide because head+tail doesn't
+ * know the content is line-uniform.
+ */
+export function truncateGrepResult(text: string, maxTokens: number): { text: string; saved: number } {
+  const maxChars = maxTokens * CHARS_PER_TOKEN;
+  if (text.length <= maxChars) return { text, saved: 0 };
+
+  const lines = text.split('\n');
+  const kept: string[] = [];
+  let used = 0;
+  // Reserve ~120 chars for the elision marker + suggestion.
+  const budget = maxChars - 120;
+  for (const line of lines) {
+    // +1 for the newline the join will add back.
+    if (used + line.length + 1 > budget) break;
+    kept.push(line);
+    used += line.length + 1;
+  }
+
+  const elided = lines.length - kept.length;
+  if (elided === 0) {
+    // Every line fit — shouldn't happen since we checked text.length
+    // above, but guard against the edge case where the last line is
+    // huge and single-line-overflow.
+    const truncated = text.slice(0, maxChars);
+    return { text: truncated, saved: text.length - truncated.length };
+  }
+
+  const marker =
+    `\n[...${elided} more match${elided === 1 ? '' : 'es'} elided by SideCar prompt pruner ` +
+    `(kept first ${kept.length} of ${lines.length} matches). Narrow the grep query to see the rest.]`;
+  const result = kept.join('\n') + marker;
+  return { text: result, saved: text.length - result.length };
+}
+
+/**
+ * Dispatch table for per-tool truncation strategies (v0.63.0). Maps a
+ * tool name to the specialized truncation function. Anything not in
+ * this map falls through to `truncateToolResult`'s head+tail default.
+ *
+ * Add an entry here when a tool has a truncation-hostile output shape
+ * (matches distributed throughout, ranked hit lists where middle-items
+ * matter, etc.). See `docs/agent-loop-diagram.md#prompt-pruner-safety-model`
+ * for the guidance on which tools qualify.
+ */
+const TRUNCATION_DISPATCH: Record<string, (text: string, maxTokens: number) => { text: string; saved: number }> = {
+  grep: truncateGrepResult,
+};
+
+/** Pick the right truncation strategy for a given tool name. Exported for tests. */
+export function truncateForTool(
+  toolName: string | undefined,
+  text: string,
+  maxTokens: number,
+): { text: string; saved: number } {
+  const strategy = toolName ? TRUNCATION_DISPATCH[toolName] : undefined;
+  return (strategy ?? truncateToolResult)(text, maxTokens);
 }
 
 /** Normalize whitespace/trailing noise so two tool_result blocks hash-compare cleanly. */
@@ -177,11 +255,16 @@ export function truncateAllToolResults(
       if (block.type !== 'tool_result') return block;
       const result = block as ToolResultContentBlock;
       if (typeof result.content !== 'string') return block;
-      const { text, saved: s } = truncateToolResult(result.content, maxTokens);
+      // v0.63.0 — dispatch by tool name so grep (and future
+      // truncation-hostile tools) get their specialized strategy.
+      // Tools without a specialized strategy fall through to the
+      // default head+tail transform.
+      const toolName = toolNames?.get(result.tool_use_id);
+      const { text, saved: s } = truncateForTool(toolName, result.content, maxTokens);
       if (s === 0) return block;
       saved += s;
-      const toolName = toolNames?.get(result.tool_use_id) ?? 'unknown';
-      byTool[toolName] = (byTool[toolName] ?? 0) + s;
+      const bucketKey = toolName ?? 'unknown';
+      byTool[bucketKey] = (byTool[bucketKey] ?? 0) + s;
       return { ...result, content: text } satisfies ToolResultContentBlock;
     });
     return { ...m, content: newBlocks };

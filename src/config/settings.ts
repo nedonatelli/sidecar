@@ -679,7 +679,7 @@ function readConfig(): SideCarConfig {
      * the MVP build-out — flips to `true` once the feature ships
      * end-to-end (b.1–b.4). Users can opt-in early to exercise the
      * symbol-level index. */
-    projectKnowledgeEnabled: cfg.get<boolean>('projectKnowledge.enabled', false),
+    projectKnowledgeEnabled: cfg.get<boolean>('projectKnowledge.enabled', true),
     projectKnowledgeMaxSymbolsPerFile: cfg.get<number>('projectKnowledge.maxSymbolsPerFile', 500),
     projectKnowledgeBackend: cfg.get<'flat' | 'lance'>('projectKnowledge.backend', 'flat'),
     merkleIndexEnabled: cfg.get<boolean>('merkleIndex.enabled', true),

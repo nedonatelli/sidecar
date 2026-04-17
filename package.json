@@ -2,7 +2,7 @@
   "name": "sidecar-ai",
   "displayName": "SideCar",
   "description": "Autonomous AI agent for coding — run full agent loops with local Ollama, Anthropic Claude, or OpenAI models",
-  "version": "0.62.5",
+  "version": "0.63.0",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -481,12 +481,12 @@
           },
           "sidecar.projectKnowledge.enabled": {
             "type": "boolean",
-            "default": false,
+            "default": true,
             "order": 25,
             "tags": [
               "sidecar"
             ],
-            "markdownDescription": "*(Project Knowledge Index, v0.61)* **Opt-in preview** of the symbol-level semantic index. When enabled, SideCar embeds each function / class / method / interface / type as its own vector (vs. the file-level index's one-vector-per-file) so queries like \"where is auth handled?\" return the specific function rather than the containing file. Uses the existing `@xenova/transformers` MiniLM model — no new downloads, no new dependencies. Default `false` during the v0.61 build-out; flip to `true` to exercise the symbol index now. Flips to default-on once the full feature arc ships (graph-walk retrieval, `project_knowledge_search` tool, sidebar panel)."
+            "markdownDescription": "*(Project Knowledge Index, v0.61+)* Symbol-level semantic index. SideCar embeds each function / class / method / interface / type as its own vector (vs. the file-level index's one-vector-per-file) so queries like \"where is auth handled?\" return the specific function rather than the containing file. Uses the existing `@xenova/transformers` MiniLM model — no new downloads, no new dependencies. **Default `true` as of v0.63.** Existing users who set this to `false` explicitly keep their setting; new installs index symbols automatically. First activation re-embeds the workspace (~5–10s on a typical repo); subsequent activations replay the cached index. Disable by setting to `false` if the startup cost bites on very large monorepos (>100k symbols) — the file-level index still works as a fallback."
           },
           "sidecar.projectKnowledge.maxSymbolsPerFile": {
             "type": "number",

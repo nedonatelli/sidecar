@@ -50,6 +50,67 @@ import type { LoopState } from './state.js';
 const MAX_CRITIC_INJECTIONS_PER_FILE = 2;
 
 /**
+ * Cap on how many times the critic can block on a given test-output
+ * signature within a single run (v0.63.0). Pre-cap, `test_failure`
+ * triggers were completely unbounded — a gate-forced test run that
+ * kept failing could fire the critic every iteration until the outer
+ * `maxIterations` cap tripped, burning ~$1-2 of critic API spend on
+ * a single stuck turn.
+ *
+ * We cap on the *normalized* test output hash (see
+ * `normalizeTestOutput` below) rather than the raw output so cosmetic
+ * differences between runs — timestamps, memory addresses, temp paths
+ * — don't defeat the cap. A test that keeps failing for different
+ * reasons (different assertion, different stack trace) still fires
+ * the critic because its normalized hash is different.
+ */
+const MAX_CRITIC_INJECTIONS_PER_TEST_HASH = 2;
+
+/**
+ * Normalize test output for stable hashing across cosmetic re-runs.
+ * Strips timestamps, hex-format memory addresses, and tmp paths that
+ * change per run without carrying test-result signal. Two outputs
+ * that differ only in these fields hash to the same string and
+ * share the same injection counter.
+ *
+ * Exported for tests.
+ */
+export function normalizeTestOutput(text: string): string {
+  return (
+    text
+      // ISO-ish timestamps: 2026-04-17T15:30:42.123Z or 15:30:42.123
+      .replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z?/g, '<TIMESTAMP>')
+      .replace(/\b\d{1,2}:\d{2}:\d{2}(\.\d+)?\b/g, '<TIME>')
+      // Hex memory addresses: 0x7fff5fbff8a0
+      .replace(/\b0x[0-9a-fA-F]{4,}\b/g, '<ADDR>')
+      // Temp paths: /tmp/vitest-xxx, /var/folders/...
+      .replace(/\/tmp\/[^\s:]+/g, '<TMP>')
+      .replace(/\/var\/folders\/[^\s:]+/g, '<TMP>')
+      // Duration measurements: "took 42ms" / "in 1.23s"
+      .replace(/\b\d+(\.\d+)?\s*(ms|µs|us|ns|s)\b/g, '<DUR>')
+      // Collapse all whitespace runs so indentation noise doesn't matter
+      .replace(/\s+/g, ' ')
+      .trim()
+  );
+}
+
+/**
+ * Hash a string to a short stable key. Not cryptographic — just needs
+ * to be collision-resistant enough that two materially different test
+ * outputs don't collide into the same bucket. DJB2, 32-bit.
+ *
+ * Exported for tests.
+ */
+export function hashTestOutput(normalized: string): string {
+  let hash = 5381;
+  for (let i = 0; i < normalized.length; i++) {
+    hash = ((hash << 5) + hash + normalized.charCodeAt(i)) | 0;
+  }
+  // Return as hex for readability in logs.
+  return (hash >>> 0).toString(16);
+}
+
+/**
  * Session-level counters for critic activity (v0.62.1 p.1b —
  * observability gap flagged in the post-ship audit). Users could
  * tell the critic fired via chat annotations + the agent output
@@ -100,7 +161,18 @@ export interface RunCriticOptions {
   logger: AgentLogger | undefined;
   signal: AbortSignal;
   criticInjectionsByFile: Map<string, number>;
+  /**
+   * Per-test-output-hash cap counter (v0.63.0). Bounds the
+   * previously-unbounded `test_failure` trigger path. Shared across
+   * triggers in a single run so the same failing test-output
+   * signature can't re-block the critic indefinitely. Optional so
+   * legacy callers (tests written pre-v0.63) keep working without
+   * a coordinated update — missing map is treated as "no cap".
+   */
+  criticInjectionsByTestHash?: Map<string, number>;
   maxPerFile: number;
+  /** Matching cap for the test-hash counter. Optional for back-compat. */
+  maxPerTestHash?: number;
 }
 
 /**
@@ -179,13 +251,26 @@ export async function runCriticChecks(opts: RunCriticOptions): Promise<string | 
   for (const trigger of triggers) {
     if (signal.aborted) return null;
 
-    // Per-file injection cap: skip edit triggers whose file has already
-    // been blocked twice this turn. Test-failure triggers aren't capped
-    // because there's no single "file" to scope them to.
+    // Per-file injection cap: skip edit triggers whose file has
+    // already been blocked the max times this run.
     if (trigger.kind === 'edit') {
       const used = criticInjectionsByFile.get(trigger.filePath) ?? 0;
       if (used >= maxPerFile) {
         logger?.info(`Critic: skipping ${trigger.filePath} — cap reached (${used}/${maxPerFile})`);
+        continue;
+      }
+    }
+
+    // Per-test-output-hash cap (v0.63.0). Bounds the previously
+    // unbounded test_failure trigger. The hash is computed on
+    // normalized output so cosmetic re-runs (same failure,
+    // different timestamps) collapse to the same bucket.
+    let testHash: string | undefined;
+    if (trigger.kind === 'test_failure' && opts.criticInjectionsByTestHash && opts.maxPerTestHash !== undefined) {
+      testHash = hashTestOutput(normalizeTestOutput(trigger.testOutput));
+      const used = opts.criticInjectionsByTestHash.get(testHash) ?? 0;
+      if (used >= opts.maxPerTestHash) {
+        logger?.info(`Critic: skipping test_failure (hash ${testHash}) — cap reached (${used}/${opts.maxPerTestHash})`);
         continue;
       }
     }
@@ -227,6 +312,14 @@ export async function runCriticChecks(opts: RunCriticOptions): Promise<string | 
     if (config.criticBlockOnHighSeverity && high.length > 0) {
       highFindings.push(...high);
       if (trigger.kind === 'edit') blockedFiles.add(trigger.filePath);
+      // v0.63.0 — increment the per-test-hash cap counter here so
+      // the next iteration that produces the same hash gets skipped.
+      // The counter lives with the shared LoopState map so it
+      // persists across iterations in the same run.
+      if (testHash !== undefined && opts.criticInjectionsByTestHash) {
+        const prev = opts.criticInjectionsByTestHash.get(testHash) ?? 0;
+        opts.criticInjectionsByTestHash.set(testHash, prev + 1);
+      }
     }
   }
 
@@ -327,7 +420,9 @@ export async function applyCritic(
     logger: state.logger,
     signal,
     criticInjectionsByFile: state.criticInjectionsByFile,
+    criticInjectionsByTestHash: state.criticInjectionsByTestHash,
     maxPerFile: MAX_CRITIC_INJECTIONS_PER_FILE,
+    maxPerTestHash: MAX_CRITIC_INJECTIONS_PER_TEST_HASH,
   });
 
   if (injection) {

@@ -4,6 +4,35 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.63.0] - 2026-04-17
+
+**v0.63.0 — Retrieval quality goes GA.** First minor-version bump since v0.62.0. Three coordinated changes: (1) the Project Knowledge Index (symbol-level semantic search) flips from opt-in to default-on — the v0.62 feature arc has cooked long enough; (2) the critic's previously-unbounded `test_failure` trigger gains a per-test-output hash cap, closing the worst-case critic-gate lockup spend documented in the recent hook-interaction docs; (3) the prompt pruner grows a per-tool truncation dispatch starting with grep — head+tail truncation was eliding the middle matches of large grep results, which is where the signal usually lives. Tests: 2434 passing (+23 net); tsc + lint clean. No breaking changes.
+
+### Changed
+
+- **PKI is now default-on** (`sidecar.projectKnowledge.enabled: true`). Was opt-in since v0.61. The symbol-level semantic index indexes every function / class / method / interface / type as its own vector when the workspace loads; queries like "where is auth handled?" return the specific function rather than the containing file. First activation re-embeds the workspace (~5–10s on a typical repo); subsequent activations replay the cached index. **Users who explicitly set this to `false` in their `settings.json` keep that setting** — the flip only affects fresh installs and users on the previous default. Disable by setting to `false` if the startup cost bites on very large monorepos (>100k symbols); the file-level index continues to work as a fallback. Setting-level description updated in package.json; settings.ts default bumped to match.
+
+### Added — agent loop
+
+- **Critic per-test-output-hash injection cap** ([`src/agent/loop/criticHook.ts`](src/agent/loop/criticHook.ts)). Closes the unbounded-`test_failure`-trigger lockup scenario documented in `docs/agent-loop-diagram.md`. Pre-v0.63, a gate-forced test run that kept failing would fire the critic every iteration until the outer `maxIterations` cap tripped, burning ~$1–2 of critic API spend on a single stuck turn. New: a per-run `Map<hash, count>` tracks how many times the critic has blocked on each normalized test-output signature; after `MAX_CRITIC_INJECTIONS_PER_TEST_HASH = 2` blocks on the same hash, the trigger is skipped. Hash is computed on normalized output — ISO timestamps, hex memory addresses, tmp paths, and duration measurements are stripped so cosmetic re-runs of the same failure collapse into one bucket. Two new exports (`normalizeTestOutput`, `hashTestOutput`) for test visibility. New `criticInjectionsByTestHash` field on `LoopState`; `RunCriticOptions` gains `criticInjectionsByTestHash` + `maxPerTestHash` optional fields (omitting them preserves the pre-v0.63 unbounded behavior for legacy callers). +10 tests covering normalization transforms, hash stability, per-hash cap enforcement, hash-collision prevention for materially-different failures, and back-compat with callers that omit the new fields.
+
+### Added — prompt pruner
+
+- **Grep-aware truncation** ([`src/ollama/promptPruner.ts`](src/ollama/promptPruner.ts)). First entry in a new per-tool truncation dispatch (`TRUNCATION_DISPATCH`). Head+tail truncation (the default) elided the middle matches of large grep results, leaving only the first and last 40% of matches — which are usually the *least* interesting (boilerplate imports + trailing tests). The new `truncateGrepResult` strategy keeps whole lines from the head and drops the tail entirely, preserving grep's natural file-sorted-then-line-sorted ordering and producing a contiguous window of matches. Elision marker now also suggests narrowing the query — actionable guidance the generic head+tail marker couldn't give. New exports: `truncateGrepResult` (the strategy), `truncateForTool` (the dispatch). `truncateAllToolResults` uses `truncateForTool` instead of calling `truncateToolResult` directly. +10 tests on the grep-aware path, dispatch behavior, dispatch fallthrough for other tools / legacy callers, and end-to-end integration through `truncateAllToolResults`.
+
+### Not changed (deliberate)
+
+- **Setting key names and numeric defaults elsewhere** stay byte-identical. Only the PKI default flipped; users on the previous default get the new behavior, users who customized keep their setting.
+- **`DEDUP_EXEMPT_TOOLS` is not extended.** Dedup exemption and truncation strategy are independent concerns; adding grep to dedup exemption is a separate question (grep output with identical inputs is stable so dedup is safe).
+- **No LanceDB backend yet.** Still reserved behind `sidecar.projectKnowledge.backend: 'lance'` and falls back to `flat` with a warning. Native-binding cross-platform CI work deferred to a later release.
+- **No third-party plugin API.** Policy hooks still ship via the repo or a fork — see `docs/extending-sidecar.md` for the known-gap writeup.
+
+### Migration notes
+
+- **PKI upgrade path**: on first activation after upgrade, users who didn't previously set `sidecar.projectKnowledge.enabled: true` see a one-time ~5–10s workspace re-embed. The index persists to `.sidecar/cache/symbol-embeddings.*`. No action needed.
+- **Critic cap back-compat**: integration tests or external callers of `runCriticChecks` that pre-date v0.63 don't need a coordinated update — omitting the new `criticInjectionsByTestHash` / `maxPerTestHash` fields preserves unbounded behavior for those callers.
+- **Pruner dispatch back-compat**: the underlying `truncateToolResult` (head+tail) still exists and is still the fallback for every tool without a specialized strategy. Grep is the only dispatch entry today.
+
 ## [0.62.5] - 2026-04-17
 
 **v0.62.5 — Settings reorganization.** Fifth patch on the v0.62 cycle; closes the long-open "75 settings in one flat list" discoverability concern. `contributes.configuration` is now an array of 8 categorized sections instead of a single flat `properties` map; VS Code's Settings UI automatically renders each section as a collapsible group with its own title. **No key renames** — every existing `sidecar.*` setting keeps its exact current name, default, and schema. Users upgrading from v0.62.4 see zero migration friction: their `settings.json` keeps working byte-identical, and the reorganization is purely a UX improvement in the Settings editor. Tests: 2411 passing (+11 net); tsc + lint clean.
