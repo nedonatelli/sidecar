@@ -221,7 +221,7 @@ The contract is: the pruner **NEVER** touches user message text, assistant reaso
 
   **Truncation still applies to exempt tools** — size management is always legitimate; the exemption is only about the back-reference shortcut.
 
-### How to decide whether to exempt a new tool
+### How to decide whether to exempt a new tool from dedup
 
 Check both questions. Answer "yes" to either → add to `DEDUP_EXEMPT_TOOLS`:
 
@@ -234,6 +234,71 @@ Check both questions. Answer "yes" to either → add to `DEDUP_EXEMPT_TOOLS`:
    - No for most read-only knowledge tools (`web_search`, `find_references`) — if the agent re-runs the same search, dedup is fine.
 
 When in doubt, lean toward exempting. The cost of a false exemption is a few extra bytes in the prompt; the cost of a false dedup is an agent that can't see its own work.
+
+### Truncation safety by tool
+
+Unlike dedup, **truncation has no exempt list**. Every oversize tool_result flows through `truncateToolResult` and gets the head+tail transform regardless of which tool produced it. The head+tail strategy works because most tool output is "signal at the top, signal at the bottom, filler in the middle." That's usually true — but it's a shape-of-output assumption, and it breaks in specific ways per tool.
+
+```mermaid
+flowchart LR
+    subgraph friendly ["Truncation-friendly — signal clusters at head/tail"]
+        direction TB
+        F1[run_command / run_tests<br/>stderr header + exit-code tail]
+        F2[get_diagnostics<br/>severity-sorted, first errors most actionable]
+        F3[read_file<br/>if agent knows line range]
+        F4[git_log / git_diff<br/>newest commits / hunks at head]
+    end
+
+    subgraph hostile ["Truncation-hostile — signal scattered through the middle"]
+        direction TB
+        H1[grep<br/>matches distributed throughout file]
+        H2[search_files<br/>relevance-ranked, not position-sorted]
+        H3[web_search<br/>results 3-8 often better than 1-2]
+        H4[project_knowledge_search<br/>cosine-ranked hits interleaved with graph-walk results]
+        H5[list_directory<br/>alphabetical, file of interest mid-listing]
+    end
+
+    classDef safeStyle fill:#dcfce7,stroke:#16a34a
+    classDef dangerStyle fill:#fee2e2,stroke:#dc2626
+    class F1,F2,F3,F4 safeStyle
+    class H1,H2,H3,H4,H5 dangerStyle
+```
+
+**Truncation-friendly tools** — head+tail captures the actual signal:
+
+| Tool | Why head+tail works |
+| --- | --- |
+| `run_command`, `run_tests` | Error banner at top; exit code + failing-assertion summary at bottom. Middle = test-runner chatter, build steps, progress bars. |
+| `get_diagnostics` | Errors come back severity-sorted; highest-severity items are in the head. Tail repeats the summary counts. |
+| `git_log`, `git_diff` | Most recent commit / first hunk at top. Tail varies (final commit / last hunk) but the head carries the "what changed recently" signal. |
+| `read_file` *with line range* | When the agent passes `start_line`/`end_line`, the output is small enough that truncation never fires. Risk only on full-file reads of giant files. |
+
+**Truncation-hostile tools** — head+tail can drop the match the agent needed:
+
+| Tool | Failure mode |
+| --- | --- |
+| `grep` | Matches distribute throughout the searched file. A 200-match grep result truncated at `maxToolResultTokens` might elide matches 40–160; the agent sees matches 1–40 and 160–200, which are usually the least interesting (boilerplate imports + trailing tests). |
+| `search_files` | Returns by relevance + freshness; there's no position-ordering guarantee. The middle of the list can carry the hit the agent actually wants. |
+| `web_search` | Results are ranked by the search provider, but the *most actionable* result for an error-message lookup is often result 3–5 (Stack Overflow answer, not the marketing page at rank 1). Middle-elision drops those. |
+| `project_knowledge_search` | Hits come back with `vector:` and `graph:` relationship labels interleaved. Graph-walk hits (callers/callees 1–2 hops out) often sit in the middle of the ranked list and are the "oh that's why" evidence for the agent. |
+| `list_directory` | Alphabetical listing. For a directory with 500 files, the file the agent was looking for is statistically not at the first or last 40%. |
+
+**Practical guidance**:
+
+- **Default `maxToolResultTokens` is ~4K tokens**, which is usually enough to avoid truncation entirely on truncation-hostile tools (most grep / search results fit). If you're on a small-context model or hit truncation regularly on these tools, raise the cap via `sidecar.promptPruning.maxToolResultTokens` before assuming the agent is "missing" information.
+- **When reading a truncated tool_result, look for the elision marker**: `[...N bytes elided by SideCar prompt pruner...]`. If the agent is confused after a truncation-hostile tool call, the elided bytes are the first place to look.
+- **For grep / search workloads, prefer narrower queries.** A pre-scoped `grep -r "needle" src/auth/` is better than `grep -r "needle" .` — the narrower result fits under the budget and doesn't get elided.
+- **Disable pruning for debugging**: `sidecar.promptPruning.enabled: false` bypasses truncation entirely. Useful when tracking down "why did the agent ignore result X" — re-run with pruning off and see whether the hit was in the elided region.
+
+### Known gap: no per-tool truncation strategy
+
+The current pruner applies **one strategy** (head+tail with 60/40 split) to **every** tool. A future improvement would be a per-tool truncation dispatch:
+
+- **`grep` / `search_files`** — slice to the top-N matches by a relevance score instead of by position.
+- **`list_directory`** — sort-and-truncate by path-relevance to the active file.
+- **`project_knowledge_search`** — already has its own top-K in the tool; a per-tool smaller budget would let the pruner drop additional matches past N.
+
+Tracked as an open item. Until then, tuning `maxToolResultTokens` upward is the escape hatch for workloads that exercise truncation-hostile tools heavily.
 
 ### Observability
 
