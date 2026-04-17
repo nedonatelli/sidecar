@@ -317,6 +317,61 @@ describe('getConfig provider-aware model default', () => {
   });
 });
 
+describe('criticModel provider-aware default (v0.62.1 p.1a)', () => {
+  /**
+   * The real VS Code getConfiguration().get treats `'critic.model'`
+   * as a dotted path, not a single key. Our stub store must key on
+   * the dotted form too — if we keyed on a camelCased `criticModel`,
+   * the stub would silently return the fallback ('') for every
+   * real production call.
+   */
+  function stubConfig(overrides: Record<string, unknown>) {
+    const defaults: Record<string, unknown> = {
+      baseUrl: 'http://localhost:11434',
+      provider: 'auto',
+      model: OLLAMA_DEFAULT_MODEL,
+      'critic.model': '',
+      ...overrides,
+    };
+    vi.spyOn(workspace, 'getConfiguration').mockReturnValue({
+      get: <T>(key: string, fallback?: T): T => ((defaults[key] as T | undefined) ?? fallback) as T,
+      has: () => false,
+      inspect: () => undefined,
+      update: async () => {},
+    } as unknown as ReturnType<typeof workspace.getConfiguration>);
+    __resetConfigCacheForTests();
+  }
+
+  it('substitutes Haiku for critic when main model is Sonnet on Anthropic', () => {
+    stubConfig({ provider: 'anthropic', baseUrl: 'https://api.anthropic.com', model: 'claude-sonnet-4-6' });
+    expect(getConfig().criticModel).toBe(ANTHROPIC_DEFAULT_MODEL);
+  });
+
+  it('leaves critic empty when main model is already Haiku (same-model fallback is cheap)', () => {
+    stubConfig({
+      provider: 'anthropic',
+      baseUrl: 'https://api.anthropic.com',
+      model: ANTHROPIC_DEFAULT_MODEL,
+    });
+    expect(getConfig().criticModel).toBe('');
+  });
+
+  it('leaves critic empty on non-Anthropic providers (no sensible cheap default)', () => {
+    stubConfig({ provider: 'ollama', baseUrl: 'http://localhost:11434' });
+    expect(getConfig().criticModel).toBe('');
+  });
+
+  it('respects an explicit critic.model setting over the auto-default', () => {
+    stubConfig({
+      provider: 'anthropic',
+      baseUrl: 'https://api.anthropic.com',
+      model: 'claude-opus-4-7',
+      'critic.model': 'claude-opus-4-7', // user explicitly matches main → no substitution
+    });
+    expect(getConfig().criticModel).toBe('claude-opus-4-7');
+  });
+});
+
 describe('BUILT_IN_BACKEND_PROFILES', () => {
   it('uses Haiku (not Sonnet) as the Anthropic profile default', () => {
     const anthropic = BUILT_IN_BACKEND_PROFILES.find((p) => p.id === 'anthropic');

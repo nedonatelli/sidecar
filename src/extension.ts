@@ -974,8 +974,14 @@ export function activate(context: ExtensionContext) {
   context.subscriptions.push(
     commands.registerCommand('sidecar.showSpend', async () => {
       const snap = spendTracker.snapshot();
-      if (snap.byModel.length === 0) {
-        window.showInformationMessage('SideCar: no remote API spend tracked this session.');
+      // v0.62.1 p.1b: include critic session stats in the same view.
+      // Users flagged "I can't tell how often the critic is blocking
+      // my turns" as the biggest observability gap; surfacing this
+      // alongside spend is the cheapest way to make it visible.
+      const { getCriticStats, resetCriticStats } = await import('./agent/loop/criticHook.js');
+      const critic = getCriticStats();
+      if (snap.byModel.length === 0 && critic.totalCalls === 0) {
+        window.showInformationMessage('SideCar: no remote API spend or critic activity tracked this session.');
         return;
       }
       const items = snap.byModel.map((m) => ({
@@ -989,6 +995,13 @@ export function activate(context: ExtensionContext) {
         description: `${snap.totalRequests} request(s) over ${sessionMinutes} min`,
         detail: 'Estimated — list prices; actual billing may differ. Click "Reset" below to clear.',
       });
+      if (critic.totalCalls > 0) {
+        items.push({
+          label: `$(search-view-icon) Critic: ${critic.blockedTurns} blocked turn(s) / ${critic.totalCalls} call(s)`,
+          description: critic.lastBlockedReason ? `Last block: ${critic.lastBlockedReason}` : '',
+          detail: 'Critic-invoked LLM calls fire independently of main-loop requests.',
+        });
+      }
       items.push({
         label: '$(trash) Reset session spend',
         description: '',
@@ -1000,7 +1013,8 @@ export function activate(context: ExtensionContext) {
       });
       if (picked?.label.startsWith('$(trash)')) {
         spendTracker.reset();
-        window.showInformationMessage('SideCar session spend reset.');
+        resetCriticStats();
+        window.showInformationMessage('SideCar session spend + critic stats reset.');
       }
     }),
   );

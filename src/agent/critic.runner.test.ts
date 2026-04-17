@@ -405,4 +405,57 @@ describe('runCriticChecks', () => {
       expect(calls).toHaveLength(0);
     });
   });
+
+  describe('session stats (v0.62.1 p.1b)', () => {
+    it('increments totalCalls on every critic LLM call', async () => {
+      const { getCriticStats, resetCriticStats } = await import('./loop/criticHook.js');
+      resetCriticStats();
+      const { use, result } = editPair('src/foo.ts');
+      const { client } = makeClient(() => '{"findings": []}');
+      await runCriticChecks(baseOptions({ client, pendingToolUses: [use], toolResults: [result] }));
+      expect(getCriticStats().totalCalls).toBe(1);
+    });
+
+    it('increments blockedTurns when high-severity findings trigger an injection', async () => {
+      const { getCriticStats, resetCriticStats } = await import('./loop/criticHook.js');
+      resetCriticStats();
+      const { use, result } = editPair('src/foo.ts');
+      const { client } = makeClient(
+        () =>
+          '{"findings": [{"severity": "high", "title": "null pointer", "evidence": "line 5", "fix": "null-check"}]}',
+      );
+      const r = await runCriticChecks(baseOptions({ client, pendingToolUses: [use], toolResults: [result] }));
+      expect(r).not.toBeNull(); // blocking injection returned
+      const stats = getCriticStats();
+      expect(stats.blockedTurns).toBe(1);
+      expect(stats.lastBlockedReason).toContain('null pointer');
+    });
+
+    it('does NOT increment blockedTurns on low-severity findings (non-blocking)', async () => {
+      const { getCriticStats, resetCriticStats } = await import('./loop/criticHook.js');
+      resetCriticStats();
+      const { use, result } = editPair('src/foo.ts');
+      const { client } = makeClient(
+        () => '{"findings": [{"severity": "low", "title": "style nit", "evidence": "line 5", "fix": "rename"}]}',
+      );
+      await runCriticChecks(baseOptions({ client, pendingToolUses: [use], toolResults: [result] }));
+      expect(getCriticStats().blockedTurns).toBe(0);
+      // But the call still happened — totalCalls is the observability proxy.
+      expect(getCriticStats().totalCalls).toBe(1);
+    });
+
+    it('resetCriticStats clears every counter', async () => {
+      const { getCriticStats, resetCriticStats } = await import('./loop/criticHook.js');
+      // Populate via a blocking call first.
+      const { use, result } = editPair('src/foo.ts');
+      const { client } = makeClient(
+        () => '{"findings": [{"severity": "high", "title": "oops", "evidence": "x", "fix": "y"}]}',
+      );
+      await runCriticChecks(baseOptions({ client, pendingToolUses: [use], toolResults: [result] }));
+      expect(getCriticStats().blockedTurns).toBeGreaterThan(0);
+
+      resetCriticStats();
+      expect(getCriticStats()).toEqual({ blockedTurns: 0, lastBlockedReason: '', totalCalls: 0 });
+    });
+  });
 });

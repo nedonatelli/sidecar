@@ -50,6 +50,40 @@ import type { LoopState } from './state.js';
 const MAX_CRITIC_INJECTIONS_PER_FILE = 2;
 
 /**
+ * Session-level counters for critic activity (v0.62.1 p.1b —
+ * observability gap flagged in the post-ship audit). Users could
+ * tell the critic fired via chat annotations + the agent output
+ * channel, but had no way to ask "how many turns did the critic
+ * block this session, and why?" These counters power the
+ * `SideCar: Show Session Spend` summary so the cost is visible
+ * alongside the $ impact.
+ *
+ * Reset via `resetCriticStats()` whenever the user resets the
+ * spend tracker — they're conceptually the same session surface.
+ */
+interface CriticStats {
+  /** Turns the critic injected a blocking message. One per injection,
+   *  not per finding — a single injection can carry many findings. */
+  blockedTurns: number;
+  /** Last-seen blocking reason, truncated for a one-line summary. */
+  lastBlockedReason: string;
+  /** Total critic LLM calls this session (informational / cost proxy). */
+  totalCalls: number;
+}
+
+const _criticStats: CriticStats = { blockedTurns: 0, lastBlockedReason: '', totalCalls: 0 };
+
+export function getCriticStats(): Readonly<CriticStats> {
+  return { ..._criticStats };
+}
+
+export function resetCriticStats(): void {
+  _criticStats.blockedTurns = 0;
+  _criticStats.lastBlockedReason = '';
+  _criticStats.totalCalls = 0;
+}
+
+/**
  * Options for `runCriticChecks`. Exported so the integration test at
  * critic.runner.test.ts can build fixtures without dragging in a full
  * runAgentLoop simulation — every dependency the runner touches comes
@@ -160,6 +194,7 @@ export async function runCriticChecks(opts: RunCriticOptions): Promise<string | 
     try {
       const userPrompt =
         trigger.kind === 'edit' ? buildEditCriticPrompt(trigger) : buildTestFailureCriticPrompt(trigger);
+      _criticStats.totalCalls += 1;
       raw = await client.completeWithOverrides(
         CRITIC_SYSTEM_PROMPT,
         [{ role: 'user', content: userPrompt }],
@@ -214,6 +249,13 @@ export async function runCriticChecks(opts: RunCriticOptions): Promise<string | 
   logger?.info(
     `Critic: blocking with ${highFindings.length} high-severity finding(s) across ${blockedFiles.size} file(s), attempt ${attempt}/${maxPerFile}`,
   );
+
+  // Session-level stats for the `SideCar: Show Session Spend` summary.
+  // Users flagged this as an observability gap: they couldn't tell
+  // how often the critic was blocking or why.
+  _criticStats.blockedTurns += 1;
+  const reason = highFindings[0]?.title ?? '';
+  _criticStats.lastBlockedReason = reason.length > 120 ? reason.slice(0, 120) + '…' : reason;
 
   return buildCriticInjection(highFindings, attempt, maxPerFile);
 }

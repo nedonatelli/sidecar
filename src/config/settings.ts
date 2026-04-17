@@ -605,7 +605,20 @@ function readConfig(): SideCarConfig {
     autoFixMaxRetries: clampMin(cfg.get<number>('autoFixMaxRetries'), 0, 3),
     completionGateEnabled: cfg.get<boolean>('completionGate.enabled', true),
     criticEnabled: cfg.get<boolean>('critic.enabled', false),
-    criticModel: cfg.get<string>('critic.model', ''),
+    // v0.62.1 p.1a: provider-aware default. An empty `critic.model`
+    // historically meant "use the main model," which doubled per-
+    // iteration cost on paid Anthropic backends. If the main model
+    // is Sonnet/Opus and the user hasn't explicitly set a critic
+    // model, we substitute Haiku (~12× cheaper per token) — same
+    // pattern used for the main-model switch-provider fallback above.
+    // Ollama / OpenAI / etc. keep the legacy "empty → main model"
+    // behavior because we don't have a provider-specific cheap model
+    // to substitute.
+    criticModel:
+      cfg.get<string>('critic.model', '') ||
+      (detectProvider(rawBaseUrl, rawProvider) === 'anthropic' && model !== ANTHROPIC_DEFAULT_MODEL
+        ? ANTHROPIC_DEFAULT_MODEL
+        : ''),
     criticBlockOnHighSeverity: cfg.get<boolean>('critic.blockOnHighSeverity', true),
     fetchUrlContext: cfg.get<boolean>('fetchUrlContext', true),
     fallbackBaseUrl: cfg.get<string>('fallbackBaseUrl', ''),
