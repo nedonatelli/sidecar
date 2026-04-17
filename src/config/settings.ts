@@ -510,6 +510,11 @@ export interface SideCarConfig {
   /* Project Knowledge Index (v0.61 b.*) */
   projectKnowledgeEnabled: boolean;
   projectKnowledgeMaxSymbolsPerFile: number;
+  /** Storage backend for the symbol embedding index (v0.62 c.2).
+   *  `flat` is the only implementation shipped today; `lance`
+   *  reserves the name for a future release and returns a clear
+   *  "not yet implemented" warning when selected. */
+  projectKnowledgeBackend: 'flat' | 'lance';
 }
 
 /**
@@ -648,6 +653,7 @@ function readConfig(): SideCarConfig {
      * symbol-level index. */
     projectKnowledgeEnabled: cfg.get<boolean>('projectKnowledge.enabled', false),
     projectKnowledgeMaxSymbolsPerFile: cfg.get<number>('projectKnowledge.maxSymbolsPerFile', 500),
+    projectKnowledgeBackend: cfg.get<'flat' | 'lance'>('projectKnowledge.backend', 'flat'),
   };
 }
 

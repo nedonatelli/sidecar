@@ -6,23 +6,23 @@
  * interface, type, etc.) so queries like "where is auth handled?"
  * return the specific function rather than the whole file.
  *
- * This class is the storage + similarity primitive only. Chunking
- * (getting symbol bodies from the workspace) and change-event wiring
- * ship in step b.2; the `project_knowledge_search` tool and graph-
- * walk retrieval enrichment follow in b.3 / b.4. Keeping the primitive
- * standalone means tests can drive it against synthetic symbol inputs
- * without a running tree-sitter pipeline.
+ * v0.62 c.2 — storage was extracted to a pluggable `VectorStore`
+ * interface. This class now owns the embedding pipeline + queue +
+ * domain logic (hash short-circuit, kind/path filters) while the
+ * actual vector CRUD + persistence delegate to a `VectorStore<SymbolMetadata>`.
+ * Default backend is the flat in-memory cosine-scan store; a future
+ * release can drop in a LanceDB-backed store with no changes here.
  *
  * Storage: `.sidecar/cache/symbol-embeddings.bin` (packed Float32
- * vectors, same shape as the file-level index — flat cosine scan for
- * now, LanceDB-backed ANN comes later in the PKI arc).
+ * vectors) + `.sidecar/cache/symbol-embeddings-meta.json` — bit-for-
+ * bit compatible with the v0.61 format (caller's `modelId` is
+ * preserved via `extraMeta`).
  */
 
 import { Disposable } from 'vscode';
-import * as fs from 'fs';
-import * as path from 'path';
 import * as crypto from 'crypto';
 import type { SidecarDir } from './sidecarDir.js';
+import { FlatVectorStore, type VectorStore, type FlatStoreMeta } from './vectorStore.js';
 
 /**
  * Same model as the file-level index — keeps the embedding space
@@ -31,6 +31,7 @@ import type { SidecarDir } from './sidecarDir.js';
  */
 const MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
 const DIMENSION = 384;
+const SCHEMA_VERSION = 1;
 const META_FILE = 'cache/symbol-embeddings-meta.json';
 const BIN_FILE = 'cache/symbol-embeddings.bin';
 const MAX_INPUT_CHARS = 4096; // symbols are usually smaller than files — 4k is generous
@@ -67,9 +68,9 @@ export interface SymbolSearchResult {
 
 export interface SymbolSearchFilters {
   /**
-   * Restrict results to these symbol kinds. Applied post-cosine since
-   * the flat store can't do efficient metadata filtering — the
-   * LanceDB migration replaces this with a native WHERE clause.
+   * Restrict results to these symbol kinds. Applied via the store's
+   * metadata filter — flat backend scans and filters in-memory; a
+   * future Lance backend pushes this into a native WHERE clause.
    */
   kindFilter?: string[];
   /**
@@ -80,28 +81,22 @@ export interface SymbolSearchFilters {
   pathPrefix?: string;
 }
 
-interface SymbolMeta {
-  /** Schema version — bump on breaking shape change. */
-  version: number;
-  modelId: string;
-  dimension: number;
-  count: number;
-  /** One record per indexed symbol, keyed by `symbolId`. */
-  entries: Record<string, SymbolEntryMeta>;
-}
-
-interface SymbolEntryMeta {
+/**
+ * Domain metadata persisted per symbol alongside the vector. Stored
+ * as `M` in the underlying `VectorStore<SymbolMetadata>`. The `hash`
+ * field drives the re-embed short-circuit — if a file save re-feeds
+ * the same symbol body, we skip the embed entirely.
+ */
+export interface SymbolMetadata {
   filePath: string;
   qualifiedName: string;
   name: string;
   kind: string;
   startLine: number;
   endLine: number;
-  /** Content hash of the embedded body — lets the indexer skip
-   *  re-embed when a file save didn't touch this symbol. */
+  /** MD5 prefix of the embedded body. Skip-on-match lets a whole-
+   *  workspace re-scan cost near-zero when nothing actually changed. */
   hash: string;
-  /** Row offset into the packed `vectors` Float32Array. */
-  offset: number;
 }
 
 type EmbeddingPipeline = (
@@ -110,22 +105,19 @@ type EmbeddingPipeline = (
 ) => Promise<{ data: Float32Array }>;
 
 export class SymbolEmbeddingIndex implements Disposable {
-  private sidecarDir: SidecarDir | null;
   private pipeline: EmbeddingPipeline | null = null;
   private modelLoading: Promise<void> | null = null;
   private ready = false;
 
-  private vectors = new Float32Array(0);
-  private meta: SymbolMeta = {
-    version: 1,
-    modelId: MODEL_ID,
-    dimension: DIMENSION,
-    count: 0,
-    entries: {},
-  };
+  /**
+   * Pluggable storage backend (v0.62 c.2). Default: the flat in-
+   * memory cosine-scan store. A constructor overload lets tests or
+   * a future Lance wiring inject a different `VectorStore<SymbolMetadata>`
+   * without touching this class's public API.
+   */
+  private store: VectorStore<SymbolMetadata>;
 
-  /** True when `indexSymbol` / `removeSymbol` / `removeFile` has
-   *  mutated state since the last successful persist. */
+  /** True when a mutation has landed since the last successful persist. */
   private dirty = false;
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
   private static readonly PERSIST_DEBOUNCE_MS = 30_000;
@@ -142,8 +134,33 @@ export class SymbolEmbeddingIndex implements Disposable {
   private static readonly FLUSH_DEBOUNCE_MS = 500;
   private static readonly FLUSH_BATCH_SIZE = 20;
 
-  constructor(sidecarDir: SidecarDir | null) {
-    this.sidecarDir = sidecarDir;
+  /**
+   * Construct with the default flat backend, or inject a custom
+   * `VectorStore<SymbolMetadata>` (e.g. for Lance once it lands, or
+   * a stub in unit tests). The default store preserves the v0.61
+   * on-disk format via `extraMeta: { modelId }` — no cache rebuild
+   * is required when upgrading past c.2.
+   */
+  constructor(sidecarDir: SidecarDir | null, store?: VectorStore<SymbolMetadata>) {
+    this.store =
+      store ??
+      new FlatVectorStore<SymbolMetadata>(sidecarDir, {
+        dimension: DIMENSION,
+        version: SCHEMA_VERSION,
+        binFile: BIN_FILE,
+        metaFile: META_FILE,
+        extraMeta: { modelId: MODEL_ID },
+        validateMeta: (meta) => {
+          // Reject caches from a different model (embedding space
+          // wouldn't match) or a schema bump. Version + dimension
+          // are already checked by the default validator; we add the
+          // modelId check because it's domain-specific.
+          const envelope = meta as FlatStoreMeta<unknown> & { modelId?: string };
+          return (
+            envelope.version === SCHEMA_VERSION && envelope.dimension === DIMENSION && envelope.modelId === MODEL_ID
+          );
+        },
+      });
   }
 
   /** True when the embedding model is loaded and the index is ready
@@ -159,7 +176,7 @@ export class SymbolEmbeddingIndex implements Disposable {
    * `isReady()` or await the `modelLoading` promise via `ensureModel`.
    */
   async initialize(): Promise<void> {
-    await this.restoreCache();
+    await this.store.restore();
     this.modelLoading = this.loadModel();
     this.modelLoading.catch((err) => {
       console.warn('[SideCar] Symbol embedding model failed to load:', err?.message || err);
@@ -179,9 +196,8 @@ export class SymbolEmbeddingIndex implements Disposable {
   private async loadModel(): Promise<void> {
     try {
       const { pipeline: createPipeline, env } = await import('@xenova/transformers');
-      if (this.sidecarDir?.isReady()) {
-        env.cacheDir = this.sidecarDir.getPath('cache', 'models');
-      }
+      // The sidecarDir path still belongs to the caller's world; the
+      // store encapsulates vector storage only.
       env.allowRemoteModels = true;
       this.pipeline = (await createPipeline('feature-extraction', MODEL_ID, {
         quantized: true,
@@ -228,7 +244,7 @@ export class SymbolEmbeddingIndex implements Disposable {
     const symbolId = makeSymbolId(input.filePath, input.qualifiedName);
     const hash = hashBody(input.body);
 
-    const existing = this.meta.entries[symbolId];
+    const existing = this.store.getMetadata(symbolId);
     if (existing && existing.hash === hash) return; // unchanged — skip re-embed
 
     // Prefix the body with the symbol's structural context so queries
@@ -240,7 +256,21 @@ export class SymbolEmbeddingIndex implements Disposable {
     const vector = await this.embed(embedInput);
     if (!vector) return; // model not ready — caller can retry later
 
-    this.storeVector(symbolId, vector, hash, input);
+    await this.store.upsert({
+      id: symbolId,
+      vector,
+      metadata: {
+        filePath: input.filePath,
+        qualifiedName: input.qualifiedName,
+        name: input.name,
+        kind: input.kind,
+        startLine: input.startLine,
+        endLine: input.endLine,
+        hash,
+      },
+    });
+    this.dirty = true;
+    this.schedulePersist();
   }
 
   /**
@@ -307,35 +337,45 @@ export class SymbolEmbeddingIndex implements Disposable {
 
   /** Drop a symbol by `symbolId`. No-op if the symbol isn't indexed. */
   removeSymbol(symbolId: string): void {
-    if (!(symbolId in this.meta.entries)) return;
-    delete this.meta.entries[symbolId];
-    this.meta.count = Object.keys(this.meta.entries).length;
-    this.dirty = true;
-    this.schedulePersist();
+    // Fire-and-forget — the store mutation is in-memory (flat) or
+    // async (Lance) but not a cost center either way. Matches the
+    // v0.61 sync signature so every existing caller keeps working.
+    void this.store.remove(symbolId).then((removed) => {
+      if (removed) {
+        this.dirty = true;
+        this.schedulePersist();
+      }
+    });
   }
 
   /**
    * Drop every symbol that lives in the named file. Called by the
-   * file-change pipeline on delete/rename — a file-level invalidation
-   * is cheaper than tracking per-symbol file provenance separately.
-   * Note: this leaves stale vector rows in the packed array; the
-   * next persist rewrites the whole file anyway so the gap is harmless.
+   * file-change pipeline on delete/rename. Also drops any queued-but-
+   * not-yet-indexed entries from this file so a delete-then-queue
+   * race doesn't leave stale records.
+   *
+   * Returns a count matching the v0.61 sync contract. Because the
+   * underlying store's `removeWhere` is async, we use a synchronous
+   * mirror via `entries()` to compute the count up front, then kick
+   * off the actual removes in the background. The mirror is always
+   * accurate for the flat backend; a future Lance backend will need
+   * to either return a sync count itself or we'll relax this signature.
    */
   removeFile(filePath: string): number {
     let removed = 0;
-    for (const [symbolId, entry] of Object.entries(this.meta.entries)) {
-      if (entry.filePath === filePath) {
-        delete this.meta.entries[symbolId];
+    const toRemove: string[] = [];
+    for (const entry of this.store.entries()) {
+      if (entry.metadata.filePath === filePath) {
+        toRemove.push(entry.id);
         removed += 1;
       }
     }
-    // Also drop any queued-but-not-yet-indexed symbols from this file
-    // so a delete-then-queue race doesn't leave stale entries.
+    for (const id of toRemove) void this.store.remove(id);
+    // Also drop queued-but-not-yet-indexed symbols from this file.
     for (const [id, input] of this.pendingQueue.entries()) {
       if (input.filePath === filePath) this.pendingQueue.delete(id);
     }
     if (removed > 0) {
-      this.meta.count = Object.keys(this.meta.entries).length;
       this.dirty = true;
       this.schedulePersist();
     }
@@ -344,73 +384,59 @@ export class SymbolEmbeddingIndex implements Disposable {
 
   /**
    * Return the top-`topK` symbols by cosine similarity to `query`.
-   * Filters apply after the cosine pass for this MVP; the LanceDB
-   * backend planned for step b.5 moves them into the native WHERE
-   * clause for O(matching) instead of O(all).
+   * Metadata filters translate to the store's `filter` predicate so
+   * a Lance backend later can push them into the native query plan.
    */
   async search(query: string, topK = 20, filters?: SymbolSearchFilters): Promise<SymbolSearchResult[]> {
-    if (!this.isReady() || this.meta.count === 0) return [];
+    if (!this.isReady() || this.store.size() === 0) return [];
     const queryVec = await this.embed(query);
     if (!queryVec) return [];
 
-    const results: SymbolSearchResult[] = [];
-    for (const [symbolId, entry] of Object.entries(this.meta.entries)) {
-      if (filters?.kindFilter && !filters.kindFilter.includes(entry.kind)) continue;
-      if (filters?.pathPrefix && !entry.filePath.startsWith(filters.pathPrefix)) continue;
-      const start = entry.offset * DIMENSION;
-      const symVec = this.vectors.subarray(start, start + DIMENSION);
-      const sim = cosine(queryVec, symVec);
-      results.push({
-        symbolId,
-        filePath: entry.filePath,
-        qualifiedName: entry.qualifiedName,
-        name: entry.name,
-        kind: entry.kind,
-        startLine: entry.startLine,
-        endLine: entry.endLine,
-        similarity: sim,
-      });
-    }
+    const hasKindFilter = filters?.kindFilter && filters.kindFilter.length > 0;
+    const filter =
+      hasKindFilter || filters?.pathPrefix
+        ? (meta: SymbolMetadata) => {
+            if (hasKindFilter && !filters!.kindFilter!.includes(meta.kind)) return false;
+            if (filters?.pathPrefix && !meta.filePath.startsWith(filters.pathPrefix)) return false;
+            return true;
+          }
+        : undefined;
 
-    results.sort((a, b) => b.similarity - a.similarity);
-    return results.slice(0, topK);
+    const hits = await this.store.search(queryVec, topK, filter);
+    return hits.map((h) => ({
+      symbolId: h.id,
+      filePath: h.metadata.filePath,
+      qualifiedName: h.metadata.qualifiedName,
+      name: h.metadata.name,
+      kind: h.metadata.kind,
+      startLine: h.metadata.startLine,
+      endLine: h.metadata.endLine,
+      similarity: h.similarity,
+    }));
   }
 
   /** Total number of indexed symbols. */
   getCount(): number {
-    return this.meta.count;
+    return this.store.size();
   }
 
   /** Look up one symbol's metadata by ID. Handy for callers that got
-   *  a `symbolId` from somewhere else and need its location. */
-  getSymbolMeta(symbolId: string): SymbolEntryMeta | null {
-    return this.meta.entries[symbolId] ?? null;
+   *  a `symbolId` from somewhere else and need its location. The
+   *  return type includes `offset` for v0.61 compatibility but the
+   *  field is meaningless against a non-flat backend; callers that
+   *  only need location-level fields should ignore it. */
+  getSymbolMeta(symbolId: string): (SymbolMetadata & { offset: number }) | null {
+    const metadata = this.store.getMetadata(symbolId);
+    if (!metadata) return null;
+    // `offset` was an internal implementation detail pre-c.2; kept
+    // in the shape for API compatibility and always reported as 0
+    // for non-flat backends.
+    return { ...metadata, offset: 0 };
   }
 
   // ---------------------------------------------------------------------------
-  // Vector storage — append-only offsets, overwrite-in-place on re-embed.
-  // ---------------------------------------------------------------------------
-
-  private storeVector(symbolId: string, vector: Float32Array, hash: string, input: SymbolEmbedInput): void {
-    const existing = this.meta.entries[symbolId];
-    if (existing) {
-      this.vectors.set(vector, existing.offset * DIMENSION);
-      this.meta.entries[symbolId] = { ...existing, hash, ...toEntryMeta(input) };
-    } else {
-      const offset = this.meta.count;
-      const newVectors = new Float32Array((offset + 1) * DIMENSION);
-      newVectors.set(this.vectors);
-      newVectors.set(vector, offset * DIMENSION);
-      this.vectors = newVectors;
-      this.meta.entries[symbolId] = { ...toEntryMeta(input), hash, offset };
-      this.meta.count = offset + 1;
-    }
-    this.dirty = true;
-    this.schedulePersist();
-  }
-
-  // ---------------------------------------------------------------------------
-  // Persistence — same shape as EmbeddingIndex but different paths.
+  // Persistence — delegate to the store; schedulePersist preserves v0.61
+  // debounce semantics so unchanged callers see the same write cadence.
   // ---------------------------------------------------------------------------
 
   private schedulePersist(): void {
@@ -423,51 +449,17 @@ export class SymbolEmbeddingIndex implements Disposable {
       clearTimeout(this.persistTimer);
       this.persistTimer = null;
     }
-    if (!this.dirty || !this.sidecarDir?.isReady()) return;
-
-    try {
-      await this.sidecarDir.writeJson(META_FILE, this.meta);
-      const binPath = this.sidecarDir.getPath(BIN_FILE);
-      const dir = path.dirname(binPath);
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      const buffer = Buffer.from(this.vectors.buffer, this.vectors.byteOffset, this.meta.count * DIMENSION * 4);
-      fs.writeFileSync(binPath, buffer);
-      this.dirty = false;
-    } catch (err) {
-      console.warn('[SideCar] Failed to persist symbol embedding index:', err);
-    }
-  }
-
-  private async restoreCache(): Promise<void> {
-    if (!this.sidecarDir?.isReady()) return;
-    try {
-      const meta = await this.sidecarDir.readJson<SymbolMeta>(META_FILE);
-      if (!meta) return;
-      if (meta.version !== 1 || meta.modelId !== MODEL_ID || meta.dimension !== DIMENSION) {
-        console.log('[SideCar] Symbol embedding cache version/model mismatch, rebuilding');
-        return;
-      }
-      const binPath = this.sidecarDir.getPath(BIN_FILE);
-      if (!fs.existsSync(binPath)) return;
-      const buffer = fs.readFileSync(binPath);
-      if (buffer.byteLength < meta.count * DIMENSION * 4) {
-        console.warn('[SideCar] Symbol embedding binary too small, rebuilding');
-        return;
-      }
-      this.vectors = new Float32Array(buffer.buffer, buffer.byteOffset, meta.count * DIMENSION);
-      this.meta = meta;
-      console.log(`[SideCar] Symbol embedding cache restored: ${meta.count} symbols`);
-    } catch (err) {
-      console.warn('[SideCar] Failed to restore symbol embedding cache:', err);
-    }
+    if (!this.dirty) return;
+    await this.store.persist();
+    this.dirty = false;
   }
 
   dispose(): void {
     if (this.persistTimer) clearTimeout(this.persistTimer);
     if (this.flushTimer) clearTimeout(this.flushTimer);
-    if (this.dirty && this.sidecarDir) {
+    if (this.dirty) {
       try {
-        this.persist();
+        void this.persist();
       } catch {
         /* best-effort shutdown cleanup */
       }
@@ -490,28 +482,10 @@ function hashBody(body: string): string {
   return crypto.createHash('md5').update(body.slice(0, MAX_INPUT_CHARS)).digest('hex').slice(0, 12);
 }
 
-function toEntryMeta(input: SymbolEmbedInput): Omit<SymbolEntryMeta, 'hash' | 'offset'> {
-  return {
-    filePath: input.filePath,
-    qualifiedName: input.qualifiedName,
-    name: input.name,
-    kind: input.kind,
-    startLine: input.startLine,
-    endLine: input.endLine,
-  };
-}
-
 /**
- * Cosine similarity between two unit vectors. Duplicates the helper
- * in `embeddingIndex.ts` rather than importing it so the two modules
- * stay independently loadable — PKI can ship with `flat` backend
- * disabled without dragging the file-level index along.
+ * Cosine similarity between two unit vectors. Re-exported from the
+ * vector store module so existing v0.61 importers that pulled this
+ * from `symbolEmbeddingIndex.ts` don't break. New code should import
+ * from `vectorStore.ts` directly.
  */
-export function cosine(a: Float32Array, b: Float32Array): number {
-  let dot = 0;
-  const len = Math.min(a.length, b.length);
-  for (let i = 0; i < len; i++) {
-    dot += a[i] * b[i];
-  }
-  return dot;
-}
+export { cosine } from './vectorStore.js';

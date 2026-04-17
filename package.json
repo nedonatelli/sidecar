@@ -664,6 +664,19 @@
           ],
           "markdownDescription": "*(Project Knowledge Index, v0.61)* Safety cap on how many symbols from a single file get embedded. Guards against generated files (e.g. auto-generated schemas, giant test fixtures) with tens of thousands of declarations monopolizing the embedder."
         },
+        "sidecar.projectKnowledge.backend": {
+          "type": "string",
+          "enum": [
+            "flat",
+            "lance"
+          ],
+          "default": "flat",
+          "order": 27,
+          "tags": [
+            "sidecar"
+          ],
+          "markdownDescription": "*(Project Knowledge Index, v0.62)* Vector storage backend for the symbol embedding index.\n\n- `flat` (default, shipped) — in-memory `Float32Array` with linear cosine-scan search. Fast enough for workspaces up to ~100k symbols.\n- `lance` — reserved for a future release with LanceDB-backed HNSW ANN. Selecting it today logs a warning and falls back to `flat`.\n\nThe backend is swappable without rebuilding the index — both implementations read the same on-disk format."
+        },
         "sidecar.includeActiveFile": {
           "type": "boolean",
           "default": true,

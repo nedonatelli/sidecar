@@ -210,6 +210,21 @@ export function activate(context: ExtensionContext) {
         // the embedding queue.
         if (config.projectKnowledgeEnabled) {
           const { SymbolEmbeddingIndex } = await import('./config/symbolEmbeddingIndex.js');
+          // v0.62 c.2: honor the backend setting. Only `flat` is
+          // shipped today; `lance` is reserved for a future release
+          // so selecting it surfaces a one-time warning and falls
+          // through to the flat backend. The warning is non-modal
+          // because the feature is already opt-in — users who
+          // explicitly typed `lance` in settings have already
+          // accepted the preview surface.
+          if (config.projectKnowledgeBackend === 'lance') {
+            console.warn(
+              '[SideCar] sidecar.projectKnowledge.backend=lance is reserved for a future release; using `flat` instead.',
+            );
+            void window.showWarningMessage(
+              'SideCar: Project Knowledge backend "lance" is not available in this build — using "flat" instead.',
+            );
+          }
           const symbolEmbeddings = new SymbolEmbeddingIndex(sidecarDir);
           context.subscriptions.push(symbolEmbeddings);
           symbolEmbeddings
