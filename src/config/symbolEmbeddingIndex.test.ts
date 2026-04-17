@@ -250,6 +250,119 @@ describe('SymbolEmbeddingIndex', () => {
     });
   });
 
+  describe('Merkle tree integration (v0.62 d.2)', () => {
+    it('setMerkleTree replays stored entries into the tree', async () => {
+      const { MerkleTree } = await import('./merkleTree.js');
+      // Index two symbols first, then attach a tree — replay should
+      // populate the tree from persisted-in-memory state without
+      // re-running embeddings.
+      await index.indexSymbol(makeInput({ qualifiedName: 'a', name: 'a' }));
+      await index.indexSymbol(makeInput({ qualifiedName: 'b', name: 'b' }));
+
+      const tree = new MerkleTree();
+      index.setMerkleTree(tree);
+
+      expect(tree.getLeafCount()).toBe(2);
+      expect(tree.getRootHash()).not.toBe('');
+    });
+
+    it('addLeaf mirrors every indexSymbol call when a tree is wired', async () => {
+      const { MerkleTree } = await import('./merkleTree.js');
+      const tree = new MerkleTree();
+      index.setMerkleTree(tree);
+
+      await index.indexSymbol(makeInput({ qualifiedName: 'new', name: 'new' }));
+      tree.rebuild();
+
+      expect(tree.getLeafCount()).toBe(1);
+    });
+
+    it('flushQueue fires tree.rebuild() after a batch drain', async () => {
+      const { MerkleTree } = await import('./merkleTree.js');
+      const tree = new MerkleTree();
+      index.setMerkleTree(tree);
+
+      index.queueSymbol(makeInput({ qualifiedName: 'a', name: 'a' }));
+      index.queueSymbol(makeInput({ qualifiedName: 'b', name: 'b' }));
+      await index.flushQueueForTests();
+
+      // rebuild() gets called during the drain, so getRootHash
+      // reflects both queued leaves without a manual rebuild here.
+      expect(tree.getLeafCount()).toBe(2);
+      expect(tree.getRootHash()).not.toBe('');
+    });
+
+    it('removeSymbol and removeFile mirror into the tree', async () => {
+      const { MerkleTree } = await import('./merkleTree.js');
+      const tree = new MerkleTree();
+      index.setMerkleTree(tree);
+
+      await index.indexSymbol(makeInput({ qualifiedName: 'a', name: 'a', filePath: 'foo.ts' }));
+      await index.indexSymbol(makeInput({ qualifiedName: 'b', name: 'b', filePath: 'foo.ts' }));
+      await index.indexSymbol(makeInput({ qualifiedName: 'c', name: 'c', filePath: 'bar.ts' }));
+      tree.rebuild();
+      expect(tree.getLeafCount()).toBe(3);
+
+      index.removeSymbol(makeSymbolId('foo.ts', 'a'));
+      tree.rebuild();
+      expect(tree.getLeafCount()).toBe(2);
+
+      index.removeFile('foo.ts');
+      tree.rebuild();
+      expect(tree.getLeafCount()).toBe(1);
+      expect(tree.getFileNode('bar.ts')).not.toBeNull();
+    });
+
+    it('getMerkleRoot returns empty string when no tree is wired', () => {
+      expect(index.getMerkleRoot()).toBe('');
+    });
+
+    it('skips replay for entries lacking merkleHash (pre-d.2 caches)', async () => {
+      // Hand-craft a metadata entry without merkleHash via direct
+      // store access. `index.setMerkleTree` should skip it on
+      // replay rather than crash.
+      const { MerkleTree } = await import('./merkleTree.js');
+      const { FlatVectorStore } = await import('./vectorStore.js');
+      // Typed as the real SymbolMetadata shape so we can upsert an
+      // entry with `merkleHash` omitted — TypeScript's optional
+      // field semantics let the test insert "pre-d.2" state
+      // directly, which is exactly the case we're exercising.
+      const legacyStore = new FlatVectorStore<import('./symbolEmbeddingIndex.js').SymbolMetadata>(null, {
+        dimension: 384,
+        version: 1,
+        binFile: 'cache/x.bin',
+        metaFile: 'cache/x.json',
+      });
+      const legacyIndex = new SymbolEmbeddingIndex(null, legacyStore);
+      legacyIndex.setPipelineForTests(fakePipeline() as never);
+      // Pre-d.2 entry: no merkleHash. 384-dim zero vector is enough
+      // to satisfy the FlatVectorStore dimension check; content
+      // doesn't matter for the replay-skip path.
+      const vector = new Float32Array(384);
+      vector[0] = 1;
+      await legacyStore.upsert({
+        id: 'src/a.ts::foo',
+        vector,
+        metadata: {
+          filePath: 'src/a.ts',
+          qualifiedName: 'foo',
+          name: 'foo',
+          kind: 'function',
+          startLine: 1,
+          endLine: 5,
+          hash: 'h',
+          // merkleHash intentionally omitted
+        },
+      });
+
+      const tree = new MerkleTree();
+      legacyIndex.setMerkleTree(tree);
+
+      // Replay skipped — no leaves added.
+      expect(tree.getLeafCount()).toBe(0);
+    });
+  });
+
   describe('queueSymbol + flush (v0.61 b.2)', () => {
     it('drains queued symbols through indexSymbol on flush', async () => {
       index.queueSymbol(makeInput({ qualifiedName: 'a', name: 'a' }));

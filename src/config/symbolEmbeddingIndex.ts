@@ -23,6 +23,7 @@ import { Disposable } from 'vscode';
 import * as crypto from 'crypto';
 import type { SidecarDir } from './sidecarDir.js';
 import { FlatVectorStore, type VectorStore, type FlatStoreMeta } from './vectorStore.js';
+import { hashLeaf, type MerkleTree } from './merkleTree.js';
 
 /**
  * Same model as the file-level index — keeps the embedding space
@@ -97,6 +98,17 @@ export interface SymbolMetadata {
   /** MD5 prefix of the embedded body. Skip-on-match lets a whole-
    *  workspace re-scan cost near-zero when nothing actually changed. */
   hash: string;
+  /**
+   * Merkle leaf content hash (v0.62 d.2). SHA-256 over the canonical
+   * `filePath|qualifiedName|kind|startLine-endLine|body` string —
+   * changes iff any of those fields change. Persisted alongside the
+   * embedding so the Merkle tree can be replayed on activation
+   * without needing the original body. Optional on the type for
+   * forward compatibility with pre-d.2 caches; callers that find
+   * it missing must skip the leaf (it'll be populated the next
+   * time the file re-indexes).
+   */
+  merkleHash?: string;
 }
 
 type EmbeddingPipeline = (
@@ -116,6 +128,19 @@ export class SymbolEmbeddingIndex implements Disposable {
    * without touching this class's public API.
    */
   private store: VectorStore<SymbolMetadata>;
+
+  /**
+   * Optional Merkle tree wired in v0.62 d.2. When set, every
+   * `indexSymbol` / `removeSymbol` / `removeFile` call mirrors the
+   * mutation into the tree, and `rebuild()` fires after each batch
+   * drain so the root hash + file-node aggregates stay fresh. Null
+   * when the caller doesn't want the Merkle layer (pre-d.2 behavior).
+   */
+  private merkleTree: MerkleTree | null = null;
+  /** True when a mutation has mirrored into the tree since the
+   *  last `merkleTree.rebuild()` call. Prevents redundant rebuilds
+   *  on reader-only flush cycles. */
+  private merkleDirty = false;
 
   /** True when a mutation has landed since the last successful persist. */
   private dirty = false;
@@ -193,6 +218,48 @@ export class SymbolEmbeddingIndex implements Disposable {
     this.ready = pipeline !== null;
   }
 
+  /**
+   * Attach (or detach) a Merkle tree so every index mutation is
+   * mirrored into the tree (v0.62 d.2). On attach, this also replays
+   * every currently-stored entry into the tree so the root hash +
+   * file-node aggregates reflect the persisted state immediately —
+   * otherwise the tree would be empty until the workspace re-scans
+   * every file, and SymbolIndexer's own hash-based short-circuit
+   * means unchanged files might never fire an `indexSymbol` call in
+   * a session.
+   *
+   * Pre-d.2 persisted entries lack a `merkleHash` field; those
+   * skipped on replay and populate lazily next time the file
+   * re-indexes. No data loss, just a one-session warm-up.
+   */
+  setMerkleTree(tree: MerkleTree | null): void {
+    this.merkleTree = tree;
+    if (!tree) return;
+
+    // Replay persisted entries into the tree. This is O(n) over the
+    // stored count but SHA-256 + mean-pool is fast enough that a
+    // 10k-symbol workspace replays in <100 ms.
+    for (const entry of this.store.entries()) {
+      const metadata = entry.metadata;
+      if (!metadata.merkleHash) continue;
+      const vector = this.store.getVector(entry.id);
+      if (!vector) continue;
+      tree.addLeaf({
+        id: entry.id,
+        filePath: metadata.filePath,
+        hash: metadata.merkleHash,
+        vector,
+        metadata: {
+          qualifiedName: metadata.qualifiedName,
+          kind: metadata.kind,
+          startLine: metadata.startLine,
+          endLine: metadata.endLine,
+        },
+      });
+    }
+    tree.rebuild();
+  }
+
   private async loadModel(): Promise<void> {
     try {
       const { pipeline: createPipeline, env } = await import('@xenova/transformers');
@@ -243,9 +310,24 @@ export class SymbolEmbeddingIndex implements Disposable {
   async indexSymbol(input: SymbolEmbedInput): Promise<void> {
     const symbolId = makeSymbolId(input.filePath, input.qualifiedName);
     const hash = hashBody(input.body);
+    // v0.62 d.2: the Merkle leaf hash is derived from the full
+    // canonical leaf shape so a symbol move (line range shift) or
+    // kind change flips the root hash even when the body bytes
+    // didn't change — matches the ROADMAP's "fingerprint of the
+    // workspace" semantics.
+    const merkleHash = hashLeaf({
+      filePath: input.filePath,
+      qualifiedName: input.qualifiedName,
+      kind: input.kind,
+      startLine: input.startLine,
+      endLine: input.endLine,
+      body: input.body,
+    });
 
     const existing = this.store.getMetadata(symbolId);
-    if (existing && existing.hash === hash) return; // unchanged — skip re-embed
+    if (existing && existing.hash === hash && existing.merkleHash === merkleHash) {
+      return; // unchanged — skip re-embed AND skip tree touch
+    }
 
     // Prefix the body with the symbol's structural context so queries
     // like "auth middleware" match even when the body text doesn't
@@ -253,7 +335,15 @@ export class SymbolEmbeddingIndex implements Disposable {
     // body only calls `verifyToken`). Matches the file-level index
     // convention of prepending the path.
     const embedInput = `${input.qualifiedName} (${input.kind})\n${input.body}`;
-    const vector = await this.embed(embedInput);
+    // If the body hash matched (only the range/kind shifted), we
+    // can reuse the existing vector instead of re-embedding. Saves
+    // ~20 ms per symbol in the "save with no body change" case.
+    let vector: Float32Array | null;
+    if (existing && existing.hash === hash) {
+      vector = this.store.getVector(symbolId);
+    } else {
+      vector = await this.embed(embedInput);
+    }
     if (!vector) return; // model not ready — caller can retry later
 
     await this.store.upsert({
@@ -267,10 +357,31 @@ export class SymbolEmbeddingIndex implements Disposable {
         startLine: input.startLine,
         endLine: input.endLine,
         hash,
+        merkleHash,
       },
     });
     this.dirty = true;
     this.schedulePersist();
+
+    // Mirror the mutation into the Merkle tree if one is wired.
+    // The tree batches rebuilds; we don't call `rebuild()` here
+    // because a whole-workspace scan would fire it N times — the
+    // flushQueue drain fires a single rebuild after the batch.
+    if (this.merkleTree) {
+      this.merkleTree.addLeaf({
+        id: symbolId,
+        filePath: input.filePath,
+        hash: merkleHash,
+        vector,
+        metadata: {
+          qualifiedName: input.qualifiedName,
+          kind: input.kind,
+          startLine: input.startLine,
+          endLine: input.endLine,
+        },
+      });
+      this.merkleDirty = true;
+    }
   }
 
   /**
@@ -313,9 +424,29 @@ export class SymbolEmbeddingIndex implements Disposable {
       }
     }
 
+    // v0.62 d.2: refresh the Merkle tree after the batch. `rebuild`
+    // only recomputes file-nodes that got new/removed leaves this
+    // pass, so the cost is proportional to the number of distinct
+    // files touched in the batch, not the tree size.
+    if (this.merkleDirty && this.merkleTree) {
+      this.merkleTree.rebuild();
+      this.merkleDirty = false;
+    }
+
     if (this.pendingQueue.size > 0) {
       this.flushTimer = setTimeout(() => this.flushQueue(), SymbolEmbeddingIndex.FLUSH_DEBOUNCE_MS);
     }
+  }
+
+  /**
+   * Current Merkle root hash, or empty string when no tree is
+   * wired. Exposed so callers (workspace-persistence, cross-machine
+   * sync via `shadow.json`, the Project Knowledge sidebar panel)
+   * can read a single 64-char fingerprint of the indexed state
+   * without touching the tree directly.
+   */
+  getMerkleRoot(): string {
+    return this.merkleTree?.getRootHash() ?? '';
   }
 
   /**
@@ -346,6 +477,9 @@ export class SymbolEmbeddingIndex implements Disposable {
         this.schedulePersist();
       }
     });
+    if (this.merkleTree && this.merkleTree.removeLeaf(symbolId)) {
+      this.merkleDirty = true;
+    }
   }
 
   /**
@@ -378,6 +512,10 @@ export class SymbolEmbeddingIndex implements Disposable {
     if (removed > 0) {
       this.dirty = true;
       this.schedulePersist();
+    }
+    if (this.merkleTree) {
+      const treeRemoved = this.merkleTree.removeFile(filePath);
+      if (treeRemoved > 0) this.merkleDirty = true;
     }
     return removed;
   }

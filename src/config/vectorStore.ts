@@ -62,6 +62,14 @@ export interface VectorStore<M> {
   size(): number;
   /** Look up one record's metadata without reading its vector. */
   getMetadata(id: string): M | null;
+  /**
+   * Fetch the stored vector for an id — returns null if the id isn't
+   * indexed. Added in v0.62 d.2 so secondary indexes (Merkle tree,
+   * future reranker caches) can replay existing entries without
+   * paying a re-embed. Returns a view-or-copy per implementation —
+   * callers must not mutate.
+   */
+  getVector(id: string): Float32Array | null;
   /** Iterate every (id, metadata) pair. Order is implementation-defined. */
   entries(): Iterable<{ id: string; metadata: M }>;
   /** Write current state to durable storage. Implementation-specific
@@ -215,6 +223,18 @@ export class FlatVectorStore<M> implements VectorStore<M> {
 
   getMetadata(id: string): M | null {
     return this.entriesById.get(id)?.metadata ?? null;
+  }
+
+  getVector(id: string): Float32Array | null {
+    const entry = this.entriesById.get(id);
+    if (!entry) return null;
+    // `subarray` returns a view over the same buffer — cheap, but
+    // means an unwary caller could mutate the backing store. The
+    // interface doc warns against that; we don't copy here because
+    // the Merkle replay path reads every stored vector at activation
+    // and copying each one would double peak memory briefly.
+    const start = entry.offset * this.dimension;
+    return this.vectors.subarray(start, start + this.dimension);
   }
 
   *entries(): Iterable<{ id: string; metadata: M }> {
