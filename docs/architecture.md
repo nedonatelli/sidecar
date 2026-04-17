@@ -4,6 +4,17 @@
 
 SideCar is an AI-powered coding assistant for VS Code that operates as an autonomous agent. It can interact with your codebase, execute commands, and perform various development tasks using a combination of local LLMs (via Ollama) and cloud APIs (Anthropic Claude).
 
+## Visual architecture
+
+For contributors onboarding to the codebase, these four Mermaid diagrams cover the shape of the moving parts:
+
+- [Agent loop flow](agent-loop-diagram.md) — iteration pseudocode, hook bus ordering, termination paths.
+- [Tool registry & dispatch](tool-system-diagram.md) — how built-ins, MCP tools, and specials compose; approval gates.
+- [Context selection pipeline](context-pipeline-diagram.md) — retriever fusion, PKI symbol-level vs. legacy file-level.
+- [MCP client lifecycle](mcp-lifecycle-diagram.md) — connect, reconnect backoff, transport selection, invocation path.
+
+The prose below fills in the pieces the diagrams don't cover (component responsibilities, data flow, feature gates).
+
 ## Core Components
 
 ### 1. Extension Entry Point
@@ -70,11 +81,25 @@ SideCar is an AI-powered coding assistant for VS Code that operates as an autono
 
 ## Data Flow
 
+```mermaid
+flowchart LR
+    User[User input] --> Webview[Chat webview]
+    Webview --> Handlers[chatHandlers.ts]
+    Handlers --> Inject[injectSystemContext<br/>retriever fusion]
+    Inject --> Loop[runAgentLoop]
+    Loop --> LLM[SideCarClient<br/>streamChat]
+    LLM --> Exec[executeToolUses]
+    Exec --> VS[VS Code API<br/>fs, terminal, git, diagnostics]
+    Exec --> MCP[MCP servers<br/>external tools]
+    VS --> Results[tool results]
+    MCP --> Results
+    Results --> Loop
+    Loop --> Hooks[HookBus<br/>auto-fix / stub / critic / gate]
+    Hooks --> LLM
+    Loop --> Webview
 ```
-User Input → Webview → Chat Handlers → Agent Loop → LLM → Tool Execution → VS Code API
-                              ↑
-                              └── Tool Results → Agent Loop → LLM → Response
-```
+
+Per-diagram detail lives under the links at the top of this page. The short version: user input lands in the chat webview, flows through context assembly (where retrievers inject relevant files/docs/memory into the system prompt), into the agent loop, out to the LLM, back through tool execution + hooks, and the resulting text/tool-calls stream back to the webview for display.
 
 ## Key Features
 

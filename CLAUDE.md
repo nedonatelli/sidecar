@@ -6,6 +6,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 SideCar is a VS Code extension that turns local and cloud LLMs into a full agentic coding assistant. It supports Ollama, Anthropic, OpenAI-compatible servers, Kickstand, OpenRouter, Groq, and Fireworks as backends. The extension provides an agent loop with 23+ tools (file ops, shell, git, web search, MCP), inline completions, code review, and a chat UI.
 
+## Architecture diagrams (start here when onboarding)
+
+Before diving into the prose architecture below, skim these four Mermaid diagrams under `docs/`. They cover the topology of the moving parts:
+
+- [`docs/agent-loop-diagram.md`](docs/agent-loop-diagram.md) — one-iteration flowchart of `runAgentLoop`, the hook bus, termination paths.
+- [`docs/tool-system-diagram.md`](docs/tool-system-diagram.md) — how `TOOL_REGISTRY` + MCP tools compose into the LLM-facing catalog, and the per-call dispatch pipeline with approval gates.
+- [`docs/context-pipeline-diagram.md`](docs/context-pipeline-diagram.md) — retriever fusion (docs + memory + workspace) into the system prompt; PKI symbol-level vs. legacy file-level paths.
+- [`docs/mcp-lifecycle-diagram.md`](docs/mcp-lifecycle-diagram.md) — `MCPManager` connect/reconnect/dispatch lifecycle and the three transports.
+
 ## Commands
 
 ```bash
