@@ -552,6 +552,82 @@
           ],
           "markdownDescription": "Shell command run inside the shadow before the accept/reject prompt opens, so failing builds can't ship as accepted diffs. Defaults to `npm run check` which runs tsc + eslint + vitest per the SideCar project's own convention. Override for non-JS projects (e.g. `cargo check && cargo test`, `pytest && mypy`).\n\n**Not yet wired up in v0.59 MVP** — the setting exists so the gate lands zero-config in v0.60."
         },
+        "sidecar.regressionGuards": {
+          "type": "array",
+          "default": [],
+          "order": 21,
+          "tags": [
+            "sidecar"
+          ],
+          "markdownDescription": "Declarative shell commands that act as hard gates the agent must pass before completing a task. Use for domain-specific correctness checks the general lint/test suite can't express — conservation-of-energy invariants in a physics sim, bundle-size budgets, API-contract diffs, etc.\n\nEach entry has: `name` (required, human-readable), `command` (required, shell), `trigger` (required, one of `post-write` / `post-turn` / `pre-completion`), and optional `blocking` (default `true`), `timeoutMs` (default 30000), `scope` (glob array; guard only fires when touched files match), `maxAttempts` (default 5 consecutive failures before giving up), `workingDir`.\n\nWhen blocking and exit ≠ 0, the guard output is injected as a synthetic user turn so the agent can read the error and revise. When non-blocking, the loop just surfaces a warning. The first time a workspace defines guards, SideCar prompts to trust them — same contract as `hooks`, `mcpServers`, `customTools`, `scheduledTasks`.",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "command",
+              "trigger"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Short identifier for the guard (shown in failure messages)."
+              },
+              "command": {
+                "type": "string",
+                "description": "Shell command to run. Runs in the workspace root unless workingDir is set."
+              },
+              "trigger": {
+                "type": "string",
+                "enum": [
+                  "post-write",
+                  "post-turn",
+                  "pre-completion"
+                ],
+                "description": "When the guard fires. post-write = after every turn that includes a file-mutation tool call; post-turn = after every turn; pre-completion = when the model tries to finish the task."
+              },
+              "blocking": {
+                "type": "boolean",
+                "default": true,
+                "description": "When true, failure injects a synthetic user turn so the agent must address it. When false, failure surfaces as a warning and the loop continues."
+              },
+              "timeoutMs": {
+                "type": "number",
+                "default": 30000,
+                "description": "Hard timeout for the command in ms."
+              },
+              "scope": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Optional glob list. Guard only fires when at least one touched file in this turn matches. Empty/missing = fire on every qualifying turn."
+              },
+              "maxAttempts": {
+                "type": "number",
+                "default": 5,
+                "description": "Give up after this many consecutive failures per task. Counter resets on any success."
+              },
+              "workingDir": {
+                "type": "string",
+                "description": "Optional working directory. Defaults to the workspace folder."
+              }
+            }
+          }
+        },
+        "sidecar.regressionGuards.mode": {
+          "type": "string",
+          "enum": [
+            "off",
+            "strict",
+            "warn"
+          ],
+          "default": "strict",
+          "order": 22,
+          "tags": [
+            "sidecar"
+          ],
+          "markdownDescription": "Global override for `sidecar.regressionGuards`.\n\n- `strict` (default) — honor each guard's per-entry `blocking` flag.\n- `warn` — force every guard to non-blocking, so failures surface as warnings but don't halt the agent. Useful for short-term opt-out during a known-broken refactor without editing every entry.\n- `off` — disable all guards regardless of config. Useful for emergency bypass."
+        },
         "sidecar.includeActiveFile": {
           "type": "boolean",
           "default": true,

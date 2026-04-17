@@ -19,6 +19,7 @@ import { pushAssistantMessage, pushToolResultsMessage, accountToolTokens } from 
 import { runCriticChecks, type RunCriticOptions } from './loop/criticHook.js';
 import { HookBus, type PolicyHook, type HookContext } from './loop/policyHook.js';
 import { defaultPolicyHooks } from './loop/builtInHooks.js';
+import { buildRegressionGuardHooks } from './guards/regressionGuardHook.js';
 import { executeToolUses } from './loop/executeToolUses.js';
 import { notifyIterationStart, maybeEmitProgressSummary, shouldStopAtCheckpoint } from './loop/notifications.js';
 import { finalize } from './loop/finalize.js';
@@ -159,12 +160,18 @@ export async function runAgentLoop(
   const state = initLoopState(messages, options);
 
   // Build the policy hook bus. Four built-in hooks ship by default
-  // (auto-fix, stub validator, critic, completion gate); extra hooks
-  // supplied via options.extraPolicyHooks register after the built-ins
-  // and see the built-ins' mutations. This replaces the direct helper
-  // calls the orchestrator made in v0.53.
+  // (auto-fix, stub validator, critic, completion gate); regression
+  // guards defined in `sidecar.regressionGuards` register next if the
+  // workspace-trust prompt is accepted; extra hooks supplied via
+  // options.extraPolicyHooks register last and see every earlier
+  // hook's mutations. This replaces the direct helper calls the
+  // orchestrator made in v0.53.
   const hookBus = new HookBus();
   hookBus.registerAll(defaultPolicyHooks());
+  const regressionGuardHooks = await buildRegressionGuardHooks();
+  if (regressionGuardHooks.length > 0) {
+    hookBus.registerAll(regressionGuardHooks);
+  }
   if (options.extraPolicyHooks) {
     hookBus.registerAll(options.extraPolicyHooks);
   }
