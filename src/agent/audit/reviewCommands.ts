@@ -31,6 +31,13 @@ export interface AuditReviewUi {
   showError(message: string): void;
   /** Open VS Code's diff editor showing the two URIs side-by-side. */
   openDiff(beforeUri: Uri, afterUri: Uri, title: string): Promise<void>;
+  /**
+   * Modal prompt surfaced by conflict detection (v0.61 a.2): disk
+   * has diverged from the baseline since the buffer captured it.
+   * Resolves to `'apply-anyway'` if the user explicitly overrides,
+   * anything else (undefined / cancel) aborts the flush.
+   */
+  showConflictDialog(message: string): Promise<'apply-anyway' | undefined>;
 }
 
 /**
@@ -152,13 +159,29 @@ async function openBufferedDiff(entry: BufferedChange, deps: AuditReviewDeps): P
  * (bulk accept, per-file accept, later: partial accept from a
  * multi-select UI). Kept as a factory because both callers need the
  * same create-parent-dir + useTrash semantics and there's no reason
- * to duplicate them.
+ * to duplicate them. Also exposes a `readDisk` that's used by the
+ * conflict-detection pre-flight (v0.61 a.2) — returns `undefined`
+ * for missing files so callers can distinguish "file doesn't exist
+ * on disk" from "file exists and is empty".
  */
 function makeDiskHandlers(rootUri: Uri): {
+  readDisk: (p: string) => Promise<string | undefined>;
   writeDisk: (p: string, c: string) => Promise<void>;
   deleteDisk: (p: string) => Promise<void>;
 } {
   return {
+    readDisk: async (relPath) => {
+      const fileUri = Uri.joinPath(rootUri, relPath);
+      try {
+        const bytes = await workspace.fs.readFile(fileUri);
+        return Buffer.from(bytes).toString('utf-8');
+      } catch {
+        // FileNotFound / EACCES / etc. — treat as absent for the
+        // purposes of conflict detection. A subsequent write/delete
+        // will surface the real error with better context.
+        return undefined;
+      }
+    },
     writeDisk: async (relPath, content) => {
       const fileUri = Uri.joinPath(rootUri, relPath);
       const dir = path.dirname(relPath);
@@ -175,6 +198,63 @@ function makeDiskHandlers(rootUri: Uri): {
 }
 
 /**
+ * Conflict detection (v0.61 a.2). A buffered entry captured
+ * `originalContent` at first-buffer time; if the live disk content
+ * has diverged from that baseline, something edited the file out-
+ * of-band (user manually, another tool, a rebase). Applying the
+ * agent's staged content would silently stomp that external edit,
+ * so we surface it before flushing.
+ *
+ * Returns one record per diverged entry. An empty array means the
+ * flush can proceed without a prompt.
+ */
+interface FlushConflict {
+  entry: BufferedChange;
+  currentDisk: string | undefined;
+}
+
+async function detectFlushConflicts(
+  entries: BufferedChange[],
+  readDisk: (p: string) => Promise<string | undefined>,
+): Promise<FlushConflict[]> {
+  const conflicts: FlushConflict[] = [];
+  for (const entry of entries) {
+    const currentDisk = await readDisk(entry.path);
+    // `originalContent === undefined` means the buffer thought the
+    // file didn't exist when first captured. If disk still says it
+    // doesn't exist, no conflict. If disk now has content, something
+    // else created the file — still a conflict worth surfacing.
+    if (entry.originalContent !== currentDisk) {
+      conflicts.push({ entry, currentDisk });
+    }
+  }
+  return conflicts;
+}
+
+/**
+ * Format a human-readable message explaining what diverged. Separated
+ * from the dialog call so tests can assert against the prompt text
+ * and so the message consistently mentions every conflicting path —
+ * users who hit a multi-file conflict need to know which files are
+ * affected before choosing Apply Anyway.
+ */
+function formatConflictMessage(conflicts: FlushConflict[]): string {
+  if (conflicts.length === 1) {
+    const c = conflicts[0];
+    const diskState = c.currentDisk === undefined ? 'deleted from disk' : 'modified on disk';
+    return (
+      `SideCar audit: ${c.entry.path} was ${diskState} since the agent buffered its change. ` +
+      `Applying will overwrite the current disk content. Apply anyway?`
+    );
+  }
+  const paths = conflicts.map((c) => `  • ${c.entry.path}`).join('\n');
+  return (
+    `SideCar audit: ${conflicts.length} files changed on disk since the agent buffered its changes.\n` +
+    `${paths}\n\nApplying will overwrite the current disk content. Apply anyway?`
+  );
+}
+
+/**
  * Shared flush driver used by both bulk and per-file accept paths.
  * `paths === undefined` flushes everything; a non-empty array flushes
  * only those entries (rest stay in the buffer). Returns silently on
@@ -184,7 +264,23 @@ function makeDiskHandlers(rootUri: Uri): {
  */
 async function flushBufferPaths(deps: AuditReviewDeps, paths?: string[]): Promise<void> {
   const buf = deps.buffer ?? getDefaultAuditBuffer();
-  const { writeDisk, deleteDisk } = makeDiskHandlers(deps.rootUri);
+  const { readDisk, writeDisk, deleteDisk } = makeDiskHandlers(deps.rootUri);
+
+  // Conflict check runs against exactly the entries we're about to
+  // flush — filtering by `paths` matches `AuditBuffer.flush`'s own
+  // subset semantics so a partial flush only prompts for its own
+  // potential conflicts, not every buffered file.
+  const allEntries = buf.list();
+  const targetEntries = paths ? allEntries.filter((e) => paths.includes(e.path)) : allEntries;
+  const conflicts = await detectFlushConflicts(targetEntries, readDisk);
+  if (conflicts.length > 0) {
+    const choice = await deps.ui.showConflictDialog(formatConflictMessage(conflicts));
+    if (choice !== 'apply-anyway') {
+      deps.ui.showInfo('SideCar audit: flush cancelled — buffer preserved.');
+      return;
+    }
+  }
+
   try {
     const result = await buf.flush(writeDisk, deleteDisk, paths);
     const n = result.applied.length;
@@ -292,6 +388,10 @@ export function createDefaultAuditReviewUi(): AuditReviewUi {
     },
     async openDiff(beforeUri, afterUri, title) {
       await commands.executeCommand('vscode.diff', beforeUri, afterUri, title, { preview: true });
+    },
+    async showConflictDialog(message) {
+      const choice = await window.showWarningMessage(message, { modal: true }, 'Apply Anyway');
+      return choice === 'Apply Anyway' ? 'apply-anyway' : undefined;
     },
   };
 }

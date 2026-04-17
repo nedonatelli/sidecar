@@ -22,6 +22,7 @@ function makeUi(overrides: Partial<AuditReviewUi> = {}): AuditReviewUi & {
   showWarningConfirm: ReturnType<typeof vi.fn>;
   showError: ReturnType<typeof vi.fn>;
   openDiff: ReturnType<typeof vi.fn>;
+  showConflictDialog: ReturnType<typeof vi.fn>;
 } {
   return {
     showQuickPick: vi.fn(async () => undefined),
@@ -29,6 +30,9 @@ function makeUi(overrides: Partial<AuditReviewUi> = {}): AuditReviewUi & {
     showWarningConfirm: vi.fn(async () => undefined),
     showError: vi.fn(),
     openDiff: vi.fn(async () => {}),
+    // Default: no conflict dialog response pre-programmed; tests that
+    // exercise the conflict path override this.
+    showConflictDialog: vi.fn(async () => undefined),
     ...overrides,
   } as never;
 }
@@ -90,6 +94,7 @@ describe('reviewAuditBuffer', () => {
     const buf = await makeBufferWith([{ op: 'write', path: 'a.ts', content: 'A' }]);
     const writeFileSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined);
     const createDirSpy = vi.spyOn(workspace.fs, 'createDirectory').mockResolvedValue(undefined);
+    const readFileSpy = vi.spyOn(workspace.fs, 'readFile').mockRejectedValue(new Error('FileNotFound'));
     try {
       const ui = makeUi({
         showQuickPick: vi.fn(async (items: readonly { label: string; action?: string }[]) =>
@@ -103,6 +108,7 @@ describe('reviewAuditBuffer', () => {
     } finally {
       writeFileSpy.mockRestore();
       createDirSpy.mockRestore();
+      readFileSpy.mockRestore();
     }
   });
 
@@ -157,6 +163,7 @@ describe('reviewAuditBuffer', () => {
     ]);
     const writeFileSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined);
     const createDirSpy = vi.spyOn(workspace.fs, 'createDirectory').mockResolvedValue(undefined);
+    const readFileSpy = vi.spyOn(workspace.fs, 'readFile').mockRejectedValue(new Error('FileNotFound'));
     try {
       // Call sequence: (1) review→open a.ts, (2) post-diff→accept-one,
       // (3) review (one entry left, b.ts)→cancel to exit.
@@ -176,6 +183,7 @@ describe('reviewAuditBuffer', () => {
     } finally {
       writeFileSpy.mockRestore();
       createDirSpy.mockRestore();
+      readFileSpy.mockRestore();
     }
   });
 
@@ -223,17 +231,24 @@ describe('acceptAllAuditBuffer', () => {
   let writeFileSpy: ReturnType<typeof vi.spyOn>;
   let deleteSpy: ReturnType<typeof vi.spyOn>;
   let createDirSpy: ReturnType<typeof vi.spyOn>;
+  let readFileSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     writeFileSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined);
     deleteSpy = vi.spyOn(workspace.fs, 'delete').mockResolvedValue(undefined);
     createDirSpy = vi.spyOn(workspace.fs, 'createDirectory').mockResolvedValue(undefined);
+    // Conflict detection reads disk before flushing. Default to
+    // FileNotFound so buffers with `originalContent: undefined`
+    // (fresh creates) don't register as conflicts — tests that
+    // want to exercise the conflict path override this.
+    readFileSpy = vi.spyOn(workspace.fs, 'readFile').mockRejectedValue(new Error('FileNotFound'));
   });
 
   afterEach(() => {
     writeFileSpy.mockRestore();
     deleteSpy.mockRestore();
     createDirSpy.mockRestore();
+    readFileSpy.mockRestore();
   });
 
   it('flushes every create/modify entry through workspace.fs.writeFile', async () => {
@@ -253,6 +268,9 @@ describe('acceptAllAuditBuffer', () => {
 
   it('routes delete entries through workspace.fs.delete with useTrash', async () => {
     const buf = await makeBufferWith([{ op: 'delete', path: 'gone.ts' }], { 'gone.ts': 'previous' });
+    // Buffer captured 'previous' as originalContent; make readFile
+    // return matching bytes so conflict detection stays quiet.
+    readFileSpy.mockResolvedValueOnce(Buffer.from('previous') as never);
     const ui = makeUi();
     await acceptAllAuditBuffer(baseDeps(buf, ui));
     expect(deleteSpy).toHaveBeenCalledTimes(1);
@@ -324,6 +342,7 @@ describe('acceptFileAuditBuffer', () => {
     ]);
     const writeFileSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined);
     const createDirSpy = vi.spyOn(workspace.fs, 'createDirectory').mockResolvedValue(undefined);
+    const readFileSpy = vi.spyOn(workspace.fs, 'readFile').mockRejectedValue(new Error('FileNotFound'));
     try {
       const ui = makeUi();
       await acceptFileAuditBuffer(baseDeps(buf, ui), 'a.ts');
@@ -334,6 +353,7 @@ describe('acceptFileAuditBuffer', () => {
     } finally {
       writeFileSpy.mockRestore();
       createDirSpy.mockRestore();
+      readFileSpy.mockRestore();
     }
   });
 
@@ -380,5 +400,127 @@ describe('rejectFileAuditBuffer', () => {
     await rejectFileAuditBuffer(baseDeps(buf, ui), 'nonexistent.ts');
     expect(buf.has('a.ts')).toBe(true);
     expect(ui.showInfo).toHaveBeenCalledWith(expect.stringContaining('not in the buffer'));
+  });
+});
+
+describe('conflict detection on flush (v0.61 a.2)', () => {
+  let writeFileSpy: ReturnType<typeof vi.spyOn>;
+  let deleteSpy: ReturnType<typeof vi.spyOn>;
+  let createDirSpy: ReturnType<typeof vi.spyOn>;
+  let readFileSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    writeFileSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined);
+    deleteSpy = vi.spyOn(workspace.fs, 'delete').mockResolvedValue(undefined);
+    createDirSpy = vi.spyOn(workspace.fs, 'createDirectory').mockResolvedValue(undefined);
+    readFileSpy = vi.spyOn(workspace.fs, 'readFile');
+  });
+
+  afterEach(() => {
+    writeFileSpy.mockRestore();
+    deleteSpy.mockRestore();
+    createDirSpy.mockRestore();
+    readFileSpy.mockRestore();
+  });
+
+  it('detects a conflict when disk content diverges from the captured baseline', async () => {
+    // Buffer captured 'v1' as baseline; disk now has 'v2' — classic
+    // user-edited-the-file-during-review case.
+    const buf = await makeBufferWith([{ op: 'write', path: 'a.ts', content: 'v3' }], { 'a.ts': 'v1' });
+    readFileSpy.mockResolvedValue(Buffer.from('v2') as never);
+    const ui = makeUi({ showConflictDialog: vi.fn(async () => 'apply-anyway' as const) });
+
+    await acceptAllAuditBuffer(baseDeps(buf, ui));
+
+    expect(ui.showConflictDialog).toHaveBeenCalledWith(expect.stringContaining('a.ts was modified on disk'));
+    // User said apply-anyway → flush proceeded.
+    expect(writeFileSpy).toHaveBeenCalledTimes(1);
+    expect(buf.isEmpty).toBe(true);
+  });
+
+  it('aborts flush and preserves buffer when user cancels the conflict dialog', async () => {
+    const buf = await makeBufferWith([{ op: 'write', path: 'a.ts', content: 'v3' }], { 'a.ts': 'v1' });
+    readFileSpy.mockResolvedValue(Buffer.from('v2') as never);
+    const ui = makeUi({ showConflictDialog: vi.fn(async () => undefined) });
+
+    await acceptAllAuditBuffer(baseDeps(buf, ui));
+
+    expect(ui.showConflictDialog).toHaveBeenCalled();
+    // Cancelled → nothing written.
+    expect(writeFileSpy).not.toHaveBeenCalled();
+    expect(buf.has('a.ts')).toBe(true);
+    expect(ui.showInfo).toHaveBeenCalledWith(expect.stringContaining('flush cancelled'));
+  });
+
+  it('skips the dialog entirely when disk matches the captured baseline', async () => {
+    const buf = await makeBufferWith([{ op: 'write', path: 'a.ts', content: 'new' }], { 'a.ts': 'baseline' });
+    readFileSpy.mockResolvedValue(Buffer.from('baseline') as never);
+    const ui = makeUi();
+
+    await acceptAllAuditBuffer(baseDeps(buf, ui));
+
+    expect(ui.showConflictDialog).not.toHaveBeenCalled();
+    expect(writeFileSpy).toHaveBeenCalledTimes(1);
+    expect(buf.isEmpty).toBe(true);
+  });
+
+  it('flags "deleted from disk" when baseline existed but disk no longer has the file', async () => {
+    const buf = await makeBufferWith([{ op: 'write', path: 'a.ts', content: 'new' }], { 'a.ts': 'baseline' });
+    readFileSpy.mockRejectedValue(new Error('FileNotFound'));
+    const ui = makeUi({ showConflictDialog: vi.fn(async () => 'apply-anyway' as const) });
+
+    await acceptAllAuditBuffer(baseDeps(buf, ui));
+
+    const msg = (ui.showConflictDialog.mock.calls[0] as [string])[0];
+    expect(msg).toContain('a.ts was deleted from disk');
+  });
+
+  it('lists every conflicting path in the multi-file message', async () => {
+    const buf = await makeBufferWith(
+      [
+        { op: 'write', path: 'a.ts', content: 'new-a' },
+        { op: 'write', path: 'b.ts', content: 'new-b' },
+      ],
+      { 'a.ts': 'base-a', 'b.ts': 'base-b' },
+    );
+    // Both files diverge on disk.
+    readFileSpy.mockImplementation(async (uri: unknown) => {
+      const p = (uri as { fsPath: string }).fsPath;
+      if (p.endsWith('a.ts')) return Buffer.from('disk-a') as never;
+      if (p.endsWith('b.ts')) return Buffer.from('disk-b') as never;
+      throw new Error('FileNotFound');
+    });
+    const ui = makeUi({ showConflictDialog: vi.fn(async () => 'apply-anyway' as const) });
+
+    await acceptAllAuditBuffer(baseDeps(buf, ui));
+
+    const msg = (ui.showConflictDialog.mock.calls[0] as [string])[0];
+    expect(msg).toContain('2 files changed');
+    expect(msg).toContain('a.ts');
+    expect(msg).toContain('b.ts');
+  });
+
+  it('only checks conflicts for the requested subset when flushing per-file', async () => {
+    const buf = await makeBufferWith(
+      [
+        { op: 'write', path: 'a.ts', content: 'new-a' },
+        { op: 'write', path: 'b.ts', content: 'new-b' },
+      ],
+      { 'a.ts': 'base-a', 'b.ts': 'base-b' },
+    );
+    // Only b.ts diverges. If we accept a.ts alone, no conflict should surface.
+    readFileSpy.mockImplementation(async (uri: unknown) => {
+      const p = (uri as { fsPath: string }).fsPath;
+      if (p.endsWith('a.ts')) return Buffer.from('base-a') as never;
+      if (p.endsWith('b.ts')) return Buffer.from('disk-b') as never;
+      throw new Error('FileNotFound');
+    });
+    const ui = makeUi();
+
+    await acceptFileAuditBuffer(baseDeps(buf, ui), 'a.ts');
+
+    expect(ui.showConflictDialog).not.toHaveBeenCalled();
+    expect(buf.has('a.ts')).toBe(false);
+    expect(buf.has('b.ts')).toBe(true);
   });
 });
