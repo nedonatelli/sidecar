@@ -6,7 +6,7 @@ import { streamOpenAiSse } from './openAiSseStream.js';
 import { getConfig } from '../config/settings.js';
 import { RateLimitStore, maybeWaitForRateLimit } from './rateLimitState.js';
 import { parseOpenAIRateLimitHeaders } from './rateLimitHeaders.js';
-import { prunePrompt } from './promptPruner.js';
+import { prunePrompt, formatPruneStats } from './promptPruner.js';
 import { CHARS_PER_TOKEN } from '../config/constants.js';
 
 /** How long we'll wait on a rate-limit reset before bailing to the caller. */
@@ -223,6 +223,9 @@ export class OpenAIBackend implements ApiBackend {
       enabled: cfg.promptPruningEnabled,
       maxToolResultTokens: cfg.promptPruningMaxToolResultTokens,
     });
+    // v0.62.1 p.2a — observability (see Anthropic backend for rationale).
+    const _pruneLog = formatPruneStats(pruned.stats);
+    if (_pruneLog) console.info(`[SideCar] ${_pruneLog}`);
     const openaiMessages = toOpenAIMessages(pruned.messages, pruned.systemPrompt);
     const functionTools = tools && tools.length > 0 ? toFunctionTools(tools) : undefined;
 

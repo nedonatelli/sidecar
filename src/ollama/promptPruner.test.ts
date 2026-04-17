@@ -4,6 +4,8 @@ import {
   truncateToolResult,
   truncateAllToolResults,
   dedupeToolResults,
+  buildToolUseIdMap,
+  formatPruneStats,
   prunePrompt,
 } from './promptPruner.js';
 import type { ChatMessage, ToolResultContentBlock } from './types.js';
@@ -49,8 +51,11 @@ Some workspace description here.
 
 End of prompt.`;
 
-/** Two tool_result blocks that accidentally read the same file twice. */
-function buildDuplicateReadsSession(content: string): ChatMessage[] {
+/** Two tool_result blocks that accidentally read the same file twice.
+ *  `toolName` param (default `read_file`) lets tests vary which tool
+ *  produced the output — critical for v0.62.1 p.2b which exempts
+ *  some tools from dedup. */
+function buildDuplicateReadsSession(content: string, toolName = 'read_file'): ChatMessage[] {
   return [
     { role: 'user', content: 'Look at helpers.ts and tell me what it does.' },
     {
@@ -59,7 +64,7 @@ function buildDuplicateReadsSession(content: string): ChatMessage[] {
         {
           type: 'tool_use',
           id: 'toolu_01',
-          name: 'read_file',
+          name: toolName,
           input: { path: 'src/utils/helpers.ts' },
         },
       ],
@@ -75,7 +80,7 @@ function buildDuplicateReadsSession(content: string): ChatMessage[] {
         {
           type: 'tool_use',
           id: 'toolu_02',
-          name: 'read_file',
+          name: toolName,
           input: { path: 'src/utils/helpers.ts' },
         },
       ],
@@ -135,8 +140,12 @@ describe('truncateToolResult', () => {
 
 describe('dedupeToolResults', () => {
   it('replaces the second copy of a large tool_result with a back-reference', () => {
-    const messages = buildDuplicateReadsSession(LARGE_FILE_CONTENT);
-    const { messages: out, saved } = dedupeToolResults(messages);
+    // Use a non-exempt tool so dedup actually fires (v0.62.1 p.2b
+    // exempts read_file, git_diff, etc. from dedup — this test now
+    // demonstrates the general mechanism via `grep`).
+    const messages = buildDuplicateReadsSession(LARGE_FILE_CONTENT, 'grep');
+    const toolNames = buildToolUseIdMap(messages);
+    const { messages: out, saved } = dedupeToolResults(messages, toolNames);
 
     expect(saved).toBeGreaterThan(0);
 
@@ -147,6 +156,27 @@ describe('dedupeToolResults', () => {
     // Second tool_result is replaced with the back-reference marker.
     const second = (out[5].content as ToolResultContentBlock[])[0];
     expect(second.content).toMatch(/identical to a previous tool_result/);
+  });
+
+  it('exempts read_file from dedup (v0.62.1 p.2b — back-reference-after-edit trap)', () => {
+    // Canonical trap: agent reads foo.ts, edits foo.ts, reads foo.ts
+    // again. Pre-p.2b dedup collapsed the second read into a pointer
+    // at the stale FIRST read, silently hiding the agent's own edit.
+    const messages = buildDuplicateReadsSession(LARGE_FILE_CONTENT, 'read_file');
+    const toolNames = buildToolUseIdMap(messages);
+    const { messages: out, saved } = dedupeToolResults(messages, toolNames);
+
+    expect(saved).toBe(0); // no dedup happened
+    const second = (out[5].content as ToolResultContentBlock[])[0];
+    expect(second.content).toBe(LARGE_FILE_CONTENT); // full content preserved
+  });
+
+  it('falls back to pre-p.2b behavior when no tool-name map is provided', () => {
+    // Back-compat: callers that don't supply a map get the unguarded
+    // legacy behavior (every tool is a dedup candidate).
+    const messages = buildDuplicateReadsSession(LARGE_FILE_CONTENT, 'read_file');
+    const { saved } = dedupeToolResults(messages);
+    expect(saved).toBeGreaterThan(0);
   });
 
   it('does not dedupe small tool_results (under 200 chars)', () => {
@@ -201,11 +231,18 @@ describe('prunePrompt', () => {
     });
     expect(result.systemPrompt).toBe(NOISY_SYSTEM_PROMPT);
     expect(result.messages).toBe(messages);
-    expect(result.stats).toEqual({ truncatedBytes: 0, dedupedBytes: 0, whitespaceBytes: 0 });
+    expect(result.stats).toEqual({
+      truncatedBytes: 0,
+      dedupedBytes: 0,
+      whitespaceBytes: 0,
+      truncatedByTool: {},
+    });
   });
 
   it('produces measurable savings on a verbose agent loop', () => {
-    const messages = buildDuplicateReadsSession(LARGE_FILE_CONTENT);
+    // Use `grep` so both truncation AND dedup fire (read_file is
+    // dedup-exempt per v0.62.1 p.2b).
+    const messages = buildDuplicateReadsSession(LARGE_FILE_CONTENT, 'grep');
 
     const beforeSize = NOISY_SYSTEM_PROMPT.length + JSON.stringify(messages).length;
     const result = prunePrompt(NOISY_SYSTEM_PROMPT, messages, {
@@ -245,5 +282,70 @@ describe('prunePrompt', () => {
       maxToolResultTokens: 500,
     });
     expect(result.messages).toEqual(messages);
+  });
+
+  it('records per-tool truncated bytes in stats.truncatedByTool (v0.62.1 p.2a)', () => {
+    const messages = buildDuplicateReadsSession(LARGE_FILE_CONTENT, 'grep');
+    const result = prunePrompt('', messages, { enabled: true, maxToolResultTokens: 500 });
+    expect(result.stats.truncatedByTool).toHaveProperty('grep');
+    expect(result.stats.truncatedByTool.grep).toBeGreaterThan(0);
+  });
+
+  it('exempts read_file from dedup end-to-end (v0.62.1 p.2b)', () => {
+    const messages = buildDuplicateReadsSession(LARGE_FILE_CONTENT, 'read_file');
+    const result = prunePrompt('', messages, { enabled: true, maxToolResultTokens: 500 });
+    // Truncation still fires on both copies.
+    expect(result.stats.truncatedBytes).toBeGreaterThan(0);
+    // But dedup stays quiet — the "back-reference after edit" trap is closed.
+    expect(result.stats.dedupedBytes).toBe(0);
+  });
+});
+
+describe('buildToolUseIdMap', () => {
+  it('resolves every tool_use block to its name', () => {
+    const messages = buildDuplicateReadsSession(LARGE_FILE_CONTENT, 'grep');
+    const map = buildToolUseIdMap(messages);
+    expect(map.get('toolu_01')).toBe('grep');
+    expect(map.get('toolu_02')).toBe('grep');
+    expect(map.size).toBe(2);
+  });
+
+  it('returns an empty map when no tool_use blocks are present', () => {
+    const messages: ChatMessage[] = [
+      { role: 'user', content: 'hello' },
+      { role: 'assistant', content: 'hi' },
+    ];
+    expect(buildToolUseIdMap(messages).size).toBe(0);
+  });
+});
+
+describe('formatPruneStats', () => {
+  it('returns empty string when nothing was pruned', () => {
+    expect(formatPruneStats({ truncatedBytes: 0, dedupedBytes: 0, whitespaceBytes: 0, truncatedByTool: {} })).toBe('');
+  });
+
+  it('formats a one-line summary with per-tool breakdown', () => {
+    const line = formatPruneStats({
+      truncatedBytes: 4096,
+      dedupedBytes: 2048,
+      whitespaceBytes: 128,
+      truncatedByTool: { grep: 3000, run_tests: 1096 },
+    });
+    expect(line).toContain('Pruner:');
+    expect(line).toContain('truncated 4096B');
+    expect(line).toContain('grep:3000B');
+    expect(line).toContain('run_tests:1096B');
+    expect(line).toContain('deduped 2048B');
+    expect(line).toContain('whitespace 128B');
+  });
+
+  it('omits sections that are zero', () => {
+    const line = formatPruneStats({
+      truncatedBytes: 0,
+      dedupedBytes: 500,
+      whitespaceBytes: 0,
+      truncatedByTool: {},
+    });
+    expect(line).toBe('Pruner: deduped 500B');
   });
 });

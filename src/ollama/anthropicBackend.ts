@@ -14,7 +14,7 @@ import { abortableRead } from './streamUtils.js';
 import { RateLimitStore, maybeWaitForRateLimit } from './rateLimitState.js';
 import { parseAnthropicRateLimitHeaders } from './rateLimitHeaders.js';
 import { spendTracker } from './spendTracker.js';
-import { prunePrompt } from './promptPruner.js';
+import { prunePrompt, formatPruneStats } from './promptPruner.js';
 import { CHARS_PER_TOKEN } from '../config/constants.js';
 
 /** How long we'll wait on a rate-limit reset before telling the user to switch backends. */
@@ -144,6 +144,12 @@ export class AnthropicBackend implements ApiBackend {
       enabled: cfg.promptPruningEnabled,
       maxToolResultTokens: cfg.promptPruningMaxToolResultTokens,
     });
+    // v0.62.1 p.2a — observability. Previously PruneStats was
+    // computed and discarded; post-mortem diagnosis of "did the
+    // pruner eat my error message?" was impossible. Log via
+    // console.info so the SideCar output channel captures it.
+    const _pruneLog = formatPruneStats(pruned.stats);
+    if (_pruneLog) console.info(`[SideCar] ${_pruneLog}`);
     const body: Record<string, unknown> = {
       model,
       max_tokens: 8192,
@@ -335,6 +341,12 @@ export class AnthropicBackend implements ApiBackend {
       enabled: cfg.promptPruningEnabled,
       maxToolResultTokens: cfg.promptPruningMaxToolResultTokens,
     });
+    // v0.62.1 p.2a — observability. Previously PruneStats was
+    // computed and discarded; post-mortem diagnosis of "did the
+    // pruner eat my error message?" was impossible. Log via
+    // console.info so the SideCar output channel captures it.
+    const _pruneLog = formatPruneStats(pruned.stats);
+    if (_pruneLog) console.info(`[SideCar] ${_pruneLog}`);
     const body: Record<string, unknown> = {
       model,
       max_tokens: maxTokens,

@@ -1,5 +1,19 @@
-import type { ChatMessage, ContentBlock, ToolResultContentBlock } from './types.js';
+import type { ChatMessage, ContentBlock, ToolResultContentBlock, ToolUseContentBlock } from './types.js';
 import { CHARS_PER_TOKEN } from '../config/constants.js';
+
+/**
+ * Tools whose output must never be dedup'd with a back-reference
+ * (v0.62.1 p.2b — audit finding: the "identical to previous" mark
+ * is a trap when a user asks the agent to re-read a file after
+ * editing it; the agent gets the *pre-edit* content by reference
+ * even though it wrote a newer version). Truncation still applies
+ * — size management is legitimate — but the back-reference is not.
+ *
+ * Add tools here when their output (a) is expected to vary across
+ * consecutive calls with identical inputs, or (b) carries user
+ * intent that would be damaged by collapsing duplicates.
+ */
+const DEDUP_EXEMPT_TOOLS = new Set(['read_file', 'get_diagnostics', 'git_diff', 'git_status']);
 
 /**
  * Lossy-but-bounded prompt pruning applied before sending to paid backends.
@@ -29,6 +43,14 @@ export interface PruneStats {
   dedupedBytes: number;
   /** Bytes removed from collapsed whitespace runs. */
   whitespaceBytes: number;
+  /**
+   * v0.62.1 p.2a — per-tool truncation breakdown. Populated only
+   * when a tool-name map is available (always in production; only
+   * optionally in unit-test callers). Empty object when no
+   * truncation happened or when the caller didn't supply a map.
+   * Keyed by tool name; values are bytes dropped.
+   */
+  truncatedByTool: Record<string, number>;
 }
 
 const ELISION_MARK = '\n\n[...%d bytes elided by SideCar prompt pruner...]\n\n';
@@ -73,12 +95,43 @@ function dedupKey(text: string): string {
 }
 
 /**
+ * Build a `tool_use_id → tool_name` map by walking the message
+ * history's `tool_use` blocks (v0.62.1 p.2b). Tool names aren't
+ * carried on `tool_result` blocks directly; to apply tool-aware
+ * pruning rules we have to cross-reference the ID the result
+ * points at. Returns an empty map if no tool_use blocks are found
+ * — pruning falls back to the pre-p.2b all-tools-treated-alike
+ * behavior in that case.
+ */
+export function buildToolUseIdMap(messages: ChatMessage[]): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const m of messages) {
+    if (typeof m.content === 'string' || !Array.isArray(m.content)) continue;
+    for (const block of m.content) {
+      if (block.type === 'tool_use') {
+        const use = block as ToolUseContentBlock;
+        out.set(use.id, use.name);
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * Walk messages looking for duplicate tool_result content blocks. First
  * occurrence keeps its content; later occurrences get replaced with a
  * short back-reference. This is the biggest win when an agent reads the
  * same file twice in one loop.
+ *
+ * v0.62.1 p.2b — tools in `DEDUP_EXEMPT_TOOLS` (read_file, git_diff,
+ * …) are never dedup'd; their output is expected to vary across
+ * consecutive calls. `toolNames` parameter is optional for back-
+ * compat — without it, every tool gets the pre-p.2b dedup treatment.
  */
-export function dedupeToolResults(messages: ChatMessage[]): { messages: ChatMessage[]; saved: number } {
+export function dedupeToolResults(
+  messages: ChatMessage[],
+  toolNames?: Map<string, string>,
+): { messages: ChatMessage[]; saved: number } {
   const seen = new Map<string, number>();
   let saved = 0;
   const out: ChatMessage[] = messages.map((m) => {
@@ -88,6 +141,10 @@ export function dedupeToolResults(messages: ChatMessage[]): { messages: ChatMess
       if (block.type !== 'tool_result') return block;
       const result = block as ToolResultContentBlock;
       if (typeof result.content !== 'string' || result.content.length < 200) return block;
+
+      // Exempt tools whose output is expected to vary across calls.
+      const toolName = toolNames?.get(result.tool_use_id);
+      if (toolName && DEDUP_EXEMPT_TOOLS.has(toolName)) return block;
 
       const key = dedupKey(result.content);
       if (!seen.has(key)) {
@@ -103,12 +160,17 @@ export function dedupeToolResults(messages: ChatMessage[]): { messages: ChatMess
   return { messages: out, saved };
 }
 
-/** Apply truncation to every tool_result block in-place. */
+/** Apply truncation to every tool_result block in-place. `toolNames`
+ *  is optional and only used to populate the per-tool breakdown in
+ *  `PruneStats.truncatedByTool` — actual truncation still applies
+ *  to every oversize block regardless of which tool produced it. */
 export function truncateAllToolResults(
   messages: ChatMessage[],
   maxTokens: number,
-): { messages: ChatMessage[]; saved: number } {
+  toolNames?: Map<string, string>,
+): { messages: ChatMessage[]; saved: number; byTool: Record<string, number> } {
   let saved = 0;
+  const byTool: Record<string, number> = {};
   const out: ChatMessage[] = messages.map((m) => {
     if (typeof m.content === 'string' || !Array.isArray(m.content)) return m;
     const newBlocks: ContentBlock[] = m.content.map((block) => {
@@ -118,11 +180,13 @@ export function truncateAllToolResults(
       const { text, saved: s } = truncateToolResult(result.content, maxTokens);
       if (s === 0) return block;
       saved += s;
+      const toolName = toolNames?.get(result.tool_use_id) ?? 'unknown';
+      byTool[toolName] = (byTool[toolName] ?? 0) + s;
       return { ...result, content: text } satisfies ToolResultContentBlock;
     });
     return { ...m, content: newBlocks };
   });
-  return { messages: out, saved };
+  return { messages: out, saved, byTool };
 }
 
 export interface PruneResult {
@@ -141,13 +205,18 @@ export function prunePrompt(systemPrompt: string, messages: ChatMessage[], opts:
     return {
       systemPrompt,
       messages,
-      stats: { truncatedBytes: 0, dedupedBytes: 0, whitespaceBytes: 0 },
+      stats: { truncatedBytes: 0, dedupedBytes: 0, whitespaceBytes: 0, truncatedByTool: {} },
     };
   }
 
+  // v0.62.1 p.2b: build a tool_use_id → tool_name map so dedup can
+  // exempt critical tools (read_file et al.) and the stats breakdown
+  // can attribute bytes to specific tools for the observability
+  // report (p.2a).
+  const toolNames = buildToolUseIdMap(messages);
   const sys = collapseWhitespace(systemPrompt);
-  const truncated = truncateAllToolResults(messages, opts.maxToolResultTokens);
-  const deduped = dedupeToolResults(truncated.messages);
+  const truncated = truncateAllToolResults(messages, opts.maxToolResultTokens, toolNames);
+  const deduped = dedupeToolResults(truncated.messages, toolNames);
 
   return {
     systemPrompt: sys.text,
@@ -156,6 +225,29 @@ export function prunePrompt(systemPrompt: string, messages: ChatMessage[], opts:
       truncatedBytes: truncated.saved,
       dedupedBytes: deduped.saved,
       whitespaceBytes: sys.saved,
+      truncatedByTool: truncated.byTool,
     },
   };
+}
+
+/**
+ * Format a `PruneStats` into a one-line summary for the agent
+ * logger (v0.62.1 p.2a). Returns empty string when no pruning
+ * actually happened, so callers can skip the log entry in the
+ * overwhelmingly common case.
+ */
+export function formatPruneStats(stats: PruneStats): string {
+  const total = stats.truncatedBytes + stats.dedupedBytes + stats.whitespaceBytes;
+  if (total === 0) return '';
+  const parts: string[] = [];
+  if (stats.truncatedBytes > 0) {
+    const byTool = Object.entries(stats.truncatedByTool)
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, bytes]) => `${name}:${bytes}B`)
+      .join(' ');
+    parts.push(`truncated ${stats.truncatedBytes}B${byTool ? ` (${byTool})` : ''}`);
+  }
+  if (stats.dedupedBytes > 0) parts.push(`deduped ${stats.dedupedBytes}B`);
+  if (stats.whitespaceBytes > 0) parts.push(`whitespace ${stats.whitespaceBytes}B`);
+  return `Pruner: ${parts.join(', ')}`;
 }
