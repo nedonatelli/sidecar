@@ -1001,6 +1001,24 @@
         "icon": "$(clear-all)"
       },
       {
+        "command": "sidecar.audit.review",
+        "title": "Audit: Review Buffered Changes",
+        "category": "SideCar",
+        "icon": "$(list-unordered)"
+      },
+      {
+        "command": "sidecar.audit.acceptAll",
+        "title": "Audit: Accept All Buffered Changes",
+        "category": "SideCar",
+        "icon": "$(check-all)"
+      },
+      {
+        "command": "sidecar.audit.rejectAll",
+        "title": "Audit: Reject All Buffered Changes",
+        "category": "SideCar",
+        "icon": "$(discard)"
+      },
+      {
         "command": "sidecar.openWalkthrough",
         "title": "Open Walkthrough",
         "category": "SideCar",

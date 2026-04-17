@@ -953,6 +953,29 @@ export function activate(context: ExtensionContext) {
     }),
   );
 
+  // Audit Mode review commands — the user-facing side of the
+  // `sidecar.agentMode = 'audit'` buffer. Registered unconditionally
+  // (not gated on agent mode) because users may toggle out of audit
+  // mode while changes are still pending and still need to flush or
+  // discard them.
+  context.subscriptions.push(
+    commands.registerCommand('sidecar.audit.review', async () => {
+      const { reviewAuditBuffer, createDefaultAuditReviewUi } = await import('./agent/audit/reviewCommands.js');
+      const { getRootUri } = await import('./agent/tools/shared.js');
+      await reviewAuditBuffer({ rootUri: getRootUri(), ui: createDefaultAuditReviewUi() });
+    }),
+    commands.registerCommand('sidecar.audit.acceptAll', async () => {
+      const { acceptAllAuditBuffer, createDefaultAuditReviewUi } = await import('./agent/audit/reviewCommands.js');
+      const { getRootUri } = await import('./agent/tools/shared.js');
+      await acceptAllAuditBuffer({ rootUri: getRootUri(), ui: createDefaultAuditReviewUi() });
+    }),
+    commands.registerCommand('sidecar.audit.rejectAll', async () => {
+      const { rejectAllAuditBuffer, createDefaultAuditReviewUi } = await import('./agent/audit/reviewCommands.js');
+      const { getRootUri } = await import('./agent/tools/shared.js');
+      await rejectAllAuditBuffer({ rootUri: getRootUri(), ui: createDefaultAuditReviewUi() });
+    }),
+  );
+
   // Getting-started walkthrough — opens the native Welcome editor at
   // the SideCar page. Users can reopen it any time from the Command
   // Palette without our extension needing to own the UI surface.

@@ -54,10 +54,19 @@ export const workspace = {
     stat: async (_uri: unknown) => ({ type: 1, size: 100 }),
     rename: async (_source: unknown, _target: unknown, _options?: unknown) => {},
     createDirectory: async (_uri: unknown) => {},
+    delete: async (_uri: unknown, _options?: unknown) => {},
   },
   onDidChangeTextDocument: () => ({ dispose: () => {} }),
   findFiles: async () => [],
-  openTextDocument: async (_uri: unknown) => ({ getText: () => 'mock content' }),
+  openTextDocument: async (uriOrOpts: unknown) => {
+    // Tests that pass `{ content }` expect an untitled-style URI; tests
+    // that pass a Uri expect `.uri` to point at that Uri. Keep the shape
+    // realistic enough that callers destructuring `doc.uri` don't blow up.
+    const maybeUri = (uriOrOpts as { fsPath?: string } | undefined)?.fsPath
+      ? (uriOrOpts as { fsPath: string })
+      : { fsPath: 'untitled:mock', scheme: 'untitled', path: 'untitled:mock' };
+    return { getText: () => 'mock content', uri: maybeUri };
+  },
   createFileSystemWatcher: () => ({
     onDidCreate: noopEvent,
     onDidChange: noopEvent,
