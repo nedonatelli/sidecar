@@ -72,35 +72,84 @@ export class SideCarCompletionProvider implements InlineCompletionItemProvider {
     const signal = this.debouncer.getSignal();
     token.onCancellationRequested(() => this.debouncer.cancel());
 
+    // v0.62.2 q.2c — per-completion latency telemetry. Pre-fix,
+    // users who reported "inline completions feel slow" had no
+    // numbers to point at. `startedAt` lets us emit a simple
+    // summary on completion OR abort so the SideCar output channel
+    // shows actual per-call timings.
+    const startedAt = Date.now();
+    let pathLabel = 'unknown';
+
     try {
       let completion: string;
 
       if (this.client.isLocalOllama()) {
+        pathLabel = 'ollama-fim';
         completion = await this.client.completeFIM(prefix, suffix, undefined, this.maxTokens, signal);
       } else {
+        pathLabel = 'messages-api';
         const recentEditContext = this.buildRecentEditContext(document.fileName);
-        const prompt = this.buildCompletionPrompt(prefix, suffix, document.languageId, recentEditContext);
-        completion = await this.client.complete([{ role: 'user', content: prompt }], this.maxTokens, signal);
+        // v0.62.2 q.2b — split the prompt into a STABLE system
+        // preamble + a VARIABLE user body so Anthropic prompt
+        // caching kicks in from the second call onward (cache_control
+        // is auto-applied by `buildSystemBlocks` in the Anthropic
+        // backend, so we just need to ship the system prompt as its
+        // own string instead of concatenated into the user message).
+        // The stable preamble is language-agnostic — language hint
+        // moved into the user body so the system prompt stays
+        // identical across file types and caches more aggressively.
+        const systemPrompt = SideCarCompletionProvider.COMPLETION_SYSTEM_PROMPT;
+        const userMessage = this.buildCompletionUserMessage(prefix, suffix, document.languageId, recentEditContext);
+        completion = await this.client.completeWithOverrides(
+          systemPrompt,
+          [{ role: 'user', content: userMessage }],
+          undefined,
+          this.maxTokens,
+          signal,
+        );
       }
 
       completion = this.cleanCompletion(completion, prefix, suffix);
       if (!completion) return [];
 
+      const elapsed = Date.now() - startedAt;
+      console.info(`[SideCar] Inline completion [${pathLabel}] ${elapsed}ms, ${completion.length} chars`);
+
       return [new InlineCompletionItem(completion, new Range(position, position))];
-    } catch {
+    } catch (err) {
+      // Only log errors that aren't cancellations (noise otherwise).
+      if (!(err instanceof Error) || err.name !== 'AbortError') {
+        const elapsed = Date.now() - startedAt;
+        console.info(
+          `[SideCar] Inline completion [${pathLabel}] failed after ${elapsed}ms: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
       return [];
     }
   }
 
-  private buildCompletionPrompt(prefix: string, suffix: string, languageId: string, recentEdits: string): string {
-    let prompt = `You are a code completion engine. Complete the ${languageId} code at <CURSOR>. Output ONLY the completion text — no explanations, no code fences, no markdown.\n\n`;
+  /**
+   * Static, language-agnostic system preamble for the non-Ollama
+   * completion path (v0.62.2 q.2b). Anthropic's prompt caching keys
+   * on the system block's byte content — keeping this string
+   * constant across every call means from the second completion
+   * onward the preamble reads from cache (~10% of the cost + lower
+   * TTFT). Include the language hint in the USER message instead so
+   * this stays stable across file types.
+   */
+  static readonly COMPLETION_SYSTEM_PROMPT =
+    'You are a code completion engine. Complete the code at <CURSOR>. Output ONLY the completion text — no explanations, no code fences, no markdown.';
 
+  /** Build the variable part of the prompt (language hint + recent-
+   *  edit context + code). Kept in a single user message so the
+   *  completion model sees a unified prompt shape. */
+  private buildCompletionUserMessage(prefix: string, suffix: string, languageId: string, recentEdits: string): string {
+    let msg = `Language: ${languageId}\n\n`;
     if (recentEdits) {
-      prompt += `Recent edits (for context on what the developer is doing):\n${recentEdits}\n\n`;
+      msg += `Recent edits (for context on what the developer is doing):\n${recentEdits}\n\n`;
     }
-
-    prompt += `${prefix}<CURSOR>${suffix}`;
-    return prompt;
+    msg += `${prefix}<CURSOR>${suffix}`;
+    return msg;
   }
 
   private buildRecentEditContext(currentFile: string): string {
