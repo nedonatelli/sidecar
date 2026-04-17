@@ -130,6 +130,18 @@ export class SymbolEmbeddingIndex implements Disposable {
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
   private static readonly PERSIST_DEBOUNCE_MS = 30_000;
 
+  /**
+   * Pending-embed queue (v0.61 b.2). `queueSymbol` adds to it;
+   * `flushQueue` drains in batches so a workspace-scan doesn't
+   * serialize on one embed at a time. Keyed by `symbolId` so the
+   * most-recent input wins when a file is updated twice in quick
+   * succession (save-after-save coalesces).
+   */
+  private pendingQueue = new Map<string, SymbolEmbedInput>();
+  private flushTimer: ReturnType<typeof setTimeout> | null = null;
+  private static readonly FLUSH_DEBOUNCE_MS = 500;
+  private static readonly FLUSH_BATCH_SIZE = 20;
+
   constructor(sidecarDir: SidecarDir | null) {
     this.sidecarDir = sidecarDir;
   }
@@ -231,6 +243,68 @@ export class SymbolEmbeddingIndex implements Disposable {
     this.storeVector(symbolId, vector, hash, input);
   }
 
+  /**
+   * Queue a symbol for embedding (v0.61 b.2). Debounced batch drain
+   * means a whole-workspace scan queues thousands of symbols upfront
+   * without awaiting each embed inline. Re-queueing the same symbol
+   * with new body overwrites the pending entry — the most-recent
+   * version wins.
+   */
+  queueSymbol(input: SymbolEmbedInput): void {
+    const id = makeSymbolId(input.filePath, input.qualifiedName);
+    this.pendingQueue.set(id, input);
+    if (!this.flushTimer) {
+      this.flushTimer = setTimeout(() => this.flushQueue(), SymbolEmbeddingIndex.FLUSH_DEBOUNCE_MS);
+    }
+  }
+
+  /**
+   * Drain up to one batch of queued symbols through `indexSymbol`.
+   * Auto-reschedules if anything's still queued, so a big workspace
+   * scan trickles through without saturating the embedding model.
+   */
+  private async flushQueue(): Promise<void> {
+    this.flushTimer = null;
+    if (this.pendingQueue.size === 0) return;
+    if (!(await this.ensureModel())) {
+      // Model still loading — try again after the debounce window.
+      this.flushTimer = setTimeout(() => this.flushQueue(), SymbolEmbeddingIndex.FLUSH_DEBOUNCE_MS);
+      return;
+    }
+
+    const batch = Array.from(this.pendingQueue.entries()).slice(0, SymbolEmbeddingIndex.FLUSH_BATCH_SIZE);
+    for (const [id] of batch) this.pendingQueue.delete(id);
+    for (const [, input] of batch) {
+      try {
+        await this.indexSymbol(input);
+      } catch (err) {
+        // Per-symbol embed failure shouldn't kill the whole batch.
+        console.warn(`[SideCar] Symbol embed failed for ${input.filePath}::${input.qualifiedName}:`, err);
+      }
+    }
+
+    if (this.pendingQueue.size > 0) {
+      this.flushTimer = setTimeout(() => this.flushQueue(), SymbolEmbeddingIndex.FLUSH_DEBOUNCE_MS);
+    }
+  }
+
+  /**
+   * Test-only: force-drain the queue immediately, skipping the
+   * debounce timer. Production code shouldn't call this — the
+   * debounced flush is the contract.
+   */
+  async flushQueueForTests(): Promise<void> {
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+    // Drain repeatedly until empty so a test doesn't need to know
+    // about the internal batch size.
+    while (this.pendingQueue.size > 0) {
+      await this.flushQueue();
+    }
+  }
+
   /** Drop a symbol by `symbolId`. No-op if the symbol isn't indexed. */
   removeSymbol(symbolId: string): void {
     if (!(symbolId in this.meta.entries)) return;
@@ -254,6 +328,11 @@ export class SymbolEmbeddingIndex implements Disposable {
         delete this.meta.entries[symbolId];
         removed += 1;
       }
+    }
+    // Also drop any queued-but-not-yet-indexed symbols from this file
+    // so a delete-then-queue race doesn't leave stale entries.
+    for (const [id, input] of this.pendingQueue.entries()) {
+      if (input.filePath === filePath) this.pendingQueue.delete(id);
     }
     if (removed > 0) {
       this.meta.count = Object.keys(this.meta.entries).length;
@@ -385,6 +464,7 @@ export class SymbolEmbeddingIndex implements Disposable {
 
   dispose(): void {
     if (this.persistTimer) clearTimeout(this.persistTimer);
+    if (this.flushTimer) clearTimeout(this.flushTimer);
     if (this.dirty && this.sidecarDir) {
       try {
         this.persist();

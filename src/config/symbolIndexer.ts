@@ -9,6 +9,7 @@ import { SimpleCodeAnalyzer } from '../astContext.js';
 import { getRegexAnalyzer } from '../parsing/registry.js';
 import { SymbolGraph, type SymbolEntry, type ImportEdge, type CallEdge, type TypeEdge } from './symbolGraph.js';
 import type { SidecarDir } from './sidecarDir.js';
+import type { SymbolEmbeddingIndex } from './symbolEmbeddingIndex.js';
 
 const CACHE_FILE = 'cache/symbol-graph.json';
 const MAX_FILE_SIZE = 100 * 1024; // 100KB
@@ -39,9 +40,35 @@ export class SymbolIndexer implements Disposable {
   private pendingUpdates = new Set<string>();
   private pendingDeletes = new Set<string>();
   private rootPath = '';
+  /**
+   * Optional PKI symbol-embedding index (v0.61 b.2). When wired, each
+   * `indexFile` pass feeds every extracted symbol's body through the
+   * embedder queue so semantic search has per-symbol vectors. Keeps
+   * the graph's structural role unchanged — the graph still answers
+   * "who calls what," the embedder just adds "what's semantically
+   * similar to X" as a parallel capability.
+   */
+  private symbolEmbeddings: SymbolEmbeddingIndex | null = null;
+  /** Cap on symbols fed to the embedder per file — see
+   *  `sidecar.projectKnowledge.maxSymbolsPerFile`. Set via `setSymbolEmbeddings`
+   *  when the embedder is wired; default stays wide enough that normal
+   *  files aren't truncated. */
+  private maxSymbolsPerFile = 500;
 
   constructor(sidecarDir: SidecarDir | null) {
     this.sidecarDir = sidecarDir;
+  }
+
+  /**
+   * Attach a `SymbolEmbeddingIndex` so the indexer starts feeding it
+   * per-symbol bodies on every parsed file (v0.61 b.2). Optional —
+   * passing `null` (or never calling this) preserves the pre-PKI
+   * behavior where symbol embeddings are never computed. Changing
+   * the reference mid-session is supported for tests.
+   */
+  setSymbolEmbeddings(index: SymbolEmbeddingIndex | null, maxSymbolsPerFile = 500): void {
+    this.symbolEmbeddings = index;
+    this.maxSymbolsPerFile = Math.max(1, maxSymbolsPerFile);
   }
 
   /**
@@ -178,6 +205,36 @@ export class SymbolIndexer implements Disposable {
     // Store content for reference searching
     this.graph.setFileContent(relativePath, content);
     this.graph.addFile(relativePath, symbols, imports, hash, calls, typeEdges);
+
+    // PKI b.2: feed each symbol's body into the embedding queue so
+    // semantic search can rank at symbol granularity. Skipped when
+    // no index is wired (pre-PKI behavior). Body extraction slices
+    // the file content by 1-based line range; we cap to 400 lines
+    // per symbol as a defense against pathologically large blocks,
+    // and cap total symbols per file via the `maxSymbolsPerFile`
+    // setting so a generated file with 50k declarations can't
+    // monopolize the embedder.
+    if (this.symbolEmbeddings) {
+      const lines = content.split('\n');
+      const cap = this.maxSymbolsPerFile;
+      const limited = symbols.length > cap ? symbols.slice(0, cap) : symbols;
+      for (const sym of limited) {
+        const startIdx = Math.max(0, sym.startLine - 1);
+        const endIdx = Math.min(lines.length, sym.endLine);
+        if (endIdx <= startIdx) continue;
+        const body = lines.slice(startIdx, Math.min(endIdx, startIdx + 400)).join('\n');
+        if (!body.trim()) continue;
+        this.symbolEmbeddings.queueSymbol({
+          filePath: relativePath,
+          qualifiedName: sym.qualifiedName,
+          name: sym.name,
+          kind: sym.type,
+          startLine: sym.startLine,
+          endLine: sym.endLine,
+          body,
+        });
+      }
+    }
   }
 
   /** Update a single file incrementally. */
@@ -208,9 +265,11 @@ export class SymbolIndexer implements Disposable {
     }
   }
 
-  /** Remove a file from the graph. */
+  /** Remove a file from the graph (and from the symbol-embedding
+   *  index when one is wired). */
   removeFileFromGraph(relativePath: string): void {
     this.graph.removeFile(relativePath);
+    this.symbolEmbeddings?.removeFile(relativePath);
     this.schedulePersist();
   }
 
@@ -240,6 +299,7 @@ export class SymbolIndexer implements Disposable {
 
       for (const del of deletes) {
         this.graph.removeFile(del);
+        this.symbolEmbeddings?.removeFile(del);
       }
       for (const upd of updates) {
         await this.updateFile(upd);

@@ -202,6 +202,33 @@ export function activate(context: ExtensionContext) {
             })
             .catch((err) => console.warn('[SideCar] Embedding index failed:', err.message || err));
         }
+
+        // Project Knowledge Index — symbol-level semantic index
+        // (v0.61 b.2). Opt-in via `sidecar.projectKnowledge.enabled`
+        // while the feature arc builds out. Wires onto the symbol
+        // indexer so every parsed file feeds per-symbol bodies into
+        // the embedding queue.
+        if (config.projectKnowledgeEnabled) {
+          const { SymbolEmbeddingIndex } = await import('./config/symbolEmbeddingIndex.js');
+          const symbolEmbeddings = new SymbolEmbeddingIndex(sidecarDir);
+          context.subscriptions.push(symbolEmbeddings);
+          symbolEmbeddings
+            .initialize()
+            .then(() => {
+              symbolIndexer.setSymbolEmbeddings(symbolEmbeddings, config.projectKnowledgeMaxSymbolsPerFile);
+              console.log(
+                `[SideCar] Symbol embedding index ready: ${symbolEmbeddings.getCount()} cached symbol vectors`,
+              );
+              // Re-queue every currently-indexed file so symbols that
+              // landed in the graph before the embedder was wired get
+              // a chance to embed on startup. Subsequent file edits
+              // flow through the normal update path.
+              for (const file of workspaceIndex.getFiles()) {
+                symbolIndexer.queueUpdate(file.relativePath);
+              }
+            })
+            .catch((err) => console.warn('[SideCar] Symbol embedding index failed:', err?.message || err));
+        }
       })
       .catch((err) => {
         console.error('[SideCar] Workspace indexing failed:', err);

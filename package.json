@@ -644,7 +644,25 @@
           "tags": [
             "sidecar"
           ],
-          "markdownDescription": "*(Audit Mode, v0.60)* When true (default), `git_commit` tool calls are buffered alongside file writes so a rejected audit batch leaves `HEAD` unchanged. When false, commits land immediately regardless of audit state — useful for session-tracking commits (changelog entries, audit trail) the user wants to keep even if the code changes are rejected. Note: **v0.60 MVP does not yet implement git-commit buffering** — the setting exists so the behavior lands zero-config when the feature ships."
+          "markdownDescription": "*(Audit Mode, v0.60)* When true (default), `git_commit` tool calls are buffered alongside file writes so a rejected audit batch leaves `HEAD` unchanged. When false, commits land immediately regardless of audit state — useful for session-tracking commits (changelog entries, audit trail) the user wants to keep even if the code changes are rejected. v0.61 a.4 wires the behavior end-to-end: queued commits execute in FIFO order as the last step of a full flush; subset flushes leave commits queued."
+        },
+        "sidecar.projectKnowledge.enabled": {
+          "type": "boolean",
+          "default": false,
+          "order": 25,
+          "tags": [
+            "sidecar"
+          ],
+          "markdownDescription": "*(Project Knowledge Index, v0.61)* **Opt-in preview** of the symbol-level semantic index. When enabled, SideCar embeds each function / class / method / interface / type as its own vector (vs. the file-level index's one-vector-per-file) so queries like \"where is auth handled?\" return the specific function rather than the containing file. Uses the existing `@xenova/transformers` MiniLM model — no new downloads, no new dependencies. Default `false` during the v0.61 build-out; flip to `true` to exercise the symbol index now. Flips to default-on once the full feature arc ships (graph-walk retrieval, `project_knowledge_search` tool, sidebar panel)."
+        },
+        "sidecar.projectKnowledge.maxSymbolsPerFile": {
+          "type": "number",
+          "default": 500,
+          "order": 26,
+          "tags": [
+            "sidecar"
+          ],
+          "markdownDescription": "*(Project Knowledge Index, v0.61)* Safety cap on how many symbols from a single file get embedded. Guards against generated files (e.g. auto-generated schemas, giant test fixtures) with tens of thousands of declarations monopolizing the embedder."
         },
         "sidecar.includeActiveFile": {
           "type": "boolean",

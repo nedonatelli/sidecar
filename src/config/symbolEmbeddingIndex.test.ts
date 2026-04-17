@@ -249,4 +249,71 @@ describe('SymbolEmbeddingIndex', () => {
       expect(makeSymbolId('src/b.ts', 'foo')).not.toBe(makeSymbolId('src/a.ts', 'foo'));
     });
   });
+
+  describe('queueSymbol + flush (v0.61 b.2)', () => {
+    it('drains queued symbols through indexSymbol on flush', async () => {
+      index.queueSymbol(makeInput({ qualifiedName: 'a', name: 'a' }));
+      index.queueSymbol(makeInput({ qualifiedName: 'b', name: 'b' }));
+      index.queueSymbol(makeInput({ qualifiedName: 'c', name: 'c' }));
+      expect(index.getCount()).toBe(0); // nothing indexed yet — queued only
+
+      await index.flushQueueForTests();
+
+      expect(index.getCount()).toBe(3);
+    });
+
+    it('coalesces re-queues of the same symbol — last body wins', async () => {
+      const pipeline = vi.fn(fakePipeline() as never);
+      index.setPipelineForTests(pipeline);
+
+      // Three rapid queues for the same symbol with distinct bodies.
+      // The last one's hash is what should end up in the index.
+      index.queueSymbol(makeInput({ body: 'body v1' }));
+      index.queueSymbol(makeInput({ body: 'body v2' }));
+      index.queueSymbol(makeInput({ body: 'body v3' }));
+
+      await index.flushQueueForTests();
+
+      // Only ONE embed because earlier queue entries were overwritten
+      // before the flush drained them — coalesce-in-place semantics.
+      expect(pipeline).toHaveBeenCalledTimes(1);
+      expect(index.getCount()).toBe(1);
+    });
+
+    it('removeFile also drops entries still sitting in the queue', async () => {
+      index.queueSymbol(makeInput({ filePath: 'src/doomed.ts', qualifiedName: 'a' }));
+      index.queueSymbol(makeInput({ filePath: 'src/doomed.ts', qualifiedName: 'b' }));
+      index.queueSymbol(makeInput({ filePath: 'src/kept.ts', qualifiedName: 'c' }));
+
+      index.removeFile('src/doomed.ts');
+      await index.flushQueueForTests();
+
+      expect(index.getCount()).toBe(1);
+      expect(index.getSymbolMeta(makeSymbolId('src/kept.ts', 'c'))).not.toBeNull();
+    });
+
+    it('survives a per-symbol embed error without dropping the rest of the batch', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        // Pipeline throws only for the middle input; first + third embed cleanly.
+        const pipeline = vi.fn(async (texts: string[]) => {
+          if (texts[0].includes('bad')) throw new Error('embed failed');
+          const out = await (fakePipeline() as (t: string[]) => Promise<{ data: Float32Array }>)(texts);
+          return out;
+        }) as never;
+        index.setPipelineForTests(pipeline);
+
+        index.queueSymbol(makeInput({ qualifiedName: 'ok1', body: 'good body' }));
+        index.queueSymbol(makeInput({ qualifiedName: 'bad', body: 'bad body' }));
+        index.queueSymbol(makeInput({ qualifiedName: 'ok2', body: 'also good' }));
+
+        await index.flushQueueForTests();
+
+        expect(index.getCount()).toBe(2); // two succeeded, one failed
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Symbol embed failed'), expect.any(Error));
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+  });
 });

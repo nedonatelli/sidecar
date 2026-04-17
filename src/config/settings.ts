@@ -507,6 +507,9 @@ export interface SideCarConfig {
   /* Audit Mode (v0.60) */
   auditAutoApproveReads: boolean;
   auditBufferGitCommits: boolean;
+  /* Project Knowledge Index (v0.61 b.*) */
+  projectKnowledgeEnabled: boolean;
+  projectKnowledgeMaxSymbolsPerFile: number;
 }
 
 /**
@@ -639,6 +642,12 @@ function readConfig(): SideCarConfig {
     /* Audit Mode (v0.60) */
     auditAutoApproveReads: cfg.get<boolean>('audit.autoApproveReads', true),
     auditBufferGitCommits: cfg.get<boolean>('audit.bufferGitCommits', true),
+    /* Project Knowledge Index (v0.61 b.*). Defaults to `false` during
+     * the MVP build-out — flips to `true` once the feature ships
+     * end-to-end (b.1–b.4). Users can opt-in early to exercise the
+     * symbol-level index. */
+    projectKnowledgeEnabled: cfg.get<boolean>('projectKnowledge.enabled', false),
+    projectKnowledgeMaxSymbolsPerFile: cfg.get<number>('projectKnowledge.maxSymbolsPerFile', 500),
   };
 }
 
