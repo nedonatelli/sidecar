@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import type { ApiBackend } from './backend.js';
+import type { ApiBackend, BackendCapabilities } from './backend.js';
 import type { ChatMessage, ContentBlock, ToolDefinition, StreamEvent } from './types.js';
 import { fetchWithRetry } from './retry.js';
 import { streamOpenAiSse } from './openAiSseStream.js';
@@ -267,6 +267,45 @@ export class KickstandBackend implements ApiBackend {
 
     const data: KickstandChatResponse = await response.json();
     return data.choices[0]?.message?.content || '';
+  }
+
+  /**
+   * Declare Kickstand's native lifecycle capability (v0.63.1).
+   * Wraps the module-level `kickstandLoadModel` / `kickstandUnloadModel`
+   * / `kickstandListRegistry` helpers that already speak Kickstand's
+   * `/api/v1/models/*` endpoints — this method just attributes them
+   * as a capability other parts of SideCar (command palette, future
+   * model browser) can introspect and invoke.
+   */
+  nativeCapabilities(): BackendCapabilities {
+    return {
+      lifecycle: {
+        loadModel: async (id, _opts) => {
+          // `_opts.timeoutMs` from the capability interface is
+          // reserved for future use — Kickstand's load endpoint
+          // doesn't accept a per-request timeout today, so the
+          // parameter is prefixed with `_` to satisfy the lint
+          // rule while we wait for Kickstand to grow the option.
+          const result = await kickstandLoadModel(this.baseUrl, id, {
+            n_gpu_layers: undefined,
+            n_ctx: undefined,
+          });
+          return result.socket ? `Loaded ${result.model_id} (socket: ${result.socket})` : `Loaded ${result.model_id}`;
+        },
+        unloadModel: async (id) => {
+          const result = await kickstandUnloadModel(this.baseUrl, id);
+          return `Unloaded ${result.model_id}`;
+        },
+        listLoadable: async () => {
+          const registry = await kickstandListRegistry(this.baseUrl);
+          return registry.map((m) => ({
+            id: m.model_id,
+            loaded: m.loaded,
+            sizeBytes: m.size_bytes ?? undefined,
+          }));
+        },
+      },
+    };
   }
 }
 

@@ -185,6 +185,45 @@ export class SideCarClient {
     } catch (err) {
       // Don't count user aborts as failures
       if (err instanceof Error && err.name === 'AbortError') throw err;
+
+      // v0.63.1 — native backend-capability retry. Gives the active
+      // backend a chance to retry the request against a native
+      // protocol (canonically Ollama's /api/chat when the OAI-compat
+      // /v1/chat/completions layer glitched) BEFORE we tear down the
+      // provider via circuit breaker + fallback profile. Only fires
+      // when the backend advertises oaiCompatFallback AND its
+      // matches() says the error is retry-eligible. On retry success,
+      // the provider's circuit stays healthy — this isn't a provider
+      // outage, just a protocol-level blip.
+      const nativeRetry = this.backend.nativeCapabilities?.()?.oaiCompatFallback;
+      if (nativeRetry && nativeRetry.matches(err)) {
+        try {
+          yield { type: 'warning', message: 'Retrying against native protocol…' };
+          for await (const event of nativeRetry.fallbackStreamChat(
+            this.model,
+            this.systemPrompt,
+            messages,
+            signal,
+            tools,
+          )) {
+            if (event.type === 'usage') spendTracker.record(event.model, event.usage);
+            yield event;
+          }
+          this.recordSuccess();
+          circuitBreaker.recordSuccess(this.getProviderType());
+          return;
+        } catch (retryErr) {
+          if (retryErr instanceof Error && retryErr.name === 'AbortError') throw retryErr;
+          // Fall through to provider-fallback logic with the ORIGINAL
+          // error so the circuit breaker sees the failure that
+          // actually warrants switching providers. Log the retry
+          // failure so users can diagnose.
+          console.warn(
+            `[SideCar] Native fallback also failed: ${(retryErr as Error).message}. Falling through to provider fallback.`,
+          );
+        }
+      }
+
       circuitBreaker.recordFailure(this.getProviderType());
       if (this.switchToFallback()) {
         console.warn(`[SideCar] Primary backend failed, switching to fallback: ${(err as Error).message}`);
@@ -211,6 +250,32 @@ export class SideCarClient {
       return result;
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') throw err;
+
+      // v0.63.1 — native backend-capability retry (see streamChat
+      // for the full rationale). Non-streaming complete() mirrors
+      // the streaming path: try native fallback first, then fall
+      // through to provider fallback on failure.
+      const nativeRetry = this.backend.nativeCapabilities?.()?.oaiCompatFallback;
+      if (nativeRetry && nativeRetry.matches(err)) {
+        try {
+          const retryResult = await nativeRetry.fallbackComplete(
+            this.model,
+            this.systemPrompt,
+            messages,
+            maxTokens,
+            signal,
+          );
+          this.recordSuccess();
+          circuitBreaker.recordSuccess(this.getProviderType());
+          return retryResult;
+        } catch (retryErr) {
+          if (retryErr instanceof Error && retryErr.name === 'AbortError') throw retryErr;
+          console.warn(
+            `[SideCar] Native fallback also failed: ${(retryErr as Error).message}. Falling through to provider fallback.`,
+          );
+        }
+      }
+
       circuitBreaker.recordFailure(this.getProviderType());
       if (this.switchToFallback()) {
         console.warn(`[SideCar] Primary backend failed, switching to fallback: ${(err as Error).message}`);
@@ -318,6 +383,23 @@ export class SideCarClient {
 
   updateModel(model: string) {
     this.model = model;
+  }
+
+  /**
+   * Introspect the active backend's native capabilities (v0.63.1).
+   * Returns `undefined` when the backend implements only the baseline
+   * `streamChat` + `complete` surface. Callers (command-palette
+   * actions, the future model-browser UI, feature tests) use this to
+   * gate conditional functionality without leaking the raw backend
+   * instance.
+   *
+   * Narrower-than-raw-backend accessor intentional — exposing
+   * `this.backend` directly would tempt callers into bypassing
+   * `SideCarClient`'s circuit-breaker / retry / spend-tracking
+   * machinery.
+   */
+  getBackendCapabilities(): import('./backend.js').BackendCapabilities | undefined {
+    return this.backend.nativeCapabilities?.();
   }
 
   /** Return a copy of every model call recorded in this session. */

@@ -1,4 +1,4 @@
-import type { ApiBackend } from './backend.js';
+import type { ApiBackend, BackendCapabilities } from './backend.js';
 import type { ChatMessage, ContentBlock, ToolDefinition, StreamEvent } from './types.js';
 import { fetchWithRetry } from './retry.js';
 import { toFunctionTools } from './streamUtils.js';
@@ -8,6 +8,7 @@ import { RateLimitStore, maybeWaitForRateLimit } from './rateLimitState.js';
 import { parseOpenAIRateLimitHeaders } from './rateLimitHeaders.js';
 import { prunePrompt, formatPruneStats } from './promptPruner.js';
 import { CHARS_PER_TOKEN } from '../config/constants.js';
+import { OllamaBackend } from './ollamaBackend.js';
 
 /** How long we'll wait on a rate-limit reset before bailing to the caller. */
 const MAX_RATE_LIMIT_WAIT_MS = 60_000;
@@ -331,5 +332,127 @@ export class OpenAIBackend implements ApiBackend {
     } catch {
       return [];
     }
+  }
+
+  // --- Native capabilities (v0.63.1) ---
+  //
+  // OpenAI-compat hosts that are actually Ollama underneath get a
+  // fallback to `/api/chat` when the OAI-compat `/v1/chat/completions`
+  // path glitches. Probe `/api/tags` lazily on first failure — OpenAI,
+  // LM Studio, together.ai, and the cloud OpenAI-compat hosts all
+  // return 404 there, so the capability effectively auto-disables.
+  //
+  // Probe result caches on the instance so we don't round-trip every
+  // failure. `null` = not yet probed; `true` = confirmed Ollama;
+  // `false` = confirmed non-Ollama (never retry).
+  private _ollamaProbeResult: boolean | null = null;
+  /** In-flight probe so concurrent `matches` calls share one request. */
+  private _ollamaProbePromise: Promise<boolean> | null = null;
+
+  private async probeIsOllama(): Promise<boolean> {
+    if (this._ollamaProbeResult !== null) return this._ollamaProbeResult;
+    if (this._ollamaProbePromise) return this._ollamaProbePromise;
+
+    this._ollamaProbePromise = (async () => {
+      try {
+        const response = await fetch(`${this.baseUrl}/api/tags`, {
+          method: 'GET',
+          headers: this.getHeaders(),
+          signal: AbortSignal.timeout(2000),
+        });
+        if (!response.ok) return false;
+        // Loose schema check — Ollama's /api/tags returns `{ models: [...] }`.
+        // A response that parses as JSON but doesn't match is probably
+        // some other server that happens to serve 200 on a generic GET.
+        const data = (await response.json().catch(() => null)) as { models?: unknown } | null;
+        return Array.isArray(data?.models);
+      } catch {
+        return false;
+      }
+    })();
+
+    const result = await this._ollamaProbePromise;
+    this._ollamaProbeResult = result;
+    this._ollamaProbePromise = null;
+    return result;
+  }
+
+  /** Lazy Ollama backend used for the fallback. Shares baseUrl. */
+  private _ollamaFallback: OllamaBackend | null = null;
+  private getOllamaFallback(): OllamaBackend {
+    if (!this._ollamaFallback) {
+      this._ollamaFallback = new OllamaBackend(this.baseUrl);
+    }
+    return this._ollamaFallback;
+  }
+
+  nativeCapabilities(): BackendCapabilities {
+    return {
+      oaiCompatFallback: {
+        matches: (err: unknown): boolean => {
+          // Only retry on signals plausibly caused by the OAI-compat
+          // layer glitching (upstream 5xx, proxy errors, malformed
+          // responses). Auth errors, abort signals, and 4xx (other
+          // than 502+) must NOT trigger a retry — those are real
+          // failures the circuit breaker needs to see.
+          const message = err instanceof Error ? err.message : String(err);
+          if (err instanceof Error && err.name === 'AbortError') return false;
+          // Match the error-shape our existing OpenAIBackend throws:
+          // `OpenAI API request failed: 502 Bad Gateway — …`
+          const looksLikeOaiGlitch =
+            /\b(502|503|504)\b/.test(message) ||
+            /malformed (json|response)/i.test(message) ||
+            /empty response body/i.test(message);
+          if (!looksLikeOaiGlitch) return false;
+          // Final gate: is the host actually Ollama? This is the
+          // lazy probe — if it says no, never retry (and never
+          // advertise a retry for any future failure either,
+          // thanks to the cache).
+          // Unfortunately matches() is sync; we can't await the
+          // probe here. Kick it off in the background and let the
+          // next failure's retry attempt use the cached result.
+          // First-failure case: return true optimistically; the
+          // actual fallback call will short-circuit if the probe
+          // then resolves to false.
+          if (this._ollamaProbeResult === false) return false;
+          // Fire-and-forget probe to populate the cache for the next
+          // failure. Optimistically advertise the fallback on this
+          // call — `fallbackStreamChat` awaits the probe and declines
+          // if the host isn't actually Ollama.
+          void this.probeIsOllama();
+          return true;
+        },
+        fallbackStreamChat: async function* (
+          this: OpenAIBackend,
+          model: string,
+          systemPrompt: string,
+          messages: ChatMessage[],
+          signal?: AbortSignal,
+          tools?: ToolDefinition[],
+        ): AsyncGenerator<StreamEvent> {
+          // Confirm (or wait on) the probe before actually doing the
+          // fallback — avoids a pointless second request against a
+          // non-Ollama host.
+          const isOllama = await this.probeIsOllama();
+          if (!isOllama) {
+            throw new Error(`Native Ollama fallback declined: ${this.baseUrl} does not respond like an Ollama host.`);
+          }
+          yield* this.getOllamaFallback().streamChat(model, systemPrompt, messages, signal, tools);
+        }.bind(this),
+        fallbackComplete: async (
+          model: string,
+          systemPrompt: string,
+          messages: ChatMessage[],
+          maxTokens: number,
+          signal?: AbortSignal,
+        ): Promise<string> => {
+          const isOllama = await this.probeIsOllama();
+          if (!isOllama) {
+            throw new Error(`Native Ollama fallback declined: ${this.baseUrl} does not respond like an Ollama host.`);
+          }
+          return this.getOllamaFallback().complete(model, systemPrompt, messages, maxTokens, signal);
+        },
+      },
+    };
   }
 }

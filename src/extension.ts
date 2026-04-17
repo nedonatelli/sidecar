@@ -31,6 +31,7 @@ import {
 import { checkWorkspaceConfigTrust } from './config/workspaceTrust.js';
 import { createClient } from './ollama/factory.js';
 import { SideCarClient } from './ollama/client.js';
+import { registerBackendCommands } from './commands/backendCommands.js';
 import { spendTracker, formatUsd } from './ollama/spendTracker.js';
 import { healthStatus, type HealthSnapshot } from './ollama/healthStatus.js';
 import { dispose as disposeDiagnostics, clearAll as clearSidecarDiagnostics } from './agent/sidecarDiagnostics.js';
@@ -1086,6 +1087,14 @@ export function activate(context: ExtensionContext) {
       }
     }),
   );
+
+  // v0.63.1 — backend-native capability commands (Kickstand
+  // load/unload today; more surfaces land as backends grow native
+  // capabilities). Implementation lives in src/commands/backendCommands.ts
+  // so the logic stays out of this orchestrator file. `chatProvider`
+  // is non-null by this point in activation (initialized at line
+  // 339) but TS doesn't see that across the closure boundary.
+  registerBackendCommands(context, () => chatProvider!.client);
 
   // Getting-started walkthrough — opens the native Welcome editor at
   // the SideCar page. Users can reopen it any time from the Command

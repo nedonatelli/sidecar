@@ -711,4 +711,148 @@ describe('SideCarClient', () => {
       expect(firstHeaders['x-api-key']).toBe('sk-original');
     });
   });
+
+  // v0.63.1 — native OAI-compat-to-Ollama fallback inside streamChat /
+  // complete. When the OpenAI-profile backend is actually pointed at
+  // an Ollama host and the /v1/chat/completions layer glitches, the
+  // client's retry layer hands off to Ollama's native /api/chat
+  // BEFORE the circuit breaker counts this as a provider failure.
+  describe('native OAI-compat → Ollama fallback (v0.63.1)', () => {
+    it('retries against /api/chat when the OAI-compat layer glitches and the host probes as Ollama', async () => {
+      // Use a URL that `detectProvider('auto')` routes to OpenAI
+      // (anything not matching localhost:11434 / anthropic.com /
+      // kickstand / etc.). Simulates a user configuring the OpenAI
+      // profile pointed at an Ollama host on a custom port — a real
+      // test-setup scenario where this fallback is valuable.
+      const client = new SideCarClient('qwen3-coder:30b', 'http://10.0.0.5:1234', 'sk-test');
+
+      // Request 1: /v1/chat/completions → 200 with an empty body
+      // (a real symptom of the OAI-compat layer glitching —
+      // fetchWithRetry doesn't retry 200s, so this hits our
+      // matches() regex for "empty response body" cleanly without
+      // consuming mocks via backoff retries).
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        body: null,
+      });
+      // Request 2: /api/tags probe → 200 with Ollama-shaped body
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ models: [{ name: 'qwen3-coder:30b' }] }),
+      });
+      // Request 3: /api/chat → one Ollama NDJSON line, done
+      const ndjson = new ReadableStream<Uint8Array>({
+        start(controller) {
+          const encoder = new TextEncoder();
+          controller.enqueue(
+            encoder.encode(
+              JSON.stringify({
+                model: 'qwen3-coder:30b',
+                message: { role: 'assistant', content: 'from-native' },
+                done: true,
+              }) + '\n',
+            ),
+          );
+          controller.close();
+        },
+      });
+      mockFetch.mockResolvedValueOnce({ ok: true, body: ndjson });
+
+      const events: Array<{ type: string; text?: string; message?: string }> = [];
+      for await (const ev of client.streamChat([{ role: 'user', content: 'hi' }])) {
+        events.push(ev as { type: string });
+      }
+
+      // The fallback warning surfaces to the user as a stream
+      // event so they can tell the retry happened.
+      const warning = events.find((e) => e.type === 'warning');
+      expect(warning).toBeDefined();
+      expect(warning!.message).toMatch(/native protocol/i);
+
+      // And the retry result lands — text came from the native
+      // /api/chat call.
+      const text = events.find((e) => e.type === 'text');
+      expect(text?.text).toBe('from-native');
+
+      // Three fetches total: OAI-compat (failed) + probe + native.
+      expect(mockFetch).toHaveBeenCalledTimes(3);
+      expect(mockFetch.mock.calls[0][0]).toContain('/v1/chat/completions');
+      expect(mockFetch.mock.calls[1][0]).toContain('/api/tags');
+      expect(mockFetch.mock.calls[2][0]).toContain('/api/chat');
+    });
+
+    it('does NOT retry when the /api/tags probe shows the host is not Ollama', async () => {
+      const client = new SideCarClient('gpt-4o', 'http://10.0.0.5:1234', 'sk-test');
+
+      // First OAI-compat request: empty-body "glitch" that matches
+      // our regex but doesn't trigger fetchWithRetry backoffs.
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        body: null,
+      });
+      // Probe: 404 (not Ollama).
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });
+
+      let threw: Error | null = null;
+      try {
+        for await (const _ of client.streamChat([{ role: 'user', content: 'hi' }])) {
+          void _;
+        }
+      } catch (err) {
+        threw = err as Error;
+      }
+
+      // matches() returned optimistically true on the first failure
+      // (probe not yet cached), so a retry was attempted — but
+      // fallbackStreamChat awaits the probe and throws "declined"
+      // when it confirms the host isn't Ollama. Falls through to
+      // the provider-fallback layer, which has no fallback
+      // profile configured, so the original "empty response body"
+      // error re-surfaces.
+      expect(threw).not.toBeNull();
+      expect(threw!.message).toMatch(/empty response body/i);
+    });
+
+    it('does NOT fire the capability retry on abort errors', async () => {
+      const client = new SideCarClient('qwen3-coder:30b', 'http://10.0.0.5:1234', 'sk-test');
+
+      mockFetch.mockImplementationOnce(() => {
+        const err = new Error('aborted');
+        err.name = 'AbortError';
+        return Promise.reject(err);
+      });
+
+      let threw: Error | null = null;
+      try {
+        for await (const _ of client.streamChat([{ role: 'user', content: 'hi' }])) {
+          void _;
+        }
+      } catch (err) {
+        threw = err as Error;
+      }
+      expect(threw?.name).toBe('AbortError');
+      // No probe, no retry, no /api/chat attempt.
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('getBackendCapabilities exposes the active backend capability record', () => {
+      // OpenAI-routed baseUrl exposes oaiCompatFallback.
+      const openai = new SideCarClient('gpt-4o', 'http://10.0.0.5:1234', 'sk-test');
+      const openaiCaps = openai.getBackendCapabilities();
+      expect(openaiCaps?.oaiCompatFallback).toBeDefined();
+      expect(openaiCaps?.lifecycle).toBeUndefined();
+
+      // Kickstand-shaped baseUrl (port 11435) exposes lifecycle,
+      // not oaiCompatFallback.
+      const kick = new SideCarClient('qwen3:30b', 'http://localhost:11435', 'sk-test');
+      const kickCaps = kick.getBackendCapabilities();
+      expect(kickCaps?.lifecycle).toBeDefined();
+      expect(kickCaps?.oaiCompatFallback).toBeUndefined();
+
+      // Ollama (localhost:11434) has NO native capabilities — it's
+      // already native, nothing to fall back to.
+      const ollama = new SideCarClient('qwen3-coder:30b', 'http://localhost:11434', 'ollama');
+      expect(ollama.getBackendCapabilities()).toBeUndefined();
+    });
+  });
 });

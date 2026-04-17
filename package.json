@@ -2,7 +2,7 @@
   "name": "sidecar-ai",
   "displayName": "SideCar",
   "description": "Autonomous AI agent for coding — run full agent loops with local Ollama, Anthropic Claude, or OpenAI models",
-  "version": "0.63.0",
+  "version": "0.63.1",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -1109,6 +1109,18 @@
         "title": "Shadow Workspaces: Sweep Stale Worktrees",
         "category": "SideCar",
         "icon": "$(trash)"
+      },
+      {
+        "command": "sidecar.kickstand.loadModel",
+        "title": "Kickstand: Load Model",
+        "category": "SideCar",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "sidecar.kickstand.unloadModel",
+        "title": "Kickstand: Unload Model",
+        "category": "SideCar",
+        "icon": "$(cloud-download)"
       },
       {
         "command": "sidecar.openWalkthrough",

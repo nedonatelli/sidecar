@@ -4,6 +4,28 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.63.1] - 2026-04-17
+
+**v0.63.1 — Native backend capabilities.** First patch on the v0.63 cycle. Introduces a generic `BackendCapabilities` abstraction that lets per-backend native features surface through the `ApiBackend` interface without bloating its core surface. Two concrete capabilities land in this release: (1) OpenAI-compat → Ollama native-protocol fallback, closing the "OAI-compat layer glitched" reliability gap reported against test-setup configs where users point the OpenAI profile at an Ollama host; (2) Kickstand lifecycle commands (`load` / `unload`) exposed as command-palette actions so users can hot-swap which model Kickstand has loaded without leaving VS Code. Tests: 2460 passing (+26 net); tsc + lint clean. No breaking changes — the new interface method is optional and backends without native capabilities don't implement it.
+
+### Added
+
+- **`ApiBackend.nativeCapabilities?()` interface method** ([`src/ollama/backend.ts`](src/ollama/backend.ts)). Returns an optional `BackendCapabilities` record with optional sub-interface keys for each conceptual capability. Backends with no native surface simply don't implement it — Anthropic, Groq, Fireworks stay untouched and still typecheck cleanly. Two capability keys ship in v0.63.1 (`oaiCompatFallback`, `lifecycle`); the record has reserved room for future additions (LoRA adapters for Ollama, registry listings for any backend, batch inference) without interface churn.
+- **OpenAI-compat → Ollama fallback** (`oaiCompatFallback` on [`OpenAIBackend`](src/ollama/openaiBackend.ts)). When the active backend is OpenAI-compat and `/v1/chat/completions` returns 502/503/504 or a malformed body, SideCarClient's retry layer gives the backend a chance to retry against the native Ollama `/api/chat` endpoint before surfacing the error. A lazy `/api/tags` probe confirms the host actually speaks Ollama — OpenAI, LM Studio, together.ai, and the cloud OAI-compat hosts all return 404 there, so the capability auto-disables itself everywhere except actual Ollama hosts (cached per-instance so the probe runs once). The native retry fires **inside** the existing `streamChat` / `complete` try block, **before** the provider-fallback / circuit-breaker path — protocol-level retries don't count as provider failures and don't trip the circuit.
+- **Kickstand model lifecycle commands** (new [`src/commands/backendCommands.ts`](src/commands/backendCommands.ts), +`package.json` contributions). Two new command-palette entries: `SideCar: Kickstand: Load Model` and `SideCar: Kickstand: Unload Model`. Handlers gate on `client.getBackendCapabilities()?.lifecycle` being present — a clean "not supported" notice appears when the active backend is anything other than Kickstand. When the backend exposes `listLoadable`, the commands show a QuickPick filtered by load state (unloaded models for `load`, loaded models for `unload`); falls back to free-text input when the registry is unavailable or empty. Progress rendered via `vscode.window.withProgress` so users see the operation in flight.
+- **`SideCarClient.getBackendCapabilities()`** ([`src/ollama/client.ts`](src/ollama/client.ts)). Narrow accessor exposing the active backend's `BackendCapabilities` record without leaking the raw `backend` field. Callers (command-palette handlers, the future v0.64 model browser) probe via `capabilities?.<key>?.<method>()` and handle missing capabilities without throwing.
+
+### Setup for v0.64
+
+The `lifecycle.listLoadable()` hook and the generic capability record are exactly the pieces a unified model-browser UI needs — it can introspect `capabilities` for any backend and render conditional controls without knowing method names in advance. The v0.63.1 abstraction means v0.64 can ship the UI as pure webview work without further `ApiBackend` changes.
+
+### Tests (+26 net)
+
+- `kickstandBackend.test.ts` (+5) — lifecycle capability advertisement, load/unload URL + header assertions, registry normalization, error surfacing.
+- `openaiBackend.test.ts` (+6) — oaiCompatFallback advertisement, `matches()` positive + negative cases, probe-cache behavior (permanent disable after failed probe), fallback decline + success paths.
+- `client.test.ts` (+4) — end-to-end fallback through `SideCarClient.streamChat`, probe-failure provider-fallback path, abort-short-circuit, `getBackendCapabilities` spot checks for all three backend families.
+- `backendCommands.test.ts` (new file, +11) — command registration, not-supported notice, QuickPick filtering by load state, listLoadable fallthrough on absence / throw / empty-candidates, error display on loadModel throw, cancel-picker no-op, unload-specific filter, `formatBytes` scale formatting.
+
 ## [0.63.0] - 2026-04-17
 
 **v0.63.0 — Retrieval quality goes GA.** First minor-version bump since v0.62.0. Three coordinated changes: (1) the Project Knowledge Index (symbol-level semantic search) flips from opt-in to default-on — the v0.62 feature arc has cooked long enough; (2) the critic's previously-unbounded `test_failure` trigger gains a per-test-output hash cap, closing the worst-case critic-gate lockup spend documented in the recent hook-interaction docs; (3) the prompt pruner grows a per-tool truncation dispatch starting with grep — head+tail truncation was eliding the middle matches of large grep results, which is where the signal usually lives. Tests: 2434 passing (+23 net); tsc + lint clean. No breaking changes.

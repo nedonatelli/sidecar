@@ -416,4 +416,114 @@ describe('OpenAIBackend', () => {
       }
     });
   });
+
+  // v0.63.1 — OpenAIBackend advertises an `oaiCompatFallback`
+  // capability whose `matches()` returns true ONLY when (a) the
+  // error looks like an OAI-compat-layer glitch (502/503/504/
+  // malformed) AND (b) the host probe hasn't already ruled out
+  // Ollama. `fallbackStreamChat` / `fallbackComplete` then delegate
+  // to a lazy OllamaBackend constructed on the same baseUrl.
+  describe('nativeCapabilities — oaiCompatFallback (v0.63.1)', () => {
+    it('advertises oaiCompatFallback on every OpenAIBackend instance', () => {
+      const caps = backend.nativeCapabilities();
+      expect(caps.oaiCompatFallback).toBeDefined();
+      expect(typeof caps.oaiCompatFallback!.matches).toBe('function');
+      expect(typeof caps.oaiCompatFallback!.fallbackStreamChat).toBe('function');
+      expect(typeof caps.oaiCompatFallback!.fallbackComplete).toBe('function');
+    });
+
+    it('matches() returns TRUE for 502/503/504 and malformed-response errors', () => {
+      const caps = backend.nativeCapabilities();
+      const { matches } = caps.oaiCompatFallback!;
+      expect(matches(new Error('OpenAI API request failed: 502 Bad Gateway — upstream'))).toBe(true);
+      expect(matches(new Error('OpenAI API request failed: 503 Service Unavailable'))).toBe(true);
+      expect(matches(new Error('OpenAI API request failed: 504 Gateway Timeout'))).toBe(true);
+      expect(matches(new Error('malformed JSON in stream response'))).toBe(true);
+      expect(matches(new Error('empty response body'))).toBe(true);
+    });
+
+    it('matches() returns FALSE for auth errors and user aborts', () => {
+      const caps = backend.nativeCapabilities();
+      const { matches } = caps.oaiCompatFallback!;
+      // Auth errors: user fault, not a retry-worthy glitch.
+      expect(matches(new Error('OpenAI API request failed: 401 Unauthorized'))).toBe(false);
+      expect(matches(new Error('OpenAI API request failed: 403 Forbidden'))).toBe(false);
+      // AbortError name is always preserved so the user's cancel
+      // cancels immediately.
+      const abortErr = Object.assign(new Error('aborted'), { name: 'AbortError' });
+      expect(matches(abortErr)).toBe(false);
+    });
+
+    it('matches() returns FALSE permanently after a failed /api/tags probe', async () => {
+      const caps = backend.nativeCapabilities();
+      const { matches } = caps.oaiCompatFallback!;
+
+      // First matches() call fires the probe in the background.
+      // Mock /api/tags to return 404 (non-Ollama host).
+      mockFetch.mockImplementationOnce(async () => ({ ok: false, status: 404 }));
+      // Optimistic TRUE on the first failure (probe result not yet
+      // known).
+      expect(matches(new Error('502 Bad Gateway'))).toBe(true);
+      // Give the probe microtask a chance to settle.
+      await new Promise((r) => setImmediate(r));
+      // Now the probe result is cached as false — subsequent matches
+      // stay false even for matching error shapes.
+      expect(matches(new Error('502 Bad Gateway'))).toBe(false);
+    });
+
+    it('fallbackStreamChat declines when the probe says the host is not Ollama', async () => {
+      const caps = backend.nativeCapabilities();
+      // Force the probe to report non-Ollama.
+      mockFetch.mockImplementationOnce(async () => ({ ok: false, status: 404 }));
+
+      const gen = caps.oaiCompatFallback!.fallbackStreamChat('m', '', [{ role: 'user', content: 'hi' }]);
+      let error: Error | null = null;
+      try {
+        for await (const _ of gen) void _;
+      } catch (err) {
+        error = err as Error;
+      }
+      expect(error).not.toBeNull();
+      expect(error!.message).toMatch(/Native Ollama fallback declined/);
+    });
+
+    it('fallbackStreamChat delegates to OllamaBackend when the probe confirms Ollama', async () => {
+      const caps = backend.nativeCapabilities();
+      // Probe returns 200 with an Ollama-shaped body.
+      mockFetch.mockImplementationOnce(async () => ({
+        ok: true,
+        json: async () => ({ models: [{ name: 'qwen3-coder:30b' }] }),
+      }));
+      // Then the actual /api/chat request returns a minimal Ollama
+      // NDJSON stream (one line + done).
+      const ndjson = new ReadableStream<Uint8Array>({
+        start(controller) {
+          const encoder = new TextEncoder();
+          const chunk = JSON.stringify({
+            model: 'qwen3-coder:30b',
+            message: { role: 'assistant', content: 'hello' },
+            done: true,
+          });
+          controller.enqueue(encoder.encode(chunk + '\n'));
+          controller.close();
+        },
+      });
+      mockFetch.mockImplementationOnce(async () => ({ ok: true, body: ndjson }));
+
+      const events: Array<{ type: string; text?: string }> = [];
+      for await (const ev of caps.oaiCompatFallback!.fallbackStreamChat('qwen3-coder:30b', '', [
+        { role: 'user', content: 'hi' },
+      ])) {
+        events.push(ev as { type: string; text?: string });
+      }
+
+      // Second request went to /api/chat (not /v1/chat/completions).
+      expect(mockFetch.mock.calls.length).toBe(2);
+      const secondUrl = mockFetch.mock.calls[1][0] as string;
+      expect(secondUrl).toContain('/api/chat');
+      // And we got the text event back.
+      const text = events.find((e) => e.type === 'text');
+      expect(text?.text).toBe('hello');
+    });
+  });
 });
