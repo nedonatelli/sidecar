@@ -520,6 +520,38 @@
           ],
           "markdownDescription": "Milliseconds to wait for `shellIntegration` to attach to a freshly created terminal before falling back to `ShellSession`. Shell integration attaches asynchronously after the terminal's shell loads VS Code's init script, so a short wait is normal. Raise if your shell startup is slow; lower to fail faster on shells that won't ever integrate."
         },
+        "sidecar.shadowWorkspace.mode": {
+          "type": "string",
+          "enum": [
+            "off",
+            "opt-in",
+            "always"
+          ],
+          "default": "off",
+          "order": 18,
+          "tags": [
+            "sidecar"
+          ],
+          "markdownDescription": "Controls the Shadow Workspace feature — a git-worktree sandbox at `.sidecar/shadows/<task-id>/` where the agent iterates without touching the main working tree. On task completion, the user sees a diff and can accept (apply to main) or reject (discard).\n\n- `off` (default) — disabled. Agent writes land directly in main.\n- `opt-in` — agent tasks run in the main tree; the user can opt a specific task into a shadow via a slash command. *(Not yet wired up in v0.59 MVP.)*\n- `always` — every agent task runs in a shadow. Safe but introduces per-task setup cost (worktree checkout) and a review step at end.\n\nThis is the v0.59 MVP tier. Per-hunk review UI, gate-command integration, symlinked build dirs, and rebase-on-moved-main conflict handling land in v0.60+."
+        },
+        "sidecar.shadowWorkspace.autoCleanup": {
+          "type": "boolean",
+          "default": true,
+          "order": 19,
+          "tags": [
+            "sidecar"
+          ],
+          "markdownDescription": "When true, `git worktree remove` + directory cleanup run after every shadow regardless of accept/reject. Set to `false` to keep failed or rejected shadows around for post-mortem inspection at `.sidecar/shadows/<task-id>/` — useful when debugging why the agent's shadow work didn't apply cleanly."
+        },
+        "sidecar.shadowWorkspace.gateCommand": {
+          "type": "string",
+          "default": "npm run check",
+          "order": 20,
+          "tags": [
+            "sidecar"
+          ],
+          "markdownDescription": "Shell command run inside the shadow before the accept/reject prompt opens, so failing builds can't ship as accepted diffs. Defaults to `npm run check` which runs tsc + eslint + vitest per the SideCar project's own convention. Override for non-JS projects (e.g. `cargo check && cargo test`, `pytest && mypy`).\n\n**Not yet wired up in v0.59 MVP** — the setting exists so the gate lands zero-config in v0.60."
+        },
         "sidecar.includeActiveFile": {
           "type": "boolean",
           "default": true,

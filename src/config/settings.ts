@@ -485,6 +485,10 @@ export interface SideCarConfig {
   terminalExecutionTerminalName: string;
   terminalExecutionFallbackToChildProcess: boolean;
   terminalExecutionShellIntegrationTimeoutMs: number;
+  /* Shadow Workspaces (v0.59) */
+  shadowWorkspaceMode: 'off' | 'opt-in' | 'always';
+  shadowWorkspaceAutoCleanup: boolean;
+  shadowWorkspaceGateCommand: string;
 }
 
 /**
@@ -610,6 +614,10 @@ function readConfig(): SideCarConfig {
       100,
       2000,
     ),
+    /* Shadow Workspaces (v0.59) */
+    shadowWorkspaceMode: cfg.get<'off' | 'opt-in' | 'always'>('shadowWorkspace.mode', 'off'),
+    shadowWorkspaceAutoCleanup: cfg.get<boolean>('shadowWorkspace.autoCleanup', true),
+    shadowWorkspaceGateCommand: cfg.get<string>('shadowWorkspace.gateCommand', 'npm run check'),
   };
 }
 

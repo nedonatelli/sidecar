@@ -143,6 +143,12 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
       modeToolPermissions: options.modeToolPermissions,
       toolRuntime: options.toolRuntime,
       client: ctx.client,
+      // Shadow workspace cwd pinning: when the caller wraps this loop
+      // in a sandbox (runAgentLoopInSandbox), every tool sees
+      // context.cwd = shadowPath and writes land in the shadow instead
+      // of the main working tree. Transparent to tools that don't
+      // consult cwd — they use the workspace-folder fallback.
+      cwd: options.cwdOverride,
     },
     inlineEditFn: options.inlineEditFn,
     streamingDiffPreviewFn: options.streamingDiffPreviewFn,

@@ -122,6 +122,20 @@ export interface AgentOptions {
    * way they did before v0.54.
    */
   extraPolicyHooks?: PolicyHook[];
+  /**
+   * Working-directory override for all tool calls this loop dispatches.
+   * When set, every `ToolExecutorContext` built by the loop carries
+   * `cwd = cwdOverride`, so fs-tool operations (`read_file`,
+   * `write_file`, `edit_file`, `list_directory`) resolve relative paths
+   * against this directory instead of the first workspace folder.
+   *
+   * Used by ShadowWorkspace (v0.59) to route agent writes into an
+   * ephemeral worktree at `.sidecar/shadows/<task-id>/` so the user's
+   * main tree stays pristine until the shadow's diff is accepted. The
+   * helper in `agent/shadow/sandbox.ts` wraps `runAgentLoop` with this
+   * option set.
+   */
+  cwdOverride?: string;
 }
 
 // DEFAULT_MAX_ITERATIONS moved to loop/state.ts along with initLoopState.
