@@ -504,6 +504,10 @@ export interface SideCarConfig {
   shadowWorkspaceMode: 'off' | 'opt-in' | 'always';
   shadowWorkspaceAutoCleanup: boolean;
   shadowWorkspaceGateCommand: string;
+  /** v0.62.1 p.3 — sweep orphan shadow worktrees left behind by a
+   *  prior VS Code crash at activation. Default `true`. Disable
+   *  when doing crash-recovery forensics on your own shadows. */
+  shadowWorkspaceSweepOnActivation: boolean;
   /* Audit Mode (v0.60) */
   auditAutoApproveReads: boolean;
   auditBufferGitCommits: boolean;
@@ -667,6 +671,7 @@ function readConfig(): SideCarConfig {
     shadowWorkspaceMode: cfg.get<'off' | 'opt-in' | 'always'>('shadowWorkspace.mode', 'off'),
     shadowWorkspaceAutoCleanup: cfg.get<boolean>('shadowWorkspace.autoCleanup', true),
     shadowWorkspaceGateCommand: cfg.get<string>('shadowWorkspace.gateCommand', 'npm run check'),
+    shadowWorkspaceSweepOnActivation: cfg.get<boolean>('shadowWorkspace.sweepStaleOnActivation', true),
     /* Audit Mode (v0.60) */
     auditAutoApproveReads: cfg.get<boolean>('audit.autoApproveReads', true),
     auditBufferGitCommits: cfg.get<boolean>('audit.bufferGitCommits', true),

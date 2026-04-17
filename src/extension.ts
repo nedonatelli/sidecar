@@ -142,6 +142,12 @@ export function activate(context: ExtensionContext) {
         // previous run and silently re-staging its writes could be a
         // surprise on the next accept-all.
         await initAuditBufferRecovery();
+        // v0.62.1 p.3a — garbage-collect shadow worktrees abandoned
+        // by a prior VS Code crash. Worst-case pre-fix was silent
+        // git metadata corruption (registered worktrees pointing at
+        // deleted directories → downstream git commands fail). Sweep
+        // is fire-and-forget; failures don't block activation.
+        void initShadowSweep();
       },
       (err) => console.warn('[SideCar] .sidecar/ init failed:', err),
     );
@@ -1058,6 +1064,27 @@ export function activate(context: ExtensionContext) {
       const { getRootUri } = await import('./agent/tools/shared.js');
       await rejectAllAuditBuffer({ rootUri: getRootUri(), ui: createDefaultAuditReviewUi() });
     }),
+    // v0.62.1 p.3b — Manual sweep of orphan shadow worktrees + dirs.
+    // Activation also runs this automatically (gated by
+    // shadowWorkspace.sweepStaleOnActivation); the palette command
+    // exists for users who disabled the auto-sweep but still want an
+    // on-demand cleanup, or for debugging weird git-state questions.
+    commands.registerCommand('sidecar.shadows.sweepStale', async () => {
+      const root = workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!root) {
+        window.showWarningMessage('SideCar: no workspace folder open — nothing to sweep.');
+        return;
+      }
+      const { sweepStaleShadows, formatSweepResult } = await import('./agent/shadow/shadowSweep.js');
+      const result = await sweepStaleShadows(root);
+      const summary = formatSweepResult(result);
+      if (summary) {
+        window.showInformationMessage(`SideCar — ${summary}.`);
+        console.warn(`[SideCar] ${summary}`);
+      } else {
+        window.showInformationMessage('SideCar: no stale shadow worktrees found.');
+      }
+    }),
   );
 
   // Getting-started walkthrough — opens the native Welcome editor at
@@ -1156,6 +1183,33 @@ async function initAuditBufferRecovery(): Promise<void> {
   // Default / Review: restore to in-memory buffer. The user can open
   // `SideCar: Audit: Review Buffered Changes` at their leisure.
   buf.restore(recovered);
+}
+
+/**
+ * v0.62.1 p.3 — Garbage-collect shadow worktrees abandoned by prior
+ * VS Code sessions. Runs fire-and-forget after sidecar-dir init so
+ * a git failure never blocks extension activation. Silent on the
+ * happy path (zero orphans); surfaces a console warning + no-op
+ * toast when orphans are pruned, since users who never used shadow
+ * mode don't need to be notified about a background cleanup.
+ *
+ * Also gated by `sidecar.shadowWorkspace.sweepStaleOnActivation`
+ * (default true) so a user doing crash-recovery forensics on their
+ * own shadows can disable the automatic sweep.
+ */
+async function initShadowSweep(): Promise<void> {
+  const cfg = getConfig();
+  if (cfg.shadowWorkspaceSweepOnActivation === false) return;
+  const root = workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!root) return;
+  try {
+    const { sweepStaleShadows, formatSweepResult } = await import('./agent/shadow/shadowSweep.js');
+    const result = await sweepStaleShadows(root);
+    const summary = formatSweepResult(result);
+    if (summary) console.warn(`[SideCar] ${summary}`);
+  } catch (err) {
+    console.warn('[SideCar] Shadow sweep failed:', err);
+  }
 }
 
 export function deactivate() {
