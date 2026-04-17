@@ -15,6 +15,11 @@ Before diving into the prose architecture below, skim these four Mermaid diagram
 - [`docs/context-pipeline-diagram.md`](docs/context-pipeline-diagram.md) — retriever fusion (docs + memory + workspace) into the system prompt; PKI symbol-level vs. legacy file-level paths.
 - [`docs/mcp-lifecycle-diagram.md`](docs/mcp-lifecycle-diagram.md) — `MCPManager` connect/reconnect/dispatch lifecycle and the three transports.
 
+### Security-posture docs
+
+- [`SECURITY.md`](SECURITY.md) — threat model, vulnerability disclosure path, secret-pattern catalog (`SECRET_PATTERNS_VERSION`), and explicit list of what SideCar does NOT defend against. Read this before shipping any change that touches tool dispatch, MCP, critic, or the secret scanner.
+- [`docs/extending-sidecar.md`](docs/extending-sidecar.md) — the four extension surfaces (skills, custom tools, MCP servers, policy hooks). Trust semantics per surface; authoring examples; known gaps in the current plugin story.
+
 ## Commands
 
 ```bash

@@ -122,6 +122,33 @@ When the agent loop dispatches an MCP tool:
 4. Registered executor calls `client.callTool({ name: mcpTool.name, arguments: input })` — note the executor strips the `mcp_<server>_` prefix before sending.
 5. The result's `content` array is rendered: `text` blocks concatenated verbatim, other block types JSON-stringified.
 6. Output is truncated to `config.maxResultChars` (default 50 KB) so a chatty MCP tool can't blow out the agent's context window.
+7. **`detectInjectionSignals`** (v0.62.4) scans the body for common indirect-prompt-injection patterns (`ignore previous instructions`, fake `SYSTEM:` roles, `<|im_start|>`, etc.). Matches log a `console.warn` with the server + tool name and the matched signal set. Detection is advisory — never blocking, never mutating the content — because false positives on legitimate tool output would be worse than the signal's marginal detection value.
+8. **`wrapMcpOutput`** (v0.62.4) unconditionally wraps the output in `<mcp_tool_output server="…" tool="…" trust="untrusted">…</mcp_tool_output>` boundary markers. The LLM already treats tool output as untrusted data (per the standing rule in the base system prompt), but the boundary marker reinforces that contract per-call and attributes each chunk to a specific server, so a malicious response can't masquerade as first-party tool output. Server/tool names are sanitized to `[a-zA-Z0-9._-]` so they can't break out of the attribute context.
+
+### Indirect-prompt-injection defense layers
+
+```mermaid
+flowchart LR
+    Srv[MCP server response] --> Extract[extract text blocks]
+    Extract --> Trunc[truncate to maxResultChars<br/>default 50 KB]
+    Trunc --> Scan[detectInjectionSignals<br/>heuristic scan]
+    Scan --> Log{signals matched?}
+    Log -- yes --> Warn[console.warn<br/>server/tool/signals]
+    Log -- no --> Wrap
+    Warn --> Wrap[wrapMcpOutput<br/>XML boundary markers]
+    Wrap --> ToolResult[tool_result block<br/>back to agent loop]
+
+    Base[System prompt:<br/>tool output is data,<br/>not instructions] -.reinforces.-> ToolResult
+
+    classDef defenseStyle fill:#fef3c7,stroke:#d97706
+    class Scan,Wrap,Base defenseStyle
+```
+
+The three layers stack:
+
+- **Base layer** (always on) — system prompt tells the LLM to treat all tool output as untrusted data. This applies to MCP, `read_file`, `web_search`, `git_log`, etc.
+- **Attribution layer** (v0.62.4) — boundary markers tag MCP output with server + tool names so the LLM can apply extra skepticism to code from unaudited sources. Unconditional; no config knob.
+- **Observability layer** (v0.62.4) — heuristic detector flags likely injection attempts in the SideCar output channel so users can investigate before the agent acts on suspicious content. Logging only.
 
 ## Status surface for UI
 
