@@ -16,10 +16,10 @@ import { defineConfig } from 'vitest/config';
 //   - `src/test/**` is the integration-test harness
 //   - `*.d.ts` declarations
 const COVERAGE_THRESHOLDS = {
-  statements: 60,
+  statements: 61,
   branches: 53,
-  functions: 60,
-  lines: 61,
+  functions: 61,
+  lines: 62,
 };
 
 export default defineConfig({

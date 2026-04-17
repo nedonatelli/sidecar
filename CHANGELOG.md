@@ -4,6 +4,10 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+### v0.60 work-in-progress
+
+- **`src/review/` subsystem coverage lift + ratchet bump** (v0.60 step a). The review-feature trio (`commitMessage.ts` · `prSummary.ts` · `reviewer.ts`) went from ~27% each to 100 / 85.7 / 100 / 100 after replacing each test file's single "no workspace folder" case with a full set covering: no-workspace guard · empty-diff guard · git-exec-failure guard · HEAD / staged / fallback dispatch · markdown-document open path · truncation path · client.complete-throws path · action handlers (Copy to Clipboard / Edit & Copy with user-cancel branch) · Co-Authored-By trailer appending · code-fence stripping. +25 new tests across the three files. Aggregate coverage nudged 60.99→61.79 stmts · 53.37→54.06 branches · 61.11→61.80 funcs · 61.76→62.63 lines. CI ratchet in `vitest.config.ts` bumped statements 60→61, functions 60→61, lines 61→62 to lock in the gain; branches stays at 53 (already had only 1 pp buffer above it).
+
 ## [0.59.0] - 2026-04-16
 
 **v0.59 — Sandbox primitives.** First release of the Release-Plan-driven v0.59+ roadmap. Ships two new foundational capabilities that later releases build on: agent commands now render live in a dedicated *SideCar Agent* terminal via VS Code's shell-integration API instead of hidden `child_process.spawn` calls (transparency + SSH / Dev Container / WSL / Codespaces correctness), and the new opt-in Shadow Workspace feature runs agent tasks in an ephemeral git worktree at `.sidecar/shadows/<task-id>/` so writes never touch the user's main tree until an explicit accept. Also closes audit findings cycle-2 #13 + #15, a latent output-stomp bug in `ShellSession.checkSentinel`, and establishes a CI coverage ratchet that prevents regressions. Tests: 1984 passing (+40 net for the release); tsc + eslint clean.
