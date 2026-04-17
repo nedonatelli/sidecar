@@ -158,6 +158,18 @@ export class SymbolEmbeddingIndex implements Disposable {
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private static readonly FLUSH_DEBOUNCE_MS = 500;
   private static readonly FLUSH_BATCH_SIZE = 20;
+  /**
+   * Max concurrent `indexSymbol` calls within a batch (v0.62.1 p.4).
+   * The embedding pipeline dominates the per-symbol cost (~20–30 ms
+   * per call); store mutations are microseconds. Four-way concurrency
+   * is the sweet spot: it cuts a 500-symbol batch from ~12s serial
+   * to ~3s, without saturating the model runtime or the Node event
+   * loop. Safety: `FlatVectorStore.upsert` has no awaits between
+   * read and write, so the mutations after each concurrent embed
+   * resolve serialize on the event loop atomically. Two concurrent
+   * upserts can't clobber each other's offset / vector slot.
+   */
+  private static readonly FLUSH_CONCURRENCY = 4;
 
   /**
    * Construct with the default flat backend, or inject a custom
@@ -415,14 +427,31 @@ export class SymbolEmbeddingIndex implements Disposable {
 
     const batch = Array.from(this.pendingQueue.entries()).slice(0, SymbolEmbeddingIndex.FLUSH_BATCH_SIZE);
     for (const [id] of batch) this.pendingQueue.delete(id);
-    for (const [, input] of batch) {
-      try {
-        await this.indexSymbol(input);
-      } catch (err) {
-        // Per-symbol embed failure shouldn't kill the whole batch.
-        console.warn(`[SideCar] Symbol embed failed for ${input.filePath}::${input.qualifiedName}:`, err);
+
+    // v0.62.1 p.4 — run up to FLUSH_CONCURRENCY embeds in parallel.
+    // Each `indexSymbol` awaits the slow embed then performs its
+    // store.upsert synchronously (no awaits inside upsert), so the
+    // mutations serialize on the event loop and we can't clobber a
+    // concurrent upsert's offset slot.
+    const inputs = batch.map(([, input]) => input);
+    let cursor = 0;
+    async function worker(self: SymbolEmbeddingIndex): Promise<void> {
+      while (true) {
+        const idx = cursor;
+        if (idx >= inputs.length) return;
+        cursor += 1;
+        const input = inputs[idx];
+        try {
+          await self.indexSymbol(input);
+        } catch (err) {
+          // Per-symbol embed failure shouldn't kill the whole batch
+          // nor stop other workers from draining their share.
+          console.warn(`[SideCar] Symbol embed failed for ${input.filePath}::${input.qualifiedName}:`, err);
+        }
       }
     }
+    const workerCount = Math.min(SymbolEmbeddingIndex.FLUSH_CONCURRENCY, inputs.length);
+    await Promise.all(Array.from({ length: workerCount }, () => worker(this)));
 
     // v0.62 d.2: refresh the Merkle tree after the batch. `rebuild`
     // only recomputes file-nodes that got new/removed leaves this

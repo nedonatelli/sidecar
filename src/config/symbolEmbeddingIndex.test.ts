@@ -481,5 +481,56 @@ describe('SymbolEmbeddingIndex', () => {
         warnSpy.mockRestore();
       }
     });
+
+    it('drains in parallel (v0.62.1 p.4) — batch runs concurrent embeds', async () => {
+      // Slow pipeline that measures max concurrency by tracking how
+      // many embeds are "in flight" at the peak. Pre-p.4 this was 1
+      // (serial). Post-p.4 it should be ~FLUSH_CONCURRENCY (4).
+      let inFlight = 0;
+      let peak = 0;
+      const slowPipeline = vi.fn(async (texts: string[]) => {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        // Small delay gives other tasks a chance to enter the "in
+        // flight" window before we decrement. Without this, embeds
+        // resolve synchronously and peak=1.
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        inFlight -= 1;
+        // Use the real fake pipeline for the actual vector.
+        return (await fakePipeline()(texts)) as never;
+      }) as never;
+      index.setPipelineForTests(slowPipeline);
+
+      // 10 symbols → 2–3 batches of 4-way concurrent work.
+      for (let i = 0; i < 10; i++) {
+        index.queueSymbol(makeInput({ qualifiedName: `sym${i}`, name: `sym${i}`, body: `body${i}` }));
+      }
+      await index.flushQueueForTests();
+
+      expect(index.getCount()).toBe(10);
+      // Parallelism actually fired. With FLUSH_CONCURRENCY=4 and
+      // 10 queued symbols, we expect peak >= 2 consistently; on a
+      // healthy runtime it reaches 4. Accept >=2 so the test isn't
+      // flaky on slow CI.
+      expect(peak).toBeGreaterThanOrEqual(2);
+    });
+
+    it('concurrent upserts do not clobber each other (no race on offset slots)', async () => {
+      // Sanity check: with parallel embeds, the store's offset
+      // allocation stays consistent. Indexing 50 symbols in
+      // parallel should land all 50 in the store with distinct
+      // offsets.
+      for (let i = 0; i < 50; i++) {
+        index.queueSymbol(makeInput({ qualifiedName: `par${i}`, name: `par${i}`, body: `unique-body-${i}` }));
+      }
+      await index.flushQueueForTests();
+
+      expect(index.getCount()).toBe(50);
+      // Every symbol queryable — proves no offset collision.
+      for (let i = 0; i < 50; i++) {
+        const meta = index.getSymbolMeta(makeSymbolId('src/auth/middleware.ts', `par${i}`));
+        expect(meta).not.toBeNull();
+      }
+    });
   });
 });
