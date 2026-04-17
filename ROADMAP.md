@@ -45,11 +45,20 @@ Each release ships **1–2 features** plus a paired **refactor beat** (code-qual
 - Hook + approval pattern unification (carried from v0.60; now contingent on RAG-eval + UI design)
 - `src/parsing/treeSitterAnalyzer.ts` coverage lift (originally planned as v0.61 focus; defer with the analyzer's PKI-adjacent work to v0.62)
 
-### v0.62 — Retrieval quality
-- **Features**: [Merkle-Addressed Semantic Fingerprint](#merkle-addressed-semantic-fingerprint--keystroke-live-structural-index) · [RAG-Native Eval Metrics (RAGAs) + Qualitative LLM-as-Judge (G-Eval)](#rag-native-eval-metrics-ragas--qualitative-llm-as-judge-g-eval)
-- **Refactor beat**: Retrieval infrastructure cleanup — reranker cross-encoder, per-source budget caps, fusion parallelization, `onToolOutput` backpressure (audit #11). Folds deferred *Reranker stage*, *Per-source budget caps*, *Eval cases for retriever fusion / cost warning / summarizer cap*, and the reopened *LLM-as-judge scoring* deferral.
-- **Coverage focus**: `fireworksBackend` / `groqBackend` / `openaiBackend` — thin OpenAI-compat wrappers, mirror `openrouterBackend` test shape. Target ≥70/62/69/70.
-- **Acceptance**: Keystroke-live Merkle root updates; RAG-eval suite runs `faithfulness` / `answerRelevancy` / `contextPrecision` / `contextRecall` against every existing retrieval test case.
+### v0.62 — Retrieval quality ✅ *shipped 2026-04-17*
+- **Features shipped**: [Merkle-Addressed Semantic Fingerprint](#merkle-addressed-semantic-fingerprint--keystroke-live-structural-index) (MVP — 3-level tree with SHA-256 leaf hashing + mean-pooled aggregated embeddings + query-time descent in `SymbolEmbeddingIndex.search`; keystroke-live updates via `setMerkleTree` hook that replays persisted state; `sidecar.merkleIndex.enabled` default `true`; blake3 adapter, directory-aware hierarchy, persistence, and live-root-snapshot log all deferred to v0.63+) · [RAG-Native Eval Metrics (RAGAs) + Qualitative LLM-as-Judge (G-Eval)](#rag-native-eval-metrics-ragas--qualitative-llm-as-judge-g-eval) (deterministic golden-case harness + `contextPrecisionAtK` / `contextRecallAtK` / `f1ScoreAtK` / `reciprocalRank` + CI ratchet at 0.45/0.95/0.55/0.90 against a 0.49/1.00/0.59/0.94 baseline; LLM-as-judge runs `Faithfulness` + `AnswerRelevancy` against every golden case under `npm run eval:llm`) · **PKI Phase 2** — v0.61 deferrals closed: `SemanticRetriever` prefers symbol-level hits when PKI is enabled (c.1); vector backend is abstracted behind a `VectorStore<M>` interface with `FlatVectorStore` implementation + `sidecar.projectKnowledge.backend: 'flat' | 'lance'` setting (c.2).
+- **Refactor beat shipped**: Vector backend abstraction (`VectorStore` interface; flat impl today; Lance reserved). PKI retrieval migration (symbol index is now the retrieval default when enabled). `SymbolMetadata` on-disk schema gains optional `merkleHash` field with forward-compat replay. Retrieval infrastructure cleanup (cross-encoder reranker, per-source budget caps, fusion parallelization, `onToolOutput` backpressure) ***deferred to v0.63+*** — each stands alone and bundling them all into v0.62 would have blown past the release cadence.
+- **Coverage delta**: +133 tests (2158 → 2291). Retrieval-eval CI ratchet now gates at 0.45/0.95/0.55/0.90. Coverage-ratchet bump to 70/62/69/70 (original v0.62 target) ***deferred to v0.63*** — the new code ships with ≥90% per-file coverage, but backend test harmonization across fireworks/groq/openai (the ROADMAP focus) didn't happen and that's where the backend-coverage work lives.
+- **Tag**: [`v0.62.0`](https://github.com/nedonatelli/sidecar/releases/tag/v0.62.0). +133 tests, 2291 total.
+
+### v0.62 deferrals folded into v0.63+
+- PKI default-on (`sidecar.projectKnowledge.enabled: true`) — flip requires another release cycle of opt-in exposure.
+- LanceDB HNSW backend — native-binding cross-platform project; Merkle descent gave us most of the speedup so the deferral is cheaper than originally sized.
+- Project Knowledge sidebar panel — UI work (→ v0.63+).
+- Cross-encoder reranker + per-source budget caps + fusion parallelization + `onToolOutput` backpressure — retrieval-infrastructure refactor beat carries.
+- Hook + approval pattern unification — carried from v0.60 and v0.61. Still contingent on the third surface stabilizing.
+- Blake3 hash algorithm — Merkle ships with SHA-256; blake3 adapter gated on a cross-platform-safe binding.
+- Backend-coverage harmonization (fireworks/groq/openai) — original v0.62 coverage focus; carries as a v0.63 refactor beat.
 
 ### v0.63 — Skills core
 - **Feature**: [First-Class Skills 2.0 — Typed Personas with Tool Allowlists, Preferred Models, and Composition](#first-class-skills-20--typed-personas-with-tool-allowlists-preferred-models-and-composition)
@@ -211,7 +220,7 @@ Collapse duplicated plumbing: tool registration, backend retry/breaker/rate-limi
 
 ## Coverage Plan
 
-**Current (v0.61.0)**: +83 tests for v0.61 (Audit Mode Phase 2 + PKI feature arc), 2158 tests / 135 files. CI ratchet holds at 61/53/61/62 — no ratchet bump this release because new PKI and Audit persistence files shipped with ≥90% per-file coverage as per policy and the denominator grew proportionally. v0.62's retrieval-quality work (RAG-eval infrastructure + backend test harmonization) is sized to move the ratchet back up. (v0.60 baseline: 61.79/54.06/61.80/62.63.)
+**Current (v0.62.0)**: +133 tests for v0.62 (PKI Phase 2 + RAG-eval arc + Merkle arc), 2291 tests / 142 files. Aggregate coverage ratchet still at 61/53/61/62 — no bump this release; backend-coverage harmonization that would have driven it up was deferred to v0.63. The new RAG-eval ratchet is a parallel gate: retrieval quality is pinned at `meanPrecisionAtK ≥ 0.45`, `meanRecallAtK ≥ 0.95`, `meanF1AtK ≥ 0.55`, `meanReciprocalRank ≥ 0.90` against a baseline of 0.49/1.00/0.59/0.94. (v0.61 baseline: 61.79/54.06/61.80/62.63 / 2158 tests.)
 
 **Target**: 80% stmts · 70% branches · 80% funcs · 80% lines (the 80/70/80/80 split reflects that branch coverage is harder to pay for — error paths, concurrent races, partial failures — so it carries a lower bar).
 
@@ -1076,6 +1085,24 @@ During the v0.58.1 reorganization, the previous Deferred backlog was audited and
 ## Release History
 
 Rolling log of what shipped in each release, newest first. Each subsection preserves the context that was written at release time — file:line references, reasoning, test-count stats, stats progression. Serves as both a changelog appendix and an architectural lineage trace.
+
+### v0.62.0 (2026-04-17)
+
+Fourth Release-Plan entry. Theme: **retrieval quality** — the v0.61 PKI MVP becomes a measurable retrieval layer (deterministic + LLM-judged eval, CI ratchet) with a structural addressing layer (Merkle tree) that makes query-time pruning possible on large workspaces.
+
+- ✅ **PKI Phase 2** (c.1–c.2, closing v0.61 deferrals).
+  - **c.1** — `SemanticRetriever.retrieve()` now prefers symbol-level hits from [`SymbolEmbeddingIndex`](src/config/symbolEmbeddingIndex.ts) over the legacy file-level path when PKI is wired + ready + non-empty. New `workspace-sym:${path}::${name}` ID prefix distinguishes symbol-level hits from legacy `workspace:${path}` in the RRF fusion layer. Symbol body renders as the line-range slice (not the first 3000 chars of the file), a tighter evidence unit for RAG. Empty symbol-search result returns `[]` (not a file-level fallback) so the fusion layer isn't polluted when PKI searched but nothing scored. +6 tests.
+  - **c.2** — Vector storage extracted into a pluggable [`VectorStore<M>`](src/config/vectorStore.ts) interface + `FlatVectorStore<M>` implementation. Bit-for-bit compatible with the v0.61 on-disk format via `extraMeta` (caller's `modelId` preserved). New `sidecar.projectKnowledge.backend: 'flat' | 'lance'` setting; `lance` reserved for a future release (falls back to flat with a warning). +23 tests.
+- ✅ **RAG-eval arc** (e.1–e.3, new release feature).
+  - **e.1** — Synthetic miniature service codebase with known-correct "where is X?" answers in [`src/test/retrieval-eval/fixture.ts`](src/test/retrieval-eval/fixture.ts). Harness in [`harness.ts`](src/test/retrieval-eval/harness.ts) wires a real `SymbolEmbeddingIndex` + `SymbolGraph` against the fixture using a deterministic fake embedding pipeline. `runGoldenQuery` threads through the real `enrichWithGraphWalk`. 11 golden cases covering concept search, graph walk, kind filter, path prefix. +16 tests.
+  - **e.2** — Standard set-based IR metrics: `contextPrecisionAtK` / `contextRecallAtK` / `f1ScoreAtK` / `reciprocalRank` in [`metrics.ts`](src/test/retrieval-eval/metrics.ts) with per-query + macro-averaged aggregates. CI ratchet in [`baseline.test.ts`](src/test/retrieval-eval/baseline.test.ts) pinned at `0.45 / 0.95 / 0.55 / 0.90` against a current baseline of `0.49 / 1.00 / 0.59 / 0.94`. Per-case scorecards logged in verbose mode. +27 tests.
+  - **e.3** — LLM-judged `Faithfulness` (per-hit RELEVANT/BORDERLINE/IRRELEVANT) + `Answer Relevancy` (per-query ANSWERED/PARTIAL/MISSED) under `npm run eval:llm`. Architecture split: pure prompt builders + verdict parsers in [`src/test/retrieval-eval/judgeParsing.ts`](src/test/retrieval-eval/judgeParsing.ts) (main suite, unit-tested); backend-aware judges in [`tests/llm-eval/retrievalJudge.ts`](tests/llm-eval/retrievalJudge.ts) (eval-only). Prompt caps bounded (2000 chars body, 10-hit cap). Skips cleanly without API key. +14 tests.
+- ✅ **Merkle fingerprint arc** (d.1–d.3, new release feature).
+  - **d.1** — [`MerkleTree`](src/config/merkleTree.ts) 3-level hash tree (leaves → file-nodes → root). SHA-256 content hash over canonical `filePath|qualifiedName|kind|startLine-endLine|body`. Dirty-tracking on mutation; `rebuild()` only refreshes dirty file-nodes. Order-independent aggregation (sorted child hashes). `descend(queryVec, k)` scores file-level aggregated vectors and returns top-k files' leaf IDs. Pure data structure. +27 tests.
+  - **d.2** — Wired into `SymbolEmbeddingIndex`. New `setMerkleTree(tree)` replays persisted entries via new `VectorStore.getVector(id)`. `SymbolMetadata.merkleHash` field persisted alongside body MD5. Re-embed short-circuit checks BOTH hashes; vector reused from store when body unchanged but range shifted. `flushQueue` fires `tree.rebuild()` per batch. New `getMerkleRoot()` accessor. +6 tests.
+  - **d.3** — `SymbolEmbeddingIndex.search` walks the tree's aggregated-vector descent to pick candidate files *before* scoring leaves. Candidate count `max(10, topK × 3)`. Empty-tree fall-through. Extension activation wires a tree when `sidecar.merkleIndex.enabled` (default `true`) + PKI are both on. New [`merkleParity.test.ts`](src/test/retrieval-eval/merkleParity.test.ts) re-runs every golden case with descent active, asserts aggregate stays at-or-above the non-Merkle ratchet floors. +14 tests.
+
+**Explicitly deferred to v0.63** (scoped out of v0.62 MVP): PKI default-on (opt-in stays `false`) · LanceDB HNSW backend · Project Knowledge sidebar panel · cross-encoder reranker · per-source budget caps + fusion parallelization + `onToolOutput` backpressure · hook + approval pattern unification · blake3 hash algorithm · backend-coverage harmonization (fireworks/groq/openai).
 
 ### v0.61.0 (2026-04-16)
 
