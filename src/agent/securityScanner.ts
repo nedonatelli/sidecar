@@ -142,3 +142,37 @@ export function formatIssues(issues: SecurityIssue[]): string {
   if (issues.length === 0) return '';
   return issues.map((i) => `${i.file}:${i.line} [${i.severity.toUpperCase()}] ${i.message}`).join('\n');
 }
+
+/**
+ * Replace every match of the `SECRET_PATTERNS` used by the line-level
+ * scanner with `[REDACTED:<name>]` so secrets can't leak through
+ * non-source channels (env vars handed to hook / custom-tool child
+ * processes, log sinks, tool-result bodies forwarded to external
+ * MCP servers, etc.).
+ *
+ * Used by `executor.ts` before setting `SIDECAR_INPUT` / `SIDECAR_OUTPUT`
+ * on a hook's child process environment, and by `tools.ts` before
+ * forwarding user-typed `custom_*` tool input — without this, a tool
+ * call input like `{"key": "sk-ant-AAAA..."}` (e.g. after a `read_file`
+ * on a `.env` that slipped past the sensitive-file guard) would land
+ * verbatim in the child environment, from which anything the child
+ * process invokes inherits the secret. Audit cycle-3 MEDIUM #7.
+ *
+ * Only redacts — does not report. Callers that want both redaction and
+ * an audit trail should also run `scanContent()` on the original text.
+ */
+export function redactSecrets(text: string): string {
+  if (!text) return text;
+  let redacted = text;
+  for (const sp of SECRET_PATTERNS) {
+    // Each pattern is match-and-replace with `g` forced on — the
+    // canonical `SECRET_PATTERNS` don't carry a `g` flag because
+    // `scanContent`'s line-by-line walk only needs a first-match test.
+    const globalPattern = new RegExp(
+      sp.pattern.source,
+      sp.pattern.flags.includes('g') ? sp.pattern.flags : sp.pattern.flags + 'g',
+    );
+    redacted = redacted.replace(globalPattern, `[REDACTED:${sp.name}]`);
+  }
+  return redacted;
+}

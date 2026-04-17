@@ -9,7 +9,7 @@ import type { MCPManager } from './mcpManager.js';
 import { getConfig } from '../config/settings.js';
 import { checkWorkspaceConfigTrust } from '../config/workspaceTrust.js';
 import type { AgentLogger } from './logger.js';
-import { scanFile, formatIssues } from './securityScanner.js';
+import { scanFile, formatIssues, redactSecrets } from './securityScanner.js';
 import { detectStubs } from './stubValidator.js';
 import { reportSecurityIssues, reportStubs } from './sidecarDiagnostics.js';
 import { scanToolOutput, buildInjectionWarning } from './injectionScanner.js';
@@ -824,13 +824,19 @@ async function runHook(
   if (hookTrust === 'blocked') return undefined;
 
   const cwd = workspace.workspaceFolders?.[0]?.uri.fsPath;
+  // Redact secret patterns out of the tool input/output before handing
+  // them to the hook's child-process environment. Without this, a tool
+  // call that e.g. read a `.env` file (slipped past the sensitive-file
+  // guard) or returned an API response containing a key would land
+  // verbatim in `SIDECAR_INPUT` / `SIDECAR_OUTPUT`, and every subprocess
+  // the hook spawns inherits those env vars. Audit cycle-3 MEDIUM #7.
   const env: Record<string, string> = {
     ...(process.env as Record<string, string>),
     SIDECAR_TOOL: toolName,
-    SIDECAR_INPUT: JSON.stringify(input),
+    SIDECAR_INPUT: redactSecrets(JSON.stringify(input)),
   };
   if (output !== undefined) {
-    env.SIDECAR_OUTPUT = output.slice(0, 10_000); // Limit env var size
+    env.SIDECAR_OUTPUT = redactSecrets(output.slice(0, 10_000)); // Limit env var size, redact secrets
   }
 
   try {

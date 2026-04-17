@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { scanContent, formatIssues } from './securityScanner.js';
+import { scanContent, formatIssues, redactSecrets } from './securityScanner.js';
 
 describe('scanContent', () => {
   describe('secret detection', () => {
@@ -159,5 +159,84 @@ describe('formatIssues', () => {
     const formatted = formatIssues(issues);
     expect(formatted).toContain('a.ts:1 [ERROR] Secret A');
     expect(formatted).toContain('b.ts:2 [WARNING] Vuln B');
+  });
+});
+
+describe('redactSecrets (audit cycle-3 MEDIUM #7)', () => {
+  // `redactSecrets` is the anti-exfiltration primitive called by
+  // executor.ts (hook env vars) and tools.ts (custom-tool env vars)
+  // before handing input/output to child processes that could
+  // otherwise inherit secrets. Every covered pattern below maps to
+  // a real leak scenario worth preventing.
+
+  it('returns empty input unchanged', () => {
+    expect(redactSecrets('')).toBe('');
+  });
+
+  it('returns secret-free input unchanged', () => {
+    const clean = 'Hello world — this string has no credentials.';
+    expect(redactSecrets(clean)).toBe(clean);
+  });
+
+  it('redacts an AWS access key in-place', () => {
+    const input = 'Key is AKIAIOSFODNN7EXAMPLE and the rest is normal text.';
+    const out = redactSecrets(input);
+    expect(out).not.toContain('AKIAIOSFODNN7EXAMPLE');
+    expect(out).toContain('[REDACTED:AWS Access Key]');
+  });
+
+  it('redacts a GitHub token', () => {
+    const input = 'token: ghp_abcdefghijklmnopqrstuvwxyz0123456789AB';
+    const out = redactSecrets(input);
+    expect(out).toContain('[REDACTED:GitHub Token]');
+    expect(out).not.toMatch(/ghp_[A-Za-z0-9_]+/);
+  });
+
+  it('redacts an Anthropic API key in a JSON-stringified input', () => {
+    const input = JSON.stringify({ apiKey: 'sk-ant-abcdefghijklmnopqrstuvwxyz' });
+    const out = redactSecrets(input);
+    expect(out).toContain('[REDACTED:');
+    expect(out).not.toContain('sk-ant-abcdefghijklmnopqrstuvwxyz');
+  });
+
+  it('redacts a database connection string', () => {
+    const input = 'DATABASE_URL=postgres://user:pass@host/db connecting now';
+    const out = redactSecrets(input);
+    expect(out).toContain('[REDACTED:Connection String]');
+    expect(out).not.toContain('pass@host');
+  });
+
+  it('redacts multiple distinct secrets in one string', () => {
+    const input = [
+      'aws_access_key: AKIAIOSFODNN7EXAMPLE',
+      'gh: ghp_abcdefghijklmnopqrstuvwxyz0123456789AB',
+      'anthropic: sk-ant-abcdefghijklmnopqrstuvwxyz',
+    ].join('\n');
+    const out = redactSecrets(input);
+    // All three should have been replaced
+    expect(out).not.toContain('AKIAIOSFODNN7EXAMPLE');
+    expect(out).not.toContain('ghp_abcdefghijklmnopqrstuvwxyz0123456789AB');
+    expect(out).not.toContain('sk-ant-abcdefghijklmnopqrstuvwxyz');
+    expect((out.match(/\[REDACTED:/g) || []).length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('redacts every occurrence when the same secret appears multiple times', () => {
+    const input = 'first: AKIAIOSFODNN7EXAMPLE second: AKIAIOSFODNN7EXAMPLE';
+    const out = redactSecrets(input);
+    expect(out).not.toContain('AKIAIOSFODNN7EXAMPLE');
+    expect((out.match(/\[REDACTED:AWS Access Key\]/g) || []).length).toBe(2);
+  });
+
+  it('redacts a JWT token pattern', () => {
+    // Arbitrary eyJ-prefixed base64 blobs — test the pattern not a real signature.
+    const input = 'Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signed';
+    const out = redactSecrets(input);
+    expect(out).toContain('[REDACTED:JWT Token]');
+  });
+
+  it('redacts a private-key header', () => {
+    const input = '-----BEGIN RSA PRIVATE KEY-----\nMIIEowIB...';
+    const out = redactSecrets(input);
+    expect(out).toContain('[REDACTED:Private Key]');
   });
 });
