@@ -219,6 +219,10 @@ export function activate(context: ExtensionContext) {
               // Expose the index to the tool registry so
               // `project_knowledge_search` has something to query.
               setSymbolEmbeddings(symbolEmbeddings);
+              // v0.62 c.1: also expose to the WorkspaceIndex so
+              // SemanticRetriever prefers symbol-level hits over the
+              // legacy file-level path.
+              workspaceIndex.setSymbolEmbeddings(symbolEmbeddings);
               console.log(
                 `[SideCar] Symbol embedding index ready: ${symbolEmbeddings.getCount()} cached symbol vectors`,
               );

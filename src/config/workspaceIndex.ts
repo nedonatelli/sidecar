@@ -133,6 +133,9 @@ export class WorkspaceIndex implements Disposable {
   private activeRoots: Array<{ uri: Uri; fsPath: string }> = [];
   /** Semantic embedding index for file-level similarity search */
   private embeddingIndex: import('./embeddingIndex.js').EmbeddingIndex | null = null;
+  /** Symbol-level semantic index (v0.62 c.1 — PKI retriever migration).
+   *  Set when `sidecar.projectKnowledge.enabled` is on; null otherwise. */
+  private symbolEmbeddings: import('./symbolEmbeddingIndex.js').SymbolEmbeddingIndex | null = null;
 
   constructor(maxContextChars = 20_000) {
     this.maxContextChars = maxContextChars;
@@ -156,6 +159,22 @@ export class WorkspaceIndex implements Disposable {
   /** Get the embedding index (for extension wiring). */
   getEmbeddingIndex(): import('./embeddingIndex.js').EmbeddingIndex | null {
     return this.embeddingIndex;
+  }
+
+  /**
+   * Attach the symbol-level embedding index (v0.62 c.1 — PKI
+   * migration). When set + ready + non-empty, retrievers prefer it
+   * over the file-level index because symbol-granularity hits are
+   * more precise for agent context. The file-level index stays as
+   * the fallback so nothing breaks when PKI is disabled or empty.
+   */
+  setSymbolEmbeddings(index: import('./symbolEmbeddingIndex.js').SymbolEmbeddingIndex | null): void {
+    this.symbolEmbeddings = index;
+  }
+
+  /** Get the symbol embedding index (null when PKI isn't wired). */
+  getSymbolEmbeddings(): import('./symbolEmbeddingIndex.js').SymbolEmbeddingIndex | null {
+    return this.symbolEmbeddings;
   }
 
   /** Set pinned paths from settings (replaces previous pins from settings). */
