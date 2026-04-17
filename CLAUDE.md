@@ -117,6 +117,10 @@ The chat UI itself is vanilla HTML/JS/CSS in `media/chat.js` + `media/chat.css`.
 
 `symbolIndexer.ts` + `symbolGraph.ts` — tree-sitter-based symbol graph for cross-file reference resolution.
 
+### Project Knowledge Index (`src/config/symbolEmbeddingIndex.ts`)
+
+v0.61+ opt-in semantic layer. Symbol-granularity sibling of the file-level `EmbeddingIndex` — same `@xenova/transformers` MiniLM model + 384-dim space. `SymbolIndexer.setSymbolEmbeddings(index, maxSymbolsPerFile?)` wires the embedder so every parsed file feeds each extracted symbol's body into a debounced `queueSymbol` batch drain (500 ms window, 20/batch). Queried via the new `project_knowledge_search` agent tool in [`src/agent/tools/projectKnowledge.ts`](src/agent/tools/projectKnowledge.ts); tool runs cosine over the flat vector store (LanceDB HNSW deferred to v0.62), then calls `enrichWithGraphWalk(directHits, graph, { maxDepth, maxGraphHits })` to walk `SymbolGraph.getCallers` edges outward from each hit — so a query like "where is auth handled?" returns `requireAuth` plus every route that wraps it, tagged with `vector: 0.823` or `graph: called-by (1 hop from requireAuth)`. Gated behind `sidecar.projectKnowledge.enabled` (default `false` during the v0.61 preview — flips to default-on in v0.62 after RAG-eval).
+
 ### HuggingFace Model Import (`src/ollama/huggingface.ts` + `hfSafetensorsImport.ts`)
 
 Two install paths:

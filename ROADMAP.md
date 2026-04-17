@@ -31,11 +31,19 @@ Each release ships **1–2 features** plus a paired **refactor beat** (code-qual
 - **Coverage ratchet shipped**: `src/review/` lifted from ~27% to 100/85.7/100/100 each. Aggregate 60.99 → 61.79 stmts · 53.37 → 54.06 branches · 61.11 → 61.80 funcs · 61.76 → 62.63 lines. CI ratchet bumped to 61/53/61/62.
 - **Tag**: [`v0.60.0`](https://github.com/nedonatelli/sidecar/releases/tag/v0.60.0). +91 tests, 2075 total.
 
-### v0.61 — Retrieval core
-- **Feature**: [Project Knowledge Index](#project-knowledge-index--symbol-level-vectors--graph-fusion-in-an-on-disk-vector-db)
-- **Refactor beat**: Embedding subsystem perf — async reads replacing sync `fs.readFileSync` in tight loops; `workspace.onDidChangeConfiguration` listener dispose; embedding batch-size tuning. Folds audit findings #4 and #10.
-- **Coverage focus**: `src/parsing/treeSitterAnalyzer.ts` (0% → ≥80%) — PKI's symbol-chunking work touches it; write tests as feature ships. Target ≥67/59/66/67.
-- **Acceptance**: LanceDB-backed symbol-level index with graph-walk retrieval surfaces call/import/used-by relationships in `project_knowledge_search` results.
+### v0.61 — Retrieval core ✅ *shipped 2026-04-16*
+- **Features shipped**: [Project Knowledge Index](#project-knowledge-index--symbol-level-vectors--graph-fusion-in-an-on-disk-vector-db) (MVP — symbol-level `SymbolEmbeddingIndex` primitive, wired to the `SymbolIndexer` pipeline with debounced batch drain, new `project_knowledge_search` agent tool, graph-walk retrieval enrichment via `SymbolGraph.getCallers` with budget cap + decayed scoring. LanceDB backend, sidebar panel, Merkle fingerprint, and migration of `SemanticRetriever` to prefer the symbol index all deferred to v0.62.) · **Audit Mode Phase 2** — finishes the v0.60 MVP: per-file accept/reject in the review loop, conflict detection against mid-review disk edits, buffer persistence across extension reloads (with `Review` / `Discard` recovery prompt), and `git_commit` buffering end-to-end.
+- **Refactor beat shipped**: PKI feature flag (`sidecar.projectKnowledge.enabled`, default `false` for opt-in preview), `ToolRuntime.symbolEmbeddings` wiring mirroring the existing `setSymbolGraph` pattern, persistence schema versioning (v1 → v2 envelope) with transparent migration. Embedding subsystem perf improvements (async reads, listener dispose, batch-size tuning per audit #4/#10) ***deferred to v0.62*** — the v0.61 scope was already large.
+- **Coverage delta**: 61.79 → 61.79 (neutral; new code shipped with ≥90% per-file coverage as per policy, but denominator grew proportionally). No ratchet bump this release — next bump targets v0.62 once RAG-eval infrastructure ships.
+- **Tag**: [`v0.61.0`](https://github.com/nedonatelli/sidecar/releases/tag/v0.61.0). +83 tests, 2158 total.
+
+### v0.61 deferrals folded into v0.62+
+- `SemanticRetriever` migration to symbol index (contingent on RAG-eval showing no regression)
+- LanceDB HNSW backend behind `sidecar.projectKnowledge.backend: 'lance' | 'flat'`
+- Merkle-addressed fingerprint (structural addressing layer)
+- Project Knowledge sidebar panel (UI work → v0.63)
+- Hook + approval pattern unification (carried from v0.60; now contingent on RAG-eval + UI design)
+- `src/parsing/treeSitterAnalyzer.ts` coverage lift (originally planned as v0.61 focus; defer with the analyzer's PKI-adjacent work to v0.62)
 
 ### v0.62 — Retrieval quality
 - **Features**: [Merkle-Addressed Semantic Fingerprint](#merkle-addressed-semantic-fingerprint--keystroke-live-structural-index) · [RAG-Native Eval Metrics (RAGAs) + Qualitative LLM-as-Judge (G-Eval)](#rag-native-eval-metrics-ragas--qualitative-llm-as-judge-g-eval)
@@ -203,7 +211,7 @@ Collapse duplicated plumbing: tool registration, backend retry/breaker/rate-limi
 
 ## Coverage Plan
 
-**Current (v0.60.0)**: 61.79% stmts · 54.06% branches · 61.80% funcs · 62.63% lines across 2075 tests / 131 files. CI ratchet at 61/53/61/62. (v0.59.0 baseline after denominator hygiene was 60.99/53.37/61.11/61.76; v0.60's `src/review/` lift bumped every metric ~1 pp.)
+**Current (v0.61.0)**: +83 tests for v0.61 (Audit Mode Phase 2 + PKI feature arc), 2158 tests / 135 files. CI ratchet holds at 61/53/61/62 — no ratchet bump this release because new PKI and Audit persistence files shipped with ≥90% per-file coverage as per policy and the denominator grew proportionally. v0.62's retrieval-quality work (RAG-eval infrastructure + backend test harmonization) is sized to move the ratchet back up. (v0.60 baseline: 61.79/54.06/61.80/62.63.)
 
 **Target**: 80% stmts · 70% branches · 80% funcs · 80% lines (the 80/70/80/80 split reflects that branch coverage is harder to pay for — error paths, concurrent races, partial failures — so it carries a lower bar).
 
@@ -1068,6 +1076,23 @@ During the v0.58.1 reorganization, the previous Deferred backlog was audited and
 ## Release History
 
 Rolling log of what shipped in each release, newest first. Each subsection preserves the context that was written at release time — file:line references, reasoning, test-count stats, stats progression. Serves as both a changelog appendix and an architectural lineage trace.
+
+### v0.61.0 (2026-04-16)
+
+Third Release-Plan entry. Theme: **retrieval core** — queries that are actually about code concepts (not text matches) get a symbol-granularity semantic layer with graph-walk enrichment, while the v0.60 Audit Mode MVP finishes its Phase 2 with per-file acceptance, conflict detection, reload persistence, and git-commit buffering. Two distinct feature arcs land in the same release because the Audit Phase 2 deferrals were one-sprint scope each and blocking the next retrieval release on them didn't make sense.
+
+- ✅ **Project Knowledge Index** (b.1–b.4, full MVP feature arc).
+  - **b.1** — New [`SymbolEmbeddingIndex`](src/config/symbolEmbeddingIndex.ts) primitive. Symbol-granularity sibling of the file-level `EmbeddingIndex` using the same `@xenova/transformers` MiniLM model + 384-dim space so queries can cross both backends during migration. `indexSymbol` embeds each symbol body prefixed with `qualifiedName (kind)` for structural context; content-hash short-circuit skips re-embed when body unchanged. `search` supports `kindFilter` + `pathPrefix`. Persists to `.sidecar/cache/symbol-embeddings.{bin,meta.json}`. +19 tests.
+  - **b.2** — Wired to [`SymbolIndexer`](src/config/symbolIndexer.ts) via `setSymbolEmbeddings(index, maxSymbolsPerFile?)`. Debounced `queueSymbol` + `flushQueue` batch drain (500 ms window, 20 per batch) so a workspace scan doesn't serialize on a single embed. Rename/delete flows drop files from the embedder. Settings `sidecar.projectKnowledge.{enabled, maxSymbolsPerFile}` (default `false`, `500`). +8 tests.
+  - **b.3** — New [`project_knowledge_search`](src/agent/tools/projectKnowledge.ts) agent tool. Params `query` / `maxHits` / `kindFilter` / `pathPrefix`. Returns `filePath:startLine-endLine\tkind\tqualifiedName\t(vector: 0.NNN)` per hit — a shape `read_file` can consume directly. Graceful degradation (not-enabled / warming-up / no-matches hints). Wired through `ToolRuntime.symbolEmbeddings` + `setSymbolEmbeddings()` exporter. +9 tests.
+  - **b.4** — Graph-walk retrieval enrichment via new `enrichWithGraphWalk(directHits, graph, { maxDepth, maxGraphHits })` helper. BFS per starting hit walking `SymbolGraph.getCallers` edges, caller call-sites resolved to their containing symbol (enclosing function), budget cap on added symbols across all starts, dedup across frontier starts, scores decay `directScore * 0.5^hops`. New tool params `graphWalkDepth` (default 1, clamped [0, 3]) and `maxGraphHits` (default 10, clamped [0, 50]). Response header distinguishes vector-only vs. enriched. Relationship column shows either `vector: 0.823` or `graph: called-by (1 hop from requireAuth)`. +10 tests.
+- ✅ **Audit Mode Phase 2** (a.1–a.4, all four v0.60 deferrals shipped).
+  - **a.1** — Per-file accept/reject in the review loop. Picker now loops after per-file actions so the user walks the buffer one file at a time; bulk actions still terminate. New `acceptFileAuditBuffer(deps, path)` + `rejectFileAuditBuffer(deps, path)` exports; shared `flushBufferPaths(deps, paths?)` helper. +7 tests.
+  - **a.2** — Conflict detection on flush. Pre-flush pass reads current disk state for every entry about to flush and compares against `entry.originalContent`. Divergence surfaces a modal `showConflictDialog(message)` with conflicting paths enumerated; `Apply Anyway` proceeds, cancel preserves buffer. Subset-aware (per-file accept only prompts on conflicts in that file). +6 tests.
+  - **a.3** — Buffer persistence across reloads. New `AuditBufferPersistence` interface + FS-backed shim in [`auditBufferPersistence.ts`](src/agent/audit/auditBufferPersistence.ts) serializing to `.sidecar/audit-buffer/state.json`. Schema versioning (v1 → v2 envelope with transparent migration) + 64 MB hard cap + corrupted-file rejection + per-entry shape validation on load. Extension activation prompts `Review` / `Discard` on prior-session recovery. Best-effort save — disk-full errors log but don't fail mutations. +12 tests.
+  - **a.4** — Git-commit buffering end-to-end. `sidecar.audit.bufferGitCommits` flag (inert in v0.60) now gates commit execution. `git_commit` tool in audit mode routes through new `AuditBuffer.queueCommit(message, trailers?)` instead of running `GitCLI.commit`. Queued commits execute in FIFO order as the last step of a flush that empties the buffer. Subset flushes leave commits queued; full reject drops them. New `BufferedCommit` + `ExecuteCommitFn` types, `committed` field on `flush()` return, persistence envelope includes commits. Commit failure preserves file writes on disk + keeps commits queued for retry. +14 tests.
+
+**Explicitly deferred to v0.62** (scoped out of v0.61 MVP): LanceDB HNSW backend (`sidecar.projectKnowledge.backend: 'lance' | 'flat'`) · `SemanticRetriever` migration to prefer the symbol index · Merkle-addressed fingerprint layer · Project Knowledge sidebar panel (UI work → v0.63) · hook + approval pattern unification (carried from v0.60; needs RAG-eval data + UI design to justify the refactor).
 
 ### v0.60.0 (2026-04-16)
 
