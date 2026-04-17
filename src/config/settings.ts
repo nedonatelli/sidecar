@@ -364,7 +364,7 @@ export interface CustomModeConfig {
   toolPermissions?: Record<string, 'allow' | 'deny' | 'ask'>;
 }
 
-const BUILT_IN_MODES = ['autonomous', 'cautious', 'manual', 'plan', 'review'] as const;
+const BUILT_IN_MODES = ['autonomous', 'cautious', 'manual', 'plan', 'review', 'audit'] as const;
 
 /** Resolve an agentMode string to its effective approval behavior, system prompt, and tool permissions. */
 export function resolveMode(
@@ -377,6 +377,21 @@ export function resolveMode(
   isCustom: boolean;
 } {
   if ((BUILT_IN_MODES as readonly string[]).includes(agentMode)) {
+    // Audit mode is a special case: the approval layer is the audit
+    // buffer + user review step, NOT per-tool-call confirmation
+    // prompts. So the underlying approvalBehavior is 'autonomous'
+    // (agent runs without interruption) and fs writes get intercepted
+    // by the AuditBuffer in fs.ts. Surfacing as 'autonomous' downstream
+    // keeps executor.ts's ConfirmFn logic simple without teaching
+    // ApprovalMode a sixth value.
+    if (agentMode === 'audit') {
+      return {
+        approvalBehavior: 'autonomous',
+        systemPrompt: '',
+        toolPermissions: {},
+        isCustom: false,
+      };
+    }
     return {
       approvalBehavior: agentMode as 'autonomous' | 'cautious' | 'manual' | 'plan' | 'review',
       systemPrompt: '',
@@ -489,6 +504,9 @@ export interface SideCarConfig {
   shadowWorkspaceMode: 'off' | 'opt-in' | 'always';
   shadowWorkspaceAutoCleanup: boolean;
   shadowWorkspaceGateCommand: string;
+  /* Audit Mode (v0.60) */
+  auditAutoApproveReads: boolean;
+  auditBufferGitCommits: boolean;
 }
 
 /**
@@ -618,6 +636,9 @@ function readConfig(): SideCarConfig {
     shadowWorkspaceMode: cfg.get<'off' | 'opt-in' | 'always'>('shadowWorkspace.mode', 'off'),
     shadowWorkspaceAutoCleanup: cfg.get<boolean>('shadowWorkspace.autoCleanup', true),
     shadowWorkspaceGateCommand: cfg.get<string>('shadowWorkspace.gateCommand', 'npm run check'),
+    /* Audit Mode (v0.60) */
+    auditAutoApproveReads: cfg.get<boolean>('audit.autoApproveReads', true),
+    auditBufferGitCommits: cfg.get<boolean>('audit.bufferGitCommits', true),
   };
 }
 

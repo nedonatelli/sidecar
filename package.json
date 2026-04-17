@@ -329,7 +329,7 @@
             "sidecar",
             "agent"
           ],
-          "markdownDescription": "How much autonomy the agent has. Built-in modes:\n\n- `cautious` — asks before destructive tools (default)\n- `autonomous` — runs every allowed tool without asking\n- `manual` — asks before every tool\n- `plan` — generates a plan for your approval, then executes\n- `review` — queues file edits for review; nothing hits disk\n\nCustom modes defined in `#sidecar.customModes#` are also valid here."
+          "markdownDescription": "How much autonomy the agent has. Built-in modes:\n\n- `cautious` — asks before destructive tools (default)\n- `autonomous` — runs every allowed tool without asking\n- `manual` — asks before every tool\n- `plan` — generates a plan for your approval, then executes\n- `review` — queues file edits for review; nothing hits disk\n- `audit` *(v0.60)* — agent runs without per-call prompts, but every `write_file` / `edit_file` / `delete_file` is diverted to an in-memory buffer instead of touching disk. The user reviews the buffered changes at the end and either accepts (atomic flush) or rejects (discard). Shell commands still run normally — scope is the agent's explicit file-authoring surface, not every side effect.\n\nCustom modes defined in `#sidecar.customModes#` are also valid here."
         },
         "sidecar.agentTemperature": {
           "type": "number",
@@ -627,6 +627,24 @@
             "sidecar"
           ],
           "markdownDescription": "Global override for `sidecar.regressionGuards`.\n\n- `strict` (default) — honor each guard's per-entry `blocking` flag.\n- `warn` — force every guard to non-blocking, so failures surface as warnings but don't halt the agent. Useful for short-term opt-out during a known-broken refactor without editing every entry.\n- `off` — disable all guards regardless of config. Useful for emergency bypass."
+        },
+        "sidecar.audit.autoApproveReads": {
+          "type": "boolean",
+          "default": true,
+          "order": 23,
+          "tags": [
+            "sidecar"
+          ],
+          "markdownDescription": "*(Audit Mode, v0.60)* When true (default), `read_file` / `list_directory` calls don't need to go through the audit buffer review — reads don't mutate state, so they pass through even when the agent is running in `audit` mode. Set to `false` to require explicit approval for every read (rarely useful; mostly for auditing sessions where the set of files consulted is itself sensitive)."
+        },
+        "sidecar.audit.bufferGitCommits": {
+          "type": "boolean",
+          "default": true,
+          "order": 24,
+          "tags": [
+            "sidecar"
+          ],
+          "markdownDescription": "*(Audit Mode, v0.60)* When true (default), `git_commit` tool calls are buffered alongside file writes so a rejected audit batch leaves `HEAD` unchanged. When false, commits land immediately regardless of audit state — useful for session-tracking commits (changelog entries, audit trail) the user wants to keep even if the code changes are rejected. Note: **v0.60 MVP does not yet implement git-commit buffering** — the setting exists so the behavior lands zero-config when the feature ships."
         },
         "sidecar.includeActiveFile": {
           "type": "boolean",

@@ -9,6 +9,43 @@ import {
   type ToolExecutorContext,
 } from './shared.js';
 import { compactSourceFile, outlineSourceFile } from './compression.js';
+import { getConfig } from '../../config/settings.js';
+import { getDefaultAuditBuffer } from '../audit/auditBuffer.js';
+
+/**
+ * True when Audit Mode is active — writes should buffer, reads should
+ * read-through the buffer for buffered paths. Checked per-call so the
+ * user flipping agentMode mid-session takes effect on the next tool
+ * dispatch. Returns false when no context is available or the mode
+ * isn't `audit`, so tools that don't check this fall through to the
+ * real-disk path unchanged.
+ */
+function isAuditModeActive(): boolean {
+  try {
+    return getConfig().agentMode === 'audit';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Read buffered content for a workspace-relative path if Audit Mode
+ * has it. Returns undefined to mean "fall through to real disk" — the
+ * deleted case (buffer marked-for-delete) is surfaced explicitly so
+ * the caller can emit a "file not found" response for the agent.
+ */
+async function readDiskViaWorkspace(
+  context: ToolExecutorContext | undefined,
+  relPath: string,
+): Promise<string | undefined> {
+  try {
+    const fileUri = Uri.joinPath(resolveRootUri(context), relPath);
+    const bytes = await workspace.fs.readFile(fileUri);
+    return Buffer.from(bytes).toString('utf-8');
+  } catch {
+    return undefined;
+  }
+}
 
 // Filesystem tools: read_file / write_file / edit_file / list_directory.
 // All four route through VS Code's workspace.fs (rather than node:fs) so
@@ -109,13 +146,31 @@ export async function readFile(input: Record<string, unknown>, context?: ToolExe
   if (isSensitiveFile(filePath)) {
     return `Warning: "${filePath}" appears to contain secrets or credentials. Reading this file would send its contents to the LLM provider. Use read_file on a non-sensitive file instead, or ask the user to provide the needed information directly.`;
   }
+  const mode = input.mode as string | undefined;
+
+  // Audit Mode read-through: if the agent previously wrote this file
+  // during the same session, return the buffered content rather than
+  // the stale disk contents. Keeps multi-step edits stacking correctly.
+  if (isAuditModeActive()) {
+    const bufState = getDefaultAuditBuffer().read(filePath);
+    if (bufState.buffered) {
+      if (bufState.deleted) {
+        return `Error: File not found (${filePath}) — deleted in Audit Buffer pending review.`;
+      }
+      const text = bufState.content ?? '';
+      if (mode === 'compact') return compactSourceFile(text);
+      if (mode === 'outline') return outlineSourceFile(text);
+      return text;
+    }
+    // Not buffered — fall through to real disk.
+  }
+
   // resolveRootUri consults `context.cwd` first so ShadowWorkspace-pinned
   // reads see the shadow's state (including the agent's own in-progress
   // writes) instead of main-tree content.
   const fileUri = Uri.joinPath(resolveRootUri(context), filePath);
   const bytes = await workspace.fs.readFile(fileUri);
   const text = Buffer.from(bytes).toString('utf-8');
-  const mode = input.mode as string | undefined;
   if (mode === 'compact') return compactSourceFile(text);
   if (mode === 'outline') return outlineSourceFile(text);
   return text;
@@ -128,6 +183,16 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
   const protectedError = isProtectedWritePath(filePath);
   if (protectedError) return protectedError;
   const content = input.content as string;
+
+  // Audit Mode: divert the write to the in-memory buffer instead of
+  // touching disk. The agent sees a normal success response and keeps
+  // working against the buffered state; user reviews later and either
+  // flushes (applies every buffered change atomically) or rejects.
+  if (isAuditModeActive()) {
+    await getDefaultAuditBuffer().write(filePath, content, (p) => readDiskViaWorkspace(context, p));
+    return `File written: ${filePath} (buffered for audit review)`;
+  }
+
   const rootUri = resolveRootUri(context);
   const fileUri = Uri.joinPath(rootUri, filePath);
   // Create parent directories in the same root the file write targets.
@@ -147,6 +212,35 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   if (protectedError) return protectedError;
   const search = input.search as string;
   const replace = input.replace as string;
+
+  // Audit Mode: read the current state (from buffer if already there,
+  // else from disk), apply the substring replacement, and write the
+  // result back to the buffer. The buffer's own write() method handles
+  // the create-vs-modify classification + originalContent capture.
+  if (isAuditModeActive()) {
+    const buf = getDefaultAuditBuffer();
+    const bufState = buf.read(filePath);
+    let currentText: string;
+    if (bufState.buffered) {
+      if (bufState.deleted) return `Error: File not found in buffer (${filePath}) — was deleted earlier this session.`;
+      // In the buffered + not-deleted branch, `content` is always a
+      // string (AuditBuffer only emits `content: undefined` for the
+      // deleted op), but the type system can't infer that from the
+      // struct shape alone — default to empty string defensively.
+      currentText = bufState.content ?? '';
+    } else {
+      const diskText = await readDiskViaWorkspace(context, filePath);
+      if (diskText === undefined) return `Error: File not found: ${filePath}`;
+      currentText = diskText;
+    }
+    if (!currentText.includes(search)) {
+      return `Error: Search text not found in ${filePath}`;
+    }
+    const newText = currentText.replace(search, replace);
+    await buf.write(filePath, newText, (p) => readDiskViaWorkspace(context, p));
+    return `File edited: ${filePath} (buffered for audit review)`;
+  }
+
   const fileUri = Uri.joinPath(resolveRootUri(context), filePath);
   const bytes = await workspace.fs.readFile(fileUri);
   const text = Buffer.from(bytes).toString('utf-8');
