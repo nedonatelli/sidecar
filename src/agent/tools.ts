@@ -43,6 +43,7 @@ import {
 } from './tools/git.js';
 import { webSearchDef, webSearch, displayDiagramDef, displayDiagram } from './tools/knowledge.js';
 import { systemMonitorDef, systemMonitor } from './tools/systemMonitor.js';
+import { projectKnowledgeSearchDef, projectKnowledgeSearch } from './tools/projectKnowledge.js';
 import {
   switchBackendDef,
   switchBackend,
@@ -67,7 +68,13 @@ import {
 // Re-export types + value-level entrypoints that pre-split callers imported
 // straight from './tools.js'. Keeping these preserves the public surface.
 export type { ClarifyFn, ToolExecutorContext, ToolExecutor, RegisteredTool } from './tools/shared.js';
-export { ToolRuntime, getDefaultToolRuntime, disposeShellSession, setSymbolGraph } from './tools/runtime.js';
+export {
+  ToolRuntime,
+  getDefaultToolRuntime,
+  disposeShellSession,
+  setSymbolGraph,
+  setSymbolEmbeddings,
+} from './tools/runtime.js';
 export { getDiagnostics } from './tools/diagnostics.js';
 
 const execAsync = promisify(exec);
@@ -97,6 +104,7 @@ export const TOOL_REGISTRY: RegisteredTool[] = [
   { definition: findReferencesDef, executor: findReferences, requiresApproval: false },
   { definition: webSearchDef, executor: webSearch, requiresApproval: false },
   { definition: systemMonitorDef, executor: systemMonitor, requiresApproval: false },
+  { definition: projectKnowledgeSearchDef, executor: projectKnowledgeSearch, requiresApproval: false },
   // Settings tools. `alwaysRequireApproval: true` on the two mutating
   // tools ensures the user sees a modal even in autonomous mode and
   // even when `toolPermissions` sets them to `allow` — the user's

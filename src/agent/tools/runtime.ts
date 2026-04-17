@@ -1,6 +1,7 @@
 import { getConfig } from '../../config/settings.js';
 import { ShellSession } from '../../terminal/shellSession.js';
 import type { SymbolGraph } from '../../config/symbolGraph.js';
+import type { SymbolEmbeddingIndex } from '../../config/symbolEmbeddingIndex.js';
 import { getRoot } from './shared.js';
 
 // ---------------------------------------------------------------------------
@@ -18,6 +19,9 @@ import { getRoot } from './shared.js';
 export class ToolRuntime {
   private shell: ShellSession | null = null;
   symbolGraph: SymbolGraph | null = null;
+  /** Project Knowledge Index symbol-embedding store (v0.61 b.3). Wired
+   *  when `sidecar.projectKnowledge.enabled` is on; null otherwise. */
+  symbolEmbeddings: SymbolEmbeddingIndex | null = null;
 
   /**
    * Lazily-constructed persistent shell session. State (cwd, env vars,
@@ -64,4 +68,13 @@ export function disposeShellSession(): void {
  */
 export function setSymbolGraph(graph: SymbolGraph | null): void {
   defaultRuntime.symbolGraph = graph;
+}
+
+/**
+ * Wire (or unwire) the symbol-embedding index so `project_knowledge_search`
+ * has something to query (v0.61 b.3). Passing `null` detaches and makes
+ * the tool surface an "index not available" response.
+ */
+export function setSymbolEmbeddings(index: SymbolEmbeddingIndex | null): void {
+  defaultRuntime.symbolEmbeddings = index;
 }

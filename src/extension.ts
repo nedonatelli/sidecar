@@ -50,7 +50,7 @@ import { SymbolIndexer } from './config/symbolIndexer.js';
 import { SkillLoader } from './agent/skillLoader.js';
 import { getFilePatterns } from './config/workspace.js';
 import { runPreCommitScan } from './agent/preCommitScan.js';
-import { disposeShellSession, setSymbolGraph, initCustomToolsTrust } from './agent/tools.js';
+import { disposeShellSession, setSymbolGraph, setSymbolEmbeddings, initCustomToolsTrust } from './agent/tools.js';
 import { disposeSidecarMdWatcher } from './webview/handlers/chatHandlers.js';
 import { InlineEditProvider } from './edits/inlineEditProvider.js';
 import { SidecarCodeActionProvider } from './edits/sidecarCodeActionProvider.js';
@@ -216,6 +216,9 @@ export function activate(context: ExtensionContext) {
             .initialize()
             .then(() => {
               symbolIndexer.setSymbolEmbeddings(symbolEmbeddings, config.projectKnowledgeMaxSymbolsPerFile);
+              // Expose the index to the tool registry so
+              // `project_knowledge_search` has something to query.
+              setSymbolEmbeddings(symbolEmbeddings);
               console.log(
                 `[SideCar] Symbol embedding index ready: ${symbolEmbeddings.getCount()} cached symbol vectors`,
               );
