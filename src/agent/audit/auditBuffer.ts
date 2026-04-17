@@ -39,6 +39,24 @@ export type ReadDiskFn = (path: string) => Promise<string | undefined>;
 export type WriteDiskFn = (path: string, content: string) => Promise<void>;
 export type DeleteDiskFn = (path: string) => Promise<void>;
 
+/**
+ * Optional persistence layer (v0.61 a.3). When set, the buffer
+ * serializes its state to durable storage after every mutation and
+ * restores from it on next activation. Persistence is best-effort
+ * — a failing `save()` logs a warning but never fails the mutation
+ * that triggered it, because losing a few minutes of buffered work
+ * on save failure is strictly less bad than refusing the agent's
+ * write and getting stuck mid-task.
+ */
+export interface AuditBufferPersistence {
+  /** Persist the current set of entries. Called after every mutation. */
+  save(entries: BufferedChange[]): Promise<void>;
+  /** Load previously-persisted entries, or null when nothing is stored. */
+  load(): Promise<BufferedChange[] | null>;
+  /** Remove the persisted state entirely. Called after a clean flush. */
+  clear(): Promise<void>;
+}
+
 /** Error thrown by `flush()` when a subset of writes failed after
  *  others had already committed. Carries the list of applied paths so
  *  the caller can inform the user about the partial state. */
@@ -55,6 +73,49 @@ export class AuditFlushError extends Error {
 
 export class AuditBuffer {
   private readonly entries = new Map<string, BufferedChange>();
+  private persistence: AuditBufferPersistence | null = null;
+
+  /**
+   * Wire a persistence layer (v0.61 a.3). Optional — a buffer without
+   * persistence behaves exactly like v0.60. Setter (not constructor
+   * arg) so the extension can initialize the buffer lazily on first
+   * agent run without forcing activation-time `.sidecar/` setup for
+   * users who never touch Audit Mode.
+   */
+  setPersistence(persistence: AuditBufferPersistence | null): void {
+    this.persistence = persistence;
+  }
+
+  /**
+   * Restore entries from a previously-persisted snapshot (v0.61 a.3).
+   * Intended for one-time use at activation — subsequent writes go
+   * through `write()` / `deleteFile()`. Replaces any in-memory state.
+   */
+  restore(entries: BufferedChange[]): void {
+    this.entries.clear();
+    for (const entry of entries) {
+      this.entries.set(entry.path, entry);
+    }
+  }
+
+  /**
+   * Fire-and-forget persistence. Called from every mutation after the
+   * in-memory state has been updated. Errors are swallowed with a
+   * `console.warn` because dropping a persisted save is strictly
+   * better than failing a mutation the agent needs to keep working.
+   */
+  private async persist(): Promise<void> {
+    if (!this.persistence) return;
+    try {
+      if (this.entries.size === 0) {
+        await this.persistence.clear();
+      } else {
+        await this.persistence.save(this.list());
+      }
+    } catch (err) {
+      console.warn('[AuditBuffer] persist failed (in-memory state retained):', err);
+    }
+  }
 
   /**
    * Record a full write (`write_file`) into the buffer. Captures the
@@ -77,6 +138,7 @@ export class AuditBuffer {
       originalContent,
       timestamp: Date.now(),
     });
+    await this.persist();
   }
 
   /**
@@ -89,6 +151,7 @@ export class AuditBuffer {
     if (existing?.op === 'create') {
       // Net no-op: we were going to create this, now we're deleting it.
       this.entries.delete(filePath);
+      await this.persist();
       return;
     }
     const originalContent = existing?.originalContent ?? (await readDisk(filePath));
@@ -98,6 +161,7 @@ export class AuditBuffer {
       originalContent,
       timestamp: Date.now(),
     });
+    await this.persist();
   }
 
   /**
@@ -209,18 +273,24 @@ export class AuditBuffer {
     for (const entry of targetEntries) {
       this.entries.delete(entry.path);
     }
+    await this.persist();
 
     return { applied };
   }
 
   /** Drop entries from the buffer without touching disk. `paths`
-   *  omitted clears everything. Used by Reject All / per-file Reject. */
+   *  omitted clears everything. Used by Reject All / per-file Reject.
+   *  Persists asynchronously in the background since the call site
+   *  is synchronous (matches the pre-v0.61 API contract). */
   clear(paths?: string[]): void {
     if (!paths) {
       this.entries.clear();
-      return;
+    } else {
+      for (const p of paths) this.entries.delete(p);
     }
-    for (const p of paths) this.entries.delete(p);
+    // Fire-and-forget — this stays non-async so callers don't need
+    // to thread await through reject-flow code that already works.
+    void this.persist();
   }
 }
 

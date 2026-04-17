@@ -133,7 +133,16 @@ export function activate(context: ExtensionContext) {
   const sidecarDir = new SidecarDir();
   if (workspace.workspaceFolders && workspace.workspaceFolders.length > 0) {
     sidecarDir.initialize().then(
-      (ok) => ok && console.log('[SideCar] .sidecar/ directory ready'),
+      async (ok) => {
+        if (!ok) return;
+        console.log('[SideCar] .sidecar/ directory ready');
+        // Audit Mode v0.61 a.3: wire persistence + check for a
+        // prior-session buffer. If anything's there, prompt the user
+        // before re-exposing the entries — they may not remember the
+        // previous run and silently re-staging its writes could be a
+        // surprise on the next accept-all.
+        await initAuditBufferRecovery();
+      },
       (err) => console.warn('[SideCar] .sidecar/ init failed:', err),
     );
   }
@@ -1026,6 +1035,50 @@ export function activate(context: ExtensionContext) {
   );
 
   console.log('SideCar extension activated');
+}
+
+/**
+ * v0.61 a.3 — wire persistence to the Audit Buffer singleton + prompt
+ * the user to recover any prior-session state. Kept out of the
+ * activation hot path as a separate async helper because loading
+ * `workspace.fs.readFile` on `.sidecar/audit-buffer/state.json` is
+ * the kind of thing we want to fire-and-forget after trust + sidecar
+ * dir setup finishes.
+ *
+ * On recovery: prompts the user with Accept All Pending (flush now)
+ * / Keep for Review / Discard. If they pick Discard, the persisted
+ * state gets cleared. Defaults to Keep for Review on ESC.
+ */
+async function initAuditBufferRecovery(): Promise<void> {
+  const { getDefaultAuditBuffer } = await import('./agent/audit/auditBuffer.js');
+  const { createWorkspaceAuditBufferPersistence } = await import('./agent/audit/auditBufferPersistence.js');
+  const persistence = createWorkspaceAuditBufferPersistence();
+  const buf = getDefaultAuditBuffer();
+  buf.setPersistence(persistence);
+
+  let recovered: Awaited<ReturnType<typeof persistence.load>>;
+  try {
+    recovered = await persistence.load();
+  } catch (err) {
+    console.warn('[SideCar] Audit buffer load failed:', err);
+    return;
+  }
+  if (!recovered || recovered.length === 0) return;
+
+  const count = recovered.length;
+  const choice = await window.showInformationMessage(
+    `SideCar audit: ${count} buffered change${count === 1 ? '' : 's'} from your previous session. What would you like to do?`,
+    { modal: false },
+    'Review',
+    'Discard',
+  );
+  if (choice === 'Discard') {
+    await persistence.clear();
+    return;
+  }
+  // Default / Review: restore to in-memory buffer. The user can open
+  // `SideCar: Audit: Review Buffered Changes` at their leisure.
+  buf.restore(recovered);
 }
 
 export function deactivate() {

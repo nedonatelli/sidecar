@@ -16,10 +16,19 @@ export class SidecarDir {
   private initialized = false;
 
   /** Subdirectories created on first access (lazy). */
-  private static readonly SUBDIRS = ['specs', 'plans', 'memory', 'cache', 'sessions', 'logs', 'scratchpad'] as const;
+  private static readonly SUBDIRS = [
+    'specs',
+    'plans',
+    'memory',
+    'cache',
+    'sessions',
+    'logs',
+    'scratchpad',
+    'audit-buffer',
+  ] as const;
 
   /** Subdirectories excluded from git. */
-  private static readonly GITIGNORED = ['cache', 'sessions', 'logs', 'scratchpad'] as const;
+  private static readonly GITIGNORED = ['cache', 'sessions', 'logs', 'scratchpad', 'audit-buffer'] as const;
 
   private static readonly GITIGNORE_CONTENT = [
     '# Ephemeral / machine-specific — do not commit',
@@ -27,6 +36,7 @@ export class SidecarDir {
     'sessions/',
     'logs/',
     'scratchpad/',
+    'audit-buffer/',
     '',
   ].join('\n');
 
