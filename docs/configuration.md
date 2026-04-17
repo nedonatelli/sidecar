@@ -262,8 +262,24 @@ The price table is a hardcoded best-effort at list prices for Claude Opus 4.6/4.
 |---------|------|---------|-------------|
 | `sidecar.shellTimeout` | number | `120` | Default timeout for shell commands in seconds |
 | `sidecar.shellMaxOutputMB` | number | `10` | Maximum shell output size in MB before truncation |
+| `sidecar.terminalExecution.enabled` | boolean | `true` | Route `run_command` / `run_tests` through VS Code's shell-integration API in a dedicated *SideCar Agent* terminal. Set to `false` to keep all agent commands on the hidden `ShellSession` path |
+| `sidecar.terminalExecution.terminalName` | string | `"SideCar Agent"` | Display name for the reusable agent terminal |
+| `sidecar.terminalExecution.fallbackToChildProcess` | boolean | `true` | When shell integration is unavailable (bare shell without the init script, older VS Code), fall back to the `ShellSession` / `child_process` path. Set `false` to fail loudly instead |
+| `sidecar.terminalExecution.shellIntegrationTimeoutMs` | number | `2000` | Milliseconds to wait for shell integration to attach to a freshly created terminal before falling back |
 
-Shell commands (`run_command`, `run_tests`) use a **persistent shell session** — environment variables, working directory changes, and aliases persist between tool calls. Set a longer timeout for builds and installs. Use `background: true` to start long-running processes and check on them later with `command_id`.
+Since v0.59, agent shell commands (`run_command`, `run_tests`) render **live in a reusable *SideCar Agent* terminal** via VS Code's shell-integration API rather than in a hidden subprocess. Benefits: transparency (you see exactly what the agent runs), SSH / Dev Container / WSL / Codespaces correctness (shell integration inherits VS Code's remote shell session instead of escaping to the host), and proper exit-code capture. If shell integration isn't available on your shell, the `ShellSession` fallback kicks in automatically — it's a **persistent shell session** with environment variables, cwd, and aliases persisting between tool calls. Set a longer timeout for builds and installs. Use `background: true` to start long-running processes and check on them later with `command_id`.
+
+## Shadow Workspaces (v0.59+)
+
+Optional sandbox for agent tasks. When enabled, the agent runs in an ephemeral git worktree at `.sidecar/shadows/<task-id>/` off the current `HEAD` — writes never touch your main working tree until you accept the resulting diff.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.shadowWorkspace.mode` | enum | `"off"` | `off` disabled; `opt-in` only wraps tasks that explicitly opt in; `always` wraps every agent task |
+| `sidecar.shadowWorkspace.autoCleanup` | boolean | `true` | Remove the shadow worktree + directory after every task. Set `false` to preserve rejected/failed shadows at `.sidecar/shadows/<task-id>/` for post-mortem inspection |
+| `sidecar.shadowWorkspace.gateCommand` | string | `"npm run check"` | Shell command to run inside the shadow before the accept/reject prompt opens. **Not yet wired in v0.59 — lands in v0.60.** Override for non-JS projects (e.g. `"cargo check && cargo test"`) |
+
+At task completion, SideCar shows a `showQuickPick` with the diff summary (file count, line count) and an Accept / Reject choice. Accept applies the diff to main as staged changes (so you see them in `git status`). Reject discards the shadow and leaves your main tree untouched. The v0.59 MVP uses an accept-all / reject-all prompt; per-hunk review UI, conflict handling, symlinked build dirs, and `/sandbox <task>` slash command wiring land in v0.60+.
 
 ## Debugging & reasoning
 

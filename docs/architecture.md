@@ -39,9 +39,10 @@ SideCar is an AI-powered coding assistant for VS Code that operates as an autono
 ### 4. Tool System
 - `tools.ts` - Registry of available tools for the agent
 - Built-in tools for file operations, code search, shell commands, Git operations
-- Custom tools defined in settings
+- Custom tools defined in settings (gated via `checkWorkspaceConfigTrust`)
 - MCP (Model Control Protocol) integration for external tools
 - Tool execution with approval modes and security checks
+- `ToolExecutorContext` carries per-call data: streaming callback, abort signal, `cwd` override for Shadow Workspace routing, and the active `SideCarClient` reference for model-attribution git trailers. `fs.ts` tools resolve relative paths via `resolveRootUri(context)` so ShadowWorkspace can pin writes into a shadow worktree transparently
 
 ### 5. Context Management
 - `WorkspaceIndex` - Indexes project files for context retrieval
@@ -101,9 +102,23 @@ User Input → Webview → Chat Handlers → Agent Loop → LLM → Tool Executi
 - **Agent memory injection**: learned patterns and conventions injected alongside RAG results
 
 ### Integration Points
-- Git operations (status, diff, commit, push, pull, branch, stash)
+- Git operations (status, diff, commit, push, pull, branch, stash, worktree add/remove/list)
 - Testing framework integration
 - Security scanning
 - Custom shell commands
 - **Persistent learning**: automatic recording of successful patterns during agent runs
 - MCP (Model Control Protocol) for external tool integration
+
+### Shadow Workspaces (v0.59+)
+
+An opt-in sandbox for agent tasks. When `sidecar.shadowWorkspace.mode` is `always` (or `opt-in` + explicit per-task opt-in), the agent loop runs inside an ephemeral git worktree at `.sidecar/shadows/<task-id>/` off the current `HEAD`. The user's main working tree stays pristine; at task end, a `showQuickPick` prompt lets the user accept (apply diff to main as staged changes) or reject (discard the shadow).
+
+Key pieces in `src/agent/shadow/`:
+- `shadowWorkspace.ts` — `ShadowWorkspace` class wraps `GitCLI.worktreeAdd/Remove/getHeadSha/diffAgainstHead/applyPatch`. `git worktree add --detach` shares the main repo's object database, so only the tracked-source checkout costs disk (tens of MB typically, not a full repo clone)
+- `sandbox.ts` — `runAgentLoopInSandbox()` drop-in replacement for `runAgentLoop` that plumbs `cwdOverride = shadow.path` through every per-tool `ToolExecutorContext.cwd`
+
+v0.59 ships the MVP: per-hunk review UI, gate-command integration, shell-tool cwd pinning, symlinked build dirs, and rebase-on-moved-main conflict handling all land in v0.60+.
+
+### Agent Terminal Integration (v0.59+)
+
+`src/terminal/agentExecutor.ts` routes agent `run_command` / `run_tests` dispatches through VS Code's `terminal.shellIntegration.executeCommand` API in a reusable *SideCar Agent* terminal. The user sees the agent's commands execute live instead of in a hidden `child_process.spawn`, and on SSH / Dev Containers / WSL / Codespaces the shell integration inherits VS Code's remote shell session rather than escaping to the host. Listens to `onDidEndTerminalShellExecution` for exit codes. Falls back to `ShellSession` (the pre-v0.59 `child_process`-based path) when shell integration isn't available (bare shells without VS Code's init script, older VS Code, or user-disabled via `sidecar.terminalExecution.enabled`).

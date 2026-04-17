@@ -18,7 +18,7 @@ npm run check             # compile + lint + test (full CI check)
 npm run package           # build + vsce package → .vsix
 ```
 
-Pre-commit hooks (lint-staged via husky) run `prettier --write`, `eslint --max-warnings=0`, and `tsc --noEmit` on staged `.ts` files automatically.
+Pre-commit hooks (lint-staged via husky) run `prettier --write`, `eslint --max-warnings=0`, `tsc --noEmit`, and `vitest run --silent` (excluding `**/shadowWorkspace.test.ts` since those tests use real `git worktree` which conflicts with lint-staged's stash-and-restore context). Full suite runs in CI.
 
 ## Testing
 
@@ -70,7 +70,23 @@ SSE parsing for all OpenAI-compatible backends is shared in `openAiSseStream.ts`
 - `stubCheck.ts` — detect placeholder code in agent output
 - `textParsing.ts` — parse tool calls from model text output (qwen3, Hermes)
 
-Tools are registered in `tools.ts` with definitions and executors. Each tool is a `{ definition: ToolDefinition, executor: (input) => Promise<string> }`.
+Tools are registered in `tools.ts` with definitions and executors. Each tool is a `{ definition: ToolDefinition, executor: (input, context) => Promise<string> }`. The second `context` parameter (`ToolExecutorContext`) carries per-call data: `onOutput` streaming callback, `signal` abort signal, `cwd` override (used by Shadow Workspaces), `client` reference, etc.
+
+### Shadow Workspaces (`src/agent/shadow/`)
+
+v0.59+ opt-in feature: run agent tasks in an ephemeral git worktree at `.sidecar/shadows/<task-id>/` off the current `HEAD` so writes never touch the user's main tree until an explicit accept.
+
+- `shadowWorkspace.ts` — `ShadowWorkspace` class wraps `GitCLI` worktree primitives. `create()` → `git worktree add --detach`, `diff()` → unified diff (tracked + untracked), `applyToMain()` → `git apply --index` onto main, `dispose()` → teardown.
+- `sandbox.ts` — `runAgentLoopInSandbox()` drop-in replacement for `runAgentLoop` that wraps per `sidecar.shadowWorkspace.mode` (`off` | `opt-in` | `always`). Prompts via `showQuickPick` at end; accept applies diff, reject discards.
+
+The `cwdOverride` option on `AgentOptions` threads through `executeToolUses.ts` into every per-tool `ToolExecutorContext.cwd`, and `fs.ts` tools resolve relative paths via `resolveRootUri(context)` — so fs writes land in the shadow transparently when enabled.
+
+### Terminal Execution (`src/terminal/`)
+
+- `shellSession.ts` — long-lived `child_process.spawn`-based shell with per-command alias/function namespace reset. Fallback path for agent commands when shell integration isn't available.
+- `agentExecutor.ts` — v0.59+ `AgentTerminalExecutor` routes agent `run_command` / `run_tests` through VS Code's `terminal.shellIntegration.executeCommand` API in a reusable *SideCar Agent* terminal. Listens to `onDidEndTerminalShellExecution` for exit codes. Returns `null` when shellIntegration is unavailable — caller falls back to `ShellSession`.
+- `manager.ts` — user-facing terminal manager for `handleRunCommand` (chat "run this command" prompts). Distinct from the agent-facing path above.
+- `errorWatcher.ts` — subscribes to `onDidStartTerminalShellExecution` / `onDidEndTerminalShellExecution` to surface user-run command failures to the agent.
 
 ### Webview & Message Handlers (`src/webview/`)
 
@@ -110,9 +126,11 @@ Management endpoints: `/api/v1/models/pull` (SSE), `/api/v1/models/{id}/load`, `
 
 - All imports use explicit `.js` extensions (NodeNext module resolution)
 - Never write stub/placeholder code — always complete implementations
-- `.sidecar/` is a tracked project directory; route generated/ephemeral state to `globalStorageUri` instead of `.sidecar/`
-- Kickstand needs no API key prompt — the token file is read automatically
-- Test files co-locate with source: `foo.ts` → `foo.test.ts`
+- `.sidecar/` top-level is tracked (for curated files like `SIDECAR.md`, `shadow.json` per the Multi-User Agent Shadows feature); ephemeral subdirs (`cache/`, `memory/`, `history-index/`, `sessions/`, `logs/`, `scratchpad/`, `shadows/`) are gitignored via the root `.gitignore`. When a new feature writes under `.sidecar/`, ask: is this hand-curated shared state (→ top level, tracked) or generated per-user state (→ subdir, add to ignore)?
+- Workspace-scoped executing surfaces go through `checkWorkspaceConfigTrust` (hooks · MCP servers · toolPermissions · scheduledTasks · customTools · SIDECAR.md). Any new config that runs commands from `.vscode/settings.json` should follow the same per-session trust-prompt pattern
+- Kickstand needs no API key prompt — the token file is read automatically from `~/.config/kickstand/token`
+- Test files co-locate with source: `foo.ts` → `foo.test.ts`. Tests that use real OS state (fs, os.homedir, child_process, real git) must mock it — see `providerReachability.test.ts`, `modelHandlers.test.ts`, `kickstandBackend.test.ts` for the `vi.mock('fs', …)` passthrough pattern. Real-git tests (e.g. `shadowWorkspace.test.ts`) are excluded from the lint-staged vitest run but execute in CI
 - Async generators (`async*`) are the standard pattern for streaming (model pull, chat, safetensors import)
 - Provider-specific logic is isolated in backend classes; shared SSE parsing in `openAiSseStream.ts`
 - Rate limiting, circuit breaking, and retry are per-provider and wired in `SideCarClient`
+- Per-tool cwd resolution: `fs.ts` tools use `resolveRootUri(context)` instead of `getRootUri()` so ShadowWorkspace can route writes via `context.cwd`
