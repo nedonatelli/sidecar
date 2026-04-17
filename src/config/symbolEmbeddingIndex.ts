@@ -531,11 +531,43 @@ export class SymbolEmbeddingIndex implements Disposable {
     if (!queryVec) return [];
 
     const hasKindFilter = filters?.kindFilter && filters.kindFilter.length > 0;
-    const filter =
+    const metaFilter =
       hasKindFilter || filters?.pathPrefix
         ? (meta: SymbolMetadata) => {
             if (hasKindFilter && !filters!.kindFilter!.includes(meta.kind)) return false;
             if (filters?.pathPrefix && !meta.filePath.startsWith(filters.pathPrefix)) return false;
+            return true;
+          }
+        : undefined;
+
+    // v0.62 d.3: when a Merkle tree is wired + populated, descend
+    // to pick the top candidate files BEFORE scoring leaves. This
+    // turns an O(total_symbols) cosine scan into O(picked_files ×
+    // avg_symbols_per_file). For small workspaces (<1000 symbols)
+    // the scan is already sub-ms, so descent is a wash; for large
+    // workspaces (100k+ symbols across 1k+ files) it's the
+    // headline speedup Merkle exists to deliver.
+    //
+    // Candidate-file count is max(10, topK × 3) — wide enough that
+    // relevance downstream (filters, dedup) has room, narrow enough
+    // that we don't degenerate into the full scan. Cap at the tree's
+    // own file count so a small tree doesn't blow past its size.
+    const shouldDescend = this.merkleTree !== null && this.merkleTree.getFileNodeCount() > 0;
+    let candidateIds: Set<string> | null = null;
+    if (shouldDescend && this.merkleTree) {
+      const descendK = Math.max(10, topK * 3);
+      const { leafIds } = this.merkleTree.descend(queryVec, descendK);
+      candidateIds = new Set(leafIds);
+    }
+
+    const filter =
+      candidateIds !== null || metaFilter
+        ? (meta: SymbolMetadata) => {
+            if (candidateIds) {
+              const id = makeSymbolId(meta.filePath, meta.qualifiedName);
+              if (!candidateIds.has(id)) return false;
+            }
+            if (metaFilter && !metaFilter(meta)) return false;
             return true;
           }
         : undefined;

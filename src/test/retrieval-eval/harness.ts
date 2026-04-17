@@ -14,6 +14,7 @@
 
 import { SymbolEmbeddingIndex, type SymbolSearchResult } from '../../config/symbolEmbeddingIndex.js';
 import { SymbolGraph, type SymbolEntry, type CallEdge } from '../../config/symbolGraph.js';
+import { MerkleTree } from '../../config/merkleTree.js';
 import { enrichWithGraphWalk } from '../../agent/tools/projectKnowledge.js';
 import { FIXTURE_FILES, type FixtureFile } from './fixture.js';
 
@@ -113,9 +114,10 @@ export interface EvalHit {
  * independent of the parser and makes the golden dataset portable
  * to any language.
  */
-export async function buildFixtureHarness(): Promise<{
+export async function buildFixtureHarness(options: { withMerkle?: boolean } = {}): Promise<{
   index: SymbolEmbeddingIndex;
   graph: SymbolGraph;
+  merkleTree: MerkleTree | null;
 }> {
   const index = new SymbolEmbeddingIndex(null);
   index.setPipelineForTests(fakePipeline as never);
@@ -126,7 +128,16 @@ export async function buildFixtureHarness(): Promise<{
     await indexFileSymbols(file, index);
   }
 
-  return { index, graph };
+  // v0.62 d.3: optionally wire a Merkle tree so the eval layer can
+  // assert that descent-based query pruning doesn't regress
+  // retrieval quality relative to the no-descent baseline.
+  let merkleTree: MerkleTree | null = null;
+  if (options.withMerkle) {
+    merkleTree = new MerkleTree();
+    index.setMerkleTree(merkleTree);
+  }
+
+  return { index, graph, merkleTree };
 }
 
 function seedFileIntoGraph(file: FixtureFile, graph: SymbolGraph): void {

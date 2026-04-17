@@ -317,6 +317,59 @@ describe('SymbolEmbeddingIndex', () => {
       expect(index.getMerkleRoot()).toBe('');
     });
 
+    it('search uses Merkle descent when a tree is wired and populated', async () => {
+      const { MerkleTree } = await import('./merkleTree.js');
+      const tree = new MerkleTree();
+      index.setMerkleTree(tree);
+
+      // Index symbols across 4 distinct files so descent has real
+      // candidates to prune.
+      await index.indexSymbol(
+        makeInput({ filePath: 'src/auth.ts', qualifiedName: 'requireAuth', name: 'requireAuth', body: 'auth logic' }),
+      );
+      await index.indexSymbol(
+        makeInput({ filePath: 'src/auth.ts', qualifiedName: 'verifyToken', name: 'verifyToken', body: 'token verify' }),
+      );
+      await index.indexSymbol(
+        makeInput({ filePath: 'src/db.ts', qualifiedName: 'findUser', name: 'findUser', body: 'database find' }),
+      );
+      await index.indexSymbol(
+        makeInput({ filePath: 'src/util.ts', qualifiedName: 'logInfo', name: 'logInfo', body: 'log console' }),
+      );
+      tree.rebuild();
+
+      // Query should still find auth-related symbols even with
+      // descent active. Invariant: descent pruning doesn't drop
+      // relevant results on queries that should match them.
+      const results = await index.search('auth token', 5);
+      expect(results.length).toBeGreaterThan(0);
+      const names = results.map((r) => r.name);
+      expect(names).toEqual(expect.arrayContaining(['requireAuth']));
+    });
+
+    it('search works correctly with an empty Merkle tree (no descent filter applied)', async () => {
+      const { MerkleTree } = await import('./merkleTree.js');
+      const tree = new MerkleTree(); // empty
+      // Index BEFORE attaching the tree so the tree stays empty
+      // even after attach. (setMerkleTree's replay populates it
+      // from persisted state, so we put nothing in the store
+      // until after attach to simulate an empty-tree edge case.)
+      index.setMerkleTree(tree);
+
+      // Now index — this should add to the tree too.
+      await index.indexSymbol(makeInput({ qualifiedName: 'foo', name: 'foo' }));
+      // Don't call tree.rebuild() — leave the tree unpopulated in
+      // its file-node layer. search() should detect the empty tree
+      // and fall through to the full scan.
+      const freshTree = new MerkleTree(); // truly empty
+      index.setMerkleTree(freshTree);
+
+      const results = await index.search('query', 5);
+      // With a truly-empty tree, descent is skipped. Our single
+      // indexed symbol should still surface.
+      expect(results.length).toBe(1);
+    });
+
     it('skips replay for entries lacking merkleHash (pre-d.2 caches)', async () => {
       // Hand-craft a metadata entry without merkleHash via direct
       // store access. `index.setMerkleTree` should skip it on

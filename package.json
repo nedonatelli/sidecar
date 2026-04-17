@@ -677,6 +677,15 @@
           ],
           "markdownDescription": "*(Project Knowledge Index, v0.62)* Vector storage backend for the symbol embedding index.\n\n- `flat` (default, shipped) — in-memory `Float32Array` with linear cosine-scan search. Fast enough for workspaces up to ~100k symbols.\n- `lance` — reserved for a future release with LanceDB-backed HNSW ANN. Selecting it today logs a warning and falls back to `flat`.\n\nThe backend is swappable without rebuilding the index — both implementations read the same on-disk format."
         },
+        "sidecar.merkleIndex.enabled": {
+          "type": "boolean",
+          "default": true,
+          "order": 28,
+          "tags": [
+            "sidecar"
+          ],
+          "markdownDescription": "*(Project Knowledge Index — Merkle layer, v0.62)* Content-addressed hash tree over the symbol embedding index. When on + `sidecar.projectKnowledge.enabled` is also on, every symbol mutation mirrors into a Merkle tree and `project_knowledge_search` prunes candidate files via aggregated-embedding descent *before* scoring leaves — turns an O(total symbols) cosine scan into O(picked files × symbols per file).\n\nDisable only when debugging retrieval regressions: a quality drop against the RAG-eval baseline while this is on isolates the issue to the Merkle layer without losing PKI entirely. The root hash is also exposed (via `getMerkleRoot()` on the index) as a single-value workspace fingerprint for cache validity + cross-machine sync work."
+        },
         "sidecar.includeActiveFile": {
           "type": "boolean",
           "default": true,

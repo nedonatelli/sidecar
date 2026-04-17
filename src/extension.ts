@@ -229,7 +229,7 @@ export function activate(context: ExtensionContext) {
           context.subscriptions.push(symbolEmbeddings);
           symbolEmbeddings
             .initialize()
-            .then(() => {
+            .then(async () => {
               symbolIndexer.setSymbolEmbeddings(symbolEmbeddings, config.projectKnowledgeMaxSymbolsPerFile);
               // Expose the index to the tool registry so
               // `project_knowledge_search` has something to query.
@@ -238,6 +238,18 @@ export function activate(context: ExtensionContext) {
               // SemanticRetriever prefers symbol-level hits over the
               // legacy file-level path.
               workspaceIndex.setSymbolEmbeddings(symbolEmbeddings);
+              // v0.62 d.3: wire the Merkle tree for descent-based
+              // query pruning. Architecturally coupled to PKI per
+              // the ROADMAP but kept on a separate toggle so users
+              // can debug retrieval regressions by isolating Merkle.
+              if (config.merkleIndexEnabled) {
+                const { MerkleTree } = await import('./config/merkleTree.js');
+                const merkleTree = new MerkleTree();
+                symbolEmbeddings.setMerkleTree(merkleTree);
+                console.log(
+                  `[SideCar] Merkle tree wired: rootHash=${symbolEmbeddings.getMerkleRoot().slice(0, 8) || '(empty)'}`,
+                );
+              }
               console.log(
                 `[SideCar] Symbol embedding index ready: ${symbolEmbeddings.getCount()} cached symbol vectors`,
               );

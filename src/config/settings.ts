@@ -515,6 +515,16 @@ export interface SideCarConfig {
    *  reserves the name for a future release and returns a clear
    *  "not yet implemented" warning when selected. */
   projectKnowledgeBackend: 'flat' | 'lance';
+  /**
+   * Whether the Merkle-addressed fingerprint layer is active
+   * (v0.62 d.2+). When on + `projectKnowledgeEnabled` is also on,
+   * every symbol mutation mirrors into a hash tree + descent-based
+   * query pruning activates. The two are architecturally coupled
+   * per the ROADMAP but kept on separate toggles so a user can
+   * debug retrieval-quality issues by disabling Merkle without
+   * losing the entire PKI.
+   */
+  merkleIndexEnabled: boolean;
 }
 
 /**
@@ -654,6 +664,7 @@ function readConfig(): SideCarConfig {
     projectKnowledgeEnabled: cfg.get<boolean>('projectKnowledge.enabled', false),
     projectKnowledgeMaxSymbolsPerFile: cfg.get<number>('projectKnowledge.maxSymbolsPerFile', 500),
     projectKnowledgeBackend: cfg.get<'flat' | 'lance'>('projectKnowledge.backend', 'flat'),
+    merkleIndexEnabled: cfg.get<boolean>('merkleIndex.enabled', true),
   };
 }
 
