@@ -10,6 +10,22 @@ export interface SecurityIssue {
 }
 
 // --- Secret patterns ---
+//
+// **Version** — bump `SECRET_PATTERNS_VERSION` whenever patterns are
+// added, removed, or materially changed. Downstream tooling (an
+// eventual `sidecar.scanner.patternsVersion` diagnostic, CI smoke
+// tests, and the SECURITY.md audit trail) reads this constant so
+// users can tell at a glance which pattern set their extension ships.
+//
+// **CVE / disclosure path** — see [`SECURITY.md`](../../SECURITY.md).
+// Reports go to the maintainer via the project's private disclosure
+// channel. Pattern gaps (e.g., a new provider's key format slipping
+// through) are treated as low-severity CVEs but still shipped as
+// patch releases — malicious MCP servers, telemetry leaks, and
+// agent-forwarded tool inputs all depend on this catalog staying
+// current.
+
+export const SECRET_PATTERNS_VERSION = 2;
 
 interface SecretPattern {
   name: string;
@@ -17,15 +33,45 @@ interface SecretPattern {
 }
 
 const SECRET_PATTERNS: SecretPattern[] = [
+  // --- AWS ---
   { name: 'AWS Access Key', pattern: /(?:^|[^A-Za-z0-9/+=])AKIA[0-9A-Z]{16}(?:[^A-Za-z0-9/+=]|$)/ },
   { name: 'AWS Secret Key', pattern: /(?:aws_secret_access_key|secret_key)\s*[=:]\s*['"]?[A-Za-z0-9/+=]{40}['"]?/i },
+  // --- GitHub ---
   { name: 'GitHub Token', pattern: /(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{36,}/ },
+  // --- LLM provider keys ---
+  // Ordered provider-first-matches-first: the more-specific `sk-ant-`
+  // and `sk-or-` patterns must run before the catch-all OpenAI `sk-`
+  // so a match counts under the correct provider name.
+  { name: 'Anthropic API Key', pattern: /sk-ant-[A-Za-z0-9_\-]{20,}/ },
+  { name: 'OpenRouter API Key', pattern: /sk-or-[A-Za-z0-9_\-]{20,}/ },
+  { name: 'OpenAI API Key', pattern: /sk-[A-Za-z0-9]{20,}/ },
+  { name: 'HuggingFace Token', pattern: /\bhf_[A-Za-z0-9]{34,}\b/ },
+  { name: 'Cohere API Key', pattern: /\bco-[A-Za-z0-9]{40}\b/ },
+  { name: 'Replicate API Token', pattern: /\br8_[A-Za-z0-9]{37}\b/ },
+  // --- Payment providers ---
+  { name: 'Stripe Live Secret Key', pattern: /\bsk_live_[A-Za-z0-9]{24,}/ },
+  { name: 'Stripe Live Publishable Key', pattern: /\bpk_live_[A-Za-z0-9]{24,}/ },
+  { name: 'Stripe Live Restricted Key', pattern: /\brk_live_[A-Za-z0-9]{24,}/ },
+  // --- Communication APIs ---
+  { name: 'Twilio Account SID', pattern: /\bAC[0-9a-f]{32}\b/ },
+  { name: 'SendGrid API Key', pattern: /\bSG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}\b/ },
+  { name: 'Mailgun API Key', pattern: /\bkey-[0-9a-f]{32}\b/ },
+  // --- Cloud platforms ---
+  { name: 'Google API Key', pattern: /\bAIza[0-9A-Za-z_-]{35}\b/ },
+  {
+    name: 'Azure Storage Connection String',
+    pattern: /DefaultEndpointsProtocol=https;AccountName=[A-Za-z0-9]+;AccountKey=[^;\s'"]+/,
+  },
+  // --- Package registries ---
+  { name: 'npm Access Token', pattern: /\bnpm_[A-Za-z0-9]{36}\b/ },
+  { name: 'npm Legacy Auth Token', pattern: /\/\/registry\.npmjs\.org\/:_authToken=[A-Za-z0-9_-]+/ },
+  { name: 'PyPI Token', pattern: /\bpypi-AgE[A-Za-z0-9_-]{50,}/ },
+  // --- Team comms ---
+  { name: 'Slack Token', pattern: /xox[bprs]-[A-Za-z0-9\-]{10,}/ },
+  // --- Generic heuristics (ordered last — weakest signal) ---
   { name: 'Generic API Key', pattern: /(?:api[_-]?key|apikey)\s*[=:]\s*['"][A-Za-z0-9_\-]{20,}['"]/i },
   { name: 'Generic Secret', pattern: /(?:secret|password|passwd|token)\s*[=:]\s*['"][^'"]{8,}['"]/i },
   { name: 'Private Key', pattern: /-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----/ },
-  { name: 'Anthropic API Key', pattern: /sk-ant-[A-Za-z0-9_\-]{20,}/ },
-  { name: 'OpenAI API Key', pattern: /sk-[A-Za-z0-9]{20,}/ },
-  { name: 'Slack Token', pattern: /xox[bprs]-[A-Za-z0-9\-]{10,}/ },
   { name: 'JWT Token', pattern: /eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}/ },
   { name: 'Connection String', pattern: /(?:mongodb|postgres|mysql|redis):\/\/[^\s'"]{10,}/i },
   { name: 'Hardcoded IP with credentials', pattern: /(?:https?:\/\/)[^:]+:[^@]+@\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/ },

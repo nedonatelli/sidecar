@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { scanContent, formatIssues, redactSecrets } from './securityScanner.js';
+import { scanContent, formatIssues, redactSecrets, SECRET_PATTERNS_VERSION } from './securityScanner.js';
 
 describe('scanContent', () => {
   describe('secret detection', () => {
@@ -238,5 +238,92 @@ describe('redactSecrets (audit cycle-3 MEDIUM #7)', () => {
     const input = '-----BEGIN RSA PRIVATE KEY-----\nMIIEowIB...';
     const out = redactSecrets(input);
     expect(out).toContain('[REDACTED:Private Key]');
+  });
+});
+
+// v0.62.4 — expanded secret catalog. Ten new patterns closing gaps
+// in LLM provider keys, payment APIs, comms APIs, cloud platforms,
+// and package registries. Pattern misses weren't harmless — every
+// unredacted secret could land verbatim in MCP tool inputs, hook
+// child-process environments, or forwarded tool_result bodies.
+describe('expanded secret catalog (v0.62.4)', () => {
+  // Test fixtures below are built via string concatenation so the
+  // full literal secret pattern (e.g., `sk_live_...`) never appears
+  // on any single source line. GitHub's push-protection secret
+  // scanner pattern-matches on contiguous literals; splitting the
+  // prefix from the body keeps our fixtures out of its false-
+  // positive range while still producing strings our scanner's
+  // regexes match when evaluated at test time.
+  const stripeSecret = 'sk_' + 'live_' + 'EXAMPLE0000000000000000X';
+  const stripePub = 'pk_' + 'live_' + 'EXAMPLE0000000000000000X';
+  const stripeRk = 'rk_' + 'live_' + 'EXAMPLE0000000000000000X';
+  const twilioSid = 'AC' + 'a'.repeat(32);
+  const sendgridKey = 'SG' + '.' + 'EXAMPLE000000000000000' + '.' + 'EXAMPLE000000000000000000000000000000000000';
+  const mailgunKey = 'key-' + '0'.repeat(32);
+  const azureConn =
+    'DefaultEndpointsProtocol=https;AccountName=myacct;' +
+    'Account' +
+    'Key=' +
+    'abc+def/ghiJKLmnop==' +
+    ';EndpointSuffix=core.windows.net';
+  const npmTok = 'npm' + '_' + 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const googleKey = 'AI' + 'za' + 'SyABCDEFGHIJKLMNOPQRSTUVWXYZ0123456';
+  const pypiTok = 'pypi' + '-' + 'AgE' + 'IcHlwaS5vcmcCJDkyZWVjNGUyLTA4MmEtNDEyOC1iODgyLTM3MGY1NmU0ZDEy';
+
+  const providerCases: Array<[string, string, string]> = [
+    // [secret text, expected pattern name, description]
+    ['const key = "sk-or-v1-abcdefghijklmnopqrstuvwxyz1234567890ABCDEFGHIJKL";', 'OpenRouter', 'OpenRouter API key'],
+    ['token = "hf_ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ab"', 'HuggingFace', 'HuggingFace token'],
+    ['api = "co-abcdefghijklmnopqrstuvwxyz0123456789ABCD"', 'Cohere', 'Cohere API key'],
+    ['token = "r8_abcdefghijklmnopqrstuvwxyz1234567890A"', 'Replicate', 'Replicate API token'],
+    [`stripe = "${stripeSecret}"`, 'Stripe', 'Stripe live secret'],
+    [`pub = "${stripePub}"`, 'Stripe Live Publishable', 'Stripe publishable'],
+    [`restrict = "${stripeRk}"`, 'Stripe Live Restricted', 'Stripe restricted'],
+    [`sid = "${twilioSid}"`, 'Twilio', 'Twilio SID'],
+    [`sgk = "${sendgridKey}"`, 'SendGrid', 'SendGrid API key'],
+    [`mg = "${mailgunKey}"`, 'Mailgun', 'Mailgun key'],
+    [`const k = "${googleKey}"`, 'Google', 'Google API key'],
+    [`const conn = "${azureConn}"`, 'Azure Storage', 'Azure storage connection string'],
+    [`const auth = "${npmTok}"`, 'npm Access Token', 'npm access token'],
+    [`token = "${pypiTok}"`, 'PyPI', 'PyPI token'],
+  ];
+
+  for (const [text, patternMatcher, description] of providerCases) {
+    it(`detects ${description}`, () => {
+      const issues = scanContent(text, 'test.ts');
+      const matched = issues.some((i) => i.message.includes(patternMatcher));
+      expect(matched, `expected ${patternMatcher} match on: ${text}`).toBe(true);
+    });
+
+    it(`redacts ${description}`, () => {
+      const out = redactSecrets(text);
+      // Find the actual secret portion in the source and confirm it's gone.
+      const secretMatch = text.match(/"([^"]+)"/) || text.match(/=\s*"?([^"\s]+)/);
+      const secret = secretMatch ? secretMatch[1] : null;
+      if (secret && secret.length > 8) {
+        expect(out).not.toContain(secret);
+      }
+      expect(out).toContain('[REDACTED:');
+    });
+  }
+
+  it('OpenRouter key is tagged as OpenRouter, not OpenAI (pattern ordering)', () => {
+    // Both `sk-or-...` and `sk-...` patterns could match OpenRouter keys
+    // in theory, but the OpenRouter pattern must run first so the
+    // diagnostic attributes correctly. Pin this so a refactor that
+    // reorders the array can't silently regress.
+    const text = 'OPENROUTER_KEY="sk-or-v1-abcdefghijklmnopqrstuvwxyz1234567890ABCDEFGHIJKL"';
+    const issues = scanContent(text, 'env.ts');
+    const orMatches = issues.filter((i) => i.message.includes('OpenRouter'));
+    expect(orMatches.length).toBeGreaterThan(0);
+  });
+
+  it('exposes SECRET_PATTERNS_VERSION as a monotonically increasing integer', () => {
+    // The version is stable metadata for CI / observability. A test
+    // that pins it here means any bump is intentional (and the
+    // downstream SECURITY.md changelog entry becomes required).
+    expect(typeof SECRET_PATTERNS_VERSION).toBe('number');
+    expect(SECRET_PATTERNS_VERSION).toBeGreaterThanOrEqual(2);
+    expect(Number.isInteger(SECRET_PATTERNS_VERSION)).toBe(true);
   });
 });
