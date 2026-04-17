@@ -2,7 +2,7 @@
   "name": "sidecar-ai",
   "displayName": "SideCar",
   "description": "Autonomous AI agent for coding — run full agent loops with local Ollama, Anthropic Claude, or OpenAI models",
-  "version": "0.62.4",
+  "version": "0.62.5",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -42,874 +42,911 @@
   ],
   "main": "./dist/extension.js",
   "contributes": {
-    "configuration": {
-      "title": "SideCar",
-      "properties": {
-        "sidecar.baseUrl": {
-          "type": "string",
-          "default": "http://localhost:11434",
-          "order": 0,
-          "tags": [
-            "sidecar",
-            "backend"
-          ],
-          "markdownDescription": "Base URL for the active LLM backend.\n\n| Backend | URL |\n|---|---|\n| Ollama (local) | `http://localhost:11434` |\n| Anthropic | `https://api.anthropic.com` |\n| OpenAI | `https://api.openai.com` |\n| Kickstand *(coming soon)* | `http://localhost:11435` |\n\nSwitch backends the easy way: `SideCar: Switch Backend` in the Command Palette."
-        },
-        "sidecar.apiKey": {
-          "type": "string",
-          "default": "ollama",
-          "order": 1,
-          "tags": [
-            "sidecar",
-            "backend",
-            "secret"
-          ],
-          "markdownDescription": "API key for the active backend. **Stored in VS Code SecretStorage** — never in `settings.json`. Run `SideCar: Set / Refresh API Key` to paste or rotate your key securely. Plaintext values in this setting are migrated to SecretStorage on activation and then cleared.\n\nIgnored for local Ollama; required for Anthropic and OpenAI."
-        },
-        "sidecar.model": {
-          "type": "string",
-          "default": "qwen3-coder:30b",
-          "order": 2,
-          "tags": [
-            "sidecar",
-            "backend"
-          ],
-          "markdownDescription": "Model to use for chat. Examples:\n\n- Ollama: `qwen3-coder:30b`, `deepseek-coder:33b`, `llama3.2:latest`\n- Anthropic: `claude-opus-4-6`, `claude-sonnet-4-5`, `claude-haiku-4-5`\n- OpenAI: `gpt-5`, `gpt-4o`, `gpt-4o-mini`\n\nPick keyboard-first with `SideCar: Select Model`."
-        },
-        "sidecar.provider": {
-          "type": "string",
-          "enum": [
-            "auto",
-            "ollama",
-            "anthropic",
-            "openai",
-            "openrouter",
-            "groq",
-            "fireworks",
-            "kickstand"
-          ],
-          "enumDescriptions": [
-            "Detect from the base URL: localhost:11434 → Ollama, anthropic.com → Anthropic, openrouter.ai → OpenRouter, groq.com → Groq, fireworks.ai → Fireworks, localhost:11435 → Kickstand (coming soon), anything else → OpenAI-compatible.",
-            "Local Ollama (http://localhost:11434). Free, private, no key needed.",
-            "Anthropic Claude API. Requires an API key stored via `SideCar: Set / Refresh API Key`.",
-            "OpenAI-compatible API (OpenAI, LM Studio, vLLM, llama.cpp, together.ai). Requires an API key.",
-            "OpenRouter (https://openrouter.ai/api/v1). One API key unlocks hundreds of models across providers (Anthropic, OpenAI, Google, Mistral, Meta, and more) with per-model pricing pulled live from their catalog. Requires an OpenRouter API key.",
-            "Groq (https://api.groq.com/openai/v1). LPU inference serves open-weight models (Llama 3.3, Mixtral, DeepSeek R1 distills) at thousands of tokens/sec. Free tier with rate limits. Requires a Groq API key from console.groq.com.",
-            "Fireworks (https://api.fireworks.ai/inference/v1). Hosts open-weight models like DeepSeek V3, Qwen 2.5 Coder, Llama 3.3, Mixtral at OpenAI-compatible pricing. Requires an API key from fireworks.ai.",
-            "Kickstand self-hosted LLM server (http://localhost:11435). Coming soon — not yet officially released; the backend adapter ships today for anyone running a local dev build. Reads its token from `~/.config/kickstand/token`."
-          ],
-          "default": "auto",
-          "order": 3,
-          "tags": [
-            "sidecar",
-            "backend"
-          ],
-          "markdownDescription": "Which backend adapter to use when talking to the LLM. Leave as `auto` unless you're running an OpenAI-compatible server at a non-standard URL that the auto-detector can't recognize."
-        },
-        "sidecar.systemPrompt": {
-          "type": "string",
-          "default": "",
-          "order": 10,
-          "tags": [
-            "sidecar",
-            "context"
-          ],
-          "markdownDescription": "System prompt override. Leave empty to use SideCar's built-in prompt (recommended). Custom prompts compose on top of the base; they don't replace it."
-        },
-        "sidecar.includeWorkspace": {
-          "type": "boolean",
-          "default": true,
-          "order": 11,
-          "tags": [
-            "sidecar",
-            "context"
-          ],
-          "markdownDescription": "Automatically include workspace files in chat context. When off, only files you explicitly reference with `@file:path` or pin with `@pin:path` are sent to the model."
-        },
-        "sidecar.filePatterns": {
-          "type": "array",
-          "items": {
-            "type": "string"
+    "configuration": [
+      {
+        "title": "SideCar: Backend & Models",
+        "properties": {
+          "sidecar.baseUrl": {
+            "type": "string",
+            "default": "http://localhost:11434",
+            "order": 0,
+            "tags": [
+              "sidecar",
+              "backend"
+            ],
+            "markdownDescription": "Base URL for the active LLM backend.\n\n| Backend | URL |\n|---|---|\n| Ollama (local) | `http://localhost:11434` |\n| Anthropic | `https://api.anthropic.com` |\n| OpenAI | `https://api.openai.com` |\n| Kickstand *(coming soon)* | `http://localhost:11435` |\n\nSwitch backends the easy way: `SideCar: Switch Backend` in the Command Palette."
           },
-          "default": [
-            "**/*.ts",
-            "**/*.js",
-            "**/*.py",
-            "**/*.md",
-            "**/*.kt",
-            "**/*.java",
-            "**/*.swift",
-            "**/*.go",
-            "**/*.rs",
-            "**/*.c",
-            "**/*.cpp",
-            "**/*.h",
-            "**/*.rb",
-            "**/*.php",
-            "**/*.cs",
-            "**/*.json",
-            "**/*.yaml",
-            "**/*.yml",
-            "**/*.toml",
-            "**/*.gradle.kts",
-            "**/*.gradle",
-            "**/*.html",
-            "**/*.css",
-            "**/*.scss",
-            "**/*.sh",
-            "**/*.sql"
-          ],
-          "order": 12,
-          "tags": [
-            "sidecar",
-            "context"
-          ],
-          "markdownDescription": "Glob patterns for files eligible to be included as workspace context. Applied before `sidecar.maxFiles` ranks them by relevance. Patterns use standard VS Code globbing (`**`, `*`, `?`)."
-        },
-        "sidecar.maxFiles": {
-          "type": "number",
-          "default": 10,
-          "minimum": 1,
-          "maximum": 100,
-          "order": 13,
-          "tags": [
-            "sidecar",
-            "context"
-          ],
-          "markdownDescription": "Maximum number of workspace files included as context on each turn. Lower this if you're hitting context-limit warnings on a small local model; raise it for frontier models with larger windows."
-        },
-        "sidecar.contextLimit": {
-          "type": "number",
-          "default": 0,
-          "order": 14,
-          "tags": [
-            "sidecar",
-            "context"
-          ],
-          "markdownDescription": "Override the context token limit for local models. `0` = auto-detect with a 16K default cap. Increase if you have enough VRAM and want longer conversations. Ignored for paid backends — their limits come from the API."
-        },
-        "sidecar.customTools": {
-          "type": "array",
-          "default": [],
-          "description": "Custom tools that run shell commands. Format: [{ \"name\": \"...\", \"description\": \"...\", \"command\": \"...\" }]",
-          "items": {
-            "type": "object",
-            "properties": {
-              "name": {
-                "type": "string"
-              },
-              "description": {
-                "type": "string"
-              },
-              "command": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "name",
-              "description",
-              "command"
-            ]
+          "sidecar.apiKey": {
+            "type": "string",
+            "default": "ollama",
+            "order": 1,
+            "tags": [
+              "sidecar",
+              "backend",
+              "secret"
+            ],
+            "markdownDescription": "API key for the active backend. **Stored in VS Code SecretStorage** — never in `settings.json`. Run `SideCar: Set / Refresh API Key` to paste or rotate your key securely. Plaintext values in this setting are migrated to SecretStorage on activation and then cleared.\n\nIgnored for local Ollama; required for Anthropic and OpenAI."
+          },
+          "sidecar.model": {
+            "type": "string",
+            "default": "qwen3-coder:30b",
+            "order": 2,
+            "tags": [
+              "sidecar",
+              "backend"
+            ],
+            "markdownDescription": "Model to use for chat. Examples:\n\n- Ollama: `qwen3-coder:30b`, `deepseek-coder:33b`, `llama3.2:latest`\n- Anthropic: `claude-opus-4-6`, `claude-sonnet-4-5`, `claude-haiku-4-5`\n- OpenAI: `gpt-5`, `gpt-4o`, `gpt-4o-mini`\n\nPick keyboard-first with `SideCar: Select Model`."
+          },
+          "sidecar.provider": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "ollama",
+              "anthropic",
+              "openai",
+              "openrouter",
+              "groq",
+              "fireworks",
+              "kickstand"
+            ],
+            "enumDescriptions": [
+              "Detect from the base URL: localhost:11434 → Ollama, anthropic.com → Anthropic, openrouter.ai → OpenRouter, groq.com → Groq, fireworks.ai → Fireworks, localhost:11435 → Kickstand (coming soon), anything else → OpenAI-compatible.",
+              "Local Ollama (http://localhost:11434). Free, private, no key needed.",
+              "Anthropic Claude API. Requires an API key stored via `SideCar: Set / Refresh API Key`.",
+              "OpenAI-compatible API (OpenAI, LM Studio, vLLM, llama.cpp, together.ai). Requires an API key.",
+              "OpenRouter (https://openrouter.ai/api/v1). One API key unlocks hundreds of models across providers (Anthropic, OpenAI, Google, Mistral, Meta, and more) with per-model pricing pulled live from their catalog. Requires an OpenRouter API key.",
+              "Groq (https://api.groq.com/openai/v1). LPU inference serves open-weight models (Llama 3.3, Mixtral, DeepSeek R1 distills) at thousands of tokens/sec. Free tier with rate limits. Requires a Groq API key from console.groq.com.",
+              "Fireworks (https://api.fireworks.ai/inference/v1). Hosts open-weight models like DeepSeek V3, Qwen 2.5 Coder, Llama 3.3, Mixtral at OpenAI-compatible pricing. Requires an API key from fireworks.ai.",
+              "Kickstand self-hosted LLM server (http://localhost:11435). Coming soon — not yet officially released; the backend adapter ships today for anyone running a local dev build. Reads its token from `~/.config/kickstand/token`."
+            ],
+            "default": "auto",
+            "order": 3,
+            "tags": [
+              "sidecar",
+              "backend"
+            ],
+            "markdownDescription": "Which backend adapter to use when talking to the LLM. Leave as `auto` unless you're running an OpenAI-compatible server at a non-standard URL that the auto-detector can't recognize."
+          },
+          "sidecar.fallbackBaseUrl": {
+            "type": "string",
+            "default": "",
+            "order": 45,
+            "tags": [
+              "sidecar",
+              "backend"
+            ],
+            "markdownDescription": "Fallback backend URL. If the primary backend fails repeatedly, SideCar switches to this URL automatically. Leave empty to disable fallback.\n\nTypical use: primary = Anthropic, fallback = local Ollama, so a transient API outage doesn't block your work."
+          },
+          "sidecar.fallbackApiKey": {
+            "type": "string",
+            "default": "",
+            "order": 46,
+            "tags": [
+              "sidecar",
+              "backend",
+              "secret"
+            ],
+            "markdownDescription": "API key for the fallback backend. **Stored in VS Code SecretStorage** — plaintext values are migrated on activation and then cleared from `settings.json`."
+          },
+          "sidecar.fallbackModel": {
+            "type": "string",
+            "default": "",
+            "order": 47,
+            "tags": [
+              "sidecar",
+              "backend"
+            ],
+            "markdownDescription": "Model to use on the fallback backend. Empty string = reuse the primary model (only useful when the primary and fallback are the same provider family)."
+          },
+          "sidecar.requestTimeout": {
+            "type": "number",
+            "default": 120,
+            "description": "Timeout in seconds for each LLM request. If no tokens arrive within this time the request is aborted. Set to 0 to disable."
+          },
+          "sidecar.dailyBudget": {
+            "type": "number",
+            "default": 0,
+            "minimum": 0,
+            "order": 48,
+            "tags": [
+              "sidecar",
+              "cost"
+            ],
+            "markdownDescription": "Daily spending budget in USD for paid backends. Agent runs are blocked when the limit is reached. `0` = disabled. Check current spend with `SideCar: Show Session Spend`."
+          },
+          "sidecar.weeklyBudget": {
+            "type": "number",
+            "default": 0,
+            "minimum": 0,
+            "order": 49,
+            "tags": [
+              "sidecar",
+              "cost"
+            ],
+            "markdownDescription": "Weekly spending budget in USD for paid backends. Agent runs are blocked when the limit is reached. `0` = disabled."
           }
-        },
-        "sidecar.customModes": {
-          "type": "array",
-          "default": [],
-          "description": "Custom agent modes with dedicated system prompts and approval behavior. Example: [{ \"name\": \"architect\", \"description\": \"Design-only mode\", \"systemPrompt\": \"Focus on architecture...\", \"approvalBehavior\": \"manual\" }]",
-          "items": {
+        }
+      },
+      {
+        "title": "SideCar: Agent",
+        "properties": {
+          "sidecar.agentMode": {
+            "type": "string",
+            "default": "cautious",
+            "order": 20,
+            "tags": [
+              "sidecar",
+              "agent"
+            ],
+            "markdownDescription": "How much autonomy the agent has. Built-in modes:\n\n- `cautious` — asks before destructive tools (default)\n- `autonomous` — runs every allowed tool without asking\n- `manual` — asks before every tool\n- `plan` — generates a plan for your approval, then executes\n- `review` — queues file edits for review; nothing hits disk\n- `audit` *(v0.60)* — agent runs without per-call prompts, but every `write_file` / `edit_file` / `delete_file` is diverted to an in-memory buffer instead of touching disk. The user reviews the buffered changes at the end and either accepts (atomic flush) or rejects (discard). Shell commands still run normally — scope is the agent's explicit file-authoring surface, not every side effect.\n\nCustom modes defined in `#sidecar.customModes#` are also valid here."
+          },
+          "sidecar.agentTemperature": {
+            "type": "number",
+            "default": 0.2,
+            "minimum": 0,
+            "maximum": 2,
+            "order": 21,
+            "tags": [
+              "sidecar",
+              "agent"
+            ],
+            "markdownDescription": "Temperature for agent tool-calling requests.\n\n- `0.1-0.3` — deterministic tool selection (recommended for agent loops)\n- `0.7-1.0` — creative, more exploration\n\nNon-tool requests always use `0`."
+          },
+          "sidecar.agentMaxIterations": {
+            "type": "number",
+            "default": 25,
+            "minimum": 1,
+            "maximum": 100,
+            "order": 22,
+            "tags": [
+              "sidecar",
+              "agent"
+            ],
+            "markdownDescription": "Maximum number of agent loop iterations before the agent stops. Each iteration is one model call plus any tools it chose. Hitting this limit usually means the agent is stuck in a cycle — inspect the chat and narrow the task."
+          },
+          "sidecar.agentMaxMessages": {
+            "type": "number",
+            "default": 25,
+            "minimum": 5,
+            "maximum": 200,
+            "order": 23,
+            "tags": [
+              "sidecar",
+              "agent"
+            ],
+            "markdownDescription": "Soft ceiling on conversation message count before the agent should wrap up. The agent still completes the current tool cycle if it's in the middle of one."
+          },
+          "sidecar.agentMaxTokens": {
+            "type": "number",
+            "default": 100000,
+            "minimum": 1000,
+            "maximum": 1000000,
+            "order": 24,
+            "tags": [
+              "sidecar",
+              "agent"
+            ],
+            "markdownDescription": "Maximum total tokens consumed by a single agent run before it stops. Prevents runaway loops on paid backends. `100000` is a safe default for Claude; bump higher for frontier models with large context windows."
+          },
+          "sidecar.toolPermissions": {
             "type": "object",
-            "properties": {
-              "name": {
-                "type": "string",
-                "description": "Mode identifier (lowercase, no spaces)"
-              },
-              "description": {
-                "type": "string",
-                "description": "Short description shown in the mode dropdown"
-              },
-              "systemPrompt": {
-                "type": "string",
-                "description": "Additional system prompt text injected when this mode is active"
-              },
-              "approvalBehavior": {
-                "type": "string",
-                "enum": [
-                  "autonomous",
-                  "cautious",
-                  "manual"
-                ],
-                "description": "Tool approval behavior for this mode"
-              },
-              "toolPermissions": {
-                "type": "object",
-                "default": {},
-                "description": "Per-tool permission overrides for this mode",
-                "additionalProperties": {
+            "default": {},
+            "description": "Per-tool permission overrides: { \"tool_name\": \"allow\" | \"deny\" | \"ask\" }"
+          },
+          "sidecar.systemPrompt": {
+            "type": "string",
+            "default": "",
+            "order": 10,
+            "tags": [
+              "sidecar",
+              "context"
+            ],
+            "markdownDescription": "System prompt override. Leave empty to use SideCar's built-in prompt (recommended). Custom prompts compose on top of the base; they don't replace it."
+          },
+          "sidecar.bgMaxConcurrent": {
+            "type": "number",
+            "default": 3,
+            "minimum": 1,
+            "maximum": 10,
+            "description": "Maximum number of background agents that can run simultaneously"
+          },
+          "sidecar.shellTimeout": {
+            "type": "number",
+            "default": 120,
+            "description": "Default timeout for shell commands in seconds"
+          },
+          "sidecar.shellMaxOutputMB": {
+            "type": "number",
+            "default": 10,
+            "description": "Maximum shell output size in MB before truncation"
+          }
+        }
+      },
+      {
+        "title": "SideCar: Safety & Review",
+        "properties": {
+          "sidecar.critic.enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Run an adversarial critic LLM call after every write_file / edit_file and after every failed run_tests. High-severity findings block the agent until addressed; low-severity findings surface as chat annotations only. Doubles API spend on edit turns — off by default."
+          },
+          "sidecar.critic.model": {
+            "type": "string",
+            "default": "",
+            "description": "Model to use for the adversarial critic call. Empty string (default) means reuse sidecar.model. Set to a cheaper / faster model (e.g. claude-haiku-4-5 when the main model is claude-opus-4-6) to cut cost while keeping the critic enabled."
+          },
+          "sidecar.critic.blockOnHighSeverity": {
+            "type": "boolean",
+            "default": true,
+            "description": "When the critic reports a high-severity finding, inject a synthetic user message forcing the agent to address it before the turn can finish. When false, high-severity findings surface as chat annotations only (same as low-severity)."
+          },
+          "sidecar.autoFixOnFailure": {
+            "type": "boolean",
+            "default": false,
+            "description": "Automatically check for errors after agent edits and feed them back to the model for self-correction"
+          },
+          "sidecar.autoFixMaxRetries": {
+            "type": "number",
+            "default": 3,
+            "description": "Maximum auto-fix attempts before stopping"
+          },
+          "sidecar.completionGate.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Require the agent to run lint and tests for files it edited before declaring completion. Catches cases where the agent reports a change as done without verifying."
+          },
+          "sidecar.regressionGuards": {
+            "type": "array",
+            "default": [],
+            "order": 21,
+            "tags": [
+              "sidecar"
+            ],
+            "markdownDescription": "Declarative shell commands that act as hard gates the agent must pass before completing a task. Use for domain-specific correctness checks the general lint/test suite can't express — conservation-of-energy invariants in a physics sim, bundle-size budgets, API-contract diffs, etc.\n\nEach entry has: `name` (required, human-readable), `command` (required, shell), `trigger` (required, one of `post-write` / `post-turn` / `pre-completion`), and optional `blocking` (default `true`), `timeoutMs` (default 30000), `scope` (glob array; guard only fires when touched files match), `maxAttempts` (default 5 consecutive failures before giving up), `workingDir`.\n\nWhen blocking and exit ≠ 0, the guard output is injected as a synthetic user turn so the agent can read the error and revise. When non-blocking, the loop just surfaces a warning. The first time a workspace defines guards, SideCar prompts to trust them — same contract as `hooks`, `mcpServers`, `customTools`, `scheduledTasks`.",
+            "items": {
+              "type": "object",
+              "required": [
+                "name",
+                "command",
+                "trigger"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Short identifier for the guard (shown in failure messages)."
+                },
+                "command": {
+                  "type": "string",
+                  "description": "Shell command to run. Runs in the workspace root unless workingDir is set."
+                },
+                "trigger": {
                   "type": "string",
                   "enum": [
-                    "allow",
-                    "deny",
-                    "ask"
-                  ]
+                    "post-write",
+                    "post-turn",
+                    "pre-completion"
+                  ],
+                  "description": "When the guard fires. post-write = after every turn that includes a file-mutation tool call; post-turn = after every turn; pre-completion = when the model tries to finish the task."
+                },
+                "blocking": {
+                  "type": "boolean",
+                  "default": true,
+                  "description": "When true, failure injects a synthetic user turn so the agent must address it. When false, failure surfaces as a warning and the loop continues."
+                },
+                "timeoutMs": {
+                  "type": "number",
+                  "default": 30000,
+                  "description": "Hard timeout for the command in ms."
+                },
+                "scope": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Optional glob list. Guard only fires when at least one touched file in this turn matches. Empty/missing = fire on every qualifying turn."
+                },
+                "maxAttempts": {
+                  "type": "number",
+                  "default": 5,
+                  "description": "Give up after this many consecutive failures per task. Counter resets on any success."
+                },
+                "workingDir": {
+                  "type": "string",
+                  "description": "Optional working directory. Defaults to the workspace folder."
                 }
               }
-            },
-            "required": [
-              "name",
-              "description",
-              "systemPrompt",
-              "approvalBehavior"
-            ]
-          }
-        },
-        "sidecar.toolPermissions": {
-          "type": "object",
-          "default": {},
-          "description": "Per-tool permission overrides: { \"tool_name\": \"allow\" | \"deny\" | \"ask\" }"
-        },
-        "sidecar.hooks": {
-          "type": "object",
-          "default": {},
-          "description": "Pre/post-execution hooks by tool name. Keys are tool names or '*' for all. Value: { \"pre\": \"command\", \"post\": \"command\" }"
-        },
-        "sidecar.eventHooks": {
-          "type": "object",
-          "default": {},
-          "description": "Event-based hooks. { \"onSave\": \"command\", \"onCreate\": \"command\", \"onDelete\": \"command\" }",
-          "properties": {
-            "onSave": {
-              "type": "string"
-            },
-            "onCreate": {
-              "type": "string"
-            },
-            "onDelete": {
-              "type": "string"
             }
-          }
-        },
-        "sidecar.scheduledTasks": {
-          "type": "array",
-          "default": [],
-          "description": "Recurring tasks to run on interval",
-          "items": {
-            "type": "object",
-            "properties": {
-              "name": {
-                "type": "string"
-              },
-              "intervalMinutes": {
-                "type": "number"
-              },
-              "prompt": {
-                "type": "string"
-              },
-              "enabled": {
-                "type": "boolean",
-                "default": true
-              }
-            },
-            "required": [
-              "name",
-              "intervalMinutes",
-              "prompt"
-            ]
-          }
-        },
-        "sidecar.mcpServers": {
-          "type": "object",
-          "default": {},
-          "markdownDescription": "MCP servers to connect to. Supports stdio, HTTP, and SSE transports. Also reads `.mcp.json` at workspace root.\n\n**stdio:** `{ \"command\": \"npx\", \"args\": [\"server\"] }`\n\n**HTTP:** `{ \"type\": \"http\", \"url\": \"https://...\", \"headers\": {} }`\n\n**Options:** `tools` (per-tool enable/disable), `maxResultChars` (output limit, default 50000)"
-        },
-        "sidecar.agentMode": {
-          "type": "string",
-          "default": "cautious",
-          "order": 20,
-          "tags": [
-            "sidecar",
-            "agent"
-          ],
-          "markdownDescription": "How much autonomy the agent has. Built-in modes:\n\n- `cautious` — asks before destructive tools (default)\n- `autonomous` — runs every allowed tool without asking\n- `manual` — asks before every tool\n- `plan` — generates a plan for your approval, then executes\n- `review` — queues file edits for review; nothing hits disk\n- `audit` *(v0.60)* — agent runs without per-call prompts, but every `write_file` / `edit_file` / `delete_file` is diverted to an in-memory buffer instead of touching disk. The user reviews the buffered changes at the end and either accepts (atomic flush) or rejects (discard). Shell commands still run normally — scope is the agent's explicit file-authoring surface, not every side effect.\n\nCustom modes defined in `#sidecar.customModes#` are also valid here."
-        },
-        "sidecar.agentTemperature": {
-          "type": "number",
-          "default": 0.2,
-          "minimum": 0,
-          "maximum": 2,
-          "order": 21,
-          "tags": [
-            "sidecar",
-            "agent"
-          ],
-          "markdownDescription": "Temperature for agent tool-calling requests.\n\n- `0.1-0.3` — deterministic tool selection (recommended for agent loops)\n- `0.7-1.0` — creative, more exploration\n\nNon-tool requests always use `0`."
-        },
-        "sidecar.agentMaxIterations": {
-          "type": "number",
-          "default": 25,
-          "minimum": 1,
-          "maximum": 100,
-          "order": 22,
-          "tags": [
-            "sidecar",
-            "agent"
-          ],
-          "markdownDescription": "Maximum number of agent loop iterations before the agent stops. Each iteration is one model call plus any tools it chose. Hitting this limit usually means the agent is stuck in a cycle — inspect the chat and narrow the task."
-        },
-        "sidecar.agentMaxMessages": {
-          "type": "number",
-          "default": 25,
-          "minimum": 5,
-          "maximum": 200,
-          "order": 23,
-          "tags": [
-            "sidecar",
-            "agent"
-          ],
-          "markdownDescription": "Soft ceiling on conversation message count before the agent should wrap up. The agent still completes the current tool cycle if it's in the middle of one."
-        },
-        "sidecar.agentMaxTokens": {
-          "type": "number",
-          "default": 100000,
-          "minimum": 1000,
-          "maximum": 1000000,
-          "order": 24,
-          "tags": [
-            "sidecar",
-            "agent"
-          ],
-          "markdownDescription": "Maximum total tokens consumed by a single agent run before it stops. Prevents runaway loops on paid backends. `100000` is a safe default for Claude; bump higher for frontier models with large context windows."
-        },
-        "sidecar.requestTimeout": {
-          "type": "number",
-          "default": 120,
-          "description": "Timeout in seconds for each LLM request. If no tokens arrive within this time the request is aborted. Set to 0 to disable."
-        },
-        "sidecar.shellTimeout": {
-          "type": "number",
-          "default": 120,
-          "description": "Default timeout for shell commands in seconds"
-        },
-        "sidecar.shellMaxOutputMB": {
-          "type": "number",
-          "default": 10,
-          "description": "Maximum shell output size in MB before truncation"
-        },
-        "sidecar.bgMaxConcurrent": {
-          "type": "number",
-          "default": 3,
-          "minimum": 1,
-          "maximum": 10,
-          "description": "Maximum number of background agents that can run simultaneously"
-        },
-        "sidecar.promptPruning.enabled": {
-          "type": "boolean",
-          "default": true,
-          "order": 40,
-          "tags": [
-            "sidecar",
-            "cost"
-          ],
-          "markdownDescription": "Prune prompts before sending to paid backends (Anthropic, OpenAI). Collapses whitespace, truncates oversized tool results, and dedupes repeated file content. **Safe for agent loops** — only lossy on tool output, never on user or assistant messages.\n\nCheck the savings in `SideCar: Show Session Spend` after each run."
-        },
-        "sidecar.promptPruning.maxToolResultTokens": {
-          "type": "number",
-          "default": 2000,
-          "minimum": 200,
-          "maximum": 20000,
-          "order": 41,
-          "tags": [
-            "sidecar",
-            "cost"
-          ],
-          "markdownDescription": "Maximum token count for any single `tool_result` block sent to a paid backend. Longer results are head+tail truncated with an elision marker. Raise this if you need the agent to see full file contents; lower it to reduce cost on heavy exploration tasks."
-        },
-        "sidecar.delegateTask.enabled": {
-          "type": "boolean",
-          "default": true,
-          "order": 42,
-          "tags": [
-            "sidecar",
-            "cost",
-            "agent"
-          ],
-          "markdownDescription": "Expose the `delegate_task` tool to paid backends. The orchestrator can offload read-only research (file reads, greps, searches) to a local Ollama worker and receive a compact summary, cutting paid-model token usage on heavy exploration tasks. **No-op on local-only setups.**"
-        },
-        "sidecar.delegateTask.workerModel": {
-          "type": "string",
-          "default": "",
-          "order": 43,
-          "tags": [
-            "sidecar",
-            "cost",
-            "agent"
-          ],
-          "markdownDescription": "Ollama model used by the `delegate_task` worker. Empty string = reuse the chat model. Recommended: a code-tuned model like `qwen3-coder:30b` or `deepseek-coder:33b`."
-        },
-        "sidecar.delegateTask.workerBaseUrl": {
-          "type": "string",
-          "default": "http://localhost:11434",
-          "order": 44,
-          "tags": [
-            "sidecar",
-            "cost",
-            "agent"
-          ],
-          "markdownDescription": "Base URL of the Ollama instance the `delegate_task` worker connects to. Must point at a local or reachable Ollama server — never Anthropic or OpenAI (defeats the purpose)."
-        },
-        "sidecar.delegateTask.maxIterations": {
-          "type": "number",
-          "default": 10,
-          "minimum": 1,
-          "maximum": 25,
-          "order": 45,
-          "tags": [
-            "sidecar",
-            "cost",
-            "agent"
-          ],
-          "markdownDescription": "Hard cap on agent iterations for a delegated worker run. Workers are scoped to focused read-only research, so a tight cap protects against runaway loops and unintended cost. Raise this only if your delegated tasks legitimately need more steps (e.g. deep multi-file analysis). The main agent loop is bounded separately by `#sidecar.agentMaxIterations#`."
-        },
-        "sidecar.outboundAllowlist": {
-          "type": "array",
-          "items": {
-            "type": "string"
           },
-          "default": [],
-          "order": 4,
-          "tags": [
-            "sidecar",
-            "security"
-          ],
-          "markdownDescription": "Outbound host allowlist for URL fetching in chat.\n\nWhen non-empty, SideCar only fetches URLs whose hostname matches one of these entries. Empty (the default) allows every public URL — SSRF and private-IP blocking still apply.\n\nPatterns support a leading `*.` wildcard for subdomains:\n\n- `github.com` — exact match only\n- `*.github.com` — any subdomain (`api.github.com`, `raw.github.com`)\n\nPairs with the built-in exfiltration defense on `web_search`, which refuses to send queries containing credential-shaped tokens regardless of this setting."
-        },
-        "sidecar.terminalExecution.enabled": {
-          "type": "boolean",
-          "default": true,
-          "order": 14,
-          "tags": [
-            "sidecar"
-          ],
-          "markdownDescription": "Route the agent's `run_command` tool through VS Code's shell-integration API so the user sees commands execute in a dedicated *SideCar Agent* terminal (as opposed to the hidden `child_process.spawn` path `ShellSession` used previously). Gives transparency on SSH / Dev Containers / WSL / Codespaces where `child_process.exec` escapes the remote sandbox. Set to `false` to keep everything on `ShellSession`."
-        },
-        "sidecar.terminalExecution.terminalName": {
-          "type": "string",
-          "default": "SideCar Agent",
-          "order": 15,
-          "tags": [
-            "sidecar"
-          ],
-          "markdownDescription": "Display name for the reusable agent terminal when `terminalExecution.enabled` is true."
-        },
-        "sidecar.terminalExecution.fallbackToChildProcess": {
-          "type": "boolean",
-          "default": true,
-          "order": 16,
-          "tags": [
-            "sidecar"
-          ],
-          "markdownDescription": "When shell integration is unavailable (bare shell without the VS Code init script, older VS Code version), fall back to the `ShellSession` / `child_process` execution path. Set to `false` to make commands fail loudly instead of silently falling back — useful for debugging terminal-integration setup issues."
-        },
-        "sidecar.terminalExecution.shellIntegrationTimeoutMs": {
-          "type": "number",
-          "default": 2000,
-          "minimum": 100,
-          "maximum": 10000,
-          "order": 17,
-          "tags": [
-            "sidecar"
-          ],
-          "markdownDescription": "Milliseconds to wait for `shellIntegration` to attach to a freshly created terminal before falling back to `ShellSession`. Shell integration attaches asynchronously after the terminal's shell loads VS Code's init script, so a short wait is normal. Raise if your shell startup is slow; lower to fail faster on shells that won't ever integrate."
-        },
-        "sidecar.shadowWorkspace.mode": {
-          "type": "string",
-          "enum": [
-            "off",
-            "opt-in",
-            "always"
-          ],
-          "default": "off",
-          "order": 18,
-          "tags": [
-            "sidecar"
-          ],
-          "markdownDescription": "Controls the Shadow Workspace feature — a git-worktree sandbox at `.sidecar/shadows/<task-id>/` where the agent iterates without touching the main working tree. On task completion, the user sees a diff and can accept (apply to main) or reject (discard).\n\n- `off` (default) — disabled. Agent writes land directly in main.\n- `opt-in` — agent tasks run in the main tree; the user can opt a specific task into a shadow via a slash command. *(Not yet wired up in v0.59 MVP.)*\n- `always` — every agent task runs in a shadow. Safe but introduces per-task setup cost (worktree checkout) and a review step at end.\n\nThis is the v0.59 MVP tier. Per-hunk review UI, gate-command integration, symlinked build dirs, and rebase-on-moved-main conflict handling land in v0.60+."
-        },
-        "sidecar.shadowWorkspace.autoCleanup": {
-          "type": "boolean",
-          "default": true,
-          "order": 19,
-          "tags": [
-            "sidecar"
-          ],
-          "markdownDescription": "When true, `git worktree remove` + directory cleanup run after every shadow regardless of accept/reject. Set to `false` to keep failed or rejected shadows around for post-mortem inspection at `.sidecar/shadows/<task-id>/` — useful when debugging why the agent's shadow work didn't apply cleanly."
-        },
-        "sidecar.shadowWorkspace.gateCommand": {
-          "type": "string",
-          "default": "npm run check",
-          "order": 20,
-          "tags": [
-            "sidecar"
-          ],
-          "markdownDescription": "Shell command run inside the shadow before the accept/reject prompt opens, so failing builds can't ship as accepted diffs. Defaults to `npm run check` which runs tsc + eslint + vitest per the SideCar project's own convention. Override for non-JS projects (e.g. `cargo check && cargo test`, `pytest && mypy`).\n\n**Not yet wired up in v0.59 MVP** — the setting exists so the gate lands zero-config in v0.60."
-        },
-        "sidecar.shadowWorkspace.sweepStaleOnActivation": {
-          "type": "boolean",
-          "default": true,
-          "order": 20,
-          "tags": [
-            "sidecar"
-          ],
-          "markdownDescription": "*(v0.62.1)* Sweep orphan shadow worktrees at activation. A VS Code crash mid-shadow-run can leave git metadata under `.git/worktrees/<id>/` pointing at a directory that no longer exists — downstream `git status` / `git fetch` / `git push` start failing mysteriously. When enabled (default), SideCar runs `git worktree remove --force` on any stale entry whose shadow path is gone + deletes orphan dirs under `.sidecar/shadows/` that aren't registered with git.\n\nDisable when doing crash-recovery forensics on your own shadows; the manual `SideCar: Shadow Workspaces: Sweep Stale Worktrees` command stays available regardless of this setting."
-        },
-        "sidecar.regressionGuards": {
-          "type": "array",
-          "default": [],
-          "order": 21,
-          "tags": [
-            "sidecar"
-          ],
-          "markdownDescription": "Declarative shell commands that act as hard gates the agent must pass before completing a task. Use for domain-specific correctness checks the general lint/test suite can't express — conservation-of-energy invariants in a physics sim, bundle-size budgets, API-contract diffs, etc.\n\nEach entry has: `name` (required, human-readable), `command` (required, shell), `trigger` (required, one of `post-write` / `post-turn` / `pre-completion`), and optional `blocking` (default `true`), `timeoutMs` (default 30000), `scope` (glob array; guard only fires when touched files match), `maxAttempts` (default 5 consecutive failures before giving up), `workingDir`.\n\nWhen blocking and exit ≠ 0, the guard output is injected as a synthetic user turn so the agent can read the error and revise. When non-blocking, the loop just surfaces a warning. The first time a workspace defines guards, SideCar prompts to trust them — same contract as `hooks`, `mcpServers`, `customTools`, `scheduledTasks`.",
-          "items": {
-            "type": "object",
-            "required": [
-              "name",
-              "command",
-              "trigger"
+          "sidecar.regressionGuards.mode": {
+            "type": "string",
+            "enum": [
+              "off",
+              "strict",
+              "warn"
             ],
-            "properties": {
-              "name": {
-                "type": "string",
-                "description": "Short identifier for the guard (shown in failure messages)."
-              },
-              "command": {
-                "type": "string",
-                "description": "Shell command to run. Runs in the workspace root unless workingDir is set."
-              },
-              "trigger": {
-                "type": "string",
-                "enum": [
-                  "post-write",
-                  "post-turn",
-                  "pre-completion"
-                ],
-                "description": "When the guard fires. post-write = after every turn that includes a file-mutation tool call; post-turn = after every turn; pre-completion = when the model tries to finish the task."
-              },
-              "blocking": {
-                "type": "boolean",
-                "default": true,
-                "description": "When true, failure injects a synthetic user turn so the agent must address it. When false, failure surfaces as a warning and the loop continues."
-              },
-              "timeoutMs": {
-                "type": "number",
-                "default": 30000,
-                "description": "Hard timeout for the command in ms."
-              },
-              "scope": {
-                "type": "array",
-                "items": {
+            "default": "strict",
+            "order": 22,
+            "tags": [
+              "sidecar"
+            ],
+            "markdownDescription": "Global override for `sidecar.regressionGuards`.\n\n- `strict` (default) — honor each guard's per-entry `blocking` flag.\n- `warn` — force every guard to non-blocking, so failures surface as warnings but don't halt the agent. Useful for short-term opt-out during a known-broken refactor without editing every entry.\n- `off` — disable all guards regardless of config. Useful for emergency bypass."
+          },
+          "sidecar.audit.autoApproveReads": {
+            "type": "boolean",
+            "default": true,
+            "order": 23,
+            "tags": [
+              "sidecar"
+            ],
+            "markdownDescription": "*(Audit Mode, v0.60)* When true (default), `read_file` / `list_directory` calls don't need to go through the audit buffer review — reads don't mutate state, so they pass through even when the agent is running in `audit` mode. Set to `false` to require explicit approval for every read (rarely useful; mostly for auditing sessions where the set of files consulted is itself sensitive)."
+          },
+          "sidecar.audit.bufferGitCommits": {
+            "type": "boolean",
+            "default": true,
+            "order": 24,
+            "tags": [
+              "sidecar"
+            ],
+            "markdownDescription": "*(Audit Mode, v0.60)* When true (default), `git_commit` tool calls are buffered alongside file writes so a rejected audit batch leaves `HEAD` unchanged. When false, commits land immediately regardless of audit state — useful for session-tracking commits (changelog entries, audit trail) the user wants to keep even if the code changes are rejected. v0.61 a.4 wires the behavior end-to-end: queued commits execute in FIFO order as the last step of a full flush; subset flushes leave commits queued."
+          }
+        }
+      },
+      {
+        "title": "SideCar: Retrieval & Context",
+        "properties": {
+          "sidecar.includeWorkspace": {
+            "type": "boolean",
+            "default": true,
+            "order": 11,
+            "tags": [
+              "sidecar",
+              "context"
+            ],
+            "markdownDescription": "Automatically include workspace files in chat context. When off, only files you explicitly reference with `@file:path` or pin with `@pin:path` are sent to the model."
+          },
+          "sidecar.includeActiveFile": {
+            "type": "boolean",
+            "default": true,
+            "description": "Include the currently active file in chat context"
+          },
+          "sidecar.filePatterns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": [
+              "**/*.ts",
+              "**/*.js",
+              "**/*.py",
+              "**/*.md",
+              "**/*.kt",
+              "**/*.java",
+              "**/*.swift",
+              "**/*.go",
+              "**/*.rs",
+              "**/*.c",
+              "**/*.cpp",
+              "**/*.h",
+              "**/*.rb",
+              "**/*.php",
+              "**/*.cs",
+              "**/*.json",
+              "**/*.yaml",
+              "**/*.yml",
+              "**/*.toml",
+              "**/*.gradle.kts",
+              "**/*.gradle",
+              "**/*.html",
+              "**/*.css",
+              "**/*.scss",
+              "**/*.sh",
+              "**/*.sql"
+            ],
+            "order": 12,
+            "tags": [
+              "sidecar",
+              "context"
+            ],
+            "markdownDescription": "Glob patterns for files eligible to be included as workspace context. Applied before `sidecar.maxFiles` ranks them by relevance. Patterns use standard VS Code globbing (`**`, `*`, `?`)."
+          },
+          "sidecar.maxFiles": {
+            "type": "number",
+            "default": 10,
+            "minimum": 1,
+            "maximum": 100,
+            "order": 13,
+            "tags": [
+              "sidecar",
+              "context"
+            ],
+            "markdownDescription": "Maximum number of workspace files included as context on each turn. Lower this if you're hitting context-limit warnings on a small local model; raise it for frontier models with larger windows."
+          },
+          "sidecar.contextLimit": {
+            "type": "number",
+            "default": 0,
+            "order": 14,
+            "tags": [
+              "sidecar",
+              "context"
+            ],
+            "markdownDescription": "Override the context token limit for local models. `0` = auto-detect with a 16K default cap. Increase if you have enough VRAM and want longer conversations. Ignored for paid backends — their limits come from the API."
+          },
+          "sidecar.pinnedContext": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": [],
+            "description": "Files or folders always included in context (relative paths). Use @pin:path in chat to add dynamically."
+          },
+          "sidecar.projectKnowledge.enabled": {
+            "type": "boolean",
+            "default": false,
+            "order": 25,
+            "tags": [
+              "sidecar"
+            ],
+            "markdownDescription": "*(Project Knowledge Index, v0.61)* **Opt-in preview** of the symbol-level semantic index. When enabled, SideCar embeds each function / class / method / interface / type as its own vector (vs. the file-level index's one-vector-per-file) so queries like \"where is auth handled?\" return the specific function rather than the containing file. Uses the existing `@xenova/transformers` MiniLM model — no new downloads, no new dependencies. Default `false` during the v0.61 build-out; flip to `true` to exercise the symbol index now. Flips to default-on once the full feature arc ships (graph-walk retrieval, `project_knowledge_search` tool, sidebar panel)."
+          },
+          "sidecar.projectKnowledge.maxSymbolsPerFile": {
+            "type": "number",
+            "default": 500,
+            "order": 26,
+            "tags": [
+              "sidecar"
+            ],
+            "markdownDescription": "*(Project Knowledge Index, v0.61)* Safety cap on how many symbols from a single file get embedded. Guards against generated files (e.g. auto-generated schemas, giant test fixtures) with tens of thousands of declarations monopolizing the embedder."
+          },
+          "sidecar.projectKnowledge.backend": {
+            "type": "string",
+            "enum": [
+              "flat",
+              "lance"
+            ],
+            "default": "flat",
+            "order": 27,
+            "tags": [
+              "sidecar"
+            ],
+            "markdownDescription": "*(Project Knowledge Index, v0.62)* Vector storage backend for the symbol embedding index.\n\n- `flat` (default, shipped) — in-memory `Float32Array` with linear cosine-scan search. Fast enough for workspaces up to ~100k symbols.\n- `lance` — reserved for a future release with LanceDB-backed HNSW ANN. Selecting it today logs a warning and falls back to `flat`.\n\nThe backend is swappable without rebuilding the index — both implementations read the same on-disk format."
+          },
+          "sidecar.merkleIndex.enabled": {
+            "type": "boolean",
+            "default": true,
+            "order": 28,
+            "tags": [
+              "sidecar"
+            ],
+            "markdownDescription": "*(Project Knowledge Index — Merkle layer, v0.62)* Content-addressed hash tree over the symbol embedding index. When on + `sidecar.projectKnowledge.enabled` is also on, every symbol mutation mirrors into a Merkle tree and `project_knowledge_search` prunes candidate files via aggregated-embedding descent *before* scoring leaves — turns an O(total symbols) cosine scan into O(picked files × symbols per file).\n\nDisable only when debugging retrieval regressions: a quality drop against the RAG-eval baseline while this is on isolates the issue to the Merkle layer without losing PKI entirely. The root hash is also exposed (via `getMerkleRoot()` on the index) as a single-value workspace fingerprint for cache validity + cross-machine sync work."
+          },
+          "sidecar.promptPruning.enabled": {
+            "type": "boolean",
+            "default": true,
+            "order": 40,
+            "tags": [
+              "sidecar",
+              "cost"
+            ],
+            "markdownDescription": "Prune prompts before sending to paid backends (Anthropic, OpenAI). Collapses whitespace, truncates oversized tool results, and dedupes repeated file content. **Safe for agent loops** — only lossy on tool output, never on user or assistant messages.\n\nCheck the savings in `SideCar: Show Session Spend` after each run."
+          },
+          "sidecar.promptPruning.maxToolResultTokens": {
+            "type": "number",
+            "default": 2000,
+            "minimum": 200,
+            "maximum": 20000,
+            "order": 41,
+            "tags": [
+              "sidecar",
+              "cost"
+            ],
+            "markdownDescription": "Maximum token count for any single `tool_result` block sent to a paid backend. Longer results are head+tail truncated with an elision marker. Raise this if you need the agent to see full file contents; lower it to reduce cost on heavy exploration tasks."
+          },
+          "sidecar.jsDocSync.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "On save, check TypeScript / JavaScript files for JSDoc @param tags that no longer match the function signature. Stale tags are surfaced as diagnostics with quick-fix actions to add, remove, or rename them."
+          },
+          "sidecar.readmeSync.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "On save and open, check fenced code blocks in README.md for calls to workspace-exported functions whose argument count no longer matches the current signature. Stale calls are surfaced as diagnostics with a quick-fix that rewrites the arguments."
+          }
+        }
+      },
+      {
+        "title": "SideCar: Shadow Workspace & Terminal",
+        "properties": {
+          "sidecar.shadowWorkspace.mode": {
+            "type": "string",
+            "enum": [
+              "off",
+              "opt-in",
+              "always"
+            ],
+            "default": "off",
+            "order": 18,
+            "tags": [
+              "sidecar"
+            ],
+            "markdownDescription": "Controls the Shadow Workspace feature — a git-worktree sandbox at `.sidecar/shadows/<task-id>/` where the agent iterates without touching the main working tree. On task completion, the user sees a diff and can accept (apply to main) or reject (discard).\n\n- `off` (default) — disabled. Agent writes land directly in main.\n- `opt-in` — agent tasks run in the main tree; the user can opt a specific task into a shadow via a slash command. *(Not yet wired up in v0.59 MVP.)*\n- `always` — every agent task runs in a shadow. Safe but introduces per-task setup cost (worktree checkout) and a review step at end.\n\nThis is the v0.59 MVP tier. Per-hunk review UI, gate-command integration, symlinked build dirs, and rebase-on-moved-main conflict handling land in v0.60+."
+          },
+          "sidecar.shadowWorkspace.autoCleanup": {
+            "type": "boolean",
+            "default": true,
+            "order": 19,
+            "tags": [
+              "sidecar"
+            ],
+            "markdownDescription": "When true, `git worktree remove` + directory cleanup run after every shadow regardless of accept/reject. Set to `false` to keep failed or rejected shadows around for post-mortem inspection at `.sidecar/shadows/<task-id>/` — useful when debugging why the agent's shadow work didn't apply cleanly."
+          },
+          "sidecar.shadowWorkspace.gateCommand": {
+            "type": "string",
+            "default": "npm run check",
+            "order": 20,
+            "tags": [
+              "sidecar"
+            ],
+            "markdownDescription": "Shell command run inside the shadow before the accept/reject prompt opens, so failing builds can't ship as accepted diffs. Defaults to `npm run check` which runs tsc + eslint + vitest per the SideCar project's own convention. Override for non-JS projects (e.g. `cargo check && cargo test`, `pytest && mypy`).\n\n**Not yet wired up in v0.59 MVP** — the setting exists so the gate lands zero-config in v0.60."
+          },
+          "sidecar.shadowWorkspace.sweepStaleOnActivation": {
+            "type": "boolean",
+            "default": true,
+            "order": 20,
+            "tags": [
+              "sidecar"
+            ],
+            "markdownDescription": "*(v0.62.1)* Sweep orphan shadow worktrees at activation. A VS Code crash mid-shadow-run can leave git metadata under `.git/worktrees/<id>/` pointing at a directory that no longer exists — downstream `git status` / `git fetch` / `git push` start failing mysteriously. When enabled (default), SideCar runs `git worktree remove --force` on any stale entry whose shadow path is gone + deletes orphan dirs under `.sidecar/shadows/` that aren't registered with git.\n\nDisable when doing crash-recovery forensics on your own shadows; the manual `SideCar: Shadow Workspaces: Sweep Stale Worktrees` command stays available regardless of this setting."
+          },
+          "sidecar.terminalExecution.enabled": {
+            "type": "boolean",
+            "default": true,
+            "order": 14,
+            "tags": [
+              "sidecar"
+            ],
+            "markdownDescription": "Route the agent's `run_command` tool through VS Code's shell-integration API so the user sees commands execute in a dedicated *SideCar Agent* terminal (as opposed to the hidden `child_process.spawn` path `ShellSession` used previously). Gives transparency on SSH / Dev Containers / WSL / Codespaces where `child_process.exec` escapes the remote sandbox. Set to `false` to keep everything on `ShellSession`."
+          },
+          "sidecar.terminalExecution.terminalName": {
+            "type": "string",
+            "default": "SideCar Agent",
+            "order": 15,
+            "tags": [
+              "sidecar"
+            ],
+            "markdownDescription": "Display name for the reusable agent terminal when `terminalExecution.enabled` is true."
+          },
+          "sidecar.terminalExecution.fallbackToChildProcess": {
+            "type": "boolean",
+            "default": true,
+            "order": 16,
+            "tags": [
+              "sidecar"
+            ],
+            "markdownDescription": "When shell integration is unavailable (bare shell without the VS Code init script, older VS Code version), fall back to the `ShellSession` / `child_process` execution path. Set to `false` to make commands fail loudly instead of silently falling back — useful for debugging terminal-integration setup issues."
+          },
+          "sidecar.terminalExecution.shellIntegrationTimeoutMs": {
+            "type": "number",
+            "default": 2000,
+            "minimum": 100,
+            "maximum": 10000,
+            "order": 17,
+            "tags": [
+              "sidecar"
+            ],
+            "markdownDescription": "Milliseconds to wait for `shellIntegration` to attach to a freshly created terminal before falling back to `ShellSession`. Shell integration attaches asynchronously after the terminal's shell loads VS Code's init script, so a short wait is normal. Raise if your shell startup is slow; lower to fail faster on shells that won't ever integrate."
+          },
+          "sidecar.terminalErrorInterception": {
+            "type": "boolean",
+            "default": true,
+            "description": "Detect non-zero exit codes in the integrated terminal and offer to diagnose the failure in the SideCar chat. Requires VS Code shell integration."
+          }
+        }
+      },
+      {
+        "title": "SideCar: Inline Completions",
+        "properties": {
+          "sidecar.enableInlineCompletions": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enable inline code completions (Copilot-like autocomplete)"
+          },
+          "sidecar.completionModel": {
+            "type": "string",
+            "default": "",
+            "description": "Model for inline completions (leave empty to use the chat model)"
+          },
+          "sidecar.completionMaxTokens": {
+            "type": "number",
+            "default": 256,
+            "description": "Maximum tokens for inline completion responses"
+          },
+          "sidecar.completionDebounceMs": {
+            "type": "number",
+            "default": 300,
+            "description": "Minimum interval in milliseconds between completion requests"
+          }
+        }
+      },
+      {
+        "title": "SideCar: Chat UI",
+        "properties": {
+          "sidecar.chatDensity": {
+            "type": "string",
+            "enum": [
+              "compact",
+              "normal",
+              "comfortable"
+            ],
+            "enumDescriptions": [
+              "Tighter message padding and gaps — fits more messages on screen, good for side-by-side layouts.",
+              "The default — balanced padding matching VS Code's overall density.",
+              "Relaxed padding and larger gaps — easier reading on high-DPI displays."
+            ],
+            "default": "normal",
+            "order": 53,
+            "tags": [
+              "sidecar",
+              "ui"
+            ],
+            "markdownDescription": "Chat panel density. Affects message padding, avatar size, and vertical rhythm — not the font size (use `#sidecar.chatFontSize#` for that)."
+          },
+          "sidecar.chatFontSize": {
+            "type": "number",
+            "default": 13,
+            "minimum": 10,
+            "maximum": 22,
+            "order": 54,
+            "tags": [
+              "sidecar",
+              "ui"
+            ],
+            "markdownDescription": "Chat UI base font size in pixels. Range: 10–22."
+          },
+          "sidecar.chatAccentColor": {
+            "type": "string",
+            "default": "",
+            "order": 55,
+            "tags": [
+              "sidecar",
+              "ui"
+            ],
+            "markdownDescription": "Override the chat accent color used for user messages and step indicators. Any valid CSS color (`#ffbb00`, `hsl(200 80% 50%)`, `royalblue`). Leave empty to inherit from the active VS Code theme."
+          },
+          "sidecar.enableMermaid": {
+            "type": "boolean",
+            "default": true,
+            "order": 52,
+            "tags": [
+              "sidecar",
+              "ui"
+            ],
+            "markdownDescription": "Render fenced ` ```mermaid ` code blocks as diagrams in the chat. Disable to skip the 5.2MB mermaid.js load and render them as plain code — useful if you never ask for diagrams and want a smaller runtime footprint."
+          },
+          "sidecar.expandThinking": {
+            "type": "boolean",
+            "default": false,
+            "order": 51,
+            "tags": [
+              "sidecar",
+              "ui"
+            ],
+            "markdownDescription": "Show model reasoning (`<thinking>`) blocks expanded by default instead of collapsed. Useful when watching how frontier models reason, noisy for everyday chat."
+          },
+          "sidecar.verboseMode": {
+            "type": "boolean",
+            "default": true,
+            "order": 50,
+            "tags": [
+              "sidecar",
+              "ui"
+            ],
+            "markdownDescription": "Show detailed agent reasoning in the chat — iteration summaries, tool selection context, and system prompt assembly. Turn off for a quieter UI at the cost of debuggability."
+          }
+        }
+      },
+      {
+        "title": "SideCar: Extensions & Automation",
+        "properties": {
+          "sidecar.mcpServers": {
+            "type": "object",
+            "default": {},
+            "markdownDescription": "MCP servers to connect to. Supports stdio, HTTP, and SSE transports. Also reads `.mcp.json` at workspace root.\n\n**stdio:** `{ \"command\": \"npx\", \"args\": [\"server\"] }`\n\n**HTTP:** `{ \"type\": \"http\", \"url\": \"https://...\", \"headers\": {} }`\n\n**Options:** `tools` (per-tool enable/disable), `maxResultChars` (output limit, default 50000)"
+          },
+          "sidecar.customTools": {
+            "type": "array",
+            "default": [],
+            "description": "Custom tools that run shell commands. Format: [{ \"name\": \"...\", \"description\": \"...\", \"command\": \"...\" }]",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
                   "type": "string"
                 },
-                "description": "Optional glob list. Guard only fires when at least one touched file in this turn matches. Empty/missing = fire on every qualifying turn."
+                "description": {
+                  "type": "string"
+                },
+                "command": {
+                  "type": "string"
+                }
               },
-              "maxAttempts": {
-                "type": "number",
-                "default": 5,
-                "description": "Give up after this many consecutive failures per task. Counter resets on any success."
+              "required": [
+                "name",
+                "description",
+                "command"
+              ]
+            }
+          },
+          "sidecar.customModes": {
+            "type": "array",
+            "default": [],
+            "description": "Custom agent modes with dedicated system prompts and approval behavior. Example: [{ \"name\": \"architect\", \"description\": \"Design-only mode\", \"systemPrompt\": \"Focus on architecture...\", \"approvalBehavior\": \"manual\" }]",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Mode identifier (lowercase, no spaces)"
+                },
+                "description": {
+                  "type": "string",
+                  "description": "Short description shown in the mode dropdown"
+                },
+                "systemPrompt": {
+                  "type": "string",
+                  "description": "Additional system prompt text injected when this mode is active"
+                },
+                "approvalBehavior": {
+                  "type": "string",
+                  "enum": [
+                    "autonomous",
+                    "cautious",
+                    "manual"
+                  ],
+                  "description": "Tool approval behavior for this mode"
+                },
+                "toolPermissions": {
+                  "type": "object",
+                  "default": {},
+                  "description": "Per-tool permission overrides for this mode",
+                  "additionalProperties": {
+                    "type": "string",
+                    "enum": [
+                      "allow",
+                      "deny",
+                      "ask"
+                    ]
+                  }
+                }
               },
-              "workingDir": {
-                "type": "string",
-                "description": "Optional working directory. Defaults to the workspace folder."
+              "required": [
+                "name",
+                "description",
+                "systemPrompt",
+                "approvalBehavior"
+              ]
+            }
+          },
+          "sidecar.hooks": {
+            "type": "object",
+            "default": {},
+            "description": "Pre/post-execution hooks by tool name. Keys are tool names or '*' for all. Value: { \"pre\": \"command\", \"post\": \"command\" }"
+          },
+          "sidecar.eventHooks": {
+            "type": "object",
+            "default": {},
+            "description": "Event-based hooks. { \"onSave\": \"command\", \"onCreate\": \"command\", \"onDelete\": \"command\" }",
+            "properties": {
+              "onSave": {
+                "type": "string"
+              },
+              "onCreate": {
+                "type": "string"
+              },
+              "onDelete": {
+                "type": "string"
               }
             }
-          }
-        },
-        "sidecar.regressionGuards.mode": {
-          "type": "string",
-          "enum": [
-            "off",
-            "strict",
-            "warn"
-          ],
-          "default": "strict",
-          "order": 22,
-          "tags": [
-            "sidecar"
-          ],
-          "markdownDescription": "Global override for `sidecar.regressionGuards`.\n\n- `strict` (default) — honor each guard's per-entry `blocking` flag.\n- `warn` — force every guard to non-blocking, so failures surface as warnings but don't halt the agent. Useful for short-term opt-out during a known-broken refactor without editing every entry.\n- `off` — disable all guards regardless of config. Useful for emergency bypass."
-        },
-        "sidecar.audit.autoApproveReads": {
-          "type": "boolean",
-          "default": true,
-          "order": 23,
-          "tags": [
-            "sidecar"
-          ],
-          "markdownDescription": "*(Audit Mode, v0.60)* When true (default), `read_file` / `list_directory` calls don't need to go through the audit buffer review — reads don't mutate state, so they pass through even when the agent is running in `audit` mode. Set to `false` to require explicit approval for every read (rarely useful; mostly for auditing sessions where the set of files consulted is itself sensitive)."
-        },
-        "sidecar.audit.bufferGitCommits": {
-          "type": "boolean",
-          "default": true,
-          "order": 24,
-          "tags": [
-            "sidecar"
-          ],
-          "markdownDescription": "*(Audit Mode, v0.60)* When true (default), `git_commit` tool calls are buffered alongside file writes so a rejected audit batch leaves `HEAD` unchanged. When false, commits land immediately regardless of audit state — useful for session-tracking commits (changelog entries, audit trail) the user wants to keep even if the code changes are rejected. v0.61 a.4 wires the behavior end-to-end: queued commits execute in FIFO order as the last step of a full flush; subset flushes leave commits queued."
-        },
-        "sidecar.projectKnowledge.enabled": {
-          "type": "boolean",
-          "default": false,
-          "order": 25,
-          "tags": [
-            "sidecar"
-          ],
-          "markdownDescription": "*(Project Knowledge Index, v0.61)* **Opt-in preview** of the symbol-level semantic index. When enabled, SideCar embeds each function / class / method / interface / type as its own vector (vs. the file-level index's one-vector-per-file) so queries like \"where is auth handled?\" return the specific function rather than the containing file. Uses the existing `@xenova/transformers` MiniLM model — no new downloads, no new dependencies. Default `false` during the v0.61 build-out; flip to `true` to exercise the symbol index now. Flips to default-on once the full feature arc ships (graph-walk retrieval, `project_knowledge_search` tool, sidebar panel)."
-        },
-        "sidecar.projectKnowledge.maxSymbolsPerFile": {
-          "type": "number",
-          "default": 500,
-          "order": 26,
-          "tags": [
-            "sidecar"
-          ],
-          "markdownDescription": "*(Project Knowledge Index, v0.61)* Safety cap on how many symbols from a single file get embedded. Guards against generated files (e.g. auto-generated schemas, giant test fixtures) with tens of thousands of declarations monopolizing the embedder."
-        },
-        "sidecar.projectKnowledge.backend": {
-          "type": "string",
-          "enum": [
-            "flat",
-            "lance"
-          ],
-          "default": "flat",
-          "order": 27,
-          "tags": [
-            "sidecar"
-          ],
-          "markdownDescription": "*(Project Knowledge Index, v0.62)* Vector storage backend for the symbol embedding index.\n\n- `flat` (default, shipped) — in-memory `Float32Array` with linear cosine-scan search. Fast enough for workspaces up to ~100k symbols.\n- `lance` — reserved for a future release with LanceDB-backed HNSW ANN. Selecting it today logs a warning and falls back to `flat`.\n\nThe backend is swappable without rebuilding the index — both implementations read the same on-disk format."
-        },
-        "sidecar.merkleIndex.enabled": {
-          "type": "boolean",
-          "default": true,
-          "order": 28,
-          "tags": [
-            "sidecar"
-          ],
-          "markdownDescription": "*(Project Knowledge Index — Merkle layer, v0.62)* Content-addressed hash tree over the symbol embedding index. When on + `sidecar.projectKnowledge.enabled` is also on, every symbol mutation mirrors into a Merkle tree and `project_knowledge_search` prunes candidate files via aggregated-embedding descent *before* scoring leaves — turns an O(total symbols) cosine scan into O(picked files × symbols per file).\n\nDisable only when debugging retrieval regressions: a quality drop against the RAG-eval baseline while this is on isolates the issue to the Merkle layer without losing PKI entirely. The root hash is also exposed (via `getMerkleRoot()` on the index) as a single-value workspace fingerprint for cache validity + cross-machine sync work."
-        },
-        "sidecar.includeActiveFile": {
-          "type": "boolean",
-          "default": true,
-          "description": "Include the currently active file in chat context"
-        },
-        "sidecar.enableInlineCompletions": {
-          "type": "boolean",
-          "default": false,
-          "description": "Enable inline code completions (Copilot-like autocomplete)"
-        },
-        "sidecar.completionModel": {
-          "type": "string",
-          "default": "",
-          "description": "Model for inline completions (leave empty to use the chat model)"
-        },
-        "sidecar.completionMaxTokens": {
-          "type": "number",
-          "default": 256,
-          "description": "Maximum tokens for inline completion responses"
-        },
-        "sidecar.completionDebounceMs": {
-          "type": "number",
-          "default": 300,
-          "description": "Minimum interval in milliseconds between completion requests"
-        },
-        "sidecar.verboseMode": {
-          "type": "boolean",
-          "default": true,
-          "order": 50,
-          "tags": [
-            "sidecar",
-            "ui"
-          ],
-          "markdownDescription": "Show detailed agent reasoning in the chat — iteration summaries, tool selection context, and system prompt assembly. Turn off for a quieter UI at the cost of debuggability."
-        },
-        "sidecar.expandThinking": {
-          "type": "boolean",
-          "default": false,
-          "order": 51,
-          "tags": [
-            "sidecar",
-            "ui"
-          ],
-          "markdownDescription": "Show model reasoning (`<thinking>`) blocks expanded by default instead of collapsed. Useful when watching how frontier models reason, noisy for everyday chat."
-        },
-        "sidecar.enableMermaid": {
-          "type": "boolean",
-          "default": true,
-          "order": 52,
-          "tags": [
-            "sidecar",
-            "ui"
-          ],
-          "markdownDescription": "Render fenced ` ```mermaid ` code blocks as diagrams in the chat. Disable to skip the 5.2MB mermaid.js load and render them as plain code — useful if you never ask for diagrams and want a smaller runtime footprint."
-        },
-        "sidecar.chatDensity": {
-          "type": "string",
-          "enum": [
-            "compact",
-            "normal",
-            "comfortable"
-          ],
-          "enumDescriptions": [
-            "Tighter message padding and gaps — fits more messages on screen, good for side-by-side layouts.",
-            "The default — balanced padding matching VS Code's overall density.",
-            "Relaxed padding and larger gaps — easier reading on high-DPI displays."
-          ],
-          "default": "normal",
-          "order": 53,
-          "tags": [
-            "sidecar",
-            "ui"
-          ],
-          "markdownDescription": "Chat panel density. Affects message padding, avatar size, and vertical rhythm — not the font size (use `#sidecar.chatFontSize#` for that)."
-        },
-        "sidecar.chatFontSize": {
-          "type": "number",
-          "default": 13,
-          "minimum": 10,
-          "maximum": 22,
-          "order": 54,
-          "tags": [
-            "sidecar",
-            "ui"
-          ],
-          "markdownDescription": "Chat UI base font size in pixels. Range: 10–22."
-        },
-        "sidecar.chatAccentColor": {
-          "type": "string",
-          "default": "",
-          "order": 55,
-          "tags": [
-            "sidecar",
-            "ui"
-          ],
-          "markdownDescription": "Override the chat accent color used for user messages and step indicators. Any valid CSS color (`#ffbb00`, `hsl(200 80% 50%)`, `royalblue`). Leave empty to inherit from the active VS Code theme."
-        },
-        "sidecar.terminalErrorInterception": {
-          "type": "boolean",
-          "default": true,
-          "description": "Detect non-zero exit codes in the integrated terminal and offer to diagnose the failure in the SideCar chat. Requires VS Code shell integration."
-        },
-        "sidecar.jsDocSync.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "On save, check TypeScript / JavaScript files for JSDoc @param tags that no longer match the function signature. Stale tags are surfaced as diagnostics with quick-fix actions to add, remove, or rename them."
-        },
-        "sidecar.readmeSync.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "On save and open, check fenced code blocks in README.md for calls to workspace-exported functions whose argument count no longer matches the current signature. Stale calls are surfaced as diagnostics with a quick-fix that rewrites the arguments."
-        },
-        "sidecar.pinnedContext": {
-          "type": "array",
-          "items": {
-            "type": "string"
           },
-          "default": [],
-          "description": "Files or folders always included in context (relative paths). Use @pin:path in chat to add dynamically."
-        },
-        "sidecar.autoFixOnFailure": {
-          "type": "boolean",
-          "default": false,
-          "description": "Automatically check for errors after agent edits and feed them back to the model for self-correction"
-        },
-        "sidecar.autoFixMaxRetries": {
-          "type": "number",
-          "default": 3,
-          "description": "Maximum auto-fix attempts before stopping"
-        },
-        "sidecar.completionGate.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Require the agent to run lint and tests for files it edited before declaring completion. Catches cases where the agent reports a change as done without verifying."
-        },
-        "sidecar.critic.enabled": {
-          "type": "boolean",
-          "default": false,
-          "description": "Run an adversarial critic LLM call after every write_file / edit_file and after every failed run_tests. High-severity findings block the agent until addressed; low-severity findings surface as chat annotations only. Doubles API spend on edit turns — off by default."
-        },
-        "sidecar.critic.model": {
-          "type": "string",
-          "default": "",
-          "description": "Model to use for the adversarial critic call. Empty string (default) means reuse sidecar.model. Set to a cheaper / faster model (e.g. claude-haiku-4-5 when the main model is claude-opus-4-6) to cut cost while keeping the critic enabled."
-        },
-        "sidecar.critic.blockOnHighSeverity": {
-          "type": "boolean",
-          "default": true,
-          "description": "When the critic reports a high-severity finding, inject a synthetic user message forcing the agent to address it before the turn can finish. When false, high-severity findings surface as chat annotations only (same as low-severity)."
-        },
-        "sidecar.fetchUrlContext": {
-          "type": "boolean",
-          "default": true,
-          "order": 15,
-          "tags": [
-            "sidecar",
-            "context"
-          ],
-          "markdownDescription": "Automatically fetch web-page content when URLs are pasted into chat. The fetched HTML is converted to markdown and attached as context on the next turn."
-        },
-        "sidecar.fallbackBaseUrl": {
-          "type": "string",
-          "default": "",
-          "order": 45,
-          "tags": [
-            "sidecar",
-            "backend"
-          ],
-          "markdownDescription": "Fallback backend URL. If the primary backend fails repeatedly, SideCar switches to this URL automatically. Leave empty to disable fallback.\n\nTypical use: primary = Anthropic, fallback = local Ollama, so a transient API outage doesn't block your work."
-        },
-        "sidecar.fallbackApiKey": {
-          "type": "string",
-          "default": "",
-          "order": 46,
-          "tags": [
-            "sidecar",
-            "backend",
-            "secret"
-          ],
-          "markdownDescription": "API key for the fallback backend. **Stored in VS Code SecretStorage** — plaintext values are migrated on activation and then cleared from `settings.json`."
-        },
-        "sidecar.fallbackModel": {
-          "type": "string",
-          "default": "",
-          "order": 47,
-          "tags": [
-            "sidecar",
-            "backend"
-          ],
-          "markdownDescription": "Model to use on the fallback backend. Empty string = reuse the primary model (only useful when the primary and fallback are the same provider family)."
-        },
-        "sidecar.dailyBudget": {
-          "type": "number",
-          "default": 0,
-          "minimum": 0,
-          "order": 48,
-          "tags": [
-            "sidecar",
-            "cost"
-          ],
-          "markdownDescription": "Daily spending budget in USD for paid backends. Agent runs are blocked when the limit is reached. `0` = disabled. Check current spend with `SideCar: Show Session Spend`."
-        },
-        "sidecar.weeklyBudget": {
-          "type": "number",
-          "default": 0,
-          "minimum": 0,
-          "order": 49,
-          "tags": [
-            "sidecar",
-            "cost"
-          ],
-          "markdownDescription": "Weekly spending budget in USD for paid backends. Agent runs are blocked when the limit is reached. `0` = disabled."
+          "sidecar.scheduledTasks": {
+            "type": "array",
+            "default": [],
+            "description": "Recurring tasks to run on interval",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "intervalMinutes": {
+                  "type": "number"
+                },
+                "prompt": {
+                  "type": "string"
+                },
+                "enabled": {
+                  "type": "boolean",
+                  "default": true
+                }
+              },
+              "required": [
+                "name",
+                "intervalMinutes",
+                "prompt"
+              ]
+            }
+          },
+          "sidecar.delegateTask.enabled": {
+            "type": "boolean",
+            "default": true,
+            "order": 42,
+            "tags": [
+              "sidecar",
+              "cost",
+              "agent"
+            ],
+            "markdownDescription": "Expose the `delegate_task` tool to paid backends. The orchestrator can offload read-only research (file reads, greps, searches) to a local Ollama worker and receive a compact summary, cutting paid-model token usage on heavy exploration tasks. **No-op on local-only setups.**"
+          },
+          "sidecar.delegateTask.workerModel": {
+            "type": "string",
+            "default": "",
+            "order": 43,
+            "tags": [
+              "sidecar",
+              "cost",
+              "agent"
+            ],
+            "markdownDescription": "Ollama model used by the `delegate_task` worker. Empty string = reuse the chat model. Recommended: a code-tuned model like `qwen3-coder:30b` or `deepseek-coder:33b`."
+          },
+          "sidecar.delegateTask.workerBaseUrl": {
+            "type": "string",
+            "default": "http://localhost:11434",
+            "order": 44,
+            "tags": [
+              "sidecar",
+              "cost",
+              "agent"
+            ],
+            "markdownDescription": "Base URL of the Ollama instance the `delegate_task` worker connects to. Must point at a local or reachable Ollama server — never Anthropic or OpenAI (defeats the purpose)."
+          },
+          "sidecar.delegateTask.maxIterations": {
+            "type": "number",
+            "default": 10,
+            "minimum": 1,
+            "maximum": 25,
+            "order": 45,
+            "tags": [
+              "sidecar",
+              "cost",
+              "agent"
+            ],
+            "markdownDescription": "Hard cap on agent iterations for a delegated worker run. Workers are scoped to focused read-only research, so a tight cap protects against runaway loops and unintended cost. Raise this only if your delegated tasks legitimately need more steps (e.g. deep multi-file analysis). The main agent loop is bounded separately by `#sidecar.agentMaxIterations#`."
+          },
+          "sidecar.outboundAllowlist": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": [],
+            "order": 4,
+            "tags": [
+              "sidecar",
+              "security"
+            ],
+            "markdownDescription": "Outbound host allowlist for URL fetching in chat.\n\nWhen non-empty, SideCar only fetches URLs whose hostname matches one of these entries. Empty (the default) allows every public URL — SSRF and private-IP blocking still apply.\n\nPatterns support a leading `*.` wildcard for subdomains:\n\n- `github.com` — exact match only\n- `*.github.com` — any subdomain (`api.github.com`, `raw.github.com`)\n\nPairs with the built-in exfiltration defense on `web_search`, which refuses to send queries containing credential-shaped tokens regardless of this setting."
+          },
+          "sidecar.fetchUrlContext": {
+            "type": "boolean",
+            "default": true,
+            "order": 15,
+            "tags": [
+              "sidecar",
+              "context"
+            ],
+            "markdownDescription": "Automatically fetch web-page content when URLs are pasted into chat. The fetched HTML is converted to markdown and attached as context on the next turn."
+          }
         }
       }
-    },
+    ],
     "viewsContainers": {
       "activitybar": [
         {

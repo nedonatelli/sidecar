@@ -4,6 +4,29 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.62.5] - 2026-04-17
+
+**v0.62.5 — Settings reorganization.** Fifth patch on the v0.62 cycle; closes the long-open "75 settings in one flat list" discoverability concern. `contributes.configuration` is now an array of 8 categorized sections instead of a single flat `properties` map; VS Code's Settings UI automatically renders each section as a collapsible group with its own title. **No key renames** — every existing `sidecar.*` setting keeps its exact current name, default, and schema. Users upgrading from v0.62.4 see zero migration friction: their `settings.json` keeps working byte-identical, and the reorganization is purely a UX improvement in the Settings editor. Tests: 2411 passing (+11 net); tsc + lint clean.
+
+### Changed
+
+- **`contributes.configuration` is now an array of 8 categorized sections** ([`package.json`](package.json)). Order in the Settings UI:
+  1. **SideCar: Backend & Models** (10 keys) — `baseUrl`, `apiKey`, `model`, `provider`, `fallback*`, `requestTimeout`, `dailyBudget`, `weeklyBudget`.
+  2. **SideCar: Agent** (10 keys) — `agentMode`, `agent*Iterations/Messages/Tokens`, `agentTemperature`, `toolPermissions`, `systemPrompt`, `bgMaxConcurrent`, `shell*`.
+  3. **SideCar: Safety & Review** (10 keys) — `critic.*`, `autoFix*`, `completionGate.enabled`, `regressionGuards*`, `audit.*`.
+  4. **SideCar: Retrieval & Context** (14 keys) — `includeWorkspace`, `includeActiveFile`, `filePatterns`, `maxFiles`, `contextLimit`, `pinnedContext`, `projectKnowledge.*`, `merkleIndex.enabled`, `promptPruning.*`, `jsDocSync.enabled`, `readmeSync.enabled`.
+  5. **SideCar: Shadow Workspace & Terminal** (9 keys) — `shadowWorkspace.*`, `terminalExecution.*`, `terminalErrorInterception`.
+  6. **SideCar: Inline Completions** (4 keys) — `enableInlineCompletions`, `completion*`.
+  7. **SideCar: Chat UI** (6 keys) — `chatDensity`, `chatFontSize`, `chatAccentColor`, `enableMermaid`, `expandThinking`, `verboseMode`.
+  8. **SideCar: Extensions & Automation** (12 keys) — `mcpServers`, `customTools`, `customModes`, `hooks`, `eventHooks`, `scheduledTasks`, `delegateTask.*`, `outboundAllowlist`, `fetchUrlContext`.
+- **Schema safety net**: new [`settingsSchema.test.ts`](src/config/settingsSchema.test.ts) pins the 8-category shape (exact count + titles + order), total key count (75), per-section non-emptiness, no-duplicate-across-sections, namespace-prefix invariant, and description-presence check. Adding a setting now requires a deliberate taxonomy choice — the test suite won't let a new key be added without also slotting it into one of the 8 sections. +11 tests.
+
+### Not changed (deliberate)
+
+- **Key names + defaults preserved byte-identical.** A renamed key would break every existing user's `settings.json` silently; the non-breaking regroup is the right trade for the UX win on discoverability. A future hierarchical rename (`sidecar.retrieval.projectKnowledge.enabled` style) is feasible but requires a settings-migration layer and is deferred.
+- **Per-section `order` fields left in place.** Every property's original `order` field is preserved so within-section ordering matches what users are used to.
+- **No new settings.** Pure UI grouping work.
+
 ## [0.62.4] - 2026-04-17
 
 **v0.62.4 — Security hardening.** Fourth patch on the v0.62 release cycle; largest security-posture improvement since Shadow Workspaces. Four distinct hardening arcs land together: (1) indirect-prompt-injection defense on MCP tool output; (2) adversarial-injection defense on the adversarial critic; (3) expanded secret-pattern catalog (~12 new providers); (4) first formal `SECURITY.md` covering threat model, disclosure path, and explicit scope limits. Plus a new `docs/extending-sidecar.md` documenting the four extension surfaces (skills, custom tools, MCP, policy hooks). No breaking changes; no user-visible behavioral changes except the MCP output format (now XML-wrapped; transparent to the agent because the base system prompt already treats tool output as data). Tests: 2400 passing (+40 net); tsc + lint clean.
