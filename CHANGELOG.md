@@ -4,6 +4,10 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+### v0.61 work-in-progress
+
+- **Audit Mode — per-file accept/reject** (v0.61 step a.1, first of the v0.60 Audit Mode Phase 2 deferrals). The review picker now loops after per-file actions so the user can walk the buffer one file at a time without re-invoking the command. After the diff editor opens, a follow-up picker asks `Accept This File` / `Reject This File` / `Back to Review` — first two flush/drop just the named path via new exports `acceptFileAuditBuffer(deps, path)` + `rejectFileAuditBuffer(deps, path)`, third re-enters the review loop. No modal confirmation on per-file reject: the diff view was the confirmation. Bulk `Accept All` / `Reject All` still terminate the loop since they have a clear end state. Refactor beat: extracted `flushBufferPaths(deps, paths?)` helper shared by bulk and per-file accept — `acceptAllAuditBuffer` is now a thin wrapper that calls through with `paths=undefined`. +7 tests covering per-file accept via open→accept-one, per-file reject via open→reject-one (no modal), Back-to-Review loops, and empty-path early returns on both helpers.
+
 ## [0.60.0] - 2026-04-16
 
 **v0.60 — Approval gates.** Second v0.59+ Release-Plan entry. Ships the Audit Mode tier (every `write_file` / `edit_file` / `delete_file` buffers in memory for user review instead of touching disk), declarative Regression Guard Hooks (shell-command gates the agent must pass before proceeding), secret redaction on hook + custom-tool child-process env vars, and a coverage lift in `src/review/` with CI ratchet bump. Audit Mode closes the "agent ran wild and overwrote 40 files before I could stop it" failure mode by converting every agent write into a staged change that the user accepts/rejects atomically; Regression Guards close the "lint passed but the invariant I actually care about broke" gap that the built-in completion gate can't express. Tests: 2075 passing (+91 net for the release); tsc + eslint clean.

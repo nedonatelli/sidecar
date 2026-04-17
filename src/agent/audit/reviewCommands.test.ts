@@ -5,6 +5,8 @@ import {
   reviewAuditBuffer,
   acceptAllAuditBuffer,
   rejectAllAuditBuffer,
+  acceptFileAuditBuffer,
+  rejectFileAuditBuffer,
   type AuditReviewDeps,
   type AuditReviewUi,
 } from './reviewCommands.js';
@@ -122,10 +124,16 @@ describe('reviewAuditBuffer', () => {
     const buf = await makeBufferWith([{ op: 'write', path: 'a.ts', content: 'new-content' }], {
       'a.ts': 'orig-content',
     });
+    // 1st call: review picker returns 'open' row. 2nd: post-diff picker
+    // returns undefined (ESC — loops back to review). 3rd: review picker
+    // returns undefined (user ESC's out, terminating the loop).
+    let callIdx = 0;
     const ui = makeUi({
-      showQuickPick: vi.fn(async (items: readonly { label: string; action?: string }[]) =>
-        items.find((i) => i.action === 'open'),
-      ) as unknown as AuditReviewUi['showQuickPick'],
+      showQuickPick: vi.fn(async (items: readonly { label: string; action?: string }[]) => {
+        callIdx += 1;
+        if (callIdx === 1) return items.find((i) => i.action === 'open');
+        return undefined;
+      }) as unknown as AuditReviewUi['showQuickPick'],
     });
     await reviewAuditBuffer(baseDeps(buf, ui));
     expect(ui.openDiff).toHaveBeenCalledTimes(1);
@@ -140,6 +148,74 @@ describe('reviewAuditBuffer', () => {
     await reviewAuditBuffer(baseDeps(buf, ui));
     expect(ui.openDiff).not.toHaveBeenCalled();
     expect(buf.isEmpty).toBe(false);
+  });
+
+  it('accepts a single file via the post-diff picker', async () => {
+    const buf = await makeBufferWith([
+      { op: 'write', path: 'a.ts', content: 'A' },
+      { op: 'write', path: 'b.ts', content: 'B' },
+    ]);
+    const writeFileSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined);
+    const createDirSpy = vi.spyOn(workspace.fs, 'createDirectory').mockResolvedValue(undefined);
+    try {
+      // Call sequence: (1) review→open a.ts, (2) post-diff→accept-one,
+      // (3) review (one entry left, b.ts)→cancel to exit.
+      let callIdx = 0;
+      const ui = makeUi({
+        showQuickPick: vi.fn(async (items: readonly { label: string; action?: string }[]) => {
+          callIdx += 1;
+          if (callIdx === 1) return items.find((i) => i.action === 'open');
+          if (callIdx === 2) return items.find((i) => i.action === 'accept-one');
+          return undefined;
+        }) as unknown as AuditReviewUi['showQuickPick'],
+      });
+      await reviewAuditBuffer(baseDeps(buf, ui));
+      expect(writeFileSpy).toHaveBeenCalledTimes(1);
+      expect(buf.has('a.ts')).toBe(false);
+      expect(buf.has('b.ts')).toBe(true); // untouched
+    } finally {
+      writeFileSpy.mockRestore();
+      createDirSpy.mockRestore();
+    }
+  });
+
+  it('rejects a single file via the post-diff picker without modal', async () => {
+    const buf = await makeBufferWith([
+      { op: 'write', path: 'a.ts', content: 'A' },
+      { op: 'write', path: 'b.ts', content: 'B' },
+    ]);
+    let callIdx = 0;
+    const ui = makeUi({
+      showQuickPick: vi.fn(async (items: readonly { label: string; action?: string }[]) => {
+        callIdx += 1;
+        if (callIdx === 1) return items.find((i) => i.action === 'open');
+        if (callIdx === 2) return items.find((i) => i.action === 'reject-one');
+        return undefined;
+      }) as unknown as AuditReviewUi['showQuickPick'],
+    });
+    await reviewAuditBuffer(baseDeps(buf, ui));
+    // No modal confirmation on per-file reject — the diff view was the confirmation.
+    expect(ui.showWarningConfirm).not.toHaveBeenCalled();
+    expect(buf.has('a.ts')).toBe(false);
+    expect(buf.has('b.ts')).toBe(true);
+  });
+
+  it('loops back to review when the user picks "Back to Review"', async () => {
+    const buf = await makeBufferWith([{ op: 'write', path: 'a.ts', content: 'A' }]);
+    let callIdx = 0;
+    const ui = makeUi({
+      showQuickPick: vi.fn(async (items: readonly { label: string; action?: string }[]) => {
+        callIdx += 1;
+        if (callIdx === 1) return items.find((i) => i.action === 'open');
+        if (callIdx === 2) return items.find((i) => i.action === 'back');
+        return undefined; // terminating cancel on 3rd call
+      }) as unknown as AuditReviewUi['showQuickPick'],
+    });
+    await reviewAuditBuffer(baseDeps(buf, ui));
+    // Back-to-Review means the review picker re-opened — 3 total calls.
+    expect(callIdx).toBe(3);
+    // Entry still pending.
+    expect(buf.has('a.ts')).toBe(true);
   });
 });
 
@@ -237,5 +313,72 @@ describe('rejectAllAuditBuffer', () => {
     expect(buf.isEmpty).toBe(true);
     expect(ui.showInfo).toHaveBeenCalledWith(expect.stringContaining('empty'));
     expect(ui.showWarningConfirm).not.toHaveBeenCalled();
+  });
+});
+
+describe('acceptFileAuditBuffer', () => {
+  it('flushes just the named path and leaves the rest of the buffer alone', async () => {
+    const buf = await makeBufferWith([
+      { op: 'write', path: 'a.ts', content: 'A' },
+      { op: 'write', path: 'b.ts', content: 'B' },
+    ]);
+    const writeFileSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined);
+    const createDirSpy = vi.spyOn(workspace.fs, 'createDirectory').mockResolvedValue(undefined);
+    try {
+      const ui = makeUi();
+      await acceptFileAuditBuffer(baseDeps(buf, ui), 'a.ts');
+      expect(writeFileSpy).toHaveBeenCalledTimes(1);
+      expect(buf.has('a.ts')).toBe(false);
+      expect(buf.has('b.ts')).toBe(true);
+      expect(ui.showInfo).toHaveBeenCalledWith(expect.stringContaining('accepted 1'));
+    } finally {
+      writeFileSpy.mockRestore();
+      createDirSpy.mockRestore();
+    }
+  });
+
+  it('is a no-op with info toast when the path is not in the buffer', async () => {
+    const buf = await makeBufferWith([{ op: 'write', path: 'a.ts', content: 'A' }]);
+    const writeFileSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined);
+    try {
+      const ui = makeUi();
+      await acceptFileAuditBuffer(baseDeps(buf, ui), 'nonexistent.ts');
+      expect(writeFileSpy).not.toHaveBeenCalled();
+      expect(buf.has('a.ts')).toBe(true);
+      expect(ui.showInfo).toHaveBeenCalledWith(expect.stringContaining('not in the buffer'));
+    } finally {
+      writeFileSpy.mockRestore();
+    }
+  });
+});
+
+describe('rejectFileAuditBuffer', () => {
+  it('clears just the named path without touching disk', async () => {
+    const buf = await makeBufferWith([
+      { op: 'write', path: 'a.ts', content: 'A' },
+      { op: 'write', path: 'b.ts', content: 'B' },
+    ]);
+    const writeFileSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined);
+    const deleteSpy = vi.spyOn(workspace.fs, 'delete').mockResolvedValue(undefined);
+    try {
+      const ui = makeUi();
+      await rejectFileAuditBuffer(baseDeps(buf, ui), 'a.ts');
+      expect(writeFileSpy).not.toHaveBeenCalled();
+      expect(deleteSpy).not.toHaveBeenCalled();
+      expect(buf.has('a.ts')).toBe(false);
+      expect(buf.has('b.ts')).toBe(true);
+      expect(ui.showInfo).toHaveBeenCalledWith(expect.stringContaining('rejected a.ts'));
+    } finally {
+      writeFileSpy.mockRestore();
+      deleteSpy.mockRestore();
+    }
+  });
+
+  it('is a no-op with info toast when the path is not in the buffer', async () => {
+    const buf = await makeBufferWith([{ op: 'write', path: 'a.ts', content: 'A' }]);
+    const ui = makeUi();
+    await rejectFileAuditBuffer(baseDeps(buf, ui), 'nonexistent.ts');
+    expect(buf.has('a.ts')).toBe(true);
+    expect(ui.showInfo).toHaveBeenCalledWith(expect.stringContaining('not in the buffer'));
   });
 });
