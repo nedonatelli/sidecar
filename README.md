@@ -417,9 +417,16 @@ SideCar auto-detects the provider. To override, set `sidecar.provider` to `"open
 
 Full documentation is available at [nedonatelli.github.io/sidecar](https://nedonatelli.github.io/sidecar/).
 
+Repo-local references for contributors and security-conscious users:
+
+- **[SECURITY.md](SECURITY.md)** — threat model, vulnerability disclosure path, supported versions, and the full secret-pattern catalog with `SECRET_PATTERNS_VERSION` change history.
+- **[docs/extending-sidecar.md](docs/extending-sidecar.md)** — the four extension surfaces (skills, custom tools, MCP servers, policy hooks) with authoring examples and trust-requirement comparison.
+- **[docs/agent-loop-diagram.md](docs/agent-loop-diagram.md)** · **[docs/tool-system-diagram.md](docs/tool-system-diagram.md)** · **[docs/context-pipeline-diagram.md](docs/context-pipeline-diagram.md)** · **[docs/mcp-lifecycle-diagram.md](docs/mcp-lifecycle-diagram.md)** — Mermaid architecture diagrams for the agent loop, tool dispatch, retrieval pipeline, and MCP lifecycle.
+
 ## Support & Contact
 
 - **Bug reports & feature requests**: [GitHub Issues](https://github.com/nedonatelli/sidecar/issues)
+- **Security issues**: private disclosure via the process in [SECURITY.md](SECURITY.md) — please don't open public issues for vulnerabilities
 - **Email**: [sidecarai.vscode@gmail.com](mailto:sidecarai.vscode@gmail.com)
 - **Documentation**: [nedonatelli.github.io/sidecar](https://nedonatelli.github.io/sidecar/)
 
