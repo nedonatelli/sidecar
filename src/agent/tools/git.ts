@@ -4,8 +4,29 @@ import type { ToolDefinition } from '../../ollama/types.js';
 import { GitCLI } from '../../github/git.js';
 import { getRoot, type ToolExecutorContext } from './shared.js';
 import { compressGitDiff } from './compression.js';
+import { getConfig } from '../../config/settings.js';
+import { getDefaultAuditBuffer } from '../audit/auditBuffer.js';
 
 const execAsync = promisify(exec);
+
+/**
+ * Audit Mode v0.61 a.4: when the agent is running in audit mode and
+ * `sidecar.audit.bufferGitCommits` is on, the `git_commit` tool call
+ * queues the commit into the audit buffer instead of executing it.
+ * The commit runs as part of the same flush that lands the buffered
+ * file writes, so the user sees one atomic accept boundary.
+ *
+ * False when either check fails — settings read is guarded so a
+ * broken workspace config can't throw on the hot commit path.
+ */
+function shouldBufferCommits(): boolean {
+  try {
+    const cfg = getConfig();
+    return cfg.agentMode === 'audit' && cfg.auditBufferGitCommits === true;
+  } catch {
+    return false;
+  }
+}
 
 // Git tools: thin wrappers over GitCLI. Keeping the full family grouped
 // here makes it easy to reason about which subcommands we expose vs. the
@@ -124,7 +145,17 @@ export async function gitCommit(input: Record<string, unknown>, context?: ToolEx
     // Direct callers (tests, one-off scripts) pass no client and get the
     // plain Co-Authored-By block.
     const extraTrailers = context?.client?.buildModelTrailers();
-    return await new GitCLI().commit(input.message as string, extraTrailers);
+    const message = input.message as string;
+
+    // Audit Mode v0.61 a.4: divert to the buffer and return a success
+    // response the agent can reason about. The commit executes for
+    // real when the user accepts the buffer via the review flow.
+    if (shouldBufferCommits()) {
+      await getDefaultAuditBuffer().queueCommit(message, extraTrailers);
+      return `Commit queued in audit buffer: ${message.split('\n')[0]} (executes on accept)`;
+    }
+
+    return await new GitCLI().commit(message, extraTrailers);
   } catch (err) {
     return `git commit failed: ${err instanceof Error ? err.message : String(err)}`;
   }

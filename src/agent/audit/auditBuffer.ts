@@ -35,9 +35,40 @@ export interface BufferedChange {
   timestamp: number;
 }
 
+/**
+ * A git commit the agent tried to create while audit mode was active
+ * with `sidecar.audit.bufferGitCommits` on (v0.61 a.4). The commit
+ * body is queued here and executed as part of the same flush that
+ * lands the buffered file changes — so the user sees one atomic
+ * "accept everything" boundary rather than having a commit land mid-
+ * review against the still-stale main tree.
+ */
+export interface BufferedCommit {
+  /** Conventional-commits message the agent authored. */
+  message: string;
+  /** Extra trailers (e.g. `X-AI-Model: …`) the commit tool attaches.
+   *  Optional because direct-caller tests don't always wire them. */
+  extraTrailers?: string;
+  /** ms since epoch when queued. */
+  timestamp: number;
+}
+
 export type ReadDiskFn = (path: string) => Promise<string | undefined>;
 export type WriteDiskFn = (path: string, content: string) => Promise<void>;
 export type DeleteDiskFn = (path: string) => Promise<void>;
+/**
+ * Commit executor handed to `flush()` when the caller wants buffered
+ * commits executed after the file writes succeed. Production callers
+ * pass a function that runs `git add <appliedPaths>` then
+ * `GitCLI.commit(message, trailers)`; tests pass an `vi.fn` to assert
+ * FIFO order + post-file-write ordering. Return value is whatever
+ * the commit tool surfaces to the agent (e.g. `"Committed abc1234"`).
+ */
+export type ExecuteCommitFn = (
+  message: string,
+  extraTrailers: string | undefined,
+  appliedPaths: string[],
+) => Promise<string>;
 
 /**
  * Optional persistence layer (v0.61 a.3). When set, the buffer
@@ -48,11 +79,21 @@ export type DeleteDiskFn = (path: string) => Promise<void>;
  * on save failure is strictly less bad than refusing the agent's
  * write and getting stuck mid-task.
  */
+export interface PersistedBufferSnapshot {
+  entries: BufferedChange[];
+  commits: BufferedCommit[];
+}
+
 export interface AuditBufferPersistence {
-  /** Persist the current set of entries. Called after every mutation. */
-  save(entries: BufferedChange[]): Promise<void>;
-  /** Load previously-persisted entries, or null when nothing is stored. */
-  load(): Promise<BufferedChange[] | null>;
+  /** Persist the current buffer snapshot. Called after every mutation.
+   *  Accepts both file entries and queued commits so recovery is
+   *  complete — v0.60 shape used a `BufferedChange[]` directly; v0.61
+   *  bumps to the envelope object so commit persistence doesn't need
+   *  a second file. */
+  save(snapshot: PersistedBufferSnapshot): Promise<void>;
+  /** Load the previously-persisted snapshot, or null when nothing
+   *  is stored. */
+  load(): Promise<PersistedBufferSnapshot | null>;
   /** Remove the persisted state entirely. Called after a clean flush. */
   clear(): Promise<void>;
 }
@@ -73,6 +114,7 @@ export class AuditFlushError extends Error {
 
 export class AuditBuffer {
   private readonly entries = new Map<string, BufferedChange>();
+  private commits: BufferedCommit[] = [];
   private persistence: AuditBufferPersistence | null = null;
 
   /**
@@ -87,14 +129,25 @@ export class AuditBuffer {
   }
 
   /**
-   * Restore entries from a previously-persisted snapshot (v0.61 a.3).
+   * Restore state from a previously-persisted snapshot (v0.61 a.3).
    * Intended for one-time use at activation — subsequent writes go
-   * through `write()` / `deleteFile()`. Replaces any in-memory state.
+   * through `write()` / `deleteFile()` / `queueCommit()`. Replaces
+   * any in-memory state. Accepts either the v0.61 `PersistedBufferSnapshot`
+   * envelope (entries + commits) or a bare `BufferedChange[]` so
+   * legacy callers and tests that only care about entries can keep
+   * passing an array.
    */
-  restore(entries: BufferedChange[]): void {
+  restore(snapshot: PersistedBufferSnapshot | BufferedChange[]): void {
+    const isSnapshot = !Array.isArray(snapshot);
+    const entries = isSnapshot ? snapshot.entries : snapshot;
+    const commits = isSnapshot ? snapshot.commits : [];
     this.entries.clear();
+    this.commits = [];
     for (const entry of entries) {
       this.entries.set(entry.path, entry);
+    }
+    for (const commit of commits) {
+      this.commits.push(commit);
     }
   }
 
@@ -107,14 +160,35 @@ export class AuditBuffer {
   private async persist(): Promise<void> {
     if (!this.persistence) return;
     try {
-      if (this.entries.size === 0) {
+      if (this.entries.size === 0 && this.commits.length === 0) {
         await this.persistence.clear();
       } else {
-        await this.persistence.save(this.list());
+        await this.persistence.save({ entries: this.list(), commits: [...this.commits] });
       }
     } catch (err) {
       console.warn('[AuditBuffer] persist failed (in-memory state retained):', err);
     }
+  }
+
+  /**
+   * Queue a git commit (v0.61 a.4). Called by the `git_commit` tool
+   * when audit mode is active with `sidecar.audit.bufferGitCommits`
+   * on. The commit executes as part of the same flush that lands the
+   * buffered file writes, so the user sees one atomic accept boundary.
+   */
+  async queueCommit(message: string, extraTrailers?: string): Promise<void> {
+    this.commits.push({ message, extraTrailers, timestamp: Date.now() });
+    await this.persist();
+  }
+
+  /** Snapshot of queued commits, oldest first. */
+  listCommits(): BufferedCommit[] {
+    return [...this.commits];
+  }
+
+  /** Convenience for UI/tests. */
+  get hasCommits(): boolean {
+    return this.commits.length > 0;
   }
 
   /**
@@ -218,7 +292,12 @@ export class AuditBuffer {
    * list here when the user accepts some entries and defers others;
    * the v0.60 MVP command handlers pass `undefined` for accept-all.
    */
-  async flush(writeDisk: WriteDiskFn, deleteDisk: DeleteDiskFn, paths?: string[]): Promise<{ applied: string[] }> {
+  async flush(
+    writeDisk: WriteDiskFn,
+    deleteDisk: DeleteDiskFn,
+    paths?: string[],
+    executeCommit?: ExecuteCommitFn,
+  ): Promise<{ applied: string[]; committed: string[] }> {
     const targetEntries = paths
       ? (paths.map((p) => this.entries.get(p)).filter(Boolean) as BufferedChange[])
       : Array.from(this.entries.values());
@@ -273,18 +352,53 @@ export class AuditBuffer {
     for (const entry of targetEntries) {
       this.entries.delete(entry.path);
     }
+
+    // Queued commits execute ONLY when the buffer is fully empty
+    // after this flush (v0.61 a.4). A subset flush leaves commits
+    // queued because the agent's commit presumably covers files
+    // still waiting for review — running it early would leave half
+    // the changes out of the tree. On commit failure, the file
+    // writes stay on disk (they're already landed) and the error
+    // propagates as an `AuditFlushError` — the user can stage +
+    // commit manually from the files that landed successfully.
+    const committed: string[] = [];
+    if (this.entries.size === 0 && this.commits.length > 0 && executeCommit) {
+      for (const commit of this.commits) {
+        try {
+          await executeCommit(commit.message, commit.extraTrailers, applied);
+          committed.push(commit.message);
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          // Drop the commits we already processed so the caller's
+          // retry doesn't double-apply them; leave unprocessed ones
+          // queued for a retry.
+          this.commits = this.commits.slice(committed.length);
+          await this.persist();
+          throw new AuditFlushError(
+            `Audit commit failed after flushing ${applied.length} file${applied.length === 1 ? '' : 's'}: ${errMsg}`,
+            applied,
+            [{ path: '<commit>', error: errMsg }],
+          );
+        }
+      }
+      this.commits = [];
+    }
+
     await this.persist();
 
-    return { applied };
+    return { applied, committed };
   }
 
   /** Drop entries from the buffer without touching disk. `paths`
-   *  omitted clears everything. Used by Reject All / per-file Reject.
-   *  Persists asynchronously in the background since the call site
-   *  is synchronous (matches the pre-v0.61 API contract). */
+   *  omitted clears everything (including queued commits). Per-path
+   *  clears only drop file entries — commits stay queued because
+   *  they're not addressable by path. Used by Reject All / per-file
+   *  Reject. Persists asynchronously in the background since the
+   *  call site is synchronous (matches the pre-v0.61 API contract). */
   clear(paths?: string[]): void {
     if (!paths) {
       this.entries.clear();
+      this.commits = [];
     } else {
       for (const p of paths) this.entries.delete(p);
     }

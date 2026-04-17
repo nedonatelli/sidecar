@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { workspace } from 'vscode';
-import { AuditBuffer, type BufferedChange } from './auditBuffer.js';
+import { AuditBuffer, type PersistedBufferSnapshot } from './auditBuffer.js';
 import { createWorkspaceAuditBufferPersistence } from './auditBufferPersistence.js';
 
 /**
@@ -47,18 +47,21 @@ describe('createWorkspaceAuditBufferPersistence', () => {
     createDirSpy.mockRestore();
   });
 
-  it('roundtrips entries through save/load', async () => {
+  it('roundtrips entries + commits through save/load', async () => {
     const persistence = createWorkspaceAuditBufferPersistence();
-    const entries: BufferedChange[] = [
-      { path: 'a.ts', op: 'create', content: 'new file', timestamp: 1000 },
-      { path: 'b.ts', op: 'modify', content: 'edited', originalContent: 'orig', timestamp: 2000 },
-      { path: 'c.ts', op: 'delete', originalContent: 'was here', timestamp: 3000 },
-    ];
+    const snapshot: PersistedBufferSnapshot = {
+      entries: [
+        { path: 'a.ts', op: 'create', content: 'new file', timestamp: 1000 },
+        { path: 'b.ts', op: 'modify', content: 'edited', originalContent: 'orig', timestamp: 2000 },
+        { path: 'c.ts', op: 'delete', originalContent: 'was here', timestamp: 3000 },
+      ],
+      commits: [{ message: 'feat: add a and b', extraTrailers: 'X-AI-Model: foo', timestamp: 4000 }],
+    };
 
-    await persistence.save(entries);
+    await persistence.save(snapshot);
     const loaded = await persistence.load();
 
-    expect(loaded).toEqual(entries);
+    expect(loaded).toEqual(snapshot);
   });
 
   it('returns null when no state file exists', async () => {
@@ -69,7 +72,10 @@ describe('createWorkspaceAuditBufferPersistence', () => {
 
   it('deletes the state file on clear()', async () => {
     const persistence = createWorkspaceAuditBufferPersistence();
-    await persistence.save([{ path: 'a.ts', op: 'create', content: 'x', timestamp: 1 }]);
+    await persistence.save({
+      entries: [{ path: 'a.ts', op: 'create', content: 'x', timestamp: 1 }],
+      commits: [],
+    });
     expect(disk.size).toBe(1);
 
     await persistence.clear();
@@ -97,6 +103,25 @@ describe('createWorkspaceAuditBufferPersistence', () => {
     expect(loaded).toBeNull();
   });
 
+  it('migrates v1 files on load by defaulting commits to []', async () => {
+    const persistence = createWorkspaceAuditBufferPersistence();
+    // v1 shape — pre-a.4 persistence. Must upgrade cleanly.
+    const v1State = Buffer.from(
+      JSON.stringify({
+        version: 1,
+        savedAt: Date.now(),
+        entries: [{ path: 'legacy.ts', op: 'create', content: 'x', timestamp: 1 }],
+      }),
+    );
+    disk.set('/mock-workspace/.sidecar/audit-buffer/state.json', new Uint8Array(v1State));
+
+    const loaded = await persistence.load();
+    expect(loaded).toEqual({
+      entries: [{ path: 'legacy.ts', op: 'create', content: 'x', timestamp: 1 }],
+      commits: [],
+    });
+  });
+
   it('rejects a corrupted JSON file', async () => {
     const persistence = createWorkspaceAuditBufferPersistence();
     disk.set('/mock-workspace/.sidecar/audit-buffer/state.json', Buffer.from('{ not json'));
@@ -104,10 +129,10 @@ describe('createWorkspaceAuditBufferPersistence', () => {
     expect(loaded).toBeNull();
   });
 
-  it('filters out entries that fail shape validation on load', async () => {
+  it('filters out entries and commits that fail shape validation on load', async () => {
     const persistence = createWorkspaceAuditBufferPersistence();
     const mixed = {
-      version: 1,
+      version: 2,
       savedAt: Date.now(),
       entries: [
         { path: 'ok.ts', op: 'create', content: 'x', timestamp: 1 },
@@ -115,16 +140,24 @@ describe('createWorkspaceAuditBufferPersistence', () => {
         { op: 'create', path: 'no-timestamp.ts', content: 'x' }, // missing timestamp — dropped
         { path: 'bogus-op.ts', op: 'unknown', timestamp: 1 }, // bad op — dropped
       ],
+      commits: [
+        { message: 'valid: good', timestamp: 99 },
+        { message: 42, timestamp: 1 }, // message not a string — dropped
+        { message: 'no-timestamp' }, // missing timestamp — dropped
+      ],
     };
     disk.set('/mock-workspace/.sidecar/audit-buffer/state.json', Buffer.from(JSON.stringify(mixed)));
 
     const loaded = await persistence.load();
-    expect(loaded).toEqual([{ path: 'ok.ts', op: 'create', content: 'x', timestamp: 1 }]);
+    expect(loaded).toEqual({
+      entries: [{ path: 'ok.ts', op: 'create', content: 'x', timestamp: 1 }],
+      commits: [{ message: 'valid: good', timestamp: 99 }],
+    });
   });
 });
 
 describe('AuditBuffer + persistence integration', () => {
-  let savedStates: BufferedChange[][];
+  let savedStates: PersistedBufferSnapshot[];
   let persistence: ReturnType<typeof makeRecordingPersistence>;
 
   beforeEach(() => {
@@ -133,16 +166,16 @@ describe('AuditBuffer + persistence integration', () => {
   });
 
   /** Persistence that records every save so we can assert ordering. */
-  function makeRecordingPersistence(sink: BufferedChange[][]) {
+  function makeRecordingPersistence(sink: PersistedBufferSnapshot[]) {
     return {
-      save: vi.fn(async (entries: BufferedChange[]) => {
-        // Defensive copy — entries is a live reference at call time
-        // and we want to snapshot the state as of this save.
-        sink.push(JSON.parse(JSON.stringify(entries)) as BufferedChange[]);
+      save: vi.fn(async (snapshot: PersistedBufferSnapshot) => {
+        // Defensive copy — snapshot.entries is a live reference at
+        // call time and we want to freeze the state as of this save.
+        sink.push(JSON.parse(JSON.stringify(snapshot)) as PersistedBufferSnapshot);
       }),
       load: vi.fn(async () => null),
       clear: vi.fn(async () => {
-        sink.push([]); // marker for a cleared state
+        sink.push({ entries: [], commits: [] }); // marker for a cleared state
       }),
     };
   }
@@ -156,8 +189,8 @@ describe('AuditBuffer + persistence integration', () => {
     await buf.write('b.ts', 'B', readDisk);
 
     expect(persistence.save).toHaveBeenCalledTimes(2);
-    expect(savedStates[0].map((e) => e.path)).toEqual(['a.ts']);
-    expect(savedStates[1].map((e) => e.path)).toEqual(expect.arrayContaining(['a.ts', 'b.ts']));
+    expect(savedStates[0].entries.map((e) => e.path)).toEqual(['a.ts']);
+    expect(savedStates[1].entries.map((e) => e.path)).toEqual(expect.arrayContaining(['a.ts', 'b.ts']));
   });
 
   it('persists after deleteFile', async () => {
@@ -168,7 +201,7 @@ describe('AuditBuffer + persistence integration', () => {
     await buf.deleteFile('a.ts', readDisk);
 
     expect(persistence.save).toHaveBeenCalledTimes(1);
-    expect(savedStates[0][0].op).toBe('delete');
+    expect(savedStates[0].entries[0].op).toBe('delete');
   });
 
   it('calls persistence.clear() when the buffer becomes empty after a flush', async () => {

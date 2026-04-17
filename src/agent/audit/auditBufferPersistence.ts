@@ -1,5 +1,5 @@
 import { workspace, Uri } from 'vscode';
-import type { AuditBufferPersistence, BufferedChange } from './auditBuffer.js';
+import type { AuditBufferPersistence, BufferedChange, BufferedCommit } from './auditBuffer.js';
 
 /**
  * Filesystem-backed persistence for `AuditBuffer` (v0.61 a.3). Saves
@@ -23,13 +23,28 @@ import type { AuditBufferPersistence, BufferedChange } from './auditBuffer.js';
  * future code can migrate or ignore older states rather than
  * silently mis-parsing them.
  */
-const SCHEMA_VERSION = 1;
+/**
+ * Schema v1 — v0.61 a.3. Shape: `{ entries: BufferedChange[] }`.
+ * Schema v2 — v0.61 a.4. Envelope adds `commits: BufferedCommit[]`
+ * so buffered git commits survive reloads alongside file writes.
+ * Older v1 files are migrated on load (commits default to []).
+ */
+const SCHEMA_VERSION = 2;
 
-interface PersistedState {
-  version: number;
+interface PersistedStateV1 {
+  version: 1;
   savedAt: number;
   entries: BufferedChange[];
 }
+
+interface PersistedStateV2 {
+  version: 2;
+  savedAt: number;
+  entries: BufferedChange[];
+  commits: BufferedCommit[];
+}
+
+type PersistedStateAny = PersistedStateV1 | PersistedStateV2;
 
 /**
  * Hard cap on persisted file size. If the agent somehow accumulated a
@@ -50,11 +65,16 @@ const MAX_PERSIST_BYTES = 64 * 1024 * 1024;
  */
 export function createWorkspaceAuditBufferPersistence(): AuditBufferPersistence {
   return {
-    async save(entries) {
+    async save(snapshot) {
       const stateUri = resolveStateUri();
       if (!stateUri) return; // no workspace — silent no-op (matches SidecarDir's fail-closed)
 
-      const payload: PersistedState = { version: SCHEMA_VERSION, savedAt: Date.now(), entries };
+      const payload: PersistedStateV2 = {
+        version: 2,
+        savedAt: Date.now(),
+        entries: snapshot.entries,
+        commits: snapshot.commits,
+      };
       const serialized = Buffer.from(JSON.stringify(payload), 'utf-8');
       if (serialized.byteLength > MAX_PERSIST_BYTES) {
         console.warn(
@@ -82,18 +102,24 @@ export function createWorkspaceAuditBufferPersistence(): AuditBufferPersistence 
       }
 
       try {
-        const parsed = JSON.parse(Buffer.from(bytes).toString('utf-8')) as PersistedState;
-        if (parsed.version !== SCHEMA_VERSION) {
-          console.warn(
-            `[AuditBuffer persistence] schema mismatch (persisted v${parsed.version}, expected v${SCHEMA_VERSION}); discarding.`,
-          );
-          return null;
+        const parsed = JSON.parse(Buffer.from(bytes).toString('utf-8')) as PersistedStateAny;
+        // Migrate v1 → v2 by defaulting commits to []. Anything
+        // else is discarded with a warning.
+        if (parsed.version === 1) {
+          if (!Array.isArray(parsed.entries)) return null;
+          return { entries: parsed.entries.filter(isBufferedChange), commits: [] };
         }
-        // Sanity-check shape — reject anything that doesn't smell
-        // like a BufferedChange array. Prevents a corrupted file from
-        // crashing activation.
-        if (!Array.isArray(parsed.entries)) return null;
-        return parsed.entries.filter(isBufferedChange);
+        if (parsed.version === 2) {
+          if (!Array.isArray(parsed.entries)) return null;
+          return {
+            entries: parsed.entries.filter(isBufferedChange),
+            commits: Array.isArray(parsed.commits) ? parsed.commits.filter(isBufferedCommit) : [],
+          };
+        }
+        console.warn(
+          `[AuditBuffer persistence] schema mismatch (persisted v${(parsed as { version: unknown }).version}, expected v${SCHEMA_VERSION}); discarding.`,
+        );
+        return null;
       } catch (err) {
         console.warn('[AuditBuffer persistence] failed to parse state file:', err);
         return null;
@@ -138,4 +164,10 @@ function isBufferedChange(x: unknown): x is BufferedChange {
     (r.op === 'create' || r.op === 'modify' || r.op === 'delete') &&
     typeof r.timestamp === 'number'
   );
+}
+
+function isBufferedCommit(x: unknown): x is BufferedCommit {
+  if (!x || typeof x !== 'object') return false;
+  const r = x as Record<string, unknown>;
+  return typeof r.message === 'string' && typeof r.timestamp === 'number';
 }

@@ -51,6 +51,15 @@ export interface AuditReviewDeps {
   rootUri: Uri;
   /** UI surface — real shim in production, fake in tests. */
   ui: AuditReviewUi;
+  /**
+   * Optional commit executor (v0.61 a.4). When wired, buffered commits
+   * execute during a full-accept flush (after file writes succeed).
+   * Production wiring stages the applied paths via `git add` then
+   * calls `GitCLI.commit(message, trailers)`. Tests can supply a
+   * `vi.fn` or omit the field to assert the "commits-not-wired"
+   * shape preserves v0.60/v0.61 a.3 behavior.
+   */
+  executeCommit?: (message: string, extraTrailers: string | undefined, appliedPaths: string[]) => Promise<string>;
 }
 
 /** Tag every pick item with the action it triggers — `open` also carries the entry. */
@@ -282,9 +291,11 @@ async function flushBufferPaths(deps: AuditReviewDeps, paths?: string[]): Promis
   }
 
   try {
-    const result = await buf.flush(writeDisk, deleteDisk, paths);
+    const result = await buf.flush(writeDisk, deleteDisk, paths, deps.executeCommit);
     const n = result.applied.length;
-    deps.ui.showInfo(`SideCar audit: accepted ${n} change${n === 1 ? '' : 's'}.`);
+    const c = result.committed.length;
+    const commitStr = c > 0 ? ` and ran ${c} commit${c === 1 ? '' : 's'}` : '';
+    deps.ui.showInfo(`SideCar audit: accepted ${n} change${n === 1 ? '' : 's'}${commitStr}.`);
   } catch (err) {
     if (err instanceof AuditFlushError) {
       deps.ui.showError(

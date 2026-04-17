@@ -234,4 +234,125 @@ describe('AuditBuffer', () => {
       expect(deleteDisk).not.toHaveBeenCalled();
     });
   });
+
+  describe('queueCommit + flush (v0.61 a.4)', () => {
+    it('queues commits in FIFO order and lists them', async () => {
+      await buf.queueCommit('feat: a', 'X-AI-Model: foo');
+      await buf.queueCommit('fix: b');
+      expect(buf.hasCommits).toBe(true);
+      const commits = buf.listCommits();
+      expect(commits).toHaveLength(2);
+      expect(commits[0].message).toBe('feat: a');
+      expect(commits[0].extraTrailers).toBe('X-AI-Model: foo');
+      expect(commits[1].message).toBe('fix: b');
+      expect(commits[1].extraTrailers).toBeUndefined();
+    });
+
+    it('executes queued commits after a full flush succeeds', async () => {
+      await buf.write('a.ts', 'A', readDisk);
+      await buf.queueCommit('feat: add a');
+      const executeCommit = vi.fn(
+        async (_msg: string, _trailers: string | undefined, _applied: string[]) => 'committed abc1234',
+      );
+
+      const result = await buf.flush(writeDisk, deleteDisk, undefined, executeCommit);
+
+      expect(writeDisk).toHaveBeenCalledWith('a.ts', 'A');
+      expect(executeCommit).toHaveBeenCalledTimes(1);
+      const [msg, trailers, applied] = executeCommit.mock.calls[0];
+      expect(msg).toBe('feat: add a');
+      expect(trailers).toBeUndefined();
+      expect(applied).toEqual(['a.ts']);
+      expect(result.committed).toEqual(['feat: add a']);
+      expect(buf.hasCommits).toBe(false);
+    });
+
+    it('runs commits in FIFO order', async () => {
+      await buf.write('a.ts', 'A', readDisk);
+      await buf.queueCommit('first');
+      await buf.queueCommit('second');
+      const order: string[] = [];
+      const executeCommit = vi.fn(async (msg: string) => {
+        order.push(msg);
+        return 'ok';
+      });
+
+      await buf.flush(writeDisk, deleteDisk, undefined, executeCommit);
+
+      expect(order).toEqual(['first', 'second']);
+    });
+
+    it('does NOT execute commits on a subset flush (commits stay queued)', async () => {
+      await buf.write('a.ts', 'A', readDisk);
+      await buf.write('b.ts', 'B', readDisk);
+      await buf.queueCommit('covers both');
+      const executeCommit = vi.fn(async () => 'ok');
+
+      const result = await buf.flush(writeDisk, deleteDisk, ['a.ts'], executeCommit);
+
+      expect(executeCommit).not.toHaveBeenCalled();
+      expect(result.committed).toEqual([]);
+      expect(buf.hasCommits).toBe(true);
+      expect(buf.has('b.ts')).toBe(true);
+    });
+
+    it('executes previously-queued commits on a follow-up flush that empties the buffer', async () => {
+      // Both files buffered before the first flush; subset leaves b.ts,
+      // commits stay queued. Second flush drains b.ts → commits fire.
+      await buf.write('a.ts', 'A', readDisk);
+      await buf.write('b.ts', 'B', readDisk);
+      await buf.queueCommit('covers a + b');
+      const executeCommit = vi.fn(async () => 'ok');
+
+      await buf.flush(writeDisk, deleteDisk, ['a.ts'], executeCommit);
+      expect(executeCommit).not.toHaveBeenCalled();
+      expect(buf.has('b.ts')).toBe(true);
+
+      await buf.flush(writeDisk, deleteDisk, ['b.ts'], executeCommit);
+      expect(executeCommit).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not run commits when executeCommit is not provided (v0.60 compatibility path)', async () => {
+      await buf.write('a.ts', 'A', readDisk);
+      await buf.queueCommit('feat: a');
+
+      const result = await buf.flush(writeDisk, deleteDisk);
+
+      expect(result.committed).toEqual([]);
+      // Commits stay queued — on the next flush with executeCommit
+      // wired they'll execute. Unless the agent clears them first.
+      expect(buf.hasCommits).toBe(true);
+    });
+
+    it('throws AuditFlushError when a commit fails, leaving file writes on disk', async () => {
+      await buf.write('a.ts', 'A', readDisk);
+      await buf.queueCommit('feat: a');
+      const executeCommit = vi.fn(async () => {
+        throw new Error('nothing to commit');
+      });
+
+      await expect(buf.flush(writeDisk, deleteDisk, undefined, executeCommit)).rejects.toBeInstanceOf(AuditFlushError);
+
+      // File write landed on disk — not rolled back because it
+      // completed successfully before the commit step.
+      expect(writeDisk).toHaveBeenCalledWith('a.ts', 'A');
+      // Commit still queued so a retry is possible.
+      expect(buf.hasCommits).toBe(true);
+    });
+
+    it('full clear() drops queued commits', async () => {
+      await buf.queueCommit('feat: a');
+      await buf.queueCommit('fix: b');
+      buf.clear();
+      expect(buf.hasCommits).toBe(false);
+    });
+
+    it('per-path clear() does NOT drop commits', async () => {
+      await buf.write('a.ts', 'A', readDisk);
+      await buf.queueCommit('feat: a');
+      buf.clear(['a.ts']);
+      expect(buf.has('a.ts')).toBe(false);
+      expect(buf.hasCommits).toBe(true);
+    });
+  });
 });

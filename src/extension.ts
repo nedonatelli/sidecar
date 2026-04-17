@@ -1063,11 +1063,13 @@ async function initAuditBufferRecovery(): Promise<void> {
     console.warn('[SideCar] Audit buffer load failed:', err);
     return;
   }
-  if (!recovered || recovered.length === 0) return;
+  if (!recovered || (recovered.entries.length === 0 && recovered.commits.length === 0)) return;
 
-  const count = recovered.length;
+  const nChanges = recovered.entries.length;
+  const nCommits = recovered.commits.length;
+  const commitSuffix = nCommits > 0 ? ` + ${nCommits} commit${nCommits === 1 ? '' : 's'}` : '';
   const choice = await window.showInformationMessage(
-    `SideCar audit: ${count} buffered change${count === 1 ? '' : 's'} from your previous session. What would you like to do?`,
+    `SideCar audit: ${nChanges} buffered change${nChanges === 1 ? '' : 's'}${commitSuffix} from your previous session. What would you like to do?`,
     { modal: false },
     'Review',
     'Discard',
