@@ -34,6 +34,7 @@ function stubState(overrides: Partial<LoopState> = {}): LoopState {
     // applyAgentLoopRouting never touches gateState — a minimal shape
     // with no fields is enough for the type check.
     gateState: {} as LoopState['gateState'],
+    currentEditPlan: null,
     ...overrides,
   };
 }

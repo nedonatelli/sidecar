@@ -54,6 +54,7 @@ function stubState(overrides: Partial<LoopState> = {}): LoopState {
     criticInjectionsByTestHash: new Map(),
     toolCallCounts: new Map(),
     gateState: stubGateState(),
+    currentEditPlan: null,
     ...overrides,
   };
 }

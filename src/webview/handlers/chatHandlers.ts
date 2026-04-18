@@ -345,6 +345,20 @@ function createAgentCallbacks(
     onProgressSummary: (summary) => {
       state.postMessage({ command: 'agentProgress', content: summary });
     },
+    onEditPlan: (plan) => {
+      flushTextBuffer();
+      state.postMessage({
+        command: 'editPlanCard',
+        editPlan: {
+          edits: plan.edits.map((e) => ({
+            path: e.path,
+            op: e.op,
+            rationale: e.rationale,
+            dependsOn: e.dependsOn.slice(),
+          })),
+        },
+      });
+    },
     onStreamFailure: (partial, error) => {
       flushTextBuffer();
       state.pendingPartialAssistant = partial;

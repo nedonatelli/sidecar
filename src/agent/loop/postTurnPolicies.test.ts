@@ -54,6 +54,7 @@ function stubState(): LoopState {
     criticInjectionsByTestHash: new Map(),
     toolCallCounts: new Map(),
     gateState: {} as LoopState['gateState'],
+    currentEditPlan: null,
   };
 }
 

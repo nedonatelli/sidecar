@@ -1023,6 +1023,100 @@ body {
   color: var(--vscode-errorForeground, #f14c4c);
 }
 
+/* Planned Edits card (v0.65 chunk 4.4a). Sits inline in the chat
+   transcript right before the multi-file write batch executes. */
+.edit-plan-card {
+  margin: 8px 0;
+  padding: 8px 12px;
+  background: var(--vscode-editorWidget-background);
+  border: 1px solid var(--vscode-widget-border);
+  border-left: 3px solid var(--vscode-charts-blue, #3794ff);
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.edit-plan-summary {
+  cursor: pointer;
+  font-weight: 500;
+  padding: 2px 0;
+  user-select: none;
+}
+
+.edit-plan-list {
+  list-style: none;
+  margin: 8px 0 4px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.edit-plan-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 6px;
+  border-radius: 3px;
+  background: var(--vscode-editor-background);
+}
+
+.edit-plan-badge {
+  flex-shrink: 0;
+  display: inline-block;
+  min-width: 46px;
+  text-align: center;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  border-radius: 3px;
+}
+
+.edit-plan-op-create .edit-plan-badge {
+  background: var(--vscode-charts-green, #388a34);
+  color: var(--vscode-editor-background);
+}
+
+.edit-plan-op-edit .edit-plan-badge {
+  background: var(--vscode-charts-blue, #3794ff);
+  color: var(--vscode-editor-background);
+}
+
+.edit-plan-op-delete .edit-plan-badge {
+  background: var(--vscode-charts-red, #f14c4c);
+  color: var(--vscode-editor-background);
+}
+
+.edit-plan-path {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+  color: var(--vscode-textLink-foreground);
+}
+
+.edit-plan-rationale {
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+  flex-basis: 100%;
+  margin-left: 54px;
+}
+
+.edit-plan-deps {
+  color: var(--vscode-editorWarning-foreground, #cca700);
+  font-size: 11px;
+  flex-basis: 100%;
+  margin-left: 54px;
+  font-style: italic;
+}
+
+.edit-plan-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+}
+
 /* Attach button context menu */
 .attach-menu {
   position: fixed;

@@ -94,6 +94,12 @@ export interface SideCarConfig {
   completionGateEnabled: boolean;
   steerQueueCoalesceWindowMs: number;
   steerQueueMaxPending: number;
+  multiFileEditsEnabled: boolean;
+  multiFileEditsMaxParallel: number;
+  multiFileEditsPlanningPass: boolean;
+  multiFileEditsMinFilesForPlan: number;
+  multiFileEditsPlannerModel: string;
+  multiFileEditsReviewGranularity: 'bulk' | 'per-file' | 'per-hunk';
   criticEnabled: boolean;
   criticModel: string;
   criticBlockOnHighSeverity: boolean;
@@ -273,6 +279,15 @@ function readConfig(): SideCarConfig {
     completionGateEnabled: cfg.get<boolean>('completionGate.enabled', true),
     steerQueueCoalesceWindowMs: clampMin(cfg.get<number>('steerQueue.coalesceWindowMs', 2000), 0, 10_000),
     steerQueueMaxPending: clampMin(cfg.get<number>('steerQueue.maxPending', 5), 1, 20),
+    multiFileEditsEnabled: cfg.get<boolean>('multiFileEdits.enabled', true),
+    multiFileEditsMaxParallel: clampMin(cfg.get<number>('multiFileEdits.maxParallel', 8), 1, 32),
+    multiFileEditsPlanningPass: cfg.get<boolean>('multiFileEdits.planningPass', true),
+    multiFileEditsMinFilesForPlan: clampMin(cfg.get<number>('multiFileEdits.minFilesForPlan', 3), 2, 50),
+    multiFileEditsPlannerModel: cfg.get<string>('multiFileEdits.plannerModel', ''),
+    multiFileEditsReviewGranularity: cfg.get<string>('multiFileEdits.reviewGranularity', 'per-file') as
+      | 'bulk'
+      | 'per-file'
+      | 'per-hunk',
     criticEnabled: cfg.get<boolean>('critic.enabled', false),
     // v0.62.1 p.1a: provider-aware default. An empty `critic.model`
     // historically meant "use the main model," which doubled per-

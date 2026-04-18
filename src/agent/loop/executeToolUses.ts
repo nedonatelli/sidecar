@@ -103,9 +103,20 @@ export async function executeToolUses(
 }
 
 /**
- * Dispatch one tool_use block to its execution path. Internal helper
- * — exposed indirectly via `executeToolUses`.
+ * Dispatch one tool_use block to its execution path. Exported so the
+ * multi-file edit executor (v0.65 chunk 4.3) can reuse the same
+ * dispatch logic when walking an `EditPlan` DAG. Callers must build
+ * the `ExecutionContext` themselves.
  */
+export async function executeOneToolUse(
+  ctx: ExecutionContext,
+  toolUse: ToolUseContentBlock,
+): Promise<ToolResultContentBlock> {
+  return executeOne(ctx, toolUse);
+}
+
+export type { ExecutionContext };
+
 async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): Promise<ToolResultContentBlock> {
   const { state, options, callbacks, signal } = ctx;
 

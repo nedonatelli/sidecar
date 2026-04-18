@@ -390,6 +390,41 @@
             "maximum": 20,
             "description": "Maximum number of queued steers. When full, the oldest nudge is dropped to make room; an all-interrupt queue rejects new submissions."
           },
+          "sidecar.multiFileEdits.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Enable multi-file edit streams: the agent plans an edit DAG before executing batches of file writes, then dispatches independent writes in parallel."
+          },
+          "sidecar.multiFileEdits.maxParallel": {
+            "type": "number",
+            "default": 8,
+            "minimum": 1,
+            "maximum": 32,
+            "description": "Maximum number of file writes dispatched concurrently during a multi-file edit."
+          },
+          "sidecar.multiFileEdits.planningPass": {
+            "type": "boolean",
+            "default": true,
+            "description": "Run a dedicated Edit Plan LLM turn before executing multi-file writes. Adds one extra turn of latency; disable to let the agent emit writes directly (the DAG scheduler still applies)."
+          },
+          "sidecar.multiFileEdits.minFilesForPlan": {
+            "type": "number",
+            "default": 3,
+            "minimum": 2,
+            "maximum": 50,
+            "description": "Minimum number of file writes in one turn that triggers the Edit Plan pass. Smaller edits go directly to execution."
+          },
+          "sidecar.multiFileEdits.plannerModel": {
+            "type": "string",
+            "default": "",
+            "description": "Override model used for the Edit Plan turn. Empty = reuse the main model. Point to a smaller local model (e.g. qwen2.5-coder:7b) to keep planning cheap."
+          },
+          "sidecar.multiFileEdits.reviewGranularity": {
+            "type": "string",
+            "enum": ["bulk", "per-file", "per-hunk"],
+            "default": "per-file",
+            "description": "How the Pending Changes panel presents a multi-file edit. 'bulk' = accept/reject all as one unit, 'per-file' = checkboxes per file (default), 'per-hunk' = drill down to hunk-level across files."
+          },
           "sidecar.regressionGuards": {
             "type": "array",
             "default": [],

@@ -7,6 +7,7 @@ import type { MCPManager } from '../mcpManager.js';
 import { createGateState } from '../completionGate.js';
 import { getToolDefinitions } from '../tools.js';
 import type { AgentOptions } from '../loop.js';
+import type { EditPlan } from '../editPlan.js';
 
 // ---------------------------------------------------------------------------
 // Shared mutable + immutable state for runAgentLoop.
@@ -86,6 +87,15 @@ export interface LoopState {
   // Completion-gate state (tracks edited files and verification calls).
   // gate.ts + executeToolUses.ts both touch it.
   gateState: ReturnType<typeof createGateState>;
+
+  // Active multi-file edit plan, set by dispatchPendingToolUses for
+  // the duration of a multi-file write batch (v0.65 chunk 4.5a).
+  // Hooks + review flows (regression guards, audit mode review, shadow
+  // workspace accept prompts) can read this to detect "this turn's
+  // writes all belong to one plan" and present them as a grouped unit
+  // rather than N independent changes. Cleared to null when the turn
+  // is a normal non-planned batch.
+  currentEditPlan: EditPlan | null;
 }
 
 /**
@@ -126,5 +136,6 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     criticInjectionsByTestHash: new Map<string, number>(),
     toolCallCounts: new Map<string, number>(),
     gateState: createGateState(),
+    currentEditPlan: null,
   };
 }

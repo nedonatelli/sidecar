@@ -21,7 +21,7 @@ import { runCriticChecks, type RunCriticOptions } from './loop/criticHook.js';
 import { HookBus, type PolicyHook, type HookContext } from './loop/policyHook.js';
 import { defaultPolicyHooks } from './loop/builtInHooks.js';
 import { buildRegressionGuardHooks } from './guards/regressionGuardHook.js';
-import { executeToolUses } from './loop/executeToolUses.js';
+import { dispatchPendingToolUses } from './loop/dispatchToolUses.js';
 import { notifyIterationStart, maybeEmitProgressSummary, shouldStopAtCheckpoint } from './loop/notifications.js';
 import { finalize } from './loop/finalize.js';
 import { drainSteerQueueAtBoundary } from './loop/steerDrain.js';
@@ -59,6 +59,13 @@ export interface AgentCallbacks {
   }) => void;
   /** Suggest next steps after the agent loop completes. */
   onSuggestNextSteps?: (suggestions: string[]) => void;
+  /**
+   * Multi-file edit plan produced by the Edit Plan pass (v0.65 chunk
+   * 4.3). Fires once per eligible turn, before the plan executes, so
+   * the UI can render the "Planned edits" card (chunk 4.4). Receives
+   * the normalized + validated plan ready for layered dispatch.
+   */
+  onEditPlan?: (plan: import('./editPlan.js').EditPlan) => void;
   /** Emit a progress summary during multi-step loops. */
   onProgressSummary?: (summary: string) => void;
   /** Checkpoint: ask user whether to continue a long-running task. Returns true to continue. */
@@ -354,12 +361,21 @@ export async function runAgentLoop(
       // Append the assistant message to history.
       pushAssistantMessage(state, fullText, pendingToolUses);
 
-      // Execute every tool_use in parallel with spawn_agent /
-      // delegate_task / normal dispatch. Returned results are
-      // aligned 1:1 with pendingToolUses — rejected promises are
-      // promoted to synthetic error tool_result blocks inside the
-      // helper.
-      const toolResults = await executeToolUses(state, pendingToolUses, client, options, callbacks, signal);
+      // Dispatch every tool_use. For pure-write turns with fanout
+      // ≥ multiFileEditsMinFilesForPlan the dispatcher inserts an
+      // Edit Plan pass first (v0.65 chunk 4.3) and then walks the
+      // resulting DAG with bounded parallelism. Otherwise delegates
+      // to the legacy executeToolUses. Either way results are
+      // aligned 1:1 with pendingToolUses.
+      const toolResults = await dispatchPendingToolUses(
+        state,
+        pendingToolUses,
+        client,
+        options,
+        callbacks,
+        signal,
+        config,
+      );
 
       // Token accounting and history append for the tool results.
       accountToolTokens(state, pendingToolUses, toolResults);

@@ -162,6 +162,7 @@ export interface ExtensionMessage {
     | 'bgList'
     | 'resumeAvailable'
     | 'steerQueueUpdate'
+    | 'editPlanCard'
     | 'uiSettings';
   agentMode?: string;
   toolName?: string;
@@ -249,6 +250,16 @@ export interface ExtensionMessage {
    * when the user isn't mid-run.
    */
   steerEnabled?: boolean;
+  /**
+   * Planned Edits card payload (v0.65 chunk 4.4a). Fires once per
+   * eligible multi-file turn, before the plan executes, so the user
+   * sees the declared scope + dependency DAG before writes land. The
+   * card is informational — to amend the plan, the user queues a steer
+   * nudge that lands at the next iteration boundary.
+   */
+  editPlan?: {
+    edits: { path: string; op: 'create' | 'edit' | 'delete'; rationale: string; dependsOn: string[] }[];
+  };
 }
 
 export interface LibraryModelUI {

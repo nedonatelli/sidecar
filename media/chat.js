@@ -1527,6 +1527,72 @@
     return true;
   }
 
+  // ---------------------------------------------------------------------------
+  // Planned Edits card (v0.65 chunk 4.4a)
+  //
+  // Renders the EditPlan manifest the runtime produced just before a
+  // multi-file write batch executes. Users inspect the planned scope +
+  // DAG edges and can amend via the Steer Queue ("skip src/legacy/**").
+  // No per-card amend UI here — steer is the amend channel.
+  // ---------------------------------------------------------------------------
+  function renderEditPlanCard(edits) {
+    const card = document.createElement('details');
+    card.className = 'edit-plan-card';
+    card.open = true;
+
+    const summary = document.createElement('summary');
+    summary.className = 'edit-plan-summary';
+    const countByOp = { create: 0, edit: 0, delete: 0 };
+    for (const e of edits) if (countByOp[e.op] !== undefined) countByOp[e.op] += 1;
+    const parts = [];
+    if (countByOp.create) parts.push(countByOp.create + ' new');
+    if (countByOp.edit) parts.push(countByOp.edit + ' edit');
+    if (countByOp.delete) parts.push(countByOp.delete + ' delete');
+    summary.textContent = '📋 Planned edits (' + edits.length + ' files: ' + parts.join(', ') + ')';
+    card.appendChild(summary);
+
+    const list = document.createElement('ul');
+    list.className = 'edit-plan-list';
+    for (const e of edits) {
+      const item = document.createElement('li');
+      item.className = 'edit-plan-item edit-plan-op-' + e.op;
+
+      const badge = document.createElement('span');
+      badge.className = 'edit-plan-badge';
+      badge.textContent = e.op;
+      item.appendChild(badge);
+
+      const path = document.createElement('span');
+      path.className = 'edit-plan-path';
+      path.textContent = e.path;
+      item.appendChild(path);
+
+      if (e.rationale && e.rationale.length > 0) {
+        const rat = document.createElement('span');
+        rat.className = 'edit-plan-rationale';
+        rat.textContent = e.rationale;
+        item.appendChild(rat);
+      }
+
+      if (Array.isArray(e.dependsOn) && e.dependsOn.length > 0) {
+        const deps = document.createElement('span');
+        deps.className = 'edit-plan-deps';
+        deps.textContent = '← depends on: ' + e.dependsOn.join(', ');
+        item.appendChild(deps);
+      }
+
+      list.appendChild(item);
+    }
+    card.appendChild(list);
+
+    const hint = document.createElement('div');
+    hint.className = 'edit-plan-hint';
+    hint.textContent = 'Amend this plan by queuing a steer (Enter in the input below while the run is live).';
+    card.appendChild(hint);
+
+    messagesContainer.appendChild(card);
+  }
+
   const createdFiles = new Set();
 
   // ---------------------------------------------------------------------------
@@ -3363,6 +3429,14 @@
           editingSteerId = null;
         }
         renderSteerStrip();
+        break;
+      }
+
+      case 'editPlanCard': {
+        if (msg.editPlan && Array.isArray(msg.editPlan.edits)) {
+          renderEditPlanCard(msg.editPlan.edits);
+          scrollToBottom();
+        }
         break;
       }
 
