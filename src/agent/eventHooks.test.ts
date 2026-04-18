@@ -202,4 +202,171 @@ describe('EventHookManager', () => {
 
     expect(manager).toBeDefined();
   });
+
+  // -------------------------------------------------------------------------
+  // runHook execution (v0.65 chunk 6c gap-fill — previously uncovered;
+  // driven here by firing the registered onSave callback with a
+  // synthetic document event)
+  // -------------------------------------------------------------------------
+  describe('runHook — actual command execution path', () => {
+    function startWithCapturedCallback(cmd = 'echo hello'): (doc: { uri: { path: string } }) => void {
+      let captured: ((doc: { uri: { path: string } }) => void) | null = null;
+      mockWorkspace.workspaceFolders = [{ uri: { fsPath: '/p' } }];
+      mockWorkspace.onDidSaveTextDocument.mockImplementation((cb: typeof captured) => {
+        captured = cb;
+        return { dispose: vi.fn() };
+      });
+      manager.start({ onSave: cmd });
+      if (!captured) throw new Error('onDidSaveTextDocument callback was not captured');
+      return captured!;
+    }
+
+    it('invokes exec with the configured command and captures stdout/stderr', async () => {
+      let seenCmd = '';
+      let seenOpts: { cwd?: string; env?: Record<string, string>; timeout?: number } | null = null;
+      sharedExec.mockImplementation(
+        (cmd: string, opts: unknown, cb: (e: unknown, out: string, err: string) => void) => {
+          seenCmd = cmd;
+          seenOpts = opts as typeof seenOpts;
+          cb(null, 'ran ok', '');
+        },
+      );
+      const cb = startWithCapturedCallback('./hooks/on-save.sh');
+      cb({ uri: { path: 'src/foo.ts' } });
+      // Wait a microtask for the async exec to settle.
+      await new Promise((r) => setTimeout(r, 5));
+
+      expect(seenCmd).toBe('./hooks/on-save.sh');
+      const opts = seenOpts as { cwd?: string; timeout?: number } | null;
+      expect(opts?.cwd).toBe('/p');
+      expect(opts?.timeout).toBe(15_000);
+      expect(mockLogger.debug).toHaveBeenCalledWith(expect.stringContaining('onSave completed'));
+    });
+
+    it('injects SIDECAR_FILE + SIDECAR_EVENT env vars', async () => {
+      let capturedEnv: Record<string, string> = {};
+      sharedExec.mockImplementation(
+        (_cmd: string, opts: { env?: Record<string, string> }, cb: (e: unknown, out: string, err: string) => void) => {
+          capturedEnv = opts.env || {};
+          cb(null, '', '');
+        },
+      );
+      const cb = startWithCapturedCallback('true');
+      cb({ uri: { path: 'src/auth.ts' } });
+      await new Promise((r) => setTimeout(r, 5));
+
+      expect(capturedEnv.SIDECAR_FILE).toBe('src/auth.ts');
+      expect(capturedEnv.SIDECAR_EVENT).toBe('onSave');
+    });
+
+    it('sanitizes null bytes + non-newline control chars in env var values (injection defense)', async () => {
+      let capturedEnv: Record<string, string> = {};
+      // asRelativePath returns a path with control chars: \x00 (null),
+      // \x07 (bell), \x1b (escape) — all stripped. Note: the current
+      // sanitizer intentionally preserves \t, \n, \r (see regex at
+      // eventHooks.ts:80), so we don't assert on those.
+      mockWorkspace.asRelativePath.mockReturnValueOnce('src/foo.ts\x00\x07\x1b evil');
+      sharedExec.mockImplementation(
+        (_cmd: string, opts: { env?: Record<string, string> }, cb: (e: unknown, out: string, err: string) => void) => {
+          capturedEnv = opts.env || {};
+          cb(null, '', '');
+        },
+      );
+      const cb = startWithCapturedCallback('true');
+      cb({ uri: { path: 'unused' } });
+      await new Promise((r) => setTimeout(r, 5));
+
+      expect(capturedEnv.SIDECAR_FILE).not.toContain('\x00');
+      expect(capturedEnv.SIDECAR_FILE).not.toContain('\x07');
+      expect(capturedEnv.SIDECAR_FILE).not.toContain('\x1b');
+      expect(capturedEnv.SIDECAR_FILE).toContain('src/foo.ts');
+      expect(capturedEnv.SIDECAR_FILE).toContain('evil');
+    });
+
+    it('logs a warning when the hook fails and captures stderr', async () => {
+      sharedExec.mockImplementation(
+        (_cmd: string, _opts: unknown, cb: (e: unknown, out: string, err: string) => void) => {
+          const err = new Error('exit 1') as Error & { stdout: string; stderr: string };
+          err.stdout = '';
+          err.stderr = 'script died';
+          cb(err, '', 'script died');
+        },
+      );
+      const cb = startWithCapturedCallback('./fail.sh');
+      cb({ uri: { path: 'x' } });
+      await new Promise((r) => setTimeout(r, 5));
+
+      expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('onSave failed'));
+    });
+
+    it('records the hook outcome to the audit log when a provider is set', async () => {
+      const recordToolResult = vi.fn().mockResolvedValue(undefined);
+      manager = new EventHookManager(mockLogger as AgentLogger, () => ({ recordToolResult }) as never);
+      sharedExec.mockImplementation(
+        (_cmd: string, _opts: unknown, cb: (e: unknown, out: string, err: string) => void) => {
+          cb(null, 'hook stdout', '');
+        },
+      );
+      const cb = startWithCapturedCallback('./x.sh');
+      cb({ uri: { path: 'src/a.ts' } });
+      await new Promise((r) => setTimeout(r, 5));
+
+      expect(recordToolResult).toHaveBeenCalledOnce();
+      const [name, , summary, isError] = recordToolResult.mock.calls[0];
+      expect(name).toBe('event_hook:onSave');
+      expect(summary).toContain('./x.sh');
+      expect(summary).toContain('hook stdout');
+      expect(isError).toBe(false);
+    });
+
+    it('records the audit entry with isError=true when the hook throws', async () => {
+      const recordToolResult = vi.fn().mockResolvedValue(undefined);
+      manager = new EventHookManager(mockLogger as AgentLogger, () => ({ recordToolResult }) as never);
+      sharedExec.mockImplementation(
+        (_cmd: string, _opts: unknown, cb: (e: unknown, out: string, err: string) => void) => {
+          cb(new Error('bang'), '', 'stderr detail');
+        },
+      );
+      const cb = startWithCapturedCallback('./x.sh');
+      cb({ uri: { path: 'x' } });
+      await new Promise((r) => setTimeout(r, 5));
+
+      const [, , summary, isError] = recordToolResult.mock.calls[0];
+      expect(isError).toBe(true);
+      expect(summary).toContain('bang');
+    });
+
+    it('truncates stdout over 2000 chars in the audit summary', async () => {
+      const recordToolResult = vi.fn().mockResolvedValue(undefined);
+      manager = new EventHookManager(mockLogger as AgentLogger, () => ({ recordToolResult }) as never);
+      const huge = 'x'.repeat(3000);
+      sharedExec.mockImplementation(
+        (_cmd: string, _opts: unknown, cb: (e: unknown, out: string, err: string) => void) => {
+          cb(null, huge, '');
+        },
+      );
+      const cb = startWithCapturedCallback('./x.sh');
+      cb({ uri: { path: 'x' } });
+      await new Promise((r) => setTimeout(r, 5));
+
+      const [, , summary] = recordToolResult.mock.calls[0];
+      expect(summary).toContain('... (truncated)');
+      expect(summary.length).toBeLessThan(3500); // original stdout + framing, capped
+    });
+
+    it('does not crash when the audit provider itself throws', async () => {
+      const recordToolResult = vi.fn().mockRejectedValue(new Error('disk full'));
+      manager = new EventHookManager(mockLogger as AgentLogger, () => ({ recordToolResult }) as never);
+      sharedExec.mockImplementation(
+        (_cmd: string, _opts: unknown, cb: (e: unknown, out: string, err: string) => void) => {
+          cb(null, '', '');
+        },
+      );
+      const cb = startWithCapturedCallback('./x.sh');
+      cb({ uri: { path: 'x' } });
+      await new Promise((r) => setTimeout(r, 5));
+
+      expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('Failed to audit-log'));
+    });
+  });
 });

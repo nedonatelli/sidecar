@@ -236,6 +236,13 @@ export class WorkspaceEdit {
   replace(uri: unknown, range: Range, newText: string) {
     this.edits.push({ uri, range, newText });
   }
+  insert(uri: unknown, position: Position, newText: string) {
+    // In the real VS Code API, `insert` is a zero-length replace at a
+    // given position. Model it as such so tests that walk edits see a
+    // Range(position, position) entry rather than blowing up on a
+    // missing method.
+    this.edits.push({ uri, range: new Range(position, position), newText });
+  }
   get size() {
     return this.edits.length;
   }
