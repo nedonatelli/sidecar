@@ -239,6 +239,90 @@ describe('runFacetDispatchCommand — dispatch', () => {
     expect(ui.calls.showError[0]).toMatch(/missing-frontmatter/);
   });
 
+  it('triggers the aggregated review when reviewDeps is supplied', async () => {
+    const ui = makeFakeUi();
+    ui.showMultiSelectPick = (async () => [
+      { label: 'General Coder', id: 'general-coder' },
+    ]) as FacetCommandUi['showMultiSelectPick'];
+    ui.showInputBox = async () => 'task';
+
+    const batch: FacetDispatchBatchResult = {
+      results: [
+        {
+          facetId: 'general-coder',
+          output: '',
+          success: true,
+          charsConsumed: 0,
+          sandbox: {
+            mode: 'shadow',
+            applied: false,
+            reason: 'deferred',
+            pendingDiff: 'diff --git a/x b/x\n',
+          },
+          durationMs: 0,
+        },
+      ],
+      rpcWireTrace: [],
+    };
+    const dispatch = vi.fn().mockResolvedValue(batch);
+    const review = vi.fn().mockResolvedValue({
+      applied: ['general-coder'],
+      rejected: [],
+      failed: [],
+      cancelledRemaining: [],
+    });
+
+    const outcome = await runFacetDispatchCommand({
+      ui,
+      loadRegistry: async () => makeRegistryOutcome(),
+      createClient: () => stubClient(),
+      config: makeConfig(),
+      dispatch: dispatch as unknown as typeof import('./facetDispatcher.js').dispatchFacets,
+      review: review as unknown as typeof import('./facetReview.js').reviewFacetBatch,
+      reviewDeps: {
+        ui: {
+          showQuickPick: async () => undefined,
+          showInfo: () => undefined,
+          showError: () => undefined,
+          openDiff: async () => undefined,
+        },
+        mainRoot: '/ws',
+      },
+    });
+
+    expect(review).toHaveBeenCalledTimes(1);
+    expect(review).toHaveBeenCalledWith(batch, expect.objectContaining({ mainRoot: '/ws' }));
+    if (outcome.mode === 'dispatched') {
+      expect(outcome.review?.applied).toEqual(['general-coder']);
+    }
+  });
+
+  it('skips review when reviewDeps is omitted', async () => {
+    const ui = makeFakeUi();
+    ui.showMultiSelectPick = (async () => [
+      { label: 'General Coder', id: 'general-coder' },
+    ]) as FacetCommandUi['showMultiSelectPick'];
+    ui.showInputBox = async () => 'task';
+
+    const batch: FacetDispatchBatchResult = { results: [], rpcWireTrace: [] };
+    const dispatch = vi.fn().mockResolvedValue(batch);
+    const review = vi.fn();
+
+    const outcome = await runFacetDispatchCommand({
+      ui,
+      loadRegistry: async () => makeRegistryOutcome(),
+      createClient: () => stubClient(),
+      config: makeConfig(),
+      dispatch: dispatch as unknown as typeof import('./facetDispatcher.js').dispatchFacets,
+      review: review as unknown as typeof import('./facetReview.js').reviewFacetBatch,
+    });
+
+    expect(review).not.toHaveBeenCalled();
+    if (outcome.mode === 'dispatched') {
+      expect(outcome.review).toBeUndefined();
+    }
+  });
+
   it('re-throws dispatcher failures after surfacing the error', async () => {
     const ui = makeFakeUi();
     ui.showMultiSelectPick = (async () => [

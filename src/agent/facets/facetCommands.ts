@@ -1,6 +1,7 @@
 import { window } from 'vscode';
 import { type LoadFacetsOutcome } from './facetDiskLoader.js';
 import { dispatchFacets, type FacetDispatchBatchResult } from './facetDispatcher.js';
+import { reviewFacetBatch, type FacetReviewDeps, type FacetReviewOutcome } from './facetReview.js';
 import type { FacetDefinition } from './facetLoader.js';
 import type { SideCarClient } from '../../ollama/client.js';
 import type { AgentCallbacks } from '../loop.js';
@@ -49,6 +50,18 @@ export interface FacetCommandDeps {
   signal?: AbortSignal;
   /** Runs the dispatch. Indirection lets tests assert inputs without spinning up real facets. */
   dispatch?: typeof dispatchFacets;
+  /**
+   * Runs the aggregated review after dispatch. Defaults to
+   * `reviewFacetBatch`; tests inject a spy so they can assert wiring
+   * without driving the full review UI.
+   */
+  review?: typeof reviewFacetBatch;
+  /**
+   * Deps forwarded to the review flow (ui + mainRoot). Required when
+   * `review` actually runs. Tests that skip review (e.g. cancelled
+   * paths) can omit this.
+   */
+  reviewDeps?: FacetReviewDeps;
   /** Callback sink for LLM output during facet runs. Tests pass a recorder. */
   callbacks?: AgentCallbacks;
   /** Config values from `sidecar.facets.*`. */
@@ -85,6 +98,12 @@ export type FacetCommandOutcome =
       task: string;
       facetIds: readonly string[];
       batch: FacetDispatchBatchResult;
+      /**
+       * Set when a review flow ran after dispatch. Absent when
+       * `reviewDeps` was omitted (headless callers that handle review
+       * themselves) or when the batch produced no reviewable diffs.
+       */
+      review?: FacetReviewOutcome;
     };
 
 /**
@@ -145,7 +164,16 @@ export async function runFacetDispatchCommand(deps: FacetCommandDeps): Promise<F
       rpcTimeoutMs: deps.config.rpcTimeoutMs,
     });
     summarizeBatch(deps.ui, batch);
-    return { mode: 'dispatched', task: trimmed, facetIds, batch };
+    // v0.66 chunk 3.6 — auto-trigger the aggregated review when the
+    // caller supplied reviewDeps. Headless callers (tests, programmatic
+    // dispatch from other extension code) omit reviewDeps and handle
+    // review themselves.
+    let review: FacetReviewOutcome | undefined;
+    if (deps.reviewDeps) {
+      const runReview = deps.review ?? reviewFacetBatch;
+      review = await runReview(batch, deps.reviewDeps);
+    }
+    return { mode: 'dispatched', task: trimmed, facetIds, batch, review };
   } catch (err) {
     deps.ui.showError(`Facet dispatch failed: ${err instanceof Error ? err.message : String(err)}`);
     throw err;

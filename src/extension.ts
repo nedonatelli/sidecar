@@ -1193,8 +1193,10 @@ export function activate(context: ExtensionContext) {
     commands.registerCommand('sidecar.facets.dispatch', async () => {
       const { runFacetDispatchCommand, createDefaultFacetCommandUi } = await import('./agent/facets/facetCommands.js');
       const { loadFacetRegistry } = await import('./agent/facets/facetDiskLoader.js');
+      const { createDefaultFacetReviewUi, getWorkspaceMainRoot } = await import('./agent/facets/facetReview.js');
       const cfg = getConfig();
       const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath;
+      const mainRoot = getWorkspaceMainRoot();
       await runFacetDispatchCommand({
         ui: createDefaultFacetCommandUi(),
         loadRegistry: () =>
@@ -1208,6 +1210,11 @@ export function activate(context: ExtensionContext) {
           maxConcurrent: cfg.facetsMaxConcurrent,
           rpcTimeoutMs: cfg.facetsRpcTimeoutMs,
         },
+        // v0.66 chunk 3.6 — batched review happens right after dispatch.
+        // If there's no workspace open there's nowhere to `git apply`,
+        // so skip review in that case (dispatch itself probably bailed
+        // earlier anyway — shadows need a git root).
+        reviewDeps: mainRoot ? { ui: createDefaultFacetReviewUi(), mainRoot } : undefined,
       });
     }),
   );

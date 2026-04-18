@@ -77,7 +77,7 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('dispatchFacet — success path', () => {
-  it('calls runAgentLoopInSandbox with forceShadow: true', async () => {
+  it('calls runAgentLoopInSandbox with forceShadow + deferPrompt', async () => {
     runAgentLoopInSandboxMock.mockResolvedValue({ mode: 'shadow', applied: true, shadowId: 'sh-1' });
     const client = makeClient();
     const f = facet({ id: 'dsp', toolAllowlist: ['read_file', 'grep'] });
@@ -87,7 +87,7 @@ describe('dispatchFacet — success path', () => {
     });
     expect(runAgentLoopInSandboxMock).toHaveBeenCalledOnce();
     const sandboxOpts = runAgentLoopInSandboxMock.mock.calls[0][5];
-    expect(sandboxOpts).toEqual({ forceShadow: true });
+    expect(sandboxOpts).toEqual({ forceShadow: true, deferPrompt: true });
   });
 
   it('pins preferredModel via setTurnOverride and restores it on exit', async () => {

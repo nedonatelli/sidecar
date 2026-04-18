@@ -17,9 +17,18 @@ export interface SandboxResult {
   /** True iff the run actually modified the user's main working tree. */
   applied: boolean;
   /** Human-readable reason when `applied` is false in shadow mode. */
-  reason?: 'empty-diff' | 'rejected' | 'apply-failed';
+  reason?: 'empty-diff' | 'rejected' | 'apply-failed' | 'deferred';
   /** On shadow failure / rejection, the unified diff that was almost-applied. Useful for logging and debug surfaces. */
   rejectedDiff?: string;
+  /**
+   * When the caller passed `deferPrompt: true` (v0.66 chunk 3.6), the
+   * sandbox captures the diff here instead of prompting. The shadow
+   * worktree itself is still disposed after capture; the caller is
+   * expected to `git apply` the saved patch later during an aggregated
+   * review flow. Empty diffs surface as `reason: 'empty-diff'` with no
+   * `pendingDiff` payload, matching the non-deferred path.
+   */
+  pendingDiff?: string;
   /** The shadow's task ID when mode is 'shadow'. Lets callers correlate logs with .sidecar/shadows/<id>/. */
   shadowId?: string;
 }
@@ -55,7 +64,7 @@ export async function runAgentLoopInSandbox(
   callbacks: AgentCallbacks,
   signal: AbortSignal,
   options: AgentOptions = {},
-  sandboxOptions: { forceShadow?: boolean } = {},
+  sandboxOptions: { forceShadow?: boolean; deferPrompt?: boolean } = {},
 ): Promise<SandboxResult> {
   const cfg = getConfig();
   const shouldSandbox =
@@ -90,6 +99,16 @@ export async function runAgentLoopInSandbox(
     if (!diff) {
       callbacks.onText?.('\n[shadow task complete — no changes to apply]\n');
       return { mode: 'shadow', applied: false, reason: 'empty-diff', shadowId: shadow.id };
+    }
+
+    // v0.66 chunk 3.6 — deferred prompts for multi-facet batches. Capture
+    // the diff so a later aggregated review flow can apply it via
+    // `git apply` onto main; skip the per-run quickpick entirely. The
+    // shadow is still disposed in `finally` (the patch string is what
+    // we need, not the worktree).
+    if (sandboxOptions.deferPrompt === true) {
+      callbacks.onText?.(`\n[shadow ${shadow.id} deferred — diff captured for aggregated review]\n`);
+      return { mode: 'shadow', applied: false, reason: 'deferred', pendingDiff: diff, shadowId: shadow.id };
     }
 
     const lineCount = diff.split('\n').length;

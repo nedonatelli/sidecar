@@ -208,8 +208,10 @@ export async function dispatchFacet(
         approvalMode: 'autonomous',
       },
       // Force shadow on — every facet run is sandboxed regardless of
-      // the user's global shadowWorkspaceMode preference.
-      { forceShadow: true },
+      // the user's global shadowWorkspaceMode preference. Defer the
+      // per-run prompt (v0.66 chunk 3.6): the batch's review UI runs
+      // once all facets complete, so we don't stack N quickpicks.
+      { forceShadow: true, deferPrompt: true },
     );
     parentCallbacks.onText(`\n[facet ${facet.id} completed]\n`);
     return {

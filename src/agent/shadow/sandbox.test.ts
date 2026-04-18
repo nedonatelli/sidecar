@@ -216,6 +216,80 @@ describe('runAgentLoopInSandbox', () => {
     });
   });
 
+  describe('deferPrompt (v0.66 chunk 3.6)', () => {
+    it('captures the diff as pendingDiff and skips the quickpick when set', async () => {
+      vi.spyOn(settings, 'getConfig').mockReturnValue({
+        shadowWorkspaceMode: 'always',
+        shadowWorkspaceAutoCleanup: true,
+      } as never);
+      vi.spyOn(shared, 'getRoot').mockReturnValue('/mock-workspace');
+      const createMock = vi.fn().mockResolvedValue(undefined);
+      const diffMock = vi.fn().mockResolvedValue('diff --git a/x b/x\n+deferred\n');
+      const applyMock = vi.fn().mockResolvedValue('applied');
+      const disposeMock = vi.fn().mockResolvedValue(undefined);
+      shadowMockCtor.mockReturnValue({
+        id: 'task-deferred',
+        path: '/tmp/shadows/task-deferred',
+        create: createMock,
+        diff: diffMock,
+        applyToMain: applyMock,
+        dispose: disposeMock,
+        isActive: true,
+      });
+      vi.spyOn(loopModule, 'runAgentLoop').mockResolvedValue([] as never);
+      const quickPickSpy = vi.spyOn(window, 'showQuickPick');
+
+      const result = await runAgentLoopInSandbox(
+        {} as never,
+        [],
+        callbacks,
+        new AbortController().signal,
+        {},
+        { deferPrompt: true },
+      );
+
+      expect(quickPickSpy).not.toHaveBeenCalled();
+      expect(applyMock).not.toHaveBeenCalled();
+      expect(disposeMock).toHaveBeenCalledOnce();
+      expect(result.applied).toBe(false);
+      expect(result.reason).toBe('deferred');
+      expect(result.pendingDiff).toContain('+deferred');
+      expect(result.shadowId).toBe('task-deferred');
+    });
+
+    it('still returns empty-diff without a pendingDiff when the facet made no writes', async () => {
+      vi.spyOn(settings, 'getConfig').mockReturnValue({
+        shadowWorkspaceMode: 'always',
+        shadowWorkspaceAutoCleanup: true,
+      } as never);
+      vi.spyOn(shared, 'getRoot').mockReturnValue('/mock-workspace');
+      const createMock = vi.fn().mockResolvedValue(undefined);
+      const diffMock = vi.fn().mockResolvedValue('');
+      const disposeMock = vi.fn().mockResolvedValue(undefined);
+      shadowMockCtor.mockReturnValue({
+        id: 'task-empty',
+        path: '/tmp/shadows/task-empty',
+        create: createMock,
+        diff: diffMock,
+        dispose: disposeMock,
+        isActive: true,
+      });
+      vi.spyOn(loopModule, 'runAgentLoop').mockResolvedValue([] as never);
+
+      const result = await runAgentLoopInSandbox(
+        {} as never,
+        [],
+        callbacks,
+        new AbortController().signal,
+        {},
+        { deferPrompt: true },
+      );
+
+      expect(result.reason).toBe('empty-diff');
+      expect(result.pendingDiff).toBeUndefined();
+    });
+  });
+
   describe('forceShadow in opt-in mode', () => {
     it('wraps when sandboxOptions.forceShadow is true', async () => {
       vi.spyOn(settings, 'getConfig').mockReturnValue({
