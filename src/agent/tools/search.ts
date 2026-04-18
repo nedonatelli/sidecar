@@ -3,7 +3,7 @@ import * as path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import type { ToolDefinition } from '../../ollama/types.js';
-import { getRoot, type ToolExecutorContext } from './shared.js';
+import { getRoot, type ToolExecutorContext, type RegisteredTool } from './shared.js';
 import { getDefaultToolRuntime } from './runtime.js';
 import { compressGrepOutput } from './compression.js';
 
@@ -187,3 +187,9 @@ export async function findReferences(input: Record<string, unknown>, context?: T
 
   return result;
 }
+
+export const searchTools: RegisteredTool[] = [
+  { definition: searchFilesDef, executor: searchFiles, requiresApproval: false },
+  { definition: grepDef, executor: grep, requiresApproval: false },
+  { definition: findReferencesDef, executor: findReferences, requiresApproval: false },
+];

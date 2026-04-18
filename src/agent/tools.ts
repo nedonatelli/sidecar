@@ -8,50 +8,25 @@ import { redactSecrets } from './securityScanner.js';
 
 import type { RegisteredTool } from './tools/shared.js';
 import { getRoot } from './tools/shared.js';
-import {
-  readFileDef,
-  readFile,
-  writeFileDef,
-  writeFile,
-  editFileDef,
-  editFile,
-  listDirectoryDef,
-  listDirectory,
-} from './tools/fs.js';
-import { searchFilesDef, searchFiles, grepDef, grep, findReferencesDef, findReferences } from './tools/search.js';
-import { runCommandDef, runCommand, runTestsDef, runTests } from './tools/shell.js';
-import { getDiagnosticsDef, getDiagnostics } from './tools/diagnostics.js';
-import {
-  gitDiffDef,
-  gitDiffTool,
-  gitStatusDef,
-  gitStatus,
-  gitStageDef,
-  gitStage,
-  gitCommitDef,
-  gitCommit,
-  gitLogDef,
-  gitLog,
-  gitPushDef,
-  gitPush,
-  gitPullDef,
-  gitPull,
-  gitBranchDef,
-  gitBranch,
-  gitStashDef,
-  gitStash,
-} from './tools/git.js';
-import { webSearchDef, webSearch, displayDiagramDef, displayDiagram } from './tools/knowledge.js';
-import { systemMonitorDef, systemMonitor } from './tools/systemMonitor.js';
-import { projectKnowledgeSearchDef, projectKnowledgeSearch } from './tools/projectKnowledge.js';
-import {
-  switchBackendDef,
-  switchBackend,
-  getSettingDef,
-  getSetting,
-  updateSettingDef,
-  updateSetting,
-} from './tools/settings.js';
+// v0.66 chunk 2: each tools/*.ts module exports its own
+// `<name>Tools: RegisteredTool[]` array. TOOL_REGISTRY is built by
+// spreading them — collapses ~40 lines of paired def/executor imports
+// into one import per module. Per-tool paired exports (e.g.
+// `getDiagnostics`, `getDiagnosticsDef`) remain available for tests
+// and the agent loop's direct `getDiagnostics()` call.
+import { fsTools } from './tools/fs.js';
+import { searchTools } from './tools/search.js';
+import { shellTools } from './tools/shell.js';
+import { diagnosticsTools, getDiagnostics } from './tools/diagnostics.js';
+import { gitTools } from './tools/git.js';
+import { knowledgeTools } from './tools/knowledge.js';
+import { systemMonitorTools } from './tools/systemMonitor.js';
+import { projectKnowledgeTools } from './tools/projectKnowledge.js';
+import { settingsTools } from './tools/settings.js';
+
+// Keep the getDiagnostics re-export working — existing callers import
+// it straight from './tools.js' for post-edit diagnostic refreshes.
+void getDiagnostics;
 
 // ---------------------------------------------------------------------------
 // tools.ts is the slim composition layer. Each tool category lives under
@@ -82,46 +57,15 @@ const execAsync = promisify(exec);
 // --- Built-in tool registry ---
 
 export const TOOL_REGISTRY: RegisteredTool[] = [
-  { definition: readFileDef, executor: readFile, requiresApproval: false },
-  { definition: writeFileDef, executor: writeFile, requiresApproval: true },
-  { definition: editFileDef, executor: editFile, requiresApproval: true },
-  { definition: searchFilesDef, executor: searchFiles, requiresApproval: false },
-  { definition: grepDef, executor: grep, requiresApproval: false },
-  { definition: runCommandDef, executor: runCommand, requiresApproval: true },
-  { definition: listDirectoryDef, executor: listDirectory, requiresApproval: false },
-  { definition: getDiagnosticsDef, executor: getDiagnostics, requiresApproval: false },
-  { definition: runTestsDef, executor: runTests, requiresApproval: true },
-  { definition: gitDiffDef, executor: gitDiffTool, requiresApproval: false },
-  { definition: gitStatusDef, executor: gitStatus, requiresApproval: false },
-  { definition: gitStageDef, executor: gitStage, requiresApproval: true },
-  { definition: gitCommitDef, executor: gitCommit, requiresApproval: true },
-  { definition: gitLogDef, executor: gitLog, requiresApproval: false },
-  { definition: gitPushDef, executor: gitPush, requiresApproval: true },
-  { definition: gitPullDef, executor: gitPull, requiresApproval: true },
-  { definition: gitBranchDef, executor: gitBranch, requiresApproval: true },
-  { definition: gitStashDef, executor: gitStash, requiresApproval: true },
-  { definition: displayDiagramDef, executor: displayDiagram, requiresApproval: false },
-  { definition: findReferencesDef, executor: findReferences, requiresApproval: false },
-  { definition: webSearchDef, executor: webSearch, requiresApproval: false },
-  { definition: systemMonitorDef, executor: systemMonitor, requiresApproval: false },
-  { definition: projectKnowledgeSearchDef, executor: projectKnowledgeSearch, requiresApproval: false },
-  // Settings tools. `alwaysRequireApproval: true` on the two mutating
-  // tools ensures the user sees a modal even in autonomous mode and
-  // even when `toolPermissions` sets them to `allow` — the user's
-  // durable configuration never changes without an explicit click.
-  { definition: getSettingDef, executor: getSetting, requiresApproval: false },
-  {
-    definition: switchBackendDef,
-    executor: switchBackend,
-    requiresApproval: true,
-    alwaysRequireApproval: true,
-  },
-  {
-    definition: updateSettingDef,
-    executor: updateSetting,
-    requiresApproval: true,
-    alwaysRequireApproval: true,
-  },
+  ...fsTools,
+  ...searchTools,
+  ...shellTools,
+  ...diagnosticsTools,
+  ...gitTools,
+  ...knowledgeTools,
+  ...systemMonitorTools,
+  ...projectKnowledgeTools,
+  ...settingsTools,
   {
     definition: {
       name: 'ask_user',

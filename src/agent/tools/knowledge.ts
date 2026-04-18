@@ -1,7 +1,7 @@
 import { workspace, Uri } from 'vscode';
 import type { ToolDefinition } from '../../ollama/types.js';
 import { searchWeb, formatSearchResults, checkInternetConnectivity } from '../webSearch.js';
-import { validateFilePath, getRootUri } from './shared.js';
+import { validateFilePath, getRootUri, type RegisteredTool } from './shared.js';
 
 // Knowledge tools: web_search and display_diagram. Grouped because both
 // surface "external knowledge" into the chat — one live from the web, the
@@ -129,3 +129,8 @@ export async function displayDiagram(input: Record<string, unknown>): Promise<st
     return `Error reading diagram from ${filePath}: ${err instanceof Error ? err.message : 'Unknown error'}`;
   }
 }
+
+export const knowledgeTools: RegisteredTool[] = [
+  { definition: webSearchDef, executor: webSearch, requiresApproval: false },
+  { definition: displayDiagramDef, executor: displayDiagram, requiresApproval: false },
+];

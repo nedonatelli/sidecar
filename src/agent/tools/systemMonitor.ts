@@ -17,6 +17,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as os from 'os';
 import type { ToolDefinition } from '../../ollama/types.js';
+import type { RegisteredTool } from './shared.js';
 
 const execAsync = promisify(exec);
 
@@ -197,3 +198,7 @@ export async function systemMonitor(input: Record<string, unknown>): Promise<str
 
   return sections.join('\n\n');
 }
+
+export const systemMonitorTools: RegisteredTool[] = [
+  { definition: systemMonitorDef, executor: systemMonitor, requiresApproval: false },
+];

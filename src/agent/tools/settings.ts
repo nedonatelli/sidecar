@@ -1,5 +1,6 @@
 import { workspace, ConfigurationTarget } from 'vscode';
 import type { ToolDefinition } from '../../ollama/types.js';
+import type { RegisteredTool } from './shared.js';
 import { BUILT_IN_BACKEND_PROFILES, applyBackendProfile } from '../../config/settings.js';
 
 // Settings tools: read / modify SideCar's own VS Code configuration from
@@ -198,3 +199,23 @@ export async function updateSetting(input: Record<string, unknown>): Promise<str
     return `Failed to update sidecar.${key}: ${err instanceof Error ? err.message : String(err)}`;
   }
 }
+
+// `alwaysRequireApproval: true` on the two mutating tools ensures the
+// user sees a modal even in autonomous mode and even when
+// `toolPermissions` sets them to `allow` — the user's durable
+// configuration never changes without an explicit click.
+export const settingsTools: RegisteredTool[] = [
+  { definition: getSettingDef, executor: getSetting, requiresApproval: false },
+  {
+    definition: switchBackendDef,
+    executor: switchBackend,
+    requiresApproval: true,
+    alwaysRequireApproval: true,
+  },
+  {
+    definition: updateSettingDef,
+    executor: updateSetting,
+    requiresApproval: true,
+    alwaysRequireApproval: true,
+  },
+];

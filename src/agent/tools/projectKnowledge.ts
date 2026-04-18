@@ -1,4 +1,5 @@
 import type { ToolDefinition } from '../../ollama/types.js';
+import type { RegisteredTool } from './shared.js';
 import { getDefaultToolRuntime } from './runtime.js';
 import { enrichWithGraphWalk } from '../retrieval/graphExpansion.js';
 
@@ -138,3 +139,7 @@ export async function projectKnowledgeSearch(input: Record<string, unknown>): Pr
   });
   return [header, '', ...lines].join('\n');
 }
+
+export const projectKnowledgeTools: RegisteredTool[] = [
+  { definition: projectKnowledgeSearchDef, executor: projectKnowledgeSearch, requiresApproval: false },
+];

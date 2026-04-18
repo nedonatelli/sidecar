@@ -7,6 +7,7 @@ import {
   isProtectedWritePath,
   resolveRootUri,
   type ToolExecutorContext,
+  type RegisteredTool,
 } from './shared.js';
 import { compactSourceFile, outlineSourceFile } from './compression.js';
 import { getConfig } from '../../config/settings.js';
@@ -269,3 +270,10 @@ export async function listDirectory(input: Record<string, unknown>, context?: To
   const entries = await workspace.fs.readDirectory(dirUri);
   return entries.map(([name, type]) => `${type === 2 ? '📁 ' : '📄 '}${name}`).join('\n');
 }
+
+export const fsTools: RegisteredTool[] = [
+  { definition: readFileDef, executor: readFile, requiresApproval: false },
+  { definition: writeFileDef, executor: writeFile, requiresApproval: true },
+  { definition: editFileDef, executor: editFile, requiresApproval: true },
+  { definition: listDirectoryDef, executor: listDirectory, requiresApproval: false },
+];

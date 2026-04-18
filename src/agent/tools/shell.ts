@@ -1,7 +1,14 @@
 import { workspace, Uri } from 'vscode';
 import type { ToolDefinition } from '../../ollama/types.js';
 import { getConfig } from '../../config/settings.js';
-import { validateFilePath, shellQuote, hasShellMetachar, getRootUri, type ToolExecutorContext } from './shared.js';
+import {
+  validateFilePath,
+  shellQuote,
+  hasShellMetachar,
+  getRootUri,
+  type ToolExecutorContext,
+  type RegisteredTool,
+} from './shared.js';
 import { getDefaultToolRuntime } from './runtime.js';
 import type { ShellSession, ShellResult } from '../../terminal/shellSession.js';
 import { AgentTerminalExecutor } from '../../terminal/agentExecutor.js';
@@ -293,3 +300,8 @@ export async function runTests(input: Record<string, unknown>, context?: ToolExe
     return `Test command failed: ${error.message || 'Unknown error'}`;
   }
 }
+
+export const shellTools: RegisteredTool[] = [
+  { definition: runCommandDef, executor: runCommand, requiresApproval: true },
+  { definition: runTestsDef, executor: runTests, requiresApproval: true },
+];

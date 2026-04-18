@@ -2,7 +2,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import type { ToolDefinition } from '../../ollama/types.js';
 import { GitCLI } from '../../github/git.js';
-import { getRoot, type ToolExecutorContext } from './shared.js';
+import { getRoot, type ToolExecutorContext, type RegisteredTool } from './shared.js';
 import { compressGitDiff } from './compression.js';
 import { getConfig } from '../../config/settings.js';
 import { getDefaultAuditBuffer } from '../audit/auditBuffer.js';
@@ -332,3 +332,15 @@ export async function gitStash(input: Record<string, unknown>): Promise<string> 
     return `git stash failed: ${err instanceof Error ? err.message : String(err)}`;
   }
 }
+
+export const gitTools: RegisteredTool[] = [
+  { definition: gitDiffDef, executor: gitDiffTool, requiresApproval: false },
+  { definition: gitStatusDef, executor: gitStatus, requiresApproval: false },
+  { definition: gitStageDef, executor: gitStage, requiresApproval: true },
+  { definition: gitCommitDef, executor: gitCommit, requiresApproval: true },
+  { definition: gitLogDef, executor: gitLog, requiresApproval: false },
+  { definition: gitPushDef, executor: gitPush, requiresApproval: true },
+  { definition: gitPullDef, executor: gitPull, requiresApproval: true },
+  { definition: gitBranchDef, executor: gitBranch, requiresApproval: true },
+  { definition: gitStashDef, executor: gitStash, requiresApproval: true },
+];
