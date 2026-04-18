@@ -8,11 +8,11 @@ import type {
   AnthropicStreamEvent,
   StreamEvent,
 } from './types.js';
-import { fetchWithRetry } from './retry.js';
 import { getConfig } from '../config/settings.js';
 import { abortableRead } from './streamUtils.js';
-import { RateLimitStore, maybeWaitForRateLimit } from './rateLimitState.js';
+import { RateLimitStore } from './rateLimitState.js';
 import { parseAnthropicRateLimitHeaders } from './rateLimitHeaders.js';
+import { sidecarFetch } from './sidecarFetch.js';
 import { spendTracker } from './spendTracker.js';
 import { prunePrompt, formatPruneStats } from './promptPruner.js';
 import { CHARS_PER_TOKEN } from '../config/constants.js';
@@ -166,32 +166,32 @@ export class AnthropicBackend implements ApiBackend {
       body.tools = prepareToolsForCache(tools);
     }
 
-    // Pre-check against the last known rate-limit budget. Waits the
-    // computed time (if any), or throws RateLimitWaitTooLongError if
-    // the wait would exceed MAX_RATE_LIMIT_WAIT_MS — better than burning
-    // a retry on a request the server is guaranteed to reject.
-    await maybeWaitForRateLimit(
-      this.rateLimits,
-      estimateRequestTokens(systemPrompt, messages, 8192),
-      MAX_RATE_LIMIT_WAIT_MS,
-      signal,
-    );
-
-    const response = await fetchWithRetry(this.messagesUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': this.apiKey,
-        'anthropic-version': '2023-06-01',
+    // Pre-check against the last known rate-limit budget. sidecarFetch
+    // waits the computed time (if any), or throws RateLimitWaitTooLongError
+    // when the wait would exceed MAX_RATE_LIMIT_WAIT_MS — better than burning
+    // a retry on a request the server is guaranteed to reject. The store
+    // is refreshed from response headers before we inspect `response.ok`,
+    // so a 429 still updates the budget for the next wait.
+    const response = await sidecarFetch(
+      this.messagesUrl,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': this.apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify(body),
+        signal,
       },
-      body: JSON.stringify(body),
-      signal,
-    });
-
-    // Update rate-limit state from headers before inspecting `response.ok`
-    // so a 429 response still refreshes the store and future waits land
-    // on the freshest numbers.
-    this.rateLimits.update(parseAnthropicRateLimitHeaders(response.headers));
+      {
+        rateLimits: this.rateLimits,
+        estimatedTokens: estimateRequestTokens(systemPrompt, messages, 8192),
+        maxRateLimitWaitMs: MAX_RATE_LIMIT_WAIT_MS,
+        parseRateLimitHeaders: parseAnthropicRateLimitHeaders,
+        label: 'anthropic',
+      },
+    );
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
@@ -358,25 +358,26 @@ export class AnthropicBackend implements ApiBackend {
       body.system = buildSystemBlocks(pruned.systemPrompt);
     }
 
-    await maybeWaitForRateLimit(
-      this.rateLimits,
-      estimateRequestTokens(pruned.systemPrompt, pruned.messages, maxTokens),
-      MAX_RATE_LIMIT_WAIT_MS,
-      signal,
-    );
-
-    const response = await fetchWithRetry(this.messagesUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': this.apiKey,
-        'anthropic-version': '2023-06-01',
+    const response = await sidecarFetch(
+      this.messagesUrl,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': this.apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify(body),
+        signal,
       },
-      body: JSON.stringify(body),
-      signal,
-    });
-
-    this.rateLimits.update(parseAnthropicRateLimitHeaders(response.headers));
+      {
+        rateLimits: this.rateLimits,
+        estimatedTokens: estimateRequestTokens(pruned.systemPrompt, pruned.messages, maxTokens),
+        maxRateLimitWaitMs: MAX_RATE_LIMIT_WAIT_MS,
+        parseRateLimitHeaders: parseAnthropicRateLimitHeaders,
+        label: 'anthropic',
+      },
+    );
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');

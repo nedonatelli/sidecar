@@ -37,6 +37,22 @@ export class OpenRouterBackend extends OpenAIBackend {
   }
 
   /**
+   * Opt into OpenRouter's accounting block so the streamed `usage`
+   * event carries `cost` in USD (v0.64 chunk 5). Without this the
+   * stream's usage chunk ships token counts only, and `spendTracker`
+   * falls back to the static MODEL_COSTS table — which misses
+   * per-account discounts, routed-provider upcharges, and cache
+   * bonuses the upstream has already priced in.
+   *
+   * OpenRouter-specific: the OpenAI base class doesn't know about
+   * this field, and including it on vanilla OpenAI would just be
+   * ignored.
+   */
+  protected override extraBodyFields(): Record<string, unknown> {
+    return { usage: { include: true } };
+  }
+
+  /**
    * Fetch the OpenRouter model catalog.
    *
    * Unlike OpenAI's `/v1/models` which returns bare ids, OpenRouter

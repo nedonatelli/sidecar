@@ -65,6 +65,10 @@ function makeClient(respond: (prompt: string) => string | Promise<string>): {
         return respond(prompt);
       },
     ),
+    // Phase 4b.3 wiring: criticHook consults the router before each
+    // dispatch. Tests that don't exercise routing return null to take
+    // the no-op branch.
+    routeForDispatch: vi.fn(() => null),
   } as unknown as SideCarClient;
   return { client, calls };
 }
@@ -187,6 +191,21 @@ describe('runCriticChecks', () => {
       expect(calls).toHaveLength(1);
       expect(calls[0].prompt).toContain('src/foo.ts');
       expect(calls[0].prompt).toContain('Attack this change');
+    });
+
+    it('tags the critic dispatch with role=critic for the router (v0.64 phase 4b.3)', async () => {
+      const { use, result } = editPair('src/foo.ts');
+      const { client } = makeClient(() => '{"findings": []}');
+      await runCriticChecks(
+        baseOptions({
+          client,
+          pendingToolUses: [use],
+          toolResults: [result],
+        }),
+      );
+      const routeMock = (client as unknown as { routeForDispatch: ReturnType<typeof vi.fn> }).routeForDispatch;
+      expect(routeMock).toHaveBeenCalled();
+      expect(routeMock.mock.calls[0][0]).toMatchObject({ role: 'critic' });
     });
 
     it('skips write_file calls that errored', async () => {
@@ -378,6 +397,7 @@ describe('runCriticChecks', () => {
         completeWithOverrides: vi.fn(async () => {
           throw new Error('Network timeout');
         }),
+        routeForDispatch: vi.fn(() => null),
       } as unknown as SideCarClient;
       const result = await runCriticChecks(
         baseOptions({

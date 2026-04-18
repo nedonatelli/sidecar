@@ -16,7 +16,13 @@ vi.mock('fs', async () => {
   };
 });
 
-import { KickstandBackend } from './kickstandBackend.js';
+import {
+  KickstandBackend,
+  kickstandPullModel,
+  kickstandListRegistry,
+  kickstandLoadModel,
+  kickstandUnloadModel,
+} from './kickstandBackend.js';
 
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
@@ -278,5 +284,215 @@ describe('KickstandBackend', () => {
       const caps = backend.nativeCapabilities();
       await expect(caps.lifecycle!.loadModel('qwen3:30b')).rejects.toThrow(/Kickstand load failed.*500.*out of memory/);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Module-level helpers — exercise the pull / list / load / unload exports
+// directly so coverage isn't bottlenecked on the nativeCapabilities wrapper.
+// ---------------------------------------------------------------------------
+
+function pullSseBody(lines: string[]): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  let sent = false;
+  return new ReadableStream({
+    pull(controller) {
+      if (!sent) {
+        controller.enqueue(encoder.encode(lines.map((l) => `data: ${l}\n`).join('')));
+        sent = true;
+      } else {
+        controller.close();
+      }
+    },
+  });
+}
+
+describe('kickstandPullModel', () => {
+  beforeEach(() => {
+    mockFetch.mockReset();
+  });
+
+  it('yields every JSON-parseable SSE event in order', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      body: pullSseBody([
+        JSON.stringify({ status: 'downloading', repo: 'q/q', filename: 'q.gguf' }),
+        JSON.stringify({ status: 'done', local_path: '/m/q.gguf', format: 'gguf' }),
+      ]),
+    });
+
+    const events = [];
+    for await (const e of kickstandPullModel('http://localhost:11435', 'q/q', 'q.gguf')) {
+      events.push(e);
+    }
+
+    expect(events).toEqual([
+      { status: 'downloading', repo: 'q/q', filename: 'q.gguf' },
+      { status: 'done', local_path: '/m/q.gguf', format: 'gguf' },
+    ]);
+
+    const init = mockFetch.mock.calls[0][1] as RequestInit;
+    expect(init.method).toBe('POST');
+    const body = JSON.parse(init.body as string) as { repo: string; filename: string };
+    expect(body.repo).toBe('q/q');
+    expect(body.filename).toBe('q.gguf');
+  });
+
+  it('forwards hfToken in the request body when provided', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      body: pullSseBody([JSON.stringify({ status: 'done' })]),
+    });
+    // Drain the generator so the fetch is dispatched.
+    for await (const _ of kickstandPullModel('http://localhost:11435', 'q/q', undefined, 'hf_SECRET')) {
+      void _;
+    }
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body as string) as { token?: string };
+    expect(body.token).toBe('hf_SECRET');
+  });
+
+  it('yields a single error event when the initial response is not OK', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      text: async () => 'repo not found',
+    });
+    const events = [];
+    for await (const e of kickstandPullModel('http://localhost:11435', 'missing/repo')) {
+      events.push(e);
+    }
+    expect(events).toHaveLength(1);
+    expect(events[0].status).toBe('error');
+    expect(events[0].message).toContain('404');
+    expect(events[0].message).toContain('repo not found');
+  });
+
+  it('yields an error event when the response body is empty', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, body: null });
+    const events = [];
+    for await (const e of kickstandPullModel('http://localhost:11435', 'q/q')) {
+      events.push(e);
+    }
+    expect(events).toEqual([{ status: 'error', message: 'Kickstand returned an empty response body' }]);
+  });
+
+  it('skips malformed SSE lines without bubbling a parse error', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      body: pullSseBody([
+        'not-json-at-all',
+        JSON.stringify({ status: 'downloading' }),
+        '{bad json}',
+        JSON.stringify({ status: 'done' }),
+      ]),
+    });
+    const events = [];
+    for await (const e of kickstandPullModel('http://localhost:11435', 'q/q')) {
+      events.push(e);
+    }
+    expect(events).toEqual([{ status: 'downloading' }, { status: 'done' }]);
+  });
+
+  it('ignores lines that are not prefixed with "data:"', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      body: new ReadableStream<Uint8Array>({
+        pull(controller) {
+          const encoder = new TextEncoder();
+          controller.enqueue(
+            encoder.encode(
+              [': comment', 'event: progress', `data: ${JSON.stringify({ status: 'done' })}`].join('\n') + '\n',
+            ),
+          );
+          controller.close();
+        },
+      }),
+    });
+    const events = [];
+    for await (const e of kickstandPullModel('http://localhost:11435', 'q/q')) {
+      events.push(e);
+    }
+    expect(events).toEqual([{ status: 'done' }]);
+  });
+
+  it('strips trailing slashes from baseUrl when building the pull URL', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      body: pullSseBody([JSON.stringify({ status: 'done' })]),
+    });
+    for await (const _ of kickstandPullModel('http://localhost:11435///', 'q/q')) {
+      void _;
+    }
+    expect(mockFetch.mock.calls[0][0]).toBe('http://localhost:11435/api/v1/models/pull');
+  });
+});
+
+describe('kickstandListRegistry', () => {
+  beforeEach(() => mockFetch.mockReset());
+
+  it('returns the parsed registry array on success', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => [{ model_id: 'q/q', status: 'ready', loaded: false }],
+    });
+    const rows = await kickstandListRegistry('http://localhost:11435');
+    expect(rows).toEqual([{ model_id: 'q/q', status: 'ready', loaded: false }]);
+  });
+
+  it('returns [] when the registry endpoint returns non-OK', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 503 });
+    const rows = await kickstandListRegistry('http://localhost:11435');
+    expect(rows).toEqual([]);
+  });
+});
+
+describe('kickstandLoadModel', () => {
+  beforeEach(() => mockFetch.mockReset());
+
+  it('passes n_gpu_layers and n_ctx options into the request body', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ status: 'ok', model_id: 'q/q' }),
+    });
+    await kickstandLoadModel('http://localhost:11435', 'q/q', { n_gpu_layers: 32, n_ctx: 16384 });
+    const init = mockFetch.mock.calls[0][1] as RequestInit;
+    const body = JSON.parse(init.body as string) as { n_gpu_layers: number; n_ctx: number };
+    expect(body.n_gpu_layers).toBe(32);
+    expect(body.n_ctx).toBe(16384);
+  });
+
+  it('applies default n_gpu_layers=-1 / n_ctx=4096 when options are omitted', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ status: 'ok', model_id: 'q/q' }),
+    });
+    await kickstandLoadModel('http://localhost:11435', 'q/q');
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body as string) as { n_gpu_layers: number; n_ctx: number };
+    expect(body.n_gpu_layers).toBe(-1);
+    expect(body.n_ctx).toBe(4096);
+  });
+});
+
+describe('kickstandUnloadModel', () => {
+  beforeEach(() => mockFetch.mockReset());
+
+  it('returns the parsed response on success', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ status: 'ok', model_id: 'q/q' }),
+    });
+    const result = await kickstandUnloadModel('http://localhost:11435', 'q/q');
+    expect(result).toEqual({ status: 'ok', model_id: 'q/q' });
+  });
+
+  it('throws with the Kickstand-prefixed error message on non-OK', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      text: async () => 'model not loaded',
+    });
+    await expect(kickstandUnloadModel('http://localhost:11435', 'q/q')).rejects.toThrow(
+      /Kickstand unload failed.*404.*model not loaded/,
+    );
   });
 });

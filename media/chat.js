@@ -1336,7 +1336,8 @@
         'assistant',
         '**Available chat commands:**\n' +
           '`/help` — Show this list\n' +
-          '`/model <name>` — Switch model\n' +
+          '`/model <name>` — Switch model (persists across turns)\n' +
+          '`@opus` / `@sonnet` / `@haiku` / `@local` — one-turn model pin (v0.64)\n' +
           '`/batch <tasks>` — Run multiple tasks\n' +
           '`/doc` — Generate documentation\n' +
           '`/spec <desc>` — Spec-driven development\n' +
@@ -2896,6 +2897,15 @@
     return name;
   }
 
+  function formatContextLength(n) {
+    if (!n || typeof n !== 'number' || n <= 0) return '';
+    if (n >= 1000) {
+      const k = n / 1024;
+      return (k >= 10 ? Math.round(k) : k.toFixed(1).replace(/\.0$/, '')) + 'K ctx';
+    }
+    return n + ' ctx';
+  }
+
   function renderModelList(models, filter) {
     // Cache full list when called without a filter (fresh data from extension)
     if (filter === undefined) {
@@ -2934,22 +2944,35 @@
         nameSpan.className = 'model-item-name';
         nameSpan.title = model.name;
 
+        const nameRow = document.createElement('span');
+        nameRow.className = 'model-name-row';
+
         const nameText = document.createElement('span');
         nameText.className = 'name-text';
         nameText.textContent = getModelDisplayName(model.name);
-        nameSpan.appendChild(nameText);
+        nameRow.appendChild(nameText);
 
         if (model.installed) {
           nameSpan.classList.add('installed');
           const checkmark = document.createElement('span');
           checkmark.className = 'model-check';
           checkmark.textContent = '\u2713';
-          nameSpan.appendChild(checkmark);
+          nameRow.appendChild(checkmark);
         } else {
           const badge = document.createElement('span');
           badge.className = 'model-badge';
           badge.textContent = 'not installed';
-          nameSpan.appendChild(badge);
+          nameRow.appendChild(badge);
+        }
+
+        nameSpan.appendChild(nameRow);
+
+        const ctxLabel = formatContextLength(model.contextLength);
+        if (ctxLabel) {
+          const ctxBadge = document.createElement('span');
+          ctxBadge.className = 'model-ctx';
+          ctxBadge.textContent = ctxLabel;
+          nameSpan.appendChild(ctxBadge);
         }
 
         const actionBtn = document.createElement('button');
@@ -2994,22 +3017,35 @@
         nameSpan.className = 'model-item-name';
         nameSpan.title = model.name;
 
+        const nameRow = document.createElement('span');
+        nameRow.className = 'model-name-row';
+
         const nameText = document.createElement('span');
         nameText.className = 'name-text';
         nameText.textContent = getModelDisplayName(model.name);
-        nameSpan.appendChild(nameText);
+        nameRow.appendChild(nameText);
 
         if (model.installed) {
           nameSpan.classList.add('installed');
           const checkmark = document.createElement('span');
           checkmark.className = 'model-check';
           checkmark.textContent = '\u2713';
-          nameSpan.appendChild(checkmark);
+          nameRow.appendChild(checkmark);
         } else {
           const badge = document.createElement('span');
           badge.className = 'model-badge';
           badge.textContent = 'not installed';
-          nameSpan.appendChild(badge);
+          nameRow.appendChild(badge);
+        }
+
+        nameSpan.appendChild(nameRow);
+
+        const ctxLabel = formatContextLength(model.contextLength);
+        if (ctxLabel) {
+          const ctxBadge = document.createElement('span');
+          ctxBadge.className = 'model-ctx';
+          ctxBadge.textContent = ctxLabel;
+          nameSpan.appendChild(ctxBadge);
         }
 
         const actionBtn = document.createElement('button');
@@ -3790,9 +3826,12 @@
         renderModelList(event.data.models || []);
         break;
 
-      case 'setCurrentModel':
-        modelName.textContent = event.data.currentModel || 'Select Model';
-        window.currentModel = event.data.currentModel || '';
+      case 'setCurrentModel': {
+        const full = event.data.currentModel || '';
+        const shortened = full ? getModelDisplayName(full).replace(/\.(gguf|safetensors)$/i, '') : '';
+        modelName.textContent = shortened || 'Select Model';
+        modelName.title = full || 'Select Model';
+        window.currentModel = full;
         window.currentModelSupportsTools = event.data.supportsTools !== false;
         updateChatOnlyBadge();
         modelPanel.classList.add('hidden');
@@ -3800,6 +3839,7 @@
         // reflects the new backend immediately.
         if (emptyStateEl) renderEmptyState();
         break;
+      }
 
       case 'setAgentMode': {
         const select = document.getElementById('agent-mode-select');

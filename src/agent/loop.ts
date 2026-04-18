@@ -14,6 +14,7 @@ import { compressMessages, applyBudgetCompression, maybeCompressPostTool } from 
 import { initLoopState } from './loop/state.js';
 import { parseTextToolCalls, stripRepeatedContent } from './loop/textParsing.js';
 import { streamOneTurn, resolveTurnContent } from './loop/streamTurn.js';
+import { applyAgentLoopRouting } from './loop/routing.js';
 import { exceedsBurstCap, detectCycleAndBail } from './loop/cycleDetection.js';
 import { pushAssistantMessage, pushToolResultsMessage, accountToolTokens } from './loop/messageBuild.js';
 import { runCriticChecks, type RunCriticOptions } from './loop/criticHook.js';
@@ -201,6 +202,14 @@ export async function runAgentLoop(
     notifyIterationStart(state, config, callbacks);
     maybeEmitProgressSummary(state, callbacks);
     if (await shouldStopAtCheckpoint(state, callbacks)) break;
+
+    // Role-Based Model Routing (v0.64). No-op when no router is
+    // attached to the client (the default) — preserves legacy
+    // static-model dispatch without branching at the call site.
+    applyAgentLoopRouting(client, state, {
+      modelRoutingVisibleSwaps: config.modelRoutingVisibleSwaps,
+      modelRoutingDryRun: config.modelRoutingDryRun,
+    });
 
     // Stream the next turn. streamOneTurn handles the per-event
     // timeout, abort, and the full event-type switch;

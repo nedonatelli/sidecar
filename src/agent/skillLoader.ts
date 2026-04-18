@@ -21,7 +21,9 @@ export interface Skill {
   /** The full prompt content (everything after frontmatter) */
   content: string;
   /** Where this skill was loaded from */
-  source: 'builtin' | 'user' | 'project-claude' | 'project-sidecar';
+  source: 'builtin' | 'user' | 'project-claude' | 'project-sidecar' | 'user-registry' | 'team-registry';
+  /** Stable slug for registry-sourced skills (v0.64) — matches `RegistryRef.label` segment. */
+  registrySlug?: string;
   /** Original file path */
   filePath: string;
 }
@@ -170,6 +172,28 @@ export class SkillLoader {
       console.log(
         `[SideCar] Loaded ${count} skills from ${userSkills.length} user + ${root ? 'project' : '0 project'} directories`,
       );
+    }
+  }
+
+  /**
+   * Layer in skills from synced registries (v0.64 chunk 6). Called by
+   * `extension.ts` after `syncSkillRegistries` resolves, so clones /
+   * pulls run once and this loader just reads the now-populated
+   * directories. Precedence: registry skills sit between built-in /
+   * user-level and workspace-local sources — same shadow-warning
+   * semantics apply when a workspace skill later overrides a registry
+   * skill of the same id.
+   */
+  async loadRegistrySkills(refs: Array<{ managedDir: string; tier: 'user' | 'team'; label: string }>): Promise<void> {
+    for (const ref of refs) {
+      const source: Skill['source'] = ref.tier === 'user' ? 'user-registry' : 'team-registry';
+      const loaded = await loadSkillsFromDir(ref.managedDir, source);
+      for (const s of loaded) {
+        // Tag with the registry label so the picker can show origin,
+        // and the shadow-warning message can name the upstream source.
+        s.registrySlug = ref.label;
+        this.skills.set(s.id, s);
+      }
     }
   }
 

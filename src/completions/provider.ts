@@ -83,6 +83,13 @@ export class SideCarCompletionProvider implements InlineCompletionItemProvider {
     try {
       let completion: string;
 
+      // Role-Based Model Routing (v0.64 phase 4b.3). Tag this as the
+      // `completion` role so `sidecar.modelRouting.rules` can point FIM
+      // autocomplete at a different model than the main agent loop
+      // (typical shape: tiny draft on completion + big target on
+      // agent-loop). No-op when no router is attached.
+      this.client.routeForDispatch({ role: 'completion' });
+
       if (this.client.isLocalOllama()) {
         pathLabel = 'ollama-fim';
         completion = await this.client.completeFIM(prefix, suffix, undefined, this.maxTokens, signal);

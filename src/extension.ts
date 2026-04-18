@@ -154,10 +154,44 @@ export function activate(context: ExtensionContext) {
     );
   }
 
-  // Load built-in + user + project skills
+  // Load built-in + user + project skills, then layer on any configured
+  // user / team registry clones (v0.64 chunk 6). Registries sync in
+  // the background; missing or slow network shouldn't block activation.
   const skillLoader = new SkillLoader();
   skillLoader.setBuiltinPath(path.join(context.extensionPath, 'skills'));
-  skillLoader.initialize().catch((err) => console.warn('[SideCar] Skill loading failed:', err));
+  void (async () => {
+    try {
+      await skillLoader.initialize();
+      const skillCfg = getConfig();
+      const { syncSkillRegistries } = await import('./agent/skillRegistrySync.js');
+      const refs = await syncSkillRegistries({
+        config: {
+          skillsUserRegistry: skillCfg.skillsUserRegistry,
+          skillsTeamRegistries: skillCfg.skillsTeamRegistries,
+          skillsAutoPull: skillCfg.skillsAutoPull,
+          skillsTrustedRegistries: skillCfg.skillsTrustedRegistries,
+          skillsOffline: skillCfg.skillsOffline,
+        },
+        trustPrompt: async (ref) => {
+          const choice = await window.showInformationMessage(
+            `SideCar: trust skill registry \`${ref.url}\`? ` +
+              `Its skills will be available in your picker and can suggest tool calls to the agent ` +
+              `(still bounded by your per-skill allowed-tools guardrails).`,
+            { modal: true },
+            'Trust this registry',
+            'Skip',
+          );
+          return choice === 'Trust this registry';
+        },
+        log: (line) => console.log(line),
+      });
+      if (refs.length > 0) {
+        await skillLoader.loadRegistrySkills(refs);
+      }
+    } catch (err) {
+      console.warn('[SideCar] Skill loading failed:', err);
+    }
+  })();
 
   const workspaceIndex = new WorkspaceIndex();
   workspaceIndex.setSidecarDir(sidecarDir);
@@ -409,6 +443,37 @@ export function activate(context: ExtensionContext) {
     }),
     commands.registerCommand('sidecar.exportChat', () => {
       chatProvider?.exportChat();
+    }),
+    commands.registerCommand('sidecar.syncSkillRegistries', async () => {
+      // Manual re-sync of `sidecar.skills.userRegistry` +
+      // `sidecar.skills.teamRegistries` (v0.64 chunk 6). The primary
+      // trigger for users who picked `skills.autoPull: 'manual'` — one
+      // palette invocation forces a pull across every configured
+      // registry and reloads the SkillLoader from the updated clones.
+      const skillCfg = getConfig();
+      const { syncSkillRegistries } = await import('./agent/skillRegistrySync.js');
+      const refs = await syncSkillRegistries({
+        config: {
+          skillsUserRegistry: skillCfg.skillsUserRegistry,
+          // Force a pull regardless of schedule — that's the whole
+          // point of invoking the command.
+          skillsAutoPull: 'on-start',
+          skillsTeamRegistries: skillCfg.skillsTeamRegistries,
+          skillsTrustedRegistries: skillCfg.skillsTrustedRegistries,
+          skillsOffline: skillCfg.skillsOffline,
+        },
+        trustPrompt: async (ref) => {
+          const choice = await window.showInformationMessage(
+            `SideCar: trust skill registry \`${ref.url}\`?`,
+            { modal: true },
+            'Trust this registry',
+            'Skip',
+          );
+          return choice === 'Trust this registry';
+        },
+      });
+      await skillLoader.loadRegistrySkills(refs);
+      window.showInformationMessage(`SideCar: synced ${refs.length} skill registr${refs.length === 1 ? 'y' : 'ies'}.`);
     }),
     commands.registerCommand('sidecar.setApiKey', async () => {
       const value = await window.showInputBox({
@@ -905,7 +970,11 @@ export function activate(context: ExtensionContext) {
   }
 
   function renderStatusBar(health: HealthSnapshot): void {
-    const shortModel = cachedModel.split(':')[0];
+    // Prefer the live client's model — routing may have swapped it
+    // mid-session (v0.64 phase 4d.2). Fall back to the settings-cached
+    // model when the chat view hasn't initialized yet.
+    const liveModel = chatProvider?.client.getModel() ?? cachedModel;
+    const shortModel = liveModel.split(':')[0];
     const provider = providerLabel(cachedBaseUrl);
 
     let icon: string;
@@ -944,8 +1013,32 @@ export function activate(context: ExtensionContext) {
     md.supportHtml = false;
     md.appendMarkdown(`### SideCar\n\n`);
     md.appendMarkdown(`${statusLine}\n\n`);
-    md.appendMarkdown(`**Model:** \`${cachedModel}\`  \n`);
+    md.appendMarkdown(`**Model:** \`${liveModel}\`  \n`);
     md.appendMarkdown(`**Backend:** ${provider}\n\n`);
+
+    // Role-Based Model Routing section (v0.64 phase 4d.2). Surfaces
+    // per-rule spend + whether any budgets have tripped, so the user
+    // can see at a glance which rules are earning their keep.
+    const router = chatProvider?.client.getRouter();
+    if (router) {
+      const rules = router.getRules();
+      if (rules.length > 0) {
+        md.appendMarkdown(`---\n\n**Routing:** ${rules.length} rule(s) active  \n`);
+        for (const rule of rules) {
+          const usd = router.getRuleSpendUsd(rule);
+          const over = router.isRuleOverBudget(rule);
+          const line = `\`${rule.when}\` → \`${rule.model}\`` + (usd > 0 ? ` · ${formatUsd(usd)}` : '');
+          md.appendMarkdown(over ? `- ${line} *(budget hit)*  \n` : `- ${line}  \n`);
+        }
+        md.appendMarkdown(`\n`);
+      }
+    }
+
+    const override = chatProvider?.client.getTurnOverride();
+    if (override) {
+      md.appendMarkdown(`---\n\n**Sentinel pin:** \`${override}\` (this turn only)\n\n`);
+    }
+
     if (health.lastError && health.status === 'error') {
       md.appendMarkdown(`---\n\n**Last error:**\n\n\`\`\`\n${health.lastError}\n\`\`\`\n\n`);
     }
@@ -959,6 +1052,9 @@ export function activate(context: ExtensionContext) {
   statusBar.show();
   context.subscriptions.push(statusBar);
   context.subscriptions.push(healthStatus.onDidChange((snap) => renderStatusBar(snap)));
+  // Re-render on every spend event so the tooltip's per-rule breakdown
+  // stays current after each paid dispatch.
+  context.subscriptions.push(spendTracker.onDidChange(() => renderStatusBar(healthStatus.get())));
 
   // Spend status bar — tracks estimated session cost for remote API models
   const spendBar = window.createStatusBarItem(StatusBarAlignment.Right, 99);

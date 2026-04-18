@@ -11,6 +11,7 @@ import { isLocalOllama, detectProvider, getConfig } from '../config/settings.js'
 import { RateLimitStore } from './rateLimitState.js';
 import { spendTracker } from './spendTracker.js';
 import { circuitBreaker } from './circuitBreaker.js';
+import { ModelRouter, type RouteSignals, type RouteDecision } from './modelRouter.js';
 
 const DEFAULT_BASE_URL = 'http://localhost:11434';
 
@@ -54,12 +55,21 @@ export interface InstalledModel {
   model: string;
   size?: number;
   digest?: string;
+  /**
+   * Model context window in tokens, when the backend exposes it. Kickstand
+   * reports the loaded `n_ctx` for loaded models and the native GGUF
+   * `<arch>.context_length` for unloaded models; Ollama and others leave
+   * this undefined (chat-path sizing goes through `getModelContextLength()`).
+   */
+  contextLength?: number | null;
 }
 
 export interface LibraryModel {
   name: string;
   installed: boolean;
   installing?: boolean;
+  /** Optional context window (tokens) to surface in the picker. See InstalledModel.contextLength. */
+  contextLength?: number | null;
 }
 
 export interface PullProgress {
@@ -84,6 +94,41 @@ export class SideCarClient {
   private baseUrl: string;
   private apiKey: string;
   private backend: ApiBackend;
+
+  /**
+   * Optional Role-Based Model Router (v0.64). Owning the router at the
+   * client layer means every dispatch site can consult it via
+   * `routeForDispatch()` without plumbing a separate service through
+   * chat handlers / completion provider / critic / summarizer. When
+   * `null`, the client falls back to its static `model` field for every
+   * call (legacy behavior).
+   */
+  private router: ModelRouter | null = null;
+  /**
+   * Last decision returned by `routeForDispatch`, held so the in-stream
+   * spend hook can forward the cost of each usage event to
+   * `router.recordSpend(matched, usd)` — closing the budget-tracking
+   * loop without plumbing the decision through every dispatch site.
+   */
+  private lastDecision: RouteDecision | null = null;
+  /**
+   * One-turn model pin set by `@opus` / `@sonnet` / `@haiku` / `@local`
+   * inline sentinels (v0.64 phase 4d.1). When non-null, every
+   * `routeForDispatch` short-circuits and returns `null` so callers
+   * fall back to `this.model` — which `setTurnOverride` has already
+   * pinned to the sentinel's target. The chat handler clears this at
+   * the end of the turn so the next user message resumes routing.
+   */
+  private turnOverride: string | null = null;
+  /**
+   * Model value captured just before a sentinel pin was applied, so
+   * `setTurnOverride(null)` can restore it cleanly. Without this the
+   * override would leak into non-chat dispatch paths (FIM completions
+   * triggered by typing in unrelated files, background agents) that
+   * don't go through `handleUserMessage`'s top-of-turn `updateModel`
+   * reset.
+   */
+  private preOverrideModel: string | null = null;
 
   /** Running log of every model used in this client's lifetime. */
   private _modelUsageLog: ModelUsageEntry[] = [];
@@ -177,7 +222,7 @@ export class SideCarClient {
     circuitBreaker.guard(this.getProviderType());
     try {
       for await (const event of this.backend.streamChat(this.model, this.systemPrompt, messages, signal, tools)) {
-        if (event.type === 'usage') spendTracker.record(event.model, event.usage);
+        if (event.type === 'usage') this.chargeLastDecision(spendTracker.record(event.model, event.usage));
         yield event;
       }
       this.recordSuccess();
@@ -206,7 +251,7 @@ export class SideCarClient {
             signal,
             tools,
           )) {
-            if (event.type === 'usage') spendTracker.record(event.model, event.usage);
+            if (event.type === 'usage') this.chargeLastDecision(spendTracker.record(event.model, event.usage));
             yield event;
           }
           this.recordSuccess();
@@ -230,7 +275,7 @@ export class SideCarClient {
         yield { type: 'warning', message: 'Primary backend unavailable — using fallback.' };
         circuitBreaker.guard(this.getProviderType());
         for await (const event of this.backend.streamChat(this.model, this.systemPrompt, messages, signal, tools)) {
-          if (event.type === 'usage') spendTracker.record(event.model, event.usage);
+          if (event.type === 'usage') this.chargeLastDecision(spendTracker.record(event.model, event.usage));
           yield event;
         }
         circuitBreaker.recordSuccess(this.getProviderType());
@@ -243,8 +288,17 @@ export class SideCarClient {
   async complete(messages: ChatMessage[], maxTokens: number = 256, signal?: AbortSignal): Promise<string> {
     this._modelUsageLog.push({ model: this.model, role: 'complete', timestamp: new Date() });
     circuitBreaker.guard(this.getProviderType());
+    // v0.64 phase 4c.2 — the backend records spend directly for
+    // one-shot `complete()` dispatches (AnthropicBackend.complete
+    // writes usage into spendTracker as part of its response-parse).
+    // We can't see the usage event from here, but we CAN observe the
+    // total-spend delta across the call boundary and forward it to the
+    // router so per-rule budget caps still trip on critic / summarize /
+    // other non-streaming dispatches.
+    const preSpend = spendTracker.snapshot().totalUsd;
     try {
       const result = await this.backend.complete(this.model, this.systemPrompt, messages, maxTokens, signal);
+      this.chargeLastDecision(spendTracker.snapshot().totalUsd - preSpend);
       this.recordSuccess();
       circuitBreaker.recordSuccess(this.getProviderType());
       return result;
@@ -302,7 +356,12 @@ export class SideCarClient {
     signal?: AbortSignal,
   ): Promise<string> {
     const model = overrideModel && overrideModel.trim().length > 0 ? overrideModel : this.model;
-    return this.backend.complete(model, systemPrompt, messages, maxTokens, signal);
+    // Mirror the spend-delta hook from `complete()` so router budget
+    // tracking works for critic dispatches too (v0.64 phase 4c.2).
+    const preSpend = spendTracker.snapshot().totalUsd;
+    const result = await this.backend.complete(model, systemPrompt, messages, maxTokens, signal);
+    this.chargeLastDecision(spendTracker.snapshot().totalUsd - preSpend);
+    return result;
   }
 
   private recordSuccess(): void {
@@ -383,6 +442,93 @@ export class SideCarClient {
 
   updateModel(model: string) {
     this.model = model;
+  }
+
+  /**
+   * Attach a Role-Based Model Router (v0.64). Pass `null` to detach and
+   * revert to static-model dispatch. The router's internal `activeModel`
+   * is synced to the client's current `model` so the first routing
+   * decision doesn't spuriously flag a swap when the resolved rule model
+   * happens to match what the client is already using.
+   */
+  setRouter(router: ModelRouter | null): void {
+    this.router = router;
+    if (router) router.setInitialActiveModel(this.model);
+  }
+
+  /** Current router, or `null` if routing is off. */
+  getRouter(): ModelRouter | null {
+    return this.router;
+  }
+
+  /**
+   * Ask the router for a dispatch model, update the active `model` if
+   * the decision changed it, and return the decision. When no router is
+   * attached returns `null` and the client keeps using its static
+   * `model` — which is the legacy behavior for every dispatch site
+   * that hasn't yet been role-tagged.
+   *
+   * Callers should invoke this BEFORE issuing the actual dispatch (so
+   * the backend call picks up the swapped model), then consult the
+   * return value to decide whether to surface a visible-swap toast.
+   */
+  routeForDispatch(signals: RouteSignals): RouteDecision | null {
+    // Sentinel-pinned turn takes precedence over the router. Returning
+    // null signals callers to use `this.model` directly — which
+    // `setTurnOverride` has already set to the target.
+    if (this.turnOverride) return null;
+    if (!this.router) return null;
+    const decision = this.router.route(signals);
+    if (decision.model !== this.model) {
+      this.model = decision.model;
+    }
+    this.lastDecision = decision;
+    return decision;
+  }
+
+  /**
+   * Pin the active model for a single user turn, bypassing the router
+   * for every dispatch until the chat handler calls `setTurnOverride(null)`
+   * at end-of-turn. Used by the `@opus` / `@sonnet` / `@haiku` / `@local`
+   * inline sentinels (v0.64 phase 4d.1). Passing `null` clears the pin
+   * and restores normal routing.
+   */
+  setTurnOverride(model: string | null): void {
+    if (model) {
+      // Capture the pre-override model so `setTurnOverride(null)` can
+      // restore it. Guarded to avoid double-captures if the caller
+      // pins twice in a row without clearing.
+      if (this.turnOverride === null) {
+        this.preOverrideModel = this.model;
+      }
+      this.turnOverride = model;
+      this.model = model;
+    } else {
+      this.turnOverride = null;
+      if (this.preOverrideModel !== null) {
+        this.model = this.preOverrideModel;
+        this.preOverrideModel = null;
+      }
+    }
+  }
+
+  /** Current turn-override target, or `null` when no sentinel is active. */
+  getTurnOverride(): string | null {
+    return this.turnOverride;
+  }
+
+  /**
+   * Forward the USD cost of a just-recorded spend event to the router
+   * so it can apply budget caps to the rule that produced the last
+   * decision. No-op when no router is attached or when no rule matched
+   * (default-model dispatches aren't budgeted). Exposed as a public
+   * method so the in-stream spend hook can call it without needing
+   * access to internal state.
+   */
+  private chargeLastDecision(costUsd: number): void {
+    if (costUsd <= 0) return;
+    if (!this.router || !this.lastDecision?.matched) return;
+    this.router.recordSpend(this.lastDecision.matched, costUsd);
   }
 
   /**
@@ -473,6 +619,25 @@ export class SideCarClient {
   }
 
   async getModelContextLength(): Promise<number | null> {
+    const provider = this.getProviderType();
+
+    if (provider === 'kickstand') {
+      // Kickstand reports the loaded handle's n_ctx on the OAI card
+      // (post-v0.6 patch). Query /v1/models, find our model, return
+      // context_length. Returns null for models not currently loaded.
+      try {
+        const response = await fetch(`${this.baseUrl}/v1/models`);
+        if (!response.ok) return null;
+        const data = (await response.json()) as {
+          data?: { id: string; context_length?: number | null }[];
+        };
+        const entry = (data.data || []).find((m) => m.id === this.model);
+        return typeof entry?.context_length === 'number' ? entry.context_length : null;
+      } catch {
+        return null;
+      }
+    }
+
     if (!this.isLocalOllama()) return null;
     try {
       const response = await fetch(`${this.baseUrl}/api/show`, {
@@ -540,19 +705,43 @@ export class SideCarClient {
       }
     }
 
-    if (
-      provider === 'openai' ||
-      provider === 'kickstand' ||
-      provider === 'openrouter' ||
-      provider === 'groq' ||
-      provider === 'fireworks'
-    ) {
-      // OpenAI-compatible servers (including Kickstand and OpenRouter)
-      // all use GET /v1/models. OpenRouter enriches each entry with
-      // `top_provider` + `pricing` fields, but we only surface the id
-      // in the basic model picker here — the richer catalog is exposed
-      // via OpenRouterBackend.listOpenRouterModels() for features that
-      // need the pricing overlay.
+    if (provider === 'kickstand') {
+      // Kickstand's full registry — `/api/v1/models` — surfaces every
+      // downloaded model (loaded or not) plus GGUF-derived
+      // `context_length` for unloaded entries. The OAI `/v1/models`
+      // only reports loaded models, which would hide the user's real
+      // library in the picker. We filter on `status === 'ready'` so
+      // in-flight downloads don't pollute the dropdown.
+      try {
+        const response = await fetch(`${this.baseUrl}/api/v1/models`, {
+          headers: this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {},
+        });
+        if (!response.ok) return [];
+        const data = (await response.json()) as Array<{
+          model_id: string;
+          size_bytes?: number | null;
+          status?: string;
+          context_length?: number | null;
+        }>;
+        return (data || [])
+          .filter((m) => m.status === 'ready' || m.status === undefined)
+          .map((m) => ({
+            name: m.model_id,
+            model: m.model_id,
+            size: m.size_bytes ?? 0,
+            contextLength: typeof m.context_length === 'number' ? m.context_length : null,
+          }));
+      } catch {
+        return [];
+      }
+    }
+
+    if (provider === 'openai' || provider === 'openrouter' || provider === 'groq' || provider === 'fireworks') {
+      // OpenAI-compatible servers all use GET /v1/models. OpenRouter
+      // enriches each entry with `top_provider` + `pricing` fields, but
+      // we only surface the id in the basic model picker here — the
+      // richer catalog is exposed via OpenRouterBackend.listOpenRouterModels()
+      // for features that need the pricing overlay.
       try {
         const headers: Record<string, string> = {};
         if (this.apiKey && this.apiKey !== 'ollama') {
@@ -607,6 +796,7 @@ export class SideCarClient {
     const results: LibraryModel[] = installed.map((m) => ({
       name: m.name,
       installed: true,
+      contextLength: m.contextLength ?? null,
     }));
 
     if (includeSuggestions && this.getProviderType() === 'ollama') {

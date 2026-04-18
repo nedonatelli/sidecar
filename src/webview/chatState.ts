@@ -1,6 +1,7 @@
 import { workspace, Uri, RelativePattern, type ExtensionContext, type Disposable } from 'vscode';
 import { type ChatMessage, getContentText, getContentLength, serializeContent } from '../ollama/types.js';
 import { SideCarClient } from '../ollama/client.js';
+import { buildRouterFromConfig } from '../ollama/modelRouter.js';
 import { ChangeLog } from '../agent/changelog.js';
 import { PendingEditStore } from '../agent/pendingEdits.js';
 import { SessionManager } from '../agent/sessions.js';
@@ -109,8 +110,20 @@ export class ChatState {
   ) {
     const config = getConfig();
     this.client = new SideCarClient(config.model, config.baseUrl, config.apiKey);
+    this.client.setRouter(buildRouterFromConfig(config));
     this.sessionManager = new SessionManager(context.globalState);
     this.metricsCollector = new MetricsCollector(context.workspaceState);
+  }
+
+  /**
+   * Rebuild the Role-Based Model Router from current settings and
+   * attach it to the active client. Call this whenever a
+   * `sidecar.modelRouting.*` setting changes so rule edits take effect
+   * without requiring a window reload.
+   */
+  refreshModelRouter(): void {
+    const config = getConfig();
+    this.client.setRouter(buildRouterFromConfig(config));
   }
 
   postMessage(message: ExtensionMessage): void {

@@ -100,6 +100,8 @@ body {
   align-items: center;
   gap: 8px;
   padding: 4px 8px;
+  max-width: 220px;
+  min-width: 0;
   background: var(--vscode-button-background);
   color: var(--vscode-button-foreground);
   border: none;
@@ -107,6 +109,13 @@ body {
   cursor: pointer;
   font-family: var(--vscode-font-family);
   font-size: var(--vscode-font-size, 14px);
+}
+
+#model-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 #model-btn:hover {
@@ -376,10 +385,17 @@ body {
 
 .model-item-name {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 2px;
   font-size: 13px;
   flex: 1;
+  min-width: 0;
+}
+
+.model-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   min-width: 0;
 }
 
@@ -404,6 +420,18 @@ body {
 .model-check {
   color: #4ec9b0;
   font-size: 12px;
+}
+
+.model-ctx {
+  font-size: 10px;
+  padding: 1px 5px;
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+  opacity: 0.7;
+  border-radius: 3px;
+  font-family: var(--vscode-editor-font-family, var(--vscode-font-family));
+  white-space: nowrap;
+  align-self: flex-start;
 }
 
 .model-action {

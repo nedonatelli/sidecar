@@ -8,6 +8,10 @@ function mockClient(overrides: Record<string, unknown> = {}) {
     completeFIM: vi.fn().mockResolvedValue('completion text'),
     complete: vi.fn().mockResolvedValue('completion text'),
     completeWithOverrides: vi.fn().mockResolvedValue('completion text'),
+    // Phase 4b.3 wiring: provideInlineCompletionItems consults the
+    // router before each dispatch. Tests that don't exercise routing
+    // return null to take the no-op branch.
+    routeForDispatch: vi.fn().mockReturnValue(null),
     ...overrides,
   };
 }
@@ -72,6 +76,22 @@ describe('SideCarCompletionProvider', () => {
       mockToken() as never,
     );
     expect(result.length).toBeGreaterThan(0);
+    provider.dispose();
+  });
+
+  it('tags the dispatch with role=completion for the router (v0.64 phase 4b.3)', async () => {
+    const client = mockClient();
+    const provider = new SideCarCompletionProvider(client as never, 256, 0);
+    const doc = mockDocument('const longEnoughPrefix = true;\nfunction f() { return');
+    await provider.provideInlineCompletionItems(
+      doc as never,
+      new Position(1, 20),
+      { triggerKind: InlineCompletionTriggerKind.Invoke } as never,
+      mockToken() as never,
+    );
+    expect(client.routeForDispatch).toHaveBeenCalled();
+    const callArg = (client.routeForDispatch as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(callArg).toMatchObject({ role: 'completion' });
     provider.dispose();
   });
 

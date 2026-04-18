@@ -280,10 +280,19 @@ export async function runCriticChecks(opts: RunCriticOptions): Promise<string | 
       const userPrompt =
         trigger.kind === 'edit' ? buildEditCriticPrompt(trigger) : buildTestFailureCriticPrompt(trigger);
       _criticStats.totalCalls += 1;
+
+      // Role-Based Model Routing (v0.64 phase 4b.3). When a router is
+      // attached, a matching `critic` rule wins over the legacy
+      // `sidecar.critic.model` override (phase 4e will auto-synthesize
+      // rules from that legacy field). When no router is attached the
+      // legacy override continues to steer this call verbatim.
+      const decision = client.routeForDispatch({ role: 'critic' });
+      const modelOverride = decision ? undefined : config.criticModel || undefined;
+
       raw = await client.completeWithOverrides(
         CRITIC_SYSTEM_PROMPT,
         [{ role: 'user', content: userPrompt }],
-        config.criticModel || undefined,
+        modelOverride,
         1024,
         signal,
       );

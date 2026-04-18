@@ -234,6 +234,8 @@ export interface LibraryModelUI {
   name: string;
   installed: boolean;
   supportsTools?: boolean;
+  /** Context window in tokens, when the backend exposes it (e.g., Kickstand). */
+  contextLength?: number | null;
 }
 
 export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string {

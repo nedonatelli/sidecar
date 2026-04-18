@@ -3,10 +3,10 @@ import * as path from 'path';
 import * as os from 'os';
 import type { ApiBackend, BackendCapabilities } from './backend.js';
 import type { ChatMessage, ContentBlock, ToolDefinition, StreamEvent } from './types.js';
-import { fetchWithRetry } from './retry.js';
 import { streamOpenAiSse } from './openAiSseStream.js';
-import { RateLimitStore, maybeWaitForRateLimit } from './rateLimitState.js';
+import { RateLimitStore } from './rateLimitState.js';
 import { parseOpenAIRateLimitHeaders } from './rateLimitHeaders.js';
+import { sidecarFetch } from './sidecarFetch.js';
 import { CHARS_PER_TOKEN } from '../config/constants.js';
 
 /**
@@ -195,21 +195,22 @@ export class KickstandBackend implements ApiBackend {
       }));
     }
 
-    await maybeWaitForRateLimit(
-      this.rateLimits,
-      estimateRequestTokens(systemPrompt, messages, 4096),
-      MAX_RATE_LIMIT_WAIT_MS,
-      signal,
+    const response = await sidecarFetch(
+      this.chatUrl,
+      {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify(body),
+        signal,
+      },
+      {
+        rateLimits: this.rateLimits,
+        estimatedTokens: estimateRequestTokens(systemPrompt, messages, 4096),
+        maxRateLimitWaitMs: MAX_RATE_LIMIT_WAIT_MS,
+        parseRateLimitHeaders: parseOpenAIRateLimitHeaders,
+        label: 'kickstand',
+      },
     );
-
-    const response = await fetchWithRetry(this.chatUrl, {
-      method: 'POST',
-      headers: this.getHeaders(),
-      body: JSON.stringify(body),
-      signal,
-    });
-
-    this.rateLimits.update(parseOpenAIRateLimitHeaders(response.headers));
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
@@ -244,21 +245,22 @@ export class KickstandBackend implements ApiBackend {
       stream: false,
     };
 
-    await maybeWaitForRateLimit(
-      this.rateLimits,
-      estimateRequestTokens(systemPrompt, messages, maxTokens),
-      MAX_RATE_LIMIT_WAIT_MS,
-      signal,
+    const response = await sidecarFetch(
+      this.chatUrl,
+      {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify(body),
+        signal,
+      },
+      {
+        rateLimits: this.rateLimits,
+        estimatedTokens: estimateRequestTokens(systemPrompt, messages, maxTokens),
+        maxRateLimitWaitMs: MAX_RATE_LIMIT_WAIT_MS,
+        parseRateLimitHeaders: parseOpenAIRateLimitHeaders,
+        label: 'kickstand',
+      },
     );
-
-    const response = await fetchWithRetry(this.chatUrl, {
-      method: 'POST',
-      headers: this.getHeaders(),
-      body: JSON.stringify(body),
-      signal,
-    });
-
-    this.rateLimits.update(parseOpenAIRateLimitHeaders(response.headers));
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
@@ -406,6 +408,13 @@ export interface KickstandRegistryModel {
   status: 'ready' | 'downloading' | 'error';
   format: 'gguf' | 'mlx';
   loaded: boolean;
+  /**
+   * For loaded models, the runtime `n_ctx` the worker was started with.
+   * For unloaded GGUF models, the native `<arch>.context_length` read from
+   * the file's metadata. `null`/undefined when Kickstand couldn't determine it
+   * (e.g. non-GGUF unloaded model, corrupt metadata).
+   */
+  context_length?: number | null;
 }
 
 /** List all models in Kickstand's registry (downloaded + loaded state). */

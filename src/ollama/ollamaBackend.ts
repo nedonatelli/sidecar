@@ -1,6 +1,6 @@
 import type { ApiBackend } from './backend.js';
 import type { ChatMessage, ContentBlock, ToolDefinition, ToolUseContentBlock, StreamEvent } from './types.js';
-import { fetchWithRetry } from './retry.js';
+import { sidecarFetch } from './sidecarFetch.js';
 import {
   abortableRead,
   toFunctionTools,
@@ -282,12 +282,16 @@ export class OllamaBackend implements ApiBackend {
       }
     }
 
-    const response = await fetchWithRetry(this.chatUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal,
-    });
+    const response = await sidecarFetch(
+      this.chatUrl,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal,
+      },
+      { label: 'ollama' },
+    );
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
@@ -416,12 +420,16 @@ export class OllamaBackend implements ApiBackend {
       stream: false,
     };
 
-    const response = await fetchWithRetry(this.chatUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal,
-    });
+    const response = await sidecarFetch(
+      this.chatUrl,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal,
+      },
+      { label: 'ollama' },
+    );
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');

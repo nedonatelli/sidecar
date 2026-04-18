@@ -164,6 +164,84 @@
               "cost"
             ],
             "markdownDescription": "Weekly spending budget in USD for paid backends. Agent runs are blocked when the limit is reached. `0` = disabled."
+          },
+          "sidecar.modelRouting.enabled": {
+            "type": "boolean",
+            "default": false,
+            "order": 50,
+            "tags": [
+              "sidecar",
+              "routing"
+            ],
+            "markdownDescription": "Route each agent dispatch role (`chat`, `agent-loop`, `completion`, `summarize`, `critic`, `worker`, `planner`, `judge`, `visual`, `embed`) to a rule-selected model. Opt-in — when `false`, every role uses `#sidecar.model#` (legacy behavior). Configure rules via `#sidecar.modelRouting.rules#`."
+          },
+          "sidecar.modelRouting.rules": {
+            "type": "array",
+            "default": [],
+            "order": 51,
+            "tags": [
+              "sidecar",
+              "routing"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "when": {
+                  "type": "string",
+                  "description": "Role match. Forms: `agent-loop`, `agent-loop.complexity=high`, `agent-loop.retryCount>=3`, `chat.prompt~=/prove\\b|think hard/i`, `agent-loop.files~=src/physics/**`."
+                },
+                "model": {
+                  "type": "string",
+                  "description": "Model id to dispatch with when this rule matches."
+                },
+                "fallbackModel": {
+                  "type": "string",
+                  "description": "Downgrade target when a budget cap on this rule is exceeded (v0.64 phase 4c)."
+                },
+                "sessionBudget": {
+                  "type": "number",
+                  "description": "Session spend cap in USD. Budget tripped → downgrade to `fallbackModel`."
+                },
+                "dailyBudget": {
+                  "type": "number"
+                },
+                "hourlyBudget": {
+                  "type": "number"
+                }
+              },
+              "required": ["when", "model"]
+            },
+            "markdownDescription": "Ordered list of routing rules, first match wins. See `#sidecar.modelRouting.enabled#` for the opt-in switch. Example: `[{ \"when\": \"agent-loop.complexity=high\", \"model\": \"claude-opus-4-6\" }, { \"when\": \"summarize\", \"model\": \"claude-haiku-4-5\" }, { \"when\": \"chat\", \"model\": \"ollama/llama3:70b\" }]`"
+          },
+          "sidecar.modelRouting.defaultModel": {
+            "type": "string",
+            "default": "",
+            "order": 52,
+            "tags": [
+              "sidecar",
+              "routing"
+            ],
+            "markdownDescription": "Model used when no rule in `#sidecar.modelRouting.rules#` matches. Empty → falls back to `#sidecar.model#`."
+          },
+          "sidecar.modelRouting.visibleSwaps": {
+            "type": "boolean",
+            "default": true,
+            "order": 53,
+            "tags": [
+              "sidecar",
+              "routing"
+            ],
+            "markdownDescription": "Show a brief toast whenever a routing rule swaps the active model mid-session. Turn off once you've calibrated your rules and don't want to see the notifications."
+          },
+          "sidecar.modelRouting.dryRun": {
+            "type": "boolean",
+            "default": false,
+            "order": 54,
+            "tags": [
+              "sidecar",
+              "routing"
+            ],
+            "markdownDescription": "Log what the router *would* have selected but dispatch using `#sidecar.model#` anyway. Useful for safely calibrating rules before turning `#sidecar.modelRouting.enabled#` on."
           }
         }
       },
@@ -518,6 +596,67 @@
               "sidecar"
             ],
             "markdownDescription": "*(Project Knowledge Index — Merkle layer, v0.62)* Content-addressed hash tree over the symbol embedding index. When on + `sidecar.projectKnowledge.enabled` is also on, every symbol mutation mirrors into a Merkle tree and `project_knowledge_search` prunes candidate files via aggregated-embedding descent *before* scoring leaves — turns an O(total symbols) cosine scan into O(picked files × symbols per file).\n\nDisable only when debugging retrieval regressions: a quality drop against the RAG-eval baseline while this is on isolates the issue to the Merkle layer without losing PKI entirely. The root hash is also exposed (via `getMerkleRoot()` on the index) as a single-value workspace fingerprint for cache validity + cross-machine sync work."
+          },
+          "sidecar.skills.userRegistry": {
+            "type": "string",
+            "default": "",
+            "order": 60,
+            "tags": [
+              "sidecar",
+              "skills"
+            ],
+            "markdownDescription": "*(Skill Sync — v0.64)* Git URL (or absolute local folder) containing your personal skill collection. On activation, SideCar clones or pulls it into `~/.sidecar/user-skills/` and the SkillLoader picks up every `.agent.md` inside as a user-scope skill. Empty (default) → disabled. Standard git auth applies — SSH keys / gh auth / HTTPS tokens all work."
+          },
+          "sidecar.skills.teamRegistries": {
+            "type": "array",
+            "default": [],
+            "order": 61,
+            "tags": [
+              "sidecar",
+              "skills"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "markdownDescription": "*(Skill Sync — v0.64)* Array of git URLs, each cloned into `~/.sidecar/team-skills/<slug>/`. Useful when you belong to multiple teams with overlapping skill collections — the picker tags each skill by its origin registry so you can resolve name collisions deterministically."
+          },
+          "sidecar.skills.autoPull": {
+            "type": "string",
+            "enum": [
+              "on-start",
+              "manual"
+            ],
+            "default": "on-start",
+            "order": 62,
+            "tags": [
+              "sidecar",
+              "skills"
+            ],
+            "markdownDescription": "*(Skill Sync — v0.64)* When to pull configured registries. `on-start` refreshes on every activation (cheap for small skill repos). `manual` only syncs when you run the `SideCar: Sync Skill Registries` command."
+          },
+          "sidecar.skills.trustedRegistries": {
+            "type": "array",
+            "default": [],
+            "order": 63,
+            "tags": [
+              "sidecar",
+              "skills",
+              "security"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "markdownDescription": "*(Skill Sync — v0.64)* Registry URLs that skip the first-install trust prompt. Skills from trusted registries still respect per-skill `allowed-tools` / `disable-model-invocation` guardrails; this setting only waives the initial consent modal."
+          },
+          "sidecar.skills.offline": {
+            "type": "boolean",
+            "default": false,
+            "order": 64,
+            "tags": [
+              "sidecar",
+              "skills"
+            ],
+            "markdownDescription": "*(Skill Sync — v0.64)* Air-gapped mode. When `true`, SideCar makes no network calls for skill sync — the SkillLoader reads only from what's already cached in `~/.sidecar/{user,team}-skills/`. Useful for restrictive CI environments or when working offline."
           },
           "sidecar.promptPruning.enabled": {
             "type": "boolean",
@@ -1055,6 +1194,12 @@
         "title": "Export Chat",
         "category": "SideCar",
         "icon": "$(export)"
+      },
+      {
+        "command": "sidecar.syncSkillRegistries",
+        "title": "Sync Skill Registries",
+        "category": "SideCar",
+        "icon": "$(sync)"
       },
       {
         "command": "sidecar.setApiKey",

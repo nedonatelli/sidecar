@@ -1,11 +1,11 @@
 import type { ApiBackend, BackendCapabilities } from './backend.js';
 import type { ChatMessage, ContentBlock, ToolDefinition, StreamEvent } from './types.js';
-import { fetchWithRetry } from './retry.js';
 import { toFunctionTools } from './streamUtils.js';
 import { streamOpenAiSse } from './openAiSseStream.js';
 import { getConfig } from '../config/settings.js';
-import { RateLimitStore, maybeWaitForRateLimit } from './rateLimitState.js';
+import { RateLimitStore } from './rateLimitState.js';
 import { parseOpenAIRateLimitHeaders } from './rateLimitHeaders.js';
+import { sidecarFetch } from './sidecarFetch.js';
 import { prunePrompt, formatPruneStats } from './promptPruner.js';
 import { CHARS_PER_TOKEN } from '../config/constants.js';
 import { OllamaBackend } from './ollamaBackend.js';
@@ -204,6 +204,17 @@ export class OpenAIBackend implements ApiBackend {
     return {};
   }
 
+  /**
+   * Hook for subclasses to contribute additional top-level request-body
+   * fields. Default empty. OpenRouter uses this to include
+   * `usage: { include: true }` so the streaming response ships
+   * `usage.cost` on the final chunk (v0.64 chunk 5 — provider-reported
+   * cost pass-through).
+   */
+  protected extraBodyFields(): Record<string, unknown> {
+    return {};
+  }
+
   protected getHeaders(): Record<string, string> {
     const headers: Record<string, string> = { 'Content-Type': 'application/json', ...this.extraHeaders() };
     if (this.apiKey && this.apiKey !== 'ollama') {
@@ -244,6 +255,7 @@ export class OpenAIBackend implements ApiBackend {
       // numbers instead of heuristic estimates.
       stream_options: { include_usage: true },
       ...(tools && tools.length > 0 ? { temperature: cfg.agentTemperature } : {}),
+      ...this.extraBodyFields(),
     };
 
     if (functionTools) {
@@ -252,21 +264,22 @@ export class OpenAIBackend implements ApiBackend {
 
     logRequestSizeBreakdown(model, pruned.systemPrompt, openaiMessages, functionTools);
 
-    await maybeWaitForRateLimit(
-      this.rateLimits,
-      estimateRequestTokens(pruned.systemPrompt, pruned.messages, MAX_OUTPUT_TOKENS),
-      MAX_RATE_LIMIT_WAIT_MS,
-      signal,
+    const response = await sidecarFetch(
+      this.chatUrl,
+      {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify(body),
+        signal,
+      },
+      {
+        rateLimits: this.rateLimits,
+        estimatedTokens: estimateRequestTokens(pruned.systemPrompt, pruned.messages, MAX_OUTPUT_TOKENS),
+        maxRateLimitWaitMs: MAX_RATE_LIMIT_WAIT_MS,
+        parseRateLimitHeaders: parseOpenAIRateLimitHeaders,
+        label: 'openai',
+      },
     );
-
-    const response = await fetchWithRetry(this.chatUrl, {
-      method: 'POST',
-      headers: this.getHeaders(),
-      body: JSON.stringify(body),
-      signal,
-    });
-
-    this.rateLimits.update(parseOpenAIRateLimitHeaders(response.headers));
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
@@ -295,21 +308,22 @@ export class OpenAIBackend implements ApiBackend {
       stream: false,
     };
 
-    await maybeWaitForRateLimit(
-      this.rateLimits,
-      estimateRequestTokens(systemPrompt, messages, maxTokens),
-      MAX_RATE_LIMIT_WAIT_MS,
-      signal,
+    const response = await sidecarFetch(
+      this.chatUrl,
+      {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify(body),
+        signal,
+      },
+      {
+        rateLimits: this.rateLimits,
+        estimatedTokens: estimateRequestTokens(systemPrompt, messages, maxTokens),
+        maxRateLimitWaitMs: MAX_RATE_LIMIT_WAIT_MS,
+        parseRateLimitHeaders: parseOpenAIRateLimitHeaders,
+        label: 'openai',
+      },
     );
-
-    const response = await fetchWithRetry(this.chatUrl, {
-      method: 'POST',
-      headers: this.getHeaders(),
-      body: JSON.stringify(body),
-      signal,
-    });
-
-    this.rateLimits.update(parseOpenAIRateLimitHeaders(response.headers));
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');

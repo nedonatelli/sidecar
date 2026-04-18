@@ -338,6 +338,43 @@ describe('SideCarClient', () => {
       const result = await client.getModelContextLength();
       expect(result).toBeNull();
     });
+
+    it('reads context_length from Kickstand /v1/models', async () => {
+      const client = new SideCarClient('qwen3-coder:30b', 'http://127.0.0.1:11435');
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [
+            { id: 'other-model', context_length: 4096 },
+            { id: 'qwen3-coder:30b', context_length: 32768 },
+          ],
+        }),
+      });
+      const result = await client.getModelContextLength();
+      expect(result).toBe(32768);
+      const url = mockFetch.mock.calls[0][0] as string;
+      expect(url).toContain('/v1/models');
+    });
+
+    it('returns null for Kickstand when model is not loaded', async () => {
+      const client = new SideCarClient('qwen3-coder:30b', 'http://127.0.0.1:11435');
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [{ id: 'other-model', context_length: 4096 }] }),
+      });
+      const result = await client.getModelContextLength();
+      expect(result).toBeNull();
+    });
+
+    it('returns null for Kickstand when context_length is missing', async () => {
+      const client = new SideCarClient('qwen3-coder:30b', 'http://127.0.0.1:11435');
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [{ id: 'qwen3-coder:30b' }] }),
+      });
+      const result = await client.getModelContextLength();
+      expect(result).toBeNull();
+    });
   });
 
   describe('listInstalledModels', () => {
@@ -384,6 +421,59 @@ describe('SideCarClient', () => {
       mockFetch.mockRejectedValueOnce(new Error('network'));
       const models = await client.listInstalledModels();
       expect(models).toEqual([]);
+    });
+
+    it('fetches models from Kickstand /api/v1/models with context_length', async () => {
+      const client = new SideCarClient('qwen3-coder:30b', 'http://127.0.0.1:11435');
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => [
+          {
+            model_id: 'qwen3-coder:30b',
+            size_bytes: 18_000_000_000,
+            status: 'ready',
+            context_length: 32768,
+            loaded: true,
+          },
+          {
+            model_id: 'qwen2.5-coder:7b',
+            size_bytes: 4_500_000_000,
+            status: 'ready',
+            context_length: 131072,
+            loaded: false,
+          },
+        ],
+      });
+      const models = await client.listInstalledModels();
+      expect(models).toHaveLength(2);
+      expect(models[0]).toMatchObject({ name: 'qwen3-coder:30b', contextLength: 32768 });
+      expect(models[1]).toMatchObject({ name: 'qwen2.5-coder:7b', contextLength: 131072 });
+      const url = mockFetch.mock.calls[0][0] as string;
+      expect(url).toContain('/api/v1/models');
+    });
+
+    it('filters out Kickstand models whose status is not ready', async () => {
+      const client = new SideCarClient('qwen3-coder:30b', 'http://127.0.0.1:11435');
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => [
+          { model_id: 'ready-model', status: 'ready', context_length: 8192 },
+          { model_id: 'downloading-model', status: 'downloading', context_length: null },
+        ],
+      });
+      const models = await client.listInstalledModels();
+      expect(models).toHaveLength(1);
+      expect(models[0].name).toBe('ready-model');
+    });
+
+    it('sets Kickstand contextLength to null when missing', async () => {
+      const client = new SideCarClient('qwen3-coder:30b', 'http://127.0.0.1:11435');
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => [{ model_id: 'no-ctx-model', status: 'ready' }],
+      });
+      const models = await client.listInstalledModels();
+      expect(models[0].contextLength).toBeNull();
     });
   });
 
@@ -853,6 +943,145 @@ describe('SideCarClient', () => {
       // already native, nothing to fall back to.
       const ollama = new SideCarClient('qwen3-coder:30b', 'http://localhost:11434', 'ollama');
       expect(ollama.getBackendCapabilities()).toBeUndefined();
+    });
+  });
+
+  describe('routeForDispatch (v0.64)', () => {
+    it('returns null and leaves the model untouched when no router is attached', () => {
+      const client = new SideCarClient('ollama/qwen3-coder:30b', 'http://localhost:11434', 'ollama');
+      const decision = client.routeForDispatch({ role: 'agent-loop' });
+      expect(decision).toBeNull();
+      expect(client.getModel()).toBe('ollama/qwen3-coder:30b');
+    });
+
+    it('swaps the active model when a rule matches', async () => {
+      const { ModelRouter } = await import('./modelRouter.js');
+      const client = new SideCarClient('ollama/qwen3-coder:30b', 'http://localhost:11434', 'ollama');
+      const router = new ModelRouter([{ when: 'summarize', model: 'claude-haiku-4-5' }], 'ollama/qwen3-coder:30b');
+      client.setRouter(router);
+
+      const decision = client.routeForDispatch({ role: 'summarize' });
+      expect(decision?.model).toBe('claude-haiku-4-5');
+      expect(decision?.swap).toBe(true);
+      expect(client.getModel()).toBe('claude-haiku-4-5');
+    });
+
+    it('does not flag swap on the first route when the decision matches the client state', async () => {
+      const { ModelRouter } = await import('./modelRouter.js');
+      const client = new SideCarClient('claude-sonnet-4-6', 'https://api.anthropic.com', 'sk-test');
+      const router = new ModelRouter([{ when: 'chat', model: 'claude-sonnet-4-6' }], 'fallback-model');
+      client.setRouter(router);
+
+      const decision = client.routeForDispatch({ role: 'chat' });
+      expect(decision?.model).toBe('claude-sonnet-4-6');
+      expect(decision?.swap).toBe(false); // was already on sonnet via setInitialActiveModel
+    });
+
+    it('falls through to the router default when no rule matches', async () => {
+      const { ModelRouter } = await import('./modelRouter.js');
+      const client = new SideCarClient('ollama/qwen3-coder:30b', 'http://localhost:11434', 'ollama');
+      const router = new ModelRouter([{ when: 'chat', model: 'chat-only' }], 'the-default');
+      client.setRouter(router);
+
+      const decision = client.routeForDispatch({ role: 'embed' });
+      expect(decision?.model).toBe('the-default');
+      expect(client.getModel()).toBe('the-default');
+    });
+
+    it('setRouter(null) detaches the router and reverts to static-model dispatch', async () => {
+      const { ModelRouter } = await import('./modelRouter.js');
+      const client = new SideCarClient('ollama/qwen3-coder:30b', 'http://localhost:11434', 'ollama');
+      client.setRouter(new ModelRouter([{ when: 'chat', model: 'routed' }], 'default'));
+      client.setRouter(null);
+      expect(client.getRouter()).toBeNull();
+      expect(client.routeForDispatch({ role: 'chat' })).toBeNull();
+    });
+
+    it('setTurnOverride(model) pins the client to that model and bypasses the router (v0.64 phase 4d.1)', async () => {
+      const { ModelRouter } = await import('./modelRouter.js');
+      const client = new SideCarClient('claude-sonnet-4-6', 'https://api.anthropic.com', 'sk-test');
+      client.setRouter(new ModelRouter([{ when: 'agent-loop', model: 'claude-sonnet-4-6' }], 'default'));
+
+      client.setTurnOverride('claude-opus-4-6');
+      expect(client.getModel()).toBe('claude-opus-4-6');
+      expect(client.getTurnOverride()).toBe('claude-opus-4-6');
+
+      // Router is bypassed — routeForDispatch returns null so callers
+      // use `this.model` (the override) directly.
+      expect(client.routeForDispatch({ role: 'agent-loop' })).toBeNull();
+
+      // Clearing restores normal routing.
+      client.setTurnOverride(null);
+      expect(client.getTurnOverride()).toBeNull();
+      const resumed = client.routeForDispatch({ role: 'agent-loop' });
+      expect(resumed?.model).toBe('claude-sonnet-4-6');
+    });
+
+    it('setTurnOverride(null) restores the pre-override model so the pin does not leak to later dispatches', () => {
+      // Routing off — only the stored `this.model` steers dispatches.
+      // Before the fix, after pinning to opus and clearing, the client
+      // would stay on opus until something else called updateModel.
+      // That turned a one-turn `@opus` nudge into permanent opus for
+      // FIM autocomplete, background agents, etc.
+      const client = new SideCarClient('ollama/qwen3-coder:30b', 'http://localhost:11434', 'ollama');
+      expect(client.getModel()).toBe('ollama/qwen3-coder:30b');
+
+      client.setTurnOverride('claude-opus-4-6');
+      expect(client.getModel()).toBe('claude-opus-4-6');
+
+      client.setTurnOverride(null);
+      expect(client.getModel()).toBe('ollama/qwen3-coder:30b');
+      expect(client.getTurnOverride()).toBeNull();
+    });
+
+    it('setTurnOverride captures the pre-override model once, even on repeated sets', () => {
+      const client = new SideCarClient('base-a', 'http://localhost:11434', 'ollama');
+      client.setTurnOverride('override-1');
+      client.setTurnOverride('override-2'); // no intervening clear
+      client.setTurnOverride(null);
+      // Should restore to `base-a`, not to `override-1` or `override-2`.
+      expect(client.getModel()).toBe('base-a');
+    });
+
+    it('forwards completion cost to the router so budgeted rules trip their caps (v0.64 phase 4c.2)', async () => {
+      const { ModelRouter } = await import('./modelRouter.js');
+      const { spendTracker } = await import('./spendTracker.js');
+      spendTracker.reset();
+
+      const client = new SideCarClient('claude-sonnet-4-6', 'https://api.anthropic.com', 'sk-test');
+      const router = new ModelRouter(
+        [{ when: 'summarize', model: 'claude-sonnet-4-6', fallbackModel: 'claude-haiku-4-5', sessionBudget: 0.01 }],
+        'default',
+      );
+      client.setRouter(router);
+
+      // Prime lastDecision so the charge hook knows which rule to
+      // attribute spend to.
+      const firstDecision = client.routeForDispatch({ role: 'summarize' });
+      expect(firstDecision?.model).toBe('claude-sonnet-4-6');
+
+      // Simulate a spend event arriving from the backend. We push
+      // directly into spendTracker.record — the `complete()` path's
+      // snapshot-delta hook wouldn't fire in a unit test, but the
+      // streaming path's direct `chargeLastDecision(cost)` call does
+      // the same attribution. Call it through the public-ish path:
+      // record a spend and then trigger a route to observe downgrade.
+      const cost = spendTracker.record('claude-sonnet-4-6', {
+        inputTokens: 10_000,
+        outputTokens: 1000,
+        cacheCreationInputTokens: 0,
+        cacheReadInputTokens: 0,
+      });
+      expect(cost).toBeGreaterThan(0.01); // sonnet @ $3/$15 per 1M → ~$0.045
+
+      // Manually drive the forwarding the same way streamChat would.
+      // The test asserts the public contract: after charging, the rule
+      // is over-budget and the next dispatch downgrades.
+      router.recordSpend(firstDecision!.matched!, cost);
+
+      const secondDecision = client.routeForDispatch({ role: 'summarize' });
+      expect(secondDecision?.model).toBe('claude-haiku-4-5');
+      expect(secondDecision?.downgraded).toBe(true);
     });
   });
 });

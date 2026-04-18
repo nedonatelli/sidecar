@@ -186,6 +186,17 @@ export interface TokenUsage {
   outputTokens: number;
   cacheCreationInputTokens: number;
   cacheReadInputTokens: number;
+  /**
+   * Provider-reported exact cost in USD, when the backend ships it in
+   * its `usage` response (OpenRouter does; others may follow). When
+   * present, `spendTracker.record` uses this verbatim instead of
+   * computing from its static price table — the reported number
+   * accounts for per-account discounts, model-specific pricing tiers,
+   * and cache bonuses the static table would miss. `undefined` means
+   * the backend didn't report one; callers should fall back to the
+   * table. Added in v0.64 chunk 5 (provider `usage` → spend pass-through).
+   */
+  costUsd?: number;
 }
 
 export interface StreamUsageEvent {

@@ -19,6 +19,7 @@ import type { ChatState } from '../chatState.js';
 import type { ContentBlock } from '../../ollama/types.js';
 import { getContentText } from '../../ollama/types.js';
 import { getConfig, estimateCost, resolveMode } from '../../config/settings.js';
+import { parseModelSentinel } from '../../ollama/modelSentinels.js';
 import { isProviderReachable } from '../../config/providerReachability.js';
 import {
   CHARS_PER_TOKEN,
@@ -454,8 +455,16 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     state.chatGeneration++;
   }
 
-  if (text) {
-    const messageText = prepareUserMessageText(state, text);
+  // @-prefixed model sentinels (v0.64 phase 4d.1). Strip the sentinel
+  // from the stored message text so it doesn't clutter chat history or
+  // get sent as prose to the model; the model pin is applied further
+  // down, AFTER `updateModel(config.model)` resets the client — that
+  // reset would otherwise overwrite our turn-override.
+  const sentinel = text ? parseModelSentinel(text) : { cleaned: text, override: null };
+  const turnText = sentinel.cleaned;
+
+  if (turnText) {
+    const messageText = prepareUserMessageText(state, turnText);
     state.messages.push({ role: 'user', content: messageText });
     state.logMessage('user', messageText);
     state.saveHistory();
@@ -465,7 +474,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
   state.postMessage({ command: 'setLoading', isLoading: true });
   state.abortController = new AbortController();
 
-  updateWorkspaceRelevance(state, text);
+  updateWorkspaceRelevance(state, turnText);
 
   try {
     const config = getConfig();
@@ -500,10 +509,16 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     state.client.updateConnection(config.baseUrl, config.apiKey);
     state.client.updateModel(config.model);
 
+    // Apply the sentinel pin AFTER `updateModel` so it's not clobbered
+    // by the reset above. Cleared in the `finally` block below.
+    if (sentinel.override) {
+      state.client.setTurnOverride(sentinel.override);
+    }
+
     const resolved = resolveMode(config.agentMode, config.customModes);
 
     let effectiveApprovalMode: ApprovalMode = resolved.approvalBehavior;
-    if (effectiveApprovalMode !== 'plan' && shouldAutoEnablePlanMode(text, state.messages.length)) {
+    if (effectiveApprovalMode !== 'plan' && shouldAutoEnablePlanMode(turnText, state.messages.length)) {
       effectiveApprovalMode = 'plan';
       state.postMessage({
         command: 'assistantMessage',
@@ -515,7 +530,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     const { systemPrompt, contextLength } = await buildSystemPromptForRun(
       state,
       config,
-      text,
+      turnText,
       effectiveApprovalMode,
       resolved.systemPrompt,
     );
@@ -599,6 +614,8 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     state.metricsCollector.endRun();
     state.abortController = null;
     state.postMessage({ command: 'setLoading', isLoading: false });
+    // Clear any sentinel pin so the next user message routes normally.
+    state.client.setTurnOverride(null);
   }
 }
 

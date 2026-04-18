@@ -48,15 +48,34 @@ class SpendTracker {
   private _onDidChange = new EventEmitter<SpendSnapshot>();
   readonly onDidChange = this._onDidChange.event;
 
-  record(model: string, usage: TokenUsage): void {
-    const price = priceFor(model);
-    if (!price) return; // Unknown (non-Anthropic) model — nothing to bill.
+  /**
+   * Record a dispatch's usage + cost. Returns the computed cost in USD
+   * (or `0` when the provider isn't priced — local Ollama, OpenRouter
+   * without catalog ingest, etc.) so callers can forward the number to
+   * ModelRouter.recordSpend for budget-aware routing (v0.64 phase 4c).
+   *
+   * When the caller passes a `usage.costUsd` (OpenRouter ships this as
+   * `usage.cost` on every response; v0.64 chunk 5), the provider-reported
+   * value wins — it accounts for per-account discounts, pricing tiers,
+   * and cache bonuses the static price table would miss.
+   */
+  record(model: string, usage: TokenUsage): number {
+    let cost: number;
+    if (typeof usage.costUsd === 'number' && Number.isFinite(usage.costUsd)) {
+      // Provider-reported — trust it verbatim. No table lookup required;
+      // works for any model the upstream API bills, including ones we'd
+      // otherwise call "unknown" and skip.
+      cost = usage.costUsd;
+    } else {
+      const price = priceFor(model);
+      if (!price) return 0; // Unknown (non-Anthropic) model — nothing to bill.
 
-    const cost =
-      (usage.inputTokens * price.input) / 1_000_000 +
-      (usage.outputTokens * price.output) / 1_000_000 +
-      (usage.cacheCreationInputTokens * price.cacheWrite) / 1_000_000 +
-      (usage.cacheReadInputTokens * price.cacheRead) / 1_000_000;
+      cost =
+        (usage.inputTokens * price.input) / 1_000_000 +
+        (usage.outputTokens * price.output) / 1_000_000 +
+        (usage.cacheCreationInputTokens * price.cacheWrite) / 1_000_000 +
+        (usage.cacheReadInputTokens * price.cacheRead) / 1_000_000;
+    }
 
     const existing = this.byModel.get(model);
     if (existing) {
@@ -76,6 +95,7 @@ class SpendTracker {
     }
 
     this._onDidChange.fire(this.snapshot());
+    return cost;
   }
 
   snapshot(): SpendSnapshot {

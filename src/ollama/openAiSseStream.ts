@@ -63,6 +63,14 @@ interface OpenAIChatChunk {
     prompt_tokens?: number;
     completion_tokens?: number;
     total_tokens?: number;
+    /**
+     * OpenRouter-style provider-reported exact cost in USD for this
+     * request. Opt-in via `usage: { include: true }` in the request
+     * body; OpenRouter docs call this the `cost` field. When present,
+     * downstream spend tracking uses it verbatim instead of computing
+     * from the static MODEL_COSTS table. v0.64 chunk 5.
+     */
+    cost?: number;
   };
 }
 
@@ -174,6 +182,10 @@ export async function* streamOpenAiSse(
               outputTokens: u.completion_tokens ?? 0,
               cacheCreationInputTokens: 0,
               cacheReadInputTokens: 0,
+              // Pass through the provider-reported exact cost when present
+              // (OpenRouter ships it in `usage.cost`). spendTracker.record
+              // prefers this over its price-table computation. v0.64 chunk 5.
+              ...(typeof u.cost === 'number' && Number.isFinite(u.cost) ? { costUsd: u.cost } : {}),
             },
           };
           if (logUsageInVerbose && getConfig().verboseMode) {

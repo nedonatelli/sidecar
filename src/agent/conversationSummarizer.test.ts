@@ -11,6 +11,10 @@ const createMockClient = (summaryText = 'Turn 1: explored files. Turn 2: fixed e
   streamChat: vi.fn(),
   updateSystemPrompt: vi.fn(),
   getModel: vi.fn(() => 'mock-model'),
+  // Phase 4b.3 wiring: summarizeTurns consults the router before each
+  // dispatch. Tests that don't exercise routing return null to take
+  // the no-op branch.
+  routeForDispatch: vi.fn(() => null),
 });
 
 describe('ConversationSummarizer', () => {
@@ -100,6 +104,30 @@ describe('ConversationSummarizer', () => {
       expect(firstMsg.role).toBe('user');
       expect(typeof firstMsg.content).toBe('string');
       expect((firstMsg.content as string).includes('summary')).toBe(true);
+    });
+
+    it('tags the summarize dispatch with role=summarize for the router (v0.64 phase 4b.3)', async () => {
+      // Mirror the "generates summary" test above — content lengths are
+      // tuned to pass the minCharsToSave threshold so the summarizer
+      // actually dispatches and the router tag can be observed.
+      const messages: ChatMessage[] = [];
+      for (let i = 0; i < 5; i++) {
+        messages.push({
+          role: 'user',
+          content: `Query ${i}. This is a longer query to ensure we have enough content to summarize.`,
+        });
+        messages.push({
+          role: 'assistant',
+          content: `Response ${i}. This is a longer response with more content to reach our minimum savings threshold.`,
+        });
+      }
+      // Force the LLM compress path by setting a tight maxSummaryLength
+      // so the deterministic fast path (structured fits in maxLength)
+      // doesn't short-circuit the dispatch.
+      await summarizer.summarize(messages, { keepRecentTurns: 1, minCharsToSave: 100, maxSummaryLength: 150 });
+      const routeCalls = (mockClient.routeForDispatch as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+      expect(routeCalls.length).toBeGreaterThan(0);
+      expect(routeCalls[0][0]).toMatchObject({ role: 'summarize' });
     });
   });
 

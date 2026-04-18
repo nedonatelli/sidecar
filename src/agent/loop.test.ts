@@ -352,6 +352,10 @@ describe('runAgentLoop', () => {
     return {
       streamChat: generator,
       getSystemPrompt: () => '',
+      // Phase 4b.2 wiring: loop.ts calls getRouter() before each turn.
+      // Tests that don't exercise routing return null to take the
+      // no-op branch.
+      getRouter: () => null,
     } as unknown as SideCarClient;
   }
 

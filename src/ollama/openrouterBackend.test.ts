@@ -104,6 +104,12 @@ describe('OpenRouterBackend', () => {
       expect(init.headers['HTTP-Referer']).toBe('https://github.com/nedonatelli/sidecar');
       expect(init.headers['X-Title']).toBe('SideCar');
       expect(init.headers['Authorization']).toBe('Bearer sk-or-test-key');
+      // v0.64 chunk 5 — OpenRouter requires `usage: { include: true }`
+      // in the request body to ship `usage.cost` on the final stream
+      // chunk. Pin the field so a future body-builder refactor doesn't
+      // silently drop it and regress cost accuracy.
+      const parsedBody = JSON.parse(init.body as string) as { usage?: { include?: boolean } };
+      expect(parsedBody.usage).toEqual({ include: true });
       // Normal event flow still works: we got the text + stop events.
       expect(events.some((e) => e.type === 'text')).toBe(true);
       expect(events.some((e) => e.type === 'stop')).toBe(true);

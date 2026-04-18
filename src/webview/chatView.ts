@@ -218,6 +218,9 @@ export class ChatViewProvider implements WebviewViewProvider {
         ) {
           this.pushUiSettings();
         }
+        if (e.affectsConfiguration('sidecar.modelRouting')) {
+          this.state.refreshModelRouter();
+        }
       }),
     );
 

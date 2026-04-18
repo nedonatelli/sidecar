@@ -52,6 +52,7 @@ export async function loadModels(state: ChatState): Promise<void> {
       name: m.name,
       installed: m.installed,
       supportsTools: modelSupportsTools(m.name),
+      contextLength: m.contextLength ?? null,
     }));
 
     state.postMessage({ command: 'setModels', models: modelsUI });
