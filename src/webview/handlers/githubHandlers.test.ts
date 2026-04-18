@@ -29,6 +29,11 @@ vi.mock('../../github/api.js', () => {
       getIssue: vi.fn().mockResolvedValue({ number: 1 }),
       createIssue: vi.fn().mockResolvedValue({ number: 2 }),
       listRepoContents: vi.fn().mockResolvedValue([{ name: 'README.md' }]),
+      listReleases: vi.fn().mockResolvedValue([{ tag_name: 'v1.0.0' }]),
+      getRelease: vi.fn().mockResolvedValue({ id: 42, tag_name: 'v1.0.0' }),
+      getLatestRelease: vi.fn().mockResolvedValue({ id: 99, tag_name: 'latest' }),
+      createRelease: vi.fn().mockResolvedValue({ id: 7, tag_name: 'v2.0.0' }),
+      deleteRelease: vi.fn().mockResolvedValue(undefined),
     };
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -138,6 +143,227 @@ describe('handleGitHubCommand', () => {
     );
     expect(state.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ command: 'error', content: expect.stringContaining('Usage') }),
+    );
+  });
+
+  it('clone no-ops cleanly when the user dismisses the folder picker', async () => {
+    const vsc = (await import('vscode')) as unknown as {
+      window: { showOpenDialog: (...args: unknown[]) => Promise<unknown> };
+    };
+    const dialogSpy = vi.fn().mockResolvedValue(undefined);
+    const prior = vsc.window.showOpenDialog;
+    vsc.window.showOpenDialog = dialogSpy;
+    try {
+      await handleGitHubCommand(
+        state as never,
+        { command: 'github', action: 'clone', url: 'https://github.com/a/b.git' } as never,
+      );
+      expect(dialogSpy).toHaveBeenCalled();
+      expect(state.postMessage).not.toHaveBeenCalledWith(
+        expect.objectContaining({ command: 'githubResult', githubAction: 'clone' }),
+      );
+    } finally {
+      vsc.window.showOpenDialog = prior;
+    }
+  });
+
+  it('clone runs the GitCLI and posts progress + result when the user picks a folder', async () => {
+    const vsc = (await import('vscode')) as unknown as {
+      window: {
+        showOpenDialog: (...args: unknown[]) => Promise<unknown>;
+        showInformationMessage: (...args: unknown[]) => Promise<unknown>;
+      };
+    };
+    const priorDialog = vsc.window.showOpenDialog;
+    const priorInfo = vsc.window.showInformationMessage;
+    vsc.window.showOpenDialog = vi.fn().mockResolvedValue([{ fsPath: '/tmp/target' }]);
+    vsc.window.showInformationMessage = vi.fn().mockResolvedValue(undefined);
+    try {
+      await handleGitHubCommand(
+        state as never,
+        { command: 'github', action: 'clone', url: 'https://github.com/a/b.git' } as never,
+      );
+      expect(state.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ command: 'githubResult', githubAction: 'clone', githubData: 'Cloning...' }),
+      );
+      expect(state.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          command: 'githubResult',
+          githubAction: 'clone',
+          githubData: 'Cloned successfully',
+        }),
+      );
+    } finally {
+      vsc.window.showOpenDialog = priorDialog;
+      vsc.window.showInformationMessage = priorInfo;
+    }
+  });
+
+  it('getPR returns a specific PR by number', async () => {
+    await handleGitHubCommand(
+      state as never,
+      { command: 'github', action: 'getPR', repo: 'owner/repo', number: 1 } as never,
+    );
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'githubResult', githubAction: 'getPR' }),
+    );
+  });
+
+  it('createPR posts result when title/head/base are all supplied', async () => {
+    await handleGitHubCommand(
+      state as never,
+      {
+        command: 'github',
+        action: 'createPR',
+        repo: 'owner/repo',
+        title: 'New PR',
+        head: 'feature',
+        base: 'main',
+      } as never,
+    );
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'githubResult', githubAction: 'createPR' }),
+    );
+  });
+
+  it('listIssues posts the issue array', async () => {
+    await handleGitHubCommand(state as never, { command: 'github', action: 'listIssues', repo: 'owner/repo' } as never);
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'githubResult', githubAction: 'listIssues' }),
+    );
+  });
+
+  it('getIssue posts the issue by number', async () => {
+    await handleGitHubCommand(
+      state as never,
+      { command: 'github', action: 'getIssue', repo: 'owner/repo', number: 1 } as never,
+    );
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'githubResult', githubAction: 'getIssue' }),
+    );
+  });
+
+  it('createIssue posts the issue when title is supplied', async () => {
+    await handleGitHubCommand(
+      state as never,
+      { command: 'github', action: 'createIssue', repo: 'owner/repo', title: 'Bug' } as never,
+    );
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'githubResult', githubAction: 'createIssue' }),
+    );
+  });
+
+  it('listReleases posts the releases array', async () => {
+    await handleGitHubCommand(
+      state as never,
+      { command: 'github', action: 'listReleases', repo: 'owner/repo' } as never,
+    );
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'githubResult', githubAction: 'listReleases' }),
+    );
+  });
+
+  it('getRelease with a tag returns that specific release', async () => {
+    await handleGitHubCommand(
+      state as never,
+      { command: 'github', action: 'getRelease', repo: 'owner/repo', tag: 'v1.0.0' } as never,
+    );
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'githubResult', githubAction: 'getRelease' }),
+    );
+  });
+
+  it('getRelease without a tag falls back to getLatestRelease', async () => {
+    await handleGitHubCommand(state as never, { command: 'github', action: 'getRelease', repo: 'owner/repo' } as never);
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'githubResult', githubAction: 'getRelease' }),
+    );
+  });
+
+  it('createRelease posts error when tag is missing', async () => {
+    await handleGitHubCommand(
+      state as never,
+      { command: 'github', action: 'createRelease', repo: 'owner/repo' } as never,
+    );
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'error', content: expect.stringContaining('Usage') }),
+    );
+  });
+
+  it('createRelease posts result when tag is supplied', async () => {
+    await handleGitHubCommand(
+      state as never,
+      {
+        command: 'github',
+        action: 'createRelease',
+        repo: 'owner/repo',
+        tag: 'v2.0.0',
+        title: 'Release 2.0.0',
+        draft: false,
+        prerelease: false,
+        generateNotes: true,
+      } as never,
+    );
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'githubResult', githubAction: 'createRelease' }),
+    );
+  });
+
+  it('deleteRelease posts error when tag is missing', async () => {
+    await handleGitHubCommand(
+      state as never,
+      { command: 'github', action: 'deleteRelease', repo: 'owner/repo' } as never,
+    );
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'error', content: expect.stringContaining('Usage') }),
+    );
+  });
+
+  it('deleteRelease looks up the release by tag and deletes it', async () => {
+    await handleGitHubCommand(
+      state as never,
+      { command: 'github', action: 'deleteRelease', repo: 'owner/repo', tag: 'v1.0.0' } as never,
+    );
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: 'githubResult',
+        githubAction: 'deleteRelease',
+        githubData: expect.stringContaining('v1.0.0'),
+      }),
+    );
+  });
+
+  it('browse posts the repo contents at the requested path', async () => {
+    await handleGitHubCommand(
+      state as never,
+      { command: 'github', action: 'browse', repo: 'owner/repo', ghPath: 'src/' } as never,
+    );
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'githubResult', githubAction: 'browse' }),
+    );
+  });
+
+  it('posts an error when no GitHub remote is available and no repo is supplied', async () => {
+    const { GitCLI } = await import('../../github/git.js');
+    vi.mocked(GitCLI).mockImplementationOnce(function () {
+      return { getRemoteUrl: vi.fn().mockResolvedValue(null) };
+    } as never);
+    await handleGitHubCommand(state as never, { command: 'github', action: 'listPRs' } as never);
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'error', content: expect.stringContaining('No GitHub remote') }),
+    );
+  });
+
+  it('posts an error when the remote URL does not parse as a GitHub repo', async () => {
+    const { GitHubAPI } = await import('../../github/api.js');
+    const { GitCLI } = await import('../../github/git.js');
+    vi.mocked(GitCLI).mockImplementationOnce(function () {
+      return { getRemoteUrl: vi.fn().mockResolvedValue('ssh://weird-host/foo') };
+    } as never);
+    vi.mocked(GitHubAPI.parseRepo).mockReturnValueOnce(null);
+    await handleGitHubCommand(state as never, { command: 'github', action: 'listPRs' } as never);
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'error', content: expect.stringContaining('Could not parse remote') }),
     );
   });
 

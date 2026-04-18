@@ -19,6 +19,18 @@ vi.mock('../../agent/lintFix.js', () => ({
 vi.mock('../../agent/depAnalysis.js', () => ({
   analyzeDependencies: vi.fn().mockResolvedValue('# Dependencies\nNo issues found.'),
 }));
+vi.mock('../../agent/specDriven.js', () => ({
+  generateSpec: vi.fn().mockResolvedValue('## Spec\n- A'),
+  saveSpec: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock('../../agent/batch.js', () => ({
+  parseBatchInput: vi.fn().mockReturnValue({ mode: 'sequential', tasks: [] }),
+  runBatch: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock('../../agent/conversationAnalytics.js', () => ({
+  analyzeConversation: vi.fn().mockReturnValue({}),
+  formatAnalyticsReport: vi.fn().mockReturnValue('# Insights\n- pattern'),
+}));
 
 describe('handleMcpStatus', () => {
   it('shows "none configured" when no servers exist', () => {
@@ -169,6 +181,47 @@ describe('handleInsights', () => {
     await handleInsights(state);
     expect(state.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ content: expect.stringContaining('No data for insights') }),
+    );
+  });
+
+  it('generates the analytics report and posts a done frame when audit entries exist', async () => {
+    const mod = await import('./agentHandlers.js');
+    const state = {
+      auditLog: {
+        query: vi
+          .fn()
+          .mockResolvedValue([
+            {
+              timestamp: '2026-04-18T12:00:00Z',
+              tool: 'read_file',
+              durationMs: 5,
+              isError: false,
+              input: {},
+              result: '',
+            },
+          ]),
+      },
+      metricsCollector: { getHistory: () => [] },
+      agentMemory: { queryAll: () => [] },
+      postMessage: vi.fn(),
+    };
+    await mod.handleInsights(state as never);
+    expect(state.postMessage).toHaveBeenCalledWith(expect.objectContaining({ command: 'done' }));
+  });
+});
+
+describe('handleScaffold error branch', () => {
+  it('posts an error when the generator returns empty', async () => {
+    const { generateScaffold } = await import('../../agent/scaffold.js');
+    vi.mocked(generateScaffold).mockResolvedValueOnce('');
+    const mod = await import('./agentHandlers.js');
+    const state = {
+      client: { updateConnection: vi.fn(), updateModel: vi.fn() },
+      postMessage: vi.fn(),
+    };
+    await mod.handleScaffold(state as never, 'component MyThing');
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'error', content: expect.stringContaining('Failed to generate') }),
     );
   });
 });
@@ -505,6 +558,215 @@ vi.mock('./chatHandlers.js', async () => {
     ...actual,
     handleUserMessage: (state: unknown, text: string) => mockHandleUserMessage(state, text),
   };
+});
+
+describe('handleExecutePlan (happy path)', () => {
+  beforeEach(() => {
+    mockHandleUserMessage.mockClear();
+  });
+
+  it('dispatches the pending plan through handleUserMessage and clears the pending slots', async () => {
+    const mod = await import('./agentHandlers.js');
+    const state = {
+      pendingPlan: 'Step 1 — do X',
+      pendingPlanMessages: [{ role: 'user', content: 'original ask' }],
+      messages: [],
+    };
+    await mod.handleExecutePlan(state as never);
+    expect(mockHandleUserMessage).toHaveBeenCalledOnce();
+    // Plan + execute instruction were both appended before the clear.
+    expect(state.pendingPlan).toBeNull();
+    expect(state.pendingPlanMessages).toEqual([]);
+    // The messages array was populated from the pendingPlanMessages copy
+    // (which grew by one: the "execute the plan" instruction message).
+    expect(state.messages.length).toBeGreaterThan(0);
+  });
+});
+
+describe('handleRevisePlan (happy path)', () => {
+  beforeEach(() => {
+    mockHandleUserMessage.mockClear();
+  });
+
+  it('appends feedback, calls handleUserMessage, and clears pending slots', async () => {
+    const mod = await import('./agentHandlers.js');
+    const state = {
+      pendingPlan: 'current plan',
+      pendingPlanMessages: [{ role: 'user', content: 'original ask' }],
+      messages: [],
+    };
+    await mod.handleRevisePlan(state as never, 'try a different approach');
+    expect(mockHandleUserMessage).toHaveBeenCalledOnce();
+    expect(state.pendingPlan).toBeNull();
+    expect(state.pendingPlanMessages).toEqual([]);
+    // Last message in state.messages carries the feedback.
+    const last = state.messages[state.messages.length - 1] as { content: string };
+    expect(last.content).toContain('try a different approach');
+  });
+});
+
+describe('handleUsage', () => {
+  it('handles an empty metrics history without crashing', async () => {
+    const mod = await import('./agentHandlers.js');
+    const state = { metricsCollector: { getHistory: () => [] } };
+    await mod.handleUsage(state as never);
+  });
+});
+
+describe('handleInsight', () => {
+  it('renders an insight report without throwing', async () => {
+    const mod = await import('./agentHandlers.js');
+    const state = { metricsCollector: { getHistory: () => [] } };
+    await mod.handleInsight(state as never);
+  });
+});
+
+describe('handleSpec', () => {
+  it('posts the generated spec and calls saveSpec on success', async () => {
+    const { generateSpec, saveSpec } = await import('../../agent/specDriven.js');
+    vi.mocked(generateSpec).mockResolvedValueOnce('## Spec\n- A');
+    vi.mocked(saveSpec).mockResolvedValueOnce(undefined);
+    const mod = await import('./agentHandlers.js');
+    const state = {
+      client: { updateConnection: vi.fn(), updateModel: vi.fn() },
+      sidecarDir: { isReady: () => true },
+      postMessage: vi.fn(),
+    };
+    await mod.handleSpec(state as never, 'describe an auth flow');
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'assistantMessage', content: expect.stringContaining('## Spec') }),
+    );
+    expect(saveSpec).toHaveBeenCalled();
+  });
+
+  it('posts an error when spec generation returns empty', async () => {
+    const { generateSpec } = await import('../../agent/specDriven.js');
+    vi.mocked(generateSpec).mockResolvedValueOnce('');
+    const mod = await import('./agentHandlers.js');
+    const state = {
+      client: { updateConnection: vi.fn(), updateModel: vi.fn() },
+      postMessage: vi.fn(),
+    };
+    await mod.handleSpec(state as never, 'nothing to spec');
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'error', content: expect.stringContaining('Failed to generate spec') }),
+    );
+  });
+});
+
+describe('handleBatch', () => {
+  it('posts a "nothing to do" no-op when parseBatchInput returns no tasks', async () => {
+    const { parseBatchInput } = await import('../../agent/batch.js');
+    vi.mocked(parseBatchInput).mockReturnValueOnce({ mode: 'sequential', tasks: [] });
+    const mod = await import('./agentHandlers.js');
+    const state = {
+      client: { updateConnection: vi.fn(), updateModel: vi.fn() },
+      postMessage: vi.fn(),
+    };
+    await mod.handleBatch(state as never, 'no tasks');
+    expect(state.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('runs the batch and posts start/complete frames when tasks are supplied', async () => {
+    const { parseBatchInput, runBatch } = await import('../../agent/batch.js');
+    vi.mocked(parseBatchInput).mockReturnValueOnce({
+      mode: 'parallel',
+      tasks: [{ id: 0, prompt: 't1' }],
+    } as never);
+    vi.mocked(runBatch).mockImplementationOnce((async (
+      _client: unknown,
+      _tasks: unknown,
+      _mode: unknown,
+      reporter: (id: number, s: string, r: string) => void,
+    ) => {
+      reporter(0, 'ok', 'task output');
+      return [];
+    }) as never);
+    const mod = await import('./agentHandlers.js');
+    const state = {
+      client: { updateConnection: vi.fn(), updateModel: vi.fn() },
+      postMessage: vi.fn(),
+      agentLogger: {},
+      mcpManager: {},
+    };
+    await mod.handleBatch(state as never, '//parallel\n- t1');
+    const starts = state.postMessage.mock.calls.filter((c: unknown[]) =>
+      ((c[0] as { content?: string }).content ?? '').includes('Starting batch'),
+    );
+    expect(starts.length).toBe(1);
+    expect(state.postMessage).toHaveBeenCalledWith(expect.objectContaining({ command: 'done' }));
+    expect(runBatch).toHaveBeenCalled();
+  });
+
+  it('reports a batch interruption as AbortError without surfacing a generic failure', async () => {
+    const { parseBatchInput, runBatch } = await import('../../agent/batch.js');
+    vi.mocked(parseBatchInput).mockReturnValueOnce({
+      mode: 'sequential',
+      tasks: [{ id: 0, prompt: 't' }],
+    } as never);
+    const abort = Object.assign(new Error('aborted'), { name: 'AbortError' });
+    vi.mocked(runBatch).mockRejectedValueOnce(abort);
+    const mod = await import('./agentHandlers.js');
+    const state = {
+      client: { updateConnection: vi.fn(), updateModel: vi.fn() },
+      postMessage: vi.fn(),
+    };
+    await mod.handleBatch(state as never, 'anything');
+    const interrupted = state.postMessage.mock.calls.find((c: unknown[]) =>
+      ((c[0] as { content?: string }).content ?? '').includes('Batch interrupted'),
+    );
+    expect(interrupted).toBeDefined();
+  });
+});
+
+describe('handleAudit (formatted report)', () => {
+  it('renders a markdown table and filter footer when entries exist', async () => {
+    const mod = await import('./agentHandlers.js');
+    const state = {
+      auditLog: {
+        query: vi.fn().mockResolvedValue([
+          {
+            timestamp: '2026-04-18T12:34:56Z',
+            tool: 'read_file',
+            durationMs: 12,
+            isError: false,
+            input: { path: 'src/foo.ts' },
+            result: 'file contents...',
+          },
+          {
+            timestamp: '2026-04-18T12:35:00Z',
+            tool: 'run_command',
+            durationMs: 200,
+            isError: true,
+            input: { cmd: 'ls' },
+            result: 'permission denied',
+          },
+        ]),
+        count: vi.fn().mockResolvedValue(2),
+      },
+      postMessage: vi.fn(),
+    };
+    await mod.handleAudit(state as never, 'errors');
+    // Table was posted as a markdown document; a done frame is always
+    // fired afterwards.
+    expect(state.postMessage).toHaveBeenCalledWith(expect.objectContaining({ command: 'done' }));
+    expect(state.auditLog.query).toHaveBeenCalledWith(expect.objectContaining({ errorsOnly: true }));
+  });
+
+  it('parses tool: / last: / since: filter segments into the query', async () => {
+    const mod = await import('./agentHandlers.js');
+    const state = {
+      auditLog: {
+        query: vi.fn().mockResolvedValue([]),
+        count: vi.fn().mockResolvedValue(0),
+      },
+      postMessage: vi.fn(),
+    };
+    await mod.handleAudit(state as never, 'tool:grep last:5 since:2026-01-01');
+    expect(state.auditLog.query).toHaveBeenCalledWith(
+      expect.objectContaining({ tool: 'grep', limit: 5, since: '2026-01-01' }),
+    );
+  });
 });
 
 describe('handleResume', () => {
