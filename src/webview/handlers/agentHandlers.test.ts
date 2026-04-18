@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { handleMcpStatus } from './agentHandlers.js';
+import { handleMcpStatus, handleResume } from './agentHandlers.js';
 import { window, workspace } from 'vscode';
 
 // Mock dependent modules so agentHandlers can call them without real LLM/filesystem
@@ -479,5 +479,97 @@ describe('handleExplainToolDecision (integration)', () => {
     expect(state.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ content: expect.stringContaining('Could not generate explanation') }),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleResume (v0.65 chunk 7c)
+//
+// /resume is the recovery path for a stream that failed mid-turn. The
+// agent loop stashed `state.pendingPartialAssistant` on failure; this
+// handler re-dispatches the last turn with a "continue from here" hint
+// synthesized from the partial. Tests cover:
+//   - no partial → user sees a "nothing to resume" message, done
+//   - partial present → pendingPartialAssistant is cleared + handleUser
+//     Message fires with a hint containing the partial preview
+//   - long partial → preview is truncated in the hint
+// ---------------------------------------------------------------------------
+// vi.mock factories are hoisted above imports — use vi.hoisted to share
+// the spy between the factory (which runs at module-load) and the test
+// assertions (which run later). Without this, the factory closes over an
+// undefined variable.
+const { mockHandleUserMessage } = vi.hoisted(() => ({ mockHandleUserMessage: vi.fn() }));
+vi.mock('./chatHandlers.js', async () => {
+  const actual = await vi.importActual<typeof import('./chatHandlers.js')>('./chatHandlers.js');
+  return {
+    ...actual,
+    handleUserMessage: (state: unknown, text: string) => mockHandleUserMessage(state, text),
+  };
+});
+
+describe('handleResume', () => {
+  beforeEach(() => {
+    mockHandleUserMessage.mockClear();
+  });
+
+  it('posts a "no partial to resume" message and exits when pendingPartialAssistant is null', async () => {
+    const state = {
+      pendingPartialAssistant: null as string | null,
+      postMessage: vi.fn(),
+    };
+    await handleResume(state as never);
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'assistantMessage', content: expect.stringContaining('No partial response') }),
+    );
+    expect(state.postMessage).toHaveBeenCalledWith(expect.objectContaining({ command: 'done' }));
+    expect(mockHandleUserMessage).not.toHaveBeenCalled();
+  });
+
+  it('posts the same "no partial" message when pendingPartialAssistant is an empty string', async () => {
+    const state = {
+      pendingPartialAssistant: '' as string | null,
+      postMessage: vi.fn(),
+    };
+    await handleResume(state as never);
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('No partial response') }),
+    );
+    expect(mockHandleUserMessage).not.toHaveBeenCalled();
+  });
+
+  it('re-dispatches via handleUserMessage with a hint containing the captured partial', async () => {
+    const state = {
+      pendingPartialAssistant: 'Here is the partial response before crash' as string | null,
+      postMessage: vi.fn(),
+    };
+    await handleResume(state as never);
+    expect(mockHandleUserMessage).toHaveBeenCalledOnce();
+    const [, hint] = mockHandleUserMessage.mock.calls[0];
+    expect(hint).toContain('cut off mid-stream');
+    expect(hint).toContain('Here is the partial response before crash');
+    expect(hint).toContain('continue from exactly where you left off');
+  });
+
+  it('clears pendingPartialAssistant before dispatching so a second failure does not replay the old partial', async () => {
+    const state = {
+      pendingPartialAssistant: 'stale partial' as string | null,
+      postMessage: vi.fn(),
+    };
+    await handleResume(state as never);
+    expect(state.pendingPartialAssistant).toBeNull();
+  });
+
+  it('truncates a large partial in the preview but passes the full partial context into the hint header', async () => {
+    const hugePartial = 'x'.repeat(1000);
+    const state = {
+      pendingPartialAssistant: hugePartial as string | null,
+      postMessage: vi.fn(),
+    };
+    await handleResume(state as never);
+    const [, hint] = mockHandleUserMessage.mock.calls[0];
+    // Preview capped at 600 chars + a truncated marker.
+    expect(hint).toContain('partial truncated');
+    // Hint still contains a chunk of the partial (up to the cap).
+    expect(hint).toContain('x'.repeat(100));
   });
 });

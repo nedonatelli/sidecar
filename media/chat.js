@@ -26,6 +26,7 @@
   const customModelInput = document.getElementById('custom-model-input');
   const customModelUse = document.getElementById('custom-model-use');
   const steerStrip = document.getElementById('steer-queue-strip');
+  const resumeStrip = document.getElementById('resume-strip');
 
   // Steer-queue state (v0.65). `steerEnabled` tracks whether a run is
   // live (strip shows pending items). Items are rendered directly from
@@ -33,6 +34,12 @@
   let steerEnabled = false;
   let steerItems = [];
   let editingSteerId = null;
+
+  // Resume-available state (v0.65 chunk 7b). Set when the stream fails
+  // mid-turn; cleared when a `done` arrives after a successful resume.
+  // Separate from the inline scroll-away Resume button — this one lives
+  // above the input and stays visible while the user reads earlier context.
+  let resumePendingSteerCount = 0;
 
   let isLoading = false;
   let currentAssistantDiv = null;
@@ -1591,6 +1598,61 @@
     card.appendChild(hint);
 
     messagesContainer.appendChild(card);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Persistent Resume affordance (v0.65 chunk 7b)
+  //
+  // The inline Resume button (rendered on `resumeAvailable` into the
+  // transcript) handles the moment-of-failure discovery case. The strip
+  // below the transcript handles the "I've scrolled away and need to get
+  // back to resuming" case. Both point at the same `resume` command.
+  // ---------------------------------------------------------------------------
+  function renderResumeStrip() {
+    if (!resumeStrip) return;
+    if (resumePendingSteerCount < 0) {
+      resumeStrip.classList.add('hidden');
+      resumeStrip.innerHTML = '';
+      return;
+    }
+    resumeStrip.classList.remove('hidden');
+    resumeStrip.innerHTML = '';
+
+    const label = document.createElement('span');
+    label.className = 'resume-strip-label';
+    const steerSuffix =
+      resumePendingSteerCount > 0
+        ? ' (+' + resumePendingSteerCount + ' queued steer' + (resumePendingSteerCount === 1 ? '' : 's') + ')'
+        : '';
+    label.textContent = '⚠ Stream interrupted — resume available' + steerSuffix;
+    resumeStrip.appendChild(label);
+
+    const resumeBtn = document.createElement('button');
+    resumeBtn.className = 'resume-strip-btn';
+    resumeBtn.textContent = '▶ Resume';
+    resumeBtn.addEventListener('click', () => {
+      vscode.postMessage({ command: 'resume' });
+      resumeBtn.disabled = true;
+      resumeBtn.textContent = 'Resuming...';
+    });
+    resumeStrip.appendChild(resumeBtn);
+
+    const dismissBtn = document.createElement('button');
+    dismissBtn.className = 'resume-strip-dismiss';
+    dismissBtn.title = 'Dismiss — the partial is kept but the strip hides';
+    dismissBtn.textContent = '✕';
+    dismissBtn.addEventListener('click', () => {
+      hideResumeStrip();
+    });
+    resumeStrip.appendChild(dismissBtn);
+  }
+
+  function hideResumeStrip() {
+    resumePendingSteerCount = -1;
+    if (resumeStrip) {
+      resumeStrip.classList.add('hidden');
+      resumeStrip.innerHTML = '';
+    }
   }
 
   const createdFiles = new Set();
@@ -3441,7 +3503,7 @@
       }
 
       case 'resumeAvailable': {
-        // Show a clickable resume button in the chat
+        // Inline button in transcript — "moment-of-failure" discovery.
         const resumeBtn = document.createElement('button');
         resumeBtn.className = 'resume-button';
         resumeBtn.textContent = '▶ Resume';
@@ -3456,6 +3518,11 @@
         resumeWrapper.appendChild(resumeBtn);
         messagesContainer.appendChild(resumeWrapper);
         scrollToBottom();
+        // Persistent strip above the input — "I've scrolled away"
+        // recovery path (v0.65 chunk 7b). Carries the stashed steer
+        // count so the user knows queued intent will ride along.
+        resumePendingSteerCount = typeof msg.steerCount === 'number' ? msg.steerCount : 0;
+        renderResumeStrip();
         break;
       }
 
@@ -3463,6 +3530,9 @@
         finishAssistantMessage();
         setLoading(false);
         userScrolledUp = false;
+        // Clear the persistent resume strip — a successful completion
+        // (normal or post-resume) means there's nothing to resume.
+        hideResumeStrip();
         const scrollBtnDone = document.getElementById('scroll-to-bottom');
         if (scrollBtnDone) scrollBtnDone.classList.add('hidden');
         const progressDone = document.getElementById('agent-progress');
@@ -3652,6 +3722,8 @@
         currentAssistantText = '';
         messageCounter = 0;
         emptyStateEl = null; // innerHTML wipe already detached it
+        // New conversation — any stashed resume-state is stale.
+        hideResumeStrip();
         maybeRenderEmptyState();
         break;
 

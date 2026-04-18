@@ -1023,6 +1023,74 @@ body {
   color: var(--vscode-errorForeground, #f14c4c);
 }
 
+/* Persistent Resume strip (v0.65 chunk 7b). Sits above the steer
+   strip / input area, visible whenever a stream failed mid-turn.
+   The inline button in the transcript handles moment-of-failure
+   discovery; this strip handles "I've scrolled away" recovery. */
+#resume-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  background: var(--vscode-inputValidation-warningBackground, rgba(204, 167, 0, 0.12));
+  border-top: 1px solid var(--vscode-widget-border);
+  border-bottom: 1px solid var(--vscode-inputValidation-warningBorder, var(--vscode-widget-border));
+  font-size: 12px;
+  color: var(--vscode-inputValidation-warningForeground, var(--vscode-foreground));
+}
+
+#resume-strip.hidden {
+  display: none;
+}
+
+.resume-strip-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resume-strip-btn {
+  flex-shrink: 0;
+  padding: 3px 10px;
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  border: 1px solid transparent;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.resume-strip-btn:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
+.resume-strip-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.resume-strip-dismiss {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  color: var(--vscode-foreground);
+  border: 1px solid transparent;
+  border-radius: 3px;
+  cursor: pointer;
+  opacity: 0.7;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.resume-strip-dismiss:hover {
+  background: var(--vscode-toolbar-hoverBackground);
+  opacity: 1;
+}
+
 /* Planned Edits card (v0.65 chunk 4.4a). Sits inline in the chat
    transcript right before the multi-file write batch executes. */
 .edit-plan-card {

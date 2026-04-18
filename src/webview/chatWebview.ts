@@ -73,6 +73,7 @@ export interface WebviewMessage {
     | 'steerEnqueue'
     | 'steerCancel'
     | 'steerEdit'
+    | 'resume'
     | 'executeExtensionCommand';
   images?: { mediaType: string; data: string }[];
   text?: string;
@@ -237,6 +238,12 @@ export interface ExtensionMessage {
     toolCalls: number;
   }[];
   bgRunId?: string;
+  /**
+   * Steer count carried on `resumeAvailable` so the persistent resume
+   * strip (v0.65 chunk 7b) can show "(+N queued steers)" and the user
+   * knows their queued intent will ride along on resume.
+   */
+  steerCount?: number;
   /**
    * Steer-queue snapshot broadcast to the webview whenever the queue
    * mutates (enqueue / cancel / edit / drain / clear). The strip UI
@@ -408,6 +415,7 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
   </div>
   <div id="image-preview" class="hidden"></div>
   <div id="slash-autocomplete" class="hidden" role="listbox" aria-label="Slash commands"></div>
+  <div id="resume-strip" class="hidden" role="region" aria-label="Resume available"></div>
   <div id="steer-queue-strip" class="hidden" role="region" aria-label="Queued steers"></div>
   <div id="input-area">
     <button id="attach-btn" data-tooltip="Attach file" aria-label="Attach file">&#128206;</button>
