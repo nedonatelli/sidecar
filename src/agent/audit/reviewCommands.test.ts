@@ -167,11 +167,17 @@ describe('reviewAuditBuffer', () => {
     try {
       // Call sequence: (1) review→open a.ts, (2) post-diff→accept-one,
       // (3) review (one entry left, b.ts)→cancel to exit.
+      //
+      // `list()` sorts newest-first (`b.timestamp - a.timestamp`), so on
+      // machines slow enough to separate the two makeBufferWith writes
+      // into distinct milliseconds `b.ts` appears before `a.ts` in the
+      // pick list. Filter by label to deterministically pick `a.ts`
+      // regardless of timestamp resolution.
       let callIdx = 0;
       const ui = makeUi({
         showQuickPick: vi.fn(async (items: readonly { label: string; action?: string }[]) => {
           callIdx += 1;
-          if (callIdx === 1) return items.find((i) => i.action === 'open');
+          if (callIdx === 1) return items.find((i) => i.action === 'open' && i.label.includes('a.ts'));
           if (callIdx === 2) return items.find((i) => i.action === 'accept-one');
           return undefined;
         }) as unknown as AuditReviewUi['showQuickPick'],
@@ -192,11 +198,13 @@ describe('reviewAuditBuffer', () => {
       { op: 'write', path: 'a.ts', content: 'A' },
       { op: 'write', path: 'b.ts', content: 'B' },
     ]);
+    // Same pick-order caveat as the accept-single test above — filter
+    // by label to target `a.ts` deterministically.
     let callIdx = 0;
     const ui = makeUi({
       showQuickPick: vi.fn(async (items: readonly { label: string; action?: string }[]) => {
         callIdx += 1;
-        if (callIdx === 1) return items.find((i) => i.action === 'open');
+        if (callIdx === 1) return items.find((i) => i.action === 'open' && i.label.includes('a.ts'));
         if (callIdx === 2) return items.find((i) => i.action === 'reject-one');
         return undefined;
       }) as unknown as AuditReviewUi['showQuickPick'],
