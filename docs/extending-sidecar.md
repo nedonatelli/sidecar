@@ -1,15 +1,17 @@
 # Extending SideCar
 
-Four extension surfaces — ordered by increasing power and increasing trust requirement:
+Five extension surfaces — ordered by increasing power and increasing trust requirement:
 
 1. **[Skills](#skills)** — markdown prompt fragments that inject into the system prompt when triggered. No code; no approval gate needed (content is just more text for the model). Best for: coding conventions, domain context, command templates.
-2. **[Custom tools](#custom-tools)** — user-defined shell commands surfaced to the agent as callable tools. Simple to author, full shell privileges, always requires approval per call. Best for: internal CLIs, build / deploy wrappers, project-specific scripts.
-3. **[MCP servers](#mcp-servers)** — external processes or HTTP endpoints that expose tools via the Model Context Protocol. SDK-based; own lifecycle. Best for: integrating with GitHub / Linear / Postgres / custom data sources, or any tool you want to share across Claude Code + SideCar + other MCP clients.
-4. **[Policy hooks](#policy-hooks)** — TypeScript-level extension of the agent loop's `HookBus`. Full access to loop state; runs in-process. Best for: custom completion gates, domain-specific validators, regression guards.
+2. **[Facets](#facets)** — *(new in v0.66)* named sub-agents with their own tool allowlist, preferred model, and system prompt. Dispatched as specialists via `SideCar: Facets: Dispatch Specialists` and run in isolated Shadow Workspaces. Best for: role-scoped work like test authoring, security review, or DSP design, especially when you want a different model per role.
+3. **[Custom tools](#custom-tools)** — user-defined shell commands surfaced to the agent as callable tools. Simple to author, full shell privileges, always requires approval per call. Best for: internal CLIs, build / deploy wrappers, project-specific scripts.
+4. **[MCP servers](#mcp-servers)** — external processes or HTTP endpoints that expose tools via the Model Context Protocol. SDK-based; own lifecycle. Best for: integrating with GitHub / Linear / Postgres / custom data sources, or any tool you want to share across Claude Code + SideCar + other MCP clients.
+5. **[Policy hooks](#policy-hooks)** — TypeScript-level extension of the agent loop's `HookBus`. Full access to loop state; runs in-process. Best for: custom completion gates, domain-specific validators, regression guards.
 
 | Surface | Authoring effort | Trust required | Sharable across clients |
 | --- | --- | --- | --- |
 | Skill | Minimal (markdown) | Workspace trust for project-local skills | ✅ (Claude Code compatible) |
+| Facet | Low (markdown + YAML frontmatter) | Workspace trust for project-local facets | ❌ SideCar-specific |
 | Custom tool | Low (one shell command + JSON schema) | Per-call approval + workspace trust | ❌ SideCar-specific |
 | MCP server | Medium (separate codebase + SDK) | Workspace trust for stdio transport | ✅ (any MCP client) |
 | Policy hook | High (TypeScript, in-process) | Only shipped via the extension's own code or a fork | ❌ SideCar-specific |
@@ -58,6 +60,70 @@ Output format: bullet list grouped by severity.
 When the active workspace isn't trusted, skills from sources 3 + 4 (project-level) are not loaded at all. Trusted workspace + workspace-sourced skill injects with a provenance banner telling the LLM to treat the skill's instructions as untrusted data — same policy as MCP tool output.
 
 See [`src/agent/skillLoader.ts`](../src/agent/skillLoader.ts) for the loader implementation and [`docs/slash-commands.md`](slash-commands.md) for user-level docs.
+
+## Facets
+
+*New in v0.66.* A facet is a named specialist — a display name, preferred model, tool allowlist, system prompt, optional dependency graph, optional RPC schema. The user dispatches one or more facets against a shared task via `SideCar: Facets: Dispatch Specialists` in the Command Palette; each one runs in its own isolated Shadow Workspace with its own allowed toolset, and the resulting diffs are collected into a single aggregated review flow at the end.
+
+Facets are distinct from Skills: a skill injects text into the system prompt for the main agent turn, while a facet spawns a new agent run with its own context, shadow worktree, and tool permissions. Pick a facet when you want the specialist's boundary enforced — it can only call the tools you grant it, its writes only land in its shadow, its model is what you picked — not just "I want a different voice in the prompt."
+
+### File locations
+
+Scanned in order (later sources override earlier on id collision):
+
+1. **Built-in catalog** — 8 specialists shipped embedded in SideCar itself: `general-coder`, `latex-writer`, `signal-processing`, `frontend`, `test-author`, `technical-writer`, `security-reviewer`, `data-engineer`. Not loaded from disk — avoids a broken-unpack footgun.
+2. `<workspace>/.sidecar/facets/*.md` — project-local facets.
+3. Paths listed in `sidecar.facets.registry` (user setting) — personal or team facets checked into a separate repo.
+
+### Schema
+
+```markdown
+---
+id: api-contract-tester
+displayName: API Contract Tester
+preferredModel: claude-haiku-4-5
+toolAllowlist: ["read_file", "grep", "run_tests", "edit_file", "write_file"]
+dependsOn: []
+rpcSchema:
+  review:
+    description: Review a proposed endpoint change for contract breaks
+    input: { type: object, properties: { path: { type: string } } }
+    output: { type: object, properties: { findings: { type: array } } }
+---
+
+You are an API contract tester. For every change to a route handler, diff
+the OpenAPI schema, assert backward compatibility, and generate contract
+tests that would fail if the breaking change shipped unreviewed.
+```
+
+- `id` + `displayName` + `systemPrompt` body are required.
+- `toolAllowlist` is an array of tool names — the facet sees exactly those tools (plus any RPC tools generated from peer facets' `rpcSchema`).
+- `preferredModel` is pinned via `client.setTurnOverride` for the duration of the facet's run, then restored.
+- `dependsOn` is an array of other facet ids — the dispatcher walks the resulting DAG in topological order, so a facet with `dependsOn: ["general-coder"]` only starts after `general-coder` finishes.
+- `rpcSchema` declares methods this facet answers. Other facets in the same batch get auto-generated `rpc.<this-facet-id>.<method>` tools they can call; the bus never rejects — calls resolve to `{ ok: true, value }` or `{ ok: false, errorKind: 'no-handler' | 'timeout' | 'handler-threw', message }`.
+
+### Dispatch model
+
+`dispatchFacets(client, registry, ids, callbacks, { task, maxConcurrent, rpcTimeoutMs, rpcHandlers })` walks the registry's topological layers with bounded parallelism (`sidecar.facets.maxConcurrent`, default 3). Each facet:
+
+1. Pins its `preferredModel`, composes its system prompt on top of the orchestrator's, filters tools to its allowlist.
+2. Runs a full agent loop inside a fresh Shadow Workspace (`forceShadow: true, deferPrompt: true`).
+3. Captures its final diff into `SandboxResult.pendingDiff` instead of prompting mid-run — so a 5-facet batch doesn't fire 5 overlapping quickpicks.
+
+After all facets settle, a single review UI (`reviewFacetBatch`) walks the batch: per-facet Accept / Show diff / Reject / Skip, cross-facet file-overlap warnings, `git apply` on accepted entries. Unaccepted facets' shadows are discarded; they never touched the main tree.
+
+### Trust semantics
+
+When the active workspace isn't trusted, project-local facets (source 2) are not loaded. Built-ins and `sidecar.facets.registry` paths (source 3) are still available. Disk-facet parse errors per-file never abort the load — the dispatcher always has the built-in catalog as a floor, so registry-level failures (cycles, unknown dependencies across disk facets) fall back to built-ins only rather than surfacing an empty specialist list.
+
+### Config
+
+- `sidecar.facets.enabled` (default `true`) — master toggle. When off, the dispatch command shows a one-line info toast instead of the picker.
+- `sidecar.facets.maxConcurrent` (default `3`, clamped 1–16) — per-layer parallelism cap.
+- `sidecar.facets.rpcTimeoutMs` (default `30000`, clamped 1000–300000) — per-RPC call timeout. Timeouts surface as `{ ok: false, errorKind: 'timeout' }` and the call resolves; the facet never hangs on a peer.
+- `sidecar.facets.registry` (default `[]`) — array of absolute paths to additional facet `.md` files.
+
+See [`src/agent/facets/`](../src/agent/facets/) for the implementation, particularly `facetLoader.ts` (schema + built-ins), `facetRegistry.ts` (validation + layering), `facetDispatcher.ts` (the `dispatchFacets` orchestrator), `facetRpcBus.ts` (never-reject RPC), and `facetReview.ts` (batched review UI).
 
 ## Custom tools
 

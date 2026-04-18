@@ -2,7 +2,7 @@
 
 Planned improvements and features for SideCar. Audit findings from v0.34.0 comprehensive review are in the Audit Backlog section. All critical fixes were addressed in v0.35.0.
 
-Last updated: 2026-04-16 (**v0.59.0 shipped — Sandbox primitives**. First release of the Release-Plan-driven v0.59+ roadmap. Agent `run_command` / `run_tests` now render live in a dedicated *SideCar Agent* terminal via VS Code's shell-integration API (transparency + SSH / Dev Container / WSL / Codespaces correctness). The new opt-in Shadow Workspace feature runs agent tasks in an ephemeral git worktree at `.sidecar/shadows/<task-id>/` so writes never touch the user's main tree until explicit accept. Also closes audit #13 + #15, a latent output-stomp bug in `ShellSession.checkSentinel`, and establishes a CI coverage ratchet. 1984 tests passing, +40 for the release.)
+Last updated: 2026-04-18 (**v0.66.0 shipped — Typed Sub-Agent Facets**. Dispatchable specialist system: 8 built-in facets plus project + user overrides via `<workspace>/.sidecar/facets/*.md` and `sidecar.facets.registry`. Each facet runs in its own isolated Shadow Workspace with its own tool allowlist, preferred model, and composed system prompt; multi-facet batches coalesce their diffs into a single aggregated review flow instead of stacking N quickpicks. Typed never-reject RPC bus lets facets coordinate. Also closes the two v0.65 Multi-File-Edit deferrals (per-file progress tiles + `reviewGranularity` wiring) and lifts three webview handlers above 80% coverage. 3230 tests passing, +180 for the release. Full sidebar Expert Panel deferred — command-palette + batched review is enough UX surface for v0.66.)
 
 ---
 
@@ -80,11 +80,18 @@ Each release ships **1–2 features** plus a paired **refactor beat** (code-qual
 - **Deferred folded in**: `/resume` webview button affordance — pairs with the Steer Queue's new interrupt UI.
 - **Acceptance**: FIFO steer queue with same-urgency coalescing; atomic multi-file edit DAG review; every `loop/*.ts` helper has branch-coverage tests; shared test-helper module in use across ≥5 test files.
 
-### v0.66 — Facets
-- **Feature**: [Typed Sub-Agent Facets & Expert Panel](#typed-sub-agent-facets--expert-panel)
-- **Refactor beat**: Tool-registration DSL — collapse the ~300 lines of `{ definition, executor, requiresApproval }` boilerplate across 23+ tools into a decorator or fluent-builder pattern. Handler registry pattern for `webview/handlers/` — typed message-kind → handler map replaces the manual switch in `chatView.ts`.
-- **Coverage focus**: webview handlers — `agentHandlers` · `githubHandlers` · `systemPrompt`. Facets UI touches all three. Target ≥80/70/79/80 — **enters the target band**.
-- **Acceptance**: Expert Panel UI with multi-select facet dispatch; typed RPC across facets; each facet runs in its own Shadow Workspace.
+### v0.66 — Facets ✅ *shipped 2026-04-18*
+- **Features shipped**: [Typed Sub-Agent Facets](#typed-sub-agent-facets--expert-panel) — foundation + dispatcher + never-reject RPC bus + disk loader + `sidecar.facets.dispatch` command-palette entry + batched review with cross-facet overlap detection and `git apply`. 8 built-in facets embedded in code; user + project facets via `<workspace>/.sidecar/facets/*.md` and `sidecar.facets.registry`. `deferPrompt: true` added to `runAgentLoopInSandbox` so N-facet batches don't stack N quickpicks. `extraTools` run-scoped option threaded through `AgentOptions` → `executeToolUses` → `executor` for RPC tools. **v0.65 closure**: slim 4.4b (per-file progress tiles on the Planned Edits card via `onEditPlanProgress`) + slim 4.5c (`reviewGranularity` wired into the audit review flow with a `bulk` fast-path).
+- **Refactor beat shipped**: **Honest cut** on the "tool-registration DSL" — audit showed only ~47 lines of paired imports + 30 registry entries, so each `src/agent/tools/<name>.ts` now exports a `<name>Tools: RegisteredTool[]` array and `tools.ts` composes them via 9 `...spread` lines. No DSL. Handler registry pattern was **skipped** — already in place at `chatView.ts:248` as a `Record<string, fn>` dispatch map.
+- **Coverage focus shipped**: `systemPrompt.ts` 0% → **97.14%** stmts (fresh test file, 23 tests). `githubHandlers.ts` 52.88% → **98.07%** (+17 tests covering clone, PR/issue lifecycle, full release lifecycle, browse, remote-fallback errors). `agentHandlers.ts` 52.64% → **81.78%** (+8 tests covering plan execute/revise happy paths, batch dispatch + abort, spec success+failure, audit table, insights, scaffold empty branch). All three above the 80% target.
+- **Deferred folded in**: slim 4.4b/4.5c from v0.65 (both shipped inside chunk 1).
+- **Deferred from v0.66**: full sidebar Expert Panel (webview view container + progress tiles + Facet Comms wire-trace tab). The command-palette flow + batched review is enough UX surface for v0.66 — revisit after real usage tells us what the panel should prioritize. Tracked in *v0.66 deferrals* below.
+- **Tag**: [`v0.66.0`](https://github.com/nedonatelli/sidecar/releases/tag/v0.66.0). +180 tests, 3230 total, 183 files. tsc + lint clean.
+
+### v0.66 deferrals folded into v0.67+
+- **Full sidebar Expert Panel** — WebviewViewProvider with multi-select checkboxes, live progress tiles per facet, Facet Comms tab rendering `bus.getWireTrace()`. Deferred because the command-palette MVP covers the dispatch path and the review UI covers the post-dispatch path — a sidebar doesn't unlock new capability, just reshuffles surface area. Revisit once we have telemetry on which dispatches users repeat.
+- **Streaming per-file diff tiles** on the Planned Edits card (the original 4.4b spec) — needs a real `streamingDiffPreviewFn`-style extension; the v0.66 glyph-based progress indicators are a strict subset. Carry as a v0.67+ UI polish beat.
+- **Per-hunk audit review UI** (original 4.5c spec) — the current enum wires `per-hunk` through to a warning toast that falls back to `per-file`. The genuine hunk picker is a new review surface — not worth building until someone asks.
 
 ### v0.67 — Fork & compare
 - **Feature**: [Fork & Parallel Solve (Multi-Path Reasoning)](#fork--parallel-solve-multi-path-reasoning)

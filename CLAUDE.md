@@ -104,6 +104,24 @@ v0.60+ `sidecar.agentMode: 'audit'` tier. An alternative to Shadow Workspaces fo
 
 Scope is the agent's file-authoring surface only — shell commands still run normally. Match the threat model: `write_file` is how hallucinations become persistent damage, so that's what we gate.
 
+### Typed Sub-Agent Facets (`src/agent/facets/`)
+
+v0.66+ dispatchable specialist system. A facet is a named sub-agent with a preferredModel, tool allowlist, system prompt, optional `dependsOn` edges, and optional RPC schema. Built-in catalog ships 8 specialists embedded in code (not loaded from disk — avoids a broken-unpack footgun). Users layer project or user facets on top via `<workspace>/.sidecar/facets/*.md` or `sidecar.facets.registry` paths.
+
+- `facetLoader.ts` — `parseFacetFile(path, raw, source)` YAML-frontmatter parser, `FacetValidationError` with typed reason codes (`missing-frontmatter` / `missing-id` / `duplicate-id` / `unknown-dep` / `cycle` / `io-error`), `builtInFacets()` returning the 8-facet baseline.
+- `facetRegistry.ts` — `buildFacetRegistry(facets)` validates duplicate ids + unknown deps + cycles (DFS 3-coloring) and computes topological layers. `mergeWithBuiltInFacets(overrides)` — disk facets with matching ids replace built-ins.
+- `facetDiskLoader.ts` — `loadFacetRegistry({ workspaceRoot, registryPaths, fsOverride? })` scans disk, merges with built-ins, returns a `LoadFacetsOutcome { registry, errors }`. Per-file parse errors never abort the load; registry-level failures fall back to built-ins only so the dispatcher is never empty.
+- `facetDispatcher.ts` — `dispatchFacet` runs one facet through `runAgentLoopInSandbox` with preferredModel pin+restore, allowlist → `toolOverride` + `modeToolPermissions`, system-prompt composition on top of the orchestrator's, `approvalMode: 'autonomous'`, `deferPrompt: true` (see Shadow Workspaces below). `dispatchFacets(client, registry, ids, callbacks, { task, maxConcurrent, rpcTimeoutMs, rpcHandlers })` walks the registry's topological layers with bounded parallelism; returns `{ results, rpcWireTrace }` in input order.
+- `facetRpcBus.ts` — `FacetRpcBus.call` **never rejects** — resolves to `{ ok: true, value }` or `{ ok: false, errorKind: 'no-handler' | 'timeout' | 'handler-threw', message }`. Handler wrapped in an async IIFE so sync throws are caught. Wire trace records every attempt. `generateRpcTools(callerId, peers, bus)` produces `rpc.<peerId>.<method>` tools and filters out the caller's own methods (no self-RPC).
+- `facetReview.ts` — `planFacetReview(batch)` parses per-facet `pendingDiff` strings, extracts touched files, detects cross-facet overlaps. `reviewFacetBatch(batch, { ui, mainRoot, applyDiff? })` drives an injectable UI (Accept / Show diff / Reject / Skip per facet) and calls `GitCLI.applyPatch` onto main for each accepted facet.
+- `facetCommands.ts` — `runFacetDispatchCommand(deps)` drives the `sidecar.facets.dispatch` command-palette flow with an injectable `FacetCommandUi` so tests don't need `window.*`. Typed `FacetCommandOutcome` covers disabled / every cancel path / dispatched-with-batch-and-review.
+
+Batched-review integration with Shadow Workspaces: `sandbox.ts` accepts a `deferPrompt: true` sandbox option that captures the facet's diff in `SandboxResult.pendingDiff` and skips the per-run quickpick. Without this, a 5-facet batch would fire 5 overlapping prompts at the user. With it, the batch completes quietly and the review UI runs once after `dispatchFacets` resolves.
+
+Run-scoped tools: the RPC tools generated per-batch flow through the new `extraTools: readonly RegisteredTool[]` option on `AgentOptions`. `executor.ts` resolves `extraTools.find(name)` before falling back to `TOOL_REGISTRY` or MCP, so ephemeral RPC tools don't pollute the global registry.
+
+Config: `sidecar.facets.{enabled, maxConcurrent, rpcTimeoutMs, registry}`.
+
 ### Terminal Execution (`src/terminal/`)
 
 - `shellSession.ts` — long-lived `child_process.spawn`-based shell with per-command alias/function namespace reset. Fallback path for agent commands when shell integration isn't available.
