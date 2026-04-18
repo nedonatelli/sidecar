@@ -4,6 +4,52 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.66.0] - 2026-04-18
+
+**v0.66.0 — Typed Sub-Agent Facets.** Headline feature is a dispatchable specialist system: pick one or more named facets (general-coder, test-author, security-reviewer, etc.), give them a shared task, and each runs in its own isolated Shadow Workspace with its own tool allowlist and preferred model. Multi-facet batches coalesce their diffs into a single aggregated review flow instead of stacking one quickpick per facet. Includes a typed RPC bus for inter-facet coordination, an injectable disk-loader for project + user facets, and a `sidecar.facets.dispatch` command-palette entry.
+
+Also in this release: closure on the two v0.65 Multi-File-Edit deferrals (per-file progress tiles + reviewGranularity wiring), a pragmatic-cut refactor of the tool registry (per-module `RegisteredTool[]` exports instead of a speculative DSL), and a coverage pass that takes three webview handlers from ~53% or 0% to ≥80%.
+
+Tests: **3230 passing** across 183 files (3050 → 3230, +180 new tests). tsc + lint clean. No breaking changes — every new capability is opt-in via new config keys.
+
+### Added — Typed Sub-Agent Facets (chunks 3.1–3.6)
+
+Facets are named specialists — a display name, preferredModel, tool allowlist, system prompt, optional RPC schema, optional dependency graph. Built-in catalog ships 8 specialists; users can add more via `<workspace>/.sidecar/facets/*.md` or `sidecar.facets.registry` paths.
+
+- **Foundation** ([`src/agent/facets/facetLoader.ts`](src/agent/facets/facetLoader.ts), [`facetRegistry.ts`](src/agent/facets/facetRegistry.ts)) — typed `FacetDefinition` + `FacetValidationError` with named reason codes, 8 built-in facets embedded in code (general-coder, latex-writer, signal-processing, frontend, test-author, technical-writer, security-reviewer, data-engineer), `buildFacetRegistry` with duplicate-id / unknown-dep / cycle detection via DFS 3-coloring, topological `layers()` for dependency-ordered dispatch, `mergeWithBuiltInFacets` (disk facets override built-ins).
+- **Dispatcher** ([`src/agent/facets/facetDispatcher.ts`](src/agent/facets/facetDispatcher.ts)) — `dispatchFacet` runs one facet through `runAgentLoopInSandbox` with preferredModel pin+restore, allowlist → toolOverride + modeToolPermissions, system-prompt composition on top of the orchestrator's, `approvalMode: 'autonomous'`. `dispatchFacets` walks the registry's layers with bounded parallelism (`maxConcurrent`), returns results in input order + full RPC wire trace.
+- **RPC bus** ([`src/agent/facets/facetRpcBus.ts`](src/agent/facets/facetRpcBus.ts)) — `FacetRpcBus.call` **never rejects** — resolves to `{ ok: true, value }` or `{ ok: false, errorKind }` with `no-handler` / `timeout` / `handler-threw` kinds. Handler calls wrapped in async IIFE to catch sync throws. Timeout via `Promise.race`. Wire trace records every attempt. `generateRpcTools(caller, peers, bus)` produces `rpc.<peerId>.<method>` tools; caller's own methods excluded (no self-RPC).
+- **Run-scoped tools** ([`src/agent/loop.ts`](src/agent/loop.ts), [`executor.ts`](src/agent/executor.ts)) — new `extraTools: readonly RegisteredTool[]` option on `AgentOptions` flows through `executeToolUses` into the per-call executor; resolved before `TOOL_REGISTRY` so ephemeral RPC tools work without polluting the global registry.
+- **Disk loader** ([`src/agent/facets/facetDiskLoader.ts`](src/agent/facets/facetDiskLoader.ts)) — scans `<workspace>/.sidecar/facets/*.md` + configured registry paths, merges with built-ins. Per-file parse errors never abort the load (users get the largest possible registry + a clear error list). Registry-level failures (dependency cycles across disk facets) fall back to built-ins only so the dispatcher is never empty.
+- **Command palette** ([`src/agent/facets/facetCommands.ts`](src/agent/facets/facetCommands.ts), [`package.json`](package.json)) — `sidecar.facets.dispatch` multi-select QuickPick + InputBox + dispatch. Handler extracted from `extension.ts` with an injectable `FacetCommandUi` so the flow is testable without stubbing `window.*`. Typed `FacetCommandOutcome` covers disabled / every cancel path / dispatched-with-batch.
+- **Batched review** ([`src/agent/shadow/sandbox.ts`](src/agent/shadow/sandbox.ts), [`src/agent/facets/facetReview.ts`](src/agent/facets/facetReview.ts)) — new `deferPrompt: true` sandbox option captures the diff in `SandboxResult.pendingDiff` and skips the per-run quickpick. `dispatchFacet` sets it, so a 5-facet batch no longer fires 5 overlapping prompts. After dispatch, a single review flow offers Accept / Show diff / Reject / Skip per facet, detects cross-facet file overlaps, and applies accepted diffs via `git apply`.
+- **Config** (+4): `sidecar.facets.{enabled, maxConcurrent, rpcTimeoutMs, registry}`. Settings count: 95 → 99.
+
+Facets roadmap carry-forward: the full sidebar Expert Panel (webview view container with progress tiles + Facet Comms tab) is deferred behind 3.6 — the command-palette + batched-review flow is enough UX surface for v0.66. Tracked in the roadmap.
+
+### Added — Deferred v0.65 Multi-File-Edit items (chunk 1)
+
+Closes the two v0.65 deferrals on the Multi-File Edit Streams surface without building the speculative full-spec N-stream panel.
+
+- **Slim 4.4b — per-file status indicators on the Planned Edits card.** New `AgentCallbacks.onEditPlanProgress` carrying `{ path, status, errorMessage? }` where status ∈ `pending | writing | done | failed | aborted`. `dispatchToolUses` seeds every plan path as `pending` immediately after `onEditPlan` fires; the DAG executor emits `writing` on layer dispatch → `done`/`failed` on completion; unclaimed edits flip to `aborted` when the signal fires mid-walk so spinners don't hang. Webview adds a per-row status glyph (◯ pending / ⟳ writing / ✓ done / ✗ failed / ⊘ aborted) with data-path addressing.
+- **Slim 4.5c — wire `reviewGranularity` into the audit review flow.** `AuditReviewDeps.reviewGranularity?: 'bulk' | 'per-file' | 'per-hunk'`. Bulk routes to a one-prompt `reviewAuditBufferBulk` helper; per-hunk shows an info toast and falls back to per-file (the enum choice isn't silently swallowed); per-file + omission preserve pre-v0.66 behavior. `extension.ts` threads `config.multiFileEditsReviewGranularity` into the `sidecar.audit.review` command.
+- **Not shipped**: live streaming-diff tiles per file (spec's `streamingDiffPreviewFn` panel) and the genuine per-hunk review UI. Both are new surfaces — deferred.
+
+### Changed — Per-module tool registry (chunk 2)
+
+Honest cut on the v0.66 "tool-registration DSL" beat. Original spec called for a decorator/fluent-builder to collapse "~300 lines of boilerplate across 23+ tools"; actual audit showed ~47 lines of paired `def`/`executor` imports + 30 registry entries. No DSL needed — each `src/agent/tools/<name>.ts` module now exports `<name>Tools: RegisteredTool[]` and `tools.ts` composes them via spread.
+
+- 9 per-module arrays: `fsTools` (4), `searchTools` (3), `shellTools` (2), `diagnosticsTools` (1), `gitTools` (9), `knowledgeTools` (2), `systemMonitorTools` (1), `projectKnowledgeTools` (1), `settingsTools` (3).
+- [`tools.ts`](src/agent/tools.ts) `TOOL_REGISTRY` body: 30 explicit entries → 9 `...spread` lines. Paired imports: ~47 lines → ~10.
+- `ask_user` stays inline (it's a special tool the executor handles, not a normal dispatch entry). Per-tool named exports (`readFile`, `getDiagnostics`, etc.) stay available for tests + the loop's direct `getDiagnostics()` import.
+- Skipped by design: a handler-registry pattern (already in place as `Record<string, fn>` dispatch at `chatView.ts:248`) and a `defineTool` DSL (genuine saving would've been ~15 lines — not worth the abstraction cost).
+
+### Tests — Coverage pass on three webview handlers
+
+- **[`src/webview/handlers/systemPrompt.ts`](src/webview/handlers/systemPrompt.ts)**: 0% → 97.14% stmts via a fresh test file covering the base prompt builder (identity/rules/plan-mode branches), every branch of `injectSystemContext` (trust state, SIDECAR.md, skills + workspace-sourced provenance, retriever fusion, workspace-index sections, session block), and `enrichAndPruneMessages`.
+- **[`src/webview/handlers/githubHandlers.ts`](src/webview/handlers/githubHandlers.ts)**: 52.88% → 98.07%. New tests cover the clone flow (dismiss + success), `getPR`/`createPR`/`listIssues`/`getIssue`/`createIssue`, the full release lifecycle (list/get/getLatest/create/delete), `browse`, and the remote-fallback error paths.
+- **[`src/webview/handlers/agentHandlers.ts`](src/webview/handlers/agentHandlers.ts)**: 52.64% → 81.78%. New tests cover execute/revise-plan happy paths, batch dispatch + abort + no-task, spec success + failure, audit markdown-table rendering + filter parsing, insights report generation, scaffold empty-output branch.
+
 ## [0.65.1] - 2026-04-18
 
 **v0.65.1 — test-flake patch.** Ships a single-file fix for two CI-only test failures in `src/agent/audit/reviewCommands.test.ts`; no behavior change. Cut because v0.65.0's publish workflow failed on the flaky tests and never completed the marketplace publish — this release carries forward every v0.65.0 feature plus the flake fix.
