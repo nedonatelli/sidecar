@@ -4,6 +4,16 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.65.1] - 2026-04-18
+
+**v0.65.1 — test-flake patch.** Ships a single-file fix for two CI-only test failures in `src/agent/audit/reviewCommands.test.ts`; no behavior change. Cut because v0.65.0's publish workflow failed on the flaky tests and never completed the marketplace publish — this release carries forward every v0.65.0 feature plus the flake fix.
+
+### Fixed
+
+- **[`src/agent/audit/reviewCommands.test.ts`](src/agent/audit/reviewCommands.test.ts)** — two tests (`accepts a single file via the post-diff picker`, `rejects a single file via the post-diff picker without modal`) were passing locally but failing in CI. Root cause: `AuditBuffer.list()` sorts newest-first by timestamp; on a fast local machine both sequential `buf.write` calls in `makeBufferWith` fell in the same millisecond and sort was stable (insertion order preserved → `a.ts` first). On the slower CI machine timestamps separated by 1 ms, flipping the pick order and causing `items.find(i => i.action === 'open')` to return `b.ts` instead of the intended `a.ts`. The test wrote to the wrong file and asserted against `buf.has('a.ts')` still being populated. Fixed by filtering the pick predicate with `i.label.includes('a.ts')` so the target entry is deterministic regardless of timestamp resolution.
+
+Tests: 3037 passing (unchanged from v0.65.0). No behavior, no config, no breaking changes.
+
 ## [0.65.0] - 2026-04-18
 
 **v0.65.0 — Loop ergonomics.** Large release focused on making the agent loop feel *live* rather than batch-mode: users can now steer a run mid-stream, multi-file refactors plan before they write, retrieval walks the call graph, and stream failures surface a persistent recovery path. The release also lifts five subsystems from <60% coverage to ≥90% and ships two major roadmap entries (Suggestion Mode, Dense-Repository Context Mode) for future work.
