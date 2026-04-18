@@ -102,6 +102,10 @@ export interface SideCarConfig {
   multiFileEditsReviewGranularity: 'bulk' | 'per-file' | 'per-hunk';
   retrievalGraphExpansionEnabled: boolean;
   retrievalGraphExpansionMaxHits: number;
+  facetsEnabled: boolean;
+  facetsMaxConcurrent: number;
+  facetsRpcTimeoutMs: number;
+  facetsRegistry: string[];
   criticEnabled: boolean;
   criticModel: string;
   criticBlockOnHighSeverity: boolean;
@@ -292,6 +296,10 @@ function readConfig(): SideCarConfig {
       | 'per-hunk',
     retrievalGraphExpansionEnabled: cfg.get<boolean>('retrieval.graphExpansion.enabled', true),
     retrievalGraphExpansionMaxHits: clampMin(cfg.get<number>('retrieval.graphExpansion.maxHits', 8), 0, 50),
+    facetsEnabled: cfg.get<boolean>('facets.enabled', true),
+    facetsMaxConcurrent: clampMin(cfg.get<number>('facets.maxConcurrent', 3), 1, 16),
+    facetsRpcTimeoutMs: clampMin(cfg.get<number>('facets.rpcTimeoutMs', 30_000), 1_000, 300_000),
+    facetsRegistry: cfg.get<string[]>('facets.registry', []),
     criticEnabled: cfg.get<boolean>('critic.enabled', false),
     // v0.62.1 p.1a: provider-aware default. An empty `critic.model`
     // historically meant "use the main model," which doubled per-

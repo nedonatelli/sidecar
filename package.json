@@ -437,6 +437,31 @@
             "maximum": 50,
             "description": "Cap on symbols added via graph walk per retrieval call. Higher = deeper dependency coverage at more token cost; lower = tighter context for small-context local models."
           },
+          "sidecar.facets.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Enable Typed Sub-Agent Facets — specialized sub-agents declared in .sidecar/facets/*.md with typed tool allowlists and RPC schemas. Built-in facets (general-coder, latex-writer, signal-processing, frontend, test-author, technical-writer, security-reviewer, data-engineer) are always available."
+          },
+          "sidecar.facets.maxConcurrent": {
+            "type": "number",
+            "default": 3,
+            "minimum": 1,
+            "maximum": 16,
+            "description": "Maximum number of facets running in parallel. Guards GPU and context pressure when several specialists share the same local model. Within a single dispatch, independent facets run concurrently up to this cap; dependent facets wait for their prerequisites regardless."
+          },
+          "sidecar.facets.rpcTimeoutMs": {
+            "type": "number",
+            "default": 30000,
+            "minimum": 1000,
+            "maximum": 300000,
+            "description": "Timeout for a single typed RPC call between facets. Exceeded calls return a synthetic timeout error to the caller rather than hanging the dispatch."
+          },
+          "sidecar.facets.registry": {
+            "type": "array",
+            "items": { "type": "string" },
+            "default": [],
+            "description": "Absolute paths to additional facet .md files (merged with built-ins). Omit to use only the built-in catalog plus any facets at .sidecar/facets/*.md in the active workspace."
+          },
           "sidecar.regressionGuards": {
             "type": "array",
             "default": [],

@@ -63,7 +63,7 @@ describe('package.json contributes.configuration — 8-category layout (v0.62.5)
     }
   });
 
-  it('exactly 95 settings keys total across all sections', () => {
+  it('exactly 99 settings keys total across all sections', () => {
     // Baseline: v0.62.4 (75) + v0.64 Model Routing (+5:
     // modelRouting.enabled/rules/defaultModel/visibleSwaps/dryRun)
     // + v0.64 Skill Sync (+5: skills.userRegistry/teamRegistries/
@@ -72,12 +72,14 @@ describe('package.json contributes.configuration — 8-category layout (v0.62.5)
     // + v0.65 Multi-File Edits (+6: multiFileEdits.enabled/maxParallel/
     // planningPass/minFilesForPlan/plannerModel/reviewGranularity)
     // + v0.65 Retrieval Graph Expansion (+2: retrieval.graphExpansion.
-    // enabled/maxHits).
+    // enabled/maxHits)
+    // + v0.66 Facets (+4: facets.enabled/maxConcurrent/rpcTimeoutMs/
+    // registry).
     // Adding a setting requires bumping this + adding it to one of
     // the sections.
     const cfg = loadConfiguration();
     const totalKeys = cfg.reduce((sum, s) => sum + Object.keys(s.properties).length, 0);
-    expect(totalKeys).toBe(95);
+    expect(totalKeys).toBe(99);
   });
 
   it('no setting key is duplicated across sections', () => {
