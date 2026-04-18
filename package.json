@@ -1345,6 +1345,12 @@
         "icon": "$(trash)"
       },
       {
+        "command": "sidecar.facets.dispatch",
+        "title": "Facets: Dispatch Specialists",
+        "category": "SideCar",
+        "icon": "$(organization)"
+      },
+      {
         "command": "sidecar.kickstand.loadModel",
         "title": "Kickstand: Load Model",
         "category": "SideCar",

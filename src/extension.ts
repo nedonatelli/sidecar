@@ -1186,6 +1186,30 @@ export function activate(context: ExtensionContext) {
         window.showInformationMessage('SideCar: no stale shadow worktrees found.');
       }
     }),
+    // v0.66 chunk 3.5b — Facet dispatch from the command palette. MVP
+    // flow: pick facets, enter task, dispatch via dispatchFacets. The
+    // full Expert Panel (sidebar, progress tiles, wire-trace tab) is
+    // chunk 3.5c / 3.6.
+    commands.registerCommand('sidecar.facets.dispatch', async () => {
+      const { runFacetDispatchCommand, createDefaultFacetCommandUi } = await import('./agent/facets/facetCommands.js');
+      const { loadFacetRegistry } = await import('./agent/facets/facetDiskLoader.js');
+      const cfg = getConfig();
+      const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath;
+      await runFacetDispatchCommand({
+        ui: createDefaultFacetCommandUi(),
+        loadRegistry: () =>
+          loadFacetRegistry({
+            workspaceRoot,
+            registryPaths: cfg.facetsRegistry,
+          }),
+        createClient,
+        config: {
+          enabled: cfg.facetsEnabled,
+          maxConcurrent: cfg.facetsMaxConcurrent,
+          rpcTimeoutMs: cfg.facetsRpcTimeoutMs,
+        },
+      });
+    }),
   );
 
   // v0.63.1 — backend-native capability commands (Kickstand
