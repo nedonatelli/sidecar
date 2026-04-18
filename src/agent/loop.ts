@@ -131,6 +131,17 @@ export interface AgentOptions {
    */
   toolOverride?: ToolDefinition[];
   /**
+   * Ephemeral `RegisteredTool[]` scoped to this run (v0.66 chunk 3.4b).
+   * Threaded into the executor so the tool dispatch path can resolve
+   * them BEFORE consulting the global `TOOL_REGISTRY`. Used by the
+   * Facet dispatcher to install per-facet `rpc.<peerId>.<method>`
+   * tools without mutating the global registry. The loop does NOT
+   * include these in `toolOverride` automatically — callers that
+   * want the model to SEE these tools must also add their definitions
+   * to `toolOverride`.
+   */
+  extraTools?: readonly import('./tools/shared.js').RegisteredTool[];
+  /**
    * Per-run ToolRuntime. When set, tools that need a persistent shell
    * session (run_command, run_tests) resolve it from this runtime
    * rather than the process-wide default — the whole point being

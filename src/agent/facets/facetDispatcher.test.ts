@@ -262,14 +262,15 @@ describe('dispatchFacet — failure path', () => {
 // ---------------------------------------------------------------------------
 
 describe('dispatchFacets — orchestration', () => {
-  it('returns empty array for empty input', async () => {
+  it('returns empty results for empty input, bus wire trace is empty', async () => {
     const reg = buildFacetRegistry([facet({ id: 'a' })]);
-    const result = await dispatchFacets(makeClient(), reg, [], makeCallbacks(), {
+    const batch = await dispatchFacets(makeClient(), reg, [], makeCallbacks(), {
       task: 'x',
       signal: new AbortController().signal,
       maxConcurrent: 3,
     });
-    expect(result).toEqual([]);
+    expect(batch.results).toEqual([]);
+    expect(batch.rpcWireTrace).toEqual([]);
   });
 
   it('runs independent facets in parallel up to maxConcurrent', async () => {
@@ -284,12 +285,12 @@ describe('dispatchFacets — orchestration', () => {
     });
     const facets = [facet({ id: 'a' }), facet({ id: 'b' }), facet({ id: 'c' }), facet({ id: 'd' })];
     const reg = buildFacetRegistry(facets);
-    const result = await dispatchFacets(makeClient(), reg, ['a', 'b', 'c', 'd'], makeCallbacks(), {
+    const batch = await dispatchFacets(makeClient(), reg, ['a', 'b', 'c', 'd'], makeCallbacks(), {
       task: 'x',
       signal: new AbortController().signal,
       maxConcurrent: 2,
     });
-    expect(result).toHaveLength(4);
+    expect(batch.results).toHaveLength(4);
     expect(peak).toBe(2);
   });
 
@@ -323,28 +324,28 @@ describe('dispatchFacets — orchestration', () => {
     runAgentLoopInSandboxMock.mockResolvedValue({ mode: 'shadow', applied: true });
     const facets = [facet({ id: 'root' }), facet({ id: 'leaf', dependsOn: ['root'] }), facet({ id: 'independent' })];
     const reg = buildFacetRegistry(facets);
-    const result = await dispatchFacets(makeClient(), reg, ['leaf', 'independent', 'root'], makeCallbacks(), {
+    const batch = await dispatchFacets(makeClient(), reg, ['leaf', 'independent', 'root'], makeCallbacks(), {
       task: 'x',
       signal: new AbortController().signal,
       maxConcurrent: 4,
     });
-    expect(result.map((r) => r.facetId)).toEqual(['leaf', 'independent', 'root']);
+    expect(batch.results.map((r) => r.facetId)).toEqual(['leaf', 'independent', 'root']);
   });
 
   it('surfaces unknown facet ids as synthetic error results without aborting the batch', async () => {
     runAgentLoopInSandboxMock.mockResolvedValue({ mode: 'shadow', applied: true });
     const reg = buildFacetRegistry([facet({ id: 'real' })]);
-    const result = await dispatchFacets(makeClient(), reg, ['real', 'ghost'], makeCallbacks(), {
+    const batch = await dispatchFacets(makeClient(), reg, ['real', 'ghost'], makeCallbacks(), {
       task: 'x',
       signal: new AbortController().signal,
       maxConcurrent: 4,
     });
-    expect(result).toHaveLength(2);
-    expect(result[0].facetId).toBe('real');
-    expect(result[0].success).toBe(true);
-    expect(result[1].facetId).toBe('ghost');
-    expect(result[1].success).toBe(false);
-    expect(result[1].errorMessage).toContain('Unknown facet id "ghost"');
+    expect(batch.results).toHaveLength(2);
+    expect(batch.results[0].facetId).toBe('real');
+    expect(batch.results[0].success).toBe(true);
+    expect(batch.results[1].facetId).toBe('ghost');
+    expect(batch.results[1].success).toBe(false);
+    expect(batch.results[1].errorMessage).toContain('Unknown facet id "ghost"');
   });
 
   it('stops dispatching later layers when the signal aborts mid-run', async () => {
@@ -364,5 +365,180 @@ describe('dispatchFacets — orchestration', () => {
     });
     // root ran, child did not (layer 2 skipped after abort).
     expect(callCount).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// dispatchFacets — RPC wiring (v0.66 chunk 3.4b)
+// ---------------------------------------------------------------------------
+
+describe('dispatchFacets — RPC wiring', () => {
+  it('registers supplied rpcHandlers on the bus before any facet runs', async () => {
+    const handler = vi.fn().mockResolvedValue('handled');
+    runAgentLoopInSandboxMock.mockImplementation(async (_c, _m, _cb, _signal, options) => {
+      // The extraTools carry executors that resolve through the bus.
+      // Simulate a facet calling rpc.latex.publishMathBlock.
+      const extraTools = options.extraTools as Array<{
+        definition: { name: string };
+        executor: (input: Record<string, unknown>) => Promise<string>;
+      }>;
+      const rpcTool = extraTools?.find((t) => t.definition.name === 'rpc.latex.publishMathBlock');
+      if (rpcTool) {
+        await rpcTool.executor({ args: { symbol: 'fft' } });
+      }
+      return { mode: 'shadow', applied: true };
+    });
+    const facets = [facet({ id: 'dsp', rpcSchema: {} }), facet({ id: 'latex', rpcSchema: { publishMathBlock: {} } })];
+    const reg = buildFacetRegistry(facets);
+    const batch = await dispatchFacets(makeClient(), reg, ['dsp', 'latex'], makeCallbacks(), {
+      task: 'x',
+      signal: new AbortController().signal,
+      maxConcurrent: 4,
+      rpcHandlers: {
+        latex: { publishMathBlock: handler },
+      },
+    });
+    // Handler was actually called from the dsp facet.
+    expect(handler).toHaveBeenCalledWith({ symbol: 'fft' }, expect.objectContaining({ callerFacetId: 'dsp' }));
+    // Wire trace carries one successful ok-outcome.
+    const okCalls = batch.rpcWireTrace.filter((t) => t.outcome === 'ok');
+    expect(okCalls).toHaveLength(1);
+    expect(okCalls[0]).toMatchObject({
+      callerFacetId: 'dsp',
+      receiverFacetId: 'latex',
+      method: 'publishMathBlock',
+    });
+  });
+
+  it("generates rpc.<peer>.<method> tools on the caller facet's toolOverride + extraTools", async () => {
+    // Both facets invoke the sandbox — capture per-facet by keying on
+    // the system prompt's id marker so the assertions target dsp's
+    // dispatch (not latex's, which has no peer rpcSchema to call).
+    const toolOverrideByFacet = new Map<string, Array<{ name: string }>>();
+    const extraToolsByFacet = new Map<string, Array<{ definition: { name: string } }>>();
+    runAgentLoopInSandboxMock.mockImplementation(async (c, _m, _cb, _signal, options) => {
+      const composedPrompt = (c as { updateSystemPrompt?: ReturnType<typeof vi.fn> }).updateSystemPrompt?.mock.calls.at(
+        -1,
+      )?.[0] as string | undefined;
+      const match = composedPrompt?.match(/id: (\w+)/);
+      const facetId = match?.[1] ?? '?';
+      toolOverrideByFacet.set(facetId, (options.toolOverride ?? []) as Array<{ name: string }>);
+      extraToolsByFacet.set(facetId, (options.extraTools ?? []) as Array<{ definition: { name: string } }>);
+      return { mode: 'shadow', applied: true };
+    });
+    const facets = [
+      facet({ id: 'dsp' }),
+      facet({ id: 'latex', rpcSchema: { publishMathBlock: {}, requestDefinition: {} } }),
+    ];
+    const reg = buildFacetRegistry(facets);
+    await dispatchFacets(makeClient(), reg, ['dsp', 'latex'], makeCallbacks(), {
+      task: 'x',
+      signal: new AbortController().signal,
+      maxConcurrent: 4,
+    });
+    // dsp's toolOverride includes both rpc tools (peer latex has 2 methods).
+    const dspToolNames = (toolOverrideByFacet.get('dsp') ?? []).map((t) => t.name).filter((n) => n.startsWith('rpc.'));
+    expect(dspToolNames.sort()).toEqual(['rpc.latex.publishMathBlock', 'rpc.latex.requestDefinition']);
+    const dspExtraToolNames = (extraToolsByFacet.get('dsp') ?? []).map((t) => t.definition.name);
+    expect(dspExtraToolNames.sort()).toEqual(['rpc.latex.publishMathBlock', 'rpc.latex.requestDefinition']);
+  });
+
+  it('no rpc tools are generated when no peer declares an rpcSchema', async () => {
+    let sawToolOverride: Array<{ name: string }> | undefined;
+    runAgentLoopInSandboxMock.mockImplementation(async (_c, _m, _cb, _signal, options) => {
+      sawToolOverride = options.toolOverride as typeof sawToolOverride;
+      return { mode: 'shadow', applied: true };
+    });
+    const facets = [facet({ id: 'a' }), facet({ id: 'b' })]; // neither declares rpcSchema
+    const reg = buildFacetRegistry(facets);
+    await dispatchFacets(makeClient(), reg, ['a', 'b'], makeCallbacks(), {
+      task: 'x',
+      signal: new AbortController().signal,
+      maxConcurrent: 4,
+    });
+    const rpcTools = (sawToolOverride ?? []).filter((t) => t.name.startsWith('rpc.'));
+    expect(rpcTools).toHaveLength(0);
+  });
+
+  it('RPC calls to unregistered handlers surface as [rpc-error:no-handler] in the tool output', async () => {
+    let toolResult: string | undefined;
+    runAgentLoopInSandboxMock.mockImplementation(async (_c, _m, _cb, _signal, options) => {
+      const extraTools = options.extraTools as Array<{
+        definition: { name: string };
+        executor: (input: Record<string, unknown>) => Promise<string>;
+      }>;
+      const rpcTool = extraTools?.find((t) => t.definition.name === 'rpc.peer.missing');
+      if (rpcTool) toolResult = await rpcTool.executor({ args: {} });
+      return { mode: 'shadow', applied: true };
+    });
+    const facets = [facet({ id: 'caller' }), facet({ id: 'peer', rpcSchema: { missing: {} } })];
+    const reg = buildFacetRegistry(facets);
+    // No rpcHandlers provided — the peer's methods won't have handlers.
+    await dispatchFacets(makeClient(), reg, ['caller', 'peer'], makeCallbacks(), {
+      task: 'x',
+      signal: new AbortController().signal,
+      maxConcurrent: 4,
+    });
+    expect(toolResult).toMatch(/^\[rpc-error:no-handler\]/);
+  });
+
+  it('honors rpcTimeoutMs from options', async () => {
+    const handler = vi.fn(() => new Promise((r) => setTimeout(() => r('too-late'), 200)));
+    let toolResult: string | undefined;
+    runAgentLoopInSandboxMock.mockImplementation(async (_c, _m, _cb, _signal, options) => {
+      const extraTools = options.extraTools as Array<{
+        definition: { name: string };
+        executor: (input: Record<string, unknown>) => Promise<string>;
+      }>;
+      const rpcTool = extraTools?.find((t) => t.definition.name === 'rpc.peer.slow');
+      if (rpcTool) toolResult = await rpcTool.executor({ args: {} });
+      return { mode: 'shadow', applied: true };
+    });
+    const facets = [facet({ id: 'caller' }), facet({ id: 'peer', rpcSchema: { slow: {} } })];
+    const reg = buildFacetRegistry(facets);
+    await dispatchFacets(makeClient(), reg, ['caller', 'peer'], makeCallbacks(), {
+      task: 'x',
+      signal: new AbortController().signal,
+      maxConcurrent: 4,
+      rpcTimeoutMs: 50,
+      rpcHandlers: { peer: { slow: handler } },
+    });
+    expect(toolResult).toMatch(/^\[rpc-error:timeout\]/);
+  });
+
+  it("clears a facet's handlers after its loop completes so later calls no-handler", async () => {
+    const handler = vi.fn().mockResolvedValue('ok');
+    // The dispatch order here: layer 1 = [a], layer 2 = [b]. b runs
+    // AFTER a completes. If a's handlers were still registered after
+    // its teardown, b could call a and succeed; we expect no-handler.
+    // Track tool results per facet id.
+    const resultsByFacet = new Map<string, string>();
+    runAgentLoopInSandboxMock.mockImplementation(async (_c, _m, _cb, _signal, options) => {
+      // Extract the caller facet id from the composed system prompt —
+      // same trick as the ordering test above.
+      const composedPrompt = (
+        _c as { updateSystemPrompt?: ReturnType<typeof vi.fn> }
+      ).updateSystemPrompt?.mock.calls.at(-1)?.[0] as string | undefined;
+      const match = composedPrompt?.match(/id: (\w+)/);
+      const facetId = match?.[1] ?? '?';
+      const extraTools = options.extraTools as Array<{
+        definition: { name: string };
+        executor: (input: Record<string, unknown>) => Promise<string>;
+      }>;
+      const tool = extraTools?.find((t) => t.definition.name.startsWith('rpc.'));
+      if (tool) resultsByFacet.set(facetId, await tool.executor({ args: {} }));
+      return { mode: 'shadow', applied: true };
+    });
+    const facets = [facet({ id: 'a', rpcSchema: { m: {} } }), facet({ id: 'b', dependsOn: ['a'], rpcSchema: {} })];
+    const reg = buildFacetRegistry(facets);
+    await dispatchFacets(makeClient(), reg, ['a', 'b'], makeCallbacks(), {
+      task: 'x',
+      signal: new AbortController().signal,
+      maxConcurrent: 4,
+      rpcHandlers: { a: { m: handler } },
+    });
+    // When b ran and called rpc.a.m, the handler should have been
+    // cleared after a finished — so b sees no-handler.
+    expect(resultsByFacet.get('b')).toMatch(/^\[rpc-error:no-handler\]/);
   });
 });

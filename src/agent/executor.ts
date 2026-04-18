@@ -164,6 +164,13 @@ export interface ExecuteToolOptions {
    * store first so the agent sees a consistent view of its own changes.
    */
   pendingEdits?: PendingEditStore;
+  /**
+   * Ephemeral tools scoped to THIS run (v0.66 chunk 3.4b). Consulted
+   * before `findTool` so dispatch-time-generated tools like the Facet
+   * RPC bus's `rpc.<facetId>.<method>` entries resolve without a global
+   * registry mutation. Empty or undefined preserves pre-v0.66 lookup.
+   */
+  extraTools?: readonly import('./tools/shared.js').RegisteredTool[];
 }
 
 export async function executeTool(
@@ -181,8 +188,12 @@ export async function executeTool(
     inlineEditFn,
     streamingDiffPreviewFn,
     pendingEdits,
+    extraTools,
   } = opts;
-  const tool = findTool(toolUse.name, mcpManager);
+  // Check the run-scoped ephemeral tools (v0.66 chunk 3.4b) before
+  // the global registry. Facet RPC tools land here so cross-facet
+  // calls resolve without polluting TOOL_REGISTRY across runs.
+  const tool = extraTools?.find((t) => t.definition.name === toolUse.name) ?? findTool(toolUse.name, mcpManager);
 
   if (!tool) {
     return {

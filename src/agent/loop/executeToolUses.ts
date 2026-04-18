@@ -164,6 +164,7 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
     inlineEditFn: options.inlineEditFn,
     streamingDiffPreviewFn: options.streamingDiffPreviewFn,
     pendingEdits: options.pendingEdits,
+    extraTools: options.extraTools,
   });
   state.logger?.logToolResult(toolUse.name, result.content, result.is_error || false);
 
