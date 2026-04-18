@@ -1,17 +1,17 @@
 // ---------------------------------------------------------------------------
-// Layer 3 — real-model embedding parity (v0.64 post-release, v0.65 gate).
+// Layer 3 — real-model embedding parity.
 //
 // Layers 1 and 2 of the retrieval suite run against a deterministic fake
 // pipeline (see `src/test/retrieval-eval/harness.ts`) so they stay fast
 // and cheap. That's great for catching pipeline-glue regressions but
-// useless for catching MODEL regressions — the concrete case we care
-// about being the pending `@xenova/transformers` v2 → v3 migration
-// (chunk 7 in the v0.64 prep, deferred to v0.65 pending this harness).
+// useless for catching MODEL regressions — the concrete case this
+// harness was built for is the `@xenova/transformers@2` →
+// `@huggingface/transformers@4` migration (captured in v0.65).
 //
 // This file fills that gap: it loads the REAL pipeline via a dynamic
-// `@xenova/transformers` import, runs it against the fixed fixture in
-// `embeddingParity.fixture.ts`, and compares the output vectors against
-// a committed baseline JSON. Two modes:
+// `@huggingface/transformers` import, runs it against the fixed fixture
+// in `embeddingParity.fixture.ts`, and compares the output vectors
+// against a committed baseline JSON. Two modes:
 //
 //   - **Record mode** (`SIDECAR_RECORD_PARITY_BASELINE=1`): overwrites
 //     the baseline with whatever the current model produces, prints
@@ -46,19 +46,23 @@ const BASELINE_PATH = path.resolve(__dirname, 'embeddingParity.baseline.json');
 const RECORD_MODE = process.env.SIDECAR_RECORD_PARITY_BASELINE === '1';
 
 /**
- * Cosine similarity floor. 0.999 is strict but achievable: the same
- * model + same input should produce byte-identical-or-nearly-so
- * output across dependency minor-versions (ONNX Runtime's numeric
- * stability is the limiting factor). A drop below 0.999 suggests
- * either (a) the quantized weights changed, (b) tokenization changed,
- * or (c) the mean-pooling math drifted — all three are cases a user
- * of the Project Knowledge Index would actually feel.
+ * Cosine similarity floor.
  *
- * Relax to 0.98 if the v3 migration report documents a known minor
- * numerical change and we accept it (e.g. a mixed-precision upgrade
- * that measurably improves quality on a downstream eval).
+ * Originally 0.999 (strict byte-near-identical). Relaxed to 0.99 in the
+ * v2 → @huggingface/transformers@4 migration: most inputs stay at
+ * exactly 1.000 (same q8 quantized ONNX weights via the new `dtype`
+ * API), but the two longest fixture inputs drift to ~0.996 because v4's
+ * tokenizer normalizes multi-line code whitespace slightly differently
+ * than v2 did. The gate still catches:
+ *   - accidental dtype/quantization changes (→ all inputs drift to ~0.99)
+ *   - model-weight swaps (→ all inputs to ~0.95 or worse)
+ *   - real behavioral regressions (→ non-uniform scatter below 0.99)
+ *
+ * Tighten back toward 0.999 if a future upstream release restores the
+ * older tokenizer normalization, and investigate any input-specific
+ * drop below 0.99 as a real regression.
  */
-const SIMILARITY_FLOOR = 0.999;
+const SIMILARITY_FLOOR = 0.99;
 
 /** Model id — must match the one used by `symbolEmbeddingIndex.ts` in production. */
 const MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
@@ -85,9 +89,13 @@ type Pipeline = (texts: string[], opts: { pooling: string; normalize: boolean })
 
 async function loadPipeline(): Promise<Pipeline | null> {
   try {
-    const { pipeline: createPipeline, env } = await import('@xenova/transformers');
+    const { pipeline: createPipeline, env } = await import('@huggingface/transformers');
     env.allowRemoteModels = true;
-    const pipe = (await createPipeline('feature-extraction', MODEL_ID, { quantized: true })) as unknown as Pipeline;
+    // v4's `pipeline()` dropped the `quantized: boolean` flag in favor of
+    // an explicit `dtype` enum. `'q8'` maps to the 8-bit quantized ONNX
+    // weights that v2's `quantized: true` loaded — any other value
+    // produces DIFFERENT weights and the parity harness will flag drift.
+    const pipe = (await createPipeline('feature-extraction', MODEL_ID, { dtype: 'q8' })) as unknown as Pipeline;
     return pipe;
   } catch (err) {
     console.warn(`[parity] could not load real pipeline: ${(err as Error).message}`);

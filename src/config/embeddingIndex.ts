@@ -1,7 +1,7 @@
 /**
  * Semantic embedding index for workspace files.
  *
- * Uses @xenova/transformers to run a small ONNX embedding model (all-MiniLM-L6-v2)
+ * Uses @huggingface/transformers to run a small ONNX embedding model (all-MiniLM-L6-v2)
  * locally. Each file's content is embedded into a 384-dimensional vector and
  * stored in a binary cache. Queries are embedded at search time and compared
  * via cosine similarity against the cached vectors.
@@ -38,7 +38,7 @@ interface EmbeddingMeta {
   entries: Record<string, { offset: number; hash: string }>;
 }
 
-// Type for the pipeline function from @xenova/transformers
+// Type for the pipeline function from @huggingface/transformers
 type EmbeddingPipeline = (
   texts: string[],
   options?: { pooling?: string; normalize?: boolean },
@@ -92,7 +92,7 @@ export class EmbeddingIndex implements Disposable {
   private async loadModel(): Promise<void> {
     try {
       // Dynamic import to avoid blocking extension activation
-      const { pipeline: createPipeline, env } = await import('@xenova/transformers');
+      const { pipeline: createPipeline, env } = await import('@huggingface/transformers');
 
       // Use the extension's cache directory if available
       if (this.sidecarDir?.isReady()) {
@@ -102,8 +102,13 @@ export class EmbeddingIndex implements Disposable {
       // Allow downloading models from HuggingFace Hub
       env.allowRemoteModels = true;
 
+      // v0.65 — @huggingface/transformers@4 replaced the boolean `quantized`
+      // flag with an explicit `dtype` enum. Pin `q8` so the same 8-bit
+      // quantized ONNX weights load as under v2's `quantized: true`;
+      // without this, v4 silently falls back to fp32 and the embeddings
+      // drift enough to fail the parity gate.
       this.pipeline = (await createPipeline('feature-extraction', MODEL_ID, {
-        quantized: true,
+        dtype: 'q8',
       })) as unknown as EmbeddingPipeline;
       this.ready = true;
       console.log('[SideCar] Embedding model loaded:', MODEL_ID);

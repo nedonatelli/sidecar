@@ -274,12 +274,17 @@ export class SymbolEmbeddingIndex implements Disposable {
 
   private async loadModel(): Promise<void> {
     try {
-      const { pipeline: createPipeline, env } = await import('@xenova/transformers');
+      const { pipeline: createPipeline, env } = await import('@huggingface/transformers');
       // The sidecarDir path still belongs to the caller's world; the
       // store encapsulates vector storage only.
       env.allowRemoteModels = true;
+      // v0.65 — @huggingface/transformers@4 replaced the boolean `quantized`
+      // flag with an explicit `dtype` enum. Pin `q8` so the same 8-bit
+      // quantized ONNX weights load as under v2's `quantized: true`;
+      // without this, v4 silently falls back to fp32 and the embeddings
+      // drift enough to fail the parity gate.
       this.pipeline = (await createPipeline('feature-extraction', MODEL_ID, {
-        quantized: true,
+        dtype: 'q8',
       })) as unknown as EmbeddingPipeline;
       this.ready = true;
     } catch (err) {
