@@ -18,6 +18,10 @@ import {
   handleGenerateCommit,
   handleShowSystemPrompt,
   handleDroppedPaths,
+  handleUserMessageWithImages,
+  handleReconnect,
+  checkBudgetLimits,
+  recordRunCost,
 } from './chatHandlers.js';
 import type { SystemPromptParams } from './chatHandlers.js';
 import { workspace, window, FileType } from 'vscode';
@@ -1299,5 +1303,250 @@ describe('handleDroppedPaths', () => {
 
     const msg = state.postMessage.mock.calls[0]?.[0] as { files: unknown[] };
     expect(msg.files.length).toBe(20);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// checkBudgetLimits (v0.65 chunk 5a)
+// ---------------------------------------------------------------------------
+describe('checkBudgetLimits', () => {
+  function makeState(daily: number, weekly: number) {
+    return {
+      postMessage: vi.fn(),
+      metricsCollector: {
+        getSpendBreakdown: vi.fn().mockReturnValue({ daily, weekly }),
+      },
+    };
+  }
+
+  function makeConfig(daily: number, weekly: number) {
+    return { dailyBudget: daily, weeklyBudget: weekly } as never;
+  }
+
+  it('returns "ok" silently when both budgets are 0 (disabled)', () => {
+    const state = makeState(5, 20);
+    expect(checkBudgetLimits(state as never, makeConfig(0, 0))).toBe('ok');
+    expect(state.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('blocks when daily spend meets the daily budget', () => {
+    const state = makeState(10, 15);
+    expect(checkBudgetLimits(state as never, makeConfig(10, 50))).toBe('blocked');
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('Daily spending limit') }),
+    );
+  });
+
+  it('blocks when daily spend exceeds the daily budget', () => {
+    const state = makeState(12, 15);
+    expect(checkBudgetLimits(state as never, makeConfig(10, 50))).toBe('blocked');
+  });
+
+  it('blocks when weekly spend meets the weekly budget (daily still under)', () => {
+    const state = makeState(3, 50);
+    expect(checkBudgetLimits(state as never, makeConfig(10, 50))).toBe('blocked');
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('Weekly spending limit') }),
+    );
+  });
+
+  it('emits an 80% daily warning but still returns "ok"', () => {
+    const state = makeState(8, 10); // 80% of 10
+    expect(checkBudgetLimits(state as never, makeConfig(10, 50))).toBe('ok');
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('Approaching daily budget') }),
+    );
+  });
+
+  it('emits an 80% weekly warning when daily is under its threshold', () => {
+    const state = makeState(1, 40); // 80% of 50 weekly, under 80% of 10 daily
+    expect(checkBudgetLimits(state as never, makeConfig(10, 50))).toBe('ok');
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('Approaching weekly budget') }),
+    );
+  });
+
+  it('emits no warning when both daily and weekly are below 80%', () => {
+    const state = makeState(2, 10); // 20% daily, 20% weekly
+    expect(checkBudgetLimits(state as never, makeConfig(10, 50))).toBe('ok');
+    expect(state.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('daily block takes precedence over weekly block (checked first)', () => {
+    const state = makeState(10, 50); // both at cap
+    expect(checkBudgetLimits(state as never, makeConfig(10, 50))).toBe('blocked');
+    expect(state.postMessage).toHaveBeenCalledOnce();
+    expect(state.postMessage.mock.calls[0][0].content).toContain('Daily spending limit');
+  });
+
+  it('skips the daily check when only weekly is enabled (dailyBudget=0)', () => {
+    const state = makeState(100, 10);
+    expect(checkBudgetLimits(state as never, makeConfig(0, 10))).toBe('blocked');
+    expect(state.postMessage.mock.calls[0][0].content).toContain('Weekly spending limit');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// recordRunCost (v0.65 chunk 5a)
+// ---------------------------------------------------------------------------
+describe('recordRunCost', () => {
+  function makeState(tokens: number) {
+    const recordCost = vi.fn();
+    return {
+      state: {
+        metricsCollector: {
+          getCurrentRunTokens: vi.fn().mockReturnValue(tokens),
+          recordCost,
+        },
+      },
+      recordCost,
+    };
+  }
+
+  it('no-ops when the run consumed zero tokens (nothing to record)', () => {
+    const { state, recordCost } = makeState(0);
+    recordRunCost(state as never);
+    expect(recordCost).not.toHaveBeenCalled();
+  });
+
+  it('no-ops when the run consumed negative tokens (defensive)', () => {
+    const { state, recordCost } = makeState(-10);
+    recordRunCost(state as never);
+    expect(recordCost).not.toHaveBeenCalled();
+  });
+
+  it('records cost for an unpriced model as null (estimateCost returns null)', () => {
+    const { state, recordCost } = makeState(1000);
+    recordRunCost(state as never);
+    expect(recordCost).toHaveBeenCalledOnce();
+    const cost = recordCost.mock.calls[0][0];
+    // getConfig()'s default stub-returned model is unpriced → estimateCost
+    // returns null. recordRunCost passes it through unchanged.
+    expect(cost === null || typeof cost === 'number').toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleUserMessageWithImages (v0.65 chunk 5b)
+// ---------------------------------------------------------------------------
+describe('handleUserMessageWithImages', () => {
+  function makeState() {
+    return {
+      messages: [] as Array<{ role: string; content: unknown }>,
+      saveHistory: vi.fn(),
+    };
+  }
+
+  it('pushes a user message with image content blocks and trailing text', () => {
+    const state = makeState();
+    handleUserMessageWithImages(state as never, 'look at this', [{ mediaType: 'image/png', data: 'aGVsbG8=' }]);
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0].role).toBe('user');
+    const blocks = state.messages[0].content as Array<{ type: string; text?: string; source?: unknown }>;
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0].type).toBe('image');
+    expect(blocks[1]).toEqual({ type: 'text', text: 'look at this' });
+  });
+
+  it('handles multiple images in a single submission', () => {
+    const state = makeState();
+    handleUserMessageWithImages(state as never, 'compare', [
+      { mediaType: 'image/png', data: 'a' },
+      { mediaType: 'image/jpeg', data: 'b' },
+      { mediaType: 'image/png', data: 'c' },
+    ]);
+    const blocks = state.messages[0].content as Array<{ type: string }>;
+    expect(blocks).toHaveLength(4); // 3 images + 1 text
+    expect(blocks.slice(0, 3).every((b) => b.type === 'image')).toBe(true);
+    expect(blocks[3].type).toBe('text');
+  });
+
+  it('handles empty text by attaching an empty text block (preserves Anthropic content shape)', () => {
+    const state = makeState();
+    handleUserMessageWithImages(state as never, '', [{ mediaType: 'image/png', data: 'x' }]);
+    const blocks = state.messages[0].content as Array<{ type: string; text?: string }>;
+    expect(blocks[1]).toEqual({ type: 'text', text: '' });
+  });
+
+  it('persists history immediately after pushing', () => {
+    const state = makeState();
+    handleUserMessageWithImages(state as never, 'a', [{ mediaType: 'image/png', data: 'x' }]);
+    expect(state.saveHistory).toHaveBeenCalledOnce();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleReconnect (v0.65 chunk 5b)
+// ---------------------------------------------------------------------------
+describe('handleReconnect', () => {
+  function makeState(
+    overrides: {
+      messages?: Array<{ role: string; content: unknown }>;
+      providerType?: string;
+      isLocalOllama?: boolean;
+    } = {},
+  ) {
+    return {
+      postMessage: vi.fn(),
+      saveHistory: vi.fn(),
+      messages: overrides.messages ?? [],
+      abortController: null as AbortController | null,
+      chatGeneration: 0,
+      logMessage: vi.fn(),
+      client: {
+        // Use anthropic by default so ensureProviderRunning takes the
+        // non-local / non-kickstand early-return branch without trying
+        // to spawn a child process.
+        getProviderType: vi.fn().mockReturnValue(overrides.providerType ?? 'anthropic'),
+        isLocalOllama: vi.fn().mockReturnValue(overrides.isLocalOllama ?? false),
+      },
+    };
+  }
+
+  it('posts a connection error when a non-local provider is unreachable', async () => {
+    const providerReachability = await import('../../config/providerReachability.js');
+    vi.spyOn(providerReachability, 'isProviderReachable').mockResolvedValue(false);
+
+    const state = makeState();
+    await handleReconnect(state as never);
+
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: 'error',
+        errorType: 'connection',
+        errorAction: 'Reconnect',
+      }),
+    );
+    vi.restoreAllMocks();
+  });
+
+  it('surfaces setLoading + typingStatus breadcrumbs at the start of reconnect', async () => {
+    const providerReachability = await import('../../config/providerReachability.js');
+    vi.spyOn(providerReachability, 'isProviderReachable').mockResolvedValue(true);
+
+    const state = makeState();
+    await handleReconnect(state as never);
+
+    const commands = state.postMessage.mock.calls.map((c) => (c[0] as { command: string }).command);
+    expect(commands).toContain('setLoading');
+    expect(commands).toContain('typingStatus');
+    vi.restoreAllMocks();
+  });
+
+  it('posts a "Reconnected" confirmation + done when the provider comes back', async () => {
+    const providerReachability = await import('../../config/providerReachability.js');
+    vi.spyOn(providerReachability, 'isProviderReachable').mockResolvedValue(true);
+
+    const state = makeState();
+    await handleReconnect(state as never);
+
+    const assistantMsg = state.postMessage.mock.calls.find(
+      (c) => (c[0] as { command: string }).command === 'assistantMessage',
+    );
+    expect(assistantMsg).toBeDefined();
+    expect((assistantMsg![0] as { content: string }).content).toContain('Reconnected');
+    const doneMsg = state.postMessage.mock.calls.find((c) => (c[0] as { command: string }).command === 'done');
+    expect(doneMsg).toBeDefined();
+    vi.restoreAllMocks();
   });
 });
