@@ -1142,6 +1142,52 @@ body {
   border-radius: 3px;
 }
 
+/* Per-file status glyph on each Planned Edits row (v0.66 chunk 1,
+   slim 4.4b). Transitions ◯ pending → ⟳ writing → ✓ done / ✗ failed
+   / ⊘ aborted as the DAG walks the plan. */
+.edit-plan-status {
+  flex-shrink: 0;
+  display: inline-block;
+  width: 16px;
+  text-align: center;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 13px;
+  line-height: 1;
+}
+
+.edit-plan-status-pending {
+  color: var(--vscode-descriptionForeground);
+  opacity: 0.6;
+}
+
+.edit-plan-status-writing {
+  color: var(--vscode-charts-blue, #3794ff);
+  animation: edit-plan-spin 1.2s linear infinite;
+}
+
+.edit-plan-status-done {
+  color: var(--vscode-charts-green, #388a34);
+}
+
+.edit-plan-status-failed {
+  color: var(--vscode-errorForeground, #f14c4c);
+  font-weight: 600;
+}
+
+.edit-plan-status-aborted {
+  color: var(--vscode-editorWarning-foreground, #cca700);
+  opacity: 0.8;
+}
+
+@keyframes edit-plan-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .edit-plan-op-create .edit-plan-badge {
   background: var(--vscode-charts-green, #388a34);
   color: var(--vscode-editor-background);

@@ -1542,6 +1542,21 @@
   // DAG edges and can amend via the Steer Queue ("skip src/legacy/**").
   // No per-card amend UI here — steer is the amend channel.
   // ---------------------------------------------------------------------------
+  // Active Planned Edits card — most recent one rendered. Status
+  // updates via `editPlanProgress` find rows by path within this card.
+  // Rotating to a new card on each fresh plan is intentional: older
+  // plans stay visible in the transcript as a historical record but
+  // only the current plan receives live status transitions.
+  let activeEditPlanCard = null;
+
+  const STATUS_GLYPH = {
+    pending: '◯',
+    writing: '⟳',
+    done: '✓',
+    failed: '✗',
+    aborted: '⊘',
+  };
+
   function renderEditPlanCard(edits) {
     const card = document.createElement('details');
     card.className = 'edit-plan-card';
@@ -1563,6 +1578,13 @@
     for (const e of edits) {
       const item = document.createElement('li');
       item.className = 'edit-plan-item edit-plan-op-' + e.op;
+      item.dataset.path = e.path;
+
+      const status = document.createElement('span');
+      status.className = 'edit-plan-status edit-plan-status-pending';
+      status.textContent = STATUS_GLYPH.pending;
+      status.title = 'pending';
+      item.appendChild(status);
 
       const badge = document.createElement('span');
       badge.className = 'edit-plan-badge';
@@ -1598,6 +1620,30 @@
     card.appendChild(hint);
 
     messagesContainer.appendChild(card);
+    activeEditPlanCard = card;
+  }
+
+  // Apply an `editPlanProgress` status transition to the matching row
+  // on the most-recent plan card. No-ops when no active card exists
+  // or the path isn't in the current plan — the updates arrive in
+  // arrival order and a stale message from a prior run can't corrupt
+  // an in-flight card.
+  function applyEditPlanProgress(update) {
+    if (!activeEditPlanCard || !update || !update.path) return;
+    const row = activeEditPlanCard.querySelector('[data-path="' + cssEscape(update.path) + '"]');
+    if (!row) return;
+    const statusEl = row.querySelector('.edit-plan-status');
+    if (!statusEl) return;
+    statusEl.textContent = STATUS_GLYPH[update.status] || '?';
+    statusEl.title = update.status + (update.errorMessage ? ': ' + update.errorMessage : '');
+    // Swap class so CSS can color/animate per state.
+    statusEl.className = 'edit-plan-status edit-plan-status-' + update.status;
+  }
+
+  // CSS.escape fallback — the runtime webview hasn't always shipped it.
+  function cssEscape(s) {
+    if (typeof CSS !== 'undefined' && CSS.escape) return CSS.escape(s);
+    return String(s).replace(/["\\\n]/g, '\\$&');
   }
 
   // ---------------------------------------------------------------------------
@@ -3499,6 +3545,11 @@
           renderEditPlanCard(msg.editPlan.edits);
           scrollToBottom();
         }
+        break;
+      }
+
+      case 'editPlanProgress': {
+        applyEditPlanProgress(msg.editProgress);
         break;
       }
 

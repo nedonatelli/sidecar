@@ -158,6 +158,16 @@ export function createAgentCallbacks(
         },
       });
     },
+    onEditPlanProgress: (update) => {
+      state.postMessage({
+        command: 'editPlanProgress',
+        editProgress: {
+          path: update.path,
+          status: update.status,
+          errorMessage: update.errorMessage,
+        },
+      });
+    },
     onStreamFailure: (partial, error) => {
       flushTextBuffer();
       state.pendingPartialAssistant = partial;

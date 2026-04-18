@@ -66,6 +66,23 @@ export interface AgentCallbacks {
    * the normalized + validated plan ready for layered dispatch.
    */
   onEditPlan?: (plan: import('./editPlan.js').EditPlan) => void;
+  /**
+   * Per-file progress updates as the DAG executor walks the plan
+   * (v0.66 chunk 1, deferred 4.4b slim). Each edit transitions:
+   *   `pending` (initial, set by dispatchToolUses right after
+   *     onEditPlan fires)
+   *   → `writing` (when its layer dispatches)
+   *   → `done` / `failed` / `aborted` (on completion)
+   * The UI maps these to status glyphs on each Planned Edits card
+   * row so the user can see which writes are in flight, finished,
+   * or blocked — without needing a separate N-stream diff panel.
+   * `errorMessage` populates on `failed` transitions.
+   */
+  onEditPlanProgress?: (update: {
+    path: string;
+    status: 'pending' | 'writing' | 'done' | 'failed' | 'aborted';
+    errorMessage?: string;
+  }) => void;
   /** Emit a progress summary during multi-step loops. */
   onProgressSummary?: (summary: string) => void;
   /** Checkpoint: ask user whether to continue a long-running task. Returns true to continue. */

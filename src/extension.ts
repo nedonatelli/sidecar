@@ -1149,7 +1149,11 @@ export function activate(context: ExtensionContext) {
     commands.registerCommand('sidecar.audit.review', async () => {
       const { reviewAuditBuffer, createDefaultAuditReviewUi } = await import('./agent/audit/reviewCommands.js');
       const { getRootUri } = await import('./agent/tools/shared.js');
-      await reviewAuditBuffer({ rootUri: getRootUri(), ui: createDefaultAuditReviewUi() });
+      await reviewAuditBuffer({
+        rootUri: getRootUri(),
+        ui: createDefaultAuditReviewUi(),
+        reviewGranularity: getConfig().multiFileEditsReviewGranularity,
+      });
     }),
     commands.registerCommand('sidecar.audit.acceptAll', async () => {
       const { acceptAllAuditBuffer, createDefaultAuditReviewUi } = await import('./agent/audit/reviewCommands.js');

@@ -164,6 +164,7 @@ export interface ExtensionMessage {
     | 'resumeAvailable'
     | 'steerQueueUpdate'
     | 'editPlanCard'
+    | 'editPlanProgress'
     | 'uiSettings';
   agentMode?: string;
   toolName?: string;
@@ -266,6 +267,16 @@ export interface ExtensionMessage {
    */
   editPlan?: {
     edits: { path: string; op: 'create' | 'edit' | 'delete'; rationale: string; dependsOn: string[] }[];
+  };
+  /**
+   * Per-file status transition on an active Planned Edits card (v0.66
+   * chunk 1, slim 4.4b). Webview finds the card row by `path` and
+   * updates its status glyph + optional error-message tooltip.
+   */
+  editProgress?: {
+    path: string;
+    status: 'pending' | 'writing' | 'done' | 'failed' | 'aborted';
+    errorMessage?: string;
   };
 }
 

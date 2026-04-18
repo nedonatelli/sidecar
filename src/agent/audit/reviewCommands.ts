@@ -60,6 +60,21 @@ export interface AuditReviewDeps {
    * shape preserves v0.60/v0.61 a.3 behavior.
    */
   executeCommit?: (message: string, extraTrailers: string | undefined, appliedPaths: string[]) => Promise<string>;
+  /**
+   * Review granularity selected by the user via
+   * `sidecar.multiFileEdits.reviewGranularity` (v0.66 chunk 1, slim
+   * 4.5c). Defaults to `'per-file'` when omitted — preserves pre-
+   * v0.66 behavior for callers that don't thread the config through.
+   *
+   * `'bulk'` collapses the whole review flow into one Accept-all /
+   * Reject-all / Cancel prompt; no per-file walk.
+   *
+   * `'per-hunk'` is reserved for a future release; this slim ships
+   * with a fallback that surfaces a "not implemented yet" info toast
+   * and proceeds as `'per-file'` so the enum choice doesn't silently
+   * get swallowed.
+   */
+  reviewGranularity?: 'bulk' | 'per-file' | 'per-hunk';
 }
 
 /** Tag every pick item with the action it triggers — `open` also carries the entry. */
@@ -93,6 +108,23 @@ function formatEntryLabel(entry: BufferedChange): { label: string; description: 
  */
 export async function reviewAuditBuffer(deps: AuditReviewDeps): Promise<void> {
   const buf = deps.buffer ?? getDefaultAuditBuffer();
+
+  // Review granularity (v0.66 chunk 1, slim 4.5c). `'bulk'` takes a
+  // short-circuit path: one three-way prompt, no per-file walk.
+  // `'per-hunk'` isn't implemented yet — surface a one-time info and
+  // fall through to the per-file loop so the feature is visible but
+  // doesn't block.
+  const granularity = deps.reviewGranularity ?? 'per-file';
+  if (granularity === 'bulk') {
+    await reviewAuditBufferBulk(deps, buf);
+    return;
+  }
+  if (granularity === 'per-hunk') {
+    deps.ui.showInfo(
+      'SideCar audit: per-hunk review is not yet implemented; falling back to per-file. ' +
+        'Change `sidecar.multiFileEdits.reviewGranularity` to `bulk` or `per-file` to suppress this message.',
+    );
+  }
 
   while (true) {
     const entries = buf.list();
@@ -144,6 +176,58 @@ export async function reviewAuditBuffer(deps: AuditReviewDeps): Promise<void> {
       await rejectFileAuditBuffer(deps, picked.entry.path);
       // loop back
     }
+  }
+}
+
+/**
+ * Bulk review path (v0.66 chunk 1, slim 4.5c). Called when
+ * `sidecar.multiFileEdits.reviewGranularity === 'bulk'`. Presents
+ * one three-way choice — accept every buffered change, reject every
+ * buffered change, or cancel and leave the buffer intact. No per-file
+ * walk, no diff preview. Use case: large multi-file refactors where
+ * the user already decided from the chat log that they trust the whole
+ * batch (or want to discard all of it) and doesn't want to step
+ * through N diff tabs.
+ *
+ * Cancellation leaves the buffer untouched so the user can re-invoke
+ * `sidecar.audit.review` under a different granularity if they change
+ * their mind.
+ */
+async function reviewAuditBufferBulk(deps: AuditReviewDeps, buf: AuditBuffer): Promise<void> {
+  const entries = buf.list();
+  if (entries.length === 0) {
+    deps.ui.showInfo('SideCar audit: buffer is empty — no pending changes.');
+    return;
+  }
+  const items = [
+    {
+      label: '$(check-all) Accept All',
+      description: `${entries.length} file${entries.length === 1 ? '' : 's'}`,
+      action: 'accept-all' as const,
+    },
+    {
+      label: '$(discard) Reject All',
+      description: 'Drop every buffered change',
+      action: 'reject-all' as const,
+    },
+    {
+      label: '$(close) Cancel',
+      description: 'Leave buffer intact — re-run /audit review later',
+      action: 'cancel' as const,
+    },
+  ];
+  const picked = await deps.ui.showQuickPick(
+    items,
+    `SideCar audit (bulk): ${entries.length} buffered change${entries.length === 1 ? '' : 's'}`,
+  );
+  if (!picked || picked.action === 'cancel') return;
+  if (picked.action === 'accept-all') {
+    await acceptAllAuditBuffer(deps);
+    return;
+  }
+  if (picked.action === 'reject-all') {
+    await rejectAllAuditBuffer(deps);
+    return;
   }
 }
 

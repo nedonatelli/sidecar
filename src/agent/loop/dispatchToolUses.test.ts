@@ -147,6 +147,27 @@ describe('dispatchPendingToolUses — gate decisions', () => {
     expect(cb.onEditPlan).toHaveBeenCalledWith(plan);
   });
 
+  it('seeds onEditPlanProgress with status=pending for every plan path before execution (v0.66 chunk 1)', async () => {
+    const plan: EditPlan = {
+      edits: [
+        { path: 'a.ts', op: 'edit', rationale: '', dependsOn: [] },
+        { path: 'b.ts', op: 'edit', rationale: '', dependsOn: [] },
+        { path: 'c.ts', op: 'edit', rationale: '', dependsOn: [] },
+      ],
+    };
+    vi.mocked(shouldRunPlannerPass).mockReturnValue(true);
+    vi.mocked(requestEditPlan).mockResolvedValue({ plan, rawText: 'raw', retried: false });
+    vi.mocked(executeMultiFilePlan).mockResolvedValue([]);
+    const onEditPlanProgress = vi.fn();
+    const cb = { ...stubCallbacks(), onEditPlanProgress } as ReturnType<typeof stubCallbacks>;
+    const pending = [tu('write_file', 'a.ts'), tu('write_file', 'b.ts'), tu('write_file', 'c.ts')];
+    await dispatchPendingToolUses(stubState(), pending, client, options, cb, signal, config());
+    const pendingEvents = onEditPlanProgress.mock.calls
+      .map((c) => c[0] as { path: string; status: string })
+      .filter((e) => e.status === 'pending');
+    expect(pendingEvents.map((e) => e.path).sort()).toEqual(['a.ts', 'b.ts', 'c.ts']);
+  });
+
   it('falls back to executeToolUses when planner returns plan=null', async () => {
     vi.mocked(shouldRunPlannerPass).mockReturnValue(true);
     vi.mocked(requestEditPlan).mockResolvedValue({ plan: null, rawText: 'raw', retried: true });

@@ -63,20 +63,37 @@ export async function executeMultiFilePlan(
   const resultById = new Map<string, ToolResultContentBlock>();
   const cap = Math.max(1, maxParallel);
 
+  // Track which paths the executor claims each layer so we can
+  // correctly mark remaining ones as 'aborted' when signal fires.
+  const claimed = new Set<string>();
   for (const layer of layers) {
     if (signal.aborted) break;
+
+    // Layer start: flip each edit to 'writing' before dispatching the
+    // pool. Tiles on the UI Planned Edits card transition from
+    // ◯ pending → ⟳ writing in real time.
+    for (const edit of layer) {
+      callbacks.onEditPlanProgress?.({ path: edit.path, status: 'writing' });
+      claimed.add(edit.path);
+    }
+
     const tasks = layer
       .map((edit) => buildLayerTask(edit, firstUseByPath, ctx))
       .filter((t): t is () => Promise<ToolResultContentBlock> => t !== null);
     const settled = await runWithCap(tasks, cap);
     for (let i = 0; i < settled.length; i++) {
       const outcome = settled[i];
+      const path = layer[i].path;
       if (outcome.status === 'fulfilled') {
         resultById.set(outcome.value.tool_use_id, outcome.value);
+        callbacks.onEditPlanProgress?.({
+          path,
+          status: outcome.value.is_error ? 'failed' : 'done',
+          errorMessage: outcome.value.is_error ? String(outcome.value.content).slice(0, 200) : undefined,
+        });
       } else {
         // Rejected task — surface a synthetic error keyed by the
         // originating tool_use so index alignment downstream stays clean.
-        const path = layer[i].path;
         const tu = firstUseByPath.get(path);
         if (tu) {
           const msg = outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason);
@@ -88,7 +105,19 @@ export async function executeMultiFilePlan(
           });
           state.logger?.warn(`Multi-file write ${tu.name} (${path}) threw: ${msg}`);
           callbacks.onToolResult(tu.name, `Multi-file edit failed: ${msg}`, true, tu.id);
+          callbacks.onEditPlanProgress?.({ path, status: 'failed', errorMessage: msg.slice(0, 200) });
         }
+      }
+    }
+  }
+
+  // If the signal aborted mid-walk, flip any plan edit whose layer
+  // never dispatched (still `pending` from dispatchToolUses' seed)
+  // to 'aborted' so the UI doesn't leave stale spinners.
+  if (signal.aborted) {
+    for (const edit of plan.edits) {
+      if (!claimed.has(edit.path)) {
+        callbacks.onEditPlanProgress?.({ path: edit.path, status: 'aborted' });
       }
     }
   }

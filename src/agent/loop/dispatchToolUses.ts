@@ -61,6 +61,12 @@ export async function dispatchPendingToolUses(
     });
     if (planResult.plan) {
       callbacks.onEditPlan?.(planResult.plan);
+      // Seed each edit's UI status as 'pending' immediately after the
+      // plan card renders — the executor flips each to 'writing' when
+      // its layer dispatches, then 'done'/'failed' on completion.
+      for (const edit of planResult.plan.edits) {
+        callbacks.onEditPlanProgress?.({ path: edit.path, status: 'pending' });
+      }
       callbacks.onText(
         `\n📋 Planning ${planResult.plan.edits.length} file edits (parallelism cap ${config.multiFileEditsMaxParallel})\n`,
       );

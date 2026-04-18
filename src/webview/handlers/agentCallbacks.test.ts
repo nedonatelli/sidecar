@@ -355,6 +355,27 @@ describe('createAgentCallbacks — onSuggestNextSteps', () => {
   });
 });
 
+describe('createAgentCallbacks — onEditPlanProgress (v0.66 chunk 1 slim 4.4b wiring)', () => {
+  it('forwards a progress update to editPlanProgress with path/status/errorMessage', () => {
+    const state = makeState();
+    const cb = createAgentCallbacks(state, makeConfig(), []);
+    cb.onEditPlanProgress?.({ path: 'src/a.ts', status: 'writing' });
+    cb.onEditPlanProgress?.({ path: 'src/a.ts', status: 'failed', errorMessage: 'permission denied' });
+    const progressCalls = (state.postMessage as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (c) => (c[0] as { command: string }).command === 'editPlanProgress',
+    );
+    expect(progressCalls).toHaveLength(2);
+    expect(progressCalls[0][0]).toEqual({
+      command: 'editPlanProgress',
+      editProgress: { path: 'src/a.ts', status: 'writing', errorMessage: undefined },
+    });
+    expect(progressCalls[1][0]).toEqual({
+      command: 'editPlanProgress',
+      editProgress: { path: 'src/a.ts', status: 'failed', errorMessage: 'permission denied' },
+    });
+  });
+});
+
 describe('createAgentCallbacks — onEditPlan (v0.65 chunk 4.4a wiring)', () => {
   it('flushes pending text and emits the editPlanCard with a deep-copied plan', () => {
     const state = makeState();

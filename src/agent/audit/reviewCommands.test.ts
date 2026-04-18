@@ -532,3 +532,100 @@ describe('conflict detection on flush (v0.61 a.2)', () => {
     expect(buf.has('b.ts')).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Review granularity (v0.66 chunk 1, slim 4.5c)
+// ---------------------------------------------------------------------------
+describe('reviewAuditBuffer — granularity switching', () => {
+  it('bulk mode presents a three-option prompt (accept-all / reject-all / cancel)', async () => {
+    const buf = await makeBufferWith([
+      { op: 'write', path: 'a.ts', content: 'A' },
+      { op: 'write', path: 'b.ts', content: 'B' },
+    ]);
+    const ui = makeUi();
+    await reviewAuditBuffer({ ...baseDeps(buf, ui), reviewGranularity: 'bulk' });
+    expect(ui.showQuickPick).toHaveBeenCalledOnce();
+    const items = ui.showQuickPick.mock.calls[0][0] as Array<{ action: string }>;
+    expect(items.map((i) => i.action)).toEqual(['accept-all', 'reject-all', 'cancel']);
+  });
+
+  it('bulk mode flushes the whole buffer on accept-all', async () => {
+    const buf = await makeBufferWith([
+      { op: 'write', path: 'a.ts', content: 'A' },
+      { op: 'write', path: 'b.ts', content: 'B' },
+    ]);
+    const writeFileSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined);
+    const readFileSpy = vi.spyOn(workspace.fs, 'readFile').mockRejectedValue(new Error('FileNotFound'));
+    try {
+      const ui = makeUi({
+        showQuickPick: vi.fn(async (items: readonly { action?: string }[]) =>
+          items.find((i) => i.action === 'accept-all'),
+        ) as unknown as AuditReviewUi['showQuickPick'],
+      });
+      await reviewAuditBuffer({ ...baseDeps(buf, ui), reviewGranularity: 'bulk' });
+      expect(writeFileSpy).toHaveBeenCalledTimes(2);
+      expect(buf.isEmpty).toBe(true);
+    } finally {
+      writeFileSpy.mockRestore();
+      readFileSpy.mockRestore();
+    }
+  });
+
+  it('bulk mode clears the buffer on reject-all after modal confirmation', async () => {
+    const buf = await makeBufferWith([{ op: 'write', path: 'a.ts', content: 'A' }]);
+    const ui = makeUi({
+      showQuickPick: vi.fn(async (items: readonly { action?: string }[]) =>
+        items.find((i) => i.action === 'reject-all'),
+      ) as unknown as AuditReviewUi['showQuickPick'],
+      showWarningConfirm: vi.fn(async () => 'Reject All'),
+    });
+    await reviewAuditBuffer({ ...baseDeps(buf, ui), reviewGranularity: 'bulk' });
+    expect(buf.isEmpty).toBe(true);
+  });
+
+  it('bulk mode leaves the buffer intact on cancel', async () => {
+    const buf = await makeBufferWith([
+      { op: 'write', path: 'a.ts', content: 'A' },
+      { op: 'write', path: 'b.ts', content: 'B' },
+    ]);
+    const ui = makeUi({
+      showQuickPick: vi.fn(async (items: readonly { action?: string }[]) =>
+        items.find((i) => i.action === 'cancel'),
+      ) as unknown as AuditReviewUi['showQuickPick'],
+    });
+    await reviewAuditBuffer({ ...baseDeps(buf, ui), reviewGranularity: 'bulk' });
+    expect(buf.has('a.ts')).toBe(true);
+    expect(buf.has('b.ts')).toBe(true);
+  });
+
+  it('bulk mode short-circuits on an empty buffer with the standard info toast', async () => {
+    const buf = new AuditBuffer();
+    const ui = makeUi();
+    await reviewAuditBuffer({ ...baseDeps(buf, ui), reviewGranularity: 'bulk' });
+    expect(ui.showInfo).toHaveBeenCalledWith(expect.stringContaining('empty'));
+    expect(ui.showQuickPick).not.toHaveBeenCalled();
+  });
+
+  it('per-hunk mode surfaces an info toast and falls back to per-file behavior', async () => {
+    const buf = await makeBufferWith([{ op: 'write', path: 'a.ts', content: 'A' }]);
+    const ui = makeUi(); // default showQuickPick → undefined → cancels per-file loop
+    await reviewAuditBuffer({ ...baseDeps(buf, ui), reviewGranularity: 'per-hunk' });
+    // Info toast fires with the fallback notice.
+    const infoCalls = ui.showInfo.mock.calls.map((c) => c[0] as string);
+    expect(infoCalls.some((m) => m.includes('per-hunk') && m.includes('not yet implemented'))).toBe(true);
+    // Then the per-file loop runs — it shows a picker (canceled here).
+    expect(ui.showQuickPick).toHaveBeenCalled();
+  });
+
+  it('omitting reviewGranularity preserves pre-v0.66 per-file behavior', async () => {
+    const buf = await makeBufferWith([{ op: 'write', path: 'a.ts', content: 'A' }]);
+    const ui = makeUi();
+    await reviewAuditBuffer(baseDeps(buf, ui));
+    // Same single showQuickPick call as the legacy path (picker shown,
+    // user cancels, loop exits).
+    expect(ui.showQuickPick).toHaveBeenCalledOnce();
+    // No "per-hunk" info toast fired.
+    const infoCalls = ui.showInfo.mock.calls.map((c) => c[0] as string);
+    expect(infoCalls.every((m) => !m.includes('per-hunk'))).toBe(true);
+  });
+});

@@ -55,13 +55,15 @@ function stubState(overrides: Partial<LoopState> = {}): LoopState {
 
 function stubCallbacks() {
   const texts: string[] = [];
-  return {
+  const cb = {
     texts,
     onText: (t: string) => texts.push(t),
     onToolCall: vi.fn(),
     onToolResult: vi.fn(),
     onDone: vi.fn(),
-  } as AgentCallbacks & { texts: string[] };
+    onEditPlanProgress: vi.fn(),
+  };
+  return cb as typeof cb & AgentCallbacks;
 }
 
 function tu(path: string, id?: string): ToolUseContentBlock {
@@ -389,5 +391,108 @@ describe('runWithCap', () => {
 
   it('handles empty task list', async () => {
     expect(await runWithCap([], 8)).toEqual([]);
+  });
+});
+
+describe('executeMultiFilePlan — onEditPlanProgress events (v0.66 chunk 1, slim 4.4b)', () => {
+  it('emits writing + done transitions for each successful edit', async () => {
+    vi.mocked(executeOneToolUse).mockImplementation(async (_ctx, pendingTu) => result(pendingTu.id, 'ok'));
+    const pending = [tu('a.ts'), tu('b.ts')];
+    const plan: EditPlan = {
+      edits: [
+        { path: 'a.ts', op: 'edit', rationale: '', dependsOn: [] },
+        { path: 'b.ts', op: 'edit', rationale: '', dependsOn: [] },
+      ],
+    };
+    const cb = stubCallbacks();
+    await executeMultiFilePlan(
+      plan,
+      pending,
+      stubState(),
+      {} as SideCarClient,
+      {} as AgentOptions,
+      cb,
+      new AbortController().signal,
+      8,
+    );
+    const progressCalls = (cb.onEditPlanProgress as ReturnType<typeof vi.fn>).mock.calls.map(
+      (c) => c[0] as { path: string; status: string },
+    );
+    // Each path fires 'writing' → 'done'.
+    const aEvents = progressCalls.filter((p) => p.path === 'a.ts').map((p) => p.status);
+    const bEvents = progressCalls.filter((p) => p.path === 'b.ts').map((p) => p.status);
+    expect(aEvents).toEqual(['writing', 'done']);
+    expect(bEvents).toEqual(['writing', 'done']);
+  });
+
+  it('emits failed with errorMessage on a rejected task', async () => {
+    vi.mocked(executeOneToolUse).mockImplementationOnce(async () => {
+      throw new Error('disk full');
+    });
+    const pending = [tu('a.ts')];
+    const plan: EditPlan = { edits: [{ path: 'a.ts', op: 'edit', rationale: '', dependsOn: [] }] };
+    const cb = stubCallbacks();
+    await executeMultiFilePlan(
+      plan,
+      pending,
+      stubState(),
+      {} as SideCarClient,
+      {} as AgentOptions,
+      cb,
+      new AbortController().signal,
+      8,
+    );
+    const calls = (cb.onEditPlanProgress as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+    const failed = calls.find((c) => c.status === 'failed');
+    expect(failed).toBeDefined();
+    expect(failed.errorMessage).toContain('disk full');
+  });
+
+  it('emits failed when executeOneToolUse returns is_error: true (without throwing)', async () => {
+    vi.mocked(executeOneToolUse).mockImplementation(async (_ctx, pendingTu) => ({
+      type: 'tool_result',
+      tool_use_id: pendingTu.id,
+      content: 'permission denied',
+      is_error: true,
+    }));
+    const pending = [tu('a.ts')];
+    const plan: EditPlan = { edits: [{ path: 'a.ts', op: 'edit', rationale: '', dependsOn: [] }] };
+    const cb = stubCallbacks();
+    await executeMultiFilePlan(
+      plan,
+      pending,
+      stubState(),
+      {} as SideCarClient,
+      {} as AgentOptions,
+      cb,
+      new AbortController().signal,
+      8,
+    );
+    const statuses = (cb.onEditPlanProgress as ReturnType<typeof vi.fn>).mock.calls.map(
+      (c) => (c[0] as { status: string }).status,
+    );
+    expect(statuses).toContain('failed');
+  });
+
+  it('emits aborted for unclaimed edits when signal fires mid-walk', async () => {
+    const ctrl = new AbortController();
+    vi.mocked(executeOneToolUse).mockImplementation(async (_ctx, pendingTu) => {
+      ctrl.abort(); // abort after first layer runs
+      return result(pendingTu.id, 'ok');
+    });
+    const pending = [tu('a.ts'), tu('b.ts')];
+    const plan: EditPlan = {
+      edits: [
+        { path: 'a.ts', op: 'edit', rationale: '', dependsOn: [] },
+        { path: 'b.ts', op: 'edit', rationale: '', dependsOn: ['a.ts'] }, // layer 2
+      ],
+    };
+    const cb = stubCallbacks();
+    await executeMultiFilePlan(plan, pending, stubState(), {} as SideCarClient, {} as AgentOptions, cb, ctrl.signal, 8);
+    const bStatuses = (cb.onEditPlanProgress as ReturnType<typeof vi.fn>).mock.calls
+      .map((c) => c[0] as { path: string; status: string })
+      .filter((p) => p.path === 'b.ts')
+      .map((p) => p.status);
+    expect(bStatuses).toEqual(['aborted']);
   });
 });
