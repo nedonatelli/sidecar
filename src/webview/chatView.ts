@@ -506,7 +506,39 @@ export class ChatViewProvider implements WebviewViewProvider {
       }
       await commands.executeCommand(commandId, ...args);
     },
+    steerEnqueue: (msg) => this.handleSteerEnqueue(msg.text || '', msg.steerUrgency),
+    steerCancel: (msg) => this.handleSteerCancel(msg.steerId || ''),
+    steerEdit: (msg) => this.handleSteerEdit(msg.steerId || '', msg.text || ''),
   };
+
+  private handleSteerEnqueue(text: string, urgency: 'nudge' | 'interrupt' | undefined): void {
+    const queue = this.state.currentSteerQueue;
+    if (!queue) return;
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    try {
+      queue.enqueue(trimmed, urgency ?? 'nudge');
+    } catch (err) {
+      // SteerQueueFullError (all-interrupts) and empty-text errors
+      // surface to the user as a non-blocking error toast.
+      const msg = err instanceof Error ? err.message : String(err);
+      this.state.postMessage({ command: 'error', content: `Steer rejected: ${msg}` });
+    }
+  }
+
+  private handleSteerCancel(id: string): void {
+    this.state.currentSteerQueue?.cancel(id);
+  }
+
+  private handleSteerEdit(id: string, newText: string): void {
+    if (!newText.trim()) return;
+    try {
+      this.state.currentSteerQueue?.edit(id, newText);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.state.postMessage({ command: 'error', content: `Steer edit rejected: ${msg}` });
+    }
+  }
 
   private async dispatch(msg: WebviewMessage): Promise<void> {
     const handler = this.handlers[msg.command];

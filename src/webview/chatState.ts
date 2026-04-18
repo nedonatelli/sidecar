@@ -4,6 +4,7 @@ import { SideCarClient } from '../ollama/client.js';
 import { buildRouterFromConfig } from '../ollama/modelRouter.js';
 import { ChangeLog } from '../agent/changelog.js';
 import { PendingEditStore } from '../agent/pendingEdits.js';
+import { SteerQueue, type QueuedSteer } from '../agent/steerQueue.js';
 import { SessionManager } from '../agent/sessions.js';
 import { MetricsCollector } from '../agent/metrics.js';
 import type { AgentLogger } from '../agent/logger.js';
@@ -59,6 +60,27 @@ export class ChatState {
   pendingPartialAssistant: string | null = null;
   abortController: AbortController | null = null;
   installAbortController: AbortController | null = null;
+  /**
+   * Active steer queue for the in-flight agent run (v0.65 chunk 3).
+   * Created by `handleUserMessage` when a run starts, disposed in
+   * the finally block. When null, the webview strip hides itself.
+   * Only non-null during an active run so webview steer messages
+   * arriving outside that window are ignored.
+   */
+  currentSteerQueue: SteerQueue | null = null;
+  /** Disposer for the steerQueue onChange subscription. */
+  currentSteerDisposer: (() => void) | null = null;
+  /**
+   * Serialized steer queue stashed when a run fails mid-stream
+   * (v0.65 chunk 3.4 persistence). Lets `/resume` (or the next
+   * user-initiated turn) repopulate the fresh queue with the
+   * steers that were still pending when the stream died, so a
+   * network drop or backend crash doesn't silently swallow typed
+   * instructions. Cleared on successful consumption and on
+   * clearChat so a stale snapshot can't leak into an unrelated
+   * new conversation.
+   */
+  pendingSteerSnapshot: QueuedSteer[] | null = null;
   private pendingConfirms = new Map<string, (choice: string | undefined) => void>();
   private confirmCounter = 0;
   changelog = new ChangeLog();
@@ -340,6 +362,7 @@ export class ChatState {
     this.pendingPlan = null;
     this.pendingPlanMessages = [];
     this.pendingPartialAssistant = null;
+    this.pendingSteerSnapshot = null;
     this.pendingQuestion = null;
     this.changelog.clear();
     this.currentSessionId = null;

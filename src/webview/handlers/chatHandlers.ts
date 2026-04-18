@@ -33,6 +33,7 @@ import { surfaceNativeToast } from '../errorSurface.js';
 import { healthStatus } from '../../ollama/healthStatus.js';
 import { getWorkspaceRoot, getContextLimit } from '../../config/workspace.js';
 import { runAgentLoop } from '../../agent/loop.js';
+import { SteerQueue } from '../../agent/steerQueue.js';
 import type { AgentCallbacks } from '../../agent/loop.js';
 import type { ChatMessage } from '../../ollama/types.js';
 import type { ApprovalMode } from '../../agent/executor.js';
@@ -347,6 +348,14 @@ function createAgentCallbacks(
     onStreamFailure: (partial, error) => {
       flushTextBuffer();
       state.pendingPartialAssistant = partial;
+      // Stash any pending steers so /resume can restore them. The
+      // live queue is disposed in the run's finally block, which
+      // would otherwise drop the user's typed intent on the floor
+      // when a backend stream dies mid-turn.
+      const snapshot = state.currentSteerQueue?.serialize();
+      if (snapshot && snapshot.length > 0) {
+        state.pendingSteerSnapshot = snapshot;
+      }
       // Surface a resume affordance so the user doesn't have to know about /resume
       state.postMessage({
         command: 'assistantMessage',
@@ -474,6 +483,27 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
   state.postMessage({ command: 'setLoading', isLoading: true });
   state.abortController = new AbortController();
 
+  // Steer queue: one instance per agent run (v0.65 chunk 3.3).
+  // Subscribes to mutations so the webview strip UI re-renders
+  // from a single authoritative source. When a prior run crashed
+  // mid-turn and stashed pending steers (chunk 3.4), restore them
+  // here so intent survives stream-failure / resume.
+  const steerQueue = new SteerQueue({ maxPending: getConfig().steerQueueMaxPending });
+  if (state.pendingSteerSnapshot && state.pendingSteerSnapshot.length > 0) {
+    steerQueue.restore(state.pendingSteerSnapshot);
+    state.pendingSteerSnapshot = null;
+  }
+  state.currentSteerQueue = steerQueue;
+  const steerDisposer = steerQueue.onChange((snapshot) => {
+    state.postMessage({
+      command: 'steerQueueUpdate',
+      steerQueue: snapshot.map((s) => ({ id: s.id, text: s.text, urgency: s.urgency, createdAt: s.createdAt })),
+      steerEnabled: true,
+    });
+  });
+  state.currentSteerDisposer = steerDisposer;
+  state.postMessage({ command: 'steerQueueUpdate', steerQueue: [], steerEnabled: true });
+
   updateWorkspaceRelevance(state, turnText);
 
   try {
@@ -587,6 +617,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
         clarifyFn: (question, options, allowCustom) => state.requestClarification(question, options, allowCustom),
         modeToolPermissions: resolved.toolPermissions,
         pendingEdits: state.pendingEdits,
+        steerQueue,
       },
     );
 
@@ -605,6 +636,13 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
       state.postMessage({ command: 'setLoading', isLoading: false });
       return;
     }
+    // Non-abort error bubbling out of runAgentLoop. Stash pending
+    // steers so the user's typed intent survives the crash and
+    // rematerializes on the next run (resume or fresh turn).
+    const snapshot = state.currentSteerQueue?.serialize();
+    if (snapshot && snapshot.length > 0) {
+      state.pendingSteerSnapshot = snapshot;
+    }
     const errorMessage = err instanceof Error ? err.message : 'Unknown error';
     const classified = classifyError(errorMessage);
     state.postMessage({ command: 'error', content: `Error: ${errorMessage}`, ...classified });
@@ -613,6 +651,10 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     recordRunCost(state);
     state.metricsCollector.endRun();
     state.abortController = null;
+    state.currentSteerDisposer?.();
+    state.currentSteerDisposer = null;
+    state.currentSteerQueue = null;
+    state.postMessage({ command: 'steerQueueUpdate', steerQueue: [], steerEnabled: false });
     state.postMessage({ command: 'setLoading', isLoading: false });
     // Clear any sentinel pin so the next user message routes normally.
     state.client.setTurnOverride(null);

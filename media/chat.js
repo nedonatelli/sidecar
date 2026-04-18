@@ -25,6 +25,14 @@
   const modelSearchInput = document.getElementById('model-search-input');
   const customModelInput = document.getElementById('custom-model-input');
   const customModelUse = document.getElementById('custom-model-use');
+  const steerStrip = document.getElementById('steer-queue-strip');
+
+  // Steer-queue state (v0.65). `steerEnabled` tracks whether a run is
+  // live (strip shows pending items). Items are rendered directly from
+  // the authoritative server snapshot — no client-side state synthesis.
+  let steerEnabled = false;
+  let steerItems = [];
+  let editingSteerId = null;
 
   let isLoading = false;
   let currentAssistantDiv = null;
@@ -950,6 +958,15 @@
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
+      // Steer routing: when a run is active, Enter queues a steer
+      // instead of starting a new turn. Ctrl/Cmd+Enter upgrades to
+      // interrupt urgency so a mid-stream course-correct aborts the
+      // in-flight turn immediately.
+      if (steerEnabled) {
+        const urgency = e.ctrlKey || e.metaKey ? 'interrupt' : 'nudge';
+        enqueueSteerFromInput(urgency);
+        return;
+      }
       submitMessage();
     }
   });
@@ -957,7 +974,11 @@
   sendBtn.addEventListener('click', () => {
     const hasText = input.value.trim().length > 0;
     if (hasText) {
-      submitMessage();
+      if (steerEnabled) {
+        enqueueSteerFromInput('nudge');
+      } else {
+        submitMessage();
+      }
     } else if (isLoading) {
       vscode.postMessage({ command: 'abort' });
       setLoading(false);
@@ -1419,6 +1440,91 @@
     }
     input.value = '';
     input.style.height = 'auto';
+  }
+
+  // ---------------------------------------------------------------------------
+  // Steer queue (v0.65 chunk 3.3)
+  //
+  // When a run is active the strip above the input lists pending
+  // steers the user typed mid-run. Shift+Enter enqueues as 'nudge';
+  // Shift+Ctrl+Enter (or Shift+Cmd+Enter) enqueues as 'interrupt'.
+  // Plain Enter still sends a normal user message via sendMessage().
+  // ---------------------------------------------------------------------------
+  function renderSteerStrip() {
+    if (!steerStrip) return;
+    if (!steerEnabled || steerItems.length === 0) {
+      steerStrip.classList.add('hidden');
+      steerStrip.innerHTML = '';
+      return;
+    }
+    steerStrip.classList.remove('hidden');
+    const frag = document.createDocumentFragment();
+    for (const item of steerItems) {
+      const row = document.createElement('div');
+      row.className = 'steer-item steer-urgency-' + item.urgency;
+      row.dataset.id = item.id;
+
+      const badge = document.createElement('span');
+      badge.className = 'steer-badge';
+      badge.textContent = item.urgency === 'interrupt' ? '🔴 interrupt' : '🟡 nudge';
+      row.appendChild(badge);
+
+      if (editingSteerId === item.id) {
+        const edit = document.createElement('input');
+        edit.type = 'text';
+        edit.className = 'steer-edit-input';
+        edit.value = item.text;
+        edit.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' && edit.value.trim()) {
+            vscode.postMessage({ command: 'steerEdit', steerId: item.id, text: edit.value });
+            editingSteerId = null;
+          } else if (e.key === 'Escape') {
+            editingSteerId = null;
+            renderSteerStrip();
+          }
+        });
+        row.appendChild(edit);
+        // Focus after insert so typing lands in the edit field.
+        setTimeout(() => edit.focus(), 0);
+      } else {
+        const text = document.createElement('span');
+        text.className = 'steer-text';
+        text.textContent = item.text;
+        row.appendChild(text);
+      }
+
+      const editBtn = document.createElement('button');
+      editBtn.className = 'steer-action';
+      editBtn.title = 'Edit this steer';
+      editBtn.textContent = 'Edit';
+      editBtn.addEventListener('click', () => {
+        editingSteerId = editingSteerId === item.id ? null : item.id;
+        renderSteerStrip();
+      });
+      row.appendChild(editBtn);
+
+      const cancelBtn = document.createElement('button');
+      cancelBtn.className = 'steer-action steer-cancel';
+      cancelBtn.title = 'Cancel this steer';
+      cancelBtn.textContent = 'Cancel';
+      cancelBtn.addEventListener('click', () => {
+        vscode.postMessage({ command: 'steerCancel', steerId: item.id });
+      });
+      row.appendChild(cancelBtn);
+
+      frag.appendChild(row);
+    }
+    steerStrip.innerHTML = '';
+    steerStrip.appendChild(frag);
+  }
+
+  function enqueueSteerFromInput(urgency) {
+    const text = input.value.trim();
+    if (!text) return false;
+    vscode.postMessage({ command: 'steerEnqueue', text, steerUrgency: urgency });
+    input.value = '';
+    input.style.height = 'auto';
+    return true;
   }
 
   const createdFiles = new Set();
@@ -3246,6 +3352,17 @@
           }
           progressEl.classList.remove('hidden');
         }
+        break;
+      }
+
+      case 'steerQueueUpdate': {
+        steerEnabled = !!msg.steerEnabled;
+        steerItems = Array.isArray(msg.steerQueue) ? msg.steerQueue : [];
+        // Edit cursor becomes stale if the item was cancelled/drained.
+        if (editingSteerId && !steerItems.some((s) => s.id === editingSteerId)) {
+          editingSteerId = null;
+        }
+        renderSteerStrip();
         break;
       }
 

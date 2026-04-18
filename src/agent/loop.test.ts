@@ -3,6 +3,7 @@ import { parseTextToolCalls, compressMessages, stripRepeatedContent, runAgentLoo
 import type { ToolDefinition, ChatMessage, StreamEvent } from '../ollama/types.js';
 import type { SideCarClient } from '../ollama/client.js';
 import type { AgentCallbacks } from './loop.js';
+import { SteerQueue } from './steerQueue.js';
 
 // Mock getToolDefinitions to avoid workspace API calls in tests
 vi.mock('./tools.js', () => ({
@@ -435,6 +436,213 @@ describe('runAgentLoop', () => {
     // Should exit cleanly with no text
     expect(cb.texts).toHaveLength(0);
 
+    vi.restoreAllMocks();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runAgentLoop — steer queue integration (v0.65 chunk 3.2)
+// ---------------------------------------------------------------------------
+describe('runAgentLoop — SteerQueue integration', () => {
+  async function mockConfig() {
+    const settings = await import('../config/settings.js');
+    return vi.spyOn(settings, 'getConfig').mockReturnValue({
+      requestTimeout: 30,
+      agentMaxIterations: 25,
+      agentMaxTokens: 100000,
+      autoFixOnFailure: false,
+      autoFixMaxRetries: 3,
+      steerQueueCoalesceWindowMs: 0,
+      steerQueueMaxPending: 5,
+    } as ReturnType<typeof import('../config/settings.js').getConfig>);
+  }
+
+  function makeCallbacks(): AgentCallbacks & { texts: string[] } {
+    const texts: string[] = [];
+    return {
+      texts,
+      onText: (t: string) => texts.push(t),
+      onToolCall: () => {},
+      onToolResult: () => {},
+      onDone: () => {},
+    };
+  }
+
+  function makeMockClient(generator: () => AsyncGenerator<StreamEvent>): SideCarClient {
+    return {
+      streamChat: generator,
+      getSystemPrompt: () => '',
+      getRouter: () => null,
+      getModel: () => 'mock-model',
+    } as unknown as SideCarClient;
+  }
+
+  it('drains a queued nudge at the iteration boundary before streaming', async () => {
+    await mockConfig();
+    const queue = new SteerQueue();
+    queue.enqueue('focus on the formula', 'nudge');
+
+    // Capture messages the client sees on streamChat to prove the
+    // coalesced turn landed before the stream started.
+    const streamMessages: ChatMessage[][] = [];
+    async function* responder(messages: ChatMessage[]): AsyncGenerator<StreamEvent> {
+      streamMessages.push(messages.slice());
+      yield { type: 'text', text: 'acknowledged' };
+      yield { type: 'stop', stopReason: 'end_turn' };
+    }
+
+    const client = {
+      streamChat: responder,
+      getSystemPrompt: () => '',
+      getRouter: () => null,
+      getModel: () => 'mock-model',
+    } as unknown as SideCarClient;
+
+    await runAgentLoop(client, [{ role: 'user', content: 'hello' }], makeCallbacks(), new AbortController().signal, {
+      steerQueue: queue,
+      maxIterations: 1,
+    });
+
+    expect(streamMessages).toHaveLength(1);
+    const turn1 = streamMessages[0];
+    // The drained coalesced user message is appended to the
+    // conversation before streaming starts.
+    const coalesced = turn1.find(
+      (m) => m.role === 'user' && typeof m.content === 'string' && m.content.includes('Your running instructions'),
+    );
+    expect(coalesced).toBeDefined();
+    expect(coalesced!.content).toContain('focus on the formula');
+    expect(queue.size()).toBe(0);
+
+    vi.restoreAllMocks();
+  });
+
+  it('emits the "Applying queued steer" breadcrumb on drain', async () => {
+    await mockConfig();
+    const queue = new SteerQueue();
+    queue.enqueue('nudge text', 'nudge');
+
+    async function* responder(): AsyncGenerator<StreamEvent> {
+      yield { type: 'text', text: 'ok' };
+      yield { type: 'stop', stopReason: 'end_turn' };
+    }
+    const cb = makeCallbacks();
+    await runAgentLoop(makeMockClient(responder), [{ role: 'user', content: 'hi' }], cb, new AbortController().signal, {
+      steerQueue: queue,
+      maxIterations: 1,
+    });
+    expect(cb.texts.some((t) => t.includes('Applying 1 queued steer'))).toBe(true);
+    vi.restoreAllMocks();
+  });
+
+  it('interrupt steer aborts the active stream and the next iteration drains + re-streams', async () => {
+    await mockConfig();
+    const queue = new SteerQueue();
+    let turnCount = 0;
+    const turnMessages: ChatMessage[][] = [];
+
+    async function* responder(messages: ChatMessage[]): AsyncGenerator<StreamEvent> {
+      turnMessages.push(messages.slice());
+      turnCount += 1;
+      if (turnCount === 1) {
+        // Enqueue an interrupt asynchronously while the stream is "in flight"
+        setTimeout(() => queue.enqueue('stop, use the wavelet instead', 'interrupt'), 0);
+        // Simulate a long-running stream: yield text forever until aborted.
+        // We yield one chunk, then await a promise that resolves when the
+        // signal aborts — consumer is the loop's streamOneTurn which
+        // exits on signal.aborted.
+        for (let i = 0; i < 100; i++) {
+          yield { type: 'text', text: '.' };
+          await new Promise((r) => setTimeout(r, 10));
+        }
+        yield { type: 'stop', stopReason: 'end_turn' };
+      } else {
+        yield { type: 'text', text: 'pivoted' };
+        yield { type: 'stop', stopReason: 'end_turn' };
+      }
+    }
+
+    const client = {
+      streamChat: responder,
+      getSystemPrompt: () => '',
+      getRouter: () => null,
+      getModel: () => 'mock-model',
+    } as unknown as SideCarClient;
+
+    const cb = makeCallbacks();
+    await runAgentLoop(
+      client,
+      [{ role: 'user', content: 'build a low-pass filter' }],
+      cb,
+      new AbortController().signal,
+      { steerQueue: queue, maxIterations: 3 },
+    );
+
+    // Two iterations happened: one aborted by the interrupt,
+    // one resumed after draining the queued steer.
+    expect(turnCount).toBe(2);
+    // Second turn's message history contains the coalesced steer.
+    const turn2 = turnMessages[1];
+    const coalesced = turn2.find(
+      (m) => m.role === 'user' && typeof m.content === 'string' && m.content.includes('Your running instructions'),
+    );
+    expect(coalesced).toBeDefined();
+    expect(coalesced!.content).toContain('use the wavelet instead');
+    expect(cb.texts).toContain('pivoted');
+
+    vi.restoreAllMocks();
+  }, 10_000);
+
+  it('outer signal abort terminates the run — does not trigger steer-interrupt resume path', async () => {
+    await mockConfig();
+    const queue = new SteerQueue();
+
+    let turnCount = 0;
+    async function* responder(): AsyncGenerator<StreamEvent> {
+      turnCount += 1;
+      for (let i = 0; i < 100; i++) {
+        yield { type: 'text', text: '.' };
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      yield { type: 'stop', stopReason: 'end_turn' };
+    }
+
+    const ac = new AbortController();
+    setTimeout(() => ac.abort(), 50); // user hits Stop
+
+    await runAgentLoop(makeMockClient(responder), [{ role: 'user', content: 'go' }], makeCallbacks(), ac.signal, {
+      steerQueue: queue,
+    });
+
+    // Only one turn ran — outer abort terminated the run; steer queue
+    // is empty so no accidental re-entry.
+    expect(turnCount).toBe(1);
+    vi.restoreAllMocks();
+  }, 10_000);
+
+  it('no steerQueue option preserves legacy behavior (no drain, no extra messages)', async () => {
+    await mockConfig();
+    const streamMessages: ChatMessage[][] = [];
+    async function* responder(messages: ChatMessage[]): AsyncGenerator<StreamEvent> {
+      streamMessages.push(messages.slice());
+      yield { type: 'text', text: 'ok' };
+      yield { type: 'stop', stopReason: 'end_turn' };
+    }
+    const client = {
+      streamChat: responder,
+      getSystemPrompt: () => '',
+      getRouter: () => null,
+      getModel: () => 'mock-model',
+    } as unknown as SideCarClient;
+
+    await runAgentLoop(client, [{ role: 'user', content: 'hello' }], makeCallbacks(), new AbortController().signal, {
+      maxIterations: 1,
+    });
+    // Only the original user message — no coalesced injection.
+    const hasCoalesced = streamMessages[0].some(
+      (m) => typeof m.content === 'string' && m.content.includes('Your running instructions'),
+    );
+    expect(hasCoalesced).toBe(false);
     vi.restoreAllMocks();
   });
 });

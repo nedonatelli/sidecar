@@ -70,6 +70,9 @@ export interface WebviewMessage {
     | 'listMemories'
     | 'searchMemories'
     | 'droppedPaths'
+    | 'steerEnqueue'
+    | 'steerCancel'
+    | 'steerEdit'
     | 'executeExtensionCommand';
   images?: { mediaType: string; data: string }[];
   text?: string;
@@ -108,6 +111,10 @@ export interface WebviewMessage {
   args?: unknown[];
   /** Filesystem paths dropped into the chat webview. */
   paths?: string[];
+  /** Steer queue: the id of a pending steer for cancel/edit. */
+  steerId?: string;
+  /** Steer queue: urgency for a new submission. */
+  steerUrgency?: 'nudge' | 'interrupt';
 }
 
 export interface ExtensionMessage {
@@ -154,6 +161,7 @@ export interface ExtensionMessage {
     | 'bgComplete'
     | 'bgList'
     | 'resumeAvailable'
+    | 'steerQueueUpdate'
     | 'uiSettings';
   agentMode?: string;
   toolName?: string;
@@ -228,6 +236,19 @@ export interface ExtensionMessage {
     toolCalls: number;
   }[];
   bgRunId?: string;
+  /**
+   * Steer-queue snapshot broadcast to the webview whenever the queue
+   * mutates (enqueue / cancel / edit / drain / clear). The strip UI
+   * re-renders from this list — no client-side state synthesis.
+   * Empty array clears the strip.
+   */
+  steerQueue?: { id: string; text: string; urgency: 'nudge' | 'interrupt'; createdAt: number }[];
+  /**
+   * Whether a steer-queue-attached agent run is currently active. Lets
+   * the webview enable/disable the steer strip — no point showing it
+   * when the user isn't mid-run.
+   */
+  steerEnabled?: boolean;
 }
 
 export interface LibraryModelUI {
@@ -376,6 +397,7 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
   </div>
   <div id="image-preview" class="hidden"></div>
   <div id="slash-autocomplete" class="hidden" role="listbox" aria-label="Slash commands"></div>
+  <div id="steer-queue-strip" class="hidden" role="region" aria-label="Queued steers"></div>
   <div id="input-area">
     <button id="attach-btn" data-tooltip="Attach file" aria-label="Attach file">&#128206;</button>
     <textarea id="input" rows="1" placeholder="Ask SideCar..."></textarea>

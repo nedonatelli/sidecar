@@ -376,6 +376,20 @@
             "default": true,
             "description": "Require the agent to run lint and tests for files it edited before declaring completion. Catches cases where the agent reports a change as done without verifying."
           },
+          "sidecar.steerQueue.coalesceWindowMs": {
+            "type": "number",
+            "default": 2000,
+            "minimum": 0,
+            "maximum": 10000,
+            "description": "When a user steer is queued, wait up to this many ms at the next iteration boundary to collect further submissions into a single coalesced turn. 0 disables coalescing (drain immediately)."
+          },
+          "sidecar.steerQueue.maxPending": {
+            "type": "number",
+            "default": 5,
+            "minimum": 1,
+            "maximum": 20,
+            "description": "Maximum number of queued steers. When full, the oldest nudge is dropped to make room; an all-interrupt queue rejects new submissions."
+          },
           "sidecar.regressionGuards": {
             "type": "array",
             "default": [],
