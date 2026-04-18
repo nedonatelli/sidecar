@@ -2,7 +2,7 @@
   "name": "sidecar-ai",
   "displayName": "SideCar",
   "description": "Autonomous AI agent for coding — run full agent loops with local Ollama, Anthropic Claude, or OpenAI models",
-  "version": "0.64.1",
+  "version": "0.65.0",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {

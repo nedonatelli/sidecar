@@ -4,6 +4,79 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.65.0] - 2026-04-18
+
+**v0.65.0 — Loop ergonomics.** Large release focused on making the agent loop feel *live* rather than batch-mode: users can now steer a run mid-stream, multi-file refactors plan before they write, retrieval walks the call graph, and stream failures surface a persistent recovery path. The release also lifts five subsystems from <60% coverage to ≥90% and ships two major roadmap entries (Suggestion Mode, Dense-Repository Context Mode) for future work.
+
+**Headline features**: Steer Queue + interrupt UI (chunk 3), Multi-File Edit Streams with DAG scheduling (chunk 4), graph-expanded retrieval with adaptive depth (chunk 5.5), persistent Resume affordance (chunk 7). **Quality**: chatHandlers.ts 18% → 38%; scheduler/eventHooks/lintFix/localWorker/inlineChatProvider all to 90%+; 156 new tests added across the release (2780 baseline → 3037 final).
+
+Tests: **3037 passing** across 175 files; tsc + lint clean. No breaking changes — every new capability is opt-in or behavior-preserving.
+
+### Added — Steer Queue & Rich Interrupt UI (chunk 3)
+
+Human-in-the-Loop steerability end-to-end. User types a follow-up instruction while the agent is mid-stream; the message queues as a `nudge` or `interrupt`, and at the next iteration boundary all pending steers drain as one coalesced user turn.
+
+- **[`src/agent/steerQueue.ts`](src/agent/steerQueue.ts)** — FIFO queue with drop-oldest-nudge eviction, `SteerQueueFullError` when all-interrupts fill the cap, `onChange` subscription for UI sync, `serialize`/`restore` for crash persistence.
+- **[`src/agent/loop/steerDrain.ts`](src/agent/loop/steerDrain.ts) + `loop.ts`** — coalesce-window wait, per-turn `AbortController` so interrupts abort the turn (not the whole run), outer signal still terminates as before. Next iteration drains the queued steers and re-streams with the corrected intent.
+- **Webview UI** ([`media/chat.js`](media/chat.js) + [`chat.css`](media/chat.css) + [`chatWebview.ts`](src/webview/chatWebview.ts)) — strip above the input with 🟡 nudge / 🔴 interrupt badges, Edit/Cancel buttons. Enter routes to enqueue when a run is live; Ctrl/Cmd+Enter upgrades to interrupt.
+- **Persistence** — stream-failure stashes pending steers into `state.pendingSteerSnapshot`; next run restores them so crashes don't silently drop typed intent.
+- **Config**: `sidecar.steerQueue.coalesceWindowMs` (default `2000`), `sidecar.steerQueue.maxPending` (default `5`).
+
+### Added — Multi-File Edit Streams — DAG-Dispatched Parallel Writes (chunk 4)
+
+When an assistant turn proposes ≥ `minFilesForPlan` file writes, the loop runs a toolless planner LLM turn that emits a typed `EditPlan` manifest (paths, ops, rationales, dependency edges), validates it, and walks the resulting DAG with bounded parallelism instead of serializing writes.
+
+- **DAG primitives** ([`src/agent/editPlan.ts`](src/agent/editPlan.ts)) — typed validation with named reason codes (cycle / self-dependency / unknown-dependsOn / incompatible-duplicate), topological layering for parallel dispatch, same-path merging (`edit+edit` → one edit; `create+edit` → one create; `delete+anything` rejects), object-shape-only JSON parsing.
+- **Planner pass** ([`src/agent/editPlanner.ts`](src/agent/editPlanner.ts)) — toolless LLM turn with a schema-constrained prompt, fence-tolerant JSON extraction, one validation-feedback retry on failure, `plannerModel` override with setTurnOverride pin+restore, `@no-plan` sentinel suppression.
+- **Parallel executor** ([`src/agent/loop/multiFileEdit.ts`](src/agent/loop/multiFileEdit.ts)) — layered walk via pool-of-N workers (`runWithCap`), result alignment 1:1 with original pendingToolUses, abort stops future layers.
+- **Orchestration** ([`src/agent/loop/dispatchToolUses.ts`](src/agent/loop/dispatchToolUses.ts)) — gate on pure-write fanout; mixed turns + sub-threshold batches fall through to legacy `executeToolUses`. Falls back when the planner can't produce a valid plan after retry.
+- **UI** — **Planned Edits card** collapsible in the chat transcript with op-badge coloring (CREATE green / EDIT blue / DELETE red), monospace paths, rationale + DAG edges, hint to amend via Steer Queue.
+- **Integrations are transparent**: Shadow Workspaces (cwdOverride threads through `executeOneToolUse`), Audit Mode (per-write buffer capture), Regression Guards (hookBus fires once per turn regardless of DAG size).
+- **Config** (+6): `sidecar.multiFileEdits.{enabled, maxParallel, planningPass, minFilesForPlan, plannerModel, reviewGranularity}`.
+- **Deferred**: N-stream Pending Changes panel (4.4b), three-way `reviewGranularity` UI toggle (4.5c). Config + runtime are ready; UI polish in a later release.
+
+### Added — Graph-expanded retrieval (chunk 5.5)
+
+Promotes symbol-graph caller-walks from the `project_knowledge_search` tool into the base `SemanticRetriever`, so dependency-coupled symbols that wouldn't score on keywords surface on every retrieval call — critical for densely-interconnected codebases (physics simulations, signal-processing engines, transform libraries).
+
+- **[`src/agent/retrieval/graphExpansion.ts`](src/agent/retrieval/graphExpansion.ts)** — extracted `enrichWithGraphWalk` + `EnrichedHit` so the tool + base retriever share the same BFS-over-caller-edges logic.
+- **`adaptiveGraphDepth(contextLength)`** — depth auto-adapts to the model's context window: `<8K` → 0 (disabled), `8K–64K` → 1 hop, `≥64K` → 2 hops. Small-context local models stay within budget; large-context paid backends absorb deeper dependency coverage.
+- **Provenance labels** — `[vector: 0.823]` for direct hits, `[graph: called-by (1 hop from requireAuth)]` for expanded hits. Model sees why each symbol surfaced.
+- **Config**: `sidecar.retrieval.graphExpansion.enabled` (default `true`), `sidecar.retrieval.graphExpansion.maxHits` (default `8`, clamped 0–50).
+
+### Added — Persistent Resume affordance (chunk 7)
+
+- **Persistent strip** above the input area shows "⚠ Stream interrupted — resume available (+N queued steers)" whenever a stream failed mid-turn. Auto-hides on successful completion or `chatCleared`.
+- **Steer-count badge** — stashed queue size rides along on `resumeAvailable` so the user sees their queued intent will carry through.
+- **Protocol fix** — `'resume'` command was handled by the webview dispatcher but missing from `WebviewMessage.command` union. Closed the type hole.
+
+### Changed — Infrastructure + test coverage
+
+- **Chunk 1** — shared test-helper module (`src/__tests__/helpers/{kickstandToken,execAsync,mockFetch}.ts`) extracting duplicated `vi.mock('fs', ...)` / `vi.mock('child_process', ...)` / `vi.stubGlobal('fetch', ...)` patterns across 17 test files. **`SideCarClient._modelUsageLog`** ring-buffer-bounded at 1000 entries (previously unbounded — a long session leaked ~1 KB / min / model-call).
+- **Chunk 2a + 2b** — test coverage on the 14 previously-untested `src/agent/loop/*.ts` helpers (autoFix, builtInHooks, compression, cycleDetection, executeToolUses, finalize, gate, messageBuild, notifications, postTurnPolicies, state, steerDrain, stubCheck, textParsing). **+156 tests** across 14 test files; every helper now at ≥90% branch coverage.
+- **Chunk 5 — chatHandlers coverage** (18% → 38%). Extracted `createAgentCallbacks` (~175 lines of glue) to [`src/webview/handlers/agentCallbacks.ts`](src/webview/handlers/agentCallbacks.ts) for per-callback unit testing (98.71% lines on the new module). Exported + tested `checkBudgetLimits`, `recordRunCost`, `handleUserMessageWithImages`, `handleReconnect`.
+- **Chunk 6 — subsystem coverage**: `scheduler.ts` 57% → 97%, `eventHooks.ts` 40% → 90%, `lintFix.ts` 40% → 100%, `localWorker.ts` 5.55% → 97%, `inlineChatProvider.ts` 0% → 100%.
+
+### Added — Roadmap entries (docs-only, no shipped code)
+
+- **Suggestion Mode** — inverted-default approvals that reframe tool dispatch from "we'll run it unless you stop us" to "here's what I'd do, click to apply." Details the `SuggestionStore` primitive, Apply/Skip/Edit affordances, dependency tracking between pending suggestions, session-scoped auto-apply patterns, and destructive-tool carve-outs. Pairs with the v0.65-shipped Steer Queue and Multi-File Edit Streams. Phased rollout starts behind an opt-in flag.
+- **Dense-Repository Context Mode — Domain Profiles + Invariant-Aware Retention** — follow-up to v0.65's graph-expanded retrieval. Declarative `.sidecar/profiles/<name>.md` with preserve-regex invariant patterns (`epsilon_0`, `\\frac{}`, `const` declarations), symbol-level importance scoring, invariant-aware summarization that quotes equations verbatim, cross-invariant validation guard. Built-in profiles for physics, signal-processing, transforms, numerical-methods, control-systems.
+
+### Config surface
+
+Schema count: **87 → 95** (+8 new settings). New keys: `sidecar.steerQueue.{coalesceWindowMs, maxPending}`, `sidecar.multiFileEdits.{enabled, maxParallel, planningPass, minFilesForPlan, plannerModel, reviewGranularity}`, `sidecar.retrieval.graphExpansion.{enabled, maxHits}`.
+
+### Tests
+
+- **Unit suite**: 3037 passing (+423 from v0.64.1's 2614), 175 files.
+- **Coverage ratchet** untouched — all additions land well above the existing floor.
+- **No breaking test changes** — pre-existing tests still pass; additions are strictly incremental.
+
+### Known deferrals
+
+- **4.4b** — N-stream Pending Changes panel for multi-file edits. Existing single-stream `streamingDiffPreview` still fires per-write, so users see writes land one at a time; deferred to a later polish pass that can design the multi-pane layout properly.
+- **4.5c** — Three-way `reviewGranularity` UI toggle (`bulk` / `per-file` / `per-hunk`). Config is wired; existing shadow + audit review surfaces already approximate the `bulk` and `per-file` defaults.
+
 ## [0.64.1] - 2026-04-18
 
 **v0.64.1 — `@xenova/transformers@2` → `@huggingface/transformers@4`.** Unblocks the dependency-upgrade work deferred out of v0.64 by shipping the Layer 3 parity harness first and then driving the migration through it. The `@xenova/transformers` package was frozen at `2.17.2` when Xenova joined HuggingFace — the canonical name is now `@huggingface/transformers` and the current major is v4. Two dynamic imports migrated (`embeddingIndex.ts` file-level PKI, `symbolEmbeddingIndex.ts` symbol-level PKI) + the bundler external name updated.
