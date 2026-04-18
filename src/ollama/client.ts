@@ -130,8 +130,20 @@ export class SideCarClient {
    */
   private preOverrideModel: string | null = null;
 
-  /** Running log of every model used in this client's lifetime. */
+  /**
+   * Running log of every model used in this client's lifetime, bounded
+   * at `MAX_MODEL_USAGE_LOG_ENTRIES`. Audit #8 (v0.65): the array
+   * previously grew without bound in long-running sessions. The cap
+   * protects memory via drop-oldest (ring-buffer semantics); the only
+   * observable effect is that `buildModelTrailers()` may miss a model
+   * that was used exactly once more than `MAX_MODEL_USAGE_LOG_ENTRIES`
+   * entries ago — an acceptable cost for bounded memory, and the model
+   * trailer aggregation still deduplicates, so any currently-active
+   * model keeps appearing.
+   */
   private _modelUsageLog: ModelUsageEntry[] = [];
+  /** Public so tests can reference the same constant instead of hardcoding. */
+  static readonly MAX_MODEL_USAGE_LOG_ENTRIES = 1000;
 
   // Rate-limit state — one store per provider, so switching profiles
   // mid-session preserves each provider's accumulated budget info AND
@@ -215,7 +227,7 @@ export class SideCarClient {
     signal?: AbortSignal,
     tools?: ToolDefinition[],
   ): AsyncGenerator<StreamEvent> {
-    this._modelUsageLog.push({ model: this.model, role: 'chat', timestamp: new Date() });
+    this.pushModelUsageLog({ model: this.model, role: 'chat', timestamp: new Date() });
     // Fast-fail when the breaker is open so the user sees a clear error
     // instead of the request hanging on a dead provider. Advances an
     // open breaker to half-open once the cooldown has elapsed.
@@ -286,7 +298,7 @@ export class SideCarClient {
   }
 
   async complete(messages: ChatMessage[], maxTokens: number = 256, signal?: AbortSignal): Promise<string> {
-    this._modelUsageLog.push({ model: this.model, role: 'complete', timestamp: new Date() });
+    this.pushModelUsageLog({ model: this.model, role: 'complete', timestamp: new Date() });
     circuitBreaker.guard(this.getProviderType());
     // v0.64 phase 4c.2 — the backend records spend directly for
     // one-shot `complete()` dispatches (AnthropicBackend.complete
@@ -548,7 +560,22 @@ export class SideCarClient {
     return this.backend.nativeCapabilities?.();
   }
 
-  /** Return a copy of every model call recorded in this session. */
+  /**
+   * Append an entry to the model-usage log, respecting the
+   * drop-oldest cap set by `MAX_MODEL_USAGE_LOG_ENTRIES`. Single
+   * write point so the cap is enforced uniformly for every caller.
+   */
+  private pushModelUsageLog(entry: ModelUsageEntry): void {
+    this._modelUsageLog.push(entry);
+    if (this._modelUsageLog.length > SideCarClient.MAX_MODEL_USAGE_LOG_ENTRIES) {
+      // Array.shift is O(n) but the cap keeps n small (~1000). A
+      // head-index ring would be faster asymptotically; the direct
+      // shift is simpler and fast enough for this workload.
+      this._modelUsageLog.shift();
+    }
+  }
+
+  /** Return a copy of every model call recorded in this session (up to `MAX_MODEL_USAGE_LOG_ENTRIES`). */
   getModelUsageLog(): ModelUsageEntry[] {
     return [...this._modelUsageLog];
   }

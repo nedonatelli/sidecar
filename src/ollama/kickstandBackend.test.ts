@@ -2,18 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Stub the kickstand token file so the bearer-token test is deterministic
 // regardless of whether the host has ~/.config/kickstand/token set up.
-// Without this, the assertion on line ~93 is wrapped in an `if (Authorization)`
-// guard that silently no-ops on hosts without the token file (CI, fresh
-// installs) — the test then passes without actually verifying the behavior.
-// Same pattern as providerReachability.test.ts.
+// Previously inline here; centralized in v0.65 so
+// providerReachability.test.ts + this file share a single source of truth.
 vi.mock('fs', async () => {
+  const { buildKickstandTokenFsMock } = await import('../__tests__/helpers/kickstandToken.js');
   const actual = await vi.importActual<typeof import('fs')>('fs');
-  return {
-    ...actual,
-    existsSync: (p: string) => (p.includes('kickstand/token') ? true : actual.existsSync(p)),
-    readFileSync: (p: string, enc?: BufferEncoding) =>
-      p.includes('kickstand/token') ? 'test-kickstand-token' : actual.readFileSync(p, enc),
-  };
+  return buildKickstandTokenFsMock(actual);
 });
 
 import {

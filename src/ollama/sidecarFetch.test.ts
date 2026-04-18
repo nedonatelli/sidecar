@@ -1,22 +1,16 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { sidecarFetch, OutboundAllowlistError } from './sidecarFetch.js';
 import { RateLimitStore } from './rateLimitState.js';
-
-const originalFetch = globalThis.fetch;
+import { useMockFetch } from '../__tests__/helpers/mockFetch.js';
 
 describe('sidecarFetch', () => {
-  let mockFetch: ReturnType<typeof vi.fn>;
-
-  beforeEach(() => {
-    mockFetch = vi.fn();
-    vi.stubGlobal('fetch', mockFetch);
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.restoreAllMocks();
-    globalThis.fetch = originalFetch;
-  });
+  // `useMockFetch` registers its own beforeEach/afterEach to stub
+  // globalThis.fetch and reset call history per test (v0.65 — shared
+  // test-helper module). `fetchMock.fn` is the underlying vi.fn so
+  // existing `mockResolvedValueOnce` / `mockRejectedValueOnce` calls
+  // work unchanged.
+  const fetchMock = useMockFetch();
+  const mockFetch = fetchMock.fn;
 
   it('returns the response when no options are supplied', async () => {
     mockFetch.mockResolvedValueOnce(new Response('ok', { status: 200 }));

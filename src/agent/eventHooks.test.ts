@@ -16,22 +16,19 @@ vi.mock('vscode', () => ({
   })),
 }));
 
-vi.mock('child_process', () => ({
-  exec: vi.fn(),
-}));
+// Shared `exec` vi.fn — v0.65 uses vi.hoisted so the child_process + util
+// mocks below both see the same reference. Tests drive behavior via
+// `mockExec.mockImplementation(...)`; the util.promisify shim routes
+// through the same vi.fn via createPromisifyShim from the shared helper
+// module at src/__tests__/helpers/execAsync.ts.
+const { sharedExec } = vi.hoisted(() => ({ sharedExec: vi.fn() }));
 
-vi.mock('util', () => ({
-  promisify: (fn: any) => {
-    return async (cmd: string, opts?: any) => {
-      return new Promise((resolve) => {
-        fn(cmd, opts, (err: any) => {
-          if (err) throw err;
-          resolve({ stdout: '', stderr: '' });
-        });
-      });
-    };
-  },
-}));
+vi.mock('child_process', () => ({ exec: sharedExec }));
+
+vi.mock('util', async () => {
+  const { createPromisifyShim } = await import('../__tests__/helpers/execAsync.js');
+  return { promisify: createPromisifyShim(sharedExec as unknown as Parameters<typeof createPromisifyShim>[0]) };
+});
 
 import type { AgentLogger } from './logger.js';
 

@@ -13,22 +13,17 @@ vi.mock('vscode', () => ({
   },
 }));
 
-vi.mock('child_process', () => ({
-  exec: vi.fn(),
-}));
+// Shared `exec` vi.fn — v0.65 uses vi.hoisted so the child_process + util
+// mocks below both see the same reference. See src/__tests__/helpers/execAsync.ts
+// for the centralized promisify shim.
+const { sharedExec } = vi.hoisted(() => ({ sharedExec: vi.fn() }));
 
-vi.mock('util', () => ({
-  promisify: (fn: any) => {
-    return async (cmd: string, opts?: any): Promise<{ stdout: string; stderr: string }> => {
-      return new Promise((resolve: any, reject: any) => {
-        fn(cmd, opts, (err: any, stdout: string, stderr: string) => {
-          if (err) reject(err);
-          else resolve({ stdout, stderr });
-        });
-      });
-    };
-  },
-}));
+vi.mock('child_process', () => ({ exec: sharedExec }));
+
+vi.mock('util', async () => {
+  const { createPromisifyShim } = await import('../__tests__/helpers/execAsync.js');
+  return { promisify: createPromisifyShim(sharedExec as unknown as Parameters<typeof createPromisifyShim>[0]) };
+});
 
 import { exec } from 'child_process';
 

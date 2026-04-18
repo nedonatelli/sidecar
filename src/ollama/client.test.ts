@@ -648,6 +648,36 @@ describe('SideCarClient', () => {
       snapshot.push({ model: 'injected', role: 'chat', timestamp: new Date() });
       expect(client.getModelUsageLog()).toHaveLength(1);
     });
+
+    it('caps _modelUsageLog at MAX_MODEL_USAGE_LOG_ENTRIES with drop-oldest semantics (v0.65 audit #8)', async () => {
+      // Verify the ring-buffer cap without running 1000+ real completes:
+      // push entries through the public `complete()` path in a tight
+      // loop with a fast-resolving stubbed fetch. Each iteration is
+      // ~1ms, so the full loop finishes in ~1s.
+      const cap = SideCarClient.MAX_MODEL_USAGE_LOG_ENTRIES;
+      const client = new SideCarClient('model-first'); // tagged so we can confirm it got dropped
+      stubOllamaResponse();
+      await client.complete([{ role: 'user', content: 'init' }]);
+
+      // Fill to the cap.
+      client.updateModel('model-fill');
+      for (let i = 1; i < cap; i++) {
+        stubOllamaResponse();
+        await client.complete([{ role: 'user', content: `msg-${i}` }]);
+      }
+      expect(client.getModelUsageLog()).toHaveLength(cap);
+      expect(client.getModelUsageLog()[0].model).toBe('model-first');
+
+      // One more push tips us over → oldest entry falls out.
+      client.updateModel('model-overflow');
+      stubOllamaResponse();
+      await client.complete([{ role: 'user', content: 'overflow' }]);
+
+      const log = client.getModelUsageLog();
+      expect(log).toHaveLength(cap);
+      expect(log[0].model).toBe('model-fill'); // model-first fell off the front
+      expect(log[log.length - 1].model).toBe('model-overflow');
+    });
   });
 
   // v0.62.3 — mid-stream config rotation safety. The invariant under

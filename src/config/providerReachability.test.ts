@@ -5,16 +5,11 @@ vi.stubGlobal('fetch', mockFetch);
 
 // Stub the kickstand token file so the test is deterministic regardless of
 // whether the machine running it has ~/.config/kickstand/token set up.
-// Without this mock, the `Authorization` header assertion fails as
-// "undefined vs string" on any host that lacks the token file (e.g. CI).
+// Centralized in v0.65 — previously inline here AND in kickstandBackend.test.ts.
 vi.mock('fs', async () => {
+  const { buildKickstandTokenFsMock } = await import('../__tests__/helpers/kickstandToken.js');
   const actual = await vi.importActual<typeof import('fs')>('fs');
-  return {
-    ...actual,
-    existsSync: (p: string) => (p.includes('kickstand/token') ? true : actual.existsSync(p)),
-    readFileSync: (p: string, enc?: BufferEncoding) =>
-      p.includes('kickstand/token') ? 'test-kickstand-token' : actual.readFileSync(p, enc),
-  };
+  return buildKickstandTokenFsMock(actual);
 });
 
 import { isProviderReachable } from './providerReachability.js';
