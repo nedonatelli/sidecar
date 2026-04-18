@@ -4,6 +4,64 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.64.0] - 2026-04-17
+
+**v0.64.0 — Backend abstraction maturity + role-based model routing.** Six coordinated chunks that reshape how SideCar dispatches to LLMs. The release lands a unified outbound `sidecarFetch` helper across all 7 backends; decomposes `settings.ts` into domain modules; bumps `kickstandBackend` and `hfSafetensorsImport` past the 80% coverage floor; ships **Role-Based Model Routing & Hot-Swap** so one session can use Opus for hard agent-loop turns, Sonnet for normal work, Haiku for summarize/critic, and local Ollama for casual chat — all governed by budget caps with automatic downgrade; adds provider-reported `usage.cost` pass-through (accurate cost from OpenRouter without guesswork); and adds **Skill Sync & Registry** so user- and team-level skill collections sync from git on activation.
+
+Tests: **2614 passing** (+136 net); tsc + lint clean. No breaking changes — every new feature is opt-in.
+
+**Deferred to v0.65:** `@xenova/transformers` v2→v3 migration. The code delta is tiny but validation requires a dedicated RAG-eval sweep this release didn't budget for.
+
+### Added — Role-Based Model Routing & Hot-Swap
+
+- **`ModelRouter` service** ([`src/ollama/modelRouter.ts`](src/ollama/modelRouter.ts)). Typed role taxonomy (`chat` / `agent-loop` / `completion` / `summarize` / `critic` / `worker` / `planner` / `judge` / `visual` / `embed`), ordered rule list with first-match-wins priority, filter operators (`=`, `>=`, `~=/regex/flags`, `~=glob`), leftmost-operator-wins parser so regex values containing operators don't break parsing, complexity heuristic (turnCount ≥ 5 ∨ files ≥ 3 ∨ consecutive tool_use blocks ≥ 8 ∨ reasoning-cue prompt), malformed rules logged-and-skipped.
+- **Budget-aware downgrade** — per-rule `sessionBudget` / `dailyBudget` / `hourlyBudget` (USD). When a cap trips the router returns the matched rule's `fallbackModel` with `downgraded: true`, or falls through to the next matching rule. Users can express N-step chains (`opus → sonnet → haiku → local`) by listing rules most-expensive-first and relying on natural fall-through.
+- **Dispatch-site wiring** — four dispatch paths tag their calls with a role: agent-loop ([`src/agent/loop/routing.ts`](src/agent/loop/routing.ts) new), completion ([`src/completions/provider.ts`](src/completions/provider.ts)), critic ([`src/agent/loop/criticHook.ts`](src/agent/loop/criticHook.ts)), summarize ([`src/agent/conversationSummarizer.ts`](src/agent/conversationSummarizer.ts)). Router swaps `SideCarClient.model` before each dispatch; visible-swap toast (silenceable via `sidecar.modelRouting.visibleSwaps`) and first-downgrade warning (always surfaces — budget events are not silenceable).
+- **Spend-tracker hookup** — `spendTracker.record()` now returns the computed USD cost; `SideCarClient` forwards it to `ModelRouter.recordSpend(rule, usd)` via `chargeLastDecision()` for the streaming path and a pre/post `snapshot().totalUsd` delta for the non-streaming `complete()` path.
+- **Inline sentinels** ([`src/ollama/modelSentinels.ts`](src/ollama/modelSentinels.ts)) — `@opus`, `@sonnet`, `@haiku`, `@local` at the start of a message pin the entire turn to that model. `SideCarClient.setTurnOverride(model)` short-circuits routing; `setTurnOverride(null)` restores the pre-pin model so the sentinel can't leak into non-chat dispatches (FIM, background agents).
+- **Status-bar tooltip** ([`src/extension.ts`](src/extension.ts)) — existing `$(hubot) {model}` bar now reflects the live router-swapped model, tooltip gains a per-rule spend breakdown with `(budget hit)` markers, a "Sentinel pin" section when `@`-overrides are active, re-renders on every spend event.
+- **Legacy-settings auto-migration** (`synthesizeLegacyRules`) — when routing is enabled, non-empty `sidecar.completionModel` / `sidecar.critic.model` / `sidecar.delegateTask.workerModel` translate into synthesized rules appended after user-declared ones, so upgraders get sensible defaults without rewriting their settings.
+- **Config** — 5 new `sidecar.modelRouting.*` settings: `enabled`, `rules`, `defaultModel`, `visibleSwaps`, `dryRun`.
+
+### Added — Skill Sync & Registry
+
+- **`SkillRegistrySync` module** ([`src/agent/skillRegistrySync.ts`](src/agent/skillRegistrySync.ts)). Git-native distribution across machines and teams:
+  - **User registry** (`sidecar.skills.userRegistry`) — clones into `~/.sidecar/user-skills/` on activation.
+  - **Team registries** (`sidecar.skills.teamRegistries`) — array of URLs, each slugged into `~/.sidecar/team-skills/<slug>/`.
+  - **Local-folder support** — absolute paths that resolve to an existing directory are referenced in-place without cloning.
+  - **Trust prompt** — first-install for a URL not in `sidecar.skills.trustedRegistries` shows a VS Code modal; user decides whether to accept.
+  - **Offline mode** (`sidecar.skills.offline: true`) skips every network call; cached registries still load via SkillLoader.
+  - **Autopull schedule** — `on-start` (default) pulls on every activation; `manual` only when the user runs `SideCar: Sync Skill Registries`.
+  - **Failure isolation** — a failed clone/pull is logged but doesn't abort the sync loop; cached refs still surface.
+- **`SkillLoader.loadRegistrySkills(refs)`** ([`src/agent/skillLoader.ts`](src/agent/skillLoader.ts)) — appends synced skills tagged with `source: 'user-registry' | 'team-registry'` and a `registrySlug` so the picker can show origin.
+- **Command** — `SideCar: Sync Skill Registries` (`sidecar.syncSkillRegistries`) for `autoPull: 'manual'` users.
+- **Config** — 5 new `sidecar.skills.*` settings: `userRegistry`, `teamRegistries`, `autoPull`, `trustedRegistries`, `offline`.
+
+### Added — provider-reported cost pass-through
+
+- **`TokenUsage.costUsd`** ([`src/ollama/types.ts`](src/ollama/types.ts)) — optional provider-reported exact USD. OpenAI-compat SSE parser ([`src/ollama/openAiSseStream.ts`](src/ollama/openAiSseStream.ts)) captures `usage.cost` when present and forwards it through `StreamUsageEvent`.
+- **`spendTracker.record()`** prefers reported `costUsd` verbatim over table-computed cost — catches OpenRouter's per-account discounts, routed-provider markups, cache bonuses the static table would miss. Also bills models not in the price table when the provider reports a cost (previously returned 0).
+- **OpenRouter opts in** ([`src/ollama/openrouterBackend.ts`](src/ollama/openrouterBackend.ts)) — new `extraBodyFields()` hook on `OpenAIBackend`; OpenRouter overrides to include `usage: { include: true }` so streamed responses ship `usage.cost`.
+
+### Changed — backend abstraction maturity
+
+- **`sidecarFetch` helper** ([`src/ollama/sidecarFetch.ts`](src/ollama/sidecarFetch.ts)) — single call replaces the `{ maybeWaitForRateLimit → fetchWithRetry → rateLimits.update }` pattern every remote backend was open-coding. Composable options: `retry`, `rateLimits + estimatedTokens + parseRateLimitHeaders`, `allowlist` (new — deny-by-default egress check for user-supplied URLs; shares pattern syntax with `config/workspace.matchAllowlistHost`), `label`. All 7 backends (Ollama, Anthropic, OpenAI, Kickstand, OpenRouter, Groq, Fireworks) migrated. Circuit breaker stays at `SideCarClient` level — it's a cross-request concern, not a per-fetch one.
+- **`settings.ts` decomposition** — `820 lines → 375 lines` barrel re-exporting from domain modules: [`src/config/settings/secrets.ts`](src/config/settings/secrets.ts) (SecretStorage + HF token), [`src/config/settings/backends.ts`](src/config/settings/backends.ts) (profiles + provider detection), [`src/config/settings/agent.ts`](src/config/settings/agent.ts) (MCP + hooks + modes), [`src/config/settings/costs.ts`](src/config/settings/costs.ts) (estimateCost + OpenRouter ingest). Every existing import keeps working unchanged.
+
+### Coverage
+
+- **`src/ollama/kickstandBackend.ts`**: 54.62% → **85.71%** statements · 44.64% → 76.78% branches · 60.57% → **91.34%** lines. 13 new tests covering `kickstandPullModel` SSE (happy path, errors, malformed, non-`data:` ignore), `kickstandListRegistry` OK + non-OK, `kickstandLoadModel` opts + defaults, `kickstandUnloadModel` OK + error.
+- **`src/ollama/hfSafetensorsImport.ts`**: 0% → **92.3%** statements · 0% → **94.26%** lines. 12 new tests covering full phase sequence, resume-skip, HTTP 401/403/500, empty body, truncated-download detection + cleanup, Bearer token forwarding, `ollama create` non-zero exit, `spawn()` throw wrap, post-spawn error event, pre-abort AbortError.
+- **`src/ollama` aggregate**: 72.83% → **82.08%** statements. Clears the v0.64 target of ≥74/66/73/74.
+
+### Tests (+136 net, 2614 total)
+
+Largest test additions: `modelRouter.test.ts` (+50), `sidecarFetch.test.ts` (+12), `modelSentinels.test.ts` (+11), `spendTracker.test.ts` (+9), `skillRegistrySync.test.ts` (+18), `hfSafetensorsImport.test.ts` (+12, new file), `kickstandBackend.test.ts` (+13), `loop/routing.test.ts` (+10, new file). Mock updates to existing test files (`loop.test.ts`, `conversationSummarizer.test.ts`, `critic.runner.test.ts`, `completions/provider.test.ts`) gave their client mocks a `routeForDispatch: () => null` stub so the new dispatch-site wiring doesn't break them.
+
+### Deferred to v0.65
+
+- **`@xenova/transformers` v2 → v3 migration** — audit #18 on the roadmap. The code delta is tiny (2 call sites in `embeddingIndex.ts` / `symbolEmbeddingIndex.ts`) but validation needs a full RAG-eval sweep against the retrieval-precision baseline, bundle-size measurement, and cache-migration check. Worth its own dedicated session with test harness running rather than a corner of v0.64.
+
 ## [0.63.1] - 2026-04-17
 
 **v0.63.1 — Native backend capabilities.** First patch on the v0.63 cycle. Introduces a generic `BackendCapabilities` abstraction that lets per-backend native features surface through the `ApiBackend` interface without bloating its core surface. Two concrete capabilities land in this release: (1) OpenAI-compat → Ollama native-protocol fallback, closing the "OAI-compat layer glitched" reliability gap reported against test-setup configs where users point the OpenAI profile at an Ollama host; (2) Kickstand lifecycle commands (`load` / `unload`) exposed as command-palette actions so users can hot-swap which model Kickstand has loaded without leaving VS Code. Tests: 2460 passing (+26 net); tsc + lint clean. No breaking changes — the new interface method is optional and backends without native capabilities don't implement it.
