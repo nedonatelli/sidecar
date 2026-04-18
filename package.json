@@ -425,6 +425,18 @@
             "default": "per-file",
             "description": "How the Pending Changes panel presents a multi-file edit. 'bulk' = accept/reject all as one unit, 'per-file' = checkboxes per file (default), 'per-hunk' = drill down to hunk-level across files."
           },
+          "sidecar.retrieval.graphExpansion.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "After semantic retrieval returns vector hits, walk the symbol graph's 'calls' edges outward by 1-2 hops (depth auto-scales with the model's context window) to surface dependency-coupled symbols that wouldn't score on keywords alone. Matters for dense, deeply-interconnected codebases (physics simulations, signal processing, transform libraries)."
+          },
+          "sidecar.retrieval.graphExpansion.maxHits": {
+            "type": "number",
+            "default": 8,
+            "minimum": 0,
+            "maximum": 50,
+            "description": "Cap on symbols added via graph walk per retrieval call. Higher = deeper dependency coverage at more token cost; lower = tighter context for small-context local models."
+          },
           "sidecar.regressionGuards": {
             "type": "array",
             "default": [],

@@ -177,6 +177,19 @@ export class WorkspaceIndex implements Disposable {
     return this.symbolEmbeddings;
   }
 
+  /**
+   * Symbol graph accessor (v0.65 chunk 5.5 — graph-expanded retrieval).
+   * Exposes the SymbolIndexer's underlying call graph so the base
+   * SemanticRetriever can walk callers outward from vector hits and
+   * surface dependency-coupled symbols on every turn (previously only
+   * the `project_knowledge_search` tool did this). Returns `null`
+   * when no indexer is wired (pre-PKI workspaces, tests that bypass
+   * symbol indexing).
+   */
+  getSymbolGraph(): import('./symbolGraph.js').SymbolGraph | null {
+    return this.symbolIndexer?.getGraph() ?? null;
+  }
+
   /** Set pinned paths from settings (replaces previous pins from settings). */
   setPinnedPaths(paths: string[]): void {
     this.pinnedPaths = new Set(paths);

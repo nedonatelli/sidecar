@@ -1,5 +1,7 @@
 import { WorkspaceIndex } from '../../config/workspaceIndex';
 import { Retriever, RetrievalHit } from './retriever';
+import { enrichWithGraphWalk, type GraphWalkOptions, type EnrichedHit } from './graphExpansion';
+import type { SymbolSearchResult } from '../../config/symbolEmbeddingIndex';
 
 /**
  * Retriever adapter for workspace files. Uses WorkspaceIndex's existing
@@ -32,6 +34,19 @@ export class SemanticRetriever implements Retriever {
     private activeFilePath?: string,
     private maxCharsPerFile: number = DEFAULT_MAX_CHARS_PER_FILE,
     private maxCharsPerSymbol: number = DEFAULT_MAX_CHARS_PER_SYMBOL,
+    /**
+     * Graph-walk expansion options (v0.65 chunk 5.5). When set AND the
+     * workspace index exposes a symbol graph AND `maxDepth > 0`, every
+     * symbol-level vector hit is expanded outward by BFS over
+     * `calls` edges. Surfaces dependency-coupled symbols that wouldn't
+     * score on keywords but whose structural relationship to a scored
+     * symbol is load-bearing — the signature failure mode in dense,
+     * deeply-interconnected codebases.
+     *
+     * Leave undefined to preserve the pre-v0.65 behavior (direct
+     * vector hits only).
+     */
+    private graphExpansion?: GraphWalkOptions,
   ) {}
 
   isReady(): boolean {
@@ -60,13 +75,33 @@ export class SemanticRetriever implements Retriever {
     const symEmb = this.index.getSymbolEmbeddings();
     if (!symEmb || !symEmb.isReady() || symEmb.getCount() === 0) return null;
 
-    const results = await symEmb.search(query, k);
+    const directResults: SymbolSearchResult[] = await symEmb.search(query, k);
+
+    // Graph-walk expansion (v0.65 chunk 5.5). Runs only when the
+    // retriever was constructed with a non-zero-depth budget AND the
+    // workspace index exposes a symbol graph. Each direct hit's
+    // callers (up to maxDepth hops) surface as additional enriched
+    // hits with decayed scores + a "graph: called-by (N hops)"
+    // provenance label so the model sees why the symbol appeared.
+    let expanded: EnrichedHit[];
+    if (this.graphExpansion && this.graphExpansion.maxDepth > 0) {
+      const graph = this.index.getSymbolGraph();
+      expanded = enrichWithGraphWalk(directResults, graph, this.graphExpansion);
+    } else {
+      expanded = directResults.map((r) => ({
+        filePath: r.filePath,
+        qualifiedName: r.qualifiedName,
+        name: r.name,
+        kind: r.kind,
+        startLine: r.startLine,
+        endLine: r.endLine,
+        score: r.similarity,
+        relationship: `vector: ${r.similarity.toFixed(3)}`,
+      }));
+    }
+
     const hits: RetrievalHit[] = [];
-    for (const r of results) {
-      // Load the containing file's content so we can extract the
-      // symbol body. Reading the file once per hit is fine — cache
-      // lookups in WorkspaceIndex mean repeated reads of the same
-      // file are cheap after the first.
+    for (const r of expanded) {
       const fileContent = await this.index.loadFileContent(r.filePath);
       const body = sliceSymbolBody(fileContent, r.startLine, r.endLine);
       if (!body) continue;
@@ -75,13 +110,9 @@ export class SemanticRetriever implements Retriever {
           ? body.slice(0, this.maxCharsPerSymbol) + '\n... (symbol truncated)'
           : body;
       hits.push({
-        // Distinct ID prefix so the RRF fusion layer dedupes across
-        // symbol hits (one per symbol) without collapsing them against
-        // legacy file-level hits that may still arrive from a parallel
-        // non-PKI retriever in a hybrid test setup.
         id: `workspace-sym:${r.filePath}::${r.qualifiedName}`,
-        score: r.similarity,
-        content: `### ${r.filePath}:${r.startLine}-${r.endLine} (${r.kind} ${r.qualifiedName})\n\`\`\`\n${truncated}\n\`\`\``,
+        score: r.score,
+        content: `### ${r.filePath}:${r.startLine}-${r.endLine} (${r.kind} ${r.qualifiedName}) [${r.relationship}]\n\`\`\`\n${truncated}\n\`\`\``,
         source: this.name,
         filePath: r.filePath,
       });

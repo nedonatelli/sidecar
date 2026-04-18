@@ -6,6 +6,8 @@ export { reciprocalRankFusion } from './fusion';
 export { DocRetriever } from './docRetriever';
 export { MemoryRetriever } from './memoryRetriever';
 export { SemanticRetriever } from './semanticRetriever';
+export { adaptiveGraphDepth, enrichWithGraphWalk } from './graphExpansion';
+export type { EnrichedHit, GraphWalkOptions } from './graphExpansion';
 
 /**
  * Run a set of retrievers in parallel and fuse their rankings with RRF.

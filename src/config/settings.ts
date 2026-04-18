@@ -100,6 +100,8 @@ export interface SideCarConfig {
   multiFileEditsMinFilesForPlan: number;
   multiFileEditsPlannerModel: string;
   multiFileEditsReviewGranularity: 'bulk' | 'per-file' | 'per-hunk';
+  retrievalGraphExpansionEnabled: boolean;
+  retrievalGraphExpansionMaxHits: number;
   criticEnabled: boolean;
   criticModel: string;
   criticBlockOnHighSeverity: boolean;
@@ -288,6 +290,8 @@ function readConfig(): SideCarConfig {
       | 'bulk'
       | 'per-file'
       | 'per-hunk',
+    retrievalGraphExpansionEnabled: cfg.get<boolean>('retrieval.graphExpansion.enabled', true),
+    retrievalGraphExpansionMaxHits: clampMin(cfg.get<number>('retrieval.graphExpansion.maxHits', 8), 0, 50),
     criticEnabled: cfg.get<boolean>('critic.enabled', false),
     // v0.62.1 p.1a: provider-aware default. An empty `critic.model`
     // historically meant "use the main model," which doubled per-

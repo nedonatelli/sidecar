@@ -19,6 +19,7 @@ import {
   DocRetriever,
   MemoryRetriever,
   SemanticRetriever,
+  adaptiveGraphDepth,
   fuseRetrievers,
   renderFusedContext,
 } from '../../agent/retrieval/index.js';
@@ -188,7 +189,7 @@ export async function injectSystemContext(
   config: ReturnType<typeof getConfig>,
   text: string,
   isLocal: boolean,
-  _contextLength: number | null,
+  contextLength: number | null,
 ): Promise<string> {
   const INJECTION_BOUNDARY =
     '\n\n---\nThe following sections contain project instructions, user preferences, and skill context. ' +
@@ -299,7 +300,20 @@ export async function injectSystemContext(
       retrievers.push(new MemoryRetriever(state.agentMemory));
     }
     if (getWorkspaceEnabled() && state.workspaceIndex?.isReady()) {
-      retrievers.push(new SemanticRetriever(state.workspaceIndex, activeFilePath));
+      // Graph expansion (v0.65 chunk 5.5): walk callers outward from
+      // vector hits so dependency-coupled symbols surface on every
+      // retrieval call. Depth auto-adjusts to the model's context
+      // window — small-context local models (<8K) disable the walk
+      // to preserve tokens; large-context backends absorb depth 2.
+      const graphExpansion = config.retrievalGraphExpansionEnabled
+        ? {
+            maxDepth: adaptiveGraphDepth(contextLength),
+            maxGraphHits: config.retrievalGraphExpansionMaxHits,
+          }
+        : undefined;
+      retrievers.push(
+        new SemanticRetriever(state.workspaceIndex, activeFilePath, undefined, undefined, graphExpansion),
+      );
     }
     if (retrievers.length > 0) {
       const topK = Math.max(config.ragMaxDocEntries, 5);

@@ -188,4 +188,139 @@ describe('SemanticRetriever', () => {
       expect(hits).toEqual([]);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Graph-expanded retrieval (v0.65 chunk 5.5)
+  // -------------------------------------------------------------------------
+  describe('graph-expanded symbol retrieval', () => {
+    function fakeGraph(
+      callers: Record<string, Array<{ callerFile: string; line: number }>>,
+      symbolsInFile: Record<
+        string,
+        Array<{
+          qualifiedName: string;
+          name: string;
+          type: string;
+          startLine: number;
+          endLine: number;
+        }>
+      > = {},
+    ) {
+      return {
+        getCallers: (name: string) => callers[name] ?? [],
+        getSymbolsInFile: (file: string) => symbolsInFile[file] ?? [],
+      };
+    }
+
+    // Helper: make file content long enough that any startLine/endLine
+    // in our fixtures has real content to slice.
+    function longLines(n: number): string {
+      return Array.from({ length: n }, (_, i) => `line ${i + 1}`).join('\n');
+    }
+
+    it('surfaces a caller-reached symbol under the direct hit when graphExpansion is set', async () => {
+      const index = fakeIndex({
+        getSymbolEmbeddings: () => fakeSymbolIndex(),
+        getSymbolGraph: () =>
+          fakeGraph(
+            { requireAuth: [{ callerFile: 'src/route.ts', line: 15 }] },
+            {
+              'src/route.ts': [
+                {
+                  qualifiedName: 'handleLogin',
+                  name: 'handleLogin',
+                  type: 'function',
+                  startLine: 10,
+                  endLine: 20,
+                },
+              ],
+            },
+          ),
+        loadFileContent: async () => longLines(30),
+      });
+      const retriever = new SemanticRetriever(index, undefined, undefined, undefined, {
+        maxDepth: 1,
+        maxGraphHits: 5,
+      });
+      const hits = await retriever.retrieve('auth', 5);
+      expect(hits).toHaveLength(2);
+      // Direct hit first (higher score).
+      expect(hits[0].content).toContain('requireAuth');
+      expect(hits[0].content).toMatch(/\[vector:/);
+      // Caller follows with the graph provenance label.
+      expect(hits[1].content).toContain('handleLogin');
+      expect(hits[1].content).toMatch(/\[graph: called-by \(1 hop from requireAuth\)/);
+    });
+
+    it('returns only direct hits when maxDepth=0 (walk disabled)', async () => {
+      const index = fakeIndex({
+        getSymbolEmbeddings: () => fakeSymbolIndex(),
+        getSymbolGraph: () =>
+          fakeGraph(
+            { requireAuth: [{ callerFile: 'src/route.ts', line: 15 }] },
+            {
+              'src/route.ts': [
+                {
+                  qualifiedName: 'handleLogin',
+                  name: 'handleLogin',
+                  type: 'function',
+                  startLine: 10,
+                  endLine: 20,
+                },
+              ],
+            },
+          ),
+        loadFileContent: async () => longLines(30),
+      });
+      const retriever = new SemanticRetriever(index, undefined, undefined, undefined, {
+        maxDepth: 0,
+        maxGraphHits: 5,
+      });
+      const hits = await retriever.retrieve('auth', 5);
+      expect(hits).toHaveLength(1);
+    });
+
+    it('returns only direct hits when graphExpansion is unset (pre-v0.65 behavior)', async () => {
+      const index = fakeIndex({
+        getSymbolEmbeddings: () => fakeSymbolIndex(),
+        getSymbolGraph: () =>
+          fakeGraph(
+            { requireAuth: [{ callerFile: 'src/route.ts', line: 15 }] },
+            {
+              'src/route.ts': [
+                {
+                  qualifiedName: 'handleLogin',
+                  name: 'handleLogin',
+                  type: 'function',
+                  startLine: 10,
+                  endLine: 20,
+                },
+              ],
+            },
+          ),
+        loadFileContent: async () => longLines(30),
+      });
+      // No 5th constructor arg — legacy path.
+      const retriever = new SemanticRetriever(index);
+      const hits = await retriever.retrieve('auth', 5);
+      expect(hits).toHaveLength(1);
+      expect(hits[0].content).toMatch(/\[vector:/);
+    });
+
+    it('tolerates a workspace index with no symbol graph (getSymbolGraph → null)', async () => {
+      const index = fakeIndex({
+        getSymbolEmbeddings: () => fakeSymbolIndex(),
+        getSymbolGraph: () => null,
+        loadFileContent: async () => longLines(30),
+      });
+      const retriever = new SemanticRetriever(index, undefined, undefined, undefined, {
+        maxDepth: 2,
+        maxGraphHits: 5,
+      });
+      const hits = await retriever.retrieve('auth', 5);
+      // Falls back to direct hits only — no graph available.
+      expect(hits).toHaveLength(1);
+      expect(hits[0].content).toMatch(/\[vector:/);
+    });
+  });
 });
