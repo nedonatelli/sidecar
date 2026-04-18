@@ -188,18 +188,16 @@ describe('handleInsights', () => {
     const mod = await import('./agentHandlers.js');
     const state = {
       auditLog: {
-        query: vi
-          .fn()
-          .mockResolvedValue([
-            {
-              timestamp: '2026-04-18T12:00:00Z',
-              tool: 'read_file',
-              durationMs: 5,
-              isError: false,
-              input: {},
-              result: '',
-            },
-          ]),
+        query: vi.fn().mockResolvedValue([
+          {
+            timestamp: '2026-04-18T12:00:00Z',
+            tool: 'read_file',
+            durationMs: 5,
+            isError: false,
+            input: {},
+            result: '',
+          },
+        ]),
       },
       metricsCollector: { getHistory: () => [] },
       agentMemory: { queryAll: () => [] },
