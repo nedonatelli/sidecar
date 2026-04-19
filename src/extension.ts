@@ -1590,9 +1590,39 @@ async function initShadowSweep(): Promise<void> {
   }
 }
 
-export function deactivate() {
-  chatProvider?.autoSave();
-  chatProvider?.abort();
-  disposeSidecarMdWatcher();
-  disposeShellSession();
+/**
+ * Graceful shutdown orchestration.
+ *
+ * VS Code gives extensions a limited window (~5s) to clean up in deactivate().
+ * We sequence shutdown in phases:
+ * 1. Abort ongoing agent loops (immediate, stops new work)
+ * 2. Save chat state (quick disk write)
+ * 3. Dispose watchers and sessions (close handles)
+ * 4. Process registry cleanup (kill orphans — may take up to 2s per process)
+ *
+ * The ProcessRegistry.dispose() is already registered in context.subscriptions
+ * and handles its own timeout. Here we just ensure the quick cleanup happens first.
+ */
+export async function deactivate(): Promise<void> {
+  const startMs = Date.now();
+  console.log('[SideCar] Extension deactivating...');
+
+  try {
+    // Phase 1: Abort agent loops immediately (stops new tool calls)
+    chatProvider?.abort();
+
+    // Phase 2: Save chat state before disposing anything
+    chatProvider?.autoSave();
+
+    // Phase 3: Dispose watchers and sessions
+    disposeSidecarMdWatcher();
+    disposeShellSession();
+
+    // Phase 4: Process registry cleanup is handled by context.subscriptions
+    // which VS Code calls automatically. We just log completion here.
+    const elapsed = Date.now() - startMs;
+    console.log(`[SideCar] Deactivation completed in ${elapsed}ms`);
+  } catch (err) {
+    console.error('[SideCar] Error during deactivation:', err);
+  }
 }
