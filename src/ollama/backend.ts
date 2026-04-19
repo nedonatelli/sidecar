@@ -139,4 +139,29 @@ export interface BackendCapabilities {
      */
     listLoadable?(): Promise<{ id: string; loaded: boolean; sizeBytes?: number }[]>;
   };
+
+  /**
+   * LoRA adapter management (v0.65.2). Lets users hot-swap fine-tuning
+   * adapters on a loaded model without leaving VS Code.
+   * Currently implemented by Kickstand via its /api/v1/models/{id}/lora endpoints.
+   */
+  loraAdapters?: {
+    /** List adapters currently loaded on a model. */
+    listAdapters(modelId: string): Promise<{ id: string; path: string; scale: number }[]>;
+    /** Load a LoRA adapter onto a loaded model. Returns a human-readable status. */
+    loadAdapter(modelId: string, adapterPath: string, scale?: number): Promise<string>;
+    /** Unload a LoRA adapter from a model. */
+    unloadAdapter(modelId: string, adapterId: string): Promise<string>;
+  };
+
+  /**
+   * Model browser / discovery (v0.65.2). Search HuggingFace and pull
+   * models directly from VS Code. Kickstand wraps HuggingFace Hub.
+   */
+  modelBrowser?: {
+    /** Browse files in a HuggingFace repo. */
+    browseRepo(repo: string): Promise<{ filename: string; sizeBytes: number; quant?: string; format: string }[]>;
+    /** Search HuggingFace for models. */
+    searchModels?(query: string): Promise<{ id: string; downloads: number; description?: string }[]>;
+  };
 }

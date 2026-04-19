@@ -25,6 +25,9 @@ export function registerBackendCommands(context: vscode.ExtensionContext, getCli
   context.subscriptions.push(
     vscode.commands.registerCommand('sidecar.kickstand.loadModel', () => runLoadModel(getClient())),
     vscode.commands.registerCommand('sidecar.kickstand.unloadModel', () => runUnloadModel(getClient())),
+    vscode.commands.registerCommand('sidecar.kickstand.loadAdapter', () => runLoadAdapter(getClient())),
+    vscode.commands.registerCommand('sidecar.kickstand.unloadAdapter', () => runUnloadAdapter(getClient())),
+    vscode.commands.registerCommand('sidecar.modelBrowser', () => runModelBrowser(getClient())),
   );
 }
 
@@ -83,6 +86,179 @@ async function runUnloadModel(client: SideCarClient): Promise<void> {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         vscode.window.showErrorMessage(`Failed to unload ${modelId}: ${msg}`);
+      }
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// LoRA adapter commands (v0.65.2)
+// ---------------------------------------------------------------------------
+
+async function runLoadAdapter(client: SideCarClient): Promise<void> {
+  const caps = client.getBackendCapabilities();
+  if (!caps?.loraAdapters || !caps?.lifecycle) {
+    vscode.window.showInformationMessage(
+      'Active backend does not support LoRA adapters. Switch to Kickstand with a loaded model.',
+    );
+    return;
+  }
+
+  // Pick a loaded model first
+  const modelId = await pickModelId(caps.lifecycle, 'unload'); // 'unload' filter = loaded models
+  if (!modelId) return;
+
+  // Ask for adapter path
+  const adapterPath = await vscode.window.showInputBox({
+    prompt: 'Path to LoRA adapter file (GGUF)',
+    placeHolder: '/path/to/adapter.gguf',
+    validateInput: (v) => (v.trim().length === 0 ? 'Path cannot be empty' : undefined),
+  });
+  if (!adapterPath) return;
+
+  const scaleStr = await vscode.window.showInputBox({
+    prompt: 'Adapter scale (0.0–2.0)',
+    value: '1.0',
+    validateInput: (v) => {
+      const n = parseFloat(v);
+      return isNaN(n) || n < 0 || n > 2 ? 'Enter a number between 0 and 2' : undefined;
+    },
+  });
+  if (!scaleStr) return;
+  const scale = parseFloat(scaleStr);
+
+  await vscode.window.withProgress(
+    { location: vscode.ProgressLocation.Notification, title: `Loading LoRA adapter…`, cancellable: false },
+    async () => {
+      try {
+        const summary = await caps.loraAdapters!.loadAdapter(modelId, adapterPath, scale);
+        vscode.window.showInformationMessage(summary);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        vscode.window.showErrorMessage(`Failed to load adapter: ${msg}`);
+      }
+    },
+  );
+}
+
+async function runUnloadAdapter(client: SideCarClient): Promise<void> {
+  const caps = client.getBackendCapabilities();
+  if (!caps?.loraAdapters || !caps?.lifecycle) {
+    vscode.window.showInformationMessage('Active backend does not support LoRA adapters.');
+    return;
+  }
+
+  // Pick a loaded model
+  const modelId = await pickModelId(caps.lifecycle, 'unload');
+  if (!modelId) return;
+
+  // List adapters on that model
+  try {
+    const adapters = await caps.loraAdapters.listAdapters(modelId);
+    if (adapters.length === 0) {
+      vscode.window.showInformationMessage(`No LoRA adapters loaded on ${modelId}.`);
+      return;
+    }
+
+    const pick = await vscode.window.showQuickPick(
+      adapters.map((a) => ({
+        label: a.id,
+        description: `scale: ${a.scale}`,
+        detail: a.path,
+      })),
+      { placeHolder: 'Select adapter to unload' },
+    );
+    if (!pick) return;
+
+    await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: `Unloading LoRA ${pick.label}…`, cancellable: false },
+      async () => {
+        try {
+          const summary = await caps.loraAdapters!.unloadAdapter(modelId, pick.label);
+          vscode.window.showInformationMessage(summary);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          vscode.window.showErrorMessage(`Failed to unload adapter: ${msg}`);
+        }
+      },
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    vscode.window.showErrorMessage(`Failed to list adapters: ${msg}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Model browser command (v0.65.2)
+// ---------------------------------------------------------------------------
+
+async function runModelBrowser(client: SideCarClient): Promise<void> {
+  const caps = client.getBackendCapabilities();
+  if (!caps?.modelBrowser || !caps?.lifecycle) {
+    vscode.window.showInformationMessage('Active backend does not support model browsing. Switch to Kickstand.');
+    return;
+  }
+
+  const repo = await vscode.window.showInputBox({
+    prompt: 'HuggingFace repo to browse',
+    placeHolder: 'e.g. bartowski/Meta-Llama-3-8B-Instruct-GGUF',
+    validateInput: (v) => (v.trim().length === 0 ? 'Repo cannot be empty' : undefined),
+  });
+  if (!repo) return;
+
+  await vscode.window.withProgress(
+    { location: vscode.ProgressLocation.Notification, title: `Browsing ${repo}…`, cancellable: false },
+    async () => {
+      try {
+        const files = await caps.modelBrowser!.browseRepo(repo);
+        if (files.length === 0) {
+          vscode.window.showInformationMessage(`No GGUF/MLX files found in ${repo}.`);
+          return;
+        }
+
+        const pick = await vscode.window.showQuickPick(
+          files.map((f) => ({
+            label: f.filename,
+            description: `${formatBytes(f.sizeBytes)}${f.quant ? ` · ${f.quant}` : ''} · ${f.format}`,
+          })),
+          { placeHolder: 'Select a file to pull' },
+        );
+        if (!pick) return;
+
+        // Pull the selected file via Kickstand's pull endpoint
+        const { kickstandPullModel } = await import('../ollama/kickstandBackend.js');
+        const { getConfig } = await import('../config/settings.js');
+        const baseUrl = getConfig().baseUrl;
+        vscode.window.withProgress(
+          { location: vscode.ProgressLocation.Notification, title: `Pulling ${pick.label}…`, cancellable: true },
+          async (_progress, token) => {
+            const abortController = new AbortController();
+            token.onCancellationRequested(() => abortController.abort());
+            try {
+              for await (const event of kickstandPullModel(
+                baseUrl,
+                repo,
+                pick.label,
+                undefined,
+                abortController.signal,
+              )) {
+                if (event.status === 'error') {
+                  vscode.window.showErrorMessage(`Pull failed: ${event.message}`);
+                  return;
+                }
+              }
+              vscode.window.showInformationMessage(`Pulled ${pick.label} from ${repo}.`);
+            } catch (err) {
+              if (!token.isCancellationRequested) {
+                const msg = err instanceof Error ? err.message : String(err);
+                vscode.window.showErrorMessage(`Pull failed: ${msg}`);
+              }
+            }
+          },
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        vscode.window.showErrorMessage(`Browse failed: ${msg}`);
       }
     },
   );

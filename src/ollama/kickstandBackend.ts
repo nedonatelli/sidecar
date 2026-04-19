@@ -307,6 +307,24 @@ export class KickstandBackend implements ApiBackend {
           }));
         },
       },
+      loraAdapters: {
+        listAdapters: async (modelId: string) => {
+          return kickstandListAdapters(this.baseUrl, modelId);
+        },
+        loadAdapter: async (modelId: string, adapterPath: string, scale?: number) => {
+          const result = await kickstandLoadAdapter(this.baseUrl, modelId, adapterPath, scale);
+          return `Loaded LoRA ${result.adapter_id} on ${modelId}`;
+        },
+        unloadAdapter: async (modelId: string, adapterId: string) => {
+          await kickstandUnloadAdapter(this.baseUrl, modelId, adapterId);
+          return `Unloaded LoRA ${adapterId} from ${modelId}`;
+        },
+      },
+      modelBrowser: {
+        browseRepo: async (repo: string) => {
+          return kickstandBrowseRepo(this.baseUrl, repo);
+        },
+      },
     };
   }
 }
@@ -460,4 +478,82 @@ export async function kickstandUnloadModel(
     throw new Error(`Kickstand unload failed (${response.status}): ${text}`);
   }
   return response.json();
+}
+
+// ---------------------------------------------------------------------------
+// LoRA adapter management
+// ---------------------------------------------------------------------------
+
+/** List LoRA adapters loaded on a model. */
+export async function kickstandListAdapters(
+  baseUrl: string,
+  modelId: string,
+): Promise<{ id: string; path: string; scale: number }[]> {
+  const url = `${baseUrl.replace(/\/+$/, '')}/api/v1/models/${encodeURIComponent(modelId)}/lora`;
+  const response = await fetch(url, { headers: kickstandHeaders(), signal: AbortSignal.timeout(5000) });
+  if (!response.ok) return [];
+  const data = await response.json();
+  return Array.isArray(data) ? data : (data.adapters ?? []);
+}
+
+/** Load a LoRA adapter onto a loaded model. */
+export async function kickstandLoadAdapter(
+  baseUrl: string,
+  modelId: string,
+  adapterPath: string,
+  scale: number = 1.0,
+): Promise<{ adapter_id: string; status: string }> {
+  const url = `${baseUrl.replace(/\/+$/, '')}/api/v1/models/${encodeURIComponent(modelId)}/lora`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: kickstandHeaders(),
+    body: JSON.stringify({ path: adapterPath, scale }),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`LoRA load failed (${response.status}): ${text}`);
+  }
+  return response.json();
+}
+
+/** Unload a LoRA adapter from a model. */
+export async function kickstandUnloadAdapter(
+  baseUrl: string,
+  modelId: string,
+  adapterId: string,
+): Promise<{ status: string }> {
+  const url = `${baseUrl.replace(/\/+$/, '')}/api/v1/models/${encodeURIComponent(modelId)}/lora/${encodeURIComponent(adapterId)}`;
+  const response = await fetch(url, {
+    method: 'DELETE',
+    headers: kickstandHeaders(),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`LoRA unload failed (${response.status}): ${text}`);
+  }
+  return response.json();
+}
+
+// ---------------------------------------------------------------------------
+// Model browser (HuggingFace repo browsing via Kickstand)
+// ---------------------------------------------------------------------------
+
+/** Browse GGUF/MLX files in a HuggingFace repo via Kickstand's browse endpoint. */
+export async function kickstandBrowseRepo(
+  baseUrl: string,
+  repo: string,
+): Promise<{ filename: string; sizeBytes: number; quant?: string; format: string }[]> {
+  const url = `${baseUrl.replace(/\/+$/, '')}/api/v1/models/browse/${repo}`;
+  const response = await fetch(url, { headers: kickstandHeaders(), signal: AbortSignal.timeout(15000) });
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`Browse failed (${response.status}): ${text}`);
+  }
+  const data: { filename: string; size_bytes: number; quant: string | null; format: string }[] = await response.json();
+  return data.map((f) => ({
+    filename: f.filename,
+    sizeBytes: f.size_bytes,
+    quant: f.quant ?? undefined,
+    format: f.format,
+  }));
 }

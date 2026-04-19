@@ -1413,6 +1413,24 @@
         "icon": "$(cloud-download)"
       },
       {
+        "command": "sidecar.kickstand.loadAdapter",
+        "title": "Kickstand: Load LoRA Adapter",
+        "category": "SideCar",
+        "icon": "$(layers)"
+      },
+      {
+        "command": "sidecar.kickstand.unloadAdapter",
+        "title": "Kickstand: Unload LoRA Adapter",
+        "category": "SideCar",
+        "icon": "$(close)"
+      },
+      {
+        "command": "sidecar.modelBrowser",
+        "title": "Browse & Pull Models (HuggingFace)",
+        "category": "SideCar",
+        "icon": "$(search)"
+      },
+      {
         "command": "sidecar.openWalkthrough",
         "title": "Open Walkthrough",
         "category": "SideCar",
