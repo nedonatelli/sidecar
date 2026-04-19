@@ -131,6 +131,31 @@ describe('KickstandBackend', () => {
       const body = JSON.parse(call[1].body);
       expect(body.stream).toBe(true);
     });
+
+    it('auto-reloads with configured nCtx on context-overflow 400 and retries', async () => {
+      const overflowBody = JSON.stringify({
+        error: { message: 'Prompt too long for model context window. load model with larger n_ctx.' },
+      });
+      // First call: context overflow
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 400, text: async () => overflowBody });
+      // Unload call
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ status: 'unloaded', model_id: 'mymodel' }) });
+      // Load call
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ status: 'loaded', model_id: 'mymodel' }) });
+      // Retry chat: success
+      mockFetch.mockResolvedValueOnce({ ok: true, body: sseBody([chunk('hi', true), '[DONE]']) });
+
+      const b = new KickstandBackend('http://localhost:11435', undefined, 16384);
+      const events = [];
+      for await (const ev of b.streamChat('mymodel', '', [{ role: 'user', content: 'hello' }])) {
+        events.push(ev);
+      }
+
+      expect(events).toContainEqual({ type: 'text', text: 'hi' });
+      // load call should have used nCtx=16384
+      const loadBody = JSON.parse(mockFetch.mock.calls[2][1].body as string) as { n_ctx: number };
+      expect(loadBody.n_ctx).toBe(16384);
+    });
   });
 
   describe('complete', () => {

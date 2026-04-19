@@ -154,6 +154,21 @@ export class KickstandBackend implements ApiBackend {
     return `${this.baseUrl}/v1/chat/completions`;
   }
 
+  /** Returns true when Kickstand rejected the request because the loaded model's n_ctx is too small. */
+  private isContextOverflowError(status: number, body: string): boolean {
+    return status === 400 && body.toLowerCase().includes('load model with larger n_ctx');
+  }
+
+  /**
+   * Unload + reload `model` with `this.nCtx`. Called automatically when a
+   * chat request hits the context-overflow 400 so the user doesn't have to
+   * manually reload via the command palette after adjusting nCtx.
+   */
+  private async reloadWithLargerCtx(model: string): Promise<void> {
+    await kickstandUnloadModel(this.baseUrl, model).catch(() => {});
+    await kickstandLoadModel(this.baseUrl, model, { n_ctx: this.nCtx });
+  }
+
   private getHeaders(): Record<string, string> {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     const token = readKickstandToken();
@@ -196,26 +211,32 @@ export class KickstandBackend implements ApiBackend {
       }));
     }
 
-    const response = await sidecarFetch(
-      this.chatUrl,
-      {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify(body),
-        signal,
-      },
-      {
-        rateLimits: this.rateLimits,
-        estimatedTokens: estimateRequestTokens(systemPrompt, messages, 4096),
-        maxRateLimitWaitMs: MAX_RATE_LIMIT_WAIT_MS,
-        parseRateLimitHeaders: parseOpenAIRateLimitHeaders,
-        label: 'kickstand',
-      },
-    );
+    const fetchOpts = {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify(body),
+      signal,
+    };
+    const rateLimitOpts = {
+      rateLimits: this.rateLimits,
+      estimatedTokens: estimateRequestTokens(systemPrompt, messages, 4096),
+      maxRateLimitWaitMs: MAX_RATE_LIMIT_WAIT_MS,
+      parseRateLimitHeaders: parseOpenAIRateLimitHeaders,
+      label: 'kickstand',
+    };
+
+    let response = await sidecarFetch(this.chatUrl, fetchOpts, rateLimitOpts);
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
-      throw new Error(`Kickstand API error ${response.status}: ${errorText}`);
+      if (this.isContextOverflowError(response.status, errorText)) {
+        await this.reloadWithLargerCtx(model);
+        response = await sidecarFetch(this.chatUrl, { ...fetchOpts, headers: this.getHeaders() }, rateLimitOpts);
+      }
+      if (!response.ok) {
+        const retryText = await response.text().catch(() => errorText);
+        throw new Error(`Kickstand API error ${response.status}: ${retryText}`);
+      }
     }
 
     // Delegate SSE parsing to the shared OpenAI-compatible helper.
@@ -246,26 +267,32 @@ export class KickstandBackend implements ApiBackend {
       stream: false,
     };
 
-    const response = await sidecarFetch(
-      this.chatUrl,
-      {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify(body),
-        signal,
-      },
-      {
-        rateLimits: this.rateLimits,
-        estimatedTokens: estimateRequestTokens(systemPrompt, messages, maxTokens),
-        maxRateLimitWaitMs: MAX_RATE_LIMIT_WAIT_MS,
-        parseRateLimitHeaders: parseOpenAIRateLimitHeaders,
-        label: 'kickstand',
-      },
-    );
+    const fetchOpts = {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify(body),
+      signal,
+    };
+    const rateLimitOpts = {
+      rateLimits: this.rateLimits,
+      estimatedTokens: estimateRequestTokens(systemPrompt, messages, maxTokens),
+      maxRateLimitWaitMs: MAX_RATE_LIMIT_WAIT_MS,
+      parseRateLimitHeaders: parseOpenAIRateLimitHeaders,
+      label: 'kickstand',
+    };
+
+    let response = await sidecarFetch(this.chatUrl, fetchOpts, rateLimitOpts);
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
-      throw new Error(`Kickstand API error ${response.status}: ${errorText}`);
+      if (this.isContextOverflowError(response.status, errorText)) {
+        await this.reloadWithLargerCtx(model);
+        response = await sidecarFetch(this.chatUrl, { ...fetchOpts, headers: this.getHeaders() }, rateLimitOpts);
+      }
+      if (!response.ok) {
+        const retryText = await response.text().catch(() => errorText);
+        throw new Error(`Kickstand API error ${response.status}: ${retryText}`);
+      }
     }
 
     const data: KickstandChatResponse = await response.json();
