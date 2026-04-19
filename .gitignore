@@ -15,3 +15,6 @@ grammars/
 .sidecar/sessions/
 .sidecar/logs/
 .sidecar/scratchpad/
+
+# Claude Code
+.claude/
