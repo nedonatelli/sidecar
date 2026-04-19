@@ -95,7 +95,7 @@ Each release ships **1–2 features** plus a paired **refactor beat** (code-qual
 
 ### v0.67 — Fork & compare
 - **Features**: [Fork & Parallel Solve (Multi-Path Reasoning)](#fork--parallel-solve-multi-path-reasoning) (headline) · [SIDECAR.md Path-Scoped Section Injection](#sidecarmd-path-scoped-section-injection--deterministic-context-scoping-for-small-models) (context-bloat fix)
-- **Refactor beat**: Parallel execution primitives extraction — shadow-worktree orchestration, `AbortSignal` propagation unification, shared cross-fork telemetry. Folds deferred *Anthropic Batch API for non-interactive workloads* as the batching substrate for parallel-fork dispatch.
+- **Refactor beat**: Parallel execution primitives extraction — shadow-worktree orchestration, `AbortSignal` propagation unification, shared cross-fork telemetry. (The *Anthropic Batch API for non-interactive workloads* entry previously folded here was dropped after an honest audit: the Batches API handles standalone Messages requests asynchronously over ~1 hour, which doesn't compose with Fork's multi-turn streaming agent-loop model. Batch API stays deferred for a future release with a genuine caller — most likely the eval harness or the multi-file-edit planner pass.)
 - **Coverage focus**: `src/terminal/errorWatcher.ts` (34.84% → ≥80%) — Shell unification from v0.59 left branches untouched. Maintain ≥80/70/80/80.
 - **Acceptance**: `/fork <task>` spawns N parallel approaches with side-by-side review; Hybrid hunk-picking across forks; per-fork metrics table (LOC / tests / benchmarks / guards). SIDECAR.md injection respects per-section `@paths` hints and routes only matching sections into the system prompt — small-context local models see project-relevant context instead of the whole file truncated mid-sentence.
 
@@ -1154,7 +1154,7 @@ During the v0.58.1 reorganization, the previous Deferred backlog was audited and
 | Eval cases for auto-fix + critic paths (v0.50.0) | v0.71 | Live Diagnostic Subscription release is the natural moment to expand diagnostic-path eval. |
 | `/resume` webview button (v0.52.0) | v0.65 | Same webview surface as Steer Queue's new interrupt UI. |
 | Empirical `max_tokens` TPM fix verification (v0.48.0 manual task) | v0.59 | Attach as manual verification task to v0.59. |
-| Anthropic Batch API for non-interactive workloads (cycle-2 MEDIUM) | v0.67 | Fork & Parallel Solve is the batching substrate (parallel-fork dispatch). |
+| Anthropic Batch API for non-interactive workloads (cycle-2 MEDIUM) | *unscheduled* | Originally folded into v0.67 under Fork & Parallel Solve, but a v0.67-chunk-3 audit found the Batches API's async ~1-hour processing + no-streaming + single-Messages-request shape doesn't compose with Fork's multi-turn agent-loop model. Candidates for a future caller: the eval harness (`npm run eval:llm` — N independent golden-case queries), the v0.65 multi-file-edit planner pass (single structured-output call per turn), embedding regeneration at workspace init, background skill-registry sync. Any of those would justify a dedicated batch-wrapper release. |
 | Provider `usage` → `MODEL_COSTS` auto-update (v0.51.0) | v0.64 | Role-Based Model Routing release — spend tracking becomes prominent. |
 
 ### Still deferred — no scheduled release
