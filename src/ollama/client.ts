@@ -183,7 +183,7 @@ export class SideCarClient {
       case 'anthropic':
         return new AnthropicBackend(this.baseUrl, this.apiKey, this.rateLimitsFor('anthropic'));
       case 'kickstand':
-        return new KickstandBackend(this.baseUrl, this.rateLimitsFor('kickstand'));
+        return new KickstandBackend(this.baseUrl, this.rateLimitsFor('kickstand'), getConfig().kickstandNCtx);
       case 'openrouter':
         return new OpenRouterBackend(this.baseUrl, this.apiKey, this.rateLimitsFor('openrouter'));
       case 'groq':

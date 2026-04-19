@@ -2,7 +2,7 @@
   "name": "sidecar-ai",
   "displayName": "SideCar",
   "description": "Autonomous AI agent for coding — run full agent loops with local Ollama, Anthropic Claude, or OpenAI models",
-  "version": "0.69.5",
+  "version": "0.69.6",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -526,6 +526,12 @@
             "minimum": 1,
             "maximum": 10,
             "description": "Max forks running in parallel at once. Clamped to [1, numForks] per dispatch. Higher values finish faster at the cost of more concurrent Shadow Workspaces (disk churn) and more concurrent LLM requests (cost + rate limits)."
+          },
+          "sidecar.kickstand.nCtx": {
+            "type": "number",
+            "default": 32768,
+            "minimum": 512,
+            "description": "Context window size (n_ctx) passed to Kickstand when loading a model. Increase this if you hit 'Prompt too long for model context window' errors. Must not exceed what your GPU VRAM can hold for the chosen model."
           },
           "sidecar.regressionGuards": {
             "type": "array",

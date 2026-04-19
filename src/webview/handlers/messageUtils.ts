@@ -145,7 +145,7 @@ export function classifyError(message: string): {
     lower.includes('token') &&
     (lower.includes('limit') || lower.includes('exceed') || lower.includes('too long') || lower.includes('maximum'))
   ) {
-    return { errorType: 'token_limit', errorAction: 'Reduce Context' };
+    return { errorType: 'token_limit', errorAction: 'Reduce Context', errorActionCommand: 'compactContext' };
   }
   if (
     lower.includes('401') ||

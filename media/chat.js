@@ -4367,6 +4367,10 @@
               actionBtn.textContent = 'Reconnecting...';
               actionBtn.disabled = true;
               vscode.postMessage({ command: 'reconnect' });
+            } else if (msg.errorActionCommand === 'compactContext') {
+              actionBtn.textContent = 'Compacting...';
+              actionBtn.disabled = true;
+              vscode.postMessage({ command: 'compactContext' });
             } else if (msg.errorType === 'model' && msg.errorModel) {
               actionBtn.textContent = 'Installing...';
               actionBtn.disabled = true;

@@ -113,6 +113,7 @@ export interface SideCarConfig {
   forkEnabled: boolean;
   forkDefaultCount: number;
   forkMaxConcurrent: number;
+  kickstandNCtx: number;
   criticEnabled: boolean;
   criticModel: string;
   criticBlockOnHighSeverity: boolean;
@@ -318,6 +319,7 @@ function readConfig(): SideCarConfig {
     forkEnabled: cfg.get<boolean>('fork.enabled', true),
     forkDefaultCount: clampMin(cfg.get<number>('fork.defaultCount', 3), 2, 10),
     forkMaxConcurrent: clampMin(cfg.get<number>('fork.maxConcurrent', 3), 1, 10),
+    kickstandNCtx: clampMin(cfg.get<number>('kickstand.nCtx', 32768), 512, 1_000_000),
     criticEnabled: cfg.get<boolean>('critic.enabled', false),
     // v0.62.1 p.1a: provider-aware default. An empty `critic.model`
     // historically meant "use the main model," which doubled per-

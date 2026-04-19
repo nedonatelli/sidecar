@@ -143,6 +143,7 @@ export class KickstandBackend implements ApiBackend {
   constructor(
     private baseUrl: string,
     private rateLimits: RateLimitStore = new RateLimitStore(),
+    private nCtx: number = 32768,
   ) {}
 
   getRateLimits(): RateLimitStore {
@@ -290,7 +291,7 @@ export class KickstandBackend implements ApiBackend {
           // rule while we wait for Kickstand to grow the option.
           const result = await kickstandLoadModel(this.baseUrl, id, {
             n_gpu_layers: undefined,
-            n_ctx: undefined,
+            n_ctx: this.nCtx,
           });
           return result.socket ? `Loaded ${result.model_id} (socket: ${result.socket})` : `Loaded ${result.model_id}`;
         },
