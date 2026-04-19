@@ -2,7 +2,7 @@
 
 Planned improvements and features for SideCar. Audit findings from v0.34.0 comprehensive review are in the Audit Backlog section. All critical fixes were addressed in v0.35.0.
 
-Last updated: 2026-04-18 (**v0.66.0 shipped — Typed Sub-Agent Facets**. Dispatchable specialist system: 8 built-in facets plus project + user overrides via `<workspace>/.sidecar/facets/*.md` and `sidecar.facets.registry`. Each facet runs in its own isolated Shadow Workspace with its own tool allowlist, preferred model, and composed system prompt; multi-facet batches coalesce their diffs into a single aggregated review flow instead of stacking N quickpicks. Typed never-reject RPC bus lets facets coordinate. Also closes the two v0.65 Multi-File-Edit deferrals (per-file progress tiles + `reviewGranularity` wiring) and lifts three webview handlers above 80% coverage. 3230 tests passing, +180 for the release. Full sidebar Expert Panel deferred — command-palette + batched review is enough UX surface for v0.66.)
+Last updated: 2026-04-18 (**v0.66.0 shipped — Typed Sub-Agent Facets**. Dispatchable specialist system: 8 built-in facets plus project + user overrides via `<workspace>/.sidecar/facets/*.md` and `sidecar.facets.registry`. Each facet runs in its own isolated Shadow Workspace with its own tool allowlist, preferred model, and composed system prompt; multi-facet batches coalesce their diffs into a single aggregated review flow instead of stacking N quickpicks. Typed never-reject RPC bus lets facets coordinate. Also closes the two v0.65 Multi-File-Edit deferrals (per-file progress tiles + `reviewGranularity` wiring) and lifts three webview handlers above 80% coverage. 3230 tests passing, +180 for the release. Full sidebar Expert Panel deferred — command-palette + batched review is enough UX surface for v0.66. **New entry**: v0.68 GitHub integration maturity inserted between Fork & compare (v0.67) and Reasoning (v0.69) to close the merge-conflict / remote-PR-review / CI-failure gaps that today force users out of the editor to `gh` or the browser. Downstream releases shifted by +1.)
 
 ---
 
@@ -10,7 +10,7 @@ Last updated: 2026-04-18 (**v0.66.0 shipped — Typed Sub-Agent Facets**. Dispat
 
 Each release ships **1–2 features** plus a paired **refactor beat** (code-quality/architecture work aligned with the feature surface) and a **coverage focus** (testing work chosen to climb toward the 80/70/80/80 target). Audit findings (cycle-3) and Deferred items are folded into the release whose scope they naturally belong to. Anchor links below point to the full Feature Specifications later in this file.
 
-**Release cadence assumption**: ~1 release every 1–2 weeks based on v0.52 → v0.58.1 pace. At that cadence v0.59 → v0.79 is ~5 months; v1.0 realistic by end of year.
+**Release cadence assumption**: ~1 release every 1–2 weeks based on v0.52 → v0.58.1 pace. At that cadence v0.59 → v0.80 is ~5 months; v1.0 realistic by end of year.
 
 **Coverage floor policy**: starting v0.59, CI enforces a monotonic coverage ratchet via `--coverage.thresholds`. PRs that drop any of the four metrics fail CI. New code ships with ≥80% coverage per-file by policy.
 
@@ -99,76 +99,83 @@ Each release ships **1–2 features** plus a paired **refactor beat** (code-qual
 - **Coverage focus**: `src/terminal/errorWatcher.ts` (34.84% → ≥80%) — Shell unification from v0.59 left branches untouched. Maintain ≥80/70/80/80.
 - **Acceptance**: `/fork <task>` spawns N parallel approaches with side-by-side review; Hybrid hunk-picking across forks; per-fork metrics table (LOC / tests / benchmarks / guards).
 
-### v0.68 — Reasoning
+### v0.68 — GitHub integration maturity
+- **Features**: [Merge Conflict Resolution](#merge-conflict-resolution--structural-conflict-marker-handling-in-shadow-worktrees) (headline) · [Remote PR Review Automation](#remote-pr-review-automation--fetch-analyze-post-line-anchored-comments) (headline) · [CI Failure Analysis & Fix](#ci-failure-analysis--fix--github-actions-log-ingestion-with-proposed-repair-commits) · [Draft PR From Branch](#draft-pr-from-branch--one-command-push--generate--open) · [Branch Protection Awareness](#branch-protection-awareness--pre-push-status-check--required-reviewer-warnings)
+- **Refactor beat**: `src/github/` maturity — thread error handling through `api.ts` uniformly (currently some endpoints surface raw `fetch` errors, others wrap), extract shared diff-fetching between `src/review/prSummary.ts` + `src/review/reviewer.ts` + the new PR-review flow into `src/review/diffSource.ts`, share auth between the existing token path and Actions-API log fetching.
+- **Coverage focus**: `src/github/api.ts` (likely <70%) + `src/review/*` (the new fetched-diff code paths). Target ≥80/70/80/80 maintained; GitHub subsystem reaches the target band.
+- **Deferred folded in**: v0.66's carry-forward per-hunk review UI naturally slots here — merge-conflict resolution needs per-hunk granularity anyway, so one UI investment covers both.
+- **Acceptance**: `SideCar: Resolve Merge Conflicts` parses `<<<<<<<`/`=======`/`>>>>>>>` markers into structural hunks, asks the model for a resolution with "ours"/"theirs" context + surrounding call-graph awareness, routes the result through a Shadow Workspace so the user can diff before accepting; `SideCar: Review Pull Request <#>` fetches the PR diff + commits + existing comments via the API, runs the reviewer against it, posts line-anchored review comments back; `SideCar: Analyze Failed CI Run` fetches the latest failed Actions run's log, parses the first error, opens a draft fix branch; `SideCar: Create Pull Request` handles push + title/body generation + `gh pr create` in one command; pushes to protected branches warn about required status checks + reviewers before running.
+
+### v0.69 — Reasoning
 - **Feature**: [Advanced Thinking Visualization & Depth Control](#advanced-thinking-visualization--depth-control)
 - **Refactor beat**: `ollama/types.ts` split into domain modules: `types/{messages,tools,streaming,usage}.ts` — has grown organically into 300+ lines of mixed concerns.
 - **Coverage focus**: steady ≥80/70/80/80 drumbeat; opportunistic backfill of paths the feature touches.
 - **Acceptance**: Live Thinking Panel with four modes (single / self-debate / tree-of-thought / red-team); steerable mid-stream via the Steer Queue; persistent traces at `.sidecar/thinking/<task-id>.md` with `/replay`.
 
-### v0.69 — Native VS Code integration
+### v0.70 — Native VS Code integration
 - **Features**: [`@sidecar` Native Chat Participant](#sidecar-native-chat-participant) · [Zero-Latency Local Autocomplete via Speculative Decoding](#zero-latency-local-autocomplete-via-speculative-decoding)
 - **Refactor beat**: FIM + completion subsystem cleanup — draft-model plumbing, `InlineCompletionProvider` consolidation, `completeFIM` signature normalization across backends.
 - **Coverage focus**: `src/completions/provider.ts` + `src/ollama/client.ts completeFIM` path. Maintain ≥80/70/80/80.
 - **Acceptance**: `@sidecar` registered as a first-class VS Code chat participant with slash-command parity (`/review`, `/commit-message`, etc.); SideCar backends exposed as `LanguageModelChat` providers for other participants to consume; speculative decoding delivers measured 2–4× tok/s on supported model pairs.
 
-### v0.70 — Live awareness
+### v0.71 — Live awareness
 - **Features**: [Live Diagnostic Subscription & Reactive Fixer](#live-diagnostic-subscription--reactive-fixer) · [Inline Code Visualization Dashboards (MCP-backed)](#inline-code-visualization-dashboards-mcp-backed)
 - **Refactor beat**: Diagnostics push/pull abstraction — unify the existing `get_diagnostics` pull tool with the new `onDidChangeDiagnostics` subscription behind one provider. Eval-harness gap closure: auto-fix and critic paths (deferred from v0.50.0) get their required mocks and land in the llm-eval suite.
 - **Coverage focus**: diagnostics + auto-fix + critic paths. Maintain ≥80/70/80/80.
 - **Acceptance**: Push-based diagnostic subscription with reactive fix loop gated by Shadow Workspace; interactive `VizSpec` dashboard rendering in the chat panel under diffs.
 
-### v0.71 — Jupyter notebooks
+### v0.72 — Jupyter notebooks
 - **Feature**: [First-Class Jupyter Notebook Support](#first-class-jupyter-notebook-support)
-- **Refactor beat**: File-type plugin architecture — generalized cell/segment-aware handling the notebook work introduces can be reused by ERD entities (v0.77), source chunks (v0.72), tutorial walkthroughs.
+- **Refactor beat**: File-type plugin architecture — generalized cell/segment-aware handling the notebook work introduces can be reused by ERD entities (v0.78), source chunks (v0.73), tutorial walkthroughs.
 - **Coverage focus**: 8 new cell-aware tools; roundtrip-fidelity property tests (500 fuzz notebooks). Maintain ≥80/70/80/80.
 - **Acceptance**: `read_notebook` / `edit_notebook_cell` / `run_notebook_cell` etc. via native `NotebookEdit` API; cell-granular diff tiles in Pending Changes; auto-bridge cell outputs to Visual Verification.
 
-### v0.72 — Literature
+### v0.73 — Literature
 - **Feature**: [Literature Synthesis & PDF/Zotero Bridge](#literature-synthesis--pdfzotero-bridge)
-- **Refactor beat**: Source-backend abstraction — shared PDF / YouTube / Web / audio source plumbing (prepares the v0.79 NotebookLM Mode expansion).
+- **Refactor beat**: Source-backend abstraction — shared PDF / YouTube / Web / audio source plumbing (prepares the v0.80 NotebookLM Mode expansion).
 - **Coverage focus**: source indexer pipeline. Maintain ≥80/70/80/80.
 - **Acceptance**: PDF indexing via `pdf-parse`; Zotero SQLite read-through; citation insertion respecting document style.
 
-### v0.73 — Database integration (safe core)
+### v0.74 — Database integration (safe core)
 - **Feature**: [First-Class Database Integration (SQL + NoSQL)](#first-class-database-integration-sql--nosql) — Tier 1 only (read-only query + introspection)
 - **Refactor beat**: `DatabaseProvider` abstraction mirroring `ApiBackend` anticorruption layer.
 - **Coverage focus**: `DatabaseProvider` drivers (SQLite / Postgres / MySQL / DuckDB). Maintain ≥80/70/80/80.
 - **Acceptance**: `db_list_tables` / `db_describe_table` / `db_query` work against four dialects with parameterized queries + hard timeouts; results render as sortable tables in the chat panel.
 
-### v0.74 — Visual verification
+### v0.75 — Visual verification
 - **Feature**: [Browser-Agent Live Preview Verification (Screenshot-in-the-Loop)](#browser-agent-live-preview-verification-screenshot-in-the-loop)
 - **Refactor beat**: Integration-layer maturity — share the Playwright MCP client between visual-verification and the Browser-Automation integration entry.
 - **Coverage focus**: Playwright tool wrappers + VLM-verdict pipeline. Maintain ≥80/70/80/80.
 - **Acceptance**: `screenshot_page` + `analyze_screenshot` + cheap-deterministic pre-filter loop delivers visual self-correction on a matplotlib FIR plot scenario end-to-end.
 
-### v0.75 — Research Assistant
+### v0.76 — Research Assistant
 - **Feature**: [Research Assistant — Structured Lab Notebook, Experiment Manifests, and Hypothesis Graph](#research-assistant--structured-lab-notebook-experiment-manifests-and-hypothesis-graph)
 - **Refactor beat**: Integration-layer maturity — `.sidecar/research/` store, hypothesis-graph data model, experiment-manifest reproducibility harness.
 - **Coverage focus**: new research tools + reproducibility harness. Maintain ≥80/70/80/80.
 - **Acceptance**: `/experiment run` reproduces against pinned git SHA + requirements hash; hypothesis graph renders; reviewer-simulation personas ship.
 
-### v0.76 — Doc-to-Test
+### v0.77 — Doc-to-Test
 - **Feature**: [Doc-to-Test Synthesis Loop](#doc-to-test-synthesis-loop)
 - **Refactor beat**: Constraint-extraction infrastructure shared with the Literature + Research Assistant layers.
 - **Coverage focus**: constraint extractor + test synthesis templates. Maintain ≥80/70/80/80.
 - **Acceptance**: A source paper's mathematical identities become `pytest` tests that fail when the implementation doesn't satisfy them; Doc/Impl Mismatch review classifies failures and proposes fixes.
 
-### v0.77 — Database integration (writes + migrations)
+### v0.78 — Database integration (writes + migrations)
 - **Feature**: [Database Integration Tier 2](#first-class-database-integration-sql--nosql) — writes routed through Audit Mode + ORM-aware migrations (Prisma / TypeORM / Sequelize / Alembic / Flyway / Knex / Rails)
 - **Acceptance**: `db_execute` writes buffer in Audit treeview; `db_migrate_up` runs migrations inside a DuckDB-backed shadow DB before touching the real one.
 
-### v0.78 — Database integration (NoSQL via MCP)
+### v0.79 — Database integration (NoSQL via MCP)
 - **Feature**: [Database Integration Tier 3](#first-class-database-integration-sql--nosql) — MongoDB / Redis / DynamoDB / Cassandra / Elasticsearch as `mcp-sidecar-<engine>` servers
 - **Acceptance**: At least the Mongo + Redis servers ship with install paths in the MCP marketplace entry.
 
-### v0.79 — NotebookLM parity
+### v0.80 — NotebookLM parity
 - **Feature**: [NotebookLM-Style Source-Grounded Research Mode](#notebooklm-style-source-grounded-research-mode)
 - **Acceptance**: `/notebook` mode enters source-grounded state with mandatory inline citations; YouTube / web URL / audio / slides sources index alongside PDFs; five study-aid generators emit tracked markdown; opt-in two-voice podcast pipeline ships.
 
 ### v1.0 — GA
 - **Final decompositions**: `src/extension.ts` (987 lines — audit #16) · `stubCheck` async patterns (audit #17) · `package.json` command descriptions sweep (audit #14) · `chatView.ts` decomposition unlocks its 0% → coverage uplift
 - **Unused-export sweep**: audit of every `export` in `src/` for actual consumers; drop what's dead
-- **CLAUDE.md refresh**: sync architectural notes against the post-v0.79 reality
+- **CLAUDE.md refresh**: sync architectural notes against the post-v0.80 reality
 - **Acceptance**: Coverage ≥80/70/80/80 sustained across all four metrics; public marketplace for Skill Sync & Registry (v0.64) goes live.
 
 ### Unscheduled / Vision Shelf
@@ -207,7 +214,7 @@ Shared mocks for `fs` / `os` / `workspace` / `child_process`; branch coverage fo
 | Shared test-helper module | 🔜 v0.65 |
 | Unit coverage for `src/agent/loop/` helpers (14 files, 3 covered today) | 🔜 v0.65 |
 | Eval harness: retriever fusion / cost warning / summarizer cap fixtures | 🔜 v0.62 |
-| Eval harness: auto-fix + critic paths | 🔜 v0.70 |
+| Eval harness: auto-fix + critic paths | 🔜 v0.71 |
 | Subsystem unit tests (scheduler · eventHooks · lintFix · localWorker · inlineChatProvider) | 🔜 v0.65 |
 
 ### Theme 3 — Boilerplate reduction
@@ -220,7 +227,7 @@ Collapse duplicated plumbing: tool registration, backend retry/breaker/rate-limi
 | Backend abstraction maturity (`sidecarFetch` with shared retry / breaker / rate-limit / allowlist) | 🔜 v0.64 |
 | Tool-registration DSL (replace `{ definition, executor, requiresApproval }` triples) | 🔜 v0.66 |
 | Handler registry pattern (webview/handlers typed-message-kind → handler map) | 🔜 v0.66 |
-| `ollama/types.ts` split into `types/{messages,tools,streaming,usage}.ts` | 🔜 v0.68 |
+| `ollama/types.ts` split into `types/{messages,tools,streaming,usage}.ts` | 🔜 v0.69 |
 | `settings.ts` split into domain modules | 🔜 v0.64 |
 
 ---
@@ -244,7 +251,8 @@ Collapse duplicated plumbing: tool registration, backend retry/breaker/rate-limi
 | v0.65 | ≥78/68/77/78 | +4 pp — biggest single-release jump | loop/ helpers + chatHandlers + subsystems |
 | v0.66 | ≥80/70/79/80 | +2 pp | webview handlers |
 | v0.67 | ≥80/70/80/80 — **target band hit** | +0–1 pp | terminal/errorWatcher |
-| v0.68–v0.79 | steady ≥80/70/80/80 | maintenance | opportunistic per feature |
+| v0.68 | ≥80/70/80/80 | maintenance | `src/github/api.ts` + `src/review/*` |
+| v0.69–v0.80 | steady ≥80/70/80/80 | maintenance | opportunistic per feature |
 | v1.0 | sustained ≥80/70/80/80 | final lift | `chatView.ts` decomposition + `extension.ts` |
 
 ### Enforcement mechanisms
@@ -1021,6 +1029,16 @@ Detailed specifications for every entry in the release plan above. Each entry de
 
 ### Providers & Integration
 
+- **Merge Conflict Resolution — Structural Conflict-Marker Handling in Shadow Worktrees** — closes a gap that today forces users out of the editor to `git mergetool` or manual hand-editing. After a `git_merge`, `git_rebase`, `git_pull`, or `git_cherry_pick` leaves a file in a conflicted state, SideCar ships `<<<<<<<` / `=======` / `>>>>>>>` markers and nothing else — the agent can read them as text but has no structural understanding of what "ours" meant vs. "theirs" meant. This entry introduces a proper conflict-aware flow. **Detection**: a post-command hook on every git-mutating tool (`git_merge`, `git_rebase`, `git_pull`, `git_cherry_pick`) parses the resulting `git status` for `UU` / `AA` / `DD` / `UA` / `AU` conflict codes and routes the user into a dedicated resolution surface. **Parsing**: a `parseConflictHunks(content): ConflictHunk[]` primitive reads a file with conflict markers and returns typed hunks — `{ kind: 'content' | 'ours-only' | 'theirs-only', oursRange, theirsRange, base?: Range, oursLines, theirsLines, baseLines? }` — so resolution reasons over hunks, not raw strings. Three-way merges (when `git config merge.conflictStyle diff3` is set) are supported: the base is surfaced as a third leg so the model can reason "ours changed X, theirs changed Y, base had Z, the correct merge is …". **Resolution flow**: each conflicted file opens a Shadow Workspace scoped to that file's parent directory, the agent receives a prompt with `{ ours, theirs, base?, hunkContext, callGraphNeighbors }` where `callGraphNeighbors` pulls in up to 3 symbols each of "ours" and "theirs" from the Project Knowledge Index so the model sees what functions call into the conflicting region — critical for picking the right merge when one side added a parameter that the other side's callers don't pass yet. Output is a resolution for each hunk tagged `ours | theirs | combined | custom`, where `custom` carries a new body. **Review UI**: a new `SideCar: Resolve Merge Conflicts` command opens a QuickPick of conflicted files; picking one renders a three-pane view (ours left, theirs right, proposed resolution center) using `vscode.diff` twice so the user sees both sides against the proposal; per-hunk Accept / Reject / Edit / Regenerate with a one-line intent ("prefer theirs but keep the logging from ours"). This reuses the per-hunk review UI that v0.66 deferred. **Git-awareness**: after a user accepts every hunk in a file, SideCar stages only that file via `git add <path>` — no blanket `git add -u` that could accidentally stage unrelated changes; when every conflict in the operation resolves, `SideCar: Continue Merge/Rebase` surfaces to run the correct completion command (`git merge --continue` / `git rebase --continue` / `git cherry-pick --continue`). **Composes with Audit Mode**: the resolution writes buffer through Audit Mode when it's on, so users can accept-all the conflict resolutions atomically with the same flush mechanism they use for agent edits. **Composes with Facets**: a new `merge-resolver` built-in facet with `toolAllowlist: ['read_file', 'grep', 'project_knowledge_search']` and a dedicated system prompt can be dispatched for a whole-repo conflict sweep via `SideCar: Facets: Dispatch Specialists` when a gnarly merge hits dozens of files. Configured via `sidecar.mergeResolution.enabled` (default `true`), `sidecar.mergeResolution.callGraphNeighbors` (default `3`, clamped 0–10), `sidecar.mergeResolution.autoContinueOnAllResolved` (default `false` — always prompt before running `--continue`), and `sidecar.mergeResolution.preferBaseWhenAvailable` (default `true` — request `diff3`-style three-way context when git is configured for it).
+
+- **Remote PR Review Automation — Fetch, Analyze, Post Line-Anchored Comments** — extends the shipped local `reviewCurrentChanges` into a proper remote PR review loop. Today `sidecar.reviewChanges` runs on whatever's in the local working tree; if the user wants to review someone else's PR they have to `git fetch && git checkout` manually first. This entry adds `SideCar: Review Pull Request <#>` which takes a PR number (or owner/repo + number, or a full GitHub URL), fetches the PR's unified diff via `/repos/:owner/:repo/pulls/:number` + `/repos/:owner/:repo/pulls/:number/commits` + `/repos/:owner/:repo/pulls/:number/comments`, runs the reviewer against the fetched diff plus the existing comment thread context ("the reviewer already flagged the auth regression in comment #47 — don't re-flag it"), and posts line-anchored review comments back via `POST /repos/:owner/:repo/pulls/:number/comments` with the `path` + `line` + `side` + `commit_id` the GitHub API requires. **Structured reviewer output**: the reviewer prompt is extended to emit JSON-tagged findings — `{ path, line, side: 'RIGHT' | 'LEFT', severity: 'block' | 'suggest' | 'nit', message, suggestedChange? }` — so the poster can route `block` findings to a requested-changes review, `suggest` to regular comments, and `nit` to resolved discussions by default. **Dry-run by default**: first run produces a preview webview listing every proposed comment; the user picks which to post. `sidecar.pr.review.autoPost: true` opts into posting directly (for CI bots / automation accounts). **Composes with Skills**: the `review-code` skill that already ships becomes the default prompt for remote PR review; project-local review skills in `<workspace>/.sidecar/skills/` override for domain-specific review rules (security-focused PRs, performance-sensitive modules). **Composes with Facets**: a batch of facets can each review the same PR — `security-reviewer` looks for auth/injection issues, `test-author` flags missing test coverage, `general-coder` catches logic bugs — and the aggregated-review UI from v0.66 merges their findings with per-facet tags so the user sees "security-reviewer flagged lines 42-48 for CSRF, test-author flagged lines 12-20 for missing test, general-coder had no issues." Configured via `sidecar.pr.review.defaultSkill` (default `review-code`), `sidecar.pr.review.severityMapping` (maps the three severity tiers to review event types — default `block → REQUEST_CHANGES`, `suggest → COMMENT`, `nit → COMMENT`), `sidecar.pr.review.autoPost` (default `false`), and `sidecar.pr.review.includeExistingComments` (default `true` — set `false` to do a clean review that ignores prior reviewer signal).
+
+- **CI Failure Analysis & Fix — GitHub Actions Log Ingestion with Proposed Repair Commits** — closes the gap between "CI failed on my PR" and "I know why and how to fix it." Today SideCar's Terminal Error Interception (shipped) catches failures in the integrated terminal; this entry extends the same flow to remote CI. `SideCar: Analyze Failed CI Run` fetches the latest failed run for the current branch via `/repos/:owner/:repo/actions/runs?branch=...&status=failure&per_page=1`, downloads the failed job's log via `/repos/:owner/:repo/actions/jobs/:job_id/logs` (with 4 MB cap; on overflow, uses `tail` semantics via a Range header), extracts the failing step's log slice using the `##[endgroup]` / `##[error]` markers GitHub Actions emits, and feeds it through the same diagnose-in-chat synthesized-prompt path that terminal errors already use. **PR-aware mode**: when the current branch has an open PR, the flow auto-detects it and offers *"Propose a fix commit"* — the agent diagnoses the failure, opens a new `<branch>-fix-ci` branch in a Shadow Workspace, makes the fix, runs local tests, and opens a draft follow-up PR or pushes directly onto the original branch (gated by user approval). **Log parsing**: per-runner-type (Linux / macOS / Windows) regexes strip ANSI, collapse timestamp prefixes, detect test-runner output patterns (`vitest` / `jest` / `pytest` / `go test` / `cargo test` / `rspec` — use existing TestRunnerRegistry), and surface the *test that failed* + the assertion message rather than the raw 4 MB log. **Composes with Actions filter**: a new `sidecar.ci.analysis.jobFilter` (glob array against job name) lets users scope to the jobs that matter — if CI has a `lint` job and a `test` job, analyzing the `test` failure first is usually right. Configured via `sidecar.ci.analysis.enabled` (default `true`), `sidecar.ci.analysis.maxLogBytes` (default `4_000_000`), `sidecar.ci.analysis.jobFilter` (default `["*"]`), and `sidecar.ci.analysis.autoProposeFix` (default `false` — requires user confirmation before opening a fix branch).
+
+- **Draft PR From Branch — One-Command Push + Generate + Open** — a single command that replaces the three-step manual dance most users do today (`git push -u origin HEAD` + craft title/body + `gh pr create`). `SideCar: Create Pull Request` runs `git push -u origin HEAD` (with a pre-flight branch-protection check — see below), invokes the existing local `summarizePR` path against the commit range since the base branch's divergence point (`git merge-base`) to produce a title + body, opens a preview for the user to edit, then calls `POST /repos/:owner/:repo/pulls`. **Draft by default**: PRs are opened as drafts (`draft: true`) so they don't spam reviewer queues before the author's had a last look; a one-click *Ready for review* follows the existing github tool pattern. **Template awareness**: when `.github/pull_request_template.md` or `.github/PULL_REQUEST_TEMPLATE.md` exists, it's loaded and its sections are filled in section-by-section by the model (not overwritten wholesale — preserves H2 headings the template declares). Configured via `sidecar.pr.create.draftByDefault` (default `true`), `sidecar.pr.create.baseBranch` (default auto-detected from `HEAD`'s upstream-tracking or `origin/HEAD`), and `sidecar.pr.create.template` (`auto` | `ignore` | absolute path, default `auto`).
+
+- **Branch Protection Awareness — Pre-Push Status-Check + Required-Reviewer Warnings** — prevents the common "pushed straight to main, failed CI, got chased by the team" footgun. Before any `git push` / `git_push` tool call against a branch, SideCar queries `/repos/:owner/:repo/branches/:branch/protection` (authenticated) and `/repos/:owner/:repo/commits/:sha/check-runs` to find required status checks + required reviewer counts. If the branch is protected AND the push target doesn't satisfy the required checks OR lacks the required approvals, a modal surfaces the gaps (*"`main` requires status checks `ci/lint` and `ci/test`; only `ci/lint` has passed on this commit. Required reviewer count is 2; you have 0 approving reviews."*) with Proceed / Cancel. The warning is skipped for unprotected branches and for the user's own feature branches. **Composes with Draft PR**: the Create Pull Request flow runs this check against the *base* branch at submit time and warns that the PR can't merge until checks/reviewers are satisfied — sets expectations before the author waits on CI. Configured via `sidecar.pr.branchProtection.enabled` (default `true`), `sidecar.pr.branchProtection.warnEvenIfPassing` (default `false` — turns on a soft reminder even when checks pass so the user sees what's required).
+
 - **Bitbucket / Atlassian** — Bitbucket REST API, `GitProvider` interface, auto-detect from remote URL
 - ~~**OpenRouter** — dedicated integration with model browsing, cost display, rate limit awareness~~ → **shipped 2026-04-15 in v0.53.0**. Dedicated [`OpenRouterBackend`](src/ollama/openrouterBackend.ts) subclass with referrer + title headers, rich catalog fetch via `listOpenRouterModels()`, first-class entry in `BUILT_IN_BACKEND_PROFILES`, and a runtime `MODEL_COSTS` overlay populated from OpenRouter's per-model pricing (no more hand-maintaining prices for hundreds of proxied models). Per-generation real cost tracking via `/generation/{id}` still deferred.
 - **Browser automation** — Playwright MCP for testing web apps
@@ -1102,7 +1120,7 @@ During the v0.58.1 reorganization, the previous Deferred backlog was audited and
 | Reranker stage (cycle-2 MEDIUM) | v0.62 | Pairs naturally with Merkle + RAG-Eval; the eval metrics will measure whether reranking earns its compute. |
 | Per-source budget caps (v0.52.0 loose end) | v0.62 | Bundles with the reranker work — same retrieval-infra cleanup. |
 | Eval cases for retriever fusion / cost warning / summarizer cap (v0.51.0) | v0.62 | Fixture plumbing lands with RAG-Eval's harness expansion. |
-| Eval cases for auto-fix + critic paths (v0.50.0) | v0.70 | Live Diagnostic Subscription release is the natural moment to expand diagnostic-path eval. |
+| Eval cases for auto-fix + critic paths (v0.50.0) | v0.71 | Live Diagnostic Subscription release is the natural moment to expand diagnostic-path eval. |
 | `/resume` webview button (v0.52.0) | v0.65 | Same webview surface as Steer Queue's new interrupt UI. |
 | Empirical `max_tokens` TPM fix verification (v0.48.0 manual task) | v0.59 | Attach as manual verification task to v0.59. |
 | Anthropic Batch API for non-interactive workloads (cycle-2 MEDIUM) | v0.67 | Fork & Parallel Solve is the batching substrate (parallel-fork dispatch). |
