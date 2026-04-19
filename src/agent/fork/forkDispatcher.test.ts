@@ -123,12 +123,14 @@ describe('dispatchForks — happy path', () => {
 
   it('reports elapsedMs as wall-clock from dispatch to completion', async () => {
     runAgentLoopInSandboxMock.mockImplementation(async () => {
-      await new Promise((r) => setTimeout(r, 10));
+      await new Promise((r) => setTimeout(r, 20));
       return shadowResult();
     });
 
     const batch = await dispatchForks(makeClient(), makeCallbacks(), baseOptions({ numForks: 2 }));
-    expect(batch.elapsedMs).toBeGreaterThanOrEqual(10);
+    // Timer resolution can undershoot setTimeout by 1–2ms on fast hosts; a
+    // 20ms sleep with a 15ms floor keeps the test honest without flaking.
+    expect(batch.elapsedMs).toBeGreaterThanOrEqual(15);
   });
 });
 
