@@ -1,11 +1,8 @@
 import { window } from 'vscode';
 import { SideCarClient } from '../ollama/client.js';
 import type { ChatMessage } from '../ollama/types.js';
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import { getWorkspaceRoot } from '../config/workspace.js';
-
-const execAsync = promisify(exec);
+import { fetchWorkingTreeDiff } from './diffSource.js';
 
 export async function reviewCurrentChanges(client: SideCarClient): Promise<void> {
   const cwd = getWorkspaceRoot();
@@ -14,29 +11,15 @@ export async function reviewCurrentChanges(client: SideCarClient): Promise<void>
     return;
   }
 
-  // Get the diff
-  let diff: string;
-  try {
-    const { stdout } = await execAsync('git diff HEAD', { cwd, maxBuffer: 2 * 1024 * 1024 });
-    if (!stdout.trim()) {
-      // Try staged changes
-      const staged = await execAsync('git diff --cached', { cwd, maxBuffer: 2 * 1024 * 1024 });
-      if (!staged.stdout.trim()) {
-        window.showInformationMessage('No changes to review (no staged or unstaged diffs).');
-        return;
-      }
-      diff = staged.stdout;
-    } else {
-      diff = stdout;
-    }
-  } catch (err) {
-    window.showErrorMessage(`Failed to get git diff: ${err instanceof Error ? err.message : String(err)}`);
+  const result = await fetchWorkingTreeDiff({ cwd });
+  if (result.error) {
+    window.showErrorMessage(`Failed to get git diff: ${result.error}`);
     return;
   }
-
-  // Truncate very large diffs
-  const maxDiffChars = 30_000;
-  const truncatedDiff = diff.length > maxDiffChars ? diff.slice(0, maxDiffChars) + '\n... (diff truncated)' : diff;
+  if (result.isEmpty) {
+    window.showInformationMessage('No changes to review (no staged or unstaged diffs).');
+    return;
+  }
 
   const messages: ChatMessage[] = [
     {
@@ -50,7 +33,7 @@ export async function reviewCurrentChanges(client: SideCarClient): Promise<void>
 Focus on: bugs, security issues, performance problems, edge cases, and code quality.
 
 \`\`\`diff
-${truncatedDiff}
+${result.diff}
 \`\`\``,
     },
   ];
