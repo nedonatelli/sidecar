@@ -4,6 +4,21 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.69.3] - 2026-04-19
+
+**v0.69.3 — patch: fix token budget exhaustion in fresh conversations.**
+
+### Fixed
+
+- **Token budget exhausted after only a few tool calls** — tool results (grep output, file reads) were stored in message history at their **raw, untruncated size** and counted against the token budget at that size. The backend truncated them before the LLM ever saw them, but the budget check fired on the inflated numbers, causing exhaustion after 3–4 tool calls in a fresh conversation. Tool results are now capped at `sidecar.promptPruning.maxToolResultTokens` **before** being stored and counted, so the budget accurately reflects what the model actually receives.
+- **Pre-session history consuming too much of the token budget** — the history pruning step before each agent run reserved up to 50% of the context window for carry-over chat history, leaving only 50% headroom for in-session tool calls. Changed to 25% for history, reserving 75% for the active session. Also fixed a `minBudget` floor that was accidentally set to `contextLength` (tokens) interpreted as characters, which overrode the fraction reduction for large-context models and kept history far too large.
+- **Token budget misaligned with model context window** — `agentMaxTokens` (default 100K) was used as the agent loop's ceiling regardless of the model's actual context window. For models with larger contexts (e.g. Claude Sonnet at 200K), the history budget was calculated from the full context window but the loop ceiling was half that, causing compression to exhaust immediately. The loop now uses `min(contextLength, agentMaxTokens)` so both are aligned.
+
+### Changed
+
+- **`sidecar.agentMaxTokens` default raised 100K → 200K** — matches modern frontier model context windows; lower this to limit per-run cost on paid backends.
+- **`sidecar.promptPruning.maxToolResultTokens` default raised 2K → 4K tokens** — covers most source files (~500 lines) without truncation; the previous 2K limit was unnecessarily restrictive now that capping happens before budget counting.
+
 ## [0.69.2] - 2026-04-19
 
 **v0.69.2 — patch: Kickstand pull progress, cancel, model list, and backend switch fixes.**

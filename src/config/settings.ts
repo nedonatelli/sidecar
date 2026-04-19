@@ -262,7 +262,7 @@ function readConfig(): SideCarConfig {
     agentTemperature: clampMin(cfg.get<number>('agentTemperature'), 0, 0.2),
     agentMaxIterations: clampMin(cfg.get<number>('agentMaxIterations'), 1, 50),
     agentMaxMessages: clampMin(cfg.get<number>('agentMaxMessages'), 5, 100),
-    agentMaxTokens: clampMin(cfg.get<number>('agentMaxTokens'), 1000, 100000),
+    agentMaxTokens: clampMin(cfg.get<number>('agentMaxTokens'), 1000, 200000),
     enableInlineCompletions: cfg.get<boolean>('enableInlineCompletions', false),
     completionModel: cfg.get<string>('completionModel', ''),
     completionMaxTokens: clampMin(cfg.get<number>('completionMaxTokens'), 1, 256),
@@ -366,7 +366,7 @@ function readConfig(): SideCarConfig {
     bgMaxConcurrent: clampMin(cfg.get<number>('bgMaxConcurrent'), 1, 3),
     /* Prompt pruning (paid backends) */
     promptPruningEnabled: cfg.get<boolean>('promptPruning.enabled', true),
-    promptPruningMaxToolResultTokens: clampMin(cfg.get<number>('promptPruning.maxToolResultTokens'), 200, 2000),
+    promptPruningMaxToolResultTokens: clampMin(cfg.get<number>('promptPruning.maxToolResultTokens'), 200, 4000),
     /* Hybrid delegation to local Ollama worker */
     delegateTaskEnabled: cfg.get<boolean>('delegateTask.enabled', true),
     delegateTaskWorkerModel: cfg.get<string>('delegateTask.workerModel', ''),

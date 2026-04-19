@@ -1,5 +1,6 @@
 import type { ContentBlock, ToolResultContentBlock, ToolUseContentBlock } from '../../ollama/types.js';
 import { getContentLength } from '../../ollama/types.js';
+import { truncateForTool } from '../../ollama/promptPruner.js';
 import type { LoopState } from './state.js';
 
 // ---------------------------------------------------------------------------
@@ -55,6 +56,29 @@ export function pushToolResultsMessage(state: LoopState, toolResults: ToolResult
   state.messages.push({
     role: 'user',
     content: toolResults,
+  });
+}
+
+/**
+ * Truncate each tool result to `maxTokens` using the per-tool strategy
+ * from promptPruner. Returns a new array (original objects reused when
+ * content is unchanged to avoid allocation).
+ *
+ * Call this BEFORE accountToolTokens so totalChars tracks the truncated
+ * size — the same size the model will actually see. Without this,
+ * a broad grep that returns 500 KB gets counted at full size even though
+ * the backend would have capped it at 8 KB, causing premature budget
+ * exhaustion in a fresh conversation.
+ */
+export function capToolResults(
+  toolResults: ToolResultContentBlock[],
+  pendingToolUses: ToolUseContentBlock[],
+  maxTokens: number,
+): ToolResultContentBlock[] {
+  const nameById = new Map(pendingToolUses.map((tu) => [tu.id, tu.name]));
+  return toolResults.map((r) => {
+    const { text } = truncateForTool(nameById.get(r.tool_use_id), r.content, maxTokens);
+    return text === r.content ? r : { ...r, content: text };
   });
 }
 

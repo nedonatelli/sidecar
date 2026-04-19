@@ -412,7 +412,16 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
 
     const prePruneMessageCount = state.messages.length;
     const chatMessages = [...state.messages];
-    await enrichAndPruneMessages(chatMessages, config, systemPrompt, contextLength, state, config.verboseMode);
+
+    // Use the model's actual context window as the token budget when
+    // available, bounded by the user's agentMaxTokens cap. Without this,
+    // a large-context cloud model (e.g. 200K) would still be capped at
+    // the agentMaxTokens default, and the pre-loop history pruning would
+    // pass more history than the loop can handle — causing compression to
+    // exhaust immediately.
+    const effectiveMaxTokens = contextLength ? Math.min(contextLength, config.agentMaxTokens) : config.agentMaxTokens;
+
+    await enrichAndPruneMessages(chatMessages, config, systemPrompt, effectiveMaxTokens, state, config.verboseMode);
 
     if (config.verboseMode) {
       state.postMessage({ command: 'verboseLog', content: systemPrompt, verboseLabel: 'System Prompt' });
@@ -437,7 +446,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
         mcpManager: state.mcpManager,
         approvalMode: effectiveApprovalMode,
         maxIterations: config.agentMaxIterations,
-        maxTokens: config.agentMaxTokens,
+        maxTokens: effectiveMaxTokens,
         confirmFn: (msg, actions, options) => state.requestConfirm(msg, actions, options),
         diffPreviewFn: state.contentProvider
           ? async (filePath: string, proposedContent: string) => {

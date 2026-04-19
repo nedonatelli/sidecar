@@ -16,7 +16,12 @@ import { parseTextToolCalls, stripRepeatedContent } from './loop/textParsing.js'
 import { streamOneTurn, resolveTurnContent } from './loop/streamTurn.js';
 import { applyAgentLoopRouting } from './loop/routing.js';
 import { exceedsBurstCap, detectCycleAndBail } from './loop/cycleDetection.js';
-import { pushAssistantMessage, pushToolResultsMessage, accountToolTokens } from './loop/messageBuild.js';
+import {
+  pushAssistantMessage,
+  pushToolResultsMessage,
+  accountToolTokens,
+  capToolResults,
+} from './loop/messageBuild.js';
 import { runCriticChecks, type RunCriticOptions } from './loop/criticHook.js';
 import { HookBus, type PolicyHook, type HookContext } from './loop/policyHook.js';
 import { defaultPolicyHooks } from './loop/builtInHooks.js';
@@ -405,9 +410,18 @@ export async function runAgentLoop(
         config,
       );
 
+      // Cap tool results before accounting so totalChars reflects what
+      // the model will actually see. Without this a single broad grep
+      // (e.g. "grep kickstand") can return hundreds of KB and exhaust
+      // the token budget even in a fresh conversation, because the raw
+      // size is counted even though the backend truncates it anyway.
+      const storedResults = config.promptPruningEnabled
+        ? capToolResults(toolResults, pendingToolUses, config.promptPruningMaxToolResultTokens)
+        : toolResults;
+
       // Token accounting and history append for the tool results.
-      accountToolTokens(state, pendingToolUses, toolResults);
-      pushToolResultsMessage(state, toolResults);
+      accountToolTokens(state, pendingToolUses, storedResults);
+      pushToolResultsMessage(state, storedResults);
 
       // Proactive compression after adding tool results so the next
       // iteration doesn't open over budget.

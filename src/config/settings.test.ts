@@ -198,7 +198,7 @@ describe('getConfig', () => {
     expect(config.apiKey).toBe('ollama');
     expect(config.agentMode).toBe('cautious');
     expect(config.agentMaxIterations).toBe(50);
-    expect(config.agentMaxTokens).toBe(100000);
+    expect(config.agentMaxTokens).toBe(200000);
     expect(config.enableInlineCompletions).toBe(false);
     expect(config.completionMaxTokens).toBe(256);
     expect(config.completionDebounceMs).toBe(300);

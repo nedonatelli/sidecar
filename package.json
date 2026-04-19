@@ -2,7 +2,7 @@
   "name": "sidecar-ai",
   "displayName": "SideCar",
   "description": "Autonomous AI agent for coding — run full agent loops with local Ollama, Anthropic Claude, or OpenAI models",
-  "version": "0.69.2",
+  "version": "0.69.3",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -299,7 +299,7 @@
           },
           "sidecar.agentMaxTokens": {
             "type": "number",
-            "default": 100000,
+            "default": 200000,
             "minimum": 1000,
             "maximum": 1000000,
             "order": 24,
@@ -307,7 +307,7 @@
               "sidecar",
               "agent"
             ],
-            "markdownDescription": "Maximum total tokens consumed by a single agent run before it stops. Prevents runaway loops on paid backends. `100000` is a safe default for Claude; bump higher for frontier models with large context windows."
+            "markdownDescription": "Maximum total tokens (message history only, system prompt excluded) the agent loop may consume before it stops. Acts as a cost-control ceiling: the loop automatically uses the model's reported context window if smaller. Lower this if you want to limit per-run cost on paid backends."
           },
           "sidecar.toolPermissions": {
             "type": "object",
@@ -839,7 +839,7 @@
           },
           "sidecar.promptPruning.maxToolResultTokens": {
             "type": "number",
-            "default": 2000,
+            "default": 4000,
             "minimum": 200,
             "maximum": 20000,
             "order": 41,

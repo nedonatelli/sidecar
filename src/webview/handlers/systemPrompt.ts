@@ -547,10 +547,20 @@ export async function enrichAndPruneMessages(
     }
   }
 
-  // Prune history
+  // Prune history.
+  // Reserve 75% of the token budget for in-session turns + tool results;
+  // only 25% goes to carry-over history from prior chat turns. Without
+  // this cap, a long chat history can start the loop near the compression
+  // threshold, leaving almost no room for new tool calls.
+  //
+  // minBudget is a small fixed floor (not proportional to context size)
+  // so a gigantic context window doesn't accidentally pin the minimum at
+  // tens of thousands of tokens. The old `contextLength * 1` value was
+  // meant to be chars but equalled contextLength (tokens), which kept the
+  // floor far too high for large-context models.
   const systemChars = systemPrompt.length;
-  const historyBudget = contextLength ? Math.floor(contextLength * 4 * 0.5) - systemChars : 200_000 - systemChars;
-  const minBudget = contextLength ? Math.max(contextLength * 1, 4_000) : 20_000;
+  const historyBudget = contextLength ? Math.floor(contextLength * 4 * 0.25) - systemChars : 80_000 - systemChars;
+  const minBudget = 4_000;
   const prunedMessages = pruneHistory(chatMessages, Math.max(historyBudget, minBudget));
   if (prunedMessages.length < chatMessages.length && verbose) {
     const before = chatMessages.reduce((s, m) => s + getContentLength(m.content), 0);
