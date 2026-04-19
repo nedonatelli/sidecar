@@ -6,7 +6,11 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [0.69.3] - 2026-04-19
 
-**v0.69.3 — patch: fix token budget exhaustion in fresh conversations.**
+**v0.69.3 — patch: fix token budget exhaustion + Kickstand model auto-detect.**
+
+### Added
+
+- **Auto-detect loaded model when switching to Kickstand** — when using `switch_backend(profile="kickstand")`, SideCar now queries the Kickstand server for the currently loaded model and updates `sidecar.model` automatically. No more manual model name entry after switching backends.
 
 ### Fixed
 
