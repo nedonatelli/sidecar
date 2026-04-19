@@ -24,6 +24,13 @@ export interface ToolExecutorContext {
   onOutput?: (chunk: string) => void;
   signal?: AbortSignal;
   clarifyFn?: ClarifyFn;
+  /**
+   * Optional command filter for run_command/run_tests. When set, the
+   * tool rejects any command that doesn't pass this predicate BEFORE
+   * execution. Used by the delegate_task local worker to restrict
+   * commands to a safe read-only subset.
+   */
+  commandFilter?: (command: string) => boolean;
   /** Per-tool permission overrides from the active custom mode. Merged with global toolPermissions (mode wins). */
   modeToolPermissions?: Record<string, 'allow' | 'deny' | 'ask'>;
   /**

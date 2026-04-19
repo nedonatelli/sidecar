@@ -160,6 +160,10 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
       // of the main working tree. Transparent to tools that don't
       // consult cwd — they use the workspace-folder fallback.
       cwd: options.cwdOverride,
+      // Command filtering: when set, run_command validates commands
+      // against this predicate before execution. Used by delegate_task
+      // workers to restrict to read-only shell commands.
+      commandFilter: options.commandFilter,
     },
     inlineEditFn: options.inlineEditFn,
     streamingDiffPreviewFn: options.streamingDiffPreviewFn,

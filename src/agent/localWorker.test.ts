@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // `runLocalWorker` spawns a subsidiary agent loop against the free
 // local Ollama backend to offload read-only research from a paid
 // orchestrator. The worker is deliberately crippled:
-//   - read-only tool allowlist (no write_file, no run_command)
+//   - read-only tool allowlist (no write_file; run_command allowed but filtered)
 //   - approvalMode: 'autonomous' (no confirmations — can't cause damage)
 //   - maxIterations capped by config (delegateTaskMaxIterations)
 //   - worker tokens don't count against the paid budget
@@ -70,7 +70,7 @@ vi.mock('./tools.js', () => ({
   ]),
 }));
 
-import { runLocalWorker } from './localWorker.js';
+import { runLocalWorker, isWorkerSafeCommand } from './localWorker.js';
 import type { AgentCallbacks } from './loop.js';
 
 function makeParentCallbacks(): AgentCallbacks & { texts: string[] } {
@@ -167,7 +167,7 @@ describe('runLocalWorker — context + prompt shape', () => {
 });
 
 describe('runLocalWorker — tool allowlist', () => {
-  it('passes toolOverride with ONLY read-only tools (no write_file, run_command, delete_file, delegate_task)', async () => {
+  it('passes toolOverride with ONLY read-only tools (no write_file, delete_file, delegate_task) + filtered run_command', async () => {
     runAgentLoopMock.mockImplementation(async (_c, _m, cb) => cb.onDone());
     await runLocalWorker('x', undefined, makeParentCallbacks(), new AbortController().signal);
     const options = runAgentLoopMock.mock.calls[0][4];
@@ -176,7 +176,7 @@ describe('runLocalWorker — tool allowlist', () => {
     expect(toolNames).toContain('grep');
     expect(toolNames).toContain('list_directory');
     expect(toolNames).not.toContain('write_file');
-    expect(toolNames).not.toContain('run_command');
+    expect(toolNames).toContain('run_command'); // Allowed but filtered via commandFilter
     expect(toolNames).not.toContain('delete_file');
     expect(toolNames).not.toContain('delegate_task');
   });
@@ -285,5 +285,79 @@ describe('runLocalWorker — failure path', () => {
     const result = await runLocalWorker('x', undefined, makeParentCallbacks(), new AbortController().signal);
     expect(result.success).toBe(false);
     expect(result.output).toBe('string rejection');
+  });
+});
+
+describe('isWorkerSafeCommand', () => {
+  it('allows common read-only commands', () => {
+    expect(isWorkerSafeCommand('cat README.md')).toBe(true);
+    expect(isWorkerSafeCommand('head -20 src/main.ts')).toBe(true);
+    expect(isWorkerSafeCommand('tail -f logs/app.log')).toBe(true);
+    expect(isWorkerSafeCommand('grep -rn TODO src/')).toBe(true);
+    expect(isWorkerSafeCommand('find . -name "*.ts"')).toBe(true);
+    expect(isWorkerSafeCommand('ls -la')).toBe(true);
+    expect(isWorkerSafeCommand('tree src/')).toBe(true);
+    expect(isWorkerSafeCommand('wc -l *.ts')).toBe(true);
+    expect(isWorkerSafeCommand('jq .name package.json')).toBe(true);
+    expect(isWorkerSafeCommand("awk '{print $1}' file.txt")).toBe(true);
+    expect(isWorkerSafeCommand('git log --oneline -5')).toBe(true);
+    expect(isWorkerSafeCommand('npm ls')).toBe(true);
+  });
+
+  it('allows pwd and env without arguments', () => {
+    expect(isWorkerSafeCommand('pwd')).toBe(true);
+    expect(isWorkerSafeCommand('env')).toBe(true);
+    expect(isWorkerSafeCommand('date')).toBe(true);
+  });
+
+  it('rejects destructive commands', () => {
+    expect(isWorkerSafeCommand('rm file.txt')).toBe(false);
+    expect(isWorkerSafeCommand('rm -rf /')).toBe(false);
+    expect(isWorkerSafeCommand('mv a.txt b.txt')).toBe(false);
+    expect(isWorkerSafeCommand('cp src dest')).toBe(false);
+    expect(isWorkerSafeCommand('chmod 755 script.sh')).toBe(false);
+    expect(isWorkerSafeCommand('npm install')).toBe(false);
+    expect(isWorkerSafeCommand('npm run build')).toBe(false);
+    expect(isWorkerSafeCommand('node script.js')).toBe(false);
+  });
+
+  it('rejects output redirection', () => {
+    expect(isWorkerSafeCommand('cat file.txt > output.txt')).toBe(false);
+    expect(isWorkerSafeCommand('echo hello >> log.txt')).toBe(false);
+    expect(isWorkerSafeCommand('grep foo bar.txt > result')).toBe(false);
+  });
+
+  it('allows 2>&1 stderr redirection', () => {
+    expect(isWorkerSafeCommand('cat file.txt 2>&1')).toBe(true);
+    expect(isWorkerSafeCommand('grep foo bar 2>&1')).toBe(true);
+  });
+
+  it('rejects pipes to dangerous commands', () => {
+    expect(isWorkerSafeCommand('cat file | sh')).toBe(false);
+    expect(isWorkerSafeCommand('echo "rm -rf" | bash')).toBe(false);
+    expect(isWorkerSafeCommand('cat script | xargs rm')).toBe(false);
+    expect(isWorkerSafeCommand('find . | xargs chmod')).toBe(false);
+  });
+
+  it('allows pipes to safe commands', () => {
+    expect(isWorkerSafeCommand('cat file | grep foo')).toBe(true);
+    expect(isWorkerSafeCommand('ls | head -5')).toBe(true);
+    expect(isWorkerSafeCommand('find . -name "*.ts" | wc -l')).toBe(true);
+  });
+
+  it('rejects curl with output flags', () => {
+    expect(isWorkerSafeCommand('curl -o file.txt http://example.com')).toBe(false);
+    expect(isWorkerSafeCommand('curl --output file.txt http://example.com')).toBe(false);
+    expect(isWorkerSafeCommand('curl -O http://example.com/file.zip')).toBe(false);
+  });
+
+  it('allows curl for simple fetching', () => {
+    expect(isWorkerSafeCommand('curl http://example.com')).toBe(true);
+    expect(isWorkerSafeCommand('curl -s http://api.example.com/data')).toBe(true);
+  });
+
+  it('rejects command substitution with dangerous content', () => {
+    expect(isWorkerSafeCommand('cat $(find . -name "*.txt")')).toBe(false);
+    expect(isWorkerSafeCommand('echo $(rm -rf /)')).toBe(false);
   });
 });

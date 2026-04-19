@@ -23,14 +23,137 @@ const WORKER_ALLOWED_TOOLS = new Set([
   'git_log',
   'git_branch',
   'display_diagram',
+  'run_command', // Safe commands only — filtered by isWorkerSafeCommand()
 ]);
+
+/**
+ * Read-only command prefixes the worker is allowed to execute.
+ * These are exploration/inspection commands that cannot modify state.
+ */
+const WORKER_SAFE_COMMAND_PREFIXES = [
+  'cat ',
+  'head ',
+  'tail ',
+  'less ',
+  'more ',
+  'wc ',
+  'grep ',
+  'egrep ',
+  'fgrep ',
+  'rg ', // ripgrep
+  'ag ', // silver searcher
+  'find ',
+  'fd ', // fd-find
+  'ls ',
+  'tree ',
+  'file ',
+  'stat ',
+  'which ',
+  'type ',
+  'whereis ',
+  'du ',
+  'df ',
+  'pwd',
+  'echo ',
+  'printf ',
+  'env',
+  'printenv',
+  'whoami',
+  'id',
+  'uname ',
+  'hostname',
+  'date',
+  'uptime',
+  'ps ',
+  'pgrep ',
+  'lsof ',
+  'netstat ',
+  'ss ',
+  'curl ', // read-only fetch (no -X POST etc.)
+  'wget -O - ', // stdout only
+  'jq ',
+  'yq ',
+  'sed -n ', // print-only sed
+  'awk ',
+  'sort ',
+  'uniq ',
+  'cut ',
+  'tr ',
+  'diff ',
+  'comm ',
+  'md5sum ',
+  'sha256sum ',
+  'sha1sum ',
+  'base64 ',
+  'xxd ',
+  'hexdump ',
+  'od ',
+  'strings ',
+  'nm ',
+  'objdump ',
+  'readelf ',
+  'otool ',
+  'ldd ',
+  'cargo metadata',
+  'cargo tree',
+  'npm ls',
+  'npm list',
+  'npm view',
+  'npm info',
+  'npm outdated',
+  'npm audit',
+  'npx tsc --noEmit',
+  'pip list',
+  'pip show',
+  'pip freeze',
+  'go list',
+  'go mod graph',
+  'git ',
+  'gh pr view',
+  'gh issue view',
+  'gh repo view',
+];
+
+/**
+ * Check if a command is safe for the worker to execute (read-only).
+ * Rejects anything that could modify files, run arbitrary code, or
+ * exfiltrate data in non-obvious ways.
+ */
+export function isWorkerSafeCommand(command: string): boolean {
+  const trimmed = command.trim();
+
+  // Reject pipelines to potentially dangerous commands
+  const dangerousPipeTargets = /\|\s*(sh|bash|zsh|eval|xargs|tee|dd|rm|mv|cp|chmod|chown|>)/;
+  if (dangerousPipeTargets.test(trimmed)) return false;
+
+  // Reject output redirection (could write files)
+  if (/[^2]?>(?!&)/.test(trimmed)) return false; // Allow 2>&1 but not > or >>
+
+  // Reject command substitution that could hide dangerous ops
+  if (/\$\(.*\)/.test(trimmed) && !/\$\(pwd\)|\$\(date\)/.test(trimmed)) return false;
+
+  // Reject curl/wget with write flags
+  if (/curl\s+.*(-o|-O|--output)/.test(trimmed)) return false;
+  if (/wget\s+(?!-O\s*-)/.test(trimmed)) return false; // Only allow wget -O -
+
+  // Check against safe prefixes
+  for (const prefix of WORKER_SAFE_COMMAND_PREFIXES) {
+    if (trimmed.startsWith(prefix) || trimmed === prefix.trim()) {
+      return true;
+    }
+  }
+
+  return false;
+}
 
 const WORKER_SYSTEM_PROMPT = `You are a local research worker spawned by a frontier-model orchestrator. Your job is to investigate a focused task using the read-only tools available and return a compact, structured summary.
 
 ## Rules
 
 - Do the task efficiently. No chit-chat, no clarifying questions.
-- You have ONLY read-only tools: read_file, grep, search_files, list_directory, get_diagnostics, find_references, git_*, display_diagram.
+- You have read-only tools: read_file, grep, search_files, list_directory, get_diagnostics, find_references, git_*, display_diagram.
+- You can run SAFE read-only shell commands via run_command: cat, head, tail, grep, find, ls, tree, wc, file, stat, jq, awk, sed -n, etc.
+- Destructive commands (rm, mv, cp, chmod, >, >>) are blocked — don't try them.
 - You CANNOT write files, run commands, or edit code. If the task asks for changes, describe what *should* change — do not attempt it.
 - Your final reply is the ONLY thing the orchestrator will see. Make it count.
 
@@ -146,6 +269,7 @@ export async function runLocalWorker(
       depth: (options.depth || 0) + 1,
       toolOverride: workerTools,
       modeToolPermissions: Object.fromEntries(Array.from(WORKER_ALLOWED_TOOLS).map((n) => [n, 'allow' as const])),
+      commandFilter: isWorkerSafeCommand,
     });
     parentCallbacks.onText(`\n[delegate_task completed]\n`);
     return { output: output.trim() || '(worker produced no output)', success: true, charsConsumed, model: workerModel };

@@ -111,4 +111,41 @@ describe('shell tool runtime resolution', () => {
       expect(defaultRuntimeSpy.getShellSession).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe('commandFilter', () => {
+    it('rejects commands that fail the filter', async () => {
+      const injected = new ShellSessionStub();
+      const ctx: ToolExecutorContext = {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        toolRuntime: { getShellSession: () => injected, symbolGraph: null, dispose: vi.fn() } as any,
+        commandFilter: (cmd) => cmd.startsWith('cat '), // Only allow cat
+      };
+      const result = await runCommand({ command: 'rm -rf /' }, ctx);
+      expect(result).toContain('Command rejected');
+      expect(injected.execute).not.toHaveBeenCalled();
+    });
+
+    it('allows commands that pass the filter', async () => {
+      const injected = new ShellSessionStub();
+      const ctx: ToolExecutorContext = {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        toolRuntime: { getShellSession: () => injected, symbolGraph: null, dispose: vi.fn() } as any,
+        commandFilter: (cmd) => cmd.startsWith('cat '),
+      };
+      await runCommand({ command: 'cat file.txt' }, ctx);
+      expect(injected.execute).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not apply filter to background status checks', async () => {
+      const injected = new ShellSessionStub();
+      const ctx: ToolExecutorContext = {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        toolRuntime: { getShellSession: () => injected, symbolGraph: null, dispose: vi.fn() } as any,
+        commandFilter: () => false, // Reject everything
+      };
+      // command_id lookups should still work even with a restrictive filter
+      const result = await runCommand({ command_id: 'bg-1' }, ctx);
+      expect(result).toContain('Background command finished');
+    });
+  });
 });

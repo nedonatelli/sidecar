@@ -149,6 +149,12 @@ export const runTestsDef: ToolDefinition = {
 export async function runCommand(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   const command = input.command as string;
 
+  // Command filter check (used by delegate_task worker to restrict to read-only commands)
+  // Skip for command_id lookups — those are always read-only (just checking status)
+  if (command && !input.command_id && context?.commandFilter && !context.commandFilter(command)) {
+    return `Command rejected: "${command}" is not in the allowed list for this context. Only read-only commands (grep, cat, find, ls, etc.) are permitted.`;
+  }
+
   // Check on a background command
   if (input.command_id) {
     const session = resolveShellSession(context);

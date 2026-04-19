@@ -156,6 +156,13 @@ export interface AgentOptions {
    */
   toolRuntime?: ToolRuntime;
   /**
+   * Command filter for run_command/run_tests. When set, any command
+   * that doesn't pass this predicate is rejected BEFORE execution.
+   * Used by the delegate_task local worker to restrict commands to
+   * a safe read-only subset (grep, cat, find, ls, etc.).
+   */
+  commandFilter?: (command: string) => boolean;
+  /**
    * Extra policy hooks registered after the four built-in ones
    * (auto-fix, stub validator, critic, completion gate). Runs in
    * registration order inside the same HookBus as the built-ins;
