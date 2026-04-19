@@ -3,6 +3,7 @@ import { GitCLI } from '../../github/git.js';
 import { GitHubAPI } from '../../github/api.js';
 import { getGitHubToken } from '../../github/auth.js';
 import { resolveRoot, type ToolExecutorContext, type RegisteredTool } from './shared.js';
+import { markPrReady, checkPrCi, formatCheckRunsMarkdown } from '../../review/prLifecycle.js';
 
 // ---------------------------------------------------------------------------
 // GitHub write tools (v0.69 chunk 3).
@@ -127,7 +128,113 @@ export async function submitPrReview(input: Record<string, unknown>, context?: T
   }
 }
 
+// ---------------------------------------------------------------------------
+// mark_pr_ready (v0.69 chunk 4)
+// ---------------------------------------------------------------------------
+
+export const markPrReadyDef: ToolDefinition = {
+  name: 'mark_pr_ready',
+  description:
+    'Convert the draft pull request for the current branch to ready-for-review on GitHub. ' +
+    'Use after the work is complete and all CI checks have passed (or are expected to pass). ' +
+    'Returns the updated PR state. Does nothing if the PR is already marked ready. ' +
+    'Example: `mark_pr_ready()` after verifying CI passes.',
+  input_schema: {
+    type: 'object',
+    properties: {},
+    required: [],
+  },
+};
+
+export async function markPrReadyTool(_input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
+  const cwd = resolveRoot(context);
+  const messages: string[] = [];
+  const ui = {
+    showInfo(m: string) {
+      messages.push(m);
+    },
+    showError(m: string) {
+      messages.push(`Error: ${m}`);
+    },
+  };
+
+  const outcome = await markPrReady({ ui, cwd });
+
+  switch (outcome.mode) {
+    case 'marked-ready':
+      return `PR #${outcome.pr.number} "${outcome.pr.title}" is now ready for review: ${outcome.pr.url}`;
+    case 'already-ready':
+      return `PR #${outcome.pr.number} is already ready for review.`;
+    case 'no-pr':
+      return `No open PR found for branch ${outcome.branch}.`;
+    case 'detached-head':
+      return 'HEAD is detached — check out a branch first.';
+    case 'no-remote':
+      return messages[0] ?? 'No GitHub remote configured.';
+    case 'error':
+      return `Failed to mark PR ready: ${outcome.errorMessage}`;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// check_pr_ci (v0.69 chunk 4)
+// ---------------------------------------------------------------------------
+
+export const checkPrCiDef: ToolDefinition = {
+  name: 'check_pr_ci',
+  description:
+    'Fetch and display the current CI check-run status for the pull request on the current branch. ' +
+    'Shows a markdown table of all checks with their status and conclusion. ' +
+    'If any checks have failed, the results are returned so the agent can investigate and fix the failures. ' +
+    'Use this after pushing to verify that CI is green before marking the PR ready. ' +
+    'Example: `check_pr_ci()` to see which checks passed or failed.',
+  input_schema: {
+    type: 'object',
+    properties: {},
+    required: [],
+  },
+};
+
+export async function checkPrCiTool(_input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
+  const cwd = resolveRoot(context);
+  let preview = '';
+  const messages: string[] = [];
+  const ui = {
+    showInfo(m: string) {
+      messages.push(m);
+    },
+    showError(m: string) {
+      messages.push(`Error: ${m}`);
+    },
+    async openPreview(content: string, _title: string) {
+      preview = content;
+    },
+    async sendToAgent(_prompt: string) {
+      /* no-op: tool context has no chat panel */
+    },
+  };
+
+  const outcome = await checkPrCi({ ui, cwd });
+
+  switch (outcome.mode) {
+    case 'rendered':
+      return preview || formatCheckRunsMarkdown(outcome.pr, outcome.runs);
+    case 'no-checks':
+      return `PR #${outcome.pr.number} has no CI checks yet.`;
+    case 'no-pr':
+      return `No open PR found for branch ${outcome.branch}.`;
+    case 'detached-head':
+      return 'HEAD is detached — check out a branch first.';
+    case 'no-remote':
+      return messages[0] ?? 'No GitHub remote configured.';
+    case 'error':
+      return `Failed to fetch CI checks: ${outcome.errorMessage}`;
+  }
+}
+
 export const githubTools: RegisteredTool[] = [
   { definition: replyPrCommentDef, executor: replyPrComment, requiresApproval: true },
   { definition: submitPrReviewDef, executor: submitPrReview, requiresApproval: true },
+  { definition: markPrReadyDef, executor: markPrReadyTool, requiresApproval: true },
+  { definition: checkPrCiDef, executor: checkPrCiTool, requiresApproval: false },
 ];

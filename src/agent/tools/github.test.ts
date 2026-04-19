@@ -12,6 +12,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mockApiMethods = vi.hoisted(() => ({
   replyToPRComment: vi.fn(),
   submitPRReview: vi.fn(),
+  markPrReadyForReview: vi.fn(),
+  getPRCheckRuns: vi.fn(),
+  listPullRequestsForBranch: vi.fn(),
 }));
 
 vi.mock('../../github/auth.js', () => ({
@@ -37,12 +40,35 @@ vi.mock('../../github/api.js', () => {
   return { GitHubAPI };
 });
 
-import { replyPrComment, submitPrReview, githubTools } from './github.js';
+import { replyPrComment, submitPrReview, markPrReadyTool, checkPrCiTool, githubTools } from './github.js';
 import { GitHubAPI } from '../../github/api.js';
 import { GitCLI } from '../../github/git.js';
 
 const MockGitHubAPI = GitHubAPI as unknown as { parseRepo: ReturnType<typeof vi.fn> };
 const MockGitCLI = GitCLI as unknown as ReturnType<typeof vi.fn>;
+
+const DEFAULT_PR = {
+  number: 42,
+  title: 'Fix auth middleware',
+  state: 'open' as const,
+  draft: false,
+  author: 'dev',
+  url: 'https://github.com/owner/repo/pull/42',
+  headBranch: 'feature/auth',
+  headSha: 'abc1234567890',
+  baseBranch: 'main',
+  createdAt: '2026-04-19T10:00:00Z',
+};
+
+const DEFAULT_CHECK_RUN = {
+  id: 1,
+  name: 'lint',
+  status: 'completed',
+  conclusion: 'success' as const,
+  url: 'https://github.com/owner/repo/actions/runs/1',
+  startedAt: '2026-04-19T10:00:00Z',
+  completedAt: '2026-04-19T10:05:00Z',
+};
 
 const DEFAULT_REPLY = {
   id: 99,
@@ -69,6 +95,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockApiMethods.replyToPRComment.mockResolvedValue(DEFAULT_REPLY);
   mockApiMethods.submitPRReview.mockResolvedValue(DEFAULT_REVIEW);
+  mockApiMethods.markPrReadyForReview.mockResolvedValue({ ...DEFAULT_PR, draft: false });
+  mockApiMethods.getPRCheckRuns.mockResolvedValue([DEFAULT_CHECK_RUN]);
+  mockApiMethods.listPullRequestsForBranch.mockResolvedValue([DEFAULT_PR]);
   MockGitHubAPI.parseRepo.mockReturnValue({ owner: 'owner', repo: 'repo' });
   MockGitCLI.mockImplementation(function () {
     return {
@@ -178,6 +207,76 @@ describe('submitPrReview', () => {
 // githubTools registry shape
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// mark_pr_ready
+// ---------------------------------------------------------------------------
+
+describe('markPrReadyTool', () => {
+  it('returns confirmation when PR is marked ready', async () => {
+    mockApiMethods.listPullRequestsForBranch.mockResolvedValueOnce([{ ...DEFAULT_PR, draft: true }]);
+    const result = await markPrReadyTool({});
+    expect(result).toContain('ready for review');
+    expect(result).toContain('PR #42');
+  });
+
+  it('returns already-ready message when PR is not a draft', async () => {
+    const result = await markPrReadyTool({});
+    expect(result).toMatch(/already ready/i);
+  });
+
+  it('returns no-pr message when no PR found', async () => {
+    mockApiMethods.listPullRequestsForBranch.mockResolvedValueOnce([]);
+    const result = await markPrReadyTool({});
+    expect(result).toMatch(/No open PR/);
+  });
+
+  it('returns no-remote message when getRemoteUrl returns null', async () => {
+    MockGitCLI.mockImplementationOnce(function () {
+      return {
+        getRemoteUrl: vi.fn().mockResolvedValue(null),
+        getCurrentBranch: vi.fn().mockResolvedValue('feature/auth'),
+      };
+    });
+    const result = await markPrReadyTool({});
+    expect(result).toMatch(/No "origin" remote/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// check_pr_ci
+// ---------------------------------------------------------------------------
+
+describe('checkPrCiTool', () => {
+  it('returns CI check markdown when checks are present', async () => {
+    const result = await checkPrCiTool({});
+    expect(result).toContain('PR #42');
+    expect(result).toContain('lint');
+  });
+
+  it('returns no-checks message when there are no runs', async () => {
+    mockApiMethods.getPRCheckRuns.mockResolvedValueOnce([]);
+    const result = await checkPrCiTool({});
+    expect(result).toMatch(/no CI checks/i);
+  });
+
+  it('returns no-pr message when no PR found', async () => {
+    mockApiMethods.listPullRequestsForBranch.mockResolvedValueOnce([]);
+    const result = await checkPrCiTool({});
+    expect(result).toMatch(/No open PR/);
+  });
+
+  it('returns error message on API failure', async () => {
+    mockApiMethods.getPRCheckRuns.mockRejectedValueOnce(new Error('502 Bad Gateway'));
+    const result = await checkPrCiTool({});
+    expect(result).toMatch(/Failed to fetch CI checks/);
+    expect(result).toMatch(/502/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// githubTools registry shape
+// ---------------------------------------------------------------------------
+
 describe('githubTools', () => {
   it('exports reply_pr_comment and submit_pr_review', () => {
     const names = githubTools.map((t) => t.definition.name);
@@ -185,9 +284,23 @@ describe('githubTools', () => {
     expect(names).toContain('submit_pr_review');
   });
 
-  it('both tools require approval', () => {
-    for (const tool of githubTools) {
+  it('exports mark_pr_ready and check_pr_ci', () => {
+    const names = githubTools.map((t) => t.definition.name);
+    expect(names).toContain('mark_pr_ready');
+    expect(names).toContain('check_pr_ci');
+  });
+
+  it('mark_pr_ready and submit_pr_review require approval', () => {
+    const approval = githubTools.filter((t) =>
+      ['submit_pr_review', 'mark_pr_ready', 'reply_pr_comment'].includes(t.definition.name),
+    );
+    for (const tool of approval) {
       expect(tool.requiresApproval).toBe(true);
     }
+  });
+
+  it('check_pr_ci does not require approval', () => {
+    const tool = githubTools.find((t) => t.definition.name === 'check_pr_ci');
+    expect(tool?.requiresApproval).toBe(false);
   });
 });

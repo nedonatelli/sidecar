@@ -71,6 +71,8 @@ export interface WebviewMessage {
     | 'analyzeCi'
     | 'reviewPrComments'
     | 'respondPrComments'
+    | 'markPrReady'
+    | 'checkPrCi'
     | 'commitMessage'
     | 'listMemories'
     | 'searchMemories'

@@ -1347,6 +1347,18 @@
         "icon": "$(hubot)"
       },
       {
+        "command": "sidecar.pr.markReady",
+        "title": "Mark PR Ready for Review",
+        "category": "SideCar",
+        "icon": "$(pass)"
+      },
+      {
+        "command": "sidecar.pr.checkCi",
+        "title": "Check PR CI Status",
+        "category": "SideCar",
+        "icon": "$(pulse)"
+      },
+      {
         "command": "sidecar.generateCommitMessage",
         "title": "Generate Commit Message",
         "category": "SideCar",

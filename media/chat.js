@@ -876,6 +876,8 @@
     { cmd: '/ci', desc: 'Analyze the latest failing CI run on this branch' },
     { cmd: '/review-comments', desc: 'Fetch and display PR review comments for the current branch' },
     { cmd: '/pr-respond', desc: 'Dispatch the agent to respond to all open PR review threads' },
+    { cmd: '/pr-ready', desc: 'Mark the current branch PR as ready for review' },
+    { cmd: '/pr-ci', desc: 'Check the CI status of the current branch PR' },
     { cmd: '/commit-message', desc: 'Generate and copy a commit message' },
     { cmd: '/memories', desc: 'Browse agent memories' },
     { cmd: '/memory-search', desc: 'Search agent memories' },
@@ -1343,6 +1345,20 @@
     if (text.trim() === '/pr-respond') {
       appendMessage('user', '/pr-respond');
       vscode.postMessage({ command: 'respondPrComments' });
+      input.value = '';
+      input.style.height = 'auto';
+      return;
+    }
+    if (text.trim() === '/pr-ready') {
+      appendMessage('user', '/pr-ready');
+      vscode.postMessage({ command: 'markPrReady' });
+      input.value = '';
+      input.style.height = 'auto';
+      return;
+    }
+    if (text.trim() === '/pr-ci') {
+      appendMessage('user', '/pr-ci');
+      vscode.postMessage({ command: 'checkPrCi' });
       input.value = '';
       input.style.height = 'auto';
       return;

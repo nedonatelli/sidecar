@@ -369,3 +369,35 @@ export interface BranchProtection {
   /** True when force-push is explicitly allowed (rare; generally blocked on protected branches). */
   forcePushesAllowed: boolean;
 }
+
+// --- Check Runs (v0.69 chunk 4) ---
+
+export type CheckConclusion =
+  | 'success'
+  | 'failure'
+  | 'neutral'
+  | 'cancelled'
+  | 'skipped'
+  | 'timed_out'
+  | 'action_required'
+  | null;
+
+export interface CheckRun {
+  id: number;
+  name: string;
+  status: string;
+  conclusion: CheckConclusion;
+  url: string;
+  startedAt: string | null;
+  completedAt: string | null;
+}
+
+export interface RawCheckRun {
+  id: number;
+  name: string;
+  status: string;
+  conclusion: CheckConclusion;
+  html_url: string;
+  started_at: string | null;
+  completed_at: string | null;
+}

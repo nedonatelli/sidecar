@@ -48,6 +48,7 @@ import { runDraftPullRequest, type DraftPrConfig, type DraftPrUi } from './revie
 import { analyzeCiFailure, type AnalyzeCiUi } from './review/analyzeCiFailure.js';
 import { reviewPrComments, type PrReviewUi } from './review/prReview.js';
 import { respondToPrComments, type PrRespondUi } from './review/prRespond.js';
+import { markPrReady, checkPrCi, type PrMarkReadyUi, type PrCiUi } from './review/prLifecycle.js';
 import { EventHookManager } from './agent/eventHooks.js';
 import { WorkspaceIndex } from './config/workspaceIndex.js';
 import { SidecarDir } from './config/sidecarDir.js';
@@ -776,6 +777,51 @@ export function activate(context: ExtensionContext) {
           await analyzeCiFailure({ ui, cwd });
         },
       );
+    }),
+    commands.registerCommand('sidecar.pr.markReady', async () => {
+      const wsFolder = workspace.workspaceFolders?.[0];
+      if (!wsFolder) {
+        window.showErrorMessage('SideCar: Open a workspace before marking a PR ready.');
+        return;
+      }
+      const cwd = wsFolder.uri.fsPath;
+      const ui: PrMarkReadyUi = {
+        showInfo(message) {
+          window.showInformationMessage(message);
+        },
+        showError(message) {
+          window.showErrorMessage(message);
+        },
+      };
+      await markPrReady({ ui, cwd });
+    }),
+    commands.registerCommand('sidecar.pr.checkCi', async () => {
+      const wsFolder = workspace.workspaceFolders?.[0];
+      if (!wsFolder) {
+        window.showErrorMessage('SideCar: Open a workspace before checking CI status.');
+        return;
+      }
+      const cwd = wsFolder.uri.fsPath;
+      const ui: PrCiUi = {
+        showInfo(message) {
+          window.showInformationMessage(message);
+        },
+        showError(message) {
+          window.showErrorMessage(message);
+        },
+        async openPreview(content, title) {
+          const doc = await workspace.openTextDocument({ content, language: 'markdown' });
+          await window.showTextDocument(doc, { preview: true, preserveFocus: true });
+          void title;
+        },
+        async sendToAgent(prompt) {
+          if (!chatProvider) {
+            throw new Error('SideCar chat view is not initialized yet.');
+          }
+          chatProvider.injectPrompt(prompt);
+        },
+      };
+      await checkPrCi({ ui, cwd });
     }),
     commands.registerCommand('sidecar.pr.respond', async () => {
       const wsFolder = workspace.workspaceFolders?.[0];

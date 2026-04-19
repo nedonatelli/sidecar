@@ -825,4 +825,119 @@ describe('GitHubAPI methods', () => {
       await expect(api.submitPRReview('o', 'r', 7, 'x')).rejects.toThrow(/403/);
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // PR Lifecycle (v0.69 chunk 4)
+  // ---------------------------------------------------------------------------
+
+  describe('graphql', () => {
+    it('posts to the GraphQL endpoint and returns data', async () => {
+      mockFetch.mockResolvedValue(mockJsonResponse({ data: { viewer: { login: 'dev' } } }));
+      const result = await api.graphql<{ viewer: { login: string } }>('{ viewer { login } }');
+      expect(result).toEqual({ viewer: { login: 'dev' } });
+      const [url, opts] = mockFetch.mock.calls[0];
+      expect(url).toBe('https://api.github.com/graphql');
+      expect(opts.method).toBe('POST');
+      expect(JSON.parse(opts.body as string)).toMatchObject({ query: '{ viewer { login } }' });
+    });
+
+    it('sends variables in the request body', async () => {
+      mockFetch.mockResolvedValue(mockJsonResponse({ data: {} }));
+      await api.graphql('query', { id: 42 });
+      expect(JSON.parse(mockFetch.mock.calls[0][1].body as string)).toMatchObject({ variables: { id: 42 } });
+    });
+
+    it('throws when the response contains errors', async () => {
+      mockFetch.mockResolvedValue(mockJsonResponse({ data: null, errors: [{ message: 'Not authorized' }] }));
+      await expect(api.graphql('query')).rejects.toThrow(/Not authorized/);
+    });
+
+    it('throws on non-OK HTTP status', async () => {
+      mockFetch.mockResolvedValue({ ok: false, status: 401, text: () => Promise.resolve('Unauthorized') });
+      await expect(api.graphql('query')).rejects.toThrow(/GraphQL error 401/);
+    });
+  });
+
+  describe('markPrReadyForReview', () => {
+    const rawReady = {
+      number: 42,
+      title: 'Fix auth',
+      state: 'open',
+      draft: false,
+      user: { login: 'dev' },
+      html_url: 'https://github.com/o/r/pull/42',
+      created_at: '2026-04-19T10:00:00Z',
+      body: null,
+      head: { ref: 'feature/auth', sha: 'abc123' },
+      base: { ref: 'main' },
+      merged: false,
+    };
+
+    it('sends PATCH with draft=false and returns parsed PR', async () => {
+      mockFetch.mockResolvedValue(mockJsonResponse(rawReady));
+      const pr = await api.markPrReadyForReview('o', 'r', 42);
+      expect(pr.number).toBe(42);
+      expect(pr.draft).toBe(false);
+      expect(pr.headBranch).toBe('feature/auth');
+      const [url, opts] = mockFetch.mock.calls[0];
+      expect(url).toContain('/pulls/42');
+      expect(opts.method).toBe('PATCH');
+      expect(JSON.parse(opts.body as string)).toEqual({ draft: false });
+    });
+
+    it('throws on API error', async () => {
+      mockFetch.mockResolvedValue({ ok: false, status: 422, text: () => Promise.resolve('Unprocessable') });
+      await expect(api.markPrReadyForReview('o', 'r', 42)).rejects.toThrow(/422/);
+    });
+  });
+
+  describe('getPRCheckRuns', () => {
+    const rawRun = {
+      id: 1,
+      name: 'lint',
+      status: 'completed',
+      conclusion: 'success',
+      html_url: 'https://github.com/o/r/actions/runs/1',
+      started_at: '2026-04-19T10:00:00Z',
+      completed_at: '2026-04-19T10:05:00Z',
+    };
+
+    it('returns parsed CheckRun objects', async () => {
+      mockFetch.mockResolvedValue(mockJsonResponse({ check_runs: [rawRun] }));
+      const runs = await api.getPRCheckRuns('o', 'r', 'abc1234');
+      expect(runs).toHaveLength(1);
+      expect(runs[0].id).toBe(1);
+      expect(runs[0].name).toBe('lint');
+      expect(runs[0].status).toBe('completed');
+      expect(runs[0].conclusion).toBe('success');
+      expect(runs[0].url).toBe('https://github.com/o/r/actions/runs/1');
+      expect(runs[0].startedAt).toBe('2026-04-19T10:00:00Z');
+    });
+
+    it('encodes the ref in the URL', async () => {
+      mockFetch.mockResolvedValue(mockJsonResponse({ check_runs: [] }));
+      await api.getPRCheckRuns('o', 'r', 'refs/heads/feature/x');
+      const url: string = mockFetch.mock.calls[0][0];
+      expect(url).toContain('refs%2Fheads%2Ffeature%2Fx');
+    });
+
+    it('uses per_page=100 in the URL', async () => {
+      mockFetch.mockResolvedValue(mockJsonResponse({ check_runs: [] }));
+      await api.getPRCheckRuns('o', 'r', 'abc');
+      expect(mockFetch.mock.calls[0][0]).toContain('per_page=100');
+    });
+
+    it('handles null conclusion for in-progress checks', async () => {
+      mockFetch.mockResolvedValue(
+        mockJsonResponse({ check_runs: [{ ...rawRun, status: 'in_progress', conclusion: null }] }),
+      );
+      const runs = await api.getPRCheckRuns('o', 'r', 'abc');
+      expect(runs[0].conclusion).toBeNull();
+    });
+
+    it('throws on API error', async () => {
+      mockFetch.mockResolvedValue({ ok: false, status: 403, text: () => Promise.resolve('Forbidden') });
+      await expect(api.getPRCheckRuns('o', 'r', 'abc')).rejects.toThrow(/403/);
+    });
+  });
 });

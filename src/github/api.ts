@@ -20,6 +20,8 @@ import type {
   RawPrReviewComment,
   RawPrReview,
   RawPullRequestFull,
+  CheckRun,
+  RawCheckRun,
 } from './types.js';
 
 const BASE_URL = 'https://api.github.com';
@@ -473,6 +475,76 @@ export class GitHubAPI {
       htmlUrl: raw.html_url,
       submittedAt: raw.submitted_at,
     };
+  }
+
+  // --- GraphQL + PR lifecycle (v0.69 chunk 4) ---
+
+  /**
+   * Execute an authenticated GitHub GraphQL query. Throws if the
+   * response contains `errors` or if the HTTP call fails.
+   * The caller is responsible for structuring the query and typing T
+   * — this method is a thin authenticated transport layer.
+   */
+  async graphql<T = Record<string, unknown>>(query: string, variables?: Record<string, unknown>): Promise<T> {
+    const response = await fetch('https://api.github.com/graphql', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.token}`,
+        'Content-Type': 'application/json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+      body: JSON.stringify({ query, variables }),
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`GitHub GraphQL error ${response.status}: ${body}`);
+    }
+
+    const json = (await response.json()) as {
+      data?: T;
+      errors?: Array<{ message: string }>;
+    };
+
+    if (json.errors?.length) {
+      throw new Error(`GitHub GraphQL: ${json.errors.map((e) => e.message).join(', ')}`);
+    }
+
+    return json.data as T;
+  }
+
+  /**
+   * Convert a draft PR to ready-for-review via PATCH.
+   * Calling this on an already-ready PR is harmless — GitHub
+   * returns the unchanged PR, and the caller can check `pr.draft`.
+   */
+  async markPrReadyForReview(owner: string, repo: string, prNumber: number): Promise<PullRequest> {
+    const raw = await this.request<RawPullRequestFull>(`/repos/${owner}/${repo}/pulls/${prNumber}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ draft: false }),
+    });
+    return this.parsePullRequestFull(raw);
+  }
+
+  /**
+   * Fetch check runs for a specific commit ref (SHA or branch name).
+   * Covers both GitHub Actions workflow runs and third-party CI checks
+   * (CircleCI, Travis, etc.) that report via the Checks API.
+   */
+  async getPRCheckRuns(owner: string, repo: string, ref: string): Promise<CheckRun[]> {
+    const data = await this.request<{ check_runs: RawCheckRun[] }>(
+      `/repos/${owner}/${repo}/commits/${encodeURIComponent(ref)}/check-runs?per_page=100`,
+    );
+    return data.check_runs.map((r) => ({
+      id: r.id,
+      name: r.name,
+      status: r.status,
+      conclusion: r.conclusion,
+      url: r.html_url,
+      startedAt: r.started_at,
+      completedAt: r.completed_at,
+    }));
   }
 
   async listRepoContents(owner: string, repo: string, repoPath: string = ''): Promise<GitHubRepoFile[]> {
