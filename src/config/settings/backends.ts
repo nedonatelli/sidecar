@@ -114,6 +114,25 @@ export function detectActiveProfile(baseUrl: string): BackendProfile | null {
 }
 
 /**
+ * Query a Kickstand server for its first loaded model.
+ * Used when switching to Kickstand to auto-select a model.
+ */
+async function queryKickstandFirstModel(baseUrl: string): Promise<string> {
+  try {
+    const resp = await fetch(`${baseUrl}/v1/models`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!resp.ok) return '';
+    const data = (await resp.json()) as { data?: Array<{ id: string }> };
+    return data.data?.[0]?.id ?? '';
+  } catch {
+    return '';
+  }
+}
+
+/**
  * Apply a backend profile: write baseUrl / provider / model into workspace
  * config and copy the profile's stored secret (if any) into the active
  * `sidecar.apiKey` secret so runtime picks it up. Returns a status hint
@@ -128,8 +147,14 @@ export async function applyBackendProfile(
 
   await cfg.update('provider', profile.provider, true);
   await cfg.update('baseUrl', profile.baseUrl, true);
-  if (profile.defaultModel) {
-    await cfg.update('model', profile.defaultModel, true);
+
+  // Determine model to use: explicit default, or query Kickstand for first loaded model
+  let modelToSet = profile.defaultModel;
+  if (!modelToSet && profile.provider === 'kickstand') {
+    modelToSet = await queryKickstandFirstModel(profile.baseUrl);
+  }
+  if (modelToSet) {
+    await cfg.update('model', modelToSet, true);
   }
 
   if (profile.secretKey) {
@@ -147,7 +172,7 @@ export async function applyBackendProfile(
     await storeActiveApiKey('ollama');
   }
 
-  return { status: 'applied', message: `Switched to ${profile.name} (${profile.defaultModel || 'no default model'})` };
+  return { status: 'applied', message: `Switched to ${profile.name} (${modelToSet || 'no model available'})` };
 }
 
 /**
