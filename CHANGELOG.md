@@ -4,6 +4,20 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.69.5] - 2026-04-19
+
+**v0.69.5 — patch: spend tracker fix + delegate_task shell access.**
+
+### Added
+
+- **Read-only shell commands in delegate_task** — worker agents can now run a curated set of safe shell commands (`ls`, `find`, `cat`, `head`, `tail`, `wc`, `file`, `stat`, `du`, `tree`) for codebase exploration without write access. Useful for tasks like "count lines in all Python files" or "list directory structure".
+
+### Fixed
+
+- **Double-counting cache tokens in spend tracker** — cached input tokens were being added to both the cache bucket and the regular input bucket, inflating reported spend. Now correctly counted once.
+
+---
+
 ## [0.69.4] - 2026-04-19
 
 **v0.69.4 — Cloud model context lengths.** `getModelContextLength()` now returns accurate context limits for 60+ popular cloud models (Anthropic Claude, OpenAI GPT-4/o1/o3, Groq, Gemini, Mistral, DeepSeek, Fireworks) via a built-in lookup table, enabling proper context management without conservative fallback defaults.
