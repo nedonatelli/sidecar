@@ -4,6 +4,18 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.69.2] - 2026-04-19
+
+**v0.69.2 — patch: Kickstand pull progress, cancel, model list, and backend switch fixes.**
+
+### Fixed
+
+- **Kickstand download progress bar** — the pull SSE stream emits `{ status: "progress", bytes_done, bytes_total, percent }` events on every 1 % change; SideCar was silently dropping them because `KickstandPullEvent` only declared `downloading | done | error`. Now shows a smooth animated indeterminate bar that transitions to a filled percentage bar as bytes arrive.
+- **Cancel button didn't dismiss the progress bar** — Node.js closes a mid-stream fetch with `done: true` on abort rather than throwing `AbortError`, so the `for await` loop exited normally and fell through to "Loading model into GPU…". Added an explicit `signal.aborted` check after the loop. Also fixed a separate bug where any non-abort error in the Kickstand and Ollama pull paths posted the error message but never `installComplete`, leaving the progress bar visible permanently.
+- **Kickstand model list always empty** — `listInstalledModels` was sending `Authorization: Bearer ollama` (from `this.apiKey`) instead of the token from `~/.config/kickstand/token`. Exported and reused `kickstandHeaders()` which reads the token file automatically.
+- **Model list not updating after backend switch** — `applyBackendProfile`'s `missing-key` early-return path wrote the new `baseUrl`/`provider` to settings but returned before calling `storeActiveApiKey`, the only code path that called `invalidateConfigCache()`. `reloadModels()` then read a stale cache and fetched models from the old backend.
+- **Stale model held after backend switch** — `reloadModels` was calling `client.updateModel(cfg.model)` with the previous backend's model before the extension's reconcile block ran, and `loadModels` was sending `setCurrentModel` with a config snapshot captured at function entry rather than after the reconcile had written the correct model to settings. Removed the premature `updateModel` call and changed `loadModels` to re-read config at the `setCurrentModel` point so the reconcile's write wins.
+
 ## [0.69.1] - 2026-04-19
 
 **v0.69.1 — patch: backend compatibility fixes + Install Model button.**
