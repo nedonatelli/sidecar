@@ -7,6 +7,8 @@ import type {
   RawIssue,
   RawRelease,
   RawRepoContent,
+  RawBranchProtection,
+  BranchProtection,
 } from './types.js';
 
 const BASE_URL = 'https://api.github.com';
@@ -209,6 +211,43 @@ export class GitHubAPI {
     await this.request<void>(`/repos/${owner}/${repo}/releases/${releaseId}`, {
       method: 'DELETE',
     });
+  }
+
+  // --- Branch Protection (v0.68 chunk 3) ---
+
+  private parseBranchProtection(raw: RawBranchProtection): BranchProtection {
+    const reviews = raw.required_pull_request_reviews;
+    return {
+      pullRequestRequired: reviews !== undefined,
+      requiredApprovingReviews: reviews?.required_approving_review_count,
+      codeOwnersRequired: reviews?.require_code_owner_reviews ?? false,
+      requiredStatusChecks: raw.required_status_checks?.contexts ?? [],
+      signedCommitsRequired: raw.required_signatures?.enabled ?? false,
+      enforceAdmins: raw.enforce_admins?.enabled ?? false,
+      linearHistoryRequired: raw.required_linear_history?.enabled ?? false,
+      forcePushesAllowed: raw.allow_force_pushes?.enabled ?? false,
+    };
+  }
+
+  /**
+   * Fetch branch protection rules. Returns `null` when the branch
+   * isn't protected (GitHub returns 404 in that case — not an error
+   * from our perspective). Any other non-2xx becomes a thrown
+   * `Error` from `request()` so the caller can surface it.
+   */
+  async getBranchProtection(owner: string, repo: string, branch: string): Promise<BranchProtection | null> {
+    try {
+      const raw = await this.request<RawBranchProtection>(
+        `/repos/${owner}/${repo}/branches/${encodeURIComponent(branch)}/protection`,
+      );
+      return this.parseBranchProtection(raw);
+    } catch (err) {
+      // GitHub returns 404 for unprotected branches; treat that as
+      // "no rules" rather than an error. Any other failure bubbles.
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes('404')) return null;
+      throw err;
+    }
   }
 
   async listRepoContents(owner: string, repo: string, repoPath: string = ''): Promise<GitHubRepoFile[]> {

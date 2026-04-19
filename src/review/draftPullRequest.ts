@@ -5,6 +5,11 @@ import type { ChatMessage } from '../ollama/types.js';
 import { GitCLI } from '../github/git.js';
 import { GitHubAPI } from '../github/api.js';
 import { getGitHubToken } from '../github/auth.js';
+import {
+  summarizeProtection,
+  formatProtectionMarkdown,
+  type ProtectionSummaryLine,
+} from '../github/branchProtection.js';
 import { fetchBranchRangeDiff } from './diffSource.js';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -128,6 +133,22 @@ export async function runDraftPullRequest(deps: DraftPrDeps): Promise<DraftPrOut
     return { mode: 'no-changes' };
   }
 
+  // Fetch branch-protection rules for the base. Non-fatal — a token
+  // without `repo` scope or a missing branch just means we can't
+  // surface the rules, not that the flow should fail. The GitHub API
+  // returns null for unprotected branches; errors we swallow and
+  // note in telemetry-friendly log only.
+  let protectionLines: readonly ProtectionSummaryLine[] = [];
+  try {
+    const api = deps.api ?? new GitHubAPI(await getGitHubToken());
+    const protection = await api.getBranchProtection(owner, repo, baseBranch);
+    protectionLines = summarizeProtection(protection);
+  } catch {
+    // Intentionally swallow — "couldn't fetch protection" shouldn't
+    // block the PR creation. Users with protected bases typically
+    // find out immediately when `createPR` later succeeds anyway.
+  }
+
   // Load template if configured + present.
   const template = await loadTemplate(deps.cwd, deps.config.template);
 
@@ -143,10 +164,20 @@ export async function runDraftPullRequest(deps: DraftPrDeps): Promise<DraftPrOut
   }
 
   // Preview body in an editor tab so the user can read the full
-  // generated markdown before committing to it. The preview is
-  // read-only — users who want to tweak can do so in the GitHub UI
-  // after the draft is created.
-  await deps.ui.openPreview(generated.body, `PR body preview — ${currentBranch}`);
+  // generated markdown before committing to it. Prepend the branch-
+  // protection summary so the user sees "PR required / CI checks
+  // required / signed commits required" before submitting. The
+  // summary is prefixed to the preview only — NOT folded into the
+  // PR body itself, since those rules are policy on the base branch
+  // rather than content that belongs in the PR description.
+  const protectionMarkdown = formatProtectionMarkdown(protectionLines);
+  const previewBody = protectionMarkdown
+    ? `> **Branch protection on \`${baseBranch}\`**\n>\n${protectionMarkdown
+        .split('\n')
+        .map((l) => '> ' + l)
+        .join('\n')}\n\n---\n\n${generated.body}`
+    : generated.body;
+  await deps.ui.openPreview(previewBody, `PR body preview — ${currentBranch}`);
 
   // Confirm loop: Submit as draft / Edit title / Cancel. Edit-title
   // pops an input box and returns here; other options terminate.

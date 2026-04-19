@@ -149,3 +149,51 @@ export interface RawRepoContent {
   path: string;
   html_url: string;
 }
+
+// --- Branch Protection (v0.68 chunk 3) ---
+// GitHub's `GET /repos/{owner}/{repo}/branches/{branch}/protection`
+// returns a nested payload where every subsection is optional and
+// its presence alone signals "this rule is active". We only surface
+// the five fields that actually affect agent + user push/merge
+// decisions — reviewers, status checks, signed commits, admin
+// enforcement, and linear history. Everything else (e.g. `url`,
+// `restrictions.users` detail) is ignored.
+
+export interface RawRequiredStatusChecks {
+  strict: boolean;
+  contexts: string[];
+}
+
+export interface RawRequiredPullRequestReviews {
+  required_approving_review_count?: number;
+  dismiss_stale_reviews?: boolean;
+  require_code_owner_reviews?: boolean;
+}
+
+export interface RawBranchProtection {
+  required_status_checks?: RawRequiredStatusChecks;
+  required_pull_request_reviews?: RawRequiredPullRequestReviews;
+  required_signatures?: { enabled: boolean };
+  enforce_admins?: { enabled: boolean };
+  required_linear_history?: { enabled: boolean };
+  allow_force_pushes?: { enabled: boolean };
+}
+
+export interface BranchProtection {
+  /** True when `required_pull_request_reviews` is present — direct push blocked for non-admins. */
+  pullRequestRequired: boolean;
+  /** Approver count required to merge. Undefined when PR reviews aren't required. */
+  requiredApprovingReviews?: number;
+  /** True when code-owner review is also required alongside general approvers. */
+  codeOwnersRequired: boolean;
+  /** Named required status checks (CI jobs that must pass before merge). Empty when none are configured. */
+  requiredStatusChecks: string[];
+  /** True when GitHub requires all commits on the branch to be signed. */
+  signedCommitsRequired: boolean;
+  /** True when admins are bound by the protection rules too (i.e. `enforce_admins = true`). */
+  enforceAdmins: boolean;
+  /** True when linear history is required (no merge commits). */
+  linearHistoryRequired: boolean;
+  /** True when force-push is explicitly allowed (rare; generally blocked on protected branches). */
+  forcePushesAllowed: boolean;
+}

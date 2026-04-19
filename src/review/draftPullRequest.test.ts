@@ -97,7 +97,7 @@ function makeGitStub(overrides: Partial<GitStub> = {}): GitStub {
   };
 }
 
-function makeApiStub(pr: Partial<GitHubPR> = {}): GitHubAPI {
+function makeApiStub(pr: Partial<GitHubPR> = {}, protection: unknown = null): GitHubAPI {
   return {
     createPR: vi.fn().mockResolvedValue({
       number: 42,
@@ -108,6 +108,9 @@ function makeApiStub(pr: Partial<GitHubPR> = {}): GitHubAPI {
       createdAt: '2026-04-18',
       ...pr,
     }),
+    // Default: branch is unprotected. Tests that care about protection
+    // pass an explicit `BranchProtection` object as the second arg.
+    getBranchProtection: vi.fn().mockResolvedValue(protection),
   } as unknown as GitHubAPI;
 }
 
@@ -397,5 +400,78 @@ describe('runDraftPullRequest — error propagation', () => {
     expect(out.mode).toBe('error');
     if (out.mode === 'error') expect(out.errorMessage).toMatch(/422/);
     expect(git.pushWithUpstream).toHaveBeenCalled();
+  });
+});
+
+describe('runDraftPullRequest — branch protection awareness', () => {
+  it('prepends a branch-protection summary to the preview when rules exist', async () => {
+    const ui = makeFakeUi();
+    ui.confirmResponses = ['Submit'];
+    const api = makeApiStub(
+      {},
+      {
+        pullRequestRequired: true,
+        requiredApprovingReviews: 2,
+        codeOwnersRequired: false,
+        requiredStatusChecks: ['ci/lint', 'ci/test'],
+        signedCommitsRequired: false,
+        enforceAdmins: true,
+        linearHistoryRequired: false,
+        forcePushesAllowed: false,
+      },
+    );
+    const deps = makeDeps({ ui, api });
+
+    await runDraftPullRequest(deps);
+
+    expect(ui.calls.openPreview).toHaveLength(1);
+    const previewCall = ui.calls.openPreview[0] as { content: string; title: string };
+    expect(previewCall.content).toContain('Branch protection on `main`');
+    expect(previewCall.content).toContain('Pull request required');
+    expect(previewCall.content).toContain('2 reviewer approvals');
+    expect(previewCall.content).toContain('ci/lint, ci/test');
+    // Summary sits above the generated body, separated by --- rule.
+    const protectionIdx = previewCall.content.indexOf('Branch protection');
+    const bodyIdx = previewCall.content.indexOf('## Summary');
+    expect(protectionIdx).toBeLessThan(bodyIdx);
+    expect(previewCall.content).toContain('---');
+  });
+
+  it('omits the protection section entirely when the branch is unprotected (null)', async () => {
+    const ui = makeFakeUi();
+    ui.confirmResponses = ['Submit'];
+    const api = makeApiStub({}, null);
+    const deps = makeDeps({ ui, api });
+
+    await runDraftPullRequest(deps);
+
+    const previewCall = ui.calls.openPreview[0] as { content: string; title: string };
+    expect(previewCall.content).not.toContain('Branch protection');
+    expect(previewCall.content).toMatch(/## Summary/);
+  });
+
+  it('never blocks the flow when getBranchProtection throws', async () => {
+    const ui = makeFakeUi();
+    ui.confirmResponses = ['Submit'];
+    const api = {
+      createPR: vi.fn().mockResolvedValue({
+        number: 42,
+        title: 't',
+        state: 'open',
+        author: 'me',
+        url: 'https://example/pr/42',
+        createdAt: '2026-04-18',
+      }),
+      getBranchProtection: vi.fn().mockRejectedValue(new Error('403 Forbidden')),
+    } as unknown as GitHubAPI;
+    const deps = makeDeps({ ui, api });
+
+    const out = await runDraftPullRequest(deps);
+
+    expect(out.mode).toBe('created');
+    // Nothing about protection appears in the preview, but the PR
+    // still gets created.
+    const previewCall = ui.calls.openPreview[0] as { content: string; title: string };
+    expect(previewCall.content).not.toContain('Branch protection');
   });
 });

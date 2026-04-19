@@ -324,6 +324,77 @@ describe('GitHubAPI methods', () => {
     });
   });
 
+  describe('getBranchProtection', () => {
+    it('returns parsed protection rules for a protected branch', async () => {
+      mockFetch.mockResolvedValue(
+        mockJsonResponse({
+          required_status_checks: { strict: true, contexts: ['lint', 'test'] },
+          required_pull_request_reviews: {
+            required_approving_review_count: 2,
+            require_code_owner_reviews: true,
+          },
+          required_signatures: { enabled: true },
+          enforce_admins: { enabled: true },
+          required_linear_history: { enabled: true },
+          allow_force_pushes: { enabled: false },
+        }),
+      );
+      const protection = await api.getBranchProtection('o', 'r', 'main');
+      expect(protection).not.toBeNull();
+      expect(protection!.pullRequestRequired).toBe(true);
+      expect(protection!.requiredApprovingReviews).toBe(2);
+      expect(protection!.codeOwnersRequired).toBe(true);
+      expect(protection!.requiredStatusChecks).toEqual(['lint', 'test']);
+      expect(protection!.signedCommitsRequired).toBe(true);
+      expect(protection!.enforceAdmins).toBe(true);
+      expect(protection!.linearHistoryRequired).toBe(true);
+      expect(protection!.forcePushesAllowed).toBe(false);
+    });
+
+    it('returns null for an unprotected branch (404)', async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+        text: () => Promise.resolve('{"message":"Branch not protected"}'),
+      });
+      const protection = await api.getBranchProtection('o', 'r', 'feature');
+      expect(protection).toBeNull();
+    });
+
+    it('encodes branch names with special characters', async () => {
+      mockFetch.mockResolvedValue(mockJsonResponse({}));
+      await api.getBranchProtection('o', 'r', 'release/1.0');
+      const url = mockFetch.mock.calls[0][0] as string;
+      expect(url).toContain('release%2F1.0');
+    });
+
+    it('propagates non-404 errors unchanged', async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 403,
+        statusText: 'Forbidden',
+        text: () => Promise.resolve('insufficient scope'),
+      });
+      await expect(api.getBranchProtection('o', 'r', 'main')).rejects.toThrow(/403/);
+    });
+
+    it('defaults every rule to off when the payload is a bare object', async () => {
+      mockFetch.mockResolvedValue(mockJsonResponse({}));
+      const protection = await api.getBranchProtection('o', 'r', 'main');
+      expect(protection).toEqual({
+        pullRequestRequired: false,
+        requiredApprovingReviews: undefined,
+        codeOwnersRequired: false,
+        requiredStatusChecks: [],
+        signedCommitsRequired: false,
+        enforceAdmins: false,
+        linearHistoryRequired: false,
+        forcePushesAllowed: false,
+      });
+    });
+  });
+
   describe('error handling', () => {
     it('throws on non-OK response', async () => {
       mockFetch.mockResolvedValue({
