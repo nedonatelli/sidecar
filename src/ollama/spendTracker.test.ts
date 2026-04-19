@@ -91,6 +91,54 @@ describe('SpendTracker.record (v0.64 chunk 5 — provider `usage.cost` pass-thro
   });
 });
 
+describe('cache token billing (input_tokens includes cache tokens)', () => {
+  beforeEach(() => spendTracker.reset());
+
+  it('does not double-count cache tokens — they are a subset of inputTokens', () => {
+    // Anthropic's input_tokens INCLUDES cache_creation and cache_read tokens.
+    // Example: 100K input tokens, 80K from cache read, 10K cache write, 10K regular.
+    // Before the fix, we'd charge: 100K×input + 80K×cacheRead + 10K×cacheWrite
+    // Correct: 10K×input + 80K×cacheRead + 10K×cacheWrite
+    //
+    // Using Haiku prices: input=$1/M, output=$5/M, cacheWrite=$1.25/M, cacheRead=$0.1/M
+    const cost = spendTracker.record('claude-haiku-4-5', {
+      inputTokens: 100_000, // Total input (includes cache)
+      outputTokens: 0,
+      cacheCreationInputTokens: 10_000, // Written to cache
+      cacheReadInputTokens: 80_000, // Read from cache
+    });
+    // Regular = 100K - 10K - 80K = 10K tokens @ $1/M = $0.01
+    // Cache write = 10K @ $1.25/M = $0.0125
+    // Cache read = 80K @ $0.1/M = $0.008
+    // Total = $0.01 + $0.0125 + $0.008 = $0.0305
+    expect(cost).toBeCloseTo(0.0305, 4);
+  });
+
+  it('handles 100% cache read (no regular input tokens)', () => {
+    // All input tokens come from cache read
+    const cost = spendTracker.record('claude-haiku-4-5', {
+      inputTokens: 50_000,
+      outputTokens: 0,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 50_000,
+    });
+    // Regular = 0, cache read = 50K @ $0.1/M = $0.005
+    expect(cost).toBeCloseTo(0.005, 4);
+  });
+
+  it('handles 100% cache write (no regular or read tokens)', () => {
+    // All input tokens are cache creation
+    const cost = spendTracker.record('claude-haiku-4-5', {
+      inputTokens: 50_000,
+      outputTokens: 0,
+      cacheCreationInputTokens: 50_000,
+      cacheReadInputTokens: 0,
+    });
+    // Regular = 0, cache write = 50K @ $1.25/M = $0.0625
+    expect(cost).toBeCloseTo(0.0625, 4);
+  });
+});
+
 describe('formatUsd', () => {
   it('uses 4-decimal precision for sub-cent amounts', () => {
     expect(formatUsd(0.0023)).toBe('$0.0023');

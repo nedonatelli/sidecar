@@ -70,8 +70,18 @@ class SpendTracker {
       const price = priceFor(model);
       if (!price) return 0; // Unknown (non-Anthropic) model — nothing to bill.
 
+      // IMPORTANT: Anthropic's `input_tokens` INCLUDES cache_creation and cache_read tokens.
+      // They are NOT additive — cache tokens are a subset of input tokens with different pricing.
+      // Correct formula:
+      //   - Regular input tokens = inputTokens - cacheCreation - cacheRead
+      //   - Cache write tokens charged at cacheWrite rate (1.25x input)
+      //   - Cache read tokens charged at cacheRead rate (0.1x input)
+      const regularInputTokens = Math.max(
+        0,
+        usage.inputTokens - usage.cacheCreationInputTokens - usage.cacheReadInputTokens,
+      );
       cost =
-        (usage.inputTokens * price.input) / 1_000_000 +
+        (regularInputTokens * price.input) / 1_000_000 +
         (usage.outputTokens * price.output) / 1_000_000 +
         (usage.cacheCreationInputTokens * price.cacheWrite) / 1_000_000 +
         (usage.cacheReadInputTokens * price.cacheRead) / 1_000_000;
