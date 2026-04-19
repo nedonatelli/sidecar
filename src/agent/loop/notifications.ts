@@ -78,26 +78,32 @@ export function maybeEmitProgressSummary(state: LoopState, callbacks: AgentCallb
 }
 
 /**
- * At the 60%-of-max-iterations boundary, ask the user whether to
- * continue. Returns `true` when the user stopped the run (caller
- * should break the loop after emitting a "Stopped at checkpoint"
- * text message). Returns `false` in all other cases including when
- * there's no checkpoint callback, when we're not at the boundary,
- * or when the user approved continuation.
+ * Checkpoint interval — fire `onCheckpoint` every N iterations to let
+ * the user decide whether to continue. This replaces the old "60% of
+ * maxIterations" logic with a predictable cadence that works better
+ * for long-running tasks.
+ */
+export const CHECKPOINT_INTERVAL = 30;
+
+/**
+ * Fire `onCheckpoint` every CHECKPOINT_INTERVAL iterations to let the
+ * user decide whether to continue. Returns true if we should stop (user
+ * declined), false if we should keep going.
  *
- * The 60% threshold and the "iteration > 3" minimum mirror the
- * original inline check — short runs don't trigger the checkpoint
- * since it would fire almost immediately.
+ * Guards against firing too early: iteration 3 or below is skipped
+ * since it would fire almost immediately. Also skips if no checkpoint
+ * callback is provided.
  */
 export async function shouldStopAtCheckpoint(state: LoopState, callbacks: AgentCallbacks): Promise<boolean> {
   if (!callbacks.onCheckpoint) return false;
-  if (state.iteration !== Math.ceil(state.maxIterations * 0.6)) return false;
+  // Fire at iteration 30, 60, 90, etc.
+  if (state.iteration === 0 || state.iteration % CHECKPOINT_INTERVAL !== 0) return false;
   if (state.iteration <= 3) return false;
 
   const estimatedTokens = Math.ceil(state.totalChars / CHARS_PER_TOKEN);
   const pctTokens = Math.round((estimatedTokens / state.maxTokens) * 100);
   const shouldContinue = await callbacks.onCheckpoint(
-    `Reached iteration ${state.iteration} of ${state.maxIterations}. ${pctTokens}% context used.`,
+    `Reached iteration ${state.iteration}. ${pctTokens}% context used. Continue?`,
     state.iteration,
     state.maxIterations - state.iteration,
   );
