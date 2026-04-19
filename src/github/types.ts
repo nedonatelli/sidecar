@@ -261,6 +261,15 @@ export interface PrReviewThread {
   comments: PrReviewComment[];
 }
 
+/** A submitted PR review (top-level, not an inline comment). */
+export interface PrReview {
+  id: number;
+  body: string;
+  state: string;
+  htmlUrl: string;
+  submittedAt: string;
+}
+
 /** An open pull request with the fields needed for review-comment display. */
 export interface PullRequest {
   number: number;
@@ -274,6 +283,14 @@ export interface PullRequest {
   baseBranch: string;
   createdAt: string;
   body?: string;
+}
+
+export interface RawPrReview {
+  id: number;
+  body: string;
+  state: string;
+  html_url: string;
+  submitted_at: string;
 }
 
 export interface RawPrReviewComment {

@@ -14,9 +14,11 @@ import type {
   RawWorkflowJob,
   WorkflowJob,
   PullRequest,
+  PrReview,
   PrReviewComment,
   PrReviewThread,
   RawPrReviewComment,
+  RawPrReview,
   RawPullRequestFull,
 } from './types.js';
 
@@ -420,6 +422,57 @@ export class GitHubAPI {
       return (a.line ?? 0) - (b.line ?? 0);
     });
     return threads;
+  }
+
+  /**
+   * Post a reply to a specific inline review comment thread.
+   * GitHub requires the ID of the root comment (not a reply) as the
+   * target — replies to replies are automatically attached to the same
+   * thread by the API.
+   */
+  async replyToPRComment(
+    owner: string,
+    repo: string,
+    prNumber: number,
+    commentId: number,
+    body: string,
+  ): Promise<PrReviewComment> {
+    const raw = await this.request<RawPrReviewComment>(
+      `/repos/${owner}/${repo}/pulls/${prNumber}/comments/${commentId}/replies`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body }),
+      },
+    );
+    return this.parsePrReviewComment(raw);
+  }
+
+  /**
+   * Submit a top-level PR review. `event` controls the review disposition:
+   * COMMENT is a plain summary; APPROVE and REQUEST_CHANGES change merge status.
+   * Defaults to COMMENT so the agent doesn't accidentally approve or block a PR
+   * unless it explicitly chooses to.
+   */
+  async submitPRReview(
+    owner: string,
+    repo: string,
+    prNumber: number,
+    body: string,
+    event: 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES' = 'COMMENT',
+  ): Promise<PrReview> {
+    const raw = await this.request<RawPrReview>(`/repos/${owner}/${repo}/pulls/${prNumber}/reviews`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body, event }),
+    });
+    return {
+      id: raw.id,
+      body: raw.body,
+      state: raw.state,
+      htmlUrl: raw.html_url,
+      submittedAt: raw.submitted_at,
+    };
   }
 
   async listRepoContents(owner: string, repo: string, repoPath: string = ''): Promise<GitHubRepoFile[]> {

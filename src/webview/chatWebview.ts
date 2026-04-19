@@ -70,6 +70,7 @@ export interface WebviewMessage {
     | 'createDraftPR'
     | 'analyzeCi'
     | 'reviewPrComments'
+    | 'respondPrComments'
     | 'commitMessage'
     | 'listMemories'
     | 'searchMemories'

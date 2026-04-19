@@ -875,6 +875,7 @@
     { cmd: '/pr', desc: 'Push branch and open a draft pull request' },
     { cmd: '/ci', desc: 'Analyze the latest failing CI run on this branch' },
     { cmd: '/review-comments', desc: 'Fetch and display PR review comments for the current branch' },
+    { cmd: '/pr-respond', desc: 'Dispatch the agent to respond to all open PR review threads' },
     { cmd: '/commit-message', desc: 'Generate and copy a commit message' },
     { cmd: '/memories', desc: 'Browse agent memories' },
     { cmd: '/memory-search', desc: 'Search agent memories' },
@@ -1335,6 +1336,13 @@
     if (text.trim() === '/review-comments') {
       appendMessage('user', '/review-comments');
       vscode.postMessage({ command: 'reviewPrComments' });
+      input.value = '';
+      input.style.height = 'auto';
+      return;
+    }
+    if (text.trim() === '/pr-respond') {
+      appendMessage('user', '/pr-respond');
+      vscode.postMessage({ command: 'respondPrComments' });
       input.value = '';
       input.style.height = 'auto';
       return;

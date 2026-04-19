@@ -742,4 +742,87 @@ describe('GitHubAPI methods', () => {
       expect(threads).toEqual([]);
     });
   });
+
+  describe('replyToPRComment', () => {
+    const rawReply = {
+      id: 99,
+      pull_request_review_id: null,
+      in_reply_to_id: 10,
+      path: 'src/auth.ts',
+      line: 42,
+      diff_hunk: '@@ -40,4 +40,6 @@',
+      body: 'Good catch — fixed.',
+      user: { login: 'bot' },
+      created_at: '2026-04-19T12:00:00Z',
+      html_url: 'https://github.com/o/r/pull/7#discussion_r99',
+      commit_id: 'abc123',
+    };
+
+    it('posts to the replies endpoint and returns parsed comment', async () => {
+      mockFetch.mockResolvedValue(mockJsonResponse(rawReply));
+      const reply = await api.replyToPRComment('o', 'r', 7, 10, 'Good catch — fixed.');
+      expect(reply.id).toBe(99);
+      expect(reply.inReplyToId).toBe(10);
+      expect(reply.body).toBe('Good catch — fixed.');
+    });
+
+    it('uses POST method with JSON body', async () => {
+      mockFetch.mockResolvedValue(mockJsonResponse(rawReply));
+      await api.replyToPRComment('o', 'r', 7, 10, 'hi');
+      const [url, opts] = mockFetch.mock.calls[0];
+      expect(url).toContain('/pulls/7/comments/10/replies');
+      expect(opts.method).toBe('POST');
+      expect(JSON.parse(opts.body as string)).toEqual({ body: 'hi' });
+    });
+
+    it('throws on API error', async () => {
+      mockFetch.mockResolvedValue({ ok: false, status: 422, text: () => Promise.resolve('Unprocessable') });
+      await expect(api.replyToPRComment('o', 'r', 7, 10, 'x')).rejects.toThrow(/422/);
+    });
+  });
+
+  describe('submitPRReview', () => {
+    const rawReview = {
+      id: 200,
+      body: 'All addressed.',
+      state: 'COMMENTED',
+      html_url: 'https://github.com/o/r/pull/7#pullrequestreview-200',
+      submitted_at: '2026-04-19T12:01:00Z',
+    };
+
+    it('posts to the reviews endpoint and returns parsed review', async () => {
+      mockFetch.mockResolvedValue(mockJsonResponse(rawReview));
+      const review = await api.submitPRReview('o', 'r', 7, 'All addressed.');
+      expect(review.id).toBe(200);
+      expect(review.state).toBe('COMMENTED');
+      expect(review.htmlUrl).toBe('https://github.com/o/r/pull/7#pullrequestreview-200');
+      expect(review.submittedAt).toBe('2026-04-19T12:01:00Z');
+    });
+
+    it('defaults to COMMENT event', async () => {
+      mockFetch.mockResolvedValue(mockJsonResponse(rawReview));
+      await api.submitPRReview('o', 'r', 7, 'summary');
+      const opts = mockFetch.mock.calls[0][1];
+      expect(JSON.parse(opts.body as string)).toEqual({ body: 'summary', event: 'COMMENT' });
+    });
+
+    it('passes APPROVE event through', async () => {
+      mockFetch.mockResolvedValue(mockJsonResponse({ ...rawReview, state: 'APPROVED' }));
+      await api.submitPRReview('o', 'r', 7, 'LGTM', 'APPROVE');
+      const opts = mockFetch.mock.calls[0][1];
+      expect(JSON.parse(opts.body as string).event).toBe('APPROVE');
+    });
+
+    it('uses POST to the reviews URL', async () => {
+      mockFetch.mockResolvedValue(mockJsonResponse(rawReview));
+      await api.submitPRReview('o', 'r', 7, 'x');
+      expect(mockFetch.mock.calls[0][0]).toContain('/pulls/7/reviews');
+      expect(mockFetch.mock.calls[0][1].method).toBe('POST');
+    });
+
+    it('throws on API error', async () => {
+      mockFetch.mockResolvedValue({ ok: false, status: 403, text: () => Promise.resolve('Forbidden') });
+      await expect(api.submitPRReview('o', 'r', 7, 'x')).rejects.toThrow(/403/);
+    });
+  });
 });

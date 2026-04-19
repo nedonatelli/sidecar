@@ -1341,6 +1341,12 @@
         "icon": "$(comment-discussion)"
       },
       {
+        "command": "sidecar.pr.respond",
+        "title": "Respond to PR Comments (Agent)",
+        "category": "SideCar",
+        "icon": "$(hubot)"
+      },
+      {
         "command": "sidecar.generateCommitMessage",
         "title": "Generate Commit Message",
         "category": "SideCar",

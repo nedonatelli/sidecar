@@ -47,6 +47,7 @@ import { generateCommitMessage } from './review/commitMessage.js';
 import { runDraftPullRequest, type DraftPrConfig, type DraftPrUi } from './review/draftPullRequest.js';
 import { analyzeCiFailure, type AnalyzeCiUi } from './review/analyzeCiFailure.js';
 import { reviewPrComments, type PrReviewUi } from './review/prReview.js';
+import { respondToPrComments, type PrRespondUi } from './review/prRespond.js';
 import { EventHookManager } from './agent/eventHooks.js';
 import { WorkspaceIndex } from './config/workspaceIndex.js';
 import { SidecarDir } from './config/sidecarDir.js';
@@ -775,6 +776,29 @@ export function activate(context: ExtensionContext) {
           await analyzeCiFailure({ ui, cwd });
         },
       );
+    }),
+    commands.registerCommand('sidecar.pr.respond', async () => {
+      const wsFolder = workspace.workspaceFolders?.[0];
+      if (!wsFolder) {
+        window.showErrorMessage('SideCar: Open a workspace before responding to PR comments.');
+        return;
+      }
+      const cwd = wsFolder.uri.fsPath;
+      const ui: PrRespondUi = {
+        showInfo(message) {
+          window.showInformationMessage(message);
+        },
+        showError(message) {
+          window.showErrorMessage(message);
+        },
+        async sendToAgent(prompt) {
+          if (!chatProvider) {
+            throw new Error('SideCar chat view is not initialized yet.');
+          }
+          chatProvider.injectPrompt(prompt);
+        },
+      };
+      await respondToPrComments({ ui, cwd });
     }),
     commands.registerCommand('sidecar.pr.reviewComments', async () => {
       const wsFolder = workspace.workspaceFolders?.[0];
