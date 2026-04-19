@@ -210,6 +210,7 @@ export interface ExtensionMessage {
   currentModel?: string;
   modelName?: string;
   progress?: string;
+  percent?: number;
   fileName?: string;
   fileContent?: string;
   /** Batch of files from a drag-drop or multi-select attach. */
@@ -427,6 +428,7 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
   <div id="stream-stats" class="hidden"></div>
   <div id="install-progress" class="hidden">
     <span id="install-text">Installing...</span>
+    <div id="install-bar-wrap"><div id="install-bar" class="indeterminate"></div></div>
     <button id="cancel-install">Cancel</button>
   </div>
   <div id="file-attachment" class="hidden">

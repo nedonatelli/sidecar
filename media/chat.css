@@ -486,6 +486,37 @@ body {
   opacity: 0.8;
 }
 
+#install-bar-wrap {
+  width: 100px;
+  height: 4px;
+  background: var(--vscode-widget-border);
+  border-radius: 2px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+#install-bar {
+  height: 100%;
+  width: 0%;
+  background: var(--vscode-progressBar-background, var(--vscode-activityBarBadge-background));
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+#install-bar.indeterminate {
+  width: 35%;
+  animation: install-slide 1.4s ease-in-out infinite;
+}
+
+@keyframes install-slide {
+  0% {
+    transform: translateX(-150%);
+  }
+  100% {
+    transform: translateX(390%);
+  }
+}
+
 #cancel-install {
   padding: 2px 8px;
   background: var(--vscode-button-secondaryBackground);

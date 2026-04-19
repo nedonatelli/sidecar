@@ -621,7 +621,6 @@ export class ChatViewProvider implements WebviewViewProvider {
   public reloadModels(): void {
     const cfg = getConfig();
     this.state.client.updateConnection(cfg.baseUrl, cfg.apiKey);
-    if (cfg.model) this.state.client.updateModel(cfg.model);
     void loadModels(this.state);
     // If the active backend is OpenRouter, pull the catalog so the
     // cost tracker can price its full menagerie of fully-qualified

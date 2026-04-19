@@ -82,8 +82,9 @@ export async function loadModels(state: ChatState): Promise<void> {
       }
     }
 
-    const supportsTools = modelSupportsTools(config.model);
-    state.postMessage({ command: 'setCurrentModel', currentModel: config.model, supportsTools });
+    const currentModel = getConfig().model;
+    const supportsTools = modelSupportsTools(currentModel);
+    state.postMessage({ command: 'setCurrentModel', currentModel, supportsTools });
   } catch (err) {
     console.error('Failed to load models:', err);
     const message = state.client.isLocalOllama()
@@ -578,6 +579,15 @@ async function runKickstandInstall(state: ChatState, modelName: string): Promise
           modelName,
           progress: `Downloading ${event.format ?? ''} from ${event.repo ?? repo}...`,
         });
+      } else if (event.status === 'progress') {
+        const doneMB = (((event.bytes_done ?? 0) / 1024 / 1024) | 0).toString();
+        const totalMB = event.bytes_total ? ((event.bytes_total / 1024 / 1024) | 0).toString() : '?';
+        state.postMessage({
+          command: 'installProgress',
+          modelName,
+          progress: `${doneMB} MB / ${totalMB} MB`,
+          percent: event.percent ?? 0,
+        });
       } else if (event.status === 'done') {
         state.postMessage({ command: 'installProgress', modelName, progress: 'Download complete.' });
         // The local_path tells us the model_id for loading
@@ -595,6 +605,12 @@ async function runKickstandInstall(state: ChatState, modelName: string): Promise
         });
         return;
       }
+    }
+
+    // Stream may close cleanly when aborted (done: true) rather than throwing AbortError
+    if (state.installAbortController?.signal.aborted) {
+      state.postMessage({ command: 'installComplete', modelName });
+      return;
     }
 
     // Auto-load after successful pull
@@ -624,6 +640,7 @@ async function runKickstandInstall(state: ChatState, modelName: string): Promise
       state.postMessage({ command: 'installComplete', modelName });
       return;
     }
+    state.postMessage({ command: 'installComplete', modelName });
     state.postMessage({
       command: 'error',
       content: `Failed to install ${modelName}: ${err instanceof Error ? err.message : String(err)}`,
@@ -745,6 +762,7 @@ async function runOllamaPull(state: ChatState, pullName: string): Promise<void> 
       state.postMessage({ command: 'installComplete', modelName: pullName });
       return;
     }
+    state.postMessage({ command: 'installComplete', modelName: pullName });
     state.postMessage({
       command: 'error',
       content: `Failed to install ${pullName}: ${err instanceof Error ? err.message : String(err)}`,

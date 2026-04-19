@@ -18,6 +18,7 @@
   const closePanel = document.getElementById('close-panel');
   const installProgress = document.getElementById('install-progress');
   const installText = document.getElementById('install-text');
+  const installBar = document.getElementById('install-bar');
   const cancelInstall = document.getElementById('cancel-install');
   const fileAttachment = document.getElementById('file-attachment');
   const fileAttachmentName = document.getElementById('file-attachment-name');
@@ -4277,6 +4278,13 @@
         installProgress.classList.remove('hidden');
         installText.textContent =
           'Installing ' + event.data.modelName + (event.data.progress ? ': ' + event.data.progress : '...');
+        if (event.data.percent !== undefined) {
+          installBar.classList.remove('indeterminate');
+          installBar.style.width = event.data.percent + '%';
+        } else {
+          installBar.classList.add('indeterminate');
+          installBar.style.width = '';
+        }
         if (event.data.models) {
           renderModelList(event.data.models);
         }

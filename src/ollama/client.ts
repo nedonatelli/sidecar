@@ -3,7 +3,7 @@ import type { ApiBackend } from './backend.js';
 import { AnthropicBackend } from './anthropicBackend.js';
 import { OllamaBackend } from './ollamaBackend.js';
 import { OpenAIBackend } from './openaiBackend.js';
-import { KickstandBackend } from './kickstandBackend.js';
+import { KickstandBackend, kickstandHeaders } from './kickstandBackend.js';
 import { OpenRouterBackend } from './openrouterBackend.js';
 import { GroqBackend } from './groqBackend.js';
 import { FireworksBackend } from './fireworksBackend.js';
@@ -741,7 +741,7 @@ export class SideCarClient {
       // in-flight downloads don't pollute the dropdown.
       try {
         const response = await fetch(`${this.baseUrl}/api/v1/models`, {
-          headers: this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {},
+          headers: kickstandHeaders(),
         });
         if (!response.ok) return [];
         const data = (await response.json()) as Array<{

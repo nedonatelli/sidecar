@@ -333,7 +333,7 @@ export class KickstandBackend implements ApiBackend {
 // Kickstand model management (pull, load, unload, registry list)
 // ---------------------------------------------------------------------------
 
-function kickstandHeaders(): Record<string, string> {
+export function kickstandHeaders(): Record<string, string> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   const token = readKickstandToken();
   if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -342,12 +342,15 @@ function kickstandHeaders(): Record<string, string> {
 
 /** Progress event emitted by {@link kickstandPullModel}. */
 export interface KickstandPullEvent {
-  status: 'downloading' | 'done' | 'error';
+  status: 'downloading' | 'progress' | 'done' | 'error';
   repo?: string;
   filename?: string;
   format?: string;
   local_path?: string;
   message?: string;
+  bytes_done?: number;
+  bytes_total?: number;
+  percent?: number;
 }
 
 /**

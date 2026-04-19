@@ -10,6 +10,7 @@
 
 import { workspace } from 'vscode';
 import { getSecretContext, storeActiveApiKey } from './secrets.js';
+import { invalidateConfigCache } from '../settings.js';
 
 export interface BackendProfile {
   /** Stable identifier used in messages and SecretStorage keys. */
@@ -134,6 +135,7 @@ export async function applyBackendProfile(
   if (profile.secretKey) {
     const stored = await ctx.secrets.get(profile.secretKey);
     if (!stored) {
+      invalidateConfigCache();
       return {
         status: 'missing-key',
         message: `Switched to ${profile.name}, but no API key is stored for this profile yet. Run "SideCar: Set API Key" to set it, then switch again.`,
