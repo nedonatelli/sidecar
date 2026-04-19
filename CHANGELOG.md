@@ -4,6 +4,39 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.67.1] - 2026-04-18
+
+**v0.67.1 — Kickstand LoRA agent-tool surface.** v0.67.0 shipped palette-only LoRA management (`SideCar: Kickstand: Load/Unload LoRA Adapter`); this patch release layers three agent tools on top so the agent itself can role-shape a model mid-task. Attach a Python-style adapter before touching `src/python/**`, detach when moving to a different language, stack multiple domain adapters for polyglot projects — all without leaving an agent turn.
+
+### Added — Three agent tools
+
+- **`kickstand_list_loras(model_id)`** — read-only inventory. Returns every adapter currently attached to a loaded model with its id, path, and scale. No approval required.
+- **`kickstand_attach_lora(model_id, path, scale?)`** — attach a GGUF adapter at an absolute server-readable path. `scale` defaults to 1.0 (range 0.0–2.0). Multiple adapters stack on one base. Returns the Kickstand-assigned adapter id. Requires per-call user approval (not `alwaysRequireApproval` — ephemeral state, users can opt into auto-approve via `toolPermissions`).
+- **`kickstand_detach_lora(model_id, adapter_id)`** — detach a previously-attached adapter by id. Same approval policy as attach.
+
+All three gate on `context.client?.getBackendCapabilities()?.loraAdapters` being present. Non-Kickstand backends (Ollama / Anthropic / OpenAI / etc.) return a typed "not supported — use `switch_backend`" message instead of throwing, so a failed call surfaces as a regular tool_result the model can reason about rather than crashing the loop.
+
+### Changed
+
+- `src/agent/tools.ts` registers the new `kickstandTools` array alongside the existing per-module registries (fsTools, searchTools, shellTools, diagnosticsTools, gitTools, knowledgeTools, systemMonitorTools, projectKnowledgeTools, settingsTools) — follows the v0.66 chunk 2 per-module composition pattern.
+- Tool count bumps to **29** across `README.md` tool registry table, `docs/agent-mode.md` built-in tools table, and `docs/index.html` landing stats. The bump script's tool-count traversal (fixed earlier in v0.67.0) correctly picks up the new per-module entries without manual intervention.
+- `docs/agent-mode.md` adds a "Kickstand LoRA tools *(new in v0.67.1)*" section explaining the role-shaping use case, scale semantics, and the distinction between this tool-level approval gate vs. `update_setting`'s mandatory-always gate.
+
+### Tests
+
+21 new cases in `src/agent/tools/kickstand.test.ts` covering:
+- Capability gate: both missing-client and present-client-missing-capability return the typed "not supported" message
+- Input validation: missing `model_id` / `path` / `adapter_id` return error strings
+- Happy paths: all three tools forward inputs correctly and surface the capability's summary string
+- Error propagation: rejections from `listAdapters` / `loadAdapter` / `unloadAdapter` become human-readable tool results
+- Scale handling: explicit scale forwarded, undefined omitted, NaN ignored (falls back to undefined → capability default)
+- Registry wiring: three tools registered in expected order, `list` read-only, `attach`/`detach` require approval, none set `alwaysRequireApproval`
+
+### Stats
+- **3367 total tests** (+21 from v0.67.0), 189 test files
+- **29 built-in tools** (+3 from v0.67.0), 8 skills
+- tsc + lint clean; no breaking changes
+
 ## [0.67.0] - 2026-04-18
 
 **v0.67.0 — Fork & compare.** Headline feature is `/fork <task>` + `SideCar: Fork & Compare`: spawn N parallel approaches to the same task, each running an agent loop inside its own Shadow Workspace off `HEAD`, then pick the winner through a single QuickPick + `vscode.diff` + `git apply` flow. Secondary theme is context-bloat discipline — SIDECAR.md injection now routes by path-scoped `@paths` sentinels instead of dumping the whole file and mid-chopping on overflow. Refactor foundation: `parallelDispatch` primitive extracted from duplicated pool-of-workers code in multi-file edit + facet dispatch, ready for Fork to reuse.

@@ -243,7 +243,7 @@ A second LLM call whose only job is to find reasons the main agent's change is w
 
 **Cost:** each critic call is a full round trip with a 1024-token budget. On Ollama it's free but adds a few seconds per edit; on paid backends it roughly doubles the per-iteration cost unless you use a cheaper critic model.
 
-### Tool Registry (26+ built-in tools + MCP)
+### Tool Registry (29+ built-in tools + MCP)
 | Tool | Description |
 |------|-------------|
 | `read_file` | Read file contents |
@@ -265,6 +265,9 @@ A second LLM call whose only job is to find reasons the main agent's change is w
 | `ask_user` | Ask the user a clarifying question with selectable options |
 | `spawn_agent` | Spawn a sub-agent for parallel tasks (max depth: 3, 15 iterations each) |
 | `delegate_task` *(paid backends only)* | Offload read-only research to a local Ollama worker. Orchestrator pays nothing for the worker's tokens |
+| `kickstand_list_loras` *(Kickstand only)* | List LoRA adapters currently attached to a loaded model |
+| `kickstand_attach_lora` *(Kickstand only)* | Attach a LoRA adapter to a loaded model without reloading — requires approval |
+| `kickstand_detach_lora` *(Kickstand only)* | Detach a previously-attached LoRA adapter — requires approval |
 
 ### Project Instructions (SIDECAR.md)
 Run `/init` in the chat to auto-generate a `.sidecar/SIDECAR.md` file from your codebase. SideCar scans config files, the file tree, and sample source files (prioritizing entry points) to produce a structured project overview. It also reads `CLAUDE.md` and `AGENTS.md` if they exist.
