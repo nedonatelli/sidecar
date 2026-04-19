@@ -462,6 +462,31 @@
             "default": [],
             "description": "Absolute paths to additional facet .md files (merged with built-ins). Omit to use only the built-in catalog plus any facets at .sidecar/facets/*.md in the active workspace."
           },
+          "sidecar.sidecarMd.mode": {
+            "type": "string",
+            "enum": ["full", "sections"],
+            "default": "sections",
+            "markdownDescription": "How SIDECAR.md content is injected into the system prompt.\n\n| Mode | Behavior |\n|---|---|\n| `sections` (default) | Parse H2 boundaries, route sections to the system prompt based on `<!-- @paths: glob -->` sentinels, active editor, and user-mentioned paths. Sections without a sentinel default to always-included. Drops whole sections on overflow instead of mid-chopping. Degrades to `full` when no section declares a sentinel. |\n| `full` | Legacy behavior — dump the entire file and mid-chop on overflow. Use this if you've customized your SIDECAR.md in ways the parser doesn't handle cleanly. |\n\nPath-scoped sections declare their globs via an HTML-comment sentinel immediately under the H2 heading (invisible in GitHub's markdown preview):\n\n```markdown\n## Transforms\n<!-- @paths: src/transforms/**, src/dsp/** -->\nFilter kernels go under src/transforms/...\n```"
+          },
+          "sidecar.sidecarMd.alwaysIncludeHeadings": {
+            "type": "array",
+            "items": { "type": "string" },
+            "default": ["Build", "Conventions", "Setup"],
+            "description": "H2 headings that always get included in the system prompt regardless of @paths sentinels. Matched case-insensitively against section.heading. Useful for teams that don't want to edit their SIDECAR.md — 'always include the Build section' lives in user settings, not in the doc."
+          },
+          "sidecar.sidecarMd.lowPriorityHeadings": {
+            "type": "array",
+            "items": { "type": "string" },
+            "default": ["Glossary", "FAQ", "Changelog"],
+            "description": "H2 headings that are demoted to low priority — included only when budget remains after always + scoped sections. Matched case-insensitively."
+          },
+          "sidecar.sidecarMd.maxScopedSections": {
+            "type": "number",
+            "default": 5,
+            "minimum": 1,
+            "maximum": 50,
+            "description": "Cap on how many path-scoped sections can land in one injection. Guards against a wildcard-ish path glob that matches 30 sections."
+          },
           "sidecar.regressionGuards": {
             "type": "array",
             "default": [],

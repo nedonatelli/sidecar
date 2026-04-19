@@ -24,6 +24,7 @@ import {
   renderFusedContext,
 } from '../../agent/retrieval/index.js';
 import { pruneHistory, enhanceContextWithSmartElements } from '../../agent/context.js';
+import { parseSidecarMd, selectSidecarMdSections } from '../../agent/sidecarMdParser.js';
 import { getContentLength } from '../../ollama/types.js';
 
 export interface SystemPromptParams {
@@ -225,15 +226,30 @@ export async function injectSystemContext(
       'to trust the workspace from the VS Code command palette if you need that context.';
   }
 
-  // SIDECAR.md — only in trusted workspaces
+  // SIDECAR.md — only in trusted workspaces.
+  // v0.67 chunk 1: path-scoped section injection. Mode `sections`
+  // parses H2 boundaries and routes sections by @paths sentinel +
+  // active-file match + priority overrides; mode `full` preserves
+  // pre-v0.67 whole-file behavior (still truncated, but only used
+  // when the user explicitly opts in or the file has no sentinels
+  // to route by).
   if (workspaceTrusted) {
     const sidecarMd = await state.loadSidecarMd();
     if (sidecarMd) {
-      prompt = ensureBoundary(prompt);
-      const remaining = maxSystemChars - prompt.length;
-      const truncated =
-        sidecarMd.length > remaining ? sidecarMd.slice(0, remaining - 100) + '\n... (SIDECAR.md truncated)' : sidecarMd;
-      prompt += `\n\nProject instructions (from SIDECAR.md):\n${truncated}`;
+      const remaining = maxSystemChars - prompt.length - 200; // leave headroom for header + other injections
+      const rendered = injectSidecarMd(sidecarMd, {
+        mode: config.sidecarMdMode,
+        alwaysIncludeHeadings: config.sidecarMdAlwaysIncludeHeadings,
+        lowPriorityHeadings: config.sidecarMdLowPriorityHeadings,
+        maxScopedSections: config.sidecarMdMaxScopedSections,
+        activeFilePath: activeFilePathFor(text),
+        mentionedPaths: mentionedPathsFrom(text),
+        maxChars: Math.max(remaining, 500),
+      });
+      if (rendered.length > 0) {
+        prompt = ensureBoundary(prompt);
+        prompt += `\n\nProject instructions (from SIDECAR.md):\n${rendered}`;
+      }
     }
   }
 
@@ -394,6 +410,85 @@ export async function injectSystemContext(
   }
 
   return prompt;
+}
+
+interface SidecarMdInjectionOptions {
+  readonly mode: 'full' | 'sections';
+  readonly alwaysIncludeHeadings: readonly string[];
+  readonly lowPriorityHeadings: readonly string[];
+  readonly maxScopedSections: number;
+  readonly activeFilePath?: string;
+  readonly mentionedPaths?: readonly string[];
+  readonly maxChars: number;
+}
+
+/**
+ * Render SIDECAR.md for injection into the system prompt according
+ * to the configured mode:
+ *   - `sections` — parse + select per `@paths` sentinels + priority
+ *     rules. Falls back to full-file behavior when the doc has no
+ *     sentinels (preserves pre-v0.67 UX for unannotated files).
+ *   - `full`    — legacy: return the whole file, mid-chopped on
+ *     overflow with an explicit truncation marker.
+ */
+function injectSidecarMd(content: string, opts: SidecarMdInjectionOptions): string {
+  if (opts.mode === 'full') {
+    return renderFullFile(content, opts.maxChars);
+  }
+
+  const parsed = parseSidecarMd(content);
+  if (!parsed.hasAnyPathSentinel) {
+    // Backward compat: no sentinels means the selector's path-scoped
+    // routing has nothing to do — fall back to full-file injection so
+    // projects that haven't annotated their SIDECAR.md behave exactly
+    // as they did pre-v0.67.
+    return renderFullFile(content, opts.maxChars);
+  }
+
+  const selection = selectSidecarMdSections(parsed, {
+    activeFilePath: opts.activeFilePath,
+    mentionedPaths: opts.mentionedPaths,
+    alwaysIncludeHeadings: opts.alwaysIncludeHeadings,
+    lowPriorityHeadings: opts.lowPriorityHeadings,
+    maxScopedSections: opts.maxScopedSections,
+    maxChars: opts.maxChars,
+  });
+  return selection.rendered;
+}
+
+function renderFullFile(content: string, maxChars: number): string {
+  if (content.length <= maxChars) return content;
+  return content.slice(0, Math.max(0, maxChars - 100)) + '\n... (SIDECAR.md truncated)';
+}
+
+function activeFilePathFor(_userText: string): string | undefined {
+  const editor = window.activeTextEditor;
+  if (!editor) return undefined;
+  const root = getWorkspaceRoot();
+  if (!root) return editor.document.uri.fsPath;
+  return path.relative(root, editor.document.uri.fsPath);
+}
+
+/**
+ * Extract explicit path mentions from the user's message so section
+ * scoping still works when no editor is focused. Looks for two forms:
+ * `@file:path` sentinels (SideCar's own shorthand) and backtick-quoted
+ * paths matching common source-tree extensions.
+ */
+function mentionedPathsFrom(userText: string): string[] {
+  if (!userText) return [];
+  const mentions = new Set<string>();
+
+  for (const m of userText.matchAll(/@file:([^\s]+)/g)) {
+    mentions.add(m[1]);
+  }
+  // Backtick-quoted paths — conservative: require at least one `/` to
+  // avoid matching every inline `foo` backtick as a path.
+  for (const m of userText.matchAll(/`([^`\s]*\/[^`\s]*)`/g)) {
+    mentions.add(m[1]);
+  }
+
+  return [...mentions];
 }
 
 function getActiveFileContext(): string {

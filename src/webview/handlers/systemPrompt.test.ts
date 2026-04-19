@@ -106,6 +106,10 @@ function makeConfig(overrides: Record<string, unknown> = {}) {
     pinnedContext: [],
     includeActiveFile: false,
     fetchUrlContext: false,
+    sidecarMdMode: 'sections',
+    sidecarMdAlwaysIncludeHeadings: ['Build', 'Conventions', 'Setup'],
+    sidecarMdLowPriorityHeadings: ['Glossary', 'FAQ', 'Changelog'],
+    sidecarMdMaxScopedSections: 5,
     ...overrides,
   } as unknown as Parameters<typeof injectSystemContext>[3];
 }
@@ -145,6 +149,79 @@ describe('injectSystemContext', () => {
     const result = await injectSystemContext('BASE', 200_000, state, makeConfig(), 'hi', false, 8192);
     expect(result).toContain('Project instructions (from SIDECAR.md)');
     expect(result).toContain('Project: SideCar');
+  });
+
+  it('routes to only the matching section when SIDECAR.md has @paths sentinels and the active file matches', async () => {
+    const prior = window.activeTextEditor;
+    (window as unknown as { activeTextEditor: unknown }).activeTextEditor = {
+      document: { uri: { fsPath: '/mock-workspace/src/transforms/fft.ts' } },
+    };
+    try {
+      const state = makeState({
+        loadSidecarMd: vi
+          .fn()
+          .mockResolvedValue(
+            [
+              '# Project: SideCar',
+              '',
+              '## Build',
+              '- Run `npm test`',
+              '',
+              '## Transforms',
+              '<!-- @paths: src/transforms/** -->',
+              'Filter kernels go under src/transforms/.',
+              '',
+              '## UI',
+              '<!-- @paths: src/ui/** -->',
+              'UI components go under src/ui/.',
+            ].join('\n'),
+          ),
+      });
+      const result = await injectSystemContext('BASE', 200_000, state, makeConfig(), 'hi', false, 8192);
+      expect(result).toContain('## Build'); // always included (no sentinel)
+      expect(result).toContain('## Transforms'); // matched active file
+      expect(result).not.toContain('## UI'); // didn't match active file
+    } finally {
+      (window as unknown as { activeTextEditor: unknown }).activeTextEditor = prior;
+    }
+  });
+
+  it('falls back to whole-file injection when SIDECAR.md has no @paths sentinels', async () => {
+    // Pre-v0.67 behavior preservation: a legacy SIDECAR.md with no
+    // sentinels behaves exactly as before — whole file injected.
+    const legacyContent = '## Build\n- Old-style doc\n## Notes\n- More prose';
+    const state = makeState({ loadSidecarMd: vi.fn().mockResolvedValue(legacyContent) });
+    const result = await injectSystemContext('BASE', 200_000, state, makeConfig(), 'hi', false, 8192);
+    expect(result).toContain('## Build');
+    expect(result).toContain('## Notes'); // both included — no routing
+  });
+
+  it('routes via user-mentioned paths when no editor is active', async () => {
+    const prior = window.activeTextEditor;
+    (window as unknown as { activeTextEditor: unknown }).activeTextEditor = undefined;
+    try {
+      const state = makeState({
+        loadSidecarMd: vi
+          .fn()
+          .mockResolvedValue(
+            ['## Build', 'body', '', '## Transforms', '<!-- @paths: src/transforms/** -->', 'transform guidance'].join(
+              '\n',
+            ),
+          ),
+      });
+      const result = await injectSystemContext(
+        'BASE',
+        200_000,
+        state,
+        makeConfig(),
+        'please work on `src/transforms/fft.ts`',
+        false,
+        8192,
+      );
+      expect(result).toContain('## Transforms');
+    } finally {
+      (window as unknown as { activeTextEditor: unknown }).activeTextEditor = prior;
+    }
   });
 
   it('appends the user-configured systemPrompt regardless of trust state', async () => {

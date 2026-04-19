@@ -106,6 +106,10 @@ export interface SideCarConfig {
   facetsMaxConcurrent: number;
   facetsRpcTimeoutMs: number;
   facetsRegistry: string[];
+  sidecarMdMode: 'full' | 'sections';
+  sidecarMdAlwaysIncludeHeadings: string[];
+  sidecarMdLowPriorityHeadings: string[];
+  sidecarMdMaxScopedSections: number;
   criticEnabled: boolean;
   criticModel: string;
   criticBlockOnHighSeverity: boolean;
@@ -300,6 +304,14 @@ function readConfig(): SideCarConfig {
     facetsMaxConcurrent: clampMin(cfg.get<number>('facets.maxConcurrent', 3), 1, 16),
     facetsRpcTimeoutMs: clampMin(cfg.get<number>('facets.rpcTimeoutMs', 30_000), 1_000, 300_000),
     facetsRegistry: cfg.get<string[]>('facets.registry', []),
+    sidecarMdMode: cfg.get<'full' | 'sections'>('sidecarMd.mode', 'sections'),
+    sidecarMdAlwaysIncludeHeadings: cfg.get<string[]>('sidecarMd.alwaysIncludeHeadings', [
+      'Build',
+      'Conventions',
+      'Setup',
+    ]),
+    sidecarMdLowPriorityHeadings: cfg.get<string[]>('sidecarMd.lowPriorityHeadings', ['Glossary', 'FAQ', 'Changelog']),
+    sidecarMdMaxScopedSections: clampMin(cfg.get<number>('sidecarMd.maxScopedSections', 5), 1, 50),
     criticEnabled: cfg.get<boolean>('critic.enabled', false),
     // v0.62.1 p.1a: provider-aware default. An empty `critic.model`
     // historically meant "use the main model," which doubled per-
