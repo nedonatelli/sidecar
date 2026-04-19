@@ -332,11 +332,23 @@ export class KickstandBackend implements ApiBackend {
           // doesn't accept a per-request timeout today, so the
           // parameter is prefixed with `_` to satisfy the lint
           // rule while we wait for Kickstand to grow the option.
-          const result = await kickstandLoadModel(this.baseUrl, id, {
-            n_gpu_layers: undefined,
-            n_ctx: this.nCtx,
-          });
-          return result.socket ? `Loaded ${result.model_id} (socket: ${result.socket})` : `Loaded ${result.model_id}`;
+          const loadOpts = { n_gpu_layers: undefined as number | undefined, n_ctx: this.nCtx };
+          try {
+            const result = await kickstandLoadModel(this.baseUrl, id, loadOpts);
+            return result.socket ? `Loaded ${result.model_id} (socket: ${result.socket})` : `Loaded ${result.model_id}`;
+          } catch (err) {
+            if (!isVramError(err)) throw err;
+            // Not enough VRAM — unload every currently-loaded model and retry.
+            const registry = await kickstandListRegistry(this.baseUrl);
+            const loaded = registry.filter((m) => m.loaded && m.model_id !== id);
+            await Promise.all(loaded.map((m) => kickstandUnloadModel(this.baseUrl, m.model_id).catch(() => {})));
+            const result = await kickstandLoadModel(this.baseUrl, id, loadOpts);
+            const evicted = loaded.map((m) => m.model_id).join(', ');
+            const base = result.socket
+              ? `Loaded ${result.model_id} (socket: ${result.socket})`
+              : `Loaded ${result.model_id}`;
+            return evicted ? `${base} (evicted: ${evicted})` : base;
+          }
         },
         unloadModel: async (id) => {
           const result = await kickstandUnloadModel(this.baseUrl, id);
@@ -488,6 +500,11 @@ export interface KickstandRegistryModel {
    * (e.g. non-GGUF unloaded model, corrupt metadata).
    */
   context_length?: number | null;
+}
+
+/** Returns true for a thrown error from kickstandLoadModel that indicates insufficient VRAM (HTTP 507). */
+function isVramError(err: unknown): boolean {
+  return err instanceof Error && /load failed \(507\)/i.test(err.message);
 }
 
 /** List all models in Kickstand's registry (downloaded + loaded state). */

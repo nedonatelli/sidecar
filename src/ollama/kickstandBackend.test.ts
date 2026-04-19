@@ -268,6 +268,37 @@ describe('KickstandBackend', () => {
       expect(headers.Authorization).toBe('Bearer test-kickstand-token');
     });
 
+    it('evicts loaded models on 507 VRAM error and retries loadModel', async () => {
+      // First load attempt: 507 VRAM error
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 507,
+        text: async () =>
+          JSON.stringify({
+            error: { message: "Not enough VRAM to load 'gemma': need 8GB", type: 'insufficient_storage' },
+          }),
+      });
+      // Registry query returns one loaded model (not the target)
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => [
+          { model_id: 'qwen-small', loaded: true },
+          { model_id: 'gemma', loaded: false },
+        ],
+      });
+      // Unload the loaded model
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ status: 'unloaded', model_id: 'qwen-small' }) });
+      // Retry load: success
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ status: 'loaded', model_id: 'gemma' }) });
+
+      const caps = backend.nativeCapabilities();
+      const summary = await caps.lifecycle!.loadModel('gemma');
+
+      expect(summary).toContain('gemma');
+      expect(summary).toContain('qwen-small');
+      expect(mockFetch).toHaveBeenCalledTimes(4);
+    });
+
     it('unloadModel hits /api/v1/models/{id}/unload', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,

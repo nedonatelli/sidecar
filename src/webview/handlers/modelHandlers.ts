@@ -655,13 +655,13 @@ async function runKickstandInstall(state: ChatState, modelName: string): Promise
  * Exported so webview message handlers can call them directly.
  */
 export async function handleKickstandLoadModel(state: ChatState, modelId: string): Promise<void> {
-  const config = getConfig();
   state.postMessage({ command: 'assistantMessage', content: `Loading **${modelId}** into GPU...\n\n` });
   try {
-    await kickstandLoadModel(config.baseUrl, modelId);
+    const caps = state.client.getBackendCapabilities();
+    const summary = await caps?.lifecycle?.loadModel(modelId);
     state.client.updateModel(modelId);
     state.postMessage({ command: 'setCurrentModel', currentModel: modelId });
-    state.postMessage({ command: 'assistantMessage', content: `**${modelId}** loaded.\n\n` });
+    state.postMessage({ command: 'assistantMessage', content: `**${summary ?? `${modelId} loaded`}**\n\n` });
   } catch (err) {
     state.postMessage({
       command: 'error',
