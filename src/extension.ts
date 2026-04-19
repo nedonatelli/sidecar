@@ -14,6 +14,7 @@ import * as path from 'path';
 import { ChatViewProvider } from './webview/chatView.js';
 import { TerminalManager } from './terminal/manager.js';
 import { TerminalErrorWatcher } from './terminal/errorWatcher.js';
+import { ProcessRegistry, getWorkspaceRoot } from './agent/processLifecycle.js';
 import { registerJsDocSync } from './docs/jsDocSyncProvider.js';
 import { registerReadmeSync } from './docs/readmeSyncProvider.js';
 import { registerReviewPanel } from './agent/reviewPanel.js';
@@ -66,6 +67,29 @@ let chatProvider: ChatViewProvider | undefined;
 
 export function activate(context: ExtensionContext) {
   console.log('SideCar extension activating...');
+
+  // Initialize process lifecycle management (orphan sweep + PID tracking)
+  const workspaceRoot = getWorkspaceRoot();
+  if (workspaceRoot) {
+    ProcessRegistry.instance
+      .initialize(workspaceRoot)
+      .then(({ orphansKilled }) => {
+        if (orphansKilled > 0) {
+          console.log(`[SideCar] Cleaned up ${orphansKilled} orphan process(es) from prior session`);
+        }
+      })
+      .catch((err) => {
+        console.warn('[SideCar] Failed to initialize process registry:', err);
+      });
+    // Register for cleanup on deactivation
+    context.subscriptions.push({
+      dispose: () => {
+        ProcessRegistry.instance.dispose().catch((err) => {
+          console.warn('[SideCar] Error disposing process registry:', err);
+        });
+      },
+    });
+  }
 
   // Set grammars path for tree-sitter (lazy-loaded on first parse)
   const grammarsPath = path.join(context.extensionPath, 'grammars');

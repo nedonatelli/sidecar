@@ -302,6 +302,7 @@ export class ProcessRegistry {
   private static _instance: ProcessRegistry | null = null;
 
   private _processes = new Map<number, ManagedChildProcess>();
+  private _externalPids = new Map<number, ManagedProcessInfo>();
   private _sessionId: string;
   private _startedAt: number;
   private _manifestPath: string | null = null;
@@ -397,6 +398,30 @@ export class ProcessRegistry {
    */
   get(pid: number): ManagedChildProcess | undefined {
     return this._processes.get(pid);
+  }
+
+  /**
+   * Track an external PID (not managed by ManagedChildProcess).
+   * Useful for processes spawned by third-party libraries (MCP SDK, etc.)
+   * that we still want to track for orphan detection.
+   */
+  trackExternalPid(info: ManagedProcessInfo): void {
+    if (this._disposed) {
+      return;
+    }
+    // Store in manifest but not in _processes (we can't close it)
+    this._externalPids.set(info.pid, info);
+    this._writeManifestSync();
+  }
+
+  /**
+   * Stop tracking an external PID.
+   */
+  untrackExternalPid(pid: number): void {
+    this._externalPids.delete(pid);
+    if (!this._disposed) {
+      this._writeManifestSync();
+    }
   }
 
   /**
@@ -537,9 +562,11 @@ export class ProcessRegistry {
   }
 
   private _getProcessInfos(): ManagedProcessInfo[] {
-    return Array.from(this._processes.values())
+    const managed = Array.from(this._processes.values())
       .map((proc) => proc.info)
       .filter((info): info is ManagedProcessInfo => info !== null);
+    const external = Array.from(this._externalPids.values());
+    return [...managed, ...external];
   }
 }
 

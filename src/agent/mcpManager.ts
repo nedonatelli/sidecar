@@ -414,15 +414,30 @@ export class MCPManager {
     return this.connections.some((c) => c.name === name && c.status === 'connected');
   }
 
+  /**
+   * Disconnect all MCP servers with a per-server timeout.
+   * Prevents a hung server from blocking extension deactivation.
+   */
   async disconnect(): Promise<void> {
-    for (const conn of this.connections) {
+    const DISCONNECT_TIMEOUT_MS = 3000; // 3 seconds per server
+
+    const closePromises = this.connections.map(async (conn) => {
       if (conn.reconnectTimer) clearTimeout(conn.reconnectTimer);
       try {
-        await conn.client?.close();
-      } catch {
-        // Ignore close errors
+        // Race the close against a timeout
+        await Promise.race([
+          conn.client?.close(),
+          new Promise<void>((_, reject) =>
+            setTimeout(() => reject(new Error(`Timeout closing MCP server: ${conn.name}`)), DISCONNECT_TIMEOUT_MS),
+          ),
+        ]);
+      } catch (err) {
+        // Log timeout/close errors but don't block other servers
+        console.warn(`[SideCar] MCP disconnect error for ${conn.name}:`, err);
       }
-    }
+    });
+
+    await Promise.all(closePromises);
     this.connections = [];
     this.toolCache = [];
   }
