@@ -104,11 +104,12 @@ export class GitHubAPI {
     head: string,
     base: string,
     body?: string,
+    draft?: boolean,
   ): Promise<GitHubPR> {
     const pr = await this.request<RawPR>(`/repos/${owner}/${repo}/pulls`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, head, base, body }),
+      body: JSON.stringify({ title, head, base, body, draft: draft ?? false }),
     });
     return this.parsePR(pr);
   }

@@ -44,6 +44,7 @@ import { setGrammarsPath } from './parsing/registry.js';
 import { reviewCurrentChanges } from './review/reviewer.js';
 import { summarizePR } from './review/prSummary.js';
 import { generateCommitMessage } from './review/commitMessage.js';
+import { runDraftPullRequest, type DraftPrConfig, type DraftPrUi } from './review/draftPullRequest.js';
 import { EventHookManager } from './agent/eventHooks.js';
 import { WorkspaceIndex } from './config/workspaceIndex.js';
 import { SidecarDir } from './config/sidecarDir.js';
@@ -681,6 +682,54 @@ export function activate(context: ExtensionContext) {
         async (progress) => {
           progress.report({ message: 'Fetching diff and generating summary...' });
           await summarizePR(createClient());
+        },
+      );
+    }),
+    commands.registerCommand('sidecar.pr.create', async () => {
+      const wsFolder = workspace.workspaceFolders?.[0];
+      if (!wsFolder) {
+        window.showErrorMessage('SideCar: Open a workspace before creating a PR.');
+        return;
+      }
+      const cwd = wsFolder.uri.fsPath;
+      const prCfg = workspace.getConfiguration('sidecar.pr.create');
+      const config: DraftPrConfig = {
+        draftByDefault: prCfg.get<boolean>('draftByDefault', true),
+        baseBranch: prCfg.get<string>('baseBranch', 'auto') as 'auto' | string,
+        template: prCfg.get<string>('template', 'auto') as 'auto' | 'ignore' | string,
+      };
+      const ui: DraftPrUi = {
+        async showInputBox(prompt, value) {
+          return window.showInputBox({ prompt, value });
+        },
+        async showConfirm(message, options) {
+          return window.showInformationMessage(message, { modal: true }, ...options);
+        },
+        showInfo(message) {
+          window.showInformationMessage(message);
+        },
+        showError(message) {
+          window.showErrorMessage(message);
+        },
+        async openPreview(content, title) {
+          const doc = await workspace.openTextDocument({ content, language: 'markdown' });
+          await window.showTextDocument(doc, { preview: true, preserveFocus: true });
+          // Title on the tab follows the untitled filename, which users
+          // see as "Untitled-1". That's fine — the modal immediately
+          // below names the branch and base anyway, so the preview is
+          // only ever seen alongside the confirm prompt.
+          void title;
+        },
+      };
+      await window.withProgress(
+        {
+          location: ProgressLocation.Notification,
+          title: 'SideCar — Creating draft pull request',
+          cancellable: false,
+        },
+        async (progress) => {
+          progress.report({ message: 'Preparing branch and drafting title + body...' });
+          await runDraftPullRequest({ ui, client: createClient(), cwd, config });
         },
       );
     }),

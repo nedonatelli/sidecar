@@ -326,6 +326,9 @@ export class ChatViewProvider implements WebviewViewProvider {
     prSummary: async () => {
       await commands.executeCommand('sidecar.summarizePR');
     },
+    createDraftPR: async () => {
+      await commands.executeCommand('sidecar.pr.create');
+    },
     commitMessage: async () => {
       await commands.executeCommand('sidecar.generateCommitMessage');
     },

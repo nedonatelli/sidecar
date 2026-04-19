@@ -872,6 +872,7 @@
     { cmd: '/resume', desc: 'Resume a response that was cut off mid-stream' },
     { cmd: '/review', desc: 'Review current git changes' },
     { cmd: '/pr-summary', desc: 'Generate PR title and summary' },
+    { cmd: '/pr', desc: 'Push branch and open a draft pull request' },
     { cmd: '/commit-message', desc: 'Generate and copy a commit message' },
     { cmd: '/memories', desc: 'Browse agent memories' },
     { cmd: '/memory-search', desc: 'Search agent memories' },
@@ -1311,6 +1312,13 @@
     if (text.trim() === '/pr-summary') {
       appendMessage('user', '/pr-summary');
       vscode.postMessage({ command: 'prSummary' });
+      input.value = '';
+      input.style.height = 'auto';
+      return;
+    }
+    if (text.trim() === '/pr') {
+      appendMessage('user', '/pr');
+      vscode.postMessage({ command: 'createDraftPR' });
       input.value = '';
       input.style.height = 'auto';
       return;

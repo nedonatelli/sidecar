@@ -41,6 +41,17 @@ export class GitCLI {
     return result || 'Push completed successfully.';
   }
 
+  /**
+   * Push with `-u` so the local branch tracks the remote one — used
+   * by the Draft PR flow (v0.68 chunk 2) to set upstream tracking
+   * on the first push of a feature branch. Defaults to `HEAD` so
+   * the caller doesn't have to resolve the current branch name.
+   */
+  async pushWithUpstream(remote: string = 'origin', branch: string = 'HEAD'): Promise<string> {
+    const result = await this.exec(['push', '-u', remote, branch]);
+    return result || `Pushed ${branch} to ${remote} with upstream tracking.`;
+  }
+
   async pull(remote: string = 'origin', branch?: string): Promise<string> {
     const args = ['pull', remote];
     if (branch) args.push(branch);

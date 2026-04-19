@@ -67,6 +67,7 @@ export interface WebviewMessage {
     | 'kickstandUnload'
     | 'reviewChanges'
     | 'prSummary'
+    | 'createDraftPR'
     | 'commitMessage'
     | 'listMemories'
     | 'searchMemories'
