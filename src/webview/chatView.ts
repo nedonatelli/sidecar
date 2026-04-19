@@ -394,6 +394,27 @@ export class ChatViewProvider implements WebviewViewProvider {
         this.postMessage({ command: 'done' });
       }
     },
+    forkStart: async (msg) => {
+      const task = msg.text?.trim();
+      if (!task) return;
+      const { runForkDispatchCommand, createDefaultForkCommandUi } = await import('../agent/fork/forkCommands.js');
+      const { createDefaultForkReviewUi, getWorkspaceMainRoot } = await import('../agent/fork/forkReview.js');
+      const { getConfig } = await import('../config/settings.js');
+      const { createClient } = await import('../ollama/factory.js');
+      const cfg = getConfig();
+      const mainRoot = getWorkspaceMainRoot();
+      await runForkDispatchCommand({
+        ui: createDefaultForkCommandUi(),
+        createClient,
+        config: {
+          enabled: cfg.forkEnabled,
+          defaultCount: cfg.forkDefaultCount,
+          maxConcurrent: cfg.forkMaxConcurrent,
+        },
+        preFilledTask: task,
+        reviewDeps: mainRoot ? { ui: createDefaultForkReviewUi(), mainRoot } : undefined,
+      });
+    },
     bgStop: (msg) => {
       this.bgManager.stop(msg.text || '');
     },

@@ -1,4 +1,4 @@
-import { window, commands, Uri } from 'vscode';
+import { window, workspace, commands, Uri } from 'vscode';
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
@@ -262,4 +262,14 @@ export function createDefaultForkReviewUi(): ForkReviewUi {
       await commands.executeCommand('vscode.diff', left, right, title, { preview: true });
     },
   };
+}
+
+/**
+ * Resolve the workspace root used as the target of `git apply`. Matches
+ * the helper Facets ships (`facetReview.getWorkspaceMainRoot`). Returns
+ * undefined when no workspace is open — caller should skip review in
+ * that case since there's nowhere to apply to.
+ */
+export function getWorkspaceMainRoot(): string | undefined {
+  return workspace.workspaceFolders?.[0]?.uri.fsPath;
 }

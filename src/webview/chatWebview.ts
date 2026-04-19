@@ -61,6 +61,7 @@ export interface WebviewMessage {
     | 'bgStop'
     | 'bgList'
     | 'bgExpand'
+    | 'forkStart'
     | 'switchBackend'
     | 'kickstandLoad'
     | 'kickstandUnload'

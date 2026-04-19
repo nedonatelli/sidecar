@@ -1217,6 +1217,27 @@ export function activate(context: ExtensionContext) {
         reviewDeps: mainRoot ? { ui: createDefaultFacetReviewUi(), mainRoot } : undefined,
       });
     }),
+    // v0.67 chunk 6 — Fork & Parallel Solve from the command palette.
+    // Prompts for a task, spawns N shadow workspaces in parallel,
+    // runs the pick-the-winner review flow once every fork settles.
+    // The /fork slash command in chat dispatches the same handler
+    // with a pre-filled task (chatView.ts).
+    commands.registerCommand('sidecar.fork.dispatch', async () => {
+      const { runForkDispatchCommand, createDefaultForkCommandUi } = await import('./agent/fork/forkCommands.js');
+      const { createDefaultForkReviewUi, getWorkspaceMainRoot } = await import('./agent/fork/forkReview.js');
+      const cfg = getConfig();
+      const mainRoot = getWorkspaceMainRoot();
+      await runForkDispatchCommand({
+        ui: createDefaultForkCommandUi(),
+        createClient,
+        config: {
+          enabled: cfg.forkEnabled,
+          defaultCount: cfg.forkDefaultCount,
+          maxConcurrent: cfg.forkMaxConcurrent,
+        },
+        reviewDeps: mainRoot ? { ui: createDefaultForkReviewUi(), mainRoot } : undefined,
+      });
+    }),
   );
 
   // v0.63.1 — backend-native capability commands (Kickstand

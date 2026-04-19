@@ -1395,6 +1395,12 @@
         "icon": "$(organization)"
       },
       {
+        "command": "sidecar.fork.dispatch",
+        "title": "Fork & Compare",
+        "category": "SideCar",
+        "icon": "$(repo-forked)"
+      },
+      {
         "command": "sidecar.kickstand.loadModel",
         "title": "Kickstand: Load Model",
         "category": "SideCar",

@@ -868,6 +868,7 @@
     { cmd: '/release', desc: 'Show, create, or delete a release' },
     { cmd: '/init', desc: 'Generate SIDECAR.md project notes from codebase' },
     { cmd: '/bg', desc: 'Run a task in the background' },
+    { cmd: '/fork', desc: 'Run N parallel approaches to the same task and pick the winner' },
     { cmd: '/resume', desc: 'Resume a response that was cut off mid-stream' },
     { cmd: '/review', desc: 'Review current git changes' },
     { cmd: '/pr-summary', desc: 'Generate PR title and summary' },
@@ -1132,6 +1133,10 @@
       '/scaffold': { syntax: '/scaffold <type>', desc: 'Generate code from a template' },
       '/revise': { syntax: '/revise <feedback>', desc: 'Revise the current plan with feedback' },
       '/bg': { syntax: '/bg <task>', desc: 'Spawn a background agent to work on a task autonomously' },
+      '/fork': {
+        syntax: '/fork <task>',
+        desc: 'Run N parallel approaches to the same task in isolated Shadow Workspaces, then pick the winner',
+      },
     };
     const bareCmd = text.trim().match(/^(\/\w+)$/);
     if (bareCmd && usageHints[bareCmd[1]]) {
@@ -1191,6 +1196,16 @@
       if (bgTask) {
         appendMessage('user', text);
         vscode.postMessage({ command: 'bgStart', text: bgTask });
+        input.value = '';
+        input.style.height = 'auto';
+        return;
+      }
+    }
+    if (text.startsWith('/fork ')) {
+      const forkTask = text.slice(6).trim();
+      if (forkTask) {
+        appendMessage('user', text);
+        vscode.postMessage({ command: 'forkStart', text: forkTask });
         input.value = '';
         input.style.height = 'auto';
         return;
