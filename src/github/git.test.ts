@@ -243,4 +243,243 @@ describe('GitCLI', () => {
     mockGitError('fatal: not a git repository');
     await expect(git.status()).rejects.toThrow('not a git repository');
   });
+
+  // ---------------------------------------------------------------------------
+  // pushWithUpstream
+  // ---------------------------------------------------------------------------
+
+  it('pushWithUpstream uses -u flag and defaults to origin HEAD', async () => {
+    mockGitOutput('');
+    const result = await git.pushWithUpstream();
+    const args = mockExecFile.mock.calls[0][1] as string[];
+    expect(args).toEqual(['push', '-u', 'origin', 'HEAD']);
+    expect(result).toContain('HEAD');
+    expect(result).toContain('origin');
+  });
+
+  it('pushWithUpstream accepts custom remote and branch', async () => {
+    mockGitOutput('');
+    await git.pushWithUpstream('upstream', 'feature/x');
+    const args = mockExecFile.mock.calls[0][1] as string[];
+    expect(args).toEqual(['push', '-u', 'upstream', 'feature/x']);
+  });
+
+  it('pushWithUpstream returns git stdout when non-empty', async () => {
+    mockGitOutput('Branch feature set up to track remote branch feature from origin.');
+    const result = await git.pushWithUpstream();
+    expect(result).toContain('set up to track');
+  });
+
+  // ---------------------------------------------------------------------------
+  // worktreeAdd
+  // ---------------------------------------------------------------------------
+
+  it('worktreeAdd passes --detach, path, and ref', async () => {
+    mockGitOutput('');
+    const result = await git.worktreeAdd('/tmp/shadow-42');
+    const args = mockExecFile.mock.calls[0][1] as string[];
+    expect(args).toEqual(['worktree', 'add', '--detach', '/tmp/shadow-42', 'HEAD']);
+    expect(result).toContain('/tmp/shadow-42');
+  });
+
+  it('worktreeAdd respects a custom ref', async () => {
+    mockGitOutput('');
+    await git.worktreeAdd('/tmp/shadow-43', 'abc1234');
+    const args = mockExecFile.mock.calls[0][1] as string[];
+    expect(args).toContain('abc1234');
+  });
+
+  // ---------------------------------------------------------------------------
+  // worktreeRemove
+  // ---------------------------------------------------------------------------
+
+  it('worktreeRemove without force omits --force flag', async () => {
+    mockGitOutput('');
+    const result = await git.worktreeRemove('/tmp/shadow-42');
+    const args = mockExecFile.mock.calls[0][1] as string[];
+    expect(args).not.toContain('--force');
+    expect(args).toContain('/tmp/shadow-42');
+    expect(result).toContain('/tmp/shadow-42');
+  });
+
+  it('worktreeRemove with force=true includes --force flag', async () => {
+    mockGitOutput('');
+    await git.worktreeRemove('/tmp/shadow-42', true);
+    const args = mockExecFile.mock.calls[0][1] as string[];
+    expect(args).toContain('--force');
+  });
+
+  // ---------------------------------------------------------------------------
+  // worktreeList
+  // ---------------------------------------------------------------------------
+
+  it('worktreeList returns empty array for empty output', async () => {
+    mockGitOutput('');
+    const result = await git.worktreeList();
+    expect(result).toEqual([]);
+  });
+
+  it('worktreeList parses a single non-detached worktree', async () => {
+    mockGitOutput(['worktree /workspace', 'HEAD abc123def456', 'branch refs/heads/main', ''].join('\n'));
+    const result = await git.worktreeList();
+    expect(result).toHaveLength(1);
+    expect(result[0].path).toBe('/workspace');
+    expect(result[0].head).toBe('abc123def456');
+    expect(result[0].branch).toBe('refs/heads/main');
+  });
+
+  it('worktreeList marks detached worktrees with null branch', async () => {
+    mockGitOutput(['worktree /tmp/shadow-1', 'HEAD deadbeef12345678', 'detached', ''].join('\n'));
+    const result = await git.worktreeList();
+    expect(result).toHaveLength(1);
+    expect(result[0].branch).toBeNull();
+    expect(result[0].head).toBe('deadbeef12345678');
+  });
+
+  it('worktreeList parses multiple worktrees in sequence', async () => {
+    mockGitOutput(
+      [
+        'worktree /workspace',
+        'HEAD aaaa',
+        'branch refs/heads/main',
+        '',
+        'worktree /tmp/shadow-1',
+        'HEAD bbbb',
+        'detached',
+        '',
+      ].join('\n'),
+    );
+    const result = await git.worktreeList();
+    expect(result).toHaveLength(2);
+    expect(result[0].path).toBe('/workspace');
+    expect(result[1].path).toBe('/tmp/shadow-1');
+    expect(result[1].branch).toBeNull();
+  });
+
+  // ---------------------------------------------------------------------------
+  // getHeadSha
+  // ---------------------------------------------------------------------------
+
+  it('getHeadSha returns full SHA by default', async () => {
+    mockGitOutput('abc123def456abc123def456abc123def456abc123');
+    const sha = await git.getHeadSha();
+    const args = mockExecFile.mock.calls[0][1] as string[];
+    expect(args).toEqual(['rev-parse', 'HEAD']);
+    expect(sha).toBe('abc123def456abc123def456abc123def456abc123');
+  });
+
+  it('getHeadSha includes --short when short=true', async () => {
+    mockGitOutput('abc1234');
+    const sha = await git.getHeadSha(true);
+    const args = mockExecFile.mock.calls[0][1] as string[];
+    expect(args).toContain('--short');
+    expect(sha).toBe('abc1234');
+  });
+
+  // ---------------------------------------------------------------------------
+  // diffAgainstHead
+  // ---------------------------------------------------------------------------
+
+  it('diffAgainstHead returns tracked diff when no untracked files', async () => {
+    mockExecFile
+      .mockImplementationOnce((_cmd, _args, _opts, fn: unknown) => {
+        cb(fn)(null, 'tracked diff content', '');
+        return ret();
+      })
+      .mockImplementationOnce((_cmd, _args, _opts, fn: unknown) => {
+        cb(fn)(null, '', ''); // ls-files returns nothing
+        return ret();
+      });
+    const result = await git.diffAgainstHead();
+    expect(result).toBe('tracked diff content');
+  });
+
+  it('diffAgainstHead concatenates tracked diff with untracked file diffs', async () => {
+    mockExecFile
+      .mockImplementationOnce((_cmd, _args, _opts, fn: unknown) => {
+        cb(fn)(null, 'tracked diff', '');
+        return ret();
+      })
+      .mockImplementationOnce((_cmd, _args, _opts, fn: unknown) => {
+        cb(fn)(null, 'new-file.ts', ''); // ls-files: one untracked file
+        return ret();
+      })
+      .mockImplementationOnce((_cmd, _args, _opts, fn: unknown) => {
+        // git diff --no-index /dev/null new-file.ts — exits 1 but stdout has diff
+        const err = new Error('exit 1') as NodeJS.ErrnoException;
+        cb(fn)(err, '+new file content', '');
+        return ret();
+      });
+    const result = await git.diffAgainstHead();
+    expect(result).toContain('tracked diff');
+    expect(result).toContain('+new file content');
+  });
+
+  it('diffAgainstHead skips untracked file when diff stdout is empty', async () => {
+    mockExecFile
+      .mockImplementationOnce((_cmd, _args, _opts, fn: unknown) => {
+        cb(fn)(null, 'tracked', '');
+        return ret();
+      })
+      .mockImplementationOnce((_cmd, _args, _opts, fn: unknown) => {
+        cb(fn)(null, 'ghost.ts', '');
+        return ret();
+      })
+      .mockImplementationOnce((_cmd, _args, _opts, fn: unknown) => {
+        const err = new Error('exit 1') as NodeJS.ErrnoException;
+        cb(fn)(err, '', ''); // empty stdout — file gone between ls-files and diff
+        return ret();
+      });
+    const result = await git.diffAgainstHead();
+    // Only tracked diff, the empty untracked entry is filtered out
+    expect(result).toBe('tracked');
+  });
+
+  // ---------------------------------------------------------------------------
+  // applyPatch
+  // ---------------------------------------------------------------------------
+
+  it('applyPatch writes the patch to stdin and returns success message', async () => {
+    const stdinMock = { write: vi.fn(), end: vi.fn() };
+    mockExecFile.mockImplementation((_cmd, _args, _opts, fn: unknown) => {
+      cb(fn)(null, '', '');
+      return { stdin: stdinMock } as unknown as ReturnType<typeof execFile>;
+    });
+    const result = await git.applyPatch('--- a/foo\n+++ b/foo\n+line');
+    expect(stdinMock.write).toHaveBeenCalledWith('--- a/foo\n+++ b/foo\n+line');
+    expect(stdinMock.end).toHaveBeenCalled();
+    expect(result).toBe('Patch applied');
+  });
+
+  it('applyPatch passes --check flag when check=true', async () => {
+    const stdinMock = { write: vi.fn(), end: vi.fn() };
+    mockExecFile.mockImplementation((_cmd, args, _opts, fn: unknown) => {
+      cb(fn)(null, '', '');
+      return { stdin: stdinMock } as unknown as ReturnType<typeof execFile>;
+    });
+    await git.applyPatch('diff', { check: true });
+    const args = mockExecFile.mock.calls[0][1] as string[];
+    expect(args).toContain('--check');
+  });
+
+  it('applyPatch passes --index flag when stage=true', async () => {
+    const stdinMock = { write: vi.fn(), end: vi.fn() };
+    mockExecFile.mockImplementation((_cmd, _args, _opts, fn: unknown) => {
+      cb(fn)(null, '', '');
+      return { stdin: stdinMock } as unknown as ReturnType<typeof execFile>;
+    });
+    await git.applyPatch('diff', { stage: true });
+    const args = mockExecFile.mock.calls[0][1] as string[];
+    expect(args).toContain('--index');
+  });
+
+  it('applyPatch throws when git apply fails', async () => {
+    const stdinMock = { write: vi.fn(), end: vi.fn() };
+    mockExecFile.mockImplementation((_cmd, _args, _opts, fn: unknown) => {
+      const err = new Error('conflict');
+      cb(fn)(err, '', 'patch does not apply');
+      return { stdin: stdinMock } as unknown as ReturnType<typeof execFile>;
+    });
+    await expect(git.applyPatch('bad diff')).rejects.toThrow('patch does not apply');
+  });
 });
