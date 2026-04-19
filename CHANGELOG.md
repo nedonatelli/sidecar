@@ -4,6 +4,17 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.69.1] - 2026-04-19
+
+**v0.69.1 — patch: backend compatibility fixes + Install Model button.**
+
+### Fixed
+
+- **OpenAI reasoning models (`o1`/`o3`/`o4-*`)** — swapped `max_tokens` → `max_completion_tokens` in both `streamChat` and `complete` request bodies; these models reject the old parameter name with a 400.
+- **Anthropic Claude 4 models** — omit `temperature` from the request body when the model matches `claude-(opus|sonnet|haiku)-4-*`; Claude 4 has deprecated the parameter.
+- **Kickstand pull** — strip full `https://huggingface.co/` URLs down to `owner/repo` before sending to the pull API; pasting a URL was rejected with "Repo id must use alphanumeric chars".
+- **Install Model button in error messages** — the button was rendered but its click handler had no case for `errorType=model`, making it a silent no-op. Now threads the current model name as `errorModel` through the error payload and posts `installModel` on click.
+
 ## [0.69.0] - 2026-04-19
 
 **v0.69.0 — PR review + lifecycle loop.** Five chunks that close the gap between "view a PR" and "own the full review cycle from draft to merge-ready". The agent can now read review comments, reply inline, submit a top-level review, check CI status, and mark a PR ready for review — all from slash commands or agent tool calls. Plus Groq and Fireworks join every other backend with first-class test coverage.
