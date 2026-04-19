@@ -16,6 +16,10 @@ import {
   kickstandListRegistry,
   kickstandLoadModel,
   kickstandUnloadModel,
+  kickstandListAdapters,
+  kickstandLoadAdapter,
+  kickstandUnloadAdapter,
+  kickstandBrowseRepo,
 } from './kickstandBackend.js';
 
 const mockFetch = vi.fn();
@@ -488,5 +492,220 @@ describe('kickstandUnloadModel', () => {
     await expect(kickstandUnloadModel('http://localhost:11435', 'q/q')).rejects.toThrow(
       /Kickstand unload failed.*404.*model not loaded/,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// LoRA adapter + model browser tests (v0.67.0, chunk 8 closure)
+//
+// The LoRA + browser endpoints shipped in 83b4418 without test coverage.
+// These suites close the gap — one describe per function, happy + error
+// paths for each. Kickstand's live API shape is documented by the server
+// at /Users/nedonatelli/Documents/llmmanager/api/routes/models.py.
+// ---------------------------------------------------------------------------
+
+describe('kickstandListAdapters', () => {
+  beforeEach(() => mockFetch.mockReset());
+
+  it('returns the adapters array when the server responds with { adapters: [...] }', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        model_id: 'base/q',
+        adapters: [
+          { id: 'ad-1', path: '/a/one.gguf', scale: 1.0 },
+          { id: 'ad-2', path: '/a/two.gguf', scale: 0.5 },
+        ],
+      }),
+    });
+    const out = await kickstandListAdapters('http://localhost:11435', 'base/q');
+    expect(out).toEqual([
+      { id: 'ad-1', path: '/a/one.gguf', scale: 1.0 },
+      { id: 'ad-2', path: '/a/two.gguf', scale: 0.5 },
+    ]);
+  });
+
+  it('returns the body directly when the server responds with a bare array (fallback shape)', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => [{ id: 'ad-1', path: '/a.gguf', scale: 1 }],
+    });
+    const out = await kickstandListAdapters('http://localhost:11435', 'base');
+    expect(out).toHaveLength(1);
+    expect(out[0].id).toBe('ad-1');
+  });
+
+  it('returns an empty array on non-OK response', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 404, text: async () => 'not found' });
+    const out = await kickstandListAdapters('http://localhost:11435', 'missing');
+    expect(out).toEqual([]);
+  });
+
+  it('URL-encodes the model id path segment', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ adapters: [] }) });
+    await kickstandListAdapters('http://localhost:11435', 'org/model:tag');
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).toContain('/api/v1/models/org%2Fmodel%3Atag/lora');
+  });
+});
+
+describe('kickstandLoadAdapter', () => {
+  beforeEach(() => mockFetch.mockReset());
+
+  it('POSTs to the per-model lora endpoint with path + scale and returns the adapter_id', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ status: 'loaded', model_id: 'base', adapter_id: 'ad-xyz', scale: 0.75 }),
+    });
+    const result = await kickstandLoadAdapter('http://localhost:11435', 'base', '/a/lora.gguf', 0.75);
+    expect(result.adapter_id).toBe('ad-xyz');
+    expect(result.status).toBe('loaded');
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toContain('/api/v1/models/base/lora');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({ path: '/a/lora.gguf', scale: 0.75 });
+  });
+
+  it('defaults scale to 1.0 when omitted by the caller', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ adapter_id: 'ad-1', status: 'loaded' }),
+    });
+    await kickstandLoadAdapter('http://localhost:11435', 'base', '/a/lora.gguf');
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body as string) as { scale: number };
+    expect(body.scale).toBe(1.0);
+  });
+
+  it('throws with status + body on non-OK', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      text: async () => "'path' is required",
+    });
+    await expect(kickstandLoadAdapter('http://localhost:11435', 'base', '/a.gguf')).rejects.toThrow(
+      /LoRA load failed.*400.*'path' is required/,
+    );
+  });
+});
+
+describe('kickstandUnloadAdapter', () => {
+  beforeEach(() => mockFetch.mockReset());
+
+  it('DELETEs the per-adapter URL and returns the parsed response', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ status: 'unloaded', model_id: 'base', adapter_id: 'ad-1' }),
+    });
+    const out = await kickstandUnloadAdapter('http://localhost:11435', 'base', 'ad-1');
+    expect(out.status).toBe('unloaded');
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toContain('/api/v1/models/base/lora/ad-1');
+    expect(init.method).toBe('DELETE');
+  });
+
+  it('URL-encodes both model id and adapter id', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ status: 'unloaded' }) });
+    await kickstandUnloadAdapter('http://localhost:11435', 'org/model', 'ad/with/slash');
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).toContain('/api/v1/models/org%2Fmodel/lora/ad%2Fwith%2Fslash');
+  });
+
+  it('throws with Kickstand-prefixed message on non-OK', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      text: async () => 'adapter not found',
+    });
+    await expect(kickstandUnloadAdapter('http://localhost:11435', 'base', 'ad-missing')).rejects.toThrow(
+      /LoRA unload failed.*404.*adapter not found/,
+    );
+  });
+});
+
+describe('kickstandBrowseRepo', () => {
+  beforeEach(() => mockFetch.mockReset());
+
+  it('maps snake_case server fields to camelCase client shape', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => [
+        { filename: 'model-q4_k_m.gguf', size_bytes: 4_700_000_000, quant: 'Q4_K_M', format: 'gguf' },
+        { filename: 'model-fp16.mlx', size_bytes: 16_000_000_000, quant: null, format: 'mlx' },
+      ],
+    });
+    const out = await kickstandBrowseRepo('http://localhost:11435', 'org/repo');
+    expect(out).toEqual([
+      { filename: 'model-q4_k_m.gguf', sizeBytes: 4_700_000_000, quant: 'Q4_K_M', format: 'gguf' },
+      { filename: 'model-fp16.mlx', sizeBytes: 16_000_000_000, quant: undefined, format: 'mlx' },
+    ]);
+  });
+
+  it('throws with Kickstand-prefixed message on non-OK', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      text: async () => 'hf rate limited',
+    });
+    await expect(kickstandBrowseRepo('http://localhost:11435', 'org/repo')).rejects.toThrow(
+      /Browse failed.*429.*hf rate limited/,
+    );
+  });
+
+  it('builds the URL with the repo suffix (no double-encoding of the slash)', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => [] });
+    await kickstandBrowseRepo('http://localhost:11435', 'bartowski/Meta-Llama-3-8B-Instruct-GGUF');
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).toBe('http://localhost:11435/api/v1/models/browse/bartowski/Meta-Llama-3-8B-Instruct-GGUF');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Capability wiring on the KickstandBackend class
+// ---------------------------------------------------------------------------
+
+describe('KickstandBackend.nativeCapabilities — loraAdapters + modelBrowser', () => {
+  let backend: KickstandBackend;
+
+  beforeEach(() => {
+    backend = new KickstandBackend('http://localhost:11435');
+    mockFetch.mockReset();
+  });
+
+  it('exposes a loraAdapters capability with list / load / unload methods', () => {
+    const caps = backend.nativeCapabilities();
+    expect(caps?.loraAdapters).toBeDefined();
+    expect(typeof caps?.loraAdapters?.listAdapters).toBe('function');
+    expect(typeof caps?.loraAdapters?.loadAdapter).toBe('function');
+    expect(typeof caps?.loraAdapters?.unloadAdapter).toBe('function');
+  });
+
+  it('exposes a modelBrowser capability with browseRepo', () => {
+    const caps = backend.nativeCapabilities();
+    expect(caps?.modelBrowser).toBeDefined();
+    expect(typeof caps?.modelBrowser?.browseRepo).toBe('function');
+  });
+
+  it('loraAdapters.loadAdapter returns a user-facing summary string on success', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ adapter_id: 'ad-new', status: 'loaded' }),
+    });
+    const caps = backend.nativeCapabilities();
+    const summary = await caps!.loraAdapters!.loadAdapter('base', '/a/lora.gguf', 0.8);
+    // The command layer shows this string directly to the user, so verify it
+    // names both the model and the returned adapter id.
+    expect(summary).toMatch(/ad-new/);
+    expect(summary).toMatch(/base/);
+  });
+
+  it('loraAdapters.unloadAdapter returns a user-facing summary string on success', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ status: 'unloaded', model_id: 'base', adapter_id: 'ad-1' }),
+    });
+    const caps = backend.nativeCapabilities();
+    const summary = await caps!.loraAdapters!.unloadAdapter('base', 'ad-1');
+    expect(summary).toMatch(/ad-1/);
+    expect(summary).toMatch(/base/);
   });
 });

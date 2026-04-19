@@ -327,3 +327,35 @@ Add project-local facets by dropping markdown files under `<workspace>/.sidecar/
 Configured via `sidecar.facets.enabled` (default `true`), `sidecar.facets.maxConcurrent` (default `3`), `sidecar.facets.rpcTimeoutMs` (default `30000`), `sidecar.facets.registry` (default `[]`).
 
 See [Extending SideCar — Facets](extending-sidecar#facets) for the full schema, dispatch model, and trust semantics.
+
+## Kickstand model & adapter management *(new in v0.67)*
+
+Palette-only entries — no slash-command form. Kickstand exposes a backend-native API for model lifecycle, HuggingFace repo browsing, and LoRA adapter hot-swap that SideCar wires directly into the command palette when the active backend is Kickstand.
+
+### `SideCar: Kickstand: Load Model` (Command Palette)
+
+Pick a model from Kickstand's registry (unloaded models are listed) and load it. Shows a progress notification while the model streams into memory.
+
+### `SideCar: Kickstand: Unload Model` (Command Palette)
+
+Pick a currently-loaded model and unload it. Useful for freeing GPU memory before loading a larger model.
+
+### `SideCar: Kickstand: Load LoRA Adapter` (Command Palette)
+
+Attach a LoRA adapter to a loaded model without reloading the base. Prompts for:
+
+1. The loaded model to attach to (QuickPick of currently-loaded models)
+2. The adapter file path (absolute path to a GGUF adapter)
+3. The adapter scale (0.0–2.0, default `1.0` — controls how strongly the adapter's weights blend with the base)
+
+Multiple adapters stack on one base model, each with its own scale. Kickstand assigns an `adapter_id` on load that the unload command uses to refer back to it.
+
+### `SideCar: Kickstand: Unload LoRA Adapter` (Command Palette)
+
+Pick a loaded model, then pick one of its attached adapters to detach. If the model has zero adapters, shows an info toast and exits.
+
+### `SideCar: Browse & Pull Models` (Command Palette)
+
+Browse a HuggingFace repo directly from VS Code. Prompts for the repo (e.g. `bartowski/Meta-Llama-3-8B-Instruct-GGUF`), lists every GGUF/MLX file with its size + quantization (e.g. `4.4GB · Q4_K_M · gguf`), and pulls the pick via Kickstand's streaming pull endpoint. Much faster than opening the HuggingFace page in a browser + copy-pasting the file name into the model pull flow.
+
+See [Kickstand model lifecycle](configuration#connection) for the backend configuration. See the [Kickstand project](https://github.com/nedonatelli/llmmanager) for the server API.
