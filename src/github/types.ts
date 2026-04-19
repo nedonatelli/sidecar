@@ -228,6 +228,83 @@ export interface WorkflowJob {
   steps: WorkflowStep[];
 }
 
+// --- PR Review Comments (v0.69 chunk 2) ---
+
+/**
+ * A single PR review comment (inline code comment). GitHub's REST API
+ * returns a flat list; threads are reconstructed by grouping on
+ * `inReplyToId` in `getPRReviewThreads`.
+ */
+export interface PrReviewComment {
+  id: number;
+  reviewId: number | null;
+  /** Non-null for replies; the id of the root comment in the thread. */
+  inReplyToId: number | null;
+  path: string;
+  /** Line number in the new file; null for deleted-line comments. */
+  line: number | null;
+  diffHunk: string;
+  body: string;
+  author: string;
+  createdAt: string;
+  url: string;
+  commitSha: string;
+}
+
+/** Comments grouped into a single review thread (root + all replies). */
+export interface PrReviewThread {
+  /** id of the root (first) comment in the thread. */
+  id: number;
+  path: string;
+  diffHunk: string;
+  line: number | null;
+  comments: PrReviewComment[];
+}
+
+/** An open pull request with the fields needed for review-comment display. */
+export interface PullRequest {
+  number: number;
+  title: string;
+  state: 'open' | 'closed' | 'merged';
+  draft: boolean;
+  author: string;
+  url: string;
+  headBranch: string;
+  headSha: string;
+  baseBranch: string;
+  createdAt: string;
+  body?: string;
+}
+
+export interface RawPrReviewComment {
+  id: number;
+  pull_request_review_id: number | null;
+  in_reply_to_id?: number | null;
+  path: string;
+  line: number | null;
+  diff_hunk: string;
+  body: string;
+  user: { login: string } | null;
+  created_at: string;
+  html_url: string;
+  commit_id: string;
+}
+
+/** Extended raw PR shape with the `draft` and `head.sha` fields. */
+export interface RawPullRequestFull {
+  number: number;
+  title: string;
+  state: string;
+  draft: boolean;
+  user: { login: string } | null;
+  html_url: string;
+  created_at: string;
+  body: string | null;
+  head: { ref: string; sha: string };
+  base: { ref: string };
+  merged: boolean;
+}
+
 // --- Branch Protection (v0.68 chunk 3) ---
 // GitHub's `GET /repos/{owner}/{repo}/branches/{branch}/protection`
 // returns a nested payload where every subsection is optional and

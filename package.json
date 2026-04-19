@@ -1335,6 +1335,12 @@
         "icon": "$(debug-alt)"
       },
       {
+        "command": "sidecar.pr.reviewComments",
+        "title": "Review PR Comments",
+        "category": "SideCar",
+        "icon": "$(comment-discussion)"
+      },
+      {
         "command": "sidecar.generateCommitMessage",
         "title": "Generate Commit Message",
         "category": "SideCar",

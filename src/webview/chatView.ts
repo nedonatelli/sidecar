@@ -332,6 +332,9 @@ export class ChatViewProvider implements WebviewViewProvider {
     analyzeCi: async () => {
       await commands.executeCommand('sidecar.ci.analyze');
     },
+    reviewPrComments: async () => {
+      await commands.executeCommand('sidecar.pr.reviewComments');
+    },
     commitMessage: async () => {
       await commands.executeCommand('sidecar.generateCommitMessage');
     },

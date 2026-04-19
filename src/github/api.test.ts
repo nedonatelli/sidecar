@@ -586,4 +586,160 @@ describe('GitHubAPI methods', () => {
       expect(headers.Accept).toBe('application/vnd.github+json');
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // PR Review Comments (v0.69 chunk 2)
+  // ---------------------------------------------------------------------------
+
+  describe('listPullRequestsForBranch', () => {
+    const rawPrFull = {
+      number: 7,
+      title: 'Refactor auth',
+      state: 'open',
+      draft: false,
+      user: { login: 'dev' },
+      html_url: 'https://github.com/o/r/pull/7',
+      created_at: '2026-04-19T10:00:00Z',
+      body: null,
+      head: { ref: 'feature/auth', sha: 'abc123' },
+      base: { ref: 'main' },
+      merged: false,
+    };
+
+    it('returns parsed PullRequest objects', async () => {
+      mockFetch.mockResolvedValue(mockJsonResponse([rawPrFull]));
+      const prs = await api.listPullRequestsForBranch('o', 'r', 'feature/auth');
+      expect(prs).toHaveLength(1);
+      expect(prs[0].number).toBe(7);
+      expect(prs[0].headBranch).toBe('feature/auth');
+      expect(prs[0].headSha).toBe('abc123');
+      expect(prs[0].baseBranch).toBe('main');
+      expect(prs[0].draft).toBe(false);
+      expect(prs[0].state).toBe('open');
+    });
+
+    it('encodes the branch in the head filter', async () => {
+      mockFetch.mockResolvedValue(mockJsonResponse([]));
+      await api.listPullRequestsForBranch('myorg', 'myrepo', 'feature/my branch');
+      const url: string = mockFetch.mock.calls[0][0];
+      expect(url).toContain('head=myorg:feature%2Fmy%20branch');
+      expect(url).toContain('state=open');
+    });
+
+    it('returns empty array when no PRs match', async () => {
+      mockFetch.mockResolvedValue(mockJsonResponse([]));
+      const prs = await api.listPullRequestsForBranch('o', 'r', 'no-such-branch');
+      expect(prs).toEqual([]);
+    });
+
+    it('marks merged PR state correctly', async () => {
+      mockFetch.mockResolvedValue(mockJsonResponse([{ ...rawPrFull, state: 'closed', merged: true }]));
+      const prs = await api.listPullRequestsForBranch('o', 'r', 'feature/auth');
+      expect(prs[0].state).toBe('merged');
+    });
+  });
+
+  describe('getPRReviewComments', () => {
+    const rawComment = {
+      id: 10,
+      pull_request_review_id: 100,
+      in_reply_to_id: null,
+      path: 'src/auth.ts',
+      line: 42,
+      diff_hunk: '@@ -40,4 +40,6 @@\n const token = req.headers.authorization;',
+      body: 'Consider validating the token format.',
+      user: { login: 'reviewer' },
+      created_at: '2026-04-19T11:00:00Z',
+      html_url: 'https://github.com/o/r/pull/7#discussion_r10',
+      commit_id: 'abc123',
+    };
+
+    it('returns parsed PrReviewComment objects', async () => {
+      mockFetch.mockResolvedValue(mockJsonResponse([rawComment]));
+      const comments = await api.getPRReviewComments('o', 'r', 7);
+      expect(comments).toHaveLength(1);
+      const c = comments[0];
+      expect(c.id).toBe(10);
+      expect(c.reviewId).toBe(100);
+      expect(c.inReplyToId).toBeNull();
+      expect(c.path).toBe('src/auth.ts');
+      expect(c.line).toBe(42);
+      expect(c.author).toBe('reviewer');
+      expect(c.commitSha).toBe('abc123');
+    });
+
+    it('maps in_reply_to_id for reply comments', async () => {
+      const reply = { ...rawComment, id: 11, in_reply_to_id: 10 };
+      mockFetch.mockResolvedValue(mockJsonResponse([rawComment, reply]));
+      const comments = await api.getPRReviewComments('o', 'r', 7);
+      expect(comments[1].inReplyToId).toBe(10);
+    });
+
+    it('handles null user gracefully', async () => {
+      mockFetch.mockResolvedValue(mockJsonResponse([{ ...rawComment, user: null }]));
+      const comments = await api.getPRReviewComments('o', 'r', 7);
+      expect(comments[0].author).toBe('unknown');
+    });
+
+    it('uses per_page=100 in the request URL', async () => {
+      mockFetch.mockResolvedValue(mockJsonResponse([]));
+      await api.getPRReviewComments('o', 'r', 7);
+      expect(mockFetch.mock.calls[0][0]).toContain('per_page=100');
+    });
+  });
+
+  describe('getPRReviewThreads', () => {
+    const root = {
+      id: 10,
+      pull_request_review_id: 100,
+      in_reply_to_id: null,
+      path: 'src/auth.ts',
+      line: 42,
+      diff_hunk: '@@ -40,4 +40,6 @@\n const token = req.headers.authorization;',
+      body: 'Root comment',
+      user: { login: 'reviewer' },
+      created_at: '2026-04-19T11:00:00Z',
+      html_url: 'https://github.com/o/r/pull/7#discussion_r10',
+      commit_id: 'abc123',
+    };
+    const reply = { ...root, id: 11, in_reply_to_id: 10, body: 'Reply comment' };
+    const otherFile = { ...root, id: 20, path: 'src/index.ts', line: 5 };
+
+    it('groups root comment with its replies into a thread', async () => {
+      mockFetch.mockResolvedValue(mockJsonResponse([root, reply]));
+      const threads = await api.getPRReviewThreads('o', 'r', 7);
+      expect(threads).toHaveLength(1);
+      expect(threads[0].id).toBe(10);
+      expect(threads[0].comments).toHaveLength(2);
+      expect(threads[0].comments[0].body).toBe('Root comment');
+      expect(threads[0].comments[1].body).toBe('Reply comment');
+    });
+
+    it('creates separate threads for comments on different files', async () => {
+      mockFetch.mockResolvedValue(mockJsonResponse([root, otherFile]));
+      const threads = await api.getPRReviewThreads('o', 'r', 7);
+      expect(threads).toHaveLength(2);
+      const paths = threads.map((t) => t.path);
+      expect(paths).toContain('src/auth.ts');
+      expect(paths).toContain('src/index.ts');
+    });
+
+    it('sorts threads by file path then line number', async () => {
+      const zFile = { ...root, id: 30, path: 'zzz/late.ts', line: 1 };
+      const aFile10 = { ...root, id: 40, path: 'aaa/early.ts', line: 10 };
+      const aFile5 = { ...root, id: 50, path: 'aaa/early.ts', line: 5 };
+      mockFetch.mockResolvedValue(mockJsonResponse([zFile, aFile10, aFile5]));
+      const threads = await api.getPRReviewThreads('o', 'r', 7);
+      expect(threads[0].path).toBe('aaa/early.ts');
+      expect(threads[0].line).toBe(5);
+      expect(threads[1].line).toBe(10);
+      expect(threads[2].path).toBe('zzz/late.ts');
+    });
+
+    it('returns empty array when there are no comments', async () => {
+      mockFetch.mockResolvedValue(mockJsonResponse([]));
+      const threads = await api.getPRReviewThreads('o', 'r', 7);
+      expect(threads).toEqual([]);
+    });
+  });
 });

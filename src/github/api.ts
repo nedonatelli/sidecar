@@ -13,6 +13,11 @@ import type {
   WorkflowRun,
   RawWorkflowJob,
   WorkflowJob,
+  PullRequest,
+  PrReviewComment,
+  PrReviewThread,
+  RawPrReviewComment,
+  RawPullRequestFull,
 } from './types.js';
 
 const BASE_URL = 'https://api.github.com';
@@ -332,6 +337,89 @@ export class GitHubAPI {
       throw new Error(`GitHub API error ${response.status}: ${body}`);
     }
     return response.text();
+  }
+
+  // --- PR Review Comments (v0.69 chunk 2) ---
+
+  private parsePullRequestFull(raw: RawPullRequestFull): PullRequest {
+    return {
+      number: raw.number,
+      title: raw.title,
+      state: raw.merged ? 'merged' : (raw.state as 'open' | 'closed'),
+      draft: raw.draft,
+      author: raw.user?.login ?? 'unknown',
+      url: raw.html_url,
+      headBranch: raw.head.ref,
+      headSha: raw.head.sha,
+      baseBranch: raw.base.ref,
+      createdAt: raw.created_at,
+      body: raw.body ?? undefined,
+    };
+  }
+
+  private parsePrReviewComment(raw: RawPrReviewComment): PrReviewComment {
+    return {
+      id: raw.id,
+      reviewId: raw.pull_request_review_id,
+      inReplyToId: raw.in_reply_to_id ?? null,
+      path: raw.path,
+      line: raw.line,
+      diffHunk: raw.diff_hunk,
+      body: raw.body,
+      author: raw.user?.login ?? 'unknown',
+      createdAt: raw.created_at,
+      url: raw.html_url,
+      commitSha: raw.commit_id,
+    };
+  }
+
+  /**
+   * Find the open PRs whose head branch matches the given branch name.
+   * Uses the `head={owner}:{branch}` filter so results are scoped to
+   * exactly this branch — not all open PRs in the repo. Returns an
+   * empty array when no matching PR exists.
+   */
+  async listPullRequestsForBranch(owner: string, repo: string, branch: string): Promise<PullRequest[]> {
+    const data = await this.request<RawPullRequestFull[]>(
+      `/repos/${owner}/${repo}/pulls?state=open&head=${encodeURIComponent(owner)}:${encodeURIComponent(branch)}&per_page=10`,
+    );
+    return data.map((pr) => this.parsePullRequestFull(pr));
+  }
+
+  /**
+   * Fetch all inline review comments for a PR as a flat list.
+   * These are file-level diff comments, not issue-level PR comments.
+   */
+  async getPRReviewComments(owner: string, repo: string, prNumber: number): Promise<PrReviewComment[]> {
+    const data = await this.request<RawPrReviewComment[]>(
+      `/repos/${owner}/${repo}/pulls/${prNumber}/comments?per_page=100`,
+    );
+    return data.map((c) => this.parsePrReviewComment(c));
+  }
+
+  /**
+   * Fetch review comments grouped into threads. A thread starts with a
+   * root comment (`inReplyToId === null`) followed by any replies that
+   * reference it via `inReplyToId`. Threads are ordered by file path,
+   * then by the root comment's line number.
+   */
+  async getPRReviewThreads(owner: string, repo: string, prNumber: number): Promise<PrReviewThread[]> {
+    const comments = await this.getPRReviewComments(owner, repo, prNumber);
+    const roots = comments.filter((c) => c.inReplyToId === null);
+    const threads: PrReviewThread[] = roots.map((root) => ({
+      id: root.id,
+      path: root.path,
+      diffHunk: root.diffHunk,
+      line: root.line,
+      comments: [root, ...comments.filter((c) => c.inReplyToId === root.id)],
+    }));
+    // Sort by file path, then line for a predictable, readable order.
+    threads.sort((a, b) => {
+      const pathCmp = a.path.localeCompare(b.path);
+      if (pathCmp !== 0) return pathCmp;
+      return (a.line ?? 0) - (b.line ?? 0);
+    });
+    return threads;
   }
 
   async listRepoContents(owner: string, repo: string, repoPath: string = ''): Promise<GitHubRepoFile[]> {

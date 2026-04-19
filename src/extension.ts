@@ -46,6 +46,7 @@ import { summarizePR } from './review/prSummary.js';
 import { generateCommitMessage } from './review/commitMessage.js';
 import { runDraftPullRequest, type DraftPrConfig, type DraftPrUi } from './review/draftPullRequest.js';
 import { analyzeCiFailure, type AnalyzeCiUi } from './review/analyzeCiFailure.js';
+import { reviewPrComments, type PrReviewUi } from './review/prReview.js';
 import { EventHookManager } from './agent/eventHooks.js';
 import { WorkspaceIndex } from './config/workspaceIndex.js';
 import { SidecarDir } from './config/sidecarDir.js';
@@ -774,6 +775,37 @@ export function activate(context: ExtensionContext) {
           await analyzeCiFailure({ ui, cwd });
         },
       );
+    }),
+    commands.registerCommand('sidecar.pr.reviewComments', async () => {
+      const wsFolder = workspace.workspaceFolders?.[0];
+      if (!wsFolder) {
+        window.showErrorMessage('SideCar: Open a workspace before reviewing PR comments.');
+        return;
+      }
+      const cwd = wsFolder.uri.fsPath;
+      const ui: PrReviewUi = {
+        showInfo(message) {
+          window.showInformationMessage(message);
+        },
+        showError(message) {
+          window.showErrorMessage(message);
+        },
+        async openPreview(content, title) {
+          const doc = await workspace.openTextDocument({ content, language: 'markdown' });
+          await window.showTextDocument(doc, { preview: true, preserveFocus: true });
+          void title;
+        },
+        async showConfirm(message, options) {
+          return window.showInformationMessage(message, { modal: true }, ...options);
+        },
+        async sendToAgent(prompt) {
+          if (!chatProvider) {
+            throw new Error('SideCar chat view is not initialized yet.');
+          }
+          chatProvider.injectPrompt(prompt);
+        },
+      };
+      await reviewPrComments({ ui, cwd });
     }),
     commands.registerCommand('sidecar.generateCommitMessage', async () => {
       await window.withProgress(
