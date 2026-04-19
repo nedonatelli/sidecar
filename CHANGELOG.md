@@ -4,6 +4,63 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.69.0] - 2026-04-19
+
+**v0.69.0 — PR review + lifecycle loop.** Five chunks that close the gap between "view a PR" and "own the full review cycle from draft to merge-ready". The agent can now read review comments, reply inline, submit a top-level review, check CI status, and mark a PR ready for review — all from slash commands or agent tool calls. Plus Groq and Fireworks join every other backend with first-class test coverage.
+
+### Refactored — executor.ts decomposition (chunk 1)
+
+The monolithic `src/agent/loop/executor.ts` was split into focused submodules: `streamTurn.ts` (stream one LLM turn, parse tool calls), `executeToolUses.ts` (parallel tool dispatch with approval gate), and `compression.ts` (context pruning between turns). No behaviour changes — pure structural refactor that brings the file count and per-file line counts in line with the rest of the loop/ decomposition started in v0.50.
+
+### Added — PR review comment fetch + display (chunk 2)
+
+`SideCar: Review PR Comments` (`sidecar.pr.reviewComments`) + `/review-comments` slash command. Fetches all inline review threads for the PR on the current branch and renders them in a markdown preview grouped by file and line number. Optionally dispatches the agent to start addressing them.
+
+- **New in `src/github/api.ts`:** `listPullRequestsForBranch()`, `getPRReviewComments()`, `getPRReviewThreads()` (groups root + replies; sorts by file path then line).
+- **New types in `src/github/types.ts`:** `PullRequest`, `PrReviewComment`, `PrReviewThread`.
+- **[`src/review/prReview.ts`](src/review/prReview.ts)** — orchestrator with injectable `PrReviewUi`. Typed `PrReviewOutcome` union (`detached-head | no-remote | no-pr | rendered | error`).
+
+**Tests:** 19 cases in `src/review/prReview.test.ts` + 8 new API cases in `src/github/api.test.ts`.
+
+### Added — Agent-powered PR review responses (chunk 3)
+
+`SideCar: Respond to PR Comments` (`sidecar.pr.respond`) + `/pr-respond` slash command. Builds a structured agent prompt from the open review threads and dispatches it so the agent can reply inline and submit a top-level summary — entirely non-interactive.
+
+- **[`src/review/prRespond.ts`](src/review/prRespond.ts)** — `respondToPrComments()` orchestrator. `buildRespondPrompt()` includes per-thread instructions referencing `reply_pr_comment` and `submit_pr_review` by name, with `pr_number=N` hint and the full formatted review markdown.
+- **Two new agent tools in [`src/agent/tools/github.ts`](src/agent/tools/github.ts):**
+  - `reply_pr_comment(pr_number, comment_id, body)` — POST reply to a specific inline thread. Requires approval.
+  - `submit_pr_review(pr_number, body, event?)` — POST top-level review (`COMMENT` / `APPROVE` / `REQUEST_CHANGES`). Requires approval.
+- Both tools resolve owner/repo from git remote automatically.
+- **New types:** `PrReview`, `RawPrReview`.
+
+**Tests:** 18 cases in `src/review/prRespond.test.ts` + 15 cases in `src/agent/tools/github.test.ts` + 10 new API cases.
+
+### Added — PR lifecycle: mark-ready + CI check snapshot (chunk 4)
+
+`SideCar: Mark PR Ready for Review` (`sidecar.pr.markReady`) + `/pr-ready` — converts the draft PR on the current branch to ready-for-review. No-ops if already ready.
+
+`SideCar: Check PR CI Status` (`sidecar.pr.checkCi`) + `/pr-ci` — fetches check runs for the PR's head SHA and renders a markdown table (✅/❌/⏳ summary + per-check rows). If any checks failed, automatically dispatches the agent with the full report to investigate and fix.
+
+- **New in `src/github/api.ts`:** `graphql<T>(query, variables?)` (generic GraphQL transport), `markPrReadyForReview()` (PATCH `{draft:false}`), `getPRCheckRuns()` (covers GitHub Actions + third-party CI via the Checks API).
+- **New types:** `CheckConclusion`, `CheckRun`, `RawCheckRun`.
+- **[`src/review/prLifecycle.ts`](src/review/prLifecycle.ts)** — `markPrReady()`, `checkPrCi()`, `formatCheckRunsMarkdown()` with injectable UI and typed outcomes.
+- **Two new agent tools:** `mark_pr_ready()` (approval required) + `check_pr_ci()` (no approval).
+
+**Tests:** 30 cases in `src/review/prLifecycle.test.ts` + 8 new tool cases + 14 new API cases.
+
+### Tests — Groq + Fireworks backend coverage (chunk 5)
+
+Both backends were empty `OpenAIBackend` subclasses with zero test coverage. Added dedicated suites confirming the inheritance chain: `instanceof OpenAIBackend`, base URL, Bearer auth, SSE text streaming, incremental tool call accumulation, `finish_reason` → `stopReason` mapping, `complete()` path, and error propagation.
+
+- [`src/ollama/groqBackend.test.ts`](src/ollama/groqBackend.test.ts) — 12 tests
+- [`src/ollama/fireworksBackend.test.ts`](src/ollama/fireworksBackend.test.ts) — 11 tests
+
+### Stats
+- **3686 total tests** (+196 from v0.68.0), 204 test files
+- **33 built-in tools** (+4: `reply_pr_comment`, `submit_pr_review`, `mark_pr_ready`, `check_pr_ci`)
+- **4 new VS Code commands**, **4 new slash commands** (`/review-comments`, `/pr-respond`, `/pr-ready`, `/pr-ci`)
+- tsc + lint clean; no breaking changes
+
 ## [0.68.0] - 2026-04-19
 
 **v0.68.0 — GitHub integration maturity.** Four focused chunks that turn SideCar from "can talk to GitHub" into "can own the PR + CI loop". Draft PRs, branch-protection awareness, CI failure diagnosis, and the coverage pass that closes the gaps those features opened.
