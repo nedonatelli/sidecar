@@ -487,7 +487,13 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     }
     const errorMessage = err instanceof Error ? err.message : 'Unknown error';
     const classified = classifyError(errorMessage);
-    state.postMessage({ command: 'error', content: `Error: ${errorMessage}`, ...classified });
+    const errorModel = classified.errorType === 'model' ? getConfig().model : undefined;
+    state.postMessage({
+      command: 'error',
+      content: `Error: ${errorMessage}`,
+      ...classified,
+      ...(errorModel ? { errorModel } : {}),
+    });
     void surfaceNativeToast(errorMessage, classified);
   } finally {
     recordRunCost(state);

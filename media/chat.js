@@ -4359,6 +4359,10 @@
               actionBtn.textContent = 'Reconnecting...';
               actionBtn.disabled = true;
               vscode.postMessage({ command: 'reconnect' });
+            } else if (msg.errorType === 'model' && msg.errorModel) {
+              actionBtn.textContent = 'Installing...';
+              actionBtn.disabled = true;
+              vscode.postMessage({ command: 'installModel', model: msg.errorModel });
             }
           });
           actionsRow.appendChild(actionBtn);

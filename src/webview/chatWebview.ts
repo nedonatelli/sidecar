@@ -202,6 +202,7 @@ export interface ExtensionMessage {
     | 'unknown';
   errorAction?: string;
   errorActionCommand?: string;
+  errorModel?: string;
   content?: string;
   messages?: ChatMessage[];
   isLoading?: boolean;
