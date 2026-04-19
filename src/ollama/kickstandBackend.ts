@@ -159,6 +159,11 @@ export class KickstandBackend implements ApiBackend {
     return status === 400 && body.toLowerCase().includes('load model with larger n_ctx');
   }
 
+  /** Returns true when Kickstand rejected the request because the model isn't loaded yet. */
+  private isModelNotLoadedError(status: number, body: string): boolean {
+    return status === 404 && body.toLowerCase().includes('model not loaded');
+  }
+
   /**
    * Unload + reload `model` with `this.nCtx`. Called automatically when a
    * chat request hits the context-overflow 400 so the user doesn't have to
@@ -166,6 +171,11 @@ export class KickstandBackend implements ApiBackend {
    */
   private async reloadWithLargerCtx(model: string): Promise<void> {
     await kickstandUnloadModel(this.baseUrl, model).catch(() => {});
+    await kickstandLoadModel(this.baseUrl, model, { n_ctx: this.nCtx });
+  }
+
+  /** Load `model` with `this.nCtx`. Called when a chat request returns 404 model-not-loaded. */
+  private async loadModel(model: string): Promise<void> {
     await kickstandLoadModel(this.baseUrl, model, { n_ctx: this.nCtx });
   }
 
@@ -232,6 +242,9 @@ export class KickstandBackend implements ApiBackend {
       if (this.isContextOverflowError(response.status, errorText)) {
         await this.reloadWithLargerCtx(model);
         response = await sidecarFetch(this.chatUrl, { ...fetchOpts, headers: this.getHeaders() }, rateLimitOpts);
+      } else if (this.isModelNotLoadedError(response.status, errorText)) {
+        await this.loadModel(model);
+        response = await sidecarFetch(this.chatUrl, { ...fetchOpts, headers: this.getHeaders() }, rateLimitOpts);
       }
       if (!response.ok) {
         const retryText = await response.text().catch(() => errorText);
@@ -287,6 +300,9 @@ export class KickstandBackend implements ApiBackend {
       const errorText = await response.text().catch(() => '');
       if (this.isContextOverflowError(response.status, errorText)) {
         await this.reloadWithLargerCtx(model);
+        response = await sidecarFetch(this.chatUrl, { ...fetchOpts, headers: this.getHeaders() }, rateLimitOpts);
+      } else if (this.isModelNotLoadedError(response.status, errorText)) {
+        await this.loadModel(model);
         response = await sidecarFetch(this.chatUrl, { ...fetchOpts, headers: this.getHeaders() }, rateLimitOpts);
       }
       if (!response.ok) {

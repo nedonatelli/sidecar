@@ -132,6 +132,28 @@ describe('KickstandBackend', () => {
       expect(body.stream).toBe(true);
     });
 
+    it('auto-loads model on 404 model-not-loaded and retries', async () => {
+      const notLoadedBody = JSON.stringify({
+        error: { message: "Model not loaded: 'mymodel'", type: 'not_found_error' },
+      });
+      // First call: model not loaded
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 404, text: async () => notLoadedBody });
+      // Load call
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ status: 'loaded', model_id: 'mymodel' }) });
+      // Retry chat: success
+      mockFetch.mockResolvedValueOnce({ ok: true, body: sseBody([chunk('hello', true), '[DONE]']) });
+
+      const b = new KickstandBackend('http://localhost:11435', undefined, 16384);
+      const events = [];
+      for await (const ev of b.streamChat('mymodel', '', [{ role: 'user', content: 'hi' }])) {
+        events.push(ev);
+      }
+
+      expect(events).toContainEqual({ type: 'text', text: 'hello' });
+      const loadBody = JSON.parse(mockFetch.mock.calls[1][1].body as string) as { n_ctx: number };
+      expect(loadBody.n_ctx).toBe(16384);
+    });
+
     it('auto-reloads with configured nCtx on context-overflow 400 and retries', async () => {
       const overflowBody = JSON.stringify({
         error: { message: 'Prompt too long for model context window. load model with larger n_ctx.' },
