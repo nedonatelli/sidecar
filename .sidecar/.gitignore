@@ -1,0 +1,10 @@
+# Ephemeral / machine-specific — do not commit.
+# Mirrors the root .gitignore's .sidecar/* rules as defense-in-depth
+# so users who init .sidecar/ in a new project don't accidentally
+# commit generated state before wiring the root ignore.
+cache/
+sessions/
+logs/
+scratchpad/
+memory/
+history-index/
