@@ -351,6 +351,14 @@ export interface KickstandPullEvent {
 }
 
 /**
+ * Strip a full HuggingFace URL down to its `owner/repo` path segment so
+ * callers can accept either form without the server rejecting the URL.
+ */
+export function normalizeHfRepo(input: string): string {
+  return input.replace(/^https?:\/\/huggingface\.co\//i, '').replace(/\/+$/, '');
+}
+
+/**
  * Pull a model from HuggingFace via Kickstand's `/api/v1/models/pull` SSE
  * endpoint. Yields progress events as they arrive. The caller should
  * display status updates and stop on `done` or `error`.

@@ -226,7 +226,7 @@ async function runModelBrowser(client: SideCarClient): Promise<void> {
         if (!pick) return;
 
         // Pull the selected file via Kickstand's pull endpoint
-        const { kickstandPullModel } = await import('../ollama/kickstandBackend.js');
+        const { kickstandPullModel, normalizeHfRepo } = await import('../ollama/kickstandBackend.js');
         const { getConfig } = await import('../config/settings.js');
         const baseUrl = getConfig().baseUrl;
         vscode.window.withProgress(
@@ -237,7 +237,7 @@ async function runModelBrowser(client: SideCarClient): Promise<void> {
             try {
               for await (const event of kickstandPullModel(
                 baseUrl,
-                repo,
+                normalizeHfRepo(repo),
                 pick.label,
                 undefined,
                 abortController.signal,

@@ -20,6 +20,7 @@ import {
   kickstandLoadAdapter,
   kickstandUnloadAdapter,
   kickstandBrowseRepo,
+  normalizeHfRepo,
 } from './kickstandBackend.js';
 
 const mockFetch = vi.fn();
@@ -304,6 +305,24 @@ function pullSseBody(lines: string[]): ReadableStream<Uint8Array> {
     },
   });
 }
+
+describe('normalizeHfRepo', () => {
+  it('passes plain owner/repo through unchanged', () => {
+    expect(normalizeHfRepo('bartowski/Llama-3-8B-GGUF')).toBe('bartowski/Llama-3-8B-GGUF');
+  });
+
+  it('strips https://huggingface.co/ prefix', () => {
+    expect(normalizeHfRepo('https://huggingface.co/bartowski/Llama-3-8B-GGUF')).toBe('bartowski/Llama-3-8B-GGUF');
+  });
+
+  it('strips trailing slashes', () => {
+    expect(normalizeHfRepo('bartowski/Llama-3-8B-GGUF/')).toBe('bartowski/Llama-3-8B-GGUF');
+  });
+
+  it('handles URL + trailing slash', () => {
+    expect(normalizeHfRepo('https://huggingface.co/bartowski/Llama-3-8B-GGUF/')).toBe('bartowski/Llama-3-8B-GGUF');
+  });
+});
 
 describe('kickstandPullModel', () => {
   beforeEach(() => {

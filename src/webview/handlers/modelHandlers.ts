@@ -17,6 +17,7 @@ import {
 import { importSafetensorsModel, type ImportProgress, type Quantization } from '../../ollama/hfSafetensorsImport.js';
 import {
   kickstandPullModel,
+  normalizeHfRepo,
   kickstandLoadModel,
   kickstandListRegistry,
   kickstandUnloadModel,
@@ -541,8 +542,8 @@ async function runKickstandInstall(state: ChatState, modelName: string): Promise
   }
 
   // Pull the model from HuggingFace via Kickstand
-  // Parse repo vs repo/filename
-  const parts = modelName.split('/');
+  // Parse repo vs repo/filename — strip full HF URLs first
+  const parts = normalizeHfRepo(modelName).split('/');
   let repo: string;
   let filename: string | undefined;
   if (parts.length >= 3) {
@@ -550,7 +551,7 @@ async function runKickstandInstall(state: ChatState, modelName: string): Promise
     repo = `${parts[0]}/${parts[1]}`;
     filename = parts.slice(2).join('/');
   } else {
-    repo = modelName;
+    repo = normalizeHfRepo(modelName);
   }
 
   state.postMessage({
