@@ -4,6 +4,15 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.69.4] - 2026-04-19
+
+**v0.69.4 — Cloud model context lengths.** `getModelContextLength()` now returns accurate context limits for 60+ popular cloud models (Anthropic Claude, OpenAI GPT-4/o1/o3, Groq, Gemini, Mistral, DeepSeek, Fireworks) via a built-in lookup table, enabling proper context management without conservative fallback defaults.
+
+### Added
+- **Well-known model context lengths** — new `MODEL_CONTEXT_LENGTHS` lookup in `constants.ts` with accurate token limits for Claude (200K), GPT-4o (128K), o1/o3 (200K), Gemini 1.5 (1-2M), and many more.
+
+---
+
 ## [0.69.3] - 2026-04-19
 
 **v0.69.3 — patch: fix token budget exhaustion + Kickstand model auto-detect.**
@@ -11,7 +20,6 @@ All notable changes to the SideCar extension will be documented in this file.
 ### Added
 
 - **Auto-detect loaded model when switching to Kickstand** — when using `switch_backend(profile="kickstand")`, SideCar now queries the Kickstand server for the currently loaded model and updates `sidecar.model` automatically. No more manual model name entry after switching backends.
-- **Context length detection for cloud models** — `getModelContextLength()` now returns accurate context limits for popular Anthropic, OpenAI, Groq, Gemini, Mistral, DeepSeek, and Fireworks models via a built-in lookup table. Previously returned `null` for cloud providers, causing fallback to conservative defaults.
 
 ### Fixed
 
