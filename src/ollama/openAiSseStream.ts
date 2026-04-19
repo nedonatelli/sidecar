@@ -85,6 +85,17 @@ export interface StreamOpenAiSseOptions {
    * usage logs can pass false to suppress the duplicate.
    */
   logUsageInVerbose?: boolean;
+  /**
+   * When true, throw if the stream ends without a `[DONE]` sentinel.
+   * A missing `[DONE]` means the server closed the connection mid-stream —
+   * typically a crash or OOM. Default: false.
+   */
+  requireDoneSignal?: boolean;
+  /**
+   * Custom error message thrown when `requireDoneSignal` is true and
+   * the stream ends without `[DONE]`. Defaults to a generic message.
+   */
+  prematureEofMessage?: string;
 }
 
 /**
@@ -106,11 +117,17 @@ export async function* streamOpenAiSse(
   const providerLabel = options.providerLabel ?? 'openai';
   const toolCallIdPrefix = options.toolCallIdPrefix ?? 'openai';
   const logUsageInVerbose = options.logUsageInVerbose ?? true;
+  const requireDoneSignal = options.requireDoneSignal ?? false;
+  const prematureEofMessage =
+    options.prematureEofMessage ??
+    `${providerLabel} connection closed before stream completed — the server may have crashed or run out of memory.`;
 
   if (!response.body) {
+    console.error(`[SideCar] ${providerLabel} API returned an empty response body`);
     throw new Error(`${providerLabel} API returned an empty response body`);
   }
 
+  console.log(`[SideCar] Starting ${providerLabel} SSE stream parsing`);
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   const thinkState: ThinkTagState = { insideThinkTag: false };
@@ -143,6 +160,7 @@ export async function* streamOpenAiSse(
 
   try {
     let buffer = '';
+    let sawDone = false;
     while (true) {
       const { done, value } = await abortableRead(reader, signal);
       if (done) break;
@@ -157,6 +175,7 @@ export async function* streamOpenAiSse(
 
         const data = trimmed.slice(6);
         if (data === '[DONE]') {
+          sawDone = true;
           yield* flushToolCalls();
           continue;
         }
@@ -237,6 +256,9 @@ export async function* streamOpenAiSse(
     }
     // Drain any text still buffered by the streaming tool-call parser.
     yield* flushTextToolCallsStream(textToolState);
+    if (requireDoneSignal && !sawDone) {
+      throw new Error(prematureEofMessage);
+    }
   } finally {
     reader.releaseLock();
   }

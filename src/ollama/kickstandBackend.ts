@@ -258,10 +258,16 @@ export class KickstandBackend implements ApiBackend {
     // text tool-call interception, incremental tool_call accumulation,
     // and usage event emission for free — all capabilities the old
     // hand-rolled parser was missing.
+    console.log(`[SideCar] Kickstand streamChat: delegating to streamOpenAiSse for model ${model}`);
     yield* streamOpenAiSse(response, model, tools, signal, {
       providerLabel: 'kickstand',
       toolCallIdPrefix: 'kickstand',
+      requireDoneSignal: true,
+      prematureEofMessage:
+        'Kickstand connection closed before stream completed — the server may have crashed or run out of context window. ' +
+        'Check Kickstand logs or reload the model.',
     });
+    console.log(`[SideCar] Kickstand streamChat: streamOpenAiSse completed`);
   }
 
   async complete(
