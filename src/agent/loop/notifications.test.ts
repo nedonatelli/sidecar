@@ -1,10 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import {
-  notifyIterationStart,
-  maybeEmitProgressSummary,
-  shouldStopAtCheckpoint,
-  CHECKPOINT_INTERVAL,
-} from './notifications.js';
+import { notifyIterationStart, maybeEmitProgressSummary, shouldStopAtCheckpoint } from './notifications.js';
 import type { LoopState } from './state.js';
 import type { AgentCallbacks } from '../loop.js';
 import type { getConfig } from '../../config/settings.js';
@@ -153,46 +148,40 @@ describe('maybeEmitProgressSummary', () => {
 
 describe('shouldStopAtCheckpoint', () => {
   it('returns false when onCheckpoint is undefined', async () => {
-    const state = stubState({ iteration: CHECKPOINT_INTERVAL, maxIterations: 200 });
+    const state = stubState({ iteration: 15, maxIterations: 25 }); // 60% of 25 = 15
     expect(await shouldStopAtCheckpoint(state, stubCallbacks())).toBe(false);
   });
 
-  it('returns false when not at the checkpoint interval boundary', async () => {
+  it('returns false when we are not at the 60% boundary', async () => {
     const onCheckpoint = vi.fn().mockResolvedValue(true);
-    const state = stubState({ iteration: 15, maxIterations: 200 }); // Not a multiple of 30
+    const state = stubState({ iteration: 10, maxIterations: 25 }); // 60% is 15
     expect(await shouldStopAtCheckpoint(state, stubCallbacks({ onCheckpoint }))).toBe(false);
     expect(onCheckpoint).not.toHaveBeenCalled();
   });
 
-  it('stays quiet on iteration 0 (edge case: 0 % 30 === 0)', async () => {
+  it('stays quiet on short runs where iteration <= 3', async () => {
     const onCheckpoint = vi.fn().mockResolvedValue(true);
-    const state = stubState({ iteration: 0, maxIterations: 200 });
+    // maxIterations=5, 60% = 3 → iteration 3 hits boundary but <= 3 guard should silence
+    const state = stubState({ iteration: 3, maxIterations: 5 });
     expect(await shouldStopAtCheckpoint(state, stubCallbacks({ onCheckpoint }))).toBe(false);
     expect(onCheckpoint).not.toHaveBeenCalled();
   });
 
-  it('at the checkpoint interval, delegates to onCheckpoint and returns false when user continues', async () => {
+  it('at the 60% boundary, delegates to onCheckpoint and returns false when user continues', async () => {
     const onCheckpoint = vi.fn().mockResolvedValue(true);
-    const state = stubState({ iteration: CHECKPOINT_INTERVAL, maxIterations: 200 });
+    const state = stubState({ iteration: 15, maxIterations: 25 });
     expect(await shouldStopAtCheckpoint(state, stubCallbacks({ onCheckpoint }))).toBe(false);
     expect(onCheckpoint).toHaveBeenCalledOnce();
     const args = onCheckpoint.mock.calls[0];
-    expect(args[0]).toContain(`Reached iteration ${CHECKPOINT_INTERVAL}`);
-    expect(args[1]).toBe(CHECKPOINT_INTERVAL);
-    expect(args[2]).toBe(200 - CHECKPOINT_INTERVAL); // maxIterations - iteration
-  });
-
-  it('fires again at iteration 60 (second checkpoint)', async () => {
-    const onCheckpoint = vi.fn().mockResolvedValue(true);
-    const state = stubState({ iteration: 60, maxIterations: 200 });
-    await shouldStopAtCheckpoint(state, stubCallbacks({ onCheckpoint }));
-    expect(onCheckpoint).toHaveBeenCalledWith(expect.stringContaining('Reached iteration 60'), 60, 140);
+    expect(args[0]).toContain('Reached iteration 15 of 25');
+    expect(args[1]).toBe(15);
+    expect(args[2]).toBe(10); // maxIterations - iteration
   });
 
   it('returns true and emits "Stopped at checkpoint" when user declines', async () => {
     const onCheckpoint = vi.fn().mockResolvedValue(false);
     const onText = vi.fn();
-    const state = stubState({ iteration: CHECKPOINT_INTERVAL, maxIterations: 200 });
+    const state = stubState({ iteration: 15, maxIterations: 25 });
     expect(await shouldStopAtCheckpoint(state, stubCallbacks({ onCheckpoint, onText }))).toBe(true);
     expect(onText).toHaveBeenCalledWith(expect.stringContaining('Stopped at checkpoint'));
   });
@@ -200,8 +189,8 @@ describe('shouldStopAtCheckpoint', () => {
   it('logs the decision via state.logger.info when the user stops', async () => {
     const info = vi.fn();
     const state = stubState({
-      iteration: CHECKPOINT_INTERVAL,
-      maxIterations: 200,
+      iteration: 15,
+      maxIterations: 25,
       logger: { info, warn: vi.fn() } as unknown as LoopState['logger'],
     });
     await shouldStopAtCheckpoint(state, stubCallbacks({ onCheckpoint: vi.fn().mockResolvedValue(false) }));

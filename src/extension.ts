@@ -14,7 +14,6 @@ import * as path from 'path';
 import { ChatViewProvider } from './webview/chatView.js';
 import { TerminalManager } from './terminal/manager.js';
 import { TerminalErrorWatcher } from './terminal/errorWatcher.js';
-import { ProcessRegistry, getWorkspaceRoot } from './agent/processLifecycle.js';
 import { registerJsDocSync } from './docs/jsDocSyncProvider.js';
 import { registerReadmeSync } from './docs/readmeSyncProvider.js';
 import { registerReviewPanel } from './agent/reviewPanel.js';
@@ -67,29 +66,6 @@ let chatProvider: ChatViewProvider | undefined;
 
 export function activate(context: ExtensionContext) {
   console.log('SideCar extension activating...');
-
-  // Initialize process lifecycle management (orphan sweep + PID tracking)
-  const workspaceRoot = getWorkspaceRoot();
-  if (workspaceRoot) {
-    ProcessRegistry.instance
-      .initialize(workspaceRoot)
-      .then(({ orphansKilled }) => {
-        if (orphansKilled > 0) {
-          console.log(`[SideCar] Cleaned up ${orphansKilled} orphan process(es) from prior session`);
-        }
-      })
-      .catch((err) => {
-        console.warn('[SideCar] Failed to initialize process registry:', err);
-      });
-    // Register for cleanup on deactivation
-    context.subscriptions.push({
-      dispose: () => {
-        ProcessRegistry.instance.dispose().catch((err) => {
-          console.warn('[SideCar] Error disposing process registry:', err);
-        });
-      },
-    });
-  }
 
   // Set grammars path for tree-sitter (lazy-loaded on first parse)
   const grammarsPath = path.join(context.extensionPath, 'grammars');
@@ -1590,39 +1566,9 @@ async function initShadowSweep(): Promise<void> {
   }
 }
 
-/**
- * Graceful shutdown orchestration.
- *
- * VS Code gives extensions a limited window (~5s) to clean up in deactivate().
- * We sequence shutdown in phases:
- * 1. Abort ongoing agent loops (immediate, stops new work)
- * 2. Save chat state (quick disk write)
- * 3. Dispose watchers and sessions (close handles)
- * 4. Process registry cleanup (kill orphans — may take up to 2s per process)
- *
- * The ProcessRegistry.dispose() is already registered in context.subscriptions
- * and handles its own timeout. Here we just ensure the quick cleanup happens first.
- */
-export async function deactivate(): Promise<void> {
-  const startMs = Date.now();
-  console.log('[SideCar] Extension deactivating...');
-
-  try {
-    // Phase 1: Abort agent loops immediately (stops new tool calls)
-    chatProvider?.abort();
-
-    // Phase 2: Save chat state before disposing anything
-    chatProvider?.autoSave();
-
-    // Phase 3: Dispose watchers and sessions
-    disposeSidecarMdWatcher();
-    disposeShellSession();
-
-    // Phase 4: Process registry cleanup is handled by context.subscriptions
-    // which VS Code calls automatically. We just log completion here.
-    const elapsed = Date.now() - startMs;
-    console.log(`[SideCar] Deactivation completed in ${elapsed}ms`);
-  } catch (err) {
-    console.error('[SideCar] Error during deactivation:', err);
-  }
+export function deactivate() {
+  chatProvider?.autoSave();
+  chatProvider?.abort();
+  disposeSidecarMdWatcher();
+  disposeShellSession();
 }

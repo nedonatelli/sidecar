@@ -3,7 +3,6 @@ import { randomBytes } from 'crypto';
 import * as os from 'os';
 import { MAX_BACKGROUND_COMMANDS } from '../config/constants.js';
 import { stripAnsi } from './ansi.js';
-import { ProcessRegistry } from '../agent/processLifecycle.js';
 
 export interface ShellExecuteOptions {
   timeout?: number; // ms, default 120_000
@@ -91,8 +90,6 @@ export class ShellSession {
   /** Captured at construction time so the hardening prefix knows which
    *  shell dialect to emit (bash vs zsh vs windows). */
   private shellPath: string;
-  /** Unique ID for this session (for process tracking). */
-  private sessionId: string;
 
   constructor(cwd: string, env?: Record<string, string>, maxOutputSize: number = 10 * 1024 * 1024) {
     this.cwd = cwd;
@@ -100,7 +97,6 @@ export class ShellSession {
     this.maxOutputSize = maxOutputSize;
     this.isWindows = os.platform() === 'win32';
     this.shellPath = this.isWindows ? process.env.COMSPEC || 'cmd.exe' : process.env.SHELL || '/bin/bash';
-    this.sessionId = randomBytes(4).toString('hex');
   }
 
   get isAlive(): boolean {
@@ -131,33 +127,12 @@ export class ShellSession {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
-    // Track the shell process PID in the registry for orphan detection
-    if (this.proc.pid) {
-      try {
-        ProcessRegistry.instance.trackExternalPid({
-          pid: this.proc.pid,
-          name: `shell:${this.sessionId}`,
-          spawnedAt: Date.now(),
-          command: shellPath,
-          args,
-        });
-      } catch {
-        // Registry may not be initialized yet — safe to ignore
-      }
-    }
-
     this.proc.on('error', (err) => {
       console.error('[ShellSession] Process error:', err.message);
-      if (this.proc?.pid) {
-        ProcessRegistry.instance.untrackExternalPid(this.proc.pid);
-      }
       this.proc = null;
     });
 
     this.proc.on('exit', () => {
-      if (this.proc?.pid) {
-        ProcessRegistry.instance.untrackExternalPid(this.proc.pid);
-      }
       this.proc = null;
     });
 
