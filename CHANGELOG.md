@@ -4,6 +4,71 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.68.0] - 2026-04-19
+
+**v0.68.0 — GitHub integration maturity.** Four focused chunks that turn SideCar from "can talk to GitHub" into "can own the PR + CI loop". Draft PRs, branch-protection awareness, CI failure diagnosis, and the coverage pass that closes the gaps those features opened.
+
+### Added — `diffSource` primitive (chunk 1)
+
+Pre-v0.68, `prSummary.ts` and `reviewer.ts` each held a private copy of "try `git diff HEAD`, fall back to staged diff, truncate if huge". Extracted to **[`src/github/diffSource.ts`](src/github/diffSource.ts)** — `fetchWorkingTreeDiff(cwd?)` returns `{ diff, source: 'head' | 'staged' | 'empty' }` and both callers now import from it. `shellSafeRef()` guard added: validates git ref names against a whitelist regex before they reach any `execFile` call — closes a shell-injection surface added earlier when refs first became user-controllable inputs.
+
+### Added — Draft PR from branch (chunk 2)
+
+`SideCar: Create Pull Request` (`sidecar.pr.create`) + `/pr` slash command. End-to-end flow:
+
+1. Resolve the current branch and remote URL (bails early with a typed outcome on detached HEAD, missing remote, or non-GitHub origin).
+2. `git push -u origin HEAD` via the new `GitCLI.pushWithUpstream()` so first-push feature branches track cleanly.
+3. Fetch the working-tree diff via `diffSource`, ask the LLM to write a PR title + body (respects PR template if present under `.github/`).
+4. Preview markdown in a new editor tab via the injectable `DraftPrUi` abstraction (no `window.*` in tests).
+5. Offer "Create PR" → call `GitHubAPI.createPR()` → surface the URL in a toast.
+
+**New in `src/github/api.ts`:** `GitHubAPI.parseRepo(url)` (handles HTTPS + SSH), `createPR(owner, repo, params)`.
+
+**New config (+3):**
+- `sidecar.pr.create.draftByDefault` — `true` (open as draft) / `false` (ready for review)
+- `sidecar.pr.create.baseBranch` — `auto` (resolve from remote HEAD) or an explicit branch name
+- `sidecar.pr.create.template` — `auto` (read `.github/pull_request_template.md`), `ignore`, or an explicit path
+
+**Tests:** 18 cases in `src/review/draftPullRequest.test.ts` + 5 for the new `GitHubAPI` methods in `src/github/api.test.ts`.
+
+### Added — Branch protection awareness (chunk 3)
+
+Before generating a PR, SideCar now fetches the target branch's protection rules and surfaces a one-liner summary in the preview so you know what reviewers / checks are required before merging.
+
+- **`GitHubAPI.getBranchProtection(owner, repo, branch)`** — parses the GitHub `/branches/{branch}/protection` endpoint into a typed `BranchProtection` struct. Returns `null` on 404 (unprotected branch) rather than throwing.
+- **[`src/github/branchProtection.ts`](src/github/branchProtection.ts)** — pure primitive (no network/VS Code). `summarizeProtection()` → typed `ProtectionSummaryLine[]`, `canPushDirect()` → boolean, `formatProtectionMarkdown()` → blockquote with 🔒/⚠️/ℹ️ severity glyphs.
+- Protection fetch is non-fatal (wrapped in try/catch) — a missing token scope or 403 never blocks PR creation.
+
+**Tests:** 20 cases in `src/github/branchProtection.test.ts` + 5 new `getBranchProtection` cases in `src/github/api.test.ts`.
+
+### Added — CI failure analysis & fix (chunk 4)
+
+`SideCar: Analyze CI Failure` (`sidecar.ci.analyze`) + `/ci` slash command. Given the current branch, finds the latest failed GitHub Actions run, fetches each failed job's log, parses it, and opens a structured markdown preview — then optionally routes it to the agent as a fix prompt.
+
+- **[`src/review/ciFailure.ts`](src/review/ciFailure.ts)** — pure log parser, no network. Strips ISO timestamps, tracks `##[group]`/`##[endgroup]` scope, extracts `##[error]` annotations with context window, mines exit codes. Falls back to log tail when no `##[error]` markers are emitted. `extractFailures(log, opts?)` → `FailureBlock[]`, `formatFailuresMarkdown(blocks)` → compact markdown.
+- **[`src/review/analyzeCiFailure.ts`](src/review/analyzeCiFailure.ts)** — orchestrator with injectable `AnalyzeCiUi` abstraction. Typed `AnalyzeCiOutcome` union covers `no-runs | no-failures | no-remote | detached-head | rendered | error`. Single failed job with an expired log → `_Logs unavailable_` note; transient fetch error → inline error note, run analysis continues.
+- **New in `src/github/api.ts`:** `listWorkflowRuns()`, `listWorkflowJobs()`, `getJobLogs()` (plain-text response, 404/410 → null).
+- **`ChatViewProvider.injectPrompt(prompt)`** — new public method that seeds the webview input with the failure summary and focuses it, so "Send to agent for fix" puts text into the familiar chat input rather than the clipboard.
+
+**Tests:** 14 cases in `src/review/ciFailure.test.ts` + 18 cases in `src/review/analyzeCiFailure.test.ts` + 9 new workflow-API cases in `src/github/api.test.ts`.
+
+### Tests — coverage pass (chunk 5)
+
+21 new cases in `src/github/git.test.ts` covering all previously untested `GitCLI` methods:
+
+- `pushWithUpstream` — `-u` flag, default remote/branch, custom overrides
+- `worktreeAdd` / `worktreeRemove` — arg shape, `--detach`, `--force` toggle
+- `worktreeList` — porcelain parser for single/multiple/detached worktrees
+- `getHeadSha` — full SHA vs. `--short`
+- `diffAgainstHead` — tracked-only path, tracked + untracked concat, silent-skip on empty untracked stdout
+- `applyPatch` — stdin write/end, `--check`, `--index`, throw on failure
+
+### Stats
+- **3490 total tests** (+123 from v0.67.1), 194 test files
+- **29 built-in tools**, 8 skills — unchanged
+- **3 new config keys** (`sidecar.pr.create.*`)
+- tsc + lint clean; no breaking changes
+
 ## [0.67.1] - 2026-04-18
 
 **v0.67.1 — Kickstand LoRA agent-tool surface.** v0.67.0 shipped palette-only LoRA management (`SideCar: Kickstand: Load/Unload LoRA Adapter`); this patch release layers three agent tools on top so the agent itself can role-shape a model mid-task. Attach a Python-style adapter before touching `src/python/**`, detach when moving to a different language, stack multiple domain adapters for polyglot projects — all without leaving an agent turn.
