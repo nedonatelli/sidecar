@@ -26,6 +26,11 @@ const MAX_RATE_LIMIT_WAIT_MS = 60_000;
  */
 const MAX_OUTPUT_TOKENS = 4096;
 
+/** o1/o3/o4 reasoning models reject `max_tokens`; they require `max_completion_tokens`. */
+function maxTokensKey(model: string): 'max_tokens' | 'max_completion_tokens' {
+  return /^o\d/i.test(model) ? 'max_completion_tokens' : 'max_tokens';
+}
+
 function estimateRequestTokens(systemPrompt: string, messages: ChatMessage[], maxOutputTokens: number): number {
   let chars = systemPrompt.length;
   for (const m of messages) {
@@ -249,7 +254,7 @@ export class OpenAIBackend implements ApiBackend {
       // rationale above. Omitting this made OpenAI reserve the model's
       // full default output cap per request and drain the bucket in
       // ~10 requests at low actual spend.
-      max_tokens: MAX_OUTPUT_TOKENS,
+      [maxTokensKey(model)]: MAX_OUTPUT_TOKENS,
       // Ask OpenAI to include `usage` on the final stream chunk so we
       // can emit a StreamUsageEvent and feed spendTracker with real
       // numbers instead of heuristic estimates.
@@ -304,7 +309,7 @@ export class OpenAIBackend implements ApiBackend {
     const body = {
       model,
       messages: toOpenAIMessages(messages, systemPrompt),
-      max_tokens: maxTokens,
+      [maxTokensKey(model)]: maxTokens,
       stream: false,
     };
 

@@ -20,6 +20,11 @@ import { CHARS_PER_TOKEN } from '../config/constants.js';
 /** How long we'll wait on a rate-limit reset before telling the user to switch backends. */
 const MAX_RATE_LIMIT_WAIT_MS = 60_000;
 
+/** claude-opus-4+ and future Claude 4 models have deprecated the `temperature` parameter. */
+function supportsTemperature(model: string): boolean {
+  return !/claude-(opus|sonnet|haiku)-4/i.test(model);
+}
+
 /** Rough token estimate for a system+messages payload using the shared chars/token ratio. */
 function estimateRequestTokens(systemPrompt: string, messages: ChatMessage[], maxOutputTokens: number): number {
   let chars = systemPrompt.length;
@@ -155,7 +160,7 @@ export class AnthropicBackend implements ApiBackend {
       max_tokens: 8192,
       messages: prepareMessagesForCache(pruned.messages),
       stream: true,
-      ...(tools && tools.length > 0 ? { temperature: cfg.agentTemperature } : {}),
+      ...(tools && tools.length > 0 && supportsTemperature(model) ? { temperature: cfg.agentTemperature } : {}),
     };
 
     if (pruned.systemPrompt) {
