@@ -3,6 +3,7 @@ import type { SideCarClient } from '../../ollama/client.js';
 import type { AgentCallbacks, AgentOptions } from '../loop.js';
 import { planToLayers, type EditPlan, type PlannedEdit } from '../editPlan.js';
 import { executeOneToolUse, type ExecutionContext } from './executeToolUses.js';
+import { runWithCap } from '../parallelDispatch.js';
 import type { LoopState } from './state.js';
 
 // ---------------------------------------------------------------------------
@@ -80,7 +81,7 @@ export async function executeMultiFilePlan(
     const tasks = layer
       .map((edit) => buildLayerTask(edit, firstUseByPath, ctx))
       .filter((t): t is () => Promise<ToolResultContentBlock> => t !== null);
-    const settled = await runWithCap(tasks, cap);
+    const settled = await runWithCap(tasks, { cap });
     for (let i = 0; i < settled.length; i++) {
       const outcome = settled[i];
       const path = layer[i].path;
@@ -212,32 +213,8 @@ function extractPath(tu: ToolUseContentBlock): string | null {
   return null;
 }
 
-/**
- * Run `tasks` with at most `cap` in flight at a time. Returns a
- * `PromiseSettledResult[]` aligned 1:1 with `tasks` so callers can
- * map outcomes back to their input nodes. Rejected tasks never
- * crash the pool — the worker loop records the rejection and picks
- * the next task.
- */
-export async function runWithCap<T>(
-  tasks: readonly (() => Promise<T>)[],
-  cap: number,
-): Promise<PromiseSettledResult<T>[]> {
-  const results: PromiseSettledResult<T>[] = new Array(tasks.length);
-  let next = 0;
-  async function worker(): Promise<void> {
-    while (true) {
-      const i = next++;
-      if (i >= tasks.length) return;
-      try {
-        const value = await tasks[i]();
-        results[i] = { status: 'fulfilled', value };
-      } catch (err) {
-        results[i] = { status: 'rejected', reason: err };
-      }
-    }
-  }
-  const workerCount = Math.min(Math.max(1, cap), tasks.length);
-  await Promise.all(Array.from({ length: workerCount }, () => worker()));
-  return results;
-}
+// `runWithCap` now lives in `src/agent/parallelDispatch.ts` as a
+// shared primitive. Re-exported here for backward compatibility with
+// tests that import from this module; new callers should import from
+// parallelDispatch directly.
+export { runWithCap } from '../parallelDispatch.js';

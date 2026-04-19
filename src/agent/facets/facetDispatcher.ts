@@ -5,6 +5,7 @@ import { runAgentLoopInSandbox, type SandboxResult } from '../shadow/sandbox.js'
 import type { FacetDefinition } from './facetLoader.js';
 import type { FacetRegistry } from './facetRegistry.js';
 import { FacetRpcBus, generateRpcTools, type RpcHandler, type RpcWireTraceEntry } from './facetRpcBus.js';
+import { runForEachWithCap } from '../parallelDispatch.js';
 
 // ---------------------------------------------------------------------------
 // Facet dispatcher (v0.66 chunk 3.3).
@@ -343,7 +344,7 @@ export async function dispatchFacets(
   const resultsById = new Map<string, FacetDispatchResult>();
   for (const layer of layersFiltered) {
     if (options.signal.aborted) break;
-    await runLayerWithCap(
+    await runForEachWithCap(
       layer,
       async (facet) => {
         try {
@@ -363,7 +364,7 @@ export async function dispatchFacets(
           bus.clearFacetHandlers(facet.id);
         }
       },
-      options.maxConcurrent,
+      { cap: options.maxConcurrent, signal: options.signal },
     );
   }
 
@@ -409,32 +410,8 @@ function buildToolOverride(
   return baseTools.filter((t) => allowed.has(t.name));
 }
 
-/**
- * Run each facet in a layer through the given worker, respecting a
- * concurrency cap. Same pattern as `runWithCap` in
- * `src/agent/loop/multiFileEdit.ts` but expressed in place to avoid
- * cross-module coupling between the facet runtime and the multi-file
- * edit module (they conceptually live in different subsystems).
- */
-async function runLayerWithCap(
-  layer: readonly FacetDefinition[],
-  worker: (facet: FacetDefinition) => Promise<void>,
-  cap: number,
-): Promise<void> {
-  let next = 0;
-  const workerCount = Math.min(Math.max(1, cap), layer.length);
-  async function runWorker(): Promise<void> {
-    while (true) {
-      const i = next++;
-      if (i >= layer.length) return;
-      try {
-        await worker(layer[i]);
-      } catch {
-        // worker never throws in our call site (dispatchFacet
-        // absorbs exceptions into a result), but keep the catch so
-        // a rogue future caller can't crash the pool.
-      }
-    }
-  }
-  await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
-}
+// Bounded parallelism now lives in `src/agent/parallelDispatch.ts` as
+// `runForEachWithCap`. v0.67 chunk 2 extracted the duplicated pool
+// pattern — facet dispatch + multi-file edit + the upcoming fork
+// dispatch all share one canonical implementation with abort-signal
+// support the local copies never plumbed through.

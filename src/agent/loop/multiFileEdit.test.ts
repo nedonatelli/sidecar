@@ -20,7 +20,7 @@ vi.mock('./executeToolUses.js', () => ({
   executeOneToolUse: vi.fn(),
 }));
 
-import { executeMultiFilePlan, runWithCap } from './multiFileEdit.js';
+import { executeMultiFilePlan } from './multiFileEdit.js';
 import { executeOneToolUse } from './executeToolUses.js';
 import type { LoopState } from './state.js';
 import type { SideCarClient } from '../../ollama/client.js';
@@ -363,36 +363,11 @@ describe('executeMultiFilePlan — abort', () => {
   });
 });
 
-describe('runWithCap', () => {
-  it('runs all tasks up to the cap in parallel, returning results in input order', async () => {
-    const tasks = [async () => 1, async () => 2, async () => 3];
-    const settled = await runWithCap(tasks, 2);
-    expect(settled.map((s) => (s.status === 'fulfilled' ? s.value : null))).toEqual([1, 2, 3]);
-  });
-
-  it('handles a rejected task without crashing the pool', async () => {
-    const tasks = [
-      async () => 'a',
-      async () => {
-        throw new Error('nope');
-      },
-      async () => 'c',
-    ];
-    const settled = await runWithCap(tasks, 2);
-    expect(settled[0].status).toBe('fulfilled');
-    expect(settled[1].status).toBe('rejected');
-    expect(settled[2].status).toBe('fulfilled');
-  });
-
-  it('handles cap=0 by clamping to 1', async () => {
-    const settled = await runWithCap([async () => 42], 0);
-    expect(settled).toHaveLength(1);
-  });
-
-  it('handles empty task list', async () => {
-    expect(await runWithCap([], 8)).toEqual([]);
-  });
-});
+// `runWithCap` tests moved to `src/agent/parallelDispatch.test.ts` (v0.67
+// chunk 2) — the primitive now lives in `src/agent/parallelDispatch.ts`
+// and is shared between multi-file edit + facet dispatch + upcoming
+// fork dispatch. The re-export from this module preserves the import
+// path for any external consumers.
 
 describe('executeMultiFilePlan — onEditPlanProgress events (v0.66 chunk 1, slim 4.4b)', () => {
   it('emits writing + done transitions for each successful edit', async () => {
