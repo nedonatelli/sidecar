@@ -8,6 +8,7 @@ import { OpenRouterBackend } from './openrouterBackend.js';
 import { GroqBackend } from './groqBackend.js';
 import { FireworksBackend } from './fireworksBackend.js';
 import { isLocalOllama, detectProvider, getConfig } from '../config/settings.js';
+import { MODEL_CONTEXT_LENGTHS } from '../config/constants.js';
 import { RateLimitStore } from './rateLimitState.js';
 import { spendTracker } from './spendTracker.js';
 import { circuitBreaker } from './circuitBreaker.js';
@@ -654,18 +655,24 @@ export class SideCarClient {
       // context_length. Returns null for models not currently loaded.
       try {
         const response = await fetch(`${this.baseUrl}/v1/models`);
-        if (!response.ok) return null;
+        if (!response.ok) return MODEL_CONTEXT_LENGTHS[this.model] ?? null;
         const data = (await response.json()) as {
           data?: { id: string; context_length?: number | null }[];
         };
         const entry = (data.data || []).find((m) => m.id === this.model);
-        return typeof entry?.context_length === 'number' ? entry.context_length : null;
+        return typeof entry?.context_length === 'number'
+          ? entry.context_length
+          : (MODEL_CONTEXT_LENGTHS[this.model] ?? null);
       } catch {
-        return null;
+        return MODEL_CONTEXT_LENGTHS[this.model] ?? null;
       }
     }
 
-    if (!this.isLocalOllama()) return null;
+    // For cloud providers, check the well-known context lengths lookup table.
+    // This covers Anthropic, OpenAI, Groq, Fireworks, OpenRouter, etc.
+    if (!this.isLocalOllama()) {
+      return MODEL_CONTEXT_LENGTHS[this.model] ?? null;
+    }
     try {
       const response = await fetch(`${this.baseUrl}/api/show`, {
         method: 'POST',

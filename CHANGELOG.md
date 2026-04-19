@@ -11,6 +11,7 @@ All notable changes to the SideCar extension will be documented in this file.
 ### Added
 
 - **Auto-detect loaded model when switching to Kickstand** — when using `switch_backend(profile="kickstand")`, SideCar now queries the Kickstand server for the currently loaded model and updates `sidecar.model` automatically. No more manual model name entry after switching backends.
+- **Context length detection for cloud models** — `getModelContextLength()` now returns accurate context limits for popular Anthropic, OpenAI, Groq, Gemini, Mistral, DeepSeek, and Fireworks models via a built-in lookup table. Previously returned `null` for cloud providers, causing fallback to conservative defaults.
 
 ### Fixed
 
