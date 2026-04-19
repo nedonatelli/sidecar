@@ -33,6 +33,7 @@ SideCar is an AI-powered coding assistant for VS Code that operates as an autono
 - Sub-agent spawning for complex tasks (max 3 levels deep, 15 iterations each)
 - Tool execution with approval modes and security checks
 - **Typed Sub-Agent Facets** *(new in v0.66)* — dispatch named specialists (`general-coder`, `test-author`, `security-reviewer`, `latex-writer`, `signal-processing`, `frontend`, `technical-writer`, `data-engineer`) against a shared task via `SideCar: Facets: Dispatch Specialists`. Each facet runs in its own isolated Shadow Workspace with its own tool allowlist, preferred model, and composed system prompt; multi-facet batches coalesce into a single aggregated review flow instead of stacking per-facet prompts. Typed RPC bus lets facets coordinate. Add project-local facets under `<workspace>/.sidecar/facets/*.md` or user facets via `sidecar.facets.registry`
+- **Fork & Parallel Solve** *(new in v0.67)* — `/fork <task>` or `SideCar: Fork & Compare` spawns N parallel approaches to the same task, each running a full agent loop inside its own Shadow Workspace off the current `HEAD`. When every fork settles, a pick-the-winner QuickPick + `vscode.diff` + modal confirm + `git apply` picks the best output and discards the losers. Differs from Facets (N specialists on different subtasks) — Fork is N attempts at the **same** task. Config: `sidecar.fork.defaultCount` (default `3`), `sidecar.fork.maxConcurrent` (default `3`)
 
 ### Context Management
 - **Semantic search** — ONNX embeddings (all-MiniLM-L6-v2) for meaning-based file relevance, blended with keyword scoring
@@ -40,6 +41,7 @@ SideCar is an AI-powered coding assistant for VS Code that operates as an autono
 - Workspace indexing with file pattern filtering
 - Automatic context compression and summarization
 - AST-based code understanding
+- **SIDECAR.md path-scoped section injection** *(new in v0.67)* — sections in `SIDECAR.md` opt-in to path-aware routing via `<!-- @paths: src/transforms/** -->` sentinels immediately under their H2 heading. SideCar injects only the sections matching the active file (or user-mentioned paths), dropping whole sections on overflow instead of mid-chopping. Closes the "15 KB SIDECAR.md burns 3.7 KB of every turn" bloat on small-context local models. Degrades to legacy whole-file behavior when no sentinels are present
 - Conversation history management
 - **Large file & monorepo handling**: streaming reads with summary mode for files >50KB, lazy indexing for large directories, depth-limited traversal
 - **RAG (Retrieval-Augmented Generation)**: automatic documentation discovery and keyword-based search over README, docs/, wiki/ files

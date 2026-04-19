@@ -281,6 +281,29 @@ Optional sandbox for agent tasks. When enabled, the agent runs in an ephemeral g
 
 At task completion, SideCar shows a `showQuickPick` with the diff summary (file count, line count) and an Accept / Reject choice. Accept applies the diff to main as staged changes (so you see them in `git status`). Reject discards the shadow and leaves your main tree untouched. The v0.59 MVP uses an accept-all / reject-all prompt; per-hunk review UI, conflict handling, symlinked build dirs, and `/sandbox <task>` slash command wiring land in v0.60+.
 
+## SIDECAR.md Path-Scoped Section Injection (v0.67+)
+
+Pre-v0.67, the entire SIDECAR.md body landed in every agent turn's system prompt and got mid-chopped on overflow. v0.67 replaces that with a deterministic, path-aware selector that routes sections by `<!-- @paths: glob -->` sentinels. See [SIDECAR.md](sidecar-md#path-scoped-section-injection-v067) for the sentinel schema.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.sidecarMd.mode` | enum | `"sections"` | `sections` parses H2 boundaries and routes sections by `@paths` sentinels + active file + mentioned paths. Drops whole sections on overflow instead of mid-chopping. Degrades to `full` when no section declares a sentinel. `full` is the legacy pre-v0.67 behavior — dump the whole file, mid-chop on overflow. Use `full` if your SIDECAR.md can't be cleanly sectioned |
+| `sidecar.sidecarMd.alwaysIncludeHeadings` | string[] | `["Build", "Conventions", "Setup"]` | H2 headings that always get included regardless of sentinels. Case-insensitive match against section heading. Useful for teams who don't want to edit their SIDECAR.md — the "always include Build" rule lives in user settings |
+| `sidecar.sidecarMd.lowPriorityHeadings` | string[] | `["Glossary", "FAQ", "Changelog"]` | H2 headings demoted to low priority — included only when budget remains after always + scoped sections |
+| `sidecar.sidecarMd.maxScopedSections` | number | `5` | Cap on how many path-scoped sections can land in one injection. Guards against a wildcard-ish glob matching 30 sections. Clamped 1–50 |
+
+## Fork & Parallel Solve (v0.67+)
+
+Spawns N parallel approaches to the same task in isolated Shadow Workspaces, then picks the winner. See [Slash Commands — Fork](slash-commands#fork--parallel-solve-new-in-v067).
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.fork.enabled` | boolean | `true` | Master toggle for Fork. When `false`, `/fork` and the palette entry show a one-line info toast instead of dispatching |
+| `sidecar.fork.defaultCount` | number | `3` | Default number of parallel forks per dispatch. Clamped 2–10; values outside that range degenerate to "agent loop with no comparison" |
+| `sidecar.fork.maxConcurrent` | number | `3` | Max forks running in parallel at once. Clamped 1–10. Higher values finish faster at the cost of more concurrent Shadow Workspaces (disk churn) and more concurrent LLM requests (cost + rate limits) |
+
+Every fork forces `forceShadow: true, deferPrompt: true` regardless of `sidecar.shadowWorkspace.mode` — the user's main tree is untouched during the run and no mid-run quickpicks fire. The aggregated review runs once every fork settles.
+
 ## Typed Sub-Agent Facets (v0.66+)
 
 Dispatchable specialists — `general-coder`, `test-author`, `security-reviewer`, `latex-writer`, `signal-processing`, `frontend`, `technical-writer`, `data-engineer`, plus project + user overrides. See [Agent Mode — Typed Sub-Agent Facets](agent-mode#typed-sub-agent-facets-new-in-v066) and [Extending SideCar — Facets](extending-sidecar#facets) for the dispatch flow and schema.

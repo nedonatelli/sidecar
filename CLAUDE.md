@@ -122,6 +122,38 @@ Run-scoped tools: the RPC tools generated per-batch flow through the new `extraT
 
 Config: `sidecar.facets.{enabled, maxConcurrent, rpcTimeoutMs, registry}`.
 
+### Parallel Dispatch Primitive (`src/agent/parallelDispatch.ts`)
+
+v0.67 chunk 2 extraction. Two near-identical pool-of-N-workers implementations lived side-by-side (`runWithCap` in `src/agent/loop/multiFileEdit.ts`, `runLayerWithCap` in `src/agent/facets/facetDispatcher.ts`). Fork & Parallel Solve needed the same primitive, so this module consolidates and adds abort-signal plumbing that neither copy had.
+
+- `runWithCap<T>(tasks, { cap, signal })` — returns ordered `PromiseSettledResult<T>[]`. Never throws. Tasks that never started due to abort surface as `{ status: 'rejected', reason: AbortedBeforeStartError }` so callers don't need an undefined-check path.
+- `runForEachWithCap<T>(items, work, { cap, signal })` — worker-pattern variant for callers that absorb errors inside the worker body (Facets dispatcher pattern). Errors swallowed; pool keeps running.
+- `AbortedBeforeStartError` — typed so callers can distinguish "task failed" from "task was cancelled before it ran" via `err.name === 'AbortedBeforeStart'`.
+
+`multiFileEdit.ts` + `facetDispatcher.ts` both import from here. Fork dispatcher (v0.67) and any future bounded-parallel subsystem should too.
+
+### Fork & Parallel Solve (`src/agent/fork/`)
+
+v0.67+ dispatch primitive that runs the agent loop N times in parallel against the same user task, each inside its own Shadow Workspace off the current `HEAD`. Every fork gets natural variance — same prompt, same model, same tools, but the agent's choice of which file to read first, how to refactor, etc. diverges per run. The review UI then presents each fork's diff side-by-side so the user can compare + pick the best.
+
+- `forkDispatcher.ts` — `dispatchForks()` spawns N agent loops via `runWithCap` from `parallelDispatch.ts`. Typed `ForkResult { forkId, index, label, success, errorMessage?, output, charsConsumed, sandbox, durationMs }`. Every run uses `forceShadow: true, deferPrompt: true` (the v0.66 primitive) so the main tree is untouched and no mid-run quickpicks fire. Tool-call events tagged with `fork-<n>:` prefix (mirrors Facets pattern) so a future webview can route them to the right column.
+- `forkReview.ts` — `planForkReview()` classifies reviewable vs skipped. `reviewForkBatch()` drives QuickPick → `vscode.diff` → modal confirm → `git apply`. Single-winner semantic (Fork attempts the same task N ways, so you pick one) — differs from Facets' multi-select (Facets specialists do different subtasks). Reuses `filesTouchedByDiff` from `facetReview.ts`. Returns typed `ForkReviewOutcome { winnerIndex, appliedOk, errorMessage?, skippedLabels }`.
+- `forkCommands.ts` — `runForkDispatchCommand(deps)` is the end-to-end flow: gate on `sidecar.fork.enabled` → resolve task (preFilled from `/fork` or prompt via showInputBox) → dispatch → review when `reviewDeps` supplied. Wired into two user-facing entry points via `extension.ts` (command palette `sidecar.fork.dispatch`) and `chatView.ts` (slash-command `/fork <task>` → `forkStart` message).
+
+Config: `sidecar.fork.{enabled, defaultCount, maxConcurrent}`.
+
+### SIDECAR.md Parser (`src/agent/sidecarMdParser.ts`)
+
+v0.67 chunk 1. Pure primitive (no VS Code imports) that replaces the pre-v0.67 whole-file dump + mid-chop truncation in `webview/handlers/systemPrompt.ts`.
+
+- `parseSidecarMd(content)` — splits on H2/H3 boundaries, preserves the heading line in each section body, extracts comma-separated globs from a `<!-- @paths: glob, glob -->` sentinel immediately below the heading. Sections without a sentinel default to `priority: 'always'`.
+- `pathMatchesAnyGlob(filePath, globs)` — simple glob→regex conversion supporting `**` (any depth), `*` (non-slash segment), `?` (single non-slash char), trailing `/` as `/**`. Normalizes Windows back-slashes.
+- `selectSidecarMdSections(parsed, ctx)` — applies priority rules (always > scoped > low), routes scoped sections by `activeFilePath` + `mentionedPaths`, caps at `maxScopedSections`, drops whole sections in reverse priority on overflow — never mid-chops.
+
+The `v0.70+` retrieval-mode successor (documented on ROADMAP) will layer a `SidecarMdRetriever` onto the existing `fuseRetrievers` pipeline that uses the same chunk output — so the primitive is designed to double as the chunker for future embedding-based routing.
+
+Config: `sidecar.sidecarMd.{mode, alwaysIncludeHeadings, lowPriorityHeadings, maxScopedSections}`.
+
 ### Terminal Execution (`src/terminal/`)
 
 - `shellSession.ts` — long-lived `child_process.spawn`-based shell with per-command alias/function namespace reset. Fallback path for agent commands when shell integration isn't available.

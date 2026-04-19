@@ -111,7 +111,7 @@ This lets you steer the agent mid-run without waiting for it to finish. The back
 
 ## Built-in tools
 
-SideCar has 23 built-in tools the agent can use (`delegate_task` is only exposed when the active backend is paid, so local-only users see 22):
+SideCar has 26 built-in tools the agent can use (`delegate_task` is only exposed when the active backend is paid, so local-only users see 22):
 
 | Tool | Description |
 |------|-------------|

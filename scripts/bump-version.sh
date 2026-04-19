@@ -42,10 +42,12 @@ TEST_FILES=$(echo "$TEST_OUTPUT" | grep "Test Files" | grep -o '[0-9]* passed' |
 TEST_TOTAL=$(echo "$TEST_OUTPUT" | grep "Tests" | head -1 | grep -o '[0-9]* passed' | grep -o '[0-9]*' || echo "?")
 TEST_SKIPPED=$(echo "$TEST_OUTPUT" | grep "Tests" | head -1 | grep -o '[0-9]* skipped' | grep -o '[0-9]*' || echo "0")
 
-# Tool count (from TOOL_REGISTRY + spawn_agent)
-TOOL_REGISTRY_COUNT=$(grep -c "{ definition:" src/agent/tools.ts || echo "0")
-# spawn_agent is defined separately, add 1
-TOOL_COUNT=$((TOOL_REGISTRY_COUNT + 1))
+# Tool count — v0.66 chunk 2 moved definitions out of tools.ts into
+# per-module arrays under src/agent/tools/*.ts, so counting needs to
+# traverse the whole directory. spawn_agent + ask_user are defined
+# separately (not in a per-module array), so add 2.
+TOOL_REGISTRY_COUNT=$(grep -h "{ definition:" src/agent/tools/*.ts 2>/dev/null | wc -l | tr -d ' ')
+TOOL_COUNT=$((TOOL_REGISTRY_COUNT + 2))
 
 # Skill count
 SKILL_COUNT=$(ls skills/*.md 2>/dev/null | wc -l | tr -d ' ')

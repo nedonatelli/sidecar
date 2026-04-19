@@ -4,6 +4,58 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.67.0] - 2026-04-18
+
+**v0.67.0 — Fork & compare.** Headline feature is `/fork <task>` + `SideCar: Fork & Compare`: spawn N parallel approaches to the same task, each running an agent loop inside its own Shadow Workspace off `HEAD`, then pick the winner through a single QuickPick + `vscode.diff` + `git apply` flow. Secondary theme is context-bloat discipline — SIDECAR.md injection now routes by path-scoped `@paths` sentinels instead of dumping the whole file and mid-chopping on overflow. Refactor foundation: `parallelDispatch` primitive extracted from duplicated pool-of-workers code in multi-file edit + facet dispatch, ready for Fork to reuse.
+
+Also landed mid-release: Kickstand LoRA adapter hot-swap + HuggingFace repo browser (commit `83b4418`) with follow-up test + docs closure. The Anthropic Batch API integration originally scoped as a v0.67 refactor beat was dropped after an honest audit — it doesn't compose with Fork's multi-turn streaming agent loop.
+
+Tests: **3346 passing** across 188 files (3230 → 3346, +116 new tests). tsc + lint clean. No breaking changes — every new capability is opt-in via new config keys; unannotated SIDECAR.md files fall through to legacy whole-file injection.
+
+### Added — SIDECAR.md Path-Scoped Section Injection (chunk 1)
+
+Pre-v0.67, [`systemPrompt.ts`](src/webview/handlers/systemPrompt.ts) dumped the entire SIDECAR.md body into every turn's system prompt and mid-chopped on overflow — a 15 KB doc burned ~3.7 KB of every turn on a 4K local Llama regardless of relevance, leaving the model staring at half-sentences at the truncation boundary. This chunk replaces the whole-file dump with a deterministic, path-aware selector.
+
+- **[`src/agent/sidecarMdParser.ts`](src/agent/sidecarMdParser.ts)** — pure primitive, no VS Code imports. `parseSidecarMd(content)` splits on H2/H3 boundaries, preserves the heading line in each section body, extracts comma-separated globs from a `<!-- @paths: glob, glob -->` sentinel immediately under the heading. Sections without a sentinel default to `priority: 'always'` so unannotated files behave exactly as before. `pathMatchesAnyGlob` supports `**` (any depth), `*` (non-slash segment), `?` (single non-slash char), trailing `/` as `/**`. `selectSidecarMdSections` applies priority rules (always > scoped > low), routes scoped sections by active file + mentioned paths, caps at `maxScopedSections`, drops whole sections in reverse priority on overflow — never mid-chops.
+- **Integration in [`systemPrompt.ts`](src/webview/handlers/systemPrompt.ts)** — `injectSidecarMd()` router reads `config.sidecarMdMode`: `sections` (default) uses the selector when the file has any `@paths` sentinel, else falls back to `full` behavior; `full` is the legacy path preserved as an escape hatch. `activeFilePathFor()` + `mentionedPathsFrom()` resolve the scoping inputs, including `@file:` sentinels and backtick-quoted paths in the user's message.
+- **Config (+4):** `sidecar.sidecarMd.mode` (`full` | `sections`, default `sections`), `sidecar.sidecarMd.alwaysIncludeHeadings` (default `["Build", "Conventions", "Setup"]`), `sidecar.sidecarMd.lowPriorityHeadings` (default `["Glossary", "FAQ", "Changelog"]`), `sidecar.sidecarMd.maxScopedSections` (default `5`).
+
+### Changed — `parallelDispatch` primitive extraction (chunk 2, refactor beat)
+
+Two near-identical pool-of-N-workers implementations lived side-by-side: `runWithCap` in `src/agent/loop/multiFileEdit.ts` and `runLayerWithCap` in `src/agent/facets/facetDispatcher.ts`. Fork & Parallel Solve (chunk 3) needs the same primitive, so this chunk consolidated and added the abort-signal plumbing neither copy had.
+
+- **New [`src/agent/parallelDispatch.ts`](src/agent/parallelDispatch.ts)** — `runWithCap<T>(tasks, { cap, signal })` returns ordered `PromiseSettledResult<T>[]`, never throws. `runForEachWithCap<T>(items, work, { cap, signal })` is the worker-pattern variant for callers that absorb errors inside the worker body. `AbortedBeforeStartError` — typed so callers can distinguish "task failed" from "task was cancelled before it ran" via `err.name === 'AbortedBeforeStart'`.
+- **Migrations:** `multiFileEdit.ts` imports from `parallelDispatch`; `facetDispatcher.ts` uses `runForEachWithCap` with its existing `options.signal` threaded through, so Facet batches now abort mid-layer instead of only at layer boundaries.
+
+### Added — Fork & Parallel Solve (chunks 3, 5, 6)
+
+- **Dispatcher ([`src/agent/fork/forkDispatcher.ts`](src/agent/fork/forkDispatcher.ts))** — `dispatchForks()` spawns N agent loops in parallel via `runWithCap`, each inside its own Shadow Workspace off HEAD with `forceShadow: true, deferPrompt: true` (v0.66 primitive). Typed `ForkResult { forkId, index, label, success, errorMessage?, output, charsConsumed, sandbox, durationMs }` + `ForkDispatchBatchResult { results, elapsedMs }`. Tool events tagged with `fork-<n>:` prefix (mirrors Facets pattern). Abort-before-start surfaces as typed `AbortedBeforeStartError` result, not silent omission.
+- **Review ([`src/agent/fork/forkReview.ts`](src/agent/fork/forkReview.ts))** — `planForkReview()` classifies reviewable vs skipped; `reviewForkBatch()` drives QuickPick → `vscode.diff` → modal confirm → `git apply`. Single-winner semantic (Fork attempts the same task N ways, so you pick one) — differs from Facets' multi-select (Facets specialists do different subtasks). Reuses `filesTouchedByDiff` from `facetReview.ts`.
+- **Command surfaces ([`src/agent/fork/forkCommands.ts`](src/agent/fork/forkCommands.ts))** — `runForkDispatchCommand(deps)` end-to-end flow: gate on `sidecar.fork.enabled` → resolve task (preFilled from `/fork` or prompt via showInputBox) → dispatch → review. Wired into two user-facing entry points: `SideCar: Fork & Compare` in the palette, and `/fork <task>` in chat (chatView.ts + chatWebview.ts + chat.js).
+- **Config (+3):** `sidecar.fork.enabled` (default `true`), `sidecar.fork.defaultCount` (default `3`, clamp 2–10), `sidecar.fork.maxConcurrent` (default `3`, clamp 1–10).
+
+### Changed — Kickstand LoRA adapters + HuggingFace model browser
+
+Shipped mid-release in commit `83b4418` via new `loraAdapters` + `modelBrowser` capabilities on `BackendCapabilities`, wrapping Kickstand's `/api/v1/models/{id}/lora` and `/api/v1/models/browse/{repo}` endpoints. Users can hot-swap fine-tuning adapters on loaded models without reloading (multiple adapters stack with per-adapter scaling), and browse HuggingFace repos directly from the command palette.
+
+Three new palette entries: `SideCar: Kickstand: Load LoRA Adapter`, `SideCar: Kickstand: Unload LoRA Adapter`, `SideCar: Browse & Pull Models`. Follow-up commit `904d2f2` closed the coverage + docs gap the original commit left behind: **+32 tests** taking `kickstandBackend.ts` 66% → 86% stmts and `backendCommands.ts` 33% → 78% stmts, plus `docs/overview.md` + `docs/slash-commands.md` documenting all five Kickstand palette entries.
+
+Agent-tool surface (`kickstand_attach_lora` / `kickstand_detach_lora` / `kickstand_list_loras` tools) deferred to v0.67.1.
+
+### Fixed — errorWatcher.ts coverage (chunk 7)
+
+v0.67's coverage-focus file. The vscode test mock doesn't expose `onDidStartTerminalShellExecution`, so the pre-v0.67 test file only covered `shouldReportFailure` + `stripAnsi` + construction no-op (34.84% stmts). This chunk added a `installShellHarness()` helper that monkey-patches both start + end event emitters, then 8 end-to-end cases covering enabled gating, ignored-terminal filtering, output tail-capping, ANSI stripping, dedup, and dispose-throws being swallowed. Coverage: **34.84% → 95.45% stmts, 100% funcs**.
+
+Also fixed a timing flake in `forkDispatcher.test.ts` elapsedMs assertion (bumped 10ms sleep to 20ms with a 15ms assertion floor). Memory saved under `feedback_timing_tests.md` — no tight elapsed-ms assertions against `setTimeout`, use fake timers or a 25% floor.
+
+### Dropped — Anthropic Batch API folding
+
+v0.67's original refactor beat included "folds deferred Anthropic Batch API for non-interactive workloads as the batching substrate for parallel-fork dispatch." Dropped during chunk 3 planning after an honest audit: the Batches API handles standalone Messages requests asynchronously over ~1 hour processing time with no streaming, which doesn't compose with Fork's multi-turn streaming agent loop. Stays deferred in the Unscheduled section with documented future callers (eval harness, multi-file-edit planner, embedding regeneration).
+
+### Stats
+- 3346 total tests (188 test files)
+- 26 built-in tools, 8 skills
+
 ## [0.66.0] - 2026-04-18
 
 **v0.66.0 — Typed Sub-Agent Facets.** Headline feature is a dispatchable specialist system: pick one or more named facets (general-coder, test-author, security-reviewer, etc.), give them a shared task, and each runs in its own isolated Shadow Workspace with its own tool allowlist and preferred model. Multi-facet batches coalesce their diffs into a single aggregated review flow instead of stacking one quickpick per facet. Includes a typed RPC bus for inter-facet coordination, an injectable disk-loader for project + user facets, and a `sidecar.facets.dispatch` command-palette entry.

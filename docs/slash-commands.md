@@ -312,6 +312,25 @@ Up to 3 agents run concurrently (configurable via `sidecar.bgMaxConcurrent`). Ad
 
 See [Agent Mode — Background agents](agent-mode#background-agents) for details.
 
+## Fork & Parallel Solve *(new in v0.67)*
+
+### `/fork <task>`
+
+Spawns N parallel approaches to the same task. Each fork runs a full agent loop inside its own Shadow Workspace off the current `HEAD`, with bounded concurrency. When every fork settles, the pick-the-winner review opens: a QuickPick lists every reviewable fork, `vscode.diff` shows the chosen fork's patch, and on confirm SideCar applies the winner via `git apply` while discarding the losing forks.
+
+```
+/fork refactor the auth middleware to use async/await
+/fork add input validation to the user-create endpoint
+```
+
+Semantic differs from `/bg` (one background agent, runs autonomously) and Facets (N specialists on different subtasks, multi-select review): Fork runs N attempts at the **same** task, and you pick one winner.
+
+### `SideCar: Fork & Compare` (Command Palette)
+
+Same flow as `/fork <task>` but prompts for the task via an input box rather than reading it from the chat line. Useful when you want to fork without a chat session active.
+
+Configured via `sidecar.fork.enabled` (default `true`), `sidecar.fork.defaultCount` (default `3`, clamp 2–10), `sidecar.fork.maxConcurrent` (default `3`, clamp 1–10).
+
 ## Facets *(new in v0.66)*
 
 ### `SideCar: Facets: Dispatch Specialists` (Command Palette)
