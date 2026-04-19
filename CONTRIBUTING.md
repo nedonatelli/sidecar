@@ -67,6 +67,49 @@ This script:
 
 After running the script, review the CHANGELOG entry and expand it with proper sections (Added, Fixed, etc.) before committing.
 
+## Release checklist
+
+Every version bump is a content change, not just a number change. The bump script handles the mechanical updates (version strings, stat counts, landing-page stats); feature-level documentation sync is manual and must be done **before** tagging. Run through this list in order:
+
+### Content sync (manual — required)
+
+For every feature, config key, command, slash command, or user-visible behavior change shipped in the release, verify each doc is accurate. If the release added a feature to a subsystem the doc covers, update the doc:
+
+| Surface | When to update |
+| --- | --- |
+| `README.md` "Features" section | Any user-visible capability added or meaningfully changed. Add a dated `*(new in vX.Y)*` bullet rather than silently editing an existing one. |
+| `docs/overview.md` | Any headline feature. The overview is the first thing a new user reads — headline features missing from it are invisible. |
+| `docs/slash-commands.md` | Any new `/command` or `SideCar: <Command>` palette entry. |
+| `docs/agent-mode.md` | Any new agent mode, approval tier, dispatch mechanism, or tool surface. |
+| `docs/configuration.md` | Any new `sidecar.*` setting. New config keys without a docs entry are unsupported; list them with defaults, clamp ranges, and a one-line description of what they control. |
+| `docs/extending-sidecar.md` | Any new extension surface (a new way for third parties to add skills, facets, tools, MCP servers, hooks, or SDK contributions). |
+| `docs/hooks-and-tasks.md` | Any change to `sidecar.hooks`, `sidecar.eventHooks`, or `sidecar.scheduledTasks` semantics. |
+| `docs/rag-and-memory.md` | Any retrieval, memory, or context-injection change. |
+| `docs/security-scanning.md` | Any secrets-pattern catalog update, new vulnerability detector, or trust-model change. |
+| `docs/mcp-servers.md` | Any change to MCP transport handling, lifecycle, or tool surface. |
+| `CLAUDE.md` | Any architectural change: new subsystem under `src/`, new major integration point, new config-layer concern. Future AI collaborators read CLAUDE.md before they read any other doc. |
+| `ROADMAP.md` | Flip the shipping release entry to `✅ *shipped YYYY-MM-DD*` format with Features shipped / Refactor beat shipped / Coverage ratchet / Tag lines; list deferrals folded into a new `vX.Y deferrals folded into vX.Z+` block. |
+
+### Sanity check (quick)
+
+Before tagging, run:
+
+```bash
+grep -l "vX.Y\|<headline feature name>" docs/ README.md CLAUDE.md ROADMAP.md
+```
+
+If the headline feature of the release doesn't appear in at least `docs/overview.md`, `README.md`, and the feature's subsystem doc, the release isn't ready to tag.
+
+### Automated checks (CI)
+
+- `npm run check` (compile + lint + test) must pass on main before the release commit.
+- The publish workflow (`.github/workflows/publish.yml`) runs on tag push. Don't push the tag until `npm run check` is green locally.
+- A format drift in a new test file or doc will cause CI's format-check job to fail even if Publish succeeds — run `npx prettier --check 'src/**/*.ts'` locally before committing.
+
+### Why this matters
+
+In v0.66 the Typed Sub-Agent Facets feature shipped without appearing in `docs/overview.md`, `docs/slash-commands.md`, `docs/agent-mode.md`, or `docs/configuration.md` — a user who only reads the docs would have no idea the feature existed. The docs-sync step is the difference between "we shipped" and "users can find it."
+
 ## Building and packaging
 
 ```bash

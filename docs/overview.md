@@ -32,6 +32,7 @@ SideCar is an AI-powered coding assistant for VS Code that operates as an autono
 - MCP (Model Control Protocol) integration for external tools
 - Sub-agent spawning for complex tasks (max 3 levels deep, 15 iterations each)
 - Tool execution with approval modes and security checks
+- **Typed Sub-Agent Facets** *(new in v0.66)* — dispatch named specialists (`general-coder`, `test-author`, `security-reviewer`, `latex-writer`, `signal-processing`, `frontend`, `technical-writer`, `data-engineer`) against a shared task via `SideCar: Facets: Dispatch Specialists`. Each facet runs in its own isolated Shadow Workspace with its own tool allowlist, preferred model, and composed system prompt; multi-facet batches coalesce into a single aggregated review flow instead of stacking per-facet prompts. Typed RPC bus lets facets coordinate. Add project-local facets under `<workspace>/.sidecar/facets/*.md` or user facets via `sidecar.facets.registry`
 
 ### Context Management
 - **Semantic search** — ONNX embeddings (all-MiniLM-L6-v2) for meaning-based file relevance, blended with keyword scoring

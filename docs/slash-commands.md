@@ -311,3 +311,19 @@ Background agents:
 Up to 3 agents run concurrently (configurable via `sidecar.bgMaxConcurrent`). Additional tasks queue automatically. When an agent completes, a summary is posted to the main chat.
 
 See [Agent Mode — Background agents](agent-mode#background-agents) for details.
+
+## Facets *(new in v0.66)*
+
+### `SideCar: Facets: Dispatch Specialists` (Command Palette)
+
+Dispatches one or more named specialists against a shared task. Opens a multi-select QuickPick to choose facets, then prompts for the task.
+
+Built-in facets: `general-coder` · `latex-writer` · `signal-processing` · `frontend` · `test-author` · `technical-writer` · `security-reviewer` · `data-engineer`.
+
+Each facet runs in its own isolated Shadow Workspace with its own tool allowlist, preferred model, and composed system prompt. Multi-facet batches coalesce into a single aggregated review flow at the end — you review all the diffs in one pass instead of getting hit with per-facet prompts mid-run. The review UI detects cross-facet file overlaps (two facets touching the same file gets flagged), opens `vscode.diff` per facet, and applies accepted diffs via `git apply`.
+
+Add project-local facets by dropping markdown files under `<workspace>/.sidecar/facets/*.md` with a YAML frontmatter declaring `id`, `displayName`, optional `preferredModel`, optional `toolAllowlist`, optional `dependsOn`. User-level facets go under paths listed in `sidecar.facets.registry`.
+
+Configured via `sidecar.facets.enabled` (default `true`), `sidecar.facets.maxConcurrent` (default `3`), `sidecar.facets.rpcTimeoutMs` (default `30000`), `sidecar.facets.registry` (default `[]`).
+
+See [Extending SideCar — Facets](extending-sidecar#facets) for the full schema, dispatch model, and trust semantics.

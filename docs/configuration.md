@@ -281,6 +281,19 @@ Optional sandbox for agent tasks. When enabled, the agent runs in an ephemeral g
 
 At task completion, SideCar shows a `showQuickPick` with the diff summary (file count, line count) and an Accept / Reject choice. Accept applies the diff to main as staged changes (so you see them in `git status`). Reject discards the shadow and leaves your main tree untouched. The v0.59 MVP uses an accept-all / reject-all prompt; per-hunk review UI, conflict handling, symlinked build dirs, and `/sandbox <task>` slash command wiring land in v0.60+.
 
+## Typed Sub-Agent Facets (v0.66+)
+
+Dispatchable specialists — `general-coder`, `test-author`, `security-reviewer`, `latex-writer`, `signal-processing`, `frontend`, `technical-writer`, `data-engineer`, plus project + user overrides. See [Agent Mode — Typed Sub-Agent Facets](agent-mode#typed-sub-agent-facets-new-in-v066) and [Extending SideCar — Facets](extending-sidecar#facets) for the dispatch flow and schema.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.facets.enabled` | boolean | `true` | Master toggle for the Facets feature. When `false`, the `SideCar: Facets: Dispatch Specialists` command surfaces a one-line info toast instead of the picker |
+| `sidecar.facets.maxConcurrent` | number | `3` | Maximum facets run in parallel within a topological layer. Clamped 1–16. Higher values accelerate wide batches at the cost of more concurrent Shadow Workspaces |
+| `sidecar.facets.rpcTimeoutMs` | number | `30000` | Milliseconds a facet's `rpc.<peerId>.<method>` call waits before the bus resolves the call as `{ ok: false, errorKind: 'timeout' }`. The bus never rejects — timeouts become typed outcomes the caller handles. Clamped 1000–300000 |
+| `sidecar.facets.registry` | string[] | `[]` | Absolute paths to individual facet markdown files loaded alongside built-ins and `<workspace>/.sidecar/facets/*.md`. Useful for personal or team-shared facets checked into a separate repo |
+
+Built-in facets are embedded in the extension and always available — no disk I/O, no broken-unpack footgun. Disk facets with an `id` matching a built-in override the built-in; duplicate ids across disk sources surface as load errors without aborting the rest of the registry.
+
 ## Debugging & reasoning
 
 | Setting | Type | Default | Description |

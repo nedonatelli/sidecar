@@ -265,6 +265,27 @@ The dashboard shows running, queued, completed, and failed agents with elapsed t
 
 When a background agent completes, a summary is posted to the main chat so you see the result without checking the dashboard.
 
+## Typed Sub-Agent Facets *(new in v0.66)*
+
+Facets are a step up from background agents: named specialists with their own tool allowlist, preferred model, and composed system prompt, dispatched in parallel through the Command Palette. Where `/bg` spawns a generic autonomous agent, `SideCar: Facets: Dispatch Specialists` dispatches a specific *role* — `security-reviewer`, `test-author`, `latex-writer`, etc. — against a task.
+
+Key differences from background agents:
+
+| | `/bg` background agent | Facets |
+| --- | --- | --- |
+| Tool surface | Full agent-loop tool registry | Per-facet allowlist (e.g. `test-author` only gets read + write + run_tests) |
+| Model choice | Global `sidecar.model` | Per-facet `preferredModel` (pinned for the run, restored after) |
+| System prompt | Standard agent prompt | Facet persona composed on top of orchestrator's rules |
+| Review | Per-agent accept/reject inline | Aggregated batch review with cross-facet file-overlap detection |
+| Sandboxing | Optional Shadow Workspace | Forced Shadow Workspace (`forceShadow: true, deferPrompt: true`) |
+| Inter-agent coordination | None | Typed RPC bus (`rpc.<peerId>.<method>` tools generated per-batch) |
+
+Built-in facets: `general-coder` · `latex-writer` · `signal-processing` · `frontend` · `test-author` · `technical-writer` · `security-reviewer` · `data-engineer`. Add project-local facets under `<workspace>/.sidecar/facets/*.md` or user facets via the `sidecar.facets.registry` setting.
+
+Multi-facet batches run with bounded parallelism (`sidecar.facets.maxConcurrent`, default `3`) and respect `dependsOn` edges in the facet registry — a facet with `dependsOn: ["general-coder"]` starts after `general-coder` finishes. Each facet's shadow-captured diff is presented in a single batched review UI instead of firing N separate accept/reject prompts during the run.
+
+See [Extending SideCar — Facets](extending-sidecar#facets) for the schema and [Slash Commands — Facets](slash-commands#facets-new-in-v066) for the dispatch flow.
+
 ## Plan mode
 
 Enable `sidecar.planMode` to have SideCar generate a plan before executing any tools. You review and approve the plan, then SideCar executes it. Useful for complex tasks where you want to validate the approach first.
