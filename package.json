@@ -487,6 +487,25 @@
             "maximum": 50,
             "description": "Cap on how many path-scoped sections can land in one injection. Guards against a wildcard-ish path glob that matches 30 sections."
           },
+          "sidecar.fork.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Enable Fork & Parallel Solve — the /fork command spawns N parallel approaches to the same task, each in its own Shadow Workspace, and presents them side-by-side for comparison."
+          },
+          "sidecar.fork.defaultCount": {
+            "type": "number",
+            "default": 3,
+            "minimum": 2,
+            "maximum": 10,
+            "description": "Default number of forks spawned by /fork when no explicit count is passed. Clamped 2–10; values outside that range degenerate to 'agent loop with no comparison.'"
+          },
+          "sidecar.fork.maxConcurrent": {
+            "type": "number",
+            "default": 3,
+            "minimum": 1,
+            "maximum": 10,
+            "description": "Max forks running in parallel at once. Clamped to [1, numForks] per dispatch. Higher values finish faster at the cost of more concurrent Shadow Workspaces (disk churn) and more concurrent LLM requests (cost + rate limits)."
+          },
           "sidecar.regressionGuards": {
             "type": "array",
             "default": [],

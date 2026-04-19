@@ -110,6 +110,9 @@ export interface SideCarConfig {
   sidecarMdAlwaysIncludeHeadings: string[];
   sidecarMdLowPriorityHeadings: string[];
   sidecarMdMaxScopedSections: number;
+  forkEnabled: boolean;
+  forkDefaultCount: number;
+  forkMaxConcurrent: number;
   criticEnabled: boolean;
   criticModel: string;
   criticBlockOnHighSeverity: boolean;
@@ -312,6 +315,9 @@ function readConfig(): SideCarConfig {
     ]),
     sidecarMdLowPriorityHeadings: cfg.get<string[]>('sidecarMd.lowPriorityHeadings', ['Glossary', 'FAQ', 'Changelog']),
     sidecarMdMaxScopedSections: clampMin(cfg.get<number>('sidecarMd.maxScopedSections', 5), 1, 50),
+    forkEnabled: cfg.get<boolean>('fork.enabled', true),
+    forkDefaultCount: clampMin(cfg.get<number>('fork.defaultCount', 3), 2, 10),
+    forkMaxConcurrent: clampMin(cfg.get<number>('fork.maxConcurrent', 3), 1, 10),
     criticEnabled: cfg.get<boolean>('critic.enabled', false),
     // v0.62.1 p.1a: provider-aware default. An empty `critic.model`
     // historically meant "use the main model," which doubled per-
