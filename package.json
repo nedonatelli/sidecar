@@ -1329,6 +1329,12 @@
         "icon": "$(git-pull-request-create)"
       },
       {
+        "command": "sidecar.ci.analyze",
+        "title": "Analyze CI Failure",
+        "category": "SideCar",
+        "icon": "$(debug-alt)"
+      },
+      {
         "command": "sidecar.generateCommitMessage",
         "title": "Generate Commit Message",
         "category": "SideCar",

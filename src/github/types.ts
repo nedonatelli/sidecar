@@ -150,6 +150,84 @@ export interface RawRepoContent {
   html_url: string;
 }
 
+// --- Workflow Runs (v0.68 chunk 4) ---
+
+export type WorkflowConclusion =
+  | 'success'
+  | 'failure'
+  | 'cancelled'
+  | 'skipped'
+  | 'neutral'
+  | 'timed_out'
+  | 'action_required'
+  | 'startup_failure'
+  | null;
+
+export interface RawWorkflowRun {
+  id: number;
+  name: string | null;
+  display_title: string;
+  status: string;
+  conclusion: WorkflowConclusion;
+  head_branch: string;
+  head_sha: string;
+  html_url: string;
+  created_at: string;
+  updated_at: string;
+  run_number: number;
+  event: string;
+}
+
+export interface WorkflowRun {
+  id: number;
+  name: string;
+  status: string;
+  conclusion: WorkflowConclusion;
+  headBranch: string;
+  headSha: string;
+  url: string;
+  createdAt: string;
+  updatedAt: string;
+  runNumber: number;
+  event: string;
+}
+
+export interface RawWorkflowStep {
+  name: string;
+  status: string;
+  conclusion: WorkflowConclusion;
+  number: number;
+}
+
+export interface RawWorkflowJob {
+  id: number;
+  name: string;
+  status: string;
+  conclusion: WorkflowConclusion;
+  html_url: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  steps?: RawWorkflowStep[];
+}
+
+export interface WorkflowStep {
+  name: string;
+  status: string;
+  conclusion: WorkflowConclusion;
+  number: number;
+}
+
+export interface WorkflowJob {
+  id: number;
+  name: string;
+  status: string;
+  conclusion: WorkflowConclusion;
+  url: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  steps: WorkflowStep[];
+}
+
 // --- Branch Protection (v0.68 chunk 3) ---
 // GitHub's `GET /repos/{owner}/{repo}/branches/{branch}/protection`
 // returns a nested payload where every subsection is optional and

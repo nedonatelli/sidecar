@@ -395,6 +395,166 @@ describe('GitHubAPI methods', () => {
     });
   });
 
+  describe('listWorkflowRuns', () => {
+    it('returns parsed runs from the `workflow_runs` envelope', async () => {
+      mockFetch.mockResolvedValue(
+        mockJsonResponse({
+          workflow_runs: [
+            {
+              id: 999,
+              name: 'CI',
+              display_title: 'feat: thing',
+              status: 'completed',
+              conclusion: 'failure',
+              head_branch: 'feature/x',
+              head_sha: 'abc',
+              html_url: 'https://github.com/o/r/actions/runs/999',
+              created_at: '2026-04-18T10:00:00Z',
+              updated_at: '2026-04-18T10:05:00Z',
+              run_number: 42,
+              event: 'push',
+            },
+          ],
+        }),
+      );
+      const runs = await api.listWorkflowRuns('o', 'r', 'feature/x', 5);
+      expect(runs).toHaveLength(1);
+      expect(runs[0].id).toBe(999);
+      expect(runs[0].name).toBe('CI');
+      expect(runs[0].conclusion).toBe('failure');
+      expect(runs[0].runNumber).toBe(42);
+      const url = mockFetch.mock.calls[0][0] as string;
+      expect(url).toContain('branch=feature%2Fx');
+      expect(url).toContain('per_page=5');
+    });
+
+    it('falls back to display_title when `name` is null', async () => {
+      mockFetch.mockResolvedValue(
+        mockJsonResponse({
+          workflow_runs: [
+            {
+              id: 1,
+              name: null,
+              display_title: 'feat: thing',
+              status: 'completed',
+              conclusion: 'success',
+              head_branch: 'main',
+              head_sha: 'abc',
+              html_url: 'url',
+              created_at: 'c',
+              updated_at: 'u',
+              run_number: 1,
+              event: 'push',
+            },
+          ],
+        }),
+      );
+      const runs = await api.listWorkflowRuns('o', 'r', 'main');
+      expect(runs[0].name).toBe('feat: thing');
+    });
+  });
+
+  describe('listWorkflowJobs', () => {
+    it('returns parsed jobs from the `jobs` envelope with steps', async () => {
+      mockFetch.mockResolvedValue(
+        mockJsonResponse({
+          jobs: [
+            {
+              id: 111,
+              name: 'build',
+              status: 'completed',
+              conclusion: 'failure',
+              html_url: 'url',
+              started_at: 'a',
+              completed_at: 'b',
+              steps: [
+                { name: 'checkout', status: 'completed', conclusion: 'success', number: 1 },
+                { name: 'npm test', status: 'completed', conclusion: 'failure', number: 2 },
+              ],
+            },
+          ],
+        }),
+      );
+      const jobs = await api.listWorkflowJobs('o', 'r', 999);
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0].steps).toHaveLength(2);
+      expect(jobs[0].steps[1].conclusion).toBe('failure');
+    });
+
+    it('defaults steps to [] when the payload omits the field', async () => {
+      mockFetch.mockResolvedValue(
+        mockJsonResponse({
+          jobs: [
+            {
+              id: 1,
+              name: 'j',
+              status: 'completed',
+              conclusion: 'failure',
+              html_url: null,
+              started_at: null,
+              completed_at: null,
+            },
+          ],
+        }),
+      );
+      const jobs = await api.listWorkflowJobs('o', 'r', 1);
+      expect(jobs[0].steps).toEqual([]);
+    });
+  });
+
+  describe('getJobLogs', () => {
+    it('returns the log text on success', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve('raw log body'),
+      });
+      const log = await api.getJobLogs('o', 'r', 111);
+      expect(log).toBe('raw log body');
+    });
+
+    it('returns null when the log is 404 (expired)', async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 404,
+        text: () => Promise.resolve(''),
+      });
+      const log = await api.getJobLogs('o', 'r', 111);
+      expect(log).toBeNull();
+    });
+
+    it('returns null when the log is 410 (gone / deleted)', async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 410,
+        text: () => Promise.resolve(''),
+      });
+      const log = await api.getJobLogs('o', 'r', 111);
+      expect(log).toBeNull();
+    });
+
+    it('throws on non-404 errors', async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 500,
+        text: () => Promise.resolve('server error'),
+      });
+      await expect(api.getJobLogs('o', 'r', 111)).rejects.toThrow(/500/);
+    });
+
+    it('sends auth + accept headers on the log request', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve(''),
+      });
+      await api.getJobLogs('o', 'r', 111);
+      const headers = mockFetch.mock.calls[0][1].headers;
+      expect(headers.Authorization).toBe('Bearer test-token');
+      expect(headers.Accept).toBe('application/vnd.github+json');
+    });
+  });
+
   describe('error handling', () => {
     it('throws on non-OK response', async () => {
       mockFetch.mockResolvedValue({

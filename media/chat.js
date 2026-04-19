@@ -873,6 +873,7 @@
     { cmd: '/review', desc: 'Review current git changes' },
     { cmd: '/pr-summary', desc: 'Generate PR title and summary' },
     { cmd: '/pr', desc: 'Push branch and open a draft pull request' },
+    { cmd: '/ci', desc: 'Analyze the latest failing CI run on this branch' },
     { cmd: '/commit-message', desc: 'Generate and copy a commit message' },
     { cmd: '/memories', desc: 'Browse agent memories' },
     { cmd: '/memory-search', desc: 'Search agent memories' },
@@ -1319,6 +1320,13 @@
     if (text.trim() === '/pr') {
       appendMessage('user', '/pr');
       vscode.postMessage({ command: 'createDraftPR' });
+      input.value = '';
+      input.style.height = 'auto';
+      return;
+    }
+    if (text.trim() === '/ci') {
+      appendMessage('user', '/ci');
+      vscode.postMessage({ command: 'analyzeCi' });
       input.value = '';
       input.style.height = 'auto';
       return;
@@ -3510,6 +3518,18 @@
       // empty-state welcome (see renderEmptyState below). Kept as a no-op
       // case so older extension builds posting this command don't error.
       case 'onboarding':
+        break;
+
+      case 'injectPrompt':
+        // Populate the input with a prompt seeded from the extension
+        // (e.g. the CI-failure "send to agent" flow). Auto-resize the
+        // textarea and focus so the user can review + press Enter.
+        if (typeof content === 'string') {
+          input.value = content;
+          input.style.height = 'auto';
+          input.style.height = Math.min(input.scrollHeight, 300) + 'px';
+          input.focus();
+        }
         break;
 
       case 'assistantMessage':

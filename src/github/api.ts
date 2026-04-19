@@ -9,6 +9,10 @@ import type {
   RawRepoContent,
   RawBranchProtection,
   BranchProtection,
+  RawWorkflowRun,
+  WorkflowRun,
+  RawWorkflowJob,
+  WorkflowJob,
 } from './types.js';
 
 const BASE_URL = 'https://api.github.com';
@@ -248,6 +252,86 @@ export class GitHubAPI {
       if (message.includes('404')) return null;
       throw err;
     }
+  }
+
+  // --- Workflow Runs (v0.68 chunk 4) ---
+
+  private parseWorkflowRun(raw: RawWorkflowRun): WorkflowRun {
+    return {
+      id: raw.id,
+      name: raw.name || raw.display_title || `Run #${raw.run_number}`,
+      status: raw.status,
+      conclusion: raw.conclusion,
+      headBranch: raw.head_branch,
+      headSha: raw.head_sha,
+      url: raw.html_url,
+      createdAt: raw.created_at,
+      updatedAt: raw.updated_at,
+      runNumber: raw.run_number,
+      event: raw.event,
+    };
+  }
+
+  private parseWorkflowJob(raw: RawWorkflowJob): WorkflowJob {
+    return {
+      id: raw.id,
+      name: raw.name,
+      status: raw.status,
+      conclusion: raw.conclusion,
+      url: raw.html_url,
+      startedAt: raw.started_at,
+      completedAt: raw.completed_at,
+      steps: (raw.steps ?? []).map((s) => ({
+        name: s.name,
+        status: s.status,
+        conclusion: s.conclusion,
+        number: s.number,
+      })),
+    };
+  }
+
+  /**
+   * List recent workflow runs for a branch. `perPage` caps the first
+   * page (GitHub default is 30); tests rely on the param being honored
+   * so small fixtures don't have to fabricate 30 runs.
+   */
+  async listWorkflowRuns(owner: string, repo: string, branch: string, perPage: number = 10): Promise<WorkflowRun[]> {
+    const data = await this.request<{ workflow_runs: RawWorkflowRun[] }>(
+      `/repos/${owner}/${repo}/actions/runs?branch=${encodeURIComponent(branch)}&per_page=${perPage}`,
+    );
+    return data.workflow_runs.map((r) => this.parseWorkflowRun(r));
+  }
+
+  async listWorkflowJobs(owner: string, repo: string, runId: number): Promise<WorkflowJob[]> {
+    const data = await this.request<{ jobs: RawWorkflowJob[] }>(
+      `/repos/${owner}/${repo}/actions/runs/${runId}/jobs?per_page=100`,
+    );
+    return data.jobs.map((j) => this.parseWorkflowJob(j));
+  }
+
+  /**
+   * Fetch raw log text for a job. The endpoint returns a redirect to
+   * a signed blob URL; `fetch` follows it transparently. Response is
+   * a plain text body (not JSON), so we route around `request` — its
+   * JSON + JSON-error-body handling would corrupt log content that
+   * happens to look like JSON, and a 404 (expired log) needs to
+   * become `null` rather than a thrown error.
+   */
+  async getJobLogs(owner: string, repo: string, jobId: number): Promise<string | null> {
+    const response = await fetch(`${BASE_URL}/repos/${owner}/${repo}/actions/jobs/${jobId}/logs`, {
+      headers: {
+        Authorization: `Bearer ${this.token}`,
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+      redirect: 'follow',
+    });
+    if (response.status === 404 || response.status === 410) return null;
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`GitHub API error ${response.status}: ${body}`);
+    }
+    return response.text();
   }
 
   async listRepoContents(owner: string, repo: string, repoPath: string = ''): Promise<GitHubRepoFile[]> {

@@ -68,6 +68,7 @@ export interface WebviewMessage {
     | 'reviewChanges'
     | 'prSummary'
     | 'createDraftPR'
+    | 'analyzeCi'
     | 'commitMessage'
     | 'listMemories'
     | 'searchMemories'
@@ -167,7 +168,8 @@ export interface ExtensionMessage {
     | 'steerQueueUpdate'
     | 'editPlanCard'
     | 'editPlanProgress'
-    | 'uiSettings';
+    | 'uiSettings'
+    | 'injectPrompt';
   agentMode?: string;
   toolName?: string;
   toolCallId?: string;

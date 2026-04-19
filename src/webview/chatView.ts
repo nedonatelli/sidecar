@@ -329,6 +329,9 @@ export class ChatViewProvider implements WebviewViewProvider {
     createDraftPR: async () => {
       await commands.executeCommand('sidecar.pr.create');
     },
+    analyzeCi: async () => {
+      await commands.executeCommand('sidecar.ci.analyze');
+    },
     commitMessage: async () => {
       await commands.executeCommand('sidecar.generateCommitMessage');
     },
@@ -752,5 +755,17 @@ export class ChatViewProvider implements WebviewViewProvider {
 
   private postMessage(message: ExtensionMessage): void {
     this.webviewView?.webview.postMessage(message);
+  }
+
+  /**
+   * Seed the chat input with a prefilled prompt — used by flows like
+   * CI Failure Analysis (v0.68 chunk 4) that want to hand the user a
+   * ready-to-send message they can review and submit. The chat view
+   * is brought to focus first so the user lands with the input cursor
+   * active.
+   */
+  public injectPrompt(prompt: string): void {
+    this.webviewView?.show(true);
+    this.postMessage({ command: 'injectPrompt', content: prompt });
   }
 }

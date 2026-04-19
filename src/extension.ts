@@ -45,6 +45,7 @@ import { reviewCurrentChanges } from './review/reviewer.js';
 import { summarizePR } from './review/prSummary.js';
 import { generateCommitMessage } from './review/commitMessage.js';
 import { runDraftPullRequest, type DraftPrConfig, type DraftPrUi } from './review/draftPullRequest.js';
+import { analyzeCiFailure, type AnalyzeCiUi } from './review/analyzeCiFailure.js';
 import { EventHookManager } from './agent/eventHooks.js';
 import { WorkspaceIndex } from './config/workspaceIndex.js';
 import { SidecarDir } from './config/sidecarDir.js';
@@ -730,6 +731,47 @@ export function activate(context: ExtensionContext) {
         async (progress) => {
           progress.report({ message: 'Preparing branch and drafting title + body...' });
           await runDraftPullRequest({ ui, client: createClient(), cwd, config });
+        },
+      );
+    }),
+    commands.registerCommand('sidecar.ci.analyze', async () => {
+      const wsFolder = workspace.workspaceFolders?.[0];
+      if (!wsFolder) {
+        window.showErrorMessage('SideCar: Open a workspace before analyzing CI.');
+        return;
+      }
+      const cwd = wsFolder.uri.fsPath;
+      const ui: AnalyzeCiUi = {
+        showInfo(message) {
+          window.showInformationMessage(message);
+        },
+        showError(message) {
+          window.showErrorMessage(message);
+        },
+        async openPreview(content, title) {
+          const doc = await workspace.openTextDocument({ content, language: 'markdown' });
+          await window.showTextDocument(doc, { preview: true, preserveFocus: true });
+          void title;
+        },
+        async showConfirm(message, options) {
+          return window.showInformationMessage(message, { modal: true }, ...options);
+        },
+        async sendToAgent(prompt) {
+          if (!chatProvider) {
+            throw new Error('SideCar chat view is not initialized yet.');
+          }
+          chatProvider.injectPrompt(prompt);
+        },
+      };
+      await window.withProgress(
+        {
+          location: ProgressLocation.Notification,
+          title: 'SideCar — Analyzing CI failure',
+          cancellable: false,
+        },
+        async (progress) => {
+          progress.report({ message: 'Fetching workflow runs and logs...' });
+          await analyzeCiFailure({ ui, cwd });
         },
       );
     }),
