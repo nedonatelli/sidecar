@@ -34,6 +34,7 @@ import { SideCarClient } from './ollama/client.js';
 import { registerBackendCommands } from './commands/backendCommands.js';
 import { spendTracker, formatUsd } from './ollama/spendTracker.js';
 import { healthStatus, type HealthSnapshot } from './ollama/healthStatus.js';
+import { circuitBreaker } from './ollama/circuitBreaker.js';
 import { dispose as disposeDiagnostics, clearAll as clearSidecarDiagnostics } from './agent/sidecarDiagnostics.js';
 import { ProposedContentProvider } from './edits/proposedContentProvider.js';
 import { AgentLogger } from './agent/logger.js';
@@ -1485,6 +1486,7 @@ export function activate(context: ExtensionContext) {
         cachedModel = newConfig.model;
         cachedBaseUrl = newConfig.baseUrl;
         healthStatus.reset();
+        circuitBreaker.reset();
         renderStatusBar(healthStatus.get());
       }
     }),

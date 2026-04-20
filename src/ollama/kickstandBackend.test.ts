@@ -564,7 +564,7 @@ describe('kickstandLoadModel', () => {
     await kickstandLoadModel('http://localhost:11435', 'q/q');
     const body = JSON.parse(mockFetch.mock.calls[0][1].body as string) as { n_gpu_layers: number; n_ctx: number };
     expect(body.n_gpu_layers).toBe(-1);
-    expect(body.n_ctx).toBe(4096);
+    expect(body.n_ctx).toBe(32768);
   });
 });
 

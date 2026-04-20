@@ -217,6 +217,11 @@ export async function* streamOpenAiSse(
           }
         }
 
+        if ((chunk as unknown as { error?: { message?: string } }).error) {
+          const msg = (chunk as unknown as { error: { message?: string } }).error.message ?? 'Server error';
+          throw new Error(`${providerLabel}: ${msg}`);
+        }
+
         const choice = chunk.choices?.[0];
         if (!choice) continue;
 

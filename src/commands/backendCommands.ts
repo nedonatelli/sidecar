@@ -220,17 +220,23 @@ async function runModelBrowser(client: SideCarClient): Promise<void> {
           files.map((f) => ({
             label: f.filename,
             description: `${formatBytes(f.sizeBytes)}${f.quant ? ` · ${f.quant}` : ''} · ${f.format}`,
+            format: f.format,
           })),
           { placeHolder: 'Select a file to pull' },
         );
         if (!pick) return;
 
-        // Pull the selected file via Kickstand's pull endpoint
+        // Pull the selected file via Kickstand's pull endpoint.
+        // For MLX repos the "filename" is a display sentinel — pass undefined
+        // so Kickstand triggers the full-repo snapshot_download path.
         const { kickstandPullModel, normalizeHfRepo } = await import('../ollama/kickstandBackend.js');
         const { getConfig } = await import('../config/settings.js');
         const baseUrl = getConfig().baseUrl;
+        const isMlx = pick.format === 'mlx';
+        const pullFilename = isMlx ? undefined : pick.label;
+        const progressTitle = isMlx ? `Pulling ${repo} (MLX)…` : `Pulling ${pick.label}…`;
         vscode.window.withProgress(
-          { location: vscode.ProgressLocation.Notification, title: `Pulling ${pick.label}…`, cancellable: true },
+          { location: vscode.ProgressLocation.Notification, title: progressTitle, cancellable: true },
           async (_progress, token) => {
             const abortController = new AbortController();
             token.onCancellationRequested(() => abortController.abort());
@@ -238,7 +244,7 @@ async function runModelBrowser(client: SideCarClient): Promise<void> {
               for await (const event of kickstandPullModel(
                 baseUrl,
                 normalizeHfRepo(repo),
-                pick.label,
+                pullFilename,
                 undefined,
                 abortController.signal,
               )) {
@@ -247,7 +253,8 @@ async function runModelBrowser(client: SideCarClient): Promise<void> {
                   return;
                 }
               }
-              vscode.window.showInformationMessage(`Pulled ${pick.label} from ${repo}.`);
+              const successLabel = isMlx ? repo : pick.label;
+              vscode.window.showInformationMessage(`Pulled ${successLabel} from ${repo}.`);
             } catch (err) {
               if (!token.isCancellationRequested) {
                 const msg = err instanceof Error ? err.message : String(err);

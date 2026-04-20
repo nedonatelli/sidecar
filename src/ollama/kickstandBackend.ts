@@ -531,7 +531,7 @@ export async function kickstandLoadModel(
   const response = await fetch(url, {
     method: 'POST',
     headers: kickstandHeaders(),
-    body: JSON.stringify({ n_gpu_layers: opts.n_gpu_layers ?? -1, n_ctx: opts.n_ctx ?? 4096 }),
+    body: JSON.stringify({ n_gpu_layers: opts.n_gpu_layers ?? -1, n_ctx: opts.n_ctx ?? 32768 }),
   });
   if (!response.ok) {
     const text = await response.text().catch(() => '');
