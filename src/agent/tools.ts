@@ -27,6 +27,7 @@ import { settingsTools } from './tools/settings.js';
 import { kickstandTools } from './tools/kickstand.js';
 import { githubTools } from './tools/github.js';
 import { vizSpecTools } from './tools/vizSpec.js';
+import { pdfTools } from './tools/pdf.js';
 
 // Keep the getDiagnostics re-export working — existing callers import
 // it straight from './tools.js' for post-edit diagnostic refreshes.
@@ -73,6 +74,7 @@ export const TOOL_REGISTRY: RegisteredTool[] = [
   ...kickstandTools,
   ...githubTools,
   ...vizSpecTools,
+  ...pdfTools,
   {
     definition: {
       name: 'ask_user',

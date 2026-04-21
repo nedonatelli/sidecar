@@ -25,10 +25,18 @@ export class SidecarDir {
     'logs',
     'scratchpad',
     'audit-buffer',
+    'literature',
   ] as const;
 
   /** Subdirectories excluded from git. */
-  private static readonly GITIGNORED = ['cache', 'sessions', 'logs', 'scratchpad', 'audit-buffer'] as const;
+  private static readonly GITIGNORED = [
+    'cache',
+    'sessions',
+    'logs',
+    'scratchpad',
+    'audit-buffer',
+    'literature',
+  ] as const;
 
   private static readonly GITIGNORE_CONTENT = [
     '# Ephemeral / machine-specific — do not commit',
@@ -37,6 +45,7 @@ export class SidecarDir {
     'logs/',
     'scratchpad/',
     'audit-buffer/',
+    'literature/',
     'pids.json',
     '',
   ].join('\n');
