@@ -2,7 +2,7 @@
 
 Planned improvements and features for SideCar. Audit findings from v0.34.0 comprehensive review are in the Audit Backlog section. All critical fixes were addressed in v0.35.0.
 
-Last updated: 2026-04-21 (**v0.76.0 current**. v0.76 shipped Database Integration Tier 1: `DatabaseProvider` abstraction + SQLite/Postgres/MySQL/DuckDB drivers + `db_list_connections` / `db_list_tables` / `db_describe_table` / `db_query` tools + sortable result tables + Ollama auto-start + API key prompt suppression for Ollama. v0.75 shipped Literature Synthesis & PDF/Zotero Bridge: `PdfSource` with sliding-window chunker, `ZoteroSource` + `ZoteroClient` for Zotero Web API, `SourceRegistry` abstraction, `read_pdf` / `index_pdf` / `zotero_search` / `zotero_get_item` / `insert_citation` tools, `PdfRetriever` wired into the fusion RAG pipeline. v0.74 shipped `@sidecar/sdk` first-party extension API. v0.73 shipped Auto Mode. v0.72 shipped Adaptive Paste + Next Edit Suggestions + Pinned Memory. v0.71 shipped Live Diagnostic Subscription + Inline Viz Dashboards + Advanced Thinking. v0.70 shipped `@sidecar` Native Chat Participant + Merge Conflict Resolution.)
+Last updated: 2026-04-21 (**v0.79.0 current**. v0.79 shipped Doc-to-Test Synthesis Loop: `extract_constraints` / `synthesize_tests` / `classify_test_failure` tools, `Constraint` type with 6 subtypes, 12th settings category. v0.77 shipped Browser-Agent Live Preview Verification: `screenshot_page` / `analyze_screenshot` / `open_in_browser` / `run_playwright_code` tools, `hasVisionSupport` + `cheapScreenshotChecks` helpers, 11th settings category, playwright-core external dep. v0.76 shipped Database Integration Tier 1: `DatabaseProvider` abstraction + SQLite/Postgres/MySQL/DuckDB drivers + `db_list_connections` / `db_list_tables` / `db_describe_table` / `db_query` tools + sortable result tables + Ollama auto-start + API key prompt suppression for Ollama. v0.75 shipped Literature Synthesis & PDF/Zotero Bridge: `PdfSource` with sliding-window chunker, `ZoteroSource` + `ZoteroClient` for Zotero Web API, `SourceRegistry` abstraction, `read_pdf` / `index_pdf` / `zotero_search` / `zotero_get_item` / `insert_citation` tools, `PdfRetriever` wired into the fusion RAG pipeline. v0.74 shipped `@sidecar/sdk` first-party extension API. v0.73 shipped Auto Mode. v0.72 shipped Adaptive Paste + Next Edit Suggestions + Pinned Memory. v0.71 shipped Live Diagnostic Subscription + Inline Viz Dashboards + Advanced Thinking. v0.70 shipped `@sidecar` Native Chat Participant + Merge Conflict Resolution.)
 
 ---
 
@@ -48,11 +48,9 @@ Each release ships **1–2 features** plus a paired **refactor beat** (code-qual
 - **Coverage focus**: `DatabaseProvider` drivers (SQLite / Postgres / MySQL / DuckDB). Maintain ≥80/70/80/80.
 - **Shipped**: `DatabaseProvider` interface + `assertReadOnly` guard; SQLite (`better-sqlite3`), Postgres (`pg`), MySQL (`mysql2`), DuckDB (`@duckdb/node-api`) drivers; `ConnectionManager` singleton; `db_list_connections` / `db_list_tables` / `db_describe_table` / `db_query` tools; sortable `sidecar-db-result` tables in chat; Ollama auto-start on backend switch; "Set API Key" action suppressed for local Ollama connection errors; delete-model button in the Ollama model picker; `LimitedCache` LRU fix; duplicate "Switch Backend" overflow menu entry removed.
 
-### v0.77 — Visual verification
+### ~~v0.77 — Visual verification~~ ✅ shipped 2026-04-21
 - **Feature**: [Browser-Agent Live Preview Verification (Screenshot-in-the-Loop)](#browser-agent-live-preview-verification-screenshot-in-the-loop)
-- **Refactor beat**: Integration-layer maturity — share the Playwright MCP client between visual-verification and the Browser-Automation integration entry.
-- **Coverage focus**: Playwright tool wrappers + VLM-verdict pipeline. Maintain ≥80/70/80/80.
-- **Acceptance**: `screenshot_page` + `analyze_screenshot` + cheap-deterministic pre-filter loop delivers visual self-correction on a matplotlib FIR plot scenario end-to-end.
+- **Shipped**: `screenshot_page` (Playwright headless Chromium, PNG to `.sidecar/screenshots/`), `analyze_screenshot` (heuristic pre-filter + VLM verdict), `open_in_browser` (Simple Browser / `env.openExternal`), `run_playwright_code` (`alwaysRequireApproval: true`, esbuild transpile, child process). `hasVisionSupport` + `cheapScreenshotChecks` exported helpers. 11th settings category "SideCar: Visual Verification" (6 keys). `playwright-core` added as external devDep.
 
 ### v0.78 — Research Assistant
 - **Feature**: [Research Assistant — Structured Lab Notebook, Experiment Manifests, and Hypothesis Graph](#research-assistant--structured-lab-notebook-experiment-manifests-and-hypothesis-graph)
@@ -60,11 +58,9 @@ Each release ships **1–2 features** plus a paired **refactor beat** (code-qual
 - **Coverage focus**: new research tools + reproducibility harness. Maintain ≥80/70/80/80.
 - **Acceptance**: `/experiment run` reproduces against pinned git SHA + requirements hash; hypothesis graph renders; reviewer-simulation personas ship.
 
-### v0.79 — Doc-to-Test
+### ~~v0.79 — Doc-to-Test~~ ✅ shipped 2026-04-21
 - **Feature**: [Doc-to-Test Synthesis Loop](#doc-to-test-synthesis-loop)
-- **Refactor beat**: Constraint-extraction infrastructure shared with the Literature + Research Assistant layers.
-- **Coverage focus**: constraint extractor + test synthesis templates. Maintain ≥80/70/80/80.
-- **Acceptance**: A source paper's mathematical identities become `pytest` tests that fail when the implementation doesn't satisfy them; Doc/Impl Mismatch review classifies failures and proposes fixes.
+- **Shipped**: `extract_constraints` (`.md`/`.tex`/`.rst`/`.pdf`/text → typed `Constraint[]`, 6 subtypes, PDF via `pdf-parse`), `synthesize_tests` (approved+testable constraints → complete pytest file, per-type patterns), `classify_test_failure` (`impl_wrong`/`doc_wrong`/`extraction_wrong` verdict + proposed fix). `isConstraint` type guard + `parseConstraintsFromLlm` helper exported. 12th settings category "SideCar: Doc-to-Test" (6 keys). Tools always registered (default-enabled).
 
 ### v0.80 — Database integration (writes + migrations)
 - **Feature**: [Database Integration Tier 2](#first-class-database-integration-sql--nosql) — writes routed through Audit Mode + ORM-aware migrations (Prisma / TypeORM / Sequelize / Alembic / Flyway / Knex / Rails)

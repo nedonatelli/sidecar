@@ -113,6 +113,8 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 - **Observability** — `/audit` to browse structured tool execution logs, "Why?" button on tool cards for on-demand decision explanations, `/insights` for conversation pattern analysis with usage trends and suggestions
 - **Smart context selection** — AST-based parsing extracts relevant functions, classes, and imports from JS/TS files instead of including whole files in context
 - **Database Integration** *(new in v0.76)* — connect to SQLite, PostgreSQL, MySQL/MariaDB, and DuckDB databases directly from the agent. Four tools: `db_list_connections` (discover configured profiles), `db_list_tables` (list tables with row counts), `db_describe_table` (columns, types, PK/FK flags, indexes, constraints), `db_query` (parameterized read-only SQL — `assertReadOnly` blocks mutating statements; results render as click-to-sort HTML tables in the chat panel). Connections configured via `sidecar.databases.profiles`; passwords live in VS Code SecretStorage, never in settings.json. Native binaries (`better-sqlite3`, `@duckdb/node-api`) excluded from the bundle and loaded on demand
+- **Visual Verification** *(new in v0.77, opt-in)* — Screenshot-in-the-loop: `screenshot_page` (headless Chromium via playwright-core), `analyze_screenshot` (cheap heuristic pre-filter + VLM vision verdict), `open_in_browser` (VS Code Simple Browser panel), `run_playwright_code` (arbitrary Playwright scripts, always requires approval). Enable via `sidecar.visualVerify.enabled`. Requires a vision-capable model (Claude 3+, GPT-4o, or an Ollama vision model)
+- **Doc-to-Test Synthesis** *(new in v0.79)* — closed loop from reference document to failing test: `extract_constraints` parses `.md`/`.tex`/`.rst`/`.pdf` files into a typed `Constraint[]` manifest (mathematical_identity, numeric_example, boundary_condition, complexity_bound, invariant, qualitative_claim); `synthesize_tests` generates a complete pytest file from approved constraints; `classify_test_failure` triages failures as `impl_wrong` / `doc_wrong` / `extraction_wrong` with a proposed fix
 - **Bounded caches** — workspace file content and AST caches use TTL-based eviction to prevent unbounded memory growth during long sessions
 - **Persistent shell** — `run_command` uses a long-lived shell process; env vars, cwd, and aliases persist between calls. Supports configurable timeouts, background commands, and streaming output
 - **Context pruning** — conversation history is automatically compressed between turns so local models don't choke on accumulated context from prior tool calls
@@ -244,7 +246,7 @@ A second LLM call whose only job is to find reasons the main agent's change is w
 
 **Cost:** each critic call is a full round trip with a 1024-token budget. On Ollama it's free but adds a few seconds per edit; on paid backends it roughly doubles the per-iteration cost unless you use a cheaper critic model.
 
-### Tool Registry (33+ built-in tools + MCP)
+### Tool Registry (44+ built-in tools + MCP)
 | Tool | Description |
 |------|-------------|
 | `read_file` | Read file contents |
@@ -273,6 +275,13 @@ A second LLM call whose only job is to find reasons the main agent's change is w
 | `kickstand_list_loras` *(Kickstand only)* | List LoRA adapters currently attached to a loaded model |
 | `kickstand_attach_lora` *(Kickstand only)* | Attach a LoRA adapter to a loaded model without reloading — requires approval |
 | `kickstand_detach_lora` *(Kickstand only)* | Detach a previously-attached LoRA adapter — requires approval |
+| `screenshot_page` *(new in v0.77, opt-in)* | Capture a URL as a PNG via headless Chromium. Returns the file path |
+| `analyze_screenshot` *(new in v0.77, opt-in)* | Run a heuristic pre-filter + VLM vision verdict against a PNG/JPEG file |
+| `open_in_browser` *(new in v0.77, opt-in)* | Open a URL in VS Code Simple Browser or the system browser |
+| `run_playwright_code` *(new in v0.77, opt-in)* | Execute an arbitrary Playwright TypeScript script — always requires approval |
+| `extract_constraints` *(new in v0.79)* | Parse a reference doc into a typed Constraint[] manifest with provenance |
+| `synthesize_tests` *(new in v0.79)* | Generate a complete pytest file from approved constraints |
+| `classify_test_failure` *(new in v0.79)* | Triage a failing test as impl_wrong / doc_wrong / extraction_wrong |
 
 ### Project Instructions (SIDECAR.md)
 Run `/init` in the chat to auto-generate a `.sidecar/SIDECAR.md` file from your codebase. SideCar scans config files, the file tree, and sample source files (prioritizing entry points) to produce a structured project overview. It also reads `CLAUDE.md` and `AGENTS.md` if they exist.

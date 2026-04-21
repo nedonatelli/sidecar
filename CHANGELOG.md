@@ -4,6 +4,36 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.79.0] - 2026-04-21
+
+**v0.79.0 — Doc-to-Test Synthesis Loop.**
+
+Three new agent tools form a closed extraction→synthesis→triage loop: the agent reads a reference document, extracts verifiable constraints, synthesizes a pytest test file from approved constraints, and classifies any test failures back to their root cause.
+
+### Added
+
+- **`extract_constraints` tool** (`src/agent/tools/docTests.ts`) — parses `.md`, `.tex`, `.rst`, `.pdf`, or any text file into a typed `Constraint[]` manifest. Each constraint has: `id`, `type` (`mathematical_identity` | `numeric_example` | `boundary_condition` | `complexity_bound` | `invariant` | `qualitative_claim`), `statement`, `source` (quoted provenance string), optional `equation` (LaTeX), `testable` flag, and `confidence` score. PDFs read via `pdf-parse` (lazy-loaded, up to 12 000 chars); text files up to 16 000 chars. Returns `{ constraints, docSlug, truncated }` as JSON
+- **`synthesize_tests` tool** — filters to `approved !== false && testable` constraints and generates a complete pytest file. Per-type patterns: `@pytest.mark.parametrize` for `mathematical_identity`; `pytest.approx(value, rel=FLOAT_TOL)` for `numeric_example`; edge-case tests for `boundary_condition`; benchmark stubs for `complexity_bound`; assert-on-call for `invariant`. Returns Python source as a string — agent writes via `write_file` (Shadow Workspace compatible)
+- **`classify_test_failure` tool** — accepts pytest output + source `Constraint` JSON + optional impl snippet. Returns `{ verdict: 'impl_wrong' | 'doc_wrong' | 'extraction_wrong', reasoning, proposed_fix }`
+- **Settings**: 12th config category "SideCar: Doc-to-Test" — `sidecar.docTests.enabled` (default `true`), `sidecar.docTests.testFramework` (`"pytest"`), `sidecar.docTests.outputDir` (`"tests/from_docs"`), `sidecar.docTests.floatTolerance` (`1e-9`), `sidecar.docTests.extractionModel`, `sidecar.docTests.requireConstraintApproval` (default `true`)
+
+## [0.77.0] - 2026-04-21
+
+**v0.77.0 — Browser-Agent Live Preview Verification (Screenshot-in-the-Loop).**
+
+Four new visual verification tools let the agent capture and analyze screenshots of running web UIs.
+
+### Added
+
+- **`screenshot_page` tool** (`src/agent/tools/vision.ts`) — captures a URL as PNG via Playwright headless Chromium (`playwright-core`, external dep excluded from bundle). Saves to `.sidecar/screenshots/`. Supports `selector`, `wait_for` (`load` / `networkidle` / `domcontentloaded` / `selector:<css>` / ms delay), `viewport`
+- **`analyze_screenshot` tool** — cheap heuristic pre-filter (blank < 2 KB; PNG homogeneous header) + VLM vision verdict. Returns `{ pass: boolean, issues: string[] }`
+- **`open_in_browser` tool** — opens a URL in VS Code Simple Browser with `env.openExternal` fallback
+- **`run_playwright_code` tool** — executes arbitrary Playwright TypeScript in a child process. `alwaysRequireApproval: true`; workspace-trust gated; TypeScript transpiled via esbuild `transform`
+- **`hasVisionSupport(model)`** — exported pure helper detecting Claude 3+, GPT-4o, llava/bakllava/moondream/minicpm-v
+- **`cheapScreenshotChecks(imagePath)`** — exported deterministic pre-filter (no VLM)
+- **Settings**: 11th config category "SideCar: Visual Verification" — `sidecar.visualVerify.enabled` (default `false`), `.vlm`, `.screenshotsDir`, `.maxAttempts`, `.mode` (`strict`/`warn`/`advisory`), `.cheapChecksOnly`
+- **`.sidecar/screenshots/`** added to `.gitignore`; `--external:playwright-core` added to esbuild bundle script
+
 ## [0.76.0] - 2026-04-21
 
 **v0.76.0 — Database Integration (Tier 1: read-only query & introspection).**
