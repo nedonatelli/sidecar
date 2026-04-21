@@ -11,17 +11,68 @@
  * in isolation from the file system.
  */
 
+/**
+ * Per-item sentinel overrides (v0.73.2).
+ * Sentinels are `@key:value` tokens embedded in the task text.
+ * Example: `- [ ] Refactor auth @model:claude-opus-4-7 @shadowMode:always`
+ */
+export interface ItemSentinels {
+  /** Override the active model for this task only. */
+  model?: string;
+  /** Force or suppress Shadow Workspace for this task. */
+  shadowMode?: 'off' | 'opt-in' | 'always';
+  /** Run specific named facets for this task instead of the default agent loop. */
+  facets?: string[];
+}
+
 export interface BacklogItem {
   /** 0-based index of the line in the source file */
   lineIndex: number;
-  /** The task text, stripped of the `- [ ] ` prefix */
+  /** The task text, stripped of the `- [ ] ` prefix AND sentinel annotations */
   text: string;
   /** true = `- [x]` (done), false = `- [ ]` (pending) */
   done: boolean;
+  /** Parsed sentinel overrides found on this item (empty object if none) */
+  sentinels: ItemSentinels;
 }
 
 /** Pattern that matches `- [ ] text` or `- [x] text` (case-insensitive x) */
 const ITEM_RE = /^(\s*)-\s+\[( |x)\]\s+(.*)/i;
+
+/** Pattern for `@key:value` sentinel tokens */
+const SENTINEL_RE = /@(model|shadowMode|facets):([^\s@]+)/g;
+
+/**
+ * Parse sentinel annotations from raw item text.
+ * Returns an empty object when no sentinels are present.
+ */
+export function parseItemSentinels(rawText: string): ItemSentinels {
+  const sentinels: ItemSentinels = {};
+  SENTINEL_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = SENTINEL_RE.exec(rawText)) !== null) {
+    const [, key, value] = m;
+    if (key === 'model') {
+      sentinels.model = value;
+    } else if (key === 'shadowMode' && (value === 'off' || value === 'opt-in' || value === 'always')) {
+      sentinels.shadowMode = value as ItemSentinels['shadowMode'];
+    } else if (key === 'facets') {
+      sentinels.facets = value.split(',').filter(Boolean);
+    }
+  }
+  return sentinels;
+}
+
+/**
+ * Remove all `@key:value` sentinel tokens from text, returning the clean
+ * prompt text that is sent to the agent.
+ */
+export function stripSentinels(rawText: string): string {
+  return rawText
+    .replace(/@(model|shadowMode|facets):[^\s@]+/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
 
 /**
  * Parse the raw content of a backlog.md file into a list of `BacklogItem`s.
@@ -33,10 +84,12 @@ export function parseBacklog(content: string): BacklogItem[] {
   for (let i = 0; i < lines.length; i++) {
     const m = ITEM_RE.exec(lines[i]);
     if (!m) continue;
+    const rawText = m[3].trim();
     items.push({
       lineIndex: i,
-      text: m[3].trim(),
+      text: stripSentinels(rawText),
       done: m[2].toLowerCase() === 'x',
+      sentinels: parseItemSentinels(rawText),
     });
   }
   return items;

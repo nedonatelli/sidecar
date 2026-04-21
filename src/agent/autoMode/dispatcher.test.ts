@@ -23,8 +23,10 @@ const readFile = vi.mocked(fsMod.readFile);
 const writeFile = vi.mocked(fsMod.writeFile);
 const runAgentLoopInSandbox = vi.mocked(sandboxMod.runAgentLoopInSandbox);
 
-function makeClient(): SideCarClient {
-  return {} as SideCarClient;
+function makeClient(): SideCarClient & { setTurnOverride: ReturnType<typeof vi.fn> } {
+  return { setTurnOverride: vi.fn() } as unknown as SideCarClient & {
+    setTurnOverride: ReturnType<typeof vi.fn>;
+  };
 }
 
 function makeCallbacks(): AutoModeCallbacks {
@@ -209,5 +211,68 @@ describe('runAutoMode — error handling', () => {
     expect(result.stoppedReason).toBe('halted-on-failure');
     expect(result.tasksFailed).toBe(1);
     expect(result.tasksSucceeded).toBe(0);
+  });
+});
+
+describe('runAutoMode — per-item sentinels', () => {
+  it('calls setTurnOverride with model before task and restores null after', async () => {
+    const backlogWithModel = '- [ ] Refactor auth @model:claude-opus-4-7\n';
+    readFile
+      .mockReset()
+      .mockResolvedValueOnce(backlogWithModel as never) // pick item
+      .mockResolvedValueOnce(backlogWithModel as never) // re-read for markItemDone
+      .mockResolvedValueOnce('- [x] Refactor auth @model:claude-opus-4-7\n' as never); // all done
+
+    const client = makeClient();
+    await runAutoMode(client, BASE_OPTS, makeAgentCallbacks(), makeCallbacks());
+
+    expect(client.setTurnOverride).toHaveBeenCalledWith('claude-opus-4-7');
+    expect(client.setTurnOverride).toHaveBeenLastCalledWith(null);
+  });
+
+  it('passes forceShadow:true when @shadowMode:always', async () => {
+    const backlog = '- [ ] Task @shadowMode:always\n';
+    readFile
+      .mockReset()
+      .mockResolvedValueOnce(backlog as never)
+      .mockResolvedValueOnce(backlog as never)
+      .mockResolvedValueOnce('- [x] Task @shadowMode:always\n' as never);
+    runAgentLoopInSandbox.mockReset().mockResolvedValue({ mode: 'direct', applied: true } as never);
+
+    await runAutoMode(makeClient(), BASE_OPTS, makeAgentCallbacks(), makeCallbacks());
+
+    expect(runAgentLoopInSandbox).toHaveBeenCalledOnce();
+    const [, , , , , sandboxOpts] = vi.mocked(runAgentLoopInSandbox).mock.calls[0];
+    expect(sandboxOpts).toMatchObject({ forceShadow: true, suppressShadow: false });
+  });
+
+  it('passes suppressShadow:true when @shadowMode:off', async () => {
+    const backlog = '- [ ] Task @shadowMode:off\n';
+    readFile
+      .mockReset()
+      .mockResolvedValueOnce(backlog as never)
+      .mockResolvedValueOnce(backlog as never)
+      .mockResolvedValueOnce('- [x] Task @shadowMode:off\n' as never);
+    runAgentLoopInSandbox.mockReset().mockResolvedValue({ mode: 'direct', applied: true } as never);
+
+    await runAutoMode(makeClient(), BASE_OPTS, makeAgentCallbacks(), makeCallbacks());
+
+    const [, , , , , sandboxOpts] = vi.mocked(runAgentLoopInSandbox).mock.calls[0];
+    expect(sandboxOpts).toMatchObject({ forceShadow: false, suppressShadow: true });
+  });
+
+  it('strips sentinels from the task prompt', async () => {
+    const backlog = '- [ ] Write tests @model:qwen3:14b\n';
+    readFile
+      .mockReset()
+      .mockResolvedValueOnce(backlog as never)
+      .mockResolvedValueOnce(backlog as never)
+      .mockResolvedValueOnce('- [x] Write tests @model:qwen3:14b\n' as never);
+
+    await runAutoMode(makeClient(), BASE_OPTS, makeAgentCallbacks(), makeCallbacks());
+
+    const [, messages] = vi.mocked(runAgentLoopInSandbox).mock.calls[0];
+    expect(messages[0].content).toContain('Write tests');
+    expect(messages[0].content).not.toContain('@model:');
   });
 });

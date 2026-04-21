@@ -64,12 +64,13 @@ export async function runAgentLoopInSandbox(
   callbacks: AgentCallbacks,
   signal: AbortSignal,
   options: AgentOptions = {},
-  sandboxOptions: { forceShadow?: boolean; deferPrompt?: boolean } = {},
+  sandboxOptions: { forceShadow?: boolean; deferPrompt?: boolean; suppressShadow?: boolean } = {},
 ): Promise<SandboxResult> {
   const cfg = getConfig();
   const shouldSandbox =
-    cfg.shadowWorkspaceMode === 'always' ||
-    (cfg.shadowWorkspaceMode === 'opt-in' && sandboxOptions.forceShadow === true);
+    !sandboxOptions.suppressShadow &&
+    (cfg.shadowWorkspaceMode === 'always' ||
+      (cfg.shadowWorkspaceMode === 'opt-in' && sandboxOptions.forceShadow === true));
 
   if (!shouldSandbox) {
     await runAgentLoop(client, messages, callbacks, signal, options);

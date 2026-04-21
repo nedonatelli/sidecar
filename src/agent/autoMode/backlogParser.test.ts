@@ -6,6 +6,8 @@ import {
   markItemPending,
   backlogStats,
   appendItem,
+  parseItemSentinels,
+  stripSentinels,
 } from './backlogParser.js';
 
 const SAMPLE = `# My Backlog
@@ -155,5 +157,68 @@ describe('appendItem', () => {
     const content = '- [ ] Existing';
     const updated = appendItem(content, 'New task');
     expect(updated).toBe('- [ ] Existing\n- [ ] New task\n');
+  });
+});
+
+describe('parseItemSentinels', () => {
+  it('parses @model: sentinel', () => {
+    const s = parseItemSentinels('Refactor auth @model:claude-opus-4-7');
+    expect(s.model).toBe('claude-opus-4-7');
+  });
+
+  it('parses @shadowMode: sentinel with valid values', () => {
+    expect(parseItemSentinels('Task @shadowMode:always').shadowMode).toBe('always');
+    expect(parseItemSentinels('Task @shadowMode:off').shadowMode).toBe('off');
+    expect(parseItemSentinels('Task @shadowMode:opt-in').shadowMode).toBe('opt-in');
+  });
+
+  it('ignores @shadowMode: with unknown values', () => {
+    expect(parseItemSentinels('Task @shadowMode:unknown').shadowMode).toBeUndefined();
+  });
+
+  it('parses @facets: as a comma-separated list', () => {
+    const s = parseItemSentinels('Task @facets:security,reviewer');
+    expect(s.facets).toEqual(['security', 'reviewer']);
+  });
+
+  it('parses multiple sentinels on one item', () => {
+    const s = parseItemSentinels('Task @model:qwen3:14b @shadowMode:always @facets:docs');
+    expect(s.model).toBe('qwen3:14b');
+    expect(s.shadowMode).toBe('always');
+    expect(s.facets).toEqual(['docs']);
+  });
+
+  it('returns empty object when no sentinels present', () => {
+    expect(parseItemSentinels('Plain task text')).toEqual({});
+  });
+});
+
+describe('stripSentinels', () => {
+  it('removes sentinel tokens from text', () => {
+    expect(stripSentinels('Refactor auth @model:claude-opus-4-7')).toBe('Refactor auth');
+  });
+
+  it('removes multiple sentinels and normalises whitespace', () => {
+    expect(stripSentinels('Task @model:x @shadowMode:always @facets:a,b')).toBe('Task');
+  });
+
+  it('leaves plain text unchanged', () => {
+    expect(stripSentinels('Write unit tests')).toBe('Write unit tests');
+  });
+});
+
+describe('parseBacklog — sentinel integration', () => {
+  it('strips sentinels from item.text and populates item.sentinels', () => {
+    const content = '- [ ] Refactor auth @model:qwen3:14b @shadowMode:always\n';
+    const [item] = parseBacklog(content);
+    expect(item.text).toBe('Refactor auth');
+    expect(item.sentinels.model).toBe('qwen3:14b');
+    expect(item.sentinels.shadowMode).toBe('always');
+  });
+
+  it('populates empty sentinels object for plain items', () => {
+    const content = '- [ ] Write tests\n';
+    const [item] = parseBacklog(content);
+    expect(item.sentinels).toEqual({});
   });
 });

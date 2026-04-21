@@ -98,19 +98,35 @@ export async function runAutoMode(
     callbacks.onTaskStart(item, taskN, totalPending);
     tasksAttempted++;
 
+    // --- Apply per-item sentinel overrides ---
+    const { sentinels } = item;
+    if (sentinels.model) {
+      client.setTurnOverride(sentinels.model);
+    }
+
     // --- Run the agent loop ---
     const taskPrompt = buildTaskPrompt(item.text);
     const messages = [{ role: 'user' as const, content: taskPrompt }];
 
     const config = getConfig();
     try {
-      await runAgentLoopInSandbox(client, messages, agentCallbacks, signal, {
-        approvalMode: 'autonomous',
-        maxIterations: config.agentMaxIterations,
-        maxTokens: config.agentMaxTokens,
-        ...(options.mcpManager ? { mcpManager: options.mcpManager } : {}),
-        ...(options.logger ? { logger: options.logger } : {}),
-      });
+      await runAgentLoopInSandbox(
+        client,
+        messages,
+        agentCallbacks,
+        signal,
+        {
+          approvalMode: 'autonomous',
+          maxIterations: config.agentMaxIterations,
+          maxTokens: config.agentMaxTokens,
+          ...(options.mcpManager ? { mcpManager: options.mcpManager } : {}),
+          ...(options.logger ? { logger: options.logger } : {}),
+        },
+        {
+          forceShadow: sentinels.shadowMode === 'always',
+          suppressShadow: sentinels.shadowMode === 'off',
+        },
+      );
 
       // Mark done on success
       const fresh = await fs.readFile(options.backlogPath, 'utf8');
@@ -123,6 +139,11 @@ export async function runAutoMode(
       callbacks.onTaskError(item, err);
       if (options.haltOnFailure) {
         return finish('halted-on-failure');
+      }
+    } finally {
+      // Restore model override after every task (success or failure)
+      if (sentinels.model) {
+        client.setTurnOverride(null);
       }
     }
 
