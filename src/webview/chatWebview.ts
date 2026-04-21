@@ -81,6 +81,7 @@ export interface WebviewMessage {
     | 'steerCancel'
     | 'steerEdit'
     | 'resume'
+    | 'stopAutoMode'
     | 'executeExtensionCommand';
   images?: { mediaType: string; data: string }[];
   text?: string;
@@ -173,7 +174,9 @@ export interface ExtensionMessage {
     | 'editPlanCard'
     | 'editPlanProgress'
     | 'uiSettings'
-    | 'injectPrompt';
+    | 'injectPrompt'
+    | 'autoModeTaskUpdate'
+    | 'autoModeDone';
   agentMode?: string;
   toolName?: string;
   toolCallId?: string;
@@ -287,6 +290,20 @@ export interface ExtensionMessage {
     path: string;
     status: 'pending' | 'writing' | 'done' | 'failed' | 'aborted';
     errorMessage?: string;
+  };
+  /** Auto Mode task progress (v0.73.1). Fires on each task state change. */
+  autoModeTask?: {
+    taskN: number;
+    total: number;
+    text: string;
+    status: 'running' | 'done' | 'error';
+    errorMessage?: string;
+  };
+  /** Auto Mode session result (v0.73.1). Fires when the session ends. */
+  autoModeResult?: {
+    stoppedReason: string;
+    tasksSucceeded: number;
+    tasksFailed: number;
   };
 }
 
@@ -439,6 +456,7 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
   <div id="slash-autocomplete" class="hidden" role="listbox" aria-label="Slash commands"></div>
   <div id="resume-strip" class="hidden" role="region" aria-label="Resume available"></div>
   <div id="steer-queue-strip" class="hidden" role="region" aria-label="Queued steers"></div>
+  <div id="auto-mode-strip" class="hidden" role="region" aria-label="Auto Mode progress"></div>
   <div id="input-area">
     <button id="attach-btn" data-tooltip="Attach file" aria-label="Attach file">&#128206;</button>
     <textarea id="input" rows="1" placeholder="Ask SideCar..."></textarea>

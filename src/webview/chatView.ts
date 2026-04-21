@@ -562,6 +562,7 @@ export class ChatViewProvider implements WebviewViewProvider {
     steerEnqueue: (msg) => this.handleSteerEnqueue(msg.text || '', msg.steerUrgency),
     steerCancel: (msg) => this.handleSteerCancel(msg.steerId || ''),
     steerEdit: (msg) => this.handleSteerEdit(msg.steerId || '', msg.text || ''),
+    stopAutoMode: () => void commands.executeCommand('sidecar.stopAutoMode'),
   };
 
   private handleSteerEnqueue(text: string, urgency: 'nudge' | 'interrupt' | undefined): void {

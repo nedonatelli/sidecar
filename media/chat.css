@@ -1122,6 +1122,136 @@ body {
   opacity: 1;
 }
 
+/* Auto Mode strip (v0.73.1). Sits above the input area and shows live
+   session progress while Auto Mode is running, then auto-dismisses. */
+#auto-mode-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 12px;
+  background: var(--vscode-editor-background);
+  border-top: 1px solid var(--vscode-widget-border);
+  font-size: 12px;
+}
+
+#auto-mode-strip.hidden {
+  display: none;
+}
+
+.am-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.am-icon {
+  flex-shrink: 0;
+  font-style: normal;
+}
+
+.am-icon-running {
+  animation: am-spin 1.2s linear infinite;
+  display: inline-block;
+  color: var(--vscode-charts-blue, #3794ff);
+}
+
+.am-icon-done {
+  color: var(--vscode-charts-green, #4ec9b0);
+}
+
+@keyframes am-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.am-label {
+  font-weight: 600;
+  color: var(--vscode-foreground);
+}
+
+.am-progress {
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+}
+
+.am-stop-btn {
+  margin-left: auto;
+  padding: 2px 10px;
+  background: transparent;
+  color: var(--vscode-errorForeground, #f14c4c);
+  border: 1px solid var(--vscode-errorForeground, #f14c4c);
+  border-radius: 3px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.am-stop-btn:hover {
+  background: var(--vscode-inputValidation-errorBackground, rgba(241, 76, 76, 0.12));
+}
+
+.am-dismiss-btn {
+  margin-left: auto;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  background: transparent;
+  color: var(--vscode-foreground);
+  border: 1px solid transparent;
+  border-radius: 3px;
+  cursor: pointer;
+  opacity: 0.6;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.am-dismiss-btn:hover {
+  background: var(--vscode-toolbar-hoverBackground);
+  opacity: 1;
+}
+
+.am-current-task {
+  color: var(--vscode-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-left: 20px;
+}
+
+.am-history-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 20px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.am-glyph {
+  flex-shrink: 0;
+  font-size: 10px;
+}
+
+.am-status-done .am-glyph {
+  color: var(--vscode-charts-green, #4ec9b0);
+}
+
+.am-status-error .am-glyph {
+  color: var(--vscode-errorForeground, #f14c4c);
+}
+
+.am-history-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Planned Edits card (v0.65 chunk 4.4a). Sits inline in the chat
    transcript right before the multi-file write batch executes. */
 .edit-plan-card {

@@ -28,6 +28,7 @@
   const customModelUse = document.getElementById('custom-model-use');
   const steerStrip = document.getElementById('steer-queue-strip');
   const resumeStrip = document.getElementById('resume-strip');
+  const autoModeStrip = document.getElementById('auto-mode-strip');
 
   // Steer-queue state (v0.65). `steerEnabled` tracks whether a run is
   // live (strip shows pending items). Items are rendered directly from
@@ -35,6 +36,11 @@
   let steerEnabled = false;
   let steerItems = [];
   let editingSteerId = null;
+
+  // Auto Mode strip state (v0.73.1). Tracks current session progress.
+  let autoModeHistory = []; // {text, status, errorMessage?}[]
+  let autoModeCurrent = null; // {taskN, total, text} | null
+  let autoModeDismissTimer = null;
 
   // Resume-available state (v0.65 chunk 7b). Set when the stream fails
   // mid-turn; cleared when a `done` arrives after a successful resume.
@@ -1587,6 +1593,91 @@
     }
     steerStrip.innerHTML = '';
     steerStrip.appendChild(frag);
+  }
+
+  function renderAutoModeStrip() {
+    if (!autoModeStrip) return;
+    if (!autoModeCurrent && autoModeHistory.length === 0) {
+      autoModeStrip.classList.add('hidden');
+      autoModeStrip.innerHTML = '';
+      return;
+    }
+    autoModeStrip.classList.remove('hidden');
+    const frag = document.createDocumentFragment();
+
+    // Header row: spinner/done icon + label + progress + stop button
+    const header = document.createElement('div');
+    header.className = 'am-header';
+
+    const icon = document.createElement('span');
+    icon.className = autoModeCurrent ? 'am-icon am-icon-running' : 'am-icon am-icon-done';
+    icon.textContent = autoModeCurrent ? '⟳' : '✓';
+    header.appendChild(icon);
+
+    const label = document.createElement('span');
+    label.className = 'am-label';
+    label.textContent = 'Auto Mode';
+    header.appendChild(label);
+
+    if (autoModeCurrent) {
+      const progress = document.createElement('span');
+      progress.className = 'am-progress';
+      progress.textContent = `task ${autoModeCurrent.taskN}/${autoModeCurrent.total}`;
+      header.appendChild(progress);
+
+      const stopBtn = document.createElement('button');
+      stopBtn.className = 'am-stop-btn';
+      stopBtn.textContent = 'Stop';
+      stopBtn.title = 'Stop Auto Mode';
+      stopBtn.addEventListener('click', () => {
+        vscode.postMessage({ command: 'stopAutoMode' });
+      });
+      header.appendChild(stopBtn);
+    } else {
+      const dismissBtn = document.createElement('button');
+      dismissBtn.className = 'am-dismiss-btn';
+      dismissBtn.textContent = '✕';
+      dismissBtn.title = 'Dismiss';
+      dismissBtn.addEventListener('click', () => {
+        autoModeHistory = [];
+        autoModeCurrent = null;
+        renderAutoModeStrip();
+      });
+      header.appendChild(dismissBtn);
+    }
+
+    frag.appendChild(header);
+
+    // Current task (if running)
+    if (autoModeCurrent) {
+      const current = document.createElement('div');
+      current.className = 'am-current-task';
+      current.textContent = autoModeCurrent.text;
+      frag.appendChild(current);
+    }
+
+    // History list (last 5, newest first)
+    const recent = autoModeHistory.slice(-5).reverse();
+    for (const entry of recent) {
+      const row = document.createElement('div');
+      row.className = 'am-history-row am-status-' + entry.status;
+
+      const glyph = document.createElement('span');
+      glyph.className = 'am-glyph';
+      glyph.textContent = entry.status === 'done' ? '✓' : '✗';
+      row.appendChild(glyph);
+
+      const text = document.createElement('span');
+      text.className = 'am-history-text';
+      text.textContent = entry.text;
+      if (entry.errorMessage) text.title = entry.errorMessage;
+      row.appendChild(text);
+
+      frag.appendChild(row);
+    }
+
+    autoModeStrip.innerHTML = '';
+    autoModeStrip.appendChild(frag);
   }
 
   function enqueueSteerFromInput(urgency) {
@@ -3937,6 +4028,46 @@
       case 'bgList': {
         bgAgentRuns = event.data.bgRuns || [];
         renderBgAgentPanel();
+        break;
+      }
+
+      case 'autoModeTaskUpdate': {
+        const t = event.data.autoModeTask;
+        if (!t) break;
+        if (t.status === 'running') {
+          autoModeCurrent = { taskN: t.taskN, total: t.total, text: t.text };
+        } else {
+          // Task finished — move to history, clear current if same text
+          autoModeHistory.push({ text: t.text, status: t.status, errorMessage: t.errorMessage });
+          if (autoModeCurrent && autoModeCurrent.text === t.text) autoModeCurrent = null;
+        }
+        if (autoModeDismissTimer) {
+          clearTimeout(autoModeDismissTimer);
+          autoModeDismissTimer = null;
+        }
+        renderAutoModeStrip();
+        break;
+      }
+
+      case 'autoModeDone': {
+        const r = event.data.autoModeResult;
+        autoModeCurrent = null;
+        // Append a summary entry to history
+        if (r) {
+          const label =
+            r.stoppedReason === 'completed'
+              ? `Session complete — ${r.tasksSucceeded} done`
+              : `Session stopped (${r.stoppedReason}) — ${r.tasksSucceeded} done, ${r.tasksFailed} failed`;
+          autoModeHistory.push({ text: label, status: 'done' });
+        }
+        renderAutoModeStrip();
+        // Auto-dismiss after 8 s if user hasn't interacted
+        autoModeDismissTimer = setTimeout(() => {
+          autoModeHistory = [];
+          autoModeCurrent = null;
+          autoModeDismissTimer = null;
+          renderAutoModeStrip();
+        }, 8000);
         break;
       }
 

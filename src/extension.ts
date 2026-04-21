@@ -1266,24 +1266,40 @@ export function activate(context: ExtensionContext) {
         {
           onTaskStart: (item, n, total) => {
             autoModeStatusBar.show(n, total);
-            void window.showInformationMessage(`SideCar Auto Mode: starting task ${n}/${total} — ${item.text}`);
+            chatProvider?.notify({
+              command: 'autoModeTaskUpdate',
+              autoModeTask: { taskN: n, total, text: item.text, status: 'running' },
+            });
           },
           onTaskDone: (item, n, total) => {
-            console.log(`[SideCar] Auto Mode task ${n}/${total} done: ${item.text}`);
+            chatProvider?.notify({
+              command: 'autoModeTaskUpdate',
+              autoModeTask: { taskN: n, total, text: item.text, status: 'done' },
+            });
           },
           onTaskError: (item, err) => {
-            void window.showWarningMessage(
-              `SideCar Auto Mode: task failed — ${item.text}: ${err instanceof Error ? err.message : String(err)}`,
-            );
+            chatProvider?.notify({
+              command: 'autoModeTaskUpdate',
+              autoModeTask: {
+                taskN: 0,
+                total: 0,
+                text: item.text,
+                status: 'error',
+                errorMessage: err instanceof Error ? err.message : String(err),
+              },
+            });
           },
           onSessionEnd: (result) => {
             autoModeAbortController = null;
             autoModeStatusBar.hide();
-            const msg =
-              result.stoppedReason === 'completed'
-                ? `SideCar Auto Mode complete — ${result.tasksSucceeded} task(s) done.`
-                : `SideCar Auto Mode stopped (${result.stoppedReason}) — ${result.tasksSucceeded} done, ${result.tasksFailed} failed.`;
-            void window.showInformationMessage(msg);
+            chatProvider?.notify({
+              command: 'autoModeDone',
+              autoModeResult: {
+                stoppedReason: result.stoppedReason,
+                tasksSucceeded: result.tasksSucceeded,
+                tasksFailed: result.tasksFailed,
+              },
+            });
           },
         },
       );
