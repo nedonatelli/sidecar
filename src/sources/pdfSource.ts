@@ -13,16 +13,32 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { Source, SourceDocument } from './types.js';
 
-// Static ESM default import so vi.mock('pdf-parse', ...) can intercept it in
-// tests. pdf-parse uses `export =` (CJS), so TypeScript types the default
-// import as the namespace object rather than the callable function under
-// NodeNext resolution — we cast it explicitly.
-import pdfParseLib from 'pdf-parse';
 type PdfParseFn = (buf: Buffer) => Promise<{ text: string; numpages: number; info: Record<string, unknown> }>;
-const pdfParseFn = pdfParseLib as unknown as PdfParseFn;
+
+/**
+ * Lazily require pdf-parse so the 469KB bundle is NOT loaded at module import
+ * time. Tests that mock pdfSource.ts entirely never trigger this load.
+ * Handles both the real CJS module (exports the function directly) and the
+ * vitest mock shape ({ default: fn }) so vi.mock('pdf-parse', ...) works.
+ *
+ * Overridable for unit tests via _setPdfParser — avoids touching the 469KB
+ * bundle in pdfSource.test.ts which tests the chunking logic, not pdf-parse.
+ */
+let _parserOverride: PdfParseFn | null = null;
+
+/** Inject a mock parser — used exclusively by pdfSource.test.ts. */
+export function _setPdfParser(fn: PdfParseFn | null): void {
+  _parserOverride = fn;
+}
+
+function getPdfParser(): PdfParseFn {
+  if (_parserOverride) return _parserOverride;
+  const mod: PdfParseFn | { default: PdfParseFn } = require('pdf-parse');
+  return typeof mod === 'function' ? mod : mod.default;
+}
 
 async function parsePdf(buffer: Buffer): Promise<{ text: string; numpages: number; info: Record<string, unknown> }> {
-  return pdfParseFn(buffer);
+  return getPdfParser()(buffer);
 }
 
 /** Approximate tokens — 1 token ≈ 4 chars for Latin text. */

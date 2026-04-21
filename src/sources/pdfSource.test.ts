@@ -1,11 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { chunkText, PdfSource } from './pdfSource.js';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { chunkText, PdfSource, _setPdfParser } from './pdfSource.js';
 
-// Mock pdf-parse and node:fs/promises so tests run without real PDFs or disk I/O.
-// pdf-parse is a CJS module; the default export is the parse function itself.
-// vi.hoisted ensures the mock fn is created before vi.mock's hoisted call.
-const { mockPdfParse } = vi.hoisted(() => ({ mockPdfParse: vi.fn() }));
-vi.mock('pdf-parse', () => ({ default: mockPdfParse }));
+// Inject a mock parser directly — avoids loading the 469KB pdf-parse bundle
+// in tests that are only exercising chunking / SourceDocument shape logic.
+const mockPdfParse = vi.fn();
 
 vi.mock('node:fs/promises', () => ({
   readFile: vi.fn(),
@@ -64,6 +62,11 @@ describe('chunkText', () => {
 describe('PdfSource', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    _setPdfParser(mockPdfParse);
+  });
+
+  afterEach(() => {
+    _setPdfParser(null);
   });
 
   it('canHandle returns true for .pdf paths', () => {
