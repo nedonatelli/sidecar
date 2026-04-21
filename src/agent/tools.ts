@@ -31,6 +31,8 @@ import { pdfTools } from './tools/pdf.js';
 import { zoteroTools } from './tools/zotero.js';
 import { citationTools } from './tools/citation.js';
 import { databaseTools } from './tools/database.js';
+import { visionTools } from './tools/vision.js';
+import { docTestsTools } from './tools/docTests.js';
 
 // Keep the getDiagnostics re-export working — existing callers import
 // it straight from './tools.js' for post-edit diagnostic refreshes.
@@ -81,6 +83,8 @@ export const TOOL_REGISTRY: RegisteredTool[] = [
   ...zoteroTools,
   ...citationTools,
   ...databaseTools,
+  ...(getConfig().visualVerifyEnabled ? visionTools : []),
+  ...(getConfig().docTestsEnabled ? docTestsTools : []),
   {
     definition: {
       name: 'ask_user',

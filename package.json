@@ -2,7 +2,7 @@
   "name": "sidecar-ai",
   "displayName": "SideCar",
   "description": "Autonomous AI agent for coding — run full agent loops with local Ollama, Anthropic Claude, or OpenAI models",
-  "version": "0.76.0",
+  "version": "0.79.0",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -1540,6 +1540,85 @@
             "description": "Maximum number of rows returned by db_query. Results beyond this limit are truncated (truncated: true in the result)."
           }
         }
+      },
+      {
+        "title": "SideCar: Visual Verification",
+        "properties": {
+          "sidecar.visualVerify.enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enable the screenshot-in-the-loop visual verification tools (screenshot_page, analyze_screenshot, open_in_browser, run_playwright_code). Requires a vision-capable model and playwright-core installed in the extension host."
+          },
+          "sidecar.visualVerify.vlm": {
+            "type": "string",
+            "default": "",
+            "description": "Vision model to use for analyze_screenshot. Leave empty to auto-detect from the active backend (Claude 3+, GPT-4o, or Ollama vision models like llava). Example: \"claude-sonnet-4-6\" or \"llava\"."
+          },
+          "sidecar.visualVerify.screenshotsDir": {
+            "type": "string",
+            "default": ".sidecar/screenshots",
+            "description": "Directory where screenshot_page saves captured PNGs. Relative to workspace root. This directory is gitignored automatically."
+          },
+          "sidecar.visualVerify.maxAttempts": {
+            "type": "number",
+            "default": 3,
+            "minimum": 1,
+            "description": "Suggested maximum number of visual-correction attempts the agent should make before giving up. Injected into the agent system prompt as guidance when visualVerify.enabled is true."
+          },
+          "sidecar.visualVerify.mode": {
+            "type": "string",
+            "enum": [
+              "strict",
+              "warn",
+              "advisory"
+            ],
+            "default": "warn",
+            "markdownDescription": "How the agent should treat visual verification failures. `strict` — treat failures as blocking errors; `warn` (default) — surface failures but continue; `advisory` — informational only, never blocks."
+          },
+          "sidecar.visualVerify.cheapChecksOnly": {
+            "type": "boolean",
+            "default": false,
+            "description": "Run only the heuristic pre-filter checks (blank canvas, edge clipping) and skip the VLM call entirely. Useful on tight local-inference budgets."
+          }
+        }
+      },
+      {
+        "title": "SideCar: Doc-to-Test",
+        "properties": {
+          "sidecar.docTests.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Enable the Doc-to-Test Synthesis Loop tools (extract_constraints, synthesize_tests, classify_test_failure). When disabled, these tools are hidden from the agent catalog."
+          },
+          "sidecar.docTests.testFramework": {
+            "type": "string",
+            "enum": [
+              "pytest"
+            ],
+            "default": "pytest",
+            "description": "Test framework to target when synthesizing tests. Only pytest is supported in v0.79."
+          },
+          "sidecar.docTests.outputDir": {
+            "type": "string",
+            "default": "tests/from_docs",
+            "description": "Directory where synthesized test files are written (relative to workspace root). Files land at <outputDir>/<docSlug>/test_<docSlug>.py."
+          },
+          "sidecar.docTests.floatTolerance": {
+            "type": "number",
+            "default": 1e-9,
+            "description": "Default relative tolerance passed to pytest.approx() for numeric_example constraints."
+          },
+          "sidecar.docTests.extractionModel": {
+            "type": "string",
+            "default": "",
+            "description": "Optional model override for constraint extraction. Leave empty to use the active model. Set to a cheaper/faster model (e.g. claude-haiku-4-5) to reduce cost on large documents."
+          },
+          "sidecar.docTests.requireConstraintApproval": {
+            "type": "boolean",
+            "default": true,
+            "description": "When true, the agent presents the constraint manifest for review before calling synthesize_tests. When false, the agent synthesizes tests immediately after extraction."
+          }
+        }
       }
     ],
     "viewsContainers": {
@@ -2143,7 +2222,7 @@
   },
   "scripts": {
     "compile": "tsc -p ./",
-    "bundle": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:web-tree-sitter --external:@huggingface/transformers --external:better-sqlite3 --external:@duckdb/node-api --format=cjs --platform=node --sourcemap --minify --tree-shaking=true",
+    "bundle": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:web-tree-sitter --external:@huggingface/transformers --external:better-sqlite3 --external:@duckdb/node-api --external:playwright-core --format=cjs --platform=node --sourcemap --minify --tree-shaking=true",
     "copy-grammars": "mkdir -p grammars && cp node_modules/web-tree-sitter/tree-sitter.wasm grammars/ && cp node_modules/tree-sitter-wasms/out/tree-sitter-typescript.wasm node_modules/tree-sitter-wasms/out/tree-sitter-tsx.wasm node_modules/tree-sitter-wasms/out/tree-sitter-javascript.wasm node_modules/tree-sitter-wasms/out/tree-sitter-python.wasm node_modules/tree-sitter-wasms/out/tree-sitter-rust.wasm node_modules/tree-sitter-wasms/out/tree-sitter-go.wasm grammars/",
     "build": "npm run compile && npm run bundle && npm run copy-grammars",
     "package": "npm run build && npx @vscode/vsce package",
@@ -2164,6 +2243,7 @@
   "devDependencies": {
     "@duckdb/node-api": "^1.5.2-r.1",
     "@types/better-sqlite3": "^7.6.13",
+    "playwright-core": "^1.49.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "^20.0.0",
     "@types/pg": "^8.20.0",

@@ -31,7 +31,7 @@ function loadConfiguration(): ConfigSection[] {
   return cfg;
 }
 
-describe('package.json contributes.configuration — 10-category layout (v0.76.0)', () => {
+describe('package.json contributes.configuration — 12-category layout (v0.79.0)', () => {
   const EXPECTED_TITLES = [
     'SideCar: Backend & Models',
     'SideCar: Agent',
@@ -43,11 +43,13 @@ describe('package.json contributes.configuration — 10-category layout (v0.76.0
     'SideCar: Chat UI',
     'SideCar: Extensions & Automation',
     'SideCar: Databases',
+    'SideCar: Visual Verification',
+    'SideCar: Doc-to-Test',
   ];
 
-  it('is an array of exactly 10 categorized sections', () => {
+  it('is an array of exactly 12 categorized sections', () => {
     const cfg = loadConfiguration();
-    expect(cfg).toHaveLength(10);
+    expect(cfg).toHaveLength(12);
   });
 
   it('sections appear in the expected top-to-bottom order', () => {
@@ -90,11 +92,15 @@ describe('package.json contributes.configuration — 10-category layout (v0.76.0
     // + v0.75 Literature retrieval (+1: literature.enabled).
     // + v0.75 Zotero bridge (+3: zotero.userId/apiKey/baseUrl).
     // + v0.76 Databases (+3: databases.profiles/queryTimeoutMs/queryRowLimit).
+    // + v0.77 Visual Verification (+6: visualVerify.enabled/vlm/screenshotsDir/
+    // maxAttempts/mode/cheapChecksOnly).
+    // + v0.79 Doc-to-Test (+6: docTests.enabled/testFramework/outputDir/
+    // floatTolerance/extractionModel/requireConstraintApproval).
     // Adding a setting requires bumping this + adding it to one of
     // the sections.
     const cfg = loadConfiguration();
     const totalKeys = cfg.reduce((sum, s) => sum + Object.keys(s.properties).length, 0);
-    expect(totalKeys).toBe(143);
+    expect(totalKeys).toBe(155);
   });
 
   it('no setting key is duplicated across sections', () => {

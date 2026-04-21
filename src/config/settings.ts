@@ -248,6 +248,20 @@ export interface SideCarConfig {
   databaseProfiles: import('../db/provider.js').ConnectionProfile[];
   databaseQueryTimeoutMs: number;
   databaseQueryRowLimit: number;
+  /* Visual verification (v0.77) */
+  visualVerifyEnabled: boolean;
+  visualVerifyVlm: string;
+  visualVerifyScreenshotsDir: string;
+  visualVerifyMaxAttempts: number;
+  visualVerifyMode: 'strict' | 'warn' | 'advisory';
+  visualVerifyCheapChecksOnly: boolean;
+  /* Doc-to-Test Synthesis Loop (v0.79) */
+  docTestsEnabled: boolean;
+  docTestsTestFramework: 'pytest';
+  docTestsOutputDir: string;
+  docTestsFloatTolerance: number;
+  docTestsExtractionModel: string;
+  docTestsRequireConstraintApproval: boolean;
   /* Adaptive Paste (v0.72) */
   adaptivePasteEnabled: boolean;
   adaptivePasteMinPasteLength: number;
@@ -476,6 +490,20 @@ function readConfig(): SideCarConfig {
     databaseProfiles: cfg.get<import('../db/provider.js').ConnectionProfile[]>('databases.profiles', []),
     databaseQueryTimeoutMs: clampMin(cfg.get<number>('databases.queryTimeoutMs'), 1000, 30000),
     databaseQueryRowLimit: clampMin(cfg.get<number>('databases.queryRowLimit'), 1, 10000),
+    /* Visual verification (v0.77) */
+    visualVerifyEnabled: cfg.get<boolean>('visualVerify.enabled', false),
+    visualVerifyVlm: cfg.get<string>('visualVerify.vlm', ''),
+    visualVerifyScreenshotsDir: cfg.get<string>('visualVerify.screenshotsDir', '.sidecar/screenshots'),
+    visualVerifyMaxAttempts: clampMin(cfg.get<number>('visualVerify.maxAttempts'), 1, 3),
+    visualVerifyMode: cfg.get<'strict' | 'warn' | 'advisory'>('visualVerify.mode', 'warn'),
+    visualVerifyCheapChecksOnly: cfg.get<boolean>('visualVerify.cheapChecksOnly', false),
+    /* Doc-to-Test Synthesis Loop (v0.79) */
+    docTestsEnabled: cfg.get<boolean>('docTests.enabled', true),
+    docTestsTestFramework: 'pytest' as const,
+    docTestsOutputDir: cfg.get<string>('docTests.outputDir', 'tests/from_docs'),
+    docTestsFloatTolerance: cfg.get<number>('docTests.floatTolerance', 1e-9),
+    docTestsExtractionModel: cfg.get<string>('docTests.extractionModel', ''),
+    docTestsRequireConstraintApproval: cfg.get<boolean>('docTests.requireConstraintApproval', true),
     /* Adaptive Paste (v0.72) */
     adaptivePasteEnabled: cfg.get<boolean>('adaptivePaste.enabled', true),
     adaptivePasteMinPasteLength: clampMin(cfg.get<number>('adaptivePaste.minPasteLength'), 20, 50),
