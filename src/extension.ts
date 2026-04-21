@@ -18,6 +18,7 @@ import { registerJsDocSync } from './docs/jsDocSyncProvider.js';
 import { registerReadmeSync } from './docs/readmeSyncProvider.js';
 import { registerReviewPanel } from './agent/reviewPanel.js';
 import { registerPinnedMemoryView } from './views/pinnedMemoryView.js';
+import { runAutoMode, AutoModeStatusBar } from './agent/autoMode/dispatcher.js';
 import { SideCarCompletionProvider, NextEditEngine } from './completions/provider.js';
 import {
   getConfig,
@@ -1213,6 +1214,91 @@ export function activate(context: ExtensionContext) {
   // tools. Done fire-and-forget because the sync tool-registry path treats
   // "not yet checked" as trusted when no workspace-level value exists.
   void initCustomToolsTrust();
+
+  // Auto Mode (v0.73) — autonomous backlog dispatch.
+  // The stop command is registered unconditionally so it can be invoked
+  // even if Auto Mode is not currently running (it's a no-op then).
+  let autoModeAbortController: AbortController | null = null;
+  const autoModeStatusBar = new AutoModeStatusBar();
+  context.subscriptions.push(autoModeStatusBar);
+
+  context.subscriptions.push(
+    commands.registerCommand('sidecar.startAutoMode', async () => {
+      if (autoModeAbortController) {
+        void window.showWarningMessage('SideCar: Auto Mode is already running.');
+        return;
+      }
+
+      const cfg = getConfig();
+      const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!workspaceRoot) {
+        void window.showErrorMessage('SideCar: No workspace folder open.');
+        return;
+      }
+
+      const backlogPath = cfg.autoModeBacklogPath.startsWith('.')
+        ? path.join(workspaceRoot, cfg.autoModeBacklogPath)
+        : cfg.autoModeBacklogPath;
+
+      autoModeAbortController = new AbortController();
+      const signal = autoModeAbortController.signal;
+
+      void runAutoMode(
+        createClient(),
+        {
+          backlogPath,
+          maxTasksPerSession: cfg.autoModeMaxTasksPerSession,
+          maxRuntimeMs: cfg.autoModeMaxRuntimeMinutes * 60_000,
+          haltOnFailure: cfg.autoModeHaltOnFailure,
+          interTaskCooldownMs: cfg.autoModeInterTaskCooldownSeconds * 1000,
+          mcpManager,
+          logger: agentLogger,
+          abortSignal: signal,
+        },
+        {
+          onText: (text) => chatProvider?.notify({ command: 'assistantMessage', content: text }),
+          onToolCall: (name, _input, id) =>
+            chatProvider?.notify({ command: 'toolCall', toolName: name, toolCallId: id, content: name }),
+          onToolResult: (name, result, _isError, id) =>
+            chatProvider?.notify({ command: 'toolResult', toolName: name, toolCallId: id, content: result }),
+          onDone: () => chatProvider?.notify({ command: 'done' }),
+        },
+        {
+          onTaskStart: (item, n, total) => {
+            autoModeStatusBar.show(n, total);
+            void window.showInformationMessage(`SideCar Auto Mode: starting task ${n}/${total} — ${item.text}`);
+          },
+          onTaskDone: (item, n, total) => {
+            console.log(`[SideCar] Auto Mode task ${n}/${total} done: ${item.text}`);
+          },
+          onTaskError: (item, err) => {
+            void window.showWarningMessage(
+              `SideCar Auto Mode: task failed — ${item.text}: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          },
+          onSessionEnd: (result) => {
+            autoModeAbortController = null;
+            autoModeStatusBar.hide();
+            const msg =
+              result.stoppedReason === 'completed'
+                ? `SideCar Auto Mode complete — ${result.tasksSucceeded} task(s) done.`
+                : `SideCar Auto Mode stopped (${result.stoppedReason}) — ${result.tasksSucceeded} done, ${result.tasksFailed} failed.`;
+            void window.showInformationMessage(msg);
+          },
+        },
+      );
+    }),
+    commands.registerCommand('sidecar.stopAutoMode', () => {
+      if (!autoModeAbortController) {
+        void window.showInformationMessage('SideCar: Auto Mode is not running.');
+        return;
+      }
+      autoModeAbortController.abort();
+      autoModeAbortController = null;
+      autoModeStatusBar.hide();
+      void window.showInformationMessage('SideCar: Auto Mode stopped.');
+    }),
+  );
 
   // Status bar — use cached config values. Text, icon, and background
   // colour all reflect the current health of the active backend so

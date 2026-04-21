@@ -84,11 +84,13 @@ describe('package.json contributes.configuration — 9-category layout (v0.71.0)
     // maxHops/topK/crossFileEnabled/model/autoTriggerOnSave).
     // + v0.72 Adaptive Paste (+4: adaptivePaste.enabled/minPasteLength/
     // model/autoDetect).
+    // + v0.73 Auto Mode (+6: autoMode.backlogPath/maxTasksPerSession/
+    // maxRuntimeMinutes/haltOnFailure/autoOpenPR/interTaskCooldownSeconds).
     // Adding a setting requires bumping this + adding it to one of
     // the sections.
     const cfg = loadConfiguration();
     const totalKeys = cfg.reduce((sum, s) => sum + Object.keys(s.properties).length, 0);
-    expect(totalKeys).toBe(129);
+    expect(totalKeys).toBe(135);
   });
 
   it('no setting key is duplicated across sections', () => {

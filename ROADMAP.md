@@ -21,18 +21,20 @@ Each release ships **1–2 features** plus a paired **refactor beat** (code-qual
 - **Coverage focus**: diagnostics + auto-fix + critic paths + `documentGate.ts` + scheduler concurrency paths. Maintain ≥80/70/80/80.
 - **Acceptance**: Push-based diagnostic subscription with reactive fix loop gated by Shadow Workspace; interactive `VizSpec` dashboard rendering in the chat panel under diffs; Live Thinking Panel (four modes, Steer Queue integration, persistent traces); a scheduled task fired against an actively-edited file runs inside `.sidecar/shadows/scheduled-<id>/` and defers apply until user saves.
 
-### v0.73 — Automation & Platform
-- **Features**: [Auto Mode](#auto-mode--autonomous-backlog-dispatch-with-guardrails) (headline) · [`@sidecar/sdk` Extension API](#sidecarsdk--first-party-extension-api) (foundation)
-- **Refactor beat**: Extract the public SDK surface — decide the stable set of types and hooks third parties can consume. Move internal-only helpers behind `src/agent/internal/` to make the public surface auditable. Ship the first sample extension (`@sidecar/sample-hello`) as a `/examples/` folder that exercises every public-API seam.
-- **Coverage focus**: `src/sdk/*` (new) ships at ≥90% per-file (SDK surface is a contract; regressions are worse than for internal code); Auto-Mode dispatch path (`src/agent/autoMode.ts`) at ≥80%. Maintain ≥80/70/80/80.
-- **Theme**: "extend SideCar, and let SideCar extend itself." SDK unlocks ecosystem growth; Auto Mode unlocks self-directed work against a user-curated backlog.
-- **Acceptance**: `sidecar.agentMode: 'auto'` enters Auto Mode — reads `.sidecar/backlog.md` (ordered checklist), picks the next unchecked item, runs it autonomously with existing safeguards (Shadow Workspace when enabled, approval gates when destructive tools are invoked), marks the item complete on success and opens a PR. `@sidecar/sdk` exports typed entry points for `registerCommand`, `registerRenderer`, `registerTool`, and `registerHook`; a third-party extension can import the package, declare a contribution, and see it surface in SideCar's menus at load time without forking the main codebase.
+### v0.73 — Auto Mode
 
-### v0.74 — Jupyter notebooks
-- **Feature**: [First-Class Jupyter Notebook Support](#first-class-jupyter-notebook-support)
-- **Refactor beat**: File-type plugin architecture — generalized cell/segment-aware handling the notebook work introduces can be reused by ERD entities (v0.80), source chunks (v0.75), tutorial walkthroughs.
-- **Coverage focus**: 8 new cell-aware tools; roundtrip-fidelity property tests (500 fuzz notebooks). Maintain ≥80/70/80/80.
-- **Acceptance**: `read_notebook` / `edit_notebook_cell` / `run_notebook_cell` etc. via native `NotebookEdit` API; cell-granular diff tiles in Pending Changes; auto-bridge cell outputs to Visual Verification.
+- **Features**: [Auto Mode](#auto-mode--autonomous-backlog-dispatch-with-guardrails) (headline)
+- **Patch series**: v0.73.0 ships the core loop; v0.73.1 adds the chat UI strip + Stop command; v0.73.2 adds per-item sentinels (`@model:`, `@facets:`, `@shadowMode:`); v0.73.3 adds PR auto-open + failure logging + `haltOnFailure`.
+- **Coverage focus**: `src/agent/autoMode/backlogParser.ts` + `src/agent/autoMode/dispatcher.ts` at ≥80%. Maintain ≥80/70/80/80.
+- **Theme**: "let SideCar work through your backlog while you focus elsewhere." A user-curated `.sidecar/backlog.md` checklist drives an autonomous agent session, with every existing guard (Shadow Workspaces, Audit Mode, approval gates) layered on transparently.
+- **Acceptance (v0.73.0)**: `sidecar.startAutoMode` command reads `.sidecar/backlog.md`, picks the first unchecked item, runs the agent loop via `runAgentLoopInSandbox`, marks it `- [x]` on success, and advances to the next item. Status bar shows "$(sync~spin) Auto Mode: task N/M". Session respects `maxTasksPerSession` and `maxRuntimeMinutes` caps.
+
+### v0.74 — `@sidecar/sdk` + Jupyter notebooks
+- **Features**: [`@sidecar/sdk` Extension API](#sidecarsdk--first-party-extension-api) (foundation) · [First-Class Jupyter Notebook Support](#first-class-jupyter-notebook-support)
+- **Refactor beat (SDK)**: Extract public SDK surface — typed `registerTool`, `registerHook`, `registerCommand`, `registerRenderer` wrappers. Move internal-only helpers behind `src/agent/internal/`. Ship `/examples/hello/` sample extension. `sdk-surface.test.ts` snapshots the exported types.
+- **Refactor beat (Notebooks)**: File-type plugin architecture — cell/segment-aware handling reusable for ERD entities, source chunks, tutorial walkthroughs.
+- **Coverage focus**: `src/sdk/*` at ≥90% (public API contract); 8 new notebook tools; roundtrip-fidelity property tests. Maintain ≥80/70/80/80.
+- **Acceptance**: SDK — third-party VS Code extension declares `sidecarSdk` in its `package.json`; after one-time trust prompt, its registered tools appear in TOOL_REGISTRY and hooks fire in HookBus. Notebooks — `read_notebook` / `edit_notebook_cell` / `run_notebook_cell` via `NotebookEdit` API; cell-granular diff tiles.
 
 ### v0.75 — Literature
 - **Feature**: [Literature Synthesis & PDF/Zotero Bridge](#literature-synthesis--pdfzotero-bridge)

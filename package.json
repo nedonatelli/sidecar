@@ -1193,6 +1193,42 @@
       {
         "title": "SideCar: Extensions & Automation",
         "properties": {
+          "sidecar.autoMode.backlogPath": {
+            "type": "string",
+            "default": ".sidecar/backlog.md",
+            "description": "Path to the backlog file Auto Mode reads. Relative paths are resolved from the workspace root."
+          },
+          "sidecar.autoMode.maxTasksPerSession": {
+            "type": "number",
+            "default": 10,
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Maximum number of backlog items to attempt in a single Auto Mode session."
+          },
+          "sidecar.autoMode.maxRuntimeMinutes": {
+            "type": "number",
+            "default": 240,
+            "minimum": 1,
+            "maximum": 1440,
+            "description": "Wall-clock time limit for an Auto Mode session in minutes. The session stops when this limit is reached, even if items remain."
+          },
+          "sidecar.autoMode.haltOnFailure": {
+            "type": "boolean",
+            "default": false,
+            "description": "When true, Auto Mode stops after the first task that fails. When false, it logs the failure and moves on to the next item."
+          },
+          "sidecar.autoMode.autoOpenPR": {
+            "type": "boolean",
+            "default": true,
+            "description": "Automatically open a pull request after each successfully completed task. Requires the repository to have a remote configured."
+          },
+          "sidecar.autoMode.interTaskCooldownSeconds": {
+            "type": "number",
+            "default": 30,
+            "minimum": 0,
+            "maximum": 300,
+            "description": "Seconds to wait between tasks in an Auto Mode session. Gives you a window to stop the session before the next task begins."
+          },
           "sidecar.mcpServers": {
             "type": "object",
             "default": {},
@@ -1680,6 +1716,18 @@
         "title": "Facets: Dispatch Specialists",
         "category": "SideCar",
         "icon": "$(organization)"
+      },
+      {
+        "command": "sidecar.startAutoMode",
+        "title": "Start Auto Mode",
+        "category": "SideCar",
+        "icon": "$(play)"
+      },
+      {
+        "command": "sidecar.stopAutoMode",
+        "title": "Stop Auto Mode",
+        "category": "SideCar",
+        "icon": "$(stop)"
       },
       {
         "command": "sidecar.fork.dispatch",

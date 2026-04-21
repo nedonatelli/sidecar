@@ -230,6 +230,13 @@ export interface SideCarConfig {
   nextEditCrossFileEnabled: boolean;
   nextEditModel: string;
   nextEditAutoTriggerOnSave: boolean;
+  /* Auto Mode (v0.73) */
+  autoModeBacklogPath: string;
+  autoModeMaxTasksPerSession: number;
+  autoModeMaxRuntimeMinutes: number;
+  autoModeHaltOnFailure: boolean;
+  autoModeAutoOpenPR: boolean;
+  autoModeInterTaskCooldownSeconds: number;
   /* Adaptive Paste (v0.72) */
   adaptivePasteEnabled: boolean;
   adaptivePasteMinPasteLength: number;
@@ -440,6 +447,13 @@ function readConfig(): SideCarConfig {
     diagnosticsReactiveFixDebounceMs: cfg.get<number>('diagnostics.reactiveFixDebounceMs', 2000),
     diagnosticsReactiveFixSeverity: cfg.get<'error' | 'warning'>('diagnostics.reactiveFixSeverity', 'error'),
     thinkingMode: cfg.get<'single' | 'self-debate' | 'tree-of-thought' | 'red-team'>('thinking.mode', 'single'),
+    /* Auto Mode (v0.73) */
+    autoModeBacklogPath: cfg.get<string>('autoMode.backlogPath', '.sidecar/backlog.md'),
+    autoModeMaxTasksPerSession: clampMin(cfg.get<number>('autoMode.maxTasksPerSession'), 1, 10),
+    autoModeMaxRuntimeMinutes: clampMin(cfg.get<number>('autoMode.maxRuntimeMinutes'), 1, 240),
+    autoModeHaltOnFailure: cfg.get<boolean>('autoMode.haltOnFailure', false),
+    autoModeAutoOpenPR: cfg.get<boolean>('autoMode.autoOpenPR', true),
+    autoModeInterTaskCooldownSeconds: clampMin(cfg.get<number>('autoMode.interTaskCooldownSeconds'), 0, 30),
     /* Adaptive Paste (v0.72) */
     adaptivePasteEnabled: cfg.get<boolean>('adaptivePaste.enabled', true),
     adaptivePasteMinPasteLength: clampMin(cfg.get<number>('adaptivePaste.minPasteLength'), 20, 50),

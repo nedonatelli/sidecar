@@ -782,6 +782,11 @@ export class ChatViewProvider implements WebviewViewProvider {
     this.webviewView?.webview.postMessage(message);
   }
 
+  /** Public entry-point for extension.ts to push messages into the webview. */
+  notify(message: ExtensionMessage): void {
+    this.postMessage(message);
+  }
+
   /**
    * Seed the chat input with a prefilled prompt — used by flows like
    * CI Failure Analysis (v0.68 chunk 4) that want to hand the user a
