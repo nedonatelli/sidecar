@@ -23,18 +23,16 @@ describe('NextEditEngine — computeSuggestions (via private access)', () => {
 
   it('returns empty when no symbols span the edited line', () => {
     const graph = makeGraph({
-      getSymbolsInFile: vi
-        .fn()
-        .mockReturnValue([
-          {
-            name: 'foo',
-            startLine: 10,
-            endLine: 20,
-            filePath: 'src/a.ts',
-            exported: true,
-            type: 'function',
-          } as SymbolEntry,
-        ]),
+      getSymbolsInFile: vi.fn().mockReturnValue([
+        {
+          name: 'foo',
+          startLine: 10,
+          endLine: 20,
+          filePath: 'src/a.ts',
+          exported: true,
+          type: 'function',
+        } as SymbolEntry,
+      ]),
     });
     engine = new NextEditEngine(graph);
     // @ts-expect-error — accessing private method for testing
@@ -49,18 +47,16 @@ describe('NextEditEngine — computeSuggestions (via private access)', () => {
   it('returns caller suggestions for a symbol at the edited line', () => {
     const callers: CallEdge[] = [{ callerFile: 'src/b.ts', callerName: 'bar', calleeName: 'foo', line: 42 }];
     const graph = makeGraph({
-      getSymbolsInFile: vi
-        .fn()
-        .mockReturnValue([
-          {
-            name: 'foo',
-            startLine: 0,
-            endLine: 5,
-            filePath: 'src/a.ts',
-            exported: true,
-            type: 'function',
-          } as SymbolEntry,
-        ]),
+      getSymbolsInFile: vi.fn().mockReturnValue([
+        {
+          name: 'foo',
+          startLine: 0,
+          endLine: 5,
+          filePath: 'src/a.ts',
+          exported: true,
+          type: 'function',
+        } as SymbolEntry,
+      ]),
       getCallers: vi.fn().mockReturnValue(callers),
       getDependents: vi.fn().mockReturnValue([]),
     });
@@ -85,18 +81,16 @@ describe('NextEditEngine — computeSuggestions (via private access)', () => {
       line: i + 1,
     }));
     const graph = makeGraph({
-      getSymbolsInFile: vi
-        .fn()
-        .mockReturnValue([
-          {
-            name: 'foo',
-            startLine: 0,
-            endLine: 10,
-            filePath: 'src/a.ts',
-            exported: true,
-            type: 'function',
-          } as SymbolEntry,
-        ]),
+      getSymbolsInFile: vi.fn().mockReturnValue([
+        {
+          name: 'foo',
+          startLine: 0,
+          endLine: 10,
+          filePath: 'src/a.ts',
+          exported: true,
+          type: 'function',
+        } as SymbolEntry,
+      ]),
       getCallers: vi.fn().mockReturnValue(callers),
       getDependents: vi.fn().mockReturnValue([]),
     });
@@ -116,18 +110,16 @@ describe('NextEditEngine — computeSuggestions (via private access)', () => {
       { callerFile: 'src/a.ts', callerName: 'baz', calleeName: 'foo', line: 15 }, // same file
     ];
     const graph = makeGraph({
-      getSymbolsInFile: vi
-        .fn()
-        .mockReturnValue([
-          {
-            name: 'foo',
-            startLine: 0,
-            endLine: 5,
-            filePath: 'src/a.ts',
-            exported: true,
-            type: 'function',
-          } as SymbolEntry,
-        ]),
+      getSymbolsInFile: vi.fn().mockReturnValue([
+        {
+          name: 'foo',
+          startLine: 0,
+          endLine: 5,
+          filePath: 'src/a.ts',
+          exported: true,
+          type: 'function',
+        } as SymbolEntry,
+      ]),
       getCallers: vi.fn().mockReturnValue(callers),
       getDependents: vi.fn().mockReturnValue([]),
     });
@@ -181,18 +173,16 @@ describe('NextEditEngine — computeSuggestions (via private access)', () => {
       { callerFile: 'src/b.ts', callerName: 'bar', calleeName: 'foo', line: 10 }, // duplicate
     ];
     const graph = makeGraph({
-      getSymbolsInFile: vi
-        .fn()
-        .mockReturnValue([
-          {
-            name: 'foo',
-            startLine: 0,
-            endLine: 5,
-            filePath: 'src/a.ts',
-            exported: true,
-            type: 'function',
-          } as SymbolEntry,
-        ]),
+      getSymbolsInFile: vi.fn().mockReturnValue([
+        {
+          name: 'foo',
+          startLine: 0,
+          endLine: 5,
+          filePath: 'src/a.ts',
+          exported: true,
+          type: 'function',
+        } as SymbolEntry,
+      ]),
       getCallers: vi.fn().mockReturnValue(callers),
       getDependents: vi.fn().mockReturnValue([]),
     });
@@ -213,18 +203,16 @@ describe('NextEditEngine — computeSuggestions (via private access)', () => {
       { callerFile: 'src/d.ts', callerName: 'd1', calleeName: 'foo', line: 3 },
     ];
     const graph = makeGraph({
-      getSymbolsInFile: vi
-        .fn()
-        .mockReturnValue([
-          {
-            name: 'foo',
-            startLine: 0,
-            endLine: 5,
-            filePath: 'src/a.ts',
-            exported: true,
-            type: 'function',
-          } as SymbolEntry,
-        ]),
+      getSymbolsInFile: vi.fn().mockReturnValue([
+        {
+          name: 'foo',
+          startLine: 0,
+          endLine: 5,
+          filePath: 'src/a.ts',
+          exported: true,
+          type: 'function',
+        } as SymbolEntry,
+      ]),
       getCallers: vi.fn().mockReturnValue(callers),
       getDependents: vi.fn().mockReturnValue([]),
     });
