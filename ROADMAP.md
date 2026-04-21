@@ -21,13 +21,6 @@ Each release ships **1–2 features** plus a paired **refactor beat** (code-qual
 - **Coverage focus**: diagnostics + auto-fix + critic paths + `documentGate.ts` + scheduler concurrency paths. Maintain ≥80/70/80/80.
 - **Acceptance**: Push-based diagnostic subscription with reactive fix loop gated by Shadow Workspace; interactive `VizSpec` dashboard rendering in the chat panel under diffs; Live Thinking Panel (four modes, Steer Queue integration, persistent traces); a scheduled task fired against an actively-edited file runs inside `.sidecar/shadows/scheduled-<id>/` and defers apply until user saves.
 
-### v0.72 — Inline Coding Polish
-- **Features**: [Next Edit Suggestions](#next-edit-suggestions--predictive-inline-next-edit-after-a-completed-change) (headline) · [Adaptive Paste](#adaptive-paste--paste-time-transformation) · [Memory Guardrails](#memory-guardrails--vector-based-permanent-context-pinning)
-- **Refactor beat**: Extract the `PredictiveContext` primitive that underlies both Next Edit Suggestions and the existing completion provider — shared "what's the user likely to do next?" signal that feeds both FIM-style token-level predictions and whole-edit-block suggestions. Split `src/completions/provider.ts` (~500 lines) into `provider/{fim,nextEdit,shared}.ts`.
-- **Coverage focus**: `src/completions/provider.ts` + `src/completions/nextEdit.ts` (new) + `src/edits/adaptivePaste.ts` (new) ship with ≥80% per-file; maintain ≥80/70/80/80.
-- **Theme**: "the agent helps you keep typing, and remembers what matters." Three features that reduce friction during active editing without requiring the user to invoke a chat.
-- **Acceptance**: Next Edit suggestions fire after any manual edit in an active buffer, showing 1–3 candidate next edits as inline ghost-text with `Tab` to accept and `Esc` to dismiss; Adaptive Paste intercepts `paste` actions on code blocks and offers a `(SideCar)` quickfix that transforms the clipboard content for the destination context (SQL → ORM, JSON → type def, curl → fetch, log line → matching grep/jq); Memory Guardrails sidebar panel shows pinned entries that survive context compaction and always re-surface via RRF.
-
 ### v0.73 — Automation & Platform
 - **Features**: [Auto Mode](#auto-mode--autonomous-backlog-dispatch-with-guardrails) (headline) · [`@sidecar/sdk` Extension API](#sidecarsdk--first-party-extension-api) (foundation)
 - **Refactor beat**: Extract the public SDK surface — decide the stable set of types and hooks third parties can consume. Move internal-only helpers behind `src/agent/internal/` to make the public surface auditable. Ship the first sample extension (`@sidecar/sample-hello`) as a `/examples/` folder that exercises every public-API seam.
@@ -1063,6 +1056,37 @@ During the v0.58.1 reorganization, the previous Deferred backlog was audited and
 ## Release History
 
 Rolling log of what shipped in each release, newest first. Each subsection preserves the context that was written at release time — file:line references, reasoning, test-count stats, stats progression. Serves as both a changelog appendix and an architectural lineage trace.
+
+### v0.72.0 (2026-04-21)
+
+Theme: **Inline Coding Polish** — three features that reduce friction during active editing without requiring the user to invoke a chat, plus a system-prompt split and context-size tracking that saves ~400 tokens from the cacheable Anthropic prefix.
+
+- ✅ **Chunk 1 — Completion Provider Split + Prompt Compression**
+  - `src/completions/provider.ts` decomposed into `provider/{fim,nextEdit,shared}.ts`. `PredictiveContext` class extracted as the shared "what is the user likely to do next?" signal feeding both FIM completions and Next Edit Suggestions.
+  - `systemPrompt.ts` split into `basePrompt.ts` (cache-stable static section) + `messageEnricher.ts`. Verbose `## Choosing a tool` decision tree (~400 tokens) replaced with a compact 3-line `## Tool preference` note.
+  - Per-section context injection size tracking added to the verbose log: every injected block reports its character count and % of budget, making it easy to diagnose context bloat on 32k models.
+  - +0 new tests (refactor — existing suite still 3761/3761).
+
+- ✅ **Chunk 2 — Memory Guardrails (Pinned Memory)**
+  - `src/agent/memory/pinnedMemory.ts`: `PinnedMemoryStore` persists to `.sidecar/pins.json`. Entries are boost-sorted; IDs are SHA-256(path:headings).slice(0,12) for stable cross-machine identity.
+  - `src/views/pinnedMemoryView.ts`: sidebar tree view with five commands (pin file, pin active, pin selection, unpin, refresh). Pinned content is always injected into the system prompt before other retrieval results — it survives context compaction because the prompt is rebuilt fresh each turn.
+  - `src/webview/handlers/systemPrompt.ts`: pinned memory injection block added after user instructions.
+  - 3 new `sidecar.pinnedMemory.*` settings. Settings count 115 → 118.
+  - +10 tests.
+
+- ✅ **Chunk 3 — Next Edit Suggestions**
+  - `src/completions/provider/nextEdit.ts`: `NextEditEngine` debounces on `onDidChangeTextDocument` (600ms default), finds the symbol at the cursor via `SymbolGraph.getSymbolsInFile`, walks hop-1 callers and hop-2 dependent files, renders ①②③ ghost-text badges at each candidate line via `TextEditorDecorationType`, and shows a status-bar counter for cross-file hits.
+  - Four commands: `sidecar.nextEdit.{accept,next,previous,dismiss}`.
+  - 7 new `sidecar.nextEdit.*` settings (enabled, debounceMs, maxHops, topK, crossFileEnabled, model, autoTriggerOnSave). Defaults: off, 600ms, 2 hops, topK 3.
+  - Settings count 118 → 125. +10 tests.
+
+- ✅ **Chunk 4 — Adaptive Paste**
+  - `src/edits/pasteTransforms.ts`: 7 built-in `PasteTransform` entries with heuristic `detect()` functions. Transforms: JSON→TS type, SQL→ORM, curl→fetch, CSS→Tailwind, Python→TS, Shell→execa, .env→Zod. Language-gated (e.g. CSS→Tailwind only surfaces in JSX/HTML).
+  - `src/edits/adaptivePaste.ts`: `AdaptivePasteTracker` records single text insertions ≥ `minPasteLength` chars; `AdaptivePasteCodeActionProvider` offers a `RefactorRewrite` lightbulb when selection overlaps the paste and a transform matches; `registerAdaptivePasteCommand` drives the QuickPick → LLM → in-place replacement flow.
+  - 4 new `sidecar.adaptivePaste.*` settings (enabled, minPasteLength, model, autoDetect). Enabled by default.
+  - Settings count 125 → 129. +21 tests.
+
+**Totals**: 4 new source files, 3 new test files, 129 settings keys, 3785 tests passing (3761 → 3785).
 
 ### v0.62.0 (2026-04-17)
 
