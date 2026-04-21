@@ -292,3 +292,21 @@ export enum TextEditorRevealType {
   InCenterIfOutsideViewport = 2,
   AtTop = 3,
 }
+
+export class ThemeIcon {
+  constructor(public id: string) {}
+}
+
+export class Location {
+  constructor(
+    public uri: { fsPath: string; scheme: string; path: string },
+    public range: Range,
+  ) {}
+}
+
+export const chat = {
+  createChatParticipant: (_id: string, _handler: unknown) => ({
+    iconPath: undefined as unknown,
+    dispose: () => {},
+  }),
+};

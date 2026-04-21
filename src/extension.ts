@@ -32,6 +32,7 @@ import { checkWorkspaceConfigTrust } from './config/workspaceTrust.js';
 import { createClient } from './ollama/factory.js';
 import { SideCarClient } from './ollama/client.js';
 import { registerBackendCommands } from './commands/backendCommands.js';
+import { registerSidecarParticipant } from './chat/sidecarParticipant.js';
 import { spendTracker, formatUsd } from './ollama/spendTracker.js';
 import { healthStatus, type HealthSnapshot } from './ollama/healthStatus.js';
 import { circuitBreaker } from './ollama/circuitBreaker.js';
@@ -1441,6 +1442,23 @@ export function activate(context: ExtensionContext) {
   // is non-null by this point in activation (initialized at line
   // 339) but TS doesn't see that across the closure boundary.
   registerBackendCommands(context, () => chatProvider!.client);
+  registerSidecarParticipant(context, () => chatProvider!.client);
+
+  context.subscriptions.push(
+    commands.registerCommand('sidecar.resolveConflicts', async () => {
+      const wsFolder = workspace.workspaceFolders?.[0];
+      if (!wsFolder) {
+        window.showErrorMessage('SideCar: Open a workspace before resolving conflicts.');
+        return;
+      }
+      const { runConflictResolution, createDefaultConflictReviewUi } = await import('./conflict/conflictReview.js');
+      await runConflictResolution({
+        workspaceRoot: wsFolder.uri.fsPath,
+        client: chatProvider!.client,
+        ui: createDefaultConflictReviewUi(),
+      });
+    }),
+  );
 
   // Getting-started walkthrough — opens the native Welcome editor at
   // the SideCar page. Users can reopen it any time from the Command

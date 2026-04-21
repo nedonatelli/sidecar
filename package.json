@@ -18,7 +18,7 @@
     "email": "sidecarai.vscode@gmail.com"
   },
   "engines": {
-    "vscode": "^1.88.0"
+    "vscode": "^1.90.0"
   },
   "icon": "media/SideCar.png",
   "categories": [
@@ -1285,6 +1285,20 @@
         }
       ]
     },
+    "chatParticipants": [
+      {
+        "id": "sidecar.sidecar",
+        "name": "sidecar",
+        "description": "Ask SideCar — your local or cloud AI coding assistant — directly in Copilot Chat",
+        "isSticky": true,
+        "commands": [
+          { "name": "review", "description": "Review the selected code or attached file for bugs and quality issues" },
+          { "name": "fix", "description": "Fix issues in the selected code or attached file" },
+          { "name": "explain", "description": "Explain what the selected code or attached file does" },
+          { "name": "commit-message", "description": "Generate a conventional-commits message for the attached diff or staged changes" }
+        ]
+      }
+    ],
     "commands": [
       {
         "command": "sidecar.toggleChat",
@@ -1477,6 +1491,12 @@
         "title": "Fork & Compare",
         "category": "SideCar",
         "icon": "$(repo-forked)"
+      },
+      {
+        "command": "sidecar.resolveConflicts",
+        "title": "Resolve Merge Conflicts",
+        "category": "SideCar",
+        "icon": "$(git-merge)"
       },
       {
         "command": "sidecar.kickstand.loadModel",
