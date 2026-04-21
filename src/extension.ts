@@ -17,6 +17,7 @@ import { TerminalErrorWatcher } from './terminal/errorWatcher.js';
 import { registerJsDocSync } from './docs/jsDocSyncProvider.js';
 import { registerReadmeSync } from './docs/readmeSyncProvider.js';
 import { registerReviewPanel } from './agent/reviewPanel.js';
+import { registerPinnedMemoryView } from './views/pinnedMemoryView.js';
 import { SideCarCompletionProvider } from './completions/provider.js';
 import {
   getConfig,
@@ -438,6 +439,14 @@ export function activate(context: ExtensionContext) {
   // the chat view so files queued during review-mode agent runs show up
   // here for the user to accept or discard before they hit disk.
   context.subscriptions.push(registerReviewPanel(context, chatProvider.pendingEditStore, proposedContentProvider));
+
+  // Pinned Memory sidebar view — only register if the store was initialised
+  // (gated on pinnedMemory.enabled). The store is created in ChatViewProvider
+  // and exposed via chatProvider.state so the view and commands share the
+  // same instance.
+  if (chatProvider.state.pinnedMemoryStore) {
+    context.subscriptions.push(registerPinnedMemoryView(context, chatProvider.state.pinnedMemoryStore));
+  }
 
   // File decoration provider — puts a "P" badge on every file with
   // pending agent edits in the Explorer, editor tabs, and any other

@@ -64,7 +64,7 @@ describe('package.json contributes.configuration — 9-category layout (v0.71.0)
     }
   });
 
-  it('exactly 115 settings keys total across all sections', () => {
+  it('exactly 118 settings keys total across all sections', () => {
     // Baseline: v0.62.4 (75) + v0.64 Model Routing (+5:
     // modelRouting.enabled/rules/defaultModel/visibleSwaps/dryRun)
     // + v0.64 Skill Sync (+5: skills.userRegistry/teamRegistries/
@@ -84,7 +84,7 @@ describe('package.json contributes.configuration — 9-category layout (v0.71.0)
     // the sections.
     const cfg = loadConfiguration();
     const totalKeys = cfg.reduce((sum, s) => sum + Object.keys(s.properties).length, 0);
-    expect(totalKeys).toBe(115);
+    expect(totalKeys).toBe(118);
   });
 
   it('no setting key is duplicated across sections', () => {

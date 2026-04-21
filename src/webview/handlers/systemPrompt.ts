@@ -118,6 +118,34 @@ export async function injectSystemContext(
   sizes['User instructions'] = prompt.length - prevLen;
   prevLen = prompt.length;
 
+  // Pinned memory — always-include semantics. Each entry is injected whole
+  // or skipped entirely (never mid-chopped). Entries are sorted by boost
+  // descending so high-priority pins land first and survive budget pressure.
+  // Survives context compaction automatically because the system prompt is
+  // rebuilt fresh on every turn — pinned content is never part of message
+  // history that compression could elide.
+  if (state.pinnedMemoryStore?.isReady()) {
+    const entries = state.pinnedMemoryStore.getEntries();
+    const maxCharsPerPin = config.pinnedMemoryMaxCharsPerPin;
+    const pinnedLines: string[] = [];
+    for (const entry of entries) {
+      const chunk =
+        entry.content.length > maxCharsPerPin
+          ? entry.content.slice(0, maxCharsPerPin) + '\n... (truncated)'
+          : entry.content;
+      const block = `\n\n### ${entry.label}${entry.boost !== 1.0 ? ` (boost: ${entry.boost})` : ''}\n${chunk}`;
+      if (prompt.length + pinnedLines.join('').length + block.length < maxSystemChars) {
+        pinnedLines.push(block);
+      }
+    }
+    if (pinnedLines.length > 0) {
+      prompt = ensureBoundary(prompt);
+      prompt += `\n\n## Pinned Memory\n<!-- Always-included context — survives compaction and context pruning -->${pinnedLines.join('')}`;
+    }
+  }
+  sizes['Pinned memory'] = prompt.length - prevLen;
+  prevLen = prompt.length;
+
   // Skill injection — only in trusted workspaces because .sidecar/skills/
   // can ship with a cloned repo. When the matched skill came from a
   // workspace-local directory (as opposed to the user's ~/.claude or

@@ -25,6 +25,7 @@ import type { InlineEditProvider } from '../edits/inlineEditProvider.js';
 import { getConfig } from '../config/settings.js';
 import { DocumentationIndexer } from '../config/documentationIndexer.js';
 import { AgentMemory } from '../agent/agentMemory.js';
+import { PinnedMemoryStore } from '../agent/memory/pinnedMemory.js';
 import { AuditLog } from '../agent/auditLog.js';
 import { BackgroundAgentManager } from '../agent/backgroundAgent.js';
 import { wrapUntrustedTerminalOutput } from '../agent/injectionScanner.js';
@@ -77,7 +78,7 @@ import {
 
 export class ChatViewProvider implements WebviewViewProvider {
   private webviewView: WebviewView | undefined;
-  private state: ChatState;
+  private _state: ChatState;
   // Retained for potential future use (proposed diff views)
   private readonly _contentProvider: ProposedContentProvider;
   private bgManager: BackgroundAgentManager;
@@ -85,6 +86,11 @@ export class ChatViewProvider implements WebviewViewProvider {
   /** Exposed so the review panel can share the same pending-edit store. */
   get pendingEditStore(): PendingEditStore {
     return this.state.pendingEdits;
+  }
+
+  /** Exposed so extension.ts can wire the pinned memory view to the same store instance. */
+  get state(): ChatState {
+    return this._state;
   }
 
   constructor(
@@ -99,7 +105,7 @@ export class ChatViewProvider implements WebviewViewProvider {
     inlineEditProvider?: InlineEditProvider,
   ) {
     this._contentProvider = contentProvider;
-    this.state = new ChatState(context, terminalManager, agentLogger, mcpManager, (msg) => this.postMessage(msg));
+    this._state = new ChatState(context, terminalManager, agentLogger, mcpManager, (msg) => this.postMessage(msg));
     if (workspaceIndex) {
       this.state.workspaceIndex = workspaceIndex;
     }
@@ -129,6 +135,14 @@ export class ChatViewProvider implements WebviewViewProvider {
       this.state.agentMemory = new AgentMemory(sidecarDir.getPath());
       this.state.agentMemory.load().catch((err) => {
         console.warn('Failed to load agent memory:', err);
+      });
+    }
+
+    // Initialize pinned memory store
+    if (config.pinnedMemoryEnabled && sidecarDir) {
+      this._state.pinnedMemoryStore = new PinnedMemoryStore(sidecarDir.getPath());
+      this._state.pinnedMemoryStore.load().catch((err) => {
+        console.warn('Failed to load pinned memory:', err);
       });
     }
 

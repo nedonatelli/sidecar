@@ -19,6 +19,7 @@ import type { ExtensionMessage } from './chatWebview.js';
 import { getConfig } from '../config/settings.js';
 import { DocumentationIndexer } from '../config/documentationIndexer.js';
 import { AgentMemory } from '../agent/agentMemory.js';
+import { PinnedMemoryStore } from '../agent/memory/pinnedMemory.js';
 import { AuditLog } from '../agent/auditLog.js';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -94,6 +95,7 @@ export class ChatState {
   inlineEditProvider: InlineEditProvider | null = null;
   documentationIndexer: DocumentationIndexer | null = null;
   agentMemory: AgentMemory | null = null;
+  pinnedMemoryStore: PinnedMemoryStore | null = null;
   auditLog: AuditLog | null = null;
 
   /** ID of the current auto-saved session, null if conversation is empty/unsaved */

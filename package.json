@@ -1028,6 +1028,25 @@
             ],
             "default": "single",
             "description": "Thinking visualization mode (when using Claude models with extended thinking enabled)"
+          },
+          "sidecar.pinnedMemory.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Enable pinned memory — content you pin via 'Pin to Memory' is always injected into the system prompt regardless of query relevance, and survives context compaction."
+          },
+          "sidecar.pinnedMemory.maxPins": {
+            "type": "number",
+            "default": 50,
+            "minimum": 1,
+            "maximum": 200,
+            "description": "Maximum number of pinned memory entries. Higher-boost entries land first; entries beyond the cap are silently dropped from injection."
+          },
+          "sidecar.pinnedMemory.maxCharsPerPin": {
+            "type": "number",
+            "default": 5000,
+            "minimum": 500,
+            "maximum": 20000,
+            "description": "Maximum characters per pinned entry injected into the system prompt. Entries exceeding this are truncated with a marker (not dropped)."
           }
         }
       },
@@ -1332,6 +1351,12 @@
           "name": "Pending Agent Changes",
           "icon": "$(diff)",
           "when": "true"
+        },
+        {
+          "id": "sidecar.pinnedMemory",
+          "name": "Pinned Memory",
+          "icon": "$(pin)",
+          "when": "true"
         }
       ]
     },
@@ -1350,6 +1375,36 @@
       }
     ],
     "commands": [
+      {
+        "command": "sidecar.pinToMemory",
+        "title": "Pin File to Memory",
+        "category": "SideCar",
+        "icon": "$(pin)"
+      },
+      {
+        "command": "sidecar.pinActiveFileToMemory",
+        "title": "Pin Active File to Memory",
+        "category": "SideCar",
+        "icon": "$(pin)"
+      },
+      {
+        "command": "sidecar.pinSelectionToMemory",
+        "title": "Pin Selection to Memory",
+        "category": "SideCar",
+        "icon": "$(pin)"
+      },
+      {
+        "command": "sidecar.unpinMemory",
+        "title": "Unpin Memory Entry",
+        "category": "SideCar",
+        "icon": "$(pinned-dirty)"
+      },
+      {
+        "command": "sidecar.pinnedMemory.refresh",
+        "title": "Refresh Pinned Memory from Disk",
+        "category": "SideCar",
+        "icon": "$(refresh)"
+      },
       {
         "command": "sidecar.toggleChat",
         "title": "Toggle Chat",
