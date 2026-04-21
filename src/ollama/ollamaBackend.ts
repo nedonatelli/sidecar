@@ -27,6 +27,20 @@ import { TOOL_FAILURE_THRESHOLD, MODEL_PROBE_BATCH_SIZE } from '../config/consta
 const toolCapabilityCache = new Map<string, boolean>();
 
 /**
+ * Cache of resolved context lengths (tokens) per model name, populated by
+ * probeModelToolSupport which already calls /api/show. Prefers the runtime
+ * `num_ctx` from model parameters (set via Modelfile) so a user who customised
+ * their model gets the right value; falls back to the native context length
+ * baked into the GGUF. null = /api/show didn't report a value.
+ */
+const numCtxCache = new Map<string, number | null>();
+
+/** Return the cached context length for a model, or null if not yet probed. */
+export function getCachedOllamaNumCtx(model: string): number | null {
+  return numCtxCache.get(model) ?? null;
+}
+
+/**
  * Runtime tool support tracking. If a model is sent tools but never
  * returns tool calls after several attempts, we stop sending tools
  * to avoid wasting context on tool definitions.
@@ -72,9 +86,32 @@ export async function probeModelToolSupport(baseUrl: string, model: string): Pro
       return true;
     }
 
-    const data = (await response.json()) as { capabilities?: string[] };
+    const data = (await response.json()) as {
+      capabilities?: string[];
+      parameters?: string;
+      model_info?: Record<string, unknown>;
+    };
     const hasTools = Array.isArray(data.capabilities) && data.capabilities.includes('tools');
     toolCapabilityCache.set(model, hasTools);
+
+    // Extract context length while we have the /api/show response.
+    // Prefer the runtime num_ctx (reflects Modelfile overrides); fall back to
+    // the native GGUF context_length for stock pulls.
+    let numCtx: number | null = null;
+    if (data.parameters) {
+      const match = data.parameters.match(/^num_ctx\s+(\d+)/m);
+      if (match) numCtx = parseInt(match[1], 10);
+    }
+    if (numCtx === null && data.model_info) {
+      for (const [key, value] of Object.entries(data.model_info)) {
+        if (key.toLowerCase().includes('context_length') && typeof value === 'number') {
+          numCtx = value;
+          break;
+        }
+      }
+    }
+    numCtxCache.set(model, numCtx);
+
     return hasTools;
   } catch {
     // Network error or timeout — stay optimistic
@@ -264,11 +301,14 @@ export class OllamaBackend implements ApiBackend {
     tools?: ToolDefinition[],
   ): AsyncGenerator<StreamEvent> {
     const { agentTemperature } = getConfig();
+    const numCtx = numCtxCache.get(model) ?? null;
+    const options: Record<string, unknown> = { temperature: agentTemperature };
+    if (numCtx !== null) options.num_ctx = numCtx;
     const body: Record<string, unknown> = {
       model,
       messages: toOllamaMessages(messages, systemPrompt),
       stream: true,
-      ...(tools && tools.length > 0 ? { options: { temperature: agentTemperature } } : {}),
+      options,
     };
 
     if (tools && tools.length > 0) {

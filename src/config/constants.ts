@@ -35,9 +35,9 @@ export const SYSTEM_PROMPT_BUDGET_FRACTION = 0.5;
 export const DEFAULT_MAX_SYSTEM_CHARS = 80_000;
 
 /**
- * Local model context cap. Many local models advertise huge context windows
- * (e.g. 262K) but Ollama's default num_ctx is much smaller, and large prompts
- * cause extreme first-token latency on local hardware.
+ * Soft cap on how much context SideCar will pack into a single local-model
+ * request. Very large prompts cause extreme first-token latency on consumer
+ * hardware regardless of the model's native context window size.
  */
 export const LOCAL_CONTEXT_CAP = 16_384;
 
