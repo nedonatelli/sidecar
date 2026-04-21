@@ -19,6 +19,7 @@ import { registerReadmeSync } from './docs/readmeSyncProvider.js';
 import { registerReviewPanel } from './agent/reviewPanel.js';
 import { registerPinnedMemoryView } from './views/pinnedMemoryView.js';
 import { runAutoMode, AutoModeStatusBar } from './agent/autoMode/dispatcher.js';
+import { appendFailureLogEntry } from './agent/autoMode/failureLog.js';
 import { SideCarCompletionProvider, NextEditEngine } from './completions/provider.js';
 import {
   getConfig,
@@ -1278,16 +1279,13 @@ export function activate(context: ExtensionContext) {
             });
           },
           onTaskError: (item, err) => {
+            const errorMessage = err instanceof Error ? err.message : String(err);
             chatProvider?.notify({
               command: 'autoModeTaskUpdate',
-              autoModeTask: {
-                taskN: 0,
-                total: 0,
-                text: item.text,
-                status: 'error',
-                errorMessage: err instanceof Error ? err.message : String(err),
-              },
+              autoModeTask: { taskN: 0, total: 0, text: item.text, status: 'error', errorMessage },
             });
+            const logPath = path.join(sidecarDir.getPath('logs'), 'auto-mode-failures.md');
+            void appendFailureLogEntry(logPath, { taskText: item.text, errorMessage });
           },
           onSessionEnd: (result) => {
             autoModeAbortController = null;
@@ -1300,6 +1298,27 @@ export function activate(context: ExtensionContext) {
                 tasksFailed: result.tasksFailed,
               },
             });
+            const freshCfg = getConfig();
+            if (result.stoppedReason === 'completed' && freshCfg.autoModeAutoOpenPR && workspaceRoot) {
+              const headlessUi: DraftPrUi = {
+                showInputBox: (_prompt, value) => Promise.resolve(value),
+                showConfirm: (_message, _options) => Promise.resolve('Submit'),
+                showInfo: (msg) => chatProvider?.notify({ command: 'assistantMessage', content: msg }),
+                showError: (msg) => chatProvider?.notify({ command: 'error', content: msg }),
+                openPreview: async () => {},
+              };
+              const prConfig: DraftPrConfig = {
+                draftByDefault: true,
+                baseBranch: 'auto',
+                template: 'auto',
+              };
+              void runDraftPullRequest({
+                ui: headlessUi,
+                client: createClient(),
+                cwd: workspaceRoot,
+                config: prConfig,
+              });
+            }
           },
         },
       );
