@@ -237,6 +237,12 @@ export interface SideCarConfig {
   autoModeHaltOnFailure: boolean;
   autoModeAutoOpenPR: boolean;
   autoModeInterTaskCooldownSeconds: number;
+  /* Literature / PDF retrieval (v0.75) */
+  literatureEnabled: boolean;
+  /* Zotero bridge (v0.75) */
+  zoteroUserId: string;
+  zoteroApiKey: string;
+  zoteroBaseUrl: string;
   /* Adaptive Paste (v0.72) */
   adaptivePasteEnabled: boolean;
   adaptivePasteMinPasteLength: number;
@@ -454,6 +460,12 @@ function readConfig(): SideCarConfig {
     autoModeHaltOnFailure: cfg.get<boolean>('autoMode.haltOnFailure', false),
     autoModeAutoOpenPR: cfg.get<boolean>('autoMode.autoOpenPR', true),
     autoModeInterTaskCooldownSeconds: clampMin(cfg.get<number>('autoMode.interTaskCooldownSeconds'), 0, 30),
+    /* Literature / PDF retrieval (v0.75) */
+    literatureEnabled: cfg.get<boolean>('literature.enabled', false),
+    /* Zotero bridge (v0.75) */
+    zoteroUserId: cfg.get<string>('zotero.userId', ''),
+    zoteroApiKey: cfg.get<string>('zotero.apiKey', ''),
+    zoteroBaseUrl: cfg.get<string>('zotero.baseUrl', 'https://api.zotero.org'),
     /* Adaptive Paste (v0.72) */
     adaptivePasteEnabled: cfg.get<boolean>('adaptivePaste.enabled', true),
     adaptivePasteMinPasteLength: clampMin(cfg.get<number>('adaptivePaste.minPasteLength'), 20, 50),

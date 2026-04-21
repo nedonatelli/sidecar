@@ -2,7 +2,7 @@
 
 Planned improvements and features for SideCar. Audit findings from v0.34.0 comprehensive review are in the Audit Backlog section. All critical fixes were addressed in v0.35.0.
 
-Last updated: 2026-04-20 (**v0.69.9 current; v0.70.0 in progress**. v0.68 shipped GitHub integration maturity: CI failure analysis, draft PR, branch protection awareness, PR review fetch + agent-powered responses, PR lifecycle mark-ready + CI check. v0.69 shipped the executor.ts decomposition, PR lifecycle polish, Groq/Fireworks backend coverage, and a wave of Kickstand reliability fixes (n_ctx configurability, context-overflow reload, VRAM eviction, SSE EOF detection, MLX model browser filename bug). v0.69 headline features Advanced Thinking Visualization and Scheduled Task Concurrency Safety were deferred to v0.70+. v0.70 Process Lifecycle Hardening and Hook Execution Hardening were temporarily committed then reverted (commit 595df58) — both land in v0.71+ after more design work. v0.70 has shipped: `@sidecar` Native Chat Participant, Merge Conflict Resolution, HuggingFace GGUF size + context length display, Ollama num_ctx auto-set from model native max.)
+Last updated: 2026-04-21 (**v0.75.0 current**. v0.75 shipped Literature Synthesis & PDF/Zotero Bridge: `PdfSource` with sliding-window chunker, `ZoteroSource` + `ZoteroClient` for Zotero Web API, `SourceRegistry` abstraction, `read_pdf` / `index_pdf` / `zotero_search` / `zotero_get_item` / `insert_citation` tools, `PdfRetriever` wired into the fusion RAG pipeline. v0.74 shipped `@sidecar/sdk` first-party extension API. v0.73 shipped Auto Mode. v0.72 shipped Adaptive Paste + Next Edit Suggestions + Pinned Memory. v0.71 shipped Live Diagnostic Subscription + Inline Viz Dashboards + Advanced Thinking. v0.70 shipped `@sidecar` Native Chat Participant + Merge Conflict Resolution.)
 
 ---
 
@@ -36,11 +36,11 @@ Each release ships **1–2 features** plus a paired **refactor beat** (code-qual
 - **Coverage focus**: `src/sdk/*` at ≥90% (public API contract); 8 new notebook tools; roundtrip-fidelity property tests. Maintain ≥80/70/80/80.
 - **Acceptance**: SDK — third-party VS Code extension declares `sidecarSdk` in its `package.json`; after one-time trust prompt, its registered tools appear in TOOL_REGISTRY and hooks fire in HookBus. Notebooks — `read_notebook` / `edit_notebook_cell` / `run_notebook_cell` via `NotebookEdit` API; cell-granular diff tiles.
 
-### v0.75 — Literature
+### ~~v0.75 — Literature~~ ✅ shipped 2026-04-21
 - **Feature**: [Literature Synthesis & PDF/Zotero Bridge](#literature-synthesis--pdfzotero-bridge)
-- **Refactor beat**: Source-backend abstraction — shared PDF / YouTube / Web / audio source plumbing (prepares the v0.82 NotebookLM Mode expansion).
+- **Refactor beat**: Source-backend abstraction — `Source` / `SourceDocument` / `SourceRegistry` shared plumbing (prepares the v0.82 NotebookLM Mode expansion).
 - **Coverage focus**: source indexer pipeline. Maintain ≥80/70/80/80.
-- **Acceptance**: PDF indexing via `pdf-parse`; Zotero SQLite read-through; citation insertion respecting document style.
+- **Shipped**: `PdfSource` (pdf-parse, sliding-window chunker), `ZoteroSource` + `ZoteroClient` (Zotero Web API), `SourceRegistry`, 5 tools (`read_pdf`, `index_pdf`, `zotero_search`, `zotero_get_item`, `insert_citation`), `PdfRetriever` (TF-IDF, fusion-wired), 4 settings. Note: Zotero uses the cloud Web API (not SQLite read-through); SQLite path deferred to v0.76+.
 
 ### v0.76 — Database integration (safe core)
 - **Feature**: [First-Class Database Integration (SQL + NoSQL)](#first-class-database-integration-sql--nosql) — Tier 1 only (read-only query + introspection)

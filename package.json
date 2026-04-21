@@ -2,7 +2,7 @@
   "name": "sidecar-ai",
   "displayName": "SideCar",
   "description": "Autonomous AI agent for coding — run full agent loops with local Ollama, Anthropic Claude, or OpenAI models",
-  "version": "0.74.0",
+  "version": "0.75.0",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -1228,6 +1228,26 @@
             "minimum": 0,
             "maximum": 300,
             "description": "Seconds to wait between tasks in an Auto Mode session. Gives you a window to stop the session before the next task begins."
+          },
+          "sidecar.literature.enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include indexed PDF literature (from .sidecar/literature/) in retrieval context. Use index_pdf to add papers first."
+          },
+          "sidecar.zotero.userId": {
+            "type": "string",
+            "default": "",
+            "description": "Your Zotero user ID (found at zotero.org/settings/keys). Required for zotero_search and zotero_get_item tools."
+          },
+          "sidecar.zotero.apiKey": {
+            "type": "string",
+            "default": "",
+            "description": "Your Zotero API key with read access (zotero.org/settings/keys). Required for zotero_search and zotero_get_item tools."
+          },
+          "sidecar.zotero.baseUrl": {
+            "type": "string",
+            "default": "https://api.zotero.org",
+            "description": "Zotero API base URL. Override for self-hosted Zotero instances; leave blank for the default cloud API."
           },
           "sidecar.mcpServers": {
             "type": "object",

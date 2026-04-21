@@ -16,6 +16,7 @@ import {
   DocRetriever,
   MemoryRetriever,
   SemanticRetriever,
+  PdfRetriever,
   adaptiveGraphDepth,
   fuseRetrievers,
   renderFusedContext,
@@ -198,6 +199,10 @@ export async function injectSystemContext(
     }
     if (workspaceTrusted && config.enableAgentMemory && state.agentMemory) {
       retrievers.push(new MemoryRetriever(state.agentMemory));
+    }
+    if (workspaceTrusted && config.literatureEnabled) {
+      const litDir = path.join(getWorkspaceRoot(), '.sidecar', 'literature');
+      retrievers.push(new PdfRetriever(litDir));
     }
     if (getWorkspaceEnabled() && state.workspaceIndex?.isReady()) {
       // Graph expansion (v0.65 chunk 5.5): walk callers outward from

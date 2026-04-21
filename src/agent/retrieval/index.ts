@@ -6,6 +6,7 @@ export { reciprocalRankFusion } from './fusion';
 export { DocRetriever } from './docRetriever';
 export { MemoryRetriever } from './memoryRetriever';
 export { SemanticRetriever } from './semanticRetriever';
+export { PdfRetriever } from './pdfRetriever';
 export { adaptiveGraphDepth, enrichWithGraphWalk } from './graphExpansion';
 export type { EnrichedHit, GraphWalkOptions } from './graphExpansion';
 

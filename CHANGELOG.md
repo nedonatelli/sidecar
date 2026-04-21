@@ -4,6 +4,27 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.75.0] - 2026-04-21
+
+**v0.75.0 — Literature Synthesis & PDF/Zotero Bridge.**
+
+Researchers can now index, search, and cite their reference library directly from the agent. PDF files are chunked and indexed into `.sidecar/literature/`; Zotero library items are fetched via the Zotero Web API; citations are formatted in APA, MLA, Chicago, BibTeX, or LaTeX with automatic style detection from the target file extension.
+
+### Added
+
+- **`PdfSource`** (`src/sources/pdfSource.ts`) — extracts and chunks PDF text using `pdf-parse` (500-token sliding window, 50-token overlap, paragraph-boundary splits). Lazy-loaded to avoid bundle startup cost.
+- **`ZoteroSource`** + **`ZoteroClient`** (`src/sources/zoteroSource.ts`) — fetches items from the Zotero Web API (`api.zotero.org`). Handles `zotero://` URIs; emits one `SourceDocument` per item. Configurable base URL for self-hosted instances.
+- **`SourceRegistry`** (`src/sources/registry.ts`) — process-wide source registry; `findSourceFor(uri)` dispatches to the most recently registered handler for a URI scheme.
+- **`read_pdf` tool** — extracts and returns up to 8,000 characters from a PDF. Suggests `index_pdf` for longer documents.
+- **`index_pdf` tool** — chunks a PDF and persists the result to `.sidecar/literature/<hash>.json` for retrieval by `PdfRetriever`.
+- **`zotero_search` tool** — keyword-searches the user's Zotero library; returns ranked results with title, authors, year, and abstract snippet.
+- **`zotero_get_item` tool** — fetches full bibliographic details for one Zotero item by key.
+- **`insert_citation` tool** — formats a Zotero item as APA, MLA, Chicago, BibTeX, or LaTeX. Auto-detects style from the target file extension (`.bib` → BibTeX, `.tex` → LaTeX, all others → APA).
+- **`PdfRetriever`** (`src/agent/retrieval/pdfRetriever.ts`) — TF-IDF retriever over the on-disk literature index; wired into the fusion pipeline (`fuseRetrievers`) behind `sidecar.literature.enabled`.
+- **Settings**: `sidecar.literature.enabled` (default `false`), `sidecar.zotero.userId`, `sidecar.zotero.apiKey`, `sidecar.zotero.baseUrl` (default `https://api.zotero.org`).
+
+---
+
 ## [0.74.0] - 2026-04-21
 
 **v0.74.0 — @sidecar/sdk: first-party extension API.**

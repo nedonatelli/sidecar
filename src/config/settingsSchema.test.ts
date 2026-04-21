@@ -86,11 +86,13 @@ describe('package.json contributes.configuration — 9-category layout (v0.71.0)
     // model/autoDetect).
     // + v0.73 Auto Mode (+6: autoMode.backlogPath/maxTasksPerSession/
     // maxRuntimeMinutes/haltOnFailure/autoOpenPR/interTaskCooldownSeconds).
+    // + v0.75 Literature retrieval (+1: literature.enabled).
+    // + v0.75 Zotero bridge (+3: zotero.userId/apiKey/baseUrl).
     // Adding a setting requires bumping this + adding it to one of
     // the sections.
     const cfg = loadConfiguration();
     const totalKeys = cfg.reduce((sum, s) => sum + Object.keys(s.properties).length, 0);
-    expect(totalKeys).toBe(135);
+    expect(totalKeys).toBe(139);
   });
 
   it('no setting key is duplicated across sections', () => {
