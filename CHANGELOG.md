@@ -4,6 +4,23 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.74.0] - 2026-04-21
+
+**v0.74.0 — @sidecar/sdk: first-party extension API.**
+
+Third-party VS Code extensions can now register custom agent tools and policy hooks directly into SideCar without patching the extension source. The public API is exposed via `vscode.extensions.getExtension('nedonatelli.sidecar')?.exports`.
+
+### Added
+
+- **`SideCarSdkApi` interface** — `registerTool(definition, executor, options?)` and `registerHook(hook)` return a `Disposable` for clean teardown. Both are trust-gated: the first call from a new extension ID triggers a workspace-scoped trust prompt.
+- **SDK registry singletons** (`src/sdk/registry.ts`) — process-wide `sdkTools` Map and `sdkHooks` array. No threading through call sites; the agent loop and tool dispatcher consult them automatically.
+- **SDK hooks wired into the agent loop** (`loop.ts`) — `getSdkHooks()` is called after `extraPolicyHooks` on every `runAgentLoop` run, so registered hooks see every iteration.
+- **SDK tools wired into `findTool()` and `getToolDefinitions()`** — SDK tools appear in the LLM catalog and resolve during tool dispatch, falling between custom tools and MCP.
+- **`examples/hello-tool/`** — minimal sample extension showing the four-line registration pattern.
+- **Idempotent publish workflow** — `Create GitHub Release` step now checks for an existing release before creating, and uploads the VSIX with `--clobber` if it already exists. Fixes spurious failures when the workflow is re-triggered.
+
+---
+
 ## [0.69.5] - 2026-04-19
 
 **v0.69.5 — patch: spend tracker fix + delegate_task shell access.**

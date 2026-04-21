@@ -8,6 +8,7 @@ import { redactSecrets } from './securityScanner.js';
 
 import type { RegisteredTool } from './tools/shared.js';
 import { getRoot } from './tools/shared.js';
+import { findSdkTool, getSdkToolDefinitions } from '../sdk/registry.js';
 // v0.66 chunk 2: each tools/*.ts module exports its own
 // `<name>Tools: RegisteredTool[]` array. TOOL_REGISTRY is built by
 // spreading them — collapses ~40 lines of paired def/executor imports
@@ -255,8 +256,9 @@ export function getToolDefinitions(mcpManager?: MCPManager): ToolDefinition[] {
   }
 
   const custom = getCustomToolRegistry().map((t) => t.definition);
+  const sdk = getSdkToolDefinitions().map((t) => t.definition);
   const mcp = mcpManager ? mcpManager.getToolDefinitions() : [];
-  return [...builtIn, ...custom, ...mcp];
+  return [...builtIn, ...custom, ...sdk, ...mcp];
 }
 
 export function findTool(name: string, mcpManager?: MCPManager): RegisteredTool | undefined {
@@ -264,5 +266,7 @@ export function findTool(name: string, mcpManager?: MCPManager): RegisteredTool 
   if (builtin) return builtin;
   const custom = getCustomToolRegistry().find((t) => t.definition.name === name);
   if (custom) return custom;
+  const sdk = findSdkTool(name);
+  if (sdk) return sdk;
   return mcpManager?.getTool(name);
 }

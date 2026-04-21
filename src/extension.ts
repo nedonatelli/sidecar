@@ -73,6 +73,7 @@ import {
   registerAdaptivePasteCommand,
 } from './edits/adaptivePaste.js';
 import { PendingEditDecorationProvider } from './edits/pendingEditDecorationProvider.js';
+import { createSdkApi } from './sdk/api.js';
 
 let chatProvider: ChatViewProvider | undefined;
 
@@ -1696,6 +1697,11 @@ export function activate(context: ExtensionContext) {
   );
 
   console.log('SideCar extension activated');
+
+  // Return the public SDK API so third-party extensions can register tools
+  // and hooks via `vscode.extensions.getExtension('nedonatelli.sidecar')?.exports`.
+  const pkg = context.extension?.packageJSON as { version?: string } | undefined;
+  return createSdkApi(context, pkg?.version ?? '0.0.0');
 }
 
 /**

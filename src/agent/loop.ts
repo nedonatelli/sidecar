@@ -26,6 +26,7 @@ import { runCriticChecks, type RunCriticOptions } from './loop/criticHook.js';
 import { HookBus, type PolicyHook, type HookContext } from './loop/policyHook.js';
 import { defaultPolicyHooks } from './loop/builtInHooks.js';
 import { buildRegressionGuardHooks } from './guards/regressionGuardHook.js';
+import { getSdkHooks } from '../sdk/registry.js';
 import { dispatchPendingToolUses } from './loop/dispatchToolUses.js';
 import { notifyIterationStart, maybeEmitProgressSummary, shouldStopAtCheckpoint } from './loop/notifications.js';
 import { finalize } from './loop/finalize.js';
@@ -253,6 +254,10 @@ export async function runAgentLoop(
   }
   if (options.extraPolicyHooks) {
     hookBus.registerAll(options.extraPolicyHooks);
+  }
+  const sdkRegisteredHooks = getSdkHooks();
+  if (sdkRegisteredHooks.length > 0) {
+    hookBus.registerAll(sdkRegisteredHooks);
   }
 
   try {
