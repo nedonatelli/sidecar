@@ -67,6 +67,7 @@ export interface SideCarConfig {
   agentMaxTokens: number;
   enableInlineCompletions: boolean;
   completionModel: string;
+  completionDraftModel: string;
   completionMaxTokens: number;
   completionDebounceMs: number;
   toolPermissions: Record<string, 'allow' | 'deny' | 'ask'>;
@@ -266,6 +267,7 @@ function readConfig(): SideCarConfig {
     agentMaxTokens: clampMin(cfg.get<number>('agentMaxTokens'), 1000, 200000),
     enableInlineCompletions: cfg.get<boolean>('enableInlineCompletions', false),
     completionModel: cfg.get<string>('completionModel', ''),
+    completionDraftModel: cfg.get<string>('completionDraftModel', ''),
     completionMaxTokens: clampMin(cfg.get<number>('completionMaxTokens'), 1, 256),
     completionDebounceMs: clampMin(cfg.get<number>('completionDebounceMs'), 0, 300),
     toolPermissions: cfg.get<Record<string, 'allow' | 'deny' | 'ask'>>('toolPermissions', {}),

@@ -403,4 +403,29 @@ export class AnthropicBackend implements ApiBackend {
     const textBlock = data.content.find((b) => b.type === 'text');
     return textBlock?.text ?? '';
   }
+
+  async completeFIM(
+    model: string,
+    prefix: string,
+    suffix: string,
+    maxTokens: number,
+    signal?: AbortSignal,
+  ): Promise<string> {
+    // FIM via prompt wrapping: present prefix + suffix as context and ask for completion
+    const systemPrompt =
+      'You are a code completion engine. Complete the code between the prefix and suffix sections. Output ONLY the completion text — no explanations, no code fences, no markdown.';
+    const userMessage = [
+      '<prefix>',
+      prefix,
+      '</prefix>',
+      '',
+      '<suffix>',
+      suffix,
+      '</suffix>',
+      '',
+      'Complete the code that goes between prefix and suffix:',
+    ].join('\n');
+
+    return this.complete(model, systemPrompt, [{ role: 'user', content: userMessage }], maxTokens, signal);
+  }
 }

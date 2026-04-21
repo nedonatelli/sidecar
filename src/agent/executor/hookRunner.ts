@@ -1,11 +1,9 @@
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import { workspace } from 'vscode';
 import { getConfig } from '../../config/settings.js';
 import { checkWorkspaceConfigTrust } from '../../config/workspaceTrust.js';
 import { redactSecrets } from '../securityScanner.js';
-
-const execAsync = promisify(exec);
+import { sanitizeEnvValue } from '../envSanitize.js';
+import { runSpawnedHook } from '../spawnHook.js';
 
 /**
  * Run a pre/post hook for a tool call (v0.69 chunk 1 extraction).
@@ -45,21 +43,31 @@ export async function runHook(
   // guard) or returned an API response containing a key would land
   // verbatim in `SIDECAR_INPUT` / `SIDECAR_OUTPUT`, and every subprocess
   // the hook spawns inherits those env vars.
+  const input_str = JSON.stringify(input);
   const env: Record<string, string> = {
     ...(process.env as Record<string, string>),
-    SIDECAR_TOOL: toolName,
-    SIDECAR_INPUT: redactSecrets(JSON.stringify(input)),
+    SIDECAR_TOOL: sanitizeEnvValue(toolName),
+    SIDECAR_INPUT: sanitizeEnvValue(redactSecrets(input_str)),
   };
   if (output !== undefined) {
-    env.SIDECAR_OUTPUT = redactSecrets(output.slice(0, 10_000));
+    env.SIDECAR_OUTPUT = sanitizeEnvValue(redactSecrets(output.slice(0, 10_000)));
   }
 
-  try {
-    await execAsync(command, { cwd, timeout: 15_000, env });
-    return undefined;
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+  const result = await runSpawnedHook({
+    command,
+    cwd,
+    env,
+    label: `hook:${phase}:${toolName}`,
+    initialTimeoutMs: 15_000,
+  });
+
+  if (result.exitCode !== 0 || result.timedOut) {
+    const msg = result.timedOut
+      ? `Hook timed out after ${result.exitCode === null ? '15s' : 'inactivity'}`
+      : `Hook failed with exit code ${result.exitCode}`;
     console.warn(`[SideCar] Hook ${phase}:${toolName} failed: ${msg}`);
     return phase === 'pre' ? msg : undefined;
   }
+
+  return undefined;
 }

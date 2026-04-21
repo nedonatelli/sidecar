@@ -481,4 +481,38 @@ export class OllamaBackend implements ApiBackend {
     const data = (await response.json()) as OllamaChatChunk;
     return data.message.content ?? '';
   }
+
+  async completeFIM(
+    model: string,
+    prefix: string,
+    suffix: string,
+    maxTokens: number,
+    signal?: AbortSignal,
+  ): Promise<string> {
+    const generateUrl = `${this.baseUrl}/api/generate`;
+    const response = await sidecarFetch(
+      generateUrl,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model,
+          prompt: prefix,
+          suffix,
+          stream: false,
+          options: { num_predict: maxTokens },
+        }),
+        signal,
+      },
+      { label: 'ollama-fim' },
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      throw new Error(`FIM request failed: ${response.status}${errorText ? ` — ${errorText}` : ''}`);
+    }
+
+    const data = (await response.json()) as { response: string };
+    return data.response ?? '';
+  }
 }

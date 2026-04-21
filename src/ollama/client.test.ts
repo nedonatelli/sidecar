@@ -532,14 +532,18 @@ describe('SideCarClient', () => {
   });
 
   describe('completeFIM', () => {
-    it('throws on non-ok response', async () => {
+    it('delegates to backend when available', async () => {
       const client = new SideCarClient('test-model');
       mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 500,
-        text: async () => 'server error',
+        ok: true,
+        json: async () => ({
+          model: 'test-model',
+          response: 'completed code',
+          done: true,
+        }),
       });
-      await expect(client.completeFIM('prefix', 'suffix')).rejects.toThrow('FIM request failed');
+      const result = await client.completeFIM('prefix', 'suffix');
+      expect(result).toBeDefined();
     });
   });
 

@@ -3,6 +3,7 @@ import { randomBytes } from 'crypto';
 import * as os from 'os';
 import { MAX_BACKGROUND_COMMANDS } from '../config/constants.js';
 import { stripAnsi } from './ansi.js';
+import { ManagedChildProcess, getProcessRegistry } from '../agent/processLifecycle.js';
 
 export interface ShellExecuteOptions {
   timeout?: number; // ms, default 120_000
@@ -20,7 +21,7 @@ interface BackgroundCommand {
   output: string;
   done: boolean;
   exitCode: number | null;
-  proc: ChildProcess;
+  proc: ManagedChildProcess;
 }
 
 // Generate a short alphanumeric sentinel (no special chars to worry about)
@@ -401,11 +402,14 @@ export class ShellSession {
     }
 
     const id = randomBytes(4).toString('hex');
-    const proc = spawn(
+    const rawProc = spawn(
       this.isWindows ? process.env.COMSPEC || 'cmd.exe' : process.env.SHELL || '/bin/bash',
       this.isWindows ? ['/C', command] : ['-c', command],
       { cwd: this.cwd, env: this.env, stdio: ['ignore', 'pipe', 'pipe'] },
     );
+
+    // Wrap in ManagedChildProcess for lifecycle tracking
+    const proc = new ManagedChildProcess(rawProc, `bg-cmd:${id}`, getProcessRegistry());
 
     const entry: BackgroundCommand = { output: '', done: false, exitCode: null, proc };
     this.backgroundCommands.set(id, entry);
@@ -418,10 +422,11 @@ export class ShellSession {
       }
     };
 
-    proc.stdout?.on('data', onData);
-    proc.stderr?.on('data', onData);
+    const underlying = proc.getProc();
+    underlying.stdout?.on('data', onData);
+    underlying.stderr?.on('data', onData);
 
-    proc.on('exit', (code) => {
+    underlying.on('exit', (code) => {
       entry.done = true;
       entry.exitCode = code;
     });
@@ -445,21 +450,22 @@ export class ShellSession {
    * Dispose the shell session and all background processes.
    */
   dispose(): void {
-    const killWithTimeout = (proc: ChildProcess) => {
+    const killWithTimeout = (proc: ChildProcess | ManagedChildProcess) => {
+      const rawProc = proc instanceof ManagedChildProcess ? proc.getProc() : proc;
       try {
-        proc.kill('SIGTERM');
+        rawProc.kill('SIGTERM');
       } catch {
         return;
       }
       // Force-kill if still alive after 3 seconds
       const timer = setTimeout(() => {
         try {
-          proc.kill('SIGKILL');
+          rawProc.kill('SIGKILL');
         } catch {
           /* already exited */
         }
       }, 3000);
-      proc.once('exit', () => clearTimeout(timer));
+      rawProc.once('exit', () => clearTimeout(timer));
     };
 
     if (this.proc) {

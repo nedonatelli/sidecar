@@ -76,11 +76,12 @@ describe('package.json contributes.configuration — 8-category layout (v0.62.5)
     // + v0.66 Facets (+4: facets.enabled/maxConcurrent/rpcTimeoutMs/
     // registry).
     // + v0.68 Draft PR (+3: pr.create.draftByDefault/baseBranch/template).
+    // + v0.70 Speculative FIM (+1: completion.draftModel).
     // Adding a setting requires bumping this + adding it to one of
     // the sections.
     const cfg = loadConfiguration();
     const totalKeys = cfg.reduce((sum, s) => sum + Object.keys(s.properties).length, 0);
-    expect(totalKeys).toBe(110);
+    expect(totalKeys).toBe(111);
   });
 
   it('no setting key is duplicated across sections', () => {

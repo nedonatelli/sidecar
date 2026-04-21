@@ -37,6 +37,7 @@ export class SidecarDir {
     'logs/',
     'scratchpad/',
     'audit-buffer/',
+    'pids.json',
     '',
   ].join('\n');
 

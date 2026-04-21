@@ -1,10 +1,8 @@
 import { workspace, Disposable } from 'vscode';
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import type { AgentLogger } from './logger.js';
 import type { AuditLog } from './auditLog.js';
-
-const execAsync = promisify(exec);
+import { sanitizeEnvValue } from './envSanitize.js';
+import { runSpawnedHook } from './spawnHook.js';
 
 /** Maximum chars of hook stdout/stderr to preserve in the audit log. */
 const MAX_HOOK_OUTPUT_CHARS = 2000;
@@ -74,38 +72,35 @@ export class EventHookManager implements Disposable {
     }
   }
 
-  /** Strip control characters from env var values to prevent injection. */
-  private sanitizeEnvValue(value: string): string {
-    // Remove null bytes, newlines, and other control characters (keep printable + tab + space)
-    return value.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
-  }
-
   private async runHook(event: string, command: string, cwd: string, extraEnv: Record<string, string>): Promise<void> {
     const sanitizedEnv: Record<string, string> = {};
     for (const [key, value] of Object.entries(extraEnv)) {
-      sanitizedEnv[key] = this.sanitizeEnvValue(value);
+      sanitizedEnv[key] = sanitizeEnvValue(value);
     }
     const env = { ...process.env, ...sanitizedEnv, SIDECAR_EVENT: event } as Record<string, string>;
 
     const startMs = Date.now();
-    let stdout = '';
-    let stderr = '';
     let isError = false;
     let errorMessage: string | undefined;
 
-    try {
-      const result = await execAsync(command, { cwd, timeout: 15_000, env });
-      stdout = result.stdout ?? '';
-      stderr = result.stderr ?? '';
-      this.logger?.debug(`Event hook ${event} completed: ${command}`);
-    } catch (err) {
+    const result = await runSpawnedHook({
+      command,
+      cwd,
+      env,
+      label: `event:${event}`,
+      initialTimeoutMs: 15_000,
+    });
+
+    if (result.exitCode !== 0 && result.exitCode !== null) {
       isError = true;
-      errorMessage = err instanceof Error ? err.message : String(err);
-      // execAsync attaches stdout/stderr to the error object on non-zero exit
-      const e = err as { stdout?: string; stderr?: string };
-      stdout = e.stdout ?? '';
-      stderr = e.stderr ?? '';
+      errorMessage = `Process exited with code ${result.exitCode}`;
       this.logger?.warn(`Event hook ${event} failed: ${errorMessage}`);
+    } else if (result.timedOut) {
+      isError = true;
+      errorMessage = 'Hook timed out';
+      this.logger?.warn(`Event hook ${event} failed: timeout`);
+    } else {
+      this.logger?.debug(`Event hook ${event} completed: ${command}`);
     }
 
     // Persist hook output to the audit log so a prompt-injected or
@@ -122,9 +117,12 @@ export class EventHookManager implements Disposable {
         `$ ${command}\n` +
         `[cwd: ${cwd}]\n` +
         `[env overrides: ${Object.keys(sanitizedEnv).join(', ') || '(none)'}]\n` +
-        (stdout ? `\n--- stdout ---\n${truncate(stdout)}\n` : '') +
-        (stderr ? `\n--- stderr ---\n${truncate(stderr)}\n` : '') +
-        (errorMessage ? `\n--- error ---\n${errorMessage}\n` : '');
+        (result.stdout ? `\n--- stdout ---\n${truncate(result.stdout)}\n` : '') +
+        (result.stderr ? `\n--- stderr ---\n${truncate(result.stderr)}\n` : '') +
+        (errorMessage ? `\n--- error ---\n${errorMessage}\n` : '') +
+        (result.outputTruncated
+          ? `\n[output was truncated at ${result.stdout.length + result.stderr.length} bytes]\n`
+          : '');
       try {
         // Synthesize a tool-call-style audit entry for the hook. Using a
         // distinct `event_hook:<event>` name keeps it filterable from

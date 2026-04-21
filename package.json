@@ -969,6 +969,11 @@
             "default": "",
             "description": "Model for inline completions (leave empty to use the chat model)"
           },
+          "sidecar.completionDraftModel": {
+            "type": "string",
+            "default": "",
+            "description": "Draft model for speculative FIM completions (Ollama only). When set, completions race the draft model against the main model and return whichever finishes first."
+          },
           "sidecar.completionMaxTokens": {
             "type": "number",
             "default": 256,

@@ -427,11 +427,19 @@ export class SideCarClient {
     maxTokens: number = 256,
     signal?: AbortSignal,
   ): Promise<string> {
+    const activeModel = model || this.model;
+
+    // Delegate to backend if it implements FIM natively (e.g. Ollama's /api/generate, Anthropic prompt-wrapped)
+    if (this.backend.completeFIM) {
+      return this.backend.completeFIM(activeModel, prefix, suffix, maxTokens, signal);
+    }
+
+    // Fallback for Ollama: direct fetch to /api/generate (for backends that don't implement the interface method yet)
     const response = await fetch(this.generateUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: model || this.model,
+        model: activeModel,
         prompt: prefix,
         suffix,
         stream: false,

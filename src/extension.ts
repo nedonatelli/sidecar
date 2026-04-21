@@ -52,6 +52,7 @@ import { reviewPrComments, type PrReviewUi } from './review/prReview.js';
 import { respondToPrComments, type PrRespondUi } from './review/prRespond.js';
 import { markPrReady, checkPrCi, type PrMarkReadyUi, type PrCiUi } from './review/prLifecycle.js';
 import { EventHookManager } from './agent/eventHooks.js';
+import { getProcessRegistry } from './agent/processLifecycle.js';
 import { WorkspaceIndex } from './config/workspaceIndex.js';
 import { SidecarDir } from './config/sidecarDir.js';
 import { SymbolIndexer } from './config/symbolIndexer.js';
@@ -97,6 +98,9 @@ export function activate(context: ExtensionContext) {
 
   const mcpManager = new MCPManager();
   context.subscriptions.push(mcpManager);
+
+  // Register ProcessRegistry for child process lifecycle management (v0.70 Process Lifecycle Hardening)
+  context.subscriptions.push(getProcessRegistry());
 
   // Defer MCP connection — run after activation completes so it doesn't block startup
   // Merge configs from VS Code settings + .mcp.json project file
@@ -144,6 +148,15 @@ export function activate(context: ExtensionContext) {
       async (ok) => {
         if (!ok) return;
         console.log('[SideCar] .sidecar/ directory ready');
+
+        // Set up process lifecycle management: register the ProcessRegistry,
+        // set its manifest path, and sweep orphaned processes from the prior session
+        const processRegistry = getProcessRegistry();
+        processRegistry.setManifestPath(sidecarDir.getPath('pids.json'));
+        await processRegistry.sweepOrphans().catch((err) => {
+          console.warn('[SideCar] Process orphan sweep failed:', err);
+        });
+
         // Audit Mode v0.61 a.3: wire persistence + check for a
         // prior-session buffer. If anything's there, prompt the user
         // before re-exposing the entries — they may not remember the

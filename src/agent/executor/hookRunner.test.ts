@@ -13,31 +13,51 @@ vi.mock('../securityScanner.js', () => ({
   redactSecrets: vi.fn((s: string) => s.replace(/secret-\w+/g, '[REDACTED]')),
 }));
 
-vi.mock('child_process', () => ({
-  exec: vi.fn(),
+vi.mock('../processLifecycle.js', () => ({
+  getProcessRegistry: vi.fn(() => ({
+    register: vi.fn(),
+    unregister: vi.fn(),
+  })),
+  ManagedChildProcess: vi.fn().mockImplementation((proc, _label, _registry) => ({
+    pid: proc?.pid,
+    getProc: () => proc,
+    dispose: vi.fn().mockResolvedValue(undefined),
+  })),
+}));
+
+const { mockRunSpawnedHook } = vi.hoisted(() => ({
+  mockRunSpawnedHook: vi.fn(),
+}));
+
+vi.mock('../spawnHook.js', () => ({
+  runSpawnedHook: mockRunSpawnedHook,
 }));
 
 import { getConfig } from '../../config/settings.js';
 import { checkWorkspaceConfigTrust } from '../../config/workspaceTrust.js';
-import { exec } from 'child_process';
 
 const mockedGetConfig = vi.mocked(getConfig);
 const mockedTrust = vi.mocked(checkWorkspaceConfigTrust);
-const mockedExec = vi.mocked(exec);
 
-type ExecCb = (err: Error | null, stdout: string, stderr: string) => void;
-
-function mockExecSuccess() {
-  mockedExec.mockImplementation((_cmd, _opts, fn: unknown) => {
-    (fn as ExecCb)(null, '', '');
-    return {} as ReturnType<typeof exec>;
+function mockRunSpawnedHookSuccess() {
+  mockRunSpawnedHook.mockResolvedValue({
+    stdout: '',
+    stderr: '',
+    exitCode: 0,
+    signal: null,
+    timedOut: false,
+    outputTruncated: false,
   });
 }
 
-function mockExecError(message: string) {
-  mockedExec.mockImplementation((_cmd, _opts, fn: unknown) => {
-    (fn as ExecCb)(new Error(message), '', message);
-    return {} as ReturnType<typeof exec>;
+function mockRunSpawnedHookError(message: string) {
+  mockRunSpawnedHook.mockResolvedValue({
+    stdout: '',
+    stderr: message,
+    exitCode: 1,
+    signal: null,
+    timedOut: false,
+    outputTruncated: false,
   });
 }
 
@@ -55,7 +75,7 @@ describe('runHook', () => {
     mockConfig({});
     const result = await runHook('pre', 'read_file', {});
     expect(result).toBeUndefined();
-    expect(mockedExec).not.toHaveBeenCalled();
+    expect(mockRunSpawnedHook).not.toHaveBeenCalled();
   });
 
   it('returns undefined when no global hook and no per-tool hook', async () => {
@@ -66,30 +86,30 @@ describe('runHook', () => {
 
   it('runs a per-tool pre hook and returns undefined on success', async () => {
     mockConfig({ write_file: { pre: 'lint check' } });
-    mockExecSuccess();
+    mockRunSpawnedHookSuccess();
     const result = await runHook('pre', 'write_file', { path: 'src/foo.ts' });
     expect(result).toBeUndefined();
-    expect(mockedExec).toHaveBeenCalledOnce();
+    expect(mockRunSpawnedHook).toHaveBeenCalledOnce();
   });
 
   it('falls back to the global * hook when no per-tool hook matches', async () => {
     mockConfig({ '*': { pre: 'audit-log' } });
-    mockExecSuccess();
+    mockRunSpawnedHookSuccess();
     const result = await runHook('pre', 'run_command', { command: 'npm test' });
     expect(result).toBeUndefined();
-    expect(mockedExec).toHaveBeenCalledOnce();
+    expect(mockRunSpawnedHook).toHaveBeenCalledOnce();
   });
 
   it('returns the error message when a pre hook fails', async () => {
     mockConfig({ write_file: { pre: 'exit 1' } });
-    mockExecError('Command failed: exit 1');
+    mockRunSpawnedHookError('Command failed: exit 1');
     const result = await runHook('pre', 'write_file', {});
-    expect(result).toMatch(/Command failed/);
+    expect(result).toMatch(/exit code/i);
   });
 
   it('returns undefined when a post hook fails (post-hooks only warn)', async () => {
     mockConfig({ write_file: { post: 'notify' } });
-    mockExecError('notify failed');
+    mockRunSpawnedHookError('notify failed');
     const result = await runHook('post', 'write_file', {});
     expect(result).toBeUndefined();
   });
@@ -99,16 +119,22 @@ describe('runHook', () => {
     mockedTrust.mockResolvedValue('blocked');
     const result = await runHook('pre', 'write_file', {});
     expect(result).toBeUndefined();
-    expect(mockedExec).not.toHaveBeenCalled();
+    expect(mockRunSpawnedHook).not.toHaveBeenCalled();
   });
 
   it('sets SIDECAR_TOOL env var to the tool name', async () => {
     mockConfig({ read_file: { pre: 'check' } });
     let capturedEnv: Record<string, string> | undefined;
-    mockedExec.mockImplementation((_cmd, opts, fn: unknown) => {
-      capturedEnv = (opts as { env?: Record<string, string> }).env;
-      (fn as ExecCb)(null, '', '');
-      return {} as ReturnType<typeof exec>;
+    mockRunSpawnedHook.mockImplementation((opts) => {
+      capturedEnv = opts.env;
+      return Promise.resolve({
+        stdout: '',
+        stderr: '',
+        exitCode: 0,
+        signal: null,
+        timedOut: false,
+        outputTruncated: false,
+      });
     });
     await runHook('pre', 'read_file', { path: 'src/main.ts' });
     expect(capturedEnv?.SIDECAR_TOOL).toBe('read_file');
@@ -117,10 +143,16 @@ describe('runHook', () => {
   it('redacts secrets from SIDECAR_INPUT', async () => {
     mockConfig({ read_file: { pre: 'log' } });
     let capturedEnv: Record<string, string> | undefined;
-    mockedExec.mockImplementation((_cmd, opts, fn: unknown) => {
-      capturedEnv = (opts as { env?: Record<string, string> }).env;
-      (fn as ExecCb)(null, '', '');
-      return {} as ReturnType<typeof exec>;
+    mockRunSpawnedHook.mockImplementation((opts) => {
+      capturedEnv = opts.env;
+      return Promise.resolve({
+        stdout: '',
+        stderr: '',
+        exitCode: 0,
+        signal: null,
+        timedOut: false,
+        outputTruncated: false,
+      });
     });
     await runHook('pre', 'read_file', { content: 'secret-abc123' });
     expect(capturedEnv?.SIDECAR_INPUT).toContain('[REDACTED]');
@@ -130,10 +162,16 @@ describe('runHook', () => {
   it('sets SIDECAR_OUTPUT env var for post hooks', async () => {
     mockConfig({ write_file: { post: 'audit' } });
     let capturedEnv: Record<string, string> | undefined;
-    mockedExec.mockImplementation((_cmd, opts, fn: unknown) => {
-      capturedEnv = (opts as { env?: Record<string, string> }).env;
-      (fn as ExecCb)(null, '', '');
-      return {} as ReturnType<typeof exec>;
+    mockRunSpawnedHook.mockImplementation((opts) => {
+      capturedEnv = opts.env;
+      return Promise.resolve({
+        stdout: '',
+        stderr: '',
+        exitCode: 0,
+        signal: null,
+        timedOut: false,
+        outputTruncated: false,
+      });
     });
     await runHook('post', 'write_file', {}, 'written 42 bytes');
     expect(capturedEnv?.SIDECAR_OUTPUT).toBe('written 42 bytes');

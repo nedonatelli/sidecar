@@ -429,7 +429,12 @@ export class MCPManager {
 
   dispose(): void {
     this.disposed = true;
-    this.disconnect().catch((err) => {
+    // Gracefully disconnect with timeout: allow up to 3s per server (max 10s total)
+    const timeoutMs = Math.min(3_000 * this.connections.length, 10_000);
+    Promise.race([
+      this.disconnect(),
+      new Promise<void>((_, reject) => setTimeout(() => reject(new Error('MCP disconnect timeout')), timeoutMs)),
+    ]).catch((err) => {
       console.error('[SideCar] MCP disconnect error during dispose:', err);
     });
   }

@@ -22,6 +22,17 @@ export interface ApiBackend {
   ): Promise<string>;
 
   /**
+   * Fill-in-the-Middle (FIM) completion. Optional — only backends
+   * with native FIM support (currently Ollama via /api/generate) or
+   * backends that can emulate FIM via a prompt pattern implement this.
+   * Callers check `backend.completeFIM` before calling.
+   *
+   * Used by inline code completion provider for fast, single-line
+   * completions within the current editing context.
+   */
+  completeFIM?(model: string, prefix: string, suffix: string, maxTokens: number, signal?: AbortSignal): Promise<string>;
+
+  /**
    * Declare per-backend native capabilities beyond the standard
    * streamChat + complete surface (v0.63.1). Optional — backends
    * without extra capabilities (Anthropic, Groq, Fireworks,

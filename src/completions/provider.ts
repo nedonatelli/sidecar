@@ -10,6 +10,7 @@ import {
   workspace,
 } from 'vscode';
 import { SideCarClient } from '../ollama/client.js';
+import { getConfig } from '../config/settings.js';
 import { Debouncer } from './debounce.js';
 
 const MIN_PREFIX_LENGTH = 10;
@@ -44,6 +45,59 @@ export class SideCarCompletionProvider implements InlineCompletionItemProvider {
 
   dispose(): void {
     this.editListener.dispose();
+  }
+
+  /**
+   * Race a draft model against the main model for FIM completions.
+   * Whichever completes first is returned; the loser is aborted.
+   * This gives real latency benefit when the draft model is much faster (e.g. 1.5B vs 7B parameter models).
+   */
+  private async raceCompletions(
+    prefix: string,
+    suffix: string,
+    draftModel: string,
+    signal?: CancellationToken,
+  ): Promise<string> {
+    const draftController = new AbortController();
+    const targetController = new AbortController();
+
+    // If the outer signal is cancelled, cancel both races
+    if (signal?.isCancellationRequested) {
+      draftController.abort();
+      targetController.abort();
+      throw new Error('Completion cancelled');
+    }
+    signal?.onCancellationRequested(() => {
+      draftController.abort();
+      targetController.abort();
+    });
+
+    const draftRace = this.client
+      .completeFIM(prefix, suffix, draftModel, this.maxTokens, draftController.signal)
+      .then((result) => ({ result, winner: 'draft' as const }))
+      .catch(() => ({ result: '', winner: 'draft-error' as const }));
+
+    const targetRace = this.client
+      .completeFIM(prefix, suffix, undefined, this.maxTokens, targetController.signal)
+      .then((result) => ({ result, winner: 'target' as const }))
+      .catch(() => ({ result: '', winner: 'target-error' as const }));
+
+    const { result, winner } = await Promise.race([draftRace, targetRace]);
+
+    // Cancel the loser
+    if (winner === 'draft' || winner === 'draft-error') {
+      targetController.abort();
+    } else {
+      draftController.abort();
+    }
+
+    if (winner !== 'draft' && winner !== 'target') {
+      // Both failed; return empty
+      return '';
+    }
+
+    console.info(`[SideCar] Inline completion: FIM race winner = ${winner}`);
+    return result;
   }
 
   async provideInlineCompletionItems(
@@ -91,8 +145,15 @@ export class SideCarCompletionProvider implements InlineCompletionItemProvider {
       this.client.routeForDispatch({ role: 'completion' });
 
       if (this.client.isLocalOllama()) {
-        pathLabel = 'ollama-fim';
-        completion = await this.client.completeFIM(prefix, suffix, undefined, this.maxTokens, signal);
+        // Check if we should race against a draft model for speculative FIM speedup
+        const draftModel = getConfig().completionDraftModel;
+        if (draftModel) {
+          pathLabel = 'ollama-fim-race';
+          completion = await this.raceCompletions(prefix, suffix, draftModel, token);
+        } else {
+          pathLabel = 'ollama-fim';
+          completion = await this.client.completeFIM(prefix, suffix, undefined, this.maxTokens, signal);
+        }
       } else {
         pathLabel = 'messages-api';
         const recentEditContext = this.buildRecentEditContext(document.fileName);
