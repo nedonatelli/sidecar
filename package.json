@@ -983,6 +983,47 @@
             "type": "number",
             "default": 300,
             "description": "Minimum interval in milliseconds between completion requests"
+          },
+          "sidecar.nextEdit.enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enable Next Edit Suggestions — after you edit a symbol, SideCar analyses the symbol graph and highlights callers/dependents that likely need a follow-on change."
+          },
+          "sidecar.nextEdit.debounceMs": {
+            "type": "number",
+            "default": 600,
+            "minimum": 100,
+            "maximum": 5000,
+            "description": "Debounce delay in milliseconds before the next-edit analyser runs after a document change."
+          },
+          "sidecar.nextEdit.maxHops": {
+            "type": "number",
+            "default": 2,
+            "minimum": 1,
+            "maximum": 4,
+            "description": "How many graph hops to walk when searching for next edit sites. 1 = direct callers only; 2 = also files that import the changed file."
+          },
+          "sidecar.nextEdit.topK": {
+            "type": "number",
+            "default": 3,
+            "minimum": 1,
+            "maximum": 9,
+            "description": "Maximum number of next-edit suggestions to surface at once."
+          },
+          "sidecar.nextEdit.crossFileEnabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Include suggestions in files other than the one being edited."
+          },
+          "sidecar.nextEdit.model": {
+            "type": "string",
+            "default": "",
+            "description": "Model override for next-edit LLM scoring (leave empty to use the chat model). Reserved for a future release that adds ranked patch previews."
+          },
+          "sidecar.nextEdit.autoTriggerOnSave": {
+            "type": "boolean",
+            "default": false,
+            "description": "Also run the next-edit analyser when the file is saved, in addition to debounced keystroke triggers."
           }
         }
       },
@@ -1404,6 +1445,27 @@
         "title": "Refresh Pinned Memory from Disk",
         "category": "SideCar",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "sidecar.nextEdit.accept",
+        "title": "Next Edit: Jump to First Suggestion",
+        "category": "SideCar",
+        "icon": "$(arrow-right)"
+      },
+      {
+        "command": "sidecar.nextEdit.next",
+        "title": "Next Edit: Go to Next Suggestion",
+        "category": "SideCar"
+      },
+      {
+        "command": "sidecar.nextEdit.previous",
+        "title": "Next Edit: Go to Previous Suggestion",
+        "category": "SideCar"
+      },
+      {
+        "command": "sidecar.nextEdit.dismiss",
+        "title": "Next Edit: Dismiss Suggestions",
+        "category": "SideCar"
       },
       {
         "command": "sidecar.toggleChat",

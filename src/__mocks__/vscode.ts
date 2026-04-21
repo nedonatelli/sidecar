@@ -57,6 +57,7 @@ export const workspace = {
     delete: async (_uri: unknown, _options?: unknown) => {},
   },
   onDidChangeTextDocument: () => ({ dispose: () => {} }),
+  onDidSaveTextDocument: () => ({ dispose: () => {} }),
   findFiles: async () => [],
   openTextDocument: async (uriOrOpts: unknown) => {
     // Tests that pass `{ content }` expect an untitled-style URI; tests
@@ -106,8 +107,13 @@ export const window = {
   }),
   createStatusBarItem: () => ({
     text: '',
+    tooltip: '',
+    command: '',
     show: () => {},
     hide: () => {},
+    dispose: () => {},
+  }),
+  createTextEditorDecorationType: () => ({
     dispose: () => {},
   }),
 };

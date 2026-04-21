@@ -18,7 +18,7 @@ import { registerJsDocSync } from './docs/jsDocSyncProvider.js';
 import { registerReadmeSync } from './docs/readmeSyncProvider.js';
 import { registerReviewPanel } from './agent/reviewPanel.js';
 import { registerPinnedMemoryView } from './views/pinnedMemoryView.js';
-import { SideCarCompletionProvider } from './completions/provider.js';
+import { SideCarCompletionProvider, NextEditEngine } from './completions/provider.js';
 import {
   getConfig,
   isLocalOllama,
@@ -1143,6 +1143,14 @@ export function activate(context: ExtensionContext) {
       }
     }),
   );
+
+  // Next Edit Suggestions engine (v0.72) — uses the symbol graph to surface
+  // follow-on edit sites after each keystroke. Graph may be empty at startup;
+  // the engine reads it lazily on each analysis run so index build order is safe.
+  if (config.nextEditEnabled) {
+    const nextEditEngine = new NextEditEngine(symbolIndexer.getGraph());
+    context.subscriptions.push(nextEditEngine);
+  }
 
   // Scheduled tasks — gated on workspace trust the same way MCP servers,
   // hooks, toolPermissions, and SIDECAR.md are. Without this check a

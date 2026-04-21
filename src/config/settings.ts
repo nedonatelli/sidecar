@@ -222,6 +222,14 @@ export interface SideCarConfig {
   diagnosticsReactiveFixDebounceMs: number;
   diagnosticsReactiveFixSeverity: 'error' | 'warning';
   thinkingMode: 'single' | 'self-debate' | 'tree-of-thought' | 'red-team';
+  /* Next Edit Suggestions (v0.72) */
+  nextEditEnabled: boolean;
+  nextEditDebounceMs: number;
+  nextEditMaxHops: number;
+  nextEditTopK: number;
+  nextEditCrossFileEnabled: boolean;
+  nextEditModel: string;
+  nextEditAutoTriggerOnSave: boolean;
 }
 
 /**
@@ -427,6 +435,14 @@ function readConfig(): SideCarConfig {
     diagnosticsReactiveFixDebounceMs: cfg.get<number>('diagnostics.reactiveFixDebounceMs', 2000),
     diagnosticsReactiveFixSeverity: cfg.get<'error' | 'warning'>('diagnostics.reactiveFixSeverity', 'error'),
     thinkingMode: cfg.get<'single' | 'self-debate' | 'tree-of-thought' | 'red-team'>('thinking.mode', 'single'),
+    /* Next Edit Suggestions (v0.72) */
+    nextEditEnabled: cfg.get<boolean>('nextEdit.enabled', false),
+    nextEditDebounceMs: clampMin(cfg.get<number>('nextEdit.debounceMs'), 100, 600),
+    nextEditMaxHops: clampMin(cfg.get<number>('nextEdit.maxHops'), 1, 2),
+    nextEditTopK: clampMin(cfg.get<number>('nextEdit.topK'), 1, 3),
+    nextEditCrossFileEnabled: cfg.get<boolean>('nextEdit.crossFileEnabled', true),
+    nextEditModel: cfg.get<string>('nextEdit.model', ''),
+    nextEditAutoTriggerOnSave: cfg.get<boolean>('nextEdit.autoTriggerOnSave', false),
   };
 }
 

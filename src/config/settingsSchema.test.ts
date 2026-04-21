@@ -64,7 +64,7 @@ describe('package.json contributes.configuration — 9-category layout (v0.71.0)
     }
   });
 
-  it('exactly 118 settings keys total across all sections', () => {
+  it('exactly 125 settings keys total across all sections', () => {
     // Baseline: v0.62.4 (75) + v0.64 Model Routing (+5:
     // modelRouting.enabled/rules/defaultModel/visibleSwaps/dryRun)
     // + v0.64 Skill Sync (+5: skills.userRegistry/teamRegistries/
@@ -80,11 +80,13 @@ describe('package.json contributes.configuration — 9-category layout (v0.71.0)
     // + v0.70 Speculative FIM (+1: completion.draftModel).
     // + v0.71 Diagnostics & Thinking (+4: diagnostics.reactiveFixEnabled/
     // reactiveFixDebounceMs/reactiveFixSeverity/thinking.mode).
+    // + v0.72 Next Edit Suggestions (+7: nextEdit.enabled/debounceMs/
+    // maxHops/topK/crossFileEnabled/model/autoTriggerOnSave).
     // Adding a setting requires bumping this + adding it to one of
     // the sections.
     const cfg = loadConfiguration();
     const totalKeys = cfg.reduce((sum, s) => sum + Object.keys(s.properties).length, 0);
-    expect(totalKeys).toBe(118);
+    expect(totalKeys).toBe(125);
   });
 
   it('no setting key is duplicated across sections', () => {
