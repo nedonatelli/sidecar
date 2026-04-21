@@ -230,6 +230,11 @@ export interface SideCarConfig {
   nextEditCrossFileEnabled: boolean;
   nextEditModel: string;
   nextEditAutoTriggerOnSave: boolean;
+  /* Adaptive Paste (v0.72) */
+  adaptivePasteEnabled: boolean;
+  adaptivePasteMinPasteLength: number;
+  adaptivePasteModel: string;
+  adaptivePasteAutoDetect: boolean;
 }
 
 /**
@@ -435,6 +440,11 @@ function readConfig(): SideCarConfig {
     diagnosticsReactiveFixDebounceMs: cfg.get<number>('diagnostics.reactiveFixDebounceMs', 2000),
     diagnosticsReactiveFixSeverity: cfg.get<'error' | 'warning'>('diagnostics.reactiveFixSeverity', 'error'),
     thinkingMode: cfg.get<'single' | 'self-debate' | 'tree-of-thought' | 'red-team'>('thinking.mode', 'single'),
+    /* Adaptive Paste (v0.72) */
+    adaptivePasteEnabled: cfg.get<boolean>('adaptivePaste.enabled', true),
+    adaptivePasteMinPasteLength: clampMin(cfg.get<number>('adaptivePaste.minPasteLength'), 20, 50),
+    adaptivePasteModel: cfg.get<string>('adaptivePaste.model', ''),
+    adaptivePasteAutoDetect: cfg.get<boolean>('adaptivePaste.autoDetect', true),
     /* Next Edit Suggestions (v0.72) */
     nextEditEnabled: cfg.get<boolean>('nextEdit.enabled', false),
     nextEditDebounceMs: clampMin(cfg.get<number>('nextEdit.debounceMs'), 100, 600),

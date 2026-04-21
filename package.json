@@ -984,6 +984,28 @@
             "default": 300,
             "description": "Minimum interval in milliseconds between completion requests"
           },
+          "sidecar.adaptivePaste.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Enable Adaptive Paste — when you paste foreign content (SQL, JSON, curl, Python, shell, .env) into a file, SideCar offers a lightbulb action to transform it to fit the target language."
+          },
+          "sidecar.adaptivePaste.minPasteLength": {
+            "type": "number",
+            "default": 50,
+            "minimum": 20,
+            "maximum": 2000,
+            "description": "Minimum character count for a text insertion to be treated as a paste. Keeps the tracker from firing on short typed snippets."
+          },
+          "sidecar.adaptivePaste.model": {
+            "type": "string",
+            "default": "",
+            "description": "Model override for paste transformations (leave empty to use the chat model)."
+          },
+          "sidecar.adaptivePaste.autoDetect": {
+            "type": "boolean",
+            "default": true,
+            "description": "Automatically detect paste events via document change tracking. When false, only the explicit 'Transform Paste' command is available."
+          },
           "sidecar.nextEdit.enabled": {
             "type": "boolean",
             "default": false,
@@ -1445,6 +1467,12 @@
         "title": "Refresh Pinned Memory from Disk",
         "category": "SideCar",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "sidecar.adaptivePaste.transform",
+        "title": "Transform Paste with SideCar",
+        "category": "SideCar",
+        "icon": "$(wand)"
       },
       {
         "command": "sidecar.nextEdit.accept",

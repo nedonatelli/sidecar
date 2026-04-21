@@ -65,6 +65,11 @@ import { disposeShellSession, setSymbolGraph, setSymbolEmbeddings, initCustomToo
 import { disposeSidecarMdWatcher } from './webview/handlers/chatHandlers.js';
 import { InlineEditProvider } from './edits/inlineEditProvider.js';
 import { SidecarCodeActionProvider } from './edits/sidecarCodeActionProvider.js';
+import {
+  AdaptivePasteTracker,
+  AdaptivePasteCodeActionProvider,
+  registerAdaptivePasteCommand,
+} from './edits/adaptivePaste.js';
 import { PendingEditDecorationProvider } from './edits/pendingEditDecorationProvider.js';
 
 let chatProvider: ChatViewProvider | undefined;
@@ -687,6 +692,20 @@ export function activate(context: ExtensionContext) {
       providedCodeActionKinds: SidecarCodeActionProvider.providedCodeActionKinds,
     }),
   );
+
+  // Adaptive Paste (v0.72) — track large text insertions and offer to
+  // transform foreign content (SQL, JSON, curl, Python, etc.) into the
+  // target file's language via a lightbulb code action.
+  if (config.adaptivePasteEnabled) {
+    const pasteTracker = new AdaptivePasteTracker();
+    context.subscriptions.push(
+      pasteTracker,
+      registerAdaptivePasteCommand(createClient(), pasteTracker),
+      languages.registerCodeActionsProvider({ scheme: 'file' }, new AdaptivePasteCodeActionProvider(pasteTracker), {
+        providedCodeActionKinds: AdaptivePasteCodeActionProvider.providedCodeActionKinds,
+      }),
+    );
+  }
 
   // Inline chat (Cmd+I)
   context.subscriptions.push(
