@@ -389,17 +389,11 @@ describe('buildBaseSystemPrompt', () => {
     expect(prompt).toContain('Facts about yourself');
   });
 
-  it('includes the tool-selection decision tree', () => {
-    // Addition for the cycle-2 prompt-engineer finding: the base prompt
-    // had no guidance on when to reach for grep vs search_files vs
-    // read_file vs list_directory. The tree is pure stable copy so it
-    // also pads the cacheable prefix past Anthropic's 1024-token floor.
+  it('includes the tool preference section', () => {
     const prompt = buildBaseSystemPrompt(baseParams);
-    expect(prompt).toContain('Choosing a tool');
-    expect(prompt).toContain('`read_file`');
-    expect(prompt).toContain('`grep`');
-    expect(prompt).toContain('`search_files`');
+    expect(prompt).toContain('Tool preference');
     expect(prompt).toContain('`run_tests`');
+    expect(prompt).toContain('`git_*`');
   });
 
   it('uses positive framing with trailing contrast notes', () => {
