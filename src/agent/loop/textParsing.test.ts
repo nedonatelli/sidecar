@@ -143,6 +143,50 @@ describe('parseTextToolCalls', () => {
       expect(result[0].name).toBe('grep');
     });
   });
+
+  describe('bare JSON line pattern (Ollama style)', () => {
+    it('parses a bare JSON line with {name, parameters}', () => {
+      const input =
+        'Let me check the current value of n_ctx.\n' +
+        '{"name": "read_file", "parameters": {"path": "src/config/settings.ts"}}';
+      const result = parseTextToolCalls(input, tools);
+      expect(result).toHaveLength(1);
+      expect(result[0].name).toBe('read_file');
+      expect(result[0].input).toEqual({ path: 'src/config/settings.ts' });
+    });
+
+    it('parses a bare JSON line with {name, arguments}', () => {
+      const input = '{"name": "grep", "arguments": {"pattern": "n_ctx", "path": "src"}}';
+      const result = parseTextToolCalls(input, tools);
+      expect(result).toHaveLength(1);
+      expect(result[0].name).toBe('grep');
+    });
+
+    it('ignores bare JSON whose name is not a known tool', () => {
+      const input = '{"name": "not_a_tool", "parameters": {"x": 1}}';
+      const result = parseTextToolCalls(input, tools);
+      expect(result).toHaveLength(0);
+    });
+
+    it('ignores bare JSON when a <tool_call> pattern appeared first', () => {
+      const input =
+        '<tool_call>{"name": "grep", "arguments": {"pattern": "x"}}</tool_call>\n' +
+        '{"name": "read_file", "parameters": {"path": "a"}}';
+      const result = parseTextToolCalls(input, tools);
+      expect(result).toHaveLength(1);
+      expect(result[0].name).toBe('grep');
+    });
+
+    it('parses multiple bare JSON lines in the same turn', () => {
+      const input =
+        'First call:\n{"name": "read_file", "parameters": {"path": "a.ts"}}\n' +
+        'Second call:\n{"name": "grep", "parameters": {"pattern": "foo", "path": "src"}}';
+      const result = parseTextToolCalls(input, tools);
+      expect(result).toHaveLength(2);
+      expect(result[0].name).toBe('read_file');
+      expect(result[1].name).toBe('grep');
+    });
+  });
 });
 
 describe('stripRepeatedContent', () => {

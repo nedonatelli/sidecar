@@ -38,8 +38,8 @@ class PinnedMemoryTreeProvider implements TreeDataProvider<PinnedEntryItem> {
   private readonly _onDidChangeTreeData = new EventEmitter<PinnedEntryItem | undefined>();
   readonly onDidChangeTreeData: Event<PinnedEntryItem | undefined> = this._onDidChangeTreeData.event;
 
-  constructor(private readonly store: PinnedMemoryStore) {
-    store.setOnChange(() => this._onDidChangeTreeData.fire(undefined));
+  constructor(private readonly store: PinnedMemoryStore | null) {
+    store?.setOnChange(() => this._onDidChangeTreeData.fire(undefined));
   }
 
   getTreeItem(element: PinnedEntryItem): TreeItem {
@@ -47,7 +47,7 @@ class PinnedMemoryTreeProvider implements TreeDataProvider<PinnedEntryItem> {
   }
 
   getChildren(): PinnedEntryItem[] {
-    if (!this.store.isReady()) return [];
+    if (!this.store?.isReady()) return [];
     return this.store.getEntries().map((e) => new PinnedEntryItem(e));
   }
 
@@ -56,11 +56,17 @@ class PinnedMemoryTreeProvider implements TreeDataProvider<PinnedEntryItem> {
   }
 }
 
-export function registerPinnedMemoryView(context: ExtensionContext, store: PinnedMemoryStore): Disposable {
+export function registerPinnedMemoryView(context: ExtensionContext, store: PinnedMemoryStore | null): Disposable {
   const provider = new PinnedMemoryTreeProvider(store);
   const treeView = window.createTreeView(VIEW_ID, { treeDataProvider: provider, showCollapseAll: false });
 
   const pinCmd = commands.registerCommand('sidecar.pinToMemory', async () => {
+    if (!store) {
+      void window.showErrorMessage(
+        'SideCar: Pinned Memory is disabled. Enable sidecar.pinnedMemory.enabled in settings.',
+      );
+      return;
+    }
     const root = getWorkspaceRoot();
     const input = await window.showInputBox({
       prompt: 'Enter a file path to pin (relative to workspace root)',
@@ -87,6 +93,7 @@ export function registerPinnedMemoryView(context: ExtensionContext, store: Pinne
   });
 
   const unpinCmd = commands.registerCommand('sidecar.unpinMemory', async (item?: PinnedEntryItem) => {
+    if (!store) return;
     if (item) {
       await store.unpin(item.entry.id);
       return;
@@ -106,6 +113,7 @@ export function registerPinnedMemoryView(context: ExtensionContext, store: Pinne
   });
 
   const refreshCmd = commands.registerCommand('sidecar.pinnedMemory.refresh', async () => {
+    if (!store) return;
     // Re-read content for all entries from disk
     const root = getWorkspaceRoot();
     for (const entry of store.getEntries()) {
@@ -123,6 +131,12 @@ export function registerPinnedMemoryView(context: ExtensionContext, store: Pinne
 
   // Also register "Pin active file" as a convenience
   const pinActiveCmd = commands.registerCommand('sidecar.pinActiveFileToMemory', async () => {
+    if (!store) {
+      void window.showErrorMessage(
+        'SideCar: Pinned Memory is disabled. Enable sidecar.pinnedMemory.enabled in settings.',
+      );
+      return;
+    }
     const editor = window.activeTextEditor;
     if (!editor) {
       void window.showErrorMessage('SideCar: No active file to pin.');
@@ -139,6 +153,12 @@ export function registerPinnedMemoryView(context: ExtensionContext, store: Pinne
 
   // Handle "pin selection" — pin just the selected text with a label
   const pinSelectionCmd = commands.registerCommand('sidecar.pinSelectionToMemory', async () => {
+    if (!store) {
+      void window.showErrorMessage(
+        'SideCar: Pinned Memory is disabled. Enable sidecar.pinnedMemory.enabled in settings.',
+      );
+      return;
+    }
     const editor = window.activeTextEditor;
     if (!editor) return;
     const selection = editor.document.getText(editor.selection.isEmpty ? undefined : editor.selection);

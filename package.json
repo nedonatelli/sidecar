@@ -2,7 +2,7 @@
   "name": "sidecar-ai",
   "displayName": "SideCar",
   "description": "Autonomous AI agent for coding — run full agent loops with local Ollama, Anthropic Claude, or OpenAI models",
-  "version": "0.75.0",
+  "version": "0.76.0",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -273,12 +273,26 @@
             ],
             "markdownDescription": "Temperature for agent tool-calling requests.\n\n- `0.1-0.3` — deterministic tool selection (recommended for agent loops)\n- `0.7-1.0` — creative, more exploration\n\nNon-tool requests always use `0`."
           },
+          "sidecar.ollama.numCtx": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "default": null,
+            "minimum": 512,
+            "order": 22,
+            "tags": [
+              "sidecar",
+              "backend"
+            ],
+            "markdownDescription": "Override the context window size (`num_ctx`) sent to Ollama with every request. When set, this takes precedence over the value probed from the model's Modelfile.\n\nLeave `null` to use the model's default (recommended). Set to `8192`, `32768`, `65536`, etc. to force a specific window. Only applies to the Ollama backend."
+          },
           "sidecar.agentMaxIterations": {
             "type": "number",
             "default": 25,
             "minimum": 1,
             "maximum": 100,
-            "order": 22,
+            "order": 23,
             "tags": [
               "sidecar",
               "agent"
@@ -1447,6 +1461,85 @@
             "markdownDescription": "Automatically fetch web-page content when URLs are pasted into chat. The fetched HTML is converted to markdown and attached as context on the next turn."
           }
         }
+      },
+      {
+        "title": "SideCar: Databases",
+        "properties": {
+          "sidecar.databases.profiles": {
+            "type": "array",
+            "default": [],
+            "markdownDescription": "Database connection profiles for the `db_list_tables` / `db_describe_table` / `db_query` tools. Each entry: `{ id, name, dialect, filePath?, host?, port?, database?, user?, secretKey?, readOnly? }`. Passwords are stored in VS Code SecretStorage keyed by `secretKey` — never put passwords in this setting.",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "name",
+                "dialect"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "Unique identifier for this connection"
+                },
+                "name": {
+                  "type": "string",
+                  "description": "Display name"
+                },
+                "dialect": {
+                  "type": "string",
+                  "enum": [
+                    "sqlite",
+                    "postgres",
+                    "mysql",
+                    "duckdb"
+                  ],
+                  "description": "Database dialect"
+                },
+                "filePath": {
+                  "type": "string",
+                  "description": "File path for SQLite / DuckDB databases"
+                },
+                "host": {
+                  "type": "string",
+                  "description": "Hostname for Postgres / MySQL"
+                },
+                "port": {
+                  "type": "number",
+                  "description": "Port number (default: 5432 for Postgres, 3306 for MySQL)"
+                },
+                "database": {
+                  "type": "string",
+                  "description": "Database / schema name"
+                },
+                "user": {
+                  "type": "string",
+                  "description": "Username"
+                },
+                "secretKey": {
+                  "type": "string",
+                  "description": "VS Code SecretStorage key where the password is stored"
+                },
+                "readOnly": {
+                  "type": "boolean",
+                  "default": true,
+                  "description": "Open connection in read-only mode (default: true)"
+                }
+              }
+            }
+          },
+          "sidecar.databases.queryTimeoutMs": {
+            "type": "number",
+            "default": 30000,
+            "minimum": 1000,
+            "description": "Hard timeout in milliseconds applied to every db_query call. Prevents runaway queries from locking the session."
+          },
+          "sidecar.databases.queryRowLimit": {
+            "type": "number",
+            "default": 10000,
+            "minimum": 1,
+            "description": "Maximum number of rows returned by db_query. Results beyond this limit are truncated (truncated: true in the result)."
+          }
+        }
       }
     ],
     "viewsContainers": {
@@ -1960,11 +2053,6 @@
           "group": "navigation@1"
         },
         {
-          "command": "sidecar.switchBackend",
-          "when": "view == sidecar.chatView",
-          "group": "1_config@1"
-        },
-        {
           "command": "sidecar.showSpend",
           "when": "view == sidecar.chatView",
           "group": "1_config@2"
@@ -2055,7 +2143,7 @@
   },
   "scripts": {
     "compile": "tsc -p ./",
-    "bundle": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:web-tree-sitter --external:@huggingface/transformers --format=cjs --platform=node --sourcemap --minify --tree-shaking=true",
+    "bundle": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:web-tree-sitter --external:@huggingface/transformers --external:better-sqlite3 --external:@duckdb/node-api --format=cjs --platform=node --sourcemap --minify --tree-shaking=true",
     "copy-grammars": "mkdir -p grammars && cp node_modules/web-tree-sitter/tree-sitter.wasm grammars/ && cp node_modules/tree-sitter-wasms/out/tree-sitter-typescript.wasm node_modules/tree-sitter-wasms/out/tree-sitter-tsx.wasm node_modules/tree-sitter-wasms/out/tree-sitter-javascript.wasm node_modules/tree-sitter-wasms/out/tree-sitter-python.wasm node_modules/tree-sitter-wasms/out/tree-sitter-rust.wasm node_modules/tree-sitter-wasms/out/tree-sitter-go.wasm grammars/",
     "build": "npm run compile && npm run bundle && npm run copy-grammars",
     "package": "npm run build && npx @vscode/vsce package",
@@ -2074,8 +2162,11 @@
     "prepare": "husky"
   },
   "devDependencies": {
+    "@duckdb/node-api": "^1.5.2-r.1",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/mocha": "^10.0.10",
     "@types/node": "^20.0.0",
+    "@types/pg": "^8.20.0",
     "@types/vscode": "^1.85.0",
     "@typescript-eslint/eslint-plugin": "^8.58.0",
     "@typescript-eslint/parser": "^8.58.0",
@@ -2083,11 +2174,14 @@
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^2.15.0",
+    "better-sqlite3": "^12.9.0",
     "esbuild": "^0.28.0",
     "eslint": "^10.2.0",
     "eslint-config-prettier": "^10.1.8",
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
+    "mysql2": "^3.22.2",
+    "pg": "^8.20.0",
     "prettier": "^3.8.1",
     "tree-sitter-wasms": "^0.1.13",
     "typescript": "^5.3.0",

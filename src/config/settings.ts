@@ -62,6 +62,7 @@ export interface SideCarConfig {
   includeActiveFile: boolean;
   agentMode: string;
   agentTemperature: number;
+  ollamaNumCtx: number | null;
   agentMaxIterations: number;
   agentMaxMessages: number;
   agentMaxTokens: number;
@@ -243,6 +244,10 @@ export interface SideCarConfig {
   zoteroUserId: string;
   zoteroApiKey: string;
   zoteroBaseUrl: string;
+  /* Database integration (v0.76) */
+  databaseProfiles: import('../db/provider.js').ConnectionProfile[];
+  databaseQueryTimeoutMs: number;
+  databaseQueryRowLimit: number;
   /* Adaptive Paste (v0.72) */
   adaptivePasteEnabled: boolean;
   adaptivePasteMinPasteLength: number;
@@ -297,6 +302,7 @@ function readConfig(): SideCarConfig {
     includeActiveFile: cfg.get<boolean>('includeActiveFile', true),
     agentMode: cfg.get<string>('agentMode', 'cautious'),
     agentTemperature: clampMin(cfg.get<number>('agentTemperature'), 0, 0.2),
+    ollamaNumCtx: cfg.get<number | null>('ollama.numCtx', null),
     agentMaxIterations: clampMin(cfg.get<number>('agentMaxIterations'), 1, 50),
     agentMaxMessages: clampMin(cfg.get<number>('agentMaxMessages'), 5, 100),
     agentMaxTokens: clampMin(cfg.get<number>('agentMaxTokens'), 1000, 200000),
@@ -466,6 +472,10 @@ function readConfig(): SideCarConfig {
     zoteroUserId: cfg.get<string>('zotero.userId', ''),
     zoteroApiKey: cfg.get<string>('zotero.apiKey', ''),
     zoteroBaseUrl: cfg.get<string>('zotero.baseUrl', 'https://api.zotero.org'),
+    /* Database integration (v0.76) */
+    databaseProfiles: cfg.get<import('../db/provider.js').ConnectionProfile[]>('databases.profiles', []),
+    databaseQueryTimeoutMs: clampMin(cfg.get<number>('databases.queryTimeoutMs'), 1000, 30000),
+    databaseQueryRowLimit: clampMin(cfg.get<number>('databases.queryRowLimit'), 1, 10000),
     /* Adaptive Paste (v0.72) */
     adaptivePasteEnabled: cfg.get<boolean>('adaptivePaste.enabled', true),
     adaptivePasteMinPasteLength: clampMin(cfg.get<number>('adaptivePaste.minPasteLength'), 20, 50),

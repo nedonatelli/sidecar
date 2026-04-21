@@ -65,6 +65,7 @@ export interface WebviewMessage {
     | 'switchBackend'
     | 'kickstandLoad'
     | 'kickstandUnload'
+    | 'deleteModel'
     | 'reviewChanges'
     | 'prSummary'
     | 'createDraftPR'

@@ -30,6 +30,7 @@ import { vizSpecTools } from './tools/vizSpec.js';
 import { pdfTools } from './tools/pdf.js';
 import { zoteroTools } from './tools/zotero.js';
 import { citationTools } from './tools/citation.js';
+import { databaseTools } from './tools/database.js';
 
 // Keep the getDiagnostics re-export working — existing callers import
 // it straight from './tools.js' for post-edit diagnostic refreshes.
@@ -79,6 +80,7 @@ export const TOOL_REGISTRY: RegisteredTool[] = [
   ...pdfTools,
   ...zoteroTools,
   ...citationTools,
+  ...databaseTools,
   {
     definition: {
       name: 'ask_user',
@@ -95,7 +97,8 @@ export const TOOL_REGISTRY: RegisteredTool[] = [
           options: {
             type: 'array',
             items: { type: 'string' },
-            description: 'Suggested options for the user to choose from (2-5 options)',
+            description:
+              'Suggested options for the user to choose from. Maximum 5 shown — keep each option short (1-4 words).',
           },
           allow_custom: {
             type: 'boolean',

@@ -27,6 +27,7 @@ import type { ChatMessage, ToolDefinition, ToolUseContentBlock } from '../../oll
  *   - `<function=name><parameter=key>value</parameter></function>`
  *   - `<tool_call>{"name":"...","arguments":{...}}</tool_call>`
  *   - ```` ```json\n{"name":"...","arguments":{...}}\n``` ````
+ *   - bare JSON object on its own line: `{"name":"...","parameters":{...}}`
  *
  * Only the first pattern found in the text is honored — mixing
  * patterns within a single turn usually indicates a confused model,
@@ -37,14 +38,15 @@ export function parseTextToolCalls(text: string, tools: ToolDefinition[]): ToolU
   const results: ToolUseContentBlock[] = [];
   let idCounter = 0;
 
-  // Single combined regex matches all three patterns in one pass.
+  // Single combined regex matches all four patterns in one pass.
   // Groups: (1) function=name, (2) function body,
-  //         (3) tool_call body, (4) json code fence body
+  //         (3) tool_call body, (4) json code fence body,
+  //         (5) bare JSON object on its own line
   const combined =
-    /<function=(\w+)>([\s\S]*?)<\/function>|<tool_call>\s*([\s\S]*?)\s*<\/tool_call>|```(?:json)?\s*\n?\s*(\{[\s\S]*?\})\s*\n?\s*```/g;
+    /<function=(\w+)>([\s\S]*?)<\/function>|<tool_call>\s*([\s\S]*?)\s*<\/tool_call>|```(?:json)?\s*\n?\s*(\{[\s\S]*?\})\s*\n?\s*```|(?:^|\n)(\{"name"\s*:[\s\S]*?\})\s*(?=\n|$)/g;
 
-  // Track which pattern type matched first (for priority: fn > tool_call > json)
-  let firstType: 'fn' | 'tc' | 'json' | null = null;
+  // Track which pattern type matched first (for priority: fn > tool_call > json > bare)
+  let firstType: 'fn' | 'tc' | 'json' | 'bare' | null = null;
   let match;
 
   while ((match = combined.exec(text)) !== null) {
@@ -86,6 +88,25 @@ export function parseTextToolCalls(text: string, tools: ToolDefinition[]): ToolU
       try {
         const parsed = JSON.parse(match[4]);
         const name = parsed.name || parsed.tool || parsed.function;
+        const args = parsed.arguments || parsed.parameters || parsed.input || {};
+        if (name && typeof name === 'string' && toolNames.has(name)) {
+          const input = typeof args === 'string' ? JSON.parse(args) : args;
+          results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
+        }
+      } catch {
+        /* skip malformed */
+      }
+    }
+    // Pattern 4: bare JSON object on its own line — {"name":"...","parameters":{...}}
+    // Some Ollama models emit tool calls this way without any wrapper tags or fences.
+    // Only match when the object's "name" is a known tool to avoid false positives on
+    // legitimate JSON in the response.
+    else if (match[5] !== undefined) {
+      if (firstType === null) firstType = 'bare';
+      if (firstType !== 'bare') continue;
+      try {
+        const parsed = JSON.parse(match[5]);
+        const name = parsed.name;
         const args = parsed.arguments || parsed.parameters || parsed.input || {};
         if (name && typeof name === 'string' && toolNames.has(name)) {
           const input = typeof args === 'string' ? JSON.parse(args) : args;

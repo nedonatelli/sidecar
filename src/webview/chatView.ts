@@ -334,6 +334,12 @@ export class ChatViewProvider implements WebviewViewProvider {
         await handleKickstandUnloadModel(this.state, msg.modelId);
       }
     },
+    deleteModel: async (msg) => {
+      if (msg.model) {
+        const { handleDeleteModel } = await import('./handlers/modelHandlers.js');
+        await handleDeleteModel(this.state, msg.model);
+      }
+    },
     reviewChanges: async () => {
       await commands.executeCommand('sidecar.reviewChanges');
     },

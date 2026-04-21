@@ -1,4 +1,4 @@
-import { workspace, ConfigurationTarget } from 'vscode';
+import { workspace, ConfigurationTarget, extensions } from 'vscode';
 import type { ToolDefinition } from '../../ollama/types.js';
 import type { RegisteredTool } from './shared.js';
 import { BUILT_IN_BACKEND_PROFILES, applyBackendProfile } from '../../config/settings.js';
@@ -139,6 +139,12 @@ export async function getSetting(input: Record<string, unknown>): Promise<string
   if (!key) return 'Error: setting key is required.';
   if (key === 'apiKey' || key === 'fallbackApiKey') {
     return `Error: "${key}" is a secret and cannot be read via this tool. API keys live in VS Code's SecretStorage.`;
+  }
+  // version lives in the extension manifest, not in VS Code configuration
+  if (key === 'version') {
+    const ext = extensions.getExtension('nedonatelli.sidecar-ai');
+    const version = ext?.packageJSON?.version as string | undefined;
+    return version ? `sidecar.version = "${version}"` : 'sidecar.version is unavailable (extension context not found).';
   }
   const cfg = workspace.getConfiguration('sidecar');
   const value = cfg.get(key);

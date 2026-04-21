@@ -466,6 +466,18 @@ body {
   cursor: default;
 }
 
+.model-action.delete {
+  background: transparent;
+  color: var(--vscode-errorForeground, #f48771);
+  border: 1px solid var(--vscode-errorForeground, #f48771);
+  opacity: 0.7;
+}
+
+.model-action.delete:hover {
+  opacity: 1;
+  background: color-mix(in srgb, var(--vscode-errorForeground, #f48771) 15%, transparent);
+}
+
 #install-progress {
   display: flex;
   align-items: center;

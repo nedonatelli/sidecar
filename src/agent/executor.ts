@@ -132,7 +132,8 @@ export async function executeTool(
   // --- ask_user: route through clarification UI ---
   if (toolUse.name === 'ask_user') {
     const question = ((toolUse.input as Record<string, unknown>).question as string) || 'What would you like to do?';
-    const options = ((toolUse.input as Record<string, unknown>).options as string[]) || [];
+    const rawOptions = ((toolUse.input as Record<string, unknown>).options as string[]) || [];
+    const options = rawOptions.slice(0, 5); // cap at 5 — more become a keyboard-like grid
     const allowCustom = ((toolUse.input as Record<string, unknown>).allow_custom as boolean) !== false;
     const clarifyFn = executorContext?.clarifyFn;
 

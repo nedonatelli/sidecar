@@ -112,6 +112,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 - **Verbose mode** — `/verbose` to show system prompt, per-iteration summaries, and tool selection context during agent runs
 - **Observability** — `/audit` to browse structured tool execution logs, "Why?" button on tool cards for on-demand decision explanations, `/insights` for conversation pattern analysis with usage trends and suggestions
 - **Smart context selection** — AST-based parsing extracts relevant functions, classes, and imports from JS/TS files instead of including whole files in context
+- **Database Integration** *(new in v0.76)* — connect to SQLite, PostgreSQL, MySQL/MariaDB, and DuckDB databases directly from the agent. Four tools: `db_list_connections` (discover configured profiles), `db_list_tables` (list tables with row counts), `db_describe_table` (columns, types, PK/FK flags, indexes, constraints), `db_query` (parameterized read-only SQL — `assertReadOnly` blocks mutating statements; results render as click-to-sort HTML tables in the chat panel). Connections configured via `sidecar.databases.profiles`; passwords live in VS Code SecretStorage, never in settings.json. Native binaries (`better-sqlite3`, `@duckdb/node-api`) excluded from the bundle and loaded on demand
 - **Bounded caches** — workspace file content and AST caches use TTL-based eviction to prevent unbounded memory growth during long sessions
 - **Persistent shell** — `run_command` uses a long-lived shell process; env vars, cwd, and aliases persist between calls. Supports configurable timeouts, background commands, and streaming output
 - **Context pruning** — conversation history is automatically compressed between turns so local models don't choke on accumulated context from prior tool calls
@@ -243,7 +244,7 @@ A second LLM call whose only job is to find reasons the main agent's change is w
 
 **Cost:** each critic call is a full round trip with a 1024-token budget. On Ollama it's free but adds a few seconds per edit; on paid backends it roughly doubles the per-iteration cost unless you use a cheaper critic model.
 
-### Tool Registry (29+ built-in tools + MCP)
+### Tool Registry (33+ built-in tools + MCP)
 | Tool | Description |
 |------|-------------|
 | `read_file` | Read file contents |
@@ -265,6 +266,10 @@ A second LLM call whose only job is to find reasons the main agent's change is w
 | `ask_user` | Ask the user a clarifying question with selectable options |
 | `spawn_agent` | Spawn a sub-agent for parallel tasks (max depth: 3, 15 iterations each) |
 | `delegate_task` *(paid backends only)* | Offload read-only research to a local Ollama worker. Orchestrator pays nothing for the worker's tokens |
+| `db_list_connections` *(new in v0.76)* | List all configured database connections and their status |
+| `db_list_tables` *(new in v0.76)* | List tables in a connected database with row counts |
+| `db_describe_table` *(new in v0.76)* | Describe columns, indexes, and constraints of a table |
+| `db_query` *(new in v0.76)* | Run a parameterized read-only SQL query; results render as a sortable table |
 | `kickstand_list_loras` *(Kickstand only)* | List LoRA adapters currently attached to a loaded model |
 | `kickstand_attach_lora` *(Kickstand only)* | Attach a LoRA adapter to a loaded model without reloading — requires approval |
 | `kickstand_detach_lora` *(Kickstand only)* | Detach a previously-attached LoRA adapter — requires approval |

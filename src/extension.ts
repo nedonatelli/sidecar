@@ -448,13 +448,11 @@ export function activate(context: ExtensionContext) {
   // here for the user to accept or discard before they hit disk.
   context.subscriptions.push(registerReviewPanel(context, chatProvider.pendingEditStore, proposedContentProvider));
 
-  // Pinned Memory sidebar view — only register if the store was initialised
-  // (gated on pinnedMemory.enabled). The store is created in ChatViewProvider
-  // and exposed via chatProvider.state so the view and commands share the
-  // same instance.
-  if (chatProvider.state.pinnedMemoryStore) {
-    context.subscriptions.push(registerPinnedMemoryView(context, chatProvider.state.pinnedMemoryStore));
-  }
+  // Pinned Memory sidebar view — always registered so VS Code's declared
+  // view (contributes.views) has a matching createTreeView call. When
+  // pinnedMemory.enabled is false the store is null and the view renders
+  // empty; commands guard against null and show a "disabled" message.
+  context.subscriptions.push(registerPinnedMemoryView(context, chatProvider.state.pinnedMemoryStore));
 
   // File decoration provider — puts a "P" badge on every file with
   // pending agent edits in the Explorer, editor tabs, and any other
@@ -616,6 +614,15 @@ export function activate(context: ExtensionContext) {
       } else {
         window.showInformationMessage(result.message);
       }
+
+      // Auto-start Ollama when switching to the local Ollama profile.
+      if (profile.provider === 'ollama' && isLocalOllama(profile.baseUrl)) {
+        const { ensureOllamaRunning } = await import('./config/providerReachability.js');
+        void window.withProgress({ location: { viewId: 'sidecar.chatView' }, title: 'Starting Ollama...' }, () =>
+          ensureOllamaRunning(profile!.baseUrl),
+        );
+      }
+
       chatProvider?.reloadModels();
 
       // Reconcile the active model against what the new backend actually

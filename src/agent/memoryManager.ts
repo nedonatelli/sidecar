@@ -27,21 +27,25 @@ export class LimitedCache<K, V> {
     const entry = this.cache.get(key);
     if (!entry) return undefined;
 
-    // Check if entry is expired
     if (Date.now() - entry.timestamp > this.ttl) {
       this.cache.delete(key);
       return undefined;
     }
 
+    // Move to end of Map so eviction treats this as most-recently-used.
+    // Map preserves insertion order; delete+re-set moves the key to the tail.
+    this.cache.delete(key);
+    this.cache.set(key, entry);
+
     return entry.value;
   }
 
   set(key: K, value: V): void {
-    // Enforce size limit — evict oldest entry
     if (this.cache.size >= this.maxSize && !this.cache.has(key)) {
-      const firstKey = this.cache.keys().next().value;
-      if (firstKey !== undefined) {
-        this.cache.delete(firstKey);
+      // Evict the least-recently-used entry (head of Map's insertion order).
+      const lruKey = this.cache.keys().next().value;
+      if (lruKey !== undefined) {
+        this.cache.delete(lruKey);
       }
     }
 

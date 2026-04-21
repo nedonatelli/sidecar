@@ -41,19 +41,31 @@ describe('LimitedCache', () => {
     expect(cache.has('key')).toBe(false);
   });
 
-  it('evicts oldest entry when maxSize is exceeded', () => {
+  it('evicts least-recently-used entry when maxSize is exceeded', () => {
     const cache = new LimitedCache<string, number>(3, 60000);
     cache.set('a', 1);
     cache.set('b', 2);
     cache.set('c', 3);
-    // All three should be present
+    // Access 'a' — moves it to MRU position; 'b' is now LRU
     expect(cache.get('a')).toBe(1);
-
-    // Adding a 4th should evict 'a' (oldest/first)
+    // Adding 'd' should evict 'b' (least recently used)
     cache.set('d', 4);
-    expect(cache.get('a')).toBeUndefined();
-    expect(cache.get('b')).toBe(2);
+    expect(cache.get('a')).toBe(1);
+    expect(cache.get('b')).toBeUndefined();
+    expect(cache.get('c')).toBe(3);
     expect(cache.get('d')).toBe(4);
+  });
+
+  it('evicts oldest-inserted entry when no reads have occurred', () => {
+    const cache = new LimitedCache<string, number>(3, 60000);
+    cache.set('a', 1);
+    cache.set('b', 2);
+    cache.set('c', 3);
+    cache.set('d', 4);
+    expect(cache.has('a')).toBe(false);
+    expect(cache.has('b')).toBe(true);
+    expect(cache.has('c')).toBe(true);
+    expect(cache.has('d')).toBe(true);
   });
 
   it('does not evict when updating an existing key', () => {

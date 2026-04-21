@@ -4,6 +4,40 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.76.0] - 2026-04-21
+
+**v0.76.0 — Database Integration (Tier 1: read-only query & introspection).**
+
+The agent can now connect to SQL databases and query them directly — no shell escaping, no string parsing, no SQL injection risk. Results render as interactive sortable tables in the chat panel.
+
+### Added
+
+- **`DatabaseProvider` abstraction** (`src/db/provider.ts`) — dialect-agnostic interface mirroring `ApiBackend`: `connect / disconnect / isConnected / listTables / describeTable / query`. Anticorruption layer across SQL engines. `assertReadOnly(sql)` enforces read-only at the statement level (strips comments, splits on `;`, rejects `INSERT/UPDATE/DELETE/DROP/ALTER/CREATE/TRUNCATE/GRANT/REVOKE` at word boundaries — column aliases like `inserts_count` still pass).
+- **SQLite driver** (`src/db/sqliteProvider.ts`) — `better-sqlite3` (single `.node` binary, zero ambient deps). Introspects via `PRAGMA table_info / index_list / foreign_key_list`. BigInt values normalized to `Number` or `string` to keep results JSON-safe.
+- **PostgreSQL driver** (`src/db/postgresProvider.ts`) — `pg.Pool` (max 3 connections). Schema info from `information_schema`. Row counts from `pg_class`. Per-query `SET statement_timeout`.
+- **MySQL/MariaDB driver** (`src/db/mysqlProvider.ts`) — `mysql2/promise`. FK info from `information_schema.KEY_COLUMN_USAGE`. Per-query timeout via connection option.
+- **DuckDB driver** (`src/db/duckdbProvider.ts`) — `@duckdb/node-api` (Parquet / Arrow native). Graceful import failure when the native binary isn't present.
+- **`ConnectionManager`** (`src/db/connectionManager.ts`) — `getOrConnect / disconnect / disconnectAll / getStatus`. Process-wide `connectionManager` singleton.
+- **`db_list_connections` tool** — lists all configured DB profiles with dialect, location, and live connection status. Use first to discover valid `connection_id` values.
+- **`db_list_tables` tool** — lists tables with approximate row counts and schema. Accepts optional `schema` filter.
+- **`db_describe_table` tool** — returns columns (name, type, nullable, PK, FK, default), indexes, constraints, and approximate row count.
+- **`db_query` tool** — runs parameterized read-only SQL. Results render as a sortable HTML table (`<div class="sidecar-db-result">`) with click-to-sort column headers. Respects `limit` and `timeout_ms` caps.
+- **Sortable DB result tables** (`media/chat.js`) — click any column header in a query result to sort ascending/descending. Numeric-aware sort; preserves original order on third click.
+- **Settings**: `sidecar.databases.profiles` (array of connection configs), `sidecar.databases.queryTimeoutMs` (default `30000`), `sidecar.databases.queryRowLimit` (default `10000`).
+- **Ollama auto-start on backend switch** — switching to an Ollama backend profile now spawns `ollama serve` (detached) and polls for up to 15 seconds if Ollama isn't running. Progress shown in the chat panel.
+- **Suppress "Set API Key" for Ollama connection errors** — `surfaceNativeToast` omits the "Set API Key" action for local Ollama backends (Ollama needs no key). Connection errors now offer only "Switch Backend".
+- **Delete installed Ollama models** — model picker now shows a Delete button next to each installed model. Confirms before deleting, then evicts internal caches and reloads the model list.
+
+### Fixed
+
+- **LRU cache eviction in `LimitedCache`** (`src/agent/memoryManager.ts`) — `get()` now promotes the accessed entry to MRU position so the cache evicts the *least*-recently-used entry instead of the *oldest-inserted* entry.
+
+### Changed
+
+- **Removed duplicate "Switch Backend" from VS Code panel `⋯` overflow menu** — duplicated the in-extension ☰ settings button. Removed the `view/title` menu entry; the command remains in the chat header and Command Palette.
+
+---
+
 ## [0.75.0] - 2026-04-21
 
 **v0.75.0 — Literature Synthesis & PDF/Zotero Bridge.**

@@ -29,7 +29,7 @@ export interface ToastAction {
  * The first action is the most likely recovery; actions render as
  * buttons in the `showErrorMessage` toast in the order returned.
  */
-export function actionsForError(classified: ClassifiedError): ToastAction[] {
+export function actionsForError(classified: ClassifiedError, context?: { isOllama?: boolean }): ToastAction[] {
   switch (classified.errorType) {
     case 'auth':
       return [
@@ -37,10 +37,14 @@ export function actionsForError(classified: ClassifiedError): ToastAction[] {
         { label: 'Switch Backend', command: 'sidecar.switchBackend' },
       ];
     case 'connection':
-      return [
-        { label: 'Switch Backend', command: 'sidecar.switchBackend' },
-        { label: 'Set API Key', command: 'sidecar.setApiKey' },
-      ];
+      // Local Ollama needs no API key — omit "Set API Key" from the toast
+      // so users aren't confused into thinking they need one.
+      return context?.isOllama
+        ? [{ label: 'Switch Backend', command: 'sidecar.switchBackend' }]
+        : [
+            { label: 'Switch Backend', command: 'sidecar.switchBackend' },
+            { label: 'Set API Key', command: 'sidecar.setApiKey' },
+          ];
     case 'model':
       return [
         { label: 'Open Model Picker', command: 'sidecar.discoverModels' },
@@ -87,7 +91,15 @@ export async function surfaceNativeToast(rawMessage: string, classified: Classif
   const pretty = formatForToast(rawMessage);
   healthStatus.setError(pretty, rawMessage);
 
-  const actions = actionsForError(classified);
+  // Resolve Ollama context lazily so the sync helper stays pure.
+  let isOllama = false;
+  try {
+    const { getConfig, isLocalOllama } = await import('../config/settings.js');
+    isOllama = isLocalOllama(getConfig().baseUrl);
+  } catch {
+    // settings not available in tests
+  }
+  const actions = actionsForError(classified, { isOllama });
   const items: MessageItem[] = actions.map((a) => ({ title: a.label }));
   const body = `SideCar — ${pretty}`;
   const picked = await window.showErrorMessage(body, ...items);

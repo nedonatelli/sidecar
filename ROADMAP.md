@@ -2,7 +2,7 @@
 
 Planned improvements and features for SideCar. Audit findings from v0.34.0 comprehensive review are in the Audit Backlog section. All critical fixes were addressed in v0.35.0.
 
-Last updated: 2026-04-21 (**v0.75.0 current**. v0.75 shipped Literature Synthesis & PDF/Zotero Bridge: `PdfSource` with sliding-window chunker, `ZoteroSource` + `ZoteroClient` for Zotero Web API, `SourceRegistry` abstraction, `read_pdf` / `index_pdf` / `zotero_search` / `zotero_get_item` / `insert_citation` tools, `PdfRetriever` wired into the fusion RAG pipeline. v0.74 shipped `@sidecar/sdk` first-party extension API. v0.73 shipped Auto Mode. v0.72 shipped Adaptive Paste + Next Edit Suggestions + Pinned Memory. v0.71 shipped Live Diagnostic Subscription + Inline Viz Dashboards + Advanced Thinking. v0.70 shipped `@sidecar` Native Chat Participant + Merge Conflict Resolution.)
+Last updated: 2026-04-21 (**v0.76.0 current**. v0.76 shipped Database Integration Tier 1: `DatabaseProvider` abstraction + SQLite/Postgres/MySQL/DuckDB drivers + `db_list_connections` / `db_list_tables` / `db_describe_table` / `db_query` tools + sortable result tables + Ollama auto-start + API key prompt suppression for Ollama. v0.75 shipped Literature Synthesis & PDF/Zotero Bridge: `PdfSource` with sliding-window chunker, `ZoteroSource` + `ZoteroClient` for Zotero Web API, `SourceRegistry` abstraction, `read_pdf` / `index_pdf` / `zotero_search` / `zotero_get_item` / `insert_citation` tools, `PdfRetriever` wired into the fusion RAG pipeline. v0.74 shipped `@sidecar/sdk` first-party extension API. v0.73 shipped Auto Mode. v0.72 shipped Adaptive Paste + Next Edit Suggestions + Pinned Memory. v0.71 shipped Live Diagnostic Subscription + Inline Viz Dashboards + Advanced Thinking. v0.70 shipped `@sidecar` Native Chat Participant + Merge Conflict Resolution.)
 
 ---
 
@@ -42,11 +42,11 @@ Each release ships **1–2 features** plus a paired **refactor beat** (code-qual
 - **Coverage focus**: source indexer pipeline. Maintain ≥80/70/80/80.
 - **Shipped**: `PdfSource` (pdf-parse, sliding-window chunker), `ZoteroSource` + `ZoteroClient` (Zotero Web API), `SourceRegistry`, 5 tools (`read_pdf`, `index_pdf`, `zotero_search`, `zotero_get_item`, `insert_citation`), `PdfRetriever` (TF-IDF, fusion-wired), 4 settings. Note: Zotero uses the cloud Web API (not SQLite read-through); SQLite path deferred to v0.76+.
 
-### v0.76 — Database integration (safe core)
+### ~~v0.76 — Database integration (safe core)~~ ✅ shipped 2026-04-21
 - **Feature**: [First-Class Database Integration (SQL + NoSQL)](#first-class-database-integration-sql--nosql) — Tier 1 only (read-only query + introspection)
 - **Refactor beat**: `DatabaseProvider` abstraction mirroring `ApiBackend` anticorruption layer.
 - **Coverage focus**: `DatabaseProvider` drivers (SQLite / Postgres / MySQL / DuckDB). Maintain ≥80/70/80/80.
-- **Acceptance**: `db_list_tables` / `db_describe_table` / `db_query` work against four dialects with parameterized queries + hard timeouts; results render as sortable tables in the chat panel.
+- **Shipped**: `DatabaseProvider` interface + `assertReadOnly` guard; SQLite (`better-sqlite3`), Postgres (`pg`), MySQL (`mysql2`), DuckDB (`@duckdb/node-api`) drivers; `ConnectionManager` singleton; `db_list_connections` / `db_list_tables` / `db_describe_table` / `db_query` tools; sortable `sidecar-db-result` tables in chat; Ollama auto-start on backend switch; "Set API Key" action suppressed for local Ollama connection errors; delete-model button in the Ollama model picker; `LimitedCache` LRU fix; duplicate "Switch Backend" overflow menu entry removed.
 
 ### v0.77 — Visual verification
 - **Feature**: [Browser-Agent Live Preview Verification (Screenshot-in-the-Loop)](#browser-agent-live-preview-verification-screenshot-in-the-loop)

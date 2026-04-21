@@ -120,6 +120,29 @@ export async function probeModelToolSupport(baseUrl: string, model: string): Pro
 }
 
 /**
+ * Delete a model from Ollama via DELETE /api/delete.
+ * Throws if Ollama returns a non-2xx response.
+ */
+export async function deleteOllamaModel(baseUrl: string, model: string): Promise<void> {
+  const response = await fetch(`${baseUrl}/api/delete`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model }),
+    signal: AbortSignal.timeout(10_000),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    throw new Error(`Failed to delete model "${model}": ${response.status}${errorText ? ` — ${errorText}` : ''}`);
+  }
+
+  // Evict capability caches for the deleted model
+  toolCapabilityCache.delete(model);
+  numCtxCache.delete(model);
+  toolSupportFailures.delete(model);
+}
+
+/**
  * Probe tool support for multiple models in parallel.
  * Called during model list loading to pre-populate the cache.
  */
@@ -300,8 +323,9 @@ export class OllamaBackend implements ApiBackend {
     signal?: AbortSignal,
     tools?: ToolDefinition[],
   ): AsyncGenerator<StreamEvent> {
-    const { agentTemperature } = getConfig();
-    const numCtx = numCtxCache.get(model) ?? null;
+    const { agentTemperature, ollamaNumCtx } = getConfig();
+    const probedNumCtx = numCtxCache.get(model) ?? null;
+    const numCtx = ollamaNumCtx ?? probedNumCtx;
     const options: Record<string, unknown> = { temperature: agentTemperature };
     if (numCtx !== null) options.num_ctx = numCtx;
     const body: Record<string, unknown> = {

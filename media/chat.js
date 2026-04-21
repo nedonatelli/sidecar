@@ -3307,6 +3307,44 @@
     }
   });
 
+  // Sortable DB result tables — event delegation on messagesContainer.
+  // th[data-col] headers toggle asc/desc sort by rebuilding tbody row order.
+  messagesContainer.addEventListener('click', (e) => {
+    const th = e.target.closest('th[data-col]');
+    if (!th) return;
+    const table = th.closest('table');
+    if (!table) return;
+    const colIdx = parseInt(th.dataset.col, 10);
+    const currentSort = th.dataset.sort || '';
+    const newSort = currentSort === 'asc' ? 'desc' : 'asc';
+
+    // Reset all header sort indicators
+    table.querySelectorAll('th[data-col]').forEach((h) => {
+      h.dataset.sort = '';
+      const arrow = h.querySelector('span');
+      if (arrow) arrow.textContent = ' ⇕';
+    });
+    th.dataset.sort = newSort;
+    const arrow = th.querySelector('span');
+    if (arrow) arrow.textContent = newSort === 'asc' ? ' ↑' : ' ↓';
+
+    // Sort tbody rows
+    const tbody = table.querySelector('tbody');
+    if (!tbody) return;
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    rows.sort((a, b) => {
+      const aCell = a.querySelectorAll('td')[colIdx];
+      const bCell = b.querySelectorAll('td')[colIdx];
+      const aVal = aCell ? aCell.textContent || '' : '';
+      const bVal = bCell ? bCell.textContent || '' : '';
+      const aNum = parseFloat(aVal);
+      const bNum = parseFloat(bVal);
+      const cmp = !isNaN(aNum) && !isNaN(bNum) ? aNum - bNum : aVal.localeCompare(bVal);
+      return newSort === 'asc' ? cmp : -cmp;
+    });
+    rows.forEach((row) => tbody.appendChild(row));
+  });
+
   let scrollPending = false;
   function scrollToBottom() {
     if (userScrolledUp || scrollPending) return;
@@ -3429,6 +3467,16 @@
 
         item.appendChild(nameSpan);
         item.appendChild(actionBtn);
+
+        if (model.installed) {
+          const deleteBtn = document.createElement('button');
+          deleteBtn.textContent = 'Delete';
+          deleteBtn.className = 'model-action delete';
+          deleteBtn.dataset.model = model.name;
+          deleteBtn.dataset.deleteModel = 'true';
+          item.appendChild(deleteBtn);
+        }
+
         modelList.appendChild(item);
       }
     }
@@ -3502,6 +3550,16 @@
 
         item.appendChild(nameSpan);
         item.appendChild(actionBtn);
+
+        if (model.installed) {
+          const deleteBtn = document.createElement('button');
+          deleteBtn.textContent = 'Delete';
+          deleteBtn.className = 'model-action delete';
+          deleteBtn.dataset.model = model.name;
+          deleteBtn.dataset.deleteModel = 'true';
+          item.appendChild(deleteBtn);
+        }
+
         modelList.appendChild(item);
       }
     }
@@ -3513,9 +3571,12 @@
     if (!btn) return;
 
     const modelName = btn.dataset.model;
+    const isDelete = btn.dataset.deleteModel === 'true';
     const isInstalled = btn.dataset.installed === 'true';
 
-    if (isInstalled) {
+    if (isDelete) {
+      vscode.postMessage({ command: 'deleteModel', model: modelName });
+    } else if (isInstalled) {
       vscode.postMessage({ command: 'changeModel', model: modelName });
       modelPanel.classList.add('hidden');
     } else if (installingModel !== modelName) {
@@ -4141,32 +4202,6 @@
           card.appendChild(optionsContainer);
         }
 
-        // Custom text input
-        if (allowCustom) {
-          const customRow = document.createElement('div');
-          customRow.className = 'clarify-custom';
-          const input = document.createElement('input');
-          input.type = 'text';
-          input.className = 'clarify-input';
-          input.placeholder = 'Or type your own response...';
-          const submitBtn = document.createElement('button');
-          submitBtn.className = 'clarify-submit-btn';
-          submitBtn.textContent = 'Send';
-          submitBtn.addEventListener('click', () => {
-            const val = input.value.trim();
-            if (val) sendResponse(val);
-          });
-          input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-              const val = input.value.trim();
-              if (val) sendResponse(val);
-            }
-          });
-          customRow.appendChild(input);
-          customRow.appendChild(submitBtn);
-          card.appendChild(customRow);
-        }
-
         messagesContainer.appendChild(card);
         scrollToBottom();
         break;
@@ -4294,10 +4329,12 @@
           if (text) {
             const matchedBody = matchedTool.querySelector('.tool-call-body');
             if (matchedBody) {
-              // Check if result is rendered HTML (viz or chart)
+              // Check if result is rendered HTML (viz, chart, or db table)
               if (
                 text.trim().startsWith('<') &&
-                (text.includes('sidecar-viz') || text.includes('xmlns="http://www.w3.org/2000/svg"'))
+                (text.includes('sidecar-viz') ||
+                  text.includes('sidecar-db-result') ||
+                  text.includes('xmlns="http://www.w3.org/2000/svg"'))
               ) {
                 const vizContainer = document.createElement('div');
                 vizContainer.className = 'tool-result-viz';
@@ -4331,10 +4368,12 @@
           badge.textContent = isError ? '\u2717' : '\u2713';
           summary.appendChild(badge);
           details.appendChild(summary);
-          // Check if result is rendered HTML (viz or chart)
+          // Check if result is rendered HTML (viz, chart, or db table)
           if (
             text.trim().startsWith('<') &&
-            (text.includes('sidecar-viz') || text.includes('xmlns="http://www.w3.org/2000/svg"'))
+            (text.includes('sidecar-viz') ||
+              text.includes('sidecar-db-result') ||
+              text.includes('xmlns="http://www.w3.org/2000/svg"'))
           ) {
             const vizBody = document.createElement('div');
             vizBody.className = 'tool-result-body tool-result-viz';

@@ -107,6 +107,47 @@ export async function isProviderReachable(
 }
 
 /**
+ * Attempt to start Ollama if it isn't already running.
+ * Spawns `ollama serve` as a detached child process and polls until
+ * the API responds or the 15-second timeout expires.
+ *
+ * Returns true if Ollama is reachable after the attempt.
+ */
+export async function ensureOllamaRunning(baseUrl = 'http://localhost:11434'): Promise<boolean> {
+  try {
+    const resp = await fetch(`${baseUrl}/api/version`, { signal: AbortSignal.timeout(1500) });
+    if (resp.ok) return true;
+  } catch {
+    // Not running — try to start it
+  }
+
+  try {
+    const { spawn } = await import('child_process');
+    const child = spawn('ollama', ['serve'], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    child.unref();
+  } catch {
+    // `ollama` not on PATH — can't auto-start
+    return false;
+  }
+
+  // Poll for up to 15 seconds
+  for (let i = 0; i < 30; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    try {
+      const resp = await fetch(`${baseUrl}/api/version`, { signal: AbortSignal.timeout(1000) });
+      if (resp.ok) return true;
+    } catch {
+      // Keep polling
+    }
+  }
+
+  return false;
+}
+
+/**
  * Attempt to start a Kickstand server if one isn't already running.
  * Spawns `kick serve` as a detached child process and polls the health
  * endpoint until it responds or the timeout expires.

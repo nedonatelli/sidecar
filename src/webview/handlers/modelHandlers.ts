@@ -5,7 +5,12 @@ import type { ChatState } from '../chatState.js';
 import type { LibraryModelUI } from '../chatWebview.js';
 import { getConfig, getHuggingFaceToken } from '../../config/settings.js';
 import { isProviderReachable } from '../../config/providerReachability.js';
-import { modelSupportsTools, probeModelToolSupport, probeAllModelToolSupport } from '../../ollama/ollamaBackend.js';
+import {
+  modelSupportsTools,
+  probeModelToolSupport,
+  probeAllModelToolSupport,
+  deleteOllamaModel,
+} from '../../ollama/ollamaBackend.js';
 import {
   parseHuggingFaceRef,
   inspectHFRepo,
@@ -777,5 +782,27 @@ async function runOllamaPull(state: ChatState, pullName: string): Promise<void> 
     });
   } finally {
     state.installAbortController = null;
+  }
+}
+
+export async function handleDeleteModel(state: ChatState, modelName: string): Promise<void> {
+  if (!state.client.isLocalOllama()) return;
+
+  const confirm = await window.showWarningMessage(
+    `Delete model "${modelName}" from Ollama? This cannot be undone.`,
+    { modal: true },
+    'Delete',
+  );
+  if (confirm !== 'Delete') return;
+
+  const config = getConfig();
+  try {
+    await deleteOllamaModel(config.baseUrl, modelName);
+    await loadModels(state);
+  } catch (err) {
+    state.postMessage({
+      command: 'error',
+      content: `Failed to delete ${modelName}: ${err instanceof Error ? err.message : String(err)}`,
+    });
   }
 }
