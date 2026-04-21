@@ -37,6 +37,7 @@ import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/t
 function stubState(): LoopState {
   return {
     startTime: Date.now(),
+    taskId: 'test-task',
     maxIterations: 25,
     maxTokens: 100_000,
     approvalMode: 'cautious',

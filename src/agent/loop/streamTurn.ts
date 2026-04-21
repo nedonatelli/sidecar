@@ -3,6 +3,10 @@ import type { StreamEvent, ToolUseContentBlock } from '../../ollama/types.js';
 import type { AgentCallbacks } from '../loop.js';
 import type { LoopState } from './state.js';
 import { parseTextToolCalls, stripRepeatedContent } from './textParsing.js';
+import { ThinkingStore } from '../thinking/thinkingStore.js';
+import { getConfig } from '../../config/settings.js';
+
+const thinkingStore = new ThinkingStore();
 
 // ---------------------------------------------------------------------------
 // Stream one turn of a runAgentLoop iteration.
@@ -124,6 +128,10 @@ export async function streamOneTurn(
         case 'thinking':
           state.totalChars += event.thinking.length;
           callbacks.onCharsConsumed?.(event.thinking.length);
+          const thinkingMode = getConfig().thinkingMode;
+          thinkingStore.append(state.taskId, event.thinking, thinkingMode).catch(() => {
+            // Silently ignore thinking store errors
+          });
           callbacks.onThinking?.(event.thinking);
           break;
         case 'warning':

@@ -41,6 +41,7 @@ import { ProposedContentProvider } from './edits/proposedContentProvider.js';
 import { AgentLogger } from './agent/logger.js';
 import { MCPManager, loadProjectMcpConfig, mergeMcpConfigs } from './agent/mcpManager.js';
 import { Scheduler } from './agent/scheduler.js';
+import { DiagnosticSubscriber } from './agent/diagnosticSubscriber.js';
 import { handleInlineChat } from './inline/inlineChatProvider.js';
 import { setGrammarsPath } from './parsing/registry.js';
 import { reviewCurrentChanges } from './review/reviewer.js';
@@ -101,6 +102,20 @@ export function activate(context: ExtensionContext) {
 
   // Register ProcessRegistry for child process lifecycle management (v0.70 Process Lifecycle Hardening)
   context.subscriptions.push(getProcessRegistry());
+
+  // Register DiagnosticSubscriber for reactive diagnostic fixing (v0.71)
+  const diagnosticSubscriber = new DiagnosticSubscriber(
+    {
+      enabled: config.diagnosticsReactiveFixEnabled,
+      debounceMs: config.diagnosticsReactiveFixDebounceMs,
+      severity: config.diagnosticsReactiveFixSeverity,
+    },
+    async (_uri, _diagnostics) => {
+      // Reactive diagnostic fixing deferred — requires integration with runAgentLoopInSandbox and review UI
+      // Placeholder for v0.71 MVP
+    },
+  );
+  context.subscriptions.push(diagnosticSubscriber);
 
   // Defer MCP connection — run after activation completes so it doesn't block startup
   // Merge configs from VS Code settings + .mcp.json project file

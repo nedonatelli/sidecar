@@ -44,6 +44,7 @@ export const DEFAULT_MAX_ITERATIONS = 25;
 export interface LoopState {
   // --- Immutable inputs captured at init ---
   readonly startTime: number;
+  readonly taskId: string;
   readonly maxIterations: number;
   readonly maxTokens: number;
   readonly approvalMode: ApprovalMode;
@@ -117,6 +118,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
 
   return {
     startTime: Date.now(),
+    taskId: `task_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
     maxIterations: options.maxIterations || DEFAULT_MAX_ITERATIONS,
     maxTokens: options.maxTokens || 100_000,
     approvalMode: options.approvalMode || 'cautious',

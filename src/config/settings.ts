@@ -213,6 +213,11 @@ export interface SideCarConfig {
    * losing the entire PKI.
    */
   merkleIndexEnabled: boolean;
+  /* Diagnostics & Thinking (v0.71) */
+  diagnosticsReactiveFixEnabled: boolean;
+  diagnosticsReactiveFixDebounceMs: number;
+  diagnosticsReactiveFixSeverity: 'error' | 'warning';
+  thinkingMode: 'single' | 'self-debate' | 'tree-of-thought' | 'red-team';
 }
 
 /**
@@ -409,6 +414,11 @@ function readConfig(): SideCarConfig {
     skillsAutoPull: cfg.get<'on-start' | 'manual'>('skills.autoPull', 'on-start'),
     skillsTrustedRegistries: cfg.get<string[]>('skills.trustedRegistries', []),
     skillsOffline: cfg.get<boolean>('skills.offline', false),
+    /* Diagnostics & Thinking (v0.71) */
+    diagnosticsReactiveFixEnabled: cfg.get<boolean>('diagnostics.reactiveFixEnabled', false),
+    diagnosticsReactiveFixDebounceMs: cfg.get<number>('diagnostics.reactiveFixDebounceMs', 2000),
+    diagnosticsReactiveFixSeverity: cfg.get<'error' | 'warning'>('diagnostics.reactiveFixSeverity', 'error'),
+    thinkingMode: cfg.get<'single' | 'self-debate' | 'tree-of-thought' | 'red-team'>('thinking.mode', 'single'),
   };
 }
 

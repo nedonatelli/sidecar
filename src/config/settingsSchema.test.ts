@@ -31,7 +31,7 @@ function loadConfiguration(): ConfigSection[] {
   return cfg;
 }
 
-describe('package.json contributes.configuration — 8-category layout (v0.62.5)', () => {
+describe('package.json contributes.configuration — 9-category layout (v0.71.0)', () => {
   const EXPECTED_TITLES = [
     'SideCar: Backend & Models',
     'SideCar: Agent',
@@ -39,13 +39,14 @@ describe('package.json contributes.configuration — 8-category layout (v0.62.5)
     'SideCar: Retrieval & Context',
     'SideCar: Shadow Workspace & Terminal',
     'SideCar: Inline Completions',
+    'SideCar: Diagnostics & Thinking',
     'SideCar: Chat UI',
     'SideCar: Extensions & Automation',
   ];
 
-  it('is an array of exactly 8 categorized sections', () => {
+  it('is an array of exactly 9 categorized sections', () => {
     const cfg = loadConfiguration();
-    expect(cfg).toHaveLength(8);
+    expect(cfg).toHaveLength(9);
   });
 
   it('sections appear in the expected top-to-bottom order', () => {
@@ -63,7 +64,7 @@ describe('package.json contributes.configuration — 8-category layout (v0.62.5)
     }
   });
 
-  it('exactly 99 settings keys total across all sections', () => {
+  it('exactly 115 settings keys total across all sections', () => {
     // Baseline: v0.62.4 (75) + v0.64 Model Routing (+5:
     // modelRouting.enabled/rules/defaultModel/visibleSwaps/dryRun)
     // + v0.64 Skill Sync (+5: skills.userRegistry/teamRegistries/
@@ -77,11 +78,13 @@ describe('package.json contributes.configuration — 8-category layout (v0.62.5)
     // registry).
     // + v0.68 Draft PR (+3: pr.create.draftByDefault/baseBranch/template).
     // + v0.70 Speculative FIM (+1: completion.draftModel).
+    // + v0.71 Diagnostics & Thinking (+4: diagnostics.reactiveFixEnabled/
+    // reactiveFixDebounceMs/reactiveFixSeverity/thinking.mode).
     // Adding a setting requires bumping this + adding it to one of
     // the sections.
     const cfg = loadConfiguration();
     const totalKeys = cfg.reduce((sum, s) => sum + Object.keys(s.properties).length, 0);
-    expect(totalKeys).toBe(111);
+    expect(totalKeys).toBe(115);
   });
 
   it('no setting key is duplicated across sections', () => {

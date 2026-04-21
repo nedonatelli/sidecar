@@ -29,6 +29,7 @@ function makeState(): LoopState {
     changelog: undefined,
     mcpManager: undefined,
     startTime: Date.now(),
+    taskId: 'test-task',
   } as unknown as LoopState;
 }
 

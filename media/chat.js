@@ -4163,7 +4163,18 @@
           if (text) {
             const matchedBody = matchedTool.querySelector('.tool-call-body');
             if (matchedBody) {
-              matchedBody.textContent += '\n' + text;
+              // Check if result is rendered HTML (viz or chart)
+              if (
+                text.trim().startsWith('<') &&
+                (text.includes('sidecar-viz') || text.includes('xmlns="http://www.w3.org/2000/svg"'))
+              ) {
+                const vizContainer = document.createElement('div');
+                vizContainer.className = 'tool-result-viz';
+                vizContainer.innerHTML = text;
+                matchedBody.appendChild(vizContainer);
+              } else {
+                matchedBody.textContent += '\n' + text;
+              }
             }
           }
 
@@ -4189,10 +4200,21 @@
           badge.textContent = isError ? '\u2717' : '\u2713';
           summary.appendChild(badge);
           details.appendChild(summary);
-          const body = document.createElement('pre');
-          body.className = 'tool-result-body';
-          body.textContent = text;
-          details.appendChild(body);
+          // Check if result is rendered HTML (viz or chart)
+          if (
+            text.trim().startsWith('<') &&
+            (text.includes('sidecar-viz') || text.includes('xmlns="http://www.w3.org/2000/svg"'))
+          ) {
+            const vizBody = document.createElement('div');
+            vizBody.className = 'tool-result-body tool-result-viz';
+            vizBody.innerHTML = text;
+            details.appendChild(vizBody);
+          } else {
+            const body = document.createElement('pre');
+            body.className = 'tool-result-body';
+            body.textContent = text;
+            details.appendChild(body);
+          }
           messagesContainer.appendChild(details);
         }
         scrollToBottom();

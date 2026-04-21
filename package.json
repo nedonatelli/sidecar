@@ -987,6 +987,51 @@
         }
       },
       {
+        "title": "SideCar: Diagnostics & Thinking",
+        "properties": {
+          "sidecar.diagnostics.reactiveFixEnabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enable reactive diagnostic fixing — automatically propose fixes for new errors and warnings"
+          },
+          "sidecar.diagnostics.reactiveFixDebounceMs": {
+            "type": "number",
+            "default": 2000,
+            "description": "Debounce period in milliseconds before firing a reactive diagnostic fix"
+          },
+          "sidecar.diagnostics.reactiveFixSeverity": {
+            "type": "string",
+            "enum": [
+              "error",
+              "warning"
+            ],
+            "enumDescriptions": [
+              "Only fix errors",
+              "Fix both errors and warnings"
+            ],
+            "default": "error",
+            "description": "Minimum diagnostic severity to trigger reactive fixing"
+          },
+          "sidecar.thinking.mode": {
+            "type": "string",
+            "enum": [
+              "single",
+              "self-debate",
+              "tree-of-thought",
+              "red-team"
+            ],
+            "enumDescriptions": [
+              "Standard thinking (single perspective)",
+              "Model debates pros and cons with itself",
+              "Model structures thinking as a tree of possibilities",
+              "Model role-plays adversarial critique"
+            ],
+            "default": "single",
+            "description": "Thinking visualization mode (when using Claude models with extended thinking enabled)"
+          }
+        }
+      },
+      {
         "title": "SideCar: Chat UI",
         "properties": {
           "sidecar.chatDensity": {

@@ -38,6 +38,8 @@ export interface ScheduledTask {
   intervalMinutes: number;
   prompt: string;
   enabled: boolean;
+  /** Optional list of file paths this task targets; used to check for unsaved edits */
+  targetPaths?: string[];
 }
 
 export interface EventHookConfig {

@@ -38,6 +38,7 @@ function stubState(overrides: Partial<LoopState> = {}): LoopState {
   // Minimal stub — cycle/burst helpers read `recentToolCalls` + `logger`.
   return {
     startTime: Date.now(),
+    taskId: 'test-task',
     maxIterations: 25,
     maxTokens: 100_000,
     approvalMode: 'cautious',
