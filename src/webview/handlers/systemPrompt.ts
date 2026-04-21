@@ -2,6 +2,7 @@ import { window, workspace } from 'vscode';
 import * as path from 'path';
 import type { ChatState } from '../chatState.js';
 import { getConfig } from '../../config/settings.js';
+import { CHARS_PER_TOKEN } from '../../config/constants.js';
 import {
   getWorkspaceContext,
   getWorkspaceEnabled,
@@ -51,6 +52,8 @@ export async function injectSystemContext(
   }
 
   let prompt = systemPrompt;
+  const sizes: Record<string, number> = { 'Base prompt': systemPrompt.length };
+  let prevLen = systemPrompt.length;
 
   // Workspace-sourced prompt injections (SIDECAR.md, project docs, agent
   // memory, workspace skills) are a prompt-injection vector in an
@@ -99,6 +102,8 @@ export async function injectSystemContext(
       }
     }
   }
+  sizes['SIDECAR.md'] = prompt.length - prevLen;
+  prevLen = prompt.length;
 
   // User system prompt — the user's own setting, safe in both trust states
   if (config.systemPrompt && prompt.length < maxSystemChars) {
@@ -110,6 +115,8 @@ export async function injectSystemContext(
         : config.systemPrompt;
     prompt += `\n\nUser instructions:\n${truncated}`;
   }
+  sizes['User instructions'] = prompt.length - prevLen;
+  prevLen = prompt.length;
 
   // Skill injection — only in trusted workspaces because .sidecar/skills/
   // can ship with a cloned repo. When the matched skill came from a
@@ -129,6 +136,8 @@ export async function injectSystemContext(
       prompt += provenance + skill.content;
     }
   }
+  sizes['Skills'] = prompt.length - prevLen;
+  prevLen = prompt.length;
 
   // Retriever fusion — docs, agent memory, and workspace semantic
   // search all run through a single reciprocal-rank fusion pass so
@@ -193,6 +202,8 @@ export async function injectSystemContext(
       }
     }
   }
+  sizes['RAG context'] = prompt.length - prevLen;
+  prevLen = prompt.length;
 
   // Pinned files + file dependencies + workspace tree. Each carries
   // information that doesn't fit the per-hit ranking model used by
@@ -211,18 +222,24 @@ export async function injectSystemContext(
       if (pinnedSection) {
         prompt += `\n\n## Workspace Context${pinnedSection}`;
       }
+      sizes['Pinned files'] = prompt.length - prevLen;
+      prevLen = prompt.length;
 
       const depBudget = Math.max(0, maxSystemChars - prompt.length - toolOverheadChars);
       const depSection = state.workspaceIndex.getFileDependenciesSection(Math.min(2000, depBudget));
       if (depSection) {
         prompt += depSection;
       }
+      sizes['File dependencies'] = prompt.length - prevLen;
+      prevLen = prompt.length;
 
       const treeBudget = Math.max(0, maxSystemChars - prompt.length - toolOverheadChars);
       const treeSection = state.workspaceIndex.getWorkspaceStructureSection(treeBudget);
       if (treeSection) {
         prompt += treeSection;
       }
+      sizes['Workspace tree'] = prompt.length - prevLen;
+      prevLen = prompt.length;
 
       const mentionedPaths = [...text.matchAll(/@file:([^\s]+)/g)].map((m) => m[1]);
       if (mentionedPaths.length > 0) {
@@ -236,6 +253,8 @@ export async function injectSystemContext(
           context.length > contextBudget ? context.slice(0, contextBudget - 30) + '\n... (context truncated)' : context;
         prompt += `\n\n## Workspace Context\n${trimmed}`;
       }
+      sizes['Workspace context'] = prompt.length - prevLen;
+      prevLen = prompt.length;
     }
   }
 
@@ -254,6 +273,28 @@ export async function injectSystemContext(
     if (activeFile) {
       prompt += `\n- Active file: ${activeFile}`;
     }
+  }
+  sizes['Session'] = prompt.length - prevLen;
+
+  if (config.verboseMode) {
+    const tok = (chars: number) => Math.ceil(chars / CHARS_PER_TOKEN);
+    const maxLabel = Math.max(...Object.keys(sizes).map((k) => k.length));
+    const lines = Object.entries(sizes).map(([label, chars]) => {
+      const pad = label.padEnd(maxLabel);
+      const t = tok(chars);
+      return `  ${pad}  ${t > 0 ? `~${t}` : '—'} tokens`;
+    });
+    const totalTokens = tok(prompt.length);
+    const budgetTokens = Math.ceil(maxSystemChars / CHARS_PER_TOKEN);
+    lines.push(`  ${'─'.repeat(maxLabel + 12)}`);
+    lines.push(
+      `  ${'Total'.padEnd(maxLabel)}  ~${totalTokens} / ${budgetTokens} tokens (${Math.round((prompt.length / maxSystemChars) * 100)}% of budget)`,
+    );
+    state.postMessage({
+      command: 'verboseLog',
+      content: `System prompt injection breakdown:\n${lines.join('\n')}`,
+      verboseLabel: 'Context Budget',
+    });
   }
 
   return prompt;
