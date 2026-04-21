@@ -24,6 +24,11 @@ import {
 } from '../../ollama/kickstandBackend.js';
 import { surfaceProviderError } from '../errorSurface.js';
 
+function formatContextLength(n: number): string {
+  const k = n / 1024;
+  return (k >= 10 ? Math.round(k) : parseFloat(k.toFixed(1))) + 'K ctx';
+}
+
 export async function loadModels(state: ChatState): Promise<void> {
   const config = getConfig();
   try {
@@ -245,7 +250,7 @@ async function handleHuggingFaceInstall(
       }
     }
 
-    const pullName = await pickGGUFFile(state, hfRef, inspection.files);
+    const pullName = await pickGGUFFile(state, hfRef, inspection.files, inspection.contextLength);
     if (pullName === null) {
       return { shouldFallThroughToPull: false, pullName: '' };
     }
@@ -287,10 +292,12 @@ async function pickGGUFFile(
   state: ChatState,
   hfRef: HFModelRef,
   files: Array<{ filename: string; size: number; ollamaName: string }>,
+  contextLength: number | null,
 ): Promise<string | null> {
+  const ctxSuffix = contextLength ? ` · ${formatContextLength(contextLength)}` : '';
   const items = files.map((f) => ({
     label: f.filename,
-    description: formatSize(f.size),
+    description: `${formatSize(f.size)}${ctxSuffix}`,
     detail: f.ollamaName,
   }));
 
@@ -325,9 +332,10 @@ async function runSafetensorsImport(
 ): Promise<void> {
   // Pick a quantization. Show the estimated final size so the user can
   // pick between "small and fast" and "full-fidelity but huge".
+  const ctxSuffix = repo.contextLength ? ` · ${formatContextLength(repo.contextLength)}` : '';
   const quantItems = QUANT_OPTIONS.map((q) => ({
     label: q.label,
-    description: `~${formatSize(repo.totalBytes * q.sizeMultiplier)} final size`,
+    description: `~${formatSize(repo.totalBytes * q.sizeMultiplier)} final size${ctxSuffix}`,
     detail: q.description,
     quant: q.label,
   }));

@@ -56,6 +56,8 @@ export interface SafetensorsRepo {
   architecture: string;
   /** True if HF marks the repo as gated (requires an access token to download). */
   gated: boolean;
+  /** Context window in tokens from `config.json`, or null if not reported. */
+  contextLength: number | null;
 }
 
 /**
@@ -70,7 +72,7 @@ export interface SafetensorsRepo {
  * `unsupported-arch` once auth is in place.
  */
 export type HFRepoInspection =
-  | { kind: 'gguf'; files: GGUFFile[] }
+  | { kind: 'gguf'; files: GGUFFile[]; contextLength: number | null }
   | { kind: 'safetensors'; repo: SafetensorsRepo }
   | { kind: 'gated-auth-required' }
   | { kind: 'unsupported-arch'; architecture: string }
@@ -283,12 +285,24 @@ async function fetchHFTreeSizes(ref: HFModelRef, token: string | undefined): Pro
   }
 }
 
+interface ModelConfig {
+  architecture: string | null;
+  contextLength: number | null;
+}
+
 /**
- * Fetch the `config.json` of an HF repo and return `architectures[0]`.
- * We need this to decide whether a Safetensors repo is convertible *before*
- * downloading tens of gigabytes of weights.
+ * Fetch `config.json` and extract the model architecture and context window.
+ * Architecture decides whether a safetensors repo is convertible; context
+ * length is surfaced in the file/quant pickers so users can compare models.
+ *
+ * Common field names across model families:
+ *   max_position_embeddings (Llama, Mistral, Gemma, …)
+ *   n_positions             (GPT-2 family)
+ *   n_ctx                   (older GPT)
+ *   max_seq_len             (Phi, MPT)
+ *   context_length          (some custom configs)
  */
-async function fetchArchitecture(ref: HFModelRef, token: string | undefined): Promise<string | null> {
+async function fetchModelConfig(ref: HFModelRef, token: string | undefined): Promise<ModelConfig> {
   const headers: Record<string, string> = {};
   if (token) headers.Authorization = `Bearer ${token}`;
 
@@ -297,11 +311,21 @@ async function fetchArchitecture(ref: HFModelRef, token: string | undefined): Pr
       signal: AbortSignal.timeout(10000),
       headers,
     });
-    if (!response.ok) return null;
-    const config = (await response.json()) as { architectures?: string[] };
-    return config.architectures?.[0] ?? null;
+    if (!response.ok) return { architecture: null, contextLength: null };
+    const cfg = (await response.json()) as {
+      architectures?: string[];
+      max_position_embeddings?: number;
+      n_positions?: number;
+      n_ctx?: number;
+      max_seq_len?: number;
+      context_length?: number;
+    };
+    const architecture = cfg.architectures?.[0] ?? null;
+    const contextLength =
+      cfg.max_position_embeddings ?? cfg.n_positions ?? cfg.n_ctx ?? cfg.max_seq_len ?? cfg.context_length ?? null;
+    return { architecture, contextLength };
   } catch {
-    return null;
+    return { architecture: null, contextLength: null };
   }
 }
 
@@ -324,17 +348,25 @@ export async function inspectHFRepo(ref: HFModelRef, options: { hfToken?: string
   const siblings = info.data.siblings ?? [];
   const gated = Boolean(info.data.gated) && info.data.gated !== 'false';
 
-  const ggufFiles = siblings
-    .filter((f) => f.rfilename.endsWith('.gguf'))
-    .map((f) => ({
-      filename: f.rfilename,
-      size: f.size ?? 0,
-      ollamaName: `hf.co/${ref.org}/${ref.repo}:${f.rfilename}`,
-    }))
-    .sort((a, b) => a.size - b.size);
+  const rawGgufFiles = siblings.filter((f) => f.rfilename.endsWith('.gguf'));
 
-  if (ggufFiles.length > 0) {
-    return { kind: 'gguf', files: ggufFiles };
+  if (rawGgufFiles.length > 0) {
+    // GGUF files in HF repos are LFS-backed; the `siblings` array leaves
+    // their `size` as undefined. Fetch accurate sizes from the tree endpoint
+    // so the quantization picker shows real file sizes instead of "unknown size".
+    // Fetch config.json in parallel to surface the context window length.
+    const [treeSizes, { contextLength }] = await Promise.all([
+      fetchHFTreeSizes(ref, options.hfToken),
+      fetchModelConfig(ref, options.hfToken),
+    ]);
+    const ggufFiles = rawGgufFiles
+      .map((f) => ({
+        filename: f.rfilename,
+        size: treeSizes.get(f.rfilename) ?? f.size ?? 0,
+        ollamaName: `hf.co/${ref.org}/${ref.repo}:${f.rfilename}`,
+      }))
+      .sort((a, b) => a.size - b.size);
+    return { kind: 'gguf', files: ggufFiles, contextLength };
   }
 
   const hasSafetensors = siblings.some((f) => f.rfilename.endsWith('.safetensors'));
@@ -368,7 +400,7 @@ export async function inspectHFRepo(ref: HFModelRef, options: { hfToken?: string
     })
     .map((f) => ({ filename: f.rfilename, size: sizeFor(f.rfilename, f.size) }));
 
-  const architecture = await fetchArchitecture(ref, options.hfToken);
+  const { architecture, contextLength } = await fetchModelConfig(ref, options.hfToken);
   if (!architecture) {
     return {
       kind: 'network-error',
@@ -386,7 +418,7 @@ export async function inspectHFRepo(ref: HFModelRef, options: { hfToken?: string
 
   return {
     kind: 'safetensors',
-    repo: { weightFiles, metadataFiles, totalBytes, architecture, gated },
+    repo: { weightFiles, metadataFiles, totalBytes, architecture, gated, contextLength },
   };
 }
 

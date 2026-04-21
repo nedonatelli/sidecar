@@ -81,6 +81,7 @@ function makeOpts(overrides: Partial<SafetensorsImportOptions> = {}): Safetensor
     totalBytes: 12,
     architecture: 'LlamaForCausalLM',
     gated: false,
+    contextLength: null,
   };
   return {
     ref,
