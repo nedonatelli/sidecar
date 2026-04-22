@@ -323,9 +323,17 @@ export async function runAgentLoop(
       // resolveTurnContent runs post-stream cleanup (strip repeated
       // paragraphs, parse text tool calls).
       const requestTimeoutMs = config.requestTimeout * 1000;
+      const firstTokenTimeoutMs = config.firstTokenTimeout * 1000;
       let rawTurn;
       try {
-        rawTurn = await streamOneTurn(client, state, turnController.signal, callbacks, requestTimeoutMs);
+        rawTurn = await streamOneTurn(
+          client,
+          state,
+          turnController.signal,
+          callbacks,
+          requestTimeoutMs,
+          firstTokenTimeoutMs,
+        );
       } finally {
         signal.removeEventListener('abort', mirrorAbort);
         currentTurnController = null;
@@ -333,9 +341,9 @@ export async function runAgentLoop(
 
       if (rawTurn.terminated === 'timeout') {
         const msg =
-          `Request timed out after ${config.requestTimeout}s waiting for the model. ` +
+          `Request timed out waiting for the model. ` +
           `The model may be loading or the prompt may be too large. ` +
-          `You can increase sidecar.requestTimeout in settings.`;
+          `You can increase sidecar.firstTokenTimeout (first token) or sidecar.requestTimeout (between tokens) in settings.`;
         state.logger?.warn(msg);
         callbacks.onText(`\n\n⚠️ ${msg}\n`);
         break;

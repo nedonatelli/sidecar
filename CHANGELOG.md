@@ -4,6 +4,16 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.80.4] - 2026-04-22
+
+### Fixed
+
+- **Ollama first-token timeout** — new `sidecar.firstTokenTimeout` setting (default 300 s) gives local models extra time to load from disk or warm up the KV cache before the first token arrives, while `sidecar.requestTimeout` (120 s) continues to guard mid-stream stalls independently
+- **Ollama stream truncation now visible** — a dropped connection or missing `done:true` chunk is surfaced as a warning instead of silently delivering a partial response as if it were complete; malformed NDJSON lines are logged rather than silently skipped
+- **Ollama trailing buffer** — the final NDJSON line without a trailing newline was silently dropped when the reader closed; it is now parsed so the `done:true` completion chunk is never lost
+- **Qwen language drift** — added explicit language rule to the system prompt so multilingual models (Qwen 2.5, DeepSeek, Mistral) stay in the user's language at large context sizes
+- **Local context budget cap** — `LOCAL_CONTEXT_CAP` raised from 16 384 → 32 768 tokens to match the `num_ctx` floor; the verbose context budget report now correctly shows ~16 384 tokens (50 % of 32 768) instead of the misleading 8 192
+
 ## [0.80.3] - 2026-04-21
 
 ### Fixed

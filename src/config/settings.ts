@@ -88,6 +88,7 @@ export interface SideCarConfig {
   jsDocSyncEnabled: boolean;
   readmeSyncEnabled: boolean;
   requestTimeout: number;
+  firstTokenTimeout: number;
   shellTimeout: number;
   shellMaxOutputMB: number;
   pinnedContext: string[];
@@ -345,6 +346,7 @@ function readConfig(): SideCarConfig {
     jsDocSyncEnabled: cfg.get<boolean>('jsDocSync.enabled', true),
     readmeSyncEnabled: cfg.get<boolean>('readmeSync.enabled', true),
     requestTimeout: clampMin(cfg.get<number>('requestTimeout'), 0, 120),
+    firstTokenTimeout: clampMin(cfg.get<number>('firstTokenTimeout'), 0, 300),
     shellTimeout: clampMin(cfg.get<number>('shellTimeout'), 1, 120),
     shellMaxOutputMB: clampMin(cfg.get<number>('shellMaxOutputMB'), 1, 10),
     pinnedContext: cfg.get<string[]>('pinnedContext', []),

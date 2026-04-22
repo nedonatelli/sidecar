@@ -379,6 +379,7 @@ export class OllamaBackend implements ApiBackend {
     const decoder = new TextDecoder();
     let toolCallCounter = 0;
     let sawToolCall = false;
+    let sawDoneChunk = false;
     const thinkState: ThinkTagState = { insideThinkTag: false };
     const textToolState: TextToolCallState = createTextToolCallState(tools);
 
@@ -400,6 +401,7 @@ export class OllamaBackend implements ApiBackend {
           try {
             chunk = JSON.parse(trimmed) as OllamaChatChunk;
           } catch {
+            console.warn('[SideCar] Ollama: failed to parse NDJSON line:', trimmed.slice(0, 200));
             continue;
           }
 
@@ -444,6 +446,7 @@ export class OllamaBackend implements ApiBackend {
           // this stream, signal 'tool_use' so the agent loop knows to execute them
           // regardless of the underlying done_reason.
           if (chunk.done) {
+            sawDoneChunk = true;
             let stopReason: string;
             if (sawToolCall || emittedToolCallThisChunk) {
               stopReason = 'tool_use';
@@ -456,6 +459,42 @@ export class OllamaBackend implements ApiBackend {
           }
         }
       }
+
+      // Ollama normally terminates every JSON object with \n. If it doesn't,
+      // the last line sits unparsed in the buffer when the reader closes.
+      // Attempt to parse it so the done:true chunk is never silently dropped.
+      const trailing = buffer.trim();
+      if (trailing) {
+        try {
+          const chunk = JSON.parse(trailing) as OllamaChatChunk;
+          if (chunk.done) {
+            sawDoneChunk = true;
+            yield {
+              type: 'stop',
+              stopReason: sawToolCall
+                ? 'tool_use'
+                : chunk.done_reason === 'stop' || !chunk.done_reason
+                  ? 'end_turn'
+                  : chunk.done_reason,
+            };
+          }
+        } catch {
+          console.warn('[SideCar] Ollama: stream ended with unparsed trailing data:', trailing.slice(0, 200));
+        }
+      }
+
+      // If the stream closed without ever sending done:true, the connection
+      // was dropped or the response was truncated. Surface this explicitly
+      // rather than letting the caller treat it as a clean end_turn.
+      if (!sawDoneChunk && !signal?.aborted) {
+        console.warn('[SideCar] Ollama: stream closed without a done:true chunk — response may be truncated');
+        yield {
+          type: 'warning',
+          message: 'Ollama stream closed without a completion signal — the response may be truncated.',
+        };
+        yield { type: 'stop', stopReason: 'error' };
+      }
+
       // Drain any text still buffered by the streaming tool-call parser
       // (e.g. a trailing partial marker that never completed into a real block).
       yield* flushTextToolCallsStream(textToolState);

@@ -76,6 +76,7 @@ export async function streamOneTurn(
   signal: AbortSignal,
   callbacks: AgentCallbacks,
   requestTimeoutMs: number,
+  firstTokenTimeoutMs: number = 0,
 ): Promise<TurnResult> {
   const fullTextParts: string[] = [];
   const pendingToolUses: ToolUseContentBlock[] = [];
@@ -89,6 +90,7 @@ export async function streamOneTurn(
 
   const stream = client.streamChat(state.messages, signal, iterTools);
   const iter = stream[Symbol.asyncIterator]();
+  let receivedFirstToken = false;
   try {
     while (true) {
       if (signal.aborted) {
@@ -96,15 +98,21 @@ export async function streamOneTurn(
         break;
       }
 
+      // Use firstTokenTimeoutMs for the initial wait, then requestTimeoutMs
+      // for subsequent events. Local models (Ollama) may need extra time
+      // to load from disk or warm up the KV cache before producing the
+      // first token, while mid-stream gaps are a reliable sign of a stall.
+      const activeTimeoutMs = !receivedFirstToken && firstTokenTimeoutMs > 0 ? firstTokenTimeoutMs : requestTimeoutMs;
+
       // Race the next stream event against the timeout. Clear the
       // timer when next() wins so we don't leak timers and keep the
       // event loop alive longer than needed.
       let result: IteratorResult<StreamEvent>;
-      if (requestTimeoutMs > 0) {
+      if (activeTimeoutMs > 0) {
         let timeoutId: ReturnType<typeof setTimeout> | undefined;
         const nextPromise = iter.next();
         const timeoutPromise = new Promise<never>((_, reject) => {
-          timeoutId = setTimeout(() => reject(new Error(REQUEST_TIMEOUT_SENTINEL)), requestTimeoutMs);
+          timeoutId = setTimeout(() => reject(new Error(REQUEST_TIMEOUT_SENTINEL)), activeTimeoutMs);
         });
         try {
           result = await Promise.race([nextPromise, timeoutPromise]);
@@ -114,6 +122,7 @@ export async function streamOneTurn(
       } else {
         result = await iter.next();
       }
+      receivedFirstToken = true;
 
       if (result.done) break;
       const event = result.value;

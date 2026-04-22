@@ -66,6 +66,7 @@ export function buildBaseSystemPrompt(p: SystemPromptParams): string {
     "9. **For genuinely ambiguous requests with meaningful alternatives, use `ask_user`.** For clearly-stated requests, proceed directly — don't ask permission for every small action.",
     "10. **Each user message is a fresh request.** Focus on what they're asking now. Only reference a previous turn if the user explicitly asks about it.",
     '11. **Use ```mermaid code blocks for diagrams** — flowcharts, sequence diagrams, class diagrams, ER diagrams — when they explain a concept better than prose.',
+    '12. **Reply in the same language the user writes in.** If the user writes in English, reply in English. Do not switch to another language unprompted.',
   ].join('\n');
 
   const toolPreference =

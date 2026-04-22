@@ -38,8 +38,14 @@ export const DEFAULT_MAX_SYSTEM_CHARS = 80_000;
  * Soft cap on how much context SideCar will pack into a single local-model
  * request. Very large prompts cause extreme first-token latency on consumer
  * hardware regardless of the model's native context window size.
+ *
+ * Must be kept in sync with the num_ctx floor in OllamaBackend.streamChat
+ * (currently 32 768). Setting this below that floor causes the budget
+ * calculations to use a smaller window than Ollama actually allocates,
+ * which makes the verbose context report misleading and under-uses the KV
+ * cache we already paid for.
  */
-export const LOCAL_CONTEXT_CAP = 16_384;
+export const LOCAL_CONTEXT_CAP = 32_768;
 
 /**
  * Plan mode auto-detection thresholds.
