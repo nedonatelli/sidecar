@@ -1003,7 +1003,7 @@ Detailed specifications for every entry in the release plan above. Each entry de
 ### Enterprise & Collaboration
 
 - **Centralized policy management** — `.sidecar-policy.json` for org-level enforcement of approval modes, blocked tools, PII redaction, provider restrictions
-- **Multi-User Agent Shadows** — a shared agent knowledge base that lets every contributor's SideCar instance start with the same learned project context. A team member runs `SideCar: Export Project Shadow` to serialise the agent's accumulated knowledge — coding standards, design tokens (colours, typography), mathematical definitions, architectural decisions, naming conventions — into a versioned `.sidecar/shadow.json` file that is committed to the repo. When a new contributor opens the project, SideCar detects the shadow file and automatically imports it into their local memory store, so their instance already knows the project's conventions without a single prompt. Entries are namespaced by category (`standards`, `design`, `math`, `architecture`) and can be individually pinned or overridden locally. Shadow exports are human-readable JSON so they can be reviewed and edited in PRs like any other config file. Controlled via `sidecar.shadow.autoImport` (default: `true`) and `sidecar.shadow.autoExport` (default: `false` — export is always an explicit user action to avoid leaking sensitive context).
+- **Multi-User Agent Shadows** — a shared agent knowledge base that lets every contributor's SideCar instance start with the same learned project context. A team member runs `SideCar: Export Project Shadow` to serialise the agent's accumulated knowledge — coding standards, design tokens (colors, typography), mathematical definitions, architectural decisions, naming conventions — into a versioned `.sidecar/shadow.json` file that is committed to the repo. When a new contributor opens the project, SideCar detects the shadow file and automatically imports it into their local memory store, so their instance already knows the project's conventions without a single prompt. Entries are namespaced by category (`standards`, `design`, `math`, `architecture`) and can be individually pinned or overridden locally. Shadow exports are human-readable JSON so they can be reviewed and edited in PRs like any other config file. Controlled via `sidecar.shadow.autoImport` (default: `true`) and `sidecar.shadow.autoExport` (default: `false` — export is always an explicit user action to avoid leaking sensitive context).
 - **Team knowledge base** — built-in connectors for Confluence, Notion, internal docs
 - **Real-time collaboration Phase 1** — VS Code Live Share integration (shared chat, presence, host/guest roles)
 - **Real-time collaboration Phase 2** — shared agent control (multi-user approval, message attribution)
@@ -1712,15 +1712,15 @@ Scope: animation timing, easing, feedback loops, Fitts'/Hick's Law compliance, i
 
 ---
 
-#### Track 14 — Colour ✅
+#### Track 14 — Color ✅
 
-Scope: palette structure, 60-30-10 distribution, semantic role consistency, WCAG AA contrast, colour-only information, and scheme coherence across chat panel and homepage.
+Scope: palette structure, 60-30-10 distribution, semantic role consistency, WCAG AA contrast, color-only information, and scheme coherence across chat panel and homepage.
 
 **Chat panel:**
 
 - **CRITICAL** `.mode-custom { background: var(--vscode-charts-orange, #d18616); color: #fff }` — orange `#d18616` with white text is **3.9:1**, below the 4.5:1 WCAG AA threshold for 11px text. Fix: change text to `#000` (gives 6.8:1) or darken background to `#b5720f`.
-- **HIGH** `.gh-state.open/closed/merged` use same-hue text on same-hue semi-transparent background — green text on green-tinted bg ≈ **3.4:1**, red text on red-tinted bg similarly low. Fix: shift to border-only colour treatment with neutral (`var(--vscode-editor-foreground)`) text.
-- **HIGH** `charts-green` carries three distinct semantic roles simultaneously: tool result success, autonomous mode badge, and create-file badge. When one colour means "done," "dangerous power mode," and "new file," its signal is lost. Fix: reserve `charts-green` for success states only; autonomous mode badge should use a dedicated token distinct from tool-result green.
+- **HIGH** `.gh-state.open/closed/merged` use same-hue text on same-hue semi-transparent background — green text on green-tinted bg ≈ **3.4:1**, red text on red-tinted bg similarly low. Fix: shift to border-only color treatment with neutral (`var(--vscode-editor-foreground)`) text.
+- **HIGH** `charts-green` carries three distinct semantic roles simultaneously: tool result success, autonomous mode badge, and create-file badge. When one color means "done," "dangerous power mode," and "new file," its signal is lost. Fix: reserve `charts-green` for success states only; autonomous mode badge should use a dedicated token distinct from tool-result green.
 - **MEDIUM** `.mode-plan { background: #9b78c8 }` — hardcoded hex not tied to any VS Code token; breaks in high-contrast themes. Fix: `var(--vscode-charts-purple, #9b78c8)`.
 - **MEDIUM** All `color: #000` hardcodes on mode badges (cautious/autonomous/manual) will break in light themes where `charts-*` variables are dark. Fix: `var(--vscode-badge-foreground)` — already flagged in Track 10, root cause is here.
 - **LOW** `charts-blue` used for three contexts (tool calls, edit-plan EDIT badge, plan-mode message border) — acceptable for a tool with many states but worth auditing if a fourth use appears.
@@ -1730,8 +1730,8 @@ Scope: palette structure, 60-30-10 distribution, semantic role consistency, WCAG
 - **CRITICAL** `--text-3` (#504868) fails WCAG AA on every surface: **2.55:1** on `--bg`, **2.28:1** on `--bg-2` and `--bg-3` (required 4.5:1). Used for stat labels ("local-first", "tests passing"), feature pills, ticker text, footer links — all informational content. Fix: lighten to approximately **#7a6e90** (~4.6:1 on `--bg`).
 - **CRITICAL** White text on `--coral` (#e86040) CTA buttons: **(1.05)/(0.27+0.05) = 3.3:1** — fails WCAG AA for 12–13px text (requires 4.5:1). Affects `btn-lg` and `btn-primary` — the primary "Install from Marketplace" conversion button. Fix: darken button coral to **#c94d2a** (white text gives 5.4:1); reserve bright `#e86040` for decorative/gradient use only.
 - **HIGH** `coral → purple → blue` gradient applied to `h1`, `.stat-num`, `.req-dot`, and `.nav-logo` — four elements at four scales. Gradient exclusivity is the source of its hierarchy signal; when it appears everywhere it signals nothing. Fix: reserve gradient for `h1` only; `.stat-num` → `--coral` solid; `.req-dot` → `--coral` solid.
-- **MEDIUM** `.check` (hollow blue ring) vs `.check-bold` (solid coral fill) in comparison table — colour + fill differentiates "has feature" vs "leads in feature," but deuteranopia collapses blue and coral toward similar hues. The solid/hollow distinction provides partial non-colour signal. Fix: increase `.check-bold` from 20px to **24px** for size-based differentiation independent of colour.
-- **LOW** Colour scheme (split-complementary: coral + blue + purple) is well-chosen and coherent for a developer tool. No structural change recommended.
+- **MEDIUM** `.check` (hollow blue ring) vs `.check-bold` (solid coral fill) in comparison table — color + fill differentiates "has feature" vs "leads in feature," but deuteranopia collapses blue and coral toward similar hues. The solid/hollow distinction provides partial non-color signal. Fix: increase `.check-bold` from 20px to **24px** for size-based differentiation independent of color.
+- **LOW** Color scheme (split-complementary: coral + blue + purple) is well-chosen and coherent for a developer tool. No structural change recommended.
 
 ---
 
