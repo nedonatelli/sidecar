@@ -166,13 +166,13 @@ export class EmbeddingIndex implements Disposable {
    * Used by file watchers that only have the path.
    */
   queuePath(relativePath: string, rootPath: string): void {
-    try {
-      const absPath = path.join(rootPath, relativePath);
-      const content = fs.readFileSync(absPath, 'utf-8').slice(0, MAX_INPUT_CHARS);
-      this.queueUpdate(relativePath, content);
-    } catch {
-      // File may have been deleted or be unreadable — skip
-    }
+    const absPath = path.join(rootPath, relativePath);
+    fs.promises
+      .readFile(absPath, 'utf-8')
+      .then((content) => this.queueUpdate(relativePath, content.slice(0, MAX_INPUT_CHARS)))
+      .catch(() => {
+        // File may have been deleted or be unreadable — skip
+      });
   }
 
   /** Remove a file from the embedding index. */
@@ -285,9 +285,9 @@ export class EmbeddingIndex implements Disposable {
       // Write binary vectors using fs directly (not JSON)
       const binPath = this.sidecarDir.getPath(BIN_FILE);
       const dir = path.dirname(binPath);
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      await fs.promises.mkdir(dir, { recursive: true });
       const buffer = Buffer.from(this.vectors.buffer, this.vectors.byteOffset, this.meta.count * DIMENSION * 4);
-      fs.writeFileSync(binPath, buffer);
+      await fs.promises.writeFile(binPath, buffer);
 
       this.dirty = false;
       console.log(`[SideCar] Embedding index persisted: ${this.meta.count} vectors`);
@@ -310,15 +310,18 @@ export class EmbeddingIndex implements Disposable {
 
       // Read binary vectors
       const binPath = this.sidecarDir.getPath(BIN_FILE);
-      if (!fs.existsSync(binPath)) return;
-
-      const buffer = fs.readFileSync(binPath);
+      let buffer: Buffer;
+      try {
+        buffer = await fs.promises.readFile(binPath);
+      } catch {
+        return; // file absent — rebuild
+      }
       if (buffer.byteLength < meta.count * DIMENSION * 4) {
         console.warn('[SideCar] Embedding binary too small, rebuilding');
         return;
       }
 
-      this.vectors = new Float32Array(buffer.buffer, buffer.byteOffset, meta.count * DIMENSION);
+      this.vectors = new Float32Array(buffer.buffer as ArrayBuffer, buffer.byteOffset, meta.count * DIMENSION);
       this.meta = meta;
       console.log(`[SideCar] Embedding cache restored: ${meta.count} vectors`);
     } catch (err) {

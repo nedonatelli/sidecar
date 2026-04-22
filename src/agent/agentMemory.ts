@@ -40,10 +40,7 @@ export class AgentMemory {
   constructor(sidecarDir: string) {
     this.memoryDir = path.join(sidecarDir, 'memory');
     this.currentSessionId = AgentMemory.generateSessionId();
-    // Create directory if it doesn't exist
-    if (!fs.existsSync(this.memoryDir)) {
-      fs.mkdirSync(this.memoryDir, { recursive: true });
-    }
+    // Directory creation deferred to first load/save call (async).
   }
 
   private static generateSessionId(): string {
@@ -71,9 +68,12 @@ export class AgentMemory {
   async load(): Promise<void> {
     try {
       const filePath = path.join(this.memoryDir, this.MEMORY_FILE);
-      if (!fs.existsSync(filePath)) return;
-
-      const content = fs.readFileSync(filePath, 'utf-8');
+      let content: string;
+      try {
+        content = await fs.promises.readFile(filePath, 'utf-8');
+      } catch {
+        return; // file absent — nothing to load
+      }
       const data = JSON.parse(content);
 
       if (Array.isArray(data.memories)) {
@@ -98,7 +98,8 @@ export class AgentMemory {
         savedAt: new Date().toISOString(),
         memories: Array.from(this.memories.values()),
       };
-      fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+      await fs.promises.mkdir(this.memoryDir, { recursive: true });
+      await fs.promises.writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8');
     } catch (error) {
       console.warn('[SideCar] Failed to save agent memories:', error);
     }

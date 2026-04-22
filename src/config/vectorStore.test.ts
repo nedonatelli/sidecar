@@ -62,6 +62,38 @@ vi.mock('fs', async () => {
       }
       return actual.unlinkSync(p);
     },
+    promises: {
+      writeFile: async (p: string, data: Uint8Array | string) => {
+        if (typeof p === 'string' && p.startsWith(MOCK_ROOT)) {
+          fsState.set(p, Buffer.isBuffer(data) ? Buffer.from(data) : Buffer.from(data as Uint8Array));
+          return;
+        }
+        return actual.promises.writeFile(p, data);
+      },
+      readFile: async (p: string) => {
+        if (typeof p === 'string' && p.startsWith(MOCK_ROOT)) {
+          const buf = fsState.get(p);
+          if (!buf) {
+            const err = new Error('ENOENT: no such file');
+            (err as NodeJS.ErrnoException).code = 'ENOENT';
+            throw err;
+          }
+          return buf;
+        }
+        return actual.promises.readFile(p);
+      },
+      mkdir: async (p: string) => {
+        if (typeof p === 'string' && p.startsWith(MOCK_ROOT)) return undefined;
+        return actual.promises.mkdir(p);
+      },
+      unlink: async (p: string) => {
+        if (typeof p === 'string' && p.startsWith(MOCK_ROOT)) {
+          fsState.delete(p);
+          return;
+        }
+        return actual.promises.unlink(p);
+      },
+    },
   };
   return { ...wrapped, default: wrapped };
 });

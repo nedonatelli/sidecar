@@ -8,6 +8,14 @@ import type {
 } from './provider.js';
 import { assertReadOnly } from './provider.js';
 
+const SAFE_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+function validateIdentifier(name: string, label: string): void {
+  if (!SAFE_IDENTIFIER.test(name)) {
+    throw new Error(`Invalid ${label} name: "${name}". Only letters, digits, and underscores are allowed.`);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // better-sqlite3 type shim — we only reference the subset we actually use
 // so the module can be dynamically imported without a hard dep at compile time.
@@ -132,6 +140,7 @@ export class SqliteProvider implements DatabaseProvider {
 
   async describeTable(table: string, _schema?: string): Promise<TableSchema> {
     const db = this.requireDb();
+    validateIdentifier(table, 'table');
 
     // Column info via PRAGMA table_info
     const pragmaRows = db.prepare(`PRAGMA table_info("${table}")`).all() as PragmaTableInfoRow[];

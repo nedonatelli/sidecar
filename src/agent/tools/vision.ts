@@ -297,7 +297,7 @@ async function analyzeScreenshot(input: Record<string, unknown>, context?: ToolE
   // Read the image as base64.
   let imageData: string;
   try {
-    imageData = fs.readFileSync(imagePath).toString('base64');
+    imageData = (await fs.promises.readFile(imagePath)).toString('base64');
   } catch (err) {
     return `Error reading image file: ${String(err)}`;
   }
@@ -411,11 +411,11 @@ async function runPlaywrightCode(input: Record<string, unknown>): Promise<string
 
   // Write script to a temp file.
   const tmpDir = path.join(os.tmpdir(), 'sidecar-playwright');
-  fs.mkdirSync(tmpDir, { recursive: true });
+  await fs.promises.mkdir(tmpDir, { recursive: true });
   const scriptPath = path.join(tmpDir, `script-${Date.now()}.mjs`);
 
   try {
-    fs.writeFileSync(scriptPath, script, 'utf-8');
+    await fs.promises.writeFile(scriptPath, script, 'utf-8');
   } catch (err) {
     return `Error writing script to temp file: ${String(err)}`;
   }
@@ -425,7 +425,7 @@ async function runPlaywrightCode(input: Record<string, unknown>): Promise<string
     type EsbuildTransformer = { transform(src: string, opts: Record<string, unknown>): Promise<{ code: string }> };
     const esbuild = (await import('esbuild')) as unknown as EsbuildTransformer;
     const result = await esbuild.transform(script, { loader: 'ts', format: 'esm', target: 'node18' });
-    fs.writeFileSync(scriptPath, result.code, 'utf-8');
+    await fs.promises.writeFile(scriptPath, result.code, 'utf-8');
   } catch {
     // If esbuild isn't available as a module (shouldn't happen since it's
     // used for bundling), fall through and try running the raw script.

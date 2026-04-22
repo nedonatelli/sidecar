@@ -1,4 +1,4 @@
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 import type { ToolDefinition } from '../ollama/types.js';
 import type { MCPManager } from './mcpManager.js';
@@ -8,6 +8,7 @@ import { redactSecrets } from './securityScanner.js';
 
 import type { RegisteredTool } from './tools/shared.js';
 import { getRoot } from './tools/shared.js';
+import { parseArgv } from './lintFix.js';
 import { findSdkTool, getSdkToolDefinitions } from '../sdk/registry.js';
 // v0.66 chunk 2: each tools/*.ts module exports its own
 // `<name>Tools: RegisteredTool[]` array. TOOL_REGISTRY is built by
@@ -62,7 +63,7 @@ export {
 } from './tools/runtime.js';
 export { getDiagnostics } from './tools/diagnostics.js';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 // --- Built-in tool registry ---
 
@@ -240,14 +241,17 @@ function getCustomToolRegistry(): RegisteredTool[] {
     executor: async (input: Record<string, unknown>) => {
       const cwd = getRoot();
       const userInput = (input.input as string) || '';
-      // Redact secret patterns out of the input before setting it on the
-      // child-process environment. A custom tool's `command` runs via
-      // execAsync and inherits env vars; without redaction, an input
-      // string carrying an API key or connection string would leak
-      // verbatim into every subprocess the custom command spawns.
-      // Audit cycle-3 MEDIUM #7.
-      const env = { ...process.env, SIDECAR_INPUT: redactSecrets(userInput) } as Record<string, string>;
-      const { stdout, stderr } = await execAsync(cfg.command, { cwd, timeout: 30_000, env, maxBuffer: 1024 * 1024 });
+      // Whitelist safe env vars — never expose API keys or credentials to
+      // custom tool subprocesses. SIDECAR_INPUT carries the redacted user
+      // input. Audit cycle-3 MEDIUM #7, cycle-4 T1-HIGH.
+      const safeEnvKeys = ['PATH', 'HOME', 'TMPDIR', 'TEMP', 'TMP', 'TERM', 'LANG', 'LC_ALL', 'SHELL'];
+      const env: Record<string, string> = { SIDECAR_INPUT: redactSecrets(userInput) };
+      for (const key of safeEnvKeys) {
+        const val = process.env[key];
+        if (val !== undefined) env[key] = val;
+      }
+      const [bin, args] = parseArgv(cfg.command);
+      const { stdout, stderr } = await execFileAsync(bin, args, { cwd, timeout: 30_000, env, maxBuffer: 1024 * 1024 });
       return (stdout + (stderr ? '\nSTDERR:\n' + stderr : '')).trim() || '(no output)';
     },
     requiresApproval: true,

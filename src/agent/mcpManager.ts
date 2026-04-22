@@ -10,6 +10,21 @@ import type { RegisteredTool } from './tools.js';
 const DEFAULT_MAX_RESULT_CHARS = 50_000;
 const RECONNECT_DELAYS = [2000, 5000, 15000]; // Exponential backoff
 
+// Safe env vars forwarded to stdio MCP child processes. API keys and other
+// credentials stay out — only vars needed to locate binaries and temp dirs.
+const SAFE_ENV_KEYS = ['PATH', 'HOME', 'TMPDIR', 'TEMP', 'TMP', 'TERM', 'LANG', 'LC_ALL', 'SHELL'];
+
+function buildStdioEnv(serverEnv?: Record<string, string>): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const key of SAFE_ENV_KEYS) {
+    const val = process.env[key];
+    if (val !== undefined) env[key] = val;
+  }
+  // Merge server-specific env vars last so they can override PATH etc.
+  if (serverEnv) Object.assign(env, serverEnv);
+  return env;
+}
+
 /**
  * Patterns that flag MCP tool output as a likely indirect-prompt-injection
  * attempt. These are heuristic signals — NOT blocking. A match causes a
@@ -285,7 +300,7 @@ export class MCPManager {
         return new StdioClientTransport({
           command: config.command,
           args: config.args,
-          env: config.env ? ({ ...process.env, ...config.env } as Record<string, string>) : undefined,
+          env: buildStdioEnv(config.env),
         });
       }
 

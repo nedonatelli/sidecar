@@ -269,9 +269,9 @@ export class FlatVectorStore<M> implements VectorStore<M> {
       await this.sidecarDir.writeJson(this.metaFile, envelope);
       const binPath = this.sidecarDir.getPath(this.binFile);
       const dir = path.dirname(binPath);
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      await fs.promises.mkdir(dir, { recursive: true });
       const buffer = Buffer.from(liveVectors.buffer, liveVectors.byteOffset, envelope.count * this.dimension * 4);
-      fs.writeFileSync(binPath, buffer);
+      await fs.promises.writeFile(binPath, buffer);
       // Rewrite our in-memory vectors as the compacted form so
       // subsequent upserts start from a clean offset map.
       this.vectors = liveVectors;
@@ -293,14 +293,18 @@ export class FlatVectorStore<M> implements VectorStore<M> {
         return;
       }
       const binPath = this.sidecarDir.getPath(this.binFile);
-      if (!fs.existsSync(binPath)) return;
-      const buffer = fs.readFileSync(binPath);
+      let buffer: Buffer;
+      try {
+        buffer = await fs.promises.readFile(binPath);
+      } catch {
+        return; // file absent — rebuild
+      }
       const expectedBytes = envelope.count * this.dimension * 4;
       if (buffer.byteLength < expectedBytes) {
         console.warn('[FlatVectorStore] persisted vector file too small — rebuilding');
         return;
       }
-      this.vectors = new Float32Array(buffer.buffer, buffer.byteOffset, envelope.count * this.dimension);
+      this.vectors = new Float32Array(buffer.buffer as ArrayBuffer, buffer.byteOffset, envelope.count * this.dimension);
       this.entriesById.clear();
       for (const [id, entryPlusOffset] of Object.entries(envelope.entries)) {
         const { offset, ...metadata } = entryPlusOffset as M & { offset: number };
@@ -316,8 +320,8 @@ export class FlatVectorStore<M> implements VectorStore<M> {
     try {
       const binPath = this.sidecarDir.getPath(this.binFile);
       const metaPath = this.sidecarDir.getPath(this.metaFile);
-      if (fs.existsSync(binPath)) fs.unlinkSync(binPath);
-      if (fs.existsSync(metaPath)) fs.unlinkSync(metaPath);
+      await fs.promises.unlink(binPath).catch(() => {});
+      await fs.promises.unlink(metaPath).catch(() => {});
     } catch (err) {
       console.warn('[FlatVectorStore] clearPersisted failed:', err);
     }
