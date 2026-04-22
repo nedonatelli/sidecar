@@ -1430,7 +1430,7 @@ Historical audit cycles in reverse-chronological order. Cycle-3 findings (v0.58.
 
 ### Cycle-4 audit — comprehensive quality pass (post-v0.79.0, 2026-04-21)
 
-Ten-track audit launched after v0.79.0. All 10 tracks completed 2026-04-21. Findings folded into v0.80 refactor beat and individual backlog items below.
+Twelve-track audit launched after v0.79.0. All 12 tracks completed 2026-04-21. Findings folded into v0.80 refactor beat and individual backlog items below.
 
 ---
 
@@ -1641,6 +1641,50 @@ Scope: chat panel (`media/chat.css`), homepage (`docs/index.html`), VS Code onbo
 - **MEDIUM** Hero right column stacks logo image (100% width) above terminal mockup. Logo is decorative; terminal is the conversion element. Users scroll past the logo to reach the demo. Fix: remove logo from hero column or shrink to ≤60px decorative size.
 - **MEDIUM** `btn-ghost:hover` changes border to `--text-3` (barely visible `#504868`) — button fades on hover, inverting expected affordance. Fix: darken border or add subtle background on hover.
 - **LOW** Buy Me a Coffee and footer email styled `color: var(--text-3)` — near-invisible. Fix: bump to `--text-2` for the coffee link at minimum.
+
+---
+
+#### Track 11 — Typography ✅
+
+Scope: typographic scale, line-height, weight hierarchy, letter-spacing, measure, and font-pairing across chat panel (`media/chat.css`) and homepage (`docs/index.html`).
+
+**Chat panel:**
+
+- **HIGH** Six font sizes (10, 11, 12, 13, 14, 16px) within a 4px range create no perceptible hierarchy — 1px steps at this scale are sub-threshold on most screens. Consolidate to a three-tier scale: **11px** (tertiary labels, badges, meta), **13px** (body, menu items, primary content), **15px** (panel headers, empty-state title, message H3). All current 12px usage (session date, code-save button, bg-agent header) moves to 11px.
+- **HIGH** Message `line-height: 1.5` is the minimum for reversed text (light-on-dark). The chat always runs on VS Code's dark theme. Fix: raise to **1.6** for `.message`, `.thinking-body`, `.tool-call-body`, and `.empty-state-subtitle`.
+- **MEDIUM** `font-weight: 500` at 11px (`.steer-badge`, `.settings-menu-label`) is not reliably distinguishable from 400 on most screens. Fix: at ≤11px use only 400 (secondary) or 600 (emphasis) — eliminate the 500 step.
+- **MEDIUM** Uppercase label `letter-spacing: 0.5px` at 11–12px is below the conventional floor for all-caps. Fix: change to `letter-spacing: 0.08em` (~0.88px at 11px) across all `text-transform: uppercase` label elements.
+- **LOW** `0.75em` and `0.9em` relative sizes in the empty-state card are floating values unanchored to the scale. Fix: pin to 11px and 13px respectively.
+
+**Homepage:**
+
+- **HIGH** JetBrains Mono used for nav links (12px) and button labels (12–13px). At these sizes mono's fixed character width spreads text visibly and reduces legibility. Fix: move nav links and all button labels to **Inter**; reserve JetBrains Mono for code samples, terminal output, badges, keyboard shortcut labels, and stat strip labels.
+- **MEDIUM** `.compare-statement` heading uses `line-height: 1.15` on a dark background. For 20–28px reversed text, 1.15 is too tight. Fix: raise to **1.2**.
+- **LOW** `.cap-desc` prose block has no max-width constraint — at wide viewports it approaches ~50 chars/line, just below the 52-char floor. Fix: add `max-width: 52ch`.
+- **LOW** Ticker text at 11px mono uppercase is at the legibility floor on non-retina screens. Fix: raise to **12px**.
+
+---
+
+#### Track 12 — Layout & Spacing ✅
+
+Scope: 8pt grid compliance, composition, visual hierarchy, white space, Gestalt principles, and worst-case layout across chat panel and homepage.
+
+**Chat panel:**
+
+- **HIGH** Five optional strips (resume, steer queue, auto-mode, file attachment, slash autocomplete) can stack simultaneously with no height constraint. Worst-case: ~350px consumed by chrome, collapsing the message list to near-zero on a laptop viewport. Fix: add `min-height: 200px` to `#messages` and a `max-height` cap on `#slash-autocomplete`.
+- **HIGH** `.message.assistant { max-width: 80% }` clips structured content (code blocks, tables, lists) unnecessarily. The 80% cap makes sense for user chat bubbles but not assistant responses. Fix: remove `max-width` from `.message.assistant`; keep on `.message.user` only.
+- **HIGH** Header, all strips, and input area share the same `background: var(--vscode-editor-background)` — no figure/ground separation between chrome and message content. Fix: use `var(--vscode-sideBarSectionHeader-background)` for `#header` and `#input-area` to establish a distinct chrome layer.
+- **MEDIUM** Off-grid spacing values throughout: `6px` gaps → **8px**; `10px` gaps → **8px or 12px**; `14px` padding → **12px or 16px**; `3px` edit-plan-list gap → **4px**.
+- **MEDIUM** `#input { min-height: 38px }` → **40px** (5×8); `#scroll-to-bottom` 36×36px → **40×40px** (also fixes touch target gap from Track 10).
+- **MEDIUM** `#steer-queue-strip { padding: 8px 12px 0 12px }` — asymmetric 0 bottom padding leaves no cushion before the input area. Fix: `padding: 8px 12px`.
+- **LOW** `.tool-call, .tool-result { margin: 2px 12px }` — 2px vertical margin is invisible; the timeline rail needs perceptible rhythm. Fix: `margin: 4px 12px`.
+
+**Homepage:**
+
+- **HIGH** `stat-num` uses the same gradient and near-identical size range as `h1` — the stat strip competes with the page headline in visual weight. Fix: cap `stat-num` at **48px** and use a lighter-weight gradient treatment to place it one clear tier below `h1`.
+- **MEDIUM** 8pt grid violations across multiple layout values: hero `gap: 60px` → **64px**; compare section `gap: 52px` → **48px**; compare fixed column `220px` → **224px**; `.feat-hero` padding `36px` → **40px**; `.feat-card` padding `28px` → **32px**; quickstart `gap: 20px` → **24px**; step `.step-num-bg` width `72px` → **80px**; CTA `gap: 60px` → **64px**; `.req-card` padding `28px` → **32px**.
+- **MEDIUM** `.compare-label-block { position: sticky; top: 80px }` overlaps lower table rows on 768px-height viewports. Fix: `top: 96px` + `max-height: calc(100vh - 120px); overflow: hidden`.
+- **LOW** Step ghost numbers (`font-size: 72px`) are slightly large relative to step content at the corrected 80px container width. Fix: reduce to **64px** to tighten the proportion.
 
 ---
 
