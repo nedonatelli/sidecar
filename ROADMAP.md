@@ -1430,7 +1430,7 @@ Historical audit cycles in reverse-chronological order. Cycle-3 findings (v0.58.
 
 ### Cycle-4 audit — comprehensive quality pass (post-v0.79.0, 2026-04-21)
 
-Fifteen-track audit launched after v0.79.0. All 15 tracks completed 2026-04-21. Findings folded into v0.80 refactor beat and individual backlog items below.
+Sixteen-track audit launched after v0.79.0. All 16 tracks completed 2026-04-21. Findings folded into v0.80 refactor beat and individual backlog items below.
 
 ---
 
@@ -1747,6 +1747,24 @@ Scope: SQL injection · read-only enforcement · query parameterization · N+1 p
 - **MEDIUM** `SET statement_timeout = ${opts.timeoutMs}` in `postgresProvider.ts` interpolates an integer directly. TypeScript currently types it as `number`, but if the type widens or the value is `NaN`/`Infinity` the interpolation silently emits invalid SQL. Fix: guard with `Number.isInteger(opts.timeoutMs) && opts.timeoutMs > 0` before interpolating.
 - **LOW** `db_query` tool in `database.ts` has `requiresApproval: false` — the agent executes arbitrary SQL against user databases without an approval prompt. Read-only enforcement provides a safety net, but users connecting production databases may not expect silent query execution. Consider `requiresApproval: true` by default with a `sidecar.db.autoApproveQueries` opt-out flag.
 - **LOW** `postgresProvider.ts` sets `SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY` at connect time — solid defense in depth on top of `assertReadOnly()`. This layering is intentional but undocumented; add an inline comment so a future reader does not remove the session-level enforcement thinking `assertReadOnly()` makes it redundant.
+
+---
+
+#### Track 16 — Software Architecture ✅
+
+Scope: module boundaries · coupling topology · backend abstraction · configuration design · agent loop decomposition · hook bus isolation · ADR coverage · initialization safety across `src/`.
+
+- **CRITICAL** `getConfig()` in `src/config/settings.ts` is called in 65+ modules — every subsystem reaches back to a global singleton at call time rather than receiving configuration at construction. This creates invisible dependencies, prevents per-agent config overrides, and makes unit tests require stubbing a global. Fix: inject a typed config object at activation; pass it through constructors and `AgentOptions` rather than pulling from a shared singleton.
+- **HIGH** `SideCarClient.createBackend()` (approx. `src/ollama/client.ts:179`) is a monolithic factory with a long `if/else` chain that names every provider — Anthropic, OpenAI, Kickstand, OpenRouter, Groq, Fireworks, Ollama. Adding a new backend requires editing the client, coupling the orchestration layer to every provider's construction details. Fix: extract a `BackendFactory` module; clients register themselves via a `registerBackend(id, factory)` call so the client never imports concrete backends.
+- **HIGH** `SideCarClient` is imported in 60+ files including every tool executor, webview handler, and background service. It is not injectable — tests must either import the live module or stub it globally. Fix: pass `SideCarClient` (or an `ApiBackend`-typed interface) through `ToolExecutorContext` and handler constructors so callers never need to import the module directly.
+- **HIGH** Configuration is split across `src/config/settings/secrets.ts`, `backends.ts`, `agent.ts`, and at least two other subfiles, all re-exported through a barrel in `settings.ts`. Every caller imports the barrel, pulling in all sub-modules regardless of what it needs. Fix: collapse into a single typed `SideCarConfig` object constructed once at activation; eliminate the barrel re-export pattern.
+- **MEDIUM** `extension.ts` initializes 30+ objects sequentially (lines 80–435) with no error boundary. If any initialization between line 80 and the final `ChatViewProvider` construction at line 417 throws, earlier VS Code subscriptions are registered but never disposed — subscriptions leak. Fix: wrap the activation body in a try/catch that calls a partial-cleanup helper on failure, or group disposables into a composite that can be torn down as a unit.
+- **MEDIUM** No `docs/adr/` directory exists. Significant architectural choices (HookBus over direct policy dispatch, tool registry spread composition, LoopState as a mutable container, dual hook systems) are explained in inline comments rather than discoverable decision records. Fix: create `docs/adr/` with lightweight ADRs for the three highest-impact design choices; link them from `docs/architecture.md`.
+- **MEDIUM** `getConfig()` is called synchronously at module initialization time in `src/agent/tools.ts:86` (feature-gated tool inclusion) and in multiple backend constructors. This means runtime toggling of `sidecar.visualVerify.enabled` or `sidecar.docTests.enabled` cannot add or remove tools from the registry without a full extension reload. Fix: defer feature-gated tool inclusion to a `buildToolRegistry(config)` factory called at activation, not at module load.
+- **MEDIUM** Two parallel hook systems exist with no documented relationship: `PolicyHook` / `HookBus` (agent-loop-internal, `src/agent/loop/policyHook.ts`) and `EventHookConfig` (user-configurable, from `src/config/settings.ts`). It is unclear whether a user can register a custom PolicyHook, and whether `EventHookConfig` hooks run on the same bus or a completely separate dispatcher. Fix: document the boundary explicitly in `docs/extending-sidecar.md`; if they are intentionally separate, explain the semantics of each.
+- **MEDIUM** Spend tracking is embedded inline in the `SideCarClient` streaming loop (approx. `client.ts:238`) rather than isolated behind an interface. The `spendTracker.record()` call fires inside the event-processing loop, making it impossible to unit-test streaming behavior without also wiring up spend tracking. Fix: extract a `UsageRecorder` interface injected into the client; swap in a no-op recorder in tests.
+- **LOW** `LoopState` in `src/agent/loop/state.ts` currently has 15+ fields accumulated over releases (v0.62 added `criticInjectionsByTestHash`, v0.65 added `currentEditPlan`). The container is still manageable, but the pattern of appending fields with each feature is a warning sign. Fix: when the next feature needs per-loop state, introduce a typed sub-record (e.g., `editPlanState`, `criticState`) rather than adding top-level fields.
+- **LOW** The `ask_user` tool is defined inline inside the `TOOL_REGISTRY` array (`src/agent/tools.ts:88`) rather than in a dedicated module like every other tool. This breaks the uniform spread composition pattern and makes `ask_user` harder to find, test, or override. Fix: move to `src/agent/tools/askUser.ts` and include via `...askUserTools`.
 
 ---
 
