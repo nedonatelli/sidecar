@@ -1430,7 +1430,7 @@ Historical audit cycles in reverse-chronological order. Cycle-3 findings (v0.58.
 
 ### Cycle-4 audit — comprehensive quality pass (post-v0.79.0, 2026-04-21)
 
-Twelve-track audit launched after v0.79.0. All 12 tracks completed 2026-04-21. Findings folded into v0.80 refactor beat and individual backlog items below.
+Thirteen-track audit launched after v0.79.0. All 13 tracks completed 2026-04-21. Findings folded into v0.80 refactor beat and individual backlog items below.
 
 ---
 
@@ -1685,6 +1685,30 @@ Scope: 8pt grid compliance, composition, visual hierarchy, white space, Gestalt 
 - **MEDIUM** 8pt grid violations across multiple layout values: hero `gap: 60px` → **64px**; compare section `gap: 52px` → **48px**; compare fixed column `220px` → **224px**; `.feat-hero` padding `36px` → **40px**; `.feat-card` padding `28px` → **32px**; quickstart `gap: 20px` → **24px**; step `.step-num-bg` width `72px` → **80px**; CTA `gap: 60px` → **64px**; `.req-card` padding `28px` → **32px**.
 - **MEDIUM** `.compare-label-block { position: sticky; top: 80px }` overlaps lower table rows on 768px-height viewports. Fix: `top: 96px` + `max-height: calc(100vh - 120px); overflow: hidden`.
 - **LOW** Step ghost numbers (`font-size: 72px`) are slightly large relative to step content at the corrected 80px container width. Fix: reduce to **64px** to tighten the proportion.
+
+---
+
+#### Track 13 — Interaction Design ✅
+
+Scope: animation timing, easing, feedback loops, Fitts'/Hick's Law compliance, interactive element states, `prefers-reduced-motion`, and button label quality across chat panel and homepage.
+
+**Chat panel:**
+
+- **CRITICAL** No `@media (prefers-reduced-motion: reduce)` guard anywhere in `chat.css`. Ten-plus active animations (activity bar, typing dots, tool spinner, agent-progress pulse, streaming cursor, auto-mode spin, tool pulse, install slide, edit-plan spin, fade-in) run unconditionally. Fix: add a blanket `animation-duration: 0.01ms; transition-duration: 0.01ms` block; add static fallback states for functional indicators (spinner → static icon).
+- **HIGH** No `:active` pressed state on any button — zero acknowledgment feedback at the moment of click. Users get no confirmation a click registered before the typing indicator appears (~300–800ms later). Fix: add `opacity: 0.75; transform: translateY(1px)` to all `:active` button states.
+- **HIGH** `.typing-status { animation: fade-in 0.3s ease-in }` — `ease-in` is the wrong easing for enter transitions (starts slow, accelerates — reads as a lurch). Fix: `ease-out` (starts fast, decelerates into rest).
+- **HIGH** `#send.loading` turns `errorForeground` red before the typing indicator appears, creating a ~100–300ms window where the UI looks like a failed send. Fix: change loading color to a neutral stop-indicator (`var(--vscode-button-secondaryBackground)`) and ensure the typing indicator renders in the same frame as the button state change.
+- **MEDIUM** `tool-pulse` animation at 1.5s feels stalled for an "active" indicator. Fix: **1.0s**. `#agent-progress pulse` at 2.0s reads as idle. Fix: **1.2s**.
+- **MEDIUM** Model panel does not auto-focus `#model-search-input` on open — forces an extra click before filtering a long model list (Hick's Law). Fix: `focus()` the search input on panel open.
+- **MEDIUM** `.tool-why-btn` is `opacity: 0` by default, revealed only on parent hover. Users cannot target what they cannot see (Fitts' Law). Fix: default opacity to **0.3** (dimly visible at rest, full opacity on hover).
+- **MEDIUM** `.session-item`, `.edit-plan-summary`, `.model-section-header` use `cursor: pointer` but are likely `<div>` elements without `role="button"` or `tabindex="0"` — not keyboard-reachable despite having click handlers.
+
+**Homepage:**
+
+- **CRITICAL** Same `prefers-reduced-motion` gap — ticker (38s infinite) and terminal cursor blink (1s infinite) run unconditionally. Ticker should degrade to static (first set of items visible, no scroll).
+- **MEDIUM** `.feat-hero:hover` and `.feat-card:hover` change background with no `transition` declared — background snaps instantly (0ms) rather than fading. Fix: add `transition: background 0.15s` to both.
+- **MEDIUM** No `:active` press states on `btn-lg`, `btn-lg-ghost`, `btn-primary`, `btn-ghost`. Fix: `transform: translateY(1px)` on `:active` for all four.
+- **LOW** `tr:hover td { background: rgba(255,255,255,0.015) }` — 1.5% white on near-black is sub-perceptual, providing no functional row-tracking feedback. Fix: `rgba(255,255,255,0.04)`.
 
 ---
 
