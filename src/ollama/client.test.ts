@@ -303,7 +303,7 @@ describe('SideCarClient', () => {
       expect(result).toBe(32768);
     });
 
-    it('falls back to model_info context_length', async () => {
+    it('falls back to model_info context_length, floored at 32768', async () => {
       const client = new SideCarClient('test-model');
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -312,31 +312,43 @@ describe('SideCarClient', () => {
         }),
       });
       const result = await client.getModelContextLength();
-      expect(result).toBe(8192);
+      expect(result).toBe(32_768);
     });
 
-    it('returns null when API call fails', async () => {
+    it('preserves model_info context_length above the floor', async () => {
+      const client = new SideCarClient('test-model');
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          model_info: { 'llama.context_length': 131_072 },
+        }),
+      });
+      const result = await client.getModelContextLength();
+      expect(result).toBe(131_072);
+    });
+
+    it('returns 32768 when API call fails', async () => {
       const client = new SideCarClient('test-model');
       mockFetch.mockRejectedValueOnce(new Error('timeout'));
       const result = await client.getModelContextLength();
-      expect(result).toBeNull();
+      expect(result).toBe(32_768);
     });
 
-    it('returns null when response is not ok', async () => {
+    it('returns 32768 when response is not ok', async () => {
       const client = new SideCarClient('test-model');
       mockFetch.mockResolvedValueOnce({ ok: false });
       const result = await client.getModelContextLength();
-      expect(result).toBeNull();
+      expect(result).toBe(32_768);
     });
 
-    it('returns null when no context info in response', async () => {
+    it('returns 32768 when no context info in response', async () => {
       const client = new SideCarClient('test-model');
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({ model_info: {} }),
       });
       const result = await client.getModelContextLength();
-      expect(result).toBeNull();
+      expect(result).toBe(32_768);
     });
 
     it('reads context_length from Kickstand /v1/models', async () => {

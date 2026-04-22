@@ -690,28 +690,34 @@ export class SideCarClient {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model: this.model }),
       });
-      if (!response.ok) return null;
+      if (!response.ok) return 32_768;
       const data = (await response.json()) as Record<string, unknown>;
 
       // Prefer the actual runtime num_ctx from model parameters — this reflects
       // what Ollama will actually use, not the model's theoretical max.
+      let probed: number | null = null;
       const params = data.parameters as string | undefined;
       if (params) {
         const match = params.match(/^num_ctx\s+(\d+)/m);
-        if (match) return parseInt(match[1], 10);
+        if (match) probed = parseInt(match[1], 10);
       }
 
       // Fall back to the model_info advertised context length
-      const modelInfo = data.model_info as Record<string, unknown> | undefined;
-      if (!modelInfo) return null;
-      for (const [key, value] of Object.entries(modelInfo)) {
-        if (key.toLowerCase().includes('context_length') && typeof value === 'number') {
-          return value;
+      if (probed === null) {
+        const modelInfo = data.model_info as Record<string, unknown> | undefined;
+        if (modelInfo) {
+          for (const [key, value] of Object.entries(modelInfo)) {
+            if (key.toLowerCase().includes('context_length') && typeof value === 'number') {
+              probed = value;
+              break;
+            }
+          }
         }
       }
-      return null;
+
+      return Math.max(probed ?? 0, 32_768);
     } catch {
-      return null;
+      return 32_768;
     }
   }
 

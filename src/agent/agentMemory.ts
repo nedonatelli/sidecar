@@ -36,6 +36,12 @@ export class AgentMemory {
   private readonly MAX_MEMORIES = 500;
   private readonly MEMORY_FILE = 'agent-memories.json';
   private currentSessionId: string;
+  private _saveChain: Promise<void> = Promise.resolve();
+
+  /** Resolves when all queued auto-saves have completed. Useful in tests. */
+  get pendingSave(): Promise<void> {
+    return this._saveChain;
+  }
 
   constructor(sidecarDir: string) {
     this.memoryDir = path.join(sidecarDir, 'memory');
@@ -142,7 +148,7 @@ export class AgentMemory {
     };
 
     this.memories.set(id, entry);
-    this.save(); // Auto-save
+    this._saveChain = this._saveChain.then(() => this.save()); // Auto-save
 
     return id;
   }
@@ -241,7 +247,7 @@ export class AgentMemory {
     const memory = this.memories.get(id);
     if (memory) {
       memory.useCount++;
-      this.save();
+      this._saveChain = this._saveChain.then(() => this.save());
     }
   }
 
@@ -251,7 +257,7 @@ export class AgentMemory {
   delete(id: string): boolean {
     const deleted = this.memories.delete(id);
     if (deleted) {
-      this.save();
+      this._saveChain = this._saveChain.then(() => this.save());
     }
     return deleted;
   }
@@ -261,7 +267,7 @@ export class AgentMemory {
    */
   clear(): void {
     this.memories.clear();
-    this.save();
+    this._saveChain = this._saveChain.then(() => this.save());
   }
 
   /**

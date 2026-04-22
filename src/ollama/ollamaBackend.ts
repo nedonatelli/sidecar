@@ -325,9 +325,8 @@ export class OllamaBackend implements ApiBackend {
   ): AsyncGenerator<StreamEvent> {
     const { agentTemperature, ollamaNumCtx } = getConfig();
     const probedNumCtx = numCtxCache.get(model) ?? null;
-    const numCtx = ollamaNumCtx ?? probedNumCtx;
-    const options: Record<string, unknown> = { temperature: agentTemperature };
-    if (numCtx !== null) options.num_ctx = numCtx;
+    const numCtx = ollamaNumCtx ?? Math.max(probedNumCtx ?? 0, 32_768);
+    const options: Record<string, unknown> = { temperature: agentTemperature, num_ctx: numCtx };
     const body: Record<string, unknown> = {
       model,
       messages: toOllamaMessages(messages, systemPrompt),

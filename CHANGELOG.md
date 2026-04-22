@@ -4,6 +4,24 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.80.3] - 2026-04-21
+
+### Fixed
+
+- **Ollama context reporting floor** — `getModelContextLength()` now applies the same `Math.max(probed, 32768)` floor as `OllamaBackend`, so history budget sizing, the context-overflow warning threshold, and graph expansion depth all reflect the true effective window rather than the GGUF-reported 8192
+
+## [0.80.2] - 2026-04-21
+
+### Fixed
+
+- **Ollama context window floor** — `OllamaBackend` now uses `Math.max(probedNumCtx, 32768)` so models whose GGUF reports 8192 are still sent `num_ctx: 32768`; models with a larger native window (e.g. 128k) are unaffected. The 0.80.1 fix only covered the case where the probe returned no value at all
+
+## [0.80.1] - 2026-04-21
+
+### Fixed
+
+- **Ollama default context window** — `OllamaBackend` now sends `num_ctx: 32768` when neither the user config (`sidecar.ollama.numCtx`) nor the `/api/show` probe provides a value, instead of relying on Ollama's built-in default of 8192
+
 ## [0.80.0] - 2026-04-21
 
 **v0.80.0 — Security hardening + DB write tools.**

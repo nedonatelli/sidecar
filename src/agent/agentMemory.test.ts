@@ -14,7 +14,8 @@ describe('AgentMemory', () => {
     await memory.load();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await memory.pendingSave;
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
