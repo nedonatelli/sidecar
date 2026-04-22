@@ -1432,6 +1432,92 @@ Large native VS Code integration pass plus cost-control and hybrid-delegation wo
 
 Historical audit cycles in reverse-chronological order. Cycle-3 findings (v0.58.1, 2026-04-16) are folded into the Release Plan above — closed items from cycle-1 and cycle-2 are preserved here for lineage.
 
+### Cycle-4 audit — comprehensive quality pass (post-v0.79.0, 2026-04-21)
+
+Nine-track audit launched after v0.79.0. Tracks 1–3 ran as parallel agents. Tracks 4–9 staged for follow-up runs. Findings to be folded into the Release Plan as they're addressed.
+
+---
+
+#### Track 1 — Security ✅
+
+Scope: command/shell injection · path traversal · secret leakage · prompt injection · workspace trust gaps · input validation · dynamic require() · LLM-generated code execution.
+
+**12 findings (3 critical, 3 high, 3 medium, 3 low):**
+
+- **CRITICAL** `vision.ts:223` — `analyze_screenshot` accepts arbitrary absolute paths (e.g. `/etc/passwd`) without workspace-root validation. Other file tools use `validateFilePath()` — this one doesn't. Fix: reject absolute paths; apply same guard as `read_file`.
+- **CRITICAL** `vision.ts:130` — `screenshot_page` passes user-supplied URL to Playwright without protocol validation. Allows SSRF or `javascript://` URLs. Fix: enforce `^(https?|file)://` prefix.
+- **CRITICAL** `vision.ts:353` — `run_playwright_code` inherits full `process.env` (including API keys) into the child process. `alwaysRequireApproval` + workspace trust gate mitigate, but environment should be filtered. Fix: whitelist safe env vars (`PATH`, `HOME`, `TMPDIR`) rather than spreading all of `process.env`.
+- **HIGH** `vision.ts:143`, `pdfSource.ts:36` — `require('playwright-core')` / `require('pdf-parse')` without validating the module structure before calling into it. Fix: assert shape before use.
+- **HIGH** `tools.ts:240` — custom tool executor passes `${SIDECAR_INPUT}` into shell command without shell-escaping. `redactSecrets()` strips API keys but not shell metacharacters or newlines. Fix: document required quoting or apply `shellQuote()`.
+- **HIGH** `mcpManager.ts:285` — stdio MCP server spawn merges `...process.env` exposing all secrets to the child process. Fix: whitelist safe env vars, same as above.
+- **MEDIUM** `vision.ts:189` — CSS selector parameter passed to `page.locator()` without validation. Fix: reject selectors starting with `/` or `<`.
+- **MEDIUM** `database.ts:211` + `provider.ts:66` — regex-based read-only enforcement is bypassable with obfuscation (`DR/**/OP`). Fix: switch to allowlist (`SELECT|EXPLAIN|DESCRIBE|SHOW|WITH|PRAGMA`) instead of blocklist.
+- **MEDIUM** `vision.ts:184` — `wait_for=selector:<css>` value passed to `page.waitForSelector()` without validation.
+- **LOW** `vision.ts:367` — temp scripts written to world-writable `/tmp/sidecar-playwright/`. Fix: use `~/.sidecar/temp-scripts/` with `mode: 0o700`.
+- **LOW** `envSanitize.ts` — newlines preserved in sanitized env values; custom tool commands interpolating `${SIDECAR_INPUT}` without quoting allow newline injection.
+- **LOW** `eventHooks.ts:80` — event hooks inherit full `process.env`. Same whitelist fix applies.
+
+---
+
+#### Track 2 — Performance & Optimization ✅
+
+Scope: sync I/O on extension host · unbounded data structures · redundant LLM/embed calls · expensive regex in hot loops · memory leaks · O(n) vs O(1) lookups.
+
+**20 findings (0 critical, 6 high, 9 medium, 5 low):**
+
+- **HIGH** `embeddingIndex.ts:171` — `fs.readFileSync` called in a file-watch callback; blocks extension host on every keystroke in indexed files. Fix: `workspace.fs.readFile()` async.
+- **HIGH** `vectorStore.ts:274,297` — sync `readFileSync`/`writeFileSync` in `persist()`/`restore()` called every 30 s. Fix: `fs.promises.*`.
+- **HIGH** `vision.ts:51,69,254,372,382` — 5 sync I/O calls in tool executors. Fix: async throughout.
+- **HIGH** `agentMemory.ts:76,101` — `load()` and `save()` are declared `async` but use sync I/O internally. Fix: `fs.promises.*`.
+- **HIGH** `kickstandBackend.ts:23` + `providerReachability.ts:15` — token file read synchronously on every API call init. Fix: cache after first read.
+- **MEDIUM** `client.ts:145` — `_modelUsageLog` capped at 1000 but uses `Array.shift()` (O(n)). Fix: ring-buffer.
+- **MEDIUM** `workspaceIndex.ts:453` — nested loop over all files per pinned path; called every agent turn. Fix: pre-compute prefix set at `setPinnedPaths` time.
+- **MEDIUM** `merkleTree.ts:236` — linear scan of all leaves to find by file path. Fix: `leavesByFile: Map<string, string[]>` reverse index.
+- **MEDIUM** `workspaceIndex.ts:55` — `tokenize()` compiles two regexes per call; called 100+ times per retriever query. Fix: module-level constants.
+- **MEDIUM** `streamingFileReader.ts:63` — function reads entire file despite "streaming" name. Fix: true chunked head/tail read.
+- **MEDIUM** `workspaceIndex.ts:674` — O(n·m) substring scan inside `rankFiles()`. Fix: prefix-match only.
+- *5 additional low-priority items (debounce max-wait, tree rebuild, minor cache misses).*
+
+---
+
+#### Track 3 — Refactoring & Code Quality ✅
+
+Scope: oversized files · code duplication · inconsistent patterns · dead code · type safety · missing abstractions · test coverage · async inconsistencies.
+
+**Top findings:**
+
+- **HIGH** `extension.ts` (1792 lines) — activation entrypoint owns too many concerns. Natural split: `activationCore.ts`, `indexing/initializer.ts`, `config/providerSetup.ts`, `commands/*.ts` per domain. Target: ~150-line entry point + 5 focused modules.
+- **HIGH** 15+ identical `catch (err) { return \`Failed: ${err}\`` } blocks across `git.ts`, `settings.ts`, `kickstand.ts`, `github.ts`. Fix: `formatToolError(context, err)` helper in `tools/shared.ts`.
+- **MEDIUM** Three path-resolution patterns (`getRoot()`, `getRootUri()`, `resolveRootUri(context)`) used inconsistently across tool files. Fix: standardize on `resolveRootUri(context)`.
+- **MEDIUM** `chatHandlers.ts:handleUserMessage()` does steer-queue setup, provider check, budget check, system-prompt build, and loop dispatch inline. Fix: extract each step to a named helper.
+- **MEDIUM** `as unknown as X` cast in 30+ test locations bypasses type safety. Fix: typed mock factories (`stubLoopState()`, `stubToolContext()`) in `src/test/helpers/`.
+- **MEDIUM** Audit-mode helpers (`isAuditModeActive`, `shouldBufferCommits`) copy-pasted in `fs.ts`, `git.ts`. Fix: extract to `src/agent/tools/auditHelper.ts`.
+- **MEDIUM** `Promise.then()` chains mixed with `async/await` in `extension.ts`, `conversationSummarizer.ts`, `streamTurn.ts`. Fix: `void (async () => { ... })()` pattern throughout.
+- **LOW** Dead code: `void getDiagnostics;` at `tools.ts:39`; no-op `disposeSidecarMdWatcher()` in `chatHandlers.ts`.
+
+---
+
+#### Track 4 — Test Coverage ⬜ staged
+Scope: quantitative coverage against the 80/70/80/80 ROADMAP floor; identify files under each threshold.
+Command: `npm run test -- --coverage`
+
+#### Track 5 — Dependency Health ⬜ staged
+Scope: `npm audit` for CVEs; `npm outdated` for stale packages. Priority: `better-sqlite3`, `@duckdb/node-api`, `playwright-core`, `pdf-parse`.
+
+#### Track 6 — Disposable & Resource Leak ⬜ staged
+Scope: VS Code event listeners (`onDid*`, `setInterval`, `createFileSystemWatcher`) not registered in `context.subscriptions` or missing `dispose()`.
+
+#### Track 7 — LLM Prompt Consistency ⬜ staged
+Scope: system prompts across `criticHook.ts`, `vision.ts`, `docTests.ts`, `chatHandlers.ts`, `facets/`. Check for contradictions, bloat, and shared-template opportunities.
+
+#### Track 8 — VS Code API Deprecation ⬜ staged
+Scope: deprecated API usage that would break on future VS Code versions (`TextEditor.edit`, APIs removed in 1.90+).
+
+#### Track 9 — Bundle & Packaging ⬜ staged
+Scope: what lands in the `.vsix` that shouldn't (test files, source maps, large assets, dev-only deps). Check `.vscodeignore`.
+
+---
+
 ### Cycle-2 audit — architecture + AI-engineering pass (post-v0.47.0, 2026-04-14)
 
 Closed the small-to-medium HIGH items from cycle-2 Architecture and
