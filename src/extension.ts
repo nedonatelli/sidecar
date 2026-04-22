@@ -27,6 +27,7 @@ import {
   isKickstand,
   detectProvider,
   initSecrets,
+  initConfigWatcher,
   setApiKeySecret,
   setHuggingFaceToken,
   clearHuggingFaceToken,
@@ -83,6 +84,9 @@ export function activate(context: ExtensionContext) {
   // Set grammars path for tree-sitter (lazy-loaded on first parse)
   const grammarsPath = path.join(context.extensionPath, 'grammars');
   setGrammarsPath(grammarsPath);
+
+  // Register config-cache invalidation listener (disposable, tied to extension lifetime).
+  initConfigWatcher(context);
 
   // Initialize SecretStorage and migrate any plaintext API keys.
   // Fire-and-forget: subsequent getConfig() calls pick up the cached secrets.

@@ -59,9 +59,10 @@ export interface DatabaseProvider {
 }
 
 /**
- * Checks a SQL string for write/DDL statements and throws if any are found.
- * Used by read-only providers to enforce the read-only constraint before
- * executing any query.
+ * Checks a SQL string and throws if it contains anything other than
+ * read-only statements. Uses an allowlist rather than a blocklist so
+ * comment-injection bypass tricks (e.g. DR + comment + OP = DROP) cannot
+ * bypass the guard.
  */
 export function assertReadOnly(sql: string): void {
   // Strip single-line comments
@@ -70,12 +71,13 @@ export function assertReadOnly(sql: string): void {
   stripped = stripped.replace(/\/\*[\s\S]*?\*\//g, ' ');
 
   const statements = stripped.split(';');
-  const writePattern = /^\s*(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|GRANT|REVOKE)\b/i;
+  // Allowlist: only these statement types are permitted on read-only connections.
+  const readPattern = /^\s*(SELECT|EXPLAIN|DESCRIBE|SHOW|WITH|PRAGMA|VALUES)\b/i;
 
   for (const stmt of statements) {
     const trimmed = stmt.trim();
     if (trimmed.length === 0) continue;
-    if (writePattern.test(trimmed)) {
+    if (!readPattern.test(trimmed)) {
       const verb = trimmed.split(/\s+/)[0]?.toUpperCase() ?? trimmed;
       throw new Error(`Read-only violation: ${verb} statement is not permitted on a read-only connection`);
     }

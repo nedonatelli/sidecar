@@ -121,6 +121,19 @@ describe('assertReadOnly', () => {
     expect(() => assertReadOnly('SELECT inserts_count FROM stats')).not.toThrow();
     expect(() => assertReadOnly('SELECT drop_reason FROM events')).not.toThrow();
   });
+
+  it('blocks comment-injection bypass (DR/**/OP TABLE)', () => {
+    // With a blocklist, DR/**/OP TABLE strips to DR  OP TABLE and bypasses \bDROP\b.
+    // With an allowlist the stripped form DR  OP TABLE does not start with a
+    // read-only keyword, so it is correctly rejected.
+    expect(() => assertReadOnly('DR/**/OP TABLE users')).toThrow('Read-only violation');
+    expect(() => assertReadOnly('INS/**/ERT INTO users VALUES (1)')).toThrow('Read-only violation');
+  });
+
+  it('allows EXPLAIN and PRAGMA', () => {
+    expect(() => assertReadOnly('EXPLAIN SELECT * FROM users')).not.toThrow();
+    expect(() => assertReadOnly('PRAGMA table_info("users")')).not.toThrow();
+  });
 });
 
 // ---------------------------------------------------------------------------

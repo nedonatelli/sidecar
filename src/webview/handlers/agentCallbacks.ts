@@ -36,11 +36,14 @@ export function createAgentCallbacks(
   let textBuffer = '';
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
   const flushTextBuffer = () => {
+    if (flushTimer) {
+      clearTimeout(flushTimer);
+      flushTimer = null;
+    }
     if (textBuffer) {
       state.postMessage({ command: 'assistantMessage', content: textBuffer });
       textBuffer = '';
     }
-    flushTimer = null;
   };
 
   let currentIteration = 0;

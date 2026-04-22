@@ -275,16 +275,19 @@ export interface SideCarConfig {
  */
 let _cachedConfig: SideCarConfig | null = null;
 
-// Invalidate cache when VS Code settings change.
-// Guard for test environments where workspace API may not be fully available.
-try {
-  workspace.onDidChangeConfiguration((e) => {
-    if (e.affectsConfiguration('sidecar')) {
-      _cachedConfig = null;
-    }
-  });
-} catch {
-  // Not in a VS Code environment (e.g., unit tests) — cache will be rebuilt on each call
+/**
+ * Register the configuration-cache invalidation listener.
+ * Must be called once from `activate()` so the listener is tied to the
+ * extension context and disposed cleanly on deactivation.
+ */
+export function initConfigWatcher(context: import('vscode').ExtensionContext): void {
+  context.subscriptions.push(
+    workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('sidecar')) {
+        _cachedConfig = null;
+      }
+    }),
+  );
 }
 
 /** Clamp a number to a minimum value, falling back to the default if invalid. */

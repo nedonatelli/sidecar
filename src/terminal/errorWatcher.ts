@@ -73,6 +73,7 @@ export class TerminalErrorWatcher implements Disposable {
   private recentErrors = new Map<string, number>();
   private maxOutputChars: number;
   private cooldownMs: number;
+  private disposeController = new AbortController();
 
   constructor(private options: TerminalErrorWatcherOptions) {
     this.maxOutputChars = options.maxOutputChars ?? DEFAULT_MAX_OUTPUT;
@@ -104,10 +105,20 @@ export class TerminalErrorWatcher implements Disposable {
     if (this.options.ignoredTerminalNames?.has(startEvent.terminal.name)) return;
 
     // Set up a one-shot waiter for THIS execution's end event before we
-    // start draining output, so we don't miss it.
-    const endPromise = new Promise<import('vscode').TerminalShellExecutionEndEvent>((resolve) => {
+    // start draining output, so we don't miss it. The disposeController
+    // signal lets dispose() cancel in-flight executions cleanly so the
+    // endPromise doesn't hang after extension deactivation.
+    const disposeSignal = this.disposeController.signal;
+    const endPromise = new Promise<import('vscode').TerminalShellExecutionEndEvent | null>((resolve) => {
+      if (disposeSignal.aborted) {
+        resolve(null);
+        return;
+      }
+      const onDispose = () => resolve(null);
+      disposeSignal.addEventListener('abort', onDispose, { once: true });
       const sub = window.onDidEndTerminalShellExecution((endEvent) => {
         if (endEvent.execution === startEvent.execution) {
+          disposeSignal.removeEventListener('abort', onDispose);
           sub.dispose();
           resolve(endEvent);
         }
@@ -138,6 +149,8 @@ export class TerminalErrorWatcher implements Disposable {
     // Wait for the end event. Then give the read loop a brief moment to
     // drain any final buffered chunks before we lock in the captured output.
     const endEvent = await endPromise;
+    // null means dispose() was called while we were waiting — bail out cleanly.
+    if (!endEvent) return;
     await Promise.race([readLoop, new Promise((r) => setTimeout(r, 100))]);
     stopped = true;
 
@@ -182,6 +195,9 @@ export class TerminalErrorWatcher implements Disposable {
   }
 
   dispose(): void {
+    // Signal all in-flight handleExecution calls to resolve their endPromise
+    // with null so they exit cleanly rather than hanging indefinitely.
+    this.disposeController.abort();
     for (const d of this.disposables) {
       try {
         d.dispose();

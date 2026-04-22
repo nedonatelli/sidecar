@@ -39,6 +39,45 @@ function urlSlug(url: string): string {
 }
 
 /**
+ * Reject URLs that could be used for SSRF: file://, non-http(s) schemes,
+ * loopback addresses, link-local (169.254.x.x), and RFC 1918 private ranges.
+ * Returns an error string if the URL is blocked, or null if it is allowed.
+ */
+export function validateScreenshotUrl(rawUrl: string, allowedDomains?: string[]): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return `Error: invalid URL: ${rawUrl}`;
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return `Error: only http:// and https:// URLs are allowed (got "${parsed.protocol}").`;
+  }
+
+  const host = parsed.hostname.toLowerCase();
+
+  // Loopback
+  if (host === 'localhost' || host === '::1' || /^127\./.test(host)) {
+    if (allowedDomains?.includes(host)) return null;
+    return `Error: loopback URLs are blocked (${host}). Add to sidecar.visualVerify.allowedDomains to permit.`;
+  }
+
+  // Link-local (169.254.x.x) — AWS/GCP metadata endpoint lives here
+  if (/^169\.254\./.test(host)) {
+    return `Error: link-local URLs are blocked (${host}).`;
+  }
+
+  // RFC 1918 private ranges
+  if (/^10\./.test(host) || /^172\.(1[6-9]|2[0-9]|3[01])\./.test(host) || /^192\.168\./.test(host)) {
+    if (allowedDomains?.some((d) => host === d || host.endsWith(`.${d}`))) return null;
+    return `Error: private network URLs are blocked (${host}). Add to sidecar.visualVerify.allowedDomains to permit.`;
+  }
+
+  return null;
+}
+
+/**
  * Cheap heuristic pre-filter before calling the VLM.
  * Returns a failure reason string if an obvious problem is detected, or null if the
  * image looks worth sending to the VLM.
@@ -130,6 +169,9 @@ async function screenshotPage(input: Record<string, unknown>, _context?: ToolExe
   const url = input.url as string | undefined;
   if (!url) return 'Error: url is required';
 
+  const urlError = validateScreenshotUrl(url);
+  if (urlError) return urlError;
+
   const selector = input.selector as string | undefined;
   const waitForRaw = (input.wait_for as string | undefined) ?? 'load';
   const viewportRaw = input.viewport as { width?: number; height?: number } | undefined;
@@ -219,8 +261,12 @@ async function analyzeScreenshot(input: Record<string, unknown>, context?: ToolE
 
   const config = getConfig();
 
-  // Resolve path: absolute as-is, else relative to workspace root.
-  const imagePath = path.isAbsolute(rawPath) ? rawPath : path.join(getRoot(), rawPath);
+  // Reject absolute paths — same guard as read_file. The agent should always
+  // pass workspace-relative paths; absolute paths are a path-traversal vector.
+  if (path.isAbsolute(rawPath)) {
+    return `Error: absolute paths are not allowed for image_path. Use a workspace-relative path (e.g. ".sidecar/screenshots/file.png").`;
+  }
+  const imagePath = path.join(getRoot(), rawPath);
 
   if (config.visualVerifyCheapChecksOnly) {
     const preFilterResult = cheapScreenshotChecks(imagePath);
@@ -387,9 +433,23 @@ async function runPlaywrightCode(input: Record<string, unknown>): Promise<string
 
   return new Promise((resolve) => {
     const { spawn } = require('child_process') as typeof import('child_process');
+
+    // Whitelist safe env vars — never expose API keys or credentials to
+    // LLM-generated scripts. Only the vars needed to locate binaries and
+    // temporary directories are forwarded.
+    const safeEnvKeys = ['PATH', 'HOME', 'TMPDIR', 'TEMP', 'TMP', 'TERM', 'LANG', 'LC_ALL'];
+    const childEnv: Record<string, string> = {};
+    for (const key of safeEnvKeys) {
+      const val = process.env[key];
+      if (val !== undefined) childEnv[key] = val;
+    }
+
+    const ac = new AbortController();
+    const killTimer = setTimeout(() => ac.abort(), timeoutMs);
+
     const child = spawn(process.execPath, [scriptPath], {
-      env: { ...process.env },
-      timeout: timeoutMs,
+      env: childEnv,
+      signal: ac.signal,
     });
 
     const chunks: string[] = [];
@@ -397,7 +457,8 @@ async function runPlaywrightCode(input: Record<string, unknown>): Promise<string
     child.stdout?.on('data', (d: Buffer) => chunks.push(d.toString()));
     child.stderr?.on('data', (d: Buffer) => errChunks.push(d.toString()));
 
-    child.on('close', (code: number | null) => {
+    child.on('close', (code: number | null, signal: string | null) => {
+      clearTimeout(killTimer);
       try {
         fs.unlinkSync(scriptPath);
       } catch {
@@ -405,7 +466,9 @@ async function runPlaywrightCode(input: Record<string, unknown>): Promise<string
       }
       const stdout = chunks.join('');
       const stderr = errChunks.join('');
-      if (code !== 0) {
+      if (signal === 'SIGTERM' || ac.signal.aborted) {
+        resolve(`Script timed out after ${timeoutMs}ms.`);
+      } else if (code !== 0) {
         resolve(`Script exited with code ${code}.\nstderr:\n${stderr}\nstdout:\n${stdout}`);
       } else {
         resolve(stdout || '(script completed with no stdout output)');
@@ -413,6 +476,7 @@ async function runPlaywrightCode(input: Record<string, unknown>): Promise<string
     });
 
     child.on('error', (err: Error) => {
+      clearTimeout(killTimer);
       resolve(`Error executing script: ${err.message}`);
     });
   });

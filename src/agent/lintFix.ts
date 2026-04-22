@@ -1,8 +1,48 @@
 import { workspace, Uri } from 'vscode';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
+
+/**
+ * Split a shell-style command string into [bin, ...args] without invoking a
+ * shell. Handles double/single-quoted segments and escaped spaces.
+ * Used so we can pass the result directly to execFile(), which avoids shell
+ * metacharacter injection entirely.
+ */
+export function parseArgv(cmd: string): [string, string[]] {
+  const tokens: string[] = [];
+  let current = '';
+  let quote: '"' | "'" | null = null;
+
+  for (let i = 0; i < cmd.length; i++) {
+    const ch = cmd[i];
+    if (ch === '\\' && quote !== "'") {
+      // Escaped character — consume next character literally.
+      i++;
+      if (i < cmd.length) current += cmd[i];
+    } else if (quote) {
+      if (ch === quote) {
+        quote = null;
+      } else {
+        current += ch;
+      }
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+    } else if (ch === ' ' || ch === '\t') {
+      if (current) {
+        tokens.push(current);
+        current = '';
+      }
+    } else {
+      current += ch;
+    }
+  }
+  if (current) tokens.push(current);
+
+  const [bin = '', ...args] = tokens;
+  return [bin, args];
+}
 
 /**
  * Detect the project's lint command from package.json or common configs.
@@ -60,7 +100,8 @@ export async function runLint(command?: string): Promise<{ output: string; succe
   }
 
   try {
-    const { stdout, stderr } = await execAsync(lintCmd, {
+    const [bin, args] = parseArgv(lintCmd);
+    const { stdout, stderr } = await execFileAsync(bin, args, {
       cwd,
       timeout: 60_000,
       maxBuffer: 2 * 1024 * 1024,

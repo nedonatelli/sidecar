@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { runLint, detectLintCommand } from './lintFix.js';
+import { runLint, detectLintCommand, parseArgv } from './lintFix.js';
 import * as vscode from 'vscode';
 
 vi.mock('vscode', () => ({
@@ -12,9 +12,6 @@ vi.mock('vscode', () => ({
     },
   },
   Uri: {
-    // `Uri.joinPath` is used by detectLintCommand when probing package.json
-    // + known config files. The mock returns a shape with fsPath/path so
-    // stat/readFile can match against it in per-test handlers.
     joinPath: (base: { fsPath: string }, ...parts: string[]) => {
       const joined = [base.fsPath, ...parts].join('/');
       return { fsPath: joined, path: joined };
@@ -22,22 +19,35 @@ vi.mock('vscode', () => ({
   },
 }));
 
-// Shared `exec` vi.fn — v0.65 uses vi.hoisted so the child_process + util
-// mocks below both see the same reference. See src/__tests__/helpers/execAsync.ts
-// for the centralized promisify shim.
-const { sharedExec } = vi.hoisted(() => ({ sharedExec: vi.fn() }));
+// Shared execFile vi.fn — hoisted so child_process + util mocks both see it.
+const { sharedExecFile } = vi.hoisted(() => ({ sharedExecFile: vi.fn() }));
 
-vi.mock('child_process', () => ({ exec: sharedExec }));
+vi.mock('child_process', () => ({ execFile: sharedExecFile }));
 
-vi.mock('util', async () => {
-  const { createPromisifyShim } = await import('../__tests__/helpers/execAsync.js');
-  return { promisify: createPromisifyShim(sharedExec as unknown as Parameters<typeof createPromisifyShim>[0]) };
+// execFile signature: (bin, args, opts, cb) — 4 args.
+// createPromisifyShim was built for exec's 3-arg form, so we inline a shim here.
+vi.mock('util', () => {
+  return {
+    promisify: (_fn: unknown) => {
+      return (bin: string, args: string[], opts?: unknown) =>
+        new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
+          let settled = false;
+          const cb = (err: Error | null, stdout: string, stderr: string) => {
+            settled = true;
+            if (err) reject(err);
+            else resolve({ stdout: stdout ?? '', stderr: stderr ?? '' });
+          };
+          sharedExecFile(bin, args, opts, cb);
+          if (!settled) resolve({ stdout: '', stderr: '' });
+        });
+    },
+  };
 });
 
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 
 const mockWorkspace = vscode.workspace as any;
-const mockExec = exec as any;
+const mockExecFile = execFile as any;
 
 describe('lintFix', () => {
   beforeEach(() => {
@@ -47,9 +57,11 @@ describe('lintFix', () => {
   describe('runLint', () => {
     it('executes lint command successfully', async () => {
       mockWorkspace.workspaceFolders = [{ uri: { fsPath: '/test/project' } }];
-      mockExec.mockImplementation((cmd: string, opts: any, cb: (err: any, stdout: string, stderr: string) => void) => {
-        cb(null, 'Linting complete', '');
-      });
+      mockExecFile.mockImplementation(
+        (bin: string, args: string[], opts: any, cb: (err: any, stdout: string, stderr: string) => void) => {
+          cb(null, 'Linting complete', '');
+        },
+      );
 
       const result = await runLint('eslint src/');
 
@@ -62,9 +74,11 @@ describe('lintFix', () => {
     it('returns error output on lint failure', async () => {
       mockWorkspace.workspaceFolders = [{ uri: { fsPath: '/test/project' } }];
       const error = new Error('Lint errors found');
-      mockExec.mockImplementation((cmd: string, opts: any, cb: (err: any, stdout: string, stderr: string) => void) => {
-        cb(error, '', 'error output');
-      });
+      mockExecFile.mockImplementation(
+        (bin: string, args: string[], opts: any, cb: (err: any, stdout: string, stderr: string) => void) => {
+          cb(error, '', 'error output');
+        },
+      );
 
       const result = await runLint('eslint src/');
 
@@ -73,11 +87,13 @@ describe('lintFix', () => {
 
     it('handles command timeout', async () => {
       mockWorkspace.workspaceFolders = [{ uri: { fsPath: '/test/project' } }];
-      mockExec.mockImplementation((cmd: string, opts: any, cb: (err: any, stdout: string, stderr: string) => void) => {
-        const error: any = new Error('Command timeout');
-        error.code = 'ETIMEDOUT';
-        cb(error, '', '');
-      });
+      mockExecFile.mockImplementation(
+        (bin: string, args: string[], opts: any, cb: (err: any, stdout: string, stderr: string) => void) => {
+          const error: any = new Error('Command timeout');
+          error.code = 'ETIMEDOUT';
+          cb(error, '', '');
+        },
+      );
 
       const result = await runLint('eslint src/');
 
@@ -86,35 +102,41 @@ describe('lintFix', () => {
 
     it('executes with timeout option', async () => {
       mockWorkspace.workspaceFolders = [{ uri: { fsPath: '/test/project' } }];
-      mockExec.mockImplementation((cmd: string, opts: any, cb: (err: any, stdout: string, stderr: string) => void) => {
-        expect(opts.timeout).toBe(60000);
-        cb(null, 'Done', '');
-      });
+      mockExecFile.mockImplementation(
+        (bin: string, args: string[], opts: any, cb: (err: any, stdout: string, stderr: string) => void) => {
+          expect(opts.timeout).toBe(60000);
+          cb(null, 'Done', '');
+        },
+      );
 
       await runLint('eslint src/');
 
-      expect(mockExec).toHaveBeenCalled();
+      expect(mockExecFile).toHaveBeenCalled();
     });
 
     it('passes working directory to exec', async () => {
       mockWorkspace.workspaceFolders = [{ uri: { fsPath: '/test/project' } }];
-      mockExec.mockImplementation((cmd: string, opts: any, cb: (err: any, stdout: string, stderr: string) => void) => {
-        expect(opts.cwd).toBe('/test/project');
-        cb(null, 'Done', '');
-      });
+      mockExecFile.mockImplementation(
+        (bin: string, args: string[], opts: any, cb: (err: any, stdout: string, stderr: string) => void) => {
+          expect(opts.cwd).toBe('/test/project');
+          cb(null, 'Done', '');
+        },
+      );
 
       await runLint('eslint src/');
 
-      expect(mockExec).toHaveBeenCalled();
+      expect(mockExecFile).toHaveBeenCalled();
     });
 
     it('includes stderr in output on failure', async () => {
       mockWorkspace.workspaceFolders = [{ uri: { fsPath: '/test/project' } }];
-      mockExec.mockImplementation((cmd: string, opts: any, cb: (err: any, stdout: string, stderr: string) => void) => {
-        const error: any = new Error('Failed');
-        error.stderr = 'error details';
-        cb(error, '', 'error details');
-      });
+      mockExecFile.mockImplementation(
+        (bin: string, args: string[], opts: any, cb: (err: any, stdout: string, stderr: string) => void) => {
+          const error: any = new Error('Failed');
+          error.stderr = 'error details';
+          cb(error, '', 'error details');
+        },
+      );
 
       const result = await runLint('eslint src/');
 
@@ -132,21 +154,27 @@ describe('lintFix', () => {
 
     it('formats success message', async () => {
       mockWorkspace.workspaceFolders = [{ uri: { fsPath: '/test/project' } }];
-      mockExec.mockImplementation((cmd: string, opts: any, cb: (err: any, stdout: string, stderr: string) => void) => {
-        cb(null, 'Linted 42 files, 0 errors', '');
-      });
+      mockExecFile.mockImplementation(
+        (bin: string, args: string[], opts: any, cb: (err: any, stdout: string, stderr: string) => void) => {
+          cb(null, 'Linted 42 files, 0 errors', '');
+        },
+      );
 
       const result = await runLint('eslint src/');
 
       expect(result.output).toContain('42 files');
     });
 
-    it('executes custom lint commands', async () => {
+    it('executes custom lint commands via execFile (no shell)', async () => {
       mockWorkspace.workspaceFolders = [{ uri: { fsPath: '/test/project' } }];
-      mockExec.mockImplementation((cmd: string, opts: any, cb: (err: any, stdout: string, stderr: string) => void) => {
-        expect(cmd).toContain('npm run lint');
-        cb(null, 'Success', '');
-      });
+      // execFile receives (bin, args, opts, cb) — not a raw shell string.
+      mockExecFile.mockImplementation(
+        (bin: string, args: string[], opts: any, cb: (err: any, stdout: string, stderr: string) => void) => {
+          expect(bin).toBe('npm');
+          expect(args).toEqual(['run', 'lint']);
+          cb(null, 'Success', '');
+        },
+      );
 
       const result = await runLint('npm run lint');
 
@@ -155,21 +183,25 @@ describe('lintFix', () => {
 
     it('handles maxBuffer for large output', async () => {
       mockWorkspace.workspaceFolders = [{ uri: { fsPath: '/test/project' } }];
-      mockExec.mockImplementation((cmd: string, opts: any, cb: (err: any, stdout: string, stderr: string) => void) => {
-        expect(opts.maxBuffer).toBe(2 * 1024 * 1024);
-        cb(null, 'Done', '');
-      });
+      mockExecFile.mockImplementation(
+        (bin: string, args: string[], opts: any, cb: (err: any, stdout: string, stderr: string) => void) => {
+          expect(opts.maxBuffer).toBe(2 * 1024 * 1024);
+          cb(null, 'Done', '');
+        },
+      );
 
       await runLint('eslint src/');
 
-      expect(mockExec).toHaveBeenCalled();
+      expect(mockExecFile).toHaveBeenCalled();
     });
 
     it('trims output', async () => {
       mockWorkspace.workspaceFolders = [{ uri: { fsPath: '/test/project' } }];
-      mockExec.mockImplementation((cmd: string, opts: any, cb: (err: any, stdout: string, stderr: string) => void) => {
-        cb(null, '  \n\nOutput with padding\n\n  ', '');
-      });
+      mockExecFile.mockImplementation(
+        (bin: string, args: string[], opts: any, cb: (err: any, stdout: string, stderr: string) => void) => {
+          cb(null, '  \n\nOutput with padding\n\n  ', '');
+        },
+      );
 
       const result = await runLint('eslint src/');
 
@@ -287,12 +319,47 @@ describe('lintFix', () => {
     it('uses detectLintCommand when caller passes no command and detection succeeds', async () => {
       mockWorkspace.workspaceFolders = [{ uri: { fsPath: '/p' } }];
       mockWorkspace.fs.readFile.mockResolvedValue(Buffer.from(JSON.stringify({ scripts: { lint: 'eslint' } })));
-      mockExec.mockImplementation((cmd: string, opts: any, cb: (err: any, stdout: string, stderr: string) => void) => {
-        expect(cmd).toBe('npm run lint');
-        cb(null, 'ok', '');
-      });
+      mockExecFile.mockImplementation(
+        (bin: string, _args: string[], _opts: any, cb: (err: any, stdout: string, stderr: string) => void) => {
+          expect(bin).toBe('npm');
+          cb(null, 'ok', '');
+        },
+      );
       const result = await runLint();
       expect(result.success).toBe(true);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseArgv
+// ---------------------------------------------------------------------------
+describe('parseArgv', () => {
+  it('splits a simple command', () => {
+    expect(parseArgv('npm run lint')).toEqual(['npm', ['run', 'lint']]);
+  });
+
+  it('handles quoted arguments with spaces', () => {
+    expect(parseArgv('npx eslint --fix "src/my file.ts"')).toEqual(['npx', ['eslint', '--fix', 'src/my file.ts']]);
+  });
+
+  it('handles single-quoted arguments', () => {
+    expect(parseArgv("npx eslint --fix 'src/my file.ts'")).toEqual(['npx', ['eslint', '--fix', 'src/my file.ts']]);
+  });
+
+  it('handles a binary with no arguments', () => {
+    expect(parseArgv('flake8')).toEqual(['flake8', []]);
+  });
+
+  it('strips extra whitespace between tokens', () => {
+    expect(parseArgv('  npm   run   lint  ')).toEqual(['npm', ['run', 'lint']]);
+  });
+
+  it('handles escaped spaces', () => {
+    expect(parseArgv('my\\ tool --flag')).toEqual(['my tool', ['--flag']]);
+  });
+
+  it('returns empty bin for empty string', () => {
+    expect(parseArgv('')).toEqual(['', []]);
   });
 });
