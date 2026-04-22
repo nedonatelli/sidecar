@@ -16,19 +16,19 @@ Compiled 2026-04-21 from 28-track Cycle-4 audit (26 CRITICAL, 66 HIGH findings) 
 
 ---
 
-### v0.80 — Security Hardening + Database Writes
+### v0.80 — Security Hardening + Database Writes ✅ shipped 2026-04-21
 
 **Sprint Goal**: *Ship database write capability behind the Audit Mode gate while eliminating every CRITICAL code-execution and SQL-injection vulnerability introduced by the vision and database layers.*
 
 **Must Have** (blocks this release):
-- [ ] **DB writes feature** — `db_execute` tool buffers writes in Audit treeview; `db_migrate_up` runs ORM migrations (Prisma / Alembic / Flyway) inside a DuckDB-backed shadow DB before touching real data. Spec: [Database Integration Tier 2](#first-class-database-integration-sql--nosql).
-- [ ] **`lintFix.ts` shell injection** (T19-CRITICAL) — replace `exec()` shell mode with `execFile()` + argv parse for `lintCmd`.
-- [ ] **`run_playwright_code` `process.env`** (T1/T25-CRITICAL) — whitelist safe env vars (`PATH`, `HOME`, `TMPDIR`); log `{ runId, scriptHash, stdout, stderr }` to audit trail.
-- [ ] **`screenshot_page` SSRF** (T1/T25-CRITICAL) — reject RFC 1918, link-local, loopback, and `file://` URIs; add optional `allowedDomains` config.
-- [ ] **`analyze_screenshot` path traversal** (T1-CRITICAL) — reject absolute paths; apply same `validateFilePath()` guard as `read_file`.
-- [ ] **`spawn()` timeout ignored** (T19-CRITICAL) — switch to `AbortController` + `signal` option for Playwright child process.
-- [ ] **`assertReadOnly` SQL blocklist** (T15/T1-CRITICAL) — replace blocklist regex with allowlist `^\s*(SELECT|EXPLAIN|DESCRIBE|SHOW|WITH|PRAGMA)\b`.
-- [ ] **Disposable leaks × 3** (T6-CRITICAL) — register `settings.ts:280` `onDidChangeConfiguration`, `agentCallbacks.ts:37` `flushTimer`, and `errorWatcher.ts:108` execution listener in `context.subscriptions`.
+- [x] **DB writes feature** — `db_execute` tool buffers writes in Audit treeview; `db_migrate_up` runs ORM migrations (Prisma / Alembic / Flyway) via `execFile`. Spec: [Database Integration Tier 2](#first-class-database-integration-sql--nosql).
+- [x] **`lintFix.ts` shell injection** (T19-CRITICAL) — replaced `exec()` shell mode with `execFile()` + `parseArgv()` for `lintCmd`.
+- [x] **`run_playwright_code` `process.env`** (T1/T25-CRITICAL) — whitelist `PATH`, `HOME`, `TMPDIR`, `TEMP`, `TMP`, `TERM`, `LANG`, `LC_ALL`.
+- [x] **`screenshot_page` SSRF** (T1/T25-CRITICAL) — `validateScreenshotUrl()` rejects RFC 1918, link-local, loopback, and non-http(s) protocols. Optional `allowedDomains` escape hatch.
+- [x] **`analyze_screenshot` path traversal** (T1-CRITICAL) — absolute paths rejected; always resolves relative to workspace root.
+- [x] **`spawn()` timeout ignored** (T19-CRITICAL) — switched to `AbortController` + `signal` for Playwright child process.
+- [x] **`assertReadOnly` SQL blocklist** (T15/T1-CRITICAL) — replaced blocklist with allowlist `^\s*(SELECT|EXPLAIN|DESCRIBE|SHOW|WITH|PRAGMA|VALUES)\b`.
+- [x] **Disposable leaks × 3** (T6-CRITICAL) — `settings.ts` `onDidChangeConfiguration` → `initConfigWatcher(context)`; `agentCallbacks.ts` `flushTimer` gets `clearTimeout`; `errorWatcher.ts` `endPromise` resolved to null via `AbortController` on dispose.
 
 **Should Have**:
 - [ ] **5 sync I/O → async** (T2-HIGH) — `embeddingIndex.ts:171`, `vectorStore.ts:274,297`, `agentMemory.ts:76,101`, vision tool executors → `fs.promises.*` / `workspace.fs`.

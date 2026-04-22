@@ -4,6 +4,28 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.80.0] - 2026-04-21
+
+**v0.80.0 — Security hardening + DB write tools.**
+
+Seven security fixes from the Cycle-4 audit and two new database write tools with audit-mode buffering.
+
+### Security fixes
+
+- **SQL allowlist** (`src/db/provider.ts`) — `assertReadOnly()` now uses an allowlist (`SELECT|EXPLAIN|DESCRIBE|SHOW|WITH|PRAGMA|VALUES`) instead of a blocklist, closing the comment-injection bypass where `DR/**/OP TABLE` would pass the old regex
+- **Shell injection** (`src/agent/lintFix.ts`) — `exec()` replaced with `execFile()` + new exported `parseArgv()` function that splits commands into `[bin, args]` without spawning a shell. Quoted tokens and escaped spaces handled correctly
+- **Path traversal** (`src/agent/tools/vision.ts`) — `analyze_screenshot` now rejects absolute paths; always resolves relative to workspace root via `getRoot()`
+- **SSRF** (`src/agent/tools/vision.ts`) — new exported `validateScreenshotUrl()` function rejects `file://`, `javascript://`, RFC 1918 private networks, loopback, and link-local addresses. Optional `allowedDomains` escape hatch for local dev
+- **Environment leak** (`src/agent/tools/vision.ts`) — `run_playwright_code` child process now inherits only `PATH`, `HOME`, `TMPDIR`, `TEMP`, `TMP`, `TERM`, `LANG`, `LC_ALL` instead of full `process.env`
+- **Disposable leak — config watcher** (`src/config/settings.ts`) — module-level `onDidChangeConfiguration` moved into exported `initConfigWatcher(context)` so the listener is registered in `context.subscriptions`
+- **Disposable leak — flush timer** (`src/webview/handlers/agentCallbacks.ts`) — `clearTimeout` now called before nulling `flushTimer`
+- **Disposable leak — async promise** (`src/terminal/errorWatcher.ts`) — `dispose()` signals `AbortController`, resolving any in-flight `endPromise` to `null` so `handleExecution` exits cleanly
+
+### Added
+
+- **`db_execute` tool** — runs parameterised INSERT/UPDATE/DELETE/DDL on a registered DB connection. Buffers SQL to `.sidecar/audit/db/<connectionId>/<timestamp>.sql` in audit mode. `requiresApproval: true`
+- **`db_migrate_up` tool** — runs a migration CLI (knex/flyway/liquibase/goose/alembic/prisma) via `execFile` (no shell). `dry_run` supported. `requiresApproval: true`
+
 ## [0.79.0] - 2026-04-21
 
 **v0.79.0 — Doc-to-Test Synthesis Loop.**
