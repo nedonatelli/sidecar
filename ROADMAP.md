@@ -1430,7 +1430,7 @@ Historical audit cycles in reverse-chronological order. Cycle-3 findings (v0.58.
 
 ### Cycle-4 audit — comprehensive quality pass (post-v0.79.0, 2026-04-21)
 
-Nine-track audit launched after v0.79.0. All 9 tracks completed 2026-04-21. Findings folded into v0.80 refactor beat and individual backlog items below.
+Ten-track audit launched after v0.79.0. All 10 tracks completed 2026-04-21. Findings folded into v0.80 refactor beat and individual backlog items below.
 
 ---
 
@@ -1612,6 +1612,35 @@ examples/**
 vitest.*.config.ts
 .vscode-test/**
 ```
+
+---
+
+#### Track 10 — UX/UI Design ✅
+
+Scope: chat panel (`media/chat.css`), homepage (`docs/index.html`), VS Code onboarding walkthroughs. Evaluated against Nielsen's 10 heuristics, WCAG AA accessibility, and conversion/credibility criteria.
+
+**10 findings (3 critical, 4 medium, 3 low):**
+
+**Chat panel:**
+
+- **HIGH** Touch targets below WCAG 44px minimum: `#close-panel`, `#close-sessions` (~26px), `.steer-action` (~22px), `.resume-strip-dismiss` (22×22px). Fix: add `min-height: 44px; min-width: 44px` to all dismiss/close buttons.
+- **HIGH** `#send.loading` turns red (`errorForeground`) with no text or icon change. Red reads as "error" not "stop" — first-time users won't know to click it to cancel. Fix: change label to "Stop" and add a stop icon in the loading state.
+- **MEDIUM** `.tool-detail { max-width: 300px }` is pixel-fixed. In a ~250px sidebar it overflows without truncating. Fix: `max-width: min(300px, 60%)`.
+- **MEDIUM** Mode badges (`.mode-autonomous`, `.mode-cautious`, etc.) use hardcoded `color: #000` — breaks in high-contrast light themes. Fix: use `var(--vscode-badge-foreground)`.
+- **MEDIUM** `thinking-block.completed` is visually identical to in-progress (only opacity changes). Fix: add a distinct visual indicator (checkmark glyph or muted border color) for completed thinking blocks.
+- **MEDIUM** Virtualized message opacity at 0.35 is too low for accessibility. Fix: raise floor to 0.6.
+- **LOW** Steer urgency (INTERRUPT/NUDGE) is color-only (red vs yellow border-left). Color-blind users can't distinguish. Fix: add text labels "⚡ interrupt" / "nudge" to the badge.
+- **LOW** Border-radius values of 3px, 4px, 6px, 8px, 10px, 12px all used with no hierarchy rule. Fix: standardize to 4px (inline elements) / 6px (panels/cards).
+- **LOW** `.gh-state.open/closed/merged` use hardcoded hex colors that break in light themes. Fix: use VS Code tokens or `color-mix()` with theme variables.
+
+**Homepage:**
+
+- **CRITICAL** No `@media` queries anywhere. Hero, feature grid, and comparison layout are all fixed multi-column grids that overflow on mobile. The Marketplace links here — it gets mobile traffic. Fix: collapse all grids to single column at ≤768px.
+- **HIGH** Ticker says "29 Built-in Tools" but stat strip says "44+". First animated content the user sees is stale. Fix: update both `<span>` ticker duplicates to "44+ Built-in Tools".
+- **HIGH** No `<meta name="description">`, no Open Graph tags (`og:title`, `og:description`, `og:image`), no favicon. Social shares show empty previews. Fix: add all three to `<head>`.
+- **MEDIUM** Hero right column stacks logo image (100% width) above terminal mockup. Logo is decorative; terminal is the conversion element. Users scroll past the logo to reach the demo. Fix: remove logo from hero column or shrink to ≤60px decorative size.
+- **MEDIUM** `btn-ghost:hover` changes border to `--text-3` (barely visible `#504868`) — button fades on hover, inverting expected affordance. Fix: darken border or add subtle background on hover.
+- **LOW** Buy Me a Coffee and footer email styled `color: var(--text-3)` — near-invisible. Fix: bump to `--text-2` for the coffee link at minimum.
 
 ---
 
