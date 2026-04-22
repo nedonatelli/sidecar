@@ -12,3 +12,9 @@ tsconfig.json
 !README.md
 !CHANGELOG.md
 !media/walkthroughs/**
+.sidecar/**
+coverage/**
+docs/**
+examples/**
+vitest.*.config.ts
+.vscode-test/**

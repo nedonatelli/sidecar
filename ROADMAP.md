@@ -8,7 +8,7 @@ Last updated: 2026-04-21 (**v0.79.0 current**. v0.79 shipped Doc-to-Test Synthes
 
 ## Release Plan
 
-Each release ships **1–2 features** plus a paired **refactor beat** (code-quality/architecture work aligned with the feature surface) and a **coverage focus** (testing work chosen to climb toward the 80/70/80/80 target). Audit findings (cycle-3) and Deferred items are folded into the release whose scope they naturally belong to. Anchor links below point to the full Feature Specifications later in this file.
+Each release ships **1–2 features** plus a paired **refactor beat** (code-quality/architecture work aligned with the feature surface) and a **coverage focus** (testing work chosen to climb toward the 80/70/80/80 target). Audit findings (cycle-3 and cycle-4) and Deferred items are folded into the release whose scope they naturally belong to. Anchor links below point to the full Feature Specifications later in this file.
 
 **Release cadence assumption**: ~1 release every 1–2 weeks based on v0.52 → v0.58.1 pace. At that cadence v0.59 → v0.82 is ~6 months; v1.0 realistic by end of year.
 
@@ -52,18 +52,14 @@ Each release ships **1–2 features** plus a paired **refactor beat** (code-qual
 - **Feature**: [Browser-Agent Live Preview Verification (Screenshot-in-the-Loop)](#browser-agent-live-preview-verification-screenshot-in-the-loop)
 - **Shipped**: `screenshot_page` (Playwright headless Chromium, PNG to `.sidecar/screenshots/`), `analyze_screenshot` (heuristic pre-filter + VLM verdict), `open_in_browser` (Simple Browser / `env.openExternal`), `run_playwright_code` (`alwaysRequireApproval: true`, esbuild transpile, child process). `hasVisionSupport` + `cheapScreenshotChecks` exported helpers. 11th settings category "SideCar: Visual Verification" (6 keys). `playwright-core` added as external devDep.
 
-### v0.78 — Research Assistant
-- **Feature**: [Research Assistant — Structured Lab Notebook, Experiment Manifests, and Hypothesis Graph](#research-assistant--structured-lab-notebook-experiment-manifests-and-hypothesis-graph)
-- **Refactor beat**: Integration-layer maturity — `.sidecar/research/` store, hypothesis-graph data model, experiment-manifest reproducibility harness.
-- **Coverage focus**: new research tools + reproducibility harness. Maintain ≥80/70/80/80.
-- **Acceptance**: `/experiment run` reproduces against pinned git SHA + requirements hash; hypothesis graph renders; reviewer-simulation personas ship.
-
 ### ~~v0.79 — Doc-to-Test~~ ✅ shipped 2026-04-21
 - **Feature**: [Doc-to-Test Synthesis Loop](#doc-to-test-synthesis-loop)
 - **Shipped**: `extract_constraints` (`.md`/`.tex`/`.rst`/`.pdf`/text → typed `Constraint[]`, 6 subtypes, PDF via `pdf-parse`), `synthesize_tests` (approved+testable constraints → complete pytest file, per-type patterns), `classify_test_failure` (`impl_wrong`/`doc_wrong`/`extraction_wrong` verdict + proposed fix). `isConstraint` type guard + `parseConstraintsFromLlm` helper exported. 12th settings category "SideCar: Doc-to-Test" (6 keys). Tools always registered (default-enabled).
 
 ### v0.80 — Database integration (writes + migrations)
 - **Feature**: [Database Integration Tier 2](#first-class-database-integration-sql--nosql) — writes routed through Audit Mode + ORM-aware migrations (Prisma / TypeORM / Sequelize / Alembic / Flyway / Knex / Rails)
+- **Refactor beat (cycle-4 security)**: Address the 3 CRITICAL + 3 HIGH security findings from Cycle-4 Track 1 — `analyze_screenshot` path traversal (vision.ts:223), `screenshot_page` SSRF via unvalidated URLs (vision.ts:130), `run_playwright_code` full `process.env` inheritance (vision.ts:353), custom tool shell-metacharacter injection (tools.ts:240), MCP stdio `process.env` exposure (mcpManager.ts:285). Also address the `assertReadOnly` SQL allowlist weakness (database.ts:211).
+- **Refactor beat (cycle-4 performance)**: Fix the 5 HIGH sync I/O issues — `embeddingIndex.ts:171`, `vectorStore.ts:274`, `agentMemory.ts:76,101`, vision tool executors; convert to `fs.promises.*` / `workspace.fs`. Replace `Array.shift()` ring-buffer in `client.ts` log.
 - **Acceptance**: `db_execute` writes buffer in Audit treeview; `db_migrate_up` runs migrations inside a DuckDB-backed shadow DB before touching the real one.
 
 ### v0.81 — Database integration (NoSQL via MCP)
@@ -75,7 +71,7 @@ Each release ships **1–2 features** plus a paired **refactor beat** (code-qual
 - **Acceptance**: `/notebook` mode enters source-grounded state with mandatory inline citations; YouTube / web URL / audio / slides sources index alongside PDFs; five study-aid generators emit tracked markdown; opt-in two-voice podcast pipeline ships.
 
 ### v1.0 — GA
-- **Final decompositions**: `src/extension.ts` (987 lines — audit #16) · `stubCheck` async patterns (audit #17) · `package.json` command descriptions sweep (audit #14) · `chatView.ts` decomposition unlocks its 0% → coverage uplift
+- **Final decompositions**: `src/extension.ts` (1792 lines — cycle-4 audit #T3) · `stubCheck` async patterns (audit #17) · `package.json` command descriptions sweep (audit #14) · `chatView.ts` decomposition unlocks its 0% → coverage uplift
 - **Unused-export sweep**: audit of every `export` in `src/` for actual consumers; drop what's dead
 - **CLAUDE.md refresh**: sync architectural notes against the post-v0.82 reality
 - **Acceptance**: Coverage ≥80/70/80/80 sustained across all four metrics; public marketplace for Skill Sync & Registry (v0.64) goes live.
@@ -1434,7 +1430,7 @@ Historical audit cycles in reverse-chronological order. Cycle-3 findings (v0.58.
 
 ### Cycle-4 audit — comprehensive quality pass (post-v0.79.0, 2026-04-21)
 
-Nine-track audit launched after v0.79.0. Tracks 1–3 ran as parallel agents. Tracks 4–9 staged for follow-up runs. Findings to be folded into the Release Plan as they're addressed.
+Nine-track audit launched after v0.79.0. All 9 tracks completed 2026-04-21. Findings folded into v0.80 refactor beat and individual backlog items below.
 
 ---
 
@@ -1497,24 +1493,125 @@ Scope: oversized files · code duplication · inconsistent patterns · dead code
 
 ---
 
-#### Track 4 — Test Coverage ⬜ staged
-Scope: quantitative coverage against the 80/70/80/80 ROADMAP floor; identify files under each threshold.
-Command: `npm run test -- --coverage`
+#### Track 4 — Test Coverage ✅
 
-#### Track 5 — Dependency Health ⬜ staged
-Scope: `npm audit` for CVEs; `npm outdated` for stale packages. Priority: `better-sqlite3`, `@duckdb/node-api`, `playwright-core`, `pdf-parse`.
+Scope: quantitative coverage against the 80/70/80/80 ROADMAP floor (statements/branches/functions/lines).
 
-#### Track 6 — Disposable & Resource Leak ⬜ staged
-Scope: VS Code event listeners (`onDid*`, `setInterval`, `createFileSystemWatcher`) not registered in `context.subscriptions` or missing `dispose()`.
+**Overall: 70.55% stmts / 63.15% branches / 67.57% functions / 71.48% lines — all four metrics below floor.**
 
-#### Track 7 — LLM Prompt Consistency ⬜ staged
-Scope: system prompts across `criticHook.ts`, `vision.ts`, `docTests.ts`, `chatHandlers.ts`, `facets/`. Check for contradictions, bloat, and shared-template opportunities.
+Worst directories by statement coverage:
 
-#### Track 8 — VS Code API Deprecation ⬜ staged
-Scope: deprecated API usage that would break on future VS Code versions (`TextEditor.edit`, APIs removed in 1.90+).
+| Directory | Stmts | Branches | Notes |
+|-----------|-------|----------|-------|
+| `src/views/` | 0% | 0% | `agentMemoryView.ts` — zero coverage |
+| `src/parsing/` | 7% | 4% | `treeSitterAnalyzer.ts`, `treeSitterLoader.ts` — zero coverage |
+| `src/webview/` | 26% | 13% | `chatView.ts` — zero; `chatHandlers.ts` — 38% |
+| `src/chat/` | 49% | 44% | |
+| `src/edits/` | 58% | 52% | |
+| `src/conflict/` | 59% | 57% | |
+| `src/agent/tools/` | 60% | 49% | Most tool executors untested |
+| `src/config/` | 65% | 57% | |
+| `src/sdk/` | 95% | 69% | `sdk/index.ts` — zero |
 
-#### Track 9 — Bundle & Packaging ⬜ staged
-Scope: what lands in the `.vsix` that shouldn't (test files, source maps, large assets, dev-only deps). Check `.vscodeignore`.
+Directories already meeting floor: `src/agent/loop/`, `src/agent/facets/`, `src/agent/guards/`, `src/agent/audit/`, `src/review/`, `src/completions/`, `src/inline/`.
+
+**Priority targets for v0.80:** `chatHandlers.ts` (37%), `vision.ts` (approx 30%), `docTests.ts` (new — no coverage baseline yet), `agentMemoryView.ts` (0%).
+
+---
+
+#### Track 5 — Dependency Health ✅
+
+**`npm audit` — 8 vulnerabilities (2 low, 3 moderate, 3 high):**
+
+- **HIGH** `serialize-javascript ≤7.0.4` — RCE via `RegExp.flags` + CPU-exhaustion DoS. Dev-only (mocha → @vscode/test-cli chain). Fix: `npm audit fix --force` (installs `@vscode/test-cli@0.0.11`, breaking change — defer to planned @vscode/test-cli update).
+- **HIGH** `vite 8.0.0–8.0.4` — path traversal in dev-server `.map` handling + arbitrary file read via WebSocket. Dev-only (vitest). Fix: `npm audit fix` (safe auto-fix).
+- **MODERATE** `hono ≤4.12.13` — 6 CVEs (cookie bypass, SSRF, path traversal in SSG, HTML injection). Dep chain: kickstand-sdk → hono. Fix: `npm audit fix`.
+- **MODERATE** `dompurify ≤3.3.3` — `ADD_TAGS` bypass. Fix: `npm audit fix`.
+- **MODERATE** `@hono/node-server <1.19.13` — middleware bypass via repeated slashes. Fix: `npm audit fix`.
+
+**`npm outdated` — notable staleness:**
+
+| Package | Current | Latest | Notes |
+|---------|---------|--------|-------|
+| `@types/vscode` | 1.110.0 | 1.116.0 | 6 minor versions behind — new APIs unavailable in types |
+| `@vscode/vsce` | 2.32.0 | 3.9.1 | Major version behind — packaging improvements |
+| `typescript` | 5.9.3 | 6.0.3 | TS 6.0 — evaluate migration path |
+| `web-tree-sitter` | 0.24.7 | 0.26.8 | 2 minor versions; new grammar support |
+| `@types/node` | 20.19.39 | 25.6.0 | Major behind; Node 20 still LTS so low urgency |
+
+No CVEs found in the priority native binaries (`better-sqlite3`, `@duckdb/node-api`, `playwright-core`, `pdf-parse`).
+
+**Recommended action for v0.80:** Run `npm audit fix` (safe, auto-fixable items); separately evaluate `@vscode/vsce` major upgrade and `typescript` 6.0 migration.
+
+---
+
+#### Track 6 — Disposable & Resource Leak ✅
+
+**10 findings (3 critical, 3 high, 2 medium, 2 low):**
+
+- **CRITICAL** `settings.ts:280` — `workspace.onDidChangeConfiguration()` registered at module load, never pushed to `context.subscriptions` or disposed. Persists for extension lifetime; prevents proper lifecycle cleanup.
+- **CRITICAL** `agentCallbacks.ts:37` — module-scoped `flushTimer` (setTimeout) created during `onText` callbacks; never cleared if agent run is aborted. Each aborted run leaves an orphaned timer that fires after run completes.
+- **CRITICAL** `errorWatcher.ts:108` — per-execution `window.onDidEndTerminalShellExecution` subscription pushed to `this.disposables` but never removed or disposed if the execution hangs or times out. Accumulates zombie listeners across the session.
+- **HIGH** `chatState.ts:428` — `createFileSystemWatcher` event subscriptions (`onDidChange`, `onDidCreate`, `onDidDelete`) created but individual Disposables not tracked; only the watcher itself is disposed.
+- **HIGH** `readmeSyncProvider.ts:164` — same watcher-vs-listener tracking pattern as chatState; mitigated by return-array disposal but error-prone.
+- **HIGH** `workspaceIndex.ts:334` — three `onDid*` watcher event subscriptions not stored; disposal relies on VS Code's internal watcher cleanup (not guaranteed across engine versions).
+- **MEDIUM** `extension.ts:260,355` — `setTimeout(() => statusBarItem.dispose(), 5000)` with no stored timer ID; if extension deactivates before 5s, cleanup is deferred and orphaned.
+- **MEDIUM** `mcpManager.ts:352` — `conn.reconnectTimer` cleared in `disconnect()` but `dispose()` wraps `disconnect()` in a `Promise.race` that can reject; if it rejects, timer is never cleared and reconnection fires after dispose.
+- **LOW** `nextEdit.ts:47` — `this.debounceTimer` not cleared in `dispose()`; timer can fire post-dispose and call `runAnalysis()` unnecessarily.
+- **LOW** `symbolIndexer.ts:364` — `dispose()` calls `this.persist()` without awaiting; fire-and-forget can cause concurrent mutations.
+
+---
+
+#### Track 7 — LLM Prompt Consistency ✅
+
+**Key findings:**
+
+- **INCONSISTENCY** JSON output format differs across all three tool-calling LLM sites: `criticHook.ts` expects `{"findings":[...]}`, `vision.ts` expects `{"pass":bool,"issues":[...]}`, `docTests.ts` expects `{"constraints":[...]}` / `{"verdict":"...","reasoning":"...","proposed_fix":"..."}`. No shared schema.
+- **INCONSISTENCY** Critic blocks on `high` severity findings; vision and docTests have no blocking semantics — no unified "severity → gate" contract.
+- **GAP** Critic prompt warns about prompt injection in diffs; vision and docTests handle untrusted external content (screenshots, PDFs) without equivalent injection warnings.
+- **BLOAT** `sidecarParticipant.ts:14–52` — five independent micro-prompts each repeat `"You are SideCar, an expert..."` boilerplate. Could use a shared template with parameter injection.
+- **BLOAT** Each facet redefines dispatcher persona inline (lines 112–115 of `facetDispatcher.ts`) rather than inheriting from a shared template.
+- **GOOD** `basePrompt.ts` intentionally monolithic for prompt-cache stability — correct trade-off.
+
+**Recommended fix for v0.80:** Extract `TOOL_JSON_RESPONSE_SCHEMA` and `UNTRUSTED_DATA_WARNING` as shared prompt constants; unify severity-blocking contract across critic/vision/docTests.
+
+---
+
+#### Track 8 — VS Code API Deprecation ✅
+
+Engine target: VS Code ≥1.90.0. **3 findings (1 breaking, 1 runtime-crash risk, 1 deprecation warning):**
+
+- **BREAKING** `src/test/integration/chatView.test.ts:165` — `editor.edit()` callback pattern. Deprecated in favor of `WorkspaceEdit` + `workspace.applyEdit()`. Will fail in future engine releases.
+- **RUNTIME RISK** `src/webview/handlers/systemPrompt.ts:183` — `window.activeTextEditor.document.uri.fsPath` without null guard. Should use optional chaining (`?.`).
+- **DEPRECATED** `src/agent/executor.ts:42` — `StreamingDiffPreviewFn` type is exported with `@deprecated` marker; dead code. Remove.
+
+Otherwise compliant: `WorkspaceEdit` used correctly throughout `src/edits/`; `workspace.workspaceFolders` used (not `rootPath`); `LogOutputChannel` with `{log:true}` (modern pattern); no removed-in-1.90 APIs detected.
+
+---
+
+#### Track 9 — Bundle & Packaging ✅
+
+**`.vscodeignore` gaps — estimated 27MB of unnecessary files in .vsix:**
+
+| Path | Size | Issue |
+|------|------|-------|
+| `.sidecar/` | 6.1MB | Local dev state, not in extension runtime |
+| `coverage/` | 9.7MB | Test coverage reports |
+| `docs/` | 1.0MB | Repo documentation only |
+| `examples/` | 4KB | Sample files |
+| `vitest.*.config.ts` | — | Dev config files |
+
+**Bundle status:** esbuild configured with `--minify` + `--tree-shaking=true`; native deps correctly marked `--external`. Main bundle `dist/extension.js` is 980KB minified. Grammar WASM files (6.8MB) are runtime-required and correctly included.
+
+**Recommended additions to `.vscodeignore`:**
+```
+.sidecar/**
+coverage/**
+docs/**
+examples/**
+vitest.*.config.ts
+.vscode-test/**
+```
 
 ---
 
