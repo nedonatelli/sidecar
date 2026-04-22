@@ -1430,7 +1430,7 @@ Historical audit cycles in reverse-chronological order. Cycle-3 findings (v0.58.
 
 ### Cycle-4 audit — comprehensive quality pass (post-v0.79.0, 2026-04-21)
 
-Twenty-track audit launched after v0.79.0. All 20 tracks completed 2026-04-21. Findings folded into v0.80 refactor beat and individual backlog items below.
+Twenty-one-track audit launched after v0.79.0. All 21 tracks completed 2026-04-21. Findings folded into v0.80 refactor beat and individual backlog items below.
 
 ---
 
@@ -1833,6 +1833,23 @@ Scope: system prompt structure · hallucination mitigation · chain-of-thought u
 - **MEDIUM** The workspace tree (`src/webview/handlers/systemPrompt.ts:269`) and file dependencies section (line 261) are injected as raw structured text with no preamble explaining their meaning to the model. A model that hasn't seen this notation before must infer what the tree indentation represents and what the dependency arrows mean. Fix: prepend a two-line context sentence: "The following is the workspace file tree — use it to discover file locations before reading. File dependencies show which files import which."
 - **LOW** RAG context truncation at `systemPrompt.ts:195` is silent — when the retrieval budget falls below 500 chars, retrieval is skipped without any marker in the injected prompt. The model receives no signal that relevant context was omitted. Fix: inject a one-line marker: `_[retrieved context omitted — budget < threshold]_` so the model knows it may lack relevant background.
 - **LOW** Truncation markers are inconsistent across sections: `systemPrompt.ts:115` uses "... (context truncated)", line 232 uses "... (retrieved context truncated)", and `sidecarMdParser.ts:382` uses "... (SIDECAR.md truncated)". Inconsistency makes it harder to pattern-match truncation signals in logs or downstream evals. Fix: standardize to a single format: `\n[... <section-name> truncated]\n`.
+
+---
+
+#### Track 21 — Product Analytics & Instrumentation ✅
+
+Scope: telemetry architecture · session tracking completeness · onboarding funnel visibility · spend tracker data quality · feature adoption observability · A/B testing capability across `src/agent/metrics.ts`, `src/ollama/spendTracker.ts`, `src/agent/sessions.ts`, `src/agent/auditLog.ts`, and `media/walkthroughs/`.
+
+*Context: SideCar is explicitly privacy-first — no external telemetry is sent anywhere, and this is a correct product decision. These findings concern LOCAL observability gaps that prevent the development team from understanding usage without needing cloud telemetry.*
+
+- **HIGH** There is no onboarding funnel instrumentation. The 5-step getting-started walkthrough has no completion-rate tracking, step-dropout tracking, or time-to-value measurement. The only onboarding state written to disk is a `sidecar.onboardingComplete` flag set at `src/webview/chatView.ts` when the first message arrives — far too coarse to identify where new users stall. The critical activation funnel (`installed → walkthrough started → backend configured → first chat → first successful agent loop`) is invisible. Fix: add local-only event records to `MetricsCollector` for each funnel step; expose an `/onboarding-stats` insight command so the team can include anonymized funnel data in issues and user research.
+- **HIGH** `SpendTracker` (`src/ollama/spendTracker.ts`) is entirely in-memory and is reset on every VS Code window close. Token counts and cost-per-session data that `MetricsCollector` depends on are lost between sessions. While `MetricsCollector` persists per-run `costUsd` to workspace state, it relies on the `spendTracker` having been populated in the current session — a cold-start after a restart produces `costUsd: 0` for the first run. Fix: flush `SpendTracker` state to `.sidecar/logs/spend.jsonl` on `deactivate()` and reload on `activate()`.
+- **HIGH** `MetricsCollector` at `src/agent/metrics.ts:77` caps history at 100 runs by splicing entries from the front of the array. A daily power user running 20+ agent loops will lose older data in under a week. Daily and weekly spend helpers (`getDailySpend()`, `getWeeklySpend()`) depend on this history — if a user ran 120 loops this week, week-to-date spend is understated. Fix: use a date-partitioned append-only file (one per calendar month) at `.sidecar/logs/metrics-YYYY-MM.jsonl` instead of a capped in-memory array; lazy-load only the current + previous month for spend queries.
+- **MEDIUM** There is no user-visible cache hit rate display. `SpendTracker` correctly accumulates `cacheReadInputTokens` vs. `cacheCreationInputTokens` (lines 73–87 handle Anthropic cache pricing), but this ratio is never surfaced in the status bar or spend QuickPick. Cache hit rate is one of the highest-leverage cost levers for Anthropic users. Fix: add a `cacheHitRate` field to the spend QuickPick summary: `Cache efficiency: 68% reads / 32% writes`.
+- **MEDIUM** No cost-per-outcome metric exists. All token spend is aggregated at the per-run level, but there is no distinction between a run that successfully completed a task, a run that was interrupted, and a run that looped into a cycle and was stopped. Fix: add an `outcome: 'success' | 'interrupted' | 'cycle-bail' | 'error'` field to `MetricsCollector` run records and surface the average cost-per-successful-run in `/insights`.
+- **MEDIUM** No feature adoption visibility exists even locally. The team cannot answer "what fraction of users have run a fork dispatch?", "is shadow workspace mode used?", or "how many sessions used facets?" without grepping audit logs manually. Fix: add lightweight per-feature counters to `MetricsCollector` (e.g., `featureCounts: { shadowWorkspace: N, forkDispatch: N, facets: N, pdfIngest: N }`) and expose them in the `/insights` command output.
+- **LOW** `SpendTracker` has no export mechanism. Users who want to analyze their spending in a spreadsheet or cost management tool have no way to extract the data. The data exists in `MetricsCollector` workspace state but there is no `sidecar.exportMetrics` command. Fix: add a `SideCar: Export Usage Metrics` command that writes a CSV of run history to the workspace root.
+- **LOW** The price table hardcoded in `spendTracker.ts:7–19` will become stale as Anthropic updates pricing. When prices change, SideCar silently undercharges users' budget tracking until the extension ships an update. Fix: pull prices from a `~/.sidecar/pricing.json` file with a versioned cache; fall back to the hardcoded table; add a comment with the date the table was last verified.
 
 ---
 
