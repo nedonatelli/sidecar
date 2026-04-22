@@ -31,10 +31,10 @@ Compiled 2026-04-21 from 28-track Cycle-4 audit (26 CRITICAL, 66 HIGH findings) 
 - [x] **Disposable leaks × 3** (T6-CRITICAL) — `settings.ts` `onDidChangeConfiguration` → `initConfigWatcher(context)`; `agentCallbacks.ts` `flushTimer` gets `clearTimeout`; `errorWatcher.ts` `endPromise` resolved to null via `AbortController` on dispose.
 
 **Should Have**:
-- [ ] **5 sync I/O → async** (T2-HIGH) — `embeddingIndex.ts:171`, `vectorStore.ts:274,297`, `agentMemory.ts:76,101`, vision tool executors → `fs.promises.*` / `workspace.fs`.
-- [ ] **MCP stdio `process.env`** (T1-HIGH) — whitelist env vars in `mcpManager.ts:285` spawn, same as run_playwright_code fix.
-- [ ] **Custom tool shell metacharacters** (T1-HIGH) — document required quoting convention or apply `shellQuote()` for `${SIDECAR_INPUT}` in `tools.ts:240`.
-- [ ] **SQLite table name injection** (T15-HIGH) — validate table names against `^[A-Za-z_][A-Za-z0-9_]*$` in `sqliteProvider.ts`.
+- [x] **5 sync I/O → async** (T2-HIGH) — `embeddingIndex.ts`, `vectorStore.ts`, `agentMemory.ts`, vision tool executors converted to `fs.promises.*`. Constructor sync mkdir deferred to first `save()` call.
+- [x] **MCP stdio `process.env`** (T1-HIGH) — `buildStdioEnv()` in `mcpManager.ts` whitelists `PATH/HOME/TMPDIR/TEMP/TMP/TERM/LANG/LC_ALL/SHELL`; server `env` block merged on top.
+- [x] **Custom tool shell metacharacters** (T1-HIGH) — `tools.ts` switched from `exec()` to `execFile()` + `parseArgv()`; env also whitelisted to same safe-key set.
+- [x] **SQLite table name injection** (T15-HIGH) — `validateIdentifier()` in `sqliteProvider.ts` rejects names not matching `^[A-Za-z_][A-Za-z0-9_]*$` before PRAGMA interpolation.
 
 **Could Have**:
 - [ ] **`Array.shift()` ring-buffer** (T2-HIGH) — replace `_modelUsageLog.shift()` in `client.ts:145` with a fixed-size ring buffer.
