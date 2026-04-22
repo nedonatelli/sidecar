@@ -26,6 +26,15 @@ Seven security fixes from the Cycle-4 audit and two new database write tools wit
 - **`db_execute` tool** — runs parameterised INSERT/UPDATE/DELETE/DDL on a registered DB connection. Buffers SQL to `.sidecar/audit/db/<connectionId>/<timestamp>.sql` in audit mode. `requiresApproval: true`
 - **`db_migrate_up` tool** — runs a migration CLI (knex/flyway/liquibase/goose/alembic/prisma) via `execFile` (no shell). `dry_run` supported. `requiresApproval: true`
 
+### Performance & reliability (Should / Could Have)
+
+- **Sync I/O → async** — `embeddingIndex.ts`, `vectorStore.ts`, `agentMemory.ts`, and `vision.ts` converted from blocking `readFileSync`/`writeFileSync`/`mkdirSync` to `fs.promises.*`. Removes extension-host blocking on every file-watch callback and every 30 s persist tick
+- **MCP stdio env whitelist** — `mcpManager.ts` now uses `buildStdioEnv()`: only `PATH/HOME/TMPDIR/TEMP/TMP/TERM/LANG/LC_ALL/SHELL` forwarded to stdio MCP child processes; server-specific `env` block merged on top. Prevents API key leakage identical to the `run_playwright_code` fix above
+- **Custom tool env whitelist + no-shell exec** — `tools.ts` custom-tool executor switched from `exec()` to `execFile()` + `parseArgv()`; env uses same safe-key whitelist. Closes shell-metacharacter injection and credential leak in user-defined tool commands
+- **SQLite table name validation** — `validateIdentifier()` in `sqliteProvider.ts` rejects table names not matching `^[A-Za-z_][A-Za-z0-9_]*$` before any PRAGMA interpolation
+- **O(1) model-usage ring buffer** — `SideCarClient._modelUsageLog` (Array + O(n) `shift`) replaced with a fixed-size ring buffer (`_modelUsageRing`, `_modelUsageHead`, `_modelUsageCount`). `pushModelUsageLog` is now O(1)
+- **Dev dependency updates** — `@typescript-eslint/*` → 8.59.0, `vitest` → 4.1.5, `prettier` → 3.8.3, `eslint` → 10.2.1, `@types/vscode` → 1.116.0. `better-sqlite3` and `pdf-parse` already at latest. Remaining `serialize-javascript` CVEs are in `@vscode/test-cli` (dev-only, not bundled); fix deferred to v0.81
+
 ## [0.79.0] - 2026-04-21
 
 **v0.79.0 — Doc-to-Test Synthesis Loop.**
