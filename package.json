@@ -18,7 +18,7 @@
     "email": "sidecarai.vscode@gmail.com"
   },
   "engines": {
-    "vscode": "^1.90.0"
+    "vscode": "^1.116.0"
   },
   "icon": "media/SideCar.png",
   "categories": [
