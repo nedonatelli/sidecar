@@ -8,38 +8,148 @@ Last updated: 2026-04-21 (**v0.79.0 current**. v0.79 shipped Doc-to-Test Synthes
 
 ## Release Plan
 
-Each release ships **1–2 features** plus a paired **refactor beat** (code-quality/architecture work aligned with the feature surface) and a **coverage focus** (testing work chosen to climb toward the 80/70/80/80 target). Audit findings (cycle-3 and cycle-4) and Deferred items are folded into the release whose scope they naturally belong to. Anchor links below point to the full Feature Specifications later in this file.
+Compiled 2026-04-21 from 28-track Cycle-4 audit (26 CRITICAL, 66 HIGH findings) + three planned features (DB writes, NoSQL MCP, NotebookLM). Each release has a single **Sprint Goal**, a **MoSCoW backlog**, and **Definition of Done** gates. Audit-item references are shorthand for the Cycle-4 Audit Archive section.
 
-**Release cadence assumption**: ~1 release every 1–2 weeks based on v0.52 → v0.58.1 pace. At that cadence v0.59 → v0.82 is ~6 months; v1.0 realistic by end of year.
+**Cadence**: 2-week time-boxed sprints. Version bumps occur at sprint close only — not ad-hoc mid-feature (addresses Cycle-4 Track 26 CRITICAL: unbounded release size). Estimated delivery: v0.80 in ~2 weeks, v1.0 in ~8 weeks.
 
-**Coverage floor policy**: starting v0.59, CI enforces a monotonic coverage ratchet via `--coverage.thresholds`. PRs that drop any of the four metrics fail CI. New code ships with ≥80% coverage per-file by policy.
+**Coverage floor**: ≥80/70/80/80 (stmts/branches/funcs/lines) enforced by CI `--coverage.thresholds`. No PR merges that drop any metric.
 
-### v0.80 — Database integration (writes + migrations)
-- **Feature**: [Database Integration Tier 2](#first-class-database-integration-sql--nosql) — writes routed through Audit Mode + ORM-aware migrations (Prisma / TypeORM / Sequelize / Alembic / Flyway / Knex / Rails)
-- **Refactor beat (cycle-4 security)**: Address the 3 CRITICAL + 3 HIGH security findings from Cycle-4 Track 1 — `analyze_screenshot` path traversal (vision.ts:223), `screenshot_page` SSRF via unvalidated URLs (vision.ts:130), `run_playwright_code` full `process.env` inheritance (vision.ts:353), custom tool shell-metacharacter injection (tools.ts:240), MCP stdio `process.env` exposure (mcpManager.ts:285). Also address the `assertReadOnly` SQL allowlist weakness (database.ts:211).
-- **Refactor beat (cycle-4 performance)**: Fix the 5 HIGH sync I/O issues — `embeddingIndex.ts:171`, `vectorStore.ts:274`, `agentMemory.ts:76,101`, vision tool executors; convert to `fs.promises.*` / `workspace.fs`. Replace `Array.shift()` ring-buffer in `client.ts` log.
-- **Acceptance**: `db_execute` writes buffer in Audit treeview; `db_migrate_up` runs migrations inside a DuckDB-backed shadow DB before touching the real one.
+---
 
-### v0.81 — Database integration (NoSQL via MCP)
-- **Feature**: [Database Integration Tier 3](#first-class-database-integration-sql--nosql) — MongoDB / Redis / DynamoDB / Cassandra / Elasticsearch as `mcp-sidecar-<engine>` servers
-- **Acceptance**: At least the Mongo + Redis servers ship with install paths in the MCP marketplace entry.
+### v0.80 — Security Hardening + Database Writes
 
-### v0.82 — NotebookLM parity
-- **Feature**: [NotebookLM-Style Source-Grounded Research Mode](#notebooklm-style-source-grounded-research-mode)
-- **Acceptance**: `/notebook` mode enters source-grounded state with mandatory inline citations; YouTube / web URL / audio / slides sources index alongside PDFs; five study-aid generators emit tracked markdown; opt-in two-voice podcast pipeline ships.
+**Sprint Goal**: *Ship database write capability behind the Audit Mode gate while eliminating every CRITICAL code-execution and SQL-injection vulnerability introduced by the vision and database layers.*
 
-### v1.0 — GA
-- **Final decompositions**: `src/extension.ts` (1792 lines — cycle-4 audit #T3) · `stubCheck` async patterns (audit #17) · `package.json` command descriptions sweep (audit #14) · `chatView.ts` decomposition unlocks its 0% → coverage uplift
-- **Unused-export sweep**: audit of every `export` in `src/` for actual consumers; drop what's dead
-- **CLAUDE.md refresh**: sync architectural notes against the post-v0.82 reality
-- **Acceptance**: Coverage ≥80/70/80/80 sustained across all four metrics; public marketplace for Skill Sync & Registry (v0.64) goes live.
+**Must Have** (blocks this release):
+- [ ] **DB writes feature** — `db_execute` tool buffers writes in Audit treeview; `db_migrate_up` runs ORM migrations (Prisma / Alembic / Flyway) inside a DuckDB-backed shadow DB before touching real data. Spec: [Database Integration Tier 2](#first-class-database-integration-sql--nosql).
+- [ ] **`lintFix.ts` shell injection** (T19-CRITICAL) — replace `exec()` shell mode with `execFile()` + argv parse for `lintCmd`.
+- [ ] **`run_playwright_code` `process.env`** (T1/T25-CRITICAL) — whitelist safe env vars (`PATH`, `HOME`, `TMPDIR`); log `{ runId, scriptHash, stdout, stderr }` to audit trail.
+- [ ] **`screenshot_page` SSRF** (T1/T25-CRITICAL) — reject RFC 1918, link-local, loopback, and `file://` URIs; add optional `allowedDomains` config.
+- [ ] **`analyze_screenshot` path traversal** (T1-CRITICAL) — reject absolute paths; apply same `validateFilePath()` guard as `read_file`.
+- [ ] **`spawn()` timeout ignored** (T19-CRITICAL) — switch to `AbortController` + `signal` option for Playwright child process.
+- [ ] **`assertReadOnly` SQL blocklist** (T15/T1-CRITICAL) — replace blocklist regex with allowlist `^\s*(SELECT|EXPLAIN|DESCRIBE|SHOW|WITH|PRAGMA)\b`.
+- [ ] **Disposable leaks × 3** (T6-CRITICAL) — register `settings.ts:280` `onDidChangeConfiguration`, `agentCallbacks.ts:37` `flushTimer`, and `errorWatcher.ts:108` execution listener in `context.subscriptions`.
+
+**Should Have**:
+- [ ] **5 sync I/O → async** (T2-HIGH) — `embeddingIndex.ts:171`, `vectorStore.ts:274,297`, `agentMemory.ts:76,101`, vision tool executors → `fs.promises.*` / `workspace.fs`.
+- [ ] **MCP stdio `process.env`** (T1-HIGH) — whitelist env vars in `mcpManager.ts:285` spawn, same as run_playwright_code fix.
+- [ ] **Custom tool shell metacharacters** (T1-HIGH) — document required quoting convention or apply `shellQuote()` for `${SIDECAR_INPUT}` in `tools.ts:240`.
+- [ ] **SQLite table name injection** (T15-HIGH) — validate table names against `^[A-Za-z_][A-Za-z0-9_]*$` in `sqliteProvider.ts`.
+
+**Could Have**:
+- [ ] **`Array.shift()` ring-buffer** (T2-HIGH) — replace `_modelUsageLog.shift()` in `client.ts:145` with a fixed-size ring buffer.
+- [ ] **`npm audit` / `npm outdated`** (T5) — run as part of release CI; pin `better-sqlite3` and `pdf-parse` to latest safe versions.
+
+**Definition of Done**:
+- All Must Have items merged and green on CI
+- Zero new `eval()` / shell-mode `exec()` calls in changed files
+- `screenshot_page` rejects `169.254.169.254` and `localhost` URLs in a new integration test
+- `db_execute` write tested end-to-end in audit-treeview flow
+- Coverage ≥80/70/80/80 maintained
+
+---
+
+### v0.81 — Architecture Integrity + NoSQL MCP
+
+**Sprint Goal**: *Deliver NoSQL database connectivity while dismantling the three structural CRITICAL issues — global config singleton, unstructured agent run IDs, and silent policy-hook failures — that make the agent loop unauditable and hard to unit-test.*
+
+**Must Have**:
+- [ ] **NoSQL via MCP feature** — MongoDB + Redis MCP servers ship with install paths. Spec: [Database Integration Tier 3](#first-class-database-integration-sql--nosql).
+- [ ] **Agent run ID** (T24-CRITICAL) — generate a `crypto.randomUUID()` at loop entry; thread into every `AgentLogger` call, hook invocation, and RPC trace entry; emit structured `{ runId, tool, outcome }` audit records.
+- [ ] **Policy hook failure halts loop** (T24-CRITICAL) — elevate hook errors from `console.warn` to a `policy-enforcement-failure` structured event that halts the loop with a mandatory user-facing alert.
+- [ ] **`getConfig()` singleton coupling** (T16-CRITICAL) — inject a typed config object at activation; pass through constructors and `AgentOptions`; unblock unit tests that currently stub a global.
+
+**Should Have**:
+- [ ] **O(p × f) pinned-file scan** (T27-CRITICAL) — pre-build `Map<prefix, FileNode[]>` at `setPinnedPaths` time; reduce per-turn cost from O(p × f) to O(p).
+- [ ] **API call audit log** (T17-CRITICAL) — log per-turn request metadata `{ runId, model, inputTokens, stopReason, timestamp }` to `.sidecar/logs/api.jsonl`; gated behind `sidecar.verboseLogs` for prompt bodies.
+- [ ] **MCP capability allowlist** (T25-CRITICAL) — add `toolAllowlist` field to MCP server config; reject tools at registration time if not allowlisted.
+- [ ] **`extension.ts` decomposition** (T3-HIGH) — extract `activationCore.ts`, `indexing/initializer.ts`, `config/providerSetup.ts`, `commands/*.ts`; target ≤150-line entry point.
+- [ ] **`FlatVectorStore` O(n²) realloc** (T27-HIGH) — exponential growth strategy for `Float32Array` capacity; eliminate per-upsert full copy.
+- [ ] **`workspaceIndex.rankFiles` O(q×p×t) loop** (T27-HIGH) — replace substring tests with `Set` membership checks.
+- [ ] **`symbolGraph.getSupertypes` full scan** (T27-HIGH) — build `Map<childName, TypeEdge[]>` reverse index in `addFile()`.
+
+**Could Have**:
+- [ ] **BFS `Array.shift()` → ring-buffer deque** (T27-HIGH) — `graphExpansion.ts:99`.
+- [ ] **`AgentLogger.logToolResult` redaction** (T17-HIGH) — pass output through `redactSecrets()` before logging.
+- [ ] **15 identical `catch` blocks** (T3-HIGH) — extract `formatToolError(context, err)` helper in `tools/shared.ts`.
+- [ ] **docs/index.html WCAG AA contrast** (T14-CRITICAL) — fix `.mode-custom` orange text (3.9:1 → ≥4.5:1), `--text-3` label color (2.55:1 → ≥4.5:1), CTA button coral (3.3:1 → ≥4.5:1).
+- [ ] **docs/index.html `@media` queries** (T10-CRITICAL) — collapse feature grid to single column ≤768px.
+- [ ] **`prefers-reduced-motion` guard** (T11/T12-CRITICAL) — blanket `animation-duration: 0.01ms` in `chat.css` and docs ticker.
+
+**Definition of Done**:
+- All Must Have items merged and CI green
+- `runId` appears in every logged tool invocation (verified by a new unit test)
+- Policy hook crash test: hook that throws → loop halts + user-facing alert fires
+- Config singleton removed from at least 10 call sites; no new `getConfig()` calls in changed files
+- Coverage ≥80/70/80/80 maintained
+
+---
+
+### v0.82 — AI Quality + NotebookLM
+
+**Sprint Goal**: *Fix the AI engine's three fundamental accuracy bugs — token counting, prompt cache placement, and image context growth — then ship NotebookLM research mode.*
+
+**Must Have**:
+- [ ] **NotebookLM research mode feature** — `/notebook` mode with mandatory inline citations, multi-source indexing, five study-aid generators. Spec: [NotebookLM-Style Source-Grounded Research Mode](#notebooklm-style-source-grounded-research-mode).
+- [ ] **`CHARS_PER_TOKEN = 4` heuristic** (T28-CRITICAL) — consume `usage.input_tokens` / `usage.output_tokens` from API responses for post-hoc accuracy; add per-script-type ratio for pre-request estimation (CJK ~1.5, code ~2.5, English ~4.0).
+- [ ] **Image `ContentBlock` compression bypass** (T22-CRITICAL) — at `heavy` compression level replace image blocks with `[image: <mediaType>, ~<sizeKB>KB — dropped for context budget]` placeholder; preserve at `light` only.
+
+**Should Have**:
+- [ ] **Prompt cache boundary** (T28-HIGH) — move `cache_control: { type: 'ephemeral' }` marker to last content block of second-to-last *assistant* message so the final user message provides the required 1,024-token non-cached suffix; add test asserting `cache_creation_input_tokens > 0`.
+- [ ] **System prompt budget fraction** (T28-HIGH) — measure actual assembled system prompt size post-injection; reserve that size + 15% headroom instead of a flat 50% of context window.
+- [ ] **Embedding model coupling** (T28-HIGH) — store `{ modelId, dimension }` in cache header; invalidate + re-index automatically when either changes.
+- [ ] **Compression first-turn anchor** (T28-MEDIUM) — mark `messages[0]` and state-establishing tool results (`git_clone`, `npm install`) as compression-immune.
+- [ ] **`agentMemory` file split per-turn** (T27-MEDIUM) — memoize line-split results by `(filePath, mtime)` in `semanticRetriever.ts:155`.
+
+**Could Have**:
+- [ ] **Model context window dynamic query** (T28-MEDIUM) — query `/api/show` (Ollama) or `/v1/models/{id}` (cloud) on first use; warn when falling back to hardcoded values.
+- [ ] **`supportsTemperature` regex** (T28-MEDIUM) — invert to an explicit allowlist; default-disable temperature for unrecognized Claude model IDs.
+- [ ] **`SpendTracker` persistence** (T21-HIGH) — write to `.sidecar/logs/spend.jsonl` on each turn; restore on activation.
+- [ ] **`MetricsCollector` 100-run cap** (T21-HIGH) — replace with rolling JSONL log; expose last-N-days aggregation.
+
+**Definition of Done**:
+- Token count test: Qwen-style CJK prompt → estimated tokens within 15% of API-returned count
+- Image context test: conversation with a screenshot → after heavy compression, image block absent from context
+- NotebookLM: `/notebook` command enters source-grounded mode with mandatory citation in a golden test
+- Cache test: Anthropic backend test asserts `cache_creation_input_tokens > 0` on turn 2+
+- Coverage ≥80/70/80/80 maintained
+
+---
+
+### v1.0 — General Availability
+
+**Sprint Goal**: *Reach sustained 80/70/80/80 coverage, decompose the last two god modules, clear all remaining known CRITICALs, and ship a public skill marketplace.*
+
+**Must Have**:
+- [ ] **`extension.ts` decomposition** (T3-HIGH, if not done in v0.81) — ≤150-line entry point
+- [ ] **`chatView.ts` decomposition** (T3) — currently 0% coverage; decomposition unlocks testability
+- [ ] **Coverage ≥80/70/80/80 sustained** — final lift via `chatView.ts` + `extension.ts` tests
+- [ ] **CLAUDE.md refresh** — sync architectural notes to post-v0.82 reality
+- [ ] **Unused-export sweep** — remove every dead `export` confirmed by tooling
+- [ ] **Remaining CRITICAL/HIGH audit findings** — triage any items not addressed in v0.80–v0.82; fix or explicitly defer with rationale
+
+**Should Have**:
+- [ ] **`docs/adr/` directory** (T26-MEDIUM) — create with lightweight ADR template; retroactively document 5 high-impact past decisions (vector backend, audit mode, facet RPC bus, shadow workspace design, tool approval gate)
+- [ ] **`deterministicOutput` field on `ToolDefinition`** (T28-LOW) — replace hardcoded `DEDUP_EXEMPT_TOOLS` set with registry-derived list
+- [ ] **Public skill marketplace** — Skill Sync & Registry goes live (originally targeted v0.64)
+
+**Could Have**:
+- [ ] GitHub Issues bidirectional linking to ROADMAP entries
+- [ ] Vision Shelf items promoted if scope fits: Semantic Time Travel · Semantic Agentic Search for Monorepos · MCP Marketplace
+
+**Definition of Done**:
+- CI green on all four coverage metrics ≥80/70/80/80 (stmts/branches/funcs/lines)
+- Zero known unaddressed CRITICAL findings in the Audit Archive
+- Marketplace listing live with ≥80% test coverage badge
+- All `🔜 vX.YY` entries in Cross-Cutting Themes resolved or explicitly deferred
+
+---
 
 ### Unscheduled / Vision Shelf
-Kept for future consideration — not promised to any specific release. See *Deferred* section below for brief rationale on each.
 
-- Semantic Time Travel · GPU-Native Hot-Swapping · GPU-Aware Load Balancing · Multi-repo cross-talk · Semantic Agentic Search for Monorepos · Selective Regeneration · Persistent Executive Function · LaTeX Agentic Debugging · Integrated LaTeX Preview & Compilation · Inline Edit Enhancement · Zen Mode Context Filtering · Dependency Drift Alerts · Most Enterprise & Collaboration entries · Voice Input · MCP Marketplace · Agentic Task Delegation via MCP · Model Comparison / Arena Mode · Real-time Code Profiling · Bitbucket/Atlassian integration · `maxCharsPerTurn` as a SideCarConfig setting (pending demand)
+Not promised to any specific release.
 
-Promoted to the release plan in this pass: Memory Guardrails + Auto Mode + Next Edit Suggestions + Adaptive Paste (v0.72 + v0.73) · `@sidecar/sdk` Extension API (v0.73).
+- Semantic Time Travel · GPU-Native Hot-Swapping · GPU-Aware Load Balancing · Multi-repo cross-talk · Semantic Agentic Search for Monorepos · Selective Regeneration · Persistent Executive Function · LaTeX Agentic Debugging · Integrated LaTeX Preview & Compilation · Inline Edit Enhancement · Zen Mode Context Filtering · Dependency Drift Alerts · Enterprise & Collaboration entries · Voice Input · MCP Marketplace · Agentic Task Delegation via MCP · Model Comparison / Arena Mode · Real-time Code Profiling · Bitbucket/Atlassian integration · `maxCharsPerTurn` as a `SideCarConfig` setting (pending demand)
 
 ---
 
@@ -56,9 +166,9 @@ Single-responsibility extraction for files over ~700 lines, using the same patte
 | `tools.ts` | was ~1,200 lines | ✅ decomposed in v0.47 |
 | `loop.ts` | was 1,216 lines → 255 lines | ✅ decomposed in v0.50 |
 | `chatHandlers.ts` | was 1,955 lines → 770 lines | ✅ decomposed in v0.57 |
-| `executor.ts` | 413-line `executeTool` in a ~900-line file | 🔜 v0.63 |
-| `settings.ts` | large and growing with each feature | 🔜 v0.64 |
-| `extension.ts` | 987 lines | 🔜 v1.0 |
+| `executor.ts` | ~900-line file, `executeTool` not yet extracted (T3-HIGH) | 🔜 v0.80 |
+| `settings.ts` | large and growing; domain split not done (T3-MEDIUM) | 🔜 v0.81 |
+| `extension.ts` | 1,792 lines (T3-HIGH) | 🔜 v1.0 |
 | `chatView.ts` | 695 lines, currently 0% coverage | 🔜 v1.0 (decomposition unlocks testability) |
 
 ### Theme 2 — Test-surface hardening
@@ -68,12 +178,12 @@ Shared mocks for `fs` / `os` / `workspace` / `child_process`; branch coverage fo
 | Track | Status / target |
 |---|---|
 | 3 host-dependent bugs closed | ✅ v0.58.0 (kickstand token × 2, `fs.statfsSync`) |
-| CI coverage ratchet | 🔜 v0.59 |
-| Shared test-helper module | 🔜 v0.65 |
-| Unit coverage for `src/agent/loop/` helpers (14 files, 3 covered today) | 🔜 v0.65 |
-| Eval harness: retriever fusion / cost warning / summarizer cap fixtures | 🔜 v0.62 |
-| Eval harness: auto-fix + critic paths | 🔜 v0.71 |
-| Subsystem unit tests (scheduler · eventHooks · lintFix · localWorker · inlineChatProvider) | 🔜 v0.65 |
+| CI coverage ratchet | ✅ v0.67 (80/70/80/80 floor reached and enforced) |
+| Eval harness: retriever fusion / cost warning / summarizer cap fixtures | ✅ v0.62 |
+| Eval harness: auto-fix + critic paths | ✅ v0.71 |
+| Shared test-helper module (`stubLoopState()`, `stubToolContext()` typed factories) | 🔜 v0.80 (T3-MEDIUM: 30+ `as unknown as X` cast sites) |
+| Unit coverage for `src/agent/loop/` helpers | 🔜 v0.80 |
+| Subsystem unit tests (scheduler · eventHooks · lintFix · localWorker · inlineChatProvider) | 🔜 v0.81 |
 
 ### Theme 3 — Boilerplate reduction
 
@@ -81,45 +191,37 @@ Collapse duplicated plumbing: tool registration, backend retry/breaker/rate-limi
 
 | Track | Status / target |
 |---|---|
-| Shell execution unification (`ShellSession` / `run_command` / `TerminalErrorWatcher` / execAsync) | 🔜 v0.59 |
-| Backend abstraction maturity (`sidecarFetch` with shared retry / breaker / rate-limit / allowlist) | 🔜 v0.64 |
-| Tool-registration DSL (replace `{ definition, executor, requiresApproval }` triples) | 🔜 v0.66 |
-| Handler registry pattern (webview/handlers typed-message-kind → handler map) | 🔜 v0.66 |
-| `ollama/types.ts` split into `types/{messages,tools,streaming,usage}.ts` | 🔜 v0.69 |
-| `settings.ts` split into domain modules | 🔜 v0.64 |
+| `ollama/types.ts` split into `types/{messages,tools,streaming,usage}.ts` | ✅ v0.69 |
+| Shell execution unification (`ShellSession` / `run_command` / `TerminalErrorWatcher` / execAsync) | 🔜 v0.80 (T3-HIGH: still diverged post-v0.59) |
+| Tool-registration DSL — 15+ identical `catch (err) { return \`Failed: ${err}\` }` blocks (T3-HIGH) | 🔜 v0.80 |
+| Backend abstraction maturity (`sidecarFetch` with shared retry / breaker / rate-limit / allowlist) | 🔜 v0.81 |
+| Handler registry pattern (webview/handlers typed-message-kind → handler map) | 🔜 v0.81 |
+| `settings.ts` split into domain modules (T3-MEDIUM) | 🔜 v0.81 |
 
 ---
 
 ## Coverage Plan
 
-**Current (v0.62.0)**: +133 tests for v0.62 (PKI Phase 2 + RAG-eval arc + Merkle arc), 2291 tests / 142 files. Aggregate coverage ratchet still at 61/53/61/62 — no bump this release; backend-coverage harmonization that would have driven it up was deferred to v0.63. The new RAG-eval ratchet is a parallel gate: retrieval quality is pinned at `meanPrecisionAtK ≥ 0.45`, `meanRecallAtK ≥ 0.95`, `meanF1AtK ≥ 0.55`, `meanReciprocalRank ≥ 0.90` against a baseline of 0.49/1.00/0.59/0.94. (v0.61 baseline: 61.79/54.06/61.80/62.63 / 2158 tests.)
+**Current (v0.79.0)**: 80/70/80/80 floor reached in v0.67 and maintained through v0.79. RAG-eval ratchet active since v0.62: `meanPrecisionAtK ≥ 0.45`, `meanRecallAtK ≥ 0.95`, `meanF1AtK ≥ 0.55`, `meanReciprocalRank ≥ 0.90`.
 
-**Target**: 80% stmts · 70% branches · 80% funcs · 80% lines (the 80/70/80/80 split reflects that branch coverage is harder to pay for — error paths, concurrent races, partial failures — so it carries a lower bar).
+**Target**: ≥80/70/80/80 (stmts/branches/funcs/lines) maintained. Branch coverage carries a lower floor because error paths, concurrent races, and partial failure modes are legitimately harder to exercise.
 
-### Per-release coverage targets
+### Per-release coverage targets (v0.80 onwards)
 
-| Release | Target (stmts/branch/funcs/lines) | Expected delta | Focus |
-|---|---|---|---|
-| v0.59 | ≥63/55/62/63 | +1–2 pp (mostly "free" from `*/types.ts` exclusion) | CI ratchet setup |
-| v0.60 | ≥65/57/64/65 | +2 pp | `src/review/` |
-| v0.61 | ≥67/59/66/67 | +2 pp | `parsing/treeSitterAnalyzer.ts` (0% → ≥80%) |
-| v0.62 | ≥70/62/69/70 | +3 pp | backends (fireworks/groq/openai) |
-| v0.63 | ≥72/64/71/72 | +2 pp | executor/ decomposition |
-| v0.64 | ≥74/66/73/74 | +2 pp | kickstandBackend + hfSafetensorsImport |
-| v0.65 | ≥78/68/77/78 | +4 pp — biggest single-release jump | loop/ helpers + chatHandlers + subsystems |
-| v0.66 | ≥80/70/79/80 | +2 pp | webview handlers |
-| v0.67 | ≥80/70/80/80 — **target band hit** | +0–1 pp | terminal/errorWatcher |
-| v0.68 | ≥80/70/80/80 | maintenance | `src/github/api.ts` + `src/review/*` |
-| v0.69–v0.82 | steady ≥80/70/80/80 | maintenance | opportunistic per feature |
-| v1.0 | sustained ≥80/70/80/80 | final lift | `chatView.ts` decomposition + `extension.ts` |
+| Release | Target (stmts/branch/funcs/lines) | Focus |
+|---|---|---|
+| v0.80 | ≥80/70/80/80 | New security fixes covered; shared test helpers for loop/ and lintFix |
+| v0.81 | ≥80/70/80/80 | Subsystem unit tests for scheduler · eventHooks · inlineChatProvider |
+| v0.82 | ≥80/70/80/80 | NotebookLM and compression path branch coverage |
+| v1.0 | sustained ≥80/70/80/80 | `chatView.ts` decomposition + `extension.ts` split |
 
 ### Enforcement mechanisms
 
-1. **CI ratchet** (v0.59): `vitest run --coverage.thresholds.stmts=62 --branches=54 --funcs=61 --lines=62` with thresholds bumped every release. Drops fail CI.
-2. **New-code policy** (v0.59): every new file lands with ≥80% coverage by policy; per-PR coverage-diff check in CI (codecov-style) blocks merges that add uncovered code.
-3. **Denominator hygiene** (v0.59): exclude `*/types.ts`, `*/constants.ts`, `src/__mocks__/**` from coverage — structural, not behavioral.
-4. **Quarterly coverage-gap triage**: review remaining zero-coverage files with explicit decision per file — "test it" / "refactor-then-test" / "exclude with rationale in `vitest.config.ts`".
-5. **Branch coverage deserves its own attention**: 53.51% branches is the worst current metric. Error-path coverage gaps hide real bugs. Every new test suite deliberately covers the error branches, not just happy paths.
+1. **CI ratchet**: `vitest run --coverage.thresholds.stmts=80 --branches=70 --funcs=80 --lines=80`. Drops fail CI.
+2. **New-code policy**: every new file lands with ≥80% coverage; per-PR coverage-diff check blocks merges that add uncovered code.
+3. **Denominator hygiene**: exclude `*/types.ts`, `*/constants.ts`, `src/__mocks__/**` from coverage — structural, not behavioral.
+4. **Quarterly coverage-gap triage**: review remaining zero-coverage files — "test it" / "refactor-then-test" / "exclude with rationale in `vitest.config.ts`".
+5. **Branch coverage attention**: error-path and concurrent-race branches are the remaining gap. Every new test suite deliberately covers error branches, not just happy paths.
 
 ---
 
