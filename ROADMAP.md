@@ -1430,7 +1430,7 @@ Historical audit cycles in reverse-chronological order. Cycle-3 findings (v0.58.
 
 ### Cycle-4 audit — comprehensive quality pass (post-v0.79.0, 2026-04-21)
 
-Twenty-six-track audit launched after v0.79.0. All 26 tracks completed 2026-04-21. Findings folded into v0.80 refactor beat and individual backlog items below.
+Twenty-seven-track audit launched after v0.79.0. All 27 tracks completed 2026-04-21. Findings folded into v0.80 refactor beat and individual backlog items below.
 
 ---
 
@@ -1923,6 +1923,20 @@ Scope: release cadence discipline · Definition of Done enforcement gaps · tech
 - **MEDIUM** Estimation is absent. `ROADMAP.md:11` defines a "1–2 features per release" target as a scope guideline, but there are no story points, no planning poker outputs, no capacity allocations, and no "estimated vs. actual" data anywhere in the project artifacts. `scripts/bump-version.sh:40–50` collects tool count, test count, and skill count as metrics, but not effort data. Contributors have no basis for estimating their own work. Fix: add a `## Effort` field to the ROADMAP feature spec template (e.g., "estimate: M / L / XL") and track actuals in the CHANGELOG entry.
 - **MEDIUM** Architecture Decision Records (ADRs) are embedded in `ROADMAP.md` feature specs (lines 169–266) as 1–2 KB prose narratives that document *what was built* but not *alternatives considered* or *trade-offs accepted*. No `docs/adr/` directory exists. The architectural context in `CLAUDE.md:46–220` documents post-implementation rationale only. Fix: create `docs/adr/` with a lightweight ADR template (Context / Decision / Alternatives / Consequences) and retroactively add 3–5 ADRs for the highest-impact past decisions (vector backend selection, audit mode design, facet RPC bus).
 - **LOW** The GitHub Issues auto-labeling workflow at `.github/workflows/issue-triage.yml:1–69` labels issues automatically but does not link them to ROADMAP milestones or sprint cycles. ROADMAP prose and GitHub Issues are completely decoupled — there are no Issue numbers in CHANGELOG or ROADMAP entries. Fix: add a `## Related Issues` field to CHANGELOG entries and link each ROADMAP feature to one or more GitHub Issue numbers so the backlog is bidirectionally navigable.
+
+---
+
+#### Track 27 — Algorithms & Data Structures ✅
+
+Scope: algorithmic complexity in hot paths (context assembly, retrieval, graph expansion) · O(n²) patterns where O(n) or O(n log n) is achievable · Array.shift() queue anti-patterns · unbounded array growth · redundant file splits · missing reverse-index lookups across `src/config/workspaceIndex.ts`, `src/config/symbolGraph.ts`, `src/config/vectorStore.ts`, `src/agent/loop/cycleDetection.ts`, `src/agent/retrieval/semanticRetriever.ts`, and `src/agent/retrieval/graphExpansion.ts`.
+
+- **CRITICAL** Pinned file discovery in `src/config/workspaceIndex.ts:454–459` runs an O(p × f) nested scan — one outer loop over pinned paths and one inner scan over all workspace files — on every agent turn during context assembly. With 5,000+ files and several pinned paths this exceeds 25M `startsWith` comparisons per turn. Fix: at `setPinnedPaths` time pre-build a prefix-sorted array (or a `Map<prefix, FileNode[]>`) so the per-turn lookup reduces to O(f) with early termination or O(p) Map lookups.
+- **HIGH** `src/config/vectorStore.ts:179–183` allocates a new `Float32Array` and copies the entire vector matrix on every symbol upsert — O(n) per insertion, O(n²) total across n symbols. On workspaces with 50k+ symbols, full index builds require billions of element copies. Fix: use an exponential growth strategy (capacity ×1.5) to amortize copies to O(log n) total reallocations, analogous to how `Array.push` works internally.
+- **HIGH** File-scoring in `src/config/workspaceIndex.ts:677–688` executes a cubic O(q × p × t) inner loop: for each query word `qw` and each path token `pt`, it calls `pt.includes(qw)` and `qw.includes(pt)` — two string-in-string substring scans per pair. Called on every retrieval query (multiple times per agent turn). Fix: normalize both token sets to a `Set<string>` and replace substring tests with Set membership and prefix-match checks, reducing the inner work to O(1) per pair.
+- **HIGH** `src/config/symbolGraph.ts:275–282` scans all files' type-edge arrays linearly to find supertypes by name — O(f × e) where f = files and e = average edges per file. The symbol graph already uses `Map` reverse indexes for import and call edges; `getSupertypes` is missing the same pattern. Fix: build a `Map<childName, TypeEdge[]>` reverse index in `addFile()` so `getSupertypes` resolves in O(1).
+- **HIGH** BFS graph expansion in `src/agent/retrieval/graphExpansion.ts:99` uses `queue.shift()` as the dequeue operation — O(n) per call because JavaScript `Array.shift` slides all remaining elements. Fires on every retrieval query when `maxDepth > 0` (default). Fix: replace the array with a ring-buffer deque (head/tail index pointers, modulo capacity) to reduce each dequeue to O(1).
+- **MEDIUM** `src/agent/loop/cycleDetection.ts:79` maintains the `recentToolCalls` sliding window by calling `Array.shift()` to evict the oldest entry. The window is capped at 8 entries so the per-call cost is bounded, but shift() copies 7 elements on every eviction that fires every agent iteration across the entire run. Fix: replace the array with a fixed-size ring buffer using a modulo write-pointer — O(1) eviction, zero copying.
+- **MEDIUM** `src/agent/retrieval/semanticRetriever.ts:155` splits the full file content on newlines for every symbol hit returned from the index — if 10 symbols in a 10,000-line file are retrieved, the file is split 10 times. Fix: memoize the split result keyed by `(filePath, mtime)` so each file is split at most once per retrieval query regardless of how many symbol hits it produces.
 
 ---
 
