@@ -37,8 +37,8 @@ Compiled 2026-04-21 from 28-track Cycle-4 audit (26 CRITICAL, 66 HIGH findings) 
 - [x] **SQLite table name injection** (T15-HIGH) — `validateIdentifier()` in `sqliteProvider.ts` rejects names not matching `^[A-Za-z_][A-Za-z0-9_]*$` before PRAGMA interpolation.
 
 **Could Have**:
-- [ ] **`Array.shift()` ring-buffer** (T2-HIGH) — replace `_modelUsageLog.shift()` in `client.ts:145` with a fixed-size ring buffer.
-- [ ] **`npm audit` / `npm outdated`** (T5) — run as part of release CI; pin `better-sqlite3` and `pdf-parse` to latest safe versions.
+- [x] **`Array.shift()` ring-buffer** (T2-HIGH) — `_modelUsageRing` fixed-size array with `_modelUsageHead` / `_modelUsageCount`; `pushModelUsageLog` is now O(1). `getModelUsageLog()` reconstructs oldest-first snapshot in O(n).
+- [x] **`npm audit` / `npm outdated`** (T5) — `@typescript-eslint/*`, `vitest`, `prettier`, `eslint`, `@types/vscode` bumped to latest. `better-sqlite3` and `pdf-parse` already at latest. 4 remaining vulnerabilities in `serialize-javascript` (via `@vscode/test-cli → mocha`) require breaking downgrade of `@vscode/test-cli` to 0.0.11 — deferred to v0.81; dev-only dep, not shipped in .vsix.
 
 **Definition of Done**:
 - All Must Have items merged and green on CI
