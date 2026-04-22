@@ -1430,7 +1430,7 @@ Historical audit cycles in reverse-chronological order. Cycle-3 findings (v0.58.
 
 ### Cycle-4 audit — comprehensive quality pass (post-v0.79.0, 2026-04-21)
 
-Fourteen-track audit launched after v0.79.0. All 14 tracks completed 2026-04-21. Findings folded into v0.80 refactor beat and individual backlog items below.
+Fifteen-track audit launched after v0.79.0. All 15 tracks completed 2026-04-21. Findings folded into v0.80 refactor beat and individual backlog items below.
 
 ---
 
@@ -1732,6 +1732,21 @@ Scope: palette structure, 60-30-10 distribution, semantic role consistency, WCAG
 - **HIGH** `coral → purple → blue` gradient applied to `h1`, `.stat-num`, `.req-dot`, and `.nav-logo` — four elements at four scales. Gradient exclusivity is the source of its hierarchy signal; when it appears everywhere it signals nothing. Fix: reserve gradient for `h1` only; `.stat-num` → `--coral` solid; `.req-dot` → `--coral` solid.
 - **MEDIUM** `.check` (hollow blue ring) vs `.check-bold` (solid coral fill) in comparison table — color + fill differentiates "has feature" vs "leads in feature," but deuteranopia collapses blue and coral toward similar hues. The solid/hollow distinction provides partial non-color signal. Fix: increase `.check-bold` from 20px to **24px** for size-based differentiation independent of color.
 - **LOW** Color scheme (split-complementary: coral + blue + purple) is well-chosen and coherent for a developer tool. No structural change recommended.
+
+---
+
+#### Track 15 — Database Layer (SQL) ✅
+
+Scope: SQL injection · read-only enforcement · query parameterization · N+1 patterns · synchronous I/O · timeout enforcement · approval gates · result accuracy across `src/db/` and `src/agent/tools/database.ts`.
+
+- **CRITICAL** `assertReadOnly()` in `src/db/provider.ts:66` uses a blocklist regex: `/^\s*(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|GRANT|REVOKE)\b/i`. Bypassable with SQL comment injection — `DR/**/OP TABLE foo` matches no blocked keyword. Fix: replace blocklist with an allowlist matching `^\s*(SELECT|EXPLAIN|DESCRIBE|SHOW|WITH|PRAGMA)\b`.
+- **HIGH** `src/db/sqliteProvider.ts` — table names string-interpolated directly into PRAGMA and COUNT queries: `PRAGMA table_info("${table}")`, `SELECT COUNT(*) as cnt FROM "${row.name}"`. A table name containing `"` breaks the query; a crafted name can escape the quote context. Fix: validate table names against `sqlite_master` before interpolating, or use SQLite's `quote()` scalar function.
+- **HIGH** SQLite provider uses synchronous `better-sqlite3` throughout — blocks the extension host event loop for the full duration of every query. The `timeoutMs` parameter is accepted by the `query()` signature but never enforced (SQLite has no native statement timeout). Fix: run queries in a worker thread via `worker_threads`, or enforce a row-count pre-flight limit tied to `timeoutMs`.
+- **MEDIUM** `QueryResult.rowCount` is set to `rows.length` after the slice — reports the truncated count, not the total. When `truncated: true` the caller has no way to know how many rows the full result contained. Fix: set `rowCount` to `rawRows.length` (pre-truncation total) in both `sqliteProvider.ts` and `postgresProvider.ts`.
+- **MEDIUM** `postgresProvider.ts:listTables` issues N+1 queries — one `pg_class`-backed COUNT per table. On a 100-table schema this is 101 round trips. Fix: batch with a single `SELECT relname, reltuples::bigint FROM pg_class WHERE relkind='r'` joined to the table list in one query.
+- **MEDIUM** `SET statement_timeout = ${opts.timeoutMs}` in `postgresProvider.ts` interpolates an integer directly. TypeScript currently types it as `number`, but if the type widens or the value is `NaN`/`Infinity` the interpolation silently emits invalid SQL. Fix: guard with `Number.isInteger(opts.timeoutMs) && opts.timeoutMs > 0` before interpolating.
+- **LOW** `db_query` tool in `database.ts` has `requiresApproval: false` — the agent executes arbitrary SQL against user databases without an approval prompt. Read-only enforcement provides a safety net, but users connecting production databases may not expect silent query execution. Consider `requiresApproval: true` by default with a `sidecar.db.autoApproveQueries` opt-out flag.
+- **LOW** `postgresProvider.ts` sets `SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY` at connect time — solid defense in depth on top of `assertReadOnly()`. This layering is intentional but undocumented; add an inline comment so a future reader does not remove the session-level enforcement thinking `assertReadOnly()` makes it redundant.
 
 ---
 
