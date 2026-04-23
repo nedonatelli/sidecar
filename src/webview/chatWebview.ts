@@ -177,7 +177,10 @@ export interface ExtensionMessage {
     | 'uiSettings'
     | 'injectPrompt'
     | 'autoModeTaskUpdate'
-    | 'autoModeDone';
+    | 'autoModeDone'
+    | 'setActiveBackendProfile';
+  /** Active backend profile id sent with 'setActiveBackendProfile'. */
+  activeBackendProfileId?: string | null;
   agentMode?: string;
   toolName?: string;
   toolCallId?: string;

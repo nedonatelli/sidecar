@@ -12,7 +12,7 @@ import {
   type TextToolCallState,
 } from './streamUtils.js';
 import { getConfig } from '../config/settings.js';
-import { TOOL_FAILURE_THRESHOLD, MODEL_PROBE_BATCH_SIZE } from '../config/constants.js';
+import { TOOL_FAILURE_THRESHOLD, MODEL_PROBE_BATCH_SIZE, LOCAL_CONTEXT_CAP } from '../config/constants.js';
 
 // ---------------------------------------------------------------------------
 // Tool support detection
@@ -325,7 +325,12 @@ export class OllamaBackend implements ApiBackend {
   ): AsyncGenerator<StreamEvent> {
     const { agentTemperature, ollamaNumCtx } = getConfig();
     const probedNumCtx = numCtxCache.get(model) ?? null;
-    const numCtx = ollamaNumCtx ?? Math.max(probedNumCtx ?? 0, 32_768);
+    // Clamp to [32 768, LOCAL_CONTEXT_CAP] when the user hasn't pinned a value.
+    // Without the upper cap, models with a large native context (e.g. Gemma4's 128 K)
+    // cause Ollama to allocate an enormous KV cache that OOMs or stalls past the
+    // first-token timeout on consumer hardware. Users who need a larger window can
+    // set sidecar.ollamaNumCtx explicitly to override.
+    const numCtx = ollamaNumCtx ?? Math.min(Math.max(probedNumCtx ?? 0, 32_768), LOCAL_CONTEXT_CAP);
     const options: Record<string, unknown> = { temperature: agentTemperature, num_ctx: numCtx };
     const body: Record<string, unknown> = {
       model,

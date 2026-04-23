@@ -22,7 +22,7 @@ import type { SidecarDir } from '../config/sidecarDir.js';
 import type { SkillLoader } from '../agent/skillLoader.js';
 import { CHARS_PER_TOKEN } from '../config/constants.js';
 import type { InlineEditProvider } from '../edits/inlineEditProvider.js';
-import { getConfig } from '../config/settings.js';
+import { getConfig, detectActiveProfile } from '../config/settings.js';
 import { DocumentationIndexer } from '../config/documentationIndexer.js';
 import { AgentMemory } from '../agent/agentMemory.js';
 import { PinnedMemoryStore } from '../agent/memory/pinnedMemory.js';
@@ -234,6 +234,11 @@ export class ChatViewProvider implements WebviewViewProvider {
         }
         if (e.affectsConfiguration('sidecar.modelRouting')) {
           this.state.refreshModelRouter();
+        }
+        // Keep the hamburger checkmark in sync when the backend changes via
+        // any path (new-chat window, VS Code settings, sidecar.switchBackend).
+        if (e.affectsConfiguration('sidecar.baseUrl') || e.affectsConfiguration('sidecar.provider')) {
+          this.pushActiveBackendProfile();
         }
       }),
     );
@@ -638,11 +643,24 @@ export class ChatViewProvider implements WebviewViewProvider {
     return this.state.client;
   }
 
+  /** Push the currently-active backend profile id to the webview so the
+   *  hamburger menu checkmark stays in sync regardless of which code path
+   *  changed the backend (hamburger, new-chat window, VS Code settings). */
+  public pushActiveBackendProfile(): void {
+    const cfg = getConfig();
+    const activeProfile = detectActiveProfile(cfg.baseUrl);
+    this.state.postMessage({
+      command: 'setActiveBackendProfile',
+      activeBackendProfileId: activeProfile?.id ?? null,
+    });
+  }
+
   /** Refresh the model list after a backend profile switch. */
   public reloadModels(): void {
     const cfg = getConfig();
     this.state.client.updateConnection(cfg.baseUrl, cfg.apiKey);
     void loadModels(this.state);
+    this.pushActiveBackendProfile();
     // If the active backend is OpenRouter, pull the catalog so the
     // cost tracker can price its full menagerie of fully-qualified
     // model ids (anthropic/claude-sonnet-4.5, openai/gpt-4o, etc.)

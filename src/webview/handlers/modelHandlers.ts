@@ -9,6 +9,7 @@ import {
   modelSupportsTools,
   probeModelToolSupport,
   probeAllModelToolSupport,
+  getCachedOllamaNumCtx,
   deleteOllamaModel,
 } from '../../ollama/ollamaBackend.js';
 import {
@@ -59,12 +60,23 @@ export async function loadModels(state: ChatState): Promise<void> {
       await probeAllModelToolSupport(config.baseUrl, installedNames);
     }
 
-    const modelsUI: LibraryModelUI[] = libraryModels.map((m) => ({
-      name: m.name,
-      installed: m.installed,
-      supportsTools: modelSupportsTools(m.name),
-      contextLength: m.contextLength ?? null,
-    }));
+    const modelsUI: LibraryModelUI[] = libraryModels.map((m) => {
+      // For Ollama models, /api/tags carries no context length. probeAllModelToolSupport
+      // already called /api/show for each installed model and cached the result, so
+      // prefer that; apply the same 32768 floor used in streamChat so the badge matches
+      // the actual num_ctx sent to Ollama. Uninstalled suggestions keep m.contextLength.
+      let contextLength = m.contextLength ?? null;
+      if (state.client.isLocalOllama() && m.installed) {
+        const probed = getCachedOllamaNumCtx(m.name);
+        contextLength = Math.max(probed ?? 0, 32_768);
+      }
+      return {
+        name: m.name,
+        installed: m.installed,
+        supportsTools: modelSupportsTools(m.name),
+        contextLength,
+      };
+    });
 
     state.postMessage({ command: 'setModels', models: modelsUI });
 
