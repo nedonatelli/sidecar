@@ -43,11 +43,18 @@ import { computeUnifiedDiff } from '../../agent/diff.js';
 
 export {
   isContinuationRequest,
+  isPlanApproval,
+  isPlanRejection,
+  isUndoRequest,
+  isCommitRequest,
+  isShowDiffRequest,
+  isDeferredAnswer,
   shouldAutoEnablePlanMode,
   classifyError,
   keywordOverlap,
   updateWorkspaceRelevance,
   prepareUserMessageText,
+  resolveNumberedListRef,
   languageToExtension,
 } from './messageUtils.js';
 

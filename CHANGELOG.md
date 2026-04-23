@@ -4,6 +4,41 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.81.0] - 2026-04-23
+
+**v0.81.0 — Conversational shortcuts, plan-mode fixes, and UI polish.**
+
+### Fixed
+
+- **Plan approval buttons never appeared** — `onPlanGenerated` was placed in the tool-use branch of the agent loop, but plan mode strips all tools on iteration 1 so the model always lands in the no-tool branch and broke out before the callback fired. Moved the check into the no-tool branch so Execute Plan / Revise / Reject buttons now render correctly every time
+- **Steer button stuck on "Send"** — `enqueueSteerFromInput` cleared `input.value` programmatically, which does not fire the `input` event, so `updateSendButton` was never called. Button now switches back to "Stop" immediately after a steer is queued
+
+### Added
+
+**Conversational shortcuts** — natural phrases route directly to actions without going through the agent loop:
+
+| Phrase (examples) | Action |
+|---|---|
+| `yes`, `sure`, `go ahead`, `proceed`, `approved` | Execute pending plan |
+| `no`, `cancel`, `scratch that`, `never mind` | Reject pending plan, clear state |
+| Any other message while a plan is pending | Revise plan with that text as feedback |
+| `undo`, `revert`, `revert that`, `rollback` | Undo agent file changes |
+| `commit it`, `commit the changes`, `lgtm` | Generate commit message |
+| `what changed`, `show diff`, `diff` | Replay change summary panel |
+| `I don't know`, `your call`, `up to you`, `whatever you think` | Inject "use best judgment and proceed" when agent asked a question |
+| `2`, `option 3`, `#1` | Select item from agent's last numbered list |
+
+- **List detection skips plan-mode auto-trigger** — a user message that already contains a bulleted or numbered list (≥ 2 items) is treated as a pre-written plan; plan mode is not auto-enabled
+- **Commit message template overhauled** — system prompt and user prompt fully rewritten: covers every valid conventional-commit type (`feat|fix|refactor|perf|docs|test|chore|ci|style|build`), requires one bullet per logical change naming functions/files/flags, adds "Why:" clause guidance for non-obvious changes, `BREAKING CHANGE:` paragraph rule, and a concrete example. Token limit raised 512 → 1024
+- **Default model changed to `gemma4:e4b`**
+
+### UX
+
+- **Input focus returns after steer** — cursor stays in the input after queuing a steer so the next steer can be typed immediately without clicking
+- **Escape clears input before aborting** — if the input contains text, Escape wipes it (first press); a second Escape with an empty input aborts the running agent
+- **Input placeholder reflects run state** — shows `"Steer the agent… Enter to nudge, ⌘+Enter to interrupt"` while a run is active; reverts to `"Ask SideCar…"` when idle
+- **Chat scrollbar removed** — `overflow: hidden` on `body` eliminates the ghost scrollbar caused by subpixel rounding between the header, messages container, and input area
+
 ## [0.80.4] - 2026-04-22
 
 ### Fixed

@@ -5,6 +5,12 @@ import {
   keywordOverlap,
   buildBaseSystemPrompt,
   shouldAutoEnablePlanMode,
+  isPlanApproval,
+  isPlanRejection,
+  isUndoRequest,
+  isCommitRequest,
+  isShowDiffRequest,
+  isDeferredAnswer,
   injectSystemContext,
   postLoopProcessing,
   handleCreateFile,
@@ -332,12 +338,17 @@ describe('shouldAutoEnablePlanMode', () => {
     expect(shouldAutoEnablePlanMode(longText, 0)).toBe(true);
   });
 
-  it('triggers on multiple numbered steps with sufficient length', () => {
+  it('does not trigger when message contains a numbered list (user already planned)', () => {
     const steps = '1. First do this\n2. Then that\n3. Finally this\n' + 'x'.repeat(500);
-    expect(shouldAutoEnablePlanMode(steps, 0)).toBe(true);
+    expect(shouldAutoEnablePlanMode(steps, 0)).toBe(false);
   });
 
-  it('does not trigger on numbered steps if text is short', () => {
+  it('does not trigger when message contains a bullet list (user already planned)', () => {
+    const bullets = '- Install deps\n- Run migrations\n- Deploy service\n' + 'x'.repeat(500);
+    expect(shouldAutoEnablePlanMode(bullets, 0)).toBe(false);
+  });
+
+  it('does not trigger on a short numbered list', () => {
     const steps = '1. A\n2. B\n3. C';
     expect(shouldAutoEnablePlanMode(steps, 0)).toBe(false);
   });
@@ -359,6 +370,280 @@ describe('shouldAutoEnablePlanMode', () => {
   it('is case insensitive', () => {
     expect(shouldAutoEnablePlanMode('REFACTOR everything', 0)).toBe(true);
     expect(shouldAutoEnablePlanMode('ARCHITECTURE review', 0)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isPlanApproval
+// ---------------------------------------------------------------------------
+describe('isPlanApproval', () => {
+  it('recognises common affirmations', () => {
+    for (const word of ['yes', 'yeah', 'yep', 'yup', 'sure', 'ok', 'okay']) {
+      expect(isPlanApproval(word)).toBe(true);
+    }
+  });
+
+  it('recognises action phrases', () => {
+    expect(isPlanApproval('go ahead')).toBe(true);
+    expect(isPlanApproval('do it')).toBe(true);
+    expect(isPlanApproval("let's go")).toBe(true);
+    expect(isPlanApproval('proceed')).toBe(true);
+    expect(isPlanApproval('execute the plan')).toBe(true);
+    expect(isPlanApproval('approved')).toBe(true);
+  });
+
+  it('is case-insensitive and allows trailing punctuation', () => {
+    expect(isPlanApproval('Yes.')).toBe(true);
+    expect(isPlanApproval('YES')).toBe(true);
+    expect(isPlanApproval('Sounds good.')).toBe(true);
+  });
+
+  it('rejects empty string', () => {
+    expect(isPlanApproval('')).toBe(false);
+  });
+
+  it('rejects slash commands', () => {
+    expect(isPlanApproval('/execute')).toBe(false);
+  });
+
+  it('rejects long sentences that happen to start with yes', () => {
+    expect(isPlanApproval('yes but I think we should also refactor the backend layer first')).toBe(false);
+  });
+
+  it('rejects unrelated short words', () => {
+    expect(isPlanApproval('no')).toBe(false);
+    expect(isPlanApproval('maybe')).toBe(false);
+    expect(isPlanApproval('what')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isPlanRejection
+// ---------------------------------------------------------------------------
+describe('isPlanRejection', () => {
+  it('recognises common rejections', () => {
+    for (const word of ['no', 'nope', 'nah', 'cancel', 'reject', 'stop', 'abort']) {
+      expect(isPlanRejection(word)).toBe(true);
+    }
+  });
+
+  it('recognises rejection phrases', () => {
+    expect(isPlanRejection('start over')).toBe(true);
+    expect(isPlanRejection('scratch that')).toBe(true);
+    expect(isPlanRejection('never mind')).toBe(true);
+    expect(isPlanRejection('forget it')).toBe(true);
+    expect(isPlanRejection("don't do it")).toBe(true);
+    expect(isPlanRejection('no thanks')).toBe(true);
+  });
+
+  it('is case-insensitive', () => {
+    expect(isPlanRejection('No')).toBe(true);
+    expect(isPlanRejection('CANCEL')).toBe(true);
+  });
+
+  it('rejects empty string', () => {
+    expect(isPlanRejection('')).toBe(false);
+  });
+
+  it('does not match approval words', () => {
+    expect(isPlanRejection('yes')).toBe(false);
+    expect(isPlanRejection('ok')).toBe(false);
+  });
+
+  it('does not match long sentences', () => {
+    expect(isPlanRejection('no I think we should try a completely different approach to this problem')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isUndoRequest
+// ---------------------------------------------------------------------------
+describe('isUndoRequest', () => {
+  it('recognises bare undo/revert', () => {
+    expect(isUndoRequest('undo')).toBe(true);
+    expect(isUndoRequest('revert')).toBe(true);
+    expect(isUndoRequest('rollback')).toBe(true);
+    expect(isUndoRequest('roll back')).toBe(true);
+  });
+
+  it('recognises qualified phrases', () => {
+    expect(isUndoRequest('undo that')).toBe(true);
+    expect(isUndoRequest('undo the changes')).toBe(true);
+    expect(isUndoRequest('revert it')).toBe(true);
+    expect(isUndoRequest('roll back the changes')).toBe(true);
+  });
+
+  it('is case-insensitive', () => {
+    expect(isUndoRequest('UNDO')).toBe(true);
+    expect(isUndoRequest('Revert That')).toBe(true);
+  });
+
+  it('rejects unrelated short words', () => {
+    expect(isUndoRequest('yes')).toBe(false);
+    expect(isUndoRequest('go')).toBe(false);
+  });
+
+  it('rejects long sentences', () => {
+    expect(isUndoRequest('undo all of the changes you made to the authentication module last turn')).toBe(false);
+  });
+
+  it('rejects slash commands', () => {
+    expect(isUndoRequest('/undo')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isCommitRequest
+// ---------------------------------------------------------------------------
+describe('isCommitRequest', () => {
+  it('recognises bare commit', () => {
+    expect(isCommitRequest('commit')).toBe(true);
+    expect(isCommitRequest('lgtm')).toBe(true);
+  });
+
+  it('recognises qualified phrases', () => {
+    expect(isCommitRequest('commit it')).toBe(true);
+    expect(isCommitRequest('commit the changes')).toBe(true);
+    expect(isCommitRequest('make a commit')).toBe(true);
+    expect(isCommitRequest('create commit')).toBe(true);
+  });
+
+  it('is case-insensitive', () => {
+    expect(isCommitRequest('COMMIT IT')).toBe(true);
+    expect(isCommitRequest('Commit the changes')).toBe(true);
+  });
+
+  it('rejects unrelated words', () => {
+    expect(isCommitRequest('yes')).toBe(false);
+    expect(isCommitRequest('undo')).toBe(false);
+  });
+
+  it('rejects long sentences', () => {
+    expect(isCommitRequest('commit all of the changes we made to the authentication layer')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isShowDiffRequest
+// ---------------------------------------------------------------------------
+describe('isShowDiffRequest', () => {
+  it('recognises common forms', () => {
+    expect(isShowDiffRequest('diff')).toBe(true);
+    expect(isShowDiffRequest('show diff')).toBe(true);
+    expect(isShowDiffRequest('what changed')).toBe(true);
+    expect(isShowDiffRequest('show changes')).toBe(true);
+    expect(isShowDiffRequest('what did you change')).toBe(true);
+    expect(isShowDiffRequest("what'd you do")).toBe(true);
+  });
+
+  it('is case-insensitive', () => {
+    expect(isShowDiffRequest('WHAT CHANGED')).toBe(true);
+    expect(isShowDiffRequest('Show Diff')).toBe(true);
+  });
+
+  it('rejects unrelated words', () => {
+    expect(isShowDiffRequest('commit')).toBe(false);
+    expect(isShowDiffRequest('yes')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isDeferredAnswer
+// ---------------------------------------------------------------------------
+describe('isDeferredAnswer', () => {
+  it('recognises common deferrals', () => {
+    expect(isDeferredAnswer("I don't know")).toBe(true);
+    expect(isDeferredAnswer('your call')).toBe(true);
+    expect(isDeferredAnswer('up to you')).toBe(true);
+    expect(isDeferredAnswer('whatever you think')).toBe(true);
+    expect(isDeferredAnswer('you decide')).toBe(true);
+    expect(isDeferredAnswer("it doesn't matter")).toBe(true);
+    expect(isDeferredAnswer('no preference')).toBe(true);
+    expect(isDeferredAnswer('use your best judgment')).toBe(true);
+  });
+
+  it('is case-insensitive', () => {
+    expect(isDeferredAnswer('Your Call')).toBe(true);
+    expect(isDeferredAnswer('UP TO YOU')).toBe(true);
+  });
+
+  it('rejects empty string', () => {
+    expect(isDeferredAnswer('')).toBe(false);
+  });
+
+  it('rejects definitive answers', () => {
+    expect(isDeferredAnswer('yes')).toBe(false);
+    expect(isDeferredAnswer('use TypeScript')).toBe(false);
+  });
+
+  it('rejects long sentences', () => {
+    expect(
+      isDeferredAnswer("I don't know the exact path but I think it might be in the config directory somewhere"),
+    ).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveNumberedListRef
+// ---------------------------------------------------------------------------
+import { resolveNumberedListRef } from './chatHandlers.js';
+
+describe('resolveNumberedListRef', () => {
+  const listMessage = {
+    role: 'assistant' as const,
+    content: '1. Refactor the auth module\n2. Add unit tests\n3. Update the docs',
+  };
+
+  it('resolves a bare number to the matching list item', () => {
+    const result = resolveNumberedListRef('2', [listMessage]);
+    expect(result).toContain('Add unit tests');
+    expect(result).toContain('item 2');
+  });
+
+  it('resolves "option N" form', () => {
+    const result = resolveNumberedListRef('option 1', [listMessage]);
+    expect(result).toContain('Refactor the auth module');
+  });
+
+  it('resolves "#N" form', () => {
+    const result = resolveNumberedListRef('#3', [listMessage]);
+    expect(result).toContain('Update the docs');
+  });
+
+  it('includes trailing prose in the expanded message', () => {
+    const result = resolveNumberedListRef('2 sounds good', [listMessage]);
+    expect(result).toContain('Add unit tests');
+    expect(result).toContain('sounds good');
+  });
+
+  it('returns null when no prior assistant message', () => {
+    expect(resolveNumberedListRef('1', [])).toBeNull();
+  });
+
+  it('returns null when the last assistant message has no numbered list', () => {
+    const plain = { role: 'assistant' as const, content: 'Sure, I can help with that.' };
+    expect(resolveNumberedListRef('1', [plain])).toBeNull();
+  });
+
+  it('returns null when index is out of range', () => {
+    expect(resolveNumberedListRef('9', [listMessage])).toBeNull();
+  });
+
+  it('returns null for a long message that happens to start with a digit', () => {
+    const long = '2 things need to change here: first the auth layer and then the DB schema';
+    expect(resolveNumberedListRef(long, [listMessage])).toBeNull();
+  });
+
+  it('returns null for a plain word that is not a number reference', () => {
+    expect(resolveNumberedListRef('refactor', [listMessage])).toBeNull();
+  });
+
+  it('uses the most recent assistant message, not an older one', () => {
+    const older = { role: 'assistant' as const, content: '1. Old item A\n2. Old item B' };
+    const newer = { role: 'assistant' as const, content: '1. New item X\n2. New item Y' };
+    const result = resolveNumberedListRef('1', [older, newer]);
+    expect(result).toContain('New item X');
+    expect(result).not.toContain('Old item A');
   });
 });
 

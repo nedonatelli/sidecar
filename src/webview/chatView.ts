@@ -29,6 +29,7 @@ import { PinnedMemoryStore } from '../agent/memory/pinnedMemory.js';
 import { AuditLog } from '../agent/auditLog.js';
 import { BackgroundAgentManager } from '../agent/backgroundAgent.js';
 import { wrapUntrustedTerminalOutput } from '../agent/injectionScanner.js';
+import { computeUnifiedDiff } from '../agent/diff.js';
 
 // Handler modules
 import {
@@ -46,6 +47,11 @@ import {
   handleRevertFile,
   handleAcceptAllChanges,
   handleDeleteMessage,
+  isPlanApproval,
+  isPlanRejection,
+  isUndoRequest,
+  isCommitRequest,
+  isShowDiffRequest,
 } from './handlers/chatHandlers.js';
 import { handleGitHubCommand } from './handlers/githubHandlers.js';
 import { loadModels, handleInstallModel } from './handlers/modelHandlers.js';
@@ -269,9 +275,57 @@ export class ChatViewProvider implements WebviewViewProvider {
       if (msg.images && msg.images.length > 0) {
         handleUserMessageWithImages(this.state, msg.text || '', msg.images);
         await handleUserMessage(this.state, '');
-      } else {
-        await handleUserMessage(this.state, msg.text || '');
+        return;
       }
+      const text = msg.text || '';
+      if (this.state.pendingPlan) {
+        if (isPlanApproval(text)) {
+          await handleExecutePlan(this.state);
+          return;
+        }
+        if (isPlanRejection(text)) {
+          this.state.pendingPlan = null;
+          this.state.pendingPlanMessages = [];
+          this.state.postMessage({
+            command: 'assistantMessage',
+            content: '\n\nPlan rejected. What would you like to do instead?',
+          });
+          this.state.postMessage({ command: 'done' });
+          return;
+        }
+        // Any other message while a plan is pending → treat as revision feedback.
+        await handleRevisePlan(this.state, text);
+        return;
+      }
+      if (isUndoRequest(text)) {
+        await handleUndoChanges(this.state);
+        return;
+      }
+      if (isCommitRequest(text)) {
+        await handleGenerateCommit(this.state);
+        return;
+      }
+      if (isShowDiffRequest(text)) {
+        if (this.state.changelog.hasChanges()) {
+          const changes = await this.state.changelog.getChangeSummary();
+          const summaryItems = changes
+            .map((c) => ({
+              filePath: c.filePath,
+              diff: computeUnifiedDiff(c.filePath, c.original, c.current),
+              isNew: c.original === null,
+              isDeleted: c.current === null,
+            }))
+            .filter((item) => item.diff.length > 0);
+          if (summaryItems.length > 0) {
+            this.state.postMessage({ command: 'changeSummary', changeSummary: summaryItems });
+            return;
+          }
+        }
+        this.state.postMessage({ command: 'assistantMessage', content: 'No changes recorded in this session.' });
+        this.state.postMessage({ command: 'done' });
+        return;
+      }
+      await handleUserMessage(this.state, text);
     },
     abort: () => this.state.abort(),
     changeModel: async (msg) => {

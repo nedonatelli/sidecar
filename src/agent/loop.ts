@@ -382,6 +382,13 @@ export async function runAgentLoop(
           }
         }
 
+        // Plan mode: tools were stripped on iteration 1 so the model
+        // always lands here (no tool calls). Emit the plan and stop.
+        if (options.approvalMode === 'plan' && state.iteration === 1 && fullText) {
+          callbacks.onPlanGenerated?.(fullText);
+          break;
+        }
+
         // Empty-response phase: the model produced no tool calls this
         // turn. Any hook that implements onEmptyResponse gets a chance
         // to inject a reprompt and keep the loop running (the completion
@@ -466,12 +473,6 @@ export async function runAgentLoop(
         fullText,
       };
       await hookBus.runAfter(state, afterCtx);
-
-      // Plan mode: return after first iteration for user approval.
-      if (options.approvalMode === 'plan' && state.iteration === 1 && fullText) {
-        callbacks.onPlanGenerated?.(fullText);
-        break;
-      }
 
       // Continue the loop — model will respond to tool results.
     }

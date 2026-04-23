@@ -1006,13 +1006,20 @@
     }
   });
 
-  // Global Escape key — abort processing or dismiss confirm/clarify cards
+  // Global Escape key — clear input first; abort only when input is already empty.
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
     // Don't handle if autocomplete is open (input handler manages that)
     if (!autocompleteEl.classList.contains('hidden')) return;
-    if (!isLoading) return;
     e.preventDefault();
+    if (input.value.trim().length > 0) {
+      input.value = '';
+      input.style.height = 'auto';
+      updateSendButton();
+      input.focus();
+      return;
+    }
+    if (!isLoading) return;
     vscode.postMessage({ command: 'abort' });
     setLoading(false);
   });
@@ -1686,6 +1693,8 @@
     vscode.postMessage({ command: 'steerEnqueue', text, steerUrgency: urgency });
     input.value = '';
     input.style.height = 'auto';
+    updateSendButton();
+    input.focus();
     return true;
   }
 
@@ -3267,10 +3276,22 @@
     }
   }
 
+  function updateInputPlaceholder() {
+    if (steerEnabled) {
+      input.placeholder = 'Steer the agent… Enter to nudge, ⌘+Enter to interrupt';
+    } else {
+      input.placeholder = 'Ask SideCar…';
+    }
+  }
+
   function setLoading(loading) {
     isLoading = loading;
     sendBtn.disabled = false;
     updateSendButton();
+    if (!loading) {
+      steerEnabled = false;
+      updateInputPlaceholder();
+    }
     const activityBar = document.getElementById('activity-bar');
     if (activityBar) activityBar.classList.toggle('hidden', !loading);
   }
@@ -3764,6 +3785,7 @@
         if (editingSteerId && !steerItems.some((s) => s.id === editingSteerId)) {
           editingSteerId = null;
         }
+        updateInputPlaceholder();
         renderSteerStrip();
         break;
       }

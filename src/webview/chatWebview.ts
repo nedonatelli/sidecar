@@ -463,7 +463,7 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
   <div id="auto-mode-strip" class="hidden" role="region" aria-label="Auto Mode progress"></div>
   <div id="input-area">
     <button id="attach-btn" data-tooltip="Attach file" aria-label="Attach file">&#128206;</button>
-    <textarea id="input" rows="1" placeholder="Ask SideCar..."></textarea>
+    <textarea id="input" rows="1" placeholder="Ask SideCar…"></textarea>
     <button id="send">Send</button>
   </div>
 

@@ -2,7 +2,7 @@
   "name": "sidecar-ai",
   "displayName": "SideCar",
   "description": "Autonomous AI agent for coding — run full agent loops with local Ollama, Anthropic Claude, or OpenAI models",
-  "version": "0.80.4",
+  "version": "0.81.0",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -69,13 +69,13 @@
           },
           "sidecar.model": {
             "type": "string",
-            "default": "qwen3-coder:30b",
+            "default": "gemma4:e4b",
             "order": 2,
             "tags": [
               "sidecar",
               "backend"
             ],
-            "markdownDescription": "Model to use for chat. Examples:\n\n- Ollama: `qwen3-coder:30b`, `deepseek-coder:33b`, `llama3.2:latest`\n- Anthropic: `claude-opus-4-6`, `claude-sonnet-4-5`, `claude-haiku-4-5`\n- OpenAI: `gpt-5`, `gpt-4o`, `gpt-4o-mini`\n\nPick keyboard-first with `SideCar: Select Model`."
+            "markdownDescription": "Model to use for chat. Examples:\n\n- Ollama: `gemma4:e4b`, `qwen3-coder:30b`, `deepseek-coder:33b`\n- Anthropic: `claude-opus-4-6`, `claude-sonnet-4-5`, `claude-haiku-4-5`\n- OpenAI: `gpt-5`, `gpt-4o`, `gpt-4o-mini`\n\nPick keyboard-first with `SideCar: Select Model`."
           },
           "sidecar.provider": {
             "type": "string",
