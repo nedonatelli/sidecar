@@ -56,12 +56,6 @@ export const PLAN_MODE_THRESHOLDS = {
   CHAR_COUNT: 2500,
 };
 
-/** Relevance scoring for workspace file context. */
-export const RELEVANCE = {
-  /** Default decay factor per conversation turn (0.8 = 20% decay). */
-  DECAY_FACTOR: 0.8,
-};
-
 /** Tool support detection: how many runtime failures before disabling tools. */
 export const TOOL_FAILURE_THRESHOLD = 3;
 

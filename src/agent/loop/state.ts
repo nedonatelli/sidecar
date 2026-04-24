@@ -8,6 +8,7 @@ import { createGateState } from '../completionGate.js';
 import { getToolDefinitions } from '../tools.js';
 import type { AgentOptions } from '../loop.js';
 import type { EditPlan } from '../editPlan.js';
+import { type SideCarConfig, getConfig } from '../../config/settings.js';
 
 // ---------------------------------------------------------------------------
 // Shared mutable + immutable state for runAgentLoop.
@@ -44,7 +45,14 @@ export const DEFAULT_MAX_ITERATIONS = 25;
 export interface LoopState {
   // --- Immutable inputs captured at init ---
   readonly startTime: number;
-  readonly taskId: string;
+  readonly runId: string;
+  /**
+   * Config snapshot captured at loop entry from `options.config ?? getConfig()`.
+   * Stored here so every submodule reads the same values for the duration of
+   * a run and tests can inject a mock config via AgentOptions without stubbing
+   * the global.
+   */
+  readonly config: SideCarConfig;
   readonly maxIterations: number;
   readonly maxTokens: number;
   readonly approvalMode: ApprovalMode;
@@ -118,7 +126,8 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
 
   return {
     startTime: Date.now(),
-    taskId: `task_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+    runId: crypto.randomUUID(),
+    config: options.config ?? getConfig(),
     maxIterations: options.maxIterations || DEFAULT_MAX_ITERATIONS,
     maxTokens: options.maxTokens || 100_000,
     approvalMode: options.approvalMode || 'cautious',

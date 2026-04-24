@@ -51,6 +51,7 @@ import { setGrammarsPath } from './parsing/registry.js';
 import { reviewCurrentChanges } from './review/reviewer.js';
 import { summarizePR } from './review/prSummary.js';
 import { generateCommitMessage } from './review/commitMessage.js';
+import { generateSidecarMd } from './config/sidecarMdGenerator.js';
 import { runDraftPullRequest, type DraftPrConfig, type DraftPrUi } from './review/draftPullRequest.js';
 import { analyzeCiFailure, type AnalyzeCiUi } from './review/analyzeCiFailure.js';
 import { reviewPrComments, type PrReviewUi } from './review/prReview.js';
@@ -959,6 +960,19 @@ export function activate(context: ExtensionContext) {
         async (progress) => {
           progress.report({ message: 'Reading staged changes and drafting...' });
           await generateCommitMessage(createClient());
+        },
+      );
+    }),
+    commands.registerCommand('sidecar.generateSidecarMd', async () => {
+      await window.withProgress(
+        {
+          location: ProgressLocation.Notification,
+          title: 'SideCar — Generating SIDECAR.md',
+          cancellable: false,
+        },
+        async (progress) => {
+          progress.report({ message: 'Reading workspace and drafting...' });
+          await generateSidecarMd(createClient());
         },
       );
     }),

@@ -21,9 +21,9 @@ import { getDefaultAuditBuffer } from '../audit/auditBuffer.js';
  * isn't `audit`, so tools that don't check this fall through to the
  * real-disk path unchanged.
  */
-function isAuditModeActive(): boolean {
+function isAuditModeActive(context?: ToolExecutorContext): boolean {
   try {
-    return getConfig().agentMode === 'audit';
+    return (context?.config ?? getConfig()).agentMode === 'audit';
   } catch {
     return false;
   }
@@ -152,7 +152,7 @@ export async function readFile(input: Record<string, unknown>, context?: ToolExe
   // Audit Mode read-through: if the agent previously wrote this file
   // during the same session, return the buffered content rather than
   // the stale disk contents. Keeps multi-step edits stacking correctly.
-  if (isAuditModeActive()) {
+  if (isAuditModeActive(context)) {
     const bufState = getDefaultAuditBuffer().read(filePath);
     if (bufState.buffered) {
       if (bufState.deleted) {
@@ -189,7 +189,7 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
   // touching disk. The agent sees a normal success response and keeps
   // working against the buffered state; user reviews later and either
   // flushes (applies every buffered change atomically) or rejects.
-  if (isAuditModeActive()) {
+  if (isAuditModeActive(context)) {
     await getDefaultAuditBuffer().write(filePath, content, (p) => readDiskViaWorkspace(context, p));
     return `File written: ${filePath} (buffered for audit review)`;
   }
@@ -218,7 +218,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   // else from disk), apply the substring replacement, and write the
   // result back to the buffer. The buffer's own write() method handles
   // the create-vs-modify classification + originalContent capture.
-  if (isAuditModeActive()) {
+  if (isAuditModeActive(context)) {
     const buf = getDefaultAuditBuffer();
     const bufState = buf.read(filePath);
     let currentText: string;

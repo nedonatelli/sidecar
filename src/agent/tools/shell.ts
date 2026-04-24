@@ -80,7 +80,7 @@ async function tryTerminalExecute(
   timeoutMs: number,
   context?: ToolExecutorContext,
 ): Promise<ShellResult | null> {
-  const cfg = getConfig();
+  const cfg = context?.config ?? getConfig();
   if (!cfg.terminalExecutionEnabled) return null;
   const executor = getAgentTerminalExecutor();
   return executor.execute(command, {
@@ -175,7 +175,7 @@ export async function runCommand(input: Record<string, unknown>, context?: ToolE
 
   // Normal execution — try the shell-integrated terminal path first,
   // fall back to ShellSession if integration is unavailable or disabled.
-  const config = getConfig();
+  const config = context?.config ?? getConfig();
   const timeoutSec = (input.timeout as number) || config.shellTimeout || 120;
   const timeoutMs = timeoutSec * 1000;
 
@@ -277,7 +277,7 @@ export async function runTests(input: Record<string, unknown>, context?: ToolExe
   // from the terminal path: the user can watch test output scroll live
   // and jump to failures via the terminal's shell-integration gutter
   // markers.
-  const config = getConfig();
+  const config = context?.config ?? getConfig();
   const timeoutMs = (config.shellTimeout || 120) * 1000;
 
   try {

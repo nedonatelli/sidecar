@@ -164,6 +164,9 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
       // against this predicate before execution. Used by delegate_task
       // workers to restrict to read-only shell commands.
       commandFilter: options.commandFilter,
+      // Config injected from the loop's state so tools don't call the
+      // global getConfig() singleton — enables unit test injection.
+      config: state.config,
     },
     inlineEditFn: options.inlineEditFn,
     streamingDiffPreviewFn: options.streamingDiffPreviewFn,

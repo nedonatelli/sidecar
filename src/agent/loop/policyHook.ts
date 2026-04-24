@@ -42,6 +42,8 @@ export interface HookContext {
   options: AgentOptions;
   signal: AbortSignal;
   callbacks: AgentCallbacks;
+  /** Unique identifier for this agent run (crypto.randomUUID at loop entry). */
+  runId: string;
 
   /** Tool uses the model emitted this turn. Undefined on beforeIteration. */
   pendingToolUses?: ToolUseContentBlock[];
@@ -94,6 +96,24 @@ export interface PolicyHook {
 }
 
 /**
+ * Thrown by HookBus.run* methods when a policy hook raises an error.
+ * The loop catches this, emits a user-facing alert, and breaks cleanly.
+ * Using a typed error class lets the loop distinguish an enforcement
+ * failure from ordinary loop errors (e.g. network errors) that have
+ * their own handling paths.
+ */
+export class PolicyEnforcementError extends Error {
+  readonly hookName: string;
+  readonly phase: string;
+  constructor(hookName: string, phase: string, cause: Error) {
+    super(`Policy hook '${hookName}' failed during ${phase}: ${cause.message}`);
+    this.name = 'PolicyEnforcementError';
+    this.hookName = hookName;
+    this.phase = phase;
+  }
+}
+
+/**
  * Registration bus for `PolicyHook` instances. Runs each phase in
  * registration order and aggregates `HookResult.mutated` across hooks
  * so the orchestrator can ask "did anyone inject anything this phase?"
@@ -105,10 +125,9 @@ export interface PolicyHook {
  * would need to see the auto-fix message before deciding to suppress
  * a redundant stub reprompt).
  *
- * Errors thrown inside a hook are logged via the state logger and
- * swallowed — a buggy hook must not be able to crash the whole
- * agent run. Hook ordering means a crashing hook still allows later
- * hooks to run.
+ * Errors thrown inside a hook are re-thrown as `PolicyEnforcementError`
+ * so the agent loop can halt with a structured user-facing alert rather
+ * than silently continuing with a broken policy state.
  */
 export class HookBus {
   private hooks: PolicyHook[] = [];
@@ -150,9 +169,12 @@ export class HookBus {
   }
 
   /**
-   * Common phase runner. Iterates registered hooks, invokes the
-   * phase method if the hook implements it, catches + logs per-hook
-   * errors, and returns true when any hook reported a mutation.
+   * Common phase runner. Iterates registered hooks in order, invokes the
+   * phase method when the hook implements it, and returns true when any
+   * hook reported a mutation. Errors are re-thrown as
+   * `PolicyEnforcementError` so the agent loop can halt cleanly and
+   * present a mandatory user-facing alert — a crashing hook represents a
+   * broken enforcement posture, not an ignorable warning.
    */
   private async runPhase(
     phase: 'beforeIteration' | 'afterToolResults' | 'onEmptyResponse',
@@ -167,7 +189,9 @@ export class HookBus {
         const result = await method.call(h, state, ctx);
         if (result && result.mutated) anyMutated = true;
       } catch (err) {
-        state.logger?.warn(`Policy hook '${h.name}' ${phase} threw: ${(err as Error).message}`);
+        const cause = err instanceof Error ? err : new Error(String(err));
+        state.logger?.error(`Policy hook '${h.name}' ${phase} threw: ${cause.message}`);
+        throw new PolicyEnforcementError(h.name, phase, cause);
       }
     }
     return anyMutated;

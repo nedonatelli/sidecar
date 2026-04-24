@@ -131,7 +131,7 @@ async function extractConstraints(input: Record<string, unknown>, context?: Tool
   const client = context?.client;
   if (!client) return 'Error: no SideCarClient available in tool context. This tool requires an active agent session.';
 
-  const config = getConfig();
+  const config = context?.config ?? getConfig();
   const resolvedPath = path.isAbsolute(docPath) ? docPath : path.join(getRoot(), docPath);
 
   if (!fs.existsSync(resolvedPath)) {
@@ -245,7 +245,7 @@ async function synthesizeTests(input: Record<string, unknown>, context?: ToolExe
   const client = context?.client;
   if (!client) return 'Error: no SideCarClient available in tool context. This tool requires an active agent session.';
 
-  const config = getConfig();
+  const config = context?.config ?? getConfig();
 
   let constraints: Constraint[];
   try {

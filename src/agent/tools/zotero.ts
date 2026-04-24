@@ -16,11 +16,14 @@ import type { RegisteredTool } from './shared.js';
 // zotero_search
 // ---------------------------------------------------------------------------
 
-async function zoteroSearch(input: Record<string, unknown>): Promise<string> {
+async function zoteroSearch(
+  input: Record<string, unknown>,
+  context?: import('./shared.js').ToolExecutorContext,
+): Promise<string> {
   const query = input.query as string;
   if (!query) return 'Error: query is required';
 
-  const config = getConfig();
+  const config = context?.config ?? getConfig();
   if (!config.zoteroUserId || !config.zoteroApiKey) {
     return 'Error: Zotero not configured — set sidecar.zotero.userId and sidecar.zotero.apiKey in VS Code settings.';
   }
@@ -52,11 +55,14 @@ async function zoteroSearch(input: Record<string, unknown>): Promise<string> {
 // zotero_get_item
 // ---------------------------------------------------------------------------
 
-async function zoteroGetItem(input: Record<string, unknown>): Promise<string> {
+async function zoteroGetItem(
+  input: Record<string, unknown>,
+  context?: import('./shared.js').ToolExecutorContext,
+): Promise<string> {
   const key = input.key as string;
   if (!key) return 'Error: key is required';
 
-  const config = getConfig();
+  const config = context?.config ?? getConfig();
   if (!config.zoteroUserId || !config.zoteroApiKey) {
     return 'Error: Zotero not configured — set sidecar.zotero.userId and sidecar.zotero.apiKey in VS Code settings.';
   }

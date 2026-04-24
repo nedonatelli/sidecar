@@ -10,16 +10,13 @@ import type { RegisteredTool } from './tools/shared.js';
 import { getRoot } from './tools/shared.js';
 import { parseArgv } from './lintFix.js';
 import { findSdkTool, getSdkToolDefinitions } from '../sdk/registry.js';
-// v0.66 chunk 2: each tools/*.ts module exports its own
-// `<name>Tools: RegisteredTool[]` array. TOOL_REGISTRY is built by
-// spreading them — collapses ~40 lines of paired def/executor imports
-// into one import per module. Per-tool paired exports (e.g.
-// `getDiagnostics`, `getDiagnosticsDef`) remain available for tests
-// and the agent loop's direct `getDiagnostics()` call.
+// Each tools/*.ts module exports its own `<name>Tools: RegisteredTool[]` array.
+// TOOL_REGISTRY is built by spreading them. Value-level re-exports below
+// keep pre-split import sites working without edits.
 import { fsTools } from './tools/fs.js';
 import { searchTools } from './tools/search.js';
 import { shellTools } from './tools/shell.js';
-import { diagnosticsTools, getDiagnostics } from './tools/diagnostics.js';
+import { diagnosticsTools } from './tools/diagnostics.js';
 import { gitTools } from './tools/git.js';
 import { knowledgeTools } from './tools/knowledge.js';
 import { systemMonitorTools } from './tools/systemMonitor.js';
@@ -34,10 +31,6 @@ import { citationTools } from './tools/citation.js';
 import { databaseTools } from './tools/database.js';
 import { visionTools } from './tools/vision.js';
 import { docTestsTools } from './tools/docTests.js';
-
-// Keep the getDiagnostics re-export working — existing callers import
-// it straight from './tools.js' for post-edit diagnostic refreshes.
-void getDiagnostics;
 
 // ---------------------------------------------------------------------------
 // tools.ts is the slim composition layer. Each tool category lives under

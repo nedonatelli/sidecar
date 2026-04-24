@@ -22,8 +22,8 @@ import type { ImageContentBlock } from '../../ollama/types.js';
 // ---------------------------------------------------------------------------
 
 /** Resolve and ensure the screenshots directory exists. Returns the absolute path. */
-function ensureScreenshotsDir(): string {
-  const config = getConfig();
+function ensureScreenshotsDir(context?: import('./shared.js').ToolExecutorContext): string {
+  const config = context?.config ?? getConfig();
   const base = config.visualVerifyScreenshotsDir || '.sidecar/screenshots';
   const dir = path.isAbsolute(base) ? base : path.join(getRoot(), base);
   fs.mkdirSync(dir, { recursive: true });
@@ -187,7 +187,7 @@ async function screenshotPage(input: Record<string, unknown>, _context?: ToolExe
     return 'Error: playwright-core is not installed. Run `npm install playwright-core` in your extension host environment, then restart VS Code.';
   }
 
-  const screenshotsDir = ensureScreenshotsDir();
+  const screenshotsDir = ensureScreenshotsDir(_context);
   const timestamp = Date.now();
   const slug = urlSlug(url);
   const outputPath = path.join(screenshotsDir, `${timestamp}-${slug}.png`);
@@ -259,7 +259,7 @@ async function analyzeScreenshot(input: Record<string, unknown>, context?: ToolE
   if (!rawPath) return 'Error: image_path is required';
   if (!criteria) return 'Error: criteria is required';
 
-  const config = getConfig();
+  const config = context?.config ?? getConfig();
 
   // Reject absolute paths — same guard as read_file. The agent should always
   // pass workspace-relative paths; absolute paths are a path-traversal vector.

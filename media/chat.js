@@ -3684,6 +3684,15 @@
         applyUiSettings(event.data);
         break;
 
+      case 'setActiveBackendProfile':
+        window.__activeBackendProfileId = event.data.activeBackendProfileId ?? null;
+        // Re-render the menu if it's currently open so the checkmark
+        // moves immediately without needing to close and reopen it.
+        if (settingsMenu && !settingsMenu.classList.contains('hidden')) {
+          renderBackendProfiles();
+        }
+        break;
+
       case 'setLoading':
         setLoading(event.data.isLoading);
         // Feature 6: Store expandThinking preference

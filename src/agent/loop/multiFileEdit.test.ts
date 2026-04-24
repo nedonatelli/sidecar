@@ -31,7 +31,8 @@ import type { EditPlan } from '../editPlan.js';
 function stubState(overrides: Partial<LoopState> = {}): LoopState {
   return {
     startTime: Date.now(),
-    taskId: 'test-task',
+    runId: 'test-task',
+    config: {} as import('../../config/settings.js').SideCarConfig,
     maxIterations: 25,
     maxTokens: 100_000,
     approvalMode: 'cautious',

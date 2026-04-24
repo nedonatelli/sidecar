@@ -29,7 +29,8 @@ function makeState(): LoopState {
     changelog: undefined,
     mcpManager: undefined,
     startTime: Date.now(),
-    taskId: 'test-task',
+    runId: 'test-task',
+    config: {} as import('../../config/settings.js').SideCarConfig,
   } as unknown as LoopState;
 }
 

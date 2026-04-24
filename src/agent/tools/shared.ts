@@ -1,6 +1,7 @@
 import { workspace, Uri } from 'vscode';
 import * as path from 'path';
 import type { ToolDefinition } from '../../ollama/types.js';
+import type { SideCarConfig } from '../../config/settings.js';
 // `import type` only — the actual runtime.ts module imports getRoot from
 // here, so a value-level import would create a true cycle. Type-only
 // imports are erased at compile time and are the canonical way to break
@@ -23,6 +24,15 @@ export type ClarifyFn = (question: string, options: string[], allowCustom?: bool
 export interface ToolExecutorContext {
   onOutput?: (chunk: string) => void;
   signal?: AbortSignal;
+  /**
+   * Config snapshot injected from the agent loop's `state.config`. When
+   * set, tool executors use this instead of calling the global `getConfig()`
+   * — enabling unit tests to control tool behavior without stubbing the
+   * module-level singleton. Falls back to `getConfig()` when absent so
+   * tool executors invoked outside the loop (e.g. direct test calls) still
+   * work without any wiring.
+   */
+  config?: SideCarConfig;
   clarifyFn?: ClarifyFn;
   /**
    * Optional command filter for run_command/run_tests. When set, the

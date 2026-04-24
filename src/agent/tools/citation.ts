@@ -217,7 +217,10 @@ export function formatCitation(item: ZoteroItem, style: CitationStyle): string {
 // Tool executor
 // ---------------------------------------------------------------------------
 
-async function insertCitation(input: Record<string, unknown>): Promise<string> {
+async function insertCitation(
+  input: Record<string, unknown>,
+  context?: import('./shared.js').ToolExecutorContext,
+): Promise<string> {
   const key = input.key as string;
   if (!key) return 'Error: key is required';
 
@@ -229,7 +232,7 @@ async function insertCitation(input: Record<string, unknown>): Promise<string> {
 
   const style: CitationStyle = rawStyle ? (rawStyle as CitationStyle) : detectStyle(input.file as string | undefined);
 
-  const config = getConfig();
+  const config = context?.config ?? getConfig();
   if (!config.zoteroUserId || !config.zoteroApiKey) {
     return 'Error: Zotero not configured — set sidecar.zotero.userId and sidecar.zotero.apiKey in VS Code settings.';
   }

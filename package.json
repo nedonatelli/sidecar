@@ -1825,6 +1825,12 @@
         "icon": "$(git-commit)"
       },
       {
+        "command": "sidecar.generateSidecarMd",
+        "title": "Generate SIDECAR.md",
+        "category": "SideCar",
+        "icon": "$(file-text)"
+      },
+      {
         "command": "sidecar.scanStaged",
         "title": "Scan Staged Files for Secrets",
         "category": "SideCar",

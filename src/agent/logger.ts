@@ -48,6 +48,10 @@ export class AgentLogger {
     this.channel.info(`Agent loop completed after ${iterations} iteration(s)`);
   }
 
+  logToolAudit(runId: string, tool: string, outcome: 'ok' | 'error'): void {
+    this.channel.info(JSON.stringify({ runId, tool, outcome, timestamp: new Date().toISOString() }));
+  }
+
   logAborted(): void {
     this.channel.warn('Agent loop aborted by user');
   }

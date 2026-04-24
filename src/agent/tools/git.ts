@@ -19,9 +19,9 @@ const execAsync = promisify(exec);
  * False when either check fails — settings read is guarded so a
  * broken workspace config can't throw on the hot commit path.
  */
-function shouldBufferCommits(): boolean {
+function shouldBufferCommits(context?: ToolExecutorContext): boolean {
   try {
-    const cfg = getConfig();
+    const cfg = context?.config ?? getConfig();
     return cfg.agentMode === 'audit' && cfg.auditBufferGitCommits === true;
   } catch {
     return false;
@@ -150,7 +150,7 @@ export async function gitCommit(input: Record<string, unknown>, context?: ToolEx
     // Audit Mode v0.61 a.4: divert to the buffer and return a success
     // response the agent can reason about. The commit executes for
     // real when the user accepts the buffer via the review flow.
-    if (shouldBufferCommits()) {
+    if (shouldBufferCommits(context)) {
       await getDefaultAuditBuffer().queueCommit(message, extraTrailers);
       return `Commit queued in audit buffer: ${message.split('\n')[0]} (executes on accept)`;
     }

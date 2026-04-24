@@ -4,7 +4,7 @@ import type { AgentCallbacks } from '../loop.js';
 import type { LoopState } from './state.js';
 import { parseTextToolCalls, stripRepeatedContent } from './textParsing.js';
 import { ThinkingStore } from '../thinking/thinkingStore.js';
-import { getConfig } from '../../config/settings.js';
+// getConfig removed — thinkingMode now read from state.config (injected at loop entry)
 
 const thinkingStore = new ThinkingStore();
 
@@ -137,8 +137,8 @@ export async function streamOneTurn(
         case 'thinking':
           state.totalChars += event.thinking.length;
           callbacks.onCharsConsumed?.(event.thinking.length);
-          const thinkingMode = getConfig().thinkingMode;
-          thinkingStore.append(state.taskId, event.thinking, thinkingMode).catch(() => {
+          const thinkingMode = state.config.thinkingMode;
+          thinkingStore.append(state.runId, event.thinking, thinkingMode).catch(() => {
             // Silently ignore thinking store errors
           });
           callbacks.onThinking?.(event.thinking);

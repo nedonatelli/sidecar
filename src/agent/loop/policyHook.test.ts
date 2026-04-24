@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi } from 'vitest';
-import { HookBus, type HookContext } from './policyHook';
+import { HookBus, PolicyEnforcementError, type HookContext } from './policyHook';
 import type { LoopState } from './state';
 
 function makeState(): LoopState {
@@ -25,6 +25,7 @@ function makeCtx(overrides: Partial<HookContext> = {}): HookContext {
     options: {} as any,
     signal: new AbortController().signal,
     callbacks: { onText: () => {}, onToolCall: () => {}, onToolResult: () => {}, onDone: () => {} },
+    runId: 'test-run-id',
     ...overrides,
   };
 }
@@ -113,7 +114,7 @@ describe('HookBus', () => {
     expect(afterCalled).toHaveBeenCalledTimes(1);
   });
 
-  it('swallows errors thrown by a hook and lets later hooks run', async () => {
+  it('throws PolicyEnforcementError when a hook fails and halts subsequent hooks', async () => {
     const bus = new HookBus();
     const laterCalled = vi.fn();
     bus.register({
@@ -130,10 +131,10 @@ describe('HookBus', () => {
       },
     });
     const state = makeState();
-    const anyMutated = await bus.runAfter(state, makeCtx());
-    expect(laterCalled).toHaveBeenCalled();
-    expect(anyMutated).toBe(true);
-    expect(state.logger?.warn).toHaveBeenCalledWith(
+    await expect(bus.runAfter(state, makeCtx())).rejects.toBeInstanceOf(PolicyEnforcementError);
+    // Later hook must not have run — enforcement failed before reaching it.
+    expect(laterCalled).not.toHaveBeenCalled();
+    expect(state.logger?.error).toHaveBeenCalledWith(
       expect.stringContaining("Policy hook 'crasher' afterToolResults threw: policy crash"),
     );
   });

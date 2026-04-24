@@ -258,7 +258,6 @@ export interface SideCarConfig {
   visualVerifyCheapChecksOnly: boolean;
   /* Doc-to-Test Synthesis Loop (v0.79) */
   docTestsEnabled: boolean;
-  docTestsTestFramework: 'pytest';
   docTestsOutputDir: string;
   docTestsFloatTolerance: number;
   docTestsExtractionModel: string;
@@ -504,7 +503,6 @@ function readConfig(): SideCarConfig {
     visualVerifyCheapChecksOnly: cfg.get<boolean>('visualVerify.cheapChecksOnly', false),
     /* Doc-to-Test Synthesis Loop (v0.79) */
     docTestsEnabled: cfg.get<boolean>('docTests.enabled', true),
-    docTestsTestFramework: 'pytest' as const,
     docTestsOutputDir: cfg.get<string>('docTests.outputDir', 'tests/from_docs'),
     docTestsFloatTolerance: cfg.get<number>('docTests.floatTolerance', 1e-9),
     docTestsExtractionModel: cfg.get<string>('docTests.extractionModel', ''),

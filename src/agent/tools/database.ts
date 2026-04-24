@@ -77,8 +77,11 @@ ${footer}
 // db_list_connections
 // ---------------------------------------------------------------------------
 
-async function dbListConnections(_input: Record<string, unknown>): Promise<string> {
-  const profiles = getConfig().databaseProfiles;
+async function dbListConnections(
+  _input: Record<string, unknown>,
+  context?: import('./shared.js').ToolExecutorContext,
+): Promise<string> {
+  const profiles = (context?.config ?? getConfig()).databaseProfiles;
   if (profiles.length === 0) {
     return 'No database profiles configured. Add profiles under sidecar.databases.profiles in settings.';
   }
@@ -191,11 +194,14 @@ async function dbDescribeTable(input: Record<string, unknown>): Promise<string> 
 // db_query
 // ---------------------------------------------------------------------------
 
-async function dbQuery(input: Record<string, unknown>): Promise<string> {
+async function dbQuery(
+  input: Record<string, unknown>,
+  context?: import('./shared.js').ToolExecutorContext,
+): Promise<string> {
   const connectionId = input.connection_id as string | undefined;
   const sql = input.sql as string | undefined;
   const params = Array.isArray(input.params) ? (input.params as unknown[]) : [];
-  const config = getConfig();
+  const config = context?.config ?? getConfig();
   const limit =
     typeof input.limit === 'number'
       ? Math.min(input.limit, config.databaseQueryRowLimit)
@@ -236,7 +242,10 @@ async function dbQuery(input: Record<string, unknown>): Promise<string> {
 // db_execute
 // ---------------------------------------------------------------------------
 
-async function dbExecute(input: Record<string, unknown>): Promise<string> {
+async function dbExecute(
+  input: Record<string, unknown>,
+  context?: import('./shared.js').ToolExecutorContext,
+): Promise<string> {
   const connectionId = input.connection_id as string | undefined;
   const sql = input.sql as string | undefined;
   const params = Array.isArray(input.params) ? (input.params as unknown[]) : [];
@@ -254,7 +263,7 @@ async function dbExecute(input: Record<string, unknown>): Promise<string> {
   // Audit Mode: buffer the SQL as a file so it appears in the audit review
   // treeview instead of executing immediately. The file is stored at
   // .sidecar/audit/db/{connectionId}/{timestamp}.sql for human inspection.
-  const cfg = getConfig();
+  const cfg = context?.config ?? getConfig();
   if (cfg.agentMode === 'audit') {
     const ts = Date.now();
     const auditPath = path.join('.sidecar', 'audit', 'db', connectionId, `${ts}.sql`);

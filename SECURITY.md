@@ -34,8 +34,8 @@ Only the latest released version on the VS Code Marketplace receives security pa
 
 | Version | Supported |
 | --- | --- |
-| 0.62.x (current) | ✅ |
-| < 0.62 | ❌ |
+| 0.81.x (current) | ✅ |
+| < 0.81 | ❌ |
 
 ## Threat model — what SideCar defends
 
@@ -55,7 +55,7 @@ The agent can call `write_file`, `edit_file`, and `delete_file`. Three tiers of 
 
 ### Secret detection and redaction
 
-[`src/agent/securityScanner.ts`](src/agent/securityScanner.ts) ships `SECRET_PATTERNS` — a catalog of regex patterns for common API keys, tokens, and connection strings. The catalog version is exposed as `SECRET_PATTERNS_VERSION` (currently **2**, as of v0.62.4).
+[`src/agent/securityScanner.ts`](src/agent/securityScanner.ts) ships `SECRET_PATTERNS` — a catalog of regex patterns for common API keys, tokens, and connection strings. The catalog version is exposed as `SECRET_PATTERNS_VERSION` (currently **2**, introduced in v0.62.4, unchanged through v0.81.0).
 
 Two entry points use it:
 

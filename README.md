@@ -6,7 +6,7 @@
 
 [![VS Code Marketplace](https://badgen.net/vs-marketplace/v/nedonatelli.sidecar-ai)](https://marketplace.visualstudio.com/items?itemName=nedonatelli.sidecar-ai)
 
-**SideCar** is a free, self-hosted VS Code extension that serves as a drop-in replacement for GitHub Copilot and Claude Code. Use local [Ollama](https://ollama.com) models, the [Anthropic API](https://api.anthropic.com), Kickstand *(coming soon)*, or any [OpenAI-compatible server](https://nedonatelli.github.io/sidecar/getting-started#using-openai-compatible-servers) (LM Studio, vLLM, llama.cpp, OpenRouter) for AI-powered coding — with full agentic capabilities, inline completions, and tool use.
+**SideCar** is a free, self-hosted VS Code extension that serves as a drop-in replacement for GitHub Copilot and Claude Code. Use local [Ollama](https://ollama.com) models, the [Anthropic API](https://api.anthropic.com), [Kickstand](https://github.com/nedonatelli/kickstand) (self-hosted), or any [OpenAI-compatible server](https://nedonatelli.github.io/sidecar/getting-started#using-openai-compatible-servers) (LM Studio, vLLM, llama.cpp, OpenRouter) for AI-powered coding — with full agentic capabilities, inline completions, and tool use.
 
 > A free, open-source, local-first **autonomous AI agent for coding**. Full agent loop, not just chat. No subscriptions, no data leaving your machine.
 
@@ -71,7 +71,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 ### What sets SideCar apart
 
 - **True agentic autonomy** — SideCar reads your code, edits files, runs tests, reads the errors, and iterates until the task is done. Switch between cautious, autonomous, manual, plan, review, or custom user-defined modes.
-- **No vendor lock-in** — Use Ollama for fully offline operation, Anthropic for Claude, OpenAI-compatible servers (LM Studio, vLLM, OpenRouter), Kickstand *(coming soon)*, or install GGUF models directly from HuggingFace. Same interface, your choice.
+- **No vendor lock-in** — Use Ollama for fully offline operation, Anthropic for Claude, OpenAI-compatible servers (LM Studio, vLLM, OpenRouter), Kickstand (self-hosted GPU backend), or install GGUF models directly from HuggingFace. Same interface, your choice.
 - **Feels like a first-party VS Code extension** — status bar health indicator (red/yellow/green on backend state), native error toasts with one-click recovery actions, lightbulb code actions on diagnostics (Fix / Explain / Refactor), Problems panel integration for agent-detected secrets and stubs, file decorations on pending changes, activity-bar badge for pending-review count, a five-step Welcome-page walkthrough, and a command palette surface with a consistent `SideCar:` category. No shadow UIs — every action lives where VS Code users already look for it.
 - **Hybrid cost-aware architecture** — when using paid backends, SideCar combines Anthropic prompt caching, a lossy-but-bounded prompt pruner (whitespace / tool-result head-tail truncation / duplicate dedup — 90% reduction on realistic agent loops), and a `delegate_task` tool that offloads read-only research to a local Ollama worker so the frontier model only pays for reasoning and synthesis. A session spend tracker in the status bar shows live `$` accumulated per model so you always know what the current run is costing.
 - **Security from the ground up** — API keys stored in VS Code SecretStorage (OS keychain), secrets detection, vulnerability scanning, path traversal protection, sensitive file blocking, workspace hook warnings, and prompt injection sandboxing. Secret findings and stub code are published to the native Problems panel via `sidecar-secrets` / `sidecar-stubs` sources, just like tsc and eslint findings.
@@ -190,9 +190,9 @@ Both features skip class methods, destructured parameters, rest parameters, and 
 ### Multi-Backend Support
 - **Ollama** (default) — runs locally, free, no API key needed
 - **Anthropic API** — use Claude models with your API key, with prompt caching for ~90% input token cost reduction
-- **Kickstand** *(coming soon)* — self-hosted LLM client backend with managed GPU memory. The backend adapter ships today for anyone running a local dev build; the first-party Kickstand release is still in progress.
+- **Kickstand** — self-hosted LLM client backend with managed GPU memory and LoRA support. Token auto-reads from `~/.config/kickstand/token` — no API key prompt needed.
 - **OpenAI-compatible** — works with LM Studio, vLLM, llama.cpp, text-generation-webui, OpenRouter, and any server with a `/v1/chat/completions` endpoint
-- **One-click profile switcher** — click the ⚙ gear in the chat header to flip between Local Ollama / Anthropic Claude / OpenAI / Kickstand *(coming soon)* in a single click. Each profile stores its own API key in VS Code's SecretStorage, so switching backends doesn't clobber a key you've already set. Also available as `SideCar: Switch Backend` from the Command Palette.
+- **One-click profile switcher** — click the ⚙ gear in the chat header to flip between Local Ollama / Anthropic Claude / OpenAI / Kickstand in a single click. Each profile stores its own API key in VS Code's SecretStorage, so switching backends doesn't clobber a key you've already set. Also available as `SideCar: Switch Backend` from the Command Palette.
 
 ### Cost Controls (Paid Backends)
 
@@ -248,7 +248,7 @@ A second LLM call whose only job is to find reasons the main agent's change is w
 
 **Cost:** each critic call is a full round trip with a 1024-token budget. On Ollama it's free but adds a few seconds per edit; on paid backends it roughly doubles the per-iteration cost unless you use a cheaper critic model.
 
-### Tool Registry (44+ built-in tools + MCP)
+### Tool Registry (55+ built-in tools + MCP)
 | Tool | Description |
 |------|-------------|
 | `read_file` | Read file contents |
@@ -376,7 +376,7 @@ Manual path (if you prefer editing settings):
 2. Run `SideCar: Set / Refresh API Key` from the command palette and paste your Anthropic API key
 3. Set `sidecar.model` to a Claude model (e.g. `claude-sonnet-4-6`)
 
-API keys are stored encrypted in your OS keychain via VS Code's SecretStorage — never in plaintext settings. Each backend profile uses its own SecretStorage slot, so switching between Ollama ↔ Anthropic ↔ OpenAI ↔ Kickstand *(coming soon)* preserves the keys you've already entered.
+API keys are stored encrypted in your OS keychain via VS Code's SecretStorage — never in plaintext settings. Each backend profile uses its own SecretStorage slot, so switching between Ollama ↔ Anthropic ↔ OpenAI ↔ Kickstand preserves the keys you've already entered.
 
 ### Using with OpenAI-compatible servers
 

@@ -41,6 +41,7 @@ function makeCtx(pendingToolUses: ToolUseContentBlock[] = []): HookContext {
     options: {},
     signal: new AbortController().signal,
     callbacks: { onText: vi.fn() } as never,
+    runId: 'test-run-id',
     pendingToolUses,
   };
 }

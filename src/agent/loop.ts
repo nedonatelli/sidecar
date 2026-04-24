@@ -4,7 +4,7 @@ import { recordToolSuccess, recordToolFailure } from '../ollama/ollamaBackend.js
 import type { InlineEditFn } from './executor.js';
 import type { ClarifyFn } from './tools.js';
 import type { ToolRuntime } from './tools/runtime.js';
-import { getConfig } from '../config/settings.js';
+// getConfig removed — config is now captured once at initLoopState via options.config ?? getConfig()
 import { CHARS_PER_TOKEN } from '../config/constants.js';
 import { type ApprovalMode, type ConfirmFn, type DiffPreviewFn, type StreamingDiffPreviewFn } from './executor.js';
 import type { AgentLogger } from './logger.js';
@@ -23,7 +23,7 @@ import {
   capToolResults,
 } from './loop/messageBuild.js';
 import { runCriticChecks, type RunCriticOptions } from './loop/criticHook.js';
-import { HookBus, type PolicyHook, type HookContext } from './loop/policyHook.js';
+import { HookBus, PolicyEnforcementError, type PolicyHook, type HookContext } from './loop/policyHook.js';
 import { defaultPolicyHooks } from './loop/builtInHooks.js';
 import { buildRegressionGuardHooks } from './guards/regressionGuardHook.js';
 import { getSdkHooks } from '../sdk/registry.js';
@@ -198,6 +198,17 @@ export interface AgentOptions {
    * no interrupt wiring, no change.
    */
   steerQueue?: SteerQueue;
+  /**
+   * Optional config snapshot to use for this run. When set, the loop
+   * captures this once at entry and uses it for every iteration instead
+   * of calling the global `getConfig()`. Primarily for unit tests —
+   * pass a partial `SideCarConfig` to control agent behavior without
+   * stubbing the module-level singleton.
+   *
+   * In production, leave unset and the loop reads live config at loop
+   * entry (the default `getConfig()` call in `initLoopState`).
+   */
+  config?: import('../config/settings.js').SideCarConfig;
 }
 
 // DEFAULT_MAX_ITERATIONS moved to loop/state.ts along with initLoopState.
@@ -268,14 +279,12 @@ export async function runAgentLoop(
         break;
       }
 
-      const config = getConfig();
-
       // Drain any pending user steers at the iteration boundary (v0.65
       // chunk 3.2). Pushes a single coalesced user message so the
       // upcoming streamOneTurn call sees the new intent. No-op when
       // steerQueue is unset or empty.
       await drainSteerQueueAtBoundary(state, options.steerQueue, signal, callbacks, {
-        coalesceWindowMs: config.steerQueueCoalesceWindowMs,
+        coalesceWindowMs: state.config.steerQueueCoalesceWindowMs,
       });
 
       // Pre-turn budget compression. Returns 'exhausted' when
@@ -292,7 +301,7 @@ export async function runAgentLoop(
 
       state.logger?.logIteration(state.iteration, state.maxIterations);
 
-      notifyIterationStart(state, config, callbacks);
+      notifyIterationStart(state, state.config, callbacks);
       maybeEmitProgressSummary(state, callbacks);
       if (await shouldStopAtCheckpoint(state, callbacks)) break;
 
@@ -300,8 +309,8 @@ export async function runAgentLoop(
       // attached to the client (the default) — preserves legacy
       // static-model dispatch without branching at the call site.
       applyAgentLoopRouting(client, state, {
-        modelRoutingVisibleSwaps: config.modelRoutingVisibleSwaps,
-        modelRoutingDryRun: config.modelRoutingDryRun,
+        modelRoutingVisibleSwaps: state.config.modelRoutingVisibleSwaps,
+        modelRoutingDryRun: state.config.modelRoutingDryRun,
       });
 
       // Per-turn AbortController linked to the outer signal. Lets an
@@ -322,8 +331,8 @@ export async function runAgentLoop(
       // timeout, abort, and the full event-type switch;
       // resolveTurnContent runs post-stream cleanup (strip repeated
       // paragraphs, parse text tool calls).
-      const requestTimeoutMs = config.requestTimeout * 1000;
-      const firstTokenTimeoutMs = config.firstTokenTimeout * 1000;
+      const requestTimeoutMs = state.config.requestTimeout * 1000;
+      const firstTokenTimeoutMs = state.config.firstTokenTimeout * 1000;
       let rawTurn;
       try {
         rawTurn = await streamOneTurn(
@@ -396,10 +405,11 @@ export async function runAgentLoop(
         // break out of the loop.
         const emptyCtx: HookContext = {
           client,
-          config,
+          config: state.config,
           options,
           signal,
           callbacks,
+          runId: state.runId,
           pendingToolUses: [],
           fullText,
         };
@@ -434,16 +444,24 @@ export async function runAgentLoop(
         options,
         callbacks,
         signal,
-        config,
+        state.config,
       );
+
+      // Emit structured audit record per tool call.
+      if (state.logger) {
+        for (let i = 0; i < pendingToolUses.length; i++) {
+          const outcome = toolResults[i]?.is_error ? 'error' : 'ok';
+          state.logger.logToolAudit(state.runId, pendingToolUses[i].name, outcome);
+        }
+      }
 
       // Cap tool results before accounting so totalChars reflects what
       // the model will actually see. Without this a single broad grep
       // (e.g. "grep kickstand") can return hundreds of KB and exhaust
       // the token budget even in a fresh conversation, because the raw
       // size is counted even though the backend truncates it anyway.
-      const storedResults = config.promptPruningEnabled
-        ? capToolResults(toolResults, pendingToolUses, config.promptPruningMaxToolResultTokens)
+      const storedResults = state.config.promptPruningEnabled
+        ? capToolResults(toolResults, pendingToolUses, state.config.promptPruningMaxToolResultTokens)
         : toolResults;
 
       // Token accounting and history append for the tool results.
@@ -464,10 +482,11 @@ export async function runAgentLoop(
       // decides termination via the empty-response branch above).
       const afterCtx: HookContext = {
         client,
-        config,
+        config: state.config,
         options,
         signal,
         callbacks,
+        runId: state.runId,
         pendingToolUses,
         toolResults,
         fullText,
@@ -475,6 +494,17 @@ export async function runAgentLoop(
       await hookBus.runAfter(state, afterCtx);
 
       // Continue the loop — model will respond to tool results.
+    }
+  } catch (err) {
+    if (err instanceof PolicyEnforcementError) {
+      const msg =
+        `\n\n⛔ Agent stopped: policy enforcement failure in hook '${err.hookName}' (${err.phase}).\n` +
+        `${err.message}\n\nFix or remove the failing hook before continuing.`;
+      state.logger?.error(`policy-enforcement-failure: ${err.message}`);
+      callbacks.onText(msg);
+      // Do not re-throw — finalize() below fires onDone and flushes cleanly.
+    } else {
+      throw err;
     }
   } finally {
     disposeSteerListener();
