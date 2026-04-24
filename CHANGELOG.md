@@ -4,6 +4,29 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.82.0] - 2026-04-23
+
+**v0.82.0 — Run IDs, policy enforcement, config decoupling, SIDECAR.md generator, and dead code removal.**
+
+### Added
+
+- **`sidecar.generateSidecarMd` command** — new command palette entry generates a `SIDECAR.md` for the workspace from current context; `/init` chat command remains the primary path
+- **Run ID on agent loop** — `taskId` renamed to `runId` (`crypto.randomUUID()`) on `LoopState`; threaded into `HookContext` so every hook invocation carries a stable per-run identifier
+- **Tool audit log** — `logToolAudit()` emits `{runId, tool, outcome, timestamp}` JSON lines per tool call to `.sidecar/logs/`
+
+### Changed
+
+- **`PolicyEnforcementError` now surfaces** — `runPhase()` throws instead of swallowing policy violations; the agent loop emits a ⛔ alert message to the chat so violations are visible
+- **Config decoupled from tool executors** — `SideCarConfig` added to `AgentOptions` / `LoopState` / `ToolExecutorContext`; all 8 tool modules use `context?.config ?? getConfig()` instead of calling `getConfig()` inside the hot path
+
+### Fixed
+
+- **Backend checkmark never updated** — `setActiveBackendProfile` messages were sent by the extension but never handled in `chat.js`; the backend checkmark in the settings menu now updates correctly after switching profiles
+
+### Removed
+
+- **Dead code** — `batchStart` / `batchTaskUpdate` / `batchDone` `ExtensionMessage` types (never sent), `RELEVANCE` constant in `constants.ts` (never imported), `docTestsTestFramework` field in `SideCarConfig` (never read), redundant `getDiagnostics` local import in `tools.ts`
+
 ## [0.81.0] - 2026-04-23
 
 **v0.81.0 — Conversational shortcuts, plan-mode fixes, and UI polish.**
