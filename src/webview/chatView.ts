@@ -81,6 +81,7 @@ import {
   handleDeleteSession,
   handleListSessions,
 } from './handlers/sessionHandlers.js';
+import { handleNotebookStart, handleNotebookExit } from './handlers/notebookHandlers.js';
 
 export class ChatViewProvider implements WebviewViewProvider {
   private webviewView: WebviewView | undefined;
@@ -520,6 +521,8 @@ export class ChatViewProvider implements WebviewViewProvider {
       const run = this.bgManager.get(msg.text || '');
       if (run) this.postMessage({ command: 'bgComplete', bgRun: run });
     },
+    notebookStart: () => handleNotebookStart(this.state),
+    notebookExit: () => handleNotebookExit(this.state),
     generateCommit: () => handleGenerateCommit(this.state),
     revertFile: (msg) => handleRevertFile(this.state, msg.filePath || ''),
     acceptAllChanges: () => handleAcceptAllChanges(this.state),

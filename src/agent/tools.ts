@@ -31,6 +31,7 @@ import { citationTools } from './tools/citation.js';
 import { databaseTools } from './tools/database.js';
 import { visionTools } from './tools/vision.js';
 import { docTestsTools } from './tools/docTests.js';
+import { notebookTools } from './tools/notebook.js';
 
 // ---------------------------------------------------------------------------
 // tools.ts is the slim composition layer. Each tool category lives under
@@ -79,6 +80,7 @@ export const TOOL_REGISTRY: RegisteredTool[] = [
   ...databaseTools,
   ...(getConfig().visualVerifyEnabled ? visionTools : []),
   ...(getConfig().docTestsEnabled ? docTestsTools : []),
+  ...(getConfig().notebookModeEnabled ? notebookTools : []),
   {
     definition: {
       name: 'ask_user',

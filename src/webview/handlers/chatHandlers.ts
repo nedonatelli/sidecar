@@ -209,6 +209,13 @@ async function buildSystemPromptForRun(
     systemPrompt += `\n\n## Active Mode: ${config.agentMode}\n${resolvedSystemPrompt}`;
   }
 
+  // Prepend notebook mode citation constraints when active.
+  const { isNotebookModeActive, getNotebookRequireCitations, notebookSystemPromptPrefix } =
+    await import('./notebookHandlers.js');
+  if (isNotebookModeActive(state)) {
+    systemPrompt = notebookSystemPromptPrefix(getNotebookRequireCitations(state)) + systemPrompt;
+  }
+
   state.postMessage({ command: 'typingStatus', content: 'Building context...' });
   const rawContextLength = await state.client.getModelContextLength();
   const userContextLimit = getContextLimit();

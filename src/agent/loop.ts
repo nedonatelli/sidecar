@@ -1,11 +1,11 @@
-import type { ChatMessage, ToolDefinition } from '../ollama/types.js';
+import type { ChatMessage, ToolDefinition, TokenUsage } from '../ollama/types.js';
 import { SideCarClient } from '../ollama/client.js';
 import { recordToolSuccess, recordToolFailure } from '../ollama/ollamaBackend.js';
 import type { InlineEditFn } from './executor.js';
 import type { ClarifyFn } from './tools.js';
 import type { ToolRuntime } from './tools/runtime.js';
 // getConfig removed — config is now captured once at initLoopState via options.config ?? getConfig()
-import { CHARS_PER_TOKEN } from '../config/constants.js';
+import { estimateTokensFromState } from '../config/tokenEstimation.js';
 import { type ApprovalMode, type ConfirmFn, type DiffPreviewFn, type StreamingDiffPreviewFn } from './executor.js';
 import type { AgentLogger } from './logger.js';
 import type { ChangeLog } from './changelog.js';
@@ -95,6 +95,8 @@ export interface AgentCallbacks {
   onCheckpoint?: (summary: string, iterationsUsed: number, iterationsRemaining: number) => Promise<boolean>;
   /** Called when characters are consumed against the budget (for parent token tracking). */
   onCharsConsumed?: (chars: number) => void;
+  /** Fired once per turn with actual token counts from the provider's usage event. */
+  onUsage?: (usage: TokenUsage) => void;
   /**
    * Fired when a stream fails mid-turn with a recoverable (non-abort)
    * error after at least some text had already been received. `partial`
@@ -291,7 +293,8 @@ export async function runAgentLoop(
       // compaction couldn't bring us below the hard ceiling.
       const compressionOutcome = await applyBudgetCompression(client, state);
       if (compressionOutcome === 'exhausted') {
-        const estimatedTokens = Math.ceil(state.totalChars / CHARS_PER_TOKEN);
+        const estimatedTokens =
+          state.lastActualInputTokens ?? estimateTokensFromState(state.totalChars, state.messages);
         state.logger?.warn(
           `Token budget exceeded after compaction: ~${estimatedTokens} tokens > ${state.maxTokens} limit`,
         );

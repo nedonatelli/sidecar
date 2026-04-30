@@ -1,4 +1,5 @@
-import { CHARS_PER_TOKEN, CONTEXT_COMPRESSION_THRESHOLD } from '../../config/constants.js';
+import { CONTEXT_COMPRESSION_THRESHOLD } from '../../config/constants.js';
+import { estimateTokensFromState } from '../../config/tokenEstimation.js';
 import { SideCarClient } from '../../ollama/client.js';
 import type { ChatMessage, ContentBlock } from '../../ollama/types.js';
 import { ConversationSummarizer } from '../conversationSummarizer.js';
@@ -50,7 +51,16 @@ export function compressMessages(messages: ChatMessage[]): number {
 
     const newContent: ContentBlock[] = [];
     for (const block of msg.content) {
-      if (block.type === 'tool_result' && block.content.length > maxLen) {
+      if (block.type === 'image' && distFromEnd >= 6) {
+        // Heavy compression tier: replace image data with a compact text
+        // placeholder so it no longer dominates the context budget.
+        // Images in the last 2–5 messages (light tier) are left intact.
+        const rawBytes = Math.ceil((block.source.data.length * 3) / 4);
+        const sizeKB = Math.max(1, Math.round(rawBytes / 1024));
+        const placeholder = `[image: ${block.source.media_type}, ~${sizeKB}KB — dropped for context budget]`;
+        newContent.push({ type: 'text', text: placeholder });
+        freed += block.source.data.length - placeholder.length;
+      } else if (block.type === 'tool_result' && block.content.length > maxLen) {
         const original = block.content.length;
         const compressionResult = compressor.compress(block.content, maxLen);
         const compressed = compressionResult.content;
@@ -117,7 +127,9 @@ export type CompressionOutcome = 'ok' | 'exhausted';
  * (including "we didn't need to compress").
  */
 export async function applyBudgetCompression(client: SideCarClient, state: LoopState): Promise<CompressionOutcome> {
-  let estimatedTokens = Math.ceil(state.totalChars / CHARS_PER_TOKEN);
+  // Prefer actual token count from the last API usage event; fall back to
+  // script-type-aware char-based estimation when we don't have it yet.
+  let estimatedTokens = state.lastActualInputTokens ?? estimateTokensFromState(state.totalChars, state.messages);
 
   if (estimatedTokens > state.maxTokens * CONTEXT_COMPRESSION_THRESHOLD) {
     // 1. Summarize old turns.
@@ -144,7 +156,10 @@ export async function applyBudgetCompression(client: SideCarClient, state: LoopS
       state.totalChars -= compressed;
     }
 
-    estimatedTokens = Math.ceil(state.totalChars / CHARS_PER_TOKEN);
+    // After compressing, actual token count is stale — reestimate from chars
+    // since we've modified the message history.
+    state.lastActualInputTokens = undefined;
+    estimatedTokens = estimateTokensFromState(state.totalChars, state.messages);
   }
 
   return estimatedTokens > state.maxTokens ? 'exhausted' : 'ok';
@@ -159,11 +174,12 @@ export async function applyBudgetCompression(client: SideCarClient, state: LoopS
  * in place.
  */
 export function maybeCompressPostTool(state: LoopState): void {
-  const postToolTokens = Math.ceil(state.totalChars / CHARS_PER_TOKEN);
+  const postToolTokens = estimateTokensFromState(state.totalChars, state.messages);
   if (postToolTokens > state.maxTokens * CONTEXT_COMPRESSION_THRESHOLD) {
     const compressed = compressMessages(state.messages);
     if (compressed) {
       state.totalChars -= compressed;
+      state.lastActualInputTokens = undefined;
       state.logger?.info(`Post-tool compression: removed ${compressed} chars`);
     }
   }

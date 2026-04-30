@@ -63,6 +63,7 @@ function stubState(overrides: Partial<LoopState> = {}): LoopState {
     messages: [],
     iteration: 1,
     totalChars: 0,
+    lastActualInputTokens: undefined,
     recentToolCalls: [],
     autoFixRetriesByFile: new Map(),
     stubFixRetries: 0,
@@ -273,5 +274,71 @@ describe('applyBudgetCompression', () => {
     await applyBudgetCompression({} as SideCarClient, state);
     expect(state.messages).toBe(original);
     expect(state.messages[0].content).toBe('original');
+  });
+
+  it('uses lastActualInputTokens when available instead of char estimate', async () => {
+    // Below the threshold via char estimate alone (50K/4 = 12.5K << 70K threshold)
+    // but above via actual tokens (80K > 70K). Should trigger compression.
+    makeSummarizerMock({ freedChars: 10_000, messages: [], turnsSummarized: 1, turnsCount: 3 });
+    const state = stubState({
+      maxTokens: 100_000,
+      totalChars: 50_000,
+      lastActualInputTokens: 80_000, // above 70% of 100K
+    });
+    const outcome = await applyBudgetCompression({} as SideCarClient, state);
+    expect(mockSummarize).toHaveBeenCalledOnce();
+    expect(outcome).toBe('ok');
+    // After compression, lastActualInputTokens should be reset
+    expect(state.lastActualInputTokens).toBeUndefined();
+  });
+});
+
+describe('compressMessages — image bypass', () => {
+  function imageBlock(dataLength = 50_000): ContentBlock {
+    return {
+      type: 'image',
+      source: {
+        type: 'base64',
+        media_type: 'image/jpeg',
+        data: 'x'.repeat(dataLength),
+      },
+    } as ContentBlock;
+  }
+
+  it('replaces image blocks with a text placeholder at heavy compression tier (≥6 from end)', () => {
+    const messages: ChatMessage[] = [];
+    // 8 messages so the first has distFromEnd = 7 (heavy tier)
+    for (let i = 0; i < 7; i++) messages.push({ role: 'user', content: 'short' });
+    messages.unshift({ role: 'user', content: [imageBlock(40_000)] });
+
+    const freed = compressMessages(messages);
+    expect(freed).toBeGreaterThan(0);
+
+    const replaced = messages[0].content as ContentBlock[];
+    expect(replaced[0].type).toBe('text');
+    expect((replaced[0] as { type: 'text'; text: string }).text).toContain('image/jpeg');
+    expect((replaced[0] as { type: 'text'; text: string }).text).toContain('dropped for context budget');
+  });
+
+  it('preserves image blocks in the light compression tier (2-5 from end)', () => {
+    const messages: ChatMessage[] = [];
+    // 4 messages: image is at distFromEnd = 3 (light tier — preserved)
+    for (let i = 0; i < 3; i++) messages.push({ role: 'user', content: 'short' });
+    messages.unshift({ role: 'user', content: [imageBlock(40_000)] });
+
+    compressMessages(messages);
+
+    const preserved = messages[0].content as ContentBlock[];
+    expect(preserved[0].type).toBe('image');
+  });
+
+  it('preserves image blocks in the last 2 messages (untouched tier)', () => {
+    const messages: ChatMessage[] = [
+      { role: 'user', content: [imageBlock(40_000)] }, // distFromEnd = 1
+      { role: 'assistant', content: 'response' }, // distFromEnd = 0
+    ];
+    compressMessages(messages);
+    const preserved = messages[0].content as ContentBlock[];
+    expect(preserved[0].type).toBe('image');
   });
 });

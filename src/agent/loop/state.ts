@@ -65,6 +65,14 @@ export interface LoopState {
   messages: ChatMessage[];
   iteration: number;
   totalChars: number;
+  /**
+   * Actual input+output token count from the most recent API usage event.
+   * When present, compression checks prefer this over the char-based estimate
+   * because it reflects the provider's real tokenization. Reset to undefined
+   * after compression fires (since we've modified the message history and the
+   * cached count no longer applies to the new context).
+   */
+  lastActualInputTokens?: number;
 
   // Ring buffer of recent tool-call signatures for cycle detection.
   // cycleDetection.ts is the only thing that reads or writes it.

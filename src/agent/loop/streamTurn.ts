@@ -154,6 +154,13 @@ export async function streamOneTurn(
         case 'stop':
           stopReason = event.stopReason;
           break;
+        case 'usage':
+          // Store actual token counts for the next compression check.
+          // Input + output because after this turn the model's output
+          // becomes part of the next turn's input context.
+          state.lastActualInputTokens = event.usage.inputTokens + event.usage.outputTokens;
+          callbacks.onUsage?.(event.usage);
+          break;
       }
     }
   } catch (err) {

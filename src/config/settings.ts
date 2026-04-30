@@ -267,6 +267,12 @@ export interface SideCarConfig {
   adaptivePasteMinPasteLength: number;
   adaptivePasteModel: string;
   adaptivePasteAutoDetect: boolean;
+  /* Notebook Mode — Source-Grounded Research (v0.82) */
+  notebookModeEnabled: boolean;
+  notebookModeRequireCitations: 'strict' | 'advisory' | 'off';
+  notebookModeWebUrlEnabled: boolean;
+  notebookModeSlidesEnabled: boolean;
+  notebookModeStudyAidsEnabled: boolean;
 }
 
 /**
@@ -520,6 +526,12 @@ function readConfig(): SideCarConfig {
     nextEditCrossFileEnabled: cfg.get<boolean>('nextEdit.crossFileEnabled', true),
     nextEditModel: cfg.get<string>('nextEdit.model', ''),
     nextEditAutoTriggerOnSave: cfg.get<boolean>('nextEdit.autoTriggerOnSave', false),
+    /* Notebook Mode — Source-Grounded Research (v0.82) */
+    notebookModeEnabled: cfg.get<boolean>('notebookMode.enabled', false),
+    notebookModeRequireCitations: cfg.get<'strict' | 'advisory' | 'off'>('notebookMode.requireCitations', 'strict'),
+    notebookModeWebUrlEnabled: cfg.get<boolean>('notebookMode.sources.webUrl', true),
+    notebookModeSlidesEnabled: cfg.get<boolean>('notebookMode.sources.slides', true),
+    notebookModeStudyAidsEnabled: cfg.get<boolean>('notebookMode.studyAids.enabled', true),
   };
 }
 

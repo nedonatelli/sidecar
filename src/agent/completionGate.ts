@@ -208,8 +208,8 @@ export function buildGateInjection(findings: GateFinding[], attempt: number, max
     'You are about to finish without verifying the changes you just made. Before ' +
       'declaring completion, run the checks listed below and report their actual output ' +
       'as tool results. Do not summarize, do not write a "Summary of Changes" message, ' +
-      'and do not claim anything passes until you have seen real output. If a check ' +
-      'fails, fix the underlying code and re-run — do not edit the test to match broken code.',
+      'and do not claim anything passes until you have seen real output. ' +
+      'If a check fails, report the failure honestly — do not loop trying to fix it unless the fix is obvious and small.',
   );
   lines.push('');
 

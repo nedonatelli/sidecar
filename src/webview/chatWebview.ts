@@ -83,7 +83,9 @@ export interface WebviewMessage {
     | 'steerEdit'
     | 'resume'
     | 'stopAutoMode'
-    | 'executeExtensionCommand';
+    | 'executeExtensionCommand'
+    | 'notebookStart'
+    | 'notebookExit';
   images?: { mediaType: string; data: string }[];
   text?: string;
   model?: string;

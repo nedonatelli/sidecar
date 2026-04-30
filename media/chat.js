@@ -876,6 +876,8 @@
     { cmd: '/init', desc: 'Generate SIDECAR.md project notes from codebase' },
     { cmd: '/bg', desc: 'Run a task in the background' },
     { cmd: '/fork', desc: 'Run N parallel approaches to the same task and pick the winner' },
+    { cmd: '/notebook', desc: 'Enter source-grounded research mode with mandatory citations' },
+    { cmd: '/code', desc: 'Exit Notebook Mode and return to coding-agent mode' },
     { cmd: '/resume', desc: 'Resume a response that was cut off mid-stream' },
     { cmd: '/review', desc: 'Review current git changes' },
     { cmd: '/pr-summary', desc: 'Generate PR title and summary' },
@@ -1230,6 +1232,20 @@
         input.style.height = 'auto';
         return;
       }
+    }
+    if (text.trim() === '/notebook') {
+      appendMessage('user', '/notebook');
+      vscode.postMessage({ command: 'notebookStart' });
+      input.value = '';
+      input.style.height = 'auto';
+      return;
+    }
+    if (text.trim() === '/code') {
+      appendMessage('user', '/code');
+      vscode.postMessage({ command: 'notebookExit' });
+      input.value = '';
+      input.style.height = 'auto';
+      return;
     }
     if (text.startsWith('/save ')) {
       vscode.postMessage({ command: 'saveSession', text: text.slice(6).trim() });
