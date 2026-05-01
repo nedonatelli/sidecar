@@ -16,7 +16,7 @@ describe('AgentMemory', () => {
 
   afterEach(async () => {
     await memory.pendingSave;
-    fs.rmSync(tempDir, { recursive: true, force: true });
+    await fs.promises.rm(tempDir, { recursive: true, force: true });
   });
 
   it('creates agent memory with valid directory', () => {
