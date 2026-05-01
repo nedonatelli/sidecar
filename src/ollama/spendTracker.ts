@@ -1,5 +1,8 @@
 import { EventEmitter } from 'vscode';
 import type { TokenUsage } from './types.js';
+import type { SidecarDir } from '../config/sidecarDir.js';
+
+const SPEND_LOG = 'logs/spend.jsonl';
 
 // Per-million-token USD prices for Anthropic Claude models.
 // Keys are matched by `modelId.startsWith(key)`; pick the longest match.
@@ -47,6 +50,59 @@ class SpendTracker {
   private sessionStart = Date.now();
   private _onDidChange = new EventEmitter<SpendSnapshot>();
   readonly onDidChange = this._onDidChange.event;
+  private sidecarDir: SidecarDir | null = null;
+
+  /** Wire up disk persistence. Call once from extension activation after SidecarDir is ready. */
+  init(dir: SidecarDir): void {
+    this.sidecarDir = dir;
+  }
+
+  /** Replay spend.jsonl entries into the in-memory map so the session total
+   *  survives VS Code restarts. Only entries from the current calendar day
+   *  are replayed — older history is available in the file but kept out of
+   *  the live session total to avoid confusing the status bar. */
+  async restoreFromDisk(): Promise<void> {
+    if (!this.sidecarDir?.isReady()) return;
+    try {
+      const { promises: fsp } = await import('fs');
+      const filePath = this.sidecarDir.getPath(SPEND_LOG);
+      let raw: string;
+      try {
+        raw = await fsp.readFile(filePath, 'utf-8');
+      } catch {
+        return; // file absent — nothing to restore
+      }
+      const startOfDay = new Date();
+      startOfDay.setHours(0, 0, 0, 0);
+      for (const line of raw.split('\n')) {
+        if (!line.trim()) continue;
+        try {
+          const entry = JSON.parse(line) as { timestamp: number; model: string; usage: TokenUsage; costUsd: number };
+          if (entry.timestamp < startOfDay.getTime()) continue;
+          const existing = this.byModel.get(entry.model);
+          if (existing) {
+            existing.usage.inputTokens += entry.usage.inputTokens;
+            existing.usage.outputTokens += entry.usage.outputTokens;
+            existing.usage.cacheCreationInputTokens += entry.usage.cacheCreationInputTokens;
+            existing.usage.cacheReadInputTokens += entry.usage.cacheReadInputTokens;
+            existing.costUsd += entry.costUsd;
+            existing.requests += 1;
+          } else {
+            this.byModel.set(entry.model, {
+              model: entry.model,
+              usage: { ...entry.usage },
+              costUsd: entry.costUsd,
+              requests: 1,
+            });
+          }
+        } catch {
+          /* malformed line — skip */
+        }
+      }
+    } catch (err) {
+      console.warn('[SideCar] Failed to restore spend from disk:', err);
+    }
+  }
 
   /**
    * Record a dispatch's usage + cost. Returns the computed cost in USD
@@ -105,6 +161,24 @@ class SpendTracker {
     }
 
     this._onDidChange.fire(this.snapshot());
+
+    // Fire-and-forget JSONL append — errors are non-fatal
+    if (this.sidecarDir?.isReady() && cost > 0) {
+      this.sidecarDir
+        .appendJsonl(SPEND_LOG, {
+          timestamp: Date.now(),
+          model,
+          usage: {
+            inputTokens: usage.inputTokens,
+            outputTokens: usage.outputTokens,
+            cacheCreationInputTokens: usage.cacheCreationInputTokens,
+            cacheReadInputTokens: usage.cacheReadInputTokens,
+          },
+          costUsd: cost,
+        })
+        .catch((err: unknown) => console.warn('[SideCar] spend.jsonl append failed:', err));
+    }
+
     return cost;
   }
 

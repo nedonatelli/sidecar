@@ -289,7 +289,11 @@ export class FlatVectorStore<M> implements VectorStore<M> {
       const envelope = await this.sidecarDir.readJson<FlatStoreMeta<M> & Record<string, unknown>>(this.metaFile);
       if (!envelope) return;
       if (!this.validateMeta(envelope as FlatStoreMeta<unknown> & Record<string, unknown>)) {
-        console.log('[FlatVectorStore] persisted meta failed validation — rebuilding on next write');
+        console.warn(
+          `[FlatVectorStore] persisted meta failed validation (model/dimension changed?) — deleting stale cache and re-indexing`,
+        );
+        await fs.promises.unlink(this.sidecarDir.getPath(this.metaFile)).catch(() => {});
+        await fs.promises.unlink(this.sidecarDir.getPath(this.binFile)).catch(() => {});
         return;
       }
       const binPath = this.sidecarDir.getPath(this.binFile);

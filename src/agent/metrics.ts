@@ -1,5 +1,8 @@
 import type { Memento } from 'vscode';
 import { CHARS_PER_TOKEN } from '../config/constants.js';
+import type { SidecarDir } from '../config/sidecarDir.js';
+
+const METRICS_LOG = 'logs/metrics.jsonl';
 
 export interface ToolCallMetric {
   name: string;
@@ -23,8 +26,14 @@ const STORAGE_KEY = 'sidecar.metrics';
 export class MetricsCollector {
   private currentRun: Partial<AgentRunMetrics> | null = null;
   private toolStartTime = 0;
+  private sidecarDir: SidecarDir | null = null;
 
   constructor(private workspaceState: Memento) {}
+
+  /** Wire up JSONL persistence. Call once from extension activation. */
+  init(dir: SidecarDir): void {
+    this.sidecarDir = dir;
+  }
 
   startRun(): void {
     this.currentRun = {
@@ -72,10 +81,21 @@ export class MetricsCollector {
   endRun(): void {
     if (!this.currentRun) return;
     this.currentRun.durationMs = Date.now() - (this.currentRun.timestamp || 0);
+    const run = this.currentRun as AgentRunMetrics;
+
+    // Keep the last 100 runs in workspaceState for fast in-session access.
     const history = this.getHistory();
-    history.push(this.currentRun as AgentRunMetrics);
+    history.push(run);
     if (history.length > 100) history.splice(0, history.length - 100);
     this.workspaceState.update(STORAGE_KEY, history);
+
+    // Append to rolling JSONL for long-term history (no cap).
+    if (this.sidecarDir?.isReady()) {
+      this.sidecarDir
+        .appendJsonl(METRICS_LOG, run)
+        .catch((err: unknown) => console.warn('[SideCar] metrics.jsonl append failed:', err));
+    }
+
     this.currentRun = null;
   }
 
@@ -151,5 +171,64 @@ export class MetricsCollector {
    */
   getCurrentRunTokens(): number {
     return this.currentRun?.totalTokensEstimate ?? 0;
+  }
+
+  /**
+   * Aggregate metrics from the JSONL log for the last `days` calendar days.
+   * Falls back to workspaceState history when the log file is absent.
+   * Returns null when sidecarDir is not ready.
+   */
+  async getMetricsSince(days: number): Promise<{
+    runs: number;
+    iterations: number;
+    toolCallCount: number;
+    errorCount: number;
+    totalCostUsd: number;
+    byTool: Record<string, { count: number; errors: number }>;
+  } | null> {
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+    let runs: AgentRunMetrics[] = [];
+
+    if (this.sidecarDir?.isReady()) {
+      try {
+        const { promises: fsp } = await import('fs');
+        const raw = await fsp.readFile(this.sidecarDir.getPath(METRICS_LOG), 'utf-8').catch(() => '');
+        for (const line of raw.split('\n')) {
+          if (!line.trim()) continue;
+          try {
+            const entry = JSON.parse(line) as AgentRunMetrics;
+            if (entry.timestamp >= cutoff) runs.push(entry);
+          } catch {
+            /* malformed — skip */
+          }
+        }
+      } catch {
+        /* log absent — fall through */
+      }
+    }
+
+    // Fall back to workspaceState when log is empty or unavailable
+    if (runs.length === 0) {
+      runs = this.getHistory().filter((r) => r.timestamp >= cutoff);
+    }
+
+    const byTool: Record<string, { count: number; errors: number }> = {};
+    let iterations = 0;
+    let toolCallCount = 0;
+    let errorCount = 0;
+    let totalCostUsd = 0;
+    for (const run of runs) {
+      iterations += run.iterations;
+      errorCount += run.errors?.length ?? 0;
+      if (run.costUsd) totalCostUsd += run.costUsd;
+      for (const tc of run.toolCalls ?? []) {
+        toolCallCount++;
+        const t = (byTool[tc.name] ??= { count: 0, errors: 0 });
+        t.count++;
+        if (tc.isError) t.errors++;
+      }
+    }
+
+    return { runs: runs.length, iterations, toolCallCount, errorCount, totalCostUsd, byTool };
   }
 }

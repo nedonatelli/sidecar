@@ -118,6 +118,7 @@ export class ChatViewProvider implements WebviewViewProvider {
     }
     if (sidecarDir) {
       this.state.sidecarDir = sidecarDir;
+      this.state.metricsCollector.init(sidecarDir);
     }
     if (skillLoader) {
       this.state.skillLoader = skillLoader;

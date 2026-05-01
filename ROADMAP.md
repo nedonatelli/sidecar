@@ -95,17 +95,17 @@ Compiled 2026-04-21 from 28-track Cycle-4 audit (26 CRITICAL, 66 HIGH findings) 
 - [x] **Image `ContentBlock` compression bypass** (T22-CRITICAL) — at `heavy` compression level replace image blocks with `[image: <mediaType>, ~<sizeKB>KB — dropped for context budget]` placeholder; preserve at `light` only.
 
 **Should Have**:
-- [ ] **Prompt cache boundary** (T28-HIGH) — move `cache_control: { type: 'ephemeral' }` marker to last content block of second-to-last *assistant* message so the final user message provides the required 1,024-token non-cached suffix; add test asserting `cache_creation_input_tokens > 0`.
-- [ ] **System prompt budget fraction** (T28-HIGH) — measure actual assembled system prompt size post-injection; reserve that size + 15% headroom instead of a flat 50% of context window.
-- [ ] **Embedding model coupling** (T28-HIGH) — store `{ modelId, dimension }` in cache header; invalidate + re-index automatically when either changes.
-- [ ] **Compression first-turn anchor** (T28-MEDIUM) — mark `messages[0]` and state-establishing tool results (`git_clone`, `npm install`) as compression-immune.
-- [ ] **`agentMemory` file split per-turn** (T27-MEDIUM) — memoize line-split results by `(filePath, mtime)` in `semanticRetriever.ts:155`.
+- [x] **Prompt cache boundary** (T28-HIGH) — move `cache_control: { type: 'ephemeral' }` marker to last content block of second-to-last *assistant* message so the final user message provides the required 1,024-token non-cached suffix; add test asserting `cache_creation_input_tokens > 0`.
+- [x] **System prompt budget fraction** (T28-HIGH) — measure actual assembled system prompt size post-injection; reserve that size + 15% headroom instead of a flat 50% of context window.
+- [x] **Embedding model coupling** (T28-HIGH) — store `{ modelId, dimension }` in cache header; invalidate + re-index automatically when either changes.
+- [x] **Compression first-turn anchor** (T28-MEDIUM) — mark `messages[0]` and state-establishing tool results (`git_clone`, `npm install`) as compression-immune.
+- [x] **`agentMemory` file split per-turn** (T27-MEDIUM) — memoize line-split results by `(filePath, mtime)` in `semanticRetriever.ts:155`.
 
 **Could Have**:
-- [ ] **Model context window dynamic query** (T28-MEDIUM) — query `/api/show` (Ollama) or `/v1/models/{id}` (cloud) on first use; warn when falling back to hardcoded values.
-- [ ] **`supportsTemperature` regex** (T28-MEDIUM) — invert to an explicit allowlist; default-disable temperature for unrecognized Claude model IDs.
-- [ ] **`SpendTracker` persistence** (T21-HIGH) — write to `.sidecar/logs/spend.jsonl` on each turn; restore on activation.
-- [ ] **`MetricsCollector` 100-run cap** (T21-HIGH) — replace with rolling JSONL log; expose last-N-days aggregation.
+- [x] **Model context window dynamic query** (T28-MEDIUM) — query `/api/show` (Ollama) or `/v1/models/{id}` (cloud) on first use; warn when falling back to hardcoded values.
+- [x] **`supportsTemperature` regex** (T28-MEDIUM) — invert to an explicit allowlist; default-disable temperature for unrecognized Claude model IDs.
+- [x] **`SpendTracker` persistence** (T21-HIGH) — write to `.sidecar/logs/spend.jsonl` on each turn; restore on activation.
+- [x] **`MetricsCollector` 100-run cap** (T21-HIGH) — replace with rolling JSONL log; expose last-N-days aggregation.
 
 **Definition of Done**:
 - Token count test: Qwen-style CJK prompt → estimated tokens within 15% of API-returned count

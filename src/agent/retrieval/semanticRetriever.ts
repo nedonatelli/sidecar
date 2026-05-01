@@ -101,9 +101,18 @@ export class SemanticRetriever implements Retriever {
     }
 
     const hits: RetrievalHit[] = [];
+    // Cache line-splits per file for the duration of this query: multiple
+    // symbols from the same file would otherwise split the same string
+    // repeatedly, once per symbol.
+    const lineCache = new Map<string, string[]>();
     for (const r of expanded) {
-      const fileContent = await this.index.loadFileContent(r.filePath);
-      const body = sliceSymbolBody(fileContent, r.startLine, r.endLine);
+      let lines = lineCache.get(r.filePath);
+      if (!lines) {
+        const fileContent = await this.index.loadFileContent(r.filePath);
+        lines = fileContent ? fileContent.split('\n') : [];
+        lineCache.set(r.filePath, lines);
+      }
+      const body = sliceSymbolBodyFromLines(lines, r.startLine, r.endLine);
       if (!body) continue;
       const truncated =
         body.length > this.maxCharsPerSymbol
@@ -150,9 +159,7 @@ export class SemanticRetriever implements Retriever {
  * or the range is out of bounds — mirrors the caller-tolerant shape
  * the rest of the retrieval layer expects.
  */
-function sliceSymbolBody(fileContent: string | null, startLine: number, endLine: number): string {
-  if (!fileContent) return '';
-  const lines = fileContent.split('\n');
+function sliceSymbolBodyFromLines(lines: string[], startLine: number, endLine: number): string {
   const startIdx = Math.max(0, startLine - 1);
   const endIdx = Math.min(lines.length, endLine);
   if (endIdx <= startIdx) return '';

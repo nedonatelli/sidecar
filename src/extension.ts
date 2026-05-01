@@ -198,6 +198,10 @@ export function activate(context: ExtensionContext) {
         // deleted directories → downstream git commands fail). Sweep
         // is fire-and-forget; failures don't block activation.
         void initShadowSweep();
+        // Wire spend tracker disk persistence and replay today's
+        // spend so the status bar shows the correct session total.
+        spendTracker.init(sidecarDir);
+        void spendTracker.restoreFromDisk();
       },
       (err) => console.warn('[SideCar] .sidecar/ init failed:', err),
     );

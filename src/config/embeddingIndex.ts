@@ -304,7 +304,20 @@ export class EmbeddingIndex implements Disposable {
       if (!meta) return;
 
       if (meta.version !== 1 || meta.modelId !== MODEL_ID || meta.dimension !== DIMENSION) {
-        console.log('[SideCar] Embedding cache version/model mismatch, rebuilding');
+        console.warn(
+          `[SideCar] Embedding cache mismatch (cached: ${meta.modelId}/${meta.dimension}d, current: ${MODEL_ID}/${DIMENSION}d) — deleting stale cache and re-indexing`,
+        );
+        // Delete stale files so we don't repeatedly load-and-discard them
+        try {
+          await fs.promises.unlink(this.sidecarDir!.getPath(META_FILE));
+        } catch {
+          /* already gone */
+        }
+        try {
+          await fs.promises.unlink(this.sidecarDir!.getPath(BIN_FILE));
+        } catch {
+          /* already gone */
+        }
         return;
       }
 

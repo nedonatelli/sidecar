@@ -20,9 +20,23 @@ import { CHARS_PER_TOKEN } from '../config/constants.js';
 /** How long we'll wait on a rate-limit reset before telling the user to switch backends. */
 const MAX_RATE_LIMIT_WAIT_MS = 60_000;
 
-/** claude-opus-4+ and future Claude 4 models have deprecated the `temperature` parameter. */
+/**
+ * Explicit allow-list of Claude model prefixes that accept `temperature`.
+ * Claude 4.x+ deprecated the parameter; defaulting to false for unrecognized
+ * model IDs prevents accidental injection into future versions.
+ */
+const TEMPERATURE_SUPPORTED_PREFIXES = [
+  'claude-3-opus',
+  'claude-3-sonnet',
+  'claude-3-haiku',
+  'claude-3-5-sonnet',
+  'claude-3-5-haiku',
+  'claude-3-7-sonnet',
+];
+
 function supportsTemperature(model: string): boolean {
-  return !/claude-(opus|sonnet|haiku)-4/i.test(model);
+  const lower = model.toLowerCase();
+  return TEMPERATURE_SUPPORTED_PREFIXES.some((prefix) => lower.startsWith(prefix));
 }
 
 /** Rough token estimate for a system+messages payload using the shared chars/token ratio. */

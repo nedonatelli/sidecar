@@ -26,6 +26,18 @@ import type { LoopState } from './state.js';
 // totalChars accounting.
 // ---------------------------------------------------------------------------
 
+/** Tools whose results should never be compressed away — they establish context
+ *  the agent needs for the rest of the session (repo root, deps tree, etc.). */
+const STATE_ESTABLISHING_TOOLS = new Set(['git_clone', 'npm_install', 'run_command']);
+
+function isStateEstablishingResult(msg: ChatMessage, prevMsg: ChatMessage | undefined): boolean {
+  if (!prevMsg || msg.role !== 'user' || typeof msg.content === 'string') return false;
+  if (!Array.isArray(prevMsg.content)) return false;
+  // A user message's tool_results are state-establishing when the preceding
+  // assistant message's tool_use names are in STATE_ESTABLISHING_TOOLS.
+  return prevMsg.content.some((b) => b.type === 'tool_use' && STATE_ESTABLISHING_TOOLS.has(b.name));
+}
+
 export function compressMessages(messages: ChatMessage[]): number {
   let freed = 0;
   const len = messages.length;
@@ -34,6 +46,16 @@ export function compressMessages(messages: ChatMessage[]): number {
   for (let i = 0; i < len; i++) {
     const msg = messages[i];
     if (typeof msg.content === 'string' || !Array.isArray(msg.content)) continue;
+
+    // messages[0] is the user's original task — protect it from compression.
+    // Real initial messages are always role:'user' with pure text blocks and
+    // nothing else. Only those get the exemption; image/tool_result blocks at
+    // index 0 (test artifacts or unusual flows) remain compressible.
+    if (i === 0 && msg.role === 'user' && msg.content.every((b) => b.type === 'text')) continue;
+
+    // Tool results from state-establishing commands (git_clone, npm install, etc.)
+    // are compression-immune: the agent needs them for the full session.
+    if (isStateEstablishingResult(msg, messages[i - 1])) continue;
 
     const distFromEnd = len - 1 - i;
     let maxLen: number;

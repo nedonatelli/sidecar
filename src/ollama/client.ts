@@ -682,7 +682,13 @@ export class SideCarClient {
     // For cloud providers, check the well-known context lengths lookup table.
     // This covers Anthropic, OpenAI, Groq, Fireworks, OpenRouter, etc.
     if (!this.isLocalOllama()) {
-      return MODEL_CONTEXT_LENGTHS[this.model] ?? null;
+      const known = MODEL_CONTEXT_LENGTHS[this.model];
+      if (known === undefined) {
+        console.warn(
+          `[SideCar] Context window for "${this.model}" not in lookup table — compression thresholds may be inaccurate. Add it to MODEL_CONTEXT_LENGTHS in constants.ts.`,
+        );
+      }
+      return known ?? null;
     }
     try {
       const response = await fetch(`${this.baseUrl}/api/show`, {

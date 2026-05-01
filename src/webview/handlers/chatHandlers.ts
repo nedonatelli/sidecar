@@ -23,7 +23,6 @@ import { parseModelSentinel } from '../../ollama/modelSentinels.js';
 import { isProviderReachable } from '../../config/providerReachability.js';
 import {
   CHARS_PER_TOKEN,
-  SYSTEM_PROMPT_BUDGET_FRACTION,
   DEFAULT_MAX_SYSTEM_CHARS,
   LOCAL_CONTEXT_CAP,
   INPUT_TOKEN_RATIO,
@@ -226,9 +225,10 @@ async function buildSystemPromptForRun(
     contextLength =
       isLocal && rawContextLength && rawContextLength > LOCAL_CONTEXT_CAP ? LOCAL_CONTEXT_CAP : rawContextLength;
   }
-  const maxSystemChars = contextLength
-    ? Math.floor(contextLength * CHARS_PER_TOKEN * SYSTEM_PROMPT_BUDGET_FRACTION)
-    : DEFAULT_MAX_SYSTEM_CHARS;
+  // Allow the system prompt to occupy up to 40% of the context window during
+  // assembly. After injection the actual size is measured and used to set a
+  // tighter message-history budget (see effectiveMaxTokens calculation below).
+  const maxSystemChars = contextLength ? Math.floor(contextLength * CHARS_PER_TOKEN * 0.4) : DEFAULT_MAX_SYSTEM_CHARS;
 
   systemPrompt = await injectSystemContext(systemPrompt, maxSystemChars, state, config, text, isLocal, contextLength);
   return { systemPrompt, contextLength };
@@ -427,13 +427,13 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     const prePruneMessageCount = state.messages.length;
     const chatMessages = [...state.messages];
 
-    // Use the model's actual context window as the token budget when
-    // available, bounded by the user's agentMaxTokens cap. Without this,
-    // a large-context cloud model (e.g. 200K) would still be capped at
-    // the agentMaxTokens default, and the pre-loop history pruning would
-    // pass more history than the loop can handle — causing compression to
-    // exhaust immediately.
-    const effectiveMaxTokens = contextLength ? Math.min(contextLength, config.agentMaxTokens) : config.agentMaxTokens;
+    // Use the model's actual context window as the token budget, bounded by
+    // the user's agentMaxTokens cap. Then subtract the actual assembled
+    // system prompt size (+ 15% headroom) so compression thresholds are
+    // relative to the real message-history budget, not the full window.
+    const rawMaxTokens = contextLength ? Math.min(contextLength, config.agentMaxTokens) : config.agentMaxTokens;
+    const systemPromptTokens = Math.ceil((systemPrompt.length / CHARS_PER_TOKEN) * 1.15);
+    const effectiveMaxTokens = Math.max(rawMaxTokens - systemPromptTokens, Math.floor(rawMaxTokens / 2));
 
     await enrichAndPruneMessages(chatMessages, config, systemPrompt, effectiveMaxTokens, state, config.verboseMode);
 
