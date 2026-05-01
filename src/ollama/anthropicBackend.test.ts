@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { AnthropicBackend, buildSystemBlocks } from './anthropicBackend.js';
+import { AnthropicBackend, buildSystemBlocks, prepareMessagesForCache } from './anthropicBackend.js';
 
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
@@ -61,6 +61,77 @@ describe('buildSystemBlocks', () => {
     expect(blocks).toHaveLength(1);
     expect(blocks[0].text).toBe('');
     expect(blocks[0].cache_control).toEqual({ type: 'ephemeral' });
+  });
+});
+
+describe('prepareMessagesForCache', () => {
+  it('returns messages unchanged when fewer than 3', () => {
+    const msgs = [{ role: 'user' as const, content: 'hi' }];
+    expect(prepareMessagesForCache(msgs)).toBe(msgs);
+  });
+
+  it('returns messages unchanged when no assistant message exists', () => {
+    const msgs = [
+      { role: 'user' as const, content: 'a' },
+      { role: 'user' as const, content: 'b' },
+      { role: 'user' as const, content: 'c' },
+    ];
+    expect(prepareMessagesForCache(msgs)).toEqual(msgs);
+  });
+
+  it('marks the last assistant message with cache_control', () => {
+    const msgs = [
+      { role: 'user' as const, content: 'task' },
+      { role: 'assistant' as const, content: [{ type: 'text' as const, text: 'thinking' }] },
+      { role: 'user' as const, content: [{ type: 'tool_result' as const, tool_use_id: 'x', content: 'result' }] },
+    ];
+    const result = prepareMessagesForCache(msgs);
+    // Assistant message (index 1) should be marked; user messages untouched
+    const assistantContent = result[1].content as Array<{ cache_control?: unknown }>;
+    expect(Array.isArray(assistantContent)).toBe(true);
+    expect(assistantContent[assistantContent.length - 1].cache_control).toEqual({ type: 'ephemeral' });
+    // Last user message must not be touched
+    expect(JSON.stringify(result[2].content)).not.toContain('cache_control');
+  });
+
+  it('marks the last (not second-to-last) assistant in a longer history', () => {
+    const msgs = [
+      { role: 'user' as const, content: 'task' },
+      { role: 'assistant' as const, content: [{ type: 'text' as const, text: 'first' }] },
+      { role: 'user' as const, content: [{ type: 'tool_result' as const, tool_use_id: 'a', content: 'r1' }] },
+      { role: 'assistant' as const, content: [{ type: 'text' as const, text: 'second' }] },
+      { role: 'user' as const, content: [{ type: 'tool_result' as const, tool_use_id: 'b', content: 'r2' }] },
+    ];
+    const result = prepareMessagesForCache(msgs);
+    // Only the last assistant (index 3) should be marked
+    const first = result[1].content as Array<{ cache_control?: unknown }>;
+    const last = result[3].content as Array<{ cache_control?: unknown }>;
+    expect(first[first.length - 1].cache_control).toBeUndefined();
+    expect(last[last.length - 1].cache_control).toEqual({ type: 'ephemeral' });
+  });
+
+  it('normalises a string-content assistant message to a text block', () => {
+    const msgs = [
+      { role: 'user' as const, content: 'task' },
+      { role: 'assistant' as const, content: 'plain text response' },
+      { role: 'user' as const, content: 'follow-up' },
+    ];
+    const result = prepareMessagesForCache(msgs);
+    expect(Array.isArray(result[1].content)).toBe(true);
+    const blocks = result[1].content as Array<{ type: string; text: string; cache_control?: unknown }>;
+    expect(blocks[0].text).toBe('plain text response');
+    expect(blocks[0].cache_control).toEqual({ type: 'ephemeral' });
+  });
+
+  it('does not mutate the original messages array', () => {
+    const msgs = [
+      { role: 'user' as const, content: 'task' },
+      { role: 'assistant' as const, content: [{ type: 'text' as const, text: 'ok' }] },
+      { role: 'user' as const, content: 'follow' },
+    ];
+    const original = JSON.stringify(msgs);
+    prepareMessagesForCache(msgs);
+    expect(JSON.stringify(msgs)).toBe(original);
   });
 });
 
@@ -352,6 +423,55 @@ describe('AnthropicBackend', () => {
       expect(events).toContainEqual({ type: 'text', text: 'partial response' });
       // Should not crash, just end without a stop event
       expect(events.find((e) => e.type === 'stop')).toBeUndefined();
+    });
+
+    it('emits usage event with cache_creation_input_tokens > 0 on multi-turn conversation', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        body: sseBody([
+          sse({
+            type: 'message_start',
+            message: {
+              usage: {
+                input_tokens: 800,
+                output_tokens: 0,
+                cache_creation_input_tokens: 420,
+                cache_read_input_tokens: 0,
+              },
+            },
+          }),
+          sse({ type: 'content_block_delta', delta: { type: 'text_delta', text: 'done' } }),
+          sse({ type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 5 } }),
+          sse({ type: 'message_stop' }),
+        ]),
+      });
+
+      const multiTurnMessages = [
+        { role: 'user' as const, content: 'fix my code' },
+        { role: 'assistant' as const, content: [{ type: 'text' as const, text: 'reading files' }] },
+        {
+          role: 'user' as const,
+          content: [{ type: 'tool_result' as const, tool_use_id: 'x', content: 'file content here' }],
+        },
+      ];
+
+      const events = [];
+      for await (const event of backend.streamChat('claude-3-5-sonnet-20241022', 'sys', multiTurnMessages)) {
+        events.push(event);
+      }
+
+      const usageEvent = events.find((e) => e.type === 'usage');
+      expect(usageEvent).toBeDefined();
+      if (usageEvent?.type === 'usage') {
+        expect(usageEvent.usage.cacheCreationInputTokens).toBeGreaterThan(0);
+      }
+
+      // Verify the request body marked the last assistant message for caching
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      const assistantMsg = body.messages.find((m: { role: string }) => m.role === 'assistant');
+      expect(assistantMsg).toBeDefined();
+      const lastBlock = assistantMsg.content[assistantMsg.content.length - 1];
+      expect(lastBlock.cache_control).toEqual({ type: 'ephemeral' });
     });
 
     // v0.62.3 — mid-stream network death on the Anthropic SSE path.

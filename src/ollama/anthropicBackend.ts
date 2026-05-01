@@ -74,11 +74,14 @@ export function prepareToolsForCache(tools: ToolDefinition[]): ToolDefinition[] 
 }
 
 /**
- * Mark the last content block of the second-to-last user message with
+ * Mark the last content block of the last assistant message with
  * `cache_control`, so prior conversation history is cached across agent
- * iterations. The breakpoint is placed one turn behind the latest input
- * so the current turn is still cheap to write — on the next iteration
- * it'll extend the cached prefix.
+ * iterations. In a well-formed agent-loop history, the last assistant
+ * message is always second-to-last overall (the final message is the
+ * current user turn). Placing the boundary here means only that final
+ * user message — typically tool results, reliably ≥1,024 tokens — is
+ * sent uncached, while the assistant's (potentially large) tool_use
+ * blocks from the previous turn enter the cached prefix immediately.
  *
  * Returns a new array; original messages are not mutated. Content is
  * normalized from string → text-block form on the marked message so
@@ -87,13 +90,15 @@ export function prepareToolsForCache(tools: ToolDefinition[]): ToolDefinition[] 
 export function prepareMessagesForCache(messages: ChatMessage[]): ChatMessage[] {
   if (messages.length < 3) return messages;
 
-  // Find the second-to-last user message index.
-  const userIndices: number[] = [];
-  for (let i = 0; i < messages.length; i++) {
-    if (messages[i].role === 'user') userIndices.push(i);
+  // Scan backwards for the last assistant message.
+  let targetIdx = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'assistant') {
+      targetIdx = i;
+      break;
+    }
   }
-  if (userIndices.length < 2) return messages;
-  const targetIdx = userIndices[userIndices.length - 2];
+  if (targetIdx === -1) return messages;
 
   const result = messages.slice();
   const target = result[targetIdx];
