@@ -54,27 +54,27 @@ Compiled 2026-04-21 from 28-track Cycle-4 audit (26 CRITICAL, 66 HIGH findings) 
 **Sprint Goal**: *Deliver NoSQL database connectivity while dismantling the three structural CRITICAL issues — global config singleton, unstructured agent run IDs, and silent policy-hook failures — that make the agent loop unauditable and hard to unit-test.*
 
 **Must Have**:
-- [ ] **NoSQL via MCP feature** — MongoDB + Redis MCP servers ship with install paths. Spec: [Database Integration Tier 3](#first-class-database-integration-sql--nosql).
-- [ ] **Agent run ID** (T24-CRITICAL) — generate a `crypto.randomUUID()` at loop entry; thread into every `AgentLogger` call, hook invocation, and RPC trace entry; emit structured `{ runId, tool, outcome }` audit records.
-- [ ] **Policy hook failure halts loop** (T24-CRITICAL) — elevate hook errors from `console.warn` to a `policy-enforcement-failure` structured event that halts the loop with a mandatory user-facing alert.
-- [ ] **`getConfig()` singleton coupling** (T16-CRITICAL) — inject a typed config object at activation; pass through constructors and `AgentOptions`; unblock unit tests that currently stub a global.
+- [x] **NoSQL via MCP feature** — `sidecar.noSql.install` command configures MongoDB (`@mongodb-js/mongodb-mcp-server` via npx) or Redis (`mcp-redis` via uvx); QuickPick + connection-string prompt writes to `sidecar.mcpServers`; docs in `docs/extending-sidecar.md#nosql-databases`.
+- [x] **Agent run ID** (T24-CRITICAL) — `crypto.randomUUID()` at loop entry in `initLoopState`; threaded into every `HookContext` and `logToolAudit` call; `logToolAudit` emits structured `{ runId, tool, outcome, timestamp }` JSON. Verified by new `logger.test.ts` case.
+- [x] **Policy hook failure halts loop** (T24-CRITICAL) — `HookBus.runPhase` re-throws any hook error as `PolicyEnforcementError`; `loop.ts` catch block emits `⛔ Agent stopped: policy enforcement failure` to `onText` and calls `finalize()` cleanly. Verified by two new `loop.test.ts` cases (halt + onDone fires).
+- [x] **`getConfig()` singleton coupling** (T16-CRITICAL) — injection-first fallback (`options.config ?? getConfig()` / `injectedConfig ?? getConfig()`) at 10+ call sites: `executor.ts`, `hookRunner.ts`, `sandbox.ts`, `localWorker.ts`, `autoMode/dispatcher.ts`, `tools.ts` (`getCustomToolRegistry` + `getToolDefinitions`), `usageReport.ts`, `tools/runtime.ts` (`getShellSession`), `tools/database.ts` (`findProfile`). `SideCarConfig` type threaded via `AgentOptions.config` — all callers that have context pass it; callers without context fall back to `getConfig()` unchanged.
 
 **Should Have**:
-- [ ] **O(p × f) pinned-file scan** (T27-CRITICAL) — pre-build `Map<prefix, FileNode[]>` at `setPinnedPaths` time; reduce per-turn cost from O(p × f) to O(p).
-- [ ] **API call audit log** (T17-CRITICAL) — log per-turn request metadata `{ runId, model, inputTokens, stopReason, timestamp }` to `.sidecar/logs/api.jsonl`; gated behind `sidecar.verboseLogs` for prompt bodies.
-- [ ] **MCP capability allowlist** (T25-CRITICAL) — add `toolAllowlist` field to MCP server config; reject tools at registration time if not allowlisted.
-- [ ] **`extension.ts` decomposition** (T3-HIGH) — extract `activationCore.ts`, `indexing/initializer.ts`, `config/providerSetup.ts`, `commands/*.ts`; target ≤150-line entry point.
-- [ ] **`FlatVectorStore` O(n²) realloc** (T27-HIGH) — exponential growth strategy for `Float32Array` capacity; eliminate per-upsert full copy.
-- [ ] **`workspaceIndex.rankFiles` O(q×p×t) loop** (T27-HIGH) — replace substring tests with `Set` membership checks.
-- [ ] **`symbolGraph.getSupertypes` full scan** (T27-HIGH) — build `Map<childName, TypeEdge[]>` reverse index in `addFile()`.
+- [x] **O(p × f) pinned-file scan** (T27-CRITICAL) — `getPinnedFileSet()` builds a `Set<string>` of matching files lazily and caches it; invalidated on pin changes + file watcher events. Both `getPinnedFilesSection` and `getRelevantContext` use the cache.
+- [x] **API call audit log** (T17-CRITICAL) — new `apiAuditLog.ts` module; `logApiCall` appends `{ runId, model, inputTokens, outputTokens, stopReason, timestamp }` to `.sidecar/logs/api.jsonl` from the `'usage'` event in `streamTurn.ts`. Gated behind `sidecar.verboseLogs` (default `false`).
+- [x] **MCP capability allowlist** (T25-CRITICAL) — `toolAllowlist?: string[]` added to `MCPServerConfig`; `mcpManager.ts` filters out tools not on the list before registering them.
+- [x] **`extension.ts` decomposition** (T3-HIGH) — 1814 → 135 lines. Logic extracted to 8 focused modules: `src/activation/baseSetup.ts` (core services), `src/activation/servicesInit.ts` (sidecar dir + skills + indexes), `src/activation/mcpSetup.ts`, `src/activation/warmup.ts`, `src/activation/workspaceIndexer.ts`, `src/activation/chatViewSetup.ts`, `src/activation/editorFeatures.ts`; commands split across `src/commands/{autoMode,settings,agent,prAndReview}Commands.ts` and `src/ui/statusBar.ts`.
+- [x] **`FlatVectorStore` O(n²) realloc** (T27-HIGH) — added `vectorCount` (monotonically increasing slot counter); capacity doubles from 0 → 16 → 32 → … so amortized upsert is O(1). `persist()` and `restore()` reset `vectorCount` to the compacted live count.
+- [x] **`workspaceIndex.rankFiles` O(q×p×t) loop** (T27-HIGH) — `tokenize(query)` and `new Set(queryWords)` moved outside the per-file `.map()` loop in `rankFiles`; passed into `computeScore` so each file does O(q + t) not O(q×t) construction.
+- [x] **`symbolGraph.getSupertypes` full scan** (T27-HIGH) — added `childTypesOf: Map<childName, TypeEdge[]>` reverse index; populated in `addFile()`, cleaned in `removeFile()`. `getSupertypes` now does O(1) map lookup instead of full scan over all `typeEdgesByFile` values.
 
 **Could Have**:
-- [ ] **BFS `Array.shift()` → ring-buffer deque** (T27-HIGH) — `graphExpansion.ts:99`.
-- [ ] **`AgentLogger.logToolResult` redaction** (T17-HIGH) — pass output through `redactSecrets()` before logging.
-- [ ] **15 identical `catch` blocks** (T3-HIGH) — extract `formatToolError(context, err)` helper in `tools/shared.ts`.
-- [ ] **docs/index.html WCAG AA contrast** (T14-CRITICAL) — fix `.mode-custom` orange text (3.9:1 → ≥4.5:1), `--text-3` label color (2.55:1 → ≥4.5:1), CTA button coral (3.3:1 → ≥4.5:1).
-- [ ] **docs/index.html `@media` queries** (T10-CRITICAL) — collapse feature grid to single column ≤768px.
-- [ ] **`prefers-reduced-motion` guard** (T11/T12-CRITICAL) — blanket `animation-duration: 0.01ms` in `chat.css` and docs ticker.
+- [x] **BFS `Array.shift()` → head-pointer deque** (T27-HIGH) — `graphExpansion.ts`: replaced `queue.shift()` with `queue[head++]` to eliminate O(n) left-shift on every BFS iteration.
+- [x] **`AgentLogger.logToolResult` redaction** (T17-HIGH) — pass output through `redactSecrets()` before logging; import wired in `logger.ts`.
+- [x] **15 identical `catch` blocks** (T3-HIGH) — added `formatToolError(err)` helper in `tools/shared.ts`; replaced all 24 occurrences across `git.ts`, `github.ts`, `knowledge.ts`, `kickstand.ts`, `notebook.ts`, `settings.ts`.
+- [x] **docs/index.html WCAG AA contrast** (T14-CRITICAL) — `--text-3` #504868 → #7e7898 (2.4:1 → 5.1:1); button backgrounds from `--coral` (3.4:1) → `--coral-dim` (4.8:1); added `--coral-dark` for hover state.
+- [x] **docs/index.html `@media` queries** (T10-CRITICAL) — added `@media (max-width: 768px)` block collapsing hero, feat-layout, compare-section, cta-inner-v2, stat-strip to single column.
+- [x] **`prefers-reduced-motion` guard** (T11/T12-CRITICAL) — added `@media (prefers-reduced-motion: reduce)` in `chat.css` (disables all animations/transitions) and `docs/index.html` (disables ticker + cursor blink).
 
 **Definition of Done**:
 - All Must Have items merged and CI green
@@ -123,7 +123,7 @@ Compiled 2026-04-21 from 28-track Cycle-4 audit (26 CRITICAL, 66 HIGH findings) 
 **Sprint Goal**: *Reach sustained 80/70/80/80 coverage, decompose the last two god modules, clear all remaining known CRITICALs, and ship a public skill marketplace.*
 
 **Must Have**:
-- [ ] **`extension.ts` decomposition** (T3-HIGH, if not done in v0.81) — ≤150-line entry point
+- [x] **`extension.ts` decomposition** (T3-HIGH) — 135 lines, target ≤150 reached
 - [ ] **`chatView.ts` decomposition** (T3) — currently 0% coverage; decomposition unlocks testability
 - [ ] **Coverage ≥80/70/80/80 sustained** — final lift via `chatView.ts` + `extension.ts` tests
 - [ ] **CLAUDE.md refresh** — sync architectural notes to post-v0.82 reality

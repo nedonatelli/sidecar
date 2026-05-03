@@ -1,0 +1,53 @@
+import { workspace, ExtensionContext } from 'vscode';
+import { TerminalManager } from '../terminal/manager.js';
+import { ProposedContentProvider } from '../edits/proposedContentProvider.js';
+import { AgentLogger } from '../agent/logger.js';
+import { MCPManager } from '../agent/mcpManager.js';
+import { DiagnosticSubscriber } from '../agent/diagnosticSubscriber.js';
+import { getProcessRegistry } from '../agent/processLifecycle.js';
+import type { SideCarConfig } from '../config/settings.js';
+
+export interface BaseServices {
+  terminalManager: TerminalManager;
+  proposedContentProvider: ProposedContentProvider;
+  agentLogger: AgentLogger;
+  mcpManager: MCPManager;
+}
+
+/**
+ * Create and register the core VS Code service objects needed by most subsystems:
+ * TerminalManager, ProposedContentProvider, AgentLogger, MCPManager, ProcessRegistry,
+ * and DiagnosticSubscriber.
+ * Extracted from extension.ts to keep the entry point lean.
+ */
+export function initBaseServices(context: ExtensionContext, config: SideCarConfig): BaseServices {
+  const terminalManager = new TerminalManager();
+  context.subscriptions.push(terminalManager);
+
+  const proposedContentProvider = new ProposedContentProvider();
+  context.subscriptions.push(
+    workspace.registerTextDocumentContentProvider('sidecar-proposed', proposedContentProvider),
+  );
+
+  const agentLogger = new AgentLogger();
+  context.subscriptions.push(agentLogger);
+
+  const mcpManager = new MCPManager();
+  context.subscriptions.push(mcpManager);
+
+  context.subscriptions.push(getProcessRegistry());
+
+  const diagnosticSubscriber = new DiagnosticSubscriber(
+    {
+      enabled: config.diagnosticsReactiveFixEnabled,
+      debounceMs: config.diagnosticsReactiveFixDebounceMs,
+      severity: config.diagnosticsReactiveFixSeverity,
+    },
+    async (_uri, _diagnostics) => {
+      // Reactive diagnostic fixing deferred — requires runAgentLoopInSandbox + review UI integration
+    },
+  );
+  context.subscriptions.push(diagnosticSubscriber);
+
+  return { terminalManager, proposedContentProvider, agentLogger, mcpManager };
+}

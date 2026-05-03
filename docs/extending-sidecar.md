@@ -199,6 +199,58 @@ The three transports + their trust semantics + the reconnect lifecycle are docum
 
 Every MCP tool response flows through [`wrapMcpOutput`](../src/agent/mcpManager.ts) and [`detectInjectionSignals`](../src/agent/mcpManager.ts) before reaching the agent. See [`SECURITY.md`](../SECURITY.md) for the threat model and defenses.
 
+### NoSQL databases (MongoDB + Redis)
+
+Run **SideCar: Install NoSQL MCP Server** from the command palette to pre-fill a MongoDB or Redis config. The command prompts for a connection string and writes the entry to your global `sidecar.mcpServers` settings. You can also add the config manually:
+
+**MongoDB** — requires Node.js (npx):
+
+```json
+{
+  "mcpServers": {
+    "mongodb": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@mongodb-js/mongodb-mcp-server@latest"],
+      "env": { "MDB_MCP_CONNECTION_STRING": "mongodb://localhost:27017" }
+    }
+  }
+}
+```
+
+The server exposes tools like `mongodb_find`, `mongodb_aggregate`, `mongodb_insert_one`, `mongodb_update_one`, `mongodb_delete_one`, and `mongodb_list_databases`. They appear in the agent as `mcp_mongodb_*`.
+
+**Redis** — requires [uv](https://docs.astral.sh/uv/) (`pip install uv` or `brew install uv`):
+
+```json
+{
+  "mcpServers": {
+    "redis": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["mcp-redis"],
+      "env": { "REDIS_URL": "redis://localhost:6379" }
+    }
+  }
+}
+```
+
+The server exposes tools like `redis_get`, `redis_set`, `redis_delete`, `redis_list`, `redis_hget`, `redis_hset`. They appear in the agent as `mcp_redis_*`.
+
+**Restricting tool surface** — use `toolAllowlist` to expose only the tools you trust for your use case:
+
+```json
+{
+  "mcpServers": {
+    "mongodb": {
+      "toolAllowlist": ["mongodb_find", "mongodb_aggregate", "mongodb_list_databases"]
+    }
+  }
+}
+```
+
+Credentials are stored in the `env` block per server, not in SecretStorage — keep connection strings out of committed `settings.json`. Use workspace-local `.vscode/settings.json` (gitignored) or the `.mcp.json` project file for project-scoped configs.
+
 ## Policy hooks
 
 The agent loop's [`HookBus`](../src/agent/loop/policyHook.ts) is an extensibility point for authors who want to inject behavior *inside* the loop itself — gating turn completion, running post-tool validators, or pushing synthetic user messages to steer the agent.

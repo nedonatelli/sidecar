@@ -1206,6 +1206,16 @@
               "ui"
             ],
             "markdownDescription": "Show detailed agent reasoning in the chat — iteration summaries, tool selection context, and system prompt assembly. Turn off for a quieter UI at the cost of debuggability."
+          },
+          "sidecar.verboseLogs": {
+            "type": "boolean",
+            "default": false,
+            "order": 51,
+            "tags": [
+              "sidecar",
+              "ui"
+            ],
+            "markdownDescription": "Append per-turn API call metadata `{ runId, model, inputTokens, outputTokens, stopReason, timestamp }` to `.sidecar/logs/api.jsonl` for auditing and cost tracking."
           }
         }
       },
@@ -1949,6 +1959,12 @@
         "title": "Fork & Compare",
         "category": "SideCar",
         "icon": "$(repo-forked)"
+      },
+      {
+        "command": "sidecar.noSql.install",
+        "title": "Install NoSQL MCP Server (MongoDB / Redis)",
+        "category": "SideCar",
+        "icon": "$(database)"
       },
       {
         "command": "sidecar.resolveConflicts",
