@@ -206,6 +206,10 @@ export class MCPManager {
 
       conn.tools = (toolsResult.tools || [])
         .filter((mcpTool) => {
+          // Capability allowlist: drop tools not on the explicit list
+          if (config.toolAllowlist && config.toolAllowlist.length > 0) {
+            if (!config.toolAllowlist.includes(mcpTool.name)) return false;
+          }
           // Per-tool enable/disable
           const toolConfig = toolConfigs[mcpTool.name];
           if (toolConfig && toolConfig.enabled === false) return false;

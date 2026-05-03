@@ -1,6 +1,6 @@
 import { workspace, ConfigurationTarget, extensions } from 'vscode';
 import type { ToolDefinition } from '../../ollama/types.js';
-import type { RegisteredTool } from './shared.js';
+import { formatToolError, type RegisteredTool } from './shared.js';
 import { BUILT_IN_BACKEND_PROFILES, applyBackendProfile } from '../../config/settings.js';
 
 // Settings tools: read / modify SideCar's own VS Code configuration from
@@ -105,7 +105,7 @@ export async function switchBackend(input: Record<string, unknown>): Promise<str
     const result = await applyBackendProfile(profile);
     return result.message;
   } catch (err) {
-    return `Failed to switch backend: ${err instanceof Error ? err.message : String(err)}`;
+    return `Failed to switch backend: ${formatToolError(err)}`;
   }
 }
 
@@ -202,7 +202,7 @@ export async function updateSetting(input: Record<string, unknown>): Promise<str
     await cfg.update(key, value, ConfigurationTarget.Global);
     return `Updated sidecar.${key} = ${JSON.stringify(value)} at user scope. Change is persistent across sessions.`;
   } catch (err) {
-    return `Failed to update sidecar.${key}: ${err instanceof Error ? err.message : String(err)}`;
+    return `Failed to update sidecar.${key}: ${formatToolError(err)}`;
   }
 }
 

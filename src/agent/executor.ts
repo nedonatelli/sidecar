@@ -154,7 +154,7 @@ export async function executeTool(
     };
   }
 
-  const config = getConfig();
+  const config = executorContext?.config ?? getConfig();
   // --- Per-tool permissions: mode-level overrides win over global ---
   const permissions = config.toolPermissions;
   const modePermissions = executorContext?.modeToolPermissions;
@@ -342,7 +342,7 @@ export async function executeTool(
   }
 
   // --- Pre-hook (blocks execution on failure) ---
-  const hookError = await runHook('pre', toolUse.name, toolUse.input);
+  const hookError = await runHook('pre', toolUse.name, toolUse.input, undefined, config);
   if (hookError) {
     return {
       type: 'tool_result',
@@ -375,7 +375,7 @@ export async function executeTool(
     const result = filePathForLock ? await withFileLock(resolveAbsPath(filePathForLock), runTool) : await runTool();
 
     // --- Post-hook ---
-    await runHook('post', toolUse.name, toolUse.input, result);
+    await runHook('post', toolUse.name, toolUse.input, result, config);
 
     // --- Security scan after file writes ---
     // Additionally publishes findings as native VS Code diagnostics so

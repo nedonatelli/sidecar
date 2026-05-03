@@ -19,6 +19,7 @@ permalink: /
     --border-2:  #332e47;
     --coral:     #e86040;
     --coral-dim: #c04e32;
+    --coral-dark:#963122;
     --blue:      #7ab4d8;
     --blue-dim:  #5a92b8;
     --purple:    #9b78c8;
@@ -28,7 +29,7 @@ permalink: /
     --amber:     #e89040;
     --text:      #ede8f5;
     --text-2:    #9088a8;
-    --text-3:    #504868;
+    --text-3:    #7e7898;
     --mono:      'JetBrains Mono', monospace;
     --sans:      'Inter', sans-serif;
   }
@@ -146,16 +147,16 @@ permalink: /
     font-size: 12px;
     font-weight: 700;
     padding: 8px 16px;
-    border: 1px solid var(--coral);
+    border: 1px solid var(--coral-dim);
     border-radius: 6px;
     color: #fff;
-    background: var(--coral);
+    background: var(--coral-dim);
     cursor: pointer;
     text-decoration: none;
     transition: background 0.15s, box-shadow 0.15s;
   }
   .btn-primary:hover {
-    background: var(--coral-dim);
+    background: var(--coral-dark);
     box-shadow: 0 0 20px rgba(232,96,64,0.3);
   }
 
@@ -227,15 +228,15 @@ permalink: /
     font-size: 13px;
     font-weight: 700;
     padding: 14px 28px;
-    border: 1px solid var(--coral);
+    border: 1px solid var(--coral-dim);
     border-radius: 8px;
     color: #fff;
-    background: var(--coral);
+    background: var(--coral-dim);
     text-decoration: none;
     transition: box-shadow 0.15s, background 0.15s;
   }
   .btn-lg:hover {
-    background: var(--coral-dim);
+    background: var(--coral-dark);
     box-shadow: 0 0 32px rgba(232,96,64,0.35);
   }
   .btn-lg-ghost {
@@ -624,6 +625,26 @@ permalink: /
   }
   .footer-right a { color: var(--text-3); text-decoration: none; }
   .footer-right a:hover { color: var(--coral); }
+
+  @media (max-width: 768px) {
+    .hero { grid-template-columns: 1fr; padding: 60px 1.5rem 48px; gap: 40px; }
+    .cap-header { grid-template-columns: 1fr; gap: 24px; }
+    .feat-layout { grid-template-columns: 1fr; }
+    .feat-hero { grid-column: span 1; }
+    .compare-section { grid-template-columns: 1fr; gap: 28px; padding: 52px 1.5rem; }
+    .compare-label-block { position: static; }
+    .cta-inner-v2 { grid-template-columns: 1fr; gap: 32px; }
+    .stat-strip { flex-direction: column; align-items: flex-start; gap: 24px; padding: 36px 1.5rem; }
+    .stat-div { display: none; }
+    nav { padding: 0 1.5rem; }
+    .nav-links { display: none; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ticker-track { animation: none; }
+    .cursor { animation: none; opacity: 1; }
+    *, *::before, *::after { transition-duration: 0.01ms !important; }
+  }
 </style>
 </head>
 <body>

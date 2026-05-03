@@ -1,14 +1,18 @@
 import type { AgentRunMetrics } from './metrics.js';
 import type { MetricsCollector } from './metrics.js';
-import { estimateCost, getConfig } from '../config/settings.js';
+import { estimateCost, getConfig, type SideCarConfig } from '../config/settings.js';
 import { INPUT_TOKEN_RATIO } from '../config/constants.js';
 
-export function generateUsageReport(metrics: AgentRunMetrics[], collector?: MetricsCollector): string {
+export function generateUsageReport(
+  metrics: AgentRunMetrics[],
+  collector?: MetricsCollector,
+  injectedConfig?: SideCarConfig,
+): string {
   if (metrics.length === 0) {
     return '# SideCar Token Usage\n\nNo agent activity recorded yet.';
   }
 
-  const config = getConfig();
+  const config = injectedConfig ?? getConfig();
   const model = config.model;
   const totalRuns = metrics.length;
   const totalTokens = metrics.reduce((s, m) => s + m.totalTokensEstimate, 0);

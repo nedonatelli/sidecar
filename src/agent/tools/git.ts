@@ -2,7 +2,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import type { ToolDefinition } from '../../ollama/types.js';
 import { GitCLI } from '../../github/git.js';
-import { getRoot, type ToolExecutorContext, type RegisteredTool } from './shared.js';
+import { getRoot, formatToolError, type ToolExecutorContext, type RegisteredTool } from './shared.js';
 import { compressGitDiff } from './compression.js';
 import { getConfig } from '../../config/settings.js';
 import { getDefaultAuditBuffer } from '../audit/auditBuffer.js';
@@ -63,7 +63,7 @@ export async function gitDiffTool(input: Record<string, unknown>): Promise<strin
     // change, so there's no cost to stripping them.
     return `${result.summary}\n\n${compressGitDiff(result.diff)}`;
   } catch (err) {
-    return `git diff failed: ${err instanceof Error ? err.message : String(err)}`;
+    return `git diff failed: ${formatToolError(err)}`;
   }
 }
 
@@ -85,7 +85,7 @@ export async function gitStatus(): Promise<string> {
   try {
     return await new GitCLI().status();
   } catch (err) {
-    return `git status failed: ${err instanceof Error ? err.message : String(err)}`;
+    return `git status failed: ${formatToolError(err)}`;
   }
 }
 
@@ -114,7 +114,7 @@ export async function gitStage(input: Record<string, unknown>): Promise<string> 
   try {
     return await new GitCLI().stage(input.files as string[] | undefined);
   } catch (err) {
-    return `git stage failed: ${err instanceof Error ? err.message : String(err)}`;
+    return `git stage failed: ${formatToolError(err)}`;
   }
 }
 
@@ -157,7 +157,7 @@ export async function gitCommit(input: Record<string, unknown>, context?: ToolEx
 
     return await new GitCLI().commit(message, extraTrailers);
   } catch (err) {
-    return `git commit failed: ${err instanceof Error ? err.message : String(err)}`;
+    return `git commit failed: ${formatToolError(err)}`;
   }
 }
 
@@ -184,7 +184,7 @@ export async function gitLog(input: Record<string, unknown>): Promise<string> {
     if (commits.length === 0) return 'No commits found.';
     return commits.map((c) => `${c.hash} ${c.message} (${c.author}, ${c.date})`).join('\n');
   } catch (err) {
-    return `git log failed: ${err instanceof Error ? err.message : String(err)}`;
+    return `git log failed: ${formatToolError(err)}`;
   }
 }
 
@@ -217,7 +217,7 @@ export async function gitPush(input: Record<string, unknown>): Promise<string> {
     }
     return await git.push();
   } catch (err) {
-    return `git push failed: ${err instanceof Error ? err.message : String(err)}`;
+    return `git push failed: ${formatToolError(err)}`;
   }
 }
 
@@ -250,7 +250,7 @@ export async function gitPull(input: Record<string, unknown>): Promise<string> {
     }
     return await new GitCLI().pull();
   } catch (err) {
-    return `git pull failed: ${err instanceof Error ? err.message : String(err)}`;
+    return `git pull failed: ${formatToolError(err)}`;
   }
 }
 
@@ -296,7 +296,7 @@ export async function gitBranch(input: Record<string, unknown>): Promise<string>
       }
     }
   } catch (err) {
-    return `git branch failed: ${err instanceof Error ? err.message : String(err)}`;
+    return `git branch failed: ${formatToolError(err)}`;
   }
 }
 
@@ -329,7 +329,7 @@ export async function gitStash(input: Record<string, unknown>): Promise<string> 
       index: input.index as number | undefined,
     });
   } catch (err) {
-    return `git stash failed: ${err instanceof Error ? err.message : String(err)}`;
+    return `git stash failed: ${formatToolError(err)}`;
   }
 }
 

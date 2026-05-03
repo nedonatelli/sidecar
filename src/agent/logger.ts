@@ -1,4 +1,5 @@
 import { window, LogOutputChannel } from 'vscode';
+import { redactSecrets } from './securityScanner.js';
 
 export class AgentLogger {
   private channel: LogOutputChannel;
@@ -35,7 +36,8 @@ export class AgentLogger {
 
   logToolResult(name: string, result: string, isError: boolean): void {
     const prefix = isError ? 'Tool error' : 'Tool result';
-    const preview = result.length > 500 ? result.slice(0, 500) + '...' : result;
+    const redacted = redactSecrets(result);
+    const preview = redacted.length > 500 ? redacted.slice(0, 500) + '...' : redacted;
     this.channel.info(`${prefix}: ${name}`);
     this.channel.debug(`Output: ${preview}`);
   }

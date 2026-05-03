@@ -15,7 +15,7 @@
 import * as path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { getConfig } from '../../config/settings.js';
+import { getConfig, type SideCarConfig } from '../../config/settings.js';
 import { connectionManager } from '../../db/connectionManager.js';
 import { getDefaultAuditBuffer } from '../audit/auditBuffer.js';
 import type { RegisteredTool } from './shared.js';
@@ -214,7 +214,7 @@ async function dbQuery(
   if (!connectionId) return 'Error: connection_id is required';
   if (!sql) return 'Error: sql is required';
 
-  const profile = findProfile(connectionId);
+  const profile = findProfile(connectionId, config);
   if (!profile) return `Error: no database profile found with id "${connectionId}"`;
 
   let provider;
@@ -253,7 +253,8 @@ async function dbExecute(
   if (!connectionId) return 'Error: connection_id is required';
   if (!sql) return 'Error: sql is required';
 
-  const profile = findProfile(connectionId);
+  const cfg = context?.config ?? getConfig();
+  const profile = findProfile(connectionId, cfg);
   if (!profile) return `Error: no database profile found with id "${connectionId}"`;
 
   if (profile.readOnly !== false) {
@@ -263,7 +264,6 @@ async function dbExecute(
   // Audit Mode: buffer the SQL as a file so it appears in the audit review
   // treeview instead of executing immediately. The file is stored at
   // .sidecar/audit/db/{connectionId}/{timestamp}.sql for human inspection.
-  const cfg = context?.config ?? getConfig();
   if (cfg.agentMode === 'audit') {
     const ts = Date.now();
     const auditPath = path.join('.sidecar', 'audit', 'db', connectionId, `${ts}.sql`);
@@ -373,8 +373,8 @@ async function dbMigrateUp(input: Record<string, unknown>): Promise<string> {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function findProfile(id: string): ConnectionProfile | undefined {
-  return getConfig().databaseProfiles.find((p) => p.id === id);
+function findProfile(id: string, injectedConfig?: SideCarConfig): ConnectionProfile | undefined {
+  return (injectedConfig ?? getConfig()).databaseProfiles.find((p) => p.id === id);
 }
 
 // ---------------------------------------------------------------------------

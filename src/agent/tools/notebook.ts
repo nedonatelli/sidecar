@@ -11,7 +11,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { getRoot } from './shared.js';
+import { getRoot, formatToolError } from './shared.js';
 import type { RegisteredTool, ToolExecutorContext } from './shared.js';
 import { getConfig } from '../../config/settings.js';
 
@@ -167,7 +167,7 @@ export const notebookTools: RegisteredTool[] = [
           content = fetched.content;
           if (!title) title = fetched.title;
         } catch (err) {
-          return `Error fetching URL: ${err instanceof Error ? err.message : String(err)}`;
+          return `Error fetching URL: ${formatToolError(err)}`;
         }
       } else {
         // Local file
@@ -179,7 +179,7 @@ export const notebookTools: RegisteredTool[] = [
         try {
           content = fs.readFileSync(absPath, 'utf8').slice(0, 80_000);
         } catch (err) {
-          return `Error reading file: ${err instanceof Error ? err.message : String(err)}`;
+          return `Error reading file: ${formatToolError(err)}`;
         }
         if (!title) title = path.basename(absPath, ext);
       }
@@ -231,7 +231,7 @@ export const notebookTools: RegisteredTool[] = [
       try {
         sources = resolveSourceIds(String(input.source_ids ?? '*'));
       } catch (err) {
-        return `Error: ${err instanceof Error ? err.message : String(err)}`;
+        return `Error: ${formatToolError(err)}`;
       }
       if (sources.length === 0) return 'Error: no sources ingested. Use ingest_source first.';
 
@@ -299,7 +299,7 @@ export const notebookTools: RegisteredTool[] = [
       try {
         sources = resolveSourceIds(String(input.source_ids ?? '*'));
       } catch (err) {
-        return `Error: ${err instanceof Error ? err.message : String(err)}`;
+        return `Error: ${formatToolError(err)}`;
       }
       if (sources.length === 0) return 'Error: no sources ingested.';
 
@@ -359,7 +359,7 @@ export const notebookTools: RegisteredTool[] = [
       try {
         sources = resolveSourceIds(String(input.source_ids ?? '*'));
       } catch (err) {
-        return `Error: ${err instanceof Error ? err.message : String(err)}`;
+        return `Error: ${formatToolError(err)}`;
       }
       if (sources.length === 0) return 'Error: no sources ingested.';
 
@@ -408,7 +408,7 @@ export const notebookTools: RegisteredTool[] = [
       try {
         sources = resolveSourceIds(String(input.source_ids ?? '*'));
       } catch (err) {
-        return `Error: ${err instanceof Error ? err.message : String(err)}`;
+        return `Error: ${formatToolError(err)}`;
       }
       if (sources.length === 0) return 'Error: no sources ingested.';
 
@@ -462,7 +462,7 @@ export const notebookTools: RegisteredTool[] = [
       try {
         sources = resolveSourceIds(String(input.source_ids ?? '*'));
       } catch (err) {
-        return `Error: ${err instanceof Error ? err.message : String(err)}`;
+        return `Error: ${formatToolError(err)}`;
       }
       if (sources.length === 0) return 'Error: no sources ingested.';
 

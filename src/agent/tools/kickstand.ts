@@ -1,5 +1,5 @@
 import type { ToolDefinition } from '../../ollama/types.js';
-import type { RegisteredTool, ToolExecutorContext } from './shared.js';
+import { formatToolError, type RegisteredTool, type ToolExecutorContext } from './shared.js';
 
 // ---------------------------------------------------------------------------
 // Kickstand LoRA adapter tools (v0.67.1).
@@ -76,7 +76,7 @@ export async function kickstandListLoras(
     const rendered = adapters.map((a) => `- ${a.id} (scale ${a.scale}) → ${a.path}`).join('\n');
     return `${adapters.length} adapter(s) on ${modelId}:\n${rendered}`;
   } catch (err) {
-    return `Failed to list adapters on ${modelId}: ${err instanceof Error ? err.message : String(err)}`;
+    return `Failed to list adapters on ${modelId}: ${formatToolError(err)}`;
   }
 }
 
@@ -127,7 +127,7 @@ export async function kickstandAttachLora(
   try {
     return await caps.loadAdapter(modelId, path, scale);
   } catch (err) {
-    return `Failed to attach adapter to ${modelId}: ${err instanceof Error ? err.message : String(err)}`;
+    return `Failed to attach adapter to ${modelId}: ${formatToolError(err)}`;
   }
 }
 
@@ -170,7 +170,7 @@ export async function kickstandDetachLora(
   try {
     return await caps.unloadAdapter(modelId, adapterId);
   } catch (err) {
-    return `Failed to detach adapter ${adapterId} from ${modelId}: ${err instanceof Error ? err.message : String(err)}`;
+    return `Failed to detach adapter ${adapterId} from ${modelId}: ${formatToolError(err)}`;
   }
 }
 

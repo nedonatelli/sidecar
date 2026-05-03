@@ -2,7 +2,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { parseTextToolCalls, compressMessages, stripRepeatedContent, runAgentLoop } from './loop.js';
 import type { ToolDefinition, ChatMessage, StreamEvent } from '../ollama/types.js';
 import type { SideCarClient } from '../ollama/client.js';
-import type { AgentCallbacks } from './loop.js';
+import type { AgentCallbacks, AgentOptions } from './loop.js';
+import type { PolicyHook } from './loop/policyHook.js';
 import { SteerQueue } from './steerQueue.js';
 
 // Mock getToolDefinitions to avoid workspace API calls in tests
@@ -643,6 +644,103 @@ describe('runAgentLoop — SteerQueue integration', () => {
       (m) => typeof m.content === 'string' && m.content.includes('Your running instructions'),
     );
     expect(hasCoalesced).toBe(false);
+    vi.restoreAllMocks();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runAgentLoop — policy hook enforcement (T24-CRITICAL)
+// ---------------------------------------------------------------------------
+describe('runAgentLoop — policy hook enforcement', () => {
+  async function stubConfig() {
+    const settings = await import('../config/settings.js');
+    return vi.spyOn(settings, 'getConfig').mockReturnValue({
+      requestTimeout: 30,
+      agentMaxIterations: 25,
+      agentMaxTokens: 100_000,
+      autoFixOnFailure: false,
+      autoFixMaxRetries: 3,
+    } as ReturnType<typeof import('../config/settings.js').getConfig>);
+  }
+
+  function makeCallbacks(): AgentCallbacks & { texts: string[] } {
+    const texts: string[] = [];
+    return {
+      texts,
+      onText: (t: string) => texts.push(t),
+      onToolCall: () => {},
+      onToolResult: () => {},
+      onDone: () => {},
+    };
+  }
+
+  function makeMockClient(): SideCarClient {
+    async function* responder(): AsyncGenerator<StreamEvent> {
+      yield { type: 'text', text: 'done' };
+      yield { type: 'stop', stopReason: 'end_turn' };
+    }
+    return {
+      streamChat: responder,
+      getSystemPrompt: () => '',
+      getRouter: () => null,
+      getModel: () => 'mock-model',
+    } as unknown as SideCarClient;
+  }
+
+  it('halts the loop and emits a user-facing alert when a hook throws', async () => {
+    await stubConfig();
+    const cb = makeCallbacks();
+
+    const crashHook: PolicyHook = {
+      name: 'deliberate-crash',
+      async onEmptyResponse() {
+        throw new Error('simulated policy violation');
+      },
+    };
+
+    const opts: AgentOptions = {
+      extraPolicyHooks: [crashHook],
+      maxIterations: 3,
+    };
+
+    // Must not throw — PolicyEnforcementError is caught inside runAgentLoop.
+    await expect(
+      runAgentLoop(makeMockClient(), [{ role: 'user', content: 'hi' }], cb, new AbortController().signal, opts),
+    ).resolves.toBeDefined();
+
+    // The loop must have emitted a ⛔ user-facing alert referencing the hook name.
+    const alert = cb.texts.find((t) => t.includes('policy enforcement failure'));
+    expect(alert).toBeDefined();
+    expect(alert).toContain('deliberate-crash');
+
+    vi.restoreAllMocks();
+  });
+
+  it('does not re-throw PolicyEnforcementError — finalize still runs', async () => {
+    await stubConfig();
+    const doneCalled = { value: false };
+    const cb: AgentCallbacks = {
+      onText: () => {},
+      onToolCall: () => {},
+      onToolResult: () => {},
+      onDone: () => {
+        doneCalled.value = true;
+      },
+    };
+
+    const crashHook: PolicyHook = {
+      name: 'crash2',
+      async onEmptyResponse() {
+        throw new Error('policy crash 2');
+      },
+    };
+
+    await runAgentLoop(makeMockClient(), [{ role: 'user', content: 'hi' }], cb, new AbortController().signal, {
+      extraPolicyHooks: [crashHook],
+      maxIterations: 1,
+    });
+
+    expect(doneCalled.value).toBe(true);
     vi.restoreAllMocks();
   });
 });

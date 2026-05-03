@@ -5,7 +5,7 @@ import type { SideCarClient } from '../../ollama/client.js';
 import type { AgentCallbacks } from '../loop.js';
 import type { MCPManager } from '../mcpManager.js';
 import type { AgentLogger } from '../logger.js';
-import { getConfig } from '../../config/settings.js';
+import { getConfig, type SideCarConfig } from '../../config/settings.js';
 import { parseBacklog, nextPendingItem, markItemDone, backlogStats, type BacklogItem } from './backlogParser.js';
 
 export interface AutoModeSessionResult {
@@ -35,6 +35,7 @@ export interface AutoModeOptions {
   mcpManager?: MCPManager;
   logger?: AgentLogger;
   abortSignal?: AbortSignal;
+  config?: SideCarConfig;
 }
 
 /**
@@ -108,7 +109,7 @@ export async function runAutoMode(
     const taskPrompt = buildTaskPrompt(item.text);
     const messages = [{ role: 'user' as const, content: taskPrompt }];
 
-    const config = getConfig();
+    const config = options.config ?? getConfig();
     try {
       await runAgentLoopInSandbox(
         client,
@@ -119,6 +120,7 @@ export async function runAutoMode(
           approvalMode: 'autonomous',
           maxIterations: config.agentMaxIterations,
           maxTokens: config.agentMaxTokens,
+          config,
           ...(options.mcpManager ? { mcpManager: options.mcpManager } : {}),
           ...(options.logger ? { logger: options.logger } : {}),
         },

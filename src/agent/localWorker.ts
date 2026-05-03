@@ -211,7 +211,7 @@ export async function runLocalWorker(
   signal: AbortSignal,
   options: AgentOptions = {},
 ): Promise<LocalWorkerResult> {
-  const cfg = getConfig();
+  const cfg = options.config ?? getConfig();
   const workerModel = cfg.delegateTaskWorkerModel || cfg.model;
   const workerBaseUrl = cfg.delegateTaskWorkerBaseUrl || 'http://localhost:11434';
 

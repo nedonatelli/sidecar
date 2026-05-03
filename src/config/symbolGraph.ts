@@ -74,6 +74,8 @@ export class SymbolGraph {
   private typeEdgesByFile = new Map<string, TypeEdge[]>();
   // Reverse type index: parent name → type edges
   private subtypesOf = new Map<string, TypeEdge[]>();
+  // Reverse type index: child name → type edges (for getSupertypes O(1) lookup)
+  private childTypesOf = new Map<string, TypeEdge[]>();
   // File content hashes for incremental rebuild
   private fileHashes = new Map<string, string>();
   // Cached file content for reference searching (populated on demand)
@@ -138,6 +140,12 @@ export class SymbolGraph {
         } else {
           this.subtypesOf.set(edge.parentName, [edge]);
         }
+        const existingChild = this.childTypesOf.get(edge.childName);
+        if (existingChild) {
+          existingChild.push(edge);
+        } else {
+          this.childTypesOf.set(edge.childName, [edge]);
+        }
       }
     }
 
@@ -201,6 +209,15 @@ export class SymbolGraph {
     const oldTypeEdges = this.typeEdgesByFile.get(filePath);
     if (oldTypeEdges) {
       for (const edge of oldTypeEdges) {
+        const childList = this.childTypesOf.get(edge.childName);
+        if (childList) {
+          const filtered = childList.filter((e) => e.childFile !== filePath);
+          if (filtered.length > 0) {
+            this.childTypesOf.set(edge.childName, filtered);
+          } else {
+            this.childTypesOf.delete(edge.childName);
+          }
+        }
         const reverseList = this.subtypesOf.get(edge.parentName);
         if (reverseList) {
           const filtered = reverseList.filter((e) => e.childFile !== filePath);
@@ -273,13 +290,7 @@ export class SymbolGraph {
 
   /** Get the parent types (extends/implements) for a given child type name. */
   getSupertypes(childName: string): TypeEdge[] {
-    const results: TypeEdge[] = [];
-    for (const edges of this.typeEdgesByFile.values()) {
-      for (const edge of edges) {
-        if (edge.childName === childName) results.push(edge);
-      }
-    }
-    return results;
+    return this.childTypesOf.get(childName) ?? [];
   }
 
   /**

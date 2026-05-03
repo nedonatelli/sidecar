@@ -95,8 +95,9 @@ export function enrichWithGraphWalk(
     if (budget <= 0) break;
     type Frontier = { symbolName: string; hops: number };
     const queue: Frontier[] = [{ symbolName: start.qualifiedName, hops: 0 }];
-    while (queue.length > 0 && budget > 0) {
-      const cur = queue.shift()!;
+    let head = 0;
+    while (head < queue.length && budget > 0) {
+      const cur = queue[head++];
       if (cur.hops >= maxDepth) continue;
       const callers = graph.getCallers(cur.symbolName);
       for (const call of callers) {

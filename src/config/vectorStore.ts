@@ -144,8 +144,10 @@ export class FlatVectorStore<M> implements VectorStore<M> {
   private validateMeta: (meta: FlatStoreMeta<unknown> & Record<string, unknown>) => boolean;
   private sidecarDir: SidecarDir | null;
 
-  /** Packed row-major vector storage. Length = count × dimension. */
+  /** Packed row-major vector storage. Length = capacity × dimension. */
   private vectors = new Float32Array(0);
+  /** Number of slots allocated in `vectors` (monotonically increasing; not decremented on delete). */
+  private vectorCount = 0;
   /** id → { metadata, offset } lookup. */
   private entriesById = new Map<string, { metadata: M; offset: number }>();
 
@@ -175,12 +177,18 @@ export class FlatVectorStore<M> implements VectorStore<M> {
       this.entriesById.set(record.id, { metadata: record.metadata, offset: existing.offset });
       return;
     }
-    // New record — extend the packed vector array.
-    const offset = this.entriesById.size;
-    const grown = new Float32Array((offset + 1) * this.dimension);
-    grown.set(this.vectors);
-    grown.set(record.vector, offset * this.dimension);
-    this.vectors = grown;
+    // New record — append to the packed vector array, growing capacity
+    // with a doubling strategy so amortized cost is O(1) not O(n).
+    const offset = this.vectorCount;
+    const currentCapacity = this.vectors.length / this.dimension;
+    if (offset >= currentCapacity) {
+      const newCapacity = Math.max(16, currentCapacity * 2);
+      const grown = new Float32Array(newCapacity * this.dimension);
+      grown.set(this.vectors.subarray(0, this.vectorCount * this.dimension));
+      this.vectors = grown;
+    }
+    this.vectors.set(record.vector, offset * this.dimension);
+    this.vectorCount += 1;
     this.entriesById.set(record.id, { metadata: record.metadata, offset });
   }
 
@@ -275,6 +283,7 @@ export class FlatVectorStore<M> implements VectorStore<M> {
       // Rewrite our in-memory vectors as the compacted form so
       // subsequent upserts start from a clean offset map.
       this.vectors = liveVectors;
+      this.vectorCount = this.entriesById.size;
       for (const [id, newMeta] of Object.entries(persistedEntries)) {
         this.entriesById.set(id, { metadata: newMeta as M & { offset: number }, offset: newMeta.offset });
       }
@@ -309,6 +318,7 @@ export class FlatVectorStore<M> implements VectorStore<M> {
         return;
       }
       this.vectors = new Float32Array(buffer.buffer as ArrayBuffer, buffer.byteOffset, envelope.count * this.dimension);
+      this.vectorCount = envelope.count;
       this.entriesById.clear();
       for (const [id, entryPlusOffset] of Object.entries(envelope.entries)) {
         const { offset, ...metadata } = entryPlusOffset as M & { offset: number };

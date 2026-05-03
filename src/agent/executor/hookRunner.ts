@@ -1,5 +1,5 @@
 import { workspace } from 'vscode';
-import { getConfig } from '../../config/settings.js';
+import { getConfig, type SideCarConfig } from '../../config/settings.js';
 import { checkWorkspaceConfigTrust } from '../../config/workspaceTrust.js';
 import { redactSecrets } from '../securityScanner.js';
 import { sanitizeEnvValue } from '../envSanitize.js';
@@ -20,8 +20,9 @@ export async function runHook(
   toolName: string,
   input: Record<string, unknown>,
   output?: string,
+  injectedConfig?: SideCarConfig,
 ): Promise<string | undefined> {
-  const config = getConfig();
+  const config = injectedConfig ?? getConfig();
   const hooks = config.hooks;
   const toolHook = hooks[toolName]?.[phase];
   const globalHook = hooks['*']?.[phase];

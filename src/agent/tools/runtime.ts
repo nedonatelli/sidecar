@@ -1,4 +1,4 @@
-import { getConfig } from '../../config/settings.js';
+import { getConfig, type SideCarConfig } from '../../config/settings.js';
 import { ShellSession } from '../../terminal/shellSession.js';
 import type { SymbolGraph } from '../../config/symbolGraph.js';
 import type { SymbolEmbeddingIndex } from '../../config/symbolEmbeddingIndex.js';
@@ -28,9 +28,9 @@ export class ToolRuntime {
    * aliases) survives across tool calls — important so that `cd src/ && ls`
    * followed by `pwd` reports the new cwd.
    */
-  getShellSession(): ShellSession {
+  getShellSession(injectedConfig?: SideCarConfig): ShellSession {
     if (this.shell && this.shell.isAlive) return this.shell;
-    const config = getConfig();
+    const config = injectedConfig ?? getConfig();
     const maxOutput = (config.shellMaxOutputMB || 10) * 1024 * 1024;
     this.shell = new ShellSession(getRoot(), undefined, maxOutput);
     return this.shell;

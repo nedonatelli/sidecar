@@ -244,3 +244,8 @@ export function shellQuote(value: string): string {
 export function hasShellMetachar(value: string): boolean {
   return /[\n\r;&|`$<>()!*?[\]{}"'\\]/.test(value);
 }
+
+/** Normalize any thrown value into an error message string. */
+export function formatToolError(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}

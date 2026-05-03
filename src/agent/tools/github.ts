@@ -2,7 +2,7 @@ import type { ToolDefinition } from '../../ollama/types.js';
 import { GitCLI } from '../../github/git.js';
 import { GitHubAPI } from '../../github/api.js';
 import { getGitHubToken } from '../../github/auth.js';
-import { resolveRoot, type ToolExecutorContext, type RegisteredTool } from './shared.js';
+import { resolveRoot, formatToolError, type ToolExecutorContext, type RegisteredTool } from './shared.js';
 import { markPrReady, checkPrCi, formatCheckRunsMarkdown } from '../../review/prLifecycle.js';
 
 // ---------------------------------------------------------------------------
@@ -73,7 +73,7 @@ export async function replyPrComment(input: Record<string, unknown>, context?: T
     const reply = await api.replyToPRComment(owner, repo, prNumber, commentId, body);
     return `Reply posted to PR #${prNumber} thread (comment ${commentId}): ${reply.url}`;
   } catch (err) {
-    return `Failed to post reply: ${err instanceof Error ? err.message : String(err)}`;
+    return `Failed to post reply: ${formatToolError(err)}`;
   }
 }
 
@@ -124,7 +124,7 @@ export async function submitPrReview(input: Record<string, unknown>, context?: T
     const review = await api.submitPRReview(owner, repo, prNumber, body, event);
     return `PR review submitted (id ${review.id}, state ${review.state}): ${review.htmlUrl}`;
   } catch (err) {
-    return `Failed to submit PR review: ${err instanceof Error ? err.message : String(err)}`;
+    return `Failed to submit PR review: ${formatToolError(err)}`;
   }
 }
 

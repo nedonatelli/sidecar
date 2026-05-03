@@ -24,6 +24,8 @@ export interface MCPServerConfig {
   headers?: Record<string, string>;
   /** Per-tool overrides: enable/disable specific tools */
   tools?: Record<string, { enabled?: boolean }>;
+  /** Allowlist of tool names to expose from this server. When set, only listed tools are registered; all others are silently dropped. Empty/absent = allow all. */
+  toolAllowlist?: string[];
   /** Maximum result size in characters (default 50000) */
   maxResultChars?: number;
 }

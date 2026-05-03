@@ -122,6 +122,8 @@ export class WorkspaceIndex implements Disposable {
   private parsedFiles = new LimitedCache<string, ParsedFile>(100, 300000);
   private rebuildTimer: ReturnType<typeof setTimeout> | null = null;
   private pinnedPaths = new Set<string>();
+  /** Cached expansion of pinnedPaths to concrete file paths. Null = stale, rebuilt lazily. */
+  private pinnedFileCache: Set<string> | null = null;
   private symbolIndexer: SymbolIndexer | null = null;
   private sidecarDir: SidecarDir | null = null;
   /** Files the agent has accessed this session, for graph context. */
@@ -193,16 +195,37 @@ export class WorkspaceIndex implements Disposable {
   /** Set pinned paths from settings (replaces previous pins from settings). */
   setPinnedPaths(paths: string[]): void {
     this.pinnedPaths = new Set(paths);
+    this.pinnedFileCache = null;
   }
 
   /** Add a runtime pin (e.g. from @pin:path in chat). */
   addPin(relativePath: string): void {
     this.pinnedPaths.add(relativePath);
+    this.pinnedFileCache = null;
   }
 
   /** Remove a runtime pin. */
   removePin(relativePath: string): void {
     this.pinnedPaths.delete(relativePath);
+    this.pinnedFileCache = null;
+  }
+
+  /** Build (or return cached) set of concrete file paths that match pinned prefixes. O(f) on first call per pin-set; O(1) on subsequent calls. */
+  private getPinnedFileSet(): Set<string> {
+    if (this.pinnedFileCache !== null) return this.pinnedFileCache;
+    const result = new Set<string>();
+    if (this.pinnedPaths.size > 0) {
+      for (const f of this.files.keys()) {
+        for (const pinPath of this.pinnedPaths) {
+          if (f === pinPath || f.startsWith(pinPath + path.sep)) {
+            result.add(f);
+            break;
+          }
+        }
+      }
+    }
+    this.pinnedFileCache = result;
+    return result;
   }
 
   /**
@@ -314,6 +337,7 @@ export class WorkspaceIndex implements Disposable {
 
     // Replace with fresh data
     this.files = freshFiles;
+    this.pinnedFileCache = null;
     this.rebuildTree();
     this.ready = true;
 
@@ -339,6 +363,7 @@ export class WorkspaceIndex implements Disposable {
         (stat) => {
           if (stat.size <= MAX_FILE_SIZE) {
             this.files.set(rel, { relativePath: rel, sizeBytes: stat.size, relevanceScore: this.baseScore(rel) });
+            this.pinnedFileCache = null;
             this.scheduleRebuild();
             this.symbolIndexer?.queueUpdate(rel);
             this.embeddingIndex?.queuePath(rel, rootPath);
@@ -359,6 +384,7 @@ export class WorkspaceIndex implements Disposable {
       const rel = path.relative(rootPath, uri.fsPath);
       this.fileContentCache.delete(rel);
       this.files.delete(rel);
+      this.pinnedFileCache = null;
       this.scheduleRebuild();
       this.symbolIndexer?.queueDelete(rel);
       this.embeddingIndex?.removeFile(rel);
@@ -384,9 +410,13 @@ export class WorkspaceIndex implements Disposable {
 
     const rules = await getCurrentContextRules();
 
+    // Tokenize the query once — amortizes over all files instead of
+    // repeating tokenize(query) inside each computeScore call.
+    const queryWords = tokenize(query);
+
     const scored: RankedFile[] = [...this.files.values()].map((f) => ({
       ...f,
-      score: this.computeScore(f, query, activeFilePath),
+      score: this.computeScore(f, query, queryWords, activeFilePath),
     }));
 
     if (config.enableSemanticSearch && this.embeddingIndex?.isReady()) {
@@ -450,14 +480,7 @@ export class WorkspaceIndex implements Disposable {
     const folders = workspace.workspaceFolders;
     if (!folders || folders.length === 0) return '';
 
-    const pinnedFiles = new Set<string>();
-    for (const pinPath of this.pinnedPaths) {
-      for (const f of this.files.keys()) {
-        if (f === pinPath || f.startsWith(pinPath + path.sep)) {
-          pinnedFiles.add(f);
-        }
-      }
-    }
+    const pinnedFiles = this.getPinnedFileSet();
     if (pinnedFiles.size === 0) return '';
 
     const parts: string[] = ['\n## Pinned Files\n'];
@@ -522,17 +545,7 @@ export class WorkspaceIndex implements Disposable {
     let charCount = 0;
     const budget = this.maxContextChars;
 
-    // Pre-build pinned file set for O(1) lookup and match pinned folders once.
-    const pinnedFiles = new Set<string>();
-    if (this.pinnedPaths.size > 0) {
-      for (const pinPath of this.pinnedPaths) {
-        for (const f of this.files.keys()) {
-          if (f === pinPath || f.startsWith(pinPath + path.sep)) {
-            pinnedFiles.add(f);
-          }
-        }
-      }
-    }
+    const pinnedFiles = this.getPinnedFileSet();
 
     // Include pinned files first (always, regardless of score)
     if (pinnedFiles.size > 0) {
@@ -658,7 +671,7 @@ export class WorkspaceIndex implements Disposable {
    * Combines exact path matching, basename matching, and token-based matching
    * (splits camelCase/snake_case/kebab-case path tokens against query words).
    */
-  private computeScore(file: FileNode, query: string, activeFilePath?: string): number {
+  private computeScore(file: FileNode, query: string, queryWords: string[], activeFilePath?: string): number {
     let score = file.relevanceScore;
 
     // Strong boost if file path appears in the query — the user is explicitly
@@ -669,7 +682,6 @@ export class WorkspaceIndex implements Disposable {
 
     // Token-based matching: split path identifiers into words and match
     // against query words. Catches "parse util" → parseUtils.ts.
-    const queryWords = tokenize(query);
     if (queryWords.length > 0) {
       const pathTokens = tokenize(file.relativePath);
       const pathTokenSet = new Set(pathTokens);

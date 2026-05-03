@@ -273,6 +273,8 @@ export interface SideCarConfig {
   notebookModeWebUrlEnabled: boolean;
   notebookModeSlidesEnabled: boolean;
   notebookModeStudyAidsEnabled: boolean;
+  /* API call audit log (v0.81) */
+  verboseLogs: boolean;
 }
 
 /**
@@ -532,6 +534,7 @@ function readConfig(): SideCarConfig {
     notebookModeWebUrlEnabled: cfg.get<boolean>('notebookMode.sources.webUrl', true),
     notebookModeSlidesEnabled: cfg.get<boolean>('notebookMode.sources.slides', true),
     notebookModeStudyAidsEnabled: cfg.get<boolean>('notebookMode.studyAids.enabled', true),
+    verboseLogs: cfg.get<boolean>('verboseLogs', false),
   };
 }
 

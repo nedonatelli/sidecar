@@ -1,7 +1,7 @@
 import { workspace, Uri } from 'vscode';
 import type { ToolDefinition } from '../../ollama/types.js';
 import { searchWeb, formatSearchResults, checkInternetConnectivity } from '../webSearch.js';
-import { validateFilePath, getRootUri, type RegisteredTool } from './shared.js';
+import { validateFilePath, getRootUri, formatToolError, type RegisteredTool } from './shared.js';
 
 // Knowledge tools: web_search and display_diagram. Grouped because both
 // surface "external knowledge" into the chat — one live from the web, the
@@ -59,7 +59,7 @@ export async function webSearch(input: Record<string, unknown>): Promise<string>
     }
     return `Web search results for "${query}":\n\n${formatSearchResults(results)}`;
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = formatToolError(err);
     if (msg.includes('timeout') || msg.includes('ETIMEDOUT')) {
       return '⚠️ Search timed out. The internet connection may be slow or unavailable.';
     }

@@ -42,7 +42,7 @@ import { AgentTerminalExecutor } from '../../terminal/agentExecutor.js';
  */
 function resolveShellSession(context?: ToolExecutorContext): ShellSession {
   const runtime = context?.toolRuntime ?? getDefaultToolRuntime();
-  return runtime.getShellSession();
+  return runtime.getShellSession(context?.config);
 }
 
 /**

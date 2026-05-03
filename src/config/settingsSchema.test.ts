@@ -100,7 +100,7 @@ describe('package.json contributes.configuration — 12-category layout (v0.79.0
     // the sections.
     const cfg = loadConfiguration();
     const totalKeys = cfg.reduce((sum, s) => sum + Object.keys(s.properties).length, 0);
-    expect(totalKeys).toBe(156);
+    expect(totalKeys).toBe(157);
   });
 
   it('no setting key is duplicated across sections', () => {

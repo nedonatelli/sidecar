@@ -66,7 +66,7 @@ export async function runAgentLoopInSandbox(
   options: AgentOptions = {},
   sandboxOptions: { forceShadow?: boolean; deferPrompt?: boolean; suppressShadow?: boolean } = {},
 ): Promise<SandboxResult> {
-  const cfg = getConfig();
+  const cfg = options.config ?? getConfig();
   const shouldSandbox =
     !sandboxOptions.suppressShadow &&
     (cfg.shadowWorkspaceMode === 'always' ||

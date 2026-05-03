@@ -4,6 +4,7 @@ import type { AgentCallbacks } from '../loop.js';
 import type { LoopState } from './state.js';
 import { parseTextToolCalls, stripRepeatedContent } from './textParsing.js';
 import { ThinkingStore } from '../thinking/thinkingStore.js';
+import { logApiCall } from '../apiAuditLog.js';
 // getConfig removed — thinkingMode now read from state.config (injected at loop entry)
 
 const thinkingStore = new ThinkingStore();
@@ -160,6 +161,17 @@ export async function streamOneTurn(
           // becomes part of the next turn's input context.
           state.lastActualInputTokens = event.usage.inputTokens + event.usage.outputTokens;
           callbacks.onUsage?.(event.usage);
+          logApiCall(
+            {
+              runId: state.runId,
+              model: state.config.model,
+              inputTokens: event.usage.inputTokens,
+              outputTokens: event.usage.outputTokens,
+              stopReason,
+              timestamp: new Date().toISOString(),
+            },
+            state.config.verboseLogs,
+          );
           break;
       }
     }

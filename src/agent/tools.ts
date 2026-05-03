@@ -2,7 +2,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import type { ToolDefinition } from '../ollama/types.js';
 import type { MCPManager } from './mcpManager.js';
-import { getConfig, detectProvider } from '../config/settings.js';
+import { getConfig, detectProvider, type SideCarConfig } from '../config/settings.js';
 import { checkWorkspaceConfigTrust } from '../config/workspaceTrust.js';
 import { redactSecrets } from './securityScanner.js';
 
@@ -216,9 +216,9 @@ export async function initCustomToolsTrust(): Promise<void> {
   _customToolConfigSnapshot = null;
 }
 
-function getCustomToolRegistry(): RegisteredTool[] {
+function getCustomToolRegistry(injectedConfig?: SideCarConfig): RegisteredTool[] {
   if (!_customToolsTrusted) return [];
-  const configs = getConfig().customTools;
+  const configs = (injectedConfig ?? getConfig()).customTools;
   const snapshot = JSON.stringify(configs);
   if (_customToolCache && _customToolConfigSnapshot === snapshot) {
     return _customToolCache;
@@ -255,8 +255,8 @@ function getCustomToolRegistry(): RegisteredTool[] {
   return _customToolCache;
 }
 
-export function getToolDefinitions(mcpManager?: MCPManager): ToolDefinition[] {
-  const cfg = getConfig();
+export function getToolDefinitions(mcpManager?: MCPManager, injectedConfig?: SideCarConfig): ToolDefinition[] {
+  const cfg = injectedConfig ?? getConfig();
   const builtIn: ToolDefinition[] = [...TOOL_REGISTRY.map((t) => t.definition), SPAWN_AGENT_DEFINITION];
 
   // Only advertise delegate_task when we're paying per token AND the
@@ -267,7 +267,7 @@ export function getToolDefinitions(mcpManager?: MCPManager): ToolDefinition[] {
     builtIn.push(DELEGATE_TASK_DEFINITION);
   }
 
-  const custom = getCustomToolRegistry().map((t) => t.definition);
+  const custom = getCustomToolRegistry(injectedConfig).map((t) => t.definition);
   const sdk = getSdkToolDefinitions().map((t) => t.definition);
   const mcp = mcpManager ? mcpManager.getToolDefinitions() : [];
   return [...builtIn, ...custom, ...sdk, ...mcp];
