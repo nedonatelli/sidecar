@@ -68,7 +68,37 @@ function stripHtml(html: string): string {
     .trim();
 }
 
+function assertPublicUrl(raw: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error(`Invalid URL: ${raw}`);
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new Error(`Unsupported protocol: ${parsed.protocol}`);
+  }
+  const host = parsed.hostname.toLowerCase();
+  // Block loopback
+  if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1') {
+    throw new Error('Fetching localhost URLs is not allowed.');
+  }
+  // Block link-local / metadata endpoints (169.254.x.x)
+  if (/^169\.254\./.test(host)) {
+    throw new Error('Fetching link-local addresses is not allowed.');
+  }
+  // Block RFC-1918 private ranges
+  if (/^10\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host) || /^192\.168\./.test(host)) {
+    throw new Error('Fetching private network addresses is not allowed.');
+  }
+  // Block IPv6 loopback spelled out
+  if (host.startsWith('[fc') || host.startsWith('[fd') || host.startsWith('[fe80')) {
+    throw new Error('Fetching private/link-local IPv6 addresses is not allowed.');
+  }
+}
+
 async function fetchWebUrl(url: string): Promise<{ title: string; content: string }> {
+  assertPublicUrl(url);
   const res = await fetch(url, {
     headers: { 'User-Agent': 'SideCar/0.83 (research-mode)' },
     signal: AbortSignal.timeout(15_000),

@@ -429,6 +429,8 @@ export class ShellSession {
     underlying.on('exit', (code) => {
       entry.done = true;
       entry.exitCode = code;
+      underlying.stdout?.removeListener('data', onData);
+      underlying.stderr?.removeListener('data', onData);
     });
 
     return id;

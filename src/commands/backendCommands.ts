@@ -40,7 +40,8 @@ async function runLoadModel(client: SideCarClient): Promise<void> {
     return;
   }
 
-  const modelId = await pickModelId(caps.lifecycle, 'load');
+  const { lifecycle } = caps;
+  const modelId = await pickModelId(lifecycle, 'load');
   if (!modelId) return; // user cancelled
 
   await vscode.window.withProgress(
@@ -51,7 +52,7 @@ async function runLoadModel(client: SideCarClient): Promise<void> {
     },
     async () => {
       try {
-        const summary = await caps.lifecycle!.loadModel(modelId);
+        const summary = await lifecycle.loadModel(modelId);
         vscode.window.showInformationMessage(summary);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -70,7 +71,8 @@ async function runUnloadModel(client: SideCarClient): Promise<void> {
     return;
   }
 
-  const modelId = await pickModelId(caps.lifecycle, 'unload');
+  const { lifecycle } = caps;
+  const modelId = await pickModelId(lifecycle, 'unload');
   if (!modelId) return;
 
   await vscode.window.withProgress(
@@ -81,7 +83,7 @@ async function runUnloadModel(client: SideCarClient): Promise<void> {
     },
     async () => {
       try {
-        const summary = await caps.lifecycle!.unloadModel(modelId);
+        const summary = await lifecycle.unloadModel(modelId);
         vscode.window.showInformationMessage(summary);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -104,8 +106,10 @@ async function runLoadAdapter(client: SideCarClient): Promise<void> {
     return;
   }
 
+  const { lifecycle, loraAdapters } = caps;
+
   // Pick a loaded model first
-  const modelId = await pickModelId(caps.lifecycle, 'unload'); // 'unload' filter = loaded models
+  const modelId = await pickModelId(lifecycle, 'unload'); // 'unload' filter = loaded models
   if (!modelId) return;
 
   // Ask for adapter path
@@ -131,7 +135,7 @@ async function runLoadAdapter(client: SideCarClient): Promise<void> {
     { location: vscode.ProgressLocation.Notification, title: `Loading LoRA adapter…`, cancellable: false },
     async () => {
       try {
-        const summary = await caps.loraAdapters!.loadAdapter(modelId, adapterPath, scale);
+        const summary = await loraAdapters.loadAdapter(modelId, adapterPath, scale);
         vscode.window.showInformationMessage(summary);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -148,13 +152,15 @@ async function runUnloadAdapter(client: SideCarClient): Promise<void> {
     return;
   }
 
+  const { lifecycle, loraAdapters } = caps;
+
   // Pick a loaded model
-  const modelId = await pickModelId(caps.lifecycle, 'unload');
+  const modelId = await pickModelId(lifecycle, 'unload');
   if (!modelId) return;
 
   // List adapters on that model
   try {
-    const adapters = await caps.loraAdapters.listAdapters(modelId);
+    const adapters = await loraAdapters.listAdapters(modelId);
     if (adapters.length === 0) {
       vscode.window.showInformationMessage(`No LoRA adapters loaded on ${modelId}.`);
       return;
@@ -174,7 +180,7 @@ async function runUnloadAdapter(client: SideCarClient): Promise<void> {
       { location: vscode.ProgressLocation.Notification, title: `Unloading LoRA ${pick.label}…`, cancellable: false },
       async () => {
         try {
-          const summary = await caps.loraAdapters!.unloadAdapter(modelId, pick.label);
+          const summary = await loraAdapters.unloadAdapter(modelId, pick.label);
           vscode.window.showInformationMessage(summary);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -199,6 +205,8 @@ async function runModelBrowser(client: SideCarClient): Promise<void> {
     return;
   }
 
+  const { modelBrowser } = caps;
+
   const repo = await vscode.window.showInputBox({
     prompt: 'HuggingFace repo to browse',
     placeHolder: 'e.g. bartowski/Meta-Llama-3-8B-Instruct-GGUF',
@@ -210,7 +218,7 @@ async function runModelBrowser(client: SideCarClient): Promise<void> {
     { location: vscode.ProgressLocation.Notification, title: `Browsing ${repo}…`, cancellable: false },
     async () => {
       try {
-        const files = await caps.modelBrowser!.browseRepo(repo);
+        const files = await modelBrowser.browseRepo(repo);
         if (files.length === 0) {
           vscode.window.showInformationMessage(`No GGUF/MLX files found in ${repo}.`);
           return;
