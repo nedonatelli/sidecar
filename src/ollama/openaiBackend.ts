@@ -213,8 +213,7 @@ export class OpenAIBackend implements ApiBackend {
    * Hook for subclasses to contribute additional top-level request-body
    * fields. Default empty. OpenRouter uses this to include
    * `usage: { include: true }` so the streaming response ships
-   * `usage.cost` on the final chunk (v0.64 chunk 5 — provider-reported
-   * cost pass-through).
+   * `usage.cost` on the final chunk.
    */
   protected extraBodyFields(): Record<string, unknown> {
     return {};
@@ -240,7 +239,7 @@ export class OpenAIBackend implements ApiBackend {
       enabled: cfg.promptPruningEnabled,
       maxToolResultTokens: cfg.promptPruningMaxToolResultTokens,
     });
-    // v0.62.1 p.2a — observability (see Anthropic backend for rationale).
+    // observability (see Anthropic backend for rationale).
     const _pruneLog = formatPruneStats(pruned.stats);
     if (_pruneLog) console.info(`[SideCar] ${_pruneLog}`);
     const openaiMessages = toOpenAIMessages(pruned.messages, pruned.systemPrompt);
@@ -353,7 +352,7 @@ export class OpenAIBackend implements ApiBackend {
     }
   }
 
-  // --- Native capabilities (v0.63.1) ---
+  // --- Native capabilities ---
   //
   // OpenAI-compat hosts that are actually Ollama underneath get a
   // fallback to `/api/chat` when the OAI-compat `/v1/chat/completions`

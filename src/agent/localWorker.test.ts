@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ---------------------------------------------------------------------------
-// Tests for localWorker.ts (v0.65 chunk 6a).
+// Tests for localWorker.ts .
 //
 // `runLocalWorker` spawns a subsidiary agent loop against the free
 // local Ollama backend to offload read-only research from a paid

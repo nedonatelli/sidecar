@@ -7,7 +7,7 @@ import { runWithCap } from '../parallelDispatch.js';
 import type { LoopState } from './state.js';
 
 // ---------------------------------------------------------------------------
-// Multi-file edit executor (v0.65 chunk 4.3).
+// Multi-file edit executor.
 //
 // Walks a validated EditPlan as a DAG: each layer runs in parallel up
 // to `maxParallel`, later layers wait for their predecessors. Delegates

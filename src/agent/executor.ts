@@ -58,7 +58,7 @@ export interface ExecuteToolOptions {
    */
   pendingEdits?: PendingEditStore;
   /**
-   * Ephemeral tools scoped to THIS run (v0.66 chunk 3.4b). Consulted
+   * Ephemeral tools scoped to THIS run . Consulted
    * before `findTool` so dispatch-time-generated tools like the Facet
    * RPC bus's `rpc.<facetId>.<method>` entries resolve without a global
    * registry mutation. Empty or undefined preserves pre-v0.66 lookup.
@@ -83,7 +83,7 @@ export async function executeTool(
     pendingEdits,
     extraTools,
   } = opts;
-  // Check the run-scoped ephemeral tools (v0.66 chunk 3.4b) before
+  // Check the run-scoped ephemeral tools  before
   // the global registry. Facet RPC tools land here so cross-facet
   // calls resolve without polluting TOOL_REGISTRY across runs.
   const tool = extraTools?.find((t) => t.definition.name === toolUse.name) ?? findTool(toolUse.name, mcpManager);

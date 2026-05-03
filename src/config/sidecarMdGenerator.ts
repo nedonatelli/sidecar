@@ -5,7 +5,7 @@ import type { ChatMessage } from '../ollama/types.js';
 import { getWorkspaceRoot } from './workspace.js';
 
 // ---------------------------------------------------------------------------
-// SIDECAR.md generator (v0.82)
+// SIDECAR.md generator
 //
 // Inspects the workspace and asks the active LLM to draft a SIDECAR.md —
 // the project-level instruction file SideCar injects into every chat session.

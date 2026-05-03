@@ -32,7 +32,7 @@ export interface AuditReviewUi {
   /** Open VS Code's diff editor showing the two URIs side-by-side. */
   openDiff(beforeUri: Uri, afterUri: Uri, title: string): Promise<void>;
   /**
-   * Modal prompt surfaced by conflict detection (v0.61 a.2): disk
+   * Modal prompt surfaced by conflict detection : disk
    * has diverged from the baseline since the buffer captured it.
    * Resolves to `'apply-anyway'` if the user explicitly overrides,
    * anything else (undefined / cancel) aborts the flush.
@@ -52,7 +52,7 @@ export interface AuditReviewDeps {
   /** UI surface — real shim in production, fake in tests. */
   ui: AuditReviewUi;
   /**
-   * Optional commit executor (v0.61 a.4). When wired, buffered commits
+   * Optional commit executor . When wired, buffered commits
    * execute during a full-accept flush (after file writes succeed).
    * Production wiring stages the applied paths via `git add` then
    * calls `GitCLI.commit(message, trailers)`. Tests can supply a
@@ -109,7 +109,7 @@ function formatEntryLabel(entry: BufferedChange): { label: string; description: 
 export async function reviewAuditBuffer(deps: AuditReviewDeps): Promise<void> {
   const buf = deps.buffer ?? getDefaultAuditBuffer();
 
-  // Review granularity (v0.66 chunk 1, slim 4.5c). `'bulk'` takes a
+  // Review granularity . `'bulk'` takes a
   // short-circuit path: one three-way prompt, no per-file walk.
   // `'per-hunk'` isn't implemented yet — surface a one-time info and
   // fall through to the per-file loop so the feature is visible but
@@ -180,7 +180,7 @@ export async function reviewAuditBuffer(deps: AuditReviewDeps): Promise<void> {
 }
 
 /**
- * Bulk review path (v0.66 chunk 1, slim 4.5c). Called when
+ * Bulk review path . Called when
  * `sidecar.multiFileEdits.reviewGranularity === 'bulk'`. Presents
  * one three-way choice — accept every buffered change, reject every
  * buffered change, or cancel and leave the buffer intact. No per-file
@@ -253,7 +253,7 @@ async function openBufferedDiff(entry: BufferedChange, deps: AuditReviewDeps): P
  * multi-select UI). Kept as a factory because both callers need the
  * same create-parent-dir + useTrash semantics and there's no reason
  * to duplicate them. Also exposes a `readDisk` that's used by the
- * conflict-detection pre-flight (v0.61 a.2) — returns `undefined`
+ * conflict-detection pre-flight  — returns `undefined`
  * for missing files so callers can distinguish "file doesn't exist
  * on disk" from "file exists and is empty".
  */
@@ -291,7 +291,7 @@ function makeDiskHandlers(rootUri: Uri): {
 }
 
 /**
- * Conflict detection (v0.61 a.2). A buffered entry captured
+ * Conflict detection . A buffered entry captured
  * `originalContent` at first-buffer time; if the live disk content
  * has diverged from that baseline, something edited the file out-
  * of-band (user manually, another tool, a rebase). Applying the
@@ -410,7 +410,7 @@ export async function acceptAllAuditBuffer(deps: AuditReviewDeps): Promise<void>
 }
 
 /**
- * Per-file accept (v0.61 a.1). Flushes a single buffered entry. No
+ * Per-file accept . Flushes a single buffered entry. No
  * modal confirmation here — the user just reviewed the diff, so the
  * click is itself the confirmation. Silently no-ops if the path isn't
  * in the buffer anymore (race with another accept).
@@ -425,7 +425,7 @@ export async function acceptFileAuditBuffer(deps: AuditReviewDeps, filePath: str
 }
 
 /**
- * Per-file reject (v0.61 a.1). Drops a single buffered entry without
+ * Per-file reject . Drops a single buffered entry without
  * touching disk. No modal — see `acceptFileAuditBuffer` rationale.
  */
 export async function rejectFileAuditBuffer(deps: AuditReviewDeps, filePath: string): Promise<void> {

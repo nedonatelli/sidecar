@@ -3,7 +3,7 @@ import { buildFixtureHarness, runGoldenQuery, scoreAllRelevantPresent, type Eval
 import { GOLDEN_CASES } from './goldenCases.js';
 
 /**
- * Retrieval-eval runner (v0.62 e.1). Runs every golden case in
+ * Retrieval-eval runner. Runs every golden case in
  * `goldenCases.ts` against the synthetic fixture and asserts the
  * expected symbols appear in the retrieval result. Also exercises
  * harness-level invariants (graph-walk depth 0 suppresses graph
@@ -15,7 +15,7 @@ import { GOLDEN_CASES } from './goldenCases.js';
  * actual semantic quality against a live embedding backend.
  */
 
-describe('retrieval-eval: golden dataset (v0.62 e.1)', () => {
+describe('retrieval-eval: golden dataset', () => {
   let harness: Awaited<ReturnType<typeof buildFixtureHarness>>;
 
   beforeAll(async () => {
@@ -40,7 +40,7 @@ describe('retrieval-eval: golden dataset (v0.62 e.1)', () => {
   }
 });
 
-describe('retrieval-eval: harness invariants (v0.62 e.1)', () => {
+describe('retrieval-eval: harness invariants', () => {
   let harness: Awaited<ReturnType<typeof buildFixtureHarness>>;
 
   beforeAll(async () => {

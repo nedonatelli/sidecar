@@ -168,7 +168,7 @@ export class AnthropicBackend implements ApiBackend {
       enabled: cfg.promptPruningEnabled,
       maxToolResultTokens: cfg.promptPruningMaxToolResultTokens,
     });
-    // v0.62.1 p.2a — observability. Previously PruneStats was
+    // observability. Previously PruneStats was
     // computed and discarded; post-mortem diagnosis of "did the
     // pruner eat my error message?" was impossible. Log via
     // console.info so the SideCar output channel captures it.
@@ -365,7 +365,7 @@ export class AnthropicBackend implements ApiBackend {
       enabled: cfg.promptPruningEnabled,
       maxToolResultTokens: cfg.promptPruningMaxToolResultTokens,
     });
-    // v0.62.1 p.2a — observability. Previously PruneStats was
+    // observability. Previously PruneStats was
     // computed and discarded; post-mortem diagnosis of "did the
     // pruner eat my error message?" was impossible. Log via
     // console.info so the SideCar output channel captures it.

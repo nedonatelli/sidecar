@@ -1,5 +1,5 @@
 /**
- * PDF tools (v0.75).
+ * PDF tools.
  *
  * read_pdf  — extract and return text from a PDF file (up to 8K chars).
  * index_pdf — chunk a PDF and persist chunks to .sidecar/literature/ for

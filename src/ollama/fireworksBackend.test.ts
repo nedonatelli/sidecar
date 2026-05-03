@@ -3,7 +3,7 @@ import { FireworksBackend } from './fireworksBackend.js';
 import { OpenAIBackend } from './openaiBackend.js';
 
 // ---------------------------------------------------------------------------
-// FireworksBackend tests (v0.69 chunk 5).
+// FireworksBackend tests.
 //
 // FireworksBackend is an empty subclass of OpenAIBackend — its value is
 // provider isolation (circuit breaker, rate-limit store, detectProvider

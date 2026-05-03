@@ -256,7 +256,7 @@ describe('formatBytes', () => {
 });
 
 // ---------------------------------------------------------------------------
-// LoRA adapter + model browser command tests (v0.67.0, chunk 8 closure)
+// LoRA adapter + model browser command tests
 // ---------------------------------------------------------------------------
 
 describe('sidecar.kickstand.loadAdapter', () => {

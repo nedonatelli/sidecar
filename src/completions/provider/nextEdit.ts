@@ -32,7 +32,7 @@ export interface NextEditSuggestion {
 }
 
 /**
- * Next Edit Suggestions engine (v0.72 Chunk 3).
+ * Next Edit Suggestions engine .
  *
  * After the user edits a symbol, walks the SymbolGraph to find callers and
  * dependents that may also need updating. Surfaces these as ghost-text badge

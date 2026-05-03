@@ -7,7 +7,7 @@ import type { SideCarClient } from '../../ollama/client.js';
 import type { AgentCallbacks } from '../loop.js';
 
 // ---------------------------------------------------------------------------
-// Facet command entry point (v0.66 chunk 3.5b).
+// Facet command entry point .
 //
 // Minimal command-palette MVP: pick one or more facets via QuickPick,
 // prompt for a task via InputBox, then dispatch the batch through
@@ -164,7 +164,7 @@ export async function runFacetDispatchCommand(deps: FacetCommandDeps): Promise<F
       rpcTimeoutMs: deps.config.rpcTimeoutMs,
     });
     summarizeBatch(deps.ui, batch);
-    // v0.66 chunk 3.6 — auto-trigger the aggregated review when the
+    // auto-trigger the aggregated review when the
     // caller supplied reviewDeps. Headless callers (tests, programmatic
     // dispatch from other extension code) omit reviewDeps and handle
     // review themselves.

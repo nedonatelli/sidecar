@@ -1,5 +1,5 @@
 /**
- * Approval-mode and tool-permission resolution (v0.69 chunk 1).
+ * Approval-mode and tool-permission resolution.
  *
  * Extracted from executor.ts so the policy logic is independently
  * testable and the orchestrator stays thin. Two callers:

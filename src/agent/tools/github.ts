@@ -6,7 +6,7 @@ import { resolveRoot, formatToolError, type ToolExecutorContext, type Registered
 import { markPrReady, checkPrCi, formatCheckRunsMarkdown } from '../../review/prLifecycle.js';
 
 // ---------------------------------------------------------------------------
-// GitHub write tools (v0.69 chunk 3).
+// GitHub write tools.
 //
 // Two tools that let the agent close the feedback loop on PR review comments:
 //  - reply_pr_comment: post a reply to a specific inline thread
@@ -129,7 +129,7 @@ export async function submitPrReview(input: Record<string, unknown>, context?: T
 }
 
 // ---------------------------------------------------------------------------
-// mark_pr_ready (v0.69 chunk 4)
+// mark_pr_ready
 // ---------------------------------------------------------------------------
 
 export const markPrReadyDef: ToolDefinition = {
@@ -177,7 +177,7 @@ export async function markPrReadyTool(_input: Record<string, unknown>, context?:
 }
 
 // ---------------------------------------------------------------------------
-// check_pr_ci (v0.69 chunk 4)
+// check_pr_ci
 // ---------------------------------------------------------------------------
 
 export const checkPrCiDef: ToolDefinition = {

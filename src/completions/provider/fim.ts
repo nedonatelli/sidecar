@@ -122,14 +122,14 @@ export class SideCarCompletionProvider implements InlineCompletionItemProvider {
     const signal = this.debouncer.getSignal();
     token.onCancellationRequested(() => this.debouncer.cancel());
 
-    // v0.62.2 q.2c — per-completion latency telemetry
+    // per-completion latency telemetry
     const startedAt = Date.now();
     let pathLabel = 'unknown';
 
     try {
       let completion: string;
 
-      // Role-Based Model Routing (v0.64 phase 4b.3). Tag this as the
+      // Role-Based Model Routing . Tag this as the
       // `completion` role so `sidecar.modelRouting.rules` can point FIM
       // autocomplete at a different model than the main agent loop.
       this.client.routeForDispatch({ role: 'completion' });
@@ -146,7 +146,7 @@ export class SideCarCompletionProvider implements InlineCompletionItemProvider {
       } else {
         pathLabel = 'messages-api';
         const recentEditContext = this.predictiveContext.buildRecentEditContext(document.fileName);
-        // v0.62.2 q.2b — stable system preamble for Anthropic prompt caching;
+        // stable system preamble for Anthropic prompt caching;
         // language hint stays in the user message so the system block is
         // byte-identical across file types.
         const userMessage = this.predictiveContext.buildCompletionUserMessage(

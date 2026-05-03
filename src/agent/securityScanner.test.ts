@@ -241,12 +241,12 @@ describe('redactSecrets (audit cycle-3 MEDIUM #7)', () => {
   });
 });
 
-// v0.62.4 — expanded secret catalog. Ten new patterns closing gaps
+// expanded secret catalog. Ten new patterns closing gaps
 // in LLM provider keys, payment APIs, comms APIs, cloud platforms,
 // and package registries. Pattern misses weren't harmless — every
 // unredacted secret could land verbatim in MCP tool inputs, hook
 // child-process environments, or forwarded tool_result bodies.
-describe('expanded secret catalog (v0.62.4)', () => {
+describe('expanded secret catalog', () => {
   // Test fixtures below are built via string concatenation so the
   // full literal secret pattern (e.g., `sk_live_...`) never appears
   // on any single source line. GitHub's push-protection secret

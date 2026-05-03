@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Parallel dispatch primitive (v0.67 chunk 2).
+// Parallel dispatch primitive.
 //
 // Bounded parallel execution — the shared substrate for every subsystem
 // that runs N tasks with a concurrency cap: multi-file edit streams,

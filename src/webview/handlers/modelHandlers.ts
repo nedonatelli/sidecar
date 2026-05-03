@@ -82,7 +82,7 @@ export async function loadModels(state: ChatState): Promise<void> {
 
     // Reconcile the persisted model against what's actually installed.
     // If `config.model` is stale — e.g. the user typed an HF-style name
-    // into the custom-model input before v0.55 and got it saved without
+    // into the custom-model input and got it saved without
     // a matching pull — every chat turn will 404 until they manually
     // fix it. We don't overwrite the setting silently (a transient
     // Ollama outage would clobber the user's real preference), but we

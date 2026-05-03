@@ -1,5 +1,5 @@
 /**
- * Source abstraction layer (v0.75).
+ * Source abstraction layer.
  *
  * Shared plumbing for all external content ingestion: PDF, web, YouTube,
  * audio. Each concrete source implements `Source` and emits `SourceDocument`

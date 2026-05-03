@@ -1,5 +1,5 @@
 /**
- * Retrieval-eval harness (v0.62 e.1). Wires a `SymbolEmbeddingIndex`
+ * Retrieval-eval harness. Wires a `SymbolEmbeddingIndex`
  * + `SymbolGraph` populated from the synthetic fixture in
  * `fixture.ts`, so golden-case tests can ask "which symbols surface
  * for query X?" without touching real disk or a real ONNX model.

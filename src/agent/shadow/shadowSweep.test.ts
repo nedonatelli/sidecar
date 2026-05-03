@@ -6,7 +6,7 @@ import { execFileSync } from 'child_process';
 import { sweepStaleShadows, formatSweepResult } from './shadowSweep.js';
 
 /**
- * Tests for `sweepStaleShadows` (v0.62.1 p.3). The sweep needs a real
+ * Tests for `sweepStaleShadows`. The sweep needs a real
  * git repo with real worktrees to exercise the worktree-remove code
  * path, so these tests run against an `execFileSync`-initialized tmp
  * repo — same pattern as `shadowWorkspace.test.ts`. That means:
@@ -137,7 +137,7 @@ describe('sweepStaleShadows', () => {
     expect(result.removedDirs).toEqual([]);
   });
 
-  // v0.62.3 — partial sweep failure. A filesystem error on one orphan
+  // partial sweep failure. A filesystem error on one orphan
   // (locked file, permission denied, etc.) must NOT abort the sweep
   // for everything else; the failure should be captured in `errors`
   // and the loop should continue. Previously tested only the happy

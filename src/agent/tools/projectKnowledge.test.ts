@@ -254,7 +254,7 @@ describe('setSymbolEmbeddings runtime wiring', () => {
   });
 });
 
-describe('enrichWithGraphWalk (v0.61 b.4)', () => {
+describe('enrichWithGraphWalk', () => {
   // Canonical graph used across most tests: a middleware + two
   // route handlers, all calling `requireAuth`. BFS should surface
   // both handlers from a single direct hit on `requireAuth`.

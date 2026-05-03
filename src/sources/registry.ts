@@ -1,5 +1,5 @@
 /**
- * SourceRegistry (v0.75).
+ * SourceRegistry.
  *
  * Process-wide singleton that maps URIs to the `Source` implementation that
  * can handle them. Concrete sources (PdfSource, ZoteroSource, …) register

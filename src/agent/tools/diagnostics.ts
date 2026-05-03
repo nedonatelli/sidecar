@@ -64,7 +64,7 @@ export async function getDiagnostics(input: Record<string, unknown>): Promise<st
   return results.length > 0 ? results.slice(0, 100).join('\n') : 'No diagnostics found.';
 }
 
-// Module-level RegisteredTool[] array (v0.66 chunk 2). Composed into
+// Module-level RegisteredTool[] array. Composed into
 // TOOL_REGISTRY via spread in tools.ts. Keeps the paired def/executor
 // exports above for backward compat with any direct importers.
 export const diagnosticsTools: RegisteredTool[] = [

@@ -1,5 +1,5 @@
 /**
- * Deterministic RAG retrieval metrics (v0.62 e.2). The scorer in
+ * Deterministic RAG retrieval metrics. The scorer in
  * `harness.ts` answers a binary question ("are all expected symbols
  * in the result?"); this module layers the standard information-
  * retrieval metrics on top so regressions surface as small

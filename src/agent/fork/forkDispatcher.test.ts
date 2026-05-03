@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ---------------------------------------------------------------------------
-// Tests for forkDispatcher.ts (v0.67 chunk 3).
+// Tests for forkDispatcher.ts.
 //
 // Covers the headless dispatch primitive — no UI, no webview, just
 // the parallel shadow-sandbox spawn + result collection contract.

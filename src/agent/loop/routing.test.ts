@@ -159,7 +159,7 @@ describe('applyAgentLoopRouting', () => {
     expect(client.getModel()).toBe('claude-opus-4-6');
   });
 
-  describe('downgrade toast (v0.64 phase 4c.3)', () => {
+  describe('downgrade toast ', () => {
     it('fires a warning toast the first time a rule downgrades due to budget', () => {
       const client = new SideCarClient('claude-opus-4-6', 'https://api.anthropic.com', 'sk-test');
       const router = new ModelRouter(

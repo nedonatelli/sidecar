@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // Skill Sync & Registry — git-native distribution across machines/teams.
-// (v0.64 chunk 6)
+//
 //
 // Two tiers beyond the existing project-level `.sidecar/skills/` + user-level
 // `~/.claude/commands/`:

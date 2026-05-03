@@ -76,7 +76,7 @@ describe('SymbolIndexer', () => {
     expect(() => indexer.dispose()).not.toThrow();
   });
 
-  describe('PKI symbol-embedding wiring (v0.61 b.2)', () => {
+  describe('PKI symbol-embedding wiring', () => {
     it('setSymbolEmbeddings with null leaves embedder-related state unchanged', () => {
       const indexer = new SymbolIndexer(null);
       // Should not throw; defaults are preserved so the pre-PKI

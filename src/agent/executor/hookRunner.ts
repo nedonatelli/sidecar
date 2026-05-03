@@ -6,7 +6,7 @@ import { sanitizeEnvValue } from '../envSanitize.js';
 import { runSpawnedHook } from '../spawnHook.js';
 
 /**
- * Run a pre/post hook for a tool call (v0.69 chunk 1 extraction).
+ * Run a pre/post hook for a tool call .
  *
  * Returns an error message string if the hook failed (pre-hooks block
  * execution), or `undefined` on success / skip. Post-hook failures are

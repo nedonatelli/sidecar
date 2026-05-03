@@ -417,13 +417,13 @@ describe('OpenAIBackend', () => {
     });
   });
 
-  // v0.63.1 — OpenAIBackend advertises an `oaiCompatFallback`
+  // OpenAIBackend advertises an `oaiCompatFallback`
   // capability whose `matches()` returns true ONLY when (a) the
   // error looks like an OAI-compat-layer glitch (502/503/504/
   // malformed) AND (b) the host probe hasn't already ruled out
   // Ollama. `fallbackStreamChat` / `fallbackComplete` then delegate
   // to a lazy OllamaBackend constructed on the same baseUrl.
-  describe('nativeCapabilities — oaiCompatFallback (v0.63.1)', () => {
+  describe('nativeCapabilities — oaiCompatFallback', () => {
     it('advertises oaiCompatFallback on every OpenAIBackend instance', () => {
       const caps = backend.nativeCapabilities();
       expect(caps.oaiCompatFallback).toBeDefined();

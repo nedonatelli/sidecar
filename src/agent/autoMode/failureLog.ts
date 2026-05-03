@@ -1,5 +1,5 @@
 /**
- * Auto Mode failure log (v0.73.3).
+ * Auto Mode failure log.
  *
  * Appends structured entries to `.sidecar/logs/auto-mode-failures.md`
  * whenever a task errors during an Auto Mode session. The file is

@@ -1,5 +1,5 @@
 /**
- * PdfSource (v0.75).
+ * PdfSource.
  *
  * Extracts text from PDF files using `pdf-parse` and emits one
  * `SourceDocument` per chunk. Chunk boundaries follow a sliding-window

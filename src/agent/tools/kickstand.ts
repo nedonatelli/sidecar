@@ -2,7 +2,7 @@ import type { ToolDefinition } from '../../ollama/types.js';
 import { formatToolError, type RegisteredTool, type ToolExecutorContext } from './shared.js';
 
 // ---------------------------------------------------------------------------
-// Kickstand LoRA adapter tools (v0.67.1).
+// Kickstand LoRA adapter tools.
 //
 // Palette-level LoRA management shipped in v0.67.0 (commit 83b4418 +
 // coverage closure 904d2f2): `SideCar: Kickstand: Load LoRA Adapter`,

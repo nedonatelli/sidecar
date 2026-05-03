@@ -4,7 +4,7 @@ import type { SideCarClient } from '../ollama/client.js';
 import type { ChatMessage, StreamEvent, ToolUseContentBlock } from '../ollama/types.js';
 
 // ---------------------------------------------------------------------------
-// Tests for editPlanner.ts (v0.65 chunk 4.2).
+// Tests for editPlanner.ts.
 //
 // Covers:
 //   - shouldRunPlannerPass gating: enabled/planningPass/minFilesForPlan/

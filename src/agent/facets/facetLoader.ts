@@ -1,7 +1,7 @@
 import * as path from 'path';
 
 // ---------------------------------------------------------------------------
-// Facet loader (v0.66 chunk 3.1).
+// Facet loader.
 //
 // A facet is a typed sub-agent specialist declared in a markdown file with
 // YAML-ish frontmatter:
@@ -262,7 +262,7 @@ function coerceRpcSchema(value: unknown, filePath: string): Readonly<Record<stri
 }
 
 /**
- * Built-in facet catalog (v0.66 chunk 3.1). Ships with SideCar so users
+ * Built-in facet catalog. Ships with SideCar so users
  * get a useful default registry even without writing any `.sidecar/
  * facets/*.md` files of their own. Each built-in is a plain object here
  * (not loaded from disk) — `source: 'builtin'` makes their provenance

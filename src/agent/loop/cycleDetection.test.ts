@@ -5,7 +5,7 @@ import type { AgentCallbacks } from '../loop.js';
 import type { ToolUseContentBlock } from '../../ollama/types.js';
 
 // ---------------------------------------------------------------------------
-// Tests for cycleDetection.ts (v0.65 chunk 2a — loop helper hardening).
+// Tests for cycleDetection.ts (loop helper hardening).
 //
 // Both exports (`exceedsBurstCap` and `detectCycleAndBail`) are pure
 // functions over `ToolUseContentBlock[]` + a minimal LoopState slice +

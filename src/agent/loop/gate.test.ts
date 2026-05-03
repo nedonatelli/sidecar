@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ---------------------------------------------------------------------------
-// Tests for gate.ts (v0.65 chunk 2b — loop helper hardening).
+// Tests for gate.ts (loop helper hardening).
 //
 // Two entry points:
 //   - recordGateToolUses — feeds tool uses + results into gateState

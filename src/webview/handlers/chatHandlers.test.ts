@@ -1585,7 +1585,7 @@ describe('handleDroppedPaths', () => {
 });
 
 // ---------------------------------------------------------------------------
-// checkBudgetLimits (v0.65 chunk 5a)
+// checkBudgetLimits
 // ---------------------------------------------------------------------------
 describe('checkBudgetLimits', () => {
   function makeState(daily: number, weekly: number) {
@@ -1665,7 +1665,7 @@ describe('checkBudgetLimits', () => {
 });
 
 // ---------------------------------------------------------------------------
-// recordRunCost (v0.65 chunk 5a)
+// recordRunCost
 // ---------------------------------------------------------------------------
 describe('recordRunCost', () => {
   function makeState(tokens: number) {
@@ -1705,7 +1705,7 @@ describe('recordRunCost', () => {
 });
 
 // ---------------------------------------------------------------------------
-// handleUserMessageWithImages (v0.65 chunk 5b)
+// handleUserMessageWithImages
 // ---------------------------------------------------------------------------
 describe('handleUserMessageWithImages', () => {
   function makeState() {
@@ -1754,7 +1754,7 @@ describe('handleUserMessageWithImages', () => {
 });
 
 // ---------------------------------------------------------------------------
-// handleReconnect (v0.65 chunk 5b)
+// handleReconnect
 // ---------------------------------------------------------------------------
 describe('handleReconnect', () => {
   function makeState(

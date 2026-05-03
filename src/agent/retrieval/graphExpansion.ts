@@ -2,7 +2,7 @@ import type { SymbolGraph } from '../../config/symbolGraph.js';
 import type { SymbolSearchResult } from '../../config/symbolEmbeddingIndex.js';
 
 // ---------------------------------------------------------------------------
-// Call-graph expansion for retrieval (v0.65 chunk 5.5).
+// Call-graph expansion for retrieval.
 //
 // This module was extracted from `src/agent/tools/projectKnowledge.ts`
 // so both the `project_knowledge_search` tool AND the base

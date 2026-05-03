@@ -10,7 +10,7 @@ import {
 import type { FacetDispatchBatchResult, FacetDispatchResult } from './facetDispatcher.js';
 
 // ---------------------------------------------------------------------------
-// Tests for facetReview.ts (v0.66 chunk 3.6).
+// Tests for facetReview.ts.
 //
 // The planner is pure and covered directly. The review loop uses an
 // injectable UI so we can drive the user-choice sequence without

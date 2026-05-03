@@ -4,7 +4,7 @@ import { getGitHubToken } from '../github/auth.js';
 import type { PullRequest, CheckRun } from '../github/types.js';
 
 // ---------------------------------------------------------------------------
-// PR lifecycle commands (v0.69 chunk 4).
+// PR lifecycle commands.
 //
 // markPrReady — convert a draft PR to ready-for-review.
 // checkPrCi   — snapshot the CI check runs for the PR's head SHA.

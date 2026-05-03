@@ -3,7 +3,7 @@ import { summarizeProtection, canPushDirect, formatProtectionMarkdown } from './
 import type { BranchProtection } from './types.js';
 
 // ---------------------------------------------------------------------------
-// Tests for branchProtection.ts (v0.68 chunk 3).
+// Tests for branchProtection.ts.
 //
 // Pure primitive — no network. Every case tests the severity + message
 // produced by a specific combination of protection rules.

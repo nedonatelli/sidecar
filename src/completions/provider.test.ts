@@ -79,7 +79,7 @@ describe('SideCarCompletionProvider', () => {
     provider.dispose();
   });
 
-  it('tags the dispatch with role=completion for the router (v0.64 phase 4b.3)', async () => {
+  it('tags the dispatch with role=completion for the router ', async () => {
     const client = mockClient();
     const provider = new SideCarCompletionProvider(client as never, 256, 0);
     const doc = mockDocument('const longEnoughPrefix = true;\nfunction f() { return');
@@ -119,13 +119,13 @@ describe('SideCarCompletionProvider', () => {
       { triggerKind: InlineCompletionTriggerKind.Invoke } as never,
       mockToken() as never,
     );
-    // v0.62.2 q.2b — non-Ollama now routes through completeWithOverrides
+    // non-Ollama now routes through completeWithOverrides
     // so the system prompt can live in its own cache-markable slot.
     expect(client.completeWithOverrides).toHaveBeenCalled();
     provider.dispose();
   });
 
-  describe('cache-friendly prompt structure (v0.62.2 q.2b)', () => {
+  describe('cache-friendly prompt structure ', () => {
     it('sends the system preamble in the systemPrompt arg, not the user message', async () => {
       const client = mockClient({ isLocalOllama: vi.fn().mockReturnValue(false) });
       const provider = new SideCarCompletionProvider(client as never, 256, 0);
@@ -183,7 +183,7 @@ describe('SideCarCompletionProvider', () => {
     });
   });
 
-  describe('latency telemetry (v0.62.2 q.2c)', () => {
+  describe('latency telemetry ', () => {
     it('logs per-completion timing with the path label', async () => {
       const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
       try {

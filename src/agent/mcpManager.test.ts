@@ -157,7 +157,7 @@ describe('MCPManager', () => {
     expect(tool).toBeDefined();
 
     const result = await tool!.executor({ uri: 'test.txt' });
-    // v0.62.4 — output is wrapped in untrusted-content boundary
+    // output is wrapped in untrusted-content boundary
     // markers so the LLM can distinguish MCP output from first-
     // party tool output. Body ('result') is preserved verbatim.
     expect(result).toContain('result');
@@ -334,12 +334,12 @@ describe('mergeMcpConfigs', () => {
   });
 });
 
-// v0.62.4 — indirect-prompt-injection defense on MCP output.
+// indirect-prompt-injection defense on MCP output.
 // Every MCP tool response now ships wrapped in untrusted-content
 // boundary markers (so the LLM can distinguish MCP output from
 // first-party tool output) and is scanned for common injection
 // signal patterns (logged as warnings, never blocking).
-describe('wrapMcpOutput (v0.62.4)', () => {
+describe('wrapMcpOutput', () => {
   it('wraps output in XML-style boundary markers with server + tool attribution', () => {
     const wrapped = wrapMcpOutput('github', 'search_issues', 'Found 3 issues:\n- #42\n- #43\n- #44');
     expect(wrapped).toContain('<mcp_tool_output server="github" tool="search_issues" trust="untrusted">');
@@ -378,7 +378,7 @@ describe('wrapMcpOutput (v0.62.4)', () => {
   });
 });
 
-describe('detectInjectionSignals (v0.62.4)', () => {
+describe('detectInjectionSignals', () => {
   // Positive cases — known-bad patterns that SHOULD trip the detector.
   // Each signal has a canonical name that gets emitted in the console
   // warning, so users can see which specific pattern fired.

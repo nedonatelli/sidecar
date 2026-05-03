@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 /**
- * v0.62.5 — settings reorganization safety net. `contributes.configuration`
+ * settings reorganization safety net. `contributes.configuration`
  * is now an ARRAY of categorized sections (8 titles, 75 keys total) so
  * VS Code's Settings UI renders each group as its own collapsible block
  * instead of one 75-entry flat list. These tests pin the shape so a
@@ -31,7 +31,7 @@ function loadConfiguration(): ConfigSection[] {
   return cfg;
 }
 
-describe('package.json contributes.configuration — 12-category layout (v0.79.0)', () => {
+describe('package.json contributes.configuration — 12-category layout', () => {
   const EXPECTED_TITLES = [
     'SideCar: Backend & Models',
     'SideCar: Agent',
@@ -142,7 +142,7 @@ describe('package.json contributes.configuration — 12-category layout (v0.79.0
   });
 });
 
-describe('settings keys referenced in source match the declared schema (v0.62.5)', () => {
+describe('settings keys referenced in source match the declared schema', () => {
   it('Backend & Models category holds the connectivity essentials', () => {
     const cfg = loadConfiguration();
     const section = cfg.find((s) => s.title === 'SideCar: Backend & Models')!;

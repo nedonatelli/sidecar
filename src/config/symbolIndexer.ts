@@ -41,7 +41,7 @@ export class SymbolIndexer implements Disposable {
   private pendingDeletes = new Set<string>();
   private rootPath = '';
   /**
-   * Optional PKI symbol-embedding index (v0.61 b.2). When wired, each
+   * Optional PKI symbol-embedding index. When wired, each
    * `indexFile` pass feeds every extracted symbol's body through the
    * embedder queue so semantic search has per-symbol vectors. Keeps
    * the graph's structural role unchanged — the graph still answers
@@ -61,7 +61,7 @@ export class SymbolIndexer implements Disposable {
 
   /**
    * Attach a `SymbolEmbeddingIndex` so the indexer starts feeding it
-   * per-symbol bodies on every parsed file (v0.61 b.2). Optional —
+   * per-symbol bodies on every parsed file. Optional —
    * passing `null` (or never calling this) preserves the pre-PKI
    * behavior where symbol embeddings are never computed. Changing
    * the reference mid-session is supported for tests.

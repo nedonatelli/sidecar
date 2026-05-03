@@ -5,7 +5,7 @@ import type { GitHubAPI } from '../github/api.js';
 import type { PullRequest, PrReviewThread, PrReviewComment } from '../github/types.js';
 
 // ---------------------------------------------------------------------------
-// Tests for prRespond.ts (v0.69 chunk 3).
+// Tests for prRespond.ts.
 // ---------------------------------------------------------------------------
 
 interface FakeUi extends PrRespondUi {

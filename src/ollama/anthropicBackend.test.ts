@@ -474,7 +474,7 @@ describe('AnthropicBackend', () => {
       expect(lastBlock.cache_control).toEqual({ type: 'ephemeral' });
     });
 
-    // v0.62.3 — mid-stream network death on the Anthropic SSE path.
+    // mid-stream network death on the Anthropic SSE path.
     // Parallel to the test in openAiSseStream.test.ts but exercising
     // Anthropic's own parser, which has a different state machine
     // (events-by-type vs. choices[].delta). An error mid-read must

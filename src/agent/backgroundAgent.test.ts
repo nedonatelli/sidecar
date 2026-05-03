@@ -145,7 +145,7 @@ describe('BackgroundAgentManager ToolRuntime wiring', () => {
   });
 });
 
-// v0.62.3 — slot-limit + queue-drain coverage. The manager's
+// slot-limit + queue-drain coverage. The manager's
 // drainQueue() respects getConfig().bgMaxConcurrent (mocked to 3
 // above) but the previous test set didn't actually assert that
 // guard. These tests exercise the 4th-run-gets-queued path and

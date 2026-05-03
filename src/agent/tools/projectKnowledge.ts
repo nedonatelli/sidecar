@@ -5,7 +5,7 @@ import { enrichWithGraphWalk } from '../retrieval/graphExpansion.js';
 
 // Re-export so existing tests + callers importing `enrichWithGraphWalk`
 // from this tool module keep working. The implementation moved to
-// `src/agent/retrieval/graphExpansion.ts` (v0.65 chunk 5.5) so the
+// `src/agent/retrieval/graphExpansion.ts` so the
 // base SemanticRetriever can share the same walk logic.
 export { enrichWithGraphWalk };
 

@@ -5,7 +5,7 @@ import type { GitHubAPI } from '../github/api.js';
 import type { PullRequest, PrReviewThread, PrReviewComment } from '../github/types.js';
 
 // ---------------------------------------------------------------------------
-// Tests for prReview.ts (v0.69 chunk 2).
+// Tests for prReview.ts.
 //
 // Integration through the injectable PrReviewUi + stubbed GitCLI +
 // stubbed GitHubAPI. No network, no VS Code, no disk.

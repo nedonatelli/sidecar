@@ -60,7 +60,7 @@ export function initWorkspaceIndex(
           .catch((err) => console.warn('[SideCar] Embedding index failed:', err.message || err));
       }
 
-      // Project Knowledge Index — symbol-level semantic index (v0.61 b.2)
+      // Project Knowledge Index — symbol-level semantic index
       if (config.projectKnowledgeEnabled) {
         const { SymbolEmbeddingIndex } = await import('../config/symbolEmbeddingIndex.js');
         if (config.projectKnowledgeBackend === 'lance') {

@@ -1,7 +1,7 @@
 import type { BranchProtection } from './types.js';
 
 // ---------------------------------------------------------------------------
-// Branch Protection utilities (v0.68 chunk 3).
+// Branch Protection utilities.
 //
 // Pure primitives — no network, no VS Code. `GitHubAPI.getBranchProtection`
 // fetches the rules; these functions convert them into human-readable

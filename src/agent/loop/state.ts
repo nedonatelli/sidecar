@@ -87,7 +87,7 @@ export interface LoopState {
   // Per-file critic injection counter. criticHook.ts is the only writer.
   criticInjectionsByFile: Map<string, number>;
 
-  // Per-test-output-hash critic injection counter (v0.63.0). Bounds
+  // Per-test-output-hash critic injection counter. Bounds
   // the `test_failure` trigger path which was otherwise unbounded —
   // if tests keep failing with the SAME normalized output, the
   // critic used to re-fire every turn and could burn $1-2 of spend
@@ -106,7 +106,7 @@ export interface LoopState {
   gateState: ReturnType<typeof createGateState>;
 
   // Active multi-file edit plan, set by dispatchPendingToolUses for
-  // the duration of a multi-file write batch (v0.65 chunk 4.5a).
+  // the duration of a multi-file write batch .
   // Hooks + review flows (regression guards, audit mode review, shadow
   // workspace accept prompts) can read this to detect "this turn's
   // writes all belong to one plan" and present them as a grouped unit

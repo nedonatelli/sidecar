@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ---------------------------------------------------------------------------
-// Tests for executeToolUses.ts (v0.65 chunk 2b — loop helper hardening).
+// Tests for executeToolUses.ts (loop helper hardening).
 //
 // `executeToolUses` dispatches each tool_use to one of three paths
 // based on tool name:

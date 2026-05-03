@@ -15,7 +15,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 
 // ---------------------------------------------------------------------------
-// Draft Pull Request from current branch (v0.68 chunk 2).
+// Draft Pull Request from current branch.
 //
 // One command replaces the three-step manual dance most users do today:
 // `git push -u origin HEAD` + craft title/body + `gh pr create`. This

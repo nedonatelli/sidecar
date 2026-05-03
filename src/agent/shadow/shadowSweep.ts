@@ -3,9 +3,7 @@ import * as fs from 'fs';
 import { GitCLI } from '../../github/git.js';
 
 /**
- * Garbage collection for abandoned shadow worktrees (v0.62.1 p.3 —
- * closes the "VS Code crash mid-shadow-run leaves silent repo
- * corruption" audit finding).
+ * Garbage collection for abandoned shadow worktrees.
  *
  * Two orphan classes exist:
  *

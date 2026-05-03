@@ -1,5 +1,5 @@
 /**
- * SideCarSdkApi implementation (v0.74).
+ * SideCarSdkApi implementation.
  *
  * Instantiated once in `extension.ts` and returned from `activate()` so
  * third-party VS Code extensions can obtain it via

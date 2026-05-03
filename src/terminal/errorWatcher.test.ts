@@ -116,7 +116,7 @@ describe('TerminalErrorWatcher', () => {
 });
 
 // ---------------------------------------------------------------------------
-// End-to-end handleExecution tests (v0.67 chunk 7).
+// End-to-end handleExecution tests.
 //
 // The vscode mock ships without `onDidStartTerminalShellExecution`, so
 // TerminalErrorWatcher's feature detection returns early and the

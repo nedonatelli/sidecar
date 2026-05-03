@@ -5,7 +5,7 @@ import type { GitHubAPI } from '../github/api.js';
 import type { WorkflowRun, WorkflowJob } from '../github/types.js';
 
 // ---------------------------------------------------------------------------
-// Tests for analyzeCiFailure.ts (v0.68 chunk 4).
+// Tests for analyzeCiFailure.ts.
 //
 // Integration through the injectable UI + stubbed GitCLI + stubbed
 // GitHubAPI. No network, no VS Code, no disk. Every test proves one

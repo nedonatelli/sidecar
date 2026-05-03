@@ -3,7 +3,7 @@ import { FacetRpcBus, generateRpcTools, formatWireTrace } from './facetRpcBus.js
 import type { FacetDefinition } from './facetLoader.js';
 
 // ---------------------------------------------------------------------------
-// Tests for facetRpcBus.ts (v0.66 chunk 3.4a).
+// Tests for facetRpcBus.ts .
 //
 // Covers:
 //   - FacetRpcBus.call routing (happy path, no-handler, handler throw,

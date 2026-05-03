@@ -38,7 +38,7 @@ export class OpenRouterBackend extends OpenAIBackend {
 
   /**
    * Opt into OpenRouter's accounting block so the streamed `usage`
-   * event carries `cost` in USD (v0.64 chunk 5). Without this the
+   * event carries `cost` in USD. Without this the
    * stream's usage chunk ships token counts only, and `spendTracker`
    * falls back to the static MODEL_COSTS table — which misses
    * per-account discounts, routed-provider upcharges, and cache

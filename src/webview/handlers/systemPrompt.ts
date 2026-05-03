@@ -78,12 +78,10 @@ export async function injectSystemContext(
   }
 
   // SIDECAR.md — only in trusted workspaces.
-  // v0.67 chunk 1: path-scoped section injection. Mode `sections`
-  // parses H2 boundaries and routes sections by @paths sentinel +
-  // active-file match + priority overrides; mode `full` preserves
-  // pre-v0.67 whole-file behavior (still truncated, but only used
-  // when the user explicitly opts in or the file has no sentinels
-  // to route by).
+  // SIDECAR.md path-scoped injection. Mode `sections` parses H2 boundaries
+  // and routes sections by @paths sentinel + active-file match + priority
+  // overrides; mode `full` preserves whole-file behavior (still truncated,
+  // used when the user explicitly opts in or the file has no sentinels).
   if (workspaceTrusted) {
     const sidecarMd = await state.loadSidecarMd();
     if (sidecarMd) {
@@ -205,11 +203,11 @@ export async function injectSystemContext(
       retrievers.push(new PdfRetriever(litDir));
     }
     if (getWorkspaceEnabled() && state.workspaceIndex?.isReady()) {
-      // Graph expansion (v0.65 chunk 5.5): walk callers outward from
-      // vector hits so dependency-coupled symbols surface on every
-      // retrieval call. Depth auto-adjusts to the model's context
-      // window — small-context local models (<8K) disable the walk
-      // to preserve tokens; large-context backends absorb depth 2.
+      // Graph expansion: walk callers outward from vector hits so
+      // dependency-coupled symbols surface on every retrieval call. Depth
+      // auto-adjusts to the model's context window — small-context local
+      // models (<8K) disable the walk to preserve tokens; large-context
+      // backends absorb depth 2.
       const graphExpansion = config.retrievalGraphExpansionEnabled
         ? {
             maxDepth: adaptiveGraphDepth(contextLength),
@@ -348,7 +346,7 @@ interface SidecarMdInjectionOptions {
  * to the configured mode:
  *   - `sections` — parse + select per `@paths` sentinels + priority
  *     rules. Falls back to full-file behavior when the doc has no
- *     sentinels (preserves pre-v0.67 UX for unannotated files).
+ *     sentinels (falls back to full-file for unannotated files).
  *   - `full`    — legacy: return the whole file, mid-chopped on
  *     overflow with an explicit truncation marker.
  */

@@ -104,7 +104,7 @@ export async function executeToolUses(
 
 /**
  * Dispatch one tool_use block to its execution path. Exported so the
- * multi-file edit executor (v0.65 chunk 4.3) can reuse the same
+ * multi-file edit executor can reuse the same
  * dispatch logic when walking an `EditPlan` DAG. Callers must build
  * the `ExecutionContext` themselves.
  */

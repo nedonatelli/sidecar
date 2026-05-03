@@ -5,8 +5,7 @@ import { useMockFetch } from '../__tests__/helpers/mockFetch.js';
 
 describe('sidecarFetch', () => {
   // `useMockFetch` registers its own beforeEach/afterEach to stub
-  // globalThis.fetch and reset call history per test (v0.65 — shared
-  // test-helper module). `fetchMock.fn` is the underlying vi.fn so
+  // globalThis.fetch and reset call history per test. `fetchMock.fn` is the underlying vi.fn so
   // existing `mockResolvedValueOnce` / `mockRejectedValueOnce` calls
   // work unchanged.
   const fetchMock = useMockFetch();

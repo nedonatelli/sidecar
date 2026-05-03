@@ -367,7 +367,7 @@ ${codeChanges.length > 0 ? 'Code changes (verbatim):\n' + codeChanges.join('\n')
     try {
       const summarizeMessages: ChatMessage[] = [{ role: 'user', content: prompt }];
 
-      // Role-Based Model Routing (v0.64 phase 4b.3). Tag this dispatch
+      // Role-Based Model Routing . Tag this dispatch
       // as the `summarize` role so `sidecar.modelRouting.rules` can
       // point summarization at a cheap model (typical: Haiku) while
       // leaving the main agent loop on a bigger reasoning-capable one.

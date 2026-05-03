@@ -4,7 +4,7 @@ import type { ForkDispatchBatchResult, dispatchForks as dispatchForksFn } from '
 import type { reviewForkBatch as reviewForkBatchFn } from './forkReview.js';
 
 // ---------------------------------------------------------------------------
-// Tests for forkCommands.ts (v0.67 chunk 6).
+// Tests for forkCommands.ts.
 //
 // Drives the end-to-end command flow with injected UI + dispatch +
 // review. Covers every cancel path, the disabled gate, the

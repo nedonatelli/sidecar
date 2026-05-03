@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// EditPlan — typed manifest for multi-file edit streams (v0.65 chunk 4.1).
+// EditPlan — typed manifest for multi-file edit streams.
 //
 // Purpose: before the agent fires a batch of write_file / edit_file /
 // delete_file calls that span N files, we make it declare the full set

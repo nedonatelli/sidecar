@@ -12,7 +12,7 @@ import {
 
 /**
  * Deterministic tests for the LLM-judge's pure prompt-building +
- * verdict-parsing primitives (v0.62 e.3). The judge itself lives
+ * verdict-parsing primitives. The judge itself lives
  * under `tests/llm-eval/retrievalJudge.ts` and runs only with a
  * real API key, but these functions are the load-bearing pieces —
  * a prompt-engineering bug or a parser edge case will surface

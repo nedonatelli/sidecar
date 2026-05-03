@@ -317,7 +317,7 @@ describe('getConfig provider-aware model default', () => {
   });
 });
 
-describe('criticModel provider-aware default (v0.62.1 p.1a)', () => {
+describe('criticModel provider-aware default ', () => {
   /**
    * The real VS Code getConfiguration().get treats `'critic.model'`
    * as a dotted path, not a single key. Our stub store must key on

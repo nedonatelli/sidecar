@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ---------------------------------------------------------------------------
-// Tests for tools/github.ts (v0.69 chunk 3).
+// Tests for tools/github.ts.
 //
 // GitCLI and GitHubAPI are constructor-mocked. vi.mock factories are hoisted
 // to the top of the file so shared state must be declared with vi.hoisted().

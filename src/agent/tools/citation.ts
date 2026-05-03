@@ -1,5 +1,5 @@
 /**
- * Citation tools (v0.75).
+ * Citation tools.
  *
  * insert_citation — fetch a Zotero item by key and return it formatted as
  * APA, MLA, Chicago, BibTeX, or LaTeX. Style is auto-detected from the

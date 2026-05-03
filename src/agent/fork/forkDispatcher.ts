@@ -5,7 +5,7 @@ import { runAgentLoopInSandbox, type SandboxResult } from '../shadow/sandbox.js'
 import { runWithCap, AbortedBeforeStartError } from '../parallelDispatch.js';
 
 // ---------------------------------------------------------------------------
-// Fork dispatcher — primitive for Fork & Parallel Solve (v0.67 chunk 3).
+// Fork dispatcher — primitive for Fork & Parallel Solve.
 //
 // Runs the agent loop N times in parallel against the same user task,
 // each inside its own Shadow Workspace off the current HEAD. Every
@@ -24,7 +24,7 @@ import { runWithCap, AbortedBeforeStartError } from '../parallelDispatch.js';
 //   - Review UI or hunk-picking (chunk 5).
 //   - `/fork` slash command or command-palette wiring (chunk 6).
 //
-// Shares the shadow+defer pattern with Facets (v0.66 chunk 3.6): every
+// Shares the shadow+defer pattern with Facets: every
 // fork runs with `forceShadow: true, deferPrompt: true` so the user's
 // main tree is untouched during the run and no mid-run quickpicks fire.
 // Diffs land in `SandboxResult.pendingDiff` for the review UI to apply
@@ -243,7 +243,7 @@ async function runOneFork(
         // Approval still fires for destructive tools that opt in.
         approvalMode: 'autonomous',
       },
-      // Force shadow + defer the per-run prompt (v0.66 chunk 3.6):
+      // Force shadow + defer the per-run prompt:
       // the aggregated Fork review UI (chunk 5) applies diffs after
       // all forks settle, so no mid-run quickpicks fire.
       { forceShadow: true, deferPrompt: true },

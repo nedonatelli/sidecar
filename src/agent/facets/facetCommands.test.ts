@@ -10,7 +10,7 @@ import type { FacetDispatchBatchResult } from './facetDispatcher.js';
 import type { LoadFacetsOutcome } from './facetDiskLoader.js';
 
 // ---------------------------------------------------------------------------
-// Tests for facetCommands.ts (v0.66 chunk 3.5b).
+// Tests for facetCommands.ts .
 //
 // Drives the command-palette flow through a fake UI + injected
 // `loadRegistry`/`dispatch`. Only the dispatch path uses the real

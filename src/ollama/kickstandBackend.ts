@@ -322,7 +322,7 @@ export class KickstandBackend implements ApiBackend {
   }
 
   /**
-   * Declare Kickstand's native lifecycle capability (v0.63.1).
+   * Declare Kickstand's native lifecycle capability.
    * Wraps the module-level `kickstandLoadModel` / `kickstandUnloadModel`
    * / `kickstandListRegistry` helpers that already speak Kickstand's
    * `/api/v1/models/*` endpoints — this method just attributes them

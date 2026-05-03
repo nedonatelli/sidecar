@@ -62,7 +62,7 @@ export class ChatState {
   abortController: AbortController | null = null;
   installAbortController: AbortController | null = null;
   /**
-   * Active steer queue for the in-flight agent run (v0.65 chunk 3).
+   * Active steer queue for the in-flight agent run.
    * Created by `handleUserMessage` when a run starts, disposed in
    * the finally block. When null, the webview strip hides itself.
    * Only non-null during an active run so webview steer messages
@@ -73,7 +73,7 @@ export class ChatState {
   currentSteerDisposer: (() => void) | null = null;
   /**
    * Serialized steer queue stashed when a run fails mid-stream
-   * (v0.65 chunk 3.4 persistence). Lets `/resume` (or the next
+   * . Lets `/resume` (or the next
    * user-initiated turn) repopulate the fresh queue with the
    * steers that were still pending when the stream died, so a
    * network drop or backend crash doesn't silently swallow typed

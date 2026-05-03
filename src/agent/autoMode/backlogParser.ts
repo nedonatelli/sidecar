@@ -1,5 +1,5 @@
 /**
- * Backlog parser for Auto Mode (v0.73).
+ * Backlog parser for Auto Mode.
  *
  * Reads and writes `.sidecar/backlog.md` — a plain markdown checklist
  * where each task is an unchecked `- [ ]` item. Completed tasks are
@@ -12,7 +12,7 @@
  */
 
 /**
- * Per-item sentinel overrides (v0.73.2).
+ * Per-item sentinel overrides.
  * Sentinels are `@key:value` tokens embedded in the task text.
  * Example: `- [ ] Refactor auth @model:claude-opus-4-7 @shadowMode:always`
  */

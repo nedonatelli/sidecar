@@ -22,7 +22,7 @@ export interface Skill {
   content: string;
   /** Where this skill was loaded from */
   source: 'builtin' | 'user' | 'project-claude' | 'project-sidecar' | 'user-registry' | 'team-registry';
-  /** Stable slug for registry-sourced skills (v0.64) — matches `RegistryRef.label` segment. */
+  /** Stable slug for registry-sourced skills — matches `RegistryRef.label` segment. */
   registrySlug?: string;
   /** Original file path */
   filePath: string;
@@ -176,7 +176,7 @@ export class SkillLoader {
   }
 
   /**
-   * Layer in skills from synced registries (v0.64 chunk 6). Called by
+   * Layer in skills from synced registries. Called by
    * `extension.ts` after `syncSkillRegistries` resolves, so clones /
    * pulls run once and this loader just reads the now-populated
    * directories. Precedence: registry skills sit between built-in /

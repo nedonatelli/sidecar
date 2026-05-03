@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { spendTracker, formatUsd } from './spendTracker.js';
 
-describe('SpendTracker.record (v0.64 chunk 5 — provider `usage.cost` pass-through)', () => {
+describe('SpendTracker.record', () => {
   beforeEach(() => spendTracker.reset());
 
   it('computes cost from the price table when no provider-reported cost is present', () => {

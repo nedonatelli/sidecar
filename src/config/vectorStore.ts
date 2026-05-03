@@ -1,6 +1,6 @@
 /**
  * Backend abstraction for the Project Knowledge Index's vector
- * storage (v0.62 c.2). Pure-TS interface + a flat in-memory
+ * storage. Pure-TS interface + a flat in-memory
  * implementation that matches the v0.61 behavior exactly. Designed
  * so a future release can drop in a LanceDB-backed implementation
  * without changing `SymbolEmbeddingIndex`.
@@ -130,7 +130,7 @@ export interface FlatVectorStoreConfig {
 
 /**
  * In-memory vector store with flat Float32Array backing + file
- * persistence (v0.62 c.2). Behavior-identical to the v0.61
+ * persistence. Behavior-identical to the v0.61
  * SymbolEmbeddingIndex internal storage — the extraction is purely
  * to let a later Lance backend plug in without SymbolEmbeddingIndex
  * noticing.

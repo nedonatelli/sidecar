@@ -5,7 +5,7 @@ import type { LoopState } from './state.js';
 import type { AgentCallbacks } from '../loop.js';
 
 // ---------------------------------------------------------------------------
-// Tests for steerDrain.ts (v0.65 chunk 3.2b).
+// Tests for steerDrain.ts .
 //
 // drainSteerQueueAtBoundary() is the iteration-boundary hook that:
 //   1. no-ops when queue is undefined or empty,

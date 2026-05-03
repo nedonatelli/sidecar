@@ -5,7 +5,7 @@ import type { SideCarClient } from '../../ollama/client.js';
 import type { AgentCallbacks } from '../loop.js';
 
 // ---------------------------------------------------------------------------
-// Fork command entry point (v0.67 chunk 6).
+// Fork command entry point.
 //
 // Wraps `dispatchForks` + `reviewForkBatch` into a single end-to-end
 // flow: prompt the user for a task (or accept one pre-supplied by the

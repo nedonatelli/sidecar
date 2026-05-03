@@ -872,7 +872,7 @@ export class ChatViewProvider implements WebviewViewProvider {
 
   /**
    * Seed the chat input with a prefilled prompt — used by flows like
-   * CI Failure Analysis (v0.68 chunk 4) that want to hand the user a
+   * CI Failure Analysis that want to hand the user a
    * ready-to-send message they can review and submit. The chat view
    * is brought to focus first so the user lands with the input cursor
    * active.

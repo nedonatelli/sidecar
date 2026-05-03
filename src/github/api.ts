@@ -226,7 +226,7 @@ export class GitHubAPI {
     });
   }
 
-  // --- Branch Protection (v0.68 chunk 3) ---
+  // --- Branch Protection ---
 
   private parseBranchProtection(raw: RawBranchProtection): BranchProtection {
     const reviews = raw.required_pull_request_reviews;
@@ -263,7 +263,7 @@ export class GitHubAPI {
     }
   }
 
-  // --- Workflow Runs (v0.68 chunk 4) ---
+  // --- Workflow Runs ---
 
   private parseWorkflowRun(raw: RawWorkflowRun): WorkflowRun {
     return {
@@ -343,7 +343,7 @@ export class GitHubAPI {
     return response.text();
   }
 
-  // --- PR Review Comments (v0.69 chunk 2) ---
+  // --- PR Review Comments ---
 
   private parsePullRequestFull(raw: RawPullRequestFull): PullRequest {
     return {
@@ -477,7 +477,7 @@ export class GitHubAPI {
     };
   }
 
-  // --- GraphQL + PR lifecycle (v0.69 chunk 4) ---
+  // --- GraphQL + PR lifecycle ---
 
   /**
    * Execute an authenticated GitHub GraphQL query. Throws if the

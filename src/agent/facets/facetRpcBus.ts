@@ -2,7 +2,7 @@ import type { RegisteredTool, ToolExecutorContext } from '../tools/shared.js';
 import type { FacetDefinition } from './facetLoader.js';
 
 // ---------------------------------------------------------------------------
-// Facet RPC bus (v0.66 chunk 3.4a).
+// Facet RPC bus .
 //
 // Each facet can declare a typed `rpcSchema` — a map of method names
 // that peer facets may invoke. At dispatch time the bus generates one

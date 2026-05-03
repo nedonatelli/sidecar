@@ -1,5 +1,5 @@
 /**
- * Merkle-Addressed Semantic Fingerprint (v0.62 d.1) — structural
+ * Merkle-Addressed Semantic Fingerprint — structural
  * addressing layer for the Project Knowledge Index. Every symbol
  * becomes a leaf with a content hash; every file becomes an interior
  * node aggregating its leaves' hashes + embeddings; the root is a

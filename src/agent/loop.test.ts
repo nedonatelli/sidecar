@@ -442,7 +442,7 @@ describe('runAgentLoop', () => {
 });
 
 // ---------------------------------------------------------------------------
-// runAgentLoop — steer queue integration (v0.65 chunk 3.2)
+// runAgentLoop — steer queue integration
 // ---------------------------------------------------------------------------
 describe('runAgentLoop — SteerQueue integration', () => {
   async function mockConfig() {

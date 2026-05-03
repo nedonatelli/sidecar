@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import type { SideCarClient } from '../ollama/client.js';
 
 /**
- * Command-palette actions for backend-native capabilities (v0.63.1).
+ * Command-palette actions for backend-native capabilities.
  *
  * Today this covers Kickstand's lifecycle endpoints — `load` and
  * `unload` — so users can hot-swap which model is loaded without
@@ -92,7 +92,7 @@ async function runUnloadModel(client: SideCarClient): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// LoRA adapter commands (v0.65.2)
+// LoRA adapter commands
 // ---------------------------------------------------------------------------
 
 async function runLoadAdapter(client: SideCarClient): Promise<void> {
@@ -189,7 +189,7 @@ async function runUnloadAdapter(client: SideCarClient): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Model browser command (v0.65.2)
+// Model browser command
 // ---------------------------------------------------------------------------
 
 async function runModelBrowser(client: SideCarClient): Promise<void> {

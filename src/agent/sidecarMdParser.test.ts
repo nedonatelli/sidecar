@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { parseSidecarMd, pathMatchesAnyGlob, selectSidecarMdSections } from './sidecarMdParser.js';
 
 // ---------------------------------------------------------------------------
-// Tests for sidecarMdParser.ts (v0.67 chunk 1).
+// Tests for sidecarMdParser.ts.
 //
 // Split into three groups: (1) parser output correctness, (2) glob
 // matching edge cases, (3) selector priority + budget behavior.

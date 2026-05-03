@@ -11,7 +11,7 @@ import type { getConfig } from '../../config/settings.js';
 import type { EditPlan } from '../../agent/editPlan.js';
 
 // ---------------------------------------------------------------------------
-// Tests for agentCallbacks.ts (v0.65 chunk 5c).
+// Tests for agentCallbacks.ts .
 //
 // createAgentCallbacks returns the bundle that connects the agent loop
 // to the chat webview. Each callback is tested in isolation against a
@@ -355,7 +355,7 @@ describe('createAgentCallbacks — onSuggestNextSteps', () => {
   });
 });
 
-describe('createAgentCallbacks — onEditPlanProgress (v0.66 chunk 1 slim 4.4b wiring)', () => {
+describe('createAgentCallbacks — onEditPlanProgress ', () => {
   it('forwards a progress update to editPlanProgress with path/status/errorMessage', () => {
     const state = makeState();
     const cb = createAgentCallbacks(state, makeConfig(), []);
@@ -376,7 +376,7 @@ describe('createAgentCallbacks — onEditPlanProgress (v0.66 chunk 1 slim 4.4b w
   });
 });
 
-describe('createAgentCallbacks — onEditPlan (v0.65 chunk 4.4a wiring)', () => {
+describe('createAgentCallbacks — onEditPlan ', () => {
   it('flushes pending text and emits the editPlanCard with a deep-copied plan', () => {
     const state = makeState();
     const cb = createAgentCallbacks(state, makeConfig(), []);
@@ -404,7 +404,7 @@ describe('createAgentCallbacks — onEditPlan (v0.65 chunk 4.4a wiring)', () => 
   });
 });
 
-describe('createAgentCallbacks — onStreamFailure (v0.65 chunk 3.4 persistence)', () => {
+describe('createAgentCallbacks — onStreamFailure ', () => {
   it('flushes buffered text, stashes the partial, and emits the resume affordance', () => {
     const state = makeState();
     const cb = createAgentCallbacks(state, makeConfig(), []);
@@ -439,7 +439,7 @@ describe('createAgentCallbacks — onStreamFailure (v0.65 chunk 3.4 persistence)
     expect(state.pendingSteerSnapshot).toBeNull();
   });
 
-  it('carries the stashed steer count on the resumeAvailable message (v0.65 chunk 7b)', () => {
+  it('carries the stashed steer count on the resumeAvailable message ', () => {
     const serialize = vi.fn().mockReturnValue([
       { id: 's1', text: 'a', urgency: 'nudge', createdAt: 1 },
       { id: 's2', text: 'b', urgency: 'interrupt', createdAt: 2 },

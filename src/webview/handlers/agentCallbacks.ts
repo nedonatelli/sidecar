@@ -4,7 +4,7 @@ import type { AgentCallbacks } from '../../agent/loop.js';
 import { getConfig } from '../../config/settings.js';
 
 // ---------------------------------------------------------------------------
-// Agent callbacks factory (v0.65 chunk 5c — extracted from chatHandlers.ts).
+// Agent callbacks factory (extracted from chatHandlers.ts).
 //
 // Builds the `AgentCallbacks` bundle that connects the agent loop to the
 // chat webview: text streaming, tool-call surfacing, iteration progress,

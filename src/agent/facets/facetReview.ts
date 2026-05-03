@@ -6,7 +6,7 @@ import { GitCLI } from '../../github/git.js';
 import type { FacetDispatchBatchResult, FacetDispatchResult } from './facetDispatcher.js';
 
 // ---------------------------------------------------------------------------
-// Facet batch review (v0.66 chunk 3.6).
+// Facet batch review.
 //
 // After `dispatchFacets` completes with `deferPrompt: true`, every
 // facet carries a `pendingDiff` in its `sandbox` field instead of

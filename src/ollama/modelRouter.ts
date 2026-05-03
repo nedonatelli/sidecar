@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Role-Based Model Routing (v0.64).
+// Role-Based Model Routing.
 //
 // Each dispatch in SideCar carries a role tag — agent-loop, chat, completion,
 // summarize, critic, worker, planner, judge, visual, embed — and the router

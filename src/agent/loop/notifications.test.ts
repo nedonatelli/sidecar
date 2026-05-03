@@ -5,7 +5,7 @@ import type { AgentCallbacks } from '../loop.js';
 import type { getConfig } from '../../config/settings.js';
 
 // ---------------------------------------------------------------------------
-// Tests for notifications.ts (v0.65 chunk 2a — loop helper hardening).
+// Tests for notifications.ts (loop helper hardening).
 //
 // Three pure-ish helpers that fire `onIterationStart` /
 // `onProgressSummary` / `onCheckpoint` callbacks. No real vscode / LLM

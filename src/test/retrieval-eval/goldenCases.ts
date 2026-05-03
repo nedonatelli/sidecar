@@ -1,5 +1,5 @@
 /**
- * Golden-case dataset for RAG-eval (v0.62 e.1). Each case fixes a
+ * Golden-case dataset for RAG-eval. Each case fixes a
  * known-correct retrieval pattern against the synthetic fixture in
  * `fixture.ts`. The fake embedding pipeline in `harness.ts` gives
  * tokenized-prefix similarity, so these cases exercise the *pipeline

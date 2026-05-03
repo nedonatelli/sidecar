@@ -8,7 +8,7 @@ import { FacetRpcBus, generateRpcTools, type RpcHandler, type RpcWireTraceEntry 
 import { runForEachWithCap } from '../parallelDispatch.js';
 
 // ---------------------------------------------------------------------------
-// Facet dispatcher (v0.66 chunk 3.3).
+// Facet dispatcher.
 //
 // Runs a facet's sub-agent loop with its tool allowlist, preferred
 // model, and a dedicated Shadow Workspace off the current HEAD, so
@@ -58,7 +58,7 @@ export interface DispatchFacetOptions {
   /** Forwarded verbatim to runAgentLoopInSandbox. */
   readonly agentOptions?: AgentOptions;
   /**
-   * Optional RPC bus (v0.66 chunk 3.4b). When provided together with
+   * Optional RPC bus . When provided together with
    * `rpcPeers`, the dispatcher generates `rpc.<peerId>.<method>` tools
    * for every peer method declared in `rpcSchema` and merges them into
    * the facet's toolOverride. Peers are typically the full set of
@@ -170,7 +170,7 @@ export async function dispatchFacet(
     ? Object.fromEntries(facet.toolAllowlist.map((n) => [n, 'allow' as const]))
     : undefined;
 
-  // v0.66 chunk 3.4b — merge RPC peer tools into the facet's tool
+  // merge RPC peer tools into the facet's tool
   // surface when a bus is provided. Generated tools are named
   // `rpc.<peerId>.<method>`; definitions land in `toolOverride` (what
   // the model SEES) and the executor pair lands in `extraTools`
@@ -210,7 +210,7 @@ export async function dispatchFacet(
       },
       // Force shadow on — every facet run is sandboxed regardless of
       // the user's global shadowWorkspaceMode preference. Defer the
-      // per-run prompt (v0.66 chunk 3.6): the batch's review UI runs
+      // per-run prompt: the batch's review UI runs
       // once all facets complete, so we don't stack N quickpicks.
       { forceShadow: true, deferPrompt: true },
     );
@@ -253,7 +253,7 @@ export async function dispatchFacet(
 export type FacetRpcHandlerMap = Readonly<Record<string, Readonly<Record<string, RpcHandler>>>>;
 
 /**
- * Batch result from `dispatchFacets` (v0.66 chunk 3.4b). Carries the
+ * Batch result from `dispatchFacets` . Carries the
  * per-facet results plus the full RPC wire trace from the bus used
  * during dispatch. The trace feeds the Facet Comms UI (chunk 3.5)
  * and per-run review (chunk 3.6); it's always present but empty
@@ -276,7 +276,7 @@ export interface FacetDispatchBatchResult {
  * correlate the `facetIds` they submitted with the outputs they got.
  * Failed facets are included in the array with `success: false`.
  *
- * v0.66 chunk 3.4b — sets up a fresh `FacetRpcBus` per batch. Callers
+ * sets up a fresh `FacetRpcBus` per batch. Callers
  * can supply `rpcHandlers` mapping `{ facetId: { method: handler } }`;
  * those handlers are registered before any facet loop starts so
  * calls fired via generated `rpc.<peerId>.<method>` tools resolve

@@ -210,7 +210,7 @@ describe('lintFix', () => {
   });
 
   // -------------------------------------------------------------------------
-  // detectLintCommand (v0.65 chunk 6c gap-fill)
+  // detectLintCommand
   // -------------------------------------------------------------------------
   describe('detectLintCommand', () => {
     beforeEach(() => {

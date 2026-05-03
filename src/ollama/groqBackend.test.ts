@@ -3,7 +3,7 @@ import { GroqBackend } from './groqBackend.js';
 import { OpenAIBackend } from './openaiBackend.js';
 
 // ---------------------------------------------------------------------------
-// GroqBackend tests (v0.69 chunk 5).
+// GroqBackend tests.
 //
 // GroqBackend is an empty subclass of OpenAIBackend — its value is provider
 // isolation (circuit breaker, rate-limit store, detectProvider routing) and

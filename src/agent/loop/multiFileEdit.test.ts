@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ---------------------------------------------------------------------------
-// Tests for multiFileEdit.ts (v0.65 chunk 4.3a).
+// Tests for multiFileEdit.ts .
 //
 // executeMultiFilePlan walks an EditPlan as a DAG and dispatches each
 // node through executeOneToolUse (mocked here). Tests pin:
@@ -371,7 +371,7 @@ describe('executeMultiFilePlan — abort', () => {
 // fork dispatch. The re-export from this module preserves the import
 // path for any external consumers.
 
-describe('executeMultiFilePlan — onEditPlanProgress events (v0.66 chunk 1, slim 4.4b)', () => {
+describe('executeMultiFilePlan — onEditPlanProgress events ', () => {
   it('emits writing + done transitions for each successful edit', async () => {
     vi.mocked(executeOneToolUse).mockImplementation(async (_ctx, pendingTu) => result(pendingTu.id, 'ok'));
     const pending = [tu('a.ts'), tu('b.ts')];

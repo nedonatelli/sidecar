@@ -19,7 +19,7 @@ import { getRoot } from './shared.js';
 export class ToolRuntime {
   private shell: ShellSession | null = null;
   symbolGraph: SymbolGraph | null = null;
-  /** Project Knowledge Index symbol-embedding store (v0.61 b.3). Wired
+  /** Project Knowledge Index symbol-embedding store. Wired
    *  when `sidecar.projectKnowledge.enabled` is on; null otherwise. */
   symbolEmbeddings: SymbolEmbeddingIndex | null = null;
 
@@ -72,7 +72,7 @@ export function setSymbolGraph(graph: SymbolGraph | null): void {
 
 /**
  * Wire (or unwire) the symbol-embedding index so `project_knowledge_search`
- * has something to query (v0.61 b.3). Passing `null` detaches and makes
+ * has something to query. Passing `null` detaches and makes
  * the tool surface an "index not available" response.
  */
 export function setSymbolEmbeddings(index: SymbolEmbeddingIndex | null): void {

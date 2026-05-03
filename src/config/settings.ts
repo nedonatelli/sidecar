@@ -126,7 +126,7 @@ export interface SideCarConfig {
   fallbackModel: string;
   dailyBudget: number;
   weeklyBudget: number;
-  /* Role-Based Model Routing (v0.64) */
+  /* Role-Based Model Routing */
   modelRoutingEnabled: boolean;
   modelRoutingRules: RoutingRule[];
   /** Fallback when no rule matches. Empty string → use `model`. */
@@ -149,7 +149,7 @@ export interface SideCarConfig {
   /* Agent memory and learning */
   enableAgentMemory: boolean;
   agentMemoryMaxEntries: number;
-  /* Pinned Memory (v0.72) */
+  /* Pinned Memory */
   pinnedMemoryEnabled: boolean;
   pinnedMemoryMaxPins: number;
   pinnedMemoryMaxCharsPerPin: number;
@@ -174,31 +174,29 @@ export interface SideCarConfig {
   delegateTaskMaxIterations: number;
   /* Outbound exfiltration defense */
   outboundAllowlist: string[];
-  /* Terminal-integrated shell execution for run_command (v0.59) */
+  /* Terminal-integrated shell execution */
   terminalExecutionEnabled: boolean;
   terminalExecutionTerminalName: string;
   terminalExecutionFallbackToChildProcess: boolean;
   terminalExecutionShellIntegrationTimeoutMs: number;
-  /* Shadow Workspaces (v0.59) */
+  /* Shadow Workspaces */
   shadowWorkspaceMode: 'off' | 'opt-in' | 'always';
   shadowWorkspaceAutoCleanup: boolean;
   shadowWorkspaceGateCommand: string;
-  /** v0.62.1 p.3 — sweep orphan shadow worktrees left behind by a
-   *  prior VS Code crash at activation. Default `true`. Disable
-   *  when doing crash-recovery forensics on your own shadows. */
+  /** Sweep orphan shadow worktrees left behind by a prior VS Code crash at activation.
+   *  Default `true`. Disable when doing crash-recovery forensics on your own shadows. */
   shadowWorkspaceSweepOnActivation: boolean;
-  /* Audit Mode (v0.60) */
+  /* Audit Mode */
   auditAutoApproveReads: boolean;
   auditBufferGitCommits: boolean;
-  /* Project Knowledge Index (v0.61 b.*) */
+  /* Project Knowledge Index */
   projectKnowledgeEnabled: boolean;
   projectKnowledgeMaxSymbolsPerFile: number;
-  /** Storage backend for the symbol embedding index (v0.62 c.2).
-   *  `flat` is the only implementation shipped today; `lance`
-   *  reserves the name for a future release and returns a clear
-   *  "not yet implemented" warning when selected. */
+  /** Storage backend for the symbol embedding index. `flat` is the only
+   *  implementation shipped today; `lance` reserves the name for a future
+   *  release and returns a clear "not yet implemented" warning when selected. */
   projectKnowledgeBackend: 'flat' | 'lance';
-  /* Skill Sync & Registry (v0.64 chunk 6) */
+  /* Skill Sync & Registry */
   /** Git URL (or absolute local folder) cloned into ~/.sidecar/user-skills/ at activation. Empty → disabled. */
   skillsUserRegistry: string;
   /** Array of git URLs, each cloned into ~/.sidecar/team-skills/<slug>/. Empty → no team registries. */
@@ -210,21 +208,19 @@ export interface SideCarConfig {
   /** Air-gapped mode — when `true`, every registry-sync network call is skipped. Cached skills still load. */
   skillsOffline: boolean;
   /**
-   * Whether the Merkle-addressed fingerprint layer is active
-   * (v0.62 d.2+). When on + `projectKnowledgeEnabled` is also on,
-   * every symbol mutation mirrors into a hash tree + descent-based
-   * query pruning activates. The two are architecturally coupled
-   * per the ROADMAP but kept on separate toggles so a user can
-   * debug retrieval-quality issues by disabling Merkle without
-   * losing the entire PKI.
+   * Whether the Merkle-addressed fingerprint layer is active. When on +
+   * `projectKnowledgeEnabled` is also on, every symbol mutation mirrors into
+   * a hash tree + descent-based query pruning activates. Kept on a separate
+   * toggle so retrieval-quality issues can be debugged by disabling Merkle
+   * without losing the entire PKI.
    */
   merkleIndexEnabled: boolean;
-  /* Diagnostics & Thinking (v0.71) */
+  /* Diagnostics & Thinking */
   diagnosticsReactiveFixEnabled: boolean;
   diagnosticsReactiveFixDebounceMs: number;
   diagnosticsReactiveFixSeverity: 'error' | 'warning';
   thinkingMode: 'single' | 'self-debate' | 'tree-of-thought' | 'red-team';
-  /* Next Edit Suggestions (v0.72) */
+  /* Next Edit Suggestions */
   nextEditEnabled: boolean;
   nextEditDebounceMs: number;
   nextEditMaxHops: number;
@@ -232,48 +228,48 @@ export interface SideCarConfig {
   nextEditCrossFileEnabled: boolean;
   nextEditModel: string;
   nextEditAutoTriggerOnSave: boolean;
-  /* Auto Mode (v0.73) */
+  /* Auto Mode */
   autoModeBacklogPath: string;
   autoModeMaxTasksPerSession: number;
   autoModeMaxRuntimeMinutes: number;
   autoModeHaltOnFailure: boolean;
   autoModeAutoOpenPR: boolean;
   autoModeInterTaskCooldownSeconds: number;
-  /* Literature / PDF retrieval (v0.75) */
+  /* Literature / PDF retrieval */
   literatureEnabled: boolean;
-  /* Zotero bridge (v0.75) */
+  /* Zotero bridge */
   zoteroUserId: string;
   zoteroApiKey: string;
   zoteroBaseUrl: string;
-  /* Database integration (v0.76) */
+  /* Database integration */
   databaseProfiles: import('../db/provider.js').ConnectionProfile[];
   databaseQueryTimeoutMs: number;
   databaseQueryRowLimit: number;
-  /* Visual verification (v0.77) */
+  /* Visual verification */
   visualVerifyEnabled: boolean;
   visualVerifyVlm: string;
   visualVerifyScreenshotsDir: string;
   visualVerifyMaxAttempts: number;
   visualVerifyMode: 'strict' | 'warn' | 'advisory';
   visualVerifyCheapChecksOnly: boolean;
-  /* Doc-to-Test Synthesis Loop (v0.79) */
+  /* Doc-to-Test Synthesis Loop */
   docTestsEnabled: boolean;
   docTestsOutputDir: string;
   docTestsFloatTolerance: number;
   docTestsExtractionModel: string;
   docTestsRequireConstraintApproval: boolean;
-  /* Adaptive Paste (v0.72) */
+  /* Adaptive Paste */
   adaptivePasteEnabled: boolean;
   adaptivePasteMinPasteLength: number;
   adaptivePasteModel: string;
   adaptivePasteAutoDetect: boolean;
-  /* Notebook Mode — Source-Grounded Research (v0.82) */
+  /* Notebook Mode — Source-Grounded Research */
   notebookModeEnabled: boolean;
   notebookModeRequireCitations: 'strict' | 'advisory' | 'off';
   notebookModeWebUrlEnabled: boolean;
   notebookModeSlidesEnabled: boolean;
   notebookModeStudyAidsEnabled: boolean;
-  /* API call audit log (v0.81) */
+  /* API call audit log */
   verboseLogs: boolean;
 }
 
@@ -390,15 +386,12 @@ function readConfig(): SideCarConfig {
     forkMaxConcurrent: clampMin(cfg.get<number>('fork.maxConcurrent', 3), 1, 10),
     kickstandNCtx: clampMin(cfg.get<number>('kickstand.nCtx', 32768), 512, 1_000_000),
     criticEnabled: cfg.get<boolean>('critic.enabled', false),
-    // v0.62.1 p.1a: provider-aware default. An empty `critic.model`
-    // historically meant "use the main model," which doubled per-
-    // iteration cost on paid Anthropic backends. If the main model
-    // is Sonnet/Opus and the user hasn't explicitly set a critic
-    // model, we substitute Haiku (~12× cheaper per token) — same
-    // pattern used for the main-model switch-provider fallback above.
-    // Ollama / OpenAI / etc. keep the legacy "empty → main model"
-    // behavior because we don't have a provider-specific cheap model
-    // to substitute.
+    // Provider-aware default: an empty `critic.model` historically meant
+    // "use the main model," which doubled per-iteration cost on paid Anthropic
+    // backends. If the main model is Sonnet/Opus and the user hasn't explicitly
+    // set a critic model, substitute Haiku (~12× cheaper per token). Ollama /
+    // OpenAI / etc. keep the legacy "empty → main model" behavior since we
+    // don't have a provider-specific cheap model to substitute.
     criticModel:
       cfg.get<string>('critic.model', '') ||
       (detectProvider(rawBaseUrl, rawProvider) === 'anthropic' && model !== ANTHROPIC_DEFAULT_MODEL
@@ -411,7 +404,7 @@ function readConfig(): SideCarConfig {
     fallbackModel: cfg.get<string>('fallbackModel', ''),
     dailyBudget: clampMin(cfg.get<number>('dailyBudget'), 0, 0),
     weeklyBudget: clampMin(cfg.get<number>('weeklyBudget'), 0, 0),
-    /* Role-Based Model Routing (v0.64) — opt-in until users have calibrated rules. */
+    /* Role-Based Model Routing */
     modelRoutingEnabled: cfg.get<boolean>('modelRouting.enabled', false),
     modelRoutingRules: cfg.get<RoutingRule[]>('modelRouting.rules', []),
     modelRoutingDefaultModel: cfg.get<string>('modelRouting.defaultModel', ''),
@@ -431,7 +424,7 @@ function readConfig(): SideCarConfig {
     /* Agent memory and learning */
     enableAgentMemory: cfg.get<boolean>('enableAgentMemory', true),
     agentMemoryMaxEntries: clampMin(cfg.get<number>('agentMemoryMaxEntries'), 10, 500),
-    /* Pinned Memory (v0.72) */
+    /* Pinned Memory */
     pinnedMemoryEnabled: cfg.get<boolean>('pinnedMemory.enabled', true),
     pinnedMemoryMaxPins: clampMin(cfg.get<number>('pinnedMemory.maxPins'), 1, 50),
     pinnedMemoryMaxCharsPerPin: clampMin(cfg.get<number>('pinnedMemory.maxCharsPerPin'), 500, 5000),
@@ -449,7 +442,7 @@ function readConfig(): SideCarConfig {
     delegateTaskMaxIterations: clampMin(cfg.get<number>('delegateTask.maxIterations'), 1, 10),
     /* Outbound exfiltration defense */
     outboundAllowlist: cfg.get<string[]>('outboundAllowlist', []),
-    /* Terminal-integrated shell execution (v0.59) */
+    /* Terminal-integrated shell execution */
     terminalExecutionEnabled: cfg.get<boolean>('terminalExecution.enabled', true),
     terminalExecutionTerminalName: cfg.get<string>('terminalExecution.terminalName', 'SideCar Agent'),
     terminalExecutionFallbackToChildProcess: cfg.get<boolean>('terminalExecution.fallbackToChildProcess', true),
@@ -458,69 +451,66 @@ function readConfig(): SideCarConfig {
       100,
       2000,
     ),
-    /* Shadow Workspaces (v0.59) */
+    /* Shadow Workspaces */
     shadowWorkspaceMode: cfg.get<'off' | 'opt-in' | 'always'>('shadowWorkspace.mode', 'off'),
     shadowWorkspaceAutoCleanup: cfg.get<boolean>('shadowWorkspace.autoCleanup', true),
     shadowWorkspaceGateCommand: cfg.get<string>('shadowWorkspace.gateCommand', 'npm run check'),
     shadowWorkspaceSweepOnActivation: cfg.get<boolean>('shadowWorkspace.sweepStaleOnActivation', true),
-    /* Audit Mode (v0.60) */
+    /* Audit Mode */
     auditAutoApproveReads: cfg.get<boolean>('audit.autoApproveReads', true),
     auditBufferGitCommits: cfg.get<boolean>('audit.bufferGitCommits', true),
-    /* Project Knowledge Index (v0.61 b.*). Defaults to `false` during
-     * the MVP build-out — flips to `true` once the feature ships
-     * end-to-end (b.1–b.4). Users can opt-in early to exercise the
-     * symbol-level index. */
+    /* Project Knowledge Index */
     projectKnowledgeEnabled: cfg.get<boolean>('projectKnowledge.enabled', true),
     projectKnowledgeMaxSymbolsPerFile: cfg.get<number>('projectKnowledge.maxSymbolsPerFile', 500),
     projectKnowledgeBackend: cfg.get<'flat' | 'lance'>('projectKnowledge.backend', 'flat'),
     merkleIndexEnabled: cfg.get<boolean>('merkleIndex.enabled', true),
-    /* Skill Sync & Registry (v0.64 chunk 6) */
+    /* Skill Sync & Registry */
     skillsUserRegistry: cfg.get<string>('skills.userRegistry', ''),
     skillsTeamRegistries: cfg.get<string[]>('skills.teamRegistries', []),
     skillsAutoPull: cfg.get<'on-start' | 'manual'>('skills.autoPull', 'on-start'),
     skillsTrustedRegistries: cfg.get<string[]>('skills.trustedRegistries', []),
     skillsOffline: cfg.get<boolean>('skills.offline', false),
-    /* Diagnostics & Thinking (v0.71) */
+    /* Diagnostics & Thinking */
     diagnosticsReactiveFixEnabled: cfg.get<boolean>('diagnostics.reactiveFixEnabled', false),
     diagnosticsReactiveFixDebounceMs: cfg.get<number>('diagnostics.reactiveFixDebounceMs', 2000),
     diagnosticsReactiveFixSeverity: cfg.get<'error' | 'warning'>('diagnostics.reactiveFixSeverity', 'error'),
     thinkingMode: cfg.get<'single' | 'self-debate' | 'tree-of-thought' | 'red-team'>('thinking.mode', 'single'),
-    /* Auto Mode (v0.73) */
+    /* Auto Mode */
     autoModeBacklogPath: cfg.get<string>('autoMode.backlogPath', '.sidecar/backlog.md'),
     autoModeMaxTasksPerSession: clampMin(cfg.get<number>('autoMode.maxTasksPerSession'), 1, 10),
     autoModeMaxRuntimeMinutes: clampMin(cfg.get<number>('autoMode.maxRuntimeMinutes'), 1, 240),
     autoModeHaltOnFailure: cfg.get<boolean>('autoMode.haltOnFailure', false),
     autoModeAutoOpenPR: cfg.get<boolean>('autoMode.autoOpenPR', true),
     autoModeInterTaskCooldownSeconds: clampMin(cfg.get<number>('autoMode.interTaskCooldownSeconds'), 0, 30),
-    /* Literature / PDF retrieval (v0.75) */
+    /* Literature / PDF retrieval */
     literatureEnabled: cfg.get<boolean>('literature.enabled', false),
-    /* Zotero bridge (v0.75) */
+    /* Zotero bridge */
     zoteroUserId: cfg.get<string>('zotero.userId', ''),
     zoteroApiKey: cfg.get<string>('zotero.apiKey', ''),
     zoteroBaseUrl: cfg.get<string>('zotero.baseUrl', 'https://api.zotero.org'),
-    /* Database integration (v0.76) */
+    /* Database integration */
     databaseProfiles: cfg.get<import('../db/provider.js').ConnectionProfile[]>('databases.profiles', []),
     databaseQueryTimeoutMs: clampMin(cfg.get<number>('databases.queryTimeoutMs'), 1000, 30000),
     databaseQueryRowLimit: clampMin(cfg.get<number>('databases.queryRowLimit'), 1, 10000),
-    /* Visual verification (v0.77) */
+    /* Visual verification */
     visualVerifyEnabled: cfg.get<boolean>('visualVerify.enabled', false),
     visualVerifyVlm: cfg.get<string>('visualVerify.vlm', ''),
     visualVerifyScreenshotsDir: cfg.get<string>('visualVerify.screenshotsDir', '.sidecar/screenshots'),
     visualVerifyMaxAttempts: clampMin(cfg.get<number>('visualVerify.maxAttempts'), 1, 3),
     visualVerifyMode: cfg.get<'strict' | 'warn' | 'advisory'>('visualVerify.mode', 'warn'),
     visualVerifyCheapChecksOnly: cfg.get<boolean>('visualVerify.cheapChecksOnly', false),
-    /* Doc-to-Test Synthesis Loop (v0.79) */
+    /* Doc-to-Test Synthesis Loop */
     docTestsEnabled: cfg.get<boolean>('docTests.enabled', true),
     docTestsOutputDir: cfg.get<string>('docTests.outputDir', 'tests/from_docs'),
     docTestsFloatTolerance: cfg.get<number>('docTests.floatTolerance', 1e-9),
     docTestsExtractionModel: cfg.get<string>('docTests.extractionModel', ''),
     docTestsRequireConstraintApproval: cfg.get<boolean>('docTests.requireConstraintApproval', true),
-    /* Adaptive Paste (v0.72) */
+    /* Adaptive Paste */
     adaptivePasteEnabled: cfg.get<boolean>('adaptivePaste.enabled', true),
     adaptivePasteMinPasteLength: clampMin(cfg.get<number>('adaptivePaste.minPasteLength'), 20, 50),
     adaptivePasteModel: cfg.get<string>('adaptivePaste.model', ''),
     adaptivePasteAutoDetect: cfg.get<boolean>('adaptivePaste.autoDetect', true),
-    /* Next Edit Suggestions (v0.72) */
+    /* Next Edit Suggestions */
     nextEditEnabled: cfg.get<boolean>('nextEdit.enabled', false),
     nextEditDebounceMs: clampMin(cfg.get<number>('nextEdit.debounceMs'), 100, 600),
     nextEditMaxHops: clampMin(cfg.get<number>('nextEdit.maxHops'), 1, 2),
@@ -528,7 +518,7 @@ function readConfig(): SideCarConfig {
     nextEditCrossFileEnabled: cfg.get<boolean>('nextEdit.crossFileEnabled', true),
     nextEditModel: cfg.get<string>('nextEdit.model', ''),
     nextEditAutoTriggerOnSave: cfg.get<boolean>('nextEdit.autoTriggerOnSave', false),
-    /* Notebook Mode — Source-Grounded Research (v0.82) */
+    /* Notebook Mode — Source-Grounded Research */
     notebookModeEnabled: cfg.get<boolean>('notebookMode.enabled', false),
     notebookModeRequireCitations: cfg.get<'strict' | 'advisory' | 'off'>('notebookMode.requireCitations', 'strict'),
     notebookModeWebUrlEnabled: cfg.get<boolean>('notebookMode.sources.webUrl', true),

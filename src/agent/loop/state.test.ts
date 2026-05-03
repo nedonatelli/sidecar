@@ -4,7 +4,7 @@ import type { AgentOptions } from '../loop.js';
 import type { ChatMessage } from '../../ollama/types.js';
 
 // ---------------------------------------------------------------------------
-// Tests for state.ts (v0.65 chunk 2b — loop helper hardening).
+// Tests for state.ts (loop helper hardening).
 //
 // `initLoopState` is a pure struct initializer: copies messages, seeds
 // the char counter from existing content, applies option defaults for

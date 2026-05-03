@@ -1,5 +1,5 @@
 /**
- * SDK registries (v0.74).
+ * SDK registries.
  *
  * Process-wide singletons that accumulate tools and hooks registered by
  * third-party extensions via `SideCarSdkApi`. The agent loop and tool

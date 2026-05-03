@@ -1,7 +1,7 @@
 import { FacetValidationError, builtInFacets, type FacetDefinition } from './facetLoader.js';
 
 // ---------------------------------------------------------------------------
-// FacetRegistry (v0.66 chunk 3.2).
+// FacetRegistry.
 //
 // Holds the live set of loaded facet definitions and runs cross-facet
 // validation (duplicate IDs, dependency-graph cycles). The loader
@@ -34,7 +34,7 @@ export interface FacetRegistry {
  *   2. Unknown-dependency rejection (a facet that depends on `foo`
  *      when no facet with `id === 'foo'` is registered).
  *   3. Cycle rejection via DFS 3-coloring, matching the same contract
- *      the EditPlan validator uses (v0.65 chunk 4.1).
+ *      the EditPlan validator uses.
  *
  * Any failure throws a `FacetValidationError` — callers surface the
  * message in the Expert Panel error strip so authors can fix the

@@ -11,7 +11,7 @@ import {
 import type { EvalHit } from './harness.js';
 
 /**
- * Unit tests for RAG-eval metric functions (v0.62 e.2). The tests
+ * Unit tests for RAG-eval metric functions. The tests
  * below hand-build `EvalHit[]` fixtures to exercise each metric
  * independently of the retrieval pipeline — this keeps metric bugs
  * from being confounded with retrieval bugs when a regression

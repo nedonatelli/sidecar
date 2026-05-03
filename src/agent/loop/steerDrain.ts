@@ -4,7 +4,7 @@ import type { LoopState } from './state.js';
 import { getContentLength } from '../../ollama/types.js';
 
 // ---------------------------------------------------------------------------
-// Steer-queue drain at iteration boundary (v0.65 chunk 3.2).
+// Steer-queue drain at iteration boundary.
 //
 // Called from the top of each agent-loop iteration. Two responsibilities:
 //

@@ -30,7 +30,7 @@ interface PasteRecord {
 }
 
 /**
- * Adaptive Paste (v0.72 Chunk 4).
+ * Adaptive Paste .
  *
  * Two parts:
  *

@@ -88,7 +88,7 @@ export interface SymbolMetadata {
    *  workspace re-scan cost near-zero when nothing actually changed. */
   hash: string;
   /**
-   * Merkle leaf content hash (v0.62 d.2). SHA-256 over the canonical
+   * Merkle leaf content hash. SHA-256 over the canonical
    * `filePath|qualifiedName|kind|startLine-endLine|body` string —
    * changes iff any of those fields change. Persisted alongside the
    * embedding so the Merkle tree can be replayed on activation
@@ -111,7 +111,7 @@ export class SymbolEmbeddingIndex implements Disposable {
   private ready = false;
 
   /**
-   * Pluggable storage backend (v0.62 c.2). Default: the flat in-
+   * Pluggable storage backend. Default: the flat in-
    * memory cosine-scan store. A constructor overload lets tests or
    * a future Lance wiring inject a different `VectorStore<SymbolMetadata>`
    * without touching this class's public API.
@@ -137,7 +137,7 @@ export class SymbolEmbeddingIndex implements Disposable {
   private static readonly PERSIST_DEBOUNCE_MS = 30_000;
 
   /**
-   * Pending-embed queue (v0.61 b.2). `queueSymbol` adds to it;
+   * Pending-embed queue. `queueSymbol` adds to it;
    * `flushQueue` drains in batches so a workspace-scan doesn't
    * serialize on one embed at a time. Keyed by `symbolId` so the
    * most-recent input wins when a file is updated twice in quick
@@ -148,7 +148,7 @@ export class SymbolEmbeddingIndex implements Disposable {
   private static readonly FLUSH_DEBOUNCE_MS = 500;
   private static readonly FLUSH_BATCH_SIZE = 20;
   /**
-   * Max concurrent `indexSymbol` calls within a batch (v0.62.1 p.4).
+   * Max concurrent `indexSymbol` calls within a batch.
    * The embedding pipeline dominates the per-symbol cost (~20–30 ms
    * per call); store mutations are microseconds. Four-way concurrency
    * is the sweet spot: it cuts a 500-symbol batch from ~12s serial
@@ -221,7 +221,7 @@ export class SymbolEmbeddingIndex implements Disposable {
 
   /**
    * Attach (or detach) a Merkle tree so every index mutation is
-   * mirrored into the tree (v0.62 d.2). On attach, this also replays
+   * mirrored into the tree. On attach, this also replays
    * every currently-stored entry into the tree so the root hash +
    * file-node aggregates reflect the persisted state immediately —
    * otherwise the tree would be empty until the workspace re-scans
@@ -267,7 +267,7 @@ export class SymbolEmbeddingIndex implements Disposable {
       // The sidecarDir path still belongs to the caller's world; the
       // store encapsulates vector storage only.
       env.allowRemoteModels = true;
-      // v0.65 — @huggingface/transformers@4 replaced the boolean `quantized`
+      // @huggingface/transformers@4 replaced the boolean `quantized`
       // flag with an explicit `dtype` enum. Pin `q8` so the same 8-bit
       // quantized ONNX weights load as under v2's `quantized: true`;
       // without this, v4 silently falls back to fp32 and the embeddings
@@ -391,7 +391,7 @@ export class SymbolEmbeddingIndex implements Disposable {
   }
 
   /**
-   * Queue a symbol for embedding (v0.61 b.2). Debounced batch drain
+   * Queue a symbol for embedding. Debounced batch drain
    * means a whole-workspace scan queues thousands of symbols upfront
    * without awaiting each embed inline. Re-queueing the same symbol
    * with new body overwrites the pending entry — the most-recent
@@ -422,7 +422,7 @@ export class SymbolEmbeddingIndex implements Disposable {
     const batch = Array.from(this.pendingQueue.entries()).slice(0, SymbolEmbeddingIndex.FLUSH_BATCH_SIZE);
     for (const [id] of batch) this.pendingQueue.delete(id);
 
-    // v0.62.1 p.4 — run up to FLUSH_CONCURRENCY embeds in parallel.
+    // run up to FLUSH_CONCURRENCY embeds in parallel.
     // Each `indexSymbol` awaits the slow embed then performs its
     // store.upsert synchronously (no awaits inside upsert), so the
     // mutations serialize on the event loop and we can't clobber a

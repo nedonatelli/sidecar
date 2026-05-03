@@ -102,7 +102,7 @@ export class EmbeddingIndex implements Disposable {
       // Allow downloading models from HuggingFace Hub
       env.allowRemoteModels = true;
 
-      // v0.65 — @huggingface/transformers@4 replaced the boolean `quantized`
+      // @huggingface/transformers@4 replaced the boolean `quantized`
       // flag with an explicit `dtype` enum. Pin `q8` so the same 8-bit
       // quantized ONNX weights load as under v2's `quantized: true`;
       // without this, v4 silently falls back to fp32 and the embeddings

@@ -35,7 +35,7 @@ export class SemanticRetriever implements Retriever {
     private maxCharsPerFile: number = DEFAULT_MAX_CHARS_PER_FILE,
     private maxCharsPerSymbol: number = DEFAULT_MAX_CHARS_PER_SYMBOL,
     /**
-     * Graph-walk expansion options (v0.65 chunk 5.5). When set AND the
+     * Graph-walk expansion options. When set AND the
      * workspace index exposes a symbol graph AND `maxDepth > 0`, every
      * symbol-level vector hit is expanded outward by BFS over
      * `calls` edges. Surfaces dependency-coupled symbols that wouldn't
@@ -77,7 +77,7 @@ export class SemanticRetriever implements Retriever {
 
     const directResults: SymbolSearchResult[] = await symEmb.search(query, k);
 
-    // Graph-walk expansion (v0.65 chunk 5.5). Runs only when the
+    // Graph-walk expansion. Runs only when the
     // retriever was constructed with a non-zero-depth budget AND the
     // workspace index exposes a symbol graph. Each direct hit's
     // callers (up to maxDepth hops) surface as additional enriched

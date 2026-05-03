@@ -1,7 +1,7 @@
 import type { ChatMessage } from '../ollama/types.js';
 
 // ---------------------------------------------------------------------------
-// SteerQueue — Human-in-the-Loop steer buffering (v0.65 chunk 3.1).
+// SteerQueue — Human-in-the-Loop steer buffering.
 //
 // Users type follow-up instructions while the agent is deep in a long
 // tool call. Those submissions can't race the live stream — they have

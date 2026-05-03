@@ -146,7 +146,7 @@ describe('streamOpenAiSse', () => {
     }).rejects.toThrow('empty response body');
   });
 
-  // v0.62.3 — mid-stream connection death. The existing suite covers
+  // mid-stream connection death. The existing suite covers
   // initial-fetch failures via retry.test.ts, but not a stream that
   // starts fine, yields some frames, then the TCP connection dies
   // before `data: [DONE]`. Ollama process crashes, laptop drops from

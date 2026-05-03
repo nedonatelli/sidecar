@@ -333,7 +333,7 @@ describe('buildCriticInjection', () => {
   });
 });
 
-// v0.62.4 — adversarial-injection defense on the critic. The diff
+// adversarial-injection defense on the critic. The diff
 // content fed to the critic is authored by the main agent (which
 // may itself have been prompt-injected upstream via a malicious
 // file read) or by test output (arbitrary text from the test
@@ -344,7 +344,7 @@ describe('buildCriticInjection', () => {
 // diff + intent + test output in distinct XML tags so the critic
 // can see the boundary between "your instructions" and "stuff to
 // review."
-describe('CRITIC_SYSTEM_PROMPT injection defense (v0.62.4)', () => {
+describe('CRITIC_SYSTEM_PROMPT injection defense', () => {
   it('explicitly instructs treatment of user-turn content as untrusted data', () => {
     expect(CRITIC_SYSTEM_PROMPT).toContain('untrusted data');
   });
@@ -365,7 +365,7 @@ describe('CRITIC_SYSTEM_PROMPT injection defense (v0.62.4)', () => {
   });
 });
 
-describe('buildEditCriticPrompt injection defense (v0.62.4)', () => {
+describe('buildEditCriticPrompt injection defense', () => {
   it('wraps the diff in <diff> tags so the critic can see the boundary', () => {
     const prompt = buildEditCriticPrompt({
       kind: 'edit',
@@ -432,7 +432,7 @@ describe('buildEditCriticPrompt injection defense (v0.62.4)', () => {
   });
 });
 
-describe('buildTestFailureCriticPrompt injection defense (v0.62.4)', () => {
+describe('buildTestFailureCriticPrompt injection defense', () => {
   it('wraps test output in <test_output> tags', () => {
     const prompt = buildTestFailureCriticPrompt({
       kind: 'test_failure',

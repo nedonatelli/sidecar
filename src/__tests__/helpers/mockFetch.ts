@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// `vi.stubGlobal('fetch', ...)` helper (v0.65 — shared test-helper module).
+// `vi.stubGlobal('fetch', ...)` helper.
 //
 // Most backend + tool tests need the same three-line boilerplate to
 // intercept global `fetch`:

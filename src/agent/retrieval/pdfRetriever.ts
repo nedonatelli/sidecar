@@ -1,5 +1,5 @@
 /**
- * PdfRetriever (v0.75).
+ * PdfRetriever.
  *
  * Keyword/TF-IDF retriever over the on-disk literature index produced by
  * `index_pdf`. Reads every `*.json` file under `.sidecar/literature/`, scores

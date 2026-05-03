@@ -1,5 +1,5 @@
 /**
- * Database tools (v0.76 Tier 1 + v0.80 Tier 2).
+ * Database tools .
  *
  * Tier 1 (read-only):
  *   db_list_connections  — list all configured DB profiles and their status.

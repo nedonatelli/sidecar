@@ -235,7 +235,7 @@ describe('AuditBuffer', () => {
     });
   });
 
-  describe('queueCommit + flush (v0.61 a.4)', () => {
+  describe('queueCommit + flush ', () => {
     it('queues commits in FIFO order and lists them', async () => {
       await buf.queueCommit('feat: a', 'X-AI-Model: foo');
       await buf.queueCommit('fix: b');
@@ -312,7 +312,7 @@ describe('AuditBuffer', () => {
       expect(executeCommit).toHaveBeenCalledTimes(1);
     });
 
-    it('does not run commits when executeCommit is not provided (v0.60 compatibility path)', async () => {
+    it('does not run commits when executeCommit is not provided ', async () => {
       await buf.write('a.ts', 'A', readDisk);
       await buf.queueCommit('feat: a');
 
@@ -356,7 +356,7 @@ describe('AuditBuffer', () => {
     });
   });
 
-  // v0.62.3 — concurrent buffer operations. Two tool executions can
+  // concurrent buffer operations. Two tool executions can
   // land on the same singleton buffer in quick succession (both agents
   // in background mode targeting the same workspace, or even one agent
   // issuing parallel tool calls). The buffer's internal Map is

@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// CI Failure log parsing (v0.68 chunk 4).
+// CI Failure log parsing.
 //
 // Pure primitive — no network, no VS Code. GitHub Actions raw logs are
 // huge: timestamped line prefixes, nested `##[group]...##[endgroup]`

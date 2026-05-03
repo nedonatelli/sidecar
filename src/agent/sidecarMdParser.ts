@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// SIDECAR.md parser + path-scoped section selector (v0.67 chunk 1).
+// SIDECAR.md parser + path-scoped section selector.
 //
 // The pre-v0.67 injection path at systemPrompt.ts dumped the entire
 // SIDECAR.md body into every turn's system prompt and mid-chopped on
@@ -24,7 +24,7 @@
 //
 // The parser is a pure primitive (no VS Code imports) so it's trivial
 // to test and reusable by the future retrieval-mode successor
-// (v0.70+) that embeds chunks for semantic scoring.
+//  that embeds chunks for semantic scoring.
 // ---------------------------------------------------------------------------
 
 export type SectionPriority = 'always' | 'scoped' | 'low';

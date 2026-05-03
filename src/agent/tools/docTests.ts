@@ -1,5 +1,5 @@
 /**
- * Doc-to-Test Synthesis Loop (v0.79) — extract structured constraints from
+ * Doc-to-Test Synthesis Loop — extract structured constraints from
  * reference documents and synthesize pytest test stubs from them.
  *
  * extract_constraints    — parse a doc (md/tex/rst/pdf/text) → typed Constraint[]

@@ -257,7 +257,7 @@ export interface ExtensionMessage {
   bgRunId?: string;
   /**
    * Steer count carried on `resumeAvailable` so the persistent resume
-   * strip (v0.65 chunk 7b) can show "(+N queued steers)" and the user
+   * strip  can show "(+N queued steers)" and the user
    * knows their queued intent will ride along on resume.
    */
   steerCount?: number;
@@ -275,7 +275,7 @@ export interface ExtensionMessage {
    */
   steerEnabled?: boolean;
   /**
-   * Planned Edits card payload (v0.65 chunk 4.4a). Fires once per
+   * Planned Edits card payload . Fires once per
    * eligible multi-file turn, before the plan executes, so the user
    * sees the declared scope + dependency DAG before writes land. The
    * card is informational — to amend the plan, the user queues a steer
@@ -294,7 +294,7 @@ export interface ExtensionMessage {
     status: 'pending' | 'writing' | 'done' | 'failed' | 'aborted';
     errorMessage?: string;
   };
-  /** Auto Mode task progress (v0.73.1). Fires on each task state change. */
+  /** Auto Mode task progress. Fires on each task state change. */
   autoModeTask?: {
     taskN: number;
     total: number;
@@ -302,7 +302,7 @@ export interface ExtensionMessage {
     status: 'running' | 'done' | 'error';
     errorMessage?: string;
   };
-  /** Auto Mode session result (v0.73.1). Fires when the session ends. */
+  /** Auto Mode session result. Fires when the session ends. */
   autoModeResult?: {
     stoppedReason: string;
     tasksSucceeded: number;

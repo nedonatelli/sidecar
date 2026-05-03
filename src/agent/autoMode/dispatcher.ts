@@ -39,7 +39,7 @@ export interface AutoModeOptions {
 }
 
 /**
- * Auto Mode dispatcher (v0.73.0 core loop).
+ * Auto Mode dispatcher .
  *
  * Reads the backlog file at `options.backlogPath`, picks unchecked items
  * in order, runs each through `runAgentLoopInSandbox` with autonomous

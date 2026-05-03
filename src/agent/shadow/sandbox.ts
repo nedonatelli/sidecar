@@ -21,7 +21,7 @@ export interface SandboxResult {
   /** On shadow failure / rejection, the unified diff that was almost-applied. Useful for logging and debug surfaces. */
   rejectedDiff?: string;
   /**
-   * When the caller passed `deferPrompt: true` (v0.66 chunk 3.6), the
+   * When the caller passed `deferPrompt: true`, the
    * sandbox captures the diff here instead of prompting. The shadow
    * worktree itself is still disposed after capture; the caller is
    * expected to `git apply` the saved patch later during an aggregated
@@ -102,7 +102,7 @@ export async function runAgentLoopInSandbox(
       return { mode: 'shadow', applied: false, reason: 'empty-diff', shadowId: shadow.id };
     }
 
-    // v0.66 chunk 3.6 — deferred prompts for multi-facet batches. Capture
+    // deferred prompts for multi-facet batches. Capture
     // the diff so a later aggregated review flow can apply it via
     // `git apply` onto main; skip the per-run quickpick entirely. The
     // shadow is still disposed in `finally` (the patch string is what

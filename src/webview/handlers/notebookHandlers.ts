@@ -1,5 +1,5 @@
 /**
- * Notebook Mode handlers (v0.82).
+ * Notebook Mode handlers.
  *
  * Manages the /notebook slash command lifecycle:
  *   - Activates source-grounded research mode on the chat state

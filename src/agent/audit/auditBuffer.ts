@@ -37,7 +37,7 @@ export interface BufferedChange {
 
 /**
  * A git commit the agent tried to create while audit mode was active
- * with `sidecar.audit.bufferGitCommits` on (v0.61 a.4). The commit
+ * with `sidecar.audit.bufferGitCommits` on . The commit
  * body is queued here and executed as part of the same flush that
  * lands the buffered file changes — so the user sees one atomic
  * "accept everything" boundary rather than having a commit land mid-
@@ -71,7 +71,7 @@ export type ExecuteCommitFn = (
 ) => Promise<string>;
 
 /**
- * Optional persistence layer (v0.61 a.3). When set, the buffer
+ * Optional persistence layer . When set, the buffer
  * serializes its state to durable storage after every mutation and
  * restores from it on next activation. Persistence is best-effort
  * — a failing `save()` logs a warning but never fails the mutation
@@ -129,7 +129,7 @@ export class AuditBuffer {
   private flushChain: Promise<void> = Promise.resolve();
 
   /**
-   * Wire a persistence layer (v0.61 a.3). Optional — a buffer without
+   * Wire a persistence layer . Optional — a buffer without
    * persistence behaves exactly like v0.60. Setter (not constructor
    * arg) so the extension can initialize the buffer lazily on first
    * agent run without forcing activation-time `.sidecar/` setup for
@@ -140,7 +140,7 @@ export class AuditBuffer {
   }
 
   /**
-   * Restore state from a previously-persisted snapshot (v0.61 a.3).
+   * Restore state from a previously-persisted snapshot .
    * Intended for one-time use at activation — subsequent writes go
    * through `write()` / `deleteFile()` / `queueCommit()`. Replaces
    * any in-memory state. Accepts either the v0.61 `PersistedBufferSnapshot`
@@ -182,7 +182,7 @@ export class AuditBuffer {
   }
 
   /**
-   * Queue a git commit (v0.61 a.4). Called by the `git_commit` tool
+   * Queue a git commit . Called by the `git_commit` tool
    * when audit mode is active with `sidecar.audit.bufferGitCommits`
    * on. The commit executes as part of the same flush that lands the
    * buffered file writes, so the user sees one atomic accept boundary.
@@ -384,7 +384,7 @@ export class AuditBuffer {
     }
 
     // Queued commits execute ONLY when the buffer is fully empty
-    // after this flush (v0.61 a.4). A subset flush leaves commits
+    // after this flush . A subset flush leaves commits
     // queued because the agent's commit presumably covers files
     // still waiting for review — running it early would leave half
     // the changes out of the tree. On commit failure, the file

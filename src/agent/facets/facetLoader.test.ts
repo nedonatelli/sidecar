@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { parseFacetFile, builtInFacets, indexFacets, facetSlugFromPath, FacetValidationError } from './facetLoader.js';
 
 // ---------------------------------------------------------------------------
-// Tests for facetLoader.ts (v0.66 chunk 3.1).
+// Tests for facetLoader.ts.
 //
 // parseFacetFile is the per-file structural check. The registry (3.2)
 // handles cross-facet invariants (duplicate id, cycles). These tests

@@ -51,7 +51,7 @@ const MAX_CRITIC_INJECTIONS_PER_FILE = 2;
 
 /**
  * Cap on how many times the critic can block on a given test-output
- * signature within a single run (v0.63.0). Pre-cap, `test_failure`
+ * signature within a single run. Pre-cap, `test_failure`
  * triggers were completely unbounded — a gate-forced test run that
  * kept failing could fire the critic every iteration until the outer
  * `maxIterations` cap tripped, burning ~$1-2 of critic API spend on
@@ -162,7 +162,7 @@ export interface RunCriticOptions {
   signal: AbortSignal;
   criticInjectionsByFile: Map<string, number>;
   /**
-   * Per-test-output-hash cap counter (v0.63.0). Bounds the
+   * Per-test-output-hash cap counter. Bounds the
    * previously-unbounded `test_failure` trigger path. Shared across
    * triggers in a single run so the same failing test-output
    * signature can't re-block the critic indefinitely. Optional so
@@ -261,7 +261,7 @@ export async function runCriticChecks(opts: RunCriticOptions): Promise<string | 
       }
     }
 
-    // Per-test-output-hash cap (v0.63.0). Bounds the previously
+    // Per-test-output-hash cap. Bounds the previously
     // unbounded test_failure trigger. The hash is computed on
     // normalized output so cosmetic re-runs (same failure,
     // different timestamps) collapse to the same bucket.
@@ -281,7 +281,7 @@ export async function runCriticChecks(opts: RunCriticOptions): Promise<string | 
         trigger.kind === 'edit' ? buildEditCriticPrompt(trigger) : buildTestFailureCriticPrompt(trigger);
       _criticStats.totalCalls += 1;
 
-      // Role-Based Model Routing (v0.64 phase 4b.3). When a router is
+      // Role-Based Model Routing . When a router is
       // attached, a matching `critic` rule wins over the legacy
       // `sidecar.critic.model` override (phase 4e will auto-synthesize
       // rules from that legacy field). When no router is attached the
@@ -321,7 +321,7 @@ export async function runCriticChecks(opts: RunCriticOptions): Promise<string | 
     if (config.criticBlockOnHighSeverity && high.length > 0) {
       highFindings.push(...high);
       if (trigger.kind === 'edit') blockedFiles.add(trigger.filePath);
-      // v0.63.0 — increment the per-test-hash cap counter here so
+      // increment the per-test-hash cap counter here so
       // the next iteration that produces the same hash gets skipped.
       // The counter lives with the shared LoopState map so it
       // persists across iterations in the same run.

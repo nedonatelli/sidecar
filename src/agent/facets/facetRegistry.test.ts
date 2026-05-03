@@ -3,7 +3,7 @@ import { buildFacetRegistry, buildDefaultFacetRegistry, mergeWithBuiltInFacets }
 import { builtInFacets, FacetValidationError, type FacetDefinition } from './facetLoader.js';
 
 // ---------------------------------------------------------------------------
-// Tests for facetRegistry.ts (v0.66 chunk 3.2).
+// Tests for facetRegistry.ts.
 //
 // The registry layer runs the cross-facet invariants the loader can't
 // see (only the loader knows about one file at a time). Coverage:

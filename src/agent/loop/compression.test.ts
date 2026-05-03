@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ---------------------------------------------------------------------------
-// Tests for compression.ts (v0.65 chunk 2b — loop helper hardening).
+// Tests for compression.ts (loop helper hardening).
 //
 // Three exports:
 //   - compressMessages — truncates oversize tool_result bodies + drops

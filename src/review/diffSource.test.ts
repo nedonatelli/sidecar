@@ -6,7 +6,7 @@ import { exec } from 'child_process';
 import { fetchWorkingTreeDiff, fetchBranchRangeDiff } from './diffSource.js';
 
 // ---------------------------------------------------------------------------
-// Tests for diffSource.ts (v0.68 chunk 1).
+// Tests for diffSource.ts.
 //
 // Pure git-wrapper primitive. Tests cover the fallback cascade
 // (working → staged), truncation semantics, empty + error paths,

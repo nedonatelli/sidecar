@@ -13,7 +13,7 @@ import type { GitHubAPI } from '../github/api.js';
 import type { PullRequest, CheckRun } from '../github/types.js';
 
 // ---------------------------------------------------------------------------
-// Tests for prLifecycle.ts (v0.69 chunk 4).
+// Tests for prLifecycle.ts.
 // ---------------------------------------------------------------------------
 
 function makeGit(overrides: { branch?: string; remote?: string | null } = {}): GitCLI {

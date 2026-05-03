@@ -665,7 +665,7 @@ describe('SideCarClient', () => {
       expect(client.getModelUsageLog()).toHaveLength(1);
     });
 
-    it('caps _modelUsageLog at MAX_MODEL_USAGE_LOG_ENTRIES with drop-oldest semantics (v0.65 audit #8)', async () => {
+    it('caps _modelUsageLog at MAX_MODEL_USAGE_LOG_ENTRIES with drop-oldest semantics ', async () => {
       // Verify the ring-buffer cap without running 1000+ real completes:
       // push entries through the public `complete()` path in a tight
       // loop with a fast-resolving stubbed fetch. Each iteration is
@@ -696,7 +696,7 @@ describe('SideCarClient', () => {
     });
   });
 
-  // v0.62.3 — mid-stream config rotation safety. The invariant under
+  // mid-stream config rotation safety. The invariant under
   // test: the backend's streamChat() packs `this.model` /
   // `this.systemPrompt` / `this.baseUrl` / `this.apiKey` into the HTTP
   // request body + headers synchronously when it's first called. Once
@@ -848,12 +848,12 @@ describe('SideCarClient', () => {
     });
   });
 
-  // v0.63.1 — native OAI-compat-to-Ollama fallback inside streamChat /
+  // native OAI-compat-to-Ollama fallback inside streamChat /
   // complete. When the OpenAI-profile backend is actually pointed at
   // an Ollama host and the /v1/chat/completions layer glitches, the
   // client's retry layer hands off to Ollama's native /api/chat
   // BEFORE the circuit breaker counts this as a provider failure.
-  describe('native OAI-compat → Ollama fallback (v0.63.1)', () => {
+  describe('native OAI-compat → Ollama fallback', () => {
     it('retries against /api/chat when the OAI-compat layer glitches and the host probes as Ollama', async () => {
       // Use a URL that `detectProvider('auto')` routes to OpenAI
       // (anything not matching localhost:11434 / anthropic.com /
@@ -992,7 +992,7 @@ describe('SideCarClient', () => {
     });
   });
 
-  describe('routeForDispatch (v0.64)', () => {
+  describe('routeForDispatch', () => {
     it('returns null and leaves the model untouched when no router is attached', () => {
       const client = new SideCarClient('ollama/qwen3-coder:30b', 'http://localhost:11434', 'ollama');
       const decision = client.routeForDispatch({ role: 'agent-loop' });
@@ -1043,7 +1043,7 @@ describe('SideCarClient', () => {
       expect(client.routeForDispatch({ role: 'chat' })).toBeNull();
     });
 
-    it('setTurnOverride(model) pins the client to that model and bypasses the router (v0.64 phase 4d.1)', async () => {
+    it('setTurnOverride(model) pins the client to that model and bypasses the router ', async () => {
       const { ModelRouter } = await import('./modelRouter.js');
       const client = new SideCarClient('claude-sonnet-4-6', 'https://api.anthropic.com', 'sk-test');
       client.setRouter(new ModelRouter([{ when: 'agent-loop', model: 'claude-sonnet-4-6' }], 'default'));
@@ -1089,7 +1089,7 @@ describe('SideCarClient', () => {
       expect(client.getModel()).toBe('base-a');
     });
 
-    it('forwards completion cost to the router so budgeted rules trip their caps (v0.64 phase 4c.2)', async () => {
+    it('forwards completion cost to the router so budgeted rules trip their caps ', async () => {
       const { ModelRouter } = await import('./modelRouter.js');
       const { spendTracker } = await import('./spendTracker.js');
       spendTracker.reset();

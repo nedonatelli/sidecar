@@ -150,7 +150,7 @@ export interface RawRepoContent {
   html_url: string;
 }
 
-// --- Workflow Runs (v0.68 chunk 4) ---
+// --- Workflow Runs ---
 
 export type WorkflowConclusion =
   | 'success'
@@ -228,7 +228,7 @@ export interface WorkflowJob {
   steps: WorkflowStep[];
 }
 
-// --- PR Review Comments (v0.69 chunk 2) ---
+// --- PR Review Comments ---
 
 /**
  * A single PR review comment (inline code comment). GitHub's REST API
@@ -322,7 +322,7 @@ export interface RawPullRequestFull {
   merged: boolean;
 }
 
-// --- Branch Protection (v0.68 chunk 3) ---
+// --- Branch Protection ---
 // GitHub's `GET /repos/{owner}/{repo}/branches/{branch}/protection`
 // returns a nested payload where every subsection is optional and
 // its presence alone signals "this rule is active". We only surface
@@ -370,7 +370,7 @@ export interface BranchProtection {
   forcePushesAllowed: boolean;
 }
 
-// --- Check Runs (v0.69 chunk 4) ---
+// --- Check Runs ---
 
 export type CheckConclusion =
   | 'success'

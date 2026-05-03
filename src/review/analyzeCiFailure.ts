@@ -5,7 +5,7 @@ import { extractFailures, formatFailuresMarkdown, type FailureBlock } from './ci
 import type { WorkflowRun, WorkflowJob } from '../github/types.js';
 
 // ---------------------------------------------------------------------------
-// CI Failure orchestrator (v0.68 chunk 4).
+// CI Failure orchestrator.
 //
 // Pulls the latest failed workflow run for the current branch, fetches
 // each failed job's log, extracts structured failure blocks via the

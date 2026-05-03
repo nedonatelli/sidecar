@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ---------------------------------------------------------------------------
-// Tests for dispatchToolUses.ts (v0.65 chunk 4.3b).
+// Tests for dispatchToolUses.ts .
 //
 // Orchestration decisions covered:
 //   - Mixed tool_use (any non-write) → skip planner, delegate to
@@ -149,7 +149,7 @@ describe('dispatchPendingToolUses — gate decisions', () => {
     expect(cb.onEditPlan).toHaveBeenCalledWith(plan);
   });
 
-  it('seeds onEditPlanProgress with status=pending for every plan path before execution (v0.66 chunk 1)', async () => {
+  it('seeds onEditPlanProgress with status=pending for every plan path before execution', async () => {
     const plan: EditPlan = {
       edits: [
         { path: 'a.ts', op: 'edit', rationale: '', dependsOn: [] },
@@ -227,7 +227,7 @@ describe('dispatchPendingToolUses — user prompt sentinel scan', () => {
   });
 });
 
-describe('dispatchPendingToolUses — currentEditPlan lifecycle (v0.65 chunk 4.5a)', () => {
+describe('dispatchPendingToolUses — currentEditPlan lifecycle ', () => {
   it('sets state.currentEditPlan before executeMultiFilePlan runs, keeps it set after dispatch returns', async () => {
     const plan: EditPlan = { edits: [{ path: 'a.ts', op: 'edit', rationale: '', dependsOn: [] }] };
     vi.mocked(shouldRunPlannerPass).mockReturnValue(true);

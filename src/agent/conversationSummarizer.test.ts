@@ -106,7 +106,7 @@ describe('ConversationSummarizer', () => {
       expect((firstMsg.content as string).includes('summary')).toBe(true);
     });
 
-    it('tags the summarize dispatch with role=summarize for the router (v0.64 phase 4b.3)', async () => {
+    it('tags the summarize dispatch with role=summarize for the router ', async () => {
       // Mirror the "generates summary" test above — content lengths are
       // tuned to pass the minCharsToSave threshold so the summarizer
       // actually dispatches and the router tag can be observed.

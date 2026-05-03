@@ -216,7 +216,7 @@ describe('runAgentLoopInSandbox', () => {
     });
   });
 
-  describe('deferPrompt (v0.66 chunk 3.6)', () => {
+  describe('deferPrompt', () => {
     it('captures the diff as pendingDiff and skips the quickpick when set', async () => {
       vi.spyOn(settings, 'getConfig').mockReturnValue({
         shadowWorkspaceMode: 'always',

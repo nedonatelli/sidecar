@@ -5,7 +5,7 @@ import type { SideCarClient } from '../../ollama/client.js';
 import type { BackendCapabilities } from '../../ollama/backend.js';
 
 // ---------------------------------------------------------------------------
-// Tests for tools/kickstand.ts (v0.67.1).
+// Tests for tools/kickstand.ts.
 //
 // Three agent tools wrapping the existing `loraAdapters` backend
 // capability. Tests cover capability-gate (no-capability surface),

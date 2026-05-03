@@ -135,7 +135,7 @@ export class WorkspaceIndex implements Disposable {
   private activeRoots: Array<{ uri: Uri; fsPath: string }> = [];
   /** Semantic embedding index for file-level similarity search */
   private embeddingIndex: import('./embeddingIndex.js').EmbeddingIndex | null = null;
-  /** Symbol-level semantic index (v0.62 c.1 — PKI retriever migration).
+  /** Symbol-level semantic index.
    *  Set when `sidecar.projectKnowledge.enabled` is on; null otherwise. */
   private symbolEmbeddings: import('./symbolEmbeddingIndex.js').SymbolEmbeddingIndex | null = null;
 
@@ -164,8 +164,7 @@ export class WorkspaceIndex implements Disposable {
   }
 
   /**
-   * Attach the symbol-level embedding index (v0.62 c.1 — PKI
-   * migration). When set + ready + non-empty, retrievers prefer it
+   * Attach the symbol-level embedding index. When set + ready + non-empty, retrievers prefer it
    * over the file-level index because symbol-granularity hits are
    * more precise for agent context. The file-level index stays as
    * the fallback so nothing breaks when PKI is disabled or empty.
@@ -180,7 +179,7 @@ export class WorkspaceIndex implements Disposable {
   }
 
   /**
-   * Symbol graph accessor (v0.65 chunk 5.5 — graph-expanded retrieval).
+   * Symbol graph accessor.
    * Exposes the SymbolIndexer's underlying call graph so the base
    * SemanticRetriever can walk callers outward from vector hits and
    * surface dependency-coupled symbols on every turn (previously only

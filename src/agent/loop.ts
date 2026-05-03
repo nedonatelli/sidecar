@@ -74,7 +74,7 @@ export interface AgentCallbacks {
   onEditPlan?: (plan: import('./editPlan.js').EditPlan) => void;
   /**
    * Per-file progress updates as the DAG executor walks the plan
-   * (v0.66 chunk 1, deferred 4.4b slim). Each edit transitions:
+   * . Each edit transitions:
    *   `pending` (initial, set by dispatchToolUses right after
    *     onEditPlan fires)
    *   → `writing` (when its layer dispatches)
@@ -139,7 +139,7 @@ export interface AgentOptions {
    */
   toolOverride?: ToolDefinition[];
   /**
-   * Ephemeral `RegisteredTool[]` scoped to this run (v0.66 chunk 3.4b).
+   * Ephemeral `RegisteredTool[]` scoped to this run .
    * Threaded into the executor so the tool dispatch path can resolve
    * them BEFORE consulting the global `TOOL_REGISTRY`. Used by the
    * Facet dispatcher to install per-facet `rpc.<peerId>.<method>`
@@ -183,7 +183,7 @@ export interface AgentOptions {
    * `write_file`, `edit_file`, `list_directory`) resolve relative paths
    * against this directory instead of the first workspace folder.
    *
-   * Used by ShadowWorkspace (v0.59) to route agent writes into an
+   * Used by ShadowWorkspace to route agent writes into an
    * ephemeral worktree at `.sidecar/shadows/<task-id>/` so the user's
    * main tree stays pristine until the shadow's diff is accepted. The
    * helper in `agent/shadow/sandbox.ts` wraps `runAgentLoop` with this
@@ -191,7 +191,7 @@ export interface AgentOptions {
    */
   cwdOverride?: string;
   /**
-   * Human-in-the-Loop steer queue (v0.65 chunk 3). When provided,
+   * Human-in-the-Loop steer queue. When provided,
    * the loop drains queued steers into a single synthetic user turn
    * at each iteration boundary and aborts the in-flight stream when
    * an `interrupt`-urgency steer is enqueued mid-turn.
@@ -233,7 +233,7 @@ export async function runAgentLoop(
   // sync-around-helper-call dance.
   const state = initLoopState(messages, options);
 
-  // Steer-queue interrupt wiring (v0.65 chunk 3.2). When a steer of
+  // Steer-queue interrupt wiring. When a steer of
   // urgency `interrupt` is enqueued during an active stream, we need
   // to abort just the current turn — not the whole run — so the next
   // iteration picks up after draining. Strategy: each iteration owns
@@ -308,7 +308,7 @@ export async function runAgentLoop(
       maybeEmitProgressSummary(state, callbacks);
       if (await shouldStopAtCheckpoint(state, callbacks)) break;
 
-      // Role-Based Model Routing (v0.64). No-op when no router is
+      // Role-Based Model Routing. No-op when no router is
       // attached to the client (the default) — preserves legacy
       // static-model dispatch without branching at the call site.
       applyAgentLoopRouting(client, state, {
@@ -436,7 +436,7 @@ export async function runAgentLoop(
 
       // Dispatch every tool_use. For pure-write turns with fanout
       // ≥ multiFileEditsMinFilesForPlan the dispatcher inserts an
-      // Edit Plan pass first (v0.65 chunk 4.3) and then walks the
+      // Edit Plan pass first and then walks the
       // resulting DAG with bounded parallelism. Otherwise delegates
       // to the legacy executeToolUses. Either way results are
       // aligned 1:1 with pendingToolUses.

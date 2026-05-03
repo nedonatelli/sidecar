@@ -160,7 +160,7 @@ describe('dedupeToolResults', () => {
     expect(second.content).toMatch(/identical to a previous tool_result/);
   });
 
-  it('exempts read_file from dedup (v0.62.1 p.2b — back-reference-after-edit trap)', () => {
+  it('exempts read_file from dedup (back-reference-after-edit trap)', () => {
     // Canonical trap: agent reads foo.ts, edits foo.ts, reads foo.ts
     // again. Pre-p.2b dedup collapsed the second read into a pointer
     // at the stale FIRST read, silently hiding the agent's own edit.
@@ -286,14 +286,14 @@ describe('prunePrompt', () => {
     expect(result.messages).toEqual(messages);
   });
 
-  it('records per-tool truncated bytes in stats.truncatedByTool (v0.62.1 p.2a)', () => {
+  it('records per-tool truncated bytes in stats.truncatedByTool ', () => {
     const messages = buildDuplicateReadsSession(LARGE_FILE_CONTENT, 'grep');
     const result = prunePrompt('', messages, { enabled: true, maxToolResultTokens: 500 });
     expect(result.stats.truncatedByTool).toHaveProperty('grep');
     expect(result.stats.truncatedByTool.grep).toBeGreaterThan(0);
   });
 
-  it('exempts read_file from dedup end-to-end (v0.62.1 p.2b)', () => {
+  it('exempts read_file from dedup end-to-end ', () => {
     const messages = buildDuplicateReadsSession(LARGE_FILE_CONTENT, 'read_file');
     const result = prunePrompt('', messages, { enabled: true, maxToolResultTokens: 500 });
     // Truncation still fires on both copies.
@@ -352,13 +352,13 @@ describe('formatPruneStats', () => {
   });
 });
 
-// v0.63.0 — per-tool truncation dispatch. Grep output has
+// per-tool truncation dispatch. Grep output has
 // matches distributed throughout, so head+tail (the default
 // strategy) elides the middle matches — which are usually the
 // most-interesting ones. The grep-aware strategy keeps whole
 // lines from the head and drops the tail, preserving the natural
 // file:line ordering of matches and producing a contiguous window.
-describe('truncateGrepResult (v0.63.0)', () => {
+describe('truncateGrepResult', () => {
   // Build a fake grep output of N matches, one per line.
   function fakeGrepOutput(matchCount: number): string {
     const lines: string[] = [];
@@ -414,7 +414,7 @@ describe('truncateGrepResult (v0.63.0)', () => {
   });
 });
 
-describe('truncateForTool dispatch (v0.63.0)', () => {
+describe('truncateForTool dispatch', () => {
   it('dispatches grep to truncateGrepResult', () => {
     const grepOut =
       ['src/foo.ts:1:match a', 'src/bar.ts:2:match b', 'src/baz.ts:3:match c'].join('\n') + '\n' + 'x'.repeat(10_000); // force over budget

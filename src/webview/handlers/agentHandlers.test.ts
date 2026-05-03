@@ -534,7 +534,7 @@ describe('handleExplainToolDecision (integration)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// handleResume (v0.65 chunk 7c)
+// handleResume
 //
 // /resume is the recovery path for a stream that failed mid-turn. The
 // agent loop stashed `state.pendingPartialAssistant` on failure; this

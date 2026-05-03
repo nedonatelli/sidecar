@@ -1,5 +1,5 @@
 /**
- * Notebook Mode tools (v0.82) — Source-Grounded Research.
+ * Notebook Mode tools — Source-Grounded Research.
  *
  * ingest_source         — index a web URL or local file as a named research source.
  * generate_briefing     — multi-section briefing doc from a source set.

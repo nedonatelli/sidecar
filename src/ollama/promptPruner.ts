@@ -3,7 +3,7 @@ import { tokensToChars } from '../config/tokenEstimation.js';
 
 /**
  * Tools whose output must never be dedup'd with a back-reference
- * (v0.62.1 p.2b — audit finding: the "identical to previous" mark
+ * (audit finding: the "identical to previous" mark
  * is a trap when a user asks the agent to re-read a file after
  * editing it; the agent gets the *pre-edit* content by reference
  * even though it wrote a newer version). Truncation still applies
@@ -44,7 +44,7 @@ export interface PruneStats {
   /** Bytes removed from collapsed whitespace runs. */
   whitespaceBytes: number;
   /**
-   * v0.62.1 p.2a — per-tool truncation breakdown. Populated only
+   * per-tool truncation breakdown. Populated only
    * when a tool-name map is available (always in production; only
    * optionally in unit-test callers). Empty object when no
    * truncation happened or when the caller didn't supply a map.
@@ -95,7 +95,7 @@ export function truncateToolResult(text: string, maxTokens: number): { text: str
 }
 
 /**
- * Grep-aware truncation (v0.63.0). Unlike the default head+tail
+ * Grep-aware truncation. Unlike the default head+tail
  * transform, this keeps whole lines from the head and drops the tail
  * entirely. Grep output is line-uniform: one match per line, typically
  * `path:line:content`. Head+tail would elide matches 40-160 of a
@@ -144,7 +144,7 @@ export function truncateGrepResult(text: string, maxTokens: number): { text: str
 }
 
 /**
- * Dispatch table for per-tool truncation strategies (v0.63.0). Maps a
+ * Dispatch table for per-tool truncation strategies. Maps a
  * tool name to the specialized truncation function. Anything not in
  * this map falls through to `truncateToolResult`'s head+tail default.
  *
@@ -174,7 +174,7 @@ function dedupKey(text: string): string {
 
 /**
  * Build a `tool_use_id → tool_name` map by walking the message
- * history's `tool_use` blocks (v0.62.1 p.2b). Tool names aren't
+ * history's `tool_use` blocks . Tool names aren't
  * carried on `tool_result` blocks directly; to apply tool-aware
  * pruning rules we have to cross-reference the ID the result
  * points at. Returns an empty map if no tool_use blocks are found
@@ -201,7 +201,7 @@ export function buildToolUseIdMap(messages: ChatMessage[]): Map<string, string> 
  * short back-reference. This is the biggest win when an agent reads the
  * same file twice in one loop.
  *
- * v0.62.1 p.2b — tools in `DEDUP_EXEMPT_TOOLS` (read_file, git_diff,
+ * tools in `DEDUP_EXEMPT_TOOLS` (read_file, git_diff,
  * …) are never dedup'd; their output is expected to vary across
  * consecutive calls. `toolNames` parameter is optional for back-
  * compat — without it, every tool gets the pre-p.2b dedup treatment.
@@ -255,7 +255,7 @@ export function truncateAllToolResults(
       if (block.type !== 'tool_result') return block;
       const result = block as ToolResultContentBlock;
       if (typeof result.content !== 'string') return block;
-      // v0.63.0 — dispatch by tool name so grep (and future
+      // dispatch by tool name so grep (and future
       // truncation-hostile tools) get their specialized strategy.
       // Tools without a specialized strategy fall through to the
       // default head+tail transform.
@@ -292,7 +292,7 @@ export function prunePrompt(systemPrompt: string, messages: ChatMessage[], opts:
     };
   }
 
-  // v0.62.1 p.2b: build a tool_use_id → tool_name map so dedup can
+  // build a tool_use_id → tool_name map so dedup can
   // exempt critical tools (read_file et al.) and the stats breakdown
   // can attribute bytes to specific tools for the observability
   // report (p.2a).
@@ -315,7 +315,7 @@ export function prunePrompt(systemPrompt: string, messages: ChatMessage[], opts:
 
 /**
  * Format a `PruneStats` into a one-line summary for the agent
- * logger (v0.62.1 p.2a). Returns empty string when no pruning
+ * logger . Returns empty string when no pruning
  * actually happened, so callers can skip the log entry in the
  * overwhelmingly common case.
  */

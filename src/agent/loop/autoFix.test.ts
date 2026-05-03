@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ---------------------------------------------------------------------------
-// Tests for autoFix.ts (v0.65 chunk 2b — loop helper hardening).
+// Tests for autoFix.ts (loop helper hardening).
 //
 // `applyAutoFix` runs after tool execution, pulls diagnostics for
 // every write_file / edit_file target, and injects a "fix these"

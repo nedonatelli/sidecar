@@ -5,7 +5,7 @@ import type { AgentCallbacks } from '../loop.js';
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/types.js';
 
 // ---------------------------------------------------------------------------
-// Tests for finalize.ts (v0.65 chunk 2b — loop helper hardening).
+// Tests for finalize.ts (loop helper hardening).
 //
 // `finalize` does three things at loop teardown:
 //   1. onToolChainFlush (optional — fires when defined)

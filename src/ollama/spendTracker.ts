@@ -108,7 +108,7 @@ class SpendTracker {
    * Record a dispatch's usage + cost. Returns the computed cost in USD
    * (or `0` when the provider isn't priced — local Ollama, OpenRouter
    * without catalog ingest, etc.) so callers can forward the number to
-   * ModelRouter.recordSpend for budget-aware routing (v0.64 phase 4c).
+   * ModelRouter.recordSpend for budget-aware routing .
    *
    * When the caller passes a `usage.costUsd` (OpenRouter ships this as
    * `usage.cost` on every response; v0.64 chunk 5), the provider-reported

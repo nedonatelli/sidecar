@@ -1,6 +1,6 @@
 /**
  * Pure prompt-building + verdict-parsing primitives for the
- * LLM-judged retrieval eval (v0.62 e.3). Split out from the
+ * LLM-judged retrieval eval. Split out from the
  * backend-aware judge (`tests/llm-eval/retrievalJudge.ts`) because
  * these are deterministic and belong in the main test suite — the
  * LLM call is the nondeterministic bit, and it's tested separately

@@ -251,7 +251,7 @@ describe('SymbolEmbeddingIndex', () => {
     });
   });
 
-  describe('Merkle tree integration (v0.62 d.2)', () => {
+  describe('Merkle tree integration', () => {
     it('setMerkleTree replays stored entries into the tree', async () => {
       const { MerkleTree } = await import('./merkleTree.js');
       // Index two symbols first, then attach a tree — replay should
@@ -417,7 +417,7 @@ describe('SymbolEmbeddingIndex', () => {
     });
   });
 
-  describe('queueSymbol + flush (v0.61 b.2)', () => {
+  describe('queueSymbol + flush', () => {
     it('drains queued symbols through indexSymbol on flush', async () => {
       index.queueSymbol(makeInput({ qualifiedName: 'a', name: 'a' }));
       index.queueSymbol(makeInput({ qualifiedName: 'b', name: 'b' }));
@@ -483,7 +483,7 @@ describe('SymbolEmbeddingIndex', () => {
       }
     });
 
-    it('drains in parallel (v0.62.1 p.4) — batch runs concurrent embeds', async () => {
+    it('drains in parallel — batch runs concurrent embeds', async () => {
       // Slow pipeline that measures max concurrency by tracking how
       // many embeds are "in flight" at the peak. Pre-p.4 this was 1
       // (serial). Post-p.4 it should be ~FLUSH_CONCURRENCY (4).

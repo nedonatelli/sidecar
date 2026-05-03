@@ -2,7 +2,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 
 // ---------------------------------------------------------------------------
-// Diff source primitive (v0.68 chunk 1).
+// Diff source primitive.
 //
 // Pre-v0.68, `src/review/prSummary.ts` and `src/review/reviewer.ts`
 // both contained a copy of the same ~20-line block:
@@ -109,7 +109,7 @@ export async function fetchWorkingTreeDiff(options: FetchDiffOptions): Promise<F
 /**
  * Fetch the branch-range diff — `git diff <base>...HEAD` by default,
  * or `git diff <base>...<head>` if `head` is provided. Used by the
- * Draft PR From Branch flow (v0.68 chunk 2) to generate a PR body
+ * Draft PR From Branch flow to generate a PR body
  * from the commits between the branch's divergence point and its
  * current tip.
  *

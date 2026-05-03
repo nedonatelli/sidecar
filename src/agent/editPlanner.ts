@@ -3,7 +3,7 @@ import type { ChatMessage, ToolUseContentBlock } from '../ollama/types.js';
 import { parseEditPlanJson, EditPlanValidationError, type EditPlan } from './editPlan.js';
 
 // ---------------------------------------------------------------------------
-// Edit Plan pass (v0.65 chunk 4.2).
+// Edit Plan pass.
 //
 // Before a multi-file write batch fires, a dedicated planner turn
 // produces a typed `EditPlan` manifest that the scheduler (chunk 4.3)

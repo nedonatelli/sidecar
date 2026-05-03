@@ -3,7 +3,7 @@ import { loadFacetRegistry, type FacetFsOverride } from './facetDiskLoader.js';
 import { builtInFacets } from './facetLoader.js';
 
 // ---------------------------------------------------------------------------
-// Tests for facetDiskLoader.ts (v0.66 chunk 3.5a).
+// Tests for facetDiskLoader.ts .
 //
 // The disk loader composes the built-in catalog with any facets found
 // at `<workspace>/.sidecar/facets/*.md` + an explicit list of paths

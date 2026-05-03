@@ -4,7 +4,7 @@ import { parseFacetFile, FacetValidationError, type FacetDefinition } from './fa
 import { buildFacetRegistry, mergeWithBuiltInFacets, type FacetRegistry } from './facetRegistry.js';
 
 // ---------------------------------------------------------------------------
-// Facet disk loader (v0.66 chunk 3.5a).
+// Facet disk loader .
 //
 // Scans the workspace + configured registry paths for facet markdown
 // files, parses each through `parseFacetFile`, merges with built-ins,

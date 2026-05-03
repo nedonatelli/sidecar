@@ -415,7 +415,7 @@ describe('buildRouterFromConfig', () => {
   });
 });
 
-describe('synthesizeLegacyRules (v0.64 phase 4e)', () => {
+describe('synthesizeLegacyRules ', () => {
   it('returns an empty list when no legacy fields are set', () => {
     expect(
       synthesizeLegacyRules({
@@ -459,7 +459,7 @@ describe('synthesizeLegacyRules (v0.64 phase 4e)', () => {
   });
 });
 
-describe('buildRouterFromConfig — legacy migration (v0.64 phase 4e)', () => {
+describe('buildRouterFromConfig — legacy migration ', () => {
   it('appends synthesized legacy rules after user-declared ones so user rules win first-match', () => {
     const router = buildRouterFromConfig({
       modelRoutingEnabled: true,

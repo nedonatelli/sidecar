@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Kickstand-token fs mock factory (v0.65 — shared test-helper module).
+// Kickstand-token fs mock factory.
 //
 // Two test files (`providerReachability.test.ts`, `kickstandBackend.test.ts`)
 // stub the Kickstand token file the same way so assertions on the bearer

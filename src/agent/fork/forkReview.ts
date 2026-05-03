@@ -7,10 +7,10 @@ import { filesTouchedByDiff } from '../facets/facetReview.js';
 import type { ForkDispatchBatchResult } from './forkDispatcher.js';
 
 // ---------------------------------------------------------------------------
-// Fork review (v0.67 chunk 5, diff-only MVP).
+// Fork review .
 //
 // After `dispatchForks` completes, every fork carries a `pendingDiff`
-// in its sandbox field (v0.66 chunk 3.6 deferPrompt pattern). This
+// in its sandbox field . This
 // module turns the batch into a pick-the-winner review surface:
 //
 //   1. Show a QuickPick listing every reviewable fork with its label,
@@ -22,7 +22,7 @@ import type { ForkDispatchBatchResult } from './forkDispatcher.js';
 //      the sandbox's autoCleanup). On conflict: surface the error
 //      so the user knows which fork couldn't merge cleanly.
 //
-// Semantic differs from Facets (v0.66 chunk 3.6): Facets review is
+// Semantic differs from Facets: Facets review is
 // multi-select (each specialist did a different subtask, accept/
 // reject each independently). Fork review is single-select — every
 // fork attempted the same task, so the question is "which one won?"

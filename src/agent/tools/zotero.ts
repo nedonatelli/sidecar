@@ -1,5 +1,5 @@
 /**
- * Zotero tools (v0.75).
+ * Zotero tools.
  *
  * zotero_search    — search the user's Zotero library by keyword.
  * zotero_get_item  — retrieve full bibliographic details for one item by key.

@@ -4,7 +4,7 @@ import { getGitHubToken } from '../github/auth.js';
 import type { PullRequest, PrReviewThread, PrReviewComment } from '../github/types.js';
 
 // ---------------------------------------------------------------------------
-// PR Review comment display (v0.69 chunk 2).
+// PR Review comment display.
 //
 // Fetches inline review comments for the open PR on the current branch,
 // formats them as structured markdown, and opens a preview so the

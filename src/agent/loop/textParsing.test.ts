@@ -3,7 +3,7 @@ import { parseTextToolCalls, stripRepeatedContent } from './textParsing.js';
 import type { ToolDefinition, ChatMessage } from '../../ollama/types.js';
 
 // ---------------------------------------------------------------------------
-// Tests for textParsing.ts (v0.65 chunk 2a — loop helper hardening).
+// Tests for textParsing.ts (loop helper hardening).
 //
 // Two pure helpers: `parseTextToolCalls` (tool-call-in-prose fallback for
 // models that don't emit structured tool_use blocks) and

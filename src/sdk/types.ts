@@ -1,5 +1,5 @@
 /**
- * @sidecar/sdk — public type surface (v0.74).
+ * @sidecar/sdk — public type surface.
  *
  * Re-exports the minimal subset of internal types that third-party
  * extensions need to register tools and hooks. Internal helpers stay

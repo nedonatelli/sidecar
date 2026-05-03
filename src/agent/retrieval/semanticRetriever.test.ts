@@ -98,7 +98,7 @@ describe('SemanticRetriever', () => {
     expect(seen).toBe('src/main.ts');
   });
 
-  describe('PKI symbol-index preference (v0.62 c.1)', () => {
+  describe('PKI symbol-index preference', () => {
     it('prefers symbol-level hits when PKI is wired, ready, and has entries', async () => {
       const fileContent =
         '// src/auth.ts header\nimport { verifyToken } from "./token";\nfunction requireAuth(req, res, next) {\n  verifyToken(req);\n}\n';
@@ -190,7 +190,7 @@ describe('SemanticRetriever', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Graph-expanded retrieval (v0.65 chunk 5.5)
+  // Graph-expanded retrieval
   // -------------------------------------------------------------------------
   describe('graph-expanded symbol retrieval', () => {
     function fakeGraph(

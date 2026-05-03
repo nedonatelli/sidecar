@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ---------------------------------------------------------------------------
-// Tests for builtInHooks.ts (v0.65 chunk 2a — loop helper hardening).
+// Tests for builtInHooks.ts (loop helper hardening).
 //
 // `defaultPolicyHooks()` adapts the four existing post-turn helpers
 // (autoFix / stub validator / critic / completion gate) to the

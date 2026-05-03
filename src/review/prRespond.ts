@@ -5,7 +5,7 @@ import type { PullRequest, PrReviewThread } from '../github/types.js';
 import { formatPrReviewMarkdown } from './prReview.js';
 
 // ---------------------------------------------------------------------------
-// PR review response dispatch (v0.69 chunk 3).
+// PR review response dispatch.
 //
 // Fetches review threads for the open PR on the current branch and
 // dispatches the agent to respond to each one using reply_pr_comment

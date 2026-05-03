@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { extractFailures, formatFailuresMarkdown } from './ciFailure.js';
 
 // ---------------------------------------------------------------------------
-// Tests for ciFailure.ts (v0.68 chunk 4).
+// Tests for ciFailure.ts.
 //
 // Pure primitive — no network. Every case exercises a specific slice
 // of GitHub Actions log syntax (timestamps, groups, error annotations,

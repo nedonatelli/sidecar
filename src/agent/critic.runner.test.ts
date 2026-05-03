@@ -193,7 +193,7 @@ describe('runCriticChecks', () => {
       expect(calls[0].prompt).toContain('Attack this change');
     });
 
-    it('tags the critic dispatch with role=critic for the router (v0.64 phase 4b.3)', async () => {
+    it('tags the critic dispatch with role=critic for the router ', async () => {
       const { use, result } = editPair('src/foo.ts');
       const { client } = makeClient(() => '{"findings": []}');
       await runCriticChecks(
@@ -427,7 +427,7 @@ describe('runCriticChecks', () => {
     });
   });
 
-  describe('session stats (v0.62.1 p.1b)', () => {
+  describe('session stats ', () => {
     it('increments totalCalls on every critic LLM call', async () => {
       const { getCriticStats, resetCriticStats } = await import('./loop/criticHook.js');
       resetCriticStats();
@@ -480,14 +480,14 @@ describe('runCriticChecks', () => {
     });
   });
 
-  // v0.63.0 — per-test-output-hash cap. Prior to this release the
+  // per-test-output-hash cap. Prior to this release the
   // test_failure trigger path was unbounded: a gate-forced test run
   // that kept failing would fire the critic every iteration until the
   // outer maxIterations cap tripped. Now capped on a normalized hash
   // so cosmetic re-runs of the same failure (different timestamps /
   // addresses) collapse into one bucket and stop re-firing after N
   // blocks.
-  describe('per-test-output-hash cap (v0.63.0)', () => {
+  describe('per-test-output-hash cap', () => {
     it('fires the critic on a test_failure and increments the per-hash counter', async () => {
       const hashMap = new Map<string, number>();
       const { client } = makeClient(
@@ -638,7 +638,7 @@ describe('runCriticChecks', () => {
 // normalizeTestOutput + hashTestOutput — pure helpers
 // ---------------------------------------------------------------------------
 
-describe('normalizeTestOutput (v0.63.0)', () => {
+describe('normalizeTestOutput', () => {
   it('strips ISO-8601 timestamps', () => {
     const a = normalizeTestOutput('FAIL 2026-04-17T10:00:00Z: assertion failed');
     const b = normalizeTestOutput('FAIL 2026-04-17T23:59:59.999Z: assertion failed');
@@ -684,7 +684,7 @@ describe('normalizeTestOutput (v0.63.0)', () => {
   });
 });
 
-describe('hashTestOutput (v0.63.0)', () => {
+describe('hashTestOutput', () => {
   it('returns a hex string', () => {
     const h = hashTestOutput('any text at all');
     expect(h).toMatch(/^[0-9a-f]+$/);

@@ -1,5 +1,5 @@
 /**
- * @sidecar/sdk — public entry point (v0.74).
+ * @sidecar/sdk — public entry point.
  *
  * Re-exports the full public surface for type-only imports in
  * third-party extensions. Runtime access is always through

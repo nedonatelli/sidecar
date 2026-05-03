@@ -4,7 +4,7 @@ import { GOLDEN_CASES } from './goldenCases.js';
 import { scoreQuery, aggregateScorecards, type QueryScorecard } from './metrics.js';
 
 /**
- * Baseline-quality CI ratchet for retrieval (v0.62 e.2). Runs every
+ * Baseline-quality CI ratchet for retrieval. Runs every
  * golden case, computes per-query scorecards + aggregate metrics,
  * and asserts the aggregate stays at-or-above hard-coded
  * thresholds. Regressions that drop precision@K or recall@K below
@@ -54,7 +54,7 @@ export const RETRIEVAL_THRESHOLDS = {
   meanReciprocalRank: 0.9,
 };
 
-describe('retrieval-eval: aggregate metrics ratchet (v0.62 e.2)', () => {
+describe('retrieval-eval: aggregate metrics ratchet', () => {
   let scorecards: QueryScorecard[];
 
   beforeAll(async () => {

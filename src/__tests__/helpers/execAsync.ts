@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // `util.promisify(child_process.exec)` shim factory
-// (v0.65 — shared test-helper module).
+//.
 //
 // `eventHooks.test.ts` and `lintFix.test.ts` both run code that
 // awaits `execAsync(cmd, opts)` — Node's idiomatic

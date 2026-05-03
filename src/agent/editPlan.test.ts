@@ -11,7 +11,7 @@ import {
 } from './editPlan.js';
 
 // ---------------------------------------------------------------------------
-// Tests for editPlan.ts (v0.65 chunk 4.1).
+// Tests for editPlan.ts.
 //
 // EditPlan is the typed manifest behind Multi-File Edit Streams: the
 // planner agent emits one; the runtime validates + layers it; the

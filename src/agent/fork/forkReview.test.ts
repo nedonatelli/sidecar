@@ -4,7 +4,7 @@ import { planForkReview, reviewForkBatch, type ForkReviewUi } from './forkReview
 import type { ForkDispatchBatchResult, ForkResult } from './forkDispatcher.js';
 
 // ---------------------------------------------------------------------------
-// Tests for forkReview.ts (v0.67 chunk 5).
+// Tests for forkReview.ts.
 //
 // Pick-the-winner review flow — planForkReview classifies the batch
 // into reviewable / skipped; reviewForkBatch drives the QuickPick →

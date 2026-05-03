@@ -1,5 +1,5 @@
 /**
- * Vision tools (v0.77) — Screenshot-in-the-Loop visual verification.
+ * Vision tools — Screenshot-in-the-Loop visual verification.
  *
  * screenshot_page      — capture a URL as PNG via Playwright headless Chromium.
  * analyze_screenshot   — cheap heuristic pre-filter + VLM vision verdict.

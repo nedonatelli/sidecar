@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Pre-turn Role-Based Model Routing hook (v0.64 phase 4b.2).
+// Pre-turn Role-Based Model Routing hook .
 //
 // Runs right before `streamOneTurn` dispatches the next request. When
 // the SideCarClient has a router attached (owned by chatState, built

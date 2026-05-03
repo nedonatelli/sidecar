@@ -1,5 +1,5 @@
 /**
- * Synthetic corpus for RAG-eval (v0.62 e.1). A hand-built miniature
+ * Synthetic corpus for RAG-eval. A hand-built miniature
  * service codebase with known-correct "where is X?" answers. We use
  * this instead of indexing the real SideCar repo because:
  *

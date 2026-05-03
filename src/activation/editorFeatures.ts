@@ -152,7 +152,7 @@ export function registerEditorFeatures(
     }),
   );
 
-  // Next Edit Suggestions engine (v0.72)
+  // Next Edit Suggestions engine
   if (config.nextEditEnabled) {
     const nextEditEngine = new NextEditEngine(symbolIndexer.getGraph());
     context.subscriptions.push(nextEditEngine);

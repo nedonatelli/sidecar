@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// @-prefixed inline model sentinels (v0.64 phase 4d.1).
+// @-prefixed inline model sentinels .
 //
 // Users can prepend one of `@opus`, `@sonnet`, `@haiku`, or `@local` to a
 // chat message to bypass Role-Based Model Routing for just that turn.

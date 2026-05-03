@@ -411,7 +411,7 @@ describe('rejectFileAuditBuffer', () => {
   });
 });
 
-describe('conflict detection on flush (v0.61 a.2)', () => {
+describe('conflict detection on flush ', () => {
   let writeFileSpy: ReturnType<typeof vi.spyOn>;
   let deleteSpy: ReturnType<typeof vi.spyOn>;
   let createDirSpy: ReturnType<typeof vi.spyOn>;
@@ -534,7 +534,7 @@ describe('conflict detection on flush (v0.61 a.2)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Review granularity (v0.66 chunk 1, slim 4.5c)
+// Review granularity
 // ---------------------------------------------------------------------------
 describe('reviewAuditBuffer — granularity switching', () => {
   it('bulk mode presents a three-option prompt (accept-all / reject-all / cancel)', async () => {

@@ -4,7 +4,7 @@ import type { SymbolGraph } from '../../config/symbolGraph.js';
 import type { SymbolSearchResult } from '../../config/symbolEmbeddingIndex.js';
 
 // ---------------------------------------------------------------------------
-// Tests for graphExpansion.ts (v0.65 chunk 5.5).
+// Tests for graphExpansion.ts.
 //
 // adaptiveGraphDepth → bucket math for model context size.
 //

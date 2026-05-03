@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ---------------------------------------------------------------------------
-// Tests for postTurnPolicies.ts (v0.65 chunk 2a — loop helper hardening).
+// Tests for postTurnPolicies.ts (loop helper hardening).
 //
 // The composer itself is a three-liner: auto-fix → stub → critic. Each
 // underlying policy is tested in its own module (autoFix.test.ts,

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ---------------------------------------------------------------------------
-// Tests for facetDispatcher.ts (v0.66 chunk 3.3).
+// Tests for facetDispatcher.ts.
 //
 // Covers:
 //   - dispatchFacet: tool-allowlist → toolOverride + modeToolPermissions,
@@ -369,7 +369,7 @@ describe('dispatchFacets — orchestration', () => {
 });
 
 // ---------------------------------------------------------------------------
-// dispatchFacets — RPC wiring (v0.66 chunk 3.4b)
+// dispatchFacets — RPC wiring
 // ---------------------------------------------------------------------------
 
 describe('dispatchFacets — RPC wiring', () => {

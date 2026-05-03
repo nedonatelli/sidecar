@@ -14,7 +14,7 @@ import type { GitHubAPI } from '../github/api.js';
 import type { GitHubPR } from '../github/types.js';
 
 // ---------------------------------------------------------------------------
-// Tests for draftPullRequest.ts (v0.68 chunk 2).
+// Tests for draftPullRequest.ts.
 //
 // Every external seam is injected (ui, git, api) so the tests drive
 // the end-to-end flow headlessly. child_process exec is still mocked

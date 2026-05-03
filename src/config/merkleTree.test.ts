@@ -9,7 +9,7 @@ import {
 } from './merkleTree.js';
 
 /**
- * Tests for the static Merkle tree primitive (v0.62 d.1). The live-
+ * Tests for the static Merkle tree primitive. The live-
  * update wiring (d.2) and query-time descent integration (d.3) have
  * their own test files — this module is the pure data structure
  * layer and should stay that way.

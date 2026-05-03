@@ -97,7 +97,7 @@ export class SideCarClient {
   private backend: ApiBackend;
 
   /**
-   * Optional Role-Based Model Router (v0.64). Owning the router at the
+   * Optional Role-Based Model Router. Owning the router at the
    * client layer means every dispatch site can consult it via
    * `routeForDispatch()` without plumbing a separate service through
    * chat handlers / completion provider / critic / summarizer. When
@@ -114,7 +114,7 @@ export class SideCarClient {
   private lastDecision: RouteDecision | null = null;
   /**
    * One-turn model pin set by `@opus` / `@sonnet` / `@haiku` / `@local`
-   * inline sentinels (v0.64 phase 4d.1). When non-null, every
+   * inline sentinels . When non-null, every
    * `routeForDispatch` short-circuits and returns `null` so callers
    * fall back to `this.model` — which `setTurnOverride` has already
    * pinned to the sentinel's target. The chat handler clears this at
@@ -241,7 +241,7 @@ export class SideCarClient {
       // Don't count user aborts as failures
       if (err instanceof Error && err.name === 'AbortError') throw err;
 
-      // v0.63.1 — native backend-capability retry. Gives the active
+      // native backend-capability retry. Gives the active
       // backend a chance to retry the request against a native
       // protocol (canonically Ollama's /api/chat when the OAI-compat
       // /v1/chat/completions layer glitched) BEFORE we tear down the
@@ -315,7 +315,7 @@ export class SideCarClient {
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') throw err;
 
-      // v0.63.1 — native backend-capability retry (see streamChat
+      // native backend-capability retry (see streamChat
       // for the full rationale). Non-streaming complete() mirrors
       // the streaming path: try native fallback first, then fall
       // through to provider fallback on failure.
@@ -367,7 +367,7 @@ export class SideCarClient {
   ): Promise<string> {
     const model = overrideModel && overrideModel.trim().length > 0 ? overrideModel : this.model;
     // Mirror the spend-delta hook from `complete()` so router budget
-    // tracking works for critic dispatches too (v0.64 phase 4c.2).
+    // tracking works for critic dispatches too .
     const preSpend = spendTracker.snapshot().totalUsd;
     const result = await this.backend.complete(model, systemPrompt, messages, maxTokens, signal);
     this.chargeLastDecision(spendTracker.snapshot().totalUsd - preSpend);
@@ -463,7 +463,7 @@ export class SideCarClient {
   }
 
   /**
-   * Attach a Role-Based Model Router (v0.64). Pass `null` to detach and
+   * Attach a Role-Based Model Router. Pass `null` to detach and
    * revert to static-model dispatch. The router's internal `activeModel`
    * is synced to the client's current `model` so the first routing
    * decision doesn't spuriously flag a swap when the resolved rule model
@@ -508,7 +508,7 @@ export class SideCarClient {
    * Pin the active model for a single user turn, bypassing the router
    * for every dispatch until the chat handler calls `setTurnOverride(null)`
    * at end-of-turn. Used by the `@opus` / `@sonnet` / `@haiku` / `@local`
-   * inline sentinels (v0.64 phase 4d.1). Passing `null` clears the pin
+   * inline sentinels . Passing `null` clears the pin
    * and restores normal routing.
    */
   setTurnOverride(model: string | null): void {
@@ -550,7 +550,7 @@ export class SideCarClient {
   }
 
   /**
-   * Introspect the active backend's native capabilities (v0.63.1).
+   * Introspect the active backend's native capabilities.
    * Returns `undefined` when the backend implements only the baseline
    * `streamChat` + `complete` surface. Callers (command-palette
    * actions, the future model-browser UI, feature tests) use this to

@@ -8,7 +8,7 @@ import {
 } from './steerQueue.js';
 
 // ---------------------------------------------------------------------------
-// Tests for steerQueue.ts (v0.65 chunk 3.1).
+// Tests for steerQueue.ts.
 //
 // SteerQueue is a pure service — no async, no vscode, no loop wiring.
 // These tests cover:

@@ -1,5 +1,5 @@
 /**
- * ZoteroSource (v0.75).
+ * ZoteroSource.
  *
  * Extracts abstract + bibliographic metadata from Zotero library items via
  * the Zotero Web API (api.zotero.org). Handles `zotero://<itemKey>` URIs and

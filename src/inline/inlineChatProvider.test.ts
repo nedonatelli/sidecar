@@ -4,7 +4,7 @@ import { handleInlineChat } from './inlineChatProvider.js';
 import type { SideCarClient } from '../ollama/client.js';
 
 // ---------------------------------------------------------------------------
-// Tests for inlineChatProvider.ts (v0.65 chunk 6b).
+// Tests for inlineChatProvider.ts .
 //
 // `handleInlineChat` is the inline "cmd-K" flow: user selects code or
 // places cursor, types an instruction, and the LLM's response is

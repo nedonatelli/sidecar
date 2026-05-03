@@ -232,13 +232,13 @@ describe('KickstandBackend', () => {
     });
   });
 
-  // v0.63.1 — KickstandBackend declares a lifecycle capability
+  // KickstandBackend declares a lifecycle capability
   // wrapping the existing kickstandLoadModel / kickstandUnloadModel /
   // kickstandListRegistry helpers. These tests pin that the
   // capability hits the expected endpoints and returns the expected
   // shapes so callers (command palette, future model browser) can
   // rely on the contract.
-  describe('nativeCapabilities — lifecycle (v0.63.1)', () => {
+  describe('nativeCapabilities — lifecycle', () => {
     it('advertises a lifecycle capability with loadModel / unloadModel / listLoadable', () => {
       const caps = backend.nativeCapabilities();
       expect(caps.lifecycle).toBeDefined();
@@ -593,7 +593,7 @@ describe('kickstandUnloadModel', () => {
 });
 
 // ---------------------------------------------------------------------------
-// LoRA adapter + model browser tests (v0.67.0, chunk 8 closure)
+// LoRA adapter + model browser tests
 //
 // The LoRA + browser endpoints shipped in 83b4418 without test coverage.
 // These suites close the gap — one describe per function, happy + error

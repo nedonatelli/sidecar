@@ -299,7 +299,7 @@ describe('ChatState', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Steer queue persistence (v0.65 chunk 3.4)
+  // Steer queue persistence
   // -------------------------------------------------------------------------
   describe('steer queue persistence', () => {
     it('initializes with a null pendingSteerSnapshot', () => {

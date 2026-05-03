@@ -4,7 +4,7 @@ import type { LoopState } from './state.js';
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/types.js';
 
 // ---------------------------------------------------------------------------
-// Tests for messageBuild.ts (v0.65 chunk 2a — loop helper hardening).
+// Tests for messageBuild.ts (loop helper hardening).
 //
 // Three tiny helpers that wrap message-push + char-accounting. All
 // pure over state.messages / state.totalChars; no side effects beyond

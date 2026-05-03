@@ -5,7 +5,7 @@ import { scoreQuery, aggregateScorecards, type QueryScorecard } from './metrics.
 import { RETRIEVAL_THRESHOLDS } from './baseline.test.js';
 
 /**
- * Merkle descent parity eval (v0.62 d.3). Re-runs every golden case
+ * Merkle descent parity eval. Re-runs every golden case
  * with the Merkle tree wired and asserts the aggregate retrieval
  * quality stays at-or-above the same ratchet floors the non-Merkle
  * baseline hits. Purpose: prove that descent-based pruning doesn't
@@ -21,7 +21,7 @@ import { RETRIEVAL_THRESHOLDS } from './baseline.test.js';
 
 const SCORING_K = 10;
 
-describe('retrieval-eval: Merkle descent parity (v0.62 d.3)', () => {
+describe('retrieval-eval: Merkle descent parity', () => {
   let scorecards: QueryScorecard[];
 
   beforeAll(async () => {

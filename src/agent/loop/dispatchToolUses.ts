@@ -8,7 +8,7 @@ import { executeMultiFilePlan } from './multiFileEdit.js';
 import { executeToolUses } from './executeToolUses.js';
 
 // ---------------------------------------------------------------------------
-// Dispatch orchestration for a turn's tool_uses (v0.65 chunk 4.3b).
+// Dispatch orchestration for a turn's tool_uses .
 //
 // Sits between `streamOneTurn` and tool execution. Decides:
 //

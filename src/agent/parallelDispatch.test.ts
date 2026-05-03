@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { runWithCap, runForEachWithCap, AbortedBeforeStartError } from './parallelDispatch.js';
 
 // ---------------------------------------------------------------------------
-// Tests for parallelDispatch.ts (v0.67 chunk 2).
+// Tests for parallelDispatch.ts.
 //
 // The primitive is used by multi-file edit, facet dispatch, and the
 // upcoming Fork & Parallel Solve — so the test matrix covers every

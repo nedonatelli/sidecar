@@ -43,7 +43,7 @@ export class GitCLI {
 
   /**
    * Push with `-u` so the local branch tracks the remote one — used
-   * by the Draft PR flow (v0.68 chunk 2) to set upstream tracking
+   * by the Draft PR flow to set upstream tracking
    * on the first push of a feature branch. Defaults to `HEAD` so
    * the caller doesn't have to resolve the current branch name.
    */

@@ -216,10 +216,9 @@ async function buildSystemPromptForRun(
 }
 
 // ---------------------------------------------------------------------------
-// Agent callback factory — extracted to ./agentCallbacks.ts (v0.65 chunk 5c)
-// so each callback's behavior can be unit-tested without standing up the
-// full handleUserMessage pipeline. Re-imported here for the internal call
-// site in handleUserMessage; the factory itself is unchanged.
+// Agent callback factory — extracted to ./agentCallbacks.ts so each
+// callback's behavior can be unit-tested without standing up the full
+// handleUserMessage pipeline.
 // ---------------------------------------------------------------------------
 
 import { createAgentCallbacks } from './agentCallbacks.js';
@@ -301,8 +300,8 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     state.chatGeneration++;
   }
 
-  // @-prefixed model sentinels (v0.64 phase 4d.1). Strip the sentinel
-  // from the stored message text so it doesn't clutter chat history or
+  // @-prefixed model sentinels. Strip the sentinel from the stored message
+  // text so it doesn't clutter chat history or
   // get sent as prose to the model; the model pin is applied further
   // down, AFTER `updateModel(config.model)` resets the client — that
   // reset would otherwise overwrite our turn-override.
@@ -320,8 +319,8 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
   state.postMessage({ command: 'setLoading', isLoading: true });
   state.abortController = new AbortController();
 
-  // Steer queue: one instance per agent run (v0.65 chunk 3.3).
-  // Subscribes to mutations so the webview strip UI re-renders
+  // Steer queue: one instance per agent run. Subscribes to mutations so
+  // the webview strip UI re-renders
   // from a single authoritative source. When a prior run crashed
   // mid-turn and stashed pending steers (chunk 3.4), restore them
   // here so intent survives stream-failure / resume.

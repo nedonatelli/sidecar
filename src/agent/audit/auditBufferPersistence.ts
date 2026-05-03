@@ -2,7 +2,7 @@ import { workspace, Uri } from 'vscode';
 import type { AuditBufferPersistence, BufferedChange, BufferedCommit } from './auditBuffer.js';
 
 /**
- * Filesystem-backed persistence for `AuditBuffer` (v0.61 a.3). Saves
+ * Filesystem-backed persistence for `AuditBuffer` . Saves
  * the full buffer snapshot to `.sidecar/audit-buffer/state.json` on
  * every mutation; loads it once at activation so pending agent work
  * survives extension reloads, window reloads, and VS Code restarts.

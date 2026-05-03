@@ -34,7 +34,7 @@ export interface ApiBackend {
 
   /**
    * Declare per-backend native capabilities beyond the standard
-   * streamChat + complete surface (v0.63.1). Optional — backends
+   * streamChat + complete surface. Optional — backends
    * without extra capabilities (Anthropic, Groq, Fireworks,
    * OpenRouter in its default config) simply don't implement this.
    *
@@ -75,7 +75,7 @@ export interface ApiBackend {
  */
 export interface BackendCapabilities {
   /**
-   * OAI-compat fallback (v0.63.1). When the backend is talking
+   * OAI-compat fallback. When the backend is talking
    * `/v1/chat/completions` to a host that also speaks a richer
    * native protocol (canonically Ollama's `/api/chat`), this
    * capability lets `SideCarClient` retry a failing OAI-compat
@@ -120,7 +120,7 @@ export interface BackendCapabilities {
   };
 
   /**
-   * Model-lifecycle management (v0.63.1). Canonical implementation
+   * Model-lifecycle management. Canonical implementation
    * is Kickstand — its `/api/v1/models/{id}/load` and `/unload`
    * endpoints let users hot-swap which model is loaded without
    * leaving VS Code. The abstraction leaves room for Ollama
@@ -152,7 +152,7 @@ export interface BackendCapabilities {
   };
 
   /**
-   * LoRA adapter management (v0.65.2). Lets users hot-swap fine-tuning
+   * LoRA adapter management. Lets users hot-swap fine-tuning
    * adapters on a loaded model without leaving VS Code.
    * Currently implemented by Kickstand via its /api/v1/models/{id}/lora endpoints.
    */
@@ -166,7 +166,7 @@ export interface BackendCapabilities {
   };
 
   /**
-   * Model browser / discovery (v0.65.2). Search HuggingFace and pull
+   * Model browser / discovery. Search HuggingFace and pull
    * models directly from VS Code. Kickstand wraps HuggingFace Hub.
    */
   modelBrowser?: {

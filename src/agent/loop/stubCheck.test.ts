@@ -5,7 +5,7 @@ import type { AgentCallbacks } from '../loop.js';
 import type { ToolUseContentBlock } from '../../ollama/types.js';
 
 // ---------------------------------------------------------------------------
-// Tests for stubCheck.ts (v0.65 chunk 2a — loop helper hardening).
+// Tests for stubCheck.ts (loop helper hardening).
 //
 // `applyStubCheck` composes `buildStubReprompt` from stubValidator.ts
 // with the loop's retry-budget + state-mutation ceremony. The

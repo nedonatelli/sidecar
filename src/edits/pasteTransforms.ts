@@ -1,5 +1,5 @@
 /**
- * Built-in paste transform table for Adaptive Paste (v0.72 Chunk 4).
+ * Built-in paste transform table for Adaptive Paste .
  *
  * Each entry describes a "foreign" content type that can be pasted into a
  * file and a suggested transformation to make it fit. Detection is pure
