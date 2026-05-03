@@ -24,7 +24,7 @@ jobs:
           node-version: 24
           cache: npm
 
-      - run: npm ci --force
+      - run: npm ci
 
       - name: Type check
         run: npx tsc --noEmit

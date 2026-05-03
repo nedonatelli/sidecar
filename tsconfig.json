@@ -8,6 +8,8 @@
     "strict": true,
     "esModuleInterop": true,
     "resolveJsonModule": true,
+    // Required: @huggingface/transformers and @huggingface/tokenizers ship .d.ts files
+    // with NodeNext-incompatible relative imports and internal type mismatches we cannot patch.
     "skipLibCheck": true,
     "types": ["node"],
     "forceConsistentCasingInFileNames": true

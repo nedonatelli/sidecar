@@ -18,7 +18,8 @@
     "email": "sidecarai.vscode@gmail.com"
   },
   "engines": {
-    "vscode": "^1.116.0"
+    "vscode": "^1.116.0",
+    "node": ">=20.0.0"
   },
   "icon": "media/SideCar.png",
   "categories": [
@@ -2250,6 +2251,7 @@
   "scripts": {
     "compile": "tsc -p ./",
     "bundle": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:web-tree-sitter --external:@huggingface/transformers --external:better-sqlite3 --external:@duckdb/node-api --external:playwright-core --external:esbuild --format=cjs --platform=node --sourcemap --minify --tree-shaking=true",
+    "watch": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:web-tree-sitter --external:@huggingface/transformers --external:better-sqlite3 --external:@duckdb/node-api --external:playwright-core --external:esbuild --format=cjs --platform=node --sourcemap --watch",
     "copy-grammars": "mkdir -p grammars && cp node_modules/web-tree-sitter/tree-sitter.wasm grammars/ && cp node_modules/tree-sitter-wasms/out/tree-sitter-typescript.wasm node_modules/tree-sitter-wasms/out/tree-sitter-tsx.wasm node_modules/tree-sitter-wasms/out/tree-sitter-javascript.wasm node_modules/tree-sitter-wasms/out/tree-sitter-python.wasm node_modules/tree-sitter-wasms/out/tree-sitter-rust.wasm node_modules/tree-sitter-wasms/out/tree-sitter-go.wasm grammars/",
     "build": "npm run compile && npm run bundle && npm run copy-grammars",
     "package": "npm run build && npx @vscode/vsce package",
@@ -2263,7 +2265,7 @@
     "lint": "eslint src/",
     "format": "prettier --write 'src/**/*.ts'",
     "format:check": "prettier --check 'src/**/*.ts'",
-    "check": "npm run compile && npm run lint && npm run test",
+    "check": "npm run compile && npm run lint && npm run format:check && npm run test",
     "bump": "bash scripts/bump-version.sh",
     "prepare": "husky"
   },
@@ -2272,6 +2274,7 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/mocha": "^10.0.10",
     "@types/node": "^20.0.0",
+    "@types/pdf-parse": "^1.1.5",
     "@types/pg": "^8.20.0",
     "@types/vscode": "^1.116.0",
     "@typescript-eslint/eslint-plugin": "^8.59.0",
@@ -2297,10 +2300,14 @@
   "dependencies": {
     "@huggingface/transformers": "^4.1.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@types/pdf-parse": "^1.1.5",
     "mermaid": "^11.14.0",
     "pdf-parse": "^2.4.5",
     "web-tree-sitter": "^0.24.7"
+  },
+  "overrides": {
+    "uuid": ">=14.0.0",
+    "diff": ">=9.0.0",
+    "serialize-javascript": ">=7.0.5"
   },
   "lint-staged": {
     "src/**/*.ts": [

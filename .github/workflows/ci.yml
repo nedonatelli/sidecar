@@ -9,15 +9,18 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20, 24]
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: ${{ matrix.node-version }}
           cache: npm
 
-      - run: npm ci --force
+      - run: npm ci
 
       - name: Type check
         run: npx tsc --noEmit
@@ -28,8 +31,12 @@ jobs:
       - name: Format check
         run: npm run format:check
 
+      - name: Bundle
+        run: npm run bundle
+
       - name: Tests
         run: npm test
 
       - name: Test coverage
+        if: matrix.node-version == 24
         run: npm run test:coverage
