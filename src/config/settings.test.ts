@@ -193,7 +193,7 @@ describe('getConfig', () => {
 
   it('returns correct defaults from mock configuration', () => {
     const config = getConfig();
-    expect(config.model).toBe('qwen3-coder:30b');
+    expect(config.model).toBe('gemma4:e4b');
     expect(config.baseUrl).toBe('http://localhost:11434');
     expect(config.apiKey).toBe('ollama');
     expect(config.agentMode).toBe('cautious');

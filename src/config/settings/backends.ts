@@ -32,7 +32,7 @@ export interface BackendProfile {
 /** Shipped default model (Ollama). Also used as a sentinel: when `sidecar.model`
  *  still matches this string, the user hasn't picked a model yet, so `readConfig`
  *  is free to substitute a provider-appropriate default. */
-export const OLLAMA_DEFAULT_MODEL = 'qwen3-coder:30b';
+export const OLLAMA_DEFAULT_MODEL = 'gemma4:e4b';
 
 /** Default model when the resolved provider is Anthropic and no explicit
  *  model has been set. Haiku is chosen over Sonnet/Opus for cost. */
@@ -44,7 +44,7 @@ export const BUILT_IN_BACKEND_PROFILES: readonly BackendProfile[] = [
     name: 'Local Ollama',
     provider: 'ollama',
     baseUrl: 'http://localhost:11434',
-    defaultModel: 'qwen2.5-coder:7b',
+    defaultModel: 'gemma4:e4b',
     secretKey: null,
     description: 'Self-hosted models via Ollama (free, private, no API key required)',
   },

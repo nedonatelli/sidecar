@@ -261,7 +261,7 @@ async function handleHuggingFaceInstall(
       if (choice !== 'Pull Anyway') {
         state.postMessage({
           command: 'assistantMessage',
-          content: `Model installation cancelled. Try \`ollama pull qwen3.5\` from the terminal for the official library version.\n\n`,
+          content: `Model installation cancelled. Try \`ollama pull gemma4:e4b\` from the terminal for the official library version.\n\n`,
         });
         return { shouldFallThroughToPull: false, pullName: '' };
       }
@@ -502,7 +502,7 @@ async function verifyModelLoads(baseUrl: string, model: string): Promise<string 
         `Ollama pulled the model successfully but cannot load it: ${detail}\n\n` +
         'This usually means the GGUF was built with a model architecture that ' +
         "Ollama's engine doesn't fully support for HuggingFace imports yet. " +
-        'Check if an official Ollama library version exists (e.g. `ollama pull qwen3.5`).'
+        'Check if an official Ollama library version exists (e.g. `ollama pull gemma4:e4b`).'
       );
     }
     return `Model verification failed: ${detail}`;

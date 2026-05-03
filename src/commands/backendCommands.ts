@@ -311,7 +311,7 @@ async function pickModelId(
 
   return vscode.window.showInputBox({
     prompt: `Model ID to ${action}`,
-    placeHolder: 'e.g. qwen3-coder:30b',
+    placeHolder: 'e.g. gemma4:e4b',
     validateInput: (value) => (value.trim().length === 0 ? 'Model ID cannot be empty' : undefined),
   });
 }

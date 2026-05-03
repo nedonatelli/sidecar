@@ -456,7 +456,7 @@ describe('handleInstallModel', () => {
     );
     expect(state.client.pullModel).not.toHaveBeenCalled();
     expect(state.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ content: expect.stringContaining('ollama pull qwen3.5') }),
+      expect.objectContaining({ content: expect.stringContaining('ollama pull gemma4:e4b') }),
     );
   });
 
