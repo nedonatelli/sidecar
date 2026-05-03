@@ -282,7 +282,7 @@ export async function injectSystemContext(
         context = enhanceContextWithSmartElements(context, text);
         const trimmed =
           context.length > contextBudget ? context.slice(0, contextBudget - 30) + '\n... (context truncated)' : context;
-        prompt += `\n\n## Workspace Context\n${trimmed}`;
+        prompt += `\n\n## Workspace Context (reference files — not your task)\n${trimmed}`;
       }
       sizes['Workspace context'] = prompt.length - prevLen;
       prevLen = prompt.length;
