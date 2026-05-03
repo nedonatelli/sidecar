@@ -54,13 +54,6 @@ export {
 } from './messageUtils.js';
 
 export {
-  type SystemPromptParams,
-  buildBaseSystemPrompt,
-  injectSystemContext,
-  enrichAndPruneMessages,
-} from './systemPrompt.js';
-
-export {
   handleAttachFile,
   handleDroppedPaths,
   handleSaveCodeBlock,

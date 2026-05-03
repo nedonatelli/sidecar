@@ -3,7 +3,6 @@ import {
   classifyError,
   languageToExtension,
   keywordOverlap,
-  buildBaseSystemPrompt,
   shouldAutoEnablePlanMode,
   isPlanApproval,
   isPlanRejection,
@@ -11,7 +10,6 @@ import {
   isCommitRequest,
   isShowDiffRequest,
   isDeferredAnswer,
-  injectSystemContext,
   postLoopProcessing,
   handleCreateFile,
   handleMoveFile,
@@ -29,7 +27,8 @@ import {
   checkBudgetLimits,
   recordRunCost,
 } from './chatHandlers.js';
-import type { SystemPromptParams } from './chatHandlers.js';
+import { buildBaseSystemPrompt, injectSystemContext } from './systemPrompt.js';
+import type { SystemPromptParams } from './systemPrompt.js';
 import { workspace, window, FileType } from 'vscode';
 
 // ---------------------------------------------------------------------------

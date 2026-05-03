@@ -1,22 +1,16 @@
 /**
- * Symbol-level semantic embedding index (v0.61 b.1, part 1 of the
- * Project Knowledge Index feature). Lower-level sibling of
+ * Symbol-level semantic embedding index. Lower-level sibling of
  * [`EmbeddingIndex`](./embeddingIndex.ts): instead of one vector per
  * file, we index one vector per symbol (function, class, method,
  * interface, type, etc.) so queries like "where is auth handled?"
  * return the specific function rather than the whole file.
  *
- * v0.62 c.2 — storage was extracted to a pluggable `VectorStore`
- * interface. This class now owns the embedding pipeline + queue +
- * domain logic (hash short-circuit, kind/path filters) while the
- * actual vector CRUD + persistence delegate to a `VectorStore<SymbolMetadata>`.
- * Default backend is the flat in-memory cosine-scan store; a future
+ * Storage delegates to a pluggable `VectorStore<SymbolMetadata>`. The
+ * default backend is the flat in-memory cosine-scan store; a future
  * release can drop in a LanceDB-backed store with no changes here.
  *
  * Storage: `.sidecar/cache/symbol-embeddings.bin` (packed Float32
- * vectors) + `.sidecar/cache/symbol-embeddings-meta.json` — bit-for-
- * bit compatible with the v0.61 format (caller's `modelId` is
- * preserved via `extraMeta`).
+ * vectors) + `.sidecar/cache/symbol-embeddings-meta.json`.
  */
 
 import { Disposable } from 'vscode';
@@ -25,11 +19,6 @@ import type { SidecarDir } from './sidecarDir.js';
 import { FlatVectorStore, type VectorStore, type FlatStoreMeta } from './vectorStore.js';
 import { hashLeaf, type MerkleTree } from './merkleTree.js';
 
-/**
- * Same model as the file-level index — keeps the embedding space
- * compatible so a single query can score against both backends during
- * the feature-flag migration window.
- */
 const MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
 const DIMENSION = 384;
 const SCHEMA_VERSION = 1;
@@ -624,18 +613,9 @@ export class SymbolEmbeddingIndex implements Disposable {
     return this.store.size();
   }
 
-  /** Look up one symbol's metadata by ID. Handy for callers that got
-   *  a `symbolId` from somewhere else and need its location. The
-   *  return type includes `offset` for v0.61 compatibility but the
-   *  field is meaningless against a non-flat backend; callers that
-   *  only need location-level fields should ignore it. */
-  getSymbolMeta(symbolId: string): (SymbolMetadata & { offset: number }) | null {
-    const metadata = this.store.getMetadata(symbolId);
-    if (!metadata) return null;
-    // `offset` was an internal implementation detail pre-c.2; kept
-    // in the shape for API compatibility and always reported as 0
-    // for non-flat backends.
-    return { ...metadata, offset: 0 };
+  /** Look up one symbol's metadata by ID. */
+  getSymbolMeta(symbolId: string): SymbolMetadata | null {
+    return this.store.getMetadata(symbolId) ?? null;
   }
 
   // ---------------------------------------------------------------------------
@@ -685,11 +665,3 @@ export function makeSymbolId(filePath: string, qualifiedName: string): string {
 function hashBody(body: string): string {
   return crypto.createHash('md5').update(body.slice(0, MAX_INPUT_CHARS)).digest('hex').slice(0, 12);
 }
-
-/**
- * Cosine similarity between two unit vectors. Re-exported from the
- * vector store module so existing v0.61 importers that pulled this
- * from `symbolEmbeddingIndex.ts` don't break. New code should import
- * from `vectorStore.ts` directly.
- */
-export { cosine } from './vectorStore.js';

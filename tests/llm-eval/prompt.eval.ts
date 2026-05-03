@@ -1,5 +1,5 @@
 import { describe, it } from 'vitest';
-import { buildBaseSystemPrompt } from '../../src/webview/handlers/chatHandlers.js';
+import { buildBaseSystemPrompt } from '../../src/webview/handlers/systemPrompt.js';
 import { CASES } from './cases.js';
 import { score, renderReport } from './scorers.js';
 import { pickBackend, pickModel } from './backend.js';

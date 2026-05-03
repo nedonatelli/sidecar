@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { SymbolEmbeddingIndex, makeSymbolId, cosine, type SymbolEmbedInput } from './symbolEmbeddingIndex.js';
+import { SymbolEmbeddingIndex, makeSymbolId, type SymbolEmbedInput } from './symbolEmbeddingIndex.js';
+import { cosine } from './vectorStore.js';
 
 /**
  * Tests exercise the storage + similarity primitive against a
