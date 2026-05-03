@@ -9,23 +9,32 @@ import { parseOpenAIRateLimitHeaders } from './rateLimitHeaders.js';
 import { sidecarFetch } from './sidecarFetch.js';
 import { charsToTokens } from '../config/tokenEstimation.js';
 
+const KICKSTAND_TOKEN_PATH = path.join(os.homedir(), '.config', 'kickstand', 'token');
+const TOKEN_CACHE_TTL_MS = 60_000;
+let _cachedToken = '';
+let _tokenCacheTime = 0;
+
 /**
  * Read the auto-generated Kickstand bearer token from the well-known
  * file path (`~/.config/kickstand/token`). Kickstand creates this file
  * on first run — SideCar reads it silently so the user never has to
- * copy-paste a key. Returns an empty string if the file doesn't exist
- * (e.g. Kickstand hasn't been started yet).
+ * copy-paste a key. Result is cached for 60 s to avoid a sync fs read
+ * on every request. Returns an empty string if the file doesn't exist.
  */
 function readKickstandToken(): string {
+  const now = Date.now();
+  if (now - _tokenCacheTime < TOKEN_CACHE_TTL_MS) return _cachedToken;
   try {
-    const tokenPath = path.join(os.homedir(), '.config', 'kickstand', 'token');
-    if (fs.existsSync(tokenPath)) {
-      return fs.readFileSync(tokenPath, 'utf-8').trim();
+    if (fs.existsSync(KICKSTAND_TOKEN_PATH)) {
+      _cachedToken = fs.readFileSync(KICKSTAND_TOKEN_PATH, 'utf-8').trim();
+    } else {
+      _cachedToken = '';
     }
   } catch {
-    // Token file not found or unreadable — Kickstand may not be installed
+    _cachedToken = '';
   }
-  return '';
+  _tokenCacheTime = now;
+  return _cachedToken;
 }
 
 const MAX_RATE_LIMIT_WAIT_MS = 60_000;

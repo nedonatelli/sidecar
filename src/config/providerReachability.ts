@@ -3,21 +3,31 @@ import * as path from 'path';
 import * as os from 'os';
 import { getConfig, type SideCarConfig } from './settings.js';
 
+const _PROBE_TOKEN_PATH = path.join(os.homedir(), '.config', 'kickstand', 'token');
+let _probeToken = '';
+let _probeTokenTime = 0;
+const PROBE_TOKEN_TTL_MS = 60_000;
+
 /**
  * Read the auto-generated Kickstand bearer token for reachability probes.
  * Duplicated from kickstandBackend.ts to avoid a circular dependency
  * (providerReachability is imported by settings consumers, not backend modules).
+ * Result is cached for 60 s to avoid repeated sync fs reads.
  */
 function readKickstandTokenForProbe(): string {
+  const now = Date.now();
+  if (now - _probeTokenTime < PROBE_TOKEN_TTL_MS) return _probeToken;
   try {
-    const tokenPath = path.join(os.homedir(), '.config', 'kickstand', 'token');
-    if (fs.existsSync(tokenPath)) {
-      return fs.readFileSync(tokenPath, 'utf-8').trim();
+    if (fs.existsSync(_PROBE_TOKEN_PATH)) {
+      _probeToken = fs.readFileSync(_PROBE_TOKEN_PATH, 'utf-8').trim();
+    } else {
+      _probeToken = '';
     }
   } catch {
-    // Token file not found or unreadable
+    _probeToken = '';
   }
-  return '';
+  _probeTokenTime = now;
+  return _probeToken;
 }
 
 /**
