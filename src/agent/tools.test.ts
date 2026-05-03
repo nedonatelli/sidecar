@@ -4,6 +4,7 @@ import {
   disposeShellSession,
   TOOL_REGISTRY,
   SPAWN_AGENT_DEFINITION,
+  DELEGATE_TASK_DEFINITION,
   getToolDefinitions,
   findTool,
   setSymbolGraph,
@@ -51,6 +52,25 @@ vi.mock('../config/settings.js', () => ({
   detectProvider: vi.fn(() => 'ollama'),
 }));
 
+// Mock child_process execFile for custom tool executor tests — pass through
+// all other exports (exec, spawn, etc.) so dependent modules still work.
+vi.mock('child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('child_process')>();
+  return {
+    ...actual,
+    execFile: vi.fn(
+      (
+        _bin: unknown,
+        _args: unknown,
+        _opts: unknown,
+        cb: (err: null, result: { stdout: string; stderr: string }) => void,
+      ) => {
+        cb(null, { stdout: 'mock output', stderr: '' });
+      },
+    ),
+  };
+});
+
 // Mock terminal/shellSession
 vi.mock('../terminal/shellSession.js', () => ({
   ShellSession: vi.fn(() => ({
@@ -84,6 +104,7 @@ vi.mock('../github/git.js', () => ({
 vi.mock('./securityScanner.js', () => ({
   scanFile: vi.fn(() => Promise.resolve([])),
   formatIssues: vi.fn(() => ''),
+  redactSecrets: vi.fn((s: string) => s),
 }));
 
 // Mock webSearch
@@ -222,6 +243,27 @@ describe('tools.ts', () => {
       const defs = getToolDefinitions();
       expect(Array.isArray(defs)).toBe(true);
     });
+
+    it('includes delegate_task when delegateTaskEnabled and provider is anthropic', async () => {
+      const settings = await import('../config/settings.js');
+      vi.mocked(settings.detectProvider).mockReturnValueOnce('anthropic');
+      const defs = getToolDefinitions(undefined, {
+        delegateTaskEnabled: true,
+        baseUrl: 'https://api.anthropic.com',
+        provider: 'auto',
+        customTools: [],
+      } as never);
+      expect(defs.some((d) => d.name === DELEGATE_TASK_DEFINITION.name)).toBe(true);
+    });
+  });
+
+  describe('ask_user executor placeholder', () => {
+    it('returns the placeholder message when called directly', async () => {
+      const askUserTool = TOOL_REGISTRY.find((t) => t.definition.name === 'ask_user');
+      expect(askUserTool).toBeDefined();
+      const result = await askUserTool!.executor({});
+      expect(result).toContain('ask_user should be handled by the executor');
+    });
   });
 
   describe('findTool', () => {
@@ -326,6 +368,27 @@ describe('tools.ts', () => {
       workspaceTrust.resetWorkspaceTrust(); // simulate user changing settings / session reset
       await initCustomToolsTrust();
       expect(getToolDefinitions().filter((d) => d.name.startsWith('custom_'))).toHaveLength(1);
+    });
+
+    it('executes custom tool command and returns stdout', async () => {
+      const settings = await import('../config/settings.js');
+      vi.mocked(settings.getConfig).mockReturnValue({
+        shellMaxOutputMB: 10,
+        shellTimeout: 120,
+        customTools: [{ name: 'echo_tool', description: 'echoes', command: 'echo hello' }],
+        baseUrl: 'http://localhost:11434',
+        provider: 'auto',
+        delegateTaskEnabled: false,
+      } as never);
+
+      vi.spyOn(workspaceTrust, 'checkWorkspaceConfigTrust').mockResolvedValue('trusted');
+      await initCustomToolsTrust();
+
+      const tool = findTool('custom_echo_tool');
+      expect(tool).toBeDefined();
+
+      const result = await tool!.executor({ input: 'test input' });
+      expect(typeof result).toBe('string');
     });
   });
 

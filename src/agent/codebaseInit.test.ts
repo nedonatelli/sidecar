@@ -166,5 +166,54 @@ describe('codebaseInit', () => {
       expect(result).not.toBeNull();
       expect(result).not.toContain('File Statistics');
     });
+
+    it('reads AI instruction files (CLAUDE.md) when they exist', async () => {
+      mockWorkspace.fs.readFile = vi.fn().mockImplementation((uri: any) => {
+        if (uri.fsPath.endsWith('CLAUDE.md')) {
+          return Promise.resolve(Buffer.from('# Project instructions\nUse TypeScript.'));
+        }
+        return Promise.reject(new Error('not found'));
+      });
+
+      const result = await buildInitContext(null);
+
+      expect(result).toContain('CLAUDE.md');
+      expect(result).toContain('Project instructions');
+    });
+
+    it('truncates long AI instruction files', async () => {
+      const longContent = 'x'.repeat(10000);
+      mockWorkspace.fs.readFile = vi.fn().mockImplementation((uri: any) => {
+        if (uri.fsPath.endsWith('CLAUDE.md')) {
+          return Promise.resolve(Buffer.from(longContent));
+        }
+        return Promise.reject(new Error('not found'));
+      });
+
+      const result = await buildInitContext(null);
+
+      expect(result).toContain('truncated');
+    });
+
+    it('includes sample source files when findFiles returns results', async () => {
+      mockWorkspace.findFiles = vi.fn().mockResolvedValue([{ fsPath: '/test/project/src/app.ts' }]);
+      mockWorkspace.fs.stat = vi.fn().mockResolvedValue({ type: 1, size: 500 });
+      mockWorkspace.fs.readFile = vi.fn().mockResolvedValue(Buffer.from('export function main() {}'));
+
+      const result = await buildInitContext(null);
+      expect(result).toContain('Sample Source Files');
+    });
+
+    it('detects project name from Cargo.toml', async () => {
+      mockWorkspace.fs.readFile = vi.fn().mockImplementation((uri: any) => {
+        if (uri.fsPath.endsWith('Cargo.toml')) {
+          return Promise.resolve(Buffer.from('[package]\nname = "my-rust-app"\nversion = "0.1.0"'));
+        }
+        return Promise.reject(new Error('not found'));
+      });
+
+      const result = await buildInitContext(null);
+      expect(result).toContain('my-rust-app');
+    });
   });
 });

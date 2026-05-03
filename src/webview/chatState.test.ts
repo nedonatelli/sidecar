@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { ChatState } from './chatState.js';
 import type { ExtensionContext } from 'vscode';
 import type { TerminalManager } from '../terminal/manager.js';
@@ -298,9 +298,251 @@ describe('ChatState', () => {
     });
   });
 
+  describe('loadSidecarMd()', () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    it('returns file content when SIDECAR.md exists', async () => {
+      const { workspace } = await import('vscode');
+      vi.spyOn(workspace.fs, 'readFile').mockResolvedValueOnce(Buffer.from('# My Guide\nsome content') as never);
+      const state = createState();
+      const result = await state.loadSidecarMd();
+      expect(result).toContain('My Guide');
+      state.dispose();
+    });
+
+    it('returns null when no workspace folder is available', async () => {
+      const { workspace } = await import('vscode');
+      vi.spyOn(workspace, 'workspaceFolders', 'get').mockReturnValue(undefined as never);
+      const state = createState();
+      const result = await state.loadSidecarMd();
+      expect(result).toBeNull();
+      state.dispose();
+    });
+
+    it('caches the result on second call', async () => {
+      const { workspace } = await import('vscode');
+      const readFileSpy = vi
+        .spyOn(workspace.fs, 'readFile')
+        .mockResolvedValueOnce(Buffer.from('# Cached') as never)
+        .mockRejectedValue(new Error('should not be called again'));
+      const state = createState();
+      const first = await state.loadSidecarMd();
+      const second = await state.loadSidecarMd();
+      expect(first).toBe(second);
+      expect(readFileSpy).toHaveBeenCalledTimes(1);
+      state.dispose();
+    });
+
+    it('returns null when both candidate files are missing', async () => {
+      const { workspace } = await import('vscode');
+      vi.spyOn(workspace.fs, 'readFile').mockRejectedValue(new Error('ENOENT'));
+      const state = createState();
+      const result = await state.loadSidecarMd();
+      expect(result).toBeNull();
+      state.dispose();
+    });
+
+    it('falls back to root SIDECAR.md when .sidecar/SIDECAR.md is empty', async () => {
+      const { workspace } = await import('vscode');
+      vi.spyOn(workspace.fs, 'readFile')
+        .mockResolvedValueOnce(Buffer.from('   ') as never)
+        .mockResolvedValueOnce(Buffer.from('# Root') as never);
+      const state = createState();
+      const result = await state.loadSidecarMd();
+      expect(result).toBe('# Root');
+      state.dispose();
+    });
+  });
+
   // -------------------------------------------------------------------------
   // Steer queue persistence
   // -------------------------------------------------------------------------
+  // -------------------------------------------------------------------------
+  // abort() with pending confirms
+  // -------------------------------------------------------------------------
+  describe('abort() with pending confirms', () => {
+    it('resolves all pending confirms with Reject when abort is called', async () => {
+      const state = createState();
+      // Request a confirm — this adds a pending promise
+      const confirmPromise = state.requestConfirm('Overwrite?', ['Yes', 'No']);
+      // The confirm is now pending
+      state.abortController = new AbortController();
+      state.abort();
+      const result = await confirmPromise;
+      expect(result).toBe('Reject');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // cancelInstall
+  // -------------------------------------------------------------------------
+  describe('cancelInstall()', () => {
+    it('aborts the installAbortController when set', () => {
+      const state = createState();
+      state.installAbortController = new AbortController();
+      const spy = vi.spyOn(state.installAbortController, 'abort');
+      state.cancelInstall();
+      expect(spy).toHaveBeenCalled();
+    });
+
+    it('is a no-op when installAbortController is null', () => {
+      const state = createState();
+      expect(() => state.cancelInstall()).not.toThrow();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // requestConfirm (modal path)
+  // -------------------------------------------------------------------------
+  describe('requestConfirm()', () => {
+    it('sends inline confirm message when modal is not set', async () => {
+      mockPostMessage.mockClear();
+      const state = createState();
+      const p = state.requestConfirm('Delete this file?', ['Delete', 'Cancel']);
+      expect(mockPostMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ command: 'confirm', content: 'Delete this file?' }),
+      );
+      expect(p).toBeInstanceOf(Promise);
+    });
+
+    it('uses window.showWarningMessage for modal confirmations', async () => {
+      const { window: vswindow } = await import('vscode');
+      const spy = vi.spyOn(vswindow, 'showWarningMessage').mockResolvedValue({ title: 'OK' } as never);
+      const state = createState();
+      const result = await state.requestConfirm('Danger!', ['OK', 'Cancel'], { modal: true, detail: 'Extra info' });
+      expect(spy).toHaveBeenCalledWith(
+        'Danger!',
+        { modal: true, detail: 'Extra info' },
+        { title: 'OK' },
+        { title: 'Cancel' },
+      );
+      expect(result).toBe('OK');
+      vi.restoreAllMocks();
+    });
+
+    it('returns undefined when modal is dismissed', async () => {
+      const { window: vswindow } = await import('vscode');
+      vi.spyOn(vswindow, 'showWarningMessage').mockResolvedValue(undefined as never);
+      const state = createState();
+      const result = await state.requestConfirm('Are you sure?', ['Yes', 'No'], { modal: true });
+      expect(result).toBeUndefined();
+      vi.restoreAllMocks();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // resolveAllConfirms
+  // -------------------------------------------------------------------------
+  describe('resolveAllConfirms()', () => {
+    it('resolves all pending confirms and posts dismissConfirm for each', async () => {
+      mockPostMessage.mockClear();
+      const state = createState();
+      const p1 = state.requestConfirm('First?', ['Yes']);
+      const p2 = state.requestConfirm('Second?', ['OK']);
+      state.resolveAllConfirms('AutoApproved');
+      const [r1, r2] = await Promise.all([p1, p2]);
+      expect(r1).toBe('AutoApproved');
+      expect(r2).toBe('AutoApproved');
+      const dismissCalls = mockPostMessage.mock.calls.filter(
+        (c) => (c[0] as { command: string }).command === 'dismissConfirm',
+      );
+      expect(dismissCalls).toHaveLength(2);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // clearChat with auditLog + agentMemory
+  // -------------------------------------------------------------------------
+  describe('clearChat with auditLog + agentMemory', () => {
+    it('updates audit log context on clearChat when both are set', () => {
+      const state = createState();
+      const mockAuditLog = { setContext: vi.fn() };
+      const mockAgentMemory = {
+        startSession: vi.fn(),
+        getSessionId: vi.fn().mockReturnValue('test-session-id'),
+      };
+      state.auditLog = mockAuditLog as never;
+      state.agentMemory = mockAgentMemory as never;
+      state.clearChat();
+      expect(mockAuditLog.setContext).toHaveBeenCalledWith('test-session-id', expect.any(String), 'cautious');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // requestClarification / resolveClarification
+  // -------------------------------------------------------------------------
+  describe('requestClarification / resolveClarification', () => {
+    it('requestClarification posts a clarify command and returns a Promise', () => {
+      mockPostMessage.mockClear();
+      const state = createState();
+      const p = state.requestClarification('What color?', ['red', 'blue']);
+      expect(mockPostMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ command: 'clarify', content: 'What color?' }),
+      );
+      expect(p).toBeInstanceOf(Promise);
+    });
+
+    it('resolveClarification resolves the pending promise with the chosen value', async () => {
+      const state = createState();
+      const p = state.requestClarification('Pick one', ['a', 'b']);
+      const [call] = mockPostMessage.mock.calls.slice(-1);
+      const { clarifyId } = call[0] as { clarifyId: string };
+      state.resolveClarification(clarifyId, 'a');
+      expect(await p).toBe('a');
+    });
+
+    it('resolveClarification is a no-op for unknown ids', () => {
+      const state = createState();
+      expect(() => state.resolveClarification('nonexistent-id', 'a')).not.toThrow();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // autoSave
+  // -------------------------------------------------------------------------
+  describe('autoSave', () => {
+    it('is a no-op when messages are empty', () => {
+      const state = createState();
+      const spy = vi.spyOn(state.sessionManager, 'save');
+      state.autoSave();
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('saves a new session when there is no currentSessionId', () => {
+      const state = createState();
+      state.messages = [{ role: 'user', content: 'hello' }];
+      const saveSpy = vi
+        .spyOn(state.sessionManager, 'save')
+        .mockReturnValue({ id: 'sess-1', name: 'hello', messages: [], updatedAt: 0 } as never);
+      state.autoSave();
+      expect(saveSpy).toHaveBeenCalled();
+      expect(state.currentSessionId).toBe('sess-1');
+    });
+
+    it('updates the existing session and returns early when update succeeds', () => {
+      const state = createState();
+      state.messages = [{ role: 'user', content: 'hello' }];
+      state.currentSessionId = 'existing-session';
+      const updateSpy = vi.spyOn(state.sessionManager, 'update').mockReturnValue(true);
+      const saveSpy = vi.spyOn(state.sessionManager, 'save');
+      state.autoSave();
+      expect(updateSpy).toHaveBeenCalledWith('existing-session', state.messages);
+      expect(saveSpy).not.toHaveBeenCalled();
+    });
+
+    it('falls back to save when update returns false (session not found)', () => {
+      const state = createState();
+      state.messages = [{ role: 'user', content: 'hi' }];
+      state.currentSessionId = 'missing-session';
+      vi.spyOn(state.sessionManager, 'update').mockReturnValue(false);
+      const saveSpy = vi
+        .spyOn(state.sessionManager, 'save')
+        .mockReturnValue({ id: 'new-sess', name: 'hi', messages: [], updatedAt: 0 } as never);
+      state.autoSave();
+      expect(saveSpy).toHaveBeenCalled();
+    });
+  });
+
   describe('steer queue persistence', () => {
     it('initializes with a null pendingSteerSnapshot', () => {
       const state = createState();

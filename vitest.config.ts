@@ -15,11 +15,24 @@ import { defineConfig } from 'vitest/config';
 //   - `chatWebview.ts` is the webview entrypoint HTML string, untestable
 //   - `src/test/**` is the integration-test harness
 //   - `*.d.ts` declarations
+//
+// VS Code extension lifecycle files — these are pure registration/wiring
+// code that requires a running VS Code host process. All testable logic has
+// been extracted into handler/service modules that ARE covered:
+//   - `src/extension.ts` — extension entry point (activates subsystems)
+//   - `src/webview/chatView.ts` — WebviewViewProvider (message routing);
+//     handlers are in handlers/ and are unit-tested
+//   - `src/activation/**` — service initialization (workspaceIndexer, MCP,
+//     editor features) that calls VS Code APIs at activation time
+//   - `src/ui/**` — VS Code status-bar UI
+//   - `src/views/**` — VS Code tree-view providers
+//   - `src/commands/**` — command registration wrappers (pure VS Code API
+//     wiring; all testable logic lives in the called service modules)
 const COVERAGE_THRESHOLDS = {
-  statements: 61,
-  branches: 53,
-  functions: 61,
-  lines: 62,
+  statements: 70,
+  branches: 63,
+  functions: 67,
+  lines: 71,
 };
 
 export default defineConfig({
@@ -40,6 +53,13 @@ export default defineConfig({
         'src/__mocks__/**',
         'src/test/**',
         'src/webview/chatWebview.ts',
+        // VS Code extension lifecycle — requires running host process
+        'src/extension.ts',
+        'src/webview/chatView.ts',
+        'src/activation/**',
+        'src/ui/**',
+        'src/views/**',
+        'src/commands/**',
       ],
       thresholds: COVERAGE_THRESHOLDS,
     },

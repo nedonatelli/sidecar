@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { runAutoMode, type AutoModeOptions, type AutoModeCallbacks } from './dispatcher.js';
+import { runAutoMode, AutoModeStatusBar, type AutoModeOptions, type AutoModeCallbacks } from './dispatcher.js';
 import type { SideCarClient } from '../../ollama/client.js';
 import type { AgentCallbacks } from '../loop.js';
 
@@ -274,5 +274,55 @@ describe('runAutoMode — per-item sentinels', () => {
     const [, messages] = vi.mocked(runAgentLoopInSandbox).mock.calls[0];
     expect(messages[0].content).toContain('Write tests');
     expect(messages[0].content).not.toContain('@model:');
+  });
+});
+
+describe('runAutoMode — runtime cap', () => {
+  it('stops with runtime-cap when maxRuntimeMs is already exceeded', async () => {
+    // Freeze time so Date.now() returns a fixed value
+    const now = Date.now();
+    vi.spyOn(Date, 'now').mockReturnValue(now + 999_999);
+
+    const backlog = '- [ ] Some task\n';
+    readFile.mockResolvedValue(backlog as never);
+
+    const callbacks = makeCallbacks();
+    const result = await runAutoMode(makeClient(), { ...BASE_OPTS, maxRuntimeMs: 0 }, makeAgentCallbacks(), callbacks);
+
+    expect(result.stoppedReason).toBe('runtime-cap');
+    vi.restoreAllMocks();
+  });
+});
+
+describe('runAutoMode — interTaskCooldown', () => {
+  it('still completes when interTaskCooldownMs > 0 with a fast timeout', async () => {
+    const backlog = '- [ ] Task one\n';
+    readFile
+      .mockReset()
+      .mockResolvedValueOnce(backlog as never)
+      .mockResolvedValueOnce(backlog as never)
+      .mockResolvedValueOnce('- [x] Task one\n' as never);
+
+    const result = await runAutoMode(
+      makeClient(),
+      { ...BASE_OPTS, interTaskCooldownMs: 1 },
+      makeAgentCallbacks(),
+      makeCallbacks(),
+    );
+
+    expect(result.tasksSucceeded).toBe(1);
+  });
+});
+
+describe('AutoModeStatusBar', () => {
+  it('creates without throwing', () => {
+    expect(() => new AutoModeStatusBar()).not.toThrow();
+  });
+
+  it('show, hide, dispose do not throw', () => {
+    const bar = new AutoModeStatusBar();
+    expect(() => bar.show(1, 5)).not.toThrow();
+    expect(() => bar.hide()).not.toThrow();
+    expect(() => bar.dispose()).not.toThrow();
   });
 });

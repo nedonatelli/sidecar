@@ -417,6 +417,29 @@ describe('OpenAIBackend', () => {
     });
   });
 
+  describe('listModels', () => {
+    it('returns models from /v1/models when response is ok', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [{ id: 'gpt-4o' }, { id: 'gpt-3.5-turbo' }] }),
+      });
+      const models = await backend.listModels();
+      expect(models.map((m) => m.id)).toEqual(['gpt-4o', 'gpt-3.5-turbo']);
+    });
+
+    it('returns empty array when response is not ok', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: false });
+      const models = await backend.listModels();
+      expect(models).toEqual([]);
+    });
+
+    it('returns empty array when fetch throws', async () => {
+      mockFetch.mockRejectedValueOnce(new Error('network error'));
+      const models = await backend.listModels();
+      expect(models).toEqual([]);
+    });
+  });
+
   // OpenAIBackend advertises an `oaiCompatFallback`
   // capability whose `matches()` returns true ONLY when (a) the
   // error looks like an OAI-compat-layer glitch (502/503/504/
@@ -485,6 +508,38 @@ describe('OpenAIBackend', () => {
       }
       expect(error).not.toBeNull();
       expect(error!.message).toMatch(/Native Ollama fallback declined/);
+    });
+
+    it('fallbackComplete throws when host is not Ollama', async () => {
+      const caps = backend.nativeCapabilities();
+      // Probe: not Ollama
+      mockFetch.mockImplementationOnce(async () => ({ ok: false }));
+
+      await expect(caps.oaiCompatFallback!.fallbackComplete!('model', '', [], 100)).rejects.toThrow(
+        /Native Ollama fallback declined/,
+      );
+    });
+
+    it('fallbackComplete delegates to OllamaBackend when probe confirms Ollama', async () => {
+      const caps = backend.nativeCapabilities();
+      // Probe: Ollama confirmed
+      mockFetch.mockImplementationOnce(async () => ({
+        ok: true,
+        json: async () => ({ models: [] }),
+      }));
+      // Ollama /api/chat response (complete() uses /api/chat)
+      mockFetch.mockImplementationOnce(async () => ({
+        ok: true,
+        json: async () => ({ message: { role: 'assistant', content: 'done text' }, done: true }),
+      }));
+
+      const result = await caps.oaiCompatFallback!.fallbackComplete!(
+        'qwen3',
+        '',
+        [{ role: 'user', content: 'hi' }],
+        50,
+      );
+      expect(result).toBe('done text');
     });
 
     it('fallbackStreamChat delegates to OllamaBackend when the probe confirms Ollama', async () => {

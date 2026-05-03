@@ -201,5 +201,40 @@ describe('test', () => {
 
       expect(result?.content).toBe('describe("test", () => {});');
     });
+
+    it('detects jest from package.json when vitest is absent', async () => {
+      const pkg = JSON.stringify({ devDependencies: { jest: '^29.0.0' } });
+      mockWorkspace.workspaceFolders = [{ uri: { fsPath: '/mock-workspace' }, name: 'mock', index: 0 }];
+      mockWorkspace.fs = {
+        readFile: vi.fn().mockResolvedValue(Buffer.from(pkg)),
+      };
+      mockClient.complete.mockResolvedValue('describe("test", () => {});');
+
+      const result = await generateTests(mockClient, 'code', 'typescript', 'file.ts');
+      expect(result?.testFileName).toBe('file.test.ts');
+      const messages = mockClient.complete.mock.calls[0][0];
+      expect(messages[0].content).toContain('jest');
+    });
+
+    it('detects vitest from package.json', async () => {
+      const pkg = JSON.stringify({ devDependencies: { vitest: '^1.0.0' } });
+      mockWorkspace.workspaceFolders = [{ uri: { fsPath: '/mock-workspace' }, name: 'mock', index: 0 }];
+      mockWorkspace.fs = {
+        readFile: vi.fn().mockResolvedValue(Buffer.from(pkg)),
+      };
+      mockClient.complete.mockResolvedValue('describe("test", () => {});');
+
+      const result = await generateTests(mockClient, 'code', 'typescript', 'file.ts');
+      const messages = mockClient.complete.mock.calls[0][0];
+      expect(messages[0].content).toContain('vitest');
+    });
+
+    it('uses unknown framework and .test.txt suffix for unrecognized language', async () => {
+      mockClient.complete.mockResolvedValue('# some test');
+
+      const result = await generateTests(mockClient, 'code', 'cobol', 'program.cbl');
+
+      expect(result?.testFileName).toBe('program.test.txt');
+    });
   });
 });

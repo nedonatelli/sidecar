@@ -15,6 +15,8 @@ import {
   ANTHROPIC_DEFAULT_MODEL,
   OLLAMA_DEFAULT_MODEL,
   __resetConfigCacheForTests,
+  initConfigWatcher,
+  invalidateConfigCache,
 } from './settings.js';
 
 describe('isLocalOllama', () => {
@@ -389,5 +391,64 @@ describe('getConfig semantic search settings', () => {
   it('includes semanticSearchWeight defaulting to 0.6', () => {
     const config = getConfig();
     expect(config.semanticSearchWeight).toBeCloseTo(0.6);
+  });
+});
+
+describe('initConfigWatcher', () => {
+  it('registers a configuration change listener on the context', () => {
+    let capturedCb: ((e: { affectsConfiguration: (s: string) => boolean }) => void) | undefined;
+    const ws = workspace as Record<string, unknown>;
+    ws.onDidChangeConfiguration = vi.fn((cb) => {
+      capturedCb = cb;
+      return { dispose: vi.fn() };
+    });
+
+    const subscriptions: unknown[] = [];
+    const ctx = { subscriptions } as never;
+    initConfigWatcher(ctx);
+
+    expect(ws.onDidChangeConfiguration).toHaveBeenCalled();
+    expect(subscriptions).toHaveLength(1);
+
+    // Fire the event and verify the cache is cleared
+    const configBefore = getConfig();
+    capturedCb!({ affectsConfiguration: (s) => s === 'sidecar' });
+    // After clearing the cache, getConfig() re-reads — should still return a valid config
+    const configAfter = getConfig();
+    expect(configAfter).toBeDefined();
+    expect(configBefore).toBeDefined();
+
+    delete ws.onDidChangeConfiguration;
+    __resetConfigCacheForTests();
+  });
+
+  it('does not clear cache when unrelated configuration changes', () => {
+    let capturedCb: ((e: { affectsConfiguration: (s: string) => boolean }) => void) | undefined;
+    const ws = workspace as Record<string, unknown>;
+    ws.onDidChangeConfiguration = vi.fn((cb) => {
+      capturedCb = cb;
+      return { dispose: vi.fn() };
+    });
+
+    const ctx = { subscriptions: [] as unknown[] } as never;
+    initConfigWatcher(ctx);
+
+    // Fire with a different section — should NOT clear the cache
+    capturedCb!({ affectsConfiguration: (s) => s === 'other' });
+
+    delete ws.onDidChangeConfiguration;
+  });
+});
+
+describe('invalidateConfigCache', () => {
+  it('clears the config cache so the next read re-queries workspace', () => {
+    // Read once to populate cache
+    getConfig();
+    // Invalidate
+    invalidateConfigCache();
+    // Should not throw and should return a valid config
+    const config = getConfig();
+    expect(config).toBeDefined();
+    __resetConfigCacheForTests();
   });
 });

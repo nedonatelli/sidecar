@@ -1,6 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
-import { Uri } from 'vscode';
-import { planForkReview, reviewForkBatch, type ForkReviewUi } from './forkReview.js';
+import { Uri, window, commands, workspace } from 'vscode';
+import {
+  planForkReview,
+  reviewForkBatch,
+  createDefaultForkReviewUi,
+  getWorkspaceMainRoot,
+  type ForkReviewUi,
+} from './forkReview.js';
 import type { ForkDispatchBatchResult, ForkResult } from './forkDispatcher.js';
 
 // ---------------------------------------------------------------------------
@@ -222,5 +228,81 @@ describe('reviewForkBatch — skipped-label reporting', () => {
     );
 
     expect([...out.skippedLabels].sort()).toEqual(['Fork 2', 'Fork 3']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createDefaultForkReviewUi
+// ---------------------------------------------------------------------------
+
+describe('createDefaultForkReviewUi', () => {
+  it('returns an object with all required methods', () => {
+    const ui = createDefaultForkReviewUi();
+    expect(typeof ui.showQuickPick).toBe('function');
+    expect(typeof ui.showWarningConfirm).toBe('function');
+    expect(typeof ui.showInfo).toBe('function');
+    expect(typeof ui.showError).toBe('function');
+    expect(typeof ui.openDiff).toBe('function');
+  });
+
+  it('showInfo calls vscode.window.showInformationMessage', () => {
+    const spy = vi.spyOn(window, 'showInformationMessage').mockReturnValue(undefined as never);
+    createDefaultForkReviewUi().showInfo('fork ok');
+    expect(spy).toHaveBeenCalledWith('fork ok');
+    vi.restoreAllMocks();
+  });
+
+  it('showError calls vscode.window.showErrorMessage', () => {
+    const spy = vi.spyOn(window, 'showErrorMessage').mockReturnValue(undefined as never);
+    createDefaultForkReviewUi().showError('fork err');
+    expect(spy).toHaveBeenCalledWith('fork err');
+    vi.restoreAllMocks();
+  });
+
+  it('showQuickPick delegates to window.showQuickPick', async () => {
+    const spy = vi.spyOn(window, 'showQuickPick').mockResolvedValue(undefined as never);
+    await createDefaultForkReviewUi().showQuickPick(
+      [{ label: 'a', description: '', detail: '', forkId: 'f1' }] as never,
+      'pick',
+    );
+    expect(spy).toHaveBeenCalledWith(expect.any(Array), { placeHolder: 'pick' });
+    vi.restoreAllMocks();
+  });
+
+  it('showWarningConfirm delegates to window.showWarningMessage', async () => {
+    const spy = vi.spyOn(window, 'showWarningMessage').mockResolvedValue('Apply' as never);
+    const result = await createDefaultForkReviewUi().showWarningConfirm('Are you sure?', 'Apply');
+    expect(spy).toHaveBeenCalledWith('Are you sure?', { modal: true }, 'Apply');
+    expect(result).toBe('Apply');
+    vi.restoreAllMocks();
+  });
+
+  it('openDiff executes vscode.diff command', async () => {
+    const spy = vi.spyOn(commands, 'executeCommand').mockResolvedValue(undefined);
+    const left = Uri.file('/tmp/left.diff');
+    const right = Uri.file('/tmp/right.diff');
+    await createDefaultForkReviewUi().openDiff(left, right, 'My Diff');
+    expect(spy).toHaveBeenCalledWith('vscode.diff', left, right, 'My Diff', { preview: true });
+    vi.restoreAllMocks();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getWorkspaceMainRoot
+// ---------------------------------------------------------------------------
+
+describe('getWorkspaceMainRoot', () => {
+  it('returns the fsPath of the first workspace folder', () => {
+    const root = getWorkspaceMainRoot();
+    expect(typeof root).toBe('string');
+    expect(root).toBeTruthy();
+  });
+
+  it('returns undefined when workspaceFolders is undefined', () => {
+    const wsMock = workspace as Record<string, unknown>;
+    const original = wsMock.workspaceFolders;
+    wsMock.workspaceFolders = undefined;
+    expect(getWorkspaceMainRoot()).toBeUndefined();
+    wsMock.workspaceFolders = original;
   });
 });

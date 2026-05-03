@@ -1,10 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   runFacetDispatchCommand,
+  createDefaultFacetCommandUi,
   type FacetCommandUi,
   type FacetCommandDeps,
   type FacetCommandConfig,
 } from './facetCommands.js';
+import { window } from 'vscode';
 import { buildFacetRegistry, mergeWithBuiltInFacets } from './facetRegistry.js';
 import type { FacetDispatchBatchResult } from './facetDispatcher.js';
 import type { LoadFacetsOutcome } from './facetDiskLoader.js';
@@ -343,5 +345,59 @@ describe('runFacetDispatchCommand — dispatch', () => {
     ).rejects.toThrow(/backend down/);
 
     expect(ui.calls.showError[0]).toMatch(/backend down/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createDefaultFacetCommandUi
+// ---------------------------------------------------------------------------
+
+describe('createDefaultFacetCommandUi', () => {
+  it('returns an object with all required methods', () => {
+    const ui = createDefaultFacetCommandUi();
+    expect(typeof ui.showMultiSelectPick).toBe('function');
+    expect(typeof ui.showInputBox).toBe('function');
+    expect(typeof ui.showQuickPick).toBe('function');
+    expect(typeof ui.showInfo).toBe('function');
+    expect(typeof ui.showError).toBe('function');
+  });
+
+  it('showInfo calls vscode.window.showInformationMessage', () => {
+    const spy = vi.spyOn(window, 'showInformationMessage').mockReturnValue(undefined as never);
+    createDefaultFacetCommandUi().showInfo('hello facets');
+    expect(spy).toHaveBeenCalledWith('hello facets');
+    vi.restoreAllMocks();
+  });
+
+  it('showError calls vscode.window.showErrorMessage', () => {
+    const spy = vi.spyOn(window, 'showErrorMessage').mockReturnValue(undefined as never);
+    createDefaultFacetCommandUi().showError('facet error');
+    expect(spy).toHaveBeenCalledWith('facet error');
+    vi.restoreAllMocks();
+  });
+
+  it('showMultiSelectPick delegates to window.showQuickPick with canPickMany', async () => {
+    const spy = vi.spyOn(window, 'showQuickPick').mockResolvedValue(undefined as never);
+    const ui = createDefaultFacetCommandUi();
+    await ui.showMultiSelectPick([{ label: 'a', id: 'a' }] as never, 'pick some');
+    expect(spy).toHaveBeenCalledWith(expect.any(Array), expect.objectContaining({ canPickMany: true }));
+    vi.restoreAllMocks();
+  });
+
+  it('showInputBox delegates to window.showInputBox', async () => {
+    const spy = vi.spyOn(window, 'showInputBox').mockResolvedValue('user input');
+    const ui = createDefaultFacetCommandUi();
+    const result = await ui.showInputBox('prompt text', 'placeholder');
+    expect(spy).toHaveBeenCalledWith({ prompt: 'prompt text', placeHolder: 'placeholder' });
+    expect(result).toBe('user input');
+    vi.restoreAllMocks();
+  });
+
+  it('showQuickPick delegates to window.showQuickPick', async () => {
+    const spy = vi.spyOn(window, 'showQuickPick').mockResolvedValue({ label: 'item-a' } as never);
+    const ui = createDefaultFacetCommandUi();
+    await ui.showQuickPick([{ label: 'item-a' }] as never, 'pick one');
+    expect(spy).toHaveBeenCalledWith(expect.any(Array), expect.objectContaining({ placeHolder: 'pick one' }));
+    vi.restoreAllMocks();
   });
 });

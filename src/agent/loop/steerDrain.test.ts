@@ -190,6 +190,32 @@ describe('drainSteerQueueAtBoundary — coalesce window', () => {
     expect(state.messages).toHaveLength(0);
   });
 
+  it('exercises the module-default sleep when no sleep override is provided', async () => {
+    vi.useFakeTimers();
+    try {
+      const state = stubState();
+      const cb = stubCallbacks();
+      let nowMs = 0;
+      const q = new SteerQueue({ now: () => nowMs });
+      q.enqueue('fresh', 'nudge'); // createdAt = 0
+
+      const drainPromise = drainSteerQueueAtBoundary(state, q, new AbortController().signal, cb, {
+        coalesceWindowMs: 200,
+        now: () => nowMs,
+        // No sleep override — exercises defaultSleep (line 76-78)
+      });
+
+      // After the first defaultSleep fires (100ms poll interval), advance clock
+      // past the window so the while-loop exits.
+      nowMs = 300;
+      await vi.advanceTimersByTimeAsync(100);
+      await drainPromise;
+      expect(state.messages).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('handles cancellation mid-wait by re-peeking and early-return', async () => {
     const state = stubState();
     const cb = stubCallbacks();

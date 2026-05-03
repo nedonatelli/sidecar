@@ -20,7 +20,6 @@ import type { MCPManager } from '../agent/mcpManager.js';
 import type { WorkspaceIndex } from '../config/workspaceIndex.js';
 import type { SidecarDir } from '../config/sidecarDir.js';
 import type { SkillLoader } from '../agent/skillLoader.js';
-import { charsToTokens } from '../config/tokenEstimation.js';
 import type { InlineEditProvider } from '../edits/inlineEditProvider.js';
 import { getConfig, detectActiveProfile } from '../config/settings.js';
 import { DocumentationIndexer } from '../config/documentationIndexer.js';
@@ -74,6 +73,12 @@ import {
   handleExplainToolDecision,
   handleMcpStatus,
   handleInit,
+  handleListMemories,
+  handleSearchMemories,
+  handleCompactContext,
+  handleToggleVerbose,
+  handleListSkills,
+  handleGetSkillsForMenu,
 } from './handlers/agentHandlers.js';
 import {
   handleSaveSession,
@@ -428,48 +433,8 @@ export class ChatViewProvider implements WebviewViewProvider {
     commitMessage: async () => {
       await commands.executeCommand('sidecar.generateCommitMessage');
     },
-    listMemories: async () => {
-      if (!this.state.agentMemory) {
-        this.state.postMessage({
-          command: 'assistantMessage',
-          content: 'Agent memory is not enabled. Set `sidecar.enableAgentMemory` to true.\n\n',
-        });
-        return;
-      }
-      const memories = this.state.agentMemory.queryAll();
-      if (memories.length === 0) {
-        this.state.postMessage({ command: 'assistantMessage', content: 'No agent memories stored yet.\n\n' });
-        return;
-      }
-      const byType = new Map<string, number>();
-      for (const m of memories) byType.set(m.type, (byType.get(m.type) ?? 0) + 1);
-      const stats = this.state.agentMemory.getStats();
-      let content = `**Agent Memories** — ${memories.length} entries\n\n`;
-      content += `| Type | Count |\n|------|-------|\n`;
-      for (const [type, count] of byType) content += `| ${type} | ${count} |\n`;
-      content += `\nTotal entries: ${stats.totalCount}. Use \`/memory-search <query>\` to search.\n\n`;
-      this.state.postMessage({ command: 'assistantMessage', content });
-    },
-    searchMemories: async (msg) => {
-      if (!this.state.agentMemory || !msg.text) {
-        this.state.postMessage({
-          command: 'assistantMessage',
-          content: 'Agent memory is not enabled or no query provided.\n\n',
-        });
-        return;
-      }
-      const results = this.state.agentMemory.search(msg.text, undefined, 10);
-      if (results.length === 0) {
-        this.state.postMessage({ command: 'assistantMessage', content: `No memories found for "${msg.text}".\n\n` });
-        return;
-      }
-      let content = `**Memory search:** "${msg.text}" — ${results.length} results\n\n`;
-      for (const m of results) {
-        content += `- **[${m.type}]** ${m.content.slice(0, 120)}${m.content.length > 120 ? '...' : ''} *(used ${m.useCount}x)*\n`;
-      }
-      content += '\n';
-      this.state.postMessage({ command: 'assistantMessage', content });
-    },
+    listMemories: () => handleListMemories(this.state),
+    searchMemories: (msg) => handleSearchMemories(this.state, msg.text || ''),
     scanStaged: async () => {
       await commands.executeCommand('sidecar.scanStaged');
     },
@@ -528,74 +493,10 @@ export class ChatViewProvider implements WebviewViewProvider {
     revertFile: (msg) => handleRevertFile(this.state, msg.filePath || ''),
     acceptAllChanges: () => handleAcceptAllChanges(this.state),
     deleteMessage: (msg) => handleDeleteMessage(this.state, msg.index ?? -1),
-    toggleVerbose: () => {
-      const current = getConfig().verboseMode;
-      workspace.getConfiguration('sidecar').update('verboseMode', !current, true);
-      const label = !current ? 'on' : 'off';
-      this.state.postMessage({
-        command: 'assistantMessage',
-        content: `Verbose mode ${label}. ${!current ? 'Agent reasoning will be shown during runs.' : 'Agent reasoning hidden.'}`,
-      });
-      this.state.postMessage({ command: 'done' });
-    },
-    compactContext: async () => {
-      const msgCount = this.state.messages.length;
-      if (msgCount < 4) {
-        this.state.postMessage({
-          command: 'assistantMessage',
-          content: 'Context is already minimal — nothing to compact.',
-        });
-        this.state.postMessage({ command: 'done' });
-        return;
-      }
-
-      this.state.postMessage({
-        command: 'assistantMessage',
-        content: 'Compacting conversation context...',
-      });
-
-      try {
-        const { ConversationSummarizer } = await import('../agent/conversationSummarizer.js');
-        const summarizer = new ConversationSummarizer(this.state.client);
-        const result = await summarizer.summarize(this.state.messages, {
-          keepRecentTurns: 2,
-          minCharsToSave: 500,
-          maxSummaryLength: 1200,
-          summaryTimeoutMs: 15000,
-        });
-
-        if (result.freedChars > 0) {
-          this.state.messages.splice(0, this.state.messages.length, ...result.messages);
-          this.state.saveHistory();
-          const tokensFreed = charsToTokens(result.freedChars);
-          this.state.postMessage({
-            command: 'assistantMessage',
-            content: `Compacted: ${result.metadata.turnsSummarized}/${result.metadata.turnsCount} turns summarized, ~${tokensFreed} tokens freed. The conversation context is now smaller and the model will respond faster.`,
-          });
-        } else {
-          this.state.postMessage({
-            command: 'assistantMessage',
-            content: 'Context is already compact — not enough old turns to summarize.',
-          });
-        }
-      } catch (err) {
-        this.state.postMessage({
-          command: 'assistantMessage',
-          content: `Compaction failed: ${err instanceof Error ? err.message : String(err)}`,
-        });
-      }
-      this.state.postMessage({ command: 'done' });
-    },
-    listSkills: () => {
-      const list = this.state.skillLoader?.listFormatted() || 'No skills loaded.';
-      this.state.postMessage({ command: 'assistantMessage', content: list });
-      this.state.postMessage({ command: 'done' });
-    },
-    getSkillsForMenu: () => {
-      const skills = this.state.skillLoader?.getAll() || [];
-      const items = skills.map((s) => ({ id: s.id, name: s.name, description: s.description }));
-      this.state.postMessage({ command: 'skillsMenu', skills: items });
-    },
+    toggleVerbose: () => handleToggleVerbose(this.state),
+    compactContext: () => handleCompactContext(this.state),
+    listSkills: () => handleListSkills(this.state),
+    getSkillsForMenu: () => handleGetSkillsForMenu(this.state),
     showSystemPrompt: () =>
       import('./handlers/chatHandlers.js').then(({ handleShowSystemPrompt }) => handleShowSystemPrompt(this.state)),
     reconnect: () => import('./handlers/chatHandlers.js').then(({ handleReconnect }) => handleReconnect(this.state)),

@@ -1,5 +1,78 @@
-import { describe, it, expect } from 'vitest';
-import { parseBatchInput } from './batch.js';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { parseBatchInput, runBatch } from './batch.js';
+
+vi.mock('./loop.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./loop.js')>();
+  return { ...actual, runAgentLoop: vi.fn().mockResolvedValue(undefined) };
+});
+
+import { runAgentLoop } from './loop.js';
+
+const mockClient = {} as never;
+
+describe('runBatch', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(runAgentLoop).mockResolvedValue([] as never);
+  });
+
+  it('runs tasks sequentially and returns done status', async () => {
+    const updates: string[] = [];
+    const tasks = await runBatch(
+      mockClient,
+      ['task one', 'task two'],
+      'sequential',
+      (_id, status) => updates.push(status),
+      new AbortController().signal,
+    );
+
+    expect(tasks).toHaveLength(2);
+    expect(tasks.every((t) => t.status === 'done')).toBe(true);
+    expect(runAgentLoop).toHaveBeenCalledTimes(2);
+  });
+
+  it('runs tasks in parallel', async () => {
+    const tasks = await runBatch(mockClient, ['a', 'b', 'c'], 'parallel', () => {}, new AbortController().signal);
+    expect(tasks).toHaveLength(3);
+    expect(runAgentLoop).toHaveBeenCalledTimes(3);
+  });
+
+  it('captures agent text output in task result', async () => {
+    vi.mocked(runAgentLoop).mockImplementationOnce(async (_client, _msgs, callbacks) => {
+      callbacks.onText('agent output text');
+      return [] as never;
+    });
+    const tasks = await runBatch(mockClient, ['do it'], 'sequential', () => {}, new AbortController().signal);
+    expect(tasks[0].result).toBe('agent output text');
+  });
+
+  it('records error status when runAgentLoop throws an Error', async () => {
+    vi.mocked(runAgentLoop).mockRejectedValueOnce(new Error('loop failed'));
+    const tasks = await runBatch(mockClient, ['bad task'], 'sequential', () => {}, new AbortController().signal);
+    expect(tasks[0].status).toBe('error');
+    expect(tasks[0].result).toContain('loop failed');
+  });
+
+  it('records error status when runAgentLoop throws a non-Error', async () => {
+    vi.mocked(runAgentLoop).mockRejectedValueOnce('string error' as never);
+    const tasks = await runBatch(mockClient, ['bad task'], 'sequential', () => {}, new AbortController().signal);
+    expect(tasks[0].status).toBe('error');
+    expect(tasks[0].result).toContain('string error');
+  });
+
+  it('stops sequential processing when signal is aborted', async () => {
+    const ac = new AbortController();
+    ac.abort();
+    await runBatch(mockClient, ['t1', 't2'], 'sequential', () => {}, ac.signal);
+    // All tasks should remain pending (signal was already aborted at start)
+    expect(runAgentLoop).not.toHaveBeenCalled();
+  });
+
+  it('uses "(completed)" when agent produces no text output', async () => {
+    const tasks = await runBatch(mockClient, ['silent task'], 'sequential', () => {}, new AbortController().signal);
+    expect(tasks[0].result).toBe('(completed)');
+  });
+});
 
 describe('parseBatchInput', () => {
   it('parses sequential tasks', () => {

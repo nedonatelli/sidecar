@@ -5,6 +5,7 @@ import {
   parseTextToolCallsStream,
   flushTextToolCallsStream,
   createTextToolCallState,
+  abortableRead,
   type ThinkTagState,
   type TextToolCallState,
 } from './streamUtils.js';
@@ -301,5 +302,68 @@ describe('parseTextToolCallsStream', () => {
     const events = feed(['a < b and c < d is math'], state);
     const textParts = events.filter((e) => e.type === 'text').map((e) => (e as { text: string }).text);
     expect(textParts.join('')).toBe('a < b and c < d is math');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// abortableRead
+// ---------------------------------------------------------------------------
+
+function makeReader(chunks: string[]) {
+  let i = 0;
+  return {
+    read: () => {
+      if (i >= chunks.length) return Promise.resolve({ done: true, value: undefined });
+      return Promise.resolve({ done: false, value: new TextEncoder().encode(chunks[i++]) });
+    },
+    cancel: () => Promise.resolve(),
+  } as unknown as ReadableStreamDefaultReader<Uint8Array>;
+}
+
+describe('abortableRead', () => {
+  it('reads without signal', async () => {
+    const reader = makeReader(['hello']);
+    const result = await abortableRead(reader);
+    expect(result.done).toBe(false);
+    expect(new TextDecoder().decode(result.value)).toBe('hello');
+  });
+
+  it('resolves with non-aborted signal', async () => {
+    const reader = makeReader(['world']);
+    const ac = new AbortController();
+    const result = await abortableRead(reader, ac.signal);
+    expect(result.done).toBe(false);
+  });
+
+  it('rejects immediately when signal is already aborted', async () => {
+    const reader = makeReader(['data']);
+    const ac = new AbortController();
+    ac.abort();
+    await expect(abortableRead(reader, ac.signal)).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  it('rejects with AbortError when signal fires during read', async () => {
+    const ac = new AbortController();
+    let resolveRead!: (v: ReadableStreamReadResult<Uint8Array>) => void;
+    const reader = {
+      read: () =>
+        new Promise<ReadableStreamReadResult<Uint8Array>>((res) => {
+          resolveRead = res;
+        }),
+      cancel: () => Promise.resolve(),
+    } as unknown as ReadableStreamDefaultReader<Uint8Array>;
+
+    const promise = abortableRead(reader, ac.signal);
+    ac.abort();
+    await expect(promise).rejects.toMatchObject({ name: 'AbortError' });
+    resolveRead({ done: true, value: undefined });
+  });
+
+  it('resolves when read succeeds before signal fires', async () => {
+    const ac = new AbortController();
+    const reader = makeReader(['ok']);
+    const result = await abortableRead(reader, ac.signal);
+    expect(result.done).toBe(false);
+    ac.abort();
   });
 });

@@ -254,6 +254,12 @@ export class WorkspaceEdit {
   }
 }
 
+export enum ProgressLocation {
+  Notification = 15,
+  SourceControl = 1,
+  Window = 10,
+}
+
 export enum StatusBarAlignment {
   Left = 1,
   Right = 2,

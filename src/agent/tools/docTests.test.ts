@@ -1,6 +1,32 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { isConstraint, parseConstraintsFromLlm, docTestsTools } from './docTests.js';
 import type { Constraint } from './docTests.js';
+
+vi.mock('fs', async () => {
+  const actual = await vi.importActual<typeof import('fs')>('fs');
+  return {
+    ...actual,
+    existsSync: vi.fn(),
+    readFileSync: vi.fn(),
+  };
+});
+
+vi.mock('../../config/settings.js', () => ({
+  getConfig: vi.fn().mockReturnValue({
+    docTestsExtractionModel: undefined,
+    docTestsOutputDir: undefined,
+    docTestsFloatTolerance: undefined,
+  }),
+}));
+
+vi.mock('./shared.js', async () => {
+  const actual = await vi.importActual<typeof import('./shared.js')>('./shared.js');
+  return { ...actual, getRoot: vi.fn().mockReturnValue('/workspace') };
+});
+
+import * as fsMod from 'fs';
+const mockExistsSync = vi.mocked(fsMod.existsSync);
+const mockReadFileSync = vi.mocked(fsMod.readFileSync);
 
 // ---------------------------------------------------------------------------
 // isConstraint type guard
@@ -160,5 +186,327 @@ describe('docTestsTools registry', () => {
       const schema = tool.definition.input_schema as { required?: string[] };
       expect(schema.required, `${tool.definition.name} required mismatch`).toEqual(requiredMap[tool.definition.name]);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Executor helpers
+// ---------------------------------------------------------------------------
+
+function getExecutor(name: string) {
+  const tool = docTestsTools.find((t) => t.definition.name === name);
+  if (!tool) throw new Error(`Tool ${name} not found`);
+  return tool.executor;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function makeClient(responseText = '{"constraints":[]}'): any {
+  return {
+    completeWithOverrides: vi.fn().mockResolvedValue(responseText),
+  };
+}
+
+function makeConstraint(overrides: Partial<Constraint> = {}): Constraint {
+  return {
+    id: 'c001',
+    type: 'numeric_example',
+    statement: 'log2(8) equals 3',
+    source: 'math.md — "log2(8) = 3"',
+    testable: true,
+    confidence: 1.0,
+    ...overrides,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// extractConstraints executor
+// ---------------------------------------------------------------------------
+
+describe('extractConstraints executor', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue('doc content' as never);
+  });
+
+  it('returns error when doc_path is missing', async () => {
+    const exec = getExecutor('extract_constraints');
+    const result = await exec({}, undefined);
+    expect(result).toContain('doc_path is required');
+  });
+
+  it('returns error when no client in context', async () => {
+    const exec = getExecutor('extract_constraints');
+    const result = await exec({ doc_path: 'docs/spec.md' }, undefined);
+    expect(result).toContain('no SideCarClient available');
+  });
+
+  it('returns error when file does not exist', async () => {
+    mockExistsSync.mockReturnValue(false);
+    const exec = getExecutor('extract_constraints');
+    const result = await exec({ doc_path: 'missing.md' }, { client: makeClient() } as never);
+    expect(result).toContain('file not found');
+  });
+
+  it('returns extracted constraints summary on success', async () => {
+    const constraint = makeConstraint();
+    const client = makeClient(JSON.stringify({ constraints: [constraint] }));
+    const exec = getExecutor('extract_constraints');
+    const result = await exec({ doc_path: 'docs/spec.md' }, { client } as never);
+    expect(result).toContain('Extracted 1 constraint');
+    expect(result).toContain('"docSlug"');
+  });
+
+  it('returns error when readFileSync throws', async () => {
+    mockReadFileSync.mockImplementation(() => {
+      throw new Error('permission denied');
+    });
+    const exec = getExecutor('extract_constraints');
+    const result = await exec({ doc_path: 'docs/spec.md' }, { client: makeClient() } as never);
+    expect(result).toContain('Error reading document');
+  });
+
+  it('returns error when LLM throws', async () => {
+    const client = { completeWithOverrides: vi.fn().mockRejectedValue(new Error('timeout')) } as never;
+    const exec = getExecutor('extract_constraints');
+    const result = await exec({ doc_path: 'docs/spec.md' }, { client } as never);
+    expect(result).toContain('Error calling LLM');
+  });
+
+  it('returns aborted message on AbortError', async () => {
+    const err = Object.assign(new Error('aborted'), { name: 'AbortError' });
+    const client = { completeWithOverrides: vi.fn().mockRejectedValue(err) } as never;
+    const exec = getExecutor('extract_constraints');
+    const result = await exec({ doc_path: 'docs/spec.md' }, { client } as never);
+    expect(result).toBe('Extraction aborted.');
+  });
+
+  it('returns error when LLM response is not parseable JSON constraints', async () => {
+    const client = makeClient('This is just text, no JSON');
+    const exec = getExecutor('extract_constraints');
+    const result = await exec({ doc_path: 'docs/spec.md' }, { client } as never);
+    expect(result).toContain('Error parsing LLM response');
+  });
+
+  it('includes truncation note when doc is long', async () => {
+    mockReadFileSync.mockReturnValue('x'.repeat(20000) as never);
+    const constraint = makeConstraint();
+    const client = makeClient(JSON.stringify({ constraints: [constraint] }));
+    const exec = getExecutor('extract_constraints');
+    const result = await exec({ doc_path: 'docs/spec.md' }, { client } as never);
+    expect(result).toContain('truncated');
+  });
+
+  it('uses section_hint in extraction when provided', async () => {
+    const constraint = makeConstraint();
+    const client = makeClient(JSON.stringify({ constraints: [constraint] }));
+    const exec = getExecutor('extract_constraints');
+    await exec({ doc_path: 'docs/spec.md', section_hint: 'Error bounds' }, { client } as never);
+    const prompt = vi.mocked(client.completeWithOverrides).mock.calls[0][1][0].content;
+    expect(prompt).toContain('Error bounds');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// synthesizeTests executor
+// ---------------------------------------------------------------------------
+
+describe('synthesizeTests executor', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns error when constraints is missing', async () => {
+    const exec = getExecutor('synthesize_tests');
+    const result = await exec({ doc_slug: 'spec' }, undefined);
+    expect(result).toContain('constraints is required');
+  });
+
+  it('returns error when doc_slug is missing', async () => {
+    const exec = getExecutor('synthesize_tests');
+    const result = await exec({ constraints: '[]' }, undefined);
+    expect(result).toContain('doc_slug is required');
+  });
+
+  it('returns error when no client in context', async () => {
+    const exec = getExecutor('synthesize_tests');
+    const result = await exec({ constraints: '[]', doc_slug: 'spec' }, undefined);
+    expect(result).toContain('no SideCarClient available');
+  });
+
+  it('returns error when constraints JSON is invalid', async () => {
+    const exec = getExecutor('synthesize_tests');
+    const result = await exec({ constraints: 'not json', doc_slug: 'spec' }, { client: makeClient() } as never);
+    expect(result).toContain('Error parsing constraints JSON');
+  });
+
+  it('returns message when no testable constraints remain', async () => {
+    const constraint = makeConstraint({ testable: false });
+    const exec = getExecutor('synthesize_tests');
+    const result = await exec({ constraints: JSON.stringify([constraint]), doc_slug: 'spec' }, {
+      client: makeClient(),
+    } as never);
+    expect(result).toContain('No testable constraints');
+  });
+
+  it('returns message when all constraints are approved:false', async () => {
+    const constraint = makeConstraint({ approved: false });
+    const exec = getExecutor('synthesize_tests');
+    const result = await exec({ constraints: JSON.stringify([constraint]), doc_slug: 'spec' }, {
+      client: makeClient(),
+    } as never);
+    expect(result).toContain('No testable constraints');
+  });
+
+  it('returns synthesized test file on success', async () => {
+    const constraint = makeConstraint();
+    const client = makeClient('import pytest\n\ndef test_c001(): pass');
+    const exec = getExecutor('synthesize_tests');
+    const result = await exec({ constraints: JSON.stringify([constraint]), doc_slug: 'spec' }, { client } as never);
+    expect(result).toContain('Test file synthesized');
+    expect(result).toContain('Write to:');
+  });
+
+  it('returns aborted message on AbortError', async () => {
+    const constraint = makeConstraint();
+    const err = Object.assign(new Error('aborted'), { name: 'AbortError' });
+    const client = { completeWithOverrides: vi.fn().mockRejectedValue(err) } as never;
+    const exec = getExecutor('synthesize_tests');
+    const result = await exec({ constraints: JSON.stringify([constraint]), doc_slug: 'spec' }, { client } as never);
+    expect(result).toBe('Synthesis aborted.');
+  });
+
+  it('returns error when LLM throws', async () => {
+    const constraint = makeConstraint();
+    const client = { completeWithOverrides: vi.fn().mockRejectedValue(new Error('network')) } as never;
+    const exec = getExecutor('synthesize_tests');
+    const result = await exec({ constraints: JSON.stringify([constraint]), doc_slug: 'spec' }, { client } as never);
+    expect(result).toContain('Error calling LLM');
+  });
+
+  it('accepts constraints wrapped in ConstraintExtractionResult shape', async () => {
+    const constraint = makeConstraint();
+    const wrapped = { constraints: [constraint], docSlug: 'spec', truncated: false };
+    const client = makeClient('def test_c001(): pass');
+    const exec = getExecutor('synthesize_tests');
+    const result = await exec({ constraints: JSON.stringify(wrapped), doc_slug: 'spec' }, { client } as never);
+    expect(result).toContain('Test file synthesized');
+  });
+
+  it('strips markdown code fences from LLM response', async () => {
+    const constraint = makeConstraint();
+    const client = makeClient('```python\ndef test_c001(): pass\n```');
+    const exec = getExecutor('synthesize_tests');
+    const result = await exec({ constraints: JSON.stringify([constraint]), doc_slug: 'spec' }, { client } as never);
+    expect(result).not.toContain('```');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// classifyTestFailure executor
+// ---------------------------------------------------------------------------
+
+describe('classifyTestFailure executor', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns error when test_output is missing', async () => {
+    const exec = getExecutor('classify_test_failure');
+    const result = await exec({}, undefined);
+    expect(result).toContain('test_output is required');
+  });
+
+  it('returns error when constraint is missing', async () => {
+    const exec = getExecutor('classify_test_failure');
+    const result = await exec({ test_output: 'FAILED test_c001' }, undefined);
+    expect(result).toContain('constraint is required');
+  });
+
+  it('returns error when no client in context', async () => {
+    const exec = getExecutor('classify_test_failure');
+    const result = await exec({ test_output: 'FAILED', constraint: JSON.stringify(makeConstraint()) }, undefined);
+    expect(result).toContain('no SideCarClient available');
+  });
+
+  it('returns error when constraint JSON is invalid', async () => {
+    const exec = getExecutor('classify_test_failure');
+    const result = await exec({ test_output: 'FAILED', constraint: 'not json' }, { client: makeClient() } as never);
+    expect(result).toContain('Error parsing constraint JSON');
+  });
+
+  it('returns error when constraint does not match shape', async () => {
+    const exec = getExecutor('classify_test_failure');
+    const result = await exec({ test_output: 'FAILED', constraint: '{"id": "c001"}' }, {
+      client: makeClient(),
+    } as never);
+    expect(result).toContain('Error parsing constraint JSON');
+  });
+
+  it('returns classification result on success', async () => {
+    const classification = { verdict: 'impl_wrong', reasoning: 'code is wrong', proposed_fix: 'fix it' };
+    const client = makeClient(JSON.stringify(classification));
+    const exec = getExecutor('classify_test_failure');
+    const result = await exec({ test_output: 'FAILED test_c001', constraint: JSON.stringify(makeConstraint()) }, {
+      client,
+    } as never);
+    expect(result).toContain('Implementation is wrong');
+    expect(result).toContain('code is wrong');
+  });
+
+  it('returns correct label for doc_wrong verdict', async () => {
+    const classification = { verdict: 'doc_wrong', reasoning: 'doc is stale', proposed_fix: 'update doc' };
+    const client = makeClient(JSON.stringify(classification));
+    const exec = getExecutor('classify_test_failure');
+    const result = await exec({ test_output: 'FAILED', constraint: JSON.stringify(makeConstraint()) }, {
+      client,
+    } as never);
+    expect(result).toContain('Document claim is wrong');
+  });
+
+  it('returns correct label for extraction_wrong verdict', async () => {
+    const classification = { verdict: 'extraction_wrong', reasoning: 'misread', proposed_fix: 're-extract' };
+    const client = makeClient(JSON.stringify(classification));
+    const exec = getExecutor('classify_test_failure');
+    const result = await exec({ test_output: 'FAILED', constraint: JSON.stringify(makeConstraint()) }, {
+      client,
+    } as never);
+    expect(result).toContain('mis-extracted');
+  });
+
+  it('returns error when LLM response has no JSON', async () => {
+    const client = makeClient('no json here');
+    const exec = getExecutor('classify_test_failure');
+    const result = await exec({ test_output: 'FAILED', constraint: JSON.stringify(makeConstraint()) }, {
+      client,
+    } as never);
+    expect(result).toContain('could not be parsed as JSON');
+  });
+
+  it('returns aborted message on AbortError', async () => {
+    const err = Object.assign(new Error('aborted'), { name: 'AbortError' });
+    const client = { completeWithOverrides: vi.fn().mockRejectedValue(err) } as never;
+    const exec = getExecutor('classify_test_failure');
+    const result = await exec({ test_output: 'FAILED', constraint: JSON.stringify(makeConstraint()) }, {
+      client,
+    } as never);
+    expect(result).toBe('Classification aborted.');
+  });
+
+  it('returns error when LLM throws', async () => {
+    const client = { completeWithOverrides: vi.fn().mockRejectedValue(new Error('oops')) } as never;
+    const exec = getExecutor('classify_test_failure');
+    const result = await exec({ test_output: 'FAILED', constraint: JSON.stringify(makeConstraint()) }, {
+      client,
+    } as never);
+    expect(result).toContain('Error calling LLM');
+  });
+
+  it('includes impl_snippet in the prompt when provided', async () => {
+    const classification = { verdict: 'impl_wrong', reasoning: 'r', proposed_fix: 'f' };
+    const client = makeClient(JSON.stringify(classification));
+    const exec = getExecutor('classify_test_failure');
+    await exec(
+      { test_output: 'FAILED', constraint: JSON.stringify(makeConstraint()), impl_snippet: 'def foo(): return 1' },
+      { client } as never,
+    );
+    const prompt = vi.mocked(client.completeWithOverrides).mock.calls[0][1][0].content;
+    expect(prompt).toContain('def foo(): return 1');
   });
 });

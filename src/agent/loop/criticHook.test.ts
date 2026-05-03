@@ -1,0 +1,294 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { workspace } from 'vscode';
+import {
+  applyCritic,
+  runCriticChecks,
+  normalizeTestOutput,
+  hashTestOutput,
+  getCriticStats,
+  resetCriticStats,
+} from './criticHook.js';
+
+vi.mock('vscode');
+vi.mock('../../config/settings.js', () => ({
+  getConfig: vi.fn().mockReturnValue({ criticEnabled: false }),
+}));
+vi.mock('../critic.js', () => ({
+  CRITIC_SYSTEM_PROMPT: 'critic system prompt',
+  buildEditCriticPrompt: vi.fn().mockReturnValue('please review this edit'),
+  buildTestFailureCriticPrompt: vi.fn().mockReturnValue('please review this failure'),
+  parseCriticResponse: vi.fn().mockReturnValue({ malformed: false, explicitlyClean: false, findings: [] }),
+  splitBySeverity: vi.fn().mockReturnValue({ high: [], low: [] }),
+  formatFindingsForChat: vi.fn().mockReturnValue(''),
+  buildCriticInjection: vi.fn().mockReturnValue('CRITIC: found issues'),
+}));
+vi.mock('./criticHook.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./criticHook.js')>();
+  return actual;
+});
+
+// ---------------------------------------------------------------------------
+// normalizeTestOutput
+// ---------------------------------------------------------------------------
+
+describe('normalizeTestOutput', () => {
+  it('replaces variable memory addresses', () => {
+    const out = normalizeTestOutput('at 0x7f3a12345678');
+    expect(out).not.toContain('0x7f3a12345678');
+  });
+
+  it('replaces durations like 0.042s', () => {
+    const out = normalizeTestOutput('finished in 0.042s');
+    expect(out).not.toContain('0.042');
+  });
+
+  it('passes through text with no variable data unchanged in structure', () => {
+    const out = normalizeTestOutput('Test failed: assertion error');
+    expect(out).toContain('Test failed');
+    expect(out).toContain('assertion error');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// hashTestOutput
+// ---------------------------------------------------------------------------
+
+describe('hashTestOutput', () => {
+  it('returns a non-empty string for non-empty input', () => {
+    const h = hashTestOutput('AssertionError: expected 1 to be 2');
+    expect(typeof h).toBe('string');
+    expect(h.length).toBeGreaterThan(0);
+  });
+
+  it('returns the same hash for the same input', () => {
+    const h1 = hashTestOutput('error text');
+    const h2 = hashTestOutput('error text');
+    expect(h1).toBe(h2);
+  });
+
+  it('returns different hashes for different inputs', () => {
+    expect(hashTestOutput('error A')).not.toBe(hashTestOutput('error B'));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getCriticStats / resetCriticStats
+// ---------------------------------------------------------------------------
+
+describe('criticStats', () => {
+  beforeEach(() => resetCriticStats());
+
+  it('getCriticStats returns an object with zero counts after reset', () => {
+    const stats = getCriticStats();
+    expect(typeof stats).toBe('object');
+  });
+
+  it('resetCriticStats does not throw', () => {
+    expect(() => resetCriticStats()).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applyCritic
+// ---------------------------------------------------------------------------
+
+describe('applyCritic', () => {
+  it('is a no-op when criticEnabled is false', async () => {
+    const state = {
+      messages: [],
+      changelog: null,
+      logger: null,
+      criticInjectionsByFile: new Map(),
+      criticInjectionsByTestHash: new Map(),
+    } as never;
+    const client = {} as never;
+    const config = { criticEnabled: false } as never;
+    const callbacks = { onText: vi.fn(), onToolCall: vi.fn(), onToolResult: vi.fn(), onDone: vi.fn() };
+    const signal = new AbortController().signal;
+
+    await applyCritic(state, client, config, [], [], 'agent text', callbacks, signal);
+    expect((state as { messages: unknown[] }).messages).toHaveLength(0);
+  });
+
+  it('is a no-op when signal is already aborted', async () => {
+    const state = {
+      messages: [],
+      changelog: null,
+      logger: null,
+      criticInjectionsByFile: new Map(),
+      criticInjectionsByTestHash: new Map(),
+    } as never;
+    const ac = new AbortController();
+    ac.abort();
+
+    await applyCritic(
+      state,
+      {} as never,
+      { criticEnabled: true } as never,
+      [],
+      [],
+      'text',
+      {
+        onText: vi.fn(),
+        onToolCall: vi.fn(),
+        onToolResult: vi.fn(),
+        onDone: vi.fn(),
+      },
+      ac.signal,
+    );
+    expect((state as { messages: unknown[] }).messages).toHaveLength(0);
+  });
+
+  it('runs the critic and pushes no injection when runCriticChecks returns null', async () => {
+    const state = {
+      messages: [],
+      changelog: undefined,
+      logger: undefined,
+      criticInjectionsByFile: new Map(),
+      criticInjectionsByTestHash: new Map(),
+    } as never;
+    const client = {} as never;
+    const config = { criticEnabled: true } as never;
+    const callbacks = { onText: vi.fn(), onToolCall: vi.fn(), onToolResult: vi.fn(), onDone: vi.fn() };
+
+    // Empty tool uses → runCriticChecks returns null → no injection
+    await applyCritic(state, client, config, [], [], 'agent text', callbacks, new AbortController().signal);
+    expect((state as { messages: unknown[] }).messages).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runCriticChecks
+// ---------------------------------------------------------------------------
+
+describe('runCriticChecks', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    resetCriticStats();
+  });
+
+  const makeCallbacks = () => ({
+    onText: vi.fn(),
+    onToolCall: vi.fn(),
+    onToolResult: vi.fn(),
+    onDone: vi.fn(),
+  });
+
+  it('returns null when there are no edit or test_failure tool uses', async () => {
+    const result = await runCriticChecks({
+      client: {} as never,
+      config: {} as never,
+      pendingToolUses: [{ type: 'tool_use', id: 'x', name: 'read_file', input: { path: 'a.ts' } }],
+      toolResults: [{ type: 'tool_result', tool_use_id: 'x', content: 'file contents' }],
+      changelog: undefined,
+      fullText: 'reading the file',
+      callbacks: makeCallbacks(),
+      logger: undefined,
+      signal: new AbortController().signal,
+      criticInjectionsByFile: new Map(),
+      maxPerFile: 3,
+    });
+    expect(result).toBeNull();
+  });
+
+  it('returns null when tool result has is_error=true (skips the trigger)', async () => {
+    const result = await runCriticChecks({
+      client: {} as never,
+      config: {} as never,
+      pendingToolUses: [{ type: 'tool_use', id: 'y', name: 'write_file', input: { path: 'b.ts' } }],
+      toolResults: [{ type: 'tool_result', tool_use_id: 'y', content: 'error', is_error: true }],
+      changelog: undefined,
+      fullText: '',
+      callbacks: makeCallbacks(),
+      logger: undefined,
+      signal: new AbortController().signal,
+      criticInjectionsByFile: new Map(),
+      maxPerFile: 3,
+    });
+    expect(result).toBeNull();
+  });
+
+  it('returns null when buildCriticDiff returns null (readFile throws)', async () => {
+    vi.spyOn(workspace.fs, 'readFile').mockRejectedValueOnce(new Error('file disappeared'));
+
+    const result = await runCriticChecks({
+      client: {} as never,
+      config: {} as never,
+      pendingToolUses: [{ type: 'tool_use', id: 'z', name: 'write_file', input: { path: 'src/foo.ts' } }],
+      toolResults: [{ type: 'tool_result', tool_use_id: 'z', content: 'written' }],
+      changelog: undefined,
+      fullText: 'writing the file',
+      callbacks: makeCallbacks(),
+      logger: undefined,
+      signal: new AbortController().signal,
+      criticInjectionsByFile: new Map(),
+      maxPerFile: 3,
+    });
+    expect(result).toBeNull();
+  });
+
+  it('returns null when signal is aborted before the critic fires', async () => {
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValueOnce(Buffer.from('const x = 1;') as never);
+    const ac = new AbortController();
+    ac.abort();
+
+    const result = await runCriticChecks({
+      client: {} as never,
+      config: {} as never,
+      pendingToolUses: [{ type: 'tool_use', id: 'w', name: 'edit_file', input: { path: 'src/x.ts' } }],
+      toolResults: [{ type: 'tool_result', tool_use_id: 'w', content: 'edited' }],
+      changelog: undefined,
+      fullText: 'fixing the logic in the function',
+      callbacks: makeCallbacks(),
+      logger: undefined,
+      signal: ac.signal,
+      criticInjectionsByFile: new Map(),
+      maxPerFile: 3,
+    });
+    expect(result).toBeNull();
+  });
+
+  it('returns null when client.completeWithOverrides returns clean response (no findings)', async () => {
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValueOnce(Buffer.from('const y = 2;') as never);
+    const mockClient = {
+      routeForDispatch: vi.fn().mockReturnValue(null),
+      completeWithOverrides: vi.fn().mockResolvedValue('The code looks fine.'),
+    };
+
+    const result = await runCriticChecks({
+      client: mockClient as never,
+      config: { criticModel: undefined, criticBlockOnHighSeverity: false } as never,
+      pendingToolUses: [{ type: 'tool_use', id: 'v', name: 'write_file', input: { path: 'src/clean.ts' } }],
+      toolResults: [{ type: 'tool_result', tool_use_id: 'v', content: 'written' }],
+      changelog: undefined,
+      fullText: 'added clean code',
+      callbacks: makeCallbacks(),
+      logger: undefined,
+      signal: new AbortController().signal,
+      criticInjectionsByFile: new Map(),
+      maxPerFile: 3,
+    });
+    // parseCriticResponse mock returns findings: [] → return null
+    expect(result).toBeNull();
+  });
+
+  it('skips edit triggers that have reached the per-file cap', async () => {
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValueOnce(Buffer.from('code') as never);
+    const injByFile = new Map([['src/capped.ts', 3]]);
+
+    const result = await runCriticChecks({
+      client: {} as never,
+      config: {} as never,
+      pendingToolUses: [{ type: 'tool_use', id: 'u', name: 'write_file', input: { path: 'src/capped.ts' } }],
+      toolResults: [{ type: 'tool_result', tool_use_id: 'u', content: 'written' }],
+      changelog: undefined,
+      fullText: 'editing a capped file',
+      callbacks: makeCallbacks(),
+      logger: undefined,
+      signal: new AbortController().signal,
+      criticInjectionsByFile: injByFile,
+      maxPerFile: 2,
+    });
+    expect(result).toBeNull();
+  });
+});

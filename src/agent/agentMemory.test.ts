@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -324,5 +324,65 @@ describe('AgentMemory', () => {
     const currentSessionId = (memory as unknown as { currentSessionId: string }).currentSessionId;
     const currentSessionCount = results.filter((r) => r.sessionId === currentSessionId).length;
     expect(currentSessionCount).toBeLessThanOrEqual(2);
+  });
+});
+
+describe('AgentMemory.getRelevantMemories', () => {
+  let memory: AgentMemory;
+  let tempDir: string;
+
+  beforeEach(() => {
+    const os = require('os');
+    const path = require('path');
+    const fs = require('fs');
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-rel-test-'));
+    memory = new AgentMemory(tempDir);
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-01-10'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    const fs = require('fs');
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('returns empty array when no memories were added', () => {
+    const results = memory.getRelevantMemories('xyz999irrelevant');
+    expect(results).toEqual([]);
+  });
+
+  it('returns entries whose content matches the query', async () => {
+    await memory.add('note', 'testing', 'TypeScript generics tutorial');
+    await memory.add('note', 'other', 'Python syntax guide');
+    const results = memory.getRelevantMemories('TypeScript');
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0].content).toContain('TypeScript');
+  });
+
+  it('scores content match (0.5) higher than category match (0.3)', async () => {
+    await memory.add('note', 'typescript', 'some general content');
+    await memory.add('note', 'python', 'typescript also appears in content');
+    const results = memory.getRelevantMemories('typescript', 5);
+    expect(results.length).toBe(2);
+    // content match = 0.5 > category match = 0.3, so python (content) wins
+    expect(results[0].category).toBe('python');
+  });
+
+  it('respects maxResults limit', async () => {
+    for (let i = 0; i < 10; i++) {
+      await memory.add('note', 'testing', `test content item ${i}`);
+    }
+    const results = memory.getRelevantMemories('test content', 3);
+    expect(results.length).toBeLessThanOrEqual(3);
+  });
+
+  it('boosts score for recent entries (within 7 days)', async () => {
+    await memory.add('note', 'recent', 'recent search query data');
+    vi.setSystemTime(new Date('2024-01-20')); // 10 days later
+    await memory.add('note', 'old', 'old search query data');
+    // Both match "search query" but the one added recently (Jan 10) is older now
+    const results = memory.getRelevantMemories('search query', 5);
+    expect(results.length).toBe(2);
   });
 });

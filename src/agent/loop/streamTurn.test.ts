@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi } from 'vitest';
-import { streamOneTurn } from './streamTurn';
+import { streamOneTurn, resolveTurnContent } from './streamTurn';
 import type { LoopState } from './state';
 import type { AgentCallbacks } from '../loop.js';
 import type { StreamEvent } from '../../ollama/types.js';
@@ -125,5 +125,33 @@ describe('streamOneTurn onStreamFailure capture', () => {
     const result = await streamOneTurn(client, state, new AbortController().signal, callbacks, 0);
     expect(result.terminated).toBe('aborted');
     expect(onStreamFailure).not.toHaveBeenCalled();
+  });
+});
+
+describe('resolveTurnContent text tool call parsing', () => {
+  it('parses tool calls from model text when no structured tool_use blocks are present', () => {
+    const toolCallText = '<tool_call>\n{"name": "read_file", "arguments": {"path": "src/foo.ts"}}\n</tool_call>';
+
+    const onToolCall = vi.fn();
+    const state = makeState();
+    (state as any).tools = [
+      {
+        name: 'read_file',
+        description: 'Reads a file',
+        input_schema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
+      },
+    ];
+    const callbacks = makeCallbacks({ onToolCall });
+    const turn = { fullText: toolCallText, pendingToolUses: [], stopReason: 'stop', terminated: undefined };
+
+    const result = resolveTurnContent(turn as never, state, callbacks);
+
+    expect(onToolCall).toHaveBeenCalledWith(
+      'read_file',
+      expect.objectContaining({ path: 'src/foo.ts' }),
+      expect.any(String),
+    );
+    expect(result.pendingToolUses).toHaveLength(1);
+    expect(result.stopReason).toBe('tool_use');
   });
 });

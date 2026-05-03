@@ -7,12 +7,19 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 vi.mock('fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('fs')>();
+  const content = 'Mock file content for testing. '.repeat(20);
   return {
     ...actual,
     existsSync: vi.fn(() => true),
-    readFileSync: vi.fn(() => 'Mock file content for testing. '.repeat(20)),
+    readFileSync: vi.fn(() => content),
     mkdirSync: vi.fn(),
     writeFileSync: vi.fn(),
+    promises: {
+      ...actual.promises,
+      mkdir: vi.fn().mockResolvedValue(undefined),
+      readFile: vi.fn().mockResolvedValue(content),
+      writeFile: vi.fn().mockResolvedValue(undefined),
+    },
   };
 });
 
@@ -63,8 +70,9 @@ describe('ingest_source', () => {
   });
 
   it('returns an error for a missing file', async () => {
-    const { existsSync } = await import('fs');
-    vi.mocked(existsSync).mockReturnValueOnce(false);
+    const { promises: fsp } = await import('fs');
+    const enoent = Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' });
+    vi.mocked(fsp.readFile).mockRejectedValueOnce(enoent);
     const tool = findTool('ingest_source');
     const result = await tool.executor({ source: 'nonexistent.txt' }, { config: mockConfig() } as never);
     expect(result).toContain('Error');
@@ -110,6 +118,106 @@ describe('generate_briefing', () => {
       config: mockConfig({ notebookModeStudyAidsEnabled: false }),
     } as never);
     expect(result).toContain('Error');
+    expect(result).toContain('disabled');
+  });
+});
+
+describe('generate_study_guide', () => {
+  it('returns an error when no sources are ingested', async () => {
+    const tool = findTool('generate_study_guide');
+    const result = await tool.executor({ source_ids: '*' }, { config: mockConfig() } as never);
+    expect(result).toContain('Error');
+  });
+
+  it('generates a study guide template when sources are present', async () => {
+    const ingest = findTool('ingest_source');
+    await ingest.executor({ source: 'paper.txt', label: 'paper' }, { config: mockConfig() } as never);
+    const tool = findTool('generate_study_guide');
+    const result = await tool.executor({ source_ids: 'paper', project: 'test' }, { config: mockConfig() } as never);
+    expect(result).toContain('study_guide.md');
+  });
+
+  it('returns error when study aids are disabled', async () => {
+    const tool = findTool('generate_study_guide');
+    const result = await tool.executor({ source_ids: '*' }, {
+      config: mockConfig({ notebookModeStudyAidsEnabled: false }),
+    } as never);
+    expect(result).toContain('disabled');
+  });
+});
+
+describe('generate_faq', () => {
+  it('returns an error when no sources are ingested', async () => {
+    const tool = findTool('generate_faq');
+    const result = await tool.executor({ source_ids: '*' }, { config: mockConfig() } as never);
+    expect(result).toContain('Error');
+  });
+
+  it('generates a faq template when sources are present', async () => {
+    const ingest = findTool('ingest_source');
+    await ingest.executor({ source: 'ref.txt', label: 'ref' }, { config: mockConfig() } as never);
+    const tool = findTool('generate_faq');
+    const result = await tool.executor({ source_ids: 'ref', project: 'test', count: 5 }, {
+      config: mockConfig(),
+    } as never);
+    expect(result).toContain('faq.md');
+  });
+
+  it('returns error when study aids are disabled', async () => {
+    const tool = findTool('generate_faq');
+    const result = await tool.executor({ source_ids: '*' }, {
+      config: mockConfig({ notebookModeStudyAidsEnabled: false }),
+    } as never);
+    expect(result).toContain('disabled');
+  });
+});
+
+describe('generate_timeline', () => {
+  it('returns an error when no sources are ingested', async () => {
+    const tool = findTool('generate_timeline');
+    const result = await tool.executor({ source_ids: '*' }, { config: mockConfig() } as never);
+    expect(result).toContain('Error');
+  });
+
+  it('generates a timeline template when sources are present', async () => {
+    const ingest = findTool('ingest_source');
+    await ingest.executor({ source: 'history.txt', label: 'hist' }, { config: mockConfig() } as never);
+    const tool = findTool('generate_timeline');
+    const result = await tool.executor({ source_ids: 'hist', project: 'test' }, { config: mockConfig() } as never);
+    expect(result).toContain('timeline.md');
+  });
+
+  it('returns error when study aids are disabled', async () => {
+    const tool = findTool('generate_timeline');
+    const result = await tool.executor({ source_ids: '*' }, {
+      config: mockConfig({ notebookModeStudyAidsEnabled: false }),
+    } as never);
+    expect(result).toContain('disabled');
+  });
+});
+
+describe('generate_outline', () => {
+  it('returns an error when no sources are ingested', async () => {
+    const tool = findTool('generate_outline');
+    const result = await tool.executor({ source_ids: '*' }, { config: mockConfig() } as never);
+    expect(result).toContain('Error');
+  });
+
+  it('generates an outline template when sources are present', async () => {
+    const ingest = findTool('ingest_source');
+    await ingest.executor({ source: 'notes.txt', label: 'notes' }, { config: mockConfig() } as never);
+    const tool = findTool('generate_outline');
+    const result = await tool.executor({ source_ids: 'notes', project: 'test', depth: 2 }, {
+      config: mockConfig(),
+    } as never);
+    expect(result).toContain('outline.md');
+  });
+
+  it('returns error when study aids are disabled', async () => {
+    const tool = findTool('generate_outline');
+    const result = await tool.executor({ source_ids: '*' }, {
+      config: mockConfig({ notebookModeStudyAidsEnabled: false }),
+    } as never);
     expect(result).toContain('disabled');
   });
 });

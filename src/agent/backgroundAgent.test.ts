@@ -279,6 +279,64 @@ describe('BackgroundAgentManager slot limit + queue drain', () => {
     await flush();
   });
 
+  it('calls onDone callback when the agent loop invokes it', async () => {
+    // Make runAgentLoop call the onDone callback from the passed callbacks object
+    runAgentLoopMock.mockImplementationOnce(
+      async (_client: unknown, _msgs: unknown, callbacks: { onDone: () => void }) => {
+        callbacks.onDone();
+      },
+    );
+    const cbs = makeCallbacks();
+    const mgr = new BackgroundAgentManager(cbs);
+    mgr.start('task with done');
+    await flush();
+    await flush();
+    // onComplete should have been called — confirms onDone ran without error
+    expect(cbs.onComplete).toHaveBeenCalled();
+  });
+
+  it('returns early from catch when run is cancelled (no double-complete)', async () => {
+    // Make the loop reject AFTER the run is cancelled to cover the
+    // `if (run.status === 'cancelled') return;` early-return path.
+    let rejectRun!: (err: Error) => void;
+    runAgentLoopMock.mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectRun = reject;
+        }),
+    );
+    const cbs = makeCallbacks();
+    const mgr = new BackgroundAgentManager(cbs);
+    const id = mgr.start('cancel me');
+    await flush(); // run transitions to running
+
+    mgr.stop(id); // mark cancelled
+    await flush();
+
+    rejectRun(new Error('aborted')); // loop throws after cancellation
+    await flush();
+    await flush();
+
+    expect(mgr.get(id)?.status).toBe('cancelled');
+    // onComplete should NOT be called for a cancelled run
+    const completeCalls = (cbs.onComplete as ReturnType<typeof vi.fn>).mock.calls;
+    const completedForId = completeCalls.filter((c: unknown[]) => (c[0] as { id: string }).id === id);
+    expect(completedForId).toHaveLength(0);
+  });
+
+  it('dispose() stops all runs and clears the registry', async () => {
+    runAgentLoopMock.mockImplementation(() => new Promise(() => {})); // never resolves
+    const cbs = makeCallbacks();
+    const mgr = new BackgroundAgentManager(cbs);
+    const id = mgr.start('long task');
+    await flush();
+    expect(mgr.get(id)?.status).toBe('running');
+
+    mgr.dispose();
+
+    expect(mgr.get(id)).toBeUndefined();
+  });
+
   it('status transitions: queued → running → completed', async () => {
     let resolveA!: () => void;
     runAgentLoopMock.mockImplementation(() => new Promise<void>((r) => (resolveA = r)));

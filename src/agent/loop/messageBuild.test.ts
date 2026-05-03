@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { pushAssistantMessage, pushToolResultsMessage, accountToolTokens } from './messageBuild.js';
+import { pushAssistantMessage, pushToolResultsMessage, accountToolTokens, capToolResults } from './messageBuild.js';
 import type { LoopState } from './state.js';
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/types.js';
 
@@ -155,5 +155,41 @@ describe('accountToolTokens', () => {
     const after1 = state.totalChars;
     accountToolTokens(state, [tu2], []);
     expect(state.totalChars).toBeGreaterThan(after1);
+  });
+});
+
+describe('capToolResults', () => {
+  it('returns results unchanged when content fits within maxTokens', () => {
+    const tu = toolUse('read_file', { path: 'a.ts' });
+    const tr = toolResult(tu.id, 'short content');
+    const out = capToolResults([tr], [tu], 100_000);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toBe(tr);
+  });
+
+  it('truncates content when it exceeds maxTokens', () => {
+    const tu = toolUse('read_file', { path: 'big.ts' });
+    const longContent = 'x'.repeat(200_000);
+    const tr = toolResult(tu.id, longContent);
+    const out = capToolResults([tr], [tu], 1000);
+    expect(out[0]).not.toBe(tr);
+    expect((out[0].content as string).length).toBeLessThan(longContent.length);
+  });
+
+  it('returns the original object reference when no truncation needed', () => {
+    const tu = toolUse('grep', {});
+    const tr = toolResult(tu.id, 'tiny');
+    const out = capToolResults([tr], [tu], 50_000);
+    expect(out[0]).toBe(tr);
+  });
+
+  it('handles results with no matching pending tool use (name undefined)', () => {
+    const tr = toolResult('unknown-id', 'content');
+    const out = capToolResults([tr], [], 100_000);
+    expect(out[0]).toBe(tr);
+  });
+
+  it('handles empty arrays', () => {
+    expect(capToolResults([], [], 1000)).toEqual([]);
   });
 });

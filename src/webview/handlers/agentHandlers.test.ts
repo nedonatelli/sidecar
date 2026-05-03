@@ -1,13 +1,30 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { handleMcpStatus, handleResume } from './agentHandlers.js';
+import {
+  handleMcpStatus,
+  handleResume,
+  handleListMemories,
+  handleSearchMemories,
+  handleListSkills,
+  handleGetSkillsForMenu,
+  handleToggleVerbose,
+  handleCompactContext,
+  handleGenerateDoc,
+  handleGenerateTests,
+} from './agentHandlers.js';
 import { window, workspace } from 'vscode';
 
 // Mock dependent modules so agentHandlers can call them without real LLM/filesystem
+const { mockGenerateDocumentation } = vi.hoisted(() => ({
+  mockGenerateDocumentation: vi.fn().mockResolvedValue('/** Documented code */\nfunction foo() {}'),
+}));
 vi.mock('../../agent/docGenerator.js', () => ({
-  generateDocumentation: vi.fn().mockResolvedValue('/** Documented code */\nfunction foo() {}'),
+  generateDocumentation: mockGenerateDocumentation,
+}));
+const { mockGenerateTests } = vi.hoisted(() => ({
+  mockGenerateTests: vi.fn().mockResolvedValue({ testFileName: 'app.test.ts', content: 'test("works", () => {})' }),
 }));
 vi.mock('../../agent/testGenerator.js', () => ({
-  generateTests: vi.fn().mockResolvedValue({ testFileName: 'app.test.ts', content: 'test("works", () => {})' }),
+  generateTests: mockGenerateTests,
 }));
 vi.mock('../../agent/scaffold.js', () => ({
   generateScaffold: vi.fn().mockResolvedValue('export class MyComponent {}'),
@@ -27,9 +44,27 @@ vi.mock('../../agent/batch.js', () => ({
   parseBatchInput: vi.fn().mockReturnValue({ mode: 'sequential', tasks: [] }),
   runBatch: vi.fn().mockResolvedValue(undefined),
 }));
+const { mockGenerateInit } = vi.hoisted(() => ({
+  mockGenerateInit: vi.fn().mockResolvedValue('# SIDECAR.md\n\nProject context'),
+}));
+vi.mock('../../agent/codebaseInit.js', () => ({
+  generateInit: mockGenerateInit,
+}));
 vi.mock('../../agent/conversationAnalytics.js', () => ({
   analyzeConversation: vi.fn().mockReturnValue({}),
   formatAnalyticsReport: vi.fn().mockReturnValue('# Insights\n- pattern'),
+}));
+const { mockSummarize } = vi.hoisted(() => ({
+  mockSummarize: vi.fn().mockResolvedValue({
+    messages: [{ role: 'user', content: 'summary' }],
+    freedChars: 5000,
+    metadata: { turnsSummarized: 3, turnsCount: 5 },
+  }),
+}));
+vi.mock('../../agent/conversationSummarizer.js', () => ({
+  ConversationSummarizer: class {
+    summarize = mockSummarize;
+  },
 }));
 
 describe('handleMcpStatus', () => {
@@ -310,19 +345,14 @@ function mockClient() {
 }
 
 describe('handleGenerateDoc (integration)', () => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let handleGenerateDoc: (state: any) => Promise<void>;
-
   beforeEach(async () => {
     vi.restoreAllMocks();
-    const mod = await import('./agentHandlers.js');
-    handleGenerateDoc = mod.handleGenerateDoc;
   });
 
   it('posts error when no active editor', async () => {
     vi.spyOn(window, 'activeTextEditor', 'get').mockReturnValue(undefined);
     const state = { postMessage: vi.fn(), client: mockClient() };
-    await handleGenerateDoc(state);
+    await handleGenerateDoc(state as never);
     expect(state.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ command: 'error', content: expect.stringContaining('No active editor') }),
     );
@@ -339,28 +369,44 @@ describe('handleGenerateDoc (integration)', () => {
     };
     vi.spyOn(window, 'activeTextEditor', 'get').mockReturnValue(mockEditor as never);
     const state = { postMessage: vi.fn(), client: mockClient() };
-    await handleGenerateDoc(state);
+    await handleGenerateDoc(state as never);
     expect(state.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ command: 'assistantMessage', content: expect.stringContaining('Documented') }),
     );
     expect(state.postMessage).toHaveBeenCalledWith(expect.objectContaining({ command: 'done' }));
   });
+
+  it('posts error when generateDocumentation returns null', async () => {
+    mockGenerateDocumentation.mockResolvedValueOnce(null);
+    const mockEditor = {
+      document: {
+        getText: vi.fn().mockReturnValue('function foo() {}'),
+        languageId: 'typescript',
+        fileName: '/project/src/app.ts',
+      },
+      selection: { isEmpty: true },
+    };
+    vi.spyOn(window, 'activeTextEditor', 'get').mockReturnValue(mockEditor as never);
+    const state = { postMessage: vi.fn(), client: mockClient() };
+    await handleGenerateDoc(state as never);
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: 'error',
+        content: expect.stringContaining('Failed to generate documentation'),
+      }),
+    );
+  });
 });
 
 describe('handleGenerateTests (integration)', () => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let handleGenerateTests: (state: any) => Promise<void>;
-
   beforeEach(async () => {
     vi.restoreAllMocks();
-    const mod = await import('./agentHandlers.js');
-    handleGenerateTests = mod.handleGenerateTests;
   });
 
   it('posts error when no active editor', async () => {
     vi.spyOn(window, 'activeTextEditor', 'get').mockReturnValue(undefined);
     const state = { postMessage: vi.fn(), client: mockClient() };
-    await handleGenerateTests(state);
+    await handleGenerateTests(state as never);
     expect(state.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ command: 'error', content: expect.stringContaining('No active editor') }),
     );
@@ -377,9 +423,27 @@ describe('handleGenerateTests (integration)', () => {
     };
     vi.spyOn(window, 'activeTextEditor', 'get').mockReturnValue(mockEditor as never);
     const state = { postMessage: vi.fn(), client: mockClient() };
-    await handleGenerateTests(state);
+    await handleGenerateTests(state as never);
     expect(state.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ command: 'assistantMessage', content: expect.stringContaining('math.ts') }),
+    );
+  });
+
+  it('posts error when generateTests returns null', async () => {
+    mockGenerateTests.mockResolvedValueOnce(null);
+    const mockEditor = {
+      document: {
+        getText: vi.fn().mockReturnValue('export function add(a, b) { return a + b; }'),
+        languageId: 'typescript',
+        fileName: '/project/src/math.ts',
+      },
+      selection: { isEmpty: true },
+    };
+    vi.spyOn(window, 'activeTextEditor', 'get').mockReturnValue(mockEditor as never);
+    const state = { postMessage: vi.fn(), client: mockClient() };
+    await handleGenerateTests(state as never);
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'error', content: expect.stringContaining('Failed to generate tests') }),
     );
   });
 });
@@ -831,5 +895,307 @@ describe('handleResume', () => {
     expect(hint).toContain('partial truncated');
     // Hint still contains a chunk of the partial (up to the cap).
     expect(hint).toContain('x'.repeat(100));
+  });
+});
+
+describe('handleListMemories', () => {
+  it('posts error when agentMemory is not enabled', () => {
+    const state = { agentMemory: null, postMessage: vi.fn() };
+    handleListMemories(state as never);
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'assistantMessage', content: expect.stringContaining('not enabled') }),
+    );
+  });
+
+  it('posts "no memories" message when memory is empty', () => {
+    const state = {
+      agentMemory: { queryAll: () => [], getStats: () => ({ totalCount: 0 }) },
+      postMessage: vi.fn(),
+    };
+    handleListMemories(state as never);
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('No agent memories') }),
+    );
+  });
+
+  it('posts a table summary when memories are present', () => {
+    const state = {
+      agentMemory: {
+        queryAll: () => [
+          { type: 'code_pattern', content: 'prefer async/await', useCount: 3 },
+          { type: 'code_pattern', content: 'use strict equality', useCount: 1 },
+          { type: 'error_fix', content: 'fix null deref', useCount: 2 },
+        ],
+        getStats: () => ({ totalCount: 3 }),
+      },
+      postMessage: vi.fn(),
+    };
+    handleListMemories(state as never);
+    const call = (state.postMessage as ReturnType<typeof vi.fn>).mock.calls[0];
+    const content: string = call[0].content;
+    expect(content).toContain('3 entries');
+    expect(content).toContain('code_pattern');
+    expect(content).toContain('error_fix');
+  });
+});
+
+describe('handleSearchMemories', () => {
+  it('posts error when agentMemory is disabled', () => {
+    const state = { agentMemory: null, postMessage: vi.fn() };
+    handleSearchMemories(state as never, 'anything');
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('not enabled') }),
+    );
+  });
+
+  it('posts "no results" when search returns nothing', () => {
+    const state = {
+      agentMemory: { search: () => [] },
+      postMessage: vi.fn(),
+    };
+    handleSearchMemories(state as never, 'unknown query');
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('No memories found') }),
+    );
+  });
+
+  it('formats results with type badges', () => {
+    const state = {
+      agentMemory: {
+        search: () => [{ type: 'code_pattern', content: 'use async/await patterns', useCount: 5 }],
+      },
+      postMessage: vi.fn(),
+    };
+    handleSearchMemories(state as never, 'async');
+    const content: string = (state.postMessage as ReturnType<typeof vi.fn>).mock.calls[0][0].content;
+    expect(content).toContain('[code_pattern]');
+    expect(content).toContain('5x');
+  });
+
+  it('truncates long memory content in results', () => {
+    const longContent = 'x'.repeat(200);
+    const state = {
+      agentMemory: { search: () => [{ type: 't', content: longContent, useCount: 1 }] },
+      postMessage: vi.fn(),
+    };
+    handleSearchMemories(state as never, 'x');
+    const content: string = (state.postMessage as ReturnType<typeof vi.fn>).mock.calls[0][0].content;
+    expect(content).toContain('...');
+    expect(content.length).toBeLessThan(longContent.length + 100);
+  });
+});
+
+describe('handleListSkills', () => {
+  it('posts "no skills" when skillLoader is absent', () => {
+    const state = { skillLoader: undefined, postMessage: vi.fn() };
+    handleListSkills(state as never);
+    expect(state.postMessage).toHaveBeenCalledWith(expect.objectContaining({ content: 'No skills loaded.' }));
+    expect(state.postMessage).toHaveBeenCalledWith({ command: 'done' });
+  });
+
+  it('posts skillLoader.listFormatted() output', () => {
+    const state = {
+      skillLoader: { listFormatted: () => '- skill1\n- skill2' },
+      postMessage: vi.fn(),
+    };
+    handleListSkills(state as never);
+    expect(state.postMessage).toHaveBeenCalledWith(expect.objectContaining({ content: '- skill1\n- skill2' }));
+  });
+});
+
+describe('handleGetSkillsForMenu', () => {
+  it('posts empty skillsMenu when skillLoader is absent', () => {
+    const state = { skillLoader: undefined, postMessage: vi.fn() };
+    handleGetSkillsForMenu(state as never);
+    expect(state.postMessage).toHaveBeenCalledWith({ command: 'skillsMenu', skills: [] });
+  });
+
+  it('maps skills to id/name/description', () => {
+    const state = {
+      skillLoader: {
+        getAll: () => [{ id: 'fix', name: 'Fix', description: 'Auto-fix issues', system: '' }],
+      },
+      postMessage: vi.fn(),
+    };
+    handleGetSkillsForMenu(state as never);
+    expect(state.postMessage).toHaveBeenCalledWith({
+      command: 'skillsMenu',
+      skills: [{ id: 'fix', name: 'Fix', description: 'Auto-fix issues' }],
+    });
+  });
+});
+
+describe('handleToggleVerbose', () => {
+  beforeEach(() => {
+    vi.spyOn(workspace, 'getConfiguration').mockReturnValue({
+      get: (key: string, def?: unknown) => (key === 'verboseMode' ? false : def),
+      update: vi.fn().mockResolvedValue(undefined),
+      has: () => false,
+      inspect: () => undefined,
+    } as unknown as ReturnType<typeof workspace.getConfiguration>);
+  });
+
+  it('toggles verbose off→on and posts "on" message', () => {
+    const state = { postMessage: vi.fn() };
+    handleToggleVerbose(state as never);
+    const call = (state.postMessage as ReturnType<typeof vi.fn>).mock.calls.find(
+      (c: unknown[]) => (c[0] as { command?: string }).command === 'assistantMessage',
+    );
+    expect(call?.[0].content).toContain('on');
+    expect(state.postMessage).toHaveBeenCalledWith({ command: 'done' });
+  });
+});
+
+describe('handleCompactContext', () => {
+  it('posts "already minimal" when fewer than 4 messages', async () => {
+    const state = {
+      messages: [{ role: 'user', content: 'hello' }],
+      postMessage: vi.fn(),
+    };
+    await handleCompactContext(state as never);
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('already minimal') }),
+    );
+    expect(state.postMessage).toHaveBeenCalledWith({ command: 'done' });
+  });
+
+  it('compacts context and posts freed-token message when summarizer returns freedChars > 0', async () => {
+    const state = {
+      messages: Array.from({ length: 6 }, (_, i) => ({ role: i % 2 === 0 ? 'user' : 'assistant', content: 'msg' })),
+      client: {},
+      saveHistory: vi.fn(),
+      postMessage: vi.fn(),
+    };
+    await handleCompactContext(state as never);
+    expect(state.saveHistory).toHaveBeenCalled();
+    const successCall = (state.postMessage as ReturnType<typeof vi.fn>).mock.calls.find((c: unknown[]) =>
+      ((c[0] as { content?: string }).content ?? '').includes('summarized'),
+    );
+    expect(successCall).toBeDefined();
+    expect(state.postMessage).toHaveBeenCalledWith({ command: 'done' });
+  });
+
+  it('posts "already compact" when summarizer returns freedChars = 0', async () => {
+    mockSummarize.mockResolvedValueOnce({
+      messages: [],
+      freedChars: 0,
+      metadata: { turnsSummarized: 0, turnsCount: 5 },
+    });
+    const state = {
+      messages: Array.from({ length: 6 }, (_, i) => ({ role: i % 2 === 0 ? 'user' : 'assistant', content: 'x' })),
+      client: {},
+      saveHistory: vi.fn(),
+      postMessage: vi.fn(),
+    };
+    await handleCompactContext(state as never);
+    const compactCall = (state.postMessage as ReturnType<typeof vi.fn>).mock.calls.find((c: unknown[]) =>
+      ((c[0] as { content?: string }).content ?? '').includes('already compact'),
+    );
+    expect(compactCall).toBeDefined();
+  });
+
+  it('posts a "compaction failed" error when summarizer throws', async () => {
+    mockSummarize.mockRejectedValueOnce(new Error('LLM timeout'));
+    const state = {
+      messages: Array.from({ length: 6 }, (_, i) => ({ role: i % 2 === 0 ? 'user' : 'assistant', content: 'x' })),
+      client: {},
+      postMessage: vi.fn(),
+    };
+    await handleCompactContext(state as never);
+    const errCall = (state.postMessage as ReturnType<typeof vi.fn>).mock.calls.find((c: unknown[]) =>
+      ((c[0] as { content?: string }).content ?? '').includes('Compaction failed'),
+    );
+    expect(errCall).toBeDefined();
+  });
+});
+
+describe('handleBatch (non-abort error path)', () => {
+  it('posts a batch error message for non-abort errors', async () => {
+    const { parseBatchInput, runBatch } = await import('../../agent/batch.js');
+    vi.mocked(parseBatchInput).mockReturnValueOnce({
+      mode: 'sequential',
+      tasks: [{ id: 0, prompt: 't' }],
+    } as never);
+    vi.mocked(runBatch).mockRejectedValueOnce(new Error('network timeout'));
+    const mod = await import('./agentHandlers.js');
+    const state = {
+      client: { updateConnection: vi.fn(), updateModel: vi.fn() },
+      postMessage: vi.fn(),
+    };
+    await mod.handleBatch(state as never, 'anything');
+    const errCall = (state.postMessage as ReturnType<typeof vi.fn>).mock.calls.find((c: unknown[]) =>
+      ((c[0] as { content?: string }).content ?? '').includes('Batch error'),
+    );
+    expect(errCall).toBeDefined();
+  });
+});
+
+describe('handleInit', () => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let handleInit: (state: any) => Promise<void>;
+
+  beforeEach(async () => {
+    vi.restoreAllMocks();
+    const mod = await import('./agentHandlers.js');
+    handleInit = mod.handleInit;
+  });
+
+  it('posts cancellation message when SIDECAR.md exists and user cancels', async () => {
+    vi.spyOn(workspace.fs, 'stat').mockResolvedValueOnce({ type: 1, size: 100 } as never);
+    vi.spyOn(window, 'showWarningMessage').mockResolvedValueOnce('Cancel' as never);
+    const state = {
+      sidecarDir: { isReady: () => false },
+      postMessage: vi.fn(),
+      client: { updateConnection: vi.fn(), updateModel: vi.fn() },
+    };
+    await handleInit(state);
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('cancelled') }),
+    );
+    expect(state.postMessage).toHaveBeenCalledWith(expect.objectContaining({ command: 'done' }));
+  });
+
+  it('posts error when generateInit returns null', async () => {
+    vi.spyOn(workspace.fs, 'stat').mockRejectedValueOnce(new Error('not found'));
+    mockGenerateInit.mockResolvedValueOnce(null);
+    const state = {
+      sidecarDir: { isReady: () => false },
+      postMessage: vi.fn(),
+      client: { updateConnection: vi.fn(), updateModel: vi.fn() },
+      workspaceIndex: {},
+    };
+    await handleInit(state);
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'error', content: expect.stringContaining('Failed to generate') }),
+    );
+  });
+
+  it('generates and saves SIDECAR.md on the success path', async () => {
+    vi.spyOn(workspace.fs, 'stat')
+      .mockRejectedValueOnce(new Error('not found'))
+      .mockRejectedValueOnce(new Error('not found'));
+    vi.spyOn(workspace.fs, 'createDirectory').mockResolvedValueOnce(undefined);
+    vi.spyOn(workspace.fs, 'writeFile').mockResolvedValueOnce(undefined);
+    mockGenerateInit.mockResolvedValueOnce('# SIDECAR.md\n\nContext here');
+    const mockDoc = {
+      validateRange: vi.fn().mockReturnValue({}),
+      lineCount: 1,
+      save: vi.fn().mockResolvedValue(true),
+      uri: { fsPath: '/mock/.sidecar/SIDECAR.md' },
+    };
+    vi.spyOn(workspace, 'openTextDocument').mockResolvedValueOnce(mockDoc as never);
+    (workspace as unknown as Record<string, unknown>).applyEdit = vi.fn().mockResolvedValue(true);
+    vi.spyOn(window, 'showTextDocument').mockResolvedValueOnce(undefined as never);
+    const state = {
+      sidecarDir: { isReady: () => false },
+      postMessage: vi.fn(),
+      client: { updateConnection: vi.fn(), updateModel: vi.fn() },
+      workspaceIndex: {},
+    };
+    await handleInit(state);
+    expect(state.postMessage).toHaveBeenCalledWith(expect.objectContaining({ command: 'done' }));
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'assistantMessage', content: expect.stringContaining('SIDECAR.md') }),
+    );
   });
 });

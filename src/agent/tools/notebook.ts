@@ -9,7 +9,7 @@
  * generate_outline      — hierarchical topic tree with per-node attribution.
  */
 
-import * as fs from 'fs';
+import { promises as fsp } from 'fs';
 import * as path from 'path';
 import { getRoot, formatToolError } from './shared.js';
 import type { RegisteredTool, ToolExecutorContext } from './shared.js';
@@ -40,9 +40,9 @@ function slugify(text: string): string {
     .slice(0, 40);
 }
 
-function ensureResearchDir(project: string): string {
+async function ensureResearchDir(project: string): Promise<string> {
   const base = path.join(getRoot(), '.sidecar', 'research', slugify(project), 'generated');
-  fs.mkdirSync(base, { recursive: true });
+  await fsp.mkdir(base, { recursive: true });
   return base;
 }
 
@@ -172,13 +172,13 @@ export const notebookTools: RegisteredTool[] = [
       } else {
         // Local file
         const absPath = path.isAbsolute(rawSource) ? rawSource : path.join(getRoot(), rawSource);
-        if (!fs.existsSync(absPath)) return `Error: file not found: ${absPath}`;
         const ext = path.extname(absPath).toLowerCase();
         if (ext === '.pdf')
           return 'Error: PDF ingestion requires the read_pdf tool. Use read_pdf first, then ingest the extracted text.';
         try {
-          content = fs.readFileSync(absPath, 'utf8').slice(0, 80_000);
-        } catch (err) {
+          content = (await fsp.readFile(absPath, 'utf8')).slice(0, 80_000);
+        } catch (err: unknown) {
+          if ((err as NodeJS.ErrnoException).code === 'ENOENT') return `Error: file not found: ${absPath}`;
           return `Error reading file: ${formatToolError(err)}`;
         }
         if (!title) title = path.basename(absPath, ext);
@@ -236,7 +236,7 @@ export const notebookTools: RegisteredTool[] = [
       if (sources.length === 0) return 'Error: no sources ingested. Use ingest_source first.';
 
       const project = String(input.project ?? 'default');
-      const outDir = ensureResearchDir(project);
+      const outDir = await ensureResearchDir(project);
       const outPath = path.join(outDir, 'briefing.md');
 
       const prompt =
@@ -253,7 +253,7 @@ export const notebookTools: RegisteredTool[] = [
         `*Run generate_briefing to produce the actual content via the agent.*\n\n` +
         `**Sources indexed:**\n${sources.map((s) => `- ${s.title} (${s.id})`).join('\n')}`;
 
-      fs.writeFileSync(outPath, briefing, 'utf8');
+      await fsp.writeFile(outPath, briefing, 'utf8');
 
       return (
         `Briefing template written to ${outPath}.\n\n` +
@@ -305,7 +305,7 @@ export const notebookTools: RegisteredTool[] = [
 
       const project = String(input.project ?? 'default');
       const depth = String(input.depth ?? 'all');
-      const outDir = ensureResearchDir(project);
+      const outDir = await ensureResearchDir(project);
       const outPath = path.join(outDir, 'study_guide.md');
 
       const depths =
@@ -323,7 +323,7 @@ export const notebookTools: RegisteredTool[] = [
         `${depthGuide}\n\n` +
         `---\n*To populate: ask the agent to generate Q&A pairs at each depth level from the sources.*`;
 
-      fs.writeFileSync(outPath, template, 'utf8');
+      await fsp.writeFile(outPath, template, 'utf8');
 
       return (
         `Study guide template written to ${outPath}.\n\n` +
@@ -365,7 +365,7 @@ export const notebookTools: RegisteredTool[] = [
 
       const project = String(input.project ?? 'default');
       const count = Math.min(Math.max(Number(input.count ?? 10), 3), 30);
-      const outDir = ensureResearchDir(project);
+      const outDir = await ensureResearchDir(project);
       const outPath = path.join(outDir, 'faq.md');
 
       const template =
@@ -374,7 +374,7 @@ export const notebookTools: RegisteredTool[] = [
         Array.from({ length: count }, (_, i) => `## Q${i + 1}: [question]\n\n**A:** [answer] [citation]\n`).join('\n') +
         `\n---\n*Populate by asking the agent to generate ${count} FAQs from the sources with inline citations.*`;
 
-      fs.writeFileSync(outPath, template, 'utf8');
+      await fsp.writeFile(outPath, template, 'utf8');
 
       return (
         `FAQ template (${count} questions) written to ${outPath}.\n\n` +
@@ -413,7 +413,7 @@ export const notebookTools: RegisteredTool[] = [
       if (sources.length === 0) return 'Error: no sources ingested.';
 
       const project = String(input.project ?? 'default');
-      const outDir = ensureResearchDir(project);
+      const outDir = await ensureResearchDir(project);
       const outPath = path.join(outDir, 'timeline.md');
 
       const template =
@@ -423,7 +423,7 @@ export const notebookTools: RegisteredTool[] = [
         `| [date] | [event] | [source citation] |\n\n` +
         `---\n*Populate by asking the agent to extract all dated events and milestones from the sources.*`;
 
-      fs.writeFileSync(outPath, template, 'utf8');
+      await fsp.writeFile(outPath, template, 'utf8');
 
       return (
         `Timeline template written to ${outPath}.\n\n` +
@@ -468,7 +468,7 @@ export const notebookTools: RegisteredTool[] = [
 
       const project = String(input.project ?? 'default');
       const depth = Math.min(Math.max(Number(input.depth ?? 3), 1), 4);
-      const outDir = ensureResearchDir(project);
+      const outDir = await ensureResearchDir(project);
       const outPath = path.join(outDir, 'outline.md');
 
       const indent = (level: number) => '  '.repeat(level - 1);
@@ -484,7 +484,7 @@ export const notebookTools: RegisteredTool[] = [
         `${exampleTree}\n\n` +
         `---\n*Populate by asking the agent to build a ${depth}-level hierarchical topic outline from the sources, citing each node.*`;
 
-      fs.writeFileSync(outPath, template, 'utf8');
+      await fsp.writeFile(outPath, template, 'utf8');
 
       return (
         `Outline template written to ${outPath}.\n\n` +

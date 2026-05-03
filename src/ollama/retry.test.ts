@@ -163,4 +163,30 @@ describe('fetchWithRetry', () => {
     expect(response.ok).toBe(true);
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
+
+  it('respects Retry-After header as HTTP date', async () => {
+    const past = new Date(Date.now() - 1000).toUTCString(); // already elapsed → 0 delay
+    const headers = new Headers();
+    headers.set('retry-after', past);
+
+    mockFetch
+      .mockResolvedValueOnce({ ok: false, status: 429, headers })
+      .mockResolvedValueOnce({ ok: true, status: 200 });
+
+    const response = await fetchWithRetry('http://test', {}, { maxAttempts: 3, baseDelayMs: 5000 });
+    expect(response.ok).toBe(true);
+  });
+
+  it('ignores an unparseable Retry-After value and falls back to backoff', async () => {
+    const headers = new Headers();
+    headers.set('retry-after', 'not-a-date-or-number');
+
+    mockFetch
+      .mockResolvedValueOnce({ ok: false, status: 429, headers })
+      .mockResolvedValueOnce({ ok: true, status: 200 });
+
+    const response = await fetchWithRetry('http://test', {}, { maxAttempts: 3, baseDelayMs: 1 });
+    expect(response.ok).toBe(true);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
 });

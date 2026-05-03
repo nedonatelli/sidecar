@@ -1,6 +1,17 @@
 import { describe, it, expect, vi } from 'vitest';
 import { workspace } from 'vscode';
-import { resolveRoot, resolveRootUri, getRoot, getRootUri } from './shared.js';
+import {
+  resolveRoot,
+  resolveRootUri,
+  getRoot,
+  getRootUri,
+  validateFilePath,
+  isSensitiveFile,
+  isProtectedWritePath,
+  shellQuote,
+  hasShellMetachar,
+  formatToolError,
+} from './shared.js';
 
 describe('resolveRoot / resolveRootUri', () => {
   // The tests exercise the override logic — when a `context.cwd` is
@@ -60,5 +71,125 @@ describe('resolveRoot / resolveRootUri', () => {
       expect(() => resolveRootUri({ cwd: '/tmp/shadow-xyz' })).not.toThrow();
       vi.restoreAllMocks();
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateFilePath
+// ---------------------------------------------------------------------------
+describe('validateFilePath', () => {
+  it('returns null for a valid relative path', () => {
+    expect(validateFilePath('src/app.ts')).toBeNull();
+  });
+
+  it('rejects empty path', () => {
+    expect(validateFilePath('')).toContain('empty');
+  });
+
+  it('rejects path with backtick', () => {
+    expect(validateFilePath('src/`evil`.ts')).toContain('invalid characters');
+  });
+
+  it('rejects path longer than 80 chars', () => {
+    const long = 'a'.repeat(81);
+    expect(validateFilePath(long)).toContain('too long');
+  });
+
+  it('rejects path segment longer than 60 chars', () => {
+    const longSeg = 'src/' + 'a'.repeat(61) + '.ts';
+    expect(validateFilePath(longSeg)).toContain('segment too long');
+  });
+
+  it('rejects path traversal', () => {
+    expect(validateFilePath('src/../etc/passwd')).toContain('path traversal');
+  });
+
+  it('rejects absolute paths', () => {
+    expect(validateFilePath('/etc/passwd')).toContain('absolute');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isSensitiveFile
+// ---------------------------------------------------------------------------
+describe('isSensitiveFile', () => {
+  it('detects .env file', () => {
+    expect(isSensitiveFile('.env')).toBe(true);
+    expect(isSensitiveFile('.env.local')).toBe(true);
+  });
+
+  it('detects .pem, .key, .p12 files', () => {
+    expect(isSensitiveFile('server.pem')).toBe(true);
+    expect(isSensitiveFile('private.key')).toBe(true);
+    expect(isSensitiveFile('cert.p12')).toBe(true);
+  });
+
+  it('detects credentials.json', () => {
+    expect(isSensitiveFile('credentials.json')).toBe(true);
+  });
+
+  it('returns false for normal files', () => {
+    expect(isSensitiveFile('app.ts')).toBe(false);
+    expect(isSensitiveFile('README.md')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isProtectedWritePath
+// ---------------------------------------------------------------------------
+describe('isProtectedWritePath', () => {
+  it('blocks .sidecar/settings.json', () => {
+    expect(isProtectedWritePath('.sidecar/settings.json')).toContain('settings file');
+  });
+
+  it('blocks .sidecar/logs/ paths', () => {
+    expect(isProtectedWritePath('.sidecar/logs/api.jsonl')).toContain('audit log');
+  });
+
+  it('blocks .sidecar/memory/ paths', () => {
+    expect(isProtectedWritePath('.sidecar/memory/facts.md')).toContain('internal state');
+  });
+
+  it('allows normal project files', () => {
+    expect(isProtectedWritePath('src/app.ts')).toBeNull();
+    expect(isProtectedWritePath('.sidecar/SIDECAR.md')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// shellQuote / hasShellMetachar / formatToolError
+// ---------------------------------------------------------------------------
+describe('shellQuote', () => {
+  it('wraps in single quotes', () => {
+    expect(shellQuote('hello')).toBe("'hello'");
+  });
+
+  it('escapes embedded single quotes', () => {
+    expect(shellQuote("it's")).toBe("'it'\\''s'");
+  });
+});
+
+describe('hasShellMetachar', () => {
+  it('returns true for semicolon', () => {
+    expect(hasShellMetachar('cmd; rm -rf /')).toBe(true);
+  });
+
+  it('returns true for pipe', () => {
+    expect(hasShellMetachar('cmd | cat')).toBe(true);
+  });
+
+  it('returns false for normal path', () => {
+    expect(hasShellMetachar('src/app.ts')).toBe(false);
+  });
+});
+
+describe('formatToolError', () => {
+  it('extracts message from Error', () => {
+    expect(formatToolError(new Error('oops'))).toBe('oops');
+  });
+
+  it('stringifies non-Error values', () => {
+    expect(formatToolError('raw string')).toBe('raw string');
+    expect(formatToolError(42)).toBe('42');
   });
 });

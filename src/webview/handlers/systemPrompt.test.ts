@@ -238,6 +238,63 @@ describe('injectSystemContext', () => {
     expect(result).toContain('Always prefer TypeScript.');
   });
 
+  it('emits a verboseLog with context budget breakdown when verboseMode is true', async () => {
+    const state = makeState();
+    await injectSystemContext('BASE', 200_000, state, makeConfig({ verboseMode: true } as never), 'hi', false, 8192);
+    expect((state as unknown as { postMessage: ReturnType<typeof vi.fn> }).postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'verboseLog', verboseLabel: 'Context Budget' }),
+    );
+  });
+
+  it('uses full-file injection when sidecarMdMode is "full"', async () => {
+    const state = makeState({
+      loadSidecarMd: vi.fn().mockResolvedValue('# Project\n\nFull file content.'),
+    });
+    const result = await injectSystemContext(
+      'BASE',
+      200_000,
+      state,
+      makeConfig({ sidecarMdMode: 'full' } as never),
+      'hi',
+      false,
+      8192,
+    );
+    expect(result).toContain('Full file content.');
+  });
+
+  it('truncates SIDECAR.md in full mode when it exceeds the budget', async () => {
+    const longContent = 'x'.repeat(10_000);
+    const state = makeState({
+      loadSidecarMd: vi.fn().mockResolvedValue(longContent),
+    });
+    const result = await injectSystemContext(
+      'BASE',
+      500,
+      state,
+      makeConfig({ sidecarMdMode: 'full' } as never),
+      'hi',
+      false,
+      8192,
+    );
+    expect(result).toContain('SIDECAR.md truncated');
+  });
+
+  it('extracts @file: path mentions from user text and passes them to scoped injection', async () => {
+    const state = makeState({
+      loadSidecarMd: vi.fn().mockResolvedValue('## Section\n<!-- @paths: src/foo.ts -->\nfoo info'),
+    });
+    const result = await injectSystemContext(
+      'BASE',
+      200_000,
+      state,
+      makeConfig(),
+      'see @file:src/foo.ts for details',
+      false,
+      8192,
+    );
+    expect(result).toContain('foo info');
+  });
+
   it('truncates an oversized user systemPrompt to fit the budget', async () => {
     const huge = 'x'.repeat(10_000);
     const result = await injectSystemContext(

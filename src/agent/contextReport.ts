@@ -1,5 +1,5 @@
 import type { ChatMessage } from '../ollama/types.js';
-import { getContentText } from '../ollama/types.js';
+import { getContentText, getContentLength } from '../ollama/types.js';
 import { charsToTokens } from '../config/tokenEstimation.js';
 
 export interface ContextSection {
@@ -62,17 +62,16 @@ export function generateContextReport(
   let assistantCount = 0;
 
   for (const msg of messages) {
-    const text = getContentText(msg.content);
     if (msg.role === 'user') {
       // Check if it's a tool result (content block array with tool_result type)
       if (Array.isArray(msg.content) && msg.content.some((b) => b.type === 'tool_result')) {
-        toolResultChars += text.length;
+        toolResultChars += getContentLength(msg.content);
       } else {
-        userChars += text.length;
+        userChars += getContentText(msg.content).length;
         userCount++;
       }
     } else {
-      assistantChars += text.length;
+      assistantChars += getContentText(msg.content).length;
       assistantCount++;
     }
   }

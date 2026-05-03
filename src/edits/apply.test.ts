@@ -44,6 +44,35 @@ describe('applyEdit', () => {
     const result = await applyEdit({ filePath: 'test.ts', searchText: 'nonexistent', replaceText: 'new' });
     expect(result).toBe(false);
   });
+
+  it('applies fuzzy match when search has leading/trailing whitespace', async () => {
+    // Exact match fails (leading space in searchText), but after trim() on each line
+    // the normalized comparison succeeds.
+    const mockDoc = {
+      getText: () => 'const x = 1;\nconst y = 2;',
+      positionAt: (offset: number) => ({ line: 0, character: offset }),
+    };
+    vi.spyOn(workspace, 'openTextDocument').mockResolvedValue(mockDoc as never);
+    vi.spyOn(workspace, 'applyEdit').mockResolvedValue(true);
+
+    // Leading space causes exact match failure; trim() in searchLines removes it
+    const result = await applyEdit({ filePath: 'test.ts', searchText: '  const x = 1;', replaceText: 'const x = 99;' });
+    expect(result).toBe(true);
+    expect(workspace.applyEdit).toHaveBeenCalled();
+  });
+
+  it('returns false when fuzzy-normalized match found but line-by-line comparison fails', async () => {
+    // Normalized strings match but line-by-line trimmed comparison fails due to blank line in doc
+    const mockDoc = {
+      getText: () => 'const x;\n\nconst y;',
+      positionAt: (offset: number) => ({ line: 0, character: offset }),
+    };
+    vi.spyOn(workspace, 'openTextDocument').mockResolvedValue(mockDoc as never);
+
+    // searchText normalizes to match the doc text but the blank line prevents line match
+    const result = await applyEdit({ filePath: 'test.ts', searchText: '  const x;   const y;', replaceText: 'new' });
+    expect(result).toBe(false);
+  });
 });
 
 describe('applyEdits', () => {

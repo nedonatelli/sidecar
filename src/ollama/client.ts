@@ -13,6 +13,8 @@ import { RateLimitStore } from './rateLimitState.js';
 import { spendTracker } from './spendTracker.js';
 import { circuitBreaker } from './circuitBreaker.js';
 import { ModelRouter, type RouteSignals, type RouteDecision } from './modelRouter.js';
+import { ModelUsageLog, type ModelUsageEntry } from './modelUsageLog.js';
+export type { ModelUsageEntry } from './modelUsageLog.js';
 
 const DEFAULT_BASE_URL = 'http://localhost:11434';
 
@@ -81,14 +83,6 @@ export interface PullProgress {
   completed?: number;
 }
 
-/** One entry per LLM call — records which model handled which role in the session. */
-export interface ModelUsageEntry {
-  model: string;
-  /** 'chat' for streaming turns, 'complete' for one-shot completions (commit msg, review, etc.) */
-  role: 'chat' | 'complete';
-  timestamp: Date;
-}
-
 export class SideCarClient {
   private model: string;
   private systemPrompt: string;
@@ -131,16 +125,9 @@ export class SideCarClient {
    */
   private preOverrideModel: string | null = null;
 
-  /**
-   * Fixed-size ring buffer for model usage entries. Overwrites the oldest
-   * entry when full — O(1) push, O(n) snapshot. Replaces the previous
-   * Array+shift approach that was O(n) on every push (T2-HIGH, v0.80).
-   */
-  private _modelUsageRing: Array<ModelUsageEntry | undefined>;
-  private _modelUsageHead = 0; // index of the next write slot
-  private _modelUsageCount = 0; // number of valid entries (≤ capacity)
+  private _usageLog = new ModelUsageLog();
   /** Public so tests can reference the same constant instead of hardcoding. */
-  static readonly MAX_MODEL_USAGE_LOG_ENTRIES = 1000;
+  static readonly MAX_MODEL_USAGE_LOG_ENTRIES = ModelUsageLog.MAX_ENTRIES;
 
   // Rate-limit state — one store per provider, so switching profiles
   // mid-session preserves each provider's accumulated budget info AND
@@ -169,7 +156,6 @@ export class SideCarClient {
     this.primaryApiKey = this.apiKey;
     this.primaryModel = this.model;
     this.backend = this.createBackend();
-    this._modelUsageRing = new Array(SideCarClient.MAX_MODEL_USAGE_LOG_ENTRIES);
   }
 
   private createBackend(): ApiBackend {
@@ -566,35 +552,18 @@ export class SideCarClient {
     return this.backend.nativeCapabilities?.();
   }
 
-  /**
-   * Append an entry to the model-usage log, respecting the
-   * drop-oldest cap set by `MAX_MODEL_USAGE_LOG_ENTRIES`. Single
-   * write point so the cap is enforced uniformly for every caller.
-   */
   private pushModelUsageLog(entry: ModelUsageEntry): void {
-    const cap = SideCarClient.MAX_MODEL_USAGE_LOG_ENTRIES;
-    this._modelUsageRing[this._modelUsageHead] = entry;
-    this._modelUsageHead = (this._modelUsageHead + 1) % cap;
-    if (this._modelUsageCount < cap) this._modelUsageCount++;
+    this._usageLog.push(entry);
   }
 
   /** Return a copy of every model call recorded in this session (up to `MAX_MODEL_USAGE_LOG_ENTRIES`), oldest-first. */
   getModelUsageLog(): ModelUsageEntry[] {
-    const cap = SideCarClient.MAX_MODEL_USAGE_LOG_ENTRIES;
-    const result: ModelUsageEntry[] = new Array(this._modelUsageCount);
-    // oldest entry is at (head - count + cap) % cap
-    const start = (this._modelUsageHead - this._modelUsageCount + cap) % cap;
-    for (let i = 0; i < this._modelUsageCount; i++) {
-      result[i] = this._modelUsageRing[(start + i) % cap]!;
-    }
-    return result;
+    return this._usageLog.getAll();
   }
 
   /** Reset the log — call after a commit so the next session starts clean. */
   clearModelUsageLog(): void {
-    this._modelUsageRing = new Array(SideCarClient.MAX_MODEL_USAGE_LOG_ENTRIES);
-    this._modelUsageHead = 0;
-    this._modelUsageCount = 0;
+    this._usageLog.clear();
   }
 
   /**
@@ -608,33 +577,7 @@ export class SideCarClient {
    *   X-AI-Model-Count: 2
    */
   buildModelTrailers(): string {
-    if (this._modelUsageCount === 0) {
-      // Fall back to the currently configured model so there's always a trailer.
-      return `X-AI-Model: ${this.model}`;
-    }
-
-    // Aggregate: model → { roles, count }
-    const agg = new Map<string, { roles: Set<string>; count: number }>();
-    for (const entry of this.getModelUsageLog()) {
-      const existing = agg.get(entry.model);
-      if (existing) {
-        existing.roles.add(entry.role);
-        existing.count++;
-      } else {
-        agg.set(entry.model, { roles: new Set([entry.role]), count: 1 });
-      }
-    }
-
-    const lines: string[] = [];
-    for (const [model, { roles, count }] of agg) {
-      const roleStr = [...roles].join(', ');
-      const callStr = count === 1 ? '1 call' : `${count} calls`;
-      lines.push(`X-AI-Model: ${model} (${roleStr}, ${callStr})`);
-    }
-    if (agg.size > 1) {
-      lines.push(`X-AI-Model-Count: ${agg.size}`);
-    }
-    return lines.join('\n');
+    return this._usageLog.buildTrailers(this.model);
   }
 
   updateSystemPrompt(prompt: string) {

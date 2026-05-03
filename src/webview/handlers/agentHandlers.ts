@@ -17,6 +17,7 @@ import { generateScaffold, getTemplateList } from '../../agent/scaffold.js';
 import { analyzeConversation, formatAnalyticsReport } from '../../agent/conversationAnalytics.js';
 import type { AuditFilter } from '../../agent/auditLog.js';
 import { getOrComputeReport } from './reportCache.js';
+import { charsToTokens } from '../../config/tokenEstimation.js';
 
 export async function handleExecutePlan(state: ChatState): Promise<void> {
   if (!state.pendingPlan || state.pendingPlanMessages.length === 0) return;
@@ -641,4 +642,120 @@ export function handleMcpStatus(state: ChatState): void {
 
   state.postMessage({ command: 'assistantMessage', content: lines.join('\n') });
   state.postMessage({ command: 'done' });
+}
+
+export function handleListMemories(state: ChatState): void {
+  if (!state.agentMemory) {
+    state.postMessage({
+      command: 'assistantMessage',
+      content: 'Agent memory is not enabled. Set `sidecar.enableAgentMemory` to true.\n\n',
+    });
+    return;
+  }
+  const memories = state.agentMemory.queryAll();
+  if (memories.length === 0) {
+    state.postMessage({ command: 'assistantMessage', content: 'No agent memories stored yet.\n\n' });
+    return;
+  }
+  const byType = new Map<string, number>();
+  for (const m of memories) byType.set(m.type, (byType.get(m.type) ?? 0) + 1);
+  const stats = state.agentMemory.getStats();
+  let content = `**Agent Memories** — ${memories.length} entries\n\n`;
+  content += `| Type | Count |\n|------|-------|\n`;
+  for (const [type, count] of byType) content += `| ${type} | ${count} |\n`;
+  content += `\nTotal entries: ${stats.totalCount}. Use \`/memory-search <query>\` to search.\n\n`;
+  state.postMessage({ command: 'assistantMessage', content });
+}
+
+export function handleSearchMemories(state: ChatState, query: string): void {
+  if (!state.agentMemory || !query) {
+    state.postMessage({
+      command: 'assistantMessage',
+      content: 'Agent memory is not enabled or no query provided.\n\n',
+    });
+    return;
+  }
+  const results = state.agentMemory.search(query, undefined, 10);
+  if (results.length === 0) {
+    state.postMessage({ command: 'assistantMessage', content: `No memories found for "${query}".\n\n` });
+    return;
+  }
+  let content = `**Memory search:** "${query}" — ${results.length} results\n\n`;
+  for (const m of results) {
+    content += `- **[${m.type}]** ${m.content.slice(0, 120)}${m.content.length > 120 ? '...' : ''} *(used ${m.useCount}x)*\n`;
+  }
+  content += '\n';
+  state.postMessage({ command: 'assistantMessage', content });
+}
+
+export async function handleCompactContext(state: ChatState): Promise<void> {
+  const msgCount = state.messages.length;
+  if (msgCount < 4) {
+    state.postMessage({
+      command: 'assistantMessage',
+      content: 'Context is already minimal — nothing to compact.',
+    });
+    state.postMessage({ command: 'done' });
+    return;
+  }
+
+  state.postMessage({
+    command: 'assistantMessage',
+    content: 'Compacting conversation context...',
+  });
+
+  try {
+    const { ConversationSummarizer } = await import('../../agent/conversationSummarizer.js');
+    const summarizer = new ConversationSummarizer(state.client);
+    const result = await summarizer.summarize(state.messages, {
+      keepRecentTurns: 2,
+      minCharsToSave: 500,
+      maxSummaryLength: 1200,
+      summaryTimeoutMs: 15000,
+    });
+
+    if (result.freedChars > 0) {
+      state.messages.splice(0, state.messages.length, ...result.messages);
+      state.saveHistory();
+      const tokensFreed = charsToTokens(result.freedChars);
+      state.postMessage({
+        command: 'assistantMessage',
+        content: `Compacted: ${result.metadata.turnsSummarized}/${result.metadata.turnsCount} turns summarized, ~${tokensFreed} tokens freed. The conversation context is now smaller and the model will respond faster.`,
+      });
+    } else {
+      state.postMessage({
+        command: 'assistantMessage',
+        content: 'Context is already compact — not enough old turns to summarize.',
+      });
+    }
+  } catch (err) {
+    state.postMessage({
+      command: 'assistantMessage',
+      content: `Compaction failed: ${err instanceof Error ? err.message : String(err)}`,
+    });
+  }
+  state.postMessage({ command: 'done' });
+}
+
+export function handleToggleVerbose(state: ChatState): void {
+  const current = getConfig().verboseMode;
+  workspace.getConfiguration('sidecar').update('verboseMode', !current, true);
+  const label = !current ? 'on' : 'off';
+  state.postMessage({
+    command: 'assistantMessage',
+    content: `Verbose mode ${label}. ${!current ? 'Agent reasoning will be shown during runs.' : 'Agent reasoning hidden.'}`,
+  });
+  state.postMessage({ command: 'done' });
+}
+
+export function handleListSkills(state: ChatState): void {
+  const list = state.skillLoader?.listFormatted() || 'No skills loaded.';
+  state.postMessage({ command: 'assistantMessage', content: list });
+  state.postMessage({ command: 'done' });
+}
+
+export function handleGetSkillsForMenu(state: ChatState): void {
+  const skills = state.skillLoader?.getAll() || [];
+  const items = skills.map((s) => ({ id: s.id, name: s.name, description: s.description }));
+  state.postMessage({ command: 'skillsMenu', skills: items });
 }

@@ -1,5 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
-import { runForkDispatchCommand, type ForkCommandUi, type ForkCommandConfig } from './forkCommands.js';
+import {
+  runForkDispatchCommand,
+  createDefaultForkCommandUi,
+  type ForkCommandUi,
+  type ForkCommandConfig,
+} from './forkCommands.js';
+import { window } from 'vscode';
 import type { ForkDispatchBatchResult, dispatchForks as dispatchForksFn } from './forkDispatcher.js';
 import type { reviewForkBatch as reviewForkBatchFn } from './forkReview.js';
 
@@ -236,5 +242,41 @@ describe('runForkDispatchCommand — dispatch', () => {
       }),
     ).rejects.toThrow(/backend down/);
     expect(ui.calls.showError[0]).toMatch(/backend down/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createDefaultForkCommandUi
+// ---------------------------------------------------------------------------
+
+describe('createDefaultForkCommandUi', () => {
+  it('returns an object with all required methods', () => {
+    const ui = createDefaultForkCommandUi();
+    expect(typeof ui.showInputBox).toBe('function');
+    expect(typeof ui.showInfo).toBe('function');
+    expect(typeof ui.showError).toBe('function');
+  });
+
+  it('showInfo calls vscode.window.showInformationMessage', () => {
+    const spy = vi.spyOn(window, 'showInformationMessage').mockReturnValue(undefined as never);
+    createDefaultForkCommandUi().showInfo('fork info');
+    expect(spy).toHaveBeenCalledWith('fork info');
+    vi.restoreAllMocks();
+  });
+
+  it('showError calls vscode.window.showErrorMessage', () => {
+    const spy = vi.spyOn(window, 'showErrorMessage').mockReturnValue(undefined as never);
+    createDefaultForkCommandUi().showError('fork error');
+    expect(spy).toHaveBeenCalledWith('fork error');
+    vi.restoreAllMocks();
+  });
+
+  it('showInputBox delegates to window.showInputBox', async () => {
+    const spy = vi.spyOn(window, 'showInputBox').mockResolvedValue('task text');
+    const ui = createDefaultForkCommandUi();
+    const result = await ui.showInputBox('Enter task', 'placeholder');
+    expect(spy).toHaveBeenCalledWith({ prompt: 'Enter task', placeHolder: 'placeholder' });
+    expect(result).toBe('task text');
+    vi.restoreAllMocks();
   });
 });

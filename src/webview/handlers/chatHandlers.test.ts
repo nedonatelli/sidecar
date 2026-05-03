@@ -3,6 +3,7 @@ import {
   classifyError,
   languageToExtension,
   keywordOverlap,
+  updateWorkspaceRelevance,
   shouldAutoEnablePlanMode,
   isPlanApproval,
   isPlanRejection,
@@ -26,10 +27,27 @@ import {
   handleReconnect,
   checkBudgetLimits,
   recordRunCost,
+  handleSaveCodeBlock,
 } from './chatHandlers.js';
+import { attachImage } from './fileHandlers.js';
 import { buildBaseSystemPrompt, injectSystemContext } from './systemPrompt.js';
 import type { SystemPromptParams } from './systemPrompt.js';
 import { workspace, window, FileType } from 'vscode';
+
+const mockShellExecute = vi.fn();
+const mockShellDispose = vi.fn();
+vi.mock('../../terminal/shellSession.js', () => {
+  return {
+    ShellSession: class {
+      execute(...args: unknown[]) {
+        return mockShellExecute(...args);
+      }
+      dispose(...args: unknown[]) {
+        return mockShellDispose(...args);
+      }
+    },
+  };
+});
 
 // ---------------------------------------------------------------------------
 // classifyError
@@ -94,6 +112,29 @@ describe('classifyError', () => {
     expect(classifyError('ECONNREFUSED').errorType).toBe('connection');
     expect(classifyError('UNAUTHORIZED access').errorType).toBe('auth');
     expect(classifyError('TIMEOUT exceeded').errorType).toBe('timeout');
+  });
+
+  it('classifies token limit errors', () => {
+    expect(classifyError('context window token limit exceeded').errorType).toBe('token_limit');
+    expect(classifyError('token too long').errorType).toBe('token_limit');
+    expect(classifyError('maximum token count reached').errorType).toBe('token_limit');
+  });
+
+  it('classifies server errors (5xx)', () => {
+    expect(classifyError('500 Internal Server Error').errorType).toBe('server_error');
+    expect(classifyError('502 Bad Gateway').errorType).toBe('server_error');
+    expect(classifyError('service unavailable').errorType).toBe('server_error');
+    expect(classifyError('model overloaded').errorType).toBe('server_error');
+  });
+
+  it('classifies rate limit errors', () => {
+    expect(classifyError('429 Too Many Requests').errorType).toBe('rate_limit');
+    expect(classifyError('rate limit exceeded').errorType).toBe('rate_limit');
+  });
+
+  it('classifies content policy errors', () => {
+    expect(classifyError('content policy violation').errorType).toBe('content_policy');
+    expect(classifyError('request flagged by safety filters').errorType).toBe('content_policy');
   });
 });
 
@@ -224,6 +265,80 @@ describe('handleCreateFile', () => {
     await handleCreateFile(state as never, 'code', 'existing.ts');
     expect(writeSpy).not.toHaveBeenCalled();
   });
+
+  it('posts error when writeFile throws', async () => {
+    vi.spyOn(workspace.fs, 'stat').mockRejectedValue(new Error('not found'));
+    vi.spyOn(workspace.fs, 'createDirectory').mockResolvedValue(undefined as never);
+    vi.spyOn(workspace.fs, 'writeFile').mockRejectedValue(new Error('disk full'));
+
+    await handleCreateFile(state as never, 'code', 'fail.ts');
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'error', content: expect.stringContaining('disk full') }),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// attachImage
+// ---------------------------------------------------------------------------
+describe('attachImage', () => {
+  it('posts imageAttached with base64 data for a png', async () => {
+    const fakeBytes = Buffer.from('fakepng');
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(fakeBytes as never);
+    const state = { postMessage: vi.fn() };
+    const uri = { fsPath: '/img/photo.png', scheme: 'file', path: '/img/photo.png' };
+
+    await attachImage(state as never, uri as never);
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'imageAttached', mediaType: 'image/png' }),
+    );
+  });
+
+  it('uses image/jpeg for .jpg extension', async () => {
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from('fakejpg') as never);
+    const state = { postMessage: vi.fn() };
+    const uri = { fsPath: '/img/photo.jpg', scheme: 'file', path: '/img/photo.jpg' };
+
+    await attachImage(state as never, uri as never);
+    expect(state.postMessage).toHaveBeenCalledWith(expect.objectContaining({ mediaType: 'image/jpeg' }));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleSaveCodeBlock
+// ---------------------------------------------------------------------------
+describe('handleSaveCodeBlock', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('does nothing when user cancels the save dialog', async () => {
+    vi.spyOn(window, 'showSaveDialog').mockResolvedValue(undefined as never);
+    const writeSpy = vi.spyOn(workspace.fs, 'writeFile');
+
+    await handleSaveCodeBlock('const x = 1;', 'typescript');
+    expect(writeSpy).not.toHaveBeenCalled();
+  });
+
+  it('writes file with correct content when user picks a path', async () => {
+    const fakeUri = { fsPath: '/tmp/out.ts', scheme: 'file', path: '/tmp/out.ts' };
+    vi.spyOn(window, 'showSaveDialog').mockResolvedValue(fakeUri as never);
+    vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined as never);
+    vi.spyOn(window, 'showInformationMessage').mockResolvedValue(undefined as never);
+
+    await handleSaveCodeBlock('const x = 1;', 'typescript');
+    expect(workspace.fs.writeFile).toHaveBeenCalledWith(fakeUri, expect.any(Buffer));
+  });
+
+  it('saves with .txt extension when no language is given', async () => {
+    const fakeUri = { fsPath: '/tmp/out.txt', scheme: 'file', path: '/tmp/out.txt' };
+    vi.spyOn(window, 'showSaveDialog').mockResolvedValue(fakeUri as never);
+    vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined as never);
+    vi.spyOn(window, 'showInformationMessage').mockResolvedValue(undefined as never);
+
+    await handleSaveCodeBlock('hello', undefined);
+    expect(workspace.fs.writeFile).toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -275,6 +390,29 @@ describe('handleMoveFile', () => {
       'Overwrite',
       'Cancel',
     ]);
+  });
+
+  it('posts error when no workspace folders are open', async () => {
+    const origFolders = workspace.workspaceFolders;
+    (workspace as Record<string, unknown>).workspaceFolders = [];
+    await handleMoveFile(state as never, 'src.ts', 'dest.ts');
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'error', content: expect.stringContaining('No workspace') }),
+    );
+    (workspace as Record<string, unknown>).workspaceFolders = origFolders;
+  });
+
+  it('posts error when rename throws', async () => {
+    vi.spyOn(workspace.fs, 'stat')
+      .mockResolvedValueOnce({ type: 1, size: 100 } as never)
+      .mockRejectedValueOnce(new Error('not found'));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.spyOn(workspace.fs as any, 'rename').mockRejectedValueOnce(new Error('permission denied'));
+
+    await handleMoveFile(state as never, 'src.ts', 'dest.ts');
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'error', content: expect.stringContaining('permission denied') }),
+    );
   });
 });
 
@@ -585,7 +723,7 @@ describe('isDeferredAnswer', () => {
 // ---------------------------------------------------------------------------
 // resolveNumberedListRef
 // ---------------------------------------------------------------------------
-import { resolveNumberedListRef } from './chatHandlers.js';
+import { resolveNumberedListRef, prepareUserMessageText } from './chatHandlers.js';
 
 describe('resolveNumberedListRef', () => {
   const listMessage = {
@@ -643,6 +781,56 @@ describe('resolveNumberedListRef', () => {
     const result = resolveNumberedListRef('1', [older, newer]);
     expect(result).toContain('New item X');
     expect(result).not.toContain('Old item A');
+  });
+
+  it('merges continuation lines into the same item', () => {
+    const multiLine = {
+      role: 'assistant' as const,
+      content: '1. First item\n   more details here\n2. Second item',
+    };
+    const result = resolveNumberedListRef('1', [multiLine]);
+    expect(result).toContain('First item');
+    expect(result).toContain('more details here');
+  });
+
+  it('stops continuation at a heading line', () => {
+    const withHeading = {
+      role: 'assistant' as const,
+      content: '1. First item\n## New section\n2. After heading',
+    };
+    const result = resolveNumberedListRef('1', [withHeading]);
+    expect(result).toContain('First item');
+    expect(result).not.toContain('New section');
+  });
+
+  it('stops continuation at a bullet line', () => {
+    const withBullet = {
+      role: 'assistant' as const,
+      content: '1. First item\n- bullet point\n2. Second item',
+    };
+    const result = resolveNumberedListRef('1', [withBullet]);
+    expect(result).toContain('First item');
+    expect(result).not.toContain('bullet point');
+  });
+
+  it('returns null when prefixed index is out of range (> 20)', () => {
+    const msg = { role: 'assistant' as const, content: '1. Item one\n2. Item two' };
+    expect(resolveNumberedListRef('option 25', [msg])).toBeNull();
+  });
+
+  it('returns null when bare index is out of range (> 20)', () => {
+    const msg = { role: 'assistant' as const, content: '1. Item one\n2. Item two' };
+    expect(resolveNumberedListRef('21', [msg])).toBeNull();
+  });
+
+  it('skips blank continuation lines inside an item', () => {
+    const withBlank = {
+      role: 'assistant' as const,
+      content: '1. First item\n\n   more details\n2. Second item',
+    };
+    const result = resolveNumberedListRef('1', [withBlank]);
+    expect(result).toContain('First item');
+    expect(result).toContain('more details');
   });
 });
 
@@ -1313,6 +1501,54 @@ describe('handleRunCommand', () => {
     const result = await handleRunCommand(state as never, 'echo hello');
     expect(result).toBe('terminal output');
   });
+
+  it('returns no workspace folder when executeCommand returns null and no workspace', async () => {
+    const state = {
+      requestConfirm: vi.fn().mockResolvedValue('Allow'),
+      postMessage: vi.fn(),
+      terminalManager: { executeCommand: vi.fn().mockResolvedValue(null) },
+    };
+    const origFolders = (workspace as { workspaceFolders: unknown }).workspaceFolders;
+    (workspace as { workspaceFolders: unknown }).workspaceFolders = undefined;
+    const result = await handleRunCommand(state as never, 'echo hello');
+    (workspace as { workspaceFolders: unknown }).workspaceFolders = origFolders;
+    expect(result).toBe('(no workspace folder)');
+  });
+
+  it('uses ShellSession fallback when executeCommand returns null', async () => {
+    mockShellExecute.mockResolvedValue({ stdout: 'shell output', exitCode: 0, timedOut: false });
+    const state = {
+      requestConfirm: vi.fn().mockResolvedValue('Allow'),
+      postMessage: vi.fn(),
+      terminalManager: { executeCommand: vi.fn().mockResolvedValue(null) },
+    };
+    const result = await handleRunCommand(state as never, 'echo hello');
+    expect(result).toBe('shell output');
+    expect(mockShellDispose).toHaveBeenCalled();
+  });
+
+  it('returns (no output) when ShellSession stdout is empty', async () => {
+    mockShellExecute.mockResolvedValue({ stdout: '   ', exitCode: 0, timedOut: false });
+    const state = {
+      requestConfirm: vi.fn().mockResolvedValue('Allow'),
+      postMessage: vi.fn(),
+      terminalManager: { executeCommand: vi.fn().mockResolvedValue(null) },
+    };
+    const result = await handleRunCommand(state as never, 'echo hello');
+    expect(result).toBe('(no output)');
+  });
+
+  it('returns error message when ShellSession throws', async () => {
+    mockShellExecute.mockRejectedValue(new Error('shell crashed'));
+    const state = {
+      requestConfirm: vi.fn().mockResolvedValue('Allow'),
+      postMessage: vi.fn(),
+      terminalManager: { executeCommand: vi.fn().mockResolvedValue(null) },
+    };
+    const result = await handleRunCommand(state as never, 'bad command');
+    expect(result).toBe('shell crashed');
+    expect(mockShellDispose).toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1404,6 +1640,25 @@ describe('handleRevertFile', () => {
     expect(state.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ command: 'changeSummary', changeSummary: [] }),
     );
+  });
+
+  it('sends non-empty changeSummary with diffs when other changes remain after revert', async () => {
+    const state = {
+      changelog: {
+        rollbackFile: vi.fn().mockResolvedValue(true),
+        hasChanges: () => true,
+        getChangeSummary: vi
+          .fn()
+          .mockResolvedValue([{ filePath: 'src/other.ts', original: 'old content', current: 'new content' }]),
+      },
+      postMessage: vi.fn(),
+    };
+    await handleRevertFile(state as never, 'src/app.ts');
+    const changeSummaryCall = (state.postMessage as ReturnType<typeof vi.fn>).mock.calls.find(
+      (c: unknown[]) => (c[0] as { command: string }).command === 'changeSummary',
+    );
+    expect(changeSummaryCall).toBeDefined();
+    expect(Array.isArray(changeSummaryCall![0].changeSummary)).toBe(true);
   });
 });
 
@@ -1581,6 +1836,42 @@ describe('handleDroppedPaths', () => {
 
     const msg = state.postMessage.mock.calls[0]?.[0] as { files: unknown[] };
     expect(msg.files.length).toBe(20);
+  });
+
+  it('skips unreadable folder when readDirectory throws', async () => {
+    vi.spyOn(workspace.fs, 'stat').mockResolvedValue({ type: FileType.Directory, size: 0 } as never);
+    vi.spyOn(workspace.fs, 'readDirectory').mockRejectedValue(new Error('permission denied'));
+    vi.spyOn(window, 'showInformationMessage').mockResolvedValue(undefined as never);
+
+    await handleDroppedPaths(state as never, ['/abs/locked-folder']);
+
+    expect(state.postMessage).not.toHaveBeenCalled();
+    expect(window.showInformationMessage).toHaveBeenCalledWith(expect.stringContaining('unreadable folder'));
+  });
+
+  it('skips unreadable child file when stat throws for a folder entry', async () => {
+    vi.spyOn(workspace.fs, 'stat').mockImplementation(async (uri: { fsPath: string }) => {
+      if (uri.fsPath.endsWith('myfolder')) return { type: FileType.Directory, size: 0 } as never;
+      throw new Error('EACCES');
+    });
+    vi.spyOn(workspace.fs, 'readDirectory').mockResolvedValue([['secret.ts', FileType.File]] as never);
+    vi.spyOn(window, 'showInformationMessage').mockResolvedValue(undefined as never);
+
+    await handleDroppedPaths(state as never, ['/abs/myfolder']);
+
+    expect(state.postMessage).not.toHaveBeenCalled();
+    expect(window.showInformationMessage).toHaveBeenCalled();
+  });
+
+  it('skips items with unsupported file type', async () => {
+    // FileType 64 = SymbolicLink (neither File nor Directory)
+    vi.spyOn(workspace.fs, 'stat').mockResolvedValue({ type: 64, size: 0 } as never);
+    vi.spyOn(window, 'showInformationMessage').mockResolvedValue(undefined as never);
+
+    await handleDroppedPaths(state as never, ['/abs/symlink']);
+
+    expect(state.postMessage).not.toHaveBeenCalled();
+    expect(window.showInformationMessage).toHaveBeenCalledWith(expect.stringContaining('unsupported type'));
   });
 });
 
@@ -1826,5 +2117,125 @@ describe('handleReconnect', () => {
     const doneMsg = state.postMessage.mock.calls.find((c) => (c[0] as { command: string }).command === 'done');
     expect(doneMsg).toBeDefined();
     vi.restoreAllMocks();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// prepareUserMessageText
+// ---------------------------------------------------------------------------
+describe('prepareUserMessageText', () => {
+  function makeMinimalState(
+    messages: { role: string; content: unknown }[] = [],
+    pendingQuestion: string | null = null,
+  ) {
+    return {
+      messages,
+      pendingQuestion,
+    } as unknown as Parameters<typeof prepareUserMessageText>[0];
+  }
+
+  it('returns text unchanged when no prior assistant and no pending question', () => {
+    const state = makeMinimalState([]);
+    expect(prepareUserMessageText(state, 'hello')).toBe('hello');
+  });
+
+  it('wraps deferred answer when pendingQuestion is set and text is a deferral', () => {
+    const state = makeMinimalState([], 'What colour do you prefer?');
+    const result = prepareUserMessageText(state, 'up to you');
+    expect(result).toContain('deferred your question');
+    expect(result).toContain('What colour do you prefer?');
+    expect(state.pendingQuestion).toBeNull();
+  });
+
+  it('wraps a short reply as an answer to the pending question', () => {
+    const state = makeMinimalState([], 'Which approach?');
+    const result = prepareUserMessageText(state, 'second option');
+    expect(result).toContain('Responding to your question');
+    expect(result).toContain('second option');
+  });
+
+  it('returns long reply verbatim even when there is a pending question', () => {
+    const state = makeMinimalState([], 'Which file?');
+    const longReply = 'I think we should use the second approach because it is more testable and extensible';
+    const result = prepareUserMessageText(state, longReply);
+    expect(result).toBe(longReply);
+  });
+
+  it('expands a numbered-list reference when there is a prior assistant message', () => {
+    const state = makeMinimalState([{ role: 'assistant', content: '1. Refactor auth\n2. Add tests' }]);
+    const result = prepareUserMessageText(state, '2');
+    expect(result).toContain('Add tests');
+  });
+
+  it('wraps a continuation request when there is a prior assistant message', () => {
+    const state = makeMinimalState([{ role: 'assistant', content: 'Here is the plan.' }]);
+    const result = prepareUserMessageText(state, 'continue');
+    expect(result).toContain('Continuation request');
+    expect(result).toContain('continue');
+  });
+
+  it('returns text verbatim when there is a prior assistant but no special pattern', () => {
+    const state = makeMinimalState([{ role: 'assistant', content: 'Done.' }]);
+    expect(prepareUserMessageText(state, 'what about the tests?')).toBe('what about the tests?');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// updateWorkspaceRelevance
+// ---------------------------------------------------------------------------
+describe('updateWorkspaceRelevance', () => {
+  function makeStateWithIndex(overrides: Partial<{ decayRelevance: () => void; resetRelevance: () => void }> = {}) {
+    return {
+      messages: [] as { role: string; content: string }[],
+      workspaceIndex: {
+        decayRelevance: vi.fn(),
+        resetRelevance: vi.fn(),
+        ...overrides,
+      },
+    };
+  }
+
+  it('is a no-op when workspaceIndex is undefined', () => {
+    const state = { messages: [], workspaceIndex: undefined };
+    expect(() => updateWorkspaceRelevance(state as never, 'fix the auth bug')).not.toThrow();
+  });
+
+  it('calls decayRelevance when text is empty', () => {
+    const state = makeStateWithIndex();
+    updateWorkspaceRelevance(state as never, '');
+    expect(state.workspaceIndex.decayRelevance).toHaveBeenCalled();
+    expect(state.workspaceIndex.resetRelevance).not.toHaveBeenCalled();
+  });
+
+  it('calls decayRelevance when there is no prior user message', () => {
+    const state = makeStateWithIndex();
+    state.messages = [{ role: 'assistant', content: 'hello' }];
+    updateWorkspaceRelevance(state as never, 'fix the bug');
+    expect(state.workspaceIndex.decayRelevance).toHaveBeenCalled();
+  });
+
+  it('resets relevance when topic changes drastically (overlap < 0.15)', () => {
+    const state = makeStateWithIndex();
+    state.messages = [
+      { role: 'user', content: 'add a chart to the dashboard' },
+      { role: 'assistant', content: 'done' },
+      { role: 'user', content: 'fix the auth login bug' }, // last user msg
+    ];
+    // New query about a completely different topic
+    updateWorkspaceRelevance(state as never, 'migrate the entire database schema');
+    expect(state.workspaceIndex.resetRelevance).toHaveBeenCalled();
+  });
+
+  it('decays relevance when topic is similar (high overlap)', () => {
+    const state = makeStateWithIndex();
+    state.messages = [
+      { role: 'user', content: 'fix the login authentication bug' },
+      { role: 'assistant', content: 'done' },
+      { role: 'user', content: 'fix the login authentication issue' },
+    ];
+    // Very similar query
+    updateWorkspaceRelevance(state as never, 'fix the login authentication problem');
+    expect(state.workspaceIndex.decayRelevance).toHaveBeenCalled();
+    expect(state.workspaceIndex.resetRelevance).not.toHaveBeenCalled();
   });
 });

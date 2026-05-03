@@ -270,5 +270,21 @@ Architecture overview of authentication system`);
       const filePath = writeCall[0].fsPath;
       expect(filePath).toContain(customName);
     });
+
+    it('uses sidecarDir when it is ready', async () => {
+      const mockSpecUri = { fsPath: '/sidecar/specs/test.md' };
+      const mockSidecarDir = {
+        isReady: vi.fn().mockReturnValue(true),
+        writeText: vi.fn().mockResolvedValue(undefined),
+        getUri: vi.fn().mockReturnValue(mockSpecUri),
+      };
+      mockWorkspace.openTextDocument = vi.fn().mockResolvedValue({ uri: mockSpecUri });
+      mockWindow.showTextDocument = vi.fn().mockResolvedValue(undefined);
+
+      await saveSpec('Spec via sidecarDir', 'my-spec', mockSidecarDir as never);
+
+      expect(mockSidecarDir.writeText).toHaveBeenCalledWith('specs/my-spec.md', 'Spec via sidecarDir');
+      expect(mockWindow.showTextDocument).toHaveBeenCalled();
+    });
   });
 });

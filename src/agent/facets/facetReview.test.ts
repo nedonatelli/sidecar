@@ -1,9 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
-import { Uri } from 'vscode';
+import { Uri, window, commands, workspace } from 'vscode';
 import {
   filesTouchedByDiff,
   planFacetReview,
   reviewFacetBatch,
+  createDefaultFacetReviewUi,
+  getWorkspaceMainRoot,
   type FacetReviewUi,
   type FacetReviewDeps,
 } from './facetReview.js';
@@ -260,5 +262,69 @@ describe('reviewFacetBatch', () => {
 
     expect(outcome.applied).toEqual(['b', 'a']);
     expect(applyOrder).toEqual(['b', 'a']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createDefaultFacetReviewUi
+// ---------------------------------------------------------------------------
+
+describe('createDefaultFacetReviewUi', () => {
+  it('returns an object with all required methods', () => {
+    const ui = createDefaultFacetReviewUi();
+    expect(typeof ui.showQuickPick).toBe('function');
+    expect(typeof ui.showInfo).toBe('function');
+    expect(typeof ui.showError).toBe('function');
+    expect(typeof ui.openDiff).toBe('function');
+  });
+
+  it('showInfo calls window.showInformationMessage', () => {
+    const spy = vi.spyOn(window, 'showInformationMessage').mockReturnValue(undefined as never);
+    createDefaultFacetReviewUi().showInfo('facet applied');
+    expect(spy).toHaveBeenCalledWith('facet applied');
+    vi.restoreAllMocks();
+  });
+
+  it('showError calls window.showErrorMessage', () => {
+    const spy = vi.spyOn(window, 'showErrorMessage').mockReturnValue(undefined as never);
+    createDefaultFacetReviewUi().showError('facet error');
+    expect(spy).toHaveBeenCalledWith('facet error');
+    vi.restoreAllMocks();
+  });
+
+  it('showQuickPick delegates to window.showQuickPick', async () => {
+    const spy = vi.spyOn(window, 'showQuickPick').mockResolvedValue(undefined as never);
+    await createDefaultFacetReviewUi().showQuickPick([{ label: 'coder' }] as never, 'pick a facet');
+    expect(spy).toHaveBeenCalledWith(expect.any(Array), { placeHolder: 'pick a facet' });
+    vi.restoreAllMocks();
+  });
+
+  it('openDiff executes vscode.diff command', async () => {
+    const spy = vi.spyOn(commands, 'executeCommand').mockResolvedValue(undefined);
+    const left = Uri.file('/tmp/left.diff');
+    const right = Uri.file('/tmp/right.diff');
+    await createDefaultFacetReviewUi().openDiff(left, right, 'Facet diff');
+    expect(spy).toHaveBeenCalledWith('vscode.diff', left, right, 'Facet diff', { preview: true });
+    vi.restoreAllMocks();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getWorkspaceMainRoot
+// ---------------------------------------------------------------------------
+
+describe('getWorkspaceMainRoot', () => {
+  it('returns the fsPath of the first workspace folder', () => {
+    const root = getWorkspaceMainRoot();
+    expect(typeof root).toBe('string');
+    expect(root).toBeTruthy();
+  });
+
+  it('returns undefined when workspaceFolders is undefined', () => {
+    const wsMock = workspace as Record<string, unknown>;
+    const original = wsMock.workspaceFolders;
+    wsMock.workspaceFolders = undefined;
+    expect(getWorkspaceMainRoot()).toBeUndefined();
+    wsMock.workspaceFolders = original;
   });
 });
