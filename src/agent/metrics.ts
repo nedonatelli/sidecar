@@ -1,5 +1,5 @@
 import type { Memento } from 'vscode';
-import { CHARS_PER_TOKEN } from '../config/constants.js';
+import { charsToTokens } from '../config/tokenEstimation.js';
 import type { SidecarDir } from '../config/sidecarDir.js';
 
 const METRICS_LOG = 'logs/metrics.jsonl';
@@ -69,8 +69,7 @@ export class MetricsCollector {
 
   recordTokens(chars: number): void {
     if (this.currentRun) {
-      this.currentRun.totalTokensEstimate =
-        (this.currentRun.totalTokensEstimate || 0) + Math.ceil(chars / CHARS_PER_TOKEN);
+      this.currentRun.totalTokensEstimate = (this.currentRun.totalTokensEstimate || 0) + charsToTokens(chars);
     }
   }
 

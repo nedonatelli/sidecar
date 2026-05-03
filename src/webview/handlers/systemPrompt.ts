@@ -2,7 +2,7 @@ import { window, workspace } from 'vscode';
 import * as path from 'path';
 import type { ChatState } from '../chatState.js';
 import { getConfig } from '../../config/settings.js';
-import { CHARS_PER_TOKEN } from '../../config/constants.js';
+import { charsToTokens } from '../../config/tokenEstimation.js';
 import {
   getWorkspaceContext,
   getWorkspaceEnabled,
@@ -310,7 +310,7 @@ export async function injectSystemContext(
   sizes['Session'] = prompt.length - prevLen;
 
   if (config.verboseMode) {
-    const tok = (chars: number) => Math.ceil(chars / CHARS_PER_TOKEN);
+    const tok = (chars: number) => charsToTokens(chars);
     const maxLabel = Math.max(...Object.keys(sizes).map((k) => k.length));
     const lines = Object.entries(sizes).map(([label, chars]) => {
       const pad = label.padEnd(maxLabel);
@@ -318,7 +318,7 @@ export async function injectSystemContext(
       return `  ${pad}  ${t > 0 ? `~${t}` : '—'} tokens`;
     });
     const totalTokens = tok(prompt.length);
-    const budgetTokens = Math.ceil(maxSystemChars / CHARS_PER_TOKEN);
+    const budgetTokens = charsToTokens(maxSystemChars);
     lines.push(`  ${'─'.repeat(maxLabel + 12)}`);
     lines.push(
       `  ${'Total'.padEnd(maxLabel)}  ~${totalTokens} / ${budgetTokens} tokens (${Math.round((prompt.length / maxSystemChars) * 100)}% of budget)`,

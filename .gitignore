@@ -2,6 +2,7 @@ node_modules/
 out/
 dist/
 *.vsix
+sidecar-ai-*.vsix
 .vscode-test/
 .DS_Store
 docs/market-notes.md

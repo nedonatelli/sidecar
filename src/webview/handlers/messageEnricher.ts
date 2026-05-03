@@ -2,7 +2,7 @@ import { window } from 'vscode';
 import * as path from 'path';
 import type { ChatState } from '../chatState.js';
 import { getConfig } from '../../config/settings.js';
-import { CHARS_PER_TOKEN } from '../../config/constants.js';
+import { charsToTokens } from '../../config/tokenEstimation.js';
 import {
   getWorkspaceRoot,
   resolveFileReferences,
@@ -88,7 +88,7 @@ export async function enrichAndPruneMessages(
     const after = prunedMessages.reduce((s, m) => s + getContentLength(m.content), 0);
     state.postMessage({
       command: 'verboseLog',
-      content: `Pruned conversation: ${chatMessages.length} → ${prunedMessages.length} messages, ~${Math.round((before - after) / CHARS_PER_TOKEN)} tokens freed`,
+      content: `Pruned conversation: ${chatMessages.length} → ${prunedMessages.length} messages, ~${charsToTokens(before - after)} tokens freed`,
       verboseLabel: 'Context Pruning',
     });
   }
@@ -101,7 +101,7 @@ export async function enrichAndPruneMessages(
   // Warn if context may exceed the model's limit
   if (contextLength) {
     const historyChars = chatMessages.reduce((sum, m) => sum + getContentLength(m.content), 0);
-    const estimatedTokens = Math.ceil((historyChars + systemChars) / CHARS_PER_TOKEN);
+    const estimatedTokens = charsToTokens(historyChars + systemChars);
     if (estimatedTokens > contextLength * 0.8) {
       state.postMessage({
         command: 'assistantMessage',

@@ -20,7 +20,7 @@ import type { MCPManager } from '../agent/mcpManager.js';
 import type { WorkspaceIndex } from '../config/workspaceIndex.js';
 import type { SidecarDir } from '../config/sidecarDir.js';
 import type { SkillLoader } from '../agent/skillLoader.js';
-import { CHARS_PER_TOKEN } from '../config/constants.js';
+import { charsToTokens } from '../config/tokenEstimation.js';
 import type { InlineEditProvider } from '../edits/inlineEditProvider.js';
 import { getConfig, detectActiveProfile } from '../config/settings.js';
 import { DocumentationIndexer } from '../config/documentationIndexer.js';
@@ -567,7 +567,7 @@ export class ChatViewProvider implements WebviewViewProvider {
         if (result.freedChars > 0) {
           this.state.messages.splice(0, this.state.messages.length, ...result.messages);
           this.state.saveHistory();
-          const tokensFreed = Math.round(result.freedChars / CHARS_PER_TOKEN);
+          const tokensFreed = charsToTokens(result.freedChars);
           this.state.postMessage({
             command: 'assistantMessage',
             content: `Compacted: ${result.metadata.turnsSummarized}/${result.metadata.turnsCount} turns summarized, ~${tokensFreed} tokens freed. The conversation context is now smaller and the model will respond faster.`,

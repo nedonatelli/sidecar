@@ -1,5 +1,5 @@
 import type { ChatMessage, ContentBlock, ToolResultContentBlock, ToolUseContentBlock } from './types.js';
-import { CHARS_PER_TOKEN } from '../config/constants.js';
+import { tokensToChars } from '../config/tokenEstimation.js';
 
 /**
  * Tools whose output must never be dedup'd with a back-reference
@@ -75,7 +75,7 @@ export function collapseWhitespace(text: string): { text: string; saved: number 
  * for the full list of truncation-friendly vs. truncation-hostile tools.
  */
 export function truncateToolResult(text: string, maxTokens: number): { text: string; saved: number } {
-  const maxChars = maxTokens * CHARS_PER_TOKEN;
+  const maxChars = tokensToChars(maxTokens);
   if (text.length <= maxChars) return { text, saved: 0 };
 
   const headBudget = Math.floor(maxChars * 0.6);
@@ -112,7 +112,7 @@ export function truncateToolResult(text: string, maxTokens: number): { text: str
  * know the content is line-uniform.
  */
 export function truncateGrepResult(text: string, maxTokens: number): { text: string; saved: number } {
-  const maxChars = maxTokens * CHARS_PER_TOKEN;
+  const maxChars = tokensToChars(maxTokens);
   if (text.length <= maxChars) return { text, saved: 0 };
 
   const lines = text.split('\n');

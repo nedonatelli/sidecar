@@ -70,7 +70,7 @@ function stripHtml(html: string): string {
 
 async function fetchWebUrl(url: string): Promise<{ title: string; content: string }> {
   const res = await fetch(url, {
-    headers: { 'User-Agent': 'SideCar/0.82 (research-mode)' },
+    headers: { 'User-Agent': 'SideCar/0.83 (research-mode)' },
     signal: AbortSignal.timeout(15_000),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status} fetching ${url}`);

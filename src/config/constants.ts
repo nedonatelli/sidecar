@@ -4,9 +4,6 @@
 // ensures consistency across the codebase.
 // ---------------------------------------------------------------------------
 
-/** Token estimation: approximate characters per token for LLM tokenizers. */
-export const CHARS_PER_TOKEN = 4;
-
 /**
  * Cost estimation ratio: for a completed agent run where we only know the
  * total token count (not the input/output split), approximate the split as

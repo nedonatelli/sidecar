@@ -21,12 +21,8 @@ import { getContentText } from '../../ollama/types.js';
 import { getConfig, estimateCost, resolveMode } from '../../config/settings.js';
 import { parseModelSentinel } from '../../ollama/modelSentinels.js';
 import { isProviderReachable } from '../../config/providerReachability.js';
-import {
-  CHARS_PER_TOKEN,
-  DEFAULT_MAX_SYSTEM_CHARS,
-  LOCAL_CONTEXT_CAP,
-  INPUT_TOKEN_RATIO,
-} from '../../config/constants.js';
+import { DEFAULT_MAX_SYSTEM_CHARS, LOCAL_CONTEXT_CAP, INPUT_TOKEN_RATIO } from '../../config/constants.js';
+import { tokensToChars, estimateTokensFromText } from '../../config/tokenEstimation.js';
 import { GitCLI } from '../../github/git.js';
 import { surfaceNativeToast } from '../errorSurface.js';
 import { healthStatus } from '../../ollama/healthStatus.js';
@@ -81,14 +77,6 @@ export {
 import { classifyError, updateWorkspaceRelevance, prepareUserMessageText } from './messageUtils.js';
 import { shouldAutoEnablePlanMode } from './messageUtils.js';
 import { buildBaseSystemPrompt, injectSystemContext, enrichAndPruneMessages } from './systemPrompt.js';
-
-// ---------------------------------------------------------------------------
-// Legacy disposer — no-op, kept for backward compat with extension.ts import.
-// ---------------------------------------------------------------------------
-
-export function disposeSidecarMdWatcher(): void {
-  // No-op — the watcher lives on ChatState now. See chatState.ts.
-}
 
 // ---------------------------------------------------------------------------
 // Provider connection
@@ -228,7 +216,7 @@ async function buildSystemPromptForRun(
   // Allow the system prompt to occupy up to 40% of the context window during
   // assembly. After injection the actual size is measured and used to set a
   // tighter message-history budget (see effectiveMaxTokens calculation below).
-  const maxSystemChars = contextLength ? Math.floor(contextLength * CHARS_PER_TOKEN * 0.4) : DEFAULT_MAX_SYSTEM_CHARS;
+  const maxSystemChars = contextLength ? Math.floor(tokensToChars(contextLength) * 0.4) : DEFAULT_MAX_SYSTEM_CHARS;
 
   systemPrompt = await injectSystemContext(systemPrompt, maxSystemChars, state, config, text, isLocal, contextLength);
   return { systemPrompt, contextLength };
@@ -432,7 +420,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     // system prompt size (+ 15% headroom) so compression thresholds are
     // relative to the real message-history budget, not the full window.
     const rawMaxTokens = contextLength ? Math.min(contextLength, config.agentMaxTokens) : config.agentMaxTokens;
-    const systemPromptTokens = Math.ceil((systemPrompt.length / CHARS_PER_TOKEN) * 1.15);
+    const systemPromptTokens = Math.ceil(estimateTokensFromText(systemPrompt) * 1.15);
     const effectiveMaxTokens = Math.max(rawMaxTokens - systemPromptTokens, Math.floor(rawMaxTokens / 2));
 
     await enrichAndPruneMessages(chatMessages, config, systemPrompt, effectiveMaxTokens, state, config.verboseMode);

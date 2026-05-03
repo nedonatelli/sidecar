@@ -37,7 +37,7 @@ import { notebookTools } from './tools/notebook.js';
 // tools.ts is the slim composition layer. Each tool category lives under
 // ./tools/ (fs, search, shell, diagnostics, git, knowledge) and is wired
 // into the registry here. Backward-compatible re-exports keep every
-// pre-split import site (extension.ts, executor.ts, loop.ts, localWorker.ts,
+// pre-split import site (extension.ts, executor.ts, loop.ts,
 // mcpManager.ts, the test suites) working without edits.
 //
 // If you're adding a new tool, prefer extending the relevant category file

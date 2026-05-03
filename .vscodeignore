@@ -16,5 +16,11 @@ tsconfig.json
 coverage/**
 docs/**
 examples/**
+tests/**
+scripts/**
+skills/**
+vitest.config.ts
 vitest.*.config.ts
+eslint.config.mjs
+*.vsix
 .vscode-test/**

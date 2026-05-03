@@ -7,7 +7,7 @@ import { streamOpenAiSse } from './openAiSseStream.js';
 import { RateLimitStore } from './rateLimitState.js';
 import { parseOpenAIRateLimitHeaders } from './rateLimitHeaders.js';
 import { sidecarFetch } from './sidecarFetch.js';
-import { CHARS_PER_TOKEN } from '../config/constants.js';
+import { charsToTokens } from '../config/tokenEstimation.js';
 
 /**
  * Read the auto-generated Kickstand bearer token from the well-known
@@ -36,7 +36,7 @@ function estimateRequestTokens(systemPrompt: string, messages: ChatMessage[], ma
     const c = m.content;
     chars += typeof c === 'string' ? c.length : c.reduce((sum, b) => sum + JSON.stringify(b).length, 0);
   }
-  return Math.ceil(chars / CHARS_PER_TOKEN) + maxOutputTokens;
+  return charsToTokens(chars) + maxOutputTokens;
 }
 
 // ---------------------------------------------------------------------------

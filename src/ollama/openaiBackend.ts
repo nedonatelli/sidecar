@@ -7,7 +7,7 @@ import { RateLimitStore } from './rateLimitState.js';
 import { parseOpenAIRateLimitHeaders } from './rateLimitHeaders.js';
 import { sidecarFetch } from './sidecarFetch.js';
 import { prunePrompt, formatPruneStats } from './promptPruner.js';
-import { CHARS_PER_TOKEN } from '../config/constants.js';
+import { charsToTokens, estimateTokensFromText } from '../config/tokenEstimation.js';
 import { OllamaBackend } from './ollamaBackend.js';
 
 /** How long we'll wait on a rate-limit reset before bailing to the caller. */
@@ -37,7 +37,7 @@ function estimateRequestTokens(systemPrompt: string, messages: ChatMessage[], ma
     const c = m.content;
     chars += typeof c === 'string' ? c.length : c.reduce((sum, b) => sum + JSON.stringify(b).length, 0);
   }
-  return Math.ceil(chars / CHARS_PER_TOKEN) + maxOutputTokens;
+  return charsToTokens(chars) + maxOutputTokens;
 }
 
 /**
@@ -46,7 +46,7 @@ function estimateRequestTokens(systemPrompt: string, messages: ChatMessage[], ma
  * on the char→token ratio.
  */
 function approxTokens(s: string): number {
-  return Math.ceil(s.length / CHARS_PER_TOKEN);
+  return estimateTokensFromText(s);
 }
 
 /**
@@ -65,7 +65,7 @@ function logRequestSizeBreakdown(
   if (!getConfig().verboseMode) return;
   const systemTokens = approxTokens(systemPrompt);
   const historyChars = messages.reduce((sum, m) => sum + (typeof m.content === 'string' ? m.content.length : 0), 0);
-  const historyTokens = Math.ceil(historyChars / CHARS_PER_TOKEN);
+  const historyTokens = charsToTokens(historyChars);
   const toolsTokens = tools ? approxTokens(JSON.stringify(tools)) : 0;
   const total = systemTokens + historyTokens + toolsTokens;
   console.log(

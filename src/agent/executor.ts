@@ -39,7 +39,6 @@ export interface ConfirmOptions {
 export type ConfirmFn = (message: string, actions: string[], options?: ConfirmOptions) => Promise<string | undefined>;
 export type DiffPreviewFn = (filePath: string, proposedContent: string) => Promise<'accept' | 'reject'>;
 export type InlineEditFn = (filePath: string, searchText: string, replaceText: string) => Promise<boolean>;
-/** @deprecated Use diffPreviewFn — streaming behavior is now built into openDiffPreview. */
 export type StreamingDiffPreviewFn = (filePath: string, proposedContent: string) => Promise<'accept' | 'reject'>;
 
 export interface ExecuteToolOptions {

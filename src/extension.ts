@@ -20,7 +20,6 @@ import { initMcpSetup } from './activation/mcpSetup.js';
 import { initWarmup } from './activation/warmup.js';
 import { registerEditorFeatures } from './activation/editorFeatures.js';
 import { setupChatView } from './activation/chatViewSetup.js';
-import { disposeSidecarMdWatcher } from './webview/handlers/chatHandlers.js';
 import { createSdkApi } from './sdk/api.js';
 
 let chatProvider: ChatViewProvider | undefined;
@@ -123,6 +122,5 @@ export function activate(context: ExtensionContext) {
 export function deactivate() {
   chatProvider?.autoSave();
   chatProvider?.abort();
-  disposeSidecarMdWatcher();
   disposeShellSession();
 }

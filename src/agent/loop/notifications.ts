@@ -1,6 +1,6 @@
 import type { getConfig } from '../../config/settings.js';
 import type { AgentCallbacks } from '../loop.js';
-import { CHARS_PER_TOKEN } from '../../config/constants.js';
+import { charsToTokens } from '../../config/tokenEstimation.js';
 import type { LoopState } from './state.js';
 
 // ---------------------------------------------------------------------------
@@ -42,7 +42,7 @@ export function notifyIterationStart(
   config: ReturnType<typeof getConfig>,
   callbacks: AgentCallbacks,
 ): void {
-  const estimatedTokens = Math.ceil(state.totalChars / CHARS_PER_TOKEN);
+  const estimatedTokens = charsToTokens(state.totalChars);
   const messageCeiling = config.agentMaxMessages;
   const messageCount = state.messages.length;
   const messagesRemaining = Math.max(0, messageCeiling - messageCount);
@@ -69,7 +69,7 @@ export function maybeEmitProgressSummary(state: LoopState, callbacks: AgentCallb
   if (state.iteration <= 1 || state.iteration % 5 !== 0) return;
   if (!callbacks.onProgressSummary) return;
 
-  const estimatedTokens = Math.ceil(state.totalChars / CHARS_PER_TOKEN);
+  const estimatedTokens = charsToTokens(state.totalChars);
   const elapsed = Math.round((Date.now() - state.startTime) / 1000);
   const pctTokens = Math.round((estimatedTokens / state.maxTokens) * 100);
   callbacks.onProgressSummary(
@@ -94,7 +94,7 @@ export async function shouldStopAtCheckpoint(state: LoopState, callbacks: AgentC
   if (state.iteration !== Math.ceil(state.maxIterations * 0.6)) return false;
   if (state.iteration <= 3) return false;
 
-  const estimatedTokens = Math.ceil(state.totalChars / CHARS_PER_TOKEN);
+  const estimatedTokens = charsToTokens(state.totalChars);
   const pctTokens = Math.round((estimatedTokens / state.maxTokens) * 100);
   const shouldContinue = await callbacks.onCheckpoint(
     `Reached iteration ${state.iteration} of ${state.maxIterations}. ${pctTokens}% context used.`,

@@ -15,7 +15,7 @@ import { parseAnthropicRateLimitHeaders } from './rateLimitHeaders.js';
 import { sidecarFetch } from './sidecarFetch.js';
 import { spendTracker } from './spendTracker.js';
 import { prunePrompt, formatPruneStats } from './promptPruner.js';
-import { CHARS_PER_TOKEN } from '../config/constants.js';
+import { charsToTokens } from '../config/tokenEstimation.js';
 
 /** How long we'll wait on a rate-limit reset before telling the user to switch backends. */
 const MAX_RATE_LIMIT_WAIT_MS = 60_000;
@@ -46,7 +46,7 @@ function estimateRequestTokens(systemPrompt: string, messages: ChatMessage[], ma
     const c = m.content;
     chars += typeof c === 'string' ? c.length : c.reduce((sum, b) => sum + JSON.stringify(b).length, 0);
   }
-  return Math.ceil(chars / CHARS_PER_TOKEN) + maxOutputTokens;
+  return charsToTokens(chars) + maxOutputTokens;
 }
 
 /**

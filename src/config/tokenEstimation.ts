@@ -82,3 +82,20 @@ export function estimateTokensFromText(text: string): number {
   const sample = text.length > 2000 ? text.slice(0, 2000) : text;
   return Math.ceil(text.length / charsPerTokenForSample(sample));
 }
+
+/**
+ * Convert a pre-computed character count to tokens using the conservative
+ * English ratio. Use when the original text is unavailable.
+ */
+export function charsToTokens(chars: number): number {
+  if (chars <= 0) return 0;
+  return Math.ceil(chars / CHARS_PER_TOKEN_EN);
+}
+
+/**
+ * Convert a token budget to a conservative character limit.
+ * Use when sizing char-based buffers from a token limit.
+ */
+export function tokensToChars(tokens: number): number {
+  return Math.floor(tokens * CHARS_PER_TOKEN_EN);
+}
