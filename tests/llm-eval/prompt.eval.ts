@@ -32,7 +32,7 @@ const SYSTEM_PROMPT_PARAMS = {
   approvalMode: 'cautious' as const,
 };
 
-describe.skipIf(!backend)('llm-eval :: base system prompt', () => {
+describe.skipIf(!backend)(`llm-eval :: base system prompt [${backend?.name ?? 'unknown'}]`, () => {
   const allResults: CaseResult[] = [];
 
   for (const testCase of CASES) {
@@ -91,9 +91,12 @@ describe.skipIf(!backend)('llm-eval :: base system prompt', () => {
 });
 
 describe.skipIf(backend)('llm-eval :: no backend available', () => {
-  it('skipped — set ANTHROPIC_API_KEY to run the LLM eval suite', () => {
-    // Intentionally empty. This `describe.skipIf` block runs only
-    // when NO backend is available, giving the user a single clear
-    // message instead of a long list of skips.
-  });
+  it(
+    'skipped — set ANTHROPIC_API_KEY (Anthropic) or SIDECAR_EVAL_BACKEND=ollama (Ollama) to run the LLM eval suite',
+    () => {
+      // Intentionally empty. This `describe.skipIf` block runs only
+      // when NO backend is available, giving the user a single clear
+      // message instead of a long list of skips.
+    },
+  );
 });

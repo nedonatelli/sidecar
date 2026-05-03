@@ -80,10 +80,61 @@ class AnthropicEvalBackend implements ModelBackend {
   }
 }
 
+// --- Ollama ---
+
+class OllamaEvalBackend implements ModelBackend {
+  readonly name = 'ollama';
+  private readonly baseUrl: string;
+
+  constructor() {
+    this.baseUrl = process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434';
+  }
+
+  available(): boolean {
+    // No key required — just a running daemon. The actual reachability
+    // check happens at complete() time; we can't do a network probe
+    // synchronously here. Treat it as available when the env var is set
+    // OR when the default localhost address is implied.
+    return true;
+  }
+
+  async complete(opts: CallOptions): Promise<string> {
+    const body = {
+      model: opts.model,
+      stream: false,
+      options: {
+        temperature: opts.temperature ?? 0.2,
+        num_predict: opts.maxTokens ?? 1024,
+      },
+      messages: [
+        { role: 'system', content: opts.systemPrompt },
+        { role: 'user', content: opts.userMessage },
+      ],
+    };
+
+    const response = await fetch(`${this.baseUrl}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      throw new Error(`Ollama ${response.status}: ${text.slice(0, 500)}`);
+    }
+
+    const data = (await response.json()) as {
+      message?: { content?: string };
+    };
+    return data.message?.content ?? '';
+  }
+}
+
 // --- Registry ---
 
 const BACKENDS: Record<string, ModelBackend> = {
   anthropic: new AnthropicEvalBackend(),
+  ollama: new OllamaEvalBackend(),
 };
 
 /**
@@ -108,12 +159,14 @@ export function pickBackend(): ModelBackend | null {
 }
 
 /**
- * Which model to use for eval. Defaults to the cheapest Anthropic
- * model so running the suite doesn't cost much. Override via
- * `SIDECAR_EVAL_MODEL`.
+ * Which model to use for eval. Defaults per backend:
+ *   - anthropic: claude-haiku-4-5-20251001 (cheapest, fast)
+ *   - ollama: llama3.2 (small, widely available locally)
+ * Override via `SIDECAR_EVAL_MODEL`.
  */
 export function pickModel(backend: ModelBackend): string {
   if (process.env.SIDECAR_EVAL_MODEL) return process.env.SIDECAR_EVAL_MODEL;
   if (backend.name === 'anthropic') return 'claude-haiku-4-5-20251001';
+  if (backend.name === 'ollama') return 'llama3.2';
   return '';
 }

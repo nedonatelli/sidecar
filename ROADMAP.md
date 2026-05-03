@@ -106,6 +106,8 @@ Compiled 2026-04-21 from 28-track Cycle-4 audit (26 CRITICAL, 66 HIGH findings) 
 - [x] **`supportsTemperature` regex** (T28-MEDIUM) — invert to an explicit allowlist; default-disable temperature for unrecognized Claude model IDs.
 - [x] **`SpendTracker` persistence** (T21-HIGH) — write to `.sidecar/logs/spend.jsonl` on each turn; restore on activation.
 - [x] **`MetricsCollector` 100-run cap** (T21-HIGH) — replace with rolling JSONL log; expose last-N-days aggregation.
+- [x] **Ollama eval backend + v0.82 eval cases** — `tests/llm-eval/backend.ts` gains `OllamaEvalBackend` (`OLLAMA_BASE_URL`, `SIDECAR_EVAL_BACKEND=ollama`); 7 new cases targeting compression anchor, graph-walk provenance, symbol truncation, retrieval precision, and spend tracker awareness.
+- [x] **`buildBaseSystemPrompt` safety-rules position** — moved `safetyRules` block (tool-output-as-data + honesty) to after the example turn so non-fabrication constraint is the last content before the user message; added rule 13 explicitly calling out "just give me the answer" framing; adds spend tracker scoping fact to identity block. Confirmed on gemma4:e4b: recency matters more than alignment for 4B models.
 
 **Definition of Done**:
 - Token count test: Qwen-style CJK prompt → estimated tokens within 15% of API-returned count
