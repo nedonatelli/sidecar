@@ -22,16 +22,16 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 
 | Capability | SideCar | Continue | Llama Coder | Twinny |
 |---|---|---|---|---|
-| Autonomous agent loop | **Yes** | Yes | No | No |
-| File read/write/edit tools | **Yes** | Yes | No | No |
-| Run commands & tests | **Yes** (persistent shell) | Yes | No | No |
-| Web search | **Yes** (built-in) | No | No | No |
-| Security & secrets scanning | **Yes** (Problems panel) | No | No | No |
+| Autonomous agent loop | **Yes** | Yes | Partial | No |
+| File read/write/edit tools | **Yes** | Yes | Yes | No |
+| Run commands & tests | **Yes** (persistent shell) | Yes | Yes | No |
+| Web search | **Yes** (built-in) | Yes | Yes | No |
+| Security & secrets scanning | **Yes** (Problems panel) | Partial | No | No |
 | MCP server support | **Yes** | Yes | No | No |
 | Git integration (commit, PR, releases) | **Yes** | Partial | No | No |
-| Diff preview & undo/rollback | **Yes** | Partial | No | No |
-| Plan mode | **Yes** | No | No | No |
-| Review mode (accept/discard per file) | **Yes** | No | No | No |
+| Diff preview & undo/rollback | **Yes** | Yes | No | No |
+| Plan mode | **Yes** | Yes | No | No |
+| Review mode (accept/discard per file) | **Yes** | Partial | No | No |
 | Pending-change file decorations | **Yes** | No | No | No |
 | Activity-bar review badge | **Yes** | No | No | No |
 | Native lightbulb code actions | **Yes** | Partial | No | No |
@@ -55,10 +55,10 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 | HuggingFace model install | **Yes** | No | No | No |
 | Custom skills system | **Yes** | Yes | Yes (.cursorrules) | Yes |
 | Context compaction (manual + auto) | **Yes** | Yes | Yes | Yes |
-| Spending budgets & cost tracking | **Yes** | No | Yes | No |
+| Spending budgets & cost tracking | **Yes** | Yes | Yes | Yes |
 | Hybrid local-worker delegation | **Partial** | No | No | No |
 | Prompt pruner & pre-request caching | **Yes** | No | No | Partial |
-| Plan-then-execute mode | **Yes** | No | Yes | Yes |
+| Plan-then-execute mode | **Yes** | Yes | Yes | Yes |
 | Review mode (batch diff review) | **Yes** | No | Partial | No |
 | Native Problems panel integration | **Yes** | No | No | No |
 | Status bar health indicator | **Yes** | Partial | No | No |
@@ -66,7 +66,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 | Native modal approval for destructive tools | **Yes** | No | No | Partial |
 | Conversation steering (type while processing) | **Yes** | No | Yes | Yes |
 | Works in your existing VS Code | **Yes** | Yes | No (fork) | Yes (extension + CLI) |
-| Monthly subscription | **Free** | $10-19/mo | $20/mo | Usage-based |
+| Monthly subscription | **Free** | $10-39/mo | from $20/mo | Usage-based / from $20/mo |
 
 ### What sets SideCar apart
 
