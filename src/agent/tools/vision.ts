@@ -261,12 +261,16 @@ async function analyzeScreenshot(input: Record<string, unknown>, context?: ToolE
 
   const config = context?.config ?? getConfig();
 
-  // Reject absolute paths — same guard as read_file. The agent should always
-  // pass workspace-relative paths; absolute paths are a path-traversal vector.
+  // Reject absolute paths — same guard as read_file.
   if (path.isAbsolute(rawPath)) {
     return `Error: absolute paths are not allowed for image_path. Use a workspace-relative path (e.g. ".sidecar/screenshots/file.png").`;
   }
-  const imagePath = path.join(getRoot(), rawPath);
+  const root = getRoot();
+  const imagePath = path.resolve(root, rawPath);
+  // Containment check: resolved path must stay inside the workspace root.
+  if (!imagePath.startsWith(root + path.sep) && imagePath !== root) {
+    return `Error: image_path resolves outside the workspace root (${imagePath}). Use a path within the project directory.`;
+  }
 
   if (config.visualVerifyCheapChecksOnly) {
     const preFilterResult = cheapScreenshotChecks(imagePath);
@@ -375,6 +379,9 @@ async function analyzeScreenshot(input: Record<string, unknown>, context?: ToolE
 async function openInBrowser(input: Record<string, unknown>): Promise<string> {
   const url = input.url as string | undefined;
   if (!url) return 'Error: url is required';
+
+  const urlError = validateScreenshotUrl(url);
+  if (urlError) return urlError;
 
   const uri = Uri.parse(url);
   try {
@@ -539,7 +546,7 @@ export const visionTools: RegisteredTool[] = [
         properties: {
           image_path: {
             type: 'string',
-            description: 'Path to the image file (absolute, or relative to workspace root)',
+            description: 'Workspace-relative path to the image file (e.g. ".sidecar/screenshots/file.png")',
           },
           criteria: {
             type: 'string',
