@@ -16,6 +16,7 @@ grammars/
 .sidecar/logs/
 .sidecar/scratchpad/
 .sidecar/screenshots/
+.sidecar/pids.json
 
 # Claude Code
 .claude/
