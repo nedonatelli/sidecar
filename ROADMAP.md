@@ -1,6 +1,6 @@
 # SideCar Roadmap
 
-**Current release: v0.82.0** — NotebookLM research mode, script-type-aware token estimation, image compression bypass at heavy tier, compression anchor, SpendTracker persistence, prompt cache boundary, config decoupling. See [CHANGELOG](CHANGELOG.md) for full notes.
+**Current release: v0.83.0** — NoSQL MCP install, `extension.ts` decomposition (135 lines), perf fixes (symbol graph, vector store, BFS deque, workspace rank), MCP tool allowlist, log redaction, WCAG AA accessibility. See [CHANGELOG](CHANGELOG.md) for full notes.
 
 **Coverage floor**: ≥80/70/80/80 (stmts/branches/funcs/lines) enforced by CI. No PR merges that drop any metric.
 
@@ -12,6 +12,7 @@
 
 | Version | Headline |
 |---|---|
+| v0.83 | NoSQL MCP install · `extension.ts` decomposition · perf fixes · MCP allowlist · WCAG AA |
 | v0.82 | NotebookLM research mode · token estimation · image compression · compression anchor · SpendTracker persistence |
 | v0.81 | Conversational shortcuts · plan-mode fixes · `sidecar.generateSidecarMd` · backend checkmark fix |
 | v0.80 | Security hardening · `db_execute` / `db_migrate_up` · agent run ID · policy hook enforcement |

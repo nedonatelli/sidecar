@@ -4,6 +4,10 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.83.0] - 2026-05-02
+
+**v0.83.0 — Architecture integrity, NoSQL MCP, performance fixes, and accessibility.**
+
 ### Added
 
 - **NoSQL via MCP** — `SideCar: Install NoSQL MCP Server` command (QuickPick → connection string → writes `sidecar.mcpServers`) pre-configures MongoDB (`@mongodb-js/mongodb-mcp-server` via npx, tools: `mcp_mongodb_find/aggregate/insert_one/update_one/delete_one/list_databases`) or Redis (`mcp-redis` via uvx, tools: `mcp_redis_get/set/delete/list/hget/hset`). Full config examples and `toolAllowlist` guidance in `docs/extending-sidecar.md`
