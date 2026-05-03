@@ -4,24 +4,57 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
-## [0.82.0] - 2026-04-23
-
-**v0.82.0 — Run IDs, policy enforcement, config decoupling, SIDECAR.md generator, and dead code removal.**
-
 ### Added
 
-- **`sidecar.generateSidecarMd` command** — new command palette entry generates a `SIDECAR.md` for the workspace from current context; `/init` chat command remains the primary path
-- **Run ID on agent loop** — `taskId` renamed to `runId` (`crypto.randomUUID()`) on `LoopState`; threaded into `HookContext` so every hook invocation carries a stable per-run identifier
-- **Tool audit log** — `logToolAudit()` emits `{runId, tool, outcome, timestamp}` JSON lines per tool call to `.sidecar/logs/`
+- **NoSQL via MCP** — `SideCar: Install NoSQL MCP Server` command (QuickPick → connection string → writes `sidecar.mcpServers`) pre-configures MongoDB (`@mongodb-js/mongodb-mcp-server` via npx, tools: `mcp_mongodb_find/aggregate/insert_one/update_one/delete_one/list_databases`) or Redis (`mcp-redis` via uvx, tools: `mcp_redis_get/set/delete/list/hget/hset`). Full config examples and `toolAllowlist` guidance in `docs/extending-sidecar.md`
 
 ### Changed
 
-- **`PolicyEnforcementError` now surfaces** — `runPhase()` throws instead of swallowing policy violations; the agent loop emits a ⛔ alert message to the chat so violations are visible
-- **Config decoupled from tool executors** — `SideCarConfig` added to `AgentOptions` / `LoopState` / `ToolExecutorContext`; all 8 tool modules use `context?.config ?? getConfig()` instead of calling `getConfig()` inside the hot path
+- **`extension.ts` decomposed** — 1814 → 135 lines. Activation logic split into `src/activation/{baseSetup,servicesInit,mcpSetup,warmup,workspaceIndexer,chatViewSetup,editorFeatures}.ts`; command domains into `src/commands/{autoMode,settings,agent,prAndReview}Commands.ts`; status bar into `src/ui/statusBar.ts`
 
 ### Fixed
 
-- **Backend checkmark never updated** — `setActiveBackendProfile` messages were sent by the extension but never handled in `chat.js`; the backend checkmark in the settings menu now updates correctly after switching profiles
+- **`symbolGraph.getSupertypes` full-scan** — reverse `childTypesOf` index added; O(all symbols) scan → O(1) map lookup
+- **`FlatVectorStore` O(n²) realloc** — monotonic `vectorCount` + capacity doubling; amortised O(1) upsert
+- **`workspaceIndex.rankFiles` O(q×p×t) loop** — `tokenize(query)` and `new Set(queryWords)` hoisted outside per-file map; O(q+t) per file
+- **`graphExpansion` BFS** — head-pointer deque (`queue[head++]`) replaces `Array.shift()`, eliminating O(n) left-shift per BFS iteration
+- **MCP tool allowlist** — per-server `toolAllowlist?: string[]` field filters tools at registration time; unallowed tools are silently dropped
+- **`AgentLogger.logToolResult` redaction** — output passed through `redactSecrets()` before writing to the audit log
+- **WCAG AA contrast** — `docs/index.html` `--text-3` lifted from 2.4:1 → 5.1:1; button backgrounds from 3.4:1 → 4.8:1; `@media (max-width: 768px)` responsive layout; `@media (prefers-reduced-motion)` guard in `chat.css` and `docs/index.html`
+
+## [0.82.0] - 2026-04-23
+
+**v0.82.0 — NotebookLM research mode, accurate token estimation, context compression improvements, and architecture hardening.**
+
+### Added
+
+- **NotebookLM research mode** — `/notebook` enters source-grounded chat mode with mandatory inline citations. `ingest_source` tool indexes `.md`/`.tex`/`.rst`/`.pdf` files into a per-session source registry. Five study-aid generators: `generate_briefing`, `generate_study_guide`, `generate_faq`, `generate_timeline`, `generate_outline` — each output written to `.sidecar/research/<project>/generated/`. Every answer in Notebook Mode carries source attribution; uncited claims are flagged `⚠ unsupported` (configurable via `sidecar.notebookMode.requireCitations`). Toggle via `sidecar.notebookMode.enabled`
+- **Script-type-aware token estimation** — pre-request estimation uses per-script-type character ratios (CJK ~1.5 chars/token, code ~2.5, English ~4.0) instead of the flat `CHARS_PER_TOKEN = 4` heuristic. Post-request, `usage.input_tokens` / `usage.output_tokens` from API responses correct the estimate so per-turn context budget accounting converges to actual API counts over time
+- **Image compression bypass** — at the `heavy` compression tier, `ContentBlock` image entries are replaced with a `[image: <mediaType>, ~<sizeKB>KB — dropped for context budget]` placeholder; images are preserved at the `light` tier. Prevents screenshots from crowding conversation history during long visual-verification agent runs
+- **Compression first-turn anchor** — `messages[0]` and state-establishing tool results (`git_clone`, `npm install` outputs) are marked compression-immune so the agent never loses the task brief or initial workspace snapshot when context pressure rises
+- **SpendTracker persistence** — session spend written to `.sidecar/logs/spend.jsonl` on each turn and restored on activation; spend display survives VS Code restarts
+- **MetricsCollector rolling log** — `100-run` in-memory ring replaced with an append-only JSONL file; `getModelUsageLog()` returns the last-N-days slice. Prevents unbounded memory growth during long coding sessions
+- **Model context window dynamic query** — Ollama `/api/show` and cloud `/v1/models/{id}` queried on first use to get the actual `num_ctx`; console warning surfaced when falling back to hardcoded values. Context budget sizing and graph-expansion depth now reflect the real window
+- **`sidecar.generateSidecarMd` command** — command palette entry generates a `SIDECAR.md` for the workspace from current context; `/init` chat command remains the primary path
+- **Run ID on agent loop** — `taskId` renamed to `runId` (`crypto.randomUUID()`) on `LoopState`; threaded into `HookContext` so every hook invocation carries a stable per-run identifier
+- **API call audit log** — `apiAuditLog.ts` appends `{runId, model, inputTokens, outputTokens, stopReason, timestamp}` to `.sidecar/logs/api.jsonl` from the `usage` event in `streamTurn.ts`. Gated behind `sidecar.verboseLogs` (default `false`)
+- **Ollama eval backend** — `tests/llm-eval/backend.ts` gains `OllamaEvalBackend`; 7 new eval cases targeting compression anchor, graph-walk provenance, symbol truncation, retrieval precision, and spend-tracker awareness (`SIDECAR_EVAL_BACKEND=ollama`)
+
+### Changed
+
+- **Prompt cache boundary (Anthropic)** — `cache_control: { type: 'ephemeral' }` marker moved to the last content block of the second-to-last assistant message, providing the required 1,024-token non-cached suffix before the final user message. Validated by a new test asserting `cache_creation_input_tokens > 0` on turn 2+
+- **System prompt budget fraction** — actual assembled system prompt size is measured post-injection; context budget reserves that size + 15% headroom instead of a flat 50% of the context window
+- **Embedding model coupling** — `{modelId, dimension}` stored in the vector cache header; cache is invalidated and re-indexed automatically when either field changes, preventing stale embeddings from silently corrupting retrieval after a model switch
+- **`agentMemory` file-split memoization** — line-split results cached by `(filePath, mtime)` in `semanticRetriever.ts`, eliminating re-reads of unchanged memory files on every retrieval call
+- **`supportsTemperature` explicit allowlist** — inverted from a blocklist to an allowlist; temperature disabled by default for unrecognized Claude model IDs to prevent API errors on new model variants
+- **Safety-rules position in system prompt** — `safetyRules` block moved to after the example turn so non-fabrication constraints are the last content before the user message; added rule 13 explicitly calling out "just give me the answer" framing; spend tracker scoping fact added to identity block
+- **`PolicyEnforcementError` now surfaces** — `runPhase()` throws instead of swallowing policy violations; the agent loop emits a ⛔ alert to the chat so violations are visible
+- **Config decoupled from tool executors** — `SideCarConfig` threaded via `AgentOptions.config` → `LoopState` → `ToolExecutorContext`; tool modules use `context?.config ?? getConfig()` injection-first fallback at 10+ call sites
+
+### Fixed
+
+- **Backend checkmark never updated** — `setActiveBackendProfile` messages sent by the extension were never handled in `chat.js`; checkmark now updates correctly after switching profiles
+- **`formatToolError` consolidation** — 24 identical `catch (err) { return \`Failed: ${err}\` }` blocks across 6 tool files replaced with `formatToolError(err)` helper in `tools/shared.ts`
 
 ### Removed
 
