@@ -120,6 +120,8 @@ export class TerminalErrorWatcher implements Disposable {
         if (endEvent.execution === startEvent.execution) {
           disposeSignal.removeEventListener('abort', onDispose);
           sub.dispose();
+          const idx = this.disposables.indexOf(sub);
+          if (idx !== -1) this.disposables.splice(idx, 1);
           resolve(endEvent);
         }
       });
