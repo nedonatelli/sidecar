@@ -192,11 +192,12 @@ export async function injectSystemContext(
   const retrievalBudget = maxSystemChars - prompt.length;
   if (text && retrievalBudget > 500) {
     const retrievers = [];
+    const embeddingIndex = state.workspaceIndex?.getEmbeddingIndex() ?? null;
     if (workspaceTrusted && config.enableDocumentationRAG && state.documentationIndexer) {
-      retrievers.push(new DocRetriever(state.documentationIndexer));
+      retrievers.push(new DocRetriever(state.documentationIndexer, embeddingIndex));
     }
     if (workspaceTrusted && config.enableAgentMemory && state.agentMemory) {
-      retrievers.push(new MemoryRetriever(state.agentMemory));
+      retrievers.push(new MemoryRetriever(state.agentMemory, embeddingIndex));
     }
     if (workspaceTrusted && config.literatureEnabled) {
       const litDir = path.join(getWorkspaceRoot(), '.sidecar', 'literature');

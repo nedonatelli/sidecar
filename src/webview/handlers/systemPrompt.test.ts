@@ -403,6 +403,7 @@ describe('injectSystemContext', () => {
         isReady: () => true,
         setPinnedPaths: vi.fn(),
         addPin: vi.fn(),
+        getEmbeddingIndex: vi.fn().mockReturnValue(null),
         getPinnedFilesSection: vi.fn().mockResolvedValue('\n- PINNED-A\n- PINNED-B'),
         getFileDependenciesSection: vi.fn().mockReturnValue('\n\n## Dependencies\nfoo -> bar'),
         getWorkspaceStructureSection: vi.fn().mockReturnValue('\n\n## Workspace Structure\nsrc/\n  foo.ts'),
