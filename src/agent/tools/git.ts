@@ -316,12 +316,121 @@ export async function gitStash(input: Record<string, unknown>): Promise<string> 
   }
 }
 
+export const gitSearchHistoryDef: ToolDefinition = {
+  name: 'git_search_history',
+  description:
+    'Semantically search git history to find when something was introduced, changed, or removed. ' +
+    'Supports three search modes: `message` searches commit messages (good for feature names, ticket refs, author intent); ' +
+    "`content` searches the actual code changes using git's pickaxe — finds the exact commit that added or deleted a string, function name, or symbol; " +
+    '`both` runs both searches and deduplicates. ' +
+    'Use this to answer "when was X added?", "who removed Y?", "which commit broke Z?", or "find the auth refactor" — ' +
+    'pair with `git_diff(ref1="<hash>")` to inspect a matched commit\'s full changes. ' +
+    'Optionally scope to a file or directory with `path`. ' +
+    'Examples: `git_search_history(query="rate limiting")` — finds commits mentioning rate limiting; ' +
+    '`git_search_history(query="RateLimitError", search_type="content")` — finds the commit that introduced that symbol; ' +
+    '`git_search_history(query="auth middleware", path="src/middleware/")` — scoped to a directory.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      query: {
+        type: 'string',
+        description: 'The search term — a keyword, symbol name, feature name, or phrase.',
+      },
+      search_type: {
+        type: 'string',
+        enum: ['message', 'content', 'both'],
+        description:
+          '`message`: search commit messages (grep). `content`: search code changes (pickaxe -S). `both`: run both and deduplicate. Default: "both".',
+      },
+      max_results: {
+        type: 'number',
+        description: 'Maximum commits to return per search type. Default: 20.',
+      },
+      path: {
+        type: 'string',
+        description: 'Optional file or directory path to restrict the search scope.',
+      },
+    },
+    required: ['query'],
+  },
+  nondeterministicOutput: true,
+};
+
+export async function gitSearchHistory(input: Record<string, unknown>): Promise<string> {
+  try {
+    const query = (input.query as string | undefined)?.trim();
+    if (!query) return 'Error: query is required.';
+
+    const searchType = (input.search_type as string | undefined) ?? 'both';
+    const maxResults = Math.min(Number(input.max_results) || 20, 100);
+    const pathArg = input.path as string | undefined;
+
+    const root = getRoot();
+    const pathSuffix = pathArg ? ` -- "${pathArg}"` : '';
+    const logFormat = '--pretty=format:%H|%as|%an|%s';
+
+    const runGit = async (args: string): Promise<string> => {
+      const { stdout } = await execAsync(`git -C "${root}" ${args}`, { maxBuffer: 2 * 1024 * 1024 });
+      return stdout.trim();
+    };
+
+    const parseCommits = (raw: string): Array<{ hash: string; date: string; author: string; subject: string }> => {
+      return raw
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => {
+          const [hash = '', date = '', author = '', ...rest] = line.split('|');
+          return { hash, date, author, subject: rest.join('|') };
+        });
+    };
+
+    const seen = new Set<string>();
+    const results: Array<{ hash: string; date: string; author: string; subject: string; via: string }> = [];
+
+    if (searchType === 'message' || searchType === 'both') {
+      const raw = await runGit(
+        `log --all -${maxResults} ${logFormat} --grep=${JSON.stringify(query)} --regexp-ignore-case${pathSuffix}`,
+      ).catch(() => '');
+      for (const c of parseCommits(raw)) {
+        if (!seen.has(c.hash)) {
+          seen.add(c.hash);
+          results.push({ ...c, via: 'message' });
+        }
+      }
+    }
+
+    if (searchType === 'content' || searchType === 'both') {
+      const raw = await runGit(`log --all -${maxResults} ${logFormat} -S ${JSON.stringify(query)}${pathSuffix}`).catch(
+        () => '',
+      );
+      for (const c of parseCommits(raw)) {
+        if (!seen.has(c.hash)) {
+          seen.add(c.hash);
+          results.push({ ...c, via: 'content' });
+        }
+      }
+    }
+
+    if (results.length === 0) {
+      return `No commits found matching "${query}"${pathArg ? ` in ${pathArg}` : ''}.`;
+    }
+
+    const lines = results.map(
+      (c) => `${c.hash.slice(0, 9)}  ${c.date}  ${c.author}\n  ${c.subject}\n  [matched via: ${c.via}]`,
+    );
+    return `Found ${results.length} commit${results.length === 1 ? '' : 's'} matching "${query}":\n\n${lines.join('\n\n')}`;
+  } catch (err) {
+    return `git_search_history failed: ${formatToolError(err)}`;
+  }
+}
+
 export const gitTools: RegisteredTool[] = [
   { definition: gitDiffDef, executor: gitDiffTool, requiresApproval: false },
   { definition: gitStatusDef, executor: gitStatus, requiresApproval: false },
   { definition: gitStageDef, executor: gitStage, requiresApproval: true },
   { definition: gitCommitDef, executor: gitCommit, requiresApproval: true },
   { definition: gitLogDef, executor: gitLog, requiresApproval: false },
+  { definition: gitSearchHistoryDef, executor: gitSearchHistory, requiresApproval: false },
   { definition: gitPushDef, executor: gitPush, requiresApproval: true },
   { definition: gitPullDef, executor: gitPull, requiresApproval: true },
   { definition: gitBranchDef, executor: gitBranch, requiresApproval: true },

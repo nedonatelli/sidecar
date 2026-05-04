@@ -9,6 +9,8 @@ import {
 
 /** Public skill marketplace — browseable GitHub topic index of `sidecar-skill` repos. */
 export const SKILL_MARKETPLACE_URL = 'https://github.com/topics/sidecar-skill';
+/** Public MCP marketplace — browseable GitHub topic index of `mcp-server` repos. */
+export const MCP_MARKETPLACE_URL = 'https://github.com/topics/mcp-server';
 import { registerNoSqlMcpCommands } from './noSqlMcpCommands.js';
 import type { ChatViewProvider } from '../webview/chatView.js';
 import type { SkillLoader } from '../agent/skillLoader.js';
@@ -40,6 +42,9 @@ export function registerSettingsCommands(context: ExtensionContext, deps: Settin
     }),
     commands.registerCommand('sidecar.skills.openMarketplace', () => {
       void env.openExternal(Uri.parse(SKILL_MARKETPLACE_URL));
+    }),
+    commands.registerCommand('sidecar.mcp.openMarketplace', () => {
+      void env.openExternal(Uri.parse(MCP_MARKETPLACE_URL));
     }),
     commands.registerCommand('sidecar.syncSkillRegistries', async () => {
       const skillCfg = getConfig();

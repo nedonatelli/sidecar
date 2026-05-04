@@ -1902,6 +1902,12 @@
         "icon": "$(extensions)"
       },
       {
+        "command": "sidecar.mcp.openMarketplace",
+        "title": "Browse MCP Server Marketplace",
+        "category": "SideCar",
+        "icon": "$(extensions)"
+      },
+      {
         "command": "sidecar.setApiKey",
         "title": "Set / Refresh API Key",
         "category": "SideCar",

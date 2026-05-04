@@ -102,8 +102,8 @@
 - [x] **Public skill marketplace** — `sidecar.skills.openMarketplace` command opens `https://github.com/topics/sidecar-skill`; discoverable from the command palette
 
 **Could Have**:
-- [ ] GitHub Issues bidirectional linking to ROADMAP entries
-- [ ] Vision Shelf items promoted if scope fits: Semantic Time Travel · Semantic Agentic Search for Monorepos · MCP Marketplace
+- [x] GitHub Issues bidirectional linking to ROADMAP entries — convention adopted: `(#NNN)` refs in entry text link to GitHub; issue bodies link back to the ROADMAP section. Future v1.1+ entries will carry issue refs as they are created.
+- [x] Vision Shelf promotions: **MCP Marketplace** (`sidecar.mcp.openMarketplace` → `github.com/topics/mcp-server`); **Semantic Time Travel** (`git_search_history` tool — pickaxe + grep search across full git history)
 
 **Definition of Done**:
 - All Must Have items merged and CI green
@@ -117,7 +117,9 @@
 
 Not promised to any specific release. Full specs in [docs/feature-specs.md](docs/feature-specs.md).
 
-Semantic Time Travel · GPU-Native Hot-Swapping · GPU-Aware Load Balancing · Multi-repo cross-talk · Semantic Agentic Search for Monorepos · Selective Regeneration · Persistent Executive Function · LaTeX Agentic Debugging · Inline Edit Enhancement · Zen Mode Context Filtering · Dependency Drift Alerts · Enterprise & Collaboration · Voice Input · MCP Marketplace · Agentic Task Delegation via MCP · Model Comparison / Arena Mode · Real-time Code Profiling · Bitbucket/Atlassian integration
+GPU-Native Hot-Swapping · GPU-Aware Load Balancing · Multi-repo cross-talk · Semantic Agentic Search for Monorepos · Selective Regeneration · Persistent Executive Function · LaTeX Agentic Debugging · Inline Edit Enhancement · Zen Mode Context Filtering · Dependency Drift Alerts · Enterprise & Collaboration · Voice Input · Agentic Task Delegation via MCP · Model Comparison / Arena Mode · Real-time Code Profiling · Bitbucket/Atlassian integration
+
+*(Promoted to shipped: Semantic Time Travel → `git_search_history` tool v1.0; MCP Marketplace → `sidecar.mcp.openMarketplace` command v1.0)*
 
 ---
 
