@@ -78,6 +78,12 @@ export interface LoopState {
   // cycleDetection.ts is the only thing that reads or writes it.
   recentToolCalls: string[];
 
+  // Parallel ring buffer of normalized signatures (tool + primary resource only,
+  // secondary args stripped). Used by the normalized-cycle check in
+  // cycleDetection.ts to catch "same tool, same file, different edit content"
+  // loops that the exact-match ring misses.
+  recentNormalizedCalls: string[];
+
   // Per-file auto-fix retry counter. autoFix.ts is the only writer.
   autoFixRetriesByFile: Map<string, number>;
 
@@ -156,6 +162,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     systemPromptOverride: options.systemPromptOverride,
 
     recentToolCalls: [],
+    recentNormalizedCalls: [],
     autoFixRetriesByFile: new Map<string, number>(),
     stubFixRetries: 0,
     criticInjectionsByFile: new Map<string, number>(),

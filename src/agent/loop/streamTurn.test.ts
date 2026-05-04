@@ -21,6 +21,7 @@ function makeState(): LoopState {
     approvalMode: 'autonomous',
     tools: [],
     recentToolCalls: [],
+    recentNormalizedCalls: [],
     autoFixRetriesByFile: new Map(),
     stubFixRetries: 0,
     criticInjectionsByFile: new Map(),

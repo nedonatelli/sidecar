@@ -65,6 +65,7 @@ function stubState(overrides: Partial<LoopState> = {}): LoopState {
     totalChars: 0,
     lastActualInputTokens: undefined,
     recentToolCalls: [],
+    recentNormalizedCalls: [],
     autoFixRetriesByFile: new Map(),
     stubFixRetries: 0,
     criticInjectionsByFile: new Map(),
