@@ -14,7 +14,7 @@ export class ManagedChildProcess implements Disposable {
 
   constructor(
     private proc: ChildProcess,
-    private label: string,
+    readonly label: string,
     private registry: ProcessRegistry,
   ) {
     this.pid = proc.pid;
@@ -29,6 +29,11 @@ export class ManagedChildProcess implements Disposable {
   /** Get the underlying ChildProcess if raw access is needed. */
   getProc(): ChildProcess {
     return this.proc;
+  }
+
+  /** Reconstructed command line from spawn arguments for the PID manifest. */
+  getCmdline(): string {
+    return this.proc.spawnargs?.join(' ') ?? this.label;
   }
 
   /**
@@ -215,8 +220,8 @@ export class ProcessRegistry implements Disposable {
       if (mp.pid !== undefined) {
         entries.push({
           pid: mp.pid,
-          label: `bg-command:${mp.pid}`,
-          cmdline: 'node sidecar',
+          label: mp.label,
+          cmdline: mp.getCmdline(),
           spawnedAt: Date.now(),
         });
       }
