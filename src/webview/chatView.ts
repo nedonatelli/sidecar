@@ -9,7 +9,9 @@ import {
   ExtensionContext,
   Uri,
   CancellationToken,
+  type TextEditor,
 } from 'vscode';
+import * as path from 'path';
 import { ChatState } from './chatState.js';
 import type { PendingEditStore } from '../agent/pendingEdits.js';
 import { getChatWebviewHtml, type WebviewMessage, type ExtensionMessage } from './chatWebview.js';
@@ -35,6 +37,7 @@ import {
   handleUserMessage,
   handleUserMessageWithImages,
   handleAttachFile,
+  handleAttachActiveFile,
   handleDroppedPaths,
   handleSaveCodeBlock,
   handleCreateFile,
@@ -260,6 +263,21 @@ export class ChatViewProvider implements WebviewViewProvider {
     // the first-launch experience now — it renders whenever the chat
     // is empty, on every load, and automatically hides when the first
     // message arrives. No need to post an 'onboarding' trigger.
+
+    // Keep the active-file bar in sync with the editor focus.
+    const pushActiveFile = (editor: TextEditor | undefined): void => {
+      if (editor && !editor.document.isUntitled) {
+        this.postMessage({
+          command: 'activeFileChanged',
+          fileName: path.basename(editor.document.fileName),
+          filePath: editor.document.fileName,
+        });
+      } else {
+        this.postMessage({ command: 'activeFileChanged', fileName: undefined });
+      }
+    };
+    pushActiveFile(window.activeTextEditor);
+    this.context.subscriptions.push(window.onDidChangeActiveTextEditor(pushActiveFile));
   }
 
   /**
@@ -360,6 +378,7 @@ export class ChatViewProvider implements WebviewViewProvider {
     installModel: (msg) => handleInstallModel(this.state, msg.model || ''),
     cancelInstall: () => this.state.cancelInstall(),
     attachFile: () => handleAttachFile(this.state),
+    attachActiveFile: () => handleAttachActiveFile(this.state),
     droppedPaths: (msg) => handleDroppedPaths(this.state, msg.paths || []),
     saveCodeBlock: (msg) => handleSaveCodeBlock(msg.code || '', msg.language),
     createFile: (msg) => handleCreateFile(this.state, msg.code || '', msg.filePath || ''),

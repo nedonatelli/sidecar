@@ -55,6 +55,7 @@ export {
 
 export {
   handleAttachFile,
+  handleAttachActiveFile,
   handleDroppedPaths,
   handleSaveCodeBlock,
   handleCreateFile,

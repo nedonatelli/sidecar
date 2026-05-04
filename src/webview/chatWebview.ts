@@ -78,6 +78,7 @@ export interface WebviewMessage {
     | 'listMemories'
     | 'searchMemories'
     | 'droppedPaths'
+    | 'attachActiveFile'
     | 'steerEnqueue'
     | 'steerCancel'
     | 'steerEdit'
@@ -177,6 +178,7 @@ export interface ExtensionMessage {
     | 'injectPrompt'
     | 'autoModeTaskUpdate'
     | 'autoModeDone'
+    | 'activeFileChanged'
     | 'setActiveBackendProfile';
   /** Active backend profile id sent with 'setActiveBackendProfile'. */
   activeBackendProfileId?: string | null;
@@ -219,6 +221,8 @@ export interface ExtensionMessage {
   percent?: number;
   fileName?: string;
   fileContent?: string;
+  /** Full filesystem path — sent with 'activeFileChanged'. */
+  filePath?: string;
   /** Batch of files from a drag-drop or multi-select attach. */
   files?: { fileName: string; fileContent: string }[];
   githubAction?: import('../github/types.js').GitHubAction;
@@ -450,6 +454,11 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
     <span id="install-text">Installing...</span>
     <div id="install-bar-wrap"><div id="install-bar" class="indeterminate"></div></div>
     <button id="cancel-install">Cancel</button>
+  </div>
+  <div id="active-file-bar" class="hidden" aria-label="Active editor file">
+    <span id="active-file-icon">&#128196;</span>
+    <span id="active-file-name"></span>
+    <button id="active-file-toggle" type="button"></button>
   </div>
   <div id="file-attachment" class="hidden">
     <span id="file-attachment-name"></span>

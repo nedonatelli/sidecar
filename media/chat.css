@@ -1609,6 +1609,61 @@ body {
 }
 
 /* File attachment chip */
+#active-file-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
+  background: var(--vscode-sideBar-background, var(--vscode-editor-background));
+}
+
+#active-file-bar.hidden {
+  display: none;
+}
+
+#active-file-icon {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+#active-file-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.85;
+}
+
+.active-file-toggle {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.4));
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+  cursor: pointer;
+  font-size: 11px;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+.active-file-toggle:hover {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.active-file-toggle--included {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  border-color: transparent;
+}
+
+.active-file-toggle--included:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
 #file-attachment {
   display: flex;
   flex-wrap: wrap;

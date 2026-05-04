@@ -58,6 +58,27 @@ export async function handleAttachFile(state: ChatState): Promise<void> {
   }
 }
 
+/**
+ * Attach the currently active editor file directly — no quick-pick menu.
+ * Used by the active-file bar toggle button in the chat input area.
+ */
+export async function handleAttachActiveFile(state: ChatState): Promise<void> {
+  const editor = window.activeTextEditor;
+  if (!editor) return;
+  const fileName = path.basename(editor.document.fileName);
+  const ext = path.extname(fileName).toLowerCase();
+  if (IMAGE_EXTENSIONS.has(ext)) {
+    await attachImage(state, Uri.file(editor.document.fileName));
+    return;
+  }
+  const fileContent = editor.document.getText();
+  if (fileContent.length > 500_000) {
+    void window.showWarningMessage(`File "${fileName}" is too large to attach (>500KB).`);
+    return;
+  }
+  state.postMessage({ command: 'fileAttached', fileName, fileContent });
+}
+
 // Caps for drag-drop: we'd rather quietly truncate than flood the model
 // with 50MB of junk. These match handleAttachFile's per-file ceiling and
 // pick round numbers for the multi-file limits.

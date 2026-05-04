@@ -29,6 +29,9 @@
   const installText = document.getElementById('install-text');
   const installBar = document.getElementById('install-bar');
   const cancelInstall = document.getElementById('cancel-install');
+  const activeFileBar = document.getElementById('active-file-bar');
+  const activeFileNameEl = document.getElementById('active-file-name');
+  const activeFileToggle = document.getElementById('active-file-toggle');
   const fileAttachment = document.getElementById('file-attachment');
   const fileAttachmentName = document.getElementById('file-attachment-name');
   const removeAttachment = document.getElementById('remove-attachment');
@@ -63,6 +66,10 @@
   let installingModel = null;
   let cachedModels = [];
   let bgAgentRuns = [];
+  // Active file bar — tracks the currently focused editor file so the bar
+  // can show an include/exclude toggle without the user opening the attach menu.
+  let currentActiveFile = null; // { fileName, filePath } | null
+
   // Attached files live as an array so drag-drop can accumulate several
   // at once. handleAttachFile (single file button flow) and
   // handleDroppedPaths (drag-drop bulk flow) both append into this list.
@@ -486,6 +493,7 @@
       fileAttachment.classList.add('hidden');
       fileAttachmentName.textContent = '';
       fileAttachment.querySelectorAll('.attachment-chip').forEach((el) => el.remove());
+      renderActiveFileBar();
       return;
     }
     fileAttachment.classList.remove('hidden');
@@ -514,6 +522,39 @@
       chip.appendChild(label);
       chip.appendChild(close);
       fileAttachment.appendChild(chip);
+    }
+    renderActiveFileBar();
+  }
+
+  function renderActiveFileBar() {
+    if (!activeFileBar || !activeFileNameEl || !activeFileToggle) return;
+    if (!currentActiveFile) {
+      activeFileBar.classList.add('hidden');
+      return;
+    }
+    activeFileBar.classList.remove('hidden');
+    activeFileNameEl.textContent = currentActiveFile.fileName;
+    activeFileNameEl.title = currentActiveFile.filePath;
+
+    const isAttached = pendingFiles.some((f) => f.fileName === currentActiveFile.fileName);
+    if (isAttached) {
+      activeFileToggle.textContent = '\u2713 Included';
+      activeFileToggle.title = 'Remove from context';
+      activeFileToggle.className = 'active-file-toggle active-file-toggle--included';
+      activeFileToggle.onclick = () => {
+        const idx = pendingFiles.findIndex((f) => f.fileName === currentActiveFile.fileName);
+        if (idx !== -1) {
+          pendingFiles.splice(idx, 1);
+          renderPendingFiles();
+        }
+      };
+    } else {
+      activeFileToggle.textContent = '+ Add';
+      activeFileToggle.title = 'Include this file in the message';
+      activeFileToggle.className = 'active-file-toggle';
+      activeFileToggle.onclick = () => {
+        vscode.postMessage({ command: 'attachActiveFile' });
+      };
     }
   }
 
@@ -4545,6 +4586,13 @@
         if (event.data.models) {
           renderModelList(event.data.models);
         }
+        break;
+
+      case 'activeFileChanged':
+        currentActiveFile = event.data.fileName
+          ? { fileName: event.data.fileName, filePath: event.data.filePath || event.data.fileName }
+          : null;
+        renderActiveFileBar();
         break;
 
       case 'fileAttached':
