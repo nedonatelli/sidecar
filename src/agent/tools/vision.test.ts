@@ -6,7 +6,7 @@ import * as os from 'os';
 // ---------------------------------------------------------------------------
 // Import the pure helpers (no VS Code API dependency)
 // ---------------------------------------------------------------------------
-import { cheapScreenshotChecks, hasVisionSupport } from './vision.js';
+import { cheapScreenshotChecks, hasVisionSupport, validateCssSelector, validateScreenshotUrl } from './vision.js';
 
 // ---------------------------------------------------------------------------
 // cheapScreenshotChecks
@@ -105,6 +105,85 @@ describe('cheapScreenshotChecks', () => {
     fs.writeFileSync(jpeg, buf);
     // Should not trigger clip check because it's not a PNG
     expect(await cheapScreenshotChecks(jpeg)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateCssSelector
+// ---------------------------------------------------------------------------
+
+describe('validateCssSelector', () => {
+  it('allows standard CSS selectors', () => {
+    expect(validateCssSelector('.foo')).toBeNull();
+    expect(validateCssSelector('#bar')).toBeNull();
+    expect(validateCssSelector('div.class > span')).toBeNull();
+    expect(validateCssSelector('[data-attr="value"]')).toBeNull();
+    expect(validateCssSelector('button:focus')).toBeNull();
+  });
+
+  it('allows Playwright text/role selectors', () => {
+    expect(validateCssSelector('text="Submit"')).toBeNull();
+    expect(validateCssSelector('role=button')).toBeNull();
+  });
+
+  it('rejects XPath selectors starting with /', () => {
+    const err = validateCssSelector('//div[@class="foo"]');
+    expect(err).toMatch(/XPath/);
+  });
+
+  it('rejects selectors starting with <', () => {
+    const err = validateCssSelector('<script>alert(1)</script>');
+    expect(err).toMatch(/must not start with/i);
+  });
+
+  it('rejects empty selectors', () => {
+    expect(validateCssSelector('')).not.toBeNull();
+    expect(validateCssSelector('   ')).not.toBeNull();
+  });
+
+  it('rejects selectors with null bytes', () => {
+    const err = validateCssSelector('.foo\x00bar');
+    expect(err).toMatch(/control character/i);
+  });
+
+  it('rejects selectors exceeding max length', () => {
+    const err = validateCssSelector('a'.repeat(2001));
+    expect(err).toMatch(/length/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateScreenshotUrl
+// ---------------------------------------------------------------------------
+
+describe('validateScreenshotUrl', () => {
+  it('allows http and https URLs', () => {
+    expect(validateScreenshotUrl('https://example.com')).toBeNull();
+    expect(validateScreenshotUrl('http://example.com/path')).toBeNull();
+  });
+
+  it('rejects non-http schemes', () => {
+    expect(validateScreenshotUrl('file:///etc/passwd')).not.toBeNull();
+    expect(validateScreenshotUrl('javascript:alert(1)')).not.toBeNull();
+  });
+
+  it('rejects loopback addresses', () => {
+    expect(validateScreenshotUrl('http://localhost/admin')).not.toBeNull();
+    expect(validateScreenshotUrl('http://127.0.0.1/secret')).not.toBeNull();
+  });
+
+  it('rejects RFC 1918 private ranges', () => {
+    expect(validateScreenshotUrl('http://192.168.1.1/')).not.toBeNull();
+    expect(validateScreenshotUrl('http://10.0.0.1/')).not.toBeNull();
+  });
+
+  it('rejects link-local addresses', () => {
+    expect(validateScreenshotUrl('http://169.254.169.254/latest/meta-data/')).not.toBeNull();
+  });
+
+  it('allows private addresses when in allowedDomains', () => {
+    expect(validateScreenshotUrl('http://localhost:3000', ['localhost'])).toBeNull();
+    expect(validateScreenshotUrl('http://192.168.1.50', ['192.168.1.50'])).toBeNull();
   });
 });
 

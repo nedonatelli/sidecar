@@ -39,6 +39,33 @@ function urlSlug(url: string): string {
 }
 
 /**
+ * Reject CSS selectors that could exploit Playwright's XPath engine or inject
+ * unexpected input into the browser context.
+ *
+ * Blocked patterns:
+ *   /  or  //  — XPath selectors (Playwright evaluates these as XPath, not CSS)
+ *   <          — HTML-injection attempt; not valid CSS
+ *   null bytes / C0 control chars — unexpected in any legitimate selector
+ *
+ * Returns an error string if the selector is invalid, or null if it is allowed.
+ */
+export function validateCssSelector(sel: string): string | null {
+  if (!sel || sel.trim().length === 0) return 'Error: selector must not be empty.';
+  if (sel.length > 2000) return 'Error: selector exceeds maximum allowed length.';
+  if (sel.startsWith('/')) {
+    return 'Error: XPath selectors (starting with "/") are not allowed. Use a CSS selector instead.';
+  }
+  if (sel.startsWith('<')) {
+    return 'Error: selector must not start with "<". Use a CSS selector instead.';
+  }
+  // Null bytes and C0 control chars (except tab/newline which CSS allows)
+  if (/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(sel)) {
+    return 'Error: selector contains invalid control characters.';
+  }
+  return null;
+}
+
+/**
  * Reject URLs that could be used for SSRF: file://, non-http(s) schemes,
  * loopback addresses, link-local (169.254.x.x), and RFC 1918 private ranges.
  * Returns an error string if the URL is blocked, or null if it is allowed.
@@ -179,6 +206,16 @@ async function screenshotPage(input: Record<string, unknown>, _context?: ToolExe
   const selector = input.selector as string | undefined;
   const waitForRaw = (input.wait_for as string | undefined) ?? 'load';
   const viewportRaw = input.viewport as { width?: number; height?: number } | undefined;
+
+  // Validate selectors before launching the browser so we fail fast on bad input.
+  if (selector) {
+    const selErr = validateCssSelector(selector);
+    if (selErr) return selErr;
+  }
+  if (waitForRaw.startsWith('selector:')) {
+    const selErr = validateCssSelector(waitForRaw.slice('selector:'.length));
+    if (selErr) return selErr;
+  }
 
   // Dynamic require — playwright-core is an optional external dep excluded from
   // the bundle. Using require() rather than import() avoids the compile-time
