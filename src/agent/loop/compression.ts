@@ -92,10 +92,14 @@ export function compressMessages(messages: ChatMessage[]): number {
         if (hasToolUse) {
           // Atomic thinking→tool_use chain: truncate instead of drop so
           // Anthropic's signed-thinking verification stays intact.
+          const TRUNCATION_SUFFIX = '… (truncated)';
           const maxThinkingChars = 200;
           if (block.thinking.length > maxThinkingChars) {
             freed += block.thinking.length - maxThinkingChars;
-            newContent.push({ ...block, thinking: block.thinking.slice(0, maxThinkingChars) + '… (truncated)' });
+            // Slice to (maxThinkingChars - suffix.length) so the final string
+            // stays within the cap — appending after the slice would exceed it.
+            const keepChars = Math.max(0, maxThinkingChars - TRUNCATION_SUFFIX.length);
+            newContent.push({ ...block, thinking: block.thinking.slice(0, keepChars) + TRUNCATION_SUFFIX });
           } else {
             newContent.push(block);
           }

@@ -78,13 +78,18 @@ export async function executeMultiFilePlan(
       claimed.add(edit.path);
     }
 
-    const tasks = layer
-      .map((edit) => buildLayerTask(edit, firstUseByPath, ctx))
-      .filter((t): t is () => Promise<ToolResultContentBlock> => t !== null);
+    // Pair each edit with its task BEFORE filtering so the indices stay
+    // aligned after nulls (plan-invented paths with no matching tool_use)
+    // are removed. Using layer[i] after filter would index into the wrong
+    // layer entry when any task is skipped.
+    const layerTasks = layer
+      .map((edit) => ({ edit, task: buildLayerTask(edit, firstUseByPath, ctx) }))
+      .filter((e): e is { edit: PlannedEdit; task: () => Promise<ToolResultContentBlock> } => e.task !== null);
+    const tasks = layerTasks.map((e) => e.task);
     const settled = await runWithCap(tasks, { cap });
     for (let i = 0; i < settled.length; i++) {
       const outcome = settled[i];
-      const path = layer[i].path;
+      const path = layerTasks[i].edit.path;
       if (outcome.status === 'fulfilled') {
         resultById.set(outcome.value.tool_use_id, outcome.value);
         callbacks.onEditPlanProgress?.({

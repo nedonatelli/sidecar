@@ -139,8 +139,8 @@ export async function streamOneTurn(
           state.totalChars += event.thinking.length;
           callbacks.onCharsConsumed?.(event.thinking.length);
           const thinkingMode = state.config.thinkingMode;
-          thinkingStore.append(state.runId, event.thinking, thinkingMode).catch(() => {
-            // Silently ignore thinking store errors
+          thinkingStore.append(state.runId, event.thinking, thinkingMode).catch((err: unknown) => {
+            console.warn('[SideCar] Thinking store append failed:', err instanceof Error ? err.message : err);
           });
           callbacks.onThinking?.(event.thinking);
           break;
