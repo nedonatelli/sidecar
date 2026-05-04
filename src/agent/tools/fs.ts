@@ -237,7 +237,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
     if (!currentText.includes(search)) {
       return `Error: Search text not found in ${filePath}`;
     }
-    const newText = currentText.replace(search, replace);
+    const newText = currentText.replace(search, () => replace);
     await buf.write(filePath, newText, (p) => readDiskViaWorkspace(context, p));
     return `File edited: ${filePath} (buffered for audit review)`;
   }
@@ -248,7 +248,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   if (!text.includes(search)) {
     return `Error: Search text not found in ${filePath}`;
   }
-  const newText = text.replace(search, replace);
+  const newText = text.replace(search, () => replace);
   await workspace.fs.writeFile(fileUri, Buffer.from(newText, 'utf-8'));
   return `File edited: ${filePath}`;
 }

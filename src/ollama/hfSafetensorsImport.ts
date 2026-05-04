@@ -190,7 +190,8 @@ async function* downloadFile(args: DownloadArgs): AsyncGenerator<ImportProgress>
         writer.destroy();
         throw new DOMException('Aborted', 'AbortError');
       }
-      writer.write(chunk);
+      const canContinue = writer.write(chunk);
+      if (!canContinue) await new Promise<void>((resolve) => writer.once('drain', resolve));
       fileCompleted += chunk.byteLength;
       onBytes(chunk.byteLength);
       if (fileCompleted - lastYieldBytes >= YIELD_EVERY_BYTES || fileCompleted === contentLength) {

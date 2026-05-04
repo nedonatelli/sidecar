@@ -13,6 +13,8 @@ import { __resetConfigCacheForTests } from '../../config/settings.js';
 function makeMockState(overrides: Record<string, unknown> = {}) {
   return {
     postMessage: vi.fn(),
+    notebookModeActive: false,
+    notebookRequireCitations: 'strict' as 'strict' | 'advisory' | 'off',
     ...overrides,
   } as unknown as Parameters<typeof handleNotebookStart>[0];
 }

@@ -94,15 +94,20 @@ describe('spawnSubAgent', () => {
     expect(messages[0].content).toContain('Here is relevant background info');
   });
 
-  it('restores parent system prompt after success', async () => {
+  it('passes systemPromptOverride containing the sub-agent prefix + parent prompt', async () => {
     const client = makeClient();
     const callbacks = makeCallbacks();
     await spawnSubAgent(client, 'task', undefined, callbacks, new AbortController().signal);
 
-    expect(client.updateSystemPrompt).toHaveBeenLastCalledWith('parent system prompt');
+    // New approach: systemPromptOverride is passed to runAgentLoop so the
+    // shared client.systemPrompt field is never mutated.
+    const callOptions = vi.mocked(runAgentLoop).mock.calls[0][4];
+    expect(callOptions?.systemPromptOverride).toContain('sub-agent');
+    expect(callOptions?.systemPromptOverride).toContain('parent system prompt');
+    expect(client.updateSystemPrompt).not.toHaveBeenCalled();
   });
 
-  it('restores parent system prompt after failure', async () => {
+  it('does not mutate client system prompt even on failure', async () => {
     vi.mocked(runAgentLoop).mockRejectedValueOnce(new Error('loop crashed'));
     const client = makeClient();
     const callbacks = makeCallbacks();
@@ -110,7 +115,7 @@ describe('spawnSubAgent', () => {
 
     expect(result.success).toBe(false);
     expect(result.output).toContain('loop crashed');
-    expect(client.updateSystemPrompt).toHaveBeenLastCalledWith('parent system prompt');
+    expect(client.updateSystemPrompt).not.toHaveBeenCalled();
   });
 
   it('notifies parent callbacks about tool calls during sub-agent run', async () => {

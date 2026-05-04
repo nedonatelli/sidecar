@@ -82,6 +82,8 @@ export class ChatState {
    * new conversation.
    */
   pendingSteerSnapshot: QueuedSteer[] | null = null;
+  notebookModeActive = false;
+  notebookRequireCitations: 'strict' | 'advisory' | 'off' = 'strict';
   private pendingConfirms = new Map<string, (choice: string | undefined) => void>();
   private confirmCounter = 0;
   changelog = new ChangeLog();

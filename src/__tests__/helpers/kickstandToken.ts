@@ -46,5 +46,12 @@ export function buildKickstandTokenFsMock(actual: FsModule, options: KickstandTo
       p.includes(matcher)
         ? token
         : (actual.readFileSync as (p: string, enc?: BufferEncoding) => unknown)(p, enc)) as typeof actual.readFileSync,
+    promises: {
+      ...actual.promises,
+      readFile: ((p: string, enc?: BufferEncoding) =>
+        p.includes(matcher)
+          ? Promise.resolve(token)
+          : actual.promises.readFile(p, enc)) as typeof actual.promises.readFile,
+    },
   };
 }

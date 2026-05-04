@@ -266,7 +266,8 @@ async function dbExecute(
   // .sidecar/audit/db/{connectionId}/{timestamp}.sql for human inspection.
   if (cfg.agentMode === 'audit') {
     const ts = Date.now();
-    const auditPath = path.join('.sidecar', 'audit', 'db', connectionId, `${ts}.sql`);
+    const safeId = connectionId.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const auditPath = path.join('.sidecar', 'audit', 'db', safeId, `${ts}.sql`);
     const paramsNote = params.length > 0 ? `\n-- params: ${JSON.stringify(params)}` : '';
     await getDefaultAuditBuffer().write(
       auditPath,

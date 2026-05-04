@@ -210,14 +210,16 @@ export class SideCarClient {
     messages: ChatMessage[],
     signal?: AbortSignal,
     tools?: ToolDefinition[],
+    systemPromptOverride?: string,
   ): AsyncGenerator<StreamEvent> {
+    const effectiveSystemPrompt = systemPromptOverride ?? this.systemPrompt;
     this.pushModelUsageLog({ model: this.model, role: 'chat', timestamp: new Date() });
     // Fast-fail when the breaker is open so the user sees a clear error
     // instead of the request hanging on a dead provider. Advances an
     // open breaker to half-open once the cooldown has elapsed.
     circuitBreaker.guard(this.getProviderType());
     try {
-      for await (const event of this.backend.streamChat(this.model, this.systemPrompt, messages, signal, tools)) {
+      for await (const event of this.backend.streamChat(this.model, effectiveSystemPrompt, messages, signal, tools)) {
         if (event.type === 'usage') this.chargeLastDecision(spendTracker.record(event.model, event.usage));
         yield event;
       }
@@ -242,7 +244,7 @@ export class SideCarClient {
           yield { type: 'warning', message: 'Retrying against native protocol…' };
           for await (const event of nativeRetry.fallbackStreamChat(
             this.model,
-            this.systemPrompt,
+            effectiveSystemPrompt,
             messages,
             signal,
             tools,
@@ -270,7 +272,7 @@ export class SideCarClient {
         console.warn(`[SideCar] Primary backend failed, switching to fallback: ${(err as Error).message}`);
         yield { type: 'warning', message: 'Primary backend unavailable — using fallback.' };
         circuitBreaker.guard(this.getProviderType());
-        for await (const event of this.backend.streamChat(this.model, this.systemPrompt, messages, signal, tools)) {
+        for await (const event of this.backend.streamChat(this.model, effectiveSystemPrompt, messages, signal, tools)) {
           if (event.type === 'usage') this.chargeLastDecision(spendTracker.record(event.model, event.usage));
           yield event;
         }
@@ -714,7 +716,7 @@ export class SideCarClient {
       // in-flight downloads don't pollute the dropdown.
       try {
         const response = await fetch(`${this.baseUrl}/api/v1/models`, {
-          headers: kickstandHeaders(),
+          headers: await kickstandHeaders(),
         });
         if (!response.ok) return [];
         const data = (await response.json()) as Array<{

@@ -115,7 +115,7 @@ interface IndexCache {
 export class WorkspaceIndex implements Disposable {
   private files = new Map<string, FileNode>();
   private treeCache = '';
-  private watcher: FileSystemWatcher | null = null;
+  private watchers: FileSystemWatcher[] = [];
   private ready = false;
   private maxContextChars: number;
   private fileContentCache = new LimitedCache<string, string>(100, 300000); // 100 items, 5 min TTL
@@ -353,40 +353,45 @@ export class WorkspaceIndex implements Disposable {
     // Persist the fresh index for next startup
     this.persistIndex();
 
-    // Watch for file changes — debounce rebuilds to avoid thrashing
-    this.watcher = workspace.createFileSystemWatcher(new RelativePattern(rootUri, '**/*'));
-    this.watcher.onDidCreate((uri) => {
-      const rel = path.relative(rootPath, uri.fsPath);
-      if (this.shouldExclude(rel)) return;
-      workspace.fs.stat(uri).then(
-        (stat) => {
-          if (stat.size <= MAX_FILE_SIZE) {
-            this.files.set(rel, { relativePath: rel, sizeBytes: stat.size, relevanceScore: this.baseScore(rel) });
-            this.pinnedFileCache = null;
-            this.scheduleRebuild();
-            this.symbolIndexer?.queueUpdate(rel);
-            this.embeddingIndex?.queuePath(rel, rootPath);
-          }
-        },
-        () => {},
-      );
-    });
-    this.watcher.onDidChange((uri) => {
-      const rel = path.relative(rootPath, uri.fsPath);
-      if (this.shouldExclude(rel)) return;
-      // Invalidate cached file content so the next read picks up the new bytes.
-      this.fileContentCache.delete(rel);
-      this.symbolIndexer?.queueUpdate(rel);
-      this.embeddingIndex?.queuePath(rel, rootPath);
-    });
-    this.watcher.onDidDelete((uri) => {
-      const rel = path.relative(rootPath, uri.fsPath);
-      this.fileContentCache.delete(rel);
-      this.files.delete(rel);
-      this.pinnedFileCache = null;
-      this.scheduleRebuild();
-      this.symbolIndexer?.queueDelete(rel);
-      this.embeddingIndex?.removeFile(rel);
+    // Watch for file changes across every active root — debounce rebuilds to avoid thrashing.
+    // One watcher per root so paths in all roots are tracked, not just the first.
+    const watchRoots = this.activeRoots.length > 0 ? this.activeRoots : [{ uri: rootUri, fsPath: rootPath }];
+    this.watchers = watchRoots.map((root) => {
+      const watchRoot = root.uri.fsPath;
+      const watcher = workspace.createFileSystemWatcher(new RelativePattern(root.uri, '**/*'));
+      watcher.onDidCreate((uri) => {
+        const rel = path.relative(watchRoot, uri.fsPath);
+        if (this.shouldExclude(rel)) return;
+        workspace.fs.stat(uri).then(
+          (stat) => {
+            if (stat.size <= MAX_FILE_SIZE) {
+              this.files.set(rel, { relativePath: rel, sizeBytes: stat.size, relevanceScore: this.baseScore(rel) });
+              this.pinnedFileCache = null;
+              this.scheduleRebuild();
+              this.symbolIndexer?.queueUpdate(rel);
+              this.embeddingIndex?.queuePath(rel, watchRoot);
+            }
+          },
+          () => {},
+        );
+      });
+      watcher.onDidChange((uri) => {
+        const rel = path.relative(watchRoot, uri.fsPath);
+        if (this.shouldExclude(rel)) return;
+        this.fileContentCache.delete(rel);
+        this.symbolIndexer?.queueUpdate(rel);
+        this.embeddingIndex?.queuePath(rel, watchRoot);
+      });
+      watcher.onDidDelete((uri) => {
+        const rel = path.relative(watchRoot, uri.fsPath);
+        this.fileContentCache.delete(rel);
+        this.files.delete(rel);
+        this.pinnedFileCache = null;
+        this.scheduleRebuild();
+        this.symbolIndexer?.queueDelete(rel);
+        this.embeddingIndex?.removeFile(rel);
+      });
+      return watcher;
     });
   }
 
@@ -781,7 +786,8 @@ export class WorkspaceIndex implements Disposable {
   }
 
   dispose(): void {
-    this.watcher?.dispose();
+    for (const w of this.watchers) w.dispose();
+    this.watchers = [];
     if (this.rebuildTimer) {
       clearTimeout(this.rebuildTimer);
       this.rebuildTimer = null;

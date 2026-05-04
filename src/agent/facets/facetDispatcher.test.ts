@@ -120,7 +120,7 @@ describe('dispatchFacet — success path', () => {
     }
   });
 
-  it('composes the facet system prompt on top of the prior one and restores', async () => {
+  it('composes the facet system prompt and passes it via systemPromptOverride', async () => {
     runAgentLoopInSandboxMock.mockResolvedValue({ mode: 'shadow', applied: true });
     const client = makeClient();
     const f = facet({ id: 'dsp', systemPrompt: 'You are a DSP specialist.' });
@@ -128,13 +128,16 @@ describe('dispatchFacet — success path', () => {
       task: 'x',
       signal: new AbortController().signal,
     });
-    const composedPrompt = client.updateSystemPrompt.mock.calls[0][0] as string;
+    // The composed prompt is passed via agentOptions.systemPromptOverride, not
+    // via client.updateSystemPrompt, so the shared client field is never mutated.
+    const agentOptions = runAgentLoopInSandboxMock.mock.calls[0][4] as Record<string, unknown>;
+    const composedPrompt = agentOptions.systemPromptOverride as string;
     expect(composedPrompt).toContain('"F" facet (id: dsp)');
     expect(composedPrompt).toContain('You are a DSP specialist.');
     expect(composedPrompt).toContain('orchestrator rules');
     expect(composedPrompt).toContain('<orchestrator prompt>');
-    // Last updateSystemPrompt call restores the prior prompt verbatim.
-    expect(client.updateSystemPrompt.mock.calls.at(-1)![0]).toBe('<orchestrator prompt>');
+    // Client system prompt must NOT be mutated.
+    expect(client.updateSystemPrompt).not.toHaveBeenCalled();
   });
 
   it('filters toolOverride via the facet allowlist when baseTools are provided', async () => {
@@ -242,7 +245,7 @@ describe('dispatchFacet — failure path', () => {
     expect(result.sandbox.applied).toBe(false);
   });
 
-  it('restores system prompt + model override even on failure', async () => {
+  it('restores model override even on failure; never mutates system prompt', async () => {
     runAgentLoopInSandboxMock.mockRejectedValue(new Error('boom'));
     const client = makeClient();
     client.getTurnOverride = vi.fn().mockReturnValue('prior-model');
@@ -250,8 +253,8 @@ describe('dispatchFacet — failure path', () => {
       task: 'x',
       signal: new AbortController().signal,
     });
-    // System prompt final call is the restore to the captured prior.
-    expect(client.updateSystemPrompt.mock.calls.at(-1)![0]).toBe('<orchestrator prompt>');
+    // System prompt is passed via systemPromptOverride — client must not be mutated.
+    expect(client.updateSystemPrompt).not.toHaveBeenCalled();
     // Model override final call is the restore.
     expect(client.setTurnOverride.mock.calls.at(-1)![0]).toBe('prior-model');
   });
@@ -296,12 +299,10 @@ describe('dispatchFacets — orchestration', () => {
 
   it('runs dependent facets after their dependencies land', async () => {
     const events: string[] = [];
-    runAgentLoopInSandboxMock.mockImplementation(async (_c, _m, cb) => {
-      const facetIdFromPrompt = (
-        _c as { updateSystemPrompt?: ReturnType<typeof vi.fn> }
-      ).updateSystemPrompt?.mock.calls.at(-1)?.[0] as string | undefined;
-      // Rough extraction — parse "facet (id: X)" from the composed prompt.
-      const match = facetIdFromPrompt?.match(/id: (\w+)/);
+    runAgentLoopInSandboxMock.mockImplementation(async (_c, _m, cb, _signal, options) => {
+      // Parse "facet (id: X)" from the systemPromptOverride injected via agentOptions.
+      const composedPrompt = (options as { systemPromptOverride?: string }).systemPromptOverride ?? '';
+      const match = composedPrompt.match(/id: (\w+)/);
       const id = match?.[1] ?? '?';
       events.push(`${id}-start`);
       await new Promise((r) => setTimeout(r, 1));
@@ -416,11 +417,9 @@ describe('dispatchFacets — RPC wiring', () => {
     // dispatch (not latex's, which has no peer rpcSchema to call).
     const toolOverrideByFacet = new Map<string, Array<{ name: string }>>();
     const extraToolsByFacet = new Map<string, Array<{ definition: { name: string } }>>();
-    runAgentLoopInSandboxMock.mockImplementation(async (c, _m, _cb, _signal, options) => {
-      const composedPrompt = (c as { updateSystemPrompt?: ReturnType<typeof vi.fn> }).updateSystemPrompt?.mock.calls.at(
-        -1,
-      )?.[0] as string | undefined;
-      const match = composedPrompt?.match(/id: (\w+)/);
+    runAgentLoopInSandboxMock.mockImplementation(async (_c, _m, _cb, _signal, options) => {
+      const composedPrompt = (options as { systemPromptOverride?: string }).systemPromptOverride ?? '';
+      const match = composedPrompt.match(/id: (\w+)/);
       const facetId = match?.[1] ?? '?';
       toolOverrideByFacet.set(facetId, (options.toolOverride ?? []) as Array<{ name: string }>);
       extraToolsByFacet.set(facetId, (options.extraTools ?? []) as Array<{ definition: { name: string } }>);
@@ -514,12 +513,9 @@ describe('dispatchFacets — RPC wiring', () => {
     // Track tool results per facet id.
     const resultsByFacet = new Map<string, string>();
     runAgentLoopInSandboxMock.mockImplementation(async (_c, _m, _cb, _signal, options) => {
-      // Extract the caller facet id from the composed system prompt —
-      // same trick as the ordering test above.
-      const composedPrompt = (
-        _c as { updateSystemPrompt?: ReturnType<typeof vi.fn> }
-      ).updateSystemPrompt?.mock.calls.at(-1)?.[0] as string | undefined;
-      const match = composedPrompt?.match(/id: (\w+)/);
+      // Extract the caller facet id from systemPromptOverride in the agent options.
+      const composedPrompt = (options as { systemPromptOverride?: string }).systemPromptOverride ?? '';
+      const match = composedPrompt.match(/id: (\w+)/);
       const facetId = match?.[1] ?? '?';
       const extraTools = options.extraTools as Array<{
         definition: { name: string };

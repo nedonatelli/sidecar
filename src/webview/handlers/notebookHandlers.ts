@@ -51,10 +51,8 @@ export function handleNotebookStart(state: ChatState): void {
   const config = getConfig();
   const requireCitations = config.notebookModeRequireCitations;
 
-  // Flip the notebook mode flag on the chat state so chatHandlers
-  // prepends the citation system prompt for subsequent runs.
-  (state as unknown as Record<string, unknown>).notebookModeActive = true;
-  (state as unknown as Record<string, unknown>).notebookRequireCitations = requireCitations;
+  state.notebookModeActive = true;
+  state.notebookRequireCitations = requireCitations;
 
   const citationLabel =
     requireCitations === 'strict'
@@ -86,8 +84,8 @@ export function handleNotebookStart(state: ChatState): void {
 // ---------------------------------------------------------------------------
 
 export function handleNotebookExit(state: ChatState): void {
-  (state as unknown as Record<string, unknown>).notebookModeActive = false;
-  (state as unknown as Record<string, unknown>).notebookRequireCitations = undefined;
+  state.notebookModeActive = false;
+  state.notebookRequireCitations = 'strict';
   clearIngestedSources();
 
   state.postMessage({
@@ -102,12 +100,9 @@ export function handleNotebookExit(state: ChatState): void {
 // ---------------------------------------------------------------------------
 
 export function isNotebookModeActive(state: ChatState): boolean {
-  return (state as unknown as Record<string, unknown>).notebookModeActive === true;
+  return state.notebookModeActive;
 }
 
 export function getNotebookRequireCitations(state: ChatState): 'strict' | 'advisory' | 'off' {
-  return (
-    ((state as unknown as Record<string, unknown>).notebookRequireCitations as 'strict' | 'advisory' | 'off') ??
-    'strict'
-  );
+  return state.notebookRequireCitations;
 }

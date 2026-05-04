@@ -14,15 +14,11 @@ const PROBE_TOKEN_TTL_MS = 60_000;
  * (providerReachability is imported by settings consumers, not backend modules).
  * Result is cached for 60 s to avoid repeated sync fs reads.
  */
-function readKickstandTokenForProbe(): string {
+async function readKickstandTokenForProbe(): Promise<string> {
   const now = Date.now();
   if (now - _probeTokenTime < PROBE_TOKEN_TTL_MS) return _probeToken;
   try {
-    if (fs.existsSync(_PROBE_TOKEN_PATH)) {
-      _probeToken = fs.readFileSync(_PROBE_TOKEN_PATH, 'utf-8').trim();
-    } else {
-      _probeToken = '';
-    }
+    _probeToken = (await fs.promises.readFile(_PROBE_TOKEN_PATH, 'utf-8')).trim();
   } catch {
     _probeToken = '';
   }
@@ -65,7 +61,7 @@ export async function isProviderReachable(
         // can probe it without auth. But use the health endpoint for a
         // cleaner signal.
         checkUrl = `${cfg.baseUrl}/api/v1/health`;
-        const token = readKickstandTokenForProbe();
+        const token = await readKickstandTokenForProbe();
         if (token) headers['Authorization'] = `Bearer ${token}`;
         break;
       }

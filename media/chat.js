@@ -147,7 +147,8 @@
       console.log('[SideCar] Loading mermaid.js from:', src);
       const script = document.createElement('script');
       script.src = src;
-      if (window.__nonce) script.setAttribute('nonce', window.__nonce);
+      const nonce = document.body.dataset.nonce;
+      if (nonce) script.setAttribute('nonce', nonce);
       script.onload = () => {
         console.log('[SideCar] Mermaid loaded, initializing...');
         try {

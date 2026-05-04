@@ -70,6 +70,11 @@ export async function handleBatch(state: ChatState, text: string): Promise<void>
   const { mode, tasks } = parseBatchInput(text);
   if (tasks.length === 0) return;
 
+  if (state.abortController) {
+    state.abortController.abort();
+    state.abortController = null;
+  }
+
   state.postMessage({ command: 'assistantMessage', content: `Starting batch (${mode}): ${tasks.length} task(s)\n\n` });
 
   const abortController = new AbortController();
@@ -239,14 +244,19 @@ export async function handleGenerateDoc(state: ChatState): Promise<void> {
   state.client.updateConnection(config.baseUrl, config.apiKey);
   state.client.updateModel(config.model);
 
-  const result = await generateDocumentation(state.client, code, language, fileName);
-  if (result) {
-    state.postMessage({ command: 'assistantMessage', content: result });
-  } else {
-    state.postMessage({ command: 'error', content: 'Failed to generate documentation.' });
+  try {
+    const result = await generateDocumentation(state.client, code, language, fileName);
+    if (result) {
+      state.postMessage({ command: 'assistantMessage', content: result });
+    } else {
+      state.postMessage({ command: 'error', content: 'Failed to generate documentation.' });
+    }
+  } catch (err) {
+    state.postMessage({ command: 'error', content: err instanceof Error ? err.message : String(err) });
+  } finally {
+    state.postMessage({ command: 'done' });
+    state.postMessage({ command: 'setLoading', isLoading: false });
   }
-  state.postMessage({ command: 'done' });
-  state.postMessage({ command: 'setLoading', isLoading: false });
 }
 
 export async function handleSpec(state: ChatState, description: string): Promise<void> {
@@ -255,15 +265,20 @@ export async function handleSpec(state: ChatState, description: string): Promise
   state.client.updateConnection(config.baseUrl, config.apiKey);
   state.client.updateModel(config.model);
 
-  const spec = await generateSpec(state.client, description);
-  if (spec) {
-    state.postMessage({ command: 'assistantMessage', content: spec });
+  try {
+    const spec = await generateSpec(state.client, description);
+    if (spec) {
+      state.postMessage({ command: 'assistantMessage', content: spec });
+      await saveSpec(spec, description.slice(0, 40), state.sidecarDir);
+    } else {
+      state.postMessage({ command: 'error', content: 'Failed to generate spec.' });
+    }
+  } catch (err) {
+    state.postMessage({ command: 'error', content: err instanceof Error ? err.message : String(err) });
+  } finally {
     state.postMessage({ command: 'done' });
-    await saveSpec(spec, description.slice(0, 40), state.sidecarDir);
-  } else {
-    state.postMessage({ command: 'error', content: 'Failed to generate spec.' });
+    state.postMessage({ command: 'setLoading', isLoading: false });
   }
-  state.postMessage({ command: 'setLoading', isLoading: false });
 }
 
 /**
@@ -346,37 +361,52 @@ export async function handleGenerateTests(state: ChatState): Promise<void> {
   state.client.updateConnection(config.baseUrl, config.apiKey);
   state.client.updateModel(config.model);
 
-  const result = await generateTests(state.client, code, language, fileName);
-  if (result) {
-    state.postMessage({
-      command: 'assistantMessage',
-      content: `Generated tests for **${fileName}** → \`${result.testFileName}\`\n\n\`\`\`${language}:${result.testFileName}\n${result.content}\n\`\`\``,
-    });
-  } else {
-    state.postMessage({ command: 'error', content: 'Failed to generate tests.' });
+  try {
+    const result = await generateTests(state.client, code, language, fileName);
+    if (result) {
+      state.postMessage({
+        command: 'assistantMessage',
+        content: `Generated tests for **${fileName}** → \`${result.testFileName}\`\n\n\`\`\`${language}:${result.testFileName}\n${result.content}\n\`\`\``,
+      });
+    } else {
+      state.postMessage({ command: 'error', content: 'Failed to generate tests.' });
+    }
+  } catch (err) {
+    state.postMessage({ command: 'error', content: err instanceof Error ? err.message : String(err) });
+  } finally {
+    state.postMessage({ command: 'done' });
+    state.postMessage({ command: 'setLoading', isLoading: false });
   }
-  state.postMessage({ command: 'done' });
-  state.postMessage({ command: 'setLoading', isLoading: false });
 }
 
 export async function handleLint(state: ChatState, command?: string): Promise<void> {
   state.postMessage({ command: 'setLoading', isLoading: true });
-  const { output, success } = await runLint(command);
-  state.postMessage({
-    command: 'assistantMessage',
-    content: success ? `✓ Lint passed:\n\`\`\`\n${output}\n\`\`\`` : `✗ Lint issues:\n\`\`\`\n${output}\n\`\`\``,
-  });
-  state.postMessage({ command: 'done' });
-  state.postMessage({ command: 'setLoading', isLoading: false });
+  try {
+    const { output, success } = await runLint(command);
+    state.postMessage({
+      command: 'assistantMessage',
+      content: success ? `✓ Lint passed:\n\`\`\`\n${output}\n\`\`\`` : `✗ Lint issues:\n\`\`\`\n${output}\n\`\`\``,
+    });
+  } catch (err) {
+    state.postMessage({ command: 'error', content: err instanceof Error ? err.message : String(err) });
+  } finally {
+    state.postMessage({ command: 'done' });
+    state.postMessage({ command: 'setLoading', isLoading: false });
+  }
 }
 
 export async function handleDeps(state: ChatState): Promise<void> {
   state.postMessage({ command: 'setLoading', isLoading: true });
-  const report = await analyzeDependencies();
-  const doc = await workspace.openTextDocument({ content: report, language: 'markdown' });
-  await window.showTextDocument(doc, { preview: true });
-  state.postMessage({ command: 'done' });
-  state.postMessage({ command: 'setLoading', isLoading: false });
+  try {
+    const report = await analyzeDependencies();
+    const doc = await workspace.openTextDocument({ content: report, language: 'markdown' });
+    await window.showTextDocument(doc, { preview: true });
+  } catch (err) {
+    state.postMessage({ command: 'error', content: err instanceof Error ? err.message : String(err) });
+  } finally {
+    state.postMessage({ command: 'done' });
+    state.postMessage({ command: 'setLoading', isLoading: false });
+  }
 }
 
 export async function handleScaffold(state: ChatState, text: string): Promise<void> {
@@ -401,14 +431,19 @@ export async function handleScaffold(state: ChatState, text: string): Promise<vo
   state.client.updateConnection(config.baseUrl, config.apiKey);
   state.client.updateModel(config.model);
 
-  const result = await generateScaffold(state.client, templateType, description, language);
-  if (result) {
-    state.postMessage({ command: 'assistantMessage', content: `\`\`\`${language}\n${result}\n\`\`\`` });
-  } else {
-    state.postMessage({ command: 'error', content: `Failed to generate ${templateType} scaffold.` });
+  try {
+    const result = await generateScaffold(state.client, templateType, description, language);
+    if (result) {
+      state.postMessage({ command: 'assistantMessage', content: `\`\`\`${language}\n${result}\n\`\`\`` });
+    } else {
+      state.postMessage({ command: 'error', content: `Failed to generate ${templateType} scaffold.` });
+    }
+  } catch (err) {
+    state.postMessage({ command: 'error', content: err instanceof Error ? err.message : String(err) });
+  } finally {
+    state.postMessage({ command: 'done' });
+    state.postMessage({ command: 'setLoading', isLoading: false });
   }
-  state.postMessage({ command: 'done' });
-  state.postMessage({ command: 'setLoading', isLoading: false });
 }
 
 /**
@@ -689,6 +724,14 @@ export function handleSearchMemories(state: ChatState, query: string): void {
 }
 
 export async function handleCompactContext(state: ChatState): Promise<void> {
+  if (state.abortController) {
+    state.postMessage({
+      command: 'assistantMessage',
+      content: 'Cannot compact context while an agent is running.',
+    });
+    state.postMessage({ command: 'done' });
+    return;
+  }
   const msgCount = state.messages.length;
   if (msgCount < 4) {
     state.postMessage({

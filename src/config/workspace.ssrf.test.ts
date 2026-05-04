@@ -1,26 +1,5 @@
 import { describe, it, expect } from 'vitest';
-
-// Test the private IP detection logic directly
-// This mirrors isPrivateUrl from workspace.ts
-function isPrivateUrl(urlStr: string): boolean {
-  try {
-    const parsed = new URL(urlStr);
-    const host = parsed.hostname;
-    if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]') return true;
-    const ipv4 = host.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
-    if (ipv4) {
-      const [, a, b] = ipv4.map(Number);
-      if (a === 10) return true;
-      if (a === 172 && b >= 16 && b <= 31) return true;
-      if (a === 192 && b === 168) return true;
-      if (a === 169 && b === 254) return true;
-      if (a === 0) return true;
-    }
-    return false;
-  } catch {
-    return true;
-  }
-}
+import { isPrivateUrl } from './workspace.js';
 
 describe('SSRF private IP detection', () => {
   it('blocks localhost', () => {

@@ -68,12 +68,23 @@ export function exceedsBurstCap(
  * are considered "identical" only when the full signature matches —
  * a `read_file(a.ts)` followed by a `read_file(b.ts)` is NOT a cycle.
  */
+function sortedStringify(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return '[' + value.map(sortedStringify).join(',') + ']';
+  const keys = Object.keys(value as Record<string, unknown>).sort();
+  return (
+    '{' +
+    keys.map((k) => JSON.stringify(k) + ':' + sortedStringify((value as Record<string, unknown>)[k])).join(',') +
+    '}'
+  );
+}
+
 export function detectCycleAndBail(
   pendingToolUses: ToolUseContentBlock[],
   state: LoopState,
   callbacks: AgentCallbacks,
 ): boolean {
-  const callSignature = pendingToolUses.map((tu) => `${tu.name}:${JSON.stringify(tu.input)}`).join('|');
+  const callSignature = pendingToolUses.map((tu) => `${tu.name}:${sortedStringify(tu.input)}`).join('|');
   state.recentToolCalls.push(callSignature);
   if (state.recentToolCalls.length > CYCLE_WINDOW) {
     state.recentToolCalls.shift();

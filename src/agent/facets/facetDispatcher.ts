@@ -79,15 +79,11 @@ export interface DispatchFacetOptions {
  * the dispatch target because other facets are writing to their own
  * shadows simultaneously.
  *
- * The facet's system prompt is PRE-pended to the client's existing
- * system prompt and restored in a finally block — same pattern as
- * spawnSubAgent. The parent's prompt continues to land underneath so
- * operating rules (file safety, audit gate, etc.) still apply.
- *
- * `preferredModel` is pinned via `setTurnOverride` for the facet's
- * lifetime, then restored in the same finally. This ensures the
- * orchestrator's main-line dispatches afterward route to the user's
- * selected model, not the facet's specialist override.
+ * The facet's system prompt is PRE-pended to the orchestrator's existing
+ * prompt and passed via `AgentOptions.systemPromptOverride` so the
+ * facet's loop sees the composed prompt without mutating the shared
+ * client field. This eliminates the `updateSystemPrompt`/restore race
+ * between concurrent facet runs.
  */
 export async function dispatchFacet(
   client: SideCarClient,
@@ -96,7 +92,6 @@ export async function dispatchFacet(
   options: DispatchFacetOptions,
 ): Promise<FacetDispatchResult> {
   const startMs = Date.now();
-  const priorSystemPrompt = client.getSystemPrompt();
   const priorModelOverride = client.getTurnOverride();
 
   // Pin the facet's preferred model before the sandbox run.
@@ -107,19 +102,19 @@ export async function dispatchFacet(
   // Compose facet system prompt on top of the existing one so the
   // orchestrator's operating rules (file safety, audit gate, etc.)
   // still apply underneath the specialist persona.
-  client.updateSystemPrompt(
-    [
-      `You are dispatched as the "${facet.displayName}" facet (id: ${facet.id}).`,
-      `Complete the task below using ONLY tools your facet allowlist grants.`,
-      `Run in your own Shadow Workspace — your writes won't touch main until the user reviews your diff.`,
-      `Be concise. Be precise. Do not ask clarifying questions; use your best judgment within the facet's scope.`,
-      '',
-      facet.systemPrompt,
-      '',
-      '--- orchestrator rules ---',
-      priorSystemPrompt,
-    ].join('\n'),
-  );
+  // Passed via systemPromptOverride (not client.updateSystemPrompt) so
+  // concurrent facet runs don't race on the shared client field.
+  const composedSystemPrompt = [
+    `You are dispatched as the "${facet.displayName}" facet (id: ${facet.id}).`,
+    `Complete the task below using ONLY tools your facet allowlist grants.`,
+    `Run in your own Shadow Workspace — your writes won't touch main until the user reviews your diff.`,
+    `Be concise. Be precise. Do not ask clarifying questions; use your best judgment within the facet's scope.`,
+    '',
+    facet.systemPrompt,
+    '',
+    '--- orchestrator rules ---',
+    client.getSystemPrompt(),
+  ].join('\n');
 
   const initialMessages: ChatMessage[] = [
     {
@@ -207,6 +202,9 @@ export async function dispatchFacet(
         // session. Approval still fires for destructive tools that
         // opt in via `alwaysRequireApproval`.
         approvalMode: 'autonomous',
+        // Pass composed system prompt via override so concurrent facet
+        // runs don't race on the shared client.systemPrompt field.
+        systemPromptOverride: composedSystemPrompt,
       },
       // Force shadow on — every facet run is sandboxed regardless of
       // the user's global shadowWorkspaceMode preference. Defer the
@@ -238,7 +236,6 @@ export async function dispatchFacet(
       durationMs: Date.now() - startMs,
     };
   } finally {
-    client.updateSystemPrompt(priorSystemPrompt);
     client.setTurnOverride(priorModelOverride);
   }
 }

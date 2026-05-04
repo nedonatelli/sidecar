@@ -363,6 +363,13 @@ export class MCPManager {
       return;
     }
 
+    // Cancel any in-flight timer so two concurrent failure paths don't both
+    // schedule reconnects for the same conn and create a duplicate entry.
+    if (conn.reconnectTimer) {
+      clearTimeout(conn.reconnectTimer);
+      conn.reconnectTimer = undefined;
+    }
+
     const delay = RECONNECT_DELAYS[conn.reconnectAttempts];
     conn.reconnectAttempts++;
 
@@ -379,8 +386,13 @@ export class MCPManager {
           // Ignore
         }
 
-        // Remove from connections list — connectServer will re-add
+        // Remove from connections list — connectServer will re-add.
+        // Guard: if an external connect() ran while the timer was pending,
+        // it would have already cleared this.connections and added fresh
+        // entries. In that case a connection with our name already exists —
+        // skip the reconnect to avoid a duplicate.
         this.connections = this.connections.filter((c) => c !== conn);
+        if (this.connections.some((c) => c.name === conn.name)) return;
         await this.connectServer(conn.name, conn.config);
         this.rebuildToolCache();
       } catch (err) {

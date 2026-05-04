@@ -70,7 +70,7 @@ export class ShadowWorkspace {
    */
   async create(): Promise<void> {
     if (this.disposed) throw new Error('ShadowWorkspace: cannot create() after dispose()');
-    fs.mkdirSync(path.dirname(this.path), { recursive: true });
+    await fs.promises.mkdir(path.dirname(this.path), { recursive: true });
     this.baseSha = await this.mainGit.getHeadSha();
     await this.mainGit.worktreeAdd(this.path, this.baseSha);
   }
@@ -122,7 +122,7 @@ export class ShadowWorkspace {
       // through to the directory cleanup — best-effort.
     }
     try {
-      fs.rmSync(this.path, { recursive: true, force: true });
+      await fs.promises.rm(this.path, { recursive: true, force: true });
     } catch {
       // Directory might already be gone or have readonly children from
       // symlinked deps. Not fatal for teardown.

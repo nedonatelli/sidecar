@@ -1,55 +1,11 @@
 import { describe, it, expect } from 'vitest';
-
-// Test validateFilePath logic directly (mirrors tools.ts implementation)
-function validateFilePath(filePath: string): string | null {
-  if (!filePath || filePath.trim().length === 0) return 'Error: file path is empty.';
-  if (/[`\x00-\x1f]/.test(filePath)) return `Error: invalid characters in file path: ${filePath.slice(0, 80)}`;
-  if (filePath.length > 80) return `Error: file path too long (${filePath.length} chars): ${filePath.slice(0, 80)}...`;
-  const segments = filePath.split(/[\\/]/);
-  for (const seg of segments) {
-    if (seg.length > 60) return `Error: path segment too long: ${seg.slice(0, 60)}...`;
-  }
-  if (filePath.includes('..')) return `Error: path traversal ("..") is not allowed: ${filePath}`;
-  if (filePath.startsWith('/') || /^[A-Z]:\\/.test(filePath)) return 'Error: absolute paths are not allowed.';
-  return null;
-}
-
-// Test isSensitiveFile logic
-const SENSITIVE_PATTERNS = [
-  /^\.env($|\.)/i,
-  /\.pem$/i,
-  /\.key$/i,
-  /\.p12$/i,
-  /\.pfx$/i,
-  /^id_rsa/i,
-  /^id_ed25519/i,
-  /credentials\.json$/i,
-  /secrets?\.(json|ya?ml|toml)$/i,
-  /\.secret$/i,
-  /token\.json$/i,
-  /service.account\.json$/i,
-];
-
-function isSensitiveFile(filePath: string): boolean {
-  const basename = filePath.split(/[\\/]/).pop() || '';
-  return SENSITIVE_PATTERNS.some((p) => p.test(basename));
-}
-
-// Test isProtectedWritePath logic (mirrors tools.ts implementation)
-const PROTECTED_WRITE_PREFIXES = ['.sidecar/logs/', '.sidecar/memory/', '.sidecar/sessions/', '.sidecar/cache/'];
-
-function isProtectedWritePath(filePath: string): string | null {
-  const normalized = filePath.replace(/\\/g, '/');
-  if (normalized === '.sidecar/settings.json') {
-    return `Refusing to write SideCar's own settings file (${filePath})`;
-  }
-  for (const prefix of PROTECTED_WRITE_PREFIXES) {
-    if (normalized.startsWith(prefix) || normalized.startsWith('./' + prefix)) {
-      return `Refusing to write under ${prefix}`;
-    }
-  }
-  return null;
-}
+import {
+  validateFilePath,
+  isSensitiveFile,
+  isProtectedWritePath,
+  shellQuote,
+  hasShellMetachar,
+} from './tools/shared.js';
 
 describe('validateFilePath', () => {
   it('accepts valid relative paths', () => {
@@ -129,10 +85,6 @@ describe('isSensitiveFile', () => {
 });
 
 describe('isProtectedWritePath', () => {
-  // Regression: a prompt-injected agent used to be able to clear
-  // .sidecar/logs/audit.jsonl (repudiation) or poison
-  // .sidecar/memory/agent-memories.json (persistence across sessions).
-  // SENSITIVE_PATTERNS only looked at basenames so these slipped through.
   it('blocks writes under .sidecar/logs (repudiation)', () => {
     expect(isProtectedWritePath('.sidecar/logs/audit.jsonl')).not.toBeNull();
     expect(isProtectedWritePath('.sidecar/logs/nested/file.log')).not.toBeNull();
@@ -164,21 +116,6 @@ describe('isProtectedWritePath', () => {
     expect(isProtectedWritePath('./.sidecar/logs/audit.jsonl')).not.toBeNull();
   });
 });
-
-// ---------------------------------------------------------------------------
-// Shell quoting for run_tests `file` parameter
-// ---------------------------------------------------------------------------
-// Mirrors the implementation in tools.ts; tested here to lock in the
-// regression from the cycle-2 audit where `run_tests` interpolated a
-// model-supplied `file` string straight into a shell command.
-
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, "'\\''")}'`;
-}
-
-function hasShellMetachar(value: string): boolean {
-  return /[\n\r;&|`$<>()!*?[\]{}"'\\]/.test(value);
-}
 
 describe('shellQuote', () => {
   it('wraps simple values in single quotes', () => {

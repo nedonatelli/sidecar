@@ -232,7 +232,7 @@ const URL_FETCH_TIMEOUT = 10000;
  * Check if a URL hostname resolves to a private/reserved IP range.
  * Blocks SSRF against cloud metadata, internal services, and localhost.
  */
-function isPrivateUrl(urlStr: string): boolean {
+export function isPrivateUrl(urlStr: string): boolean {
   try {
     const parsed = new URL(urlStr);
     const host = parsed.hostname;

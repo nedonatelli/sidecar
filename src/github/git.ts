@@ -95,7 +95,7 @@ export class GitCLI {
 
   async stage(files?: string[]): Promise<string> {
     if (files && files.length > 0) {
-      await this.exec(['add', ...files]);
+      await this.exec(['add', '--', ...files]);
     } else {
       await this.exec(['add', '-A']);
     }

@@ -7,6 +7,12 @@ import { ShellSession } from '../../terminal/shellSession.js';
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.svg']);
 
+function isWithinRoot(fileUri: Uri, rootUri: Uri): boolean {
+  const root = rootUri.fsPath;
+  const file = fileUri.fsPath;
+  return file === root || file.startsWith(root + path.sep);
+}
+
 export async function handleAttachFile(state: ChatState): Promise<void> {
   const editor = window.activeTextEditor;
 
@@ -210,6 +216,10 @@ export async function handleCreateFile(state: ChatState, code: string, filePath:
 
   const rootUri = workspaceFolders[0].uri;
   const fileUri = Uri.joinPath(rootUri, filePath);
+  if (!isWithinRoot(fileUri, rootUri)) {
+    state.postMessage({ command: 'error', content: 'Invalid file path.' });
+    return;
+  }
 
   let exists = false;
   try {
@@ -283,6 +293,10 @@ export async function handleMoveFile(state: ChatState, sourcePath: string, destP
   const rootUri = workspaceFolders[0].uri;
   const sourceUri = path.isAbsolute(sourcePath) ? Uri.file(sourcePath) : Uri.joinPath(rootUri, sourcePath);
   const destUri = path.isAbsolute(destPath) ? Uri.file(destPath) : Uri.joinPath(rootUri, destPath);
+  if (!isWithinRoot(sourceUri, rootUri) || !isWithinRoot(destUri, rootUri)) {
+    state.postMessage({ command: 'error', content: 'Invalid file path.' });
+    return;
+  }
 
   try {
     await workspace.fs.stat(sourceUri);

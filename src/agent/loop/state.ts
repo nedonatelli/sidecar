@@ -113,6 +113,12 @@ export interface LoopState {
   // rather than N independent changes. Cleared to null when the turn
   // is a normal non-planned batch.
   currentEditPlan: EditPlan | null;
+
+  // When set, streamOneTurn passes this to client.streamChat() instead of
+  // the shared client.systemPrompt. Used by concurrent sub-runs (Facets,
+  // sub-agents) to avoid the updateSystemPrompt/restore race on the
+  // shared client object.
+  readonly systemPromptOverride?: string;
 }
 
 /**
@@ -147,6 +153,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     messages: copiedMessages,
     iteration: 0,
     totalChars,
+    systemPromptOverride: options.systemPromptOverride,
 
     recentToolCalls: [],
     autoFixRetriesByFile: new Map<string, number>(),

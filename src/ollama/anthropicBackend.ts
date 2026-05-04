@@ -174,9 +174,10 @@ export class AnthropicBackend implements ApiBackend {
     // console.info so the SideCar output channel captures it.
     const _pruneLog = formatPruneStats(pruned.stats);
     if (_pruneLog) console.info(`[SideCar] ${_pruneLog}`);
+    const maxOutputTokens = cfg.agentMaxTokens;
     const body: Record<string, unknown> = {
       model,
-      max_tokens: 8192,
+      max_tokens: maxOutputTokens,
       messages: prepareMessagesForCache(pruned.messages),
       stream: true,
       ...(tools && tools.length > 0 && supportsTemperature(model) ? { temperature: cfg.agentTemperature } : {}),
@@ -210,7 +211,7 @@ export class AnthropicBackend implements ApiBackend {
       },
       {
         rateLimits: this.rateLimits,
-        estimatedTokens: estimateRequestTokens(systemPrompt, messages, 8192),
+        estimatedTokens: estimateRequestTokens(systemPrompt, messages, maxOutputTokens),
         maxRateLimitWaitMs: MAX_RATE_LIMIT_WAIT_MS,
         parseRateLimitHeaders: parseAnthropicRateLimitHeaders,
         label: 'anthropic',

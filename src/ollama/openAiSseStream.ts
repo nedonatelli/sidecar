@@ -144,7 +144,9 @@ export async function* streamOpenAiSse(
         try {
           parsedArgs = JSON.parse(tc.arguments || '{}');
         } catch {
-          /* malformed args — leave parsedArgs empty so the tool still dispatches */
+          console.warn(
+            `[SideCar] Malformed tool-call arguments for "${tc.name}" — dispatching with empty input: ${tc.arguments?.slice(0, 200)}`,
+          );
         }
         const toolUse: ToolUseContentBlock = {
           type: 'tool_use',

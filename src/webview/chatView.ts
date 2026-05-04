@@ -339,8 +339,13 @@ export class ChatViewProvider implements WebviewViewProvider {
       await this.setModel(msg.model || 'llama3');
     },
     changeAgentMode: async (msg) => {
-      await workspace.getConfiguration('sidecar').update('agentMode', msg.agentMode, true);
+      if (!msg.agentMode) return;
+      const BUILT_IN_MODES = new Set(['cautious', 'autonomous', 'manual', 'plan', 'review', 'audit']);
       const modeConfig = getConfig();
+      const validMode =
+        BUILT_IN_MODES.has(msg.agentMode) || modeConfig.customModes.some((m) => m.name === msg.agentMode);
+      if (!validMode) return;
+      await workspace.getConfiguration('sidecar').update('agentMode', msg.agentMode, true);
       this.postMessage({
         command: 'setAgentMode',
         agentMode: msg.agentMode,
@@ -380,7 +385,10 @@ export class ChatViewProvider implements WebviewViewProvider {
     spec: (msg) => handleSpec(this.state, msg.text || ''),
     generateDoc: () => handleGenerateDoc(this.state),
     openExternal: (msg) => {
-      if (msg.url) env.openExternal(Uri.parse(msg.url));
+      if (!msg.url) return;
+      const parsed = Uri.parse(msg.url);
+      if (parsed.scheme !== 'https' && parsed.scheme !== 'http') return;
+      env.openExternal(parsed);
     },
     openSettings: async () => {
       await commands.executeCommand('workbench.action.openSettings', 'sidecar');

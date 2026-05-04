@@ -8,6 +8,8 @@ function createMockState() {
     postMessage: vi.fn(),
     saveHistory: vi.fn(),
     autoSave: vi.fn(),
+    abort: vi.fn(),
+    abortController: null as AbortController | null,
     currentSessionId: null as string | null,
     sessionManager: {
       save: vi.fn(),

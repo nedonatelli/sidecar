@@ -551,7 +551,10 @@ export async function handleReconnect(state: ChatState): Promise<void> {
               .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
               .map((b) => b.text)
               .join('\n');
-      state.messages.pop();
+      // Splice from the user message index onward (removing it plus any
+      // trailing assistant messages) so handleUserMessage starts clean.
+      const lastUserIdx = state.messages.lastIndexOf(lastUserMsg);
+      if (lastUserIdx >= 0) state.messages.splice(lastUserIdx);
       await handleUserMessage(state, text);
     }
   } else {

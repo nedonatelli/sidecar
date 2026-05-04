@@ -89,7 +89,7 @@ export async function streamOneTurn(
   // gates tools out of the first request.
   const iterTools = state.approvalMode === 'plan' && state.iteration === 1 ? [] : state.tools;
 
-  const stream = client.streamChat(state.messages, signal, iterTools);
+  const stream = client.streamChat(state.messages, signal, iterTools, state.systemPromptOverride);
   const iter = stream[Symbol.asyncIterator]();
   let receivedFirstToken = false;
   try {

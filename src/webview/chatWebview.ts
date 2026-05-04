@@ -350,7 +350,7 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
     content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}' ${webview.cspSource} 'unsafe-eval'; img-src ${webview.cspSource} data: blob:; connect-src http://localhost:11434 http://localhost:11435 http://127.0.0.1:11434 http://127.0.0.1:11435;">
   <link rel="stylesheet" href="${stylesUri}">
 </head>
-<body>
+<body data-nonce="${nonce}">
   <div id="header-wrapper">
     <div id="header">
       <div id="current-model">
@@ -466,7 +466,7 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
     <button id="send">Send</button>
   </div>
 
-  <script nonce="${nonce}">window.__mermaidSrc = ${mermaidUri ? `"${mermaidUri}"` : 'null'}; window.__mermaidEnabled = ${mermaidEnabled}; window.__nonce = "${nonce}"; window.__backendProfiles = ${backendProfilesJson}; window.__activeBackendProfileId = ${activeProfileId ? `"${activeProfileId}"` : 'null'};</script>
+  <script nonce="${nonce}">window.__mermaidSrc = ${mermaidUri ? `"${mermaidUri}"` : 'null'}; window.__mermaidEnabled = ${mermaidEnabled}; window.__backendProfiles = ${backendProfilesJson}; window.__activeBackendProfileId = ${activeProfileId ? `"${activeProfileId}"` : 'null'};</script>
   <!-- Load helper modules before chat.js so window.SideCar.* is populated. -->
   <script nonce="${nonce}" src="${githubCardsUri}"></script>
   <script nonce="${nonce}" src="${scriptUri}"></script>

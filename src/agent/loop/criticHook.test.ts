@@ -8,8 +8,7 @@ import {
   getCriticStats,
   resetCriticStats,
 } from './criticHook.js';
-
-vi.mock('vscode');
+import { parseCriticResponse, splitBySeverity } from '../critic.js';
 vi.mock('../../config/settings.js', () => ({
   getConfig: vi.fn().mockReturnValue({ criticEnabled: false }),
 }));
@@ -22,10 +21,6 @@ vi.mock('../critic.js', () => ({
   formatFindingsForChat: vi.fn().mockReturnValue(''),
   buildCriticInjection: vi.fn().mockReturnValue('CRITIC: found issues'),
 }));
-vi.mock('./criticHook.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('./criticHook.js')>();
-  return actual;
-});
 
 // ---------------------------------------------------------------------------
 // normalizeTestOutput
@@ -270,6 +265,36 @@ describe('runCriticChecks', () => {
     });
     // parseCriticResponse mock returns findings: [] → return null
     expect(result).toBeNull();
+  });
+
+  it('returns non-null injection when critic finds high-severity issues', async () => {
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValueOnce(Buffer.from('const z = 3;') as never);
+    const mockClient = {
+      routeForDispatch: vi.fn().mockReturnValue(null),
+      completeWithOverrides: vi.fn().mockResolvedValue('HIGH: SQL injection on line 5'),
+    };
+    const highFinding = { severity: 'high' as const, title: 'SQL injection', evidence: 'Unsafe query on line 5' };
+    vi.mocked(parseCriticResponse).mockReturnValueOnce({
+      malformed: false,
+      explicitlyClean: false,
+      findings: [highFinding],
+    });
+    vi.mocked(splitBySeverity).mockReturnValueOnce({ high: [highFinding], low: [] });
+
+    const result = await runCriticChecks({
+      client: mockClient as never,
+      config: { criticModel: undefined, criticBlockOnHighSeverity: true } as never,
+      pendingToolUses: [{ type: 'tool_use', id: 't', name: 'write_file', input: { path: 'src/bad.ts' } }],
+      toolResults: [{ type: 'tool_result', tool_use_id: 't', content: 'written' }],
+      changelog: undefined,
+      fullText: 'adding vulnerable code',
+      callbacks: makeCallbacks(),
+      logger: undefined,
+      signal: new AbortController().signal,
+      criticInjectionsByFile: new Map(),
+      maxPerFile: 3,
+    });
+    expect(result).not.toBeNull();
   });
 
   it('skips edit triggers that have reached the per-file cap', async () => {

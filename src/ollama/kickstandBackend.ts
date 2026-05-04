@@ -18,18 +18,14 @@ let _tokenCacheTime = 0;
  * Read the auto-generated Kickstand bearer token from the well-known
  * file path (`~/.config/kickstand/token`). Kickstand creates this file
  * on first run — SideCar reads it silently so the user never has to
- * copy-paste a key. Result is cached for 60 s to avoid a sync fs read
- * on every request. Returns an empty string if the file doesn't exist.
+ * copy-paste a key. Result is cached for 60 s. Returns an empty string
+ * if the file doesn't exist.
  */
-function readKickstandToken(): string {
+async function readKickstandToken(): Promise<string> {
   const now = Date.now();
   if (now - _tokenCacheTime < TOKEN_CACHE_TTL_MS) return _cachedToken;
   try {
-    if (fs.existsSync(KICKSTAND_TOKEN_PATH)) {
-      _cachedToken = fs.readFileSync(KICKSTAND_TOKEN_PATH, 'utf-8').trim();
-    } else {
-      _cachedToken = '';
-    }
+    _cachedToken = (await fs.promises.readFile(KICKSTAND_TOKEN_PATH, 'utf-8')).trim();
   } catch {
     _cachedToken = '';
   }
@@ -53,8 +49,14 @@ function estimateRequestTokens(systemPrompt: string, messages: ChatMessage[], ma
 // ---------------------------------------------------------------------------
 
 interface KickstandMessage {
-  role: 'system' | 'user' | 'assistant';
-  content: string;
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  content: string | null;
+  tool_calls?: Array<{
+    id: string;
+    type: 'function';
+    function: { name: string; arguments: string };
+  }>;
+  tool_call_id?: string;
 }
 
 interface KickstandChatRequest {
@@ -123,21 +125,52 @@ function toKickstandMessages(messages: ChatMessage[], systemPrompt: string): Kic
   }
 
   for (const msg of messages) {
-    const content = typeof msg.content === 'string' ? msg.content : extractTextContent(msg.content);
-    result.push({
-      role: msg.role,
-      content,
-    });
+    if (typeof msg.content === 'string') {
+      result.push({ role: msg.role, content: msg.content });
+      continue;
+    }
+
+    const blocks = msg.content as ContentBlock[];
+
+    if (msg.role === 'user') {
+      const toolResults = blocks.filter((b) => b.type === 'tool_result');
+      const textBlocks = blocks.filter((b) => b.type === 'text');
+
+      for (const tr of toolResults) {
+        if (tr.type === 'tool_result') {
+          result.push({ role: 'tool', content: tr.content, tool_call_id: tr.tool_use_id });
+        }
+      }
+      if (textBlocks.length > 0) {
+        const text = textBlocks.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
+        result.push({ role: 'user', content: text });
+      }
+    } else {
+      const textParts: string[] = [];
+      const toolCalls: NonNullable<KickstandMessage['tool_calls']> = [];
+
+      for (const block of blocks) {
+        if (block.type === 'text') {
+          textParts.push(block.text);
+        } else if (block.type === 'tool_use') {
+          toolCalls.push({
+            id: block.id,
+            type: 'function',
+            function: { name: block.name, arguments: JSON.stringify(block.input) },
+          });
+        }
+      }
+
+      const assistantMsg: KickstandMessage = {
+        role: 'assistant',
+        content: textParts.join('\n') || null,
+      };
+      if (toolCalls.length > 0) assistantMsg.tool_calls = toolCalls;
+      result.push(assistantMsg);
+    }
   }
 
   return result;
-}
-
-function extractTextContent(blocks: ContentBlock[]): string {
-  return blocks
-    .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
-    .map((b) => b.text)
-    .join('\n');
 }
 
 // ---------------------------------------------------------------------------
@@ -188,9 +221,9 @@ export class KickstandBackend implements ApiBackend {
     await kickstandLoadModel(this.baseUrl, model, { n_ctx: this.nCtx });
   }
 
-  private getHeaders(): Record<string, string> {
+  private async getHeaders(): Promise<Record<string, string>> {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    const token = readKickstandToken();
+    const token = await readKickstandToken();
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
     }
@@ -232,7 +265,7 @@ export class KickstandBackend implements ApiBackend {
 
     const fetchOpts = {
       method: 'POST',
-      headers: this.getHeaders(),
+      headers: await this.getHeaders(),
       body: JSON.stringify(body),
       signal,
     };
@@ -250,10 +283,10 @@ export class KickstandBackend implements ApiBackend {
       const errorText = await response.text().catch(() => '');
       if (this.isContextOverflowError(response.status, errorText)) {
         await this.reloadWithLargerCtx(model);
-        response = await sidecarFetch(this.chatUrl, { ...fetchOpts, headers: this.getHeaders() }, rateLimitOpts);
+        response = await sidecarFetch(this.chatUrl, { ...fetchOpts, headers: await this.getHeaders() }, rateLimitOpts);
       } else if (this.isModelNotLoadedError(response.status, errorText)) {
         await this.loadModel(model);
-        response = await sidecarFetch(this.chatUrl, { ...fetchOpts, headers: this.getHeaders() }, rateLimitOpts);
+        response = await sidecarFetch(this.chatUrl, { ...fetchOpts, headers: await this.getHeaders() }, rateLimitOpts);
       }
       if (!response.ok) {
         const retryText = await response.text().catch(() => errorText);
@@ -297,7 +330,7 @@ export class KickstandBackend implements ApiBackend {
 
     const fetchOpts = {
       method: 'POST',
-      headers: this.getHeaders(),
+      headers: await this.getHeaders(),
       body: JSON.stringify(body),
       signal,
     };
@@ -315,10 +348,10 @@ export class KickstandBackend implements ApiBackend {
       const errorText = await response.text().catch(() => '');
       if (this.isContextOverflowError(response.status, errorText)) {
         await this.reloadWithLargerCtx(model);
-        response = await sidecarFetch(this.chatUrl, { ...fetchOpts, headers: this.getHeaders() }, rateLimitOpts);
+        response = await sidecarFetch(this.chatUrl, { ...fetchOpts, headers: await this.getHeaders() }, rateLimitOpts);
       } else if (this.isModelNotLoadedError(response.status, errorText)) {
         await this.loadModel(model);
-        response = await sidecarFetch(this.chatUrl, { ...fetchOpts, headers: this.getHeaders() }, rateLimitOpts);
+        response = await sidecarFetch(this.chatUrl, { ...fetchOpts, headers: await this.getHeaders() }, rateLimitOpts);
       }
       if (!response.ok) {
         const retryText = await response.text().catch(() => errorText);
@@ -404,9 +437,9 @@ export class KickstandBackend implements ApiBackend {
 // Kickstand model management (pull, load, unload, registry list)
 // ---------------------------------------------------------------------------
 
-export function kickstandHeaders(): Record<string, string> {
+export async function kickstandHeaders(): Promise<Record<string, string>> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const token = readKickstandToken();
+  const token = await readKickstandToken();
   if (token) headers['Authorization'] = `Bearer ${token}`;
   return headers;
 }
@@ -451,7 +484,7 @@ export async function* kickstandPullModel(
 
   const response = await fetch(url, {
     method: 'POST',
-    headers: kickstandHeaders(),
+    headers: await kickstandHeaders(),
     body: JSON.stringify(body),
     signal,
   });
@@ -525,7 +558,7 @@ function isVramError(err: unknown): boolean {
 /** List all models in Kickstand's registry (downloaded + loaded state). */
 export async function kickstandListRegistry(baseUrl: string): Promise<KickstandRegistryModel[]> {
   const url = `${baseUrl.replace(/\/+$/, '')}/api/v1/models`;
-  const response = await fetch(url, { headers: kickstandHeaders(), signal: AbortSignal.timeout(5000) });
+  const response = await fetch(url, { headers: await kickstandHeaders(), signal: AbortSignal.timeout(5000) });
   if (!response.ok) return [];
   return (await response.json()) as KickstandRegistryModel[];
 }
@@ -539,7 +572,7 @@ export async function kickstandLoadModel(
   const url = `${baseUrl.replace(/\/+$/, '')}/api/v1/models/${encodeURIComponent(modelId)}/load`;
   const response = await fetch(url, {
     method: 'POST',
-    headers: kickstandHeaders(),
+    headers: await kickstandHeaders(),
     body: JSON.stringify({ n_gpu_layers: opts.n_gpu_layers ?? -1, n_ctx: opts.n_ctx ?? 32768 }),
   });
   if (!response.ok) {
@@ -557,7 +590,7 @@ export async function kickstandUnloadModel(
   const url = `${baseUrl.replace(/\/+$/, '')}/api/v1/models/${encodeURIComponent(modelId)}/unload`;
   const response = await fetch(url, {
     method: 'POST',
-    headers: kickstandHeaders(),
+    headers: await kickstandHeaders(),
     body: '{}',
   });
   if (!response.ok) {
@@ -577,7 +610,7 @@ export async function kickstandListAdapters(
   modelId: string,
 ): Promise<{ id: string; path: string; scale: number }[]> {
   const url = `${baseUrl.replace(/\/+$/, '')}/api/v1/models/${encodeURIComponent(modelId)}/lora`;
-  const response = await fetch(url, { headers: kickstandHeaders(), signal: AbortSignal.timeout(5000) });
+  const response = await fetch(url, { headers: await kickstandHeaders(), signal: AbortSignal.timeout(5000) });
   if (!response.ok) return [];
   const data = await response.json();
   return Array.isArray(data) ? data : (data.adapters ?? []);
@@ -593,7 +626,7 @@ export async function kickstandLoadAdapter(
   const url = `${baseUrl.replace(/\/+$/, '')}/api/v1/models/${encodeURIComponent(modelId)}/lora`;
   const response = await fetch(url, {
     method: 'POST',
-    headers: kickstandHeaders(),
+    headers: await kickstandHeaders(),
     body: JSON.stringify({ path: adapterPath, scale }),
   });
   if (!response.ok) {
@@ -612,7 +645,7 @@ export async function kickstandUnloadAdapter(
   const url = `${baseUrl.replace(/\/+$/, '')}/api/v1/models/${encodeURIComponent(modelId)}/lora/${encodeURIComponent(adapterId)}`;
   const response = await fetch(url, {
     method: 'DELETE',
-    headers: kickstandHeaders(),
+    headers: await kickstandHeaders(),
   });
   if (!response.ok) {
     const text = await response.text().catch(() => '');
@@ -631,7 +664,7 @@ export async function kickstandBrowseRepo(
   repo: string,
 ): Promise<{ filename: string; sizeBytes: number; quant?: string; format: string }[]> {
   const url = `${baseUrl.replace(/\/+$/, '')}/api/v1/models/browse/${repo}`;
-  const response = await fetch(url, { headers: kickstandHeaders(), signal: AbortSignal.timeout(15000) });
+  const response = await fetch(url, { headers: await kickstandHeaders(), signal: AbortSignal.timeout(15000) });
   if (!response.ok) {
     const text = await response.text().catch(() => '');
     throw new Error(`Browse failed (${response.status}): ${text}`);

@@ -211,6 +211,15 @@ export interface AgentOptions {
    * entry (the default `getConfig()` call in `initLoopState`).
    */
   config?: import('../config/settings.js').SideCarConfig;
+  /**
+   * Per-run system prompt override. When set, `streamChat` uses this
+   * string INSTEAD of the shared `client.systemPrompt` for every turn
+   * in this run. This avoids mutating the client's shared system-prompt
+   * field in concurrent dispatch scenarios (Facets, sub-agents) where
+   * two runs racing on `client.updateSystemPrompt()` / restore corrupt
+   * each other's prompts.
+   */
+  systemPromptOverride?: string;
 }
 
 // DEFAULT_MAX_ITERATIONS moved to loop/state.ts along with initLoopState.

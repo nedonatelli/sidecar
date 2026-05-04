@@ -11,6 +11,8 @@ export function handleLoadSession(state: ChatState, id: string): void {
   const session = state.sessionManager.load(id);
   if (!session) return;
   state.autoSave(); // Save current conversation before switching
+  state.abort();
+  state.abortController = null;
   state.messages = session.messages;
   state.currentSessionId = session.id;
   state.saveHistory();
