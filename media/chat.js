@@ -6,6 +6,15 @@
 // runs — see chatWebview.getChatWebviewHtml for the script load order.
 
 (function () {
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   const vscode = acquireVsCodeApi();
   const messagesContainer = document.getElementById('messages');
   const input = document.getElementById('input');
@@ -925,7 +934,7 @@
     filtered.forEach((c, i) => {
       const item = document.createElement('div');
       item.className = 'ac-item' + (i === 0 ? ' ac-selected' : '');
-      item.innerHTML = `<span class="ac-cmd">${c.cmd}</span> <span class="ac-desc">${c.desc}</span>`;
+      item.innerHTML = `<span class="ac-cmd">${escapeHtml(c.cmd)}</span> <span class="ac-desc">${escapeHtml(c.desc)}</span>`;
       item.addEventListener('mousedown', (e) => {
         e.preventDefault();
         selectAutocomplete(c.cmd);
