@@ -29,7 +29,9 @@ vi.mock('../../agent/retrieval/index.js', () => ({
   PdfRetriever: class {},
   adaptiveGraphDepth: vi.fn().mockReturnValue(0),
   fuseRetrievers: vi.fn().mockResolvedValue([]),
+  fuseRetrieversMultiQuery: vi.fn().mockResolvedValue([]),
   renderFusedContext: vi.fn().mockReturnValue(''),
+  rewriteQuery: vi.fn().mockResolvedValue(['rewritten query']),
 }));
 
 vi.mock('../../agent/context.js', () => ({

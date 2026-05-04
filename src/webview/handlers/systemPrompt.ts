@@ -19,9 +19,11 @@ import {
   PdfRetriever,
   ChunkRetriever,
   adaptiveGraphDepth,
-  fuseRetrievers,
+  fuseRetrieversMultiQuery,
   renderFusedContext,
+  rewriteQuery,
 } from '../../agent/retrieval/index.js';
+import type { CompleteFn } from '../../agent/retrieval/index.js';
 import { enhanceContextWithSmartElements } from '../../agent/context.js';
 import { parseSidecarMd, selectSidecarMdSections } from '../../agent/sidecarMdParser.js';
 
@@ -228,7 +230,14 @@ export async function injectSystemContext(
     }
     if (retrievers.length > 0) {
       const topK = Math.max(config.ragMaxDocEntries, 5);
-      const fused = await fuseRetrievers(retrievers, text, topK, topK);
+      // Rewrite the user query before retrieval to improve recall. 'rule' is
+      // free (synchronous); 'llm' and 'expand' use a non-streaming complete()
+      // call with a 3-second timeout that falls back to the rule-cleaned query.
+      const completeFn: CompleteFn | undefined = state.client
+        ? (sys, msgs, model, max, sig) => state.client.completeWithOverrides(sys, msgs, model, max, sig)
+        : undefined;
+      const retrievalQueries = await rewriteQuery(text, config.retrievalQueryRewrite, completeFn);
+      const fused = await fuseRetrieversMultiQuery(retrievers, retrievalQueries, topK, topK);
       const fusedContext = renderFusedContext(fused);
       if (fusedContext && prompt.length + fusedContext.length < maxSystemChars) {
         prompt = ensureBoundary(prompt);

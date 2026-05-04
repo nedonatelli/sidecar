@@ -1,5 +1,7 @@
 import { Retriever, RetrievalHit } from './retriever';
 import { reciprocalRankFusion } from './fusion';
+export { rewriteQuery } from './queryRewriter';
+export type { QueryRewriteMode, CompleteFn } from './queryRewriter';
 
 export { Retriever, RetrievalHit } from './retriever';
 export { reciprocalRankFusion } from './fusion';
@@ -10,6 +12,23 @@ export { PdfRetriever } from './pdfRetriever';
 export { ChunkRetriever } from './chunkRetriever';
 export { adaptiveGraphDepth, enrichWithGraphWalk } from './graphExpansion';
 export type { EnrichedHit, GraphWalkOptions } from './graphExpansion';
+
+/**
+ * Run retrieval for each query variant, then fuse all result lists with RRF.
+ * For single-query callers this degenerates to a plain `fuseRetrievers` call.
+ * For multi-query (expand mode) each variant can surface different hits and
+ * RRF reconciles them into a single ranked list without double-counting.
+ */
+export async function fuseRetrieversMultiQuery(
+  retrievers: Retriever[],
+  queries: string[],
+  topK: number,
+  perSourceK: number = topK,
+): Promise<RetrievalHit[]> {
+  if (queries.length === 1) return fuseRetrievers(retrievers, queries[0], topK, perSourceK);
+  const lists = await Promise.all(queries.map((q) => fuseRetrievers(retrievers, q, perSourceK, perSourceK)));
+  return reciprocalRankFusion(lists).slice(0, topK);
+}
 
 /**
  * Run a set of retrievers in parallel and fuse their rankings with RRF.

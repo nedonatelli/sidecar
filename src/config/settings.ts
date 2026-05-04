@@ -105,6 +105,7 @@ export interface SideCarConfig {
   multiFileEditsReviewGranularity: 'bulk' | 'per-file' | 'per-hunk';
   retrievalGraphExpansionEnabled: boolean;
   retrievalGraphExpansionMaxHits: number;
+  retrievalQueryRewrite: 'off' | 'rule' | 'llm' | 'expand';
   facetsEnabled: boolean;
   facetsMaxConcurrent: number;
   facetsRpcTimeoutMs: number;
@@ -369,6 +370,7 @@ function readConfig(): SideCarConfig {
       | 'per-hunk',
     retrievalGraphExpansionEnabled: cfg.get<boolean>('retrieval.graphExpansion.enabled', true),
     retrievalGraphExpansionMaxHits: clampMin(cfg.get<number>('retrieval.graphExpansion.maxHits', 8), 0, 50),
+    retrievalQueryRewrite: cfg.get<string>('retrieval.queryRewrite', 'rule') as 'off' | 'rule' | 'llm' | 'expand',
     facetsEnabled: cfg.get<boolean>('facets.enabled', true),
     facetsMaxConcurrent: clampMin(cfg.get<number>('facets.maxConcurrent', 3), 1, 16),
     facetsRpcTimeoutMs: clampMin(cfg.get<number>('facets.rpcTimeoutMs', 30_000), 1_000, 300_000),
