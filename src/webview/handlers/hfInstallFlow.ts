@@ -215,12 +215,12 @@ async function runSafetensorsImport(
   // switches but isn't committed to any project. Uses the extension's
   // own storage space per the "don't use .sidecar/ for generated state" rule.
   const stagingDir = path.join(state.context.globalStorageUri.fsPath, 'hf-imports', `${hfRef.org}__${hfRef.repo}`);
-  fs.mkdirSync(stagingDir, { recursive: true });
+  await fs.promises.mkdir(stagingDir, { recursive: true });
 
   // Disk-space preflight: converters typically write a temp buffer roughly
   // the same size as the weights, so require 2x.
   try {
-    const stat = fs.statfsSync(stagingDir);
+    const stat = await fs.promises.statfs(stagingDir);
     const freeBytes = Number(stat.bavail) * Number(stat.bsize);
     const requiredBytes = repo.totalBytes * 2;
     if (freeBytes < requiredBytes) {
@@ -231,7 +231,7 @@ async function runSafetensorsImport(
       return;
     }
   } catch {
-    // `statfs` is Node 18.15+ but may fail on unusual filesystems — skip the preflight silently.
+    // `statfs` may fail on unusual filesystems — skip the preflight silently.
   }
 
   state.postMessage({

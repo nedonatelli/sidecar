@@ -166,9 +166,9 @@ describe('ChatState', () => {
     expect(content[0].type).toBe('tool_result');
   });
 
-  it('logMessage writes to a tmp file', () => {
+  it('logMessage writes to a tmp file', async () => {
     const state = createState();
-    state.logMessage('user', 'test message');
+    await state.logMessage('user', 'test message');
 
     const logPath = state.getChatLogPath();
     expect(logPath).not.toBeNull();
@@ -186,10 +186,10 @@ describe('ChatState', () => {
     fs.unlinkSync(logPath!);
   });
 
-  it('logMessage appends multiple entries', () => {
+  it('logMessage appends multiple entries', async () => {
     const state = createState();
-    state.logMessage('user', 'first');
-    state.logMessage('assistant', 'second');
+    await state.logMessage('user', 'first');
+    await state.logMessage('assistant', 'second');
 
     const logPath = state.getChatLogPath()!;
     const fs = require('fs');
@@ -230,9 +230,9 @@ describe('ChatState', () => {
     if (secondPath && fs.existsSync(secondPath)) fs.unlinkSync(secondPath);
   });
 
-  it('clearChat resets the chat log', () => {
+  it('clearChat resets the chat log', async () => {
     const state = createState();
-    state.logMessage('user', 'will be cleared');
+    await state.logMessage('user', 'will be cleared');
     expect(state.getChatLogPath()).not.toBeNull();
 
     mockPostMessage.mockClear();

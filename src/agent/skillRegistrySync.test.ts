@@ -54,20 +54,23 @@ describe('collectRegistryRefs', () => {
     fs.rmSync(home, { recursive: true, force: true });
   });
 
-  it('returns an empty list when no registries are configured', () => {
-    expect(collectRegistryRefs(makeConfig(), home)).toEqual([]);
+  it('returns an empty list when no registries are configured', async () => {
+    expect(await collectRegistryRefs(makeConfig(), home)).toEqual([]);
   });
 
-  it('user registry goes into ~/.sidecar/user-skills', () => {
-    const refs = collectRegistryRefs(makeConfig({ skillsUserRegistry: 'https://github.com/me/skills.git' }), home);
+  it('user registry goes into ~/.sidecar/user-skills', async () => {
+    const refs = await collectRegistryRefs(
+      makeConfig({ skillsUserRegistry: 'https://github.com/me/skills.git' }),
+      home,
+    );
     expect(refs).toHaveLength(1);
     expect(refs[0].tier).toBe('user');
     expect(refs[0].managedDir).toBe(path.join(home, '.sidecar', 'user-skills'));
     expect(refs[0].isLocal).toBe(false);
   });
 
-  it('each team registry gets its own slugged subdirectory', () => {
-    const refs = collectRegistryRefs(
+  it('each team registry gets its own slugged subdirectory', async () => {
+    const refs = await collectRegistryRefs(
       makeConfig({
         skillsTeamRegistries: ['https://github.com/team-a/skills', 'https://github.com/team-b/skills'],
       }),
@@ -78,16 +81,16 @@ describe('collectRegistryRefs', () => {
     expect(refs[1].managedDir).toBe(path.join(home, '.sidecar', 'team-skills', 'github.com-team-b-skills'));
   });
 
-  it('treats an existing absolute directory as a local-folder ref (no clone target)', () => {
+  it('treats an existing absolute directory as a local-folder ref (no clone target)', async () => {
     const localDir = path.join(home, 'my-skills');
     fs.mkdirSync(localDir);
-    const refs = collectRegistryRefs(makeConfig({ skillsUserRegistry: localDir }), home);
+    const refs = await collectRegistryRefs(makeConfig({ skillsUserRegistry: localDir }), home);
     expect(refs[0].isLocal).toBe(true);
     expect(refs[0].managedDir).toBe(localDir);
   });
 
-  it('drops empty-string entries from the team array', () => {
-    const refs = collectRegistryRefs(
+  it('drops empty-string entries from the team array', async () => {
+    const refs = await collectRegistryRefs(
       makeConfig({ skillsTeamRegistries: ['', '   ', 'https://github.com/real/skills'] }),
       home,
     );

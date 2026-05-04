@@ -262,7 +262,7 @@ export async function postLoopProcessing(
             .filter((b) => b.type === 'text')
             .map((b) => b.text || '')
             .join('');
-    state.logMessage('assistant', msgText);
+    void state.logMessage('assistant', msgText);
     const trimmed = msgText.trim();
     if (/\?\s*$/.test(trimmed) || /\?\s*```\s*$/.test(trimmed)) {
       const sentences = trimmed.split(/(?<=[.!?])\s+/);
@@ -311,7 +311,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
   if (turnText) {
     const messageText = prepareUserMessageText(state, turnText);
     state.messages.push({ role: 'user', content: messageText });
-    state.logMessage('user', messageText);
+    void state.logMessage('user', messageText);
     state.saveHistory();
   }
 

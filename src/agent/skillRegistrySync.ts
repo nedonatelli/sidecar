@@ -84,7 +84,7 @@ export async function syncSkillRegistries(opts: SyncOptions): Promise<RegistryRe
   const git = opts.git ?? new GitCLI(path.join(home, '.sidecar'));
   const trustedUrls = new Set(opts.config.skillsTrustedRegistries);
 
-  const refs = collectRegistryRefs(opts.config, home);
+  const refs = await collectRegistryRefs(opts.config, home);
   const synced: RegistryRef[] = [];
 
   for (const ref of refs) {
@@ -94,7 +94,10 @@ export async function syncSkillRegistries(opts: SyncOptions): Promise<RegistryRe
       continue;
     }
 
-    const cached = fs.existsSync(ref.managedDir);
+    const cached = await fs.promises.access(ref.managedDir).then(
+      () => true,
+      () => false,
+    );
 
     // Offline mode: keep cached registries but never fetch.
     if (opts.config.skillsOffline) {
@@ -113,7 +116,7 @@ export async function syncSkillRegistries(opts: SyncOptions): Promise<RegistryRe
 
     try {
       if (!cached) {
-        fs.mkdirSync(path.dirname(ref.managedDir), { recursive: true });
+        await fs.promises.mkdir(path.dirname(ref.managedDir), { recursive: true });
         await git.clone(ref.url, ref.managedDir);
         log(`[SideCar] Cloned ${ref.label} into ${ref.managedDir}.`);
       } else if (opts.config.skillsAutoPull === 'on-start') {
@@ -140,13 +143,13 @@ export async function syncSkillRegistries(opts: SyncOptions): Promise<RegistryRe
  * for callers (like the status-bar tooltip) that want to show what
  * registries are configured without actually syncing them.
  */
-export function collectRegistryRefs(config: SkillSyncConfigSlice, homeDir: string): RegistryRef[] {
+export async function collectRegistryRefs(config: SkillSyncConfigSlice, homeDir: string): Promise<RegistryRef[]> {
   const refs: RegistryRef[] = [];
   const sidecarDir = path.join(homeDir, '.sidecar');
 
   if (config.skillsUserRegistry.trim().length > 0) {
     const url = config.skillsUserRegistry.trim();
-    const isLocal = looksLikeLocalPath(url);
+    const isLocal = await looksLikeLocalPath(url);
     refs.push({
       url,
       managedDir: isLocal ? url : path.join(sidecarDir, 'user-skills'),
@@ -159,7 +162,7 @@ export function collectRegistryRefs(config: SkillSyncConfigSlice, homeDir: strin
   for (const rawUrl of config.skillsTeamRegistries) {
     const url = (rawUrl ?? '').trim();
     if (!url) continue;
-    const isLocal = looksLikeLocalPath(url);
+    const isLocal = await looksLikeLocalPath(url);
     const slug = slugifyRegistryUrl(url);
     refs.push({
       url,
@@ -182,11 +185,11 @@ export function collectRegistryRefs(config: SkillSyncConfigSlice, homeDir: strin
  * meant a local path that doesn't exist, they'll see a git-clone
  * failure with the URL they typed, which is the right diagnostic.
  */
-function looksLikeLocalPath(url: string): boolean {
+async function looksLikeLocalPath(url: string): Promise<boolean> {
   if (!path.isAbsolute(url) && !url.startsWith('~')) return false;
   const expanded = url.startsWith('~') ? path.join(os.homedir(), url.slice(1)) : url;
   try {
-    return fs.statSync(expanded).isDirectory();
+    return (await fs.promises.stat(expanded)).isDirectory();
   } catch {
     return false;
   }

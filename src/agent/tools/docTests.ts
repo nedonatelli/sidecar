@@ -97,8 +97,8 @@ export function parseConstraintsFromLlm(raw: string): Constraint[] {
 }
 
 /** Read up to `limit` chars from a plain-text file. Returns [content, truncated]. */
-function readTextDoc(filePath: string, limit: number): [string, boolean] {
-  const content = fs.readFileSync(filePath, 'utf-8');
+async function readTextDoc(filePath: string, limit: number): Promise<[string, boolean]> {
+  const content = await fs.promises.readFile(filePath, 'utf-8');
   if (content.length <= limit) return [content, false];
   return [content.slice(0, limit), true];
 }
@@ -112,7 +112,7 @@ async function readPdfDoc(filePath: string, limit: number): Promise<[string, boo
   } catch {
     throw new Error('pdf-parse is not available. Install it with `npm install pdf-parse`.');
   }
-  const data = await pdfParse(fs.readFileSync(filePath));
+  const data = await pdfParse(await fs.promises.readFile(filePath));
   const text = data.text;
   if (text.length <= limit) return [text, false];
   return [text.slice(0, limit), true];
@@ -134,10 +134,6 @@ async function extractConstraints(input: Record<string, unknown>, context?: Tool
   const config = context?.config ?? getConfig();
   const resolvedPath = path.isAbsolute(docPath) ? docPath : path.join(getRoot(), docPath);
 
-  if (!fs.existsSync(resolvedPath)) {
-    return `Error: file not found: ${resolvedPath}`;
-  }
-
   const ext = path.extname(resolvedPath).toLowerCase();
   const TEXT_LIMIT = 16_000;
   const PDF_LIMIT = 12_000;
@@ -149,9 +145,10 @@ async function extractConstraints(input: Record<string, unknown>, context?: Tool
     if (ext === '.pdf') {
       [docContent, truncated] = await readPdfDoc(resolvedPath, PDF_LIMIT);
     } else {
-      [docContent, truncated] = readTextDoc(resolvedPath, TEXT_LIMIT);
+      [docContent, truncated] = await readTextDoc(resolvedPath, TEXT_LIMIT);
     }
   } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return `Error: file not found: ${resolvedPath}`;
     return `Error reading document: ${String(err)}`;
   }
 

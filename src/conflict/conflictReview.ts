@@ -87,7 +87,7 @@ export async function runConflictResolution(deps: {
 
     for (const { file, resolvedContent } of resolved) {
       const dest = path.join(shadow.path, file.relativePath);
-      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      await fs.promises.mkdir(path.dirname(dest), { recursive: true });
       await fs.promises.writeFile(dest, resolvedContent, 'utf8');
     }
 

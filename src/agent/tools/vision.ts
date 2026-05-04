@@ -22,11 +22,11 @@ import type { ImageContentBlock } from '../../ollama/types.js';
 // ---------------------------------------------------------------------------
 
 /** Resolve and ensure the screenshots directory exists. Returns the absolute path. */
-function ensureScreenshotsDir(context?: import('./shared.js').ToolExecutorContext): string {
+async function ensureScreenshotsDir(context?: import('./shared.js').ToolExecutorContext): Promise<string> {
   const config = context?.config ?? getConfig();
   const base = config.visualVerifyScreenshotsDir || '.sidecar/screenshots';
   const dir = path.isAbsolute(base) ? base : path.join(getRoot(), base);
-  fs.mkdirSync(dir, { recursive: true });
+  await fs.promises.mkdir(dir, { recursive: true });
   return dir;
 }
 
@@ -84,10 +84,10 @@ export function validateScreenshotUrl(rawUrl: string, allowedDomains?: string[])
  *
  * Uses only Node.js Buffer reads — no extra dependencies.
  */
-export function cheapScreenshotChecks(imagePath: string): string | null {
-  let stat: fs.Stats;
+export async function cheapScreenshotChecks(imagePath: string): Promise<string | null> {
+  let size: number;
   try {
-    stat = fs.statSync(imagePath);
+    size = (await fs.promises.stat(imagePath)).size;
   } catch {
     return 'File not found or not readable.';
   }
@@ -95,18 +95,22 @@ export function cheapScreenshotChecks(imagePath: string): string | null {
   // Blank canvas heuristic: a valid screenshot of any content should be
   // larger than 2 KB. PNGs with solid fills compress extremely well and
   // come in under this threshold reliably.
-  if (stat.size < 2048) {
-    return `Image appears to be blank (file size ${stat.size} bytes < 2 KB). The rendered output may be empty or failed to load.`;
+  if (size < 2048) {
+    return `Image appears to be blank (file size ${size} bytes < 2 KB). The rendered output may be empty or failed to load.`;
   }
 
-  // Edge-clipping heuristic: read a small PNG header chunk to sample
-  // a few bytes. If the file is not a valid PNG we can't check, so skip.
+  // Edge-clipping heuristic: read the PNG header bytes to check for
+  // solid-color fills without needing to decode the image.
   let buf: Buffer;
   try {
-    const fd = fs.openSync(imagePath, 'r');
-    buf = Buffer.alloc(Math.min(stat.size, 65536));
-    fs.readSync(fd, buf, 0, buf.length, 0);
-    fs.closeSync(fd);
+    const fh = await fs.promises.open(imagePath, 'r');
+    try {
+      const readBuf = Buffer.alloc(Math.min(size, 65536));
+      const { bytesRead } = await fh.read(readBuf, 0, readBuf.length, 0);
+      buf = readBuf.slice(0, bytesRead);
+    } finally {
+      await fh.close();
+    }
   } catch {
     return null; // can't read — let the VLM decide
   }
@@ -187,7 +191,7 @@ async function screenshotPage(input: Record<string, unknown>, _context?: ToolExe
     return 'Error: playwright-core is not installed. Run `npm install playwright-core` in your extension host environment, then restart VS Code.';
   }
 
-  const screenshotsDir = ensureScreenshotsDir(_context);
+  const screenshotsDir = await ensureScreenshotsDir(_context);
   const timestamp = Date.now();
   const slug = urlSlug(url);
   const outputPath = path.join(screenshotsDir, `${timestamp}-${slug}.png`);
@@ -273,7 +277,7 @@ async function analyzeScreenshot(input: Record<string, unknown>, context?: ToolE
   }
 
   if (config.visualVerifyCheapChecksOnly) {
-    const preFilterResult = cheapScreenshotChecks(imagePath);
+    const preFilterResult = await cheapScreenshotChecks(imagePath);
     if (preFilterResult) {
       return `Visual check failed (pre-filter): ${preFilterResult}\n\n{"pass":false,"issues":["${preFilterResult.replace(/"/g, '\\"')}"]}`;
     }
@@ -281,7 +285,7 @@ async function analyzeScreenshot(input: Record<string, unknown>, context?: ToolE
   }
 
   // Run cheap pre-filter first — fail fast without a VLM call.
-  const preFilterFailure = cheapScreenshotChecks(imagePath);
+  const preFilterFailure = await cheapScreenshotChecks(imagePath);
   if (preFilterFailure) {
     return `Visual check failed (pre-filter, no VLM call): ${preFilterFailure}\n\n{"pass":false,"issues":["${preFilterFailure.replace(/"/g, '\\"')}"]}`;
   }
@@ -466,20 +470,20 @@ async function runPlaywrightCode(input: Record<string, unknown>): Promise<string
 
     child.on('close', (code: number | null, signal: string | null) => {
       clearTimeout(killTimer);
-      try {
-        fs.unlinkSync(scriptPath);
-      } catch {
-        /* ignore cleanup errors */
-      }
       const stdout = chunks.join('');
       const stderr = errChunks.join('');
+      let result: string;
       if (signal === 'SIGTERM' || ac.signal.aborted) {
-        resolve(`Script timed out after ${timeoutMs}ms.`);
+        result = `Script timed out after ${timeoutMs}ms.`;
       } else if (code !== 0) {
-        resolve(`Script exited with code ${code}.\nstderr:\n${stderr}\nstdout:\n${stdout}`);
+        result = `Script exited with code ${code}.\nstderr:\n${stderr}\nstdout:\n${stdout}`;
       } else {
-        resolve(stdout || '(script completed with no stdout output)');
+        result = stdout || '(script completed with no stdout output)';
       }
+      void fs.promises
+        .unlink(scriptPath)
+        .catch(() => {})
+        .then(() => resolve(result));
     });
 
     child.on('error', (err: Error) => {

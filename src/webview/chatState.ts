@@ -161,13 +161,11 @@ export class ChatState {
    * Each conversation gets its own file in the OS temp directory.
    * Format: sidecar-chat-{timestamp}.jsonl
    */
-  private ensureChatLogPath(): string {
+  private async ensureChatLogPath(): Promise<string> {
     if (!this.chatLogPath) {
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const tmpDir = path.join(os.tmpdir(), 'sidecar-chatlogs');
-      if (!fs.existsSync(tmpDir)) {
-        fs.mkdirSync(tmpDir, { recursive: true });
-      }
+      await fs.promises.mkdir(tmpDir, { recursive: true });
       this.chatLogPath = path.join(tmpDir, `sidecar-chat-${timestamp}.jsonl`);
     }
     return this.chatLogPath;
@@ -176,16 +174,17 @@ export class ChatState {
   /**
    * Append a message to the chat log tmp file.
    * Each line is a JSON object with role, content, and timestamp.
+   * Fire-and-forget — callers should `void` the return value.
    */
-  logMessage(role: string, content: string): void {
+  async logMessage(role: string, content: string): Promise<void> {
     try {
-      const logPath = this.ensureChatLogPath();
+      const logPath = await this.ensureChatLogPath();
       const entry = JSON.stringify({
         timestamp: new Date().toISOString(),
         role,
         content,
       });
-      fs.appendFileSync(logPath, entry + '\n');
+      await fs.promises.appendFile(logPath, entry + '\n');
     } catch {
       // Chat logging is best-effort — never block the user
     }

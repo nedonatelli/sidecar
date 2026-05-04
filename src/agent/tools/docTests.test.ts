@@ -6,8 +6,10 @@ vi.mock('fs', async () => {
   const actual = await vi.importActual<typeof import('fs')>('fs');
   return {
     ...actual,
-    existsSync: vi.fn(),
-    readFileSync: vi.fn(),
+    promises: {
+      ...(actual.promises as object),
+      readFile: vi.fn(),
+    },
   };
 });
 
@@ -25,8 +27,7 @@ vi.mock('./shared.js', async () => {
 });
 
 import * as fsMod from 'fs';
-const mockExistsSync = vi.mocked(fsMod.existsSync);
-const mockReadFileSync = vi.mocked(fsMod.readFileSync);
+const mockReadFile = vi.mocked(fsMod.promises.readFile);
 
 // ---------------------------------------------------------------------------
 // isConstraint type guard
@@ -225,8 +226,7 @@ function makeConstraint(overrides: Partial<Constraint> = {}): Constraint {
 describe('extractConstraints executor', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockExistsSync.mockReturnValue(true);
-    mockReadFileSync.mockReturnValue('doc content' as never);
+    mockReadFile.mockResolvedValue('doc content' as never);
   });
 
   it('returns error when doc_path is missing', async () => {
@@ -242,7 +242,7 @@ describe('extractConstraints executor', () => {
   });
 
   it('returns error when file does not exist', async () => {
-    mockExistsSync.mockReturnValue(false);
+    mockReadFile.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
     const exec = getExecutor('extract_constraints');
     const result = await exec({ doc_path: 'missing.md' }, { client: makeClient() } as never);
     expect(result).toContain('file not found');
@@ -257,10 +257,8 @@ describe('extractConstraints executor', () => {
     expect(result).toContain('"docSlug"');
   });
 
-  it('returns error when readFileSync throws', async () => {
-    mockReadFileSync.mockImplementation(() => {
-      throw new Error('permission denied');
-    });
+  it('returns error when readFile throws', async () => {
+    mockReadFile.mockRejectedValue(new Error('permission denied'));
     const exec = getExecutor('extract_constraints');
     const result = await exec({ doc_path: 'docs/spec.md' }, { client: makeClient() } as never);
     expect(result).toContain('Error reading document');
@@ -289,7 +287,7 @@ describe('extractConstraints executor', () => {
   });
 
   it('includes truncation note when doc is long', async () => {
-    mockReadFileSync.mockReturnValue('x'.repeat(20000) as never);
+    mockReadFile.mockResolvedValue('x'.repeat(20000) as never);
     const constraint = makeConstraint();
     const client = makeClient(JSON.stringify({ constraints: [constraint] }));
     const exec = getExecutor('extract_constraints');

@@ -23,22 +23,22 @@ describe('cheapScreenshotChecks', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('returns a failure for a missing file', () => {
-    const result = cheapScreenshotChecks(path.join(tmpDir, 'nonexistent.png'));
+  it('returns a failure for a missing file', async () => {
+    const result = await cheapScreenshotChecks(path.join(tmpDir, 'nonexistent.png'));
     expect(result).not.toBeNull();
     expect(result).toMatch(/not found|not readable/i);
   });
 
-  it('returns a failure when file size is below 2 KB', () => {
+  it('returns a failure when file size is below 2 KB', async () => {
     const tiny = path.join(tmpDir, 'tiny.png');
     // Write a valid-looking 50-byte file (too small to be a real screenshot)
     fs.writeFileSync(tiny, Buffer.alloc(50, 0x42));
-    const result = cheapScreenshotChecks(tiny);
+    const result = await cheapScreenshotChecks(tiny);
     expect(result).not.toBeNull();
     expect(result).toMatch(/blank/i);
   });
 
-  it('returns null for a file at exactly the 2 KB boundary', () => {
+  it('returns null for a file at exactly the 2 KB boundary', async () => {
     const borderline = path.join(tmpDir, 'borderline.png');
     // Write a 2048-byte file with PNG magic bytes at the start
     const buf = Buffer.alloc(2048, 0x42);
@@ -54,10 +54,10 @@ describe('cheapScreenshotChecks', () => {
     for (let i = 8; i < 520; i++) buf[i] = i % 251;
     fs.writeFileSync(borderline, buf);
     // Exactly 2048 bytes — should not trigger blank check (< 2048 is the condition)
-    expect(cheapScreenshotChecks(borderline)).toBeNull();
+    expect(await cheapScreenshotChecks(borderline)).toBeNull();
   });
 
-  it('returns null for a reasonably-sized varied PNG-like file', () => {
+  it('returns null for a reasonably-sized varied PNG-like file', async () => {
     const ok = path.join(tmpDir, 'ok.png');
     const buf = Buffer.alloc(8192, 0x00);
     // PNG magic
@@ -72,10 +72,10 @@ describe('cheapScreenshotChecks', () => {
     // Varied content — prevents homogeneity flag
     for (let i = 8; i < 8192; i++) buf[i] = (i * 7 + 13) % 256;
     fs.writeFileSync(ok, buf);
-    expect(cheapScreenshotChecks(ok)).toBeNull();
+    expect(await cheapScreenshotChecks(ok)).toBeNull();
   });
 
-  it('flags a file with a highly homogeneous header as potentially clipped', () => {
+  it('flags a file with a highly homogeneous header as potentially clipped', async () => {
     const clipped = path.join(tmpDir, 'clipped.png');
     const buf = Buffer.alloc(4096, 0x00);
     // PNG magic
@@ -90,12 +90,12 @@ describe('cheapScreenshotChecks', () => {
     // Fill byte 8 onwards with a single extreme value (> 200) — solid-white border
     for (let i = 8; i < 4096; i++) buf[i] = 0xff;
     fs.writeFileSync(clipped, buf);
-    const result = cheapScreenshotChecks(clipped);
+    const result = await cheapScreenshotChecks(clipped);
     expect(result).not.toBeNull();
     expect(result).toMatch(/clipped|solid-color|homogeneous/i);
   });
 
-  it('returns null for a non-PNG file (skips clipping check)', () => {
+  it('returns null for a non-PNG file (skips clipping check)', async () => {
     const jpeg = path.join(tmpDir, 'image.jpg');
     const buf = Buffer.alloc(4096, 0xff); // all 0xff — would fail if PNG check ran
     // JPEG magic (not PNG)
@@ -104,7 +104,7 @@ describe('cheapScreenshotChecks', () => {
     buf[2] = 0xff;
     fs.writeFileSync(jpeg, buf);
     // Should not trigger clip check because it's not a PNG
-    expect(cheapScreenshotChecks(jpeg)).toBeNull();
+    expect(await cheapScreenshotChecks(jpeg)).toBeNull();
   });
 });
 

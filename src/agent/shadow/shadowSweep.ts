@@ -15,7 +15,7 @@ import { GitCLI } from '../../github/git.js';
  *   (b) **Directory-without-worktree** — a shadow dir exists on
  *       disk at `.sidecar/shadows/<id>/` but git doesn't know about
  *       it. Probably the `.git/worktrees/` entry was already pruned
- *       but the directory was left behind. Fix: `fs.rmSync`.
+ *       but the directory was left behind. Fix: `fs.promises.rm`.
  *
  * Both classes land in this module rather than on the `ShadowWorkspace`
  * class itself because sweeping is a session-level concern, not a
@@ -36,6 +36,19 @@ export interface SweepResult {
   removedDirs: string[];
   /** Problems encountered during sweep; one entry per failed path. */
   errors: Array<{ path: string; message: string }>;
+}
+
+/** Resolve a path to its realpath, or return the input if realpath fails. */
+async function tryRealpath(p: string): Promise<string> {
+  return fs.promises.realpath(p).catch(() => p);
+}
+
+/** Return true if the path exists (follows symlinks). */
+async function pathExists(p: string): Promise<boolean> {
+  return fs.promises.access(p).then(
+    () => true,
+    () => false,
+  );
 }
 
 /**
@@ -65,48 +78,39 @@ export async function sweepStaleShadows(mainRoot: string): Promise<SweepResult> 
   // (symlink chain). `path.resolve` alone doesn't reconcile these;
   // we use realpath on BOTH sides where possible so the prefix check
   // survives the macOS `/private` rewrite.
-  let resolvedShadowsRoot = path.resolve(shadowsRoot);
-  try {
-    if (fs.existsSync(resolvedShadowsRoot)) {
-      resolvedShadowsRoot = fs.realpathSync(resolvedShadowsRoot);
-    }
-  } catch {
-    // Stat failed — use the resolve-only form.
-  }
-  const shadowWorktrees = worktrees.filter((w) => {
-    const raw = path.resolve(w.path);
-    if (raw.startsWith(path.resolve(shadowsRoot))) return true;
-    if (raw.startsWith(resolvedShadowsRoot)) return true;
-    try {
-      const real = fs.realpathSync(w.path);
-      return real.startsWith(resolvedShadowsRoot) || real.startsWith(path.resolve(shadowsRoot));
-    } catch {
-      return false;
-    }
-  });
+  const resolvedShadowsRoot = await (async () => {
+    const resolved = path.resolve(shadowsRoot);
+    if (await pathExists(resolved)) return tryRealpath(resolved);
+    return resolved;
+  })();
+
+  const shadowWorktrees = await Promise.all(
+    worktrees.map(async (w) => {
+      const raw = path.resolve(w.path);
+      if (raw.startsWith(path.resolve(shadowsRoot))) return w;
+      if (raw.startsWith(resolvedShadowsRoot)) return w;
+      const real = await tryRealpath(w.path);
+      if (real.startsWith(resolvedShadowsRoot) || real.startsWith(path.resolve(shadowsRoot))) return w;
+      return null;
+    }),
+  ).then((results) => results.filter((w): w is NonNullable<typeof w> => w !== null));
 
   const liveShadowPaths = new Set<string>();
   for (const wt of shadowWorktrees) {
-    // Use statSync (not existsSync) because on macOS git sometimes
-    // reports `/private/var/...` while the directory resolves under
-    // `/var/...` via symlink. statSync follows the symlink; existsSync
-    // on the unresolved path can return false for a path that exists.
-    let exists = false;
-    try {
-      fs.statSync(wt.path);
-      exists = true;
-    } catch {
-      exists = false;
-    }
+    // Use stat (not access) because on macOS git sometimes reports
+    // `/private/var/...` while the directory resolves under `/var/...`
+    // via symlink. stat follows the symlink; access on the unresolved
+    // path can return false for a path that exists.
+    const exists = await fs.promises.stat(wt.path).then(
+      () => true,
+      () => false,
+    );
     if (exists) {
       // Store BOTH the raw and resolved forms so the class-(b) orphan
       // check below matches either spelling of the same directory.
       liveShadowPaths.add(path.resolve(wt.path));
-      try {
-        liveShadowPaths.add(fs.realpathSync(wt.path));
-      } catch {
-        // realpath failed (rare) — resolved path alone is enough.
-      }
+      const real = await tryRealpath(wt.path);
+      liveShadowPaths.add(real);
       continue;
     }
     // Directory is gone but git still thinks the worktree exists.
@@ -122,11 +126,11 @@ export async function sweepStaleShadows(mainRoot: string): Promise<SweepResult> 
   }
 
   // --- Class (b): directory-without-worktree-metadata. ---
-  if (!fs.existsSync(shadowsRoot)) return result;
+  if (!(await pathExists(shadowsRoot))) return result;
 
   let onDisk: string[];
   try {
-    onDisk = fs.readdirSync(shadowsRoot);
+    onDisk = await fs.promises.readdir(shadowsRoot);
   } catch (err) {
     result.errors.push({ path: shadowsRoot, message: err instanceof Error ? err.message : String(err) });
     return result;
@@ -136,22 +140,19 @@ export async function sweepStaleShadows(mainRoot: string): Promise<SweepResult> 
     const full = path.join(shadowsRoot, name);
     let stat: fs.Stats;
     try {
-      stat = fs.statSync(full);
+      stat = await fs.promises.stat(full);
     } catch {
       continue;
     }
     if (!stat.isDirectory()) continue;
     if (liveShadowPaths.has(path.resolve(full))) continue;
-    try {
-      if (liveShadowPaths.has(fs.realpathSync(full))) continue;
-    } catch {
-      // realpath failure → treat as orphan.
-    }
+    const real = await tryRealpath(full);
+    if (liveShadowPaths.has(real)) continue;
 
     // This dir isn't in the worktree list. Either we just pruned its
     // metadata above, OR it was always an orphan. Either way, remove it.
     try {
-      fs.rmSync(full, { recursive: true, force: true });
+      await fs.promises.rm(full, { recursive: true, force: true });
       result.removedDirs.push(full);
     } catch (err) {
       result.errors.push({ path: full, message: err instanceof Error ? err.message : String(err) });

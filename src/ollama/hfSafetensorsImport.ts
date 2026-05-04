@@ -80,12 +80,12 @@ export async function* importSafetensorsModel(opts: SafetensorsImportOptions): A
     if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
 
     const destPath = path.join(stagingDir, file.filename);
-    fs.mkdirSync(path.dirname(destPath), { recursive: true });
+    await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
 
     // Skip already-downloaded files with the correct size. Allows retrying
     // an interrupted run without re-downloading weights that completed.
     try {
-      const stat = fs.statSync(destPath);
+      const stat = await fs.promises.stat(destPath);
       if (file.size > 0 && stat.size === file.size) {
         overallCompleted += file.size;
         yield {
@@ -118,7 +118,7 @@ export async function* importSafetensorsModel(opts: SafetensorsImportOptions): A
 
   // Phase 2: write a Modelfile and invoke `ollama create`.
   const modelfilePath = path.join(stagingDir, 'Modelfile');
-  fs.writeFileSync(modelfilePath, `FROM ./\n`, 'utf-8');
+  await fs.promises.writeFile(modelfilePath, `FROM ./\n`, 'utf-8');
 
   yield* runOllamaCreate({
     ollamaBinary: opts.ollamaBinary ?? 'ollama',
@@ -132,7 +132,7 @@ export async function* importSafetensorsModel(opts: SafetensorsImportOptions): A
   // now, so the raw Safetensors are dead weight — often 2–3x the final size.
   yield { phase: 'cleanup' };
   try {
-    fs.rmSync(stagingDir, { recursive: true, force: true });
+    await fs.promises.rm(stagingDir, { recursive: true, force: true });
   } catch {
     // Best-effort; user can clean up manually if we fail.
   }
@@ -217,7 +217,7 @@ async function* downloadFile(args: DownloadArgs): AsyncGenerator<ImportProgress>
     // Clean up the partial file so a retry starts fresh (until we add
     // HTTP Range resumes in v2).
     try {
-      fs.unlinkSync(destPath);
+      await fs.promises.unlink(destPath);
     } catch {
       // ignore
     }
@@ -236,10 +236,10 @@ async function* downloadFile(args: DownloadArgs): AsyncGenerator<ImportProgress>
   // in case a filesystem error swallowed a write mid-stream without
   // surfacing it on the writer.
   if (contentLength > 0) {
-    const actualSize = fs.statSync(destPath).size;
+    const actualSize = (await fs.promises.stat(destPath)).size;
     if (actualSize !== contentLength) {
       try {
-        fs.unlinkSync(destPath);
+        await fs.promises.unlink(destPath);
       } catch {
         // ignore
       }
