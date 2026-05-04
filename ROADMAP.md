@@ -97,9 +97,9 @@
 - [x] **Remaining CRITICAL/HIGH audit findings** — triaged 14 items; 12 were already fixed in v0.80–v0.83; 1 SQLite `listTables` identifier bypass fixed (skip rows failing `SAFE_IDENTIFIER`); 1 `agentCallbacks.ts` timer concern confirmed non-issue (flushTimer is scope-local, `onDone` always fires via `finally`)
 
 **Should Have**:
-- [ ] **`docs/adr/` directory** (T26-MEDIUM) — lightweight ADR template; 5 retroactive decision records
-- [ ] **`deterministicOutput` field on `ToolDefinition`** (T28-LOW) — replace hardcoded `DEDUP_EXEMPT_TOOLS`
-- [ ] **Public skill marketplace** — Skill Sync & Registry goes live
+- [x] **`docs/adr/` directory** (T26-MEDIUM) — 5 retroactive ADRs: local-first, agent loop, shadow workspaces, FlatVectorStore, typed facets; README with template
+- [x] **`nondeterministicOutput` field on `ToolDefinition`** (T28-LOW) — replaces hardcoded `DEDUP_EXEMPT_TOOLS`; backends derive the exempt set from the tool list passed at call time; `getDedupExemptToolNames()` exported from `tools.ts`; `PrunerOptions.dedupExemptTools` accepts override
+- [x] **Public skill marketplace** — `sidecar.skills.openMarketplace` command opens `https://github.com/topics/sidecar-skill`; discoverable from the command palette
 
 **Could Have**:
 - [ ] GitHub Issues bidirectional linking to ROADMAP entries

@@ -34,6 +34,12 @@ const DEDUP_EXEMPT_TOOLS = new Set(['read_file', 'get_diagnostics', 'git_diff', 
 export interface PrunerOptions {
   enabled: boolean;
   maxToolResultTokens: number;
+  /**
+   * Tool names whose results must never be dedup'd. Defaults to the built-in
+   * set when omitted. Callers that have access to the tool registry should
+   * derive this from `ToolDefinition.nondeterministicOutput` instead.
+   */
+  dedupExemptTools?: ReadonlySet<string>;
 }
 
 export interface PruneStats {
@@ -209,6 +215,7 @@ export function buildToolUseIdMap(messages: ChatMessage[]): Map<string, string> 
 export function dedupeToolResults(
   messages: ChatMessage[],
   toolNames?: Map<string, string>,
+  dedupExempt: ReadonlySet<string> = DEDUP_EXEMPT_TOOLS,
 ): { messages: ChatMessage[]; saved: number } {
   const seen = new Map<string, number>();
   let saved = 0;
@@ -222,7 +229,7 @@ export function dedupeToolResults(
 
       // Exempt tools whose output is expected to vary across calls.
       const toolName = toolNames?.get(result.tool_use_id);
-      if (toolName && DEDUP_EXEMPT_TOOLS.has(toolName)) return block;
+      if (toolName && dedupExempt.has(toolName)) return block;
 
       const key = dedupKey(result.content);
       if (!seen.has(key)) {
@@ -299,7 +306,7 @@ export function prunePrompt(systemPrompt: string, messages: ChatMessage[], opts:
   const toolNames = buildToolUseIdMap(messages);
   const sys = collapseWhitespace(systemPrompt);
   const truncated = truncateAllToolResults(messages, opts.maxToolResultTokens, toolNames);
-  const deduped = dedupeToolResults(truncated.messages, toolNames);
+  const deduped = dedupeToolResults(truncated.messages, toolNames, opts.dedupExemptTools);
 
   return {
     systemPrompt: sys.text,

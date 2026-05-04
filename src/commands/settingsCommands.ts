@@ -1,4 +1,4 @@
-import { window, commands, workspace, ExtensionContext } from 'vscode';
+import { window, commands, workspace, env, Uri, ExtensionContext } from 'vscode';
 import {
   getConfig,
   isLocalOllama,
@@ -6,6 +6,9 @@ import {
   setHuggingFaceToken,
   clearHuggingFaceToken,
 } from '../config/settings.js';
+
+/** Public skill marketplace — browseable GitHub topic index of `sidecar-skill` repos. */
+export const SKILL_MARKETPLACE_URL = 'https://github.com/topics/sidecar-skill';
 import { registerNoSqlMcpCommands } from './noSqlMcpCommands.js';
 import type { ChatViewProvider } from '../webview/chatView.js';
 import type { SkillLoader } from '../agent/skillLoader.js';
@@ -34,6 +37,9 @@ export function registerSettingsCommands(context: ExtensionContext, deps: Settin
     }),
     commands.registerCommand('sidecar.exportChat', () => {
       getChatProvider()?.exportChat();
+    }),
+    commands.registerCommand('sidecar.skills.openMarketplace', () => {
+      void env.openExternal(Uri.parse(SKILL_MARKETPLACE_URL));
     }),
     commands.registerCommand('sidecar.syncSkillRegistries', async () => {
       const skillCfg = getConfig();

@@ -57,6 +57,15 @@ export interface ToolDefinition {
     properties: Record<string, unknown>;
     required?: string[];
   };
+  /**
+   * When true, repeated calls with the same arguments may return different
+   * results (e.g. `read_file` after an edit, `git_diff` after a commit).
+   * The prompt pruner skips deduplication for these tools so the agent always
+   * sees fresh output rather than a back-reference to a stale prior result.
+   *
+   * Replaces the hardcoded `DEDUP_EXEMPT_TOOLS` set in `promptPruner.ts`.
+   */
+  nondeterministicOutput?: boolean;
 }
 
 // Messages

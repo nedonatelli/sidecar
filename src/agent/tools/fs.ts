@@ -76,6 +76,7 @@ export const readFileDef: ToolDefinition = {
     },
     required: ['path'],
   },
+  nondeterministicOutput: true,
 };
 
 export const writeFileDef: ToolDefinition = {

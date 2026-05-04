@@ -1896,6 +1896,12 @@
         "icon": "$(sync)"
       },
       {
+        "command": "sidecar.skills.openMarketplace",
+        "title": "Browse Skill Marketplace",
+        "category": "SideCar",
+        "icon": "$(extensions)"
+      },
+      {
         "command": "sidecar.setApiKey",
         "title": "Set / Refresh API Key",
         "category": "SideCar",

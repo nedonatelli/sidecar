@@ -235,9 +235,13 @@ export class OpenAIBackend implements ApiBackend {
     tools?: ToolDefinition[],
   ): AsyncGenerator<StreamEvent> {
     const cfg = getConfig();
+    const dedupExemptTools = tools
+      ? new Set(tools.filter((t) => t.nondeterministicOutput).map((t) => t.name))
+      : undefined;
     const pruned = prunePrompt(systemPrompt, messages, {
       enabled: cfg.promptPruningEnabled,
       maxToolResultTokens: cfg.promptPruningMaxToolResultTokens,
+      dedupExemptTools,
     });
     // observability (see Anthropic backend for rationale).
     const _pruneLog = formatPruneStats(pruned.stats);

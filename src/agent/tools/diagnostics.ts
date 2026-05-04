@@ -25,6 +25,7 @@ export const getDiagnosticsDef: ToolDefinition = {
     },
     required: [],
   },
+  nondeterministicOutput: true,
 };
 
 export async function getDiagnostics(input: Record<string, unknown>): Promise<string> {

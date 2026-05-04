@@ -52,6 +52,7 @@ export const gitDiffDef: ToolDefinition = {
     },
     required: [],
   },
+  nondeterministicOutput: true,
 };
 
 export async function gitDiffTool(input: Record<string, unknown>): Promise<string> {
@@ -79,6 +80,7 @@ export const gitStatusDef: ToolDefinition = {
     properties: {},
     required: [],
   },
+  nondeterministicOutput: true,
 };
 
 export async function gitStatus(): Promise<string> {

@@ -164,9 +164,13 @@ export class AnthropicBackend implements ApiBackend {
     tools?: ToolDefinition[],
   ): AsyncGenerator<StreamEvent> {
     const cfg = getConfig();
+    const dedupExemptTools = tools
+      ? new Set(tools.filter((t) => t.nondeterministicOutput).map((t) => t.name))
+      : undefined;
     const pruned = prunePrompt(systemPrompt, messages, {
       enabled: cfg.promptPruningEnabled,
       maxToolResultTokens: cfg.promptPruningMaxToolResultTokens,
+      dedupExemptTools,
     });
     // observability. Previously PruneStats was
     // computed and discarded; post-mortem diagnosis of "did the
