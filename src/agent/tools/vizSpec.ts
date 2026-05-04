@@ -31,7 +31,8 @@ export function renderVizSpec(spec: VizSpec): string {
 
 function renderBarChart(spec: VizSpec): string {
   const title = spec.title || 'Chart';
-  const maxValue = Math.max(...(spec.data as number[]).filter((v) => typeof v === 'number'));
+  const numericData = (spec.data as number[]).filter((v) => typeof v === 'number');
+  const maxValue = numericData.length > 0 ? Math.max(...numericData) : 1;
   const chartHeight = 200;
   const barWidth = Math.max(30, 300 / spec.labels.length);
   const padding = 40;

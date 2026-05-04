@@ -75,6 +75,7 @@ interface InfoSchemaTcRow {
 interface InfoSchemaRcuRow {
   column_name: string;
   table_name: string;
+  referenced_column: string;
   constraint_name: string;
 }
 
@@ -200,7 +201,7 @@ export class PostgresProvider implements DatabaseProvider {
 
     // Foreign key columns with their referenced table/column
     const fkResult = await pool.query(
-      `SELECT kcu.column_name, ccu.table_name, kcu.constraint_name
+      `SELECT kcu.column_name, ccu.table_name, ccu.column_name AS referenced_column, kcu.constraint_name
        FROM information_schema.key_column_usage kcu
        JOIN information_schema.table_constraints tc
          ON kcu.constraint_name = tc.constraint_name
@@ -215,7 +216,7 @@ export class PostgresProvider implements DatabaseProvider {
     const fkMap = new Map<string, { table: string; column: string }>();
     for (const rawRow of fkResult.rows) {
       const row = rawRow as unknown as InfoSchemaRcuRow;
-      fkMap.set(row.column_name, { table: row.table_name, column: row.column_name });
+      fkMap.set(row.column_name, { table: row.table_name, column: row.referenced_column });
     }
 
     const columns: ColumnInfo[] = (colResult.rows as unknown as InfoSchemaColumnsRow[]).map((row) => ({

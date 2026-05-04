@@ -253,7 +253,13 @@ export class ConversationSummarizer {
     let currentTurn: ChatMessage[] = [];
 
     for (const msg of messages) {
-      const isNewUserTurn = msg.role === 'user' && typeof msg.content === 'string';
+      // Tool-result messages are also role:'user' but have ContentBlock[] content with
+      // tool_result blocks — those are NOT turn boundaries. A new turn starts only when
+      // the user sends a real text/image message (not a tool response).
+      const isNewUserTurn =
+        msg.role === 'user' &&
+        (typeof msg.content === 'string' ||
+          (Array.isArray(msg.content) && msg.content.every((b) => b.type !== 'tool_result')));
       if (isNewUserTurn && currentTurn.length > 0) {
         turns.push(currentTurn);
         currentTurn = [];

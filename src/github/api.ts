@@ -510,7 +510,11 @@ export class GitHubAPI {
       throw new Error(`GitHub GraphQL: ${json.errors.map((e) => e.message).join(', ')}`);
     }
 
-    return json.data as T;
+    if (json.data === undefined) {
+      throw new Error('GitHub GraphQL: response contained neither data nor errors');
+    }
+
+    return json.data;
   }
 
   /**
