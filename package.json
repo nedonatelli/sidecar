@@ -461,6 +461,18 @@
             "maximum": 50,
             "description": "Cap on symbols added via graph walk per retrieval call. Higher = deeper dependency coverage at more token cost; lower = tighter context for small-context local models."
           },
+          "sidecar.retrieval.queryRewrite": {
+            "type": "string",
+            "default": "rule",
+            "enum": ["off", "rule", "llm", "expand"],
+            "enumDescriptions": [
+              "No rewriting — the raw user message is embedded as-is.",
+              "Free, synchronous: strips conversational preambles (\"how do I\", \"can you help me with\", etc.) and expands camelCase identifiers so the embedding model can match partial terms.",
+              "One LLM call (≤60 tokens, 3-second timeout) reformulates the rule-cleaned query into a tight technical search string; falls back to rule output on timeout or error.",
+              "Same LLM call but requests 2 alternative phrasings in addition to the rule-cleaned query. All variants run in parallel through Reciprocal Rank Fusion so each angle of the query can surface different hits."
+            ],
+            "description": "Controls how the user's message is rewritten before embedding for retrieval. 'rule' is the recommended default — zero cost, consistent improvement. Switch to 'llm' or 'expand' for better recall at the cost of one small LLM call per turn."
+          },
           "sidecar.facets.enabled": {
             "type": "boolean",
             "default": true,
