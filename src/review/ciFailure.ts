@@ -109,7 +109,7 @@ export function extractFailures(log: string, options: ExtractOptions = {}): Fail
   const merged: Array<{ stepName: string; lines: string[]; errorIndices: number[] }> = [];
   for (const range of errorRanges) {
     const last = merged[merged.length - 1];
-    if (last && last.stepName === range.stepName && range.lines === range.lines) {
+    if (last && last.stepName === range.stepName && last.lines === range.lines) {
       // Same step: merge error indices into the latest block. The
       // `lines` array is the step's full accumulated content, so we
       // just append this error's index.
