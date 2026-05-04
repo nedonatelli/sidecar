@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { EpisodicMemoryStore } from '../episodicMemory.js';
 import { drainSteerQueueAtBoundary } from './steerDrain.js';
 import { SteerQueue } from '../steerQueue.js';
 import type { LoopState } from './state.js';
@@ -34,6 +35,7 @@ function stubState(overrides: Partial<LoopState> = {}): LoopState {
     iteration: 1,
     totalChars: 0,
     recentToolCalls: [],
+    episodicMemory: new EpisodicMemoryStore(),
     recentNormalizedCalls: [],
     autoFixRetriesByFile: new Map(),
     stubFixRetries: 0,

@@ -9,6 +9,7 @@ import { getToolDefinitions } from '../tools.js';
 import type { AgentOptions } from '../loop.js';
 import type { EditPlan } from '../editPlan.js';
 import { type SideCarConfig, getConfig } from '../../config/settings.js';
+import { EpisodicMemoryStore } from '../episodicMemory.js';
 
 // ---------------------------------------------------------------------------
 // Shared mutable + immutable state for runAgentLoop.
@@ -73,6 +74,13 @@ export interface LoopState {
    * cached count no longer applies to the new context).
    */
   lastActualInputTokens?: number;
+
+  // Session-scoped episodic memory: summaries of compressed turns are
+  // embedded here so semantically relevant prior context can be
+  // retrieved and injected into the system prompt on future turns.
+  // episodicMemory.ts is the only thing that writes it; streamTurn.ts
+  // queries it before each LLM call.
+  episodicMemory: EpisodicMemoryStore;
 
   // Ring buffer of recent tool-call signatures for cycle detection.
   // cycleDetection.ts is the only thing that reads or writes it.
@@ -161,6 +169,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     totalChars,
     systemPromptOverride: options.systemPromptOverride,
 
+    episodicMemory: new EpisodicMemoryStore(),
     recentToolCalls: [],
     recentNormalizedCalls: [],
     autoFixRetriesByFile: new Map<string, number>(),

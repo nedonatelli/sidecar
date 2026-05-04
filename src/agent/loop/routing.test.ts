@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { EpisodicMemoryStore } from '../episodicMemory.js';
 import { window } from 'vscode';
 import { applyAgentLoopRouting } from './routing.js';
 import { SideCarClient } from '../../ollama/client.js';
@@ -28,6 +29,7 @@ function stubState(overrides: Partial<LoopState> = {}): LoopState {
     iteration: 1,
     totalChars: 0,
     recentToolCalls: [],
+    episodicMemory: new EpisodicMemoryStore(),
     recentNormalizedCalls: [],
     autoFixRetriesByFile: new Map(),
     stubFixRetries: 0,

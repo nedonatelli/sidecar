@@ -25,6 +25,7 @@ import type { LoopState } from './state.js';
 import type { AgentCallbacks } from '../loop.js';
 import type { ToolUseContentBlock } from '../../ollama/types.js';
 import type { getConfig } from '../../config/settings.js';
+import { EpisodicMemoryStore } from '../episodicMemory.js';
 
 function stubState(overrides: Partial<LoopState> = {}): LoopState {
   return {
@@ -42,6 +43,7 @@ function stubState(overrides: Partial<LoopState> = {}): LoopState {
     iteration: 1,
     totalChars: 0,
     recentToolCalls: [],
+    episodicMemory: new EpisodicMemoryStore(),
     recentNormalizedCalls: [],
     autoFixRetriesByFile: new Map(),
     stubFixRetries: 0,

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { EpisodicMemoryStore } from '../episodicMemory.js';
 import { notifyIterationStart, maybeEmitProgressSummary, shouldStopAtCheckpoint } from './notifications.js';
 import type { LoopState } from './state.js';
 import type { AgentCallbacks } from '../loop.js';
@@ -29,6 +30,7 @@ function stubState(overrides: Partial<LoopState> = {}): LoopState {
     iteration: 1,
     totalChars: 0,
     recentToolCalls: [],
+    episodicMemory: new EpisodicMemoryStore(),
     recentNormalizedCalls: [],
     autoFixRetriesByFile: new Map(),
     stubFixRetries: 0,

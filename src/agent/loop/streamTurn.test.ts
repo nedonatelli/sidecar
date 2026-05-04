@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi } from 'vitest';
+import { EpisodicMemoryStore } from '../episodicMemory.js';
 import { streamOneTurn, resolveTurnContent } from './streamTurn';
 import type { LoopState } from './state';
 import type { AgentCallbacks } from '../loop.js';
@@ -21,6 +22,7 @@ function makeState(): LoopState {
     approvalMode: 'autonomous',
     tools: [],
     recentToolCalls: [],
+    episodicMemory: new EpisodicMemoryStore(),
     recentNormalizedCalls: [],
     autoFixRetriesByFile: new Map(),
     stubFixRetries: 0,

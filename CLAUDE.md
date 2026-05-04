@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-SideCar is a VS Code extension that turns local and cloud LLMs into a full agentic coding assistant. It supports Ollama, Anthropic, OpenAI-compatible servers, Kickstand, OpenRouter, Groq, and Fireworks as backends. The extension provides an agent loop with 55+ tools (file ops, shell, git, web search, vision, database, doc-to-test synthesis, PDF/Zotero, MCP, Notebook Mode research), inline completions, code review, and a chat UI.
+SideCar is a VS Code extension that turns local and cloud LLMs into a full agentic coding assistant. It supports Ollama, Anthropic, OpenAI-compatible servers, Kickstand, OpenRouter, Groq, and Fireworks as backends. The extension provides an agent loop with 61 built-in tools (file ops, shell, git, web search, vision, database, doc-to-test synthesis, PDF/Zotero, MCP, Notebook Mode research), inline completions, code review, and a chat UI.
 
 ## Architecture diagrams (start here when onboarding)
 
@@ -74,11 +74,11 @@ SSE parsing for all OpenAI-compatible backends is shared in `openAiSseStream.ts`
 
 `loop.ts` is the orchestrator. Its inner logic lives in `src/agent/loop/` submodules:
 
-- `streamTurn.ts` — stream one LLM turn, parse tool calls
+- `streamTurn.ts` — stream one LLM turn, parse tool calls; queries `EpisodicMemoryStore` before each call and appends a `<prior_context>` block to the system prompt when relevant summaries are retrieved
 - `executeToolUses.ts` — parallel tool execution with approval gates
 - `dispatchToolUses.ts` — lower-level tool dispatch (parallel + serial batching)
-- `compression.ts` — context pruning between turns (triggered at `CONTEXT_COMPRESSION_THRESHOLD`)
-- `cycleDetection.ts` — burst cap + repeated-action bail
+- `compression.ts` — context pruning between turns (triggered at `CONTEXT_COMPRESSION_THRESHOLD`); after `ConversationSummarizer` fires, the batch summary is embedded and stored in `EpisodicMemoryStore` so it can be retrieved in future turns
+- `cycleDetection.ts` — burst cap + two-tier repeated-action bail: **exact-match** ring buffer (fires at 4) plus a **normalized-signature** ring buffer (strips secondary args to `name:primaryResource`, fires at 3) that catches "same tool, same file, different edit content" loops the exact check misses
 - `criticHook.ts` — adversarial critic injection after edits
 - `policyHook.ts` — extensible pre/post-turn hooks (HookBus)
 - `builtInHooks.ts` — built-in policy hooks (stub check, auto-fix, critic, gate)
@@ -105,6 +105,12 @@ Human-in-the-loop steer buffering. Users can submit follow-up instructions while
 ### Agent Memory (`src/agent/memory/`)
 
 `pinnedMemory.ts` — `PinnedMemoryStore` persists user-pinned notes and file snippets to `.sidecar/memory/`. Pinned entries are injected into the system prompt by `systemPrompt.ts` with always-include semantics. Entries are content-addressed by SHA-256 so identical content is deduplicated. The store is read at startup and written on every pin/unpin operation.
+
+### Episodic Memory (`src/agent/episodicMemory.ts`)
+
+Session-scoped RAG layer for conversation context. When `compression.ts` summarizes old turns, the batch summary is embedded (MiniLM-L6-v2, 384-dim, same model as PKI) and stored in an in-memory `FlatVectorStore`. Before each LLM turn, `streamTurn.ts` queries the store using the current user message as the query, filters hits below `MIN_EPISODIC_SIMILARITY = 0.4`, and appends a `<prior_context>` block to the system prompt. This lets the agent recover relevant earlier decisions even after they've been compressed out of the message window — without re-expanding the context.
+
+`EpisodicMemoryStore` API: `add(summary, turnIndex)` (embed + store), `query(text, k)` (retrieve top-K), `buildContextBlock(queryText)` (formats the `<prior_context>` injection). The store uses `null` as `sidecarDir` so `persist()`/`restore()` are no-ops — the store is always session-only. Lazy-loads the embedding model on first `add()` call; gracefully no-ops if the model fails to load. Use `setPipelineForTests(pipeline)` to inject a deterministic fake embedder in tests (also resets `modelLoading` so model loading is skipped entirely).
 
 ### Notebook Mode (`src/agent/tools/notebook.ts`)
 
@@ -191,8 +197,8 @@ Config: `sidecar.sidecarMd.{mode, alwaysIncludeHeadings, lowPriorityHeadings, ma
 
 - `handlers/chatHandlers.ts` — thin orchestrator; pure logic extracted into submodules below
 - `handlers/messageUtils.ts` — continuation detection, intent classification, error taxonomy, workspace relevance, numbered-list reference resolution
-- `handlers/systemPrompt.ts` — base prompt assembly, context injection, message enrichment, `basePrompt.ts` (serialisable prompt builder)
-- `handlers/fileHandlers.ts` — file attach/drop/save/create/move/undo/revert
+- `handlers/systemPrompt.ts` — base prompt assembly, context injection, message enrichment, `basePrompt.ts` (serialisable prompt builder); runs `rewriteQuery` (v0.84) before retrieval when `sidecar.retrievalQueryRewrite` is set to `'rule'`, `'llm'`, or `'expand'`
+- `handlers/fileHandlers.ts` — file attach/drop/save/create/move/undo/revert; `handleAttachActiveFile` toggles the currently open editor file in/out of the agent's context (wired to the active-file pill above the chat input)
 - `handlers/agentCallbacks.ts` — agent-loop callback factory
 - `handlers/messageEnricher.ts` — enriches assistant messages with inline annotations
 - `handlers/modelHandlers.ts` — model install (Ollama pull, HF import, Kickstand pull/load)
@@ -218,13 +224,17 @@ The chat UI itself is vanilla HTML/JS/CSS in `media/chat.js` + `media/chat.css`.
 
 ### Project Knowledge Index (`src/config/symbolEmbeddingIndex.ts`)
 
-v0.61+ opt-in semantic layer. Symbol-granularity sibling of the file-level `EmbeddingIndex` — same `@xenova/transformers` MiniLM model + 384-dim space. `SymbolIndexer.setSymbolEmbeddings(index, maxSymbolsPerFile?)` wires the embedder so every parsed file feeds each extracted symbol's body into a debounced `queueSymbol` batch drain (500 ms window, 20/batch). Queried via the `project_knowledge_search` agent tool in [`src/agent/tools/projectKnowledge.ts`](src/agent/tools/projectKnowledge.ts); tool runs cosine over the flat vector store, then calls `enrichWithGraphWalk(directHits, graph, { maxDepth, maxGraphHits })` to walk `SymbolGraph.getCallers` edges outward from each hit — so a query like "where is auth handled?" returns `requireAuth` plus every route that wraps it, tagged with `vector: 0.823` or `graph: called-by (1 hop from requireAuth)`. Gated behind `sidecar.projectKnowledge.enabled` (default `false` in v0.62 — flips to default-on in v0.63).
+v0.61+ opt-in semantic layer. Symbol-granularity sibling of the file-level `EmbeddingIndex` — same `@huggingface/transformers` MiniLM-L6-v2 model + 384-dim space (note: package renamed from `@xenova/transformers` to `@huggingface/transformers` in v0.83). `SymbolIndexer.setSymbolEmbeddings(index, maxSymbolsPerFile?)` wires the embedder so every parsed file feeds each extracted symbol's body into a debounced `queueSymbol` batch drain (500 ms window, 20/batch). Queried via the `project_knowledge_search` agent tool in [`src/agent/tools/projectKnowledge.ts`](src/agent/tools/projectKnowledge.ts); tool runs cosine over the flat vector store, then calls `enrichWithGraphWalk(directHits, graph, { maxDepth, maxGraphHits })` to walk `SymbolGraph.getCallers` edges outward from each hit — so a query like "where is auth handled?" returns `requireAuth` plus every route that wraps it, tagged with `vector: 0.823` or `graph: called-by (1 hop from requireAuth)`. Gated behind `sidecar.projectKnowledge.enabled` (default-on since v0.63).
 
 **v0.62 additions**:
-- **Vector backend abstraction** ([`src/config/vectorStore.ts`](src/config/vectorStore.ts)) — storage extracted into a `VectorStore<M>` interface with a `FlatVectorStore<M>` implementation. `sidecar.projectKnowledge.backend: 'flat' | 'lance'` reserves the Lance name for a future release.
+- **Vector backend abstraction** ([`src/config/vectorStore.ts`](src/config/vectorStore.ts)) — storage extracted into a `VectorStore<M>` interface with a `FlatVectorStore<M>` implementation. `sidecar.projectKnowledge.backend: 'flat' | 'lance'` reserves the Lance name for a future release. `FlatVectorStore` is also reused by `EpisodicMemoryStore` for session-scoped conversation context retrieval.
 - **`SemanticRetriever` migration** (`src/agent/retrieval/semanticRetriever.ts`) — prefers symbol-level hits from `SymbolEmbeddingIndex` when PKI is wired + ready + non-empty; falls back to file-level `rankFiles` when not.
 - **Merkle layer** ([`src/config/merkleTree.ts`](src/config/merkleTree.ts)) — content-addressed tree with SHA-256 leaf hashes + mean-pooled aggregated embeddings at file nodes. `SymbolEmbeddingIndex.setMerkleTree(tree)` replays persisted entries; `search` uses `descend(queryVec, k)` to pick candidate subtrees before scoring leaves. Gated by `sidecar.merkleIndex.enabled` (default `true`).
 - **RAG-eval** ([`src/test/retrieval-eval/`](src/test/retrieval-eval/)) — golden-case fixture + harness + metrics (precision@K, recall@K, F1@K, MRR). CI ratchet in `baseline.test.ts` gates retrieval quality against floor thresholds. LLM-judged `Faithfulness` + `AnswerRelevancy` layer under `tests/llm-eval/retrieval.eval.ts` runs with `npm run eval:llm`.
+
+**v0.84 additions**:
+- **Query rewriting** (`src/agent/retrieval/queryRewriter.ts`) — `rewriteQuery(text, mode, completeFn)` expands the user's retrieval query before it hits the vector store. Four modes: `'off'` (passthrough), `'rule'` (keyword extraction + camelCase split), `'llm'` (LLM-generated alternative phrasings), `'expand'` (rule + LLM combined). Controlled by `sidecar.retrievalQueryRewrite`. Called in `systemPrompt.ts` before the retriever fusion step.
+- **Chunk-level prose retrieval** — prose documents (README, markdown files) are now chunked and indexed at the paragraph level rather than file level, enabling the retriever to return the specific section relevant to the query rather than the whole file.
 
 ### HuggingFace Model Import (`src/ollama/huggingface.ts` + `hfSafetensorsImport.ts`)
 

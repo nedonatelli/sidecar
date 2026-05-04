@@ -172,6 +172,16 @@ export async function applyBudgetCompression(client: SideCarClient, state: LoopS
       state.logger?.info(
         `Conversation summarized: ${summarized.metadata.turnsSummarized}/${summarized.metadata.turnsCount} turns compressed, freed ${summarized.freedChars} chars`,
       );
+
+      // Index the batch summary in episodic memory so semantically
+      // relevant prior context can be retrieved in future turns.
+      const summaryMsg = summarized.messages[0];
+      const summaryText = summaryMsg && typeof summaryMsg.content === 'string' ? summaryMsg.content : '';
+      if (summaryText) {
+        await state.episodicMemory.add(summaryText, summarized.metadata.turnsSummarized).catch((err: unknown) => {
+          state.logger?.info(`Episodic memory indexing failed: ${err instanceof Error ? err.message : String(err)}`);
+        });
+      }
     }
 
     // 2. Compress tool results too — targets different content than

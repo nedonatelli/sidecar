@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { EpisodicMemoryStore } from '../episodicMemory.js';
 
 // ---------------------------------------------------------------------------
 // Tests for compression.ts (loop helper hardening).
@@ -65,6 +66,7 @@ function stubState(overrides: Partial<LoopState> = {}): LoopState {
     totalChars: 0,
     lastActualInputTokens: undefined,
     recentToolCalls: [],
+    episodicMemory: new EpisodicMemoryStore(),
     recentNormalizedCalls: [],
     autoFixRetriesByFile: new Map(),
     stubFixRetries: 0,

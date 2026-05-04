@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { EpisodicMemoryStore } from '../episodicMemory.js';
 import { pushAssistantMessage, pushToolResultsMessage, accountToolTokens, capToolResults } from './messageBuild.js';
 import type { LoopState } from './state.js';
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/types.js';
@@ -32,6 +33,7 @@ function stubState(overrides: Partial<LoopState> = {}): LoopState {
     iteration: 1,
     totalChars: 0,
     recentToolCalls: [],
+    episodicMemory: new EpisodicMemoryStore(),
     recentNormalizedCalls: [],
     autoFixRetriesByFile: new Map(),
     stubFixRetries: 0,

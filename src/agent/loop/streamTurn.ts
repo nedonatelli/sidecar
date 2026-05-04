@@ -1,5 +1,6 @@
 import type { SideCarClient } from '../../ollama/client.js';
 import type { StreamEvent, ToolUseContentBlock } from '../../ollama/types.js';
+import { getContentText } from '../../ollama/types.js';
 import type { AgentCallbacks } from '../loop.js';
 import type { LoopState } from './state.js';
 import { parseTextToolCalls, stripRepeatedContent } from './textParsing.js';
@@ -58,6 +59,31 @@ export interface TurnResult {
 const REQUEST_TIMEOUT_SENTINEL = '__REQUEST_TIMEOUT__';
 
 /**
+ * Query the session's episodic memory store and return a formatted
+ * `<prior_context>` block to append to the system prompt, or
+ * `undefined` when the store is empty or no hits clear the similarity
+ * floor. The query text is derived from the last real user message in
+ * the current history (tool_result messages are skipped).
+ */
+async function buildEpisodicAddon(client: SideCarClient, state: LoopState): Promise<string | undefined> {
+  if (state.episodicMemory.isEmpty()) return undefined;
+
+  let queryText = '';
+  for (let i = state.messages.length - 1; i >= 0; i--) {
+    const msg = state.messages[i];
+    if (msg.role !== 'user') continue;
+    const text = typeof msg.content === 'string' ? msg.content : getContentText(msg.content);
+    if (text.trim()) {
+      queryText = text;
+      break;
+    }
+  }
+  if (!queryText) return undefined;
+
+  return state.episodicMemory.buildContextBlock(queryText).catch(() => undefined);
+}
+
+/**
  * Stream the next model turn. Handles abort, request timeout, and
  * the full event-type switch (text, thinking, warning, tool_use,
  * stop). Mutates `state.totalChars` for text/thinking chunks and
@@ -89,7 +115,16 @@ export async function streamOneTurn(
   // gates tools out of the first request.
   const iterTools = state.approvalMode === 'plan' && state.iteration === 1 ? [] : state.tools;
 
-  const stream = client.streamChat(state.messages, signal, iterTools, state.systemPromptOverride);
+  // Augment the system prompt with retrieved episodic context when the
+  // store has relevant prior summaries. Falls back gracefully — if
+  // episodic retrieval errors or returns nothing, the original prompt
+  // (or override) is used unchanged.
+  const episodicAddon = await buildEpisodicAddon(client, state);
+  const effectiveSystemPrompt = episodicAddon
+    ? (state.systemPromptOverride ?? client.getSystemPrompt()) + '\n\n' + episodicAddon
+    : state.systemPromptOverride;
+
+  const stream = client.streamChat(state.messages, signal, iterTools, effectiveSystemPrompt);
   const iter = stream[Symbol.asyncIterator]();
   let receivedFirstToken = false;
   try {
