@@ -92,24 +92,15 @@ describe('PostgresProvider', () => {
   // ---- listTables ----------------------------------------------------------
 
   it('listTables returns TableInfo[] with row counts', async () => {
-    const tablesRows = [
-      { table_name: 'users', table_schema: 'public' },
-      { table_name: 'orders', table_schema: 'public' },
+    // The new listTables uses a single JOIN query that returns table_name,
+    // table_schema, and reltuples in each row — no separate per-table COUNT queries.
+    const joinedRows = [
+      { table_name: 'users', table_schema: 'public', reltuples: 100 },
+      { table_name: 'orders', table_schema: 'public', reltuples: 55 },
     ];
 
     mockPool = {
-      query: vi.fn(async (sql: string, params?: unknown[]) => {
-        if (sql.includes('information_schema.tables')) {
-          return { rows: tablesRows, fields: [] };
-        }
-        if (sql.includes('pg_class') && Array.isArray(params) && params.includes('users')) {
-          return { rows: [{ reltuples: 100 }], fields: [] };
-        }
-        if (sql.includes('pg_class') && Array.isArray(params) && params.includes('orders')) {
-          return { rows: [{ reltuples: 55 }], fields: [] };
-        }
-        return { rows: [], fields: [] };
-      }),
+      query: vi.fn(async () => ({ rows: joinedRows, fields: [] })),
       end: vi.fn().mockResolvedValue(undefined),
     };
 

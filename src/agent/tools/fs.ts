@@ -10,24 +10,8 @@ import {
   type RegisteredTool,
 } from './shared.js';
 import { compactSourceFile, outlineSourceFile } from './compression.js';
-import { getConfig } from '../../config/settings.js';
 import { getDefaultAuditBuffer } from '../audit/auditBuffer.js';
-
-/**
- * True when Audit Mode is active — writes should buffer, reads should
- * read-through the buffer for buffered paths. Checked per-call so the
- * user flipping agentMode mid-session takes effect on the next tool
- * dispatch. Returns false when no context is available or the mode
- * isn't `audit`, so tools that don't check this fall through to the
- * real-disk path unchanged.
- */
-function isAuditModeActive(context?: ToolExecutorContext): boolean {
-  try {
-    return (context?.config ?? getConfig()).agentMode === 'audit';
-  } catch {
-    return false;
-  }
-}
+import { isAuditModeActive } from './auditHelper.js';
 
 /**
  * Read buffered content for a workspace-relative path if Audit Mode

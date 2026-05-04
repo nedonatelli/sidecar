@@ -1,4 +1,5 @@
 import { workspace, Uri } from 'vscode';
+import * as fs from 'fs';
 
 /**
  * Streaming file reader for handling large files efficiently.
@@ -22,6 +23,23 @@ export interface StreamingReadOptions {
 const DEFAULT_CHUNK_SIZE = 8 * 1024; // 8KB chunks
 const DEFAULT_SUMMARY_HEAD = 50;
 const DEFAULT_SUMMARY_TAIL = 30;
+// Generous per-line byte estimate for ranged head/tail reads.
+// Over-reading is harmless; under-reading would truncate lines.
+const AVG_LINE_BYTES = 200;
+
+/** Read [startByte, endByte) from a local file path using a file descriptor. */
+async function readFileRange(filePath: string, startByte: number, endByte: number): Promise<string> {
+  const length = endByte - startByte;
+  if (length <= 0) return '';
+  const fd = await fs.promises.open(filePath, 'r');
+  try {
+    const buf = Buffer.alloc(length);
+    const { bytesRead } = await fd.read(buf, 0, length, startByte);
+    return buf.slice(0, bytesRead).toString('utf-8');
+  } finally {
+    await fd.close();
+  }
+}
 
 /**
  * Read a file with support for streaming large files.
@@ -59,17 +77,50 @@ export async function readFileStreaming(
       };
     }
 
-    // For large files, use summary mode to get head + tail
+    // For large files, use summary mode to get head + tail.
+    // For local file:// URIs, use byte-offset reads so we never pull the
+    // full file into memory. For other URI schemes (vscode-vfs://, etc.)
+    // fall back to a full read since the fs module can't seek them.
     if (summaryMode || totalBytes > maxBytes) {
-      const bytes = await workspace.fs.readFile(fileUri);
-      const fullContent = Buffer.from(bytes).toString('utf-8');
-      const lines = fullContent.split('\n');
       isComplete = false;
       truncated = true;
 
-      const headLines = lines.slice(0, summaryHeadLines);
-      const tailLines = lines.slice(Math.max(0, lines.length - summaryTailLines));
-      const omittedCount = Math.max(0, lines.length - summaryHeadLines - summaryTailLines);
+      let headLines: string[];
+      let tailLines: string[];
+      let omittedCount: number;
+
+      if (fileUri.scheme === 'file') {
+        const headBudget = summaryHeadLines * AVG_LINE_BYTES;
+        const tailBudget = summaryTailLines * AVG_LINE_BYTES;
+
+        const [headChunk, tailChunk] = await Promise.all([
+          readFileRange(fileUri.fsPath, 0, Math.min(headBudget, totalBytes)),
+          readFileRange(fileUri.fsPath, Math.max(0, totalBytes - tailBudget), totalBytes),
+        ]);
+
+        const allHead = headChunk.split('\n');
+        headLines = allHead.length > summaryHeadLines ? allHead.slice(0, summaryHeadLines) : allHead;
+
+        const allTail = tailChunk.split('\n');
+        // First element may be a partial line — drop it only when the read
+        // didn't start at byte 0 (i.e. the tail window didn't cover the whole file).
+        const tailStart = totalBytes > tailBudget && allTail.length > summaryTailLines ? 1 : 0;
+        const rawTail = allTail.slice(tailStart);
+        tailLines = rawTail.length > summaryTailLines ? rawTail.slice(rawTail.length - summaryTailLines) : rawTail;
+
+        // Exact omitted count is unknown without a full read; use byte ratio as estimate.
+        const headEndByte = headLines.join('\n').length;
+        const tailStartByte = totalBytes - tailLines.join('\n').length;
+        const omittedBytes = Math.max(0, tailStartByte - headEndByte);
+        omittedCount = Math.round((omittedBytes / totalBytes) * (headLines.length + tailLines.length + 20));
+      } else {
+        const bytes = await workspace.fs.readFile(fileUri);
+        const fullContent = Buffer.from(bytes).toString('utf-8');
+        const lines = fullContent.split('\n');
+        headLines = lines.slice(0, summaryHeadLines);
+        tailLines = lines.slice(Math.max(0, lines.length - summaryTailLines));
+        omittedCount = Math.max(0, lines.length - summaryHeadLines - summaryTailLines);
+      }
 
       const summary = [...headLines, `\n... (${omittedCount} lines omitted) ...\n`, ...tailLines].join('\n');
 

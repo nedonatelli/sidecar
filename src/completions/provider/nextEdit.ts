@@ -273,6 +273,7 @@ export class NextEditEngine implements Disposable {
   // ---------------------------------------------------------------------------
 
   dispose(): void {
+    if (this.debounceTimer !== null) clearTimeout(this.debounceTimer);
     this.dismiss();
     this.sameFileDecoration.dispose();
     this.statusBar.dispose();

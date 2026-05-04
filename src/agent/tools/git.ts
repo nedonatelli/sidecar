@@ -4,29 +4,10 @@ import type { ToolDefinition } from '../../ollama/types.js';
 import { GitCLI } from '../../github/git.js';
 import { getRoot, formatToolError, type ToolExecutorContext, type RegisteredTool } from './shared.js';
 import { compressGitDiff } from './compression.js';
-import { getConfig } from '../../config/settings.js';
 import { getDefaultAuditBuffer } from '../audit/auditBuffer.js';
+import { shouldBufferCommits } from './auditHelper.js';
 
 const execAsync = promisify(exec);
-
-/**
- * Audit Mode v0.61 a.4: when the agent is running in audit mode and
- * `sidecar.audit.bufferGitCommits` is on, the `git_commit` tool call
- * queues the commit into the audit buffer instead of executing it.
- * The commit runs as part of the same flush that lands the buffered
- * file writes, so the user sees one atomic accept boundary.
- *
- * False when either check fails — settings read is guarded so a
- * broken workspace config can't throw on the hot commit path.
- */
-function shouldBufferCommits(context?: ToolExecutorContext): boolean {
-  try {
-    const cfg = context?.config ?? getConfig();
-    return cfg.agentMode === 'audit' && cfg.auditBufferGitCommits === true;
-  } catch {
-    return false;
-  }
-}
 
 // Git tools: thin wrappers over GitCLI. Keeping the full family grouped
 // here makes it easy to reason about which subcommands we expose vs. the

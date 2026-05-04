@@ -232,7 +232,7 @@ export class SqliteProvider implements DatabaseProvider {
     return {
       columns,
       rows,
-      rowCount: rows.length,
+      rowCount: rawRows.length,
       truncated,
     };
   }

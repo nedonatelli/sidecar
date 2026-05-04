@@ -364,8 +364,7 @@ export class SymbolIndexer implements Disposable {
   dispose(): void {
     if (this.persistTimer) {
       clearTimeout(this.persistTimer);
-      // Final persist on dispose
-      this.persist();
+      void this.persist();
     }
     if (this.updateTimer) {
       clearTimeout(this.updateTimer);

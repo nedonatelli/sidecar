@@ -323,7 +323,7 @@ describe('SqliteProvider', () => {
     const result = await provider.query('SELECT id FROM users', [], { limit: 5 });
 
     expect(result.rows).toHaveLength(5);
-    expect(result.rowCount).toBe(5);
+    expect(result.rowCount).toBe(10); // raw count before slice
     expect(result.truncated).toBe(true);
   });
 

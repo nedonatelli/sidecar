@@ -51,12 +51,15 @@ const STOP_WORDS = new Set([
   'they',
 ]);
 
+const CAMEL_SPLIT_RE = /([a-z])([A-Z])/g;
+const NON_ALNUM_RE = /[^a-z0-9]+/;
+
 /** Split text into lowercased tokens, splitting on camelCase, snake_case, kebab-case, paths, and punctuation. */
 function tokenize(text: string): string[] {
   return text
-    .replace(/([a-z])([A-Z])/g, '$1 $2') // camelCase → camel Case
+    .replace(CAMEL_SPLIT_RE, '$1 $2')
     .toLowerCase()
-    .split(/[^a-z0-9]+/)
+    .split(NON_ALNUM_RE)
     .filter((t) => t.length >= 2 && !STOP_WORDS.has(t));
 }
 const INDEX_CACHE_FILE = 'cache/workspace-index.json';
@@ -694,9 +697,9 @@ export class WorkspaceIndex implements Disposable {
         if (pathTokenSet.has(qw)) {
           matches += 1;
         } else {
-          // Substring match on any path token (catches partial words)
+          // Prefix match on any path token (catches partial words, avoids mid-word false positives)
           for (const pt of pathTokens) {
-            if (pt.length >= 3 && (pt.includes(qw) || qw.includes(pt))) {
+            if (pt.length >= 3 && (pt.startsWith(qw) || qw.startsWith(pt))) {
               matches += 0.5;
               break;
             }

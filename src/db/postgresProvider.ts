@@ -138,34 +138,27 @@ export class PostgresProvider implements DatabaseProvider {
     const pool = this.requirePool();
     const targetSchema = schema ?? 'public';
 
+    // Single join fetches table list + pg_class estimated row counts in one round-trip
+    // (previously N+1 queries). reltuples is a statistics estimate; it may be -1 when
+    // ANALYZE has never run, so we clamp negatives to undefined.
     const result = await pool.query(
-      `SELECT table_name, table_schema
-       FROM information_schema.tables
-       WHERE table_schema = $1
-         AND table_type = 'BASE TABLE'
-       ORDER BY table_name`,
+      `SELECT t.table_name, t.table_schema, c.reltuples::bigint AS reltuples
+       FROM information_schema.tables t
+       LEFT JOIN pg_class c ON c.relname = t.table_name
+         AND c.relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = t.table_schema)
+         AND c.relkind = 'r'
+       WHERE t.table_schema = $1
+         AND t.table_type = 'BASE TABLE'
+       ORDER BY t.table_name`,
       [targetSchema],
     );
 
-    const tables: TableInfo[] = [];
-    for (const rawRow of result.rows) {
-      const row = rawRow as unknown as InfoSchemaTablesRow;
-      let rowCount: number | undefined;
-      try {
-        const countResult = await pool.query(`SELECT reltuples::bigint AS reltuples FROM pg_class WHERE relname = $1`, [
-          row.table_name,
-        ]);
-        const cntRow = countResult.rows[0] as unknown as PgClassRow | undefined;
-        if (cntRow?.reltuples !== undefined && cntRow.reltuples !== null) {
-          rowCount = Number(cntRow.reltuples);
-        }
-      } catch {
-        rowCount = undefined;
-      }
-      tables.push({ name: row.table_name, schema: row.table_schema, rowCount });
-    }
-
-    return tables;
+    return result.rows.map((rawRow) => {
+      const row = rawRow as unknown as InfoSchemaTablesRow & { reltuples: string | number | null };
+      const reltuples = row.reltuples !== null && row.reltuples !== undefined ? Number(row.reltuples) : undefined;
+      const rowCount = reltuples !== undefined && reltuples >= 0 ? reltuples : undefined;
+      return { name: row.table_name, schema: row.table_schema, rowCount };
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -284,7 +277,7 @@ export class PostgresProvider implements DatabaseProvider {
     // Apply statement_timeout for this transaction via a wrapping DO block
     // is not possible in a pooled connection per-query, but we can set it
     // on the connection level using a separate query first.
-    if (opts.timeoutMs !== undefined) {
+    if (opts.timeoutMs !== undefined && Number.isInteger(opts.timeoutMs) && opts.timeoutMs > 0) {
       await pool.query(`SET statement_timeout = ${opts.timeoutMs}`);
     }
 
@@ -296,7 +289,7 @@ export class PostgresProvider implements DatabaseProvider {
 
     const columns = result.fields.map((f) => f.name);
 
-    return { columns, rows, rowCount: rows.length, truncated };
+    return { columns, rows, rowCount: result.rows.length, truncated };
   }
 
   // -------------------------------------------------------------------------
