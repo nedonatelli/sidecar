@@ -145,6 +145,7 @@ export class SymbolEmbeddingIndex implements Disposable {
    */
   private pendingQueue = new Map<string, SymbolEmbedInput>();
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
+  private drainedListener?: () => void;
   private static readonly FLUSH_DEBOUNCE_MS = 500;
   private static readonly FLUSH_BATCH_SIZE = 20;
   /**
@@ -458,6 +459,8 @@ export class SymbolEmbeddingIndex implements Disposable {
 
     if (this.pendingQueue.size > 0) {
       this.flushTimer = setTimeout(() => this.flushQueue(), SymbolEmbeddingIndex.FLUSH_DEBOUNCE_MS);
+    } else {
+      this.drainedListener?.();
     }
   }
 
@@ -611,6 +614,22 @@ export class SymbolEmbeddingIndex implements Disposable {
   /** Total number of indexed symbols. */
   getCount(): number {
     return this.store.size();
+  }
+
+  /** Number of symbols waiting to be embedded. Zero when the index is fully caught up. */
+  pendingCount(): number {
+    return this.pendingQueue.size;
+  }
+
+  /**
+   * Register a callback that fires each time the pending queue transitions
+   * from non-empty to empty (i.e. all queued symbols have been embedded).
+   * Useful for progress UX — callers check `getCount()` inside the callback
+   * to read the final count. Only one listener is supported; a second call
+   * replaces the first.
+   */
+  setOnDrained(cb: () => void): void {
+    this.drainedListener = cb;
   }
 
   /** Look up one symbol's metadata by ID. */

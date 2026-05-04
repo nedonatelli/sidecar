@@ -225,6 +225,10 @@ export class DocumentationIndexer {
     return Array.from(this.entries.values()).filter((e) => e.type === type);
   }
 
+  getAll(): DocumentationEntry[] {
+    return Array.from(this.entries.values());
+  }
+
   /**
    * Get count of indexed entries.
    */

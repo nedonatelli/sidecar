@@ -533,5 +533,58 @@ describe('SymbolEmbeddingIndex', () => {
         expect(meta).not.toBeNull();
       }
     });
+
+    it('pendingCount() reflects queue depth', async () => {
+      expect(index.pendingCount()).toBe(0);
+      index.queueSymbol(makeInput({ qualifiedName: 'a' }));
+      index.queueSymbol(makeInput({ qualifiedName: 'b' }));
+      expect(index.pendingCount()).toBe(2);
+      await index.flushQueueForTests();
+      expect(index.pendingCount()).toBe(0);
+    });
+
+    it('setOnDrained fires once the queue empties', async () => {
+      const drained = vi.fn();
+      index.setOnDrained(drained);
+
+      index.queueSymbol(makeInput({ qualifiedName: 'x' }));
+      expect(drained).not.toHaveBeenCalled();
+      await index.flushQueueForTests();
+      expect(drained).toHaveBeenCalledOnce();
+    });
+
+    it('setOnDrained fires again on subsequent drains', async () => {
+      const drained = vi.fn();
+      index.setOnDrained(drained);
+
+      index.queueSymbol(makeInput({ qualifiedName: 'first' }));
+      await index.flushQueueForTests();
+      expect(drained).toHaveBeenCalledTimes(1);
+
+      index.queueSymbol(makeInput({ qualifiedName: 'second' }));
+      await index.flushQueueForTests();
+      expect(drained).toHaveBeenCalledTimes(2);
+    });
+
+    it('setOnDrained replaces a previous listener', async () => {
+      const first = vi.fn();
+      const second = vi.fn();
+      index.setOnDrained(first);
+      index.setOnDrained(second);
+
+      index.queueSymbol(makeInput({ qualifiedName: 'q' }));
+      await index.flushQueueForTests();
+
+      expect(first).not.toHaveBeenCalled();
+      expect(second).toHaveBeenCalledOnce();
+    });
+
+    it('setOnDrained does not fire when queue is already empty', async () => {
+      const drained = vi.fn();
+      index.setOnDrained(drained);
+      // No symbols queued — flush is a no-op
+      await index.flushQueueForTests();
+      expect(drained).not.toHaveBeenCalled();
+    });
   });
 });

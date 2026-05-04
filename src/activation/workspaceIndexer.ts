@@ -87,7 +87,36 @@ export function initWorkspaceIndex(
                 `[SideCar] Merkle tree wired: rootHash=${symbolEmbeddings.getMerkleRoot().slice(0, 8) || '(empty)'}`,
               );
             }
-            console.log(`[SideCar] Symbol embedding index ready: ${symbolEmbeddings.getCount()} cached symbol vectors`);
+            const cachedCount = symbolEmbeddings.getCount();
+            console.log(`[SideCar] Symbol embedding index ready: ${cachedCount} cached symbol vectors`);
+
+            // Show a progress indicator while symbols are being embedded.
+            // On a cold start (no cache) this can take 30s–2min for large
+            // workspaces, so we keep the status bar item visible until the
+            // queue drains rather than letting it silently spin.
+            const wasFirstRun = cachedCount === 0;
+            const pkiStatus = window.createStatusBarItem(StatusBarAlignment.Left, 0);
+            pkiStatus.text = '$(loading~spin) SideCar: Indexing symbols…';
+            context.subscriptions.push(pkiStatus);
+
+            symbolEmbeddings.setOnDrained(() => {
+              const count = symbolEmbeddings.getCount();
+              pkiStatus.text = `$(check) SideCar PKI: ${count} symbols`;
+              pkiStatus.show();
+              setTimeout(() => pkiStatus.dispose(), 5_000);
+
+              if (wasFirstRun && !context.globalState.get<boolean>('sidecar.pkiIndexedFirst', false)) {
+                void context.globalState.update('sidecar.pkiIndexedFirst', true);
+                void window.showInformationMessage(
+                  `SideCar: Project Knowledge Index ready — ${count} symbols indexed. Future opens will be instant.`,
+                );
+              }
+            });
+
+            // Show the indicator before queuing files so users see it
+            // immediately rather than only after the first batch fires.
+            if (wasFirstRun) pkiStatus.show();
+
             for (const file of workspaceIndex.getFiles()) {
               symbolIndexer.queueUpdate(file.relativePath);
             }
