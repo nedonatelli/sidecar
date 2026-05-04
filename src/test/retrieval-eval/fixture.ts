@@ -291,18 +291,3 @@ export const FIXTURE_FILES: FixtureFile[] = [
 export function allFixtureSymbols(): Array<FixtureSymbol & { filePath: string }> {
   return FIXTURE_FILES.flatMap((f) => f.symbols.map((s) => ({ ...s, filePath: f.path })));
 }
-
-/**
- * Resolve a golden-dataset symbol reference (`filePath::qualifiedName`
- * or just `qualifiedName`) to the full fixture entry. Golden cases
- * sometimes reference by short name when the name is globally unique
- * in the fixture; this helper accepts either form.
- */
-export function findFixtureSymbol(ref: string): (FixtureSymbol & { filePath: string }) | undefined {
-  if (ref.includes('::')) {
-    const [filePath, qualifiedName] = ref.split('::');
-    return allFixtureSymbols().find((s) => s.filePath === filePath && s.qualifiedName === qualifiedName);
-  }
-  const matches = allFixtureSymbols().filter((s) => s.qualifiedName === ref);
-  return matches.length === 1 ? matches[0] : undefined;
-}

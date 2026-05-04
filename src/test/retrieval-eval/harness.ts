@@ -12,7 +12,7 @@
  * embedding backend.
  */
 
-import { SymbolEmbeddingIndex, type SymbolSearchResult } from '../../config/symbolEmbeddingIndex.js';
+import { SymbolEmbeddingIndex } from '../../config/symbolEmbeddingIndex.js';
 import { SymbolGraph, type SymbolEntry, type CallEdge } from '../../config/symbolGraph.js';
 import { MerkleTree } from '../../config/merkleTree.js';
 import { enrichWithGraphWalk } from '../../agent/tools/projectKnowledge.js';
@@ -234,22 +234,4 @@ export function scoreAllRelevantPresent(
     .filter((h): h is EvalHit => !!h)
     .map((h) => h.rank);
   return { hit: missing.length === 0, missing, foundAtRanks };
-}
-
-/**
- * Reusable search-result wrapper so scorers that want the
- * `SymbolSearchResult` shape (e.g. reciprocal-rank utilities) can
- * drop straight in.
- */
-export function hitsToSearchResults(hits: EvalHit[]): SymbolSearchResult[] {
-  return hits.map((h) => ({
-    symbolId: h.symbolId,
-    filePath: h.filePath,
-    qualifiedName: h.qualifiedName,
-    name: h.name,
-    kind: h.kind,
-    startLine: 0,
-    endLine: 0,
-    similarity: h.score,
-  }));
 }
