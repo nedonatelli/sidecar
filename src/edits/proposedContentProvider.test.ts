@@ -39,4 +39,9 @@ describe('ProposedContentProvider', () => {
     const uri = provider.addProposal('/x.ts', 'second');
     expect(provider.provideTextDocumentContent(uri)).toBe('second');
   });
+
+  it('exposes onDidChange event emitter', () => {
+    const provider = new ProposedContentProvider();
+    expect(provider.onDidChange).toBeDefined();
+  });
 });

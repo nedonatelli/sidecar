@@ -11,6 +11,7 @@ import {
   isCommitRequest,
   isShowDiffRequest,
   isDeferredAnswer,
+  isContinuationRequest,
   postLoopProcessing,
   handleCreateFile,
   handleMoveFile,
@@ -2237,5 +2238,84 @@ describe('updateWorkspaceRelevance', () => {
     updateWorkspaceRelevance(state as never, 'fix the login authentication problem');
     expect(state.workspaceIndex.decayRelevance).toHaveBeenCalled();
     expect(state.workspaceIndex.resetRelevance).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Guard-path coverage — early-return branches in messageUtils predicates
+// ---------------------------------------------------------------------------
+describe('isCommitRequest guard paths', () => {
+  it('returns false for empty string', () => {
+    expect(isCommitRequest('')).toBe(false);
+  });
+  it('returns false for slash-prefixed input', () => {
+    expect(isCommitRequest('/commit')).toBe(false);
+  });
+});
+
+describe('isShowDiffRequest guard paths', () => {
+  it('returns false for empty string', () => {
+    expect(isShowDiffRequest('')).toBe(false);
+  });
+  it('returns false when text exceeds 60 chars', () => {
+    expect(isShowDiffRequest('x'.repeat(61))).toBe(false);
+  });
+  it('returns false for slash-prefixed input', () => {
+    expect(isShowDiffRequest('/diff')).toBe(false);
+  });
+});
+
+describe('isDeferredAnswer guard paths', () => {
+  it('returns false for slash-prefixed input', () => {
+    expect(isDeferredAnswer('/your call')).toBe(false);
+  });
+});
+
+describe('isPlanRejection guard paths', () => {
+  it('returns false for slash-prefixed input', () => {
+    expect(isPlanRejection('/no')).toBe(false);
+  });
+});
+
+describe('isUndoRequest guard paths', () => {
+  it('returns false for empty string', () => {
+    expect(isUndoRequest('')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isContinuationRequest
+// ---------------------------------------------------------------------------
+describe('isContinuationRequest', () => {
+  it('recognises continuation words', () => {
+    expect(isContinuationRequest('continue')).toBe(true);
+    expect(isContinuationRequest('keep going')).toBe(true);
+    expect(isContinuationRequest('resume')).toBe(true);
+    expect(isContinuationRequest('go on')).toBe(true);
+  });
+
+  it('returns false for empty string', () => {
+    expect(isContinuationRequest('')).toBe(false);
+  });
+
+  it('returns false when text exceeds 30 chars', () => {
+    expect(isContinuationRequest('x'.repeat(31))).toBe(false);
+  });
+
+  it('returns false for slash-prefixed input', () => {
+    expect(isContinuationRequest('/continue')).toBe(false);
+  });
+
+  it('returns false for unrelated text', () => {
+    expect(isContinuationRequest('deploy to production')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveNumberedListRef — long-string guard
+// ---------------------------------------------------------------------------
+describe('resolveNumberedListRef guard paths', () => {
+  it('returns null when reference text exceeds 80 chars', () => {
+    expect(resolveNumberedListRef('x'.repeat(81), [])).toBeNull();
   });
 });

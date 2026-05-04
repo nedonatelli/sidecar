@@ -61,7 +61,6 @@ export interface SteerQueueOptions {
 }
 
 export const DEFAULT_MAX_PENDING = 5;
-export const DEFAULT_COALESCE_WINDOW_MS = 2000;
 
 const COALESCED_PREFIX = 'Your running instructions (most recent last):';
 

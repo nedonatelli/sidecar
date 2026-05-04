@@ -115,7 +115,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 
 ### Using with Anthropic API
 
-1. Click the ⚙ gear in the chat header → **Anthropic Claude** under Backend.
+1. Click the ☰ menu button in the chat header → **Anthropic Claude** under Backend.
 2. SideCar prompts for your API key on first switch — paste it and you're done.
 
 Or manually: set `sidecar.baseUrl` to `https://api.anthropic.com`, run `SideCar: Set / Refresh API Key`, and set `sidecar.model` to `claude-sonnet-4-6`.

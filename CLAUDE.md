@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-SideCar is a VS Code extension that turns local and cloud LLMs into a full agentic coding assistant. It supports Ollama, Anthropic, OpenAI-compatible servers, Kickstand, OpenRouter, Groq, and Fireworks as backends. The extension provides an agent loop with 55+ tools (file ops, shell, git, web search, vision, database, doc-to-test synthesis, PDF/Zotero, MCP), inline completions, code review, and a chat UI.
+SideCar is a VS Code extension that turns local and cloud LLMs into a full agentic coding assistant. It supports Ollama, Anthropic, OpenAI-compatible servers, Kickstand, OpenRouter, Groq, and Fireworks as backends. The extension provides an agent loop with 55+ tools (file ops, shell, git, web search, vision, database, doc-to-test synthesis, PDF/Zotero, MCP, Notebook Mode research), inline completions, code review, and a chat UI.
 
 ## Architecture diagrams (start here when onboarding)
 
@@ -72,19 +72,43 @@ SSE parsing for all OpenAI-compatible backends is shared in `openAiSseStream.ts`
 
 ### Agent Loop (`src/agent/`)
 
-`loop.ts` is the orchestrator — it was decomposed in v0.50 into `src/agent/loop/` submodules:
+`loop.ts` is the orchestrator. Its inner logic lives in `src/agent/loop/` submodules:
 
 - `streamTurn.ts` — stream one LLM turn, parse tool calls
-- `executeToolUses.ts` — parallel tool execution with approval
-- `compression.ts` — context pruning between turns
+- `executeToolUses.ts` — parallel tool execution with approval gates
+- `dispatchToolUses.ts` — lower-level tool dispatch (parallel + serial batching)
+- `compression.ts` — context pruning between turns (triggered at `CONTEXT_COMPRESSION_THRESHOLD`)
 - `cycleDetection.ts` — burst cap + repeated-action bail
 - `criticHook.ts` — adversarial critic injection after edits
 - `policyHook.ts` — extensible pre/post-turn hooks (HookBus)
+- `builtInHooks.ts` — built-in policy hooks (stub check, auto-fix, critic, gate)
+- `postTurnPolicies.ts` — post-turn policy application pipeline
 - `gate.ts` — completion gate (refuse to finish without lint/test)
 - `stubCheck.ts` — detect placeholder code in agent output
+- `autoFix.ts` — post-edit auto-lint and auto-fix
 - `textParsing.ts` — parse tool calls from model text output (qwen3, Hermes)
+- `routing.ts` — pre-turn role-based model routing hook
+- `messageBuild.ts` — construct tool-result messages before the next turn
+- `state.ts` — `LoopState` type shared across all submodules
+- `finalize.ts` — post-loop teardown and notification flush
+- `notifications.ts` — surface tool-result summaries and tool-budget warnings
+- `toolBudget.ts` — per-tool rate limiting (burst cap per tool per session)
+- `steerDrain.ts` — drain `SteerQueue` at iteration boundaries; fires abort on interrupt urgency
+- `multiFileEdit.ts` — bounded-parallel multi-file edit batching
 
 Tools are registered in `tools.ts` with definitions and executors. Each tool is a `{ definition: ToolDefinition, executor: (input, context) => Promise<string> }`. The second `context` parameter (`ToolExecutorContext`) carries per-call data: `onOutput` streaming callback, `signal` abort signal, `cwd` override (used by Shadow Workspaces), `client` reference, etc.
+
+### SteerQueue (`src/agent/steerQueue.ts`)
+
+Human-in-the-loop steer buffering. Users can submit follow-up instructions while the agent is deep in a tool call; submissions queue and drain at the next iteration boundary via `steerDrain.ts`. Two urgencies: `nudge` (drains at boundary) and `interrupt` (fires stream abort immediately). Multiple steers coalesce into one synthetic user turn. The `SteerQueueFullError` is thrown when the queue fills entirely with non-evictable interrupts. UI strip subscribes via `SteerQueue.onChange` for live rendering without polling.
+
+### Agent Memory (`src/agent/memory/`)
+
+`pinnedMemory.ts` — `PinnedMemoryStore` persists user-pinned notes and file snippets to `.sidecar/memory/`. Pinned entries are injected into the system prompt by `systemPrompt.ts` with always-include semantics. Entries are content-addressed by SHA-256 so identical content is deduplicated. The store is read at startup and written on every pin/unpin operation.
+
+### Notebook Mode (`src/agent/tools/notebook.ts`)
+
+Source-Grounded Research tool suite, gated by `sidecar.notebookModeEnabled`. Six tools: `ingest_source` (index a URL or local file), `generate_briefing` (multi-section doc), `generate_study_guide` (progressive Q&A), `generate_faq` (top-N cited FAQs), `generate_timeline` (chronological extraction), `generate_outline` (hierarchical topic tree). Sources are held in-memory per session; each artifact carries per-sentence citations back to the source. Wired into `notebookHandlers.ts` for the Notebook Mode chat panel.
 
 ### Shadow Workspaces (`src/agent/shadow/`)
 
@@ -165,17 +189,28 @@ Config: `sidecar.sidecarMd.{mode, alwaysIncludeHeadings, lowPriorityHeadings, ma
 
 `chatView.ts` — the WebviewViewProvider that hosts the chat panel. Routes incoming webview messages (typed union in `chatWebview.ts`) to handler modules:
 
-- `handlers/chatHandlers.ts` — main chat flow, context assembly, agent invocation (largest file, ~1900 lines)
+- `handlers/chatHandlers.ts` — thin orchestrator; pure logic extracted into submodules below
+- `handlers/messageUtils.ts` — continuation detection, intent classification, error taxonomy, workspace relevance, numbered-list reference resolution
+- `handlers/systemPrompt.ts` — base prompt assembly, context injection, message enrichment, `basePrompt.ts` (serialisable prompt builder)
+- `handlers/fileHandlers.ts` — file attach/drop/save/create/move/undo/revert
+- `handlers/agentCallbacks.ts` — agent-loop callback factory
+- `handlers/messageEnricher.ts` — enriches assistant messages with inline annotations
 - `handlers/modelHandlers.ts` — model install (Ollama pull, HF import, Kickstand pull/load)
+- `handlers/modelLoader.ts` — `loadModels()` and `formatContextLength()` pure helper
 - `handlers/agentHandlers.ts` — agent mode switching, background agents
 - `handlers/githubHandlers.ts` — GitHub operations
 - `handlers/sessionHandlers.ts` — session save/restore
+- `handlers/notebookHandlers.ts` — Notebook Mode cell execution and output
 
 The chat UI itself is vanilla HTML/JS/CSS in `media/chat.js` + `media/chat.css`.
 
 ### Configuration (`src/config/`)
 
 `settings.ts` — reads `workspace.getConfiguration('sidecar')`, manages SecretStorage for API keys, backend profile switching, and provider auto-detection from URL patterns.
+
+`constants.ts` — centralized tunable thresholds: `CONTEXT_COMPRESSION_THRESHOLD` (0.7 — loop triggers compression when estimated token usage exceeds 70% of budget), `LOCAL_CONTEXT_CAP` (32 768 — soft cap on local-model request size), `MODEL_CONTEXT_LENGTHS` (static lookup for cloud models), `PLAN_MODE_THRESHOLDS`, `INPUT_TOKEN_RATIO`.
+
+`tokenEstimation.ts` — lightweight token count estimator (`charsToTokens`, `estimateTokenCount`, `estimateConversationTokens`) that avoids shipping a full tokenizer. Used by `notifications.ts` and `compression.ts` to decide when to compress.
 
 `workspaceIndex.ts` — persistent file index with relevance scoring, cached in `.sidecar/cache/`.
 

@@ -47,14 +47,8 @@ import { notebookTools } from './tools/notebook.js';
 
 // Re-export types + value-level entrypoints that pre-split callers imported
 // straight from './tools.js'. Keeping these preserves the public surface.
-export type { ClarifyFn, ToolExecutorContext, ToolExecutor, RegisteredTool } from './tools/shared.js';
-export {
-  ToolRuntime,
-  getDefaultToolRuntime,
-  disposeShellSession,
-  setSymbolGraph,
-  setSymbolEmbeddings,
-} from './tools/runtime.js';
+export type { ClarifyFn, ToolExecutorContext, RegisteredTool } from './tools/shared.js';
+export { disposeShellSession, setSymbolGraph, setSymbolEmbeddings } from './tools/runtime.js';
 export { getDiagnostics } from './tools/diagnostics.js';
 
 const execFileAsync = promisify(execFile);

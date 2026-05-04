@@ -759,7 +759,7 @@
     vscode.postMessage({ command: 'compactContext' });
   });
 
-  // --- Settings menu (gear button in the header) ---
+  // --- Settings menu (☰ menu button in the header) ---
   // Replaces the old Export button — holds backend profile switching,
   // export, and an "Open settings" escape hatch. Values injected from
   // chatWebview.ts as window.__backendProfiles / window.__activeBackendProfileId.
@@ -805,7 +805,7 @@
   function closeSettingsMenu() {
     settingsMenu.classList.add('hidden');
     settingsBtn.setAttribute('aria-expanded', 'false');
-    // Return focus to the gear button so keyboard users and screen
+    // Return focus to the settings button so keyboard users and screen
     // readers don't lose their place after Escape or click-outside.
     settingsBtn.focus();
   }

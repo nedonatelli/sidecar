@@ -5,15 +5,6 @@ import { promisify } from 'util';
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
 
-export interface DepAnalysisResult {
-  packageManager: string;
-  totalDeps: number;
-  prodDeps: string[];
-  devDeps: string[];
-  unusedDeps: string[];
-  outdatedInfo: string;
-}
-
 /**
  * Analyze project dependencies — works for Node.js projects.
  * Returns dependency counts, lists, and checks for unused deps.

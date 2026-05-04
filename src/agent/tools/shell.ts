@@ -64,12 +64,6 @@ function getAgentTerminalExecutor(): AgentTerminalExecutor {
   return _defaultAgentTerminalExecutor;
 }
 
-/** Test-only hook to dispose the process-wide executor between runs. */
-export function disposeAgentTerminalExecutor(): void {
-  _defaultAgentTerminalExecutor?.dispose();
-  _defaultAgentTerminalExecutor = null;
-}
-
 /**
  * Try the shell-integrated terminal path first. Returns the result on
  * success or `null` if the feature is disabled / integration is absent,

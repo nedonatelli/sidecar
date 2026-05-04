@@ -2,12 +2,6 @@ import type { ChatMessage } from '../ollama/types.js';
 import { SideCarClient } from '../ollama/client.js';
 import { runAgentLoop, MAX_AGENT_DEPTH, type AgentCallbacks, type AgentOptions } from './loop.js';
 
-export interface SubAgentTask {
-  id: string;
-  task: string;
-  context?: string;
-}
-
 export interface SubAgentResult {
   id: string;
   task: string;

@@ -22,12 +22,6 @@ export const INPUT_TOKEN_RATIO = 0.7;
  */
 export const CONTEXT_COMPRESSION_THRESHOLD = 0.7;
 
-/**
- * Context budget: fraction of estimated context window to reserve for the system prompt.
- * The remaining budget is for conversation history + tool results.
- */
-export const SYSTEM_PROMPT_BUDGET_FRACTION = 0.5;
-
 /** Fallback max system prompt characters when model context length is unknown. */
 export const DEFAULT_MAX_SYSTEM_CHARS = 80_000;
 

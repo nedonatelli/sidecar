@@ -188,7 +188,7 @@ body {
   z-index: 100;
 }
 
-/* Settings menu — context menu anchored to the gear button in the header. */
+/* Settings menu — context menu anchored to the ☰ menu button in the header. */
 #settings-menu {
   position: absolute;
   top: 100%;
