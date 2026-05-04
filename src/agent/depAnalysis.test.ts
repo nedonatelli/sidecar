@@ -16,7 +16,9 @@ vi.mock('vscode', () => ({
   },
 }));
 
-// Mock child_process exec
+// Mock child_process — exec and execFile both fail by default so no
+// real subprocesses run in tests. Real promisify is used intentionally
+// so promisify(execFile)(file, args, opts) passes all args correctly.
 vi.mock('child_process', () => ({
   exec: vi.fn((cmd, opts, cb) => {
     process.nextTick(() => cb(new Error('exec disabled in tests')));
@@ -24,20 +26,6 @@ vi.mock('child_process', () => ({
   execFile: vi.fn((cmd, args, opts, cb) => {
     process.nextTick(() => cb(new Error('execFile disabled in tests')));
   }),
-}));
-
-// Mock util promisify
-vi.mock('util', () => ({
-  promisify: (fn: (cmd: string, opts: Record<string, unknown>, cb: (err: Error | null) => void) => void) => {
-    return async (cmd: string, opts?: Record<string, unknown>) => {
-      return new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-        fn(cmd, opts || {}, (err) => {
-          if (err) reject(err);
-          else resolve({ stdout: '', stderr: '' });
-        });
-      });
-    };
-  },
 }));
 
 import * as vscode from 'vscode';

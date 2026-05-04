@@ -1,16 +1,16 @@
 import { window, workspace } from 'vscode';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { scanContent, formatIssues, type SecurityIssue } from './securityScanner.js';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 /**
  * Get list of staged file paths from git.
  */
 async function getStagedFiles(cwd: string): Promise<string[]> {
   try {
-    const { stdout } = await execAsync('git diff --cached --name-only --diff-filter=ACM', {
+    const { stdout } = await execFileAsync('git', ['diff', '--cached', '--name-only', '--diff-filter=ACM'], {
       cwd,
       timeout: 10_000,
     });
@@ -38,8 +38,10 @@ export async function scanStagedFiles(): Promise<{ issues: SecurityIssue[]; scan
 
   for (const filePath of stagedFiles) {
     try {
-      // Read the staged version of the file (not the working copy)
-      const { stdout } = await execAsync(`git show ":${filePath}"`, {
+      // Read the staged version of the file (not the working copy).
+      // Use execFile (no shell) so filenames with spaces or special chars
+      // don't become shell metacharacters.
+      const { stdout } = await execFileAsync('git', ['show', `:${filePath}`], {
         cwd,
         timeout: 10_000,
         maxBuffer: 1024 * 1024,

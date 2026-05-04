@@ -3,24 +3,24 @@ import { workspace, window } from 'vscode';
 import { scanStagedFiles, runPreCommitScan } from './preCommitScan.js';
 import { scanContent } from './securityScanner.js';
 
-// Mock exec so tests don't invoke a real git process
+// Mock execFile so tests don't invoke a real git process
 vi.mock('child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('child_process')>();
-  return { ...actual, exec: vi.fn() };
+  return { ...actual, execFile: vi.fn() };
 });
 
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 
-type ExecCallback = (err: Error | null, result?: { stdout: string; stderr: string }) => void;
+type ExecFileCallback = (err: Error | null, result?: { stdout: string; stderr: string }) => void;
 function mockExecOk(stdout: string) {
-  vi.mocked(exec).mockImplementationOnce((_cmd, _opts, cb) => {
-    (cb as unknown as ExecCallback)(null, { stdout, stderr: '' });
+  vi.mocked(execFile).mockImplementationOnce((_cmd, _args, _opts, cb) => {
+    (cb as unknown as ExecFileCallback)(null, { stdout, stderr: '' });
     return {} as never;
   });
 }
 function mockExecFail() {
-  vi.mocked(exec).mockImplementationOnce((_cmd, _opts, cb) => {
-    (cb as unknown as ExecCallback)(new Error('git error'));
+  vi.mocked(execFile).mockImplementationOnce((_cmd, _args, _opts, cb) => {
+    (cb as unknown as ExecFileCallback)(new Error('git error'));
     return {} as never;
   });
 }

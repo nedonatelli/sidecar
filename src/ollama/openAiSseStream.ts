@@ -127,7 +127,6 @@ export async function* streamOpenAiSse(
     throw new Error(`${providerLabel} API returned an empty response body`);
   }
 
-  console.log(`[SideCar] Starting ${providerLabel} SSE stream parsing`);
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   const thinkState: ThinkTagState = { insideThinkTag: false };

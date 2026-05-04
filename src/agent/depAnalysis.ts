@@ -1,8 +1,9 @@
 import { workspace, Uri } from 'vscode';
-import { exec } from 'child_process';
+import { exec, execFile } from 'child_process';
 import { promisify } from 'util';
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 export interface DepAnalysisResult {
   packageManager: string;
@@ -123,8 +124,9 @@ async function findUnusedNodeDeps(deps: string[], cwd: string): Promise<string[]
   const unused: string[] = [];
   for (const dep of deps) {
     try {
-      const { stdout } = await execAsync(
-        `grep -r "${dep}" src/ --include="*.ts" --include="*.js" --include="*.tsx" --include="*.jsx" -l`,
+      const { stdout } = await execFileAsync(
+        'grep',
+        ['-r', dep, 'src/', '--include=*.ts', '--include=*.js', '--include=*.tsx', '--include=*.jsx', '-l'],
         { cwd, timeout: 10_000 },
       );
       if (!stdout.trim()) unused.push(dep);
