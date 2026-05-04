@@ -1,6 +1,6 @@
 # SideCar Roadmap
 
-**Current release: v0.83.0** — NoSQL MCP install, `extension.ts` decomposition (135 lines), perf fixes (symbol graph, vector store, BFS deque, workspace rank), MCP tool allowlist, log redaction, WCAG AA accessibility. See [CHANGELOG](CHANGELOG.md) for full notes.
+**Current release: v0.84.0** — Retrieval intelligence (query rewriting, chunk-level prose retrieval), active file context bar, normalized cycle detection, sync I/O elimination, and 12 bug/hardening fixes. See [CHANGELOG](CHANGELOG.md) for full notes.
 
 **Coverage floor**: ≥80/70/80/80 (stmts/branches/funcs/lines) enforced by CI. No PR merges that drop any metric.
 
@@ -12,6 +12,7 @@
 
 | Version | Headline |
 |---|---|
+| v0.84 | Query rewriting · chunk retrieval · active file bar · normalized cycle detection · sync I/O · 12 fixes |
 | v0.83 | NoSQL MCP install · `extension.ts` decomposition · perf fixes · MCP allowlist · WCAG AA |
 | v0.82 | NotebookLM research mode · token estimation · image compression · compression anchor · SpendTracker persistence |
 | v0.81 | Conversational shortcuts · plan-mode fixes · `sidecar.generateSidecarMd` · backend checkmark fix |

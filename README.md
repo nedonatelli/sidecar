@@ -88,7 +88,8 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 | **Typed Sub-Agent Facets** | Dispatch named specialists (`test-author`, `security-reviewer`, etc.) in parallel, each with its own tool allowlist and preferred model |
 | **Fork & Parallel Solve** | `/fork <task>` runs N parallel agent approaches; pick-the-winner review UI |
 | **NotebookLM research mode** | `/notebook` — source-grounded chat with mandatory inline citations and five study-aid generators |
-| **Project Knowledge Index** | Semantic search over every function/class in your workspace via tree-sitter + MiniLM embeddings |
+| **Project Knowledge Index** | Semantic search over every function/class in your workspace via tree-sitter + MiniLM embeddings; chunk-level retrieval for prose docs |
+| **Active file context bar** | Pill above the chat input — one click includes or excludes the currently open file from agent context |
 | **Adversarial Critic** | Second LLM call after every edit that finds bugs, regressions, and security issues — blocks the turn on high-severity findings |
 | **Completion gate** | Blocks the agent from declaring done until lint and colocated tests for edited files have actually run |
 | **SIDECAR.md** | Path-scoped project instructions — sections inject only when the active file matches their `@paths` glob |

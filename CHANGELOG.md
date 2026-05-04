@@ -4,6 +4,40 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.84.0] - 2026-05-04
+
+**v0.84.0 — Retrieval intelligence, context UX, loop hardening, and codebase hardening.**
+
+### Added
+
+- **Active file context bar** — a pill above the chat input shows the currently open file; one click includes or excludes it from context without opening a file picker. Updates on every editor focus change.
+- **PKI first-run UX** — a `$(loading~spin)` status bar item tracks symbol-indexing progress on cold start; a one-time information message fires when the index drains for the first time (`globalState`-gated so it never re-appears).
+- **Query rewriting for retrieval** — `sidecar.retrieval.queryRewrite` (`off` | `rule` | `llm` | `expand`, default `rule`). Rule mode expands with synonyms; LLM mode rewrites the query with the model for semantic broadening; expand emits multiple parallel query variants. All modes feed into the existing retriever fusion pipeline.
+- **Chunk-level prose retrieval** — `TextChunker` splits plain text and Markdown into overlapping fixed-size chunks; `ChunkRetriever` indexes and searches them. `DocRetriever` and `MemoryRetriever` now use chunk-level hits instead of whole-file scoring.
+- **Normalized-signature cycle detection** — a second ring buffer strips secondary tool arguments (edit content, line ranges, flags) to `name:primaryResource`. Fires at 3 consecutive matches — one fewer than the exact-match threshold — catching "same file, different edit content" loops that the exact checker misses.
+
+### Fixed
+
+- **`FlatVectorStore` post-persist metadata corruption** — `persist()` was writing the storage-internal `offset` field into the metadata object stored in `entriesById`, so subsequent reads of `M`-typed metadata would find a spurious `offset` key mixed in.
+- **`BackgroundAgentManager.onOutput` crash** — a disposed webview throws when the extension posts to it; that exception propagated into `runAgentLoop`'s catch block and marked a still-executing run as `'failed'`.
+- **`multiFileEdit` layer index mis-alignment** — after filtering `null` tasks returned by `buildLayerTask`, the index used to look up the corresponding `PlannedEdit` was off; edits on plan-invented paths silently attributed errors to the wrong file.
+- **`compression.ts` thinking-block truncation overflow** — suffix was appended *after* slicing to `maxThinkingChars`, producing a string that exceeded the cap by `suffix.length` characters.
+- **`conversationSummarizer` missed turn boundaries** — `splitIntoTurns` checked `typeof msg.content === 'string'` to detect user turns, missing messages with `ContentBlock[]` content (e.g. image attachments); those turns were merged into the preceding assistant turn for summarization.
+- **`postgresProvider` FK references wrong column** — the foreign-key metadata query selected `kcu.column_name` (local column) for both the local and referenced sides; the fix adds `ccu.column_name AS referenced_column` to the SELECT and uses it in the `fkMap`.
+- **`vizSpec` bar chart crash on empty data** — `Math.max(...[])` returns `-Infinity` when the filtered numeric array is empty; chart bar heights became `NaN`. Guard added: fall back to `1` when no numeric values are present.
+- **`github/api` GraphQL silent undefined** — a response with neither `data` nor `errors` returned `undefined` cast to `T`; callers received a well-typed but undefined value. Now throws a descriptive error.
+- **`ciFailure` self-comparison tautology** — step-merge condition checked `range.lines === range.lines` (always true) instead of `last.lines === range.lines`; the intended check was whether consecutive errors share the same step's accumulated log lines.
+- **`streamTurn` thinking-store errors swallowed** — `thinkingStore.append` errors were caught and discarded with no log; failures are now surfaced via `console.warn`.
+- **Skill command name XSS** — skill names and descriptions were interpolated directly into `innerHTML` in the slash-command autocomplete; replaced with `textContent` assignment.
+- **Shell injection hardening** — removed unsafe string interpolation in tool command paths; `run_command` argument paths are now validated before shell dispatch.
+- **SQL `db_query` allowlist bypass** — read-only connection profiles were not enforcing the DML/DDL allowlist; `db_execute` path was reachable through `db_query` with a crafted statement.
+- **SSRF validation, null-assertion removal, event listener cleanup** — additional pre-v1.0 hardening pass.
+
+### Changed
+
+- **All sync I/O replaced with async** — every `readFileSync`, `writeFileSync`, `mkdirSync`, `existsSync`, `readdirSync`, and `statSync` call in source (outside test helpers) converted to `fs.promises` equivalents. Eliminates main-thread blocking during activation, file indexing, and tool execution.
+- **Coverage floor enforced** — statement / branch / function / line thresholds set to 80/70/80/80 in CI; currently at or above on all metrics.
+
 ## [0.83.0] - 2026-05-02
 
 **v0.83.0 — Architecture integrity, NoSQL MCP, performance fixes, and accessibility.**
