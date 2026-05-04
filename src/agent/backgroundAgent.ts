@@ -161,7 +161,12 @@ export class BackgroundAgentManager implements Disposable {
         {
           onText: (text) => {
             run.output += text;
-            this.callbacks.onOutput(run.id, text);
+            try {
+              this.callbacks.onOutput(run.id, text);
+            } catch {
+              // UI callbacks can throw if the webview is disposed mid-run;
+              // don't let that propagate into the loop and mark the run failed.
+            }
           },
           onToolCall: (name) => {
             run.toolCalls++;
