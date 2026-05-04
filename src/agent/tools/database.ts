@@ -20,6 +20,7 @@ import { connectionManager } from '../../db/connectionManager.js';
 import { getDefaultAuditBuffer } from '../audit/auditBuffer.js';
 import type { RegisteredTool } from './shared.js';
 import type { ConnectionProfile, QueryResult } from '../../db/provider.js';
+import { assertReadOnly } from '../../db/provider.js';
 import { getRoot } from './shared.js';
 
 const execFileAsync = promisify(execFile);
@@ -213,6 +214,15 @@ async function dbQuery(
 
   if (!connectionId) return 'Error: connection_id is required';
   if (!sql) return 'Error: sql is required';
+
+  // db_query is always read-only regardless of connection profile — enforce
+  // this at the tool tier so read-write connections can't be used as a
+  // write path that bypasses the db_execute approval gate.
+  try {
+    assertReadOnly(sql);
+  } catch (err) {
+    return `Error: ${err instanceof Error ? err.message : String(err)}`;
+  }
 
   const profile = findProfile(connectionId, config);
   if (!profile) return `Error: no database profile found with id "${connectionId}"`;
