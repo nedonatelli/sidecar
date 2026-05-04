@@ -19,6 +19,7 @@ Before diving into the prose architecture below, skim these four Mermaid diagram
 
 - [`SECURITY.md`](SECURITY.md) — threat model, vulnerability disclosure path, secret-pattern catalog (`SECRET_PATTERNS_VERSION`), and explicit list of what SideCar does NOT defend against. Read this before shipping any change that touches tool dispatch, MCP, critic, or the secret scanner.
 - [`docs/extending-sidecar.md`](docs/extending-sidecar.md) — the four extension surfaces (skills, custom tools, MCP servers, policy hooks). Trust semantics per surface; authoring examples; known gaps in the current plugin story.
+- [`docs/adr/`](docs/adr/) — Architecture Decision Records (ADRs 001–005): local-first via Ollama, stateful agent loop, shadow workspace isolation, FlatVectorStore choice, typed facets. Use the README template when recording new significant decisions.
 
 ## Commands
 
@@ -47,7 +48,7 @@ Pre-commit hooks (lint-staged via husky) run `prettier --write`, `eslint --max-w
 
 ### Extension Entry Point
 
-`src/extension.ts` — activates all subsystems: chat webview, terminal manager, MCP servers, workspace indexer, symbol graph, skill loader, completion provider, scheduled tasks, event hooks, and registers all commands. This is a large file but orchestration-only; logic lives in the subsystem modules.
+`src/extension.ts` — 135-line orchestrator that activates all subsystems and registers commands. Logic is fully extracted into focused modules under `src/activation/` (baseSetup, servicesInit, mcpSetup, warmup, workspaceIndexer, chatViewSetup, editorFeatures) and `src/commands/` (autoMode, settings, agent, prAndReview). `src/ui/statusBar.ts` owns status-bar state.
 
 ### Backend Abstraction (`src/ollama/`)
 
@@ -66,7 +67,7 @@ ApiBackend (interface)
 
 `SideCarClient` (`client.ts`) wraps the active backend with retry (`retry.ts`), circuit breaker (`circuitBreaker.ts`), rate limiting (`rateLimitState.ts`), fallback backend switching, and model discovery across Ollama + Kickstand.
 
-Key types in `types.ts`: `ChatMessage`, `ContentBlock` (text/image/tool_use/tool_result/thinking), `StreamEvent`, `ToolDefinition`.
+Key types in `types.ts`: `ChatMessage`, `ContentBlock` (text/image/tool_use/tool_result/thinking), `StreamEvent`, `ToolDefinition`. `ToolDefinition.nondeterministicOutput?: boolean` marks tools whose results must never be dedup'd by the prompt pruner (e.g. `read_file`, `git_diff`); backends derive the dedup-exempt set from this field at call time rather than a hardcoded list.
 
 SSE parsing for all OpenAI-compatible backends is shared in `openAiSseStream.ts`.
 
@@ -134,6 +135,8 @@ v0.60+ `sidecar.agentMode: 'audit'` tier. An alternative to Shadow Workspaces fo
 
 Scope is the agent's file-authoring surface only — shell commands still run normally. Match the threat model: `write_file` is how hallucinations become persistent damage, so that's what we gate.
 
+`src/agent/tools/auditHelper.ts` — shared helpers `isAuditModeActive(context?)` and `shouldBufferCommits(context?)` imported by both `fs.ts` and `git.ts`; avoids duplicating the mode-check logic.
+
 ### Typed Sub-Agent Facets (`src/agent/facets/`)
 
 v0.66+ dispatchable specialist system. A facet is a named sub-agent with a preferredModel, tool allowlist, system prompt, optional `dependsOn` edges, and optional RPC schema. Built-in catalog ships 8 specialists embedded in code (not loaded from disk — avoids a broken-unpack footgun). Users layer project or user facets on top via `<workspace>/.sidecar/facets/*.md` or `sidecar.facets.registry` paths.
@@ -193,20 +196,23 @@ Config: `sidecar.sidecarMd.{mode, alwaysIncludeHeadings, lowPriorityHeadings, ma
 
 ### Webview & Message Handlers (`src/webview/`)
 
-`chatView.ts` — the WebviewViewProvider that hosts the chat panel. Routes incoming webview messages (typed union in `chatWebview.ts`) to handler modules:
+`chatView.ts` — 258-line WebviewViewProvider that hosts the chat panel. Routes incoming webview messages (typed union in `chatWebview.ts`) to handler modules under `src/webview/handlers/`:
 
-- `handlers/chatHandlers.ts` — thin orchestrator; pure logic extracted into submodules below
-- `handlers/messageUtils.ts` — continuation detection, intent classification, error taxonomy, workspace relevance, numbered-list reference resolution
-- `handlers/systemPrompt.ts` — base prompt assembly, context injection, message enrichment, `basePrompt.ts` (serialisable prompt builder); runs `rewriteQuery` (v0.84) before retrieval when `sidecar.retrievalQueryRewrite` is set to `'rule'`, `'llm'`, or `'expand'`
-- `handlers/fileHandlers.ts` — file attach/drop/save/create/move/undo/revert; `handleAttachActiveFile` toggles the currently open editor file in/out of the agent's context (wired to the active-file pill above the chat input)
-- `handlers/agentCallbacks.ts` — agent-loop callback factory
-- `handlers/messageEnricher.ts` — enriches assistant messages with inline annotations
-- `handlers/modelHandlers.ts` — model install (Ollama pull, HF import, Kickstand pull/load)
-- `handlers/modelLoader.ts` — `loadModels()` and `formatContextLength()` pure helper
-- `handlers/agentHandlers.ts` — agent mode switching, background agents
-- `handlers/githubHandlers.ts` — GitHub operations
-- `handlers/sessionHandlers.ts` — session save/restore
-- `handlers/notebookHandlers.ts` — Notebook Mode cell execution and output
+- `chatHandlers.ts` — thin orchestrator; pure logic extracted into submodules below
+- `dispatchHandlers.ts` — top-level message dispatcher; routes each message type to the right handler
+- `messageUtils.ts` — continuation detection, intent classification, error taxonomy, workspace relevance, numbered-list reference resolution
+- `systemPrompt.ts` — base prompt assembly, context injection, message enrichment; `basePrompt.ts` (serialisable prompt builder); runs `rewriteQuery` (v0.84) before retrieval when `sidecar.retrievalQueryRewrite` is `'rule'` / `'llm'` / `'expand'`
+- `fileHandlers.ts` — file attach/drop/save/create/move/undo/revert; `handleAttachActiveFile` toggles the currently open editor file in/out of the agent's context
+- `agentCallbacks.ts` — agent-loop callback factory
+- `messageEnricher.ts` — enriches assistant messages with inline annotations
+- `modelHandlers.ts` — model install (Ollama pull, HF import, Kickstand pull/load)
+- `modelLoader.ts` — `loadModels()` and `formatContextLength()` pure helper
+- `hfInstallFlow.ts` — HuggingFace multi-step install QuickPick flow
+- `agentHandlers.ts` — agent mode switching, background agents
+- `githubHandlers.ts` — GitHub operations
+- `sessionHandlers.ts` — session save/restore
+- `notebookHandlers.ts` — Notebook Mode cell execution and output
+- `reportCache.ts` — caches and diffs context reports to avoid redundant webview posts
 
 The chat UI itself is vanilla HTML/JS/CSS in `media/chat.js` + `media/chat.css`.
 
