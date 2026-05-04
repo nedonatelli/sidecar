@@ -1,4 +1,5 @@
 // Minimal vscode module mock for unit tests
+import { vi } from 'vitest';
 
 export const Uri = {
   file: (path: string) => ({ fsPath: path, scheme: 'file', path }),
@@ -82,7 +83,7 @@ export const window = {
   showOpenDialog: async () => undefined,
   showSaveDialog: async () => undefined,
   showInformationMessage: async () => undefined,
-  showWarningMessage: async () => undefined,
+  showWarningMessage: vi.fn().mockResolvedValue(undefined),
   showErrorMessage: async () => undefined,
   showTextDocument: async () => undefined,
   showInputBox: async () => undefined,
@@ -171,11 +172,12 @@ export class Diagnostic {
 
 export const env = {
   clipboard: { writeText: async () => {} },
+  openExternal: vi.fn().mockResolvedValue(true),
 };
 
 export const commands = {
   registerCommand: (_command: string, _callback: (...args: unknown[]) => unknown) => ({ dispose: () => {} }),
-  executeCommand: async () => undefined,
+  executeCommand: vi.fn().mockResolvedValue(undefined),
 };
 
 export enum DiagnosticSeverity {
