@@ -285,7 +285,12 @@ export class FlatVectorStore<M> implements VectorStore<M> {
       this.vectors = liveVectors;
       this.vectorCount = this.entriesById.size;
       for (const [id, newMeta] of Object.entries(persistedEntries)) {
-        this.entriesById.set(id, { metadata: newMeta as M & { offset: number }, offset: newMeta.offset });
+        // Strip the persisted `offset` field before storing back into
+        // entriesById — metadata must be pure M, not M + implementation detail.
+        // (restore() already does this correctly via destructuring; the
+        // post-persist update was leaking offset into the metadata object.)
+        const { offset: newOffset, ...cleanMeta } = newMeta as M & { offset: number };
+        this.entriesById.set(id, { metadata: cleanMeta as M, offset: newOffset });
       }
     } catch (err) {
       console.warn('[FlatVectorStore] persist failed:', err);
