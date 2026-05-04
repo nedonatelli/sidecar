@@ -93,8 +93,8 @@
 - [ ] **`chatView.ts` decomposition** (T3) — currently 0% coverage; decomposition unlocks testability
 - [ ] **Coverage ≥80/70/80/80 sustained** — final lift via `chatView.ts` + `extension.ts` tests
 - [ ] **CLAUDE.md refresh** — sync architectural notes to post-v0.82 reality
-- [ ] **Unused-export sweep** — remove every dead `export` confirmed by tooling
-- [ ] **Remaining CRITICAL/HIGH audit findings** — triage any items not addressed in v0.80–v0.82; fix or explicitly defer with rationale
+- [x] **Unused-export sweep** — removed 3 dead exports (`createPromisifyShim`, `findFixtureSymbol`, `hitsToSearchResults`); all other ts-prune hits confirmed intentional (VS Code lifecycle, SDK public API, dynamic-import targets)
+- [x] **Remaining CRITICAL/HIGH audit findings** — triaged 14 items; 12 were already fixed in v0.80–v0.83; 1 SQLite `listTables` identifier bypass fixed (skip rows failing `SAFE_IDENTIFIER`); 1 `agentCallbacks.ts` timer concern confirmed non-issue (flushTimer is scope-local, `onDone` always fires via `finally`)
 
 **Should Have**:
 - [ ] **`docs/adr/` directory** (T26-MEDIUM) — lightweight ADR template; 5 retroactive decision records

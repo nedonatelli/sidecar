@@ -122,6 +122,11 @@ export class SqliteProvider implements DatabaseProvider {
 
     const tables: TableInfo[] = [];
     for (const row of masterRows) {
+      // Only introspect tables whose names are safe identifiers. SQLite allows
+      // exotic names (spaces, quotes) that would break interpolation into
+      // "double-quoted" identifier slots; skip those rows rather than risk
+      // a malformed query.
+      if (!SAFE_IDENTIFIER.test(row.name)) continue;
       let rowCount: number | undefined;
       try {
         const countRows = db.prepare(`SELECT COUNT(*) as cnt FROM "${row.name}"`).all() as Array<{ cnt: number }>;
