@@ -25,6 +25,8 @@ vi.mock('../../agent/retrieval/index.js', () => ({
   DocRetriever: class {},
   MemoryRetriever: class {},
   SemanticRetriever: class {},
+  ChunkRetriever: class {},
+  PdfRetriever: class {},
   adaptiveGraphDepth: vi.fn().mockReturnValue(0),
   fuseRetrievers: vi.fn().mockResolvedValue([]),
   renderFusedContext: vi.fn().mockReturnValue(''),

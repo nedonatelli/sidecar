@@ -17,6 +17,7 @@ import {
   MemoryRetriever,
   SemanticRetriever,
   PdfRetriever,
+  ChunkRetriever,
   adaptiveGraphDepth,
   fuseRetrievers,
   renderFusedContext,
@@ -195,6 +196,12 @@ export async function injectSystemContext(
     const embeddingIndex = state.workspaceIndex?.getEmbeddingIndex() ?? null;
     if (workspaceTrusted && config.enableDocumentationRAG && state.documentationIndexer) {
       retrievers.push(new DocRetriever(state.documentationIndexer, embeddingIndex));
+      // Chunk-level retriever for prose docs — semantic search over sliding-window
+      // chunks of .md/.txt/.rst files. Complements DocRetriever's entry-level index
+      // with proper overlapping windows and heading-breadcrumb context. Only fires
+      // when the embedding model is ready; the DocRetriever keyword fallback covers
+      // the cold-start window.
+      retrievers.push(new ChunkRetriever(embeddingIndex));
     }
     if (workspaceTrusted && config.enableAgentMemory && state.agentMemory) {
       retrievers.push(new MemoryRetriever(state.agentMemory, embeddingIndex));
