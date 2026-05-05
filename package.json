@@ -1824,6 +1824,12 @@
         "icon": "$(debug-alt)"
       },
       {
+        "command": "sidecar.pr.postReview",
+        "title": "Post PR Review with Inline Comments (Agent)",
+        "category": "SideCar",
+        "icon": "$(eye)"
+      },
+      {
         "command": "sidecar.pr.reviewComments",
         "title": "Review PR Comments",
         "category": "SideCar",

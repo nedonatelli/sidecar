@@ -826,6 +826,51 @@ describe('GitHubAPI methods', () => {
     });
   });
 
+  describe('createPRReviewWithComments', () => {
+    const rawReview = {
+      id: 99,
+      body: 'Overall looks good',
+      state: 'commented',
+      html_url: 'https://github.com/o/r/pull/7#pullrequestreview-99',
+      submitted_at: '2026-05-05T12:00:00Z',
+    };
+
+    it('posts review with inline comments and returns parsed result', async () => {
+      mockFetch.mockResolvedValue(mockJsonResponse(rawReview));
+      const review = await api.createPRReviewWithComments('o', 'r', 7, 'Looks good', 'COMMENT', [
+        { path: 'src/auth.ts', line: 23, body: 'Token should be rotated.' },
+        { path: 'src/api.ts', line: 10, body: 'Missing null check.', side: 'RIGHT' },
+      ]);
+      expect(review.id).toBe(99);
+      expect(review.state).toBe('commented');
+      expect(review.htmlUrl).toContain('pullrequestreview-99');
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+      expect(body.event).toBe('COMMENT');
+      expect(body.comments).toHaveLength(2);
+      expect(body.comments[0]).toMatchObject({ path: 'src/auth.ts', line: 23, side: 'RIGHT' });
+    });
+
+    it('sends no comments field when array is empty', async () => {
+      mockFetch.mockResolvedValue(mockJsonResponse(rawReview));
+      await api.createPRReviewWithComments('o', 'r', 7, 'LGTM', 'APPROVE', []);
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+      expect(body.event).toBe('APPROVE');
+      expect(body.comments).toBeUndefined();
+    });
+
+    it('hits the pulls reviews endpoint', async () => {
+      mockFetch.mockResolvedValue(mockJsonResponse(rawReview));
+      await api.createPRReviewWithComments('o', 'r', 7, '', 'COMMENT', []);
+      expect(mockFetch.mock.calls[0][0]).toContain('/repos/o/r/pulls/7/reviews');
+    });
+
+    it('throws on API error', async () => {
+      mockFetch.mockResolvedValue({ ok: false, status: 422, text: () => Promise.resolve('Unprocessable') });
+      await expect(api.createPRReviewWithComments('o', 'r', 7, '', 'COMMENT', [])).rejects.toThrow(/422/);
+    });
+  });
+
   // ---------------------------------------------------------------------------
   // PR Lifecycle
   // ---------------------------------------------------------------------------

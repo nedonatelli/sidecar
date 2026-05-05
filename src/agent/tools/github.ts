@@ -8,9 +8,10 @@ import { markPrReady, checkPrCi, formatCheckRunsMarkdown } from '../../review/pr
 // ---------------------------------------------------------------------------
 // GitHub write tools.
 //
-// Two tools that let the agent close the feedback loop on PR review comments:
+// Three tools that let the agent close the feedback loop on PR review comments:
 //  - reply_pr_comment: post a reply to a specific inline thread
-//  - submit_pr_review: post a top-level review summary
+//  - submit_pr_review: post a top-level review summary (no inline comments)
+//  - create_pr_review: post a full review with inline file+line comments in one call
 //
 // Both tools derive owner/repo from the git remote so the agent doesn't
 // need to be told which repo it's working in — it's always the current one.
@@ -232,9 +233,94 @@ export async function checkPrCiTool(_input: Record<string, unknown>, context?: T
   }
 }
 
+// ---------------------------------------------------------------------------
+// create_pr_review
+// ---------------------------------------------------------------------------
+
+export const createPrReviewDef: ToolDefinition = {
+  name: 'create_pr_review',
+  description:
+    'Submit a GitHub PR review that includes inline file-level comments pointing to specific lines, ' +
+    'plus an optional top-level summary body — all in a single API call. ' +
+    'Use this when you have reviewed the code and want to post your findings directly as GitHub review comments. ' +
+    'Each comment must reference a line that is part of the PR diff (lines added, removed, or within 3 lines of a change). ' +
+    'event=COMMENT posts a plain review; APPROVE signals the PR is ready to merge; REQUEST_CHANGES signals it is not. ' +
+    'Default event is COMMENT. ' +
+    'Example: `create_pr_review(pr_number=42, body="Overall LGTM with one nit.", event="COMMENT", ' +
+    'comments=[{"path":"src/auth.ts","line":23,"body":"This token should be rotated after use."}])`.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      pr_number: { type: 'number', description: 'Pull request number.' },
+      body: { type: 'string', description: 'Top-level review summary in markdown. May be empty string.' },
+      event: {
+        type: 'string',
+        enum: ['COMMENT', 'APPROVE', 'REQUEST_CHANGES'],
+        description: 'Review event type. Default: COMMENT.',
+      },
+      comments: {
+        type: 'array',
+        description: 'Inline file-level review comments.',
+        items: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'Relative file path within the repository (e.g. "src/auth.ts").' },
+            line: { type: 'number', description: 'Line number in the file to attach the comment to.' },
+            body: { type: 'string', description: 'Comment text in markdown.' },
+            side: {
+              type: 'string',
+              enum: ['LEFT', 'RIGHT'],
+              description: 'Which side of the diff. RIGHT = new version (default). LEFT = deleted lines.',
+            },
+          },
+          required: ['path', 'line', 'body'],
+        },
+      },
+    },
+    required: ['pr_number', 'body'],
+  },
+};
+
+export async function createPrReview(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
+  const prNumber = input.pr_number as number | undefined;
+  const body = input.body as string | undefined;
+  const event = (input.event as 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES' | undefined) ?? 'COMMENT';
+  const rawComments = (input.comments as Array<Record<string, unknown>> | undefined) ?? [];
+
+  if (!prNumber || body === undefined) {
+    return 'create_pr_review requires pr_number and body.';
+  }
+
+  const comments = rawComments
+    .filter((c) => c.path && c.line !== undefined && c.body)
+    .map((c) => ({
+      path: c.path as string,
+      line: c.line as number,
+      body: c.body as string,
+      side: (c.side as 'LEFT' | 'RIGHT' | undefined) ?? 'RIGHT',
+    }));
+
+  const cwd = resolveRoot(context);
+  const repoResult = await resolveRepo(cwd);
+  if (typeof repoResult === 'string') return repoResult;
+
+  const { owner, repo, token } = repoResult;
+  const api = new GitHubAPI(token);
+
+  try {
+    const review = await api.createPRReviewWithComments(owner, repo, prNumber, body, event, comments);
+    const commentSuffix =
+      comments.length > 0 ? ` with ${comments.length} inline comment${comments.length === 1 ? '' : 's'}` : '';
+    return `PR review submitted${commentSuffix} (id ${review.id}, state ${review.state}): ${review.htmlUrl}`;
+  } catch (err) {
+    return `Failed to create PR review: ${formatToolError(err)}`;
+  }
+}
+
 export const githubTools: RegisteredTool[] = [
   { definition: replyPrCommentDef, executor: replyPrComment, requiresApproval: true },
   { definition: submitPrReviewDef, executor: submitPrReview, requiresApproval: true },
+  { definition: createPrReviewDef, executor: createPrReview, requiresApproval: true },
   { definition: markPrReadyDef, executor: markPrReadyTool, requiresApproval: true },
   { definition: checkPrCiDef, executor: checkPrCiTool, requiresApproval: false },
 ];

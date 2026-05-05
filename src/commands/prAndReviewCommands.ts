@@ -10,6 +10,7 @@ import { runDraftPullRequest, type DraftPrConfig, type DraftPrUi } from '../revi
 import { analyzeCiFailure, type AnalyzeCiUi } from '../review/analyzeCiFailure.js';
 import { reviewPrComments, type PrReviewUi } from '../review/prReview.js';
 import { respondToPrComments, type PrRespondUi } from '../review/prRespond.js';
+import { postPrReview, type PrPostReviewUi } from '../review/prPostReview.js';
 import { markPrReady, checkPrCi, type PrMarkReadyUi, type PrCiUi } from '../review/prLifecycle.js';
 import { runPreCommitScan } from '../agent/preCommitScan.js';
 
@@ -207,6 +208,30 @@ export function registerPrAndReviewCommands(context: ExtensionContext, deps: PrA
         },
       };
       await respondToPrComments({ ui, cwd });
+    }),
+    commands.registerCommand('sidecar.pr.postReview', async () => {
+      const wsFolder = workspace.workspaceFolders?.[0];
+      if (!wsFolder) {
+        window.showErrorMessage('SideCar: Open a workspace before posting a PR review.');
+        return;
+      }
+      const cwd = wsFolder.uri.fsPath;
+      const ui: PrPostReviewUi = {
+        showInfo(message) {
+          window.showInformationMessage(message);
+        },
+        showError(message) {
+          window.showErrorMessage(message);
+        },
+        async sendToAgent(prompt) {
+          const chatProvider = getChatProvider();
+          if (!chatProvider) {
+            throw new Error('SideCar chat view is not initialized yet.');
+          }
+          chatProvider.injectPrompt(prompt);
+        },
+      };
+      await postPrReview({ ui, cwd });
     }),
     commands.registerCommand('sidecar.pr.reviewComments', async () => {
       const wsFolder = workspace.workspaceFolders?.[0];

@@ -17,6 +17,7 @@ import type {
   PrReview,
   PrReviewComment,
   PrReviewThread,
+  PrReviewInlineComment,
   RawPrReviewComment,
   RawPrReview,
   RawPullRequestFull,
@@ -467,6 +468,49 @@ export class GitHubAPI {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ body, event }),
+    });
+    return {
+      id: raw.id,
+      body: raw.body,
+      state: raw.state,
+      htmlUrl: raw.html_url,
+      submittedAt: raw.submitted_at,
+    };
+  }
+
+  /**
+   * Create a PR review that includes inline file-level comments in a
+   * single API call. This is the batch equivalent of `submitPRReview` —
+   * instead of posting one top-level summary and then N separate inline
+   * replies, it submits everything atomically via the GitHub reviews
+   * endpoint's `comments` array.
+   *
+   * Each comment must reference a line that exists in the PR diff;
+   * GitHub will reject comments on lines that weren't changed. Use
+   * `side: 'RIGHT'` (default) for comments on the new version of the
+   * file, `'LEFT'` for comments on the deleted version.
+   */
+  async createPRReviewWithComments(
+    owner: string,
+    repo: string,
+    prNumber: number,
+    body: string,
+    event: 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES',
+    comments: PrReviewInlineComment[],
+  ): Promise<PrReview> {
+    const payload: Record<string, unknown> = { body, event };
+    if (comments.length > 0) {
+      payload.comments = comments.map((c) => ({
+        path: c.path,
+        line: c.line,
+        body: c.body,
+        side: c.side ?? 'RIGHT',
+      }));
+    }
+    const raw = await this.request<RawPrReview>(`/repos/${owner}/${repo}/pulls/${prNumber}/reviews`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
     });
     return {
       id: raw.id,

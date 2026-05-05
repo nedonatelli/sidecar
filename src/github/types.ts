@@ -270,6 +270,18 @@ export interface PrReview {
   submittedAt: string;
 }
 
+/** One inline comment included in a batch PR review creation request. */
+export interface PrReviewInlineComment {
+  /** Relative file path within the repository. */
+  path: string;
+  /** Line number in the file to attach the comment to. */
+  line: number;
+  /** Comment body in markdown. */
+  body: string;
+  /** Which side of the diff to anchor to. Defaults to RIGHT (the new version). */
+  side?: 'LEFT' | 'RIGHT';
+}
+
 /** An open pull request with the fields needed for review-comment display. */
 export interface PullRequest {
   number: number;
