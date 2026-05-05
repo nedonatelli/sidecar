@@ -42,6 +42,7 @@ function stubState(overrides: Partial<LoopState> = {}): LoopState {
     toolCallCounts: new Map(),
     gateState: {} as LoopState['gateState'],
     currentEditPlan: null,
+    checkpointFired: false,
     ...overrides,
   };
 }

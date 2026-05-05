@@ -7,6 +7,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 interface MockPool {
   query: ReturnType<typeof vi.fn>;
   end: ReturnType<typeof vi.fn>;
+  on: ReturnType<typeof vi.fn>;
 }
 
 let mockPool: MockPool;
@@ -52,6 +53,7 @@ describe('PostgresProvider', () => {
     mockPool = {
       query: vi.fn().mockResolvedValue({ rows: [], fields: [] }),
       end: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
     };
   });
 
@@ -64,16 +66,18 @@ describe('PostgresProvider', () => {
     expect(provider.isConnected()).toBe(true);
   });
 
-  it('sets read-only transaction characteristic on connect when readOnly=true', async () => {
+  it('registers a connect handler to set read-only on every new pool client when readOnly=true', async () => {
     const provider = new PostgresProvider();
     await provider.connect(makeProfile({ readOnly: true }));
-    expect(mockPool.query).toHaveBeenCalledWith('SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY');
+    // The connect handler is registered via pool.on('connect', ...) so it
+    // fires for EVERY client in the pool, not just the first one.
+    expect(mockPool.on).toHaveBeenCalledWith('connect', expect.any(Function));
   });
 
-  it('does NOT set read-only on connect when readOnly=false', async () => {
+  it('does NOT register a connect handler when readOnly=false', async () => {
     const provider = new PostgresProvider();
     await provider.connect(makeProfile({ readOnly: false }));
-    expect(mockPool.query).not.toHaveBeenCalledWith('SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY');
+    expect(mockPool.on).not.toHaveBeenCalled();
   });
 
   it('disconnect calls pool.end and sets isConnected to false', async () => {
@@ -102,6 +106,7 @@ describe('PostgresProvider', () => {
     mockPool = {
       query: vi.fn(async () => ({ rows: joinedRows, fields: [] })),
       end: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
     };
 
     const provider = new PostgresProvider();
@@ -118,6 +123,7 @@ describe('PostgresProvider', () => {
     mockPool = {
       query: vi.fn().mockResolvedValue({ rows: [], fields: [] }),
       end: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
     };
 
     const provider = new PostgresProvider();
@@ -159,6 +165,7 @@ describe('PostgresProvider', () => {
         return { rows: [], fields: [] };
       }),
       end: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
     };
 
     const provider = new PostgresProvider();
@@ -192,6 +199,7 @@ describe('PostgresProvider', () => {
         };
       }),
       end: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
     };
 
     const provider = new PostgresProvider();
@@ -211,6 +219,7 @@ describe('PostgresProvider', () => {
     mockPool = {
       query: vi.fn().mockResolvedValue({ rows, fields: [{ name: 'id' }] }),
       end: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
     };
 
     const provider = new PostgresProvider();
@@ -226,6 +235,7 @@ describe('PostgresProvider', () => {
     mockPool = {
       query: vi.fn().mockResolvedValue({ rows: [], fields: [] }),
       end: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
     };
 
     const provider = new PostgresProvider();
@@ -238,6 +248,7 @@ describe('PostgresProvider', () => {
     mockPool = {
       query: vi.fn().mockResolvedValue({ rows: [], fields: [] }),
       end: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
     };
 
     const provider = new PostgresProvider();

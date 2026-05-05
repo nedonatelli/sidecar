@@ -253,6 +253,7 @@ export interface SideCarConfig {
   visualVerifyMaxAttempts: number;
   visualVerifyMode: 'strict' | 'warn' | 'advisory';
   visualVerifyCheapChecksOnly: boolean;
+  visualVerifyAllowedDomains: string[];
   /* Doc-to-Test Synthesis Loop */
   docTestsEnabled: boolean;
   docTestsOutputDir: string;
@@ -501,6 +502,7 @@ function readConfig(): SideCarConfig {
     visualVerifyMaxAttempts: clampMin(cfg.get<number>('visualVerify.maxAttempts'), 1, 3),
     visualVerifyMode: cfg.get<'strict' | 'warn' | 'advisory'>('visualVerify.mode', 'warn'),
     visualVerifyCheapChecksOnly: cfg.get<boolean>('visualVerify.cheapChecksOnly', false),
+    visualVerifyAllowedDomains: cfg.get<string[]>('visualVerify.allowedDomains', []),
     /* Doc-to-Test Synthesis Loop */
     docTestsEnabled: cfg.get<boolean>('docTests.enabled', true),
     docTestsOutputDir: cfg.get<string>('docTests.outputDir', 'tests/from_docs'),

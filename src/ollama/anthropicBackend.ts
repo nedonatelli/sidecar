@@ -61,13 +61,13 @@ export function buildSystemBlocks(
   systemPrompt: string,
 ): { type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }[] {
   const markerIndex = systemPrompt.indexOf(WORKSPACE_CONTEXT_MARKER);
-  if (markerIndex <= 0) {
-    // No workspace context — cache the entire system prompt
+  // Split into stable prefix (cached) and dynamic workspace context (not cached)
+  const stablePrefix = markerIndex > 0 ? systemPrompt.slice(0, markerIndex).trimEnd() : '';
+  const dynamicContext = systemPrompt.slice(markerIndex);
+  if (!stablePrefix) {
+    // No stable prefix (marker absent or at position 0) — cache the whole prompt.
     return [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }];
   }
-  // Split into stable prefix (cached) and dynamic workspace context (not cached)
-  const stablePrefix = systemPrompt.slice(0, markerIndex).trimEnd();
-  const dynamicContext = systemPrompt.slice(markerIndex);
   return [
     { type: 'text', text: stablePrefix, cache_control: { type: 'ephemeral' } },
     { type: 'text', text: dynamicContext },
@@ -184,7 +184,7 @@ export class AnthropicBackend implements ApiBackend {
       max_tokens: maxOutputTokens,
       messages: prepareMessagesForCache(pruned.messages),
       stream: true,
-      ...(tools && tools.length > 0 && supportsTemperature(model) ? { temperature: cfg.agentTemperature } : {}),
+      ...(supportsTemperature(model) ? { temperature: cfg.agentTemperature } : {}),
     };
 
     if (pruned.systemPrompt) {
@@ -325,7 +325,9 @@ export class AnthropicBackend implements ApiBackend {
 
             case 'message_delta':
               if (event.usage) {
-                accOutputTokens += event.usage.output_tokens ?? 0;
+                // message_delta.usage.output_tokens is the cumulative total
+                // for the message, not an incremental delta — set, not add.
+                accOutputTokens = event.usage.output_tokens ?? accOutputTokens;
               }
               if (event.delta?.stop_reason) {
                 yield { type: 'stop', stopReason: event.delta.stop_reason };

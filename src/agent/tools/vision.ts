@@ -200,7 +200,8 @@ async function screenshotPage(input: Record<string, unknown>, _context?: ToolExe
   const url = input.url as string | undefined;
   if (!url) return 'Error: url is required';
 
-  const urlError = validateScreenshotUrl(url);
+  const cfg = _context?.config ?? getConfig();
+  const urlError = validateScreenshotUrl(url, cfg.visualVerifyAllowedDomains);
   if (urlError) return urlError;
 
   const selector = input.selector as string | undefined;
@@ -254,7 +255,7 @@ async function screenshotPage(input: Record<string, unknown>, _context?: ToolExe
     } else if (waitForRaw === 'domcontentloaded') {
       waitUntil = 'domcontentloaded';
     } else if (/^\d+$/.test(waitForRaw)) {
-      extraWaitMs = parseInt(waitForRaw, 10);
+      extraWaitMs = Math.min(parseInt(waitForRaw, 10), 30_000);
     }
     // selector:<css> handled below after navigation
 
@@ -307,6 +308,9 @@ async function analyzeScreenshot(input: Record<string, unknown>, context?: ToolE
     return `Error: absolute paths are not allowed for image_path. Use a workspace-relative path (e.g. ".sidecar/screenshots/file.png").`;
   }
   const root = getRoot();
+  if (!root) {
+    return 'Error: no workspace is open. Open a project folder before using analyze_screenshot.';
+  }
   const imagePath = path.resolve(root, rawPath);
   // Containment check: resolved path must stay inside the workspace root.
   if (!imagePath.startsWith(root + path.sep) && imagePath !== root) {
@@ -401,7 +405,15 @@ async function analyzeScreenshot(input: Record<string, unknown>, context?: ToolE
 
   let verdict: { pass: boolean; issues: string[] };
   try {
-    verdict = JSON.parse(jsonMatch[0]) as typeof verdict;
+    const parsed = JSON.parse(jsonMatch[0]) as { pass: boolean; issues: unknown };
+    // Normalise issues: the model occasionally returns a plain string.
+    const rawIssues = parsed.issues;
+    const issues: string[] = Array.isArray(rawIssues)
+      ? (rawIssues as unknown[]).map(String)
+      : typeof rawIssues === 'string'
+        ? [rawIssues]
+        : [];
+    verdict = { pass: Boolean(parsed.pass), issues };
   } catch {
     return `VLM response JSON parse error. Raw response:\n${raw}`;
   }
@@ -525,6 +537,7 @@ async function runPlaywrightCode(input: Record<string, unknown>): Promise<string
 
     child.on('error', (err: Error) => {
       clearTimeout(killTimer);
+      void fs.promises.unlink(scriptPath).catch(() => {});
       resolve(`Error executing script: ${err.message}`);
     });
   });

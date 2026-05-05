@@ -26,6 +26,7 @@ vi.mock('../../github/git.js', () => {
 
 vi.mock('child_process', () => ({
   exec: vi.fn(),
+  execFile: vi.fn(),
 }));
 
 import { exec } from 'child_process';

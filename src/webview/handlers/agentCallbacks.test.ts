@@ -61,7 +61,7 @@ afterEach(() => {
 describe('createAgentCallbacks — onText streaming + flush', () => {
   it('buffers text and flushes once after STREAM_FLUSH_MS', () => {
     const state = makeState();
-    const cb = createAgentCallbacks(state, makeConfig(), []);
+    const { callbacks: cb } = createAgentCallbacks(state, makeConfig(), []);
     cb.onText('Hello ');
     cb.onText('world');
     // Buffered — no postMessage yet.
@@ -72,7 +72,7 @@ describe('createAgentCallbacks — onText streaming + flush', () => {
 
   it('does not fire a second flush when no new text arrives', () => {
     const state = makeState();
-    const cb = createAgentCallbacks(state, makeConfig(), []);
+    const { callbacks: cb } = createAgentCallbacks(state, makeConfig(), []);
     cb.onText('a');
     vi.advanceTimersByTime(STREAM_FLUSH_MS);
     vi.advanceTimersByTime(STREAM_FLUSH_MS);
@@ -84,7 +84,7 @@ describe('createAgentCallbacks — onText streaming + flush', () => {
 
   it('onDone flushes any pending text immediately and posts done', () => {
     const state = makeState();
-    const cb = createAgentCallbacks(state, makeConfig(), []);
+    const { callbacks: cb } = createAgentCallbacks(state, makeConfig(), []);
     cb.onText('unflushed');
     cb.onDone();
     expect(state.postMessage).toHaveBeenCalledWith({ command: 'assistantMessage', content: 'unflushed' });
@@ -95,7 +95,7 @@ describe('createAgentCallbacks — onText streaming + flush', () => {
 describe('createAgentCallbacks — onThinking', () => {
   it('forwards thinking text as a thinking message', () => {
     const state = makeState();
-    const cb = createAgentCallbacks(state, makeConfig(), []);
+    const { callbacks: cb } = createAgentCallbacks(state, makeConfig(), []);
     cb.onThinking?.('pondering the problem');
     expect(state.postMessage).toHaveBeenCalledWith({
       command: 'thinking',
@@ -107,7 +107,7 @@ describe('createAgentCallbacks — onThinking', () => {
 describe('createAgentCallbacks — onToolCall', () => {
   it('flushes buffered text before emitting the tool call', () => {
     const state = makeState();
-    const cb = createAgentCallbacks(state, makeConfig(), []);
+    const { callbacks: cb } = createAgentCallbacks(state, makeConfig(), []);
     cb.onText('about to call');
     cb.onToolCall('read_file', { path: 'a.ts' }, 'tu1');
     // Text flushed before the toolCall
@@ -119,7 +119,7 @@ describe('createAgentCallbacks — onToolCall', () => {
 
   it('emits a tool_use summary + logs + records tool start', () => {
     const state = makeState();
-    const cb = createAgentCallbacks(state, makeConfig(), []);
+    const { callbacks: cb } = createAgentCallbacks(state, makeConfig(), []);
     cb.onToolCall('read_file', { path: 'src/a.ts' }, 'tu1');
     expect(state.postMessage).toHaveBeenCalledWith({
       command: 'toolCall',
@@ -133,7 +133,7 @@ describe('createAgentCallbacks — onToolCall', () => {
 
   it('truncates long string inputs in the summary', () => {
     const state = makeState();
-    const cb = createAgentCallbacks(state, makeConfig(), []);
+    const { callbacks: cb } = createAgentCallbacks(state, makeConfig(), []);
     const longContent = 'x'.repeat(TOOL_CALL_SUMMARY_MAX + 50);
     cb.onToolCall('write_file', { path: 'a.ts', content: longContent }, 'tu1');
     const call = (state.postMessage as ReturnType<typeof vi.fn>).mock.calls.find(
@@ -148,7 +148,7 @@ describe('createAgentCallbacks — onToolCall', () => {
     const state = makeState({
       workspaceIndex: { trackFileAccess } as unknown as ChatState['workspaceIndex'],
     });
-    const cb = createAgentCallbacks(state, makeConfig(), []);
+    const { callbacks: cb } = createAgentCallbacks(state, makeConfig(), []);
     cb.onToolCall('write_file', { path: 'src/a.ts' }, 'tu1');
     expect(trackFileAccess).toHaveBeenCalledWith('src/a.ts', 'write');
     cb.onToolCall('read_file', { path: 'src/b.ts' }, 'tu2');
@@ -157,7 +157,7 @@ describe('createAgentCallbacks — onToolCall', () => {
 
   it('records a verbose log entry when verboseMode is on', () => {
     const state = makeState();
-    const cb = createAgentCallbacks(state, makeConfig({ verboseMode: true }), []);
+    const { callbacks: cb } = createAgentCallbacks(state, makeConfig({ verboseMode: true }), []);
     cb.onToolCall('grep', { pattern: 'TODO' }, 'tu1');
     expect(state.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ command: 'verboseLog', verboseLabel: 'Tool Selected' }),
@@ -169,7 +169,7 @@ describe('createAgentCallbacks — onToolCall', () => {
     const state = makeState({
       auditLog: { recordToolCall, recordToolResult: vi.fn() } as unknown as ChatState['auditLog'],
     });
-    const cb = createAgentCallbacks(state, makeConfig(), []);
+    const { callbacks: cb } = createAgentCallbacks(state, makeConfig(), []);
     // Fire an iteration-start first so currentIteration is set.
     cb.onIterationStart?.({
       iteration: 3,
@@ -188,7 +188,7 @@ describe('createAgentCallbacks — onToolCall', () => {
 describe('createAgentCallbacks — onToolResult', () => {
   it('truncates result preview and records tool end', () => {
     const state = makeState();
-    const cb = createAgentCallbacks(state, makeConfig(), []);
+    const { callbacks: cb } = createAgentCallbacks(state, makeConfig(), []);
     const long = 'y'.repeat(TOOL_RESULT_PREVIEW_MAX + 50);
     cb.onToolResult('read_file', long, false, 'tu1');
     const call = (state.postMessage as ReturnType<typeof vi.fn>).mock.calls.find(
@@ -200,7 +200,7 @@ describe('createAgentCallbacks — onToolResult', () => {
 
   it('forwards is_error=true through to recordToolEnd', () => {
     const state = makeState();
-    const cb = createAgentCallbacks(state, makeConfig(), []);
+    const { callbacks: cb } = createAgentCallbacks(state, makeConfig(), []);
     cb.onToolResult('run_command', 'permission denied', true, 'tu1');
     expect(state.metricsCollector.recordToolEnd).toHaveBeenCalledWith('run_command', true);
   });
@@ -209,7 +209,7 @@ describe('createAgentCallbacks — onToolResult', () => {
 describe('createAgentCallbacks — onIterationStart', () => {
   it('emits agentProgress with iteration counters', () => {
     const state = makeState();
-    const cb = createAgentCallbacks(state, makeConfig(), []);
+    const { callbacks: cb } = createAgentCallbacks(state, makeConfig(), []);
     cb.onIterationStart?.({
       iteration: 5,
       maxIterations: 25,
@@ -231,7 +231,7 @@ describe('createAgentCallbacks — onIterationStart', () => {
 
   it('surfaces the at-capacity warning in the verbose log', () => {
     const state = makeState();
-    const cb = createAgentCallbacks(state, makeConfig({ verboseMode: true }), []);
+    const { callbacks: cb } = createAgentCallbacks(state, makeConfig({ verboseMode: true }), []);
     cb.onIterationStart?.({
       iteration: 10,
       maxIterations: 25,
@@ -252,7 +252,7 @@ describe('createAgentCallbacks — onPlanGenerated', () => {
   it('stashes the plan + chatMessages snapshot and emits planReady', () => {
     const state = makeState();
     const messages: ChatMessage[] = [{ role: 'user', content: 'do a thing' }];
-    const cb = createAgentCallbacks(state, makeConfig(), messages);
+    const { callbacks: cb } = createAgentCallbacks(state, makeConfig(), messages);
     cb.onPlanGenerated?.('1. step one\n2. step two');
     expect(state.pendingPlan).toBe('1. step one\n2. step two');
     expect(state.pendingPlanMessages).toEqual(messages);
@@ -273,7 +273,7 @@ describe('createAgentCallbacks — memory callbacks', () => {
         flushToolChain: vi.fn(),
       } as unknown as ChatState['agentMemory'],
     });
-    const cb = createAgentCallbacks(state, makeConfig({ enableAgentMemory: false }), []);
+    const { callbacks: cb } = createAgentCallbacks(state, makeConfig({ enableAgentMemory: false }), []);
     cb.onMemory?.('pattern', 'tool:read_file', 'worked well');
     expect(addMem).not.toHaveBeenCalled();
   });
@@ -287,7 +287,7 @@ describe('createAgentCallbacks — memory callbacks', () => {
         flushToolChain: vi.fn(),
       } as unknown as ChatState['agentMemory'],
     });
-    const cb = createAgentCallbacks(state, makeConfig({ enableAgentMemory: true }), []);
+    const { callbacks: cb } = createAgentCallbacks(state, makeConfig({ enableAgentMemory: true }), []);
     cb.onMemory?.('pattern', 'tool:read_file', 'worked well');
     expect(addMem).toHaveBeenCalledWith(
       'pattern',
@@ -309,7 +309,7 @@ describe('createAgentCallbacks — memory callbacks', () => {
         flushToolChain: vi.fn(),
       } as unknown as ChatState['agentMemory'],
     });
-    const cb = createAgentCallbacks(state, makeConfig({ enableAgentMemory: true }), []);
+    const { callbacks: cb } = createAgentCallbacks(state, makeConfig({ enableAgentMemory: true }), []);
     expect(() => cb.onMemory?.('pattern', 'x', 'y')).not.toThrow();
     expect(consoleWarn).toHaveBeenCalled();
   });
@@ -320,7 +320,7 @@ describe('createAgentCallbacks — memory callbacks', () => {
     const state = makeState({
       agentMemory: { add: vi.fn(), recordToolUse, flushToolChain } as unknown as ChatState['agentMemory'],
     });
-    const enabled = createAgentCallbacks(state, makeConfig({ enableAgentMemory: true }), []);
+    const { callbacks: enabled } = createAgentCallbacks(state, makeConfig({ enableAgentMemory: true }), []);
     enabled.onToolChainRecord?.('read_file', true);
     enabled.onToolChainFlush?.();
     expect(recordToolUse).toHaveBeenCalledWith('read_file', true);
@@ -328,7 +328,7 @@ describe('createAgentCallbacks — memory callbacks', () => {
 
     recordToolUse.mockClear();
     flushToolChain.mockClear();
-    const disabled = createAgentCallbacks(state, makeConfig({ enableAgentMemory: false }), []);
+    const { callbacks: disabled } = createAgentCallbacks(state, makeConfig({ enableAgentMemory: false }), []);
     disabled.onToolChainRecord?.('read_file', true);
     disabled.onToolChainFlush?.();
     expect(recordToolUse).not.toHaveBeenCalled();
@@ -339,14 +339,14 @@ describe('createAgentCallbacks — memory callbacks', () => {
 describe('createAgentCallbacks — onSuggestNextSteps', () => {
   it('no-ops when the suggestion list is empty', () => {
     const state = makeState();
-    const cb = createAgentCallbacks(state, makeConfig(), []);
+    const { callbacks: cb } = createAgentCallbacks(state, makeConfig(), []);
     cb.onSuggestNextSteps?.([]);
     expect(state.postMessage).not.toHaveBeenCalled();
   });
 
   it('forwards non-empty suggestions', () => {
     const state = makeState();
-    const cb = createAgentCallbacks(state, makeConfig(), []);
+    const { callbacks: cb } = createAgentCallbacks(state, makeConfig(), []);
     cb.onSuggestNextSteps?.(['Run tests', 'Review diff']);
     expect(state.postMessage).toHaveBeenCalledWith({
       command: 'suggestNextSteps',
@@ -358,7 +358,7 @@ describe('createAgentCallbacks — onSuggestNextSteps', () => {
 describe('createAgentCallbacks — onEditPlanProgress ', () => {
   it('forwards a progress update to editPlanProgress with path/status/errorMessage', () => {
     const state = makeState();
-    const cb = createAgentCallbacks(state, makeConfig(), []);
+    const { callbacks: cb } = createAgentCallbacks(state, makeConfig(), []);
     cb.onEditPlanProgress?.({ path: 'src/a.ts', status: 'writing' });
     cb.onEditPlanProgress?.({ path: 'src/a.ts', status: 'failed', errorMessage: 'permission denied' });
     const progressCalls = (state.postMessage as ReturnType<typeof vi.fn>).mock.calls.filter(
@@ -379,7 +379,7 @@ describe('createAgentCallbacks — onEditPlanProgress ', () => {
 describe('createAgentCallbacks — onEditPlan ', () => {
   it('flushes pending text and emits the editPlanCard with a deep-copied plan', () => {
     const state = makeState();
-    const cb = createAgentCallbacks(state, makeConfig(), []);
+    const { callbacks: cb } = createAgentCallbacks(state, makeConfig(), []);
     cb.onText('about to edit');
     const plan: EditPlan = {
       edits: [
@@ -407,7 +407,7 @@ describe('createAgentCallbacks — onEditPlan ', () => {
 describe('createAgentCallbacks — onStreamFailure ', () => {
   it('flushes buffered text, stashes the partial, and emits the resume affordance', () => {
     const state = makeState();
-    const cb = createAgentCallbacks(state, makeConfig(), []);
+    const { callbacks: cb } = createAgentCallbacks(state, makeConfig(), []);
     cb.onText('mid-stream ');
     cb.onStreamFailure?.('mid-stream partial', new Error('ECONNRESET'));
     expect(state.pendingPartialAssistant).toBe('mid-stream partial');
@@ -425,7 +425,7 @@ describe('createAgentCallbacks — onStreamFailure ', () => {
     const state = makeState({
       currentSteerQueue: { serialize } as unknown as ChatState['currentSteerQueue'],
     });
-    const cb = createAgentCallbacks(state, makeConfig(), []);
+    const { callbacks: cb } = createAgentCallbacks(state, makeConfig(), []);
     cb.onStreamFailure?.('partial', new Error('boom'));
     expect(state.pendingSteerSnapshot).toEqual([{ id: 's1', text: 'keep going', urgency: 'nudge', createdAt: 1 }]);
   });
@@ -434,7 +434,7 @@ describe('createAgentCallbacks — onStreamFailure ', () => {
     const state = makeState({
       currentSteerQueue: { serialize: vi.fn().mockReturnValue([]) } as unknown as ChatState['currentSteerQueue'],
     });
-    const cb = createAgentCallbacks(state, makeConfig(), []);
+    const { callbacks: cb } = createAgentCallbacks(state, makeConfig(), []);
     cb.onStreamFailure?.('partial', new Error('boom'));
     expect(state.pendingSteerSnapshot).toBeNull();
   });
@@ -447,7 +447,7 @@ describe('createAgentCallbacks — onStreamFailure ', () => {
     const state = makeState({
       currentSteerQueue: { serialize } as unknown as ChatState['currentSteerQueue'],
     });
-    const cb = createAgentCallbacks(state, makeConfig(), []);
+    const { callbacks: cb } = createAgentCallbacks(state, makeConfig(), []);
     cb.onStreamFailure?.('partial', new Error('boom'));
     const resumeMsg = (state.postMessage as ReturnType<typeof vi.fn>).mock.calls.find(
       (c) => (c[0] as { command: string }).command === 'resumeAvailable',
@@ -458,7 +458,7 @@ describe('createAgentCallbacks — onStreamFailure ', () => {
 
   it('sets steerCount=0 on resumeAvailable when no queue was active', () => {
     const state = makeState(); // currentSteerQueue: null
-    const cb = createAgentCallbacks(state, makeConfig(), []);
+    const { callbacks: cb } = createAgentCallbacks(state, makeConfig(), []);
     cb.onStreamFailure?.('partial', new Error('boom'));
     const resumeMsg = (state.postMessage as ReturnType<typeof vi.fn>).mock.calls.find(
       (c) => (c[0] as { command: string }).command === 'resumeAvailable',
@@ -471,7 +471,7 @@ describe('createAgentCallbacks — onCheckpoint', () => {
   it('prompts via requestConfirm and returns true on "Continue"', async () => {
     const requestConfirm = vi.fn().mockResolvedValue('Continue');
     const state = makeState({ requestConfirm });
-    const cb = createAgentCallbacks(state, makeConfig(), []);
+    const { callbacks: cb } = createAgentCallbacks(state, makeConfig(), []);
     vi.useRealTimers(); // async confirm + promise chain needs real timers
     const result = await cb.onCheckpoint!('halfway there', 15, 10);
     expect(result).toBe(true);
@@ -483,7 +483,7 @@ describe('createAgentCallbacks — onCheckpoint', () => {
   it('returns false on "Stop here"', async () => {
     const requestConfirm = vi.fn().mockResolvedValue('Stop here');
     const state = makeState({ requestConfirm });
-    const cb = createAgentCallbacks(state, makeConfig(), []);
+    const { callbacks: cb } = createAgentCallbacks(state, makeConfig(), []);
     vi.useRealTimers();
     expect(await cb.onCheckpoint!('progress', 15, 10)).toBe(false);
   });
@@ -491,7 +491,7 @@ describe('createAgentCallbacks — onCheckpoint', () => {
   it('returns true (safe default: keep running) when requestConfirm throws', async () => {
     const requestConfirm = vi.fn().mockRejectedValue(new Error('UI gone'));
     const state = makeState({ requestConfirm });
-    const cb = createAgentCallbacks(state, makeConfig(), []);
+    const { callbacks: cb } = createAgentCallbacks(state, makeConfig(), []);
     vi.useRealTimers();
     expect(await cb.onCheckpoint!('progress', 15, 10)).toBe(true);
   });
@@ -500,7 +500,7 @@ describe('createAgentCallbacks — onCheckpoint', () => {
 describe('createAgentCallbacks — onToolOutput + onProgressSummary', () => {
   it('forwards toolOutput streaming chunks', () => {
     const state = makeState();
-    const cb = createAgentCallbacks(state, makeConfig(), []);
+    const { callbacks: cb } = createAgentCallbacks(state, makeConfig(), []);
     cb.onToolOutput?.('run_command', 'some stdout chunk', 'tu1');
     expect(state.postMessage).toHaveBeenCalledWith({
       command: 'toolOutput',
@@ -512,7 +512,7 @@ describe('createAgentCallbacks — onToolOutput + onProgressSummary', () => {
 
   it('forwards progress summaries', () => {
     const state = makeState();
-    const cb = createAgentCallbacks(state, makeConfig(), []);
+    const { callbacks: cb } = createAgentCallbacks(state, makeConfig(), []);
     cb.onProgressSummary?.('Analyzed 5 files');
     expect(state.postMessage).toHaveBeenCalledWith({ command: 'agentProgress', content: 'Analyzed 5 files' });
   });

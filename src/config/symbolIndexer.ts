@@ -362,12 +362,19 @@ export class SymbolIndexer implements Disposable {
   }
 
   dispose(): void {
+    // Cancel both debounce timers, then flush whatever the in-memory index
+    // currently holds. If only persistTimer was set (correct path) this is
+    // equivalent to the old early-persist. If only updateTimer was set (pending
+    // incremental updates that hadn't drained yet) we still get a persist
+    // rather than silently losing those edits on shutdown.
     if (this.persistTimer) {
       clearTimeout(this.persistTimer);
-      void this.persist();
+      this.persistTimer = null;
     }
     if (this.updateTimer) {
       clearTimeout(this.updateTimer);
+      this.updateTimer = null;
     }
+    void this.persist();
   }
 }

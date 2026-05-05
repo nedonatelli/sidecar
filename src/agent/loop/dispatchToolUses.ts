@@ -54,11 +54,23 @@ export async function dispatchPendingToolUses(
     })
   ) {
     state.logger?.info(`Multi-file edit: planner pass triggered for ${pendingToolUses.length} pending writes`);
-    const planResult = await requestEditPlan(client, state.messages, pendingToolUses, {
-      signal,
-      plannerModel: config.multiFileEditsPlannerModel || undefined,
-      log: (line) => state.logger?.info(line),
-    });
+    let planResult: Awaited<ReturnType<typeof requestEditPlan>>;
+    try {
+      planResult = await requestEditPlan(client, state.messages, pendingToolUses, {
+        signal,
+        plannerModel: config.multiFileEditsPlannerModel || undefined,
+        log: (line) => state.logger?.info(line),
+      });
+    } catch (err) {
+      // Network / abort error from the planner call. Fall back to direct
+      // execution so tool_use blocks in the previous assistant message get
+      // matching tool_result entries and the conversation alternation stays
+      // valid. Without this, an unmatched tool_use would corrupt the history.
+      state.logger?.warn(
+        `Edit planner request failed (${err instanceof Error ? err.message : String(err)}); falling back to direct dispatch.`,
+      );
+      return executeToolUses(state, pendingToolUses, client, options, callbacks, signal);
+    }
     if (planResult.plan) {
       callbacks.onEditPlan?.(planResult.plan);
       // Seed each edit's UI status as 'pending' immediately after the

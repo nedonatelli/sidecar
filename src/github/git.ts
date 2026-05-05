@@ -30,7 +30,9 @@ export class GitCLI {
   }
 
   async clone(repoUrl: string, targetDir: string): Promise<string> {
-    await this.exec(['clone', repoUrl, targetDir], targetDir.replace(/[/\\][^/\\]*$/, ''));
+    // The '--' separator prevents a URL starting with '-' from being
+    // interpreted as a git flag (e.g. '--upload-pack=…').
+    await this.exec(['clone', '--', repoUrl, targetDir], targetDir.replace(/[/\\][^/\\]*$/, ''));
     return `Cloned ${repoUrl} into ${targetDir}`;
   }
 

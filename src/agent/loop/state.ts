@@ -119,6 +119,10 @@ export interface LoopState {
   // gate.ts + executeToolUses.ts both touch it.
   gateState: ReturnType<typeof createGateState>;
 
+  // Set to true after the 60%-iteration checkpoint fires so it never
+  // re-fires on later iterations.
+  checkpointFired: boolean;
+
   // Active multi-file edit plan, set by dispatchPendingToolUses for
   // the duration of a multi-file write batch .
   // Hooks + review flows (regression guards, audit mode review, shadow
@@ -179,5 +183,6 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     toolCallCounts: new Map<string, number>(),
     gateState: createGateState(),
     currentEditPlan: null,
+    checkpointFired: false,
   };
 }

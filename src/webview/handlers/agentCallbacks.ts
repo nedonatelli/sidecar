@@ -25,13 +25,18 @@ export function createAgentCallbacks(
   state: ChatState,
   config: ReturnType<typeof getConfig>,
   chatMessages: ChatMessage[],
-): AgentCallbacks {
+): { callbacks: AgentCallbacks; cancel: () => void } {
   const verbose = config.verboseMode;
   const verboseLog = (label: string, content: string) => {
     if (verbose) {
       state.postMessage({ command: 'verboseLog', content, verboseLabel: label });
     }
   };
+
+  // Set when this callback set is superseded (session load, new run, etc.)
+  // so that a pending flushTimer from an aborted run cannot inject stale
+  // text into a freshly loaded session's webview.
+  let cancelled = false;
 
   let textBuffer = '';
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -40,6 +45,7 @@ export function createAgentCallbacks(
       clearTimeout(flushTimer);
       flushTimer = null;
     }
+    if (cancelled) return;
     if (textBuffer) {
       state.postMessage({ command: 'assistantMessage', content: textBuffer });
       textBuffer = '';
@@ -48,7 +54,16 @@ export function createAgentCallbacks(
 
   let currentIteration = 0;
 
-  return {
+  const cancel = () => {
+    cancelled = true;
+    if (flushTimer) {
+      clearTimeout(flushTimer);
+      flushTimer = null;
+    }
+    textBuffer = '';
+  };
+
+  const callbacks: AgentCallbacks = {
     onText: (t) => {
       textBuffer += t;
       if (!flushTimer) {
@@ -209,7 +224,9 @@ export function createAgentCallbacks(
     },
     onDone: () => {
       flushTextBuffer();
-      state.postMessage({ command: 'done' });
+      if (!cancelled) state.postMessage({ command: 'done' });
     },
   };
+
+  return { callbacks, cancel };
 }

@@ -1,4 +1,4 @@
-import { exec } from 'child_process';
+import { exec, execFile } from 'child_process';
 import { promisify } from 'util';
 import type { ToolDefinition } from '../../ollama/types.js';
 import { GitCLI } from '../../github/git.js';
@@ -8,6 +8,7 @@ import { getDefaultAuditBuffer } from '../audit/auditBuffer.js';
 import { shouldBufferCommits } from './auditHelper.js';
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 // Git tools: thin wrappers over GitCLI. Keeping the full family grouped
 // here makes it easy to reason about which subcommands we expose vs. the
@@ -163,7 +164,7 @@ export const gitLogDef: ToolDefinition = {
 export async function gitLog(input: Record<string, unknown>): Promise<string> {
   try {
     const git = new GitCLI();
-    const commits = await git.log((input.count as number) || 10);
+    const commits = await git.log(Math.min(Math.max(1, (input.count as number) || 10), 200));
     if (commits.length === 0) return 'No commits found.';
     return commits.map((c) => `${c.hash} ${c.message} (${c.author}, ${c.date})`).join('\n');
   } catch (err) {
@@ -363,14 +364,16 @@ export async function gitSearchHistory(input: Record<string, unknown>): Promise<
 
     const searchType = (input.search_type as string | undefined) ?? 'both';
     const maxResults = Math.min(Number(input.max_results) || 20, 100);
-    const pathArg = input.path as string | undefined;
+    const pathArg = (input.path as string | undefined)?.trim();
 
     const root = getRoot();
-    const pathSuffix = pathArg ? ` -- "${pathArg}"` : '';
     const logFormat = '--pretty=format:%H|%as|%an|%s';
 
-    const runGit = async (args: string): Promise<string> => {
-      const { stdout } = await execAsync(`git -C "${root}" ${args}`, { maxBuffer: 2 * 1024 * 1024 });
+    // Use execFile (not execAsync) so all arguments are passed as separate
+    // array elements — never shell-interpolated. This prevents command
+    // injection via LLM-controlled `query` or `path` values.
+    const runGit = async (args: string[]): Promise<string> => {
+      const { stdout } = await execFileAsync('git', ['-C', root, ...args], { maxBuffer: 2 * 1024 * 1024 });
       return stdout.trim();
     };
 
@@ -384,13 +387,22 @@ export async function gitSearchHistory(input: Record<string, unknown>): Promise<
         });
     };
 
+    // Build the optional path suffix as separate args after the '--' separator.
+    const pathArgs: string[] = pathArg ? ['--', pathArg] : [];
+
     const seen = new Set<string>();
     const results: Array<{ hash: string; date: string; author: string; subject: string; via: string }> = [];
 
     if (searchType === 'message' || searchType === 'both') {
-      const raw = await runGit(
-        `log --all -${maxResults} ${logFormat} --grep=${JSON.stringify(query)} --regexp-ignore-case${pathSuffix}`,
-      ).catch(() => '');
+      const raw = await runGit([
+        'log',
+        '--all',
+        `-${maxResults}`,
+        logFormat,
+        `--grep=${query}`,
+        '--regexp-ignore-case',
+        ...pathArgs,
+      ]).catch(() => '');
       for (const c of parseCommits(raw)) {
         if (!seen.has(c.hash)) {
           seen.add(c.hash);
@@ -400,9 +412,7 @@ export async function gitSearchHistory(input: Record<string, unknown>): Promise<
     }
 
     if (searchType === 'content' || searchType === 'both') {
-      const raw = await runGit(`log --all -${maxResults} ${logFormat} -S ${JSON.stringify(query)}${pathSuffix}`).catch(
-        () => '',
-      );
+      const raw = await runGit(['log', '--all', `-${maxResults}`, logFormat, '-S', query, ...pathArgs]).catch(() => '');
       for (const c of parseCommits(raw)) {
         if (!seen.has(c.hash)) {
           seen.add(c.hash);

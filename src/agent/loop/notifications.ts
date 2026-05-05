@@ -91,11 +91,13 @@ export function maybeEmitProgressSummary(state: LoopState, callbacks: AgentCallb
  */
 export async function shouldStopAtCheckpoint(state: LoopState, callbacks: AgentCallbacks): Promise<boolean> {
   if (!callbacks.onCheckpoint) return false;
-  if (state.iteration !== Math.ceil(state.maxIterations * 0.6)) return false;
+  if (state.checkpointFired) return false;
+  if (state.iteration < Math.ceil(state.maxIterations * 0.6)) return false;
   if (state.iteration <= 3) return false;
 
   const estimatedTokens = charsToTokens(state.totalChars);
   const pctTokens = Math.round((estimatedTokens / state.maxTokens) * 100);
+  state.checkpointFired = true;
   const shouldContinue = await callbacks.onCheckpoint(
     `Reached iteration ${state.iteration} of ${state.maxIterations}. ${pctTokens}% context used.`,
     state.iteration,

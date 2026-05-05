@@ -60,6 +60,8 @@ export class ChatState {
    */
   pendingPartialAssistant: string | null = null;
   abortController: AbortController | null = null;
+  /** Cancels the stale-flush-timer of the current agent run's callback set. */
+  cancelCallbacks: (() => void) | null = null;
   installAbortController: AbortController | null = null;
   /**
    * Active steer queue for the in-flight agent run.

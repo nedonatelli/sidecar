@@ -168,6 +168,9 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
   if (pathError) return pathError;
   const protectedError = isProtectedWritePath(filePath);
   if (protectedError) return protectedError;
+  if (isSensitiveFile(filePath)) {
+    return `Error: "${filePath}" appears to contain secrets or credentials. The agent is not permitted to write to this file.`;
+  }
   const content = input.content as string;
 
   // Audit Mode: divert the write to the in-memory buffer instead of
@@ -196,6 +199,9 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   if (pathError) return pathError;
   const protectedError = isProtectedWritePath(filePath);
   if (protectedError) return protectedError;
+  if (isSensitiveFile(filePath)) {
+    return `Error: "${filePath}" appears to contain secrets or credentials. The agent is not permitted to edit this file.`;
+  }
   const search = input.search as string;
   const replace = input.replace as string;
 

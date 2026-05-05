@@ -341,10 +341,10 @@ describe('AgentMemory.getRelevantMemories', () => {
     vi.setSystemTime(new Date('2024-01-10'));
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.useRealTimers();
-    const fs = require('fs');
-    fs.rmSync(tempDir, { recursive: true, force: true });
+    await memory.pendingSave;
+    await fs.promises.rm(tempDir, { recursive: true, force: true });
   });
 
   it('returns empty array when no memories were added', () => {

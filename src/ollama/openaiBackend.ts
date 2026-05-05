@@ -31,6 +31,11 @@ function maxTokensKey(model: string): 'max_tokens' | 'max_completion_tokens' {
   return /^o\d/i.test(model) ? 'max_completion_tokens' : 'max_tokens';
 }
 
+/** o1/o3/o4 reasoning models reject the `temperature` parameter with a 400. */
+function supportsTemperature(model: string): boolean {
+  return !/^o\d/i.test(model);
+}
+
 function estimateRequestTokens(systemPrompt: string, messages: ChatMessage[], maxOutputTokens: number): number {
   let chars = systemPrompt.length;
   for (const m of messages) {
@@ -262,7 +267,7 @@ export class OpenAIBackend implements ApiBackend {
       // can emit a StreamUsageEvent and feed spendTracker with real
       // numbers instead of heuristic estimates.
       stream_options: { include_usage: true },
-      ...(tools && tools.length > 0 ? { temperature: cfg.agentTemperature } : {}),
+      ...(tools && tools.length > 0 && supportsTemperature(model) ? { temperature: cfg.agentTemperature } : {}),
       ...this.extraBodyFields(),
     };
 

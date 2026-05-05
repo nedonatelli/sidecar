@@ -1607,6 +1607,12 @@
             "type": "boolean",
             "default": false,
             "description": "Run only the heuristic pre-filter checks (blank canvas, edge clipping) and skip the VLM call entirely. Useful on tight local-inference budgets."
+          },
+          "sidecar.visualVerify.allowedDomains": {
+            "type": "array",
+            "items": { "type": "string" },
+            "default": [],
+            "markdownDescription": "Domains or hostnames that are permitted for `screenshot_page` even when they resolve to a loopback or private-network address (e.g. `localhost`, `192.168.1.1`). Use this to allow local dev servers."
           }
         }
       },

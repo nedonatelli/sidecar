@@ -73,6 +73,8 @@ export function assertReadOnly(sql: string): void {
   const statements = stripped.split(';');
   // Allowlist: only these statement types are permitted on read-only connections.
   const readPattern = /^\s*(SELECT|EXPLAIN|DESCRIBE|SHOW|WITH|PRAGMA|VALUES)\b/i;
+  // Write keywords that must not appear anywhere inside a WITH CTE body.
+  const writePattern = /\b(INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|REPLACE|MERGE|UPSERT)\b/i;
 
   for (const stmt of statements) {
     const trimmed = stmt.trim();
@@ -80,6 +82,13 @@ export function assertReadOnly(sql: string): void {
     if (!readPattern.test(trimmed)) {
       const verb = trimmed.split(/\s+/)[0]?.toUpperCase() ?? trimmed;
       throw new Error(`Read-only violation: ${verb} statement is not permitted on a read-only connection`);
+    }
+    // WITH … DELETE/UPDATE CTEs pass the leading-keyword check above but
+    // are still write operations. Scan the full statement for write verbs.
+    if (/^\s*WITH\b/i.test(trimmed) && writePattern.test(trimmed)) {
+      const match = writePattern.exec(trimmed);
+      const verb = match?.[1]?.toUpperCase() ?? 'WRITE';
+      throw new Error(`Read-only violation: ${verb} inside a CTE is not permitted on a read-only connection`);
     }
   }
 }

@@ -81,7 +81,7 @@ export function compressMessages(messages: ChatMessage[]): number {
         const sizeKB = Math.max(1, Math.round(rawBytes / 1024));
         const placeholder = `[image: ${block.source.media_type}, ~${sizeKB}KB — dropped for context budget]`;
         newContent.push({ type: 'text', text: placeholder });
-        freed += block.source.data.length - placeholder.length;
+        freed += Math.max(0, block.source.data.length - placeholder.length);
       } else if (block.type === 'tool_result' && block.content.length > maxLen) {
         const original = block.content.length;
         const compressionResult = compressor.compress(block.content, maxLen);

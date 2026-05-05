@@ -11,8 +11,12 @@ export function handleLoadSession(state: ChatState, id: string): void {
   const session = state.sessionManager.load(id);
   if (!session) return;
   state.autoSave(); // Save current conversation before switching
+  // Abort any in-flight run and cancel its pending flush-timer so stale
+  // assistant-message chunks cannot inject into the newly loaded session.
   state.abort();
+  state.cancelCallbacks?.();
   state.abortController = null;
+  state.cancelCallbacks = null;
   state.messages = session.messages;
   state.currentSessionId = session.id;
   state.saveHistory();

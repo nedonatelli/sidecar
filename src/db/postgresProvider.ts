@@ -28,9 +28,14 @@ interface PgQueryResult {
   fields: Array<{ name: string }>;
 }
 
+interface PgPoolClient {
+  query(sql: string, params?: unknown[]): Promise<PgQueryResult>;
+}
+
 interface PgPool {
   query(sql: string, params?: unknown[]): Promise<PgQueryResult>;
   end(): Promise<void>;
+  on(event: 'connect', listener: (client: PgPoolClient) => void): void;
 }
 
 interface PgModule {
@@ -109,7 +114,15 @@ export class PostgresProvider implements DatabaseProvider {
     });
 
     if (this.readOnly) {
-      await this.pool.query('SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY');
+      // Wire a 'connect' handler so EVERY new client in the pool gets the
+      // read-only session characteristic — not just the first one. A single
+      // pool.query() call only touches one connection and leaves the others
+      // unguarded.
+      this.pool.on('connect', (client) => {
+        void client.query('SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY').catch(() => {
+          /* ignore — assertReadOnly in query() is the authoritative guard */
+        });
+      });
     }
 
     this.connected = true;
@@ -240,12 +253,17 @@ export class PostgresProvider implements DatabaseProvider {
       (r) => `${r.constraint_type} ${r.constraint_name}`,
     );
 
-    // Approx row count from pg_class
+    // Approx row count from pg_class — filter by schema to avoid ambiguous
+    // matches when the same table name exists in multiple schemas.
     let approxRowCount: number | undefined;
     try {
-      const cntResult = await pool.query(`SELECT reltuples::bigint AS reltuples FROM pg_class WHERE relname = $1`, [
-        table,
-      ]);
+      const cntResult = await pool.query(
+        `SELECT c.reltuples::bigint AS reltuples
+         FROM pg_class c
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+         WHERE c.relname = $1 AND n.nspname = $2 AND c.relkind = 'r'`,
+        [table, this.defaultDatabase],
+      );
       const cntRow = cntResult.rows[0] as unknown as PgClassRow | undefined;
       if (cntRow?.reltuples !== undefined && cntRow.reltuples !== null) {
         approxRowCount = Number(cntRow.reltuples);

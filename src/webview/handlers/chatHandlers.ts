@@ -430,42 +430,38 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
       const sessionId = state.agentMemory?.getSessionId() || `s-${Date.now()}`;
       state.auditLog.setContext(sessionId, config.model, effectiveApprovalMode);
     }
-    const updatedMessages = await runAgentLoop(
-      state.client,
-      chatMessages,
-      createAgentCallbacks(state, config, chatMessages),
-      state.abortController.signal,
-      {
-        logger: state.agentLogger,
-        changelog: state.changelog,
-        mcpManager: state.mcpManager,
-        approvalMode: effectiveApprovalMode,
-        maxIterations: config.agentMaxIterations,
-        maxTokens: effectiveMaxTokens,
-        confirmFn: (msg, actions, options) => state.requestConfirm(msg, actions, options),
-        diffPreviewFn: state.contentProvider
-          ? async (filePath: string, proposedContent: string) => {
-              const { openDiffPreview } = await import('../../edits/streamingDiffPreview.js');
-              const session = await openDiffPreview(filePath, proposedContent, state.contentProvider!, (msg, actions) =>
-                state.requestConfirm(msg, actions),
-              );
-              try {
-                return await session.finalize();
-              } finally {
-                session.dispose();
-              }
+    const { callbacks: agentCbs, cancel: cancelAgentCbs } = createAgentCallbacks(state, config, chatMessages);
+    state.cancelCallbacks = cancelAgentCbs;
+    const updatedMessages = await runAgentLoop(state.client, chatMessages, agentCbs, state.abortController.signal, {
+      logger: state.agentLogger,
+      changelog: state.changelog,
+      mcpManager: state.mcpManager,
+      approvalMode: effectiveApprovalMode,
+      maxIterations: config.agentMaxIterations,
+      maxTokens: effectiveMaxTokens,
+      confirmFn: (msg, actions, options) => state.requestConfirm(msg, actions, options),
+      diffPreviewFn: state.contentProvider
+        ? async (filePath: string, proposedContent: string) => {
+            const { openDiffPreview } = await import('../../edits/streamingDiffPreview.js');
+            const session = await openDiffPreview(filePath, proposedContent, state.contentProvider!, (msg, actions) =>
+              state.requestConfirm(msg, actions),
+            );
+            try {
+              return await session.finalize();
+            } finally {
+              session.dispose();
             }
-          : undefined,
-        inlineEditFn: state.inlineEditProvider
-          ? (filePath: string, searchText: string, replaceText: string) =>
-              state.inlineEditProvider!.proposeEdit(filePath, searchText, replaceText)
-          : undefined,
-        clarifyFn: (question, options, allowCustom) => state.requestClarification(question, options, allowCustom),
-        modeToolPermissions: resolved.toolPermissions,
-        pendingEdits: state.pendingEdits,
-        steerQueue,
-      },
-    );
+          }
+        : undefined,
+      inlineEditFn: state.inlineEditProvider
+        ? (filePath: string, searchText: string, replaceText: string) =>
+            state.inlineEditProvider!.proposeEdit(filePath, searchText, replaceText)
+        : undefined,
+      clarifyFn: (question, options, allowCustom) => state.requestClarification(question, options, allowCustom),
+      modeToolPermissions: resolved.toolPermissions,
+      pendingEdits: state.pendingEdits,
+      steerQueue,
+    });
 
     if (state.chatGeneration !== generationAtStart) {
       return;
@@ -503,6 +499,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     recordRunCost(state);
     state.metricsCollector.endRun();
     state.abortController = null;
+    state.cancelCallbacks = null;
     state.currentSteerDisposer?.();
     state.currentSteerDisposer = null;
     state.currentSteerQueue = null;

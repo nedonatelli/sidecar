@@ -40,6 +40,7 @@ function stubState(overrides: Partial<LoopState> = {}): LoopState {
     // with no fields is enough for the type check.
     gateState: {} as LoopState['gateState'],
     currentEditPlan: null,
+    checkpointFired: false,
     ...overrides,
   };
 }
