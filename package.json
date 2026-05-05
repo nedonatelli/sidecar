@@ -2119,6 +2119,12 @@
         "command": "sidecar.rejectInlineEdit",
         "key": "escape",
         "when": "editorTextFocus && sidecar.hasInlineEdit"
+      },
+      {
+        "command": "editor.action.inlineSuggest.acceptNextWord",
+        "key": "ctrl+right",
+        "mac": "cmd+right",
+        "when": "inlineSuggestionVisible && !editorReadonly"
       }
     ],
     "menus": {
