@@ -14,27 +14,31 @@ import type { StreamEvent } from '../../ollama/types.js';
  */
 function makeState(): LoopState {
   return {
-    messages: [{ role: 'user', content: 'hi' }],
-    totalChars: 0,
-    iteration: 1,
+    startTime: Date.now(),
+    runId: 'test-task',
+    config: {} as import('../../config/settings.js').SideCarConfig,
     maxIterations: 10,
     maxTokens: 100_000,
     approvalMode: 'autonomous',
     tools: [],
-    recentToolCalls: [],
+    logger: undefined,
+    changelog: undefined,
+    mcpManager: undefined,
+    messages: [{ role: 'user', content: 'hi' }],
+    iteration: 1,
+    totalChars: 0,
     episodicMemory: new EpisodicMemoryStore(),
+    recentToolCalls: [],
     recentNormalizedCalls: [],
     autoFixRetriesByFile: new Map(),
     stubFixRetries: 0,
     criticInjectionsByFile: new Map(),
-    gateState: null,
-    logger: undefined,
-    changelog: undefined,
-    mcpManager: undefined,
-    startTime: Date.now(),
-    runId: 'test-task',
-    config: {} as import('../../config/settings.js').SideCarConfig,
-  } as unknown as LoopState;
+    criticInjectionsByTestHash: new Map(),
+    toolCallCounts: new Map(),
+    gateState: null as any,
+    checkpointFired: false,
+    currentEditPlan: null,
+  };
 }
 
 function makeCallbacks(overrides: Partial<AgentCallbacks> = {}): AgentCallbacks {

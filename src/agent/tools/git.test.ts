@@ -1,5 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { gitCommit, gitDiffTool, gitStatus, gitStage, gitLog, gitPush, gitPull, gitBranch, gitStash } from './git.js';
+import {
+  gitCommit,
+  gitDiffTool,
+  gitStatus,
+  gitStage,
+  gitLog,
+  gitPush,
+  gitPull,
+  gitBranch,
+  gitStash,
+  gitSearchHistory,
+} from './git.js';
 import { AuditBuffer, __setDefaultAuditBufferForTests } from '../audit/auditBuffer.js';
 import * as settings from '../../config/settings.js';
 
@@ -29,12 +40,27 @@ vi.mock('child_process', () => ({
   execFile: vi.fn(),
 }));
 
-import { exec } from 'child_process';
+import { exec, execFile } from 'child_process';
 type ExecCb = (err: Error | null, result?: { stdout: string; stderr: string }) => void;
+type ExecFileCb = (err: Error | null, result: { stdout: string; stderr: string }) => void;
 
 function mockExecResolve(stdout: string) {
   vi.mocked(exec).mockImplementationOnce((_cmd, _opts, cb) => {
     (cb as unknown as ExecCb)(null, { stdout, stderr: '' });
+    return {} as never;
+  });
+}
+
+function mockExecFileResolve(stdout: string) {
+  vi.mocked(execFile).mockImplementationOnce((_file, _args, _opts, cb) => {
+    (cb as unknown as ExecFileCb)(null, { stdout, stderr: '' });
+    return {} as never;
+  });
+}
+
+function mockExecFileReject(err: Error) {
+  vi.mocked(execFile).mockImplementationOnce((_file, _args, _opts, cb) => {
+    (cb as unknown as ExecFileCb)(err, { stdout: '', stderr: '' });
     return {} as never;
   });
 }
@@ -313,5 +339,113 @@ describe('gitStash', () => {
     });
     const result = await gitStash({});
     expect(result).toContain('git stash failed');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// gitSearchHistory — shell injection & argument isolation
+// ---------------------------------------------------------------------------
+describe('gitSearchHistory', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns error when query is missing', async () => {
+    const result = await gitSearchHistory({});
+    expect(result).toBe('Error: query is required.');
+  });
+
+  it('passes query as a separate execFile argument (not shell-interpolated)', async () => {
+    const maliciousQuery = '; rm -rf / #';
+    // Two execFile calls: message search + content search (search_type defaults to 'both')
+    mockExecFileResolve('');
+    mockExecFileResolve('');
+
+    await gitSearchHistory({ query: maliciousQuery });
+
+    const calls = vi.mocked(execFile).mock.calls;
+    expect(calls.length).toBeGreaterThanOrEqual(1);
+    // The args array (second param) must contain the raw query as a single element —
+    // never shell-split. The full arg must be '--grep=; rm -rf / #', not two tokens.
+    const argsArray = calls[0][1] as string[];
+    const grepArg = argsArray.find((a) => (a as string).startsWith('--grep='));
+    expect(grepArg).toBe(`--grep=${maliciousQuery}`);
+    // No argument should be just 'rm' or '-rf'
+    expect(argsArray).not.toContain('rm');
+    expect(argsArray).not.toContain('-rf');
+  });
+
+  it('passes backtick query as a literal string (no command substitution)', async () => {
+    const query = '`whoami`';
+    mockExecFileResolve('');
+    mockExecFileResolve('');
+
+    await gitSearchHistory({ query });
+
+    const argsArray = vi.mocked(execFile).mock.calls[0][1] as string[];
+    const grepArg = argsArray.find((a) => (a as string).startsWith('--grep='));
+    expect(grepArg).toBe(`--grep=${query}`);
+  });
+
+  it('passes $() subshell query as a literal string', async () => {
+    const query = '$(cat /etc/passwd)';
+    mockExecFileResolve('');
+    mockExecFileResolve('');
+
+    await gitSearchHistory({ query });
+
+    const argsArray = vi.mocked(execFile).mock.calls[0][1] as string[];
+    const grepArg = argsArray.find((a) => (a as string).startsWith('--grep='));
+    expect(grepArg).toBe(`--grep=${query}`);
+  });
+
+  it('uses execFile (not exec) so no shell is spawned', async () => {
+    mockExecFileResolve('');
+    mockExecFileResolve('');
+
+    await gitSearchHistory({ query: 'anything' });
+
+    expect(vi.mocked(execFile).mock.calls.length).toBeGreaterThan(0);
+    expect(vi.mocked(exec).mock.calls.length).toBe(0);
+  });
+
+  it('returns "No commits found" when both searches return empty', async () => {
+    mockExecFileResolve('');
+    mockExecFileResolve('');
+
+    const result = await gitSearchHistory({ query: 'nonexistent' });
+    expect(result).toContain('No commits found');
+  });
+
+  it('formats found commits correctly', async () => {
+    const fakeLine = 'abc1234567|2024-01-15|Alice|feat: add rate limiting';
+    // search_type='message' → only one execFile call
+    mockExecFileResolve(fakeLine);
+
+    const result = await gitSearchHistory({ query: 'rate limiting', search_type: 'message' });
+    expect(result).toContain('abc123456');
+    expect(result).toContain('Alice');
+    expect(result).toContain('rate limiting');
+    expect(result).toContain('[matched via: message]');
+  });
+
+  it('caps max_results at 100', async () => {
+    mockExecFileResolve('');
+    mockExecFileResolve('');
+
+    await gitSearchHistory({ query: 'test', max_results: 9999 });
+
+    const argsArray = vi.mocked(execFile).mock.calls[0][1] as string[];
+    // The count arg is `-${maxResults}` — capped at -100, not -9999
+    expect(argsArray).toContain('-100');
+    expect(argsArray).not.toContain('-9999');
+  });
+
+  it('absorbs execFile failure via .catch and returns no commits', async () => {
+    // Both searches use .catch(() => '') so an error produces empty output
+    mockExecFileReject(new Error('not a git repo'));
+
+    const result = await gitSearchHistory({ query: 'test', search_type: 'message' });
+    expect(result).toContain('No commits found');
   });
 });

@@ -134,3 +134,68 @@ describe('readFile audit mode', () => {
     expect(result).toContain('buffered content');
   });
 });
+
+// ---------------------------------------------------------------------------
+// isSensitiveFile guard — write_file, edit_file, read_file must all block
+// sensitive paths before they touch the filesystem or audit buffer.
+// ---------------------------------------------------------------------------
+describe('isSensitiveFile guard', () => {
+  const sensitiveNames = [
+    '.env',
+    '.env.local',
+    '.env.production',
+    'credentials.json',
+    'secrets.json',
+    'secrets.yaml',
+    'secrets.yml',
+    'secret.toml',
+    'token.json',
+    'service.account.json',
+    'id_rsa',
+    'id_rsa.pub',
+    'id_ed25519',
+    'private.key',
+    'cert.pem',
+    'client.p12',
+    'bundle.pfx',
+  ];
+
+  const safeName = 'src/app.ts';
+
+  describe('writeFile rejects sensitive paths', () => {
+    for (const name of sensitiveNames) {
+      it(`blocks write to ${name}`, async () => {
+        const result = await writeFile({ path: name, content: 'data' });
+        expect(result).toMatch(/Error.*secrets or credentials.*not permitted to write/i);
+      });
+    }
+
+    it('allows write to a non-sensitive file', async () => {
+      const { workspace } = await import('vscode');
+      vi.spyOn(workspace.fs, 'writeFile').mockResolvedValueOnce(undefined as never);
+      vi.spyOn(workspace.fs, 'createDirectory').mockResolvedValueOnce(undefined as never);
+      const result = await writeFile({ path: safeName, content: 'export {}' });
+      expect(result).toContain('File written');
+      vi.restoreAllMocks();
+    });
+  });
+
+  describe('editFile rejects sensitive paths', () => {
+    for (const name of sensitiveNames) {
+      it(`blocks edit of ${name}`, async () => {
+        const result = await editFile({ path: name, search: 'x', replace: 'y' });
+        expect(result).toMatch(/Error.*secrets or credentials.*not permitted to edit/i);
+      });
+    }
+  });
+
+  describe('readFile warns on sensitive paths', () => {
+    for (const name of sensitiveNames) {
+      it(`warns when reading ${name}`, async () => {
+        const result = await readFile({ path: name });
+        // read issues a Warning (not an Error) to avoid hard-blocking
+        expect(result).toMatch(/Warning.*secrets or credentials/i);
+      });
+    }
+  });
+});

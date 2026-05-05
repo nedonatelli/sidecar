@@ -581,4 +581,70 @@ describe('OpenAIBackend', () => {
       expect(text?.text).toBe('hello');
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // temperature parameter — reasoning models (o1/o3/o4) reject it; GPT models require it
+  // ---------------------------------------------------------------------------
+  describe('temperature parameter', () => {
+    const toolDef = {
+      name: 'read_file',
+      description: 'Read a file',
+      input_schema: { type: 'object' as const, properties: { path: { type: 'string' } }, required: ['path'] },
+    };
+
+    function setupFetch() {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        body: sseBody([chunk('ok', true), '[DONE]']),
+      });
+    }
+
+    async function captureRequestBody(model: string) {
+      setupFetch();
+      for await (const _e of backend.streamChat(model, '', [{ role: 'user', content: 'hi' }], undefined, [toolDef])) {
+        // consume
+      }
+      return JSON.parse(mockFetch.mock.calls[0][1].body);
+    }
+
+    it('omits temperature for o1 (reasoning model)', async () => {
+      const body = await captureRequestBody('o1');
+      expect(body).not.toHaveProperty('temperature');
+    });
+
+    it('omits temperature for o1-mini', async () => {
+      const body = await captureRequestBody('o1-mini');
+      expect(body).not.toHaveProperty('temperature');
+    });
+
+    it('omits temperature for o3', async () => {
+      const body = await captureRequestBody('o3');
+      expect(body).not.toHaveProperty('temperature');
+    });
+
+    it('omits temperature for o3-mini', async () => {
+      const body = await captureRequestBody('o3-mini');
+      expect(body).not.toHaveProperty('temperature');
+    });
+
+    it('omits temperature for o4-mini', async () => {
+      const body = await captureRequestBody('o4-mini');
+      expect(body).not.toHaveProperty('temperature');
+    });
+
+    it('includes temperature for gpt-4o (standard model)', async () => {
+      const body = await captureRequestBody('gpt-4o');
+      expect(body).toHaveProperty('temperature');
+    });
+
+    it('includes temperature for gpt-4o-mini', async () => {
+      const body = await captureRequestBody('gpt-4o-mini');
+      expect(body).toHaveProperty('temperature');
+    });
+
+    it('includes temperature for gpt-3.5-turbo', async () => {
+      const body = await captureRequestBody('gpt-3.5-turbo');
+      expect(body).toHaveProperty('temperature');
+    });
+  });
 });

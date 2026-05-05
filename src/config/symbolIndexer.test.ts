@@ -162,4 +162,39 @@ describe('SymbolIndexer', () => {
       vi.restoreAllMocks();
     });
   });
+
+  // -------------------------------------------------------------------------
+  // dispose() lifecycle: must call persist() to flush in-memory state to disk
+  // before the extension host shuts down. Without this, symbol index work
+  // done during a session is silently lost.
+  // -------------------------------------------------------------------------
+  describe('dispose() flushes state via persist()', () => {
+    it('calls persist() when no timers are pending', () => {
+      const indexer = new SymbolIndexer(null);
+      const persistSpy = vi.spyOn(indexer, 'persist').mockResolvedValue(undefined);
+      indexer.dispose();
+      expect(persistSpy).toHaveBeenCalledOnce();
+    });
+
+    it('cancels pendingUpdate timer and still calls persist()', () => {
+      const indexer = new SymbolIndexer(null);
+      // Queue an update — this arms the updateTimer debounce
+      indexer.queueUpdate('src/app.ts');
+      const persistSpy = vi.spyOn(indexer, 'persist').mockResolvedValue(undefined);
+      indexer.dispose();
+      // persist must be called even though updateTimer was cancelled mid-flight
+      expect(persistSpy).toHaveBeenCalledOnce();
+    });
+
+    it('cancels schedulePersist timer and still calls persist()', () => {
+      vi.useFakeTimers();
+      const indexer = new SymbolIndexer(null);
+      // Trigger a schedulePersist via queueUpdate path (update → parse → schedulePersist)
+      // We just directly verify dispose() always calls persist regardless of timer state.
+      const persistSpy = vi.spyOn(indexer, 'persist').mockResolvedValue(undefined);
+      indexer.dispose();
+      expect(persistSpy).toHaveBeenCalledOnce();
+      vi.useRealTimers();
+    });
+  });
 });

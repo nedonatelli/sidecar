@@ -265,4 +265,59 @@ describe('PostgresProvider', () => {
     const provider = new PostgresProvider();
     await expect(provider.query('SELECT 1')).rejects.toThrow('not connected');
   });
+
+  // -------------------------------------------------------------------------
+  // CTE-with-write bypass: WITH … AS (INSERT/UPDATE/DELETE …) must be blocked
+  // even though the statement starts with the allowed WITH keyword.
+  // -------------------------------------------------------------------------
+  describe('read-only enforcement blocks write-keyword CTEs', () => {
+    beforeEach(async () => {
+      mockPool = {
+        query: vi.fn().mockResolvedValue({ rows: [], fields: [] }),
+        end: vi.fn().mockResolvedValue(undefined),
+        on: vi.fn(),
+      };
+    });
+
+    const writeCTEs = [
+      {
+        label: 'INSERT inside CTE',
+        sql: `WITH ins AS (INSERT INTO logs (msg) VALUES ('x') RETURNING id) SELECT * FROM ins`,
+        verb: 'INSERT',
+      },
+      {
+        label: 'UPDATE inside CTE',
+        sql: `WITH upd AS (UPDATE users SET active = true WHERE id = 1 RETURNING id) SELECT * FROM upd`,
+        verb: 'UPDATE',
+      },
+      {
+        label: 'DELETE inside CTE',
+        sql: `WITH del AS (DELETE FROM sessions WHERE expired = true RETURNING id) SELECT count(*) FROM del`,
+        verb: 'DELETE',
+      },
+      {
+        label: 'DROP inside CTE',
+        sql: `WITH x AS (DROP TABLE users) SELECT 1`,
+        verb: 'DROP',
+      },
+    ];
+
+    for (const { label, sql, verb } of writeCTEs) {
+      it(`blocks ${label}`, async () => {
+        const provider = new PostgresProvider();
+        await provider.connect(makeProfile({ readOnly: true }));
+        await expect(provider.query(sql)).rejects.toThrow(
+          `Read-only violation: ${verb} inside a CTE is not permitted on a read-only connection`,
+        );
+      });
+    }
+
+    it('allows a plain read-only CTE (no write keywords)', async () => {
+      const provider = new PostgresProvider();
+      await provider.connect(makeProfile({ readOnly: true }));
+      const sql = `WITH recent AS (SELECT id, name FROM users ORDER BY created_at DESC LIMIT 10) SELECT * FROM recent`;
+      // Should not throw — mockPool.query resolves with empty rows
+      await expect(provider.query(sql)).resolves.toBeDefined();
+    });
+  });
 });

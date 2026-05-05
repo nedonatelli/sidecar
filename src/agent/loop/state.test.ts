@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { initLoopState, DEFAULT_MAX_ITERATIONS } from './state.js';
 import type { AgentOptions } from '../loop.js';
 import type { ChatMessage } from '../../ollama/types.js';
+import type { LoopState } from './state.js';
 
 // ---------------------------------------------------------------------------
 // Tests for state.ts (loop helper hardening).
@@ -141,6 +142,50 @@ describe('initLoopState', () => {
       ];
       const state = initLoopState(messages, emptyOptions());
       expect(state.totalChars).toBe(10); // 5 + 5
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Completeness canary: every required field of LoopState must be populated
+  // by initLoopState. When a new field is added to the LoopState interface,
+  // add it here so test stubs in other files know to include it too.
+  // -------------------------------------------------------------------------
+  describe('completeness canary', () => {
+    it('initLoopState populates all required LoopState fields', () => {
+      const state = initLoopState([], emptyOptions());
+
+      // Exhaustive list — TypeScript keyof ensures this compiles only if
+      // each entry is a real LoopState key.
+      const requiredFields: Array<keyof LoopState> = [
+        'startTime',
+        'runId',
+        'config',
+        'maxIterations',
+        'maxTokens',
+        'approvalMode',
+        'tools',
+        'logger',
+        'changelog',
+        'mcpManager',
+        'messages',
+        'iteration',
+        'totalChars',
+        'episodicMemory',
+        'recentToolCalls',
+        'recentNormalizedCalls',
+        'autoFixRetriesByFile',
+        'stubFixRetries',
+        'criticInjectionsByFile',
+        'criticInjectionsByTestHash',
+        'toolCallCounts',
+        'gateState',
+        'checkpointFired',
+        'currentEditPlan',
+      ];
+
+      for (const field of requiredFields) {
+        expect(state, `missing field: ${field}`).toHaveProperty(field);
+      }
     });
   });
 });

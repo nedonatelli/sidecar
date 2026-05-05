@@ -560,4 +560,75 @@ describe('AnthropicBackend', () => {
       );
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // message_delta output_tokens: SET semantics, not accumulate
+  //
+  // Anthropic's protocol sends cumulative output_tokens on message_delta events.
+  // The backend must SET accOutputTokens = event.usage.output_tokens on each
+  // event, NOT add to it. If it accumulated, a stream with two message_delta
+  // events reporting [10, 20] would emit outputTokens=30 instead of the correct
+  // outputTokens=20.
+  // ---------------------------------------------------------------------------
+  describe('message_delta output_tokens SET semantics', () => {
+    it('uses the final message_delta output_tokens value (not the sum)', async () => {
+      // Simulate two message_delta events: first reports 10, second reports 20 (cumulative).
+      // Correct behaviour: outputTokens = 20.
+      // Incorrect (accumulate) behaviour: outputTokens = 30.
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        body: sseBody([
+          sse({ type: 'message_start', message: { usage: { input_tokens: 100, output_tokens: 0 } } }),
+          sse({ type: 'content_block_delta', delta: { type: 'text_delta', text: 'part one ' } }),
+          // First message_delta: cumulative output so far = 10
+          sse({ type: 'message_delta', delta: { stop_reason: null }, usage: { output_tokens: 10 } }),
+          sse({ type: 'content_block_delta', delta: { type: 'text_delta', text: 'part two' } }),
+          // Second message_delta (final): cumulative output total = 20
+          sse({ type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 20 } }),
+          sse({ type: 'message_stop' }),
+        ]),
+      });
+
+      const events = [];
+      for await (const event of backend.streamChat('claude-3-5-sonnet-20241022', 'sys', [
+        { role: 'user', content: 'hi' },
+      ])) {
+        events.push(event);
+      }
+
+      const usageEvent = events.find((e) => e.type === 'usage');
+      expect(usageEvent).toBeDefined();
+      if (usageEvent?.type === 'usage') {
+        // Must be 20 (the last value SET), not 30 (accumulated sum of 10+20)
+        expect(usageEvent.usage.outputTokens).toBe(20);
+        expect(usageEvent.usage.inputTokens).toBe(100);
+      }
+    });
+
+    it('reports zero output tokens when message_delta carries no usage field', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        body: sseBody([
+          sse({ type: 'message_start', message: { usage: { input_tokens: 50, output_tokens: 0 } } }),
+          sse({ type: 'content_block_delta', delta: { type: 'text_delta', text: 'hi' } }),
+          // message_delta with no usage field (shouldn't change the counter)
+          sse({ type: 'message_delta', delta: { stop_reason: 'end_turn' } }),
+          sse({ type: 'message_stop' }),
+        ]),
+      });
+
+      const events = [];
+      for await (const event of backend.streamChat('claude-3-5-sonnet-20241022', 'sys', [
+        { role: 'user', content: 'hi' },
+      ])) {
+        events.push(event);
+      }
+
+      const usageEvent = events.find((e) => e.type === 'usage');
+      expect(usageEvent).toBeDefined();
+      if (usageEvent?.type === 'usage') {
+        expect(usageEvent.usage.outputTokens).toBe(0);
+      }
+    });
+  });
 });

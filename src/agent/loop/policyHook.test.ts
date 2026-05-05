@@ -1,21 +1,53 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi } from 'vitest';
 import { HookBus, PolicyEnforcementError, type HookContext } from './policyHook';
+import type { AgentLogger } from '../logger.js';
 import type { LoopState } from './state';
 
-function makeState(): LoopState {
-  // Minimum viable LoopState for the bus — we only care about logger
-  // since that's what the error-swallowing path uses.
+function makeLoggerSpy(): AgentLogger {
   return {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+    logIteration: vi.fn(),
+    logToolCall: vi.fn(),
+    logToolResult: vi.fn(),
+    logText: vi.fn(),
+  } as unknown as AgentLogger;
+}
+
+function makeState(logger?: AgentLogger): LoopState {
+  return {
+    startTime: Date.now(),
+    runId: 'test-run-id',
+    config: {} as import('../../config/settings.js').SideCarConfig,
+    maxIterations: 10,
+    maxTokens: 100_000,
+    approvalMode: 'cautious',
+    tools: [],
+    logger: logger,
+    changelog: undefined,
+    mcpManager: undefined,
     messages: [],
-    logger: {
-      info: vi.fn(),
-      warn: vi.fn(),
-      error: vi.fn(),
-      debug: vi.fn(),
-      logToolCall: vi.fn(),
-    },
-  } as unknown as LoopState;
+    iteration: 0,
+    totalChars: 0,
+    episodicMemory: {
+      query: vi.fn().mockResolvedValue([]),
+      add: vi.fn(),
+      buildContextBlock: vi.fn().mockResolvedValue(''),
+    } as any,
+    recentToolCalls: [],
+    recentNormalizedCalls: [],
+    autoFixRetriesByFile: new Map(),
+    stubFixRetries: 0,
+    criticInjectionsByFile: new Map(),
+    criticInjectionsByTestHash: new Map(),
+    toolCallCounts: new Map(),
+    gateState: null as any,
+    checkpointFired: false,
+    currentEditPlan: null,
+  };
 }
 
 function makeCtx(overrides: Partial<HookContext> = {}): HookContext {
@@ -130,7 +162,8 @@ describe('HookBus', () => {
         return { mutated: true };
       },
     });
-    const state = makeState();
+    const logger = makeLoggerSpy();
+    const state = makeState(logger);
     await expect(bus.runAfter(state, makeCtx())).rejects.toBeInstanceOf(PolicyEnforcementError);
     // Later hook must not have run — enforcement failed before reaching it.
     expect(laterCalled).not.toHaveBeenCalled();
@@ -166,7 +199,8 @@ describe('HookBus', () => {
         clean();
       },
     });
-    const state = makeState();
+    const logger = makeLoggerSpy();
+    const state = makeState(logger);
     await bus.runTermination(state, makeCtx());
     expect(clean).toHaveBeenCalled();
     expect(state.logger?.warn).toHaveBeenCalledWith(

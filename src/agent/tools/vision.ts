@@ -240,7 +240,11 @@ async function screenshotPage(input: Record<string, unknown>, _context?: ToolExe
   let page: any;
 
   try {
-    browser = await playwright.chromium.launch({ headless: true });
+    try {
+      browser = await playwright.chromium.launch({ headless: true });
+    } catch (launchErr) {
+      return `Error: failed to launch browser: ${launchErr instanceof Error ? launchErr.message : String(launchErr)}. Ensure a Chromium browser is installed and playwright-core is set up correctly.`;
+    }
     page = await browser.newPage();
 
     const width = viewportRaw?.width ?? 1280;
@@ -429,11 +433,12 @@ async function analyzeScreenshot(input: Record<string, unknown>, context?: ToolE
 // open_in_browser
 // ---------------------------------------------------------------------------
 
-async function openInBrowser(input: Record<string, unknown>): Promise<string> {
+async function openInBrowser(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   const url = input.url as string | undefined;
   if (!url) return 'Error: url is required';
 
-  const urlError = validateScreenshotUrl(url);
+  const cfg = context?.config ?? getConfig();
+  const urlError = validateScreenshotUrl(url, cfg.visualVerifyAllowedDomains);
   if (urlError) return urlError;
 
   const uri = Uri.parse(url);

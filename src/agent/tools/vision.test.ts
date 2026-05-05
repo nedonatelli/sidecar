@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -281,5 +281,76 @@ describe('visionTools registry', () => {
       const schema = tool.definition.input_schema as { required?: string[] };
       expect(schema.required).toEqual(requiredMap[tool.definition.name]);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Config-to-behavior: visualVerifyAllowedDomains must flow through to the
+// URL validator inside screenshot_page and open_in_browser executors.
+//
+// Without the fix the allowedDomains config was read but never forwarded,
+// so the allowlist had zero effect. These tests verify end-to-end that the
+// context config reaches validateScreenshotUrl.
+// ---------------------------------------------------------------------------
+describe('visualVerifyAllowedDomains forwarded to URL validator', () => {
+  // The "allows" tests verify URL validation passed. After URL validation,
+  // screenshotPage calls ensureScreenshotsDir (needs mkdir) and then
+  // playwright.chromium.launch (needs a real browser). We mock mkdir to
+  // succeed and let playwright fail naturally — producing a "failed to launch
+  // browser" message that proves the URL check was not the blocking step.
+  beforeEach(() => {
+    vi.spyOn(fs.promises, 'mkdir').mockResolvedValue(undefined as never);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('screenshot_page blocks localhost without allowedDomains config', async () => {
+    const { visionTools } = await import('./vision.js');
+    const tool = visionTools.find((t) => t.definition.name === 'screenshot_page')!;
+    const result = await tool.executor({ url: 'http://localhost:3000' });
+    expect(result).toMatch(/loopback URLs are blocked/i);
+  });
+
+  it('screenshot_page allows localhost when listed in allowedDomains config', async () => {
+    const { visionTools } = await import('./vision.js');
+    const tool = visionTools.find((t) => t.definition.name === 'screenshot_page')!;
+    const context = { config: { visualVerifyAllowedDomains: ['localhost'] } as never };
+    const result = await tool.executor({ url: 'http://localhost:3000' }, context);
+    // URL blocker must not fire — the result is a later error (browser launch/playwright)
+    expect(result).not.toMatch(/loopback URLs are blocked/i);
+    expect(result).not.toMatch(/private network URLs are blocked/i);
+  });
+
+  it('screenshot_page blocks 192.168.x.x without allowedDomains config', async () => {
+    const { visionTools } = await import('./vision.js');
+    const tool = visionTools.find((t) => t.definition.name === 'screenshot_page')!;
+    const result = await tool.executor({ url: 'http://192.168.1.50' });
+    expect(result).toMatch(/private network URLs are blocked/i);
+  });
+
+  it('screenshot_page allows 192.168.x.x when listed in allowedDomains config', async () => {
+    const { visionTools } = await import('./vision.js');
+    const tool = visionTools.find((t) => t.definition.name === 'screenshot_page')!;
+    const context = { config: { visualVerifyAllowedDomains: ['192.168.1.50'] } as never };
+    const result = await tool.executor({ url: 'http://192.168.1.50' }, context);
+    expect(result).not.toMatch(/private network URLs are blocked/i);
+  });
+
+  it('open_in_browser blocks localhost without allowedDomains config', async () => {
+    const { visionTools } = await import('./vision.js');
+    const tool = visionTools.find((t) => t.definition.name === 'open_in_browser')!;
+    const result = await tool.executor({ url: 'http://localhost:5173' });
+    expect(result).toMatch(/loopback URLs are blocked/i);
+  });
+
+  it('open_in_browser allows localhost when listed in allowedDomains config', async () => {
+    const { visionTools } = await import('./vision.js');
+    const tool = visionTools.find((t) => t.definition.name === 'open_in_browser')!;
+    const context = { config: { visualVerifyAllowedDomains: ['localhost'] } as never };
+    const result = await tool.executor({ url: 'http://localhost:5173' }, context);
+    // URL check passes — VS Code simpleBrowser command fires (mocked), blocker must not appear
+    expect(result).not.toMatch(/loopback URLs are blocked/i);
   });
 });
