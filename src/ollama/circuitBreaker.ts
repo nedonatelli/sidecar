@@ -22,7 +22,15 @@
  * provider doesn't get to burn extra user requests.
  */
 
-export type ProviderType = 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks';
+export type ProviderType =
+  | 'ollama'
+  | 'anthropic'
+  | 'openai'
+  | 'kickstand'
+  | 'openrouter'
+  | 'groq'
+  | 'fireworks'
+  | 'gemini';
 
 export type CircuitState = 'closed' | 'open' | 'half-open';
 

@@ -31,6 +31,7 @@ export {
   isOpenRouter,
   isGroq,
   isFireworks,
+  isGemini,
   detectProvider,
 } from './settings/backends.js';
 
@@ -55,7 +56,7 @@ export { resolveMode } from './settings/agent.js';
 
 export interface SideCarConfig {
   model: string;
-  provider: 'auto' | 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks';
+  provider: 'auto' | 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks' | 'gemini';
   systemPrompt: string;
   baseUrl: string;
   apiKey: string;

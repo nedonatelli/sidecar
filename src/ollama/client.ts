@@ -7,6 +7,7 @@ import { KickstandBackend, kickstandHeaders } from './kickstandBackend.js';
 import { OpenRouterBackend } from './openrouterBackend.js';
 import { GroqBackend } from './groqBackend.js';
 import { FireworksBackend } from './fireworksBackend.js';
+import { GeminiBackend } from './geminiBackend.js';
 import { isLocalOllama, detectProvider, getConfig } from '../config/settings.js';
 import { MODEL_CONTEXT_LENGTHS } from '../config/constants.js';
 import { RateLimitStore } from './rateLimitState.js';
@@ -135,7 +136,7 @@ export class SideCarClient {
   // providers (update() keeps old values when new ones are absent),
   // leaking one provider's remaining-token counts into another's view.
   private rateLimitsByProvider = new Map<
-    'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks',
+    'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks' | 'gemini',
     RateLimitStore
   >();
 
@@ -173,13 +174,15 @@ export class SideCarClient {
         return new GroqBackend(this.baseUrl, this.apiKey, this.rateLimitsFor('groq'));
       case 'fireworks':
         return new FireworksBackend(this.baseUrl, this.apiKey, this.rateLimitsFor('fireworks'));
+      case 'gemini':
+        return new GeminiBackend(this.baseUrl, this.apiKey, this.rateLimitsFor('gemini'));
       case 'openai':
         return new OpenAIBackend(this.baseUrl, this.apiKey, this.rateLimitsFor('openai'));
     }
   }
 
   private rateLimitsFor(
-    provider: 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks',
+    provider: 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks' | 'gemini',
   ): RateLimitStore {
     let store = this.rateLimitsByProvider.get(provider);
     if (!store) {
@@ -681,7 +684,7 @@ export class SideCarClient {
     return provider === 'openai';
   }
 
-  getProviderType(): 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks' {
+  getProviderType(): 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks' | 'gemini' {
     return detectProvider(this.baseUrl, getConfig().provider);
   }
 

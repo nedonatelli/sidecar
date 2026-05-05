@@ -947,6 +947,81 @@
   let loadedSkillCommands = [];
   let skillsLoadedForAutocomplete = false;
 
+  // ---------------------------------------------------------------------------
+  // @-mention file completion
+  // ---------------------------------------------------------------------------
+  const atAutocompleteEl = document.getElementById('at-autocomplete');
+  let atAcSelectedIndex = -1;
+  let atAcFiles = []; // { label: basename, dir: relative dir, fullPath: full relative path }
+  let atAcFilesLoaded = false;
+
+  /** Return the word after the @ that precedes the cursor, or null if none. */
+  function getAtQuery() {
+    const val = input.value;
+    const pos = input.selectionStart ?? val.length;
+    const before = val.slice(0, pos);
+    const m = before.match(/@(\S*)$/);
+    return m ? m[1] : null;
+  }
+
+  function updateAtAutocomplete() {
+    const query = getAtQuery();
+    if (query === null) {
+      atAutocompleteEl.classList.add('hidden');
+      atAcSelectedIndex = -1;
+      return;
+    }
+
+    if (!atAcFilesLoaded) {
+      atAcFilesLoaded = true;
+      vscode.postMessage({ command: 'requestFileCompletion' });
+      // Will re-trigger once fileCompletionList arrives (see message handler below)
+      return;
+    }
+
+    const q = query.toLowerCase();
+    const filtered = atAcFiles.filter((f) => q === '' || f.fullPath.toLowerCase().includes(q)).slice(0, 12);
+
+    if (filtered.length === 0) {
+      atAutocompleteEl.classList.add('hidden');
+      atAcSelectedIndex = -1;
+      return;
+    }
+
+    atAcSelectedIndex = 0;
+    atAutocompleteEl.innerHTML = '';
+    filtered.forEach((f, i) => {
+      const item = document.createElement('div');
+      item.className = 'ac-item' + (i === 0 ? ' ac-selected' : '');
+      item.innerHTML =
+        `<span class="ac-cmd">${escapeHtml(f.label)}</span>` +
+        (f.dir ? ` <span class="ac-desc">${escapeHtml(f.dir)}</span>` : '');
+      item.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        selectAtAutocomplete(f);
+      });
+      atAutocompleteEl.appendChild(item);
+    });
+    atAutocompleteEl.classList.remove('hidden');
+  }
+
+  function selectAtAutocomplete(file) {
+    const val = input.value;
+    const pos = input.selectionStart ?? val.length;
+    const before = val.slice(0, pos);
+    const after = val.slice(pos);
+    // Replace @query with @basename
+    const newBefore = before.replace(/@(\S*)$/, '@' + file.label);
+    input.value = newBefore + after;
+    const newPos = newBefore.length;
+    input.setSelectionRange(newPos, newPos);
+    input.focus();
+    atAutocompleteEl.classList.add('hidden');
+    atAcSelectedIndex = -1;
+    // Attach the file through the existing droppedPaths pipeline
+    vscode.postMessage({ command: 'droppedPaths', paths: [file.fullPath] });
+  }
+
   function updateAutocomplete() {
     // Request skills from extension on first autocomplete trigger
     if (!skillsLoadedForAutocomplete) {
@@ -999,11 +1074,44 @@
     input.style.height = 'auto';
     input.style.height = Math.min(input.scrollHeight, 120) + 'px';
     updateAutocomplete();
+    updateAtAutocomplete();
     updateSendButton();
   });
 
   // Enter to send, Shift+Enter for newline, arrow keys for autocomplete
   input.addEventListener('keydown', (e) => {
+    // @-mention autocomplete — takes priority over slash autocomplete
+    if (!atAutocompleteEl.classList.contains('hidden')) {
+      const atItems = atAutocompleteEl.querySelectorAll('.ac-item');
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        atAcSelectedIndex = Math.min(atAcSelectedIndex + 1, atItems.length - 1);
+        atItems.forEach((el, i) => el.classList.toggle('ac-selected', i === atAcSelectedIndex));
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        atAcSelectedIndex = Math.max(atAcSelectedIndex - 1, 0);
+        atItems.forEach((el, i) => el.classList.toggle('ac-selected', i === atAcSelectedIndex));
+        return;
+      }
+      if ((e.key === 'Enter' || e.key === 'Tab') && atAcSelectedIndex >= 0) {
+        e.preventDefault();
+        const idx = atAcSelectedIndex;
+        const filtered = atAcFiles.filter((f) => {
+          const q = getAtQuery()?.toLowerCase() ?? '';
+          return q === '' || f.fullPath.toLowerCase().includes(q);
+        });
+        if (filtered[idx]) selectAtAutocomplete(filtered[idx]);
+        return;
+      }
+      if (e.key === 'Escape') {
+        atAutocompleteEl.classList.add('hidden');
+        atAcSelectedIndex = -1;
+        return;
+      }
+    }
+
     if (!autocompleteEl.classList.contains('hidden')) {
       const items = autocompleteEl.querySelectorAll('.ac-item');
       if (e.key === 'ArrowDown') {
@@ -2329,6 +2437,18 @@
         header.appendChild(runBtn);
       }
 
+      const copyCodeBtn = document.createElement('button');
+      copyCodeBtn.className = 'code-save-btn code-copy-btn';
+      copyCodeBtn.textContent = 'Copy';
+      copyCodeBtn.title = 'Copy code to clipboard';
+      copyCodeBtn.addEventListener('click', () => {
+        navigator.clipboard.writeText(code).then(() => {
+          copyCodeBtn.textContent = '✓';
+          setTimeout(() => (copyCodeBtn.textContent = 'Copy'), 1500);
+        });
+      });
+      header.appendChild(copyCodeBtn);
+
       const saveBtn = document.createElement('button');
       saveBtn.className = 'code-save-btn';
       saveBtn.textContent = 'Save As...';
@@ -2546,8 +2666,8 @@
     return { observe, reset };
   })();
 
-  /** Add copy and delete action buttons to a message div. */
-  function addMessageActions(div) {
+  /** Add copy, regenerate (assistant only), and delete action buttons to a message div. */
+  function addMessageActions(div, isAssistant = false) {
     // Remove existing actions if present (for re-render cases)
     const existing = div.querySelector('.message-actions');
     if (existing) existing.remove();
@@ -2572,6 +2692,18 @@
       });
     });
     actions.appendChild(copyBtn);
+
+    if (isAssistant) {
+      const regenBtn = document.createElement('button');
+      regenBtn.className = 'message-action-btn message-regen-btn';
+      regenBtn.innerHTML = '&#x21bb;';
+      regenBtn.title = 'Regenerate response';
+      regenBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        vscode.postMessage({ command: 'regenerateResponse' });
+      });
+      actions.appendChild(regenBtn);
+    }
 
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'message-action-btn message-delete-btn';
@@ -2932,7 +3064,7 @@
       div.textContent = content;
     }
 
-    addMessageActions(div);
+    addMessageActions(div, role === 'assistant' && !isError);
     messagesContainer.appendChild(div);
     virtualizer.observe(div);
     scrollToBottom();
@@ -3122,7 +3254,7 @@
       postProcessMarkdown(currentAssistantDiv);
 
       // Attach message action buttons (idempotent — removes existing first)
-      addMessageActions(currentAssistantDiv);
+      addMessageActions(currentAssistantDiv, true);
 
       // Hand the finished message off to the virtualizer so it can detach
       // it once the user scrolls far enough to leave it offscreen.
@@ -4594,6 +4726,19 @@
           : null;
         renderActiveFileBar();
         break;
+
+      case 'fileCompletionList': {
+        const paths = event.data.completionFiles || [];
+        atAcFiles = paths.map((p) => {
+          const parts = p.replace(/\\/g, '/').split('/');
+          const label = parts[parts.length - 1];
+          const dir = parts.length > 1 ? parts.slice(0, -1).join('/') : '';
+          return { label, dir, fullPath: p };
+        });
+        // Now that files are loaded, re-trigger the autocomplete if @ is still active
+        updateAtAutocomplete();
+        break;
+      }
 
       case 'fileAttached':
         pendingFiles.push({ fileName: event.data.fileName, fileContent: event.data.fileContent });

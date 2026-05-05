@@ -2319,3 +2319,72 @@ describe('resolveNumberedListRef guard paths', () => {
     expect(resolveNumberedListRef('x'.repeat(81), [])).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// handleRegenerateResponse
+// ---------------------------------------------------------------------------
+describe('handleRegenerateResponse', () => {
+  it('is exported from chatHandlers', async () => {
+    const mod = await import('./chatHandlers.js');
+    expect(typeof mod.handleRegenerateResponse).toBe('function');
+  });
+
+  it('does nothing when there are no user messages', async () => {
+    const { handleRegenerateResponse } = await import('./chatHandlers.js');
+    const state = {
+      messages: [{ role: 'assistant', content: 'hello' }],
+      postMessage: vi.fn(),
+      saveHistory: vi.fn(),
+      abortController: null,
+      chatGeneration: 0,
+      logMessage: vi.fn(),
+      client: {
+        getProviderType: vi.fn().mockReturnValue('anthropic'),
+        isLocalOllama: vi.fn().mockReturnValue(false),
+        streamChat: vi.fn().mockRejectedValue(new Error('mock')),
+      },
+    };
+    // No user message → should return without throwing
+    await expect(handleRegenerateResponse(state as never)).resolves.toBeUndefined();
+    // No postMessage calls expected (nothing to regenerate)
+    expect(state.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('splices messages from the last user message onward before re-submitting', async () => {
+    const { handleRegenerateResponse } = await import('./chatHandlers.js');
+    const messages: Array<{ role: string; content: unknown }> = [
+      { role: 'user', content: 'first message' },
+      { role: 'assistant', content: 'first reply' },
+      { role: 'user', content: 'second message' },
+      { role: 'assistant', content: 'stale reply — should be stripped' },
+    ];
+    const state = {
+      messages,
+      postMessage: vi.fn(),
+      saveHistory: vi.fn(),
+      abortController: null,
+      chatGeneration: 0,
+      logMessage: vi.fn(),
+      abort: vi.fn(),
+      client: {
+        getProviderType: vi.fn().mockReturnValue('anthropic'),
+        isLocalOllama: vi.fn().mockReturnValue(false),
+        // Immediately throw to stop the agent loop after the message splice
+        streamChat: vi.fn().mockImplementation(async function* () {
+          throw new Error('stop');
+        }),
+      },
+    };
+
+    try {
+      await handleRegenerateResponse(state as never);
+    } catch {
+      // expected — mock client throws
+    }
+
+    // The stale assistant reply must be gone — spliced out before handleUserMessage re-ran.
+    expect(state.messages.find((m) => m.content === 'stale reply — should be stripped')).toBeUndefined();
+    // handleUserMessage re-pushes the user turn, so final length is 3 (not 4)
+    expect(state.messages.length).toBeLessThanOrEqual(3);
+  });
+});

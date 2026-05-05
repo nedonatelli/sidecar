@@ -414,3 +414,28 @@ export function handleAcceptAllChanges(state: ChatState): void {
     content: '\n\n✓ All changes accepted',
   });
 }
+
+/**
+ * Gather workspace files for @-mention completion in the chat input.
+ * Returns up to 500 relative paths (node_modules and hidden dirs excluded).
+ * Results are sent once and cached in the webview for the session.
+ */
+export async function handleRequestFileCompletion(state: ChatState): Promise<void> {
+  const folders = workspace.workspaceFolders;
+  if (!folders || folders.length === 0) {
+    state.postMessage({ command: 'fileCompletionList', completionFiles: [] });
+    return;
+  }
+
+  const root = folders[0].uri;
+  const uris = await workspace.findFiles('**/*', '{**/node_modules/**,**/.git/**,**/.sidecar/**}', 500);
+
+  const completionFiles = uris
+    .map((u) => {
+      const rel = u.fsPath.startsWith(root.fsPath) ? u.fsPath.slice(root.fsPath.length + 1) : u.fsPath;
+      return rel.replace(/\\/g, '/');
+    })
+    .sort();
+
+  state.postMessage({ command: 'fileCompletionList', completionFiles });
+}

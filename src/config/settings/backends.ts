@@ -18,7 +18,7 @@ export interface BackendProfile {
   /** Human-readable label shown in the chat menu. */
   name: string;
   /** Provider type the client will instantiate. */
-  provider: 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks';
+  provider: 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks' | 'gemini';
   /** API base URL to bake into sidecar.baseUrl. */
   baseUrl: string;
   /** Default model to select when switching to this profile. */
@@ -105,6 +105,16 @@ export const BUILT_IN_BACKEND_PROFILES: readonly BackendProfile[] = [
     secretKey: null,
     description:
       'Self-hosted Kickstand LLM client backend — manage, load, and run GGUF and MLX models locally with GPU acceleration. No API key required; SideCar reads the auto-generated token automatically.',
+  },
+  {
+    id: 'gemini',
+    name: 'Google Gemini',
+    provider: 'gemini',
+    baseUrl: 'https://generativelanguage.googleapis.com/openai',
+    defaultModel: 'gemini-2.0-flash',
+    secretKey: 'sidecar.profileKey.gemini',
+    description:
+      'Google Gemini models (Flash, Pro) via the OpenAI-compatible endpoint. Gemini 2.0 Flash is fast and free-tier friendly. Requires an API key from aistudio.google.com/apikey.',
   },
 ] as const;
 
@@ -230,11 +240,16 @@ export function isFireworks(baseUrl: string): boolean {
   return baseUrl.includes('fireworks.ai');
 }
 
+/** Check whether a base URL points at Google Gemini's OpenAI-compat surface. */
+export function isGemini(baseUrl: string): boolean {
+  return baseUrl.includes('generativelanguage.googleapis.com');
+}
+
 /** Determine which backend provider to use based on URL and explicit setting. */
 export function detectProvider(
   baseUrl: string,
-  provider: 'auto' | 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks',
-): 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks' {
+  provider: 'auto' | 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks' | 'gemini',
+): 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks' | 'gemini' {
   if (provider !== 'auto') return provider;
   if (isLocalOllama(baseUrl)) return 'ollama';
   if (isAnthropic(baseUrl)) return 'anthropic';
@@ -242,5 +257,6 @@ export function detectProvider(
   if (isOpenRouter(baseUrl)) return 'openrouter';
   if (isGroq(baseUrl)) return 'groq';
   if (isFireworks(baseUrl)) return 'fireworks';
+  if (isGemini(baseUrl)) return 'gemini';
   return 'openai';
 }

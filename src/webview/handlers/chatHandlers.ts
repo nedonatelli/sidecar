@@ -679,3 +679,23 @@ export async function handleGenerateCommit(state: ChatState): Promise<void> {
     state.postMessage({ command: 'setLoading', isLoading: false });
   }
 }
+
+/** Re-run the last user message, discarding the most recent assistant turn. */
+export async function handleRegenerateResponse(state: ChatState): Promise<void> {
+  const lastUserMsg = [...state.messages].reverse().find((m) => m.role === 'user');
+  if (!lastUserMsg) return;
+
+  const text =
+    typeof lastUserMsg.content === 'string'
+      ? lastUserMsg.content
+      : lastUserMsg.content
+          .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+          .map((b) => b.text)
+          .join('\n');
+
+  // Remove from the last user message onward (strips the stale assistant turn).
+  const idx = state.messages.lastIndexOf(lastUserMsg);
+  if (idx >= 0) state.messages.splice(idx);
+
+  await handleUserMessage(state, text);
+}

@@ -31,12 +31,14 @@ import {
   handleRevertFile,
   handleAcceptAllChanges,
   handleDeleteMessage,
+  handleRegenerateResponse,
   isPlanApproval,
   isPlanRejection,
   isUndoRequest,
   isCommitRequest,
   isShowDiffRequest,
 } from './chatHandlers.js';
+import { handleRequestFileCompletion } from './fileHandlers.js';
 import { handleGitHubCommand } from './githubHandlers.js';
 import { loadModels, handleInstallModel } from './modelHandlers.js';
 import {
@@ -398,6 +400,10 @@ export function buildDispatchHandlers(
     },
 
     stopAutoMode: () => void commands.executeCommand('sidecar.stopAutoMode'),
+
+    requestFileCompletion: () => handleRequestFileCompletion(state),
+
+    regenerateResponse: () => handleRegenerateResponse(state),
 
     // loadModels is not a webview command but kept here for discoverability;
     // it fires from resolveWebviewView, not from the dispatch table.

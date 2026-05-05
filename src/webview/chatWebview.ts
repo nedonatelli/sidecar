@@ -86,7 +86,9 @@ export interface WebviewMessage {
     | 'stopAutoMode'
     | 'executeExtensionCommand'
     | 'notebookStart'
-    | 'notebookExit';
+    | 'notebookExit'
+    | 'requestFileCompletion'
+    | 'regenerateResponse';
   images?: { mediaType: string; data: string }[];
   text?: string;
   model?: string;
@@ -179,7 +181,8 @@ export interface ExtensionMessage {
     | 'autoModeTaskUpdate'
     | 'autoModeDone'
     | 'activeFileChanged'
-    | 'setActiveBackendProfile';
+    | 'setActiveBackendProfile'
+    | 'fileCompletionList';
   /** Active backend profile id sent with 'setActiveBackendProfile'. */
   activeBackendProfileId?: string | null;
   agentMode?: string;
@@ -312,6 +315,8 @@ export interface ExtensionMessage {
     tasksSucceeded: number;
     tasksFailed: number;
   };
+  /** Workspace file paths for @-mention completion. Relative to workspace root. */
+  completionFiles?: string[];
 }
 
 export interface LibraryModelUI {
@@ -466,6 +471,7 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
   </div>
   <div id="image-preview" class="hidden"></div>
   <div id="slash-autocomplete" class="hidden" role="listbox" aria-label="Slash commands"></div>
+  <div id="at-autocomplete" class="hidden" role="listbox" aria-label="File mentions"></div>
   <div id="resume-strip" class="hidden" role="region" aria-label="Resume available"></div>
   <div id="steer-queue-strip" class="hidden" role="region" aria-label="Queued steers"></div>
   <div id="auto-mode-strip" class="hidden" role="region" aria-label="Auto Mode progress"></div>

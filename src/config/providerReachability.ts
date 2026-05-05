@@ -37,7 +37,7 @@ async function readKickstandTokenForProbe(): Promise<string> {
  * network errors and timeouts return false.
  */
 export async function isProviderReachable(
-  providerType: 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks',
+  providerType: 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks' | 'gemini',
   config?: SideCarConfig,
 ): Promise<boolean> {
   const cfg = config || getConfig();
@@ -94,6 +94,14 @@ export async function isProviderReachable(
         }
         break;
       case 'openai':
+        checkUrl = `${cfg.baseUrl}/v1/models`;
+        if (cfg.apiKey && cfg.apiKey !== 'ollama') {
+          headers['Authorization'] = `Bearer ${cfg.apiKey}`;
+        }
+        break;
+      case 'gemini':
+        // Gemini's OpenAI-compat /v1/models returns 200 with auth, 401 without.
+        // Either response means the server is up.
         checkUrl = `${cfg.baseUrl}/v1/models`;
         if (cfg.apiKey && cfg.apiKey !== 'ollama') {
           headers['Authorization'] = `Bearer ${cfg.apiKey}`;

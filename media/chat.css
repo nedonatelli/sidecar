@@ -759,6 +759,10 @@ body {
   opacity: 1;
 }
 
+.message-regen-btn {
+  font-size: 16px;
+}
+
 .message.user {
   align-self: flex-end;
   background: var(--sidecar-chat-accent, var(--vscode-button-background));
@@ -949,7 +953,8 @@ body {
   background: var(--vscode-button-hoverBackground);
 }
 
-#slash-autocomplete {
+#slash-autocomplete,
+#at-autocomplete {
   border-top: 1px solid var(--vscode-widget-border);
   background: var(--vscode-editor-background);
   max-height: 200px;
