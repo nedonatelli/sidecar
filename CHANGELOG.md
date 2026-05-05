@@ -4,6 +4,54 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.85.0] - 2026-05-05
+
+**v0.85.0 — Security hardening, correctness audit, Semantic Time Travel, and implementation-quality test sprint.**
+
+### Added
+
+- **`git_search_history` tool (Semantic Time Travel)** — searches full git history by commit message (`--grep`) and/or code content (`-S` pickaxe), with configurable `max_results` and optional path scope. Deduplicates results across both search modes and reports which mode matched each commit. Read-only; pair with `git_diff(ref1="<hash>")` to inspect a matched commit's full diff.
+- **MCP Marketplace shortcut** — `SideCar: Open MCP Marketplace` command palette entry opens `github.com/topics/mcp-server` for browsing third-party MCP server packages.
+- **Skill Marketplace shortcut** — `SideCar: Browse Skill Marketplace` opens `github.com/topics/sidecar-skill`, a public filterable index of community skill repos tagged with the `sidecar-skill` topic.
+- **Architecture Decision Records** — five retroactive ADRs added to `docs/adr/`: 001 (local-first via Ollama), 002 (stateful agent loop), 003 (shadow workspace isolation), 004 (FlatVectorStore choice), 005 (typed facets). Each covers context, decision, and consequences. `docs/adr/README.md` includes the template for future ADRs.
+- **`ToolDefinition.nondeterministicOutput`** — canonical flag marking tools whose results must never be dedup'd by the prompt pruner (set on `read_file`, `get_diagnostics`, `git_diff`, `git_status`). `PrunerOptions` gains `dedupExemptTools?: ReadonlySet<string>`; backends derive the set from the `tools[]` array at call time so definition and pruner stay in sync without any hardcoded string list at the call site.
+
+### Fixed
+
+**Security / correctness (audit sprint):**
+
+- **`git_search_history` shell injection** — `gitSearchHistory` was built using string interpolation into `execAsync`; switched to `execFileAsync` with an args array so LLM-controlled query values and path scopes are never interpreted by the shell.
+- **Anthropic output-token double-counting** — `message_delta` handler was *adding* `event.usage.output_tokens` to the accumulator instead of *setting* it; the field carries a cumulative total, not an incremental delta. Fixes inflated token counts on long responses.
+- **Anthropic cache boundary marker** — `markerIndex <= 0` condition skipped the first message even when it should have been cacheable; corrected to `< 0`.
+- **Anthropic temperature always applied** — temperature was only injected when `tools && tools.length > 0`; it should be injected whenever the model supports it (tools presence is irrelevant).
+- **OpenAI o1/o3/o4 temperature rejection** — o-series models reject requests containing a `temperature` field with HTTP 400; `supportsTemperature(model)` guard added (`!/^o\d/i.test(model)`) so temperature is omitted for these models.
+- **SQL CTE write-verb bypass** — `WITH … AS (INSERT/UPDATE/DELETE/DROP …)` passed the leading-keyword read-only allowlist but contained write verbs inside the CTE body. PostgreSQL provider now scans the full statement for write verbs after stripping the outer `WITH … AS (…)` wrapper.
+- **SQLite `listTables` identifier injection** — `row.name` from `sqlite_master` was interpolated directly into a `COUNT(*)` query. Now validated against `SAFE_IDENTIFIER` regex before use; tables with exotic names are skipped rather than risking a malformed query.
+- **`isSensitiveFile` guard on writes** — the guard existed on `read_file` (returns a warning) but was absent from `write_file` and `edit_file`. Both now reject attempts to write to `.env`, credential files, SSH keys, and 10 other sensitive patterns with an Error.
+- **`validateScreenshotUrl` not forwarded in `open_in_browser`** — `openInBrowser` executor was missing its `context` parameter and called `validateScreenshotUrl` without `allowedDomains`; the allowlist config had zero effect. Fixed by threading `context?.config?.visualVerifyAllowedDomains` through to the validator in both `screenshot_page` and `open_in_browser`.
+- **Playwright launch error unhandled** — `screenshotPage`'s `playwright.chromium.launch()` call had no catch; launch failures propagated as unhandled rejections. Wrapped in `try/catch` that returns a descriptive string.
+- **CSS selector validation in `screenshot_page`** — XPath selectors (`//…`), HTML injection (`<…`), null-byte control characters, and selectors exceeding 2000 characters are now rejected before the browser is launched.
+- **`symbolIndexer.dispose()` data loss** — `dispose()` only cancelled the `updateTimer` without flushing; any symbol work buffered since the last persist was silently dropped. `dispose()` now always calls `persist()` after cancelling timers.
+- **`compression.ts` negative freed clamp** — for tiny images whose compressed placeholder text was longer than the original base64 data, `freed` went negative and inflated the remaining budget. Clamped to `Math.max(0, freed)`.
+- **Checkpoint double-fire** — `notifications.ts` used `!== 60` instead of `>= 60` for the 60%-iteration checkpoint, causing it to fire on every iteration after the threshold was first crossed. Added `checkpointFired` flag to `LoopState` so it fires exactly once.
+- **Postgres N+1 `listTables` queries** — per-table `COUNT(*)` queries replaced with a single `LEFT JOIN` on `pg_class.reltuples`; `pool.on('connect')` replaces a one-shot `pool.query('SET SESSION …')` for read-only enforcement so every pool client gets the constraint.
+- **Postgres FK query wrong column** — FK metadata selected `kcu.column_name` for both the local and referenced sides; fixed to include `ccu.column_name AS referenced_column`.
+- **`git clone` flag-injection** — `'--'` separator added before the URL to prevent a URL starting with `-` from being parsed as a flag.
+- **Audit callback stale flush** — `createAgentCallbacks` now exposes `cancel()`; session load calls it so the previous session's flush timer cannot inject stale text into a freshly loaded session.
+- **`dispatchToolUses` network error** — unhandled `requestEditPlan` network errors now fall back to `executeToolUses` instead of leaving an unmatched `tool_use` block (API alternation violation).
+
+**Performance / lifecycle:**
+
+- **`streamingFileReader` memory** — local `file://` URIs in summary mode now use `fd.read()` byte-offset reads instead of loading the full file into memory.
+- **Workspace index regex hoisting** — `tokenize` regexes promoted to module-level constants; `computeScore` prefix check changed from substring `includes()` to `startsWith()`.
+- **`nextEdit` debounce timer leak** — `dispose()` now clears `debounceTimer`.
+- **`auditHelper` module** — `isAuditModeActive` / `shouldBufferCommits` extracted to `src/agent/tools/auditHelper.ts`; `fs.ts` and `git.ts` import from there instead of duplicating the logic.
+
+### Tests
+
+- **86 new integration tests across 10 correctness categories** — covers: shell injection via `execFile` args inspection, `isSensitiveFile` guard on read/write/edit, SQL CTE write-verb bypass, Anthropic `message_delta` SET semantics, OpenAI `supportsTemperature` for o-series, `allowedDomains` config-to-URL-validator forwarding (end-to-end), `symbolIndexer.dispose()` persist call, `LoopState` interface completeness canary, `HookBus` with typed `AgentLogger` spy, and `streamTurn` stub with all required `LoopState` fields.
+- **Coverage floors** — statement/branch/function/line thresholds set to 80/70/80/80 in CI vitest config; currently at or above on all four metrics.
+
 ## [0.84.0] - 2026-05-04
 
 **v0.84.0 — Retrieval intelligence, context UX, loop hardening, and codebase hardening.**
