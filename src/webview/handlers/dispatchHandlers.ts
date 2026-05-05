@@ -328,6 +328,17 @@ export function buildDispatchHandlers(
         },
         preFilledTask: task,
         reviewDeps: mainRoot ? { ui: createDefaultForkReviewUi(), mainRoot } : undefined,
+        onBatchProgress: (state) =>
+          postMessage({
+            command: 'batchProgress',
+            batchProgress: {
+              kind: 'forks',
+              task: state.task,
+              items: state.items,
+              doneCount: state.done,
+              totalCount: state.total,
+            },
+          }),
       });
     },
 

@@ -287,6 +287,14 @@ export interface FacetDispatchBatchResult {
  * not yet started are skipped (surface as aborted with an explanatory
  * error).
  */
+export type FacetProgressItem = { id: string; label: string; status: 'pending' | 'running' | 'done' | 'error' };
+export type FacetBatchProgressCallback = (state: {
+  done: number;
+  total: number;
+  task: string;
+  items: readonly FacetProgressItem[];
+}) => void;
+
 export async function dispatchFacets(
   client: SideCarClient,
   registry: FacetRegistry,
@@ -298,6 +306,8 @@ export async function dispatchFacets(
     rpcTimeoutMs?: number;
     /** Handlers to register on the per-batch RPC bus before dispatch. */
     rpcHandlers?: FacetRpcHandlerMap;
+    /** Optional progress callback fired before/after each facet runs. */
+    onBatchProgress?: FacetBatchProgressCallback;
   },
 ): Promise<FacetDispatchBatchResult> {
   // Build a fresh bus per batch so wire traces never bleed across
@@ -338,12 +348,29 @@ export async function dispatchFacets(
     .map((layer) => layer.filter((f) => selectedIds.has(f.id)))
     .filter((layer) => layer.length > 0);
 
+  // Build mutable progress state shared across all layers.
+  const progressItems = new Map<string, FacetProgressItem>(
+    resolved.map((f) => [f.id, { id: f.id, label: f.displayName, status: 'pending' as const }]),
+  );
+  let doneCount = 0;
+  const emitProgress = () => {
+    options.onBatchProgress?.({
+      done: doneCount,
+      total: resolved.length,
+      task: options.task,
+      items: [...progressItems.values()],
+    });
+  };
+  if (options.onBatchProgress) emitProgress();
+
   const resultsById = new Map<string, FacetDispatchResult>();
   for (const layer of layersFiltered) {
     if (options.signal.aborted) break;
     await runForEachWithCap(
       layer,
       async (facet) => {
+        progressItems.set(facet.id, { id: facet.id, label: facet.displayName, status: 'running' });
+        emitProgress();
         try {
           const r = await dispatchFacet(client, facet, parentCallbacks, {
             ...options,
@@ -351,6 +378,13 @@ export async function dispatchFacets(
             rpcPeers,
           });
           resultsById.set(facet.id, r);
+          progressItems.set(facet.id, { id: facet.id, label: facet.displayName, status: r.success ? 'done' : 'error' });
+          doneCount++;
+          emitProgress();
+        } catch {
+          progressItems.set(facet.id, { id: facet.id, label: facet.displayName, status: 'error' });
+          doneCount++;
+          emitProgress();
         } finally {
           // Clear THIS facet's handlers on completion so subsequent
           // calls from later-layer facets surface as no-handler

@@ -98,7 +98,125 @@ vi.mock('fs', async () => {
   return { ...wrapped, default: wrapped };
 });
 
-import { FlatVectorStore, cosine, UnsupportedBackendError, type VectorStore } from './vectorStore.js';
+import { FlatVectorStore, LanceVectorStore, cosine, UnsupportedBackendError, type VectorStore } from './vectorStore.js';
+
+// ---------------------------------------------------------------------------
+// Fake LanceDB — mimics the parts of @lancedb/lancedb that LanceVectorStore
+// touches. State lives in a plain Map so tests start clean without real I/O.
+// ---------------------------------------------------------------------------
+class FakeLanceTable {
+  readonly rows = new Map<string, { id: string; vector: number[]; metadata_json: string }>();
+
+  mergeInsert(on: string) {
+    const table = this;
+    const builder = {
+      whenMatchedUpdateAll() {
+        return this;
+      },
+      whenNotMatchedInsertAll() {
+        return this;
+      },
+      async execute(data: { id: string; vector: number[]; metadata_json: string }[]) {
+        for (const row of data) table.rows.set(row[on as 'id'], row);
+      },
+    };
+    return builder;
+  }
+
+  async delete(filter: string) {
+    const eq = filter.match(/^id = '((?:[^']|'')*)'$/);
+    if (eq) {
+      table_delete(this.rows, eq[1].replace(/''/g, "'"));
+      return;
+    }
+    const inMatch = filter.match(/^id IN \((.*)\)$/s);
+    if (inMatch) {
+      const ids = inMatch[1].split(', ').map((s) => s.slice(1, -1).replace(/''/g, "'"));
+      for (const id of ids) table_delete(this.rows, id);
+    }
+  }
+
+  vectorSearch(queryVec: number[]) {
+    const table = this;
+    const q = {
+      _limit: 10,
+      metric(_m: string) {
+        return this;
+      },
+      limit(k: number) {
+        this._limit = k;
+        return this;
+      },
+      async toArray() {
+        // Use a trivial dot-product for sorting so tests can control ranking.
+        return [...table.rows.values()]
+          .map((row) => {
+            let dot = 0;
+            for (let i = 0; i < Math.min(queryVec.length, row.vector.length); i++) dot += queryVec[i] * row.vector[i];
+            return { ...row, _distance: 1 - dot };
+          })
+          .sort((a, b) => a._distance - b._distance)
+          .slice(0, q._limit);
+      },
+    };
+    return q;
+  }
+
+  query() {
+    const table = this;
+    const q = {
+      _cols: null as string[] | null,
+      select(cols: string[]) {
+        this._cols = cols;
+        return this;
+      },
+      async toArray() {
+        const rows = [...table.rows.values()];
+        if (!q._cols) return rows;
+        return rows.map((r) => Object.fromEntries(q._cols!.map((c) => [c, (r as Record<string, unknown>)[c]])));
+      },
+    };
+    return q;
+  }
+}
+
+function table_delete(rows: Map<string, unknown>, id: string) {
+  rows.delete(id);
+}
+
+class FakeLanceConnection {
+  readonly tables = new Map<string, FakeLanceTable>();
+
+  async tableNames(): Promise<string[]> {
+    return [...this.tables.keys()];
+  }
+
+  async openTable(name: string): Promise<FakeLanceTable> {
+    const t = this.tables.get(name);
+    if (!t) throw new Error(`Table ${name} not found`);
+    return t;
+  }
+
+  async createTable(name: string, seed: unknown[]): Promise<FakeLanceTable> {
+    const t = new FakeLanceTable();
+    for (const row of seed as { id: string; vector: number[]; metadata_json: string }[]) {
+      t.rows.set(row.id, row);
+    }
+    this.tables.set(name, t);
+    return t;
+  }
+
+  async dropTable(name: string): Promise<void> {
+    this.tables.delete(name);
+  }
+}
+
+let fakeConn = new FakeLanceConnection();
+
+/** Fake lancedb module injected into LanceVectorStore tests. */
+function makeFakeLancedb() {
+  return { connect: async (_path: string) => fakeConn };
+}
 
 /**
  * Tests exercise the FlatVectorStore against a synthetic metadata
@@ -466,5 +584,183 @@ describe('UnsupportedBackendError', () => {
     expect(err.name).toBe('UnsupportedBackendError');
     expect(err.message).toContain('lance');
     expect(err.message).toContain('flat');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// LanceVectorStore
+// ---------------------------------------------------------------------------
+const LANCE_DIM = 4;
+
+function makeLanceStore() {
+  return new LanceVectorStore<TestMeta>('/fake/db', 'symbols', LANCE_DIM, makeFakeLancedb());
+}
+
+function lVec(...values: number[]): Float32Array {
+  return new Float32Array(values);
+}
+
+describe('LanceVectorStore', () => {
+  beforeEach(() => {
+    // Fresh connection + tables for every test.
+    fakeConn = new FakeLanceConnection();
+  });
+
+  describe('upsert + size + getMetadata', () => {
+    it('stores a new record and reflects it in size/getMetadata', async () => {
+      const store = makeLanceStore();
+      await store.upsert({ id: 'a', vector: lVec(1, 0, 0, 0), metadata: { path: 'a.ts', kind: 'fn', hash: 'h1' } });
+      expect(store.size()).toBe(1);
+      expect(store.getMetadata('a')).toEqual({ path: 'a.ts', kind: 'fn', hash: 'h1' });
+    });
+
+    it('overwrites metadata on a second upsert for the same id', async () => {
+      const store = makeLanceStore();
+      await store.upsert({ id: 'a', vector: lVec(1, 0, 0, 0), metadata: { path: 'old.ts', kind: 'fn', hash: 'h1' } });
+      await store.upsert({ id: 'a', vector: lVec(0, 1, 0, 0), metadata: { path: 'new.ts', kind: 'fn', hash: 'h2' } });
+      expect(store.size()).toBe(1);
+      expect(store.getMetadata('a')?.path).toBe('new.ts');
+    });
+
+    it('rejects a vector whose length differs from the configured dimension', async () => {
+      const store = makeLanceStore();
+      await expect(
+        store.upsert({ id: 'x', vector: new Float32Array(3), metadata: { path: 'p', kind: 'k', hash: 'h' } }),
+      ).rejects.toThrow(/dimension/);
+    });
+  });
+
+  describe('remove', () => {
+    it('returns true when the id exists and false when already gone', async () => {
+      const store = makeLanceStore();
+      await store.upsert({ id: 'a', vector: lVec(1, 0, 0, 0), metadata: { path: 'p', kind: 'k', hash: 'h' } });
+
+      expect(await store.remove('a')).toBe(true);
+      expect(store.size()).toBe(0);
+      expect(await store.remove('a')).toBe(false);
+    });
+
+    it('removes the row from the Lance table', async () => {
+      const store = makeLanceStore();
+      await store.upsert({ id: 'del', vector: lVec(1, 0, 0, 0), metadata: { path: 'p', kind: 'k', hash: 'h' } });
+      await store.remove('del');
+
+      // Table should have no rows after delete.
+      const tbl = await fakeConn.openTable('symbols');
+      expect(tbl.rows.size).toBe(0);
+    });
+
+    it('handles ids with single-quote characters without SQL injection', async () => {
+      const store = makeLanceStore();
+      const id = "it's";
+      await store.upsert({ id, vector: lVec(1, 0, 0, 0), metadata: { path: 'p', kind: 'k', hash: 'h' } });
+      expect(await store.remove(id)).toBe(true);
+      expect(store.size()).toBe(0);
+    });
+  });
+
+  describe('removeWhere', () => {
+    it('removes every record matching the predicate', async () => {
+      const store = makeLanceStore();
+      await store.upsert({ id: 'a', vector: lVec(1, 0, 0, 0), metadata: { path: 'src/x.ts', kind: 'fn', hash: 'h' } });
+      await store.upsert({ id: 'b', vector: lVec(0, 1, 0, 0), metadata: { path: 'src/x.ts', kind: 'fn', hash: 'h' } });
+      await store.upsert({ id: 'c', vector: lVec(0, 0, 1, 0), metadata: { path: 'src/y.ts', kind: 'fn', hash: 'h' } });
+
+      const count = await store.removeWhere((m) => m.path === 'src/x.ts');
+      expect(count).toBe(2);
+      expect(store.size()).toBe(1);
+      expect(store.getMetadata('c')).not.toBeNull();
+    });
+
+    it('returns 0 when no records match', async () => {
+      const store = makeLanceStore();
+      await store.upsert({ id: 'a', vector: lVec(1, 0, 0, 0), metadata: { path: 'p', kind: 'fn', hash: 'h' } });
+      expect(await store.removeWhere((m) => m.kind === 'unknown')).toBe(0);
+      expect(store.size()).toBe(1);
+    });
+  });
+
+  describe('search', () => {
+    it('returns results ordered by descending similarity', async () => {
+      const store = makeLanceStore();
+      await store.upsert({ id: 'a', vector: lVec(1, 0, 0, 0), metadata: { path: 'a', kind: 'k', hash: 'h' } });
+      await store.upsert({ id: 'b', vector: lVec(0, 1, 0, 0), metadata: { path: 'b', kind: 'k', hash: 'h' } });
+      await store.upsert({ id: 'c', vector: lVec(0, 0, 1, 0), metadata: { path: 'c', kind: 'k', hash: 'h' } });
+
+      const hits = await store.search(lVec(1, 0, 0, 0), 5);
+      expect(hits.length).toBeGreaterThan(0);
+      expect(hits[0].id).toBe('a');
+      expect(hits[0].similarity).toBeCloseTo(1);
+    });
+
+    it('applies the metadata filter after retrieving rows', async () => {
+      const store = makeLanceStore();
+      await store.upsert({ id: 'fn', vector: lVec(1, 0, 0, 0), metadata: { path: 'p', kind: 'fn', hash: 'h' } });
+      await store.upsert({ id: 'cls', vector: lVec(1, 0, 0, 0), metadata: { path: 'p', kind: 'cls', hash: 'h' } });
+
+      const hits = await store.search(lVec(1, 0, 0, 0), 10, (m) => m.kind === 'fn');
+      expect(hits).toHaveLength(1);
+      expect(hits[0].id).toBe('fn');
+    });
+
+    it('returns [] when the store is empty', async () => {
+      const store = makeLanceStore();
+      expect(await store.search(lVec(1, 0, 0, 0), 5)).toEqual([]);
+    });
+  });
+
+  describe('getVector', () => {
+    it('always returns null (vectors are stored on disk, not in-memory)', async () => {
+      const store = makeLanceStore();
+      await store.upsert({ id: 'a', vector: lVec(1, 0, 0, 0), metadata: { path: 'p', kind: 'k', hash: 'h' } });
+      expect(store.getVector('a')).toBeNull();
+    });
+  });
+
+  describe('entries', () => {
+    it('iterates every id+metadata pair from the in-memory cache', async () => {
+      const store = makeLanceStore();
+      await store.upsert({ id: 'a', vector: lVec(1, 0, 0, 0), metadata: { path: 'a', kind: 'k', hash: 'h' } });
+      await store.upsert({ id: 'b', vector: lVec(0, 1, 0, 0), metadata: { path: 'b', kind: 'k', hash: 'h' } });
+
+      const seen = [...store.entries()].map((e) => e.id).sort();
+      expect(seen).toEqual(['a', 'b']);
+    });
+  });
+
+  describe('persist', () => {
+    it('is a no-op (Lance is immediately durable)', async () => {
+      const store = makeLanceStore();
+      await store.upsert({ id: 'a', vector: lVec(1, 0, 0, 0), metadata: { path: 'p', kind: 'k', hash: 'h' } });
+      await expect(store.persist()).resolves.toBeUndefined();
+    });
+  });
+
+  describe('restore', () => {
+    it('rebuilds the metadata cache from the Lance table', async () => {
+      const store1 = makeLanceStore();
+      await store1.upsert({ id: 'a', vector: lVec(1, 0, 0, 0), metadata: { path: 'a.ts', kind: 'fn', hash: 'h1' } });
+      await store1.upsert({ id: 'b', vector: lVec(0, 1, 0, 0), metadata: { path: 'b.ts', kind: 'cls', hash: 'h2' } });
+
+      // A second store instance pointing at the same fake connection gets
+      // its metadata cache rebuilt via restore().
+      const store2 = makeLanceStore();
+      await store2.restore();
+
+      expect(store2.size()).toBe(2);
+      expect(store2.getMetadata('a')).toEqual({ path: 'a.ts', kind: 'fn', hash: 'h1' });
+      expect(store2.getMetadata('b')).toEqual({ path: 'b.ts', kind: 'cls', hash: 'h2' });
+    });
+  });
+
+  describe('clearPersisted', () => {
+    it('drops the Lance table and clears the in-memory cache', async () => {
+      const store = makeLanceStore();
+      await store.upsert({ id: 'a', vector: lVec(1, 0, 0, 0), metadata: { path: 'p', kind: 'k', hash: 'h' } });
+      await store.clearPersisted();
+
+      expect(store.size()).toBe(0);
+      expect(fakeConn.tables.has('symbols')).toBe(false);
+    });
   });
 });

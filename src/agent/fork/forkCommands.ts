@@ -1,5 +1,5 @@
 import { window } from 'vscode';
-import { dispatchForks, type ForkDispatchBatchResult } from './forkDispatcher.js';
+import { dispatchForks, type ForkDispatchBatchResult, type ForkBatchProgressCallback } from './forkDispatcher.js';
 import { reviewForkBatch, type ForkReviewDeps, type ForkReviewOutcome } from './forkReview.js';
 import type { SideCarClient } from '../../ollama/client.js';
 import type { AgentCallbacks } from '../loop.js';
@@ -52,6 +52,8 @@ export interface ForkCommandDeps {
   reviewDeps?: ForkReviewDeps;
   /** Callback sink for LLM output during fork runs. */
   callbacks?: AgentCallbacks;
+  /** Optional progress callback fired when each fork starts and finishes. */
+  onBatchProgress?: ForkBatchProgressCallback;
   /** Config values from `sidecar.fork.*`. */
   config: ForkCommandConfig;
 }
@@ -126,6 +128,7 @@ export async function runForkDispatchCommand(deps: ForkCommandDeps): Promise<For
       numForks: deps.config.defaultCount,
       maxConcurrent: deps.config.maxConcurrent,
       signal,
+      onBatchProgress: deps.onBatchProgress,
     });
     summarizeBatch(deps.ui, batch);
 

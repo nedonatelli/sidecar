@@ -63,15 +63,26 @@ export function initWorkspaceIndex(
       // Project Knowledge Index — symbol-level semantic index
       if (config.projectKnowledgeEnabled) {
         const { SymbolEmbeddingIndex } = await import('../config/symbolEmbeddingIndex.js');
-        if (config.projectKnowledgeBackend === 'lance') {
-          console.warn(
-            '[SideCar] sidecar.projectKnowledge.backend=lance is reserved for a future release; using `flat` instead.',
-          );
-          void window.showWarningMessage(
-            'SideCar: Project Knowledge backend "lance" is not available in this build — using "flat" instead.',
-          );
+        let pkiStore:
+          | import('../config/vectorStore.js').VectorStore<import('../config/symbolEmbeddingIndex.js').SymbolMetadata>
+          | undefined;
+        if (config.projectKnowledgeBackend === 'lance' && sidecarDir.isReady()) {
+          try {
+            const { LanceVectorStore } = await import('../config/vectorStore.js');
+            pkiStore = new LanceVectorStore(sidecarDir.getPath('pki-lance'), 'symbols', 384);
+          } catch (err) {
+            const { UnsupportedBackendError } = await import('../config/vectorStore.js');
+            if (err instanceof UnsupportedBackendError) {
+              console.warn('[SideCar]', err.message);
+              void window.showWarningMessage(
+                'SideCar: Project Knowledge backend "lance" is not available — install @lancedb/lancedb or switch to "flat".',
+              );
+            } else {
+              throw err;
+            }
+          }
         }
-        const symbolEmbeddings = new SymbolEmbeddingIndex(sidecarDir);
+        const symbolEmbeddings = new SymbolEmbeddingIndex(sidecarDir, pkiStore);
         context.subscriptions.push(symbolEmbeddings);
         symbolEmbeddings
           .initialize()

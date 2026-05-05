@@ -66,6 +66,7 @@
   let installingModel = null;
   let cachedModels = [];
   let bgAgentRuns = [];
+  let batchProgressState = null; // { kind, task, items, doneCount, totalCount } | null
   // Active file bar — tracks the currently focused editor file so the bar
   // can show an include/exclude toggle without the user opening the attach menu.
   let currentActiveFile = null; // { fileName, filePath } | null
@@ -3455,6 +3456,37 @@
     }
   }
 
+  function renderBatchProgressPanel() {
+    const panel = document.getElementById('batch-progress-panel');
+    const title = document.getElementById('batch-progress-title');
+    const countEl = document.getElementById('batch-progress-count');
+    const taskEl = document.getElementById('batch-progress-task');
+    const list = document.getElementById('batch-progress-list');
+    if (!panel || !title || !countEl || !taskEl || !list) return;
+
+    if (!batchProgressState) {
+      panel.classList.add('hidden');
+      return;
+    }
+
+    const { kind, task, items, doneCount, totalCount } = batchProgressState;
+    panel.classList.remove('hidden');
+    title.textContent = kind === 'facets' ? 'Facets' : 'Forks';
+    countEl.textContent = doneCount < totalCount ? `${doneCount}/${totalCount}` : '';
+    taskEl.textContent = task.length > 80 ? task.slice(0, 80) + '…' : task;
+
+    list.innerHTML = '';
+    for (const item of items) {
+      const el = document.createElement('span');
+      el.className = `batch-progress-item bp-${item.status}`;
+      const dot =
+        item.status === 'running' ? '● ' : item.status === 'done' ? '✓ ' : item.status === 'error' ? '✕ ' : '○ ';
+      el.textContent = dot + item.label;
+      el.title = `${item.id} — ${item.status}`;
+      list.appendChild(el);
+    }
+  }
+
   function removeTypingIndicator() {
     if (typingTimerInterval) {
       clearInterval(typingTimerInterval);
@@ -4319,6 +4351,24 @@
       case 'bgList': {
         bgAgentRuns = event.data.bgRuns || [];
         renderBgAgentPanel();
+        break;
+      }
+
+      case 'batchProgress': {
+        const bp = event.data.batchProgress;
+        if (bp) {
+          batchProgressState = bp;
+          renderBatchProgressPanel();
+          // Auto-clear the panel 3s after all items finish.
+          if (bp.doneCount >= bp.totalCount) {
+            setTimeout(() => {
+              if (batchProgressState && batchProgressState.doneCount >= batchProgressState.totalCount) {
+                batchProgressState = null;
+                renderBatchProgressPanel();
+              }
+            }, 3000);
+          }
+        }
         break;
       }
 

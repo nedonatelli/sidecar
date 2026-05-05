@@ -64,6 +64,7 @@ export function registerAgentCommands(context: ExtensionContext, extensionId: st
       const cfg = getConfig();
       const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath;
       const mainRoot = getWorkspaceMainRoot();
+      const provider = deps.getChatProvider?.();
       await runFacetDispatchCommand({
         ui: createDefaultFacetCommandUi(),
         loadRegistry: () =>
@@ -78,6 +79,19 @@ export function registerAgentCommands(context: ExtensionContext, extensionId: st
           rpcTimeoutMs: cfg.facetsRpcTimeoutMs,
         },
         reviewDeps: mainRoot ? { ui: createDefaultFacetReviewUi(), mainRoot } : undefined,
+        onBatchProgress: provider
+          ? (state) =>
+              provider.notify({
+                command: 'batchProgress',
+                batchProgress: {
+                  kind: 'facets',
+                  task: state.task,
+                  items: state.items,
+                  doneCount: state.done,
+                  totalCount: state.total,
+                },
+              })
+          : undefined,
       });
     }),
     commands.registerCommand('sidecar.fork.dispatch', async () => {
@@ -85,6 +99,7 @@ export function registerAgentCommands(context: ExtensionContext, extensionId: st
       const { createDefaultForkReviewUi, getWorkspaceMainRoot } = await import('../agent/fork/forkReview.js');
       const cfg = getConfig();
       const mainRoot = getWorkspaceMainRoot();
+      const provider = deps.getChatProvider?.();
       await runForkDispatchCommand({
         ui: createDefaultForkCommandUi(),
         createClient,
@@ -94,6 +109,19 @@ export function registerAgentCommands(context: ExtensionContext, extensionId: st
           maxConcurrent: cfg.forkMaxConcurrent,
         },
         reviewDeps: mainRoot ? { ui: createDefaultForkReviewUi(), mainRoot } : undefined,
+        onBatchProgress: provider
+          ? (state) =>
+              provider.notify({
+                command: 'batchProgress',
+                batchProgress: {
+                  kind: 'forks',
+                  task: state.task,
+                  items: state.items,
+                  doneCount: state.done,
+                  totalCount: state.total,
+                },
+              })
+          : undefined,
       });
     }),
     commands.registerCommand('sidecar.resolveConflicts', async () => {

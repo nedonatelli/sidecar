@@ -1,6 +1,6 @@
 import { window } from 'vscode';
 import { type LoadFacetsOutcome } from './facetDiskLoader.js';
-import { dispatchFacets, type FacetDispatchBatchResult } from './facetDispatcher.js';
+import { dispatchFacets, type FacetDispatchBatchResult, type FacetBatchProgressCallback } from './facetDispatcher.js';
 import { reviewFacetBatch, type FacetReviewDeps, type FacetReviewOutcome } from './facetReview.js';
 import type { FacetDefinition } from './facetLoader.js';
 import type { SideCarClient } from '../../ollama/client.js';
@@ -64,6 +64,8 @@ export interface FacetCommandDeps {
   reviewDeps?: FacetReviewDeps;
   /** Callback sink for LLM output during facet runs. Tests pass a recorder. */
   callbacks?: AgentCallbacks;
+  /** Optional progress callback fired before/after each facet runs. */
+  onBatchProgress?: FacetBatchProgressCallback;
   /** Config values from `sidecar.facets.*`. */
   config: FacetCommandConfig;
 }
@@ -162,6 +164,7 @@ export async function runFacetDispatchCommand(deps: FacetCommandDeps): Promise<F
       signal,
       maxConcurrent: deps.config.maxConcurrent,
       rpcTimeoutMs: deps.config.rpcTimeoutMs,
+      onBatchProgress: deps.onBatchProgress,
     });
     summarizeBatch(deps.ui, batch);
     // auto-trigger the aggregated review when the

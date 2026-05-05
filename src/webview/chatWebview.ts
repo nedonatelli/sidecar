@@ -182,7 +182,8 @@ export interface ExtensionMessage {
     | 'autoModeDone'
     | 'activeFileChanged'
     | 'setActiveBackendProfile'
-    | 'fileCompletionList';
+    | 'fileCompletionList'
+    | 'batchProgress';
   /** Active backend profile id sent with 'setActiveBackendProfile'. */
   activeBackendProfileId?: string | null;
   agentMode?: string;
@@ -317,6 +318,17 @@ export interface ExtensionMessage {
   };
   /** Workspace file paths for @-mention completion. Relative to workspace root. */
   completionFiles?: string[];
+  /**
+   * Facet or Fork batch progress snapshot. Sent before each worker
+   * starts and after it finishes so the UI can track per-item status.
+   */
+  batchProgress?: {
+    kind: 'facets' | 'forks';
+    task: string;
+    items: readonly { id: string; label: string; status: 'pending' | 'running' | 'done' | 'error' }[];
+    doneCount: number;
+    totalCount: number;
+  };
 }
 
 export interface LibraryModelUI {
@@ -446,6 +458,14 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
       <span id="bg-agents-count"></span>
     </div>
     <div id="bg-agents-list"></div>
+  </div>
+  <div id="batch-progress-panel" class="hidden">
+    <div id="batch-progress-header">
+      <span id="batch-progress-title"></span>
+      <span id="batch-progress-count"></span>
+    </div>
+    <div id="batch-progress-task"></div>
+    <div id="batch-progress-list"></div>
   </div>
   <div id="messages" role="log" aria-live="polite"></div>
   <button id="scroll-to-bottom" class="hidden" data-tooltip="Scroll to bottom" aria-label="Scroll to bottom">&#8595;</button>

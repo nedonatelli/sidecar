@@ -79,6 +79,14 @@ export interface ForkDispatchBatchResult {
   readonly elapsedMs: number;
 }
 
+export type ForkProgressItem = { id: string; label: string; status: 'pending' | 'running' | 'done' | 'error' };
+export type ForkBatchProgressCallback = (state: {
+  done: number;
+  total: number;
+  task: string;
+  items: readonly ForkProgressItem[];
+}) => void;
+
 export interface ForkDispatchOptions {
   /** The shared task every fork receives. */
   readonly task: string;
@@ -114,6 +122,8 @@ export interface ForkDispatchOptions {
    * for every fork rather than silently aligning.
    */
   readonly labels?: readonly string[];
+  /** Optional progress callback fired when each fork starts and finishes. */
+  readonly onBatchProgress?: ForkBatchProgressCallback;
 }
 
 /**
@@ -145,8 +155,42 @@ export async function dispatchForks(
     `\n[fork dispatching ${numForks} parallel approach${numForks === 1 ? '' : 'es'}: ${options.task.slice(0, 80)}]\n`,
   );
 
+  // Build mutable progress state; emit initial snapshot if caller wants progress.
+  const progressItems: ForkProgressItem[] = labels.map((label, i) => ({
+    id: `fork-${i}`,
+    label,
+    status: 'pending',
+  }));
+  let doneCount = 0;
+  const emitProgress = () => {
+    options.onBatchProgress?.({
+      done: doneCount,
+      total: numForks,
+      task: options.task,
+      items: [...progressItems],
+    });
+  };
+  if (options.onBatchProgress) emitProgress();
+
   const tasks = Array.from({ length: numForks }, (_, i) => {
-    return () => runOneFork(client, parentCallbacks, options, i, labels[i]);
+    return () => {
+      progressItems[i] = { id: `fork-${i}`, label: labels[i], status: 'running' };
+      emitProgress();
+      return runOneFork(client, parentCallbacks, options, i, labels[i]).then(
+        (r) => {
+          progressItems[i] = { id: r.forkId, label: labels[i], status: r.success ? 'done' : 'error' };
+          doneCount++;
+          emitProgress();
+          return r;
+        },
+        (err: unknown) => {
+          progressItems[i] = { id: `fork-${i}`, label: labels[i], status: 'error' };
+          doneCount++;
+          emitProgress();
+          throw err;
+        },
+      );
+    };
   });
 
   const settled = await runWithCap(tasks, { cap, signal: options.signal });

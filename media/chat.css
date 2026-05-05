@@ -2811,6 +2811,86 @@ body {
   background: var(--vscode-editor-background);
 }
 
+#batch-progress-panel {
+  border-bottom: 1px solid var(--vscode-widget-border);
+  background: var(--vscode-editor-background);
+}
+
+#batch-progress-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--vscode-descriptionForeground);
+}
+
+#batch-progress-count {
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+  font-size: 11px;
+  padding: 0 4px;
+  border-radius: 8px;
+  min-width: 16px;
+  text-align: center;
+  line-height: 16px;
+}
+
+#batch-progress-count:empty {
+  display: none;
+}
+
+#batch-progress-task {
+  padding: 0 12px 6px;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#batch-progress-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 12px 8px;
+}
+
+.batch-progress-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  border: 1px solid var(--vscode-widget-border);
+}
+
+.batch-progress-item.bp-pending {
+  color: var(--vscode-descriptionForeground);
+}
+
+.batch-progress-item.bp-running {
+  background: var(--vscode-charts-yellow, #cca700);
+  color: #000;
+  border-color: transparent;
+}
+
+.batch-progress-item.bp-done {
+  background: var(--vscode-charts-green, #4ec9b0);
+  color: #000;
+  border-color: transparent;
+}
+
+.batch-progress-item.bp-error {
+  background: var(--vscode-errorForeground, #f44);
+  color: #fff;
+  border-color: transparent;
+}
+
 #bg-agents-header {
   display: flex;
   align-items: center;

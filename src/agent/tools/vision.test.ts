@@ -2,11 +2,74 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import * as zlib from 'zlib';
 
 // ---------------------------------------------------------------------------
 // Import the pure helpers (no VS Code API dependency)
 // ---------------------------------------------------------------------------
-import { cheapScreenshotChecks, hasVisionSupport, validateCssSelector, validateScreenshotUrl } from './vision.js';
+import {
+  cheapScreenshotChecks,
+  hasVisionSupport,
+  validateCssSelector,
+  validateScreenshotUrl,
+  resizePngBuffer,
+  checkVisionRateLimit,
+  resetVisionRateLimits,
+} from './vision.js';
+
+// ---------------------------------------------------------------------------
+// Test helper: build a minimal valid PNG in memory
+// ---------------------------------------------------------------------------
+
+function makePng(width: number, height: number, colorType: 2 | 6 = 6): Buffer {
+  const channels = colorType === 6 ? 4 : 3;
+  const stride = 1 + width * channels;
+  const rawData = Buffer.alloc(height * stride);
+  // Fill with varied pixel values so the image is non-trivial.
+  for (let y = 0; y < height; y++) {
+    rawData[y * stride] = 0; // filter None
+    for (let x = 0; x < width * channels; x++) {
+      rawData[y * stride + 1 + x] = ((y * width + x) * 7 + 13) % 256;
+    }
+  }
+  const compressed = zlib.deflateSync(rawData);
+
+  const ihdr = Buffer.allocUnsafe(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8;
+  ihdr[9] = colorType;
+  ihdr[10] = 0;
+  ihdr[11] = 0;
+  ihdr[12] = 0;
+
+  const crcTable = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let c = i;
+    for (let j = 0; j < 8; j++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    crcTable[i] = c;
+  }
+  function crc32(b: Buffer): number {
+    let crc = 0xffffffff;
+    for (let i = 0; i < b.length; i++) crc = crcTable[(crc ^ b[i]) & 0xff] ^ (crc >>> 8);
+    return (crc ^ 0xffffffff) >>> 0;
+  }
+  function chunk(type: string, data: Buffer): Buffer {
+    const tb = Buffer.from(type, 'ascii');
+    const lb = Buffer.allocUnsafe(4);
+    lb.writeUInt32BE(data.length, 0);
+    const cb = Buffer.allocUnsafe(4);
+    cb.writeUInt32BE(crc32(Buffer.concat([tb, data])), 0);
+    return Buffer.concat([lb, tb, data, cb]);
+  }
+
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', ihdr),
+    chunk('IDAT', compressed),
+    chunk('IEND', Buffer.alloc(0)),
+  ]);
+}
 
 // ---------------------------------------------------------------------------
 // cheapScreenshotChecks
@@ -281,6 +344,171 @@ describe('visionTools registry', () => {
       const schema = tool.definition.input_schema as { required?: string[] };
       expect(schema.required).toEqual(requiredMap[tool.definition.name]);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Gap 1: resizePngBuffer — image resolution capping
+// ---------------------------------------------------------------------------
+
+describe('resizePngBuffer', () => {
+  it('returns the original buffer unchanged when already within the pixel budget', () => {
+    const small = makePng(4, 4, 6); // 16 pixels — well under any limit
+    const result = resizePngBuffer(small, 1_000_000);
+    expect(result).toBe(small); // same reference — no copy made
+  });
+
+  it('returns the original buffer unchanged for non-PNG data', () => {
+    const notPng = Buffer.from('not a png at all');
+    expect(resizePngBuffer(notPng, 1)).toBe(notPng);
+  });
+
+  it('returns original for unsupported color type (indexed / 16-bit)', () => {
+    // Manually craft an IHDR with color type 3 (indexed).
+    const fakePng = makePng(100, 100, 6);
+    // Patch color type byte (offset 25 in the file = PNG sig(8) + chunk len(4) + 'IHDR'(4) + width(4) + height(4) + bitDepth(1) = offset 25)
+    const patched = Buffer.from(fakePng);
+    patched[25] = 3; // color type = indexed
+    expect(resizePngBuffer(patched, 1)).toBe(patched);
+  });
+
+  it('downsamples a large RGBA PNG to fit within the pixel budget', () => {
+    const big = makePng(200, 200, 6); // 40_000 pixels
+    const result = resizePngBuffer(big, 10_000); // target ≤ 10_000 pixels (~100×100)
+    expect(result).not.toBe(big);
+    // Parse the output IHDR to verify dimensions shrank.
+    const outWidth = result.readUInt32BE(16);
+    const outHeight = result.readUInt32BE(20);
+    expect(outWidth * outHeight).toBeLessThanOrEqual(10_000);
+    expect(outWidth).toBeGreaterThan(0);
+    expect(outHeight).toBeGreaterThan(0);
+  });
+
+  it('downsamples a large RGB PNG to fit within the pixel budget', () => {
+    const big = makePng(150, 100, 2); // 15_000 pixels, RGB
+    const result = resizePngBuffer(big, 2_000); // target ≤ 2_000
+    expect(result).not.toBe(big);
+    const outWidth = result.readUInt32BE(16);
+    const outHeight = result.readUInt32BE(20);
+    expect(outWidth * outHeight).toBeLessThanOrEqual(2_000);
+  });
+
+  it('output is a valid PNG (correct signature)', () => {
+    const big = makePng(200, 200, 6);
+    const result = resizePngBuffer(big, 10_000);
+    const PNG_SIG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+    for (let i = 0; i < 8; i++) expect(result[i]).toBe(PNG_SIG[i]);
+  });
+
+  it('preserves aspect ratio within ±1 pixel', () => {
+    const big = makePng(200, 100, 6); // 2:1 ratio
+    const result = resizePngBuffer(big, 5_000); // ~71×35 at 2:1
+    const outWidth = result.readUInt32BE(16);
+    const outHeight = result.readUInt32BE(20);
+    // Width should be roughly twice the height (±2 due to floor rounding).
+    expect(outWidth / outHeight).toBeGreaterThan(1.5);
+    expect(outWidth / outHeight).toBeLessThan(2.5);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Gap 2: checkVisionRateLimit — sliding-window rate limiter
+// ---------------------------------------------------------------------------
+
+describe('checkVisionRateLimit', () => {
+  afterEach(() => resetVisionRateLimits());
+
+  it('allows calls within the limit', () => {
+    expect(checkVisionRateLimit('test_tool', 3)).toBeNull();
+    expect(checkVisionRateLimit('test_tool', 3)).toBeNull();
+    expect(checkVisionRateLimit('test_tool', 3)).toBeNull();
+  });
+
+  it('blocks the call when the limit is reached', () => {
+    checkVisionRateLimit('test_tool', 2);
+    checkVisionRateLimit('test_tool', 2);
+    const err = checkVisionRateLimit('test_tool', 2);
+    expect(err).not.toBeNull();
+    expect(err).toMatch(/rate limit/i);
+    expect(err).toMatch(/test_tool/i);
+  });
+
+  it('includes a retry-in hint in the error', () => {
+    checkVisionRateLimit('tool_a', 1);
+    const err = checkVisionRateLimit('tool_a', 1);
+    expect(err).toMatch(/retry in/i);
+    expect(err).toMatch(/\d+s/);
+  });
+
+  it('tracks different tools independently', () => {
+    checkVisionRateLimit('tool_x', 1);
+    // tool_x is now at limit, but tool_y should be unaffected.
+    expect(checkVisionRateLimit('tool_x', 1)).not.toBeNull();
+    expect(checkVisionRateLimit('tool_y', 1)).toBeNull();
+  });
+
+  it('resetVisionRateLimits clears state so limits are fresh', () => {
+    checkVisionRateLimit('tool_r', 1);
+    expect(checkVisionRateLimit('tool_r', 1)).not.toBeNull();
+    resetVisionRateLimits();
+    expect(checkVisionRateLimit('tool_r', 1)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Gap 3: criteria length cap — enforced in analyze_screenshot executor
+// ---------------------------------------------------------------------------
+
+describe('analyze_screenshot criteria length cap', () => {
+  it('rejects criteria over 2000 characters', async () => {
+    const { visionTools } = await import('./vision.js');
+    const tool = visionTools.find((t) => t.definition.name === 'analyze_screenshot')!;
+    const result = await tool.executor({
+      image_path: '.sidecar/screenshots/any.png',
+      criteria: 'x'.repeat(2001),
+    });
+    expect(result).toMatch(/2000/);
+    expect(result).toMatch(/exceeds/i);
+  });
+
+  it('does not reject criteria of exactly 2000 characters (proceeds to path check)', async () => {
+    // After passing the criteria check, it hits the absolute-path or missing-image check —
+    // we just verify it does NOT return the criteria-length error.
+    const { visionTools } = await import('./vision.js');
+    const tool = visionTools.find((t) => t.definition.name === 'analyze_screenshot')!;
+    const result = await tool.executor({
+      image_path: '.sidecar/screenshots/any.png',
+      criteria: 'x'.repeat(2000),
+    });
+    expect(result).not.toMatch(/exceeds.*2000/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Gap 4: viewport clamping in screenshot_page
+// ---------------------------------------------------------------------------
+
+describe('screenshot_page viewport clamping', () => {
+  beforeEach(() => {
+    vi.spyOn(fs.promises, 'mkdir').mockResolvedValue(undefined as never);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    resetVisionRateLimits();
+  });
+
+  it('clamps oversized viewport and still attempts to launch browser (not a URL/selector error)', async () => {
+    const { visionTools } = await import('./vision.js');
+    const tool = visionTools.find((t) => t.definition.name === 'screenshot_page')!;
+    // 4K viewport — should be clamped internally. Result must fail on browser launch, not on viewport.
+    const context = { config: { visualVerifyAllowedDomains: ['localhost'] } as never };
+    const result = await tool.executor(
+      { url: 'http://localhost:3000', viewport: { width: 9999, height: 9999 } },
+      context,
+    );
+    // Must not return a viewport-related error — only browser launch or playwright missing.
+    expect(result).not.toMatch(/viewport/i);
+    expect(result).toMatch(/playwright|browser|launch/i);
   });
 });
 

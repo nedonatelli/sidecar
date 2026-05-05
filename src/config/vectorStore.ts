@@ -380,3 +380,225 @@ export class UnsupportedBackendError extends Error {
     this.name = 'UnsupportedBackendError';
   }
 }
+
+/** Row shape persisted in the Lance table. */
+interface LanceRow {
+  id: string;
+  vector: number[];
+  metadata_json: string;
+}
+
+/** Minimal structural types for the parts of @lancedb/lancedb we call.
+ *  Defined locally because the package is external in the esbuild bundle
+ *  (native Rust binary) and may not be installed at all in some builds. */
+interface LanceMergeInsert {
+  whenMatchedUpdateAll(): LanceMergeInsert;
+  whenNotMatchedInsertAll(): LanceMergeInsert;
+  execute(rows: LanceRow[]): Promise<void>;
+}
+interface LanceVectorQuery {
+  metric(m: string): LanceVectorQuery;
+  limit(k: number): LanceVectorQuery;
+  toArray(): Promise<(LanceRow & { _distance: number })[]>;
+}
+interface LanceTableQuery {
+  select(cols: string[]): LanceTableQuery;
+  toArray(): Promise<{ id: string; metadata_json: string }[]>;
+}
+interface LanceTable {
+  mergeInsert(on: string): LanceMergeInsert;
+  delete(filter: string): Promise<void>;
+  vectorSearch(vec: number[]): LanceVectorQuery;
+  query(): LanceTableQuery;
+}
+interface LanceConnection {
+  tableNames(): Promise<string[]>;
+  openTable(name: string): Promise<LanceTable>;
+  createTable(name: string, rows: LanceRow[]): Promise<LanceTable>;
+  dropTable(name: string): Promise<void>;
+}
+interface LancedbModule {
+  connect(path: string): Promise<LanceConnection>;
+}
+
+/**
+ * LanceDB-backed vector store. Immediately durable — every mutation
+ * lands in the Lance table, so `persist()` is a no-op. `restore()`
+ * rebuilds the metadata cache from the table on startup.
+ *
+ * Requires `@lancedb/lancedb` to be installed and available at
+ * runtime. The package is kept external in the esbuild bundle
+ * (native Rust binary) and loaded via a dynamic `require()` inside
+ * a try/catch. If the package isn't present the constructor throws
+ * `UnsupportedBackendError` and callers fall back to `FlatVectorStore`.
+ */
+export class LanceVectorStore<M> implements VectorStore<M> {
+  private readonly dbPath: string;
+  private readonly tableName: string;
+  private readonly dimension: number;
+  /** O(1) metadata lookup without reading the Lance table on every call. */
+  private readonly metaCache = new Map<string, M>();
+  private lancedb: LancedbModule | null = null;
+  private db: LanceConnection | null = null;
+  private tbl: LanceTable | null = null;
+
+  /**
+   * @param dbPath  Absolute path to the Lance database directory.
+   * @param tableName  Table name within the database.
+   * @param dimension  Vector dimension — must match the embedding model.
+   * @param lancedbModule  Optional pre-loaded lancedb module — used by tests
+   *   to inject a fake without going through `require`. When omitted, the
+   *   constructor loads `@lancedb/lancedb` via `require()`.
+   * @throws `UnsupportedBackendError` if `@lancedb/lancedb` is not installed.
+   */
+  constructor(dbPath: string, tableName: string, dimension: number, lancedbModule?: unknown) {
+    if (lancedbModule !== undefined) {
+      this.lancedb = lancedbModule as LancedbModule;
+    } else {
+      try {
+        this.lancedb = require('@lancedb/lancedb') as LancedbModule;
+      } catch {
+        throw new UnsupportedBackendError('lance', 'flat');
+      }
+    }
+    this.dbPath = dbPath;
+    this.tableName = tableName;
+    this.dimension = dimension;
+  }
+
+  private async getTable(): Promise<LanceTable> {
+    if (this.tbl) return this.tbl;
+    if (!this.db) {
+      this.db = await this.lancedb!.connect(this.dbPath);
+    }
+    const existingNames: string[] = await this.db!.tableNames();
+    if (existingNames.includes(this.tableName)) {
+      this.tbl = await this.db!.openTable(this.tableName);
+    } else {
+      // Bootstrap the table with the required schema, then purge the seed row.
+      const seed: LanceRow = {
+        id: '__init__',
+        vector: new Array(this.dimension).fill(0) as number[],
+        metadata_json: '{}',
+      };
+      this.tbl = await this.db!.createTable(this.tableName, [seed]);
+      await this.tbl.delete("id = '__init__'");
+    }
+    return this.tbl!;
+  }
+
+  async upsert(record: VectorRecord<M>): Promise<void> {
+    if (record.vector.length !== this.dimension) {
+      throw new Error(
+        `LanceVectorStore.upsert: vector length ${record.vector.length} does not match expected dimension ${this.dimension}`,
+      );
+    }
+    const tbl = await this.getTable();
+    const row: LanceRow = {
+      id: record.id,
+      vector: Array.from(record.vector),
+      metadata_json: JSON.stringify(record.metadata),
+    };
+    await tbl.mergeInsert('id').whenMatchedUpdateAll().whenNotMatchedInsertAll().execute([row]);
+    this.metaCache.set(record.id, record.metadata);
+  }
+
+  async remove(id: string): Promise<boolean> {
+    if (!this.metaCache.has(id)) return false;
+    const tbl = await this.getTable();
+    // Escape single quotes in id to prevent SQL injection in the filter string.
+    await tbl.delete(`id = '${id.replace(/'/g, "''")}'`);
+    this.metaCache.delete(id);
+    return true;
+  }
+
+  async removeWhere(predicate: (metadata: M) => boolean): Promise<number> {
+    const ids: string[] = [];
+    for (const [id, meta] of this.metaCache) {
+      if (predicate(meta)) ids.push(id);
+    }
+    if (ids.length === 0) return 0;
+    const tbl = await this.getTable();
+    const inClause = ids.map((id) => `'${id.replace(/'/g, "''")}'`).join(', ');
+    await tbl.delete(`id IN (${inClause})`);
+    for (const id of ids) this.metaCache.delete(id);
+    return ids.length;
+  }
+
+  async search(query: Float32Array, k: number, filter?: (metadata: M) => boolean): Promise<VectorSearchHit<M>[]> {
+    if (this.metaCache.size === 0) return [];
+    const tbl = await this.getTable();
+    // Fetch more than k when a post-search filter is active so we can
+    // still return up to k results after dropping filtered-out rows.
+    const fetchK = filter ? Math.min(this.metaCache.size, k * 4) : k;
+    const rows = await tbl.vectorSearch(Array.from(query)).metric('cosine').limit(fetchK).toArray();
+    const hits: VectorSearchHit<M>[] = [];
+    for (const row of rows) {
+      const meta = this.metaCache.get(row.id);
+      if (!meta) continue; // row predates this session's cache rebuild
+      if (filter && !filter(meta)) continue;
+      hits.push({ id: row.id, metadata: meta, similarity: 1 - row._distance });
+      if (hits.length >= k) break;
+    }
+    return hits;
+  }
+
+  size(): number {
+    return this.metaCache.size;
+  }
+
+  getMetadata(id: string): M | null {
+    return this.metaCache.get(id) ?? null;
+  }
+
+  /** Always returns null — Lance stores vectors on disk; fetching them
+   *  per-id requires a full scan.  Callers (Merkle replay) re-embed on
+   *  cache miss, which is acceptable for the MVP. */
+  getVector(_id: string): Float32Array | null {
+    return null;
+  }
+
+  *entries(): Iterable<{ id: string; metadata: M }> {
+    for (const [id, metadata] of this.metaCache) {
+      yield { id, metadata };
+    }
+  }
+
+  /** No-op — Lance writes are immediately durable. */
+  async persist(): Promise<void> {}
+
+  /** Rebuild the in-memory metadata cache from the Lance table. */
+  async restore(): Promise<void> {
+    try {
+      const tbl = await this.getTable();
+      const rows = await tbl.query().select(['id', 'metadata_json']).toArray();
+      this.metaCache.clear();
+      for (const row of rows) {
+        try {
+          this.metaCache.set(row.id, JSON.parse(row.metadata_json) as M);
+        } catch {
+          // Corrupted row — skip silently; it will be re-embedded.
+        }
+      }
+    } catch (err) {
+      console.warn('[LanceVectorStore] restore failed:', err);
+    }
+  }
+
+  /** Drop the Lance table entirely and clear the in-memory cache. */
+  async clearPersisted(): Promise<void> {
+    try {
+      if (!this.db) {
+        this.db = await this.lancedb!.connect(this.dbPath);
+      }
+      const names: string[] = await this.db!.tableNames();
+      if (names.includes(this.tableName)) {
+        await this.db!.dropTable(this.tableName);
+      }
+    } catch (err) {
+      console.warn('[LanceVectorStore] clearPersisted failed:', err);
+    }
+    this.tbl = null;
+    this.metaCache.clear();
+  }
+}

@@ -10,6 +10,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import * as zlib from 'zlib';
 import { commands, Uri, env } from 'vscode';
 import { getConfig } from '../../config/settings.js';
 import { getRoot } from './shared.js';
@@ -193,12 +194,227 @@ export function hasVisionSupport(model: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Image resolution cap — pure-Node PNG resizer (no native deps)
+// ---------------------------------------------------------------------------
+
+/** Max pixels sent to VLM (~1440p equivalent). Above this the image is downsampled. */
+const MAX_VLM_PIXELS = 2_073_600; // 1920×1080
+/** Max viewport dimensions clamped in screenshot_page. */
+const MAX_VIEWPORT_WIDTH = 2048;
+const MAX_VIEWPORT_HEIGHT = 1440;
+/** Max characters for the criteria parameter in analyze_screenshot. */
+const MAX_CRITERIA_LENGTH = 2000;
+/** Confidence threshold below which the verdict is flagged as uncertain. */
+const BORDERLINE_CONFIDENCE = 0.6;
+
+function paethPredictor(a: number, b: number, c: number): number {
+  const p = a + b - c;
+  const pa = Math.abs(p - a);
+  const pb = Math.abs(p - b);
+  const pc = Math.abs(p - c);
+  if (pa <= pb && pa <= pc) return a;
+  if (pb <= pc) return b;
+  return c;
+}
+
+function computeCrc32(buf: Buffer): number {
+  const table = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let c = i;
+    for (let j = 0; j < 8; j++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    table[i] = c;
+  }
+  let crc = 0xffffffff;
+  for (let i = 0; i < buf.length; i++) crc = table[(crc ^ buf[i]) & 0xff] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function buildPngChunk(type: string, data: Buffer): Buffer {
+  const typeBytes = Buffer.from(type, 'ascii');
+  const lenBuf = Buffer.allocUnsafe(4);
+  lenBuf.writeUInt32BE(data.length, 0);
+  const crcBuf = Buffer.allocUnsafe(4);
+  crcBuf.writeUInt32BE(computeCrc32(Buffer.concat([typeBytes, data])), 0);
+  return Buffer.concat([lenBuf, typeBytes, data, crcBuf]);
+}
+
+/**
+ * Encode raw pixel data as a minimal PNG (IHDR + single IDAT + IEND).
+ * Uses filter type 0 (None) for every row — simpler and fast for downsampled output.
+ * Only supports 8-bit RGB (colorType 2) and 8-bit RGBA (colorType 6).
+ */
+function encodePng(pixels: Buffer, width: number, height: number, colorType: number): Buffer {
+  const channels = colorType === 6 ? 4 : 3;
+  // One filter byte (0) per row + pixel data.
+  const stride = 1 + width * channels;
+  const rawData = Buffer.alloc(height * stride);
+  for (let y = 0; y < height; y++) {
+    rawData[y * stride] = 0; // filter None
+    pixels.copy(rawData, y * stride + 1, y * width * channels, (y + 1) * width * channels);
+  }
+  const compressed = zlib.deflateSync(rawData);
+
+  const ihdrData = Buffer.allocUnsafe(13);
+  ihdrData.writeUInt32BE(width, 0);
+  ihdrData.writeUInt32BE(height, 4);
+  ihdrData[8] = 8;
+  ihdrData[9] = colorType;
+  ihdrData[10] = 0;
+  ihdrData[11] = 0;
+  ihdrData[12] = 0;
+
+  const PNG_SIG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  return Buffer.concat([
+    PNG_SIG,
+    buildPngChunk('IHDR', ihdrData),
+    buildPngChunk('IDAT', compressed),
+    buildPngChunk('IEND', Buffer.alloc(0)),
+  ]);
+}
+
+/**
+ * Resize a PNG buffer so total pixel count ≤ maxPixels, using nearest-neighbor
+ * sampling. Handles 8-bit non-interlaced RGB (color type 2) and RGBA (color type 6).
+ * Returns the original buffer unchanged for unsupported formats or if already small.
+ * Uses only Node.js built-ins: Buffer + zlib.
+ */
+export function resizePngBuffer(buf: Buffer, maxPixels: number): Buffer {
+  const PNG_SIG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  for (let i = 0; i < 8; i++) if (buf[i] !== PNG_SIG[i]) return buf;
+
+  // IHDR is always the first chunk, starting at offset 8.
+  if (buf.length < 33) return buf;
+  const ihdrLen = buf.readUInt32BE(8);
+  if (ihdrLen !== 13 || buf.slice(12, 16).toString('ascii') !== 'IHDR') return buf;
+
+  const srcWidth = buf.readUInt32BE(16);
+  const srcHeight = buf.readUInt32BE(20);
+  const bitDepth = buf[24];
+  const colorType = buf[25];
+  // IHDR data: width(4)+height(4)+bitDepth(1)+colorType(1)+compression(1)+filter(1)+interlace(1)
+  // File offsets: 16+4+4+1+1+1+1 = offset 28 for interlace (29 would be first CRC byte).
+  const interlace = buf[28];
+
+  if (bitDepth !== 8 || interlace !== 0 || (colorType !== 2 && colorType !== 6)) return buf;
+  if (srcWidth === 0 || srcHeight === 0) return buf;
+  if (srcWidth * srcHeight <= maxPixels) return buf;
+
+  // Collect all IDAT chunks.
+  const idatParts: Buffer[] = [];
+  let offset = 8;
+  while (offset + 12 <= buf.length) {
+    const chunkLen = buf.readUInt32BE(offset);
+    const chunkType = buf.slice(offset + 4, offset + 8).toString('ascii');
+    if (chunkType === 'IDAT' && offset + 8 + chunkLen <= buf.length) {
+      idatParts.push(buf.slice(offset + 8, offset + 8 + chunkLen));
+    }
+    if (chunkType === 'IEND') break;
+    offset += 12 + chunkLen;
+  }
+  if (idatParts.length === 0) return buf;
+
+  let raw: Buffer;
+  try {
+    raw = zlib.inflateSync(Buffer.concat(idatParts));
+  } catch {
+    return buf;
+  }
+
+  const channels = colorType === 6 ? 4 : 3;
+  const stride = 1 + srcWidth * channels;
+  if (raw.length < srcHeight * stride) return buf;
+
+  // Reconstruct pixel rows (undo PNG per-row filters).
+  const pixels = Buffer.alloc(srcWidth * srcHeight * channels);
+  for (let y = 0; y < srcHeight; y++) {
+    const filter = raw[y * stride];
+    const rowIn = y * stride + 1;
+    const rowOut = y * srcWidth * channels;
+    const prevOut = (y - 1) * srcWidth * channels;
+    for (let x = 0; x < srcWidth * channels; x++) {
+      const filt = raw[rowIn + x];
+      const a = x >= channels ? pixels[rowOut + x - channels] : 0;
+      const b = y > 0 ? pixels[prevOut + x] : 0;
+      const c = y > 0 && x >= channels ? pixels[prevOut + x - channels] : 0;
+      let recon: number;
+      switch (filter) {
+        case 1:
+          recon = (filt + a) & 0xff;
+          break;
+        case 2:
+          recon = (filt + b) & 0xff;
+          break;
+        case 3:
+          recon = (filt + Math.floor((a + b) / 2)) & 0xff;
+          break;
+        case 4:
+          recon = (filt + paethPredictor(a, b, c)) & 0xff;
+          break;
+        default:
+          recon = filt; // filter 0 (None) or unknown
+      }
+      pixels[rowOut + x] = recon;
+    }
+  }
+
+  // Compute target dimensions maintaining aspect ratio.
+  const scale = Math.sqrt(maxPixels / (srcWidth * srcHeight));
+  const dstWidth = Math.max(1, Math.floor(srcWidth * scale));
+  const dstHeight = Math.max(1, Math.floor(srcHeight * scale));
+
+  // Nearest-neighbor downsample.
+  const dstPixels = Buffer.alloc(dstWidth * dstHeight * channels);
+  for (let dy = 0; dy < dstHeight; dy++) {
+    const sy = Math.floor((dy / dstHeight) * srcHeight);
+    for (let dx = 0; dx < dstWidth; dx++) {
+      const sx = Math.floor((dx / dstWidth) * srcWidth);
+      const si = (sy * srcWidth + sx) * channels;
+      const di = (dy * dstWidth + dx) * channels;
+      for (let ch = 0; ch < channels; ch++) dstPixels[di + ch] = pixels[si + ch];
+    }
+  }
+
+  return encodePng(dstPixels, dstWidth, dstHeight, colorType);
+}
+
+// ---------------------------------------------------------------------------
+// Rate limiter — sliding-window, process-scoped
+// ---------------------------------------------------------------------------
+
+const RATE_WINDOW_MS = 60_000;
+const RATE_LIMIT_SCREENSHOT = 20;
+const RATE_LIMIT_ANALYZE = 10;
+const _rateLimitTimestamps = new Map<string, number[]>();
+
+/** Returns an error string when the rate limit is exceeded, or null to allow. */
+export function checkVisionRateLimit(tool: string, maxPerMinute: number): string | null {
+  const now = Date.now();
+  const timestamps = _rateLimitTimestamps.get(tool) ?? [];
+  const fresh = timestamps.filter((ts) => now - ts < RATE_WINDOW_MS);
+  if (fresh.length >= maxPerMinute) {
+    const retryMs = RATE_WINDOW_MS - (now - fresh[0]);
+    return `Rate limit: ${tool} allows ${maxPerMinute} calls/min. Retry in ${Math.ceil(retryMs / 1000)}s.`;
+  }
+  fresh.push(now);
+  _rateLimitTimestamps.set(tool, fresh);
+  return null;
+}
+
+/** Reset all rate-limit state. Call in test afterEach to prevent cross-test bleed. */
+export function resetVisionRateLimits(): void {
+  _rateLimitTimestamps.clear();
+}
+
+// ---------------------------------------------------------------------------
 // screenshot_page
 // ---------------------------------------------------------------------------
 
 async function screenshotPage(input: Record<string, unknown>, _context?: ToolExecutorContext): Promise<string> {
   const url = input.url as string | undefined;
   if (!url) return 'Error: url is required';
+
+  const rateLimitErr = checkVisionRateLimit('screenshot_page', RATE_LIMIT_SCREENSHOT);
+  if (rateLimitErr) return rateLimitErr;
 
   const cfg = _context?.config ?? getConfig();
   const urlError = validateScreenshotUrl(url, cfg.visualVerifyAllowedDomains);
@@ -247,8 +463,8 @@ async function screenshotPage(input: Record<string, unknown>, _context?: ToolExe
     }
     page = await browser.newPage();
 
-    const width = viewportRaw?.width ?? 1280;
-    const height = viewportRaw?.height ?? 800;
+    const width = Math.min(viewportRaw?.width ?? 1280, MAX_VIEWPORT_WIDTH);
+    const height = Math.min(viewportRaw?.height ?? 800, MAX_VIEWPORT_HEIGHT);
     await page.setViewportSize({ width, height });
 
     // Determine waitUntil strategy
@@ -304,6 +520,12 @@ async function analyzeScreenshot(input: Record<string, unknown>, context?: ToolE
   const criteria = input.criteria as string | undefined;
   if (!rawPath) return 'Error: image_path is required';
   if (!criteria) return 'Error: criteria is required';
+  if (criteria.length > MAX_CRITERIA_LENGTH) {
+    return `Error: criteria exceeds ${MAX_CRITERIA_LENGTH}-character limit (got ${criteria.length}). Split into multiple analyze_screenshot calls.`;
+  }
+
+  const rateLimitErr = checkVisionRateLimit('analyze_screenshot', RATE_LIMIT_ANALYZE);
+  if (rateLimitErr) return rateLimitErr;
 
   const config = context?.config ?? getConfig();
 
@@ -347,10 +569,12 @@ async function analyzeScreenshot(input: Record<string, unknown>, context?: ToolE
     );
   }
 
-  // Read the image as base64.
+  // Read the image, resize if over the VLM pixel budget, then encode as base64.
   let imageData: string;
   try {
-    imageData = (await fs.promises.readFile(imagePath)).toString('base64');
+    const raw = await fs.promises.readFile(imagePath);
+    const resized = resizePngBuffer(raw, MAX_VLM_PIXELS);
+    imageData = resized.toString('base64');
   } catch (err) {
     return `Error reading image file: ${String(err)}`;
   }
@@ -373,8 +597,10 @@ async function analyzeScreenshot(input: Record<string, unknown>, context?: ToolE
 
   const systemPrompt =
     'You are a visual verification assistant. Analyze the provided screenshot against the stated criteria. ' +
-    'Respond ONLY with a JSON object: { "pass": boolean, "issues": string[] }. ' +
-    '"pass" is true when all criteria are met. "issues" is an empty array when pass is true, ' +
+    'Respond ONLY with a JSON object: { "pass": boolean, "confidence": number, "issues": string[] }. ' +
+    '"pass" is true when all criteria are met. ' +
+    '"confidence" is a number 0.0–1.0: 1.0 = completely certain, 0.5 = borderline/ambiguous, 0.0 = completely uncertain. ' +
+    '"issues" is an empty array when pass is true, ' +
     'or a list of specific, actionable problem descriptions when pass is false. ' +
     'Be precise: name the exact visual element that fails and describe what is wrong.';
 
@@ -407,9 +633,9 @@ async function analyzeScreenshot(input: Record<string, unknown>, context?: ToolE
     return `VLM response could not be parsed as JSON. Raw response:\n${raw}`;
   }
 
-  let verdict: { pass: boolean; issues: string[] };
+  let verdict: { pass: boolean; confidence: number; issues: string[] };
   try {
-    const parsed = JSON.parse(jsonMatch[0]) as { pass: boolean; issues: unknown };
+    const parsed = JSON.parse(jsonMatch[0]) as { pass: boolean; confidence: unknown; issues: unknown };
     // Normalise issues: the model occasionally returns a plain string.
     const rawIssues = parsed.issues;
     const issues: string[] = Array.isArray(rawIssues)
@@ -417,14 +643,21 @@ async function analyzeScreenshot(input: Record<string, unknown>, context?: ToolE
       : typeof rawIssues === 'string'
         ? [rawIssues]
         : [];
-    verdict = { pass: Boolean(parsed.pass), issues };
+    // confidence defaults to 0.9 when the model omits it (pre-prompt models).
+    const confidence = typeof parsed.confidence === 'number' ? Math.max(0, Math.min(1, parsed.confidence)) : 0.9;
+    verdict = { pass: Boolean(parsed.pass), confidence, issues };
   } catch {
     return `VLM response JSON parse error. Raw response:\n${raw}`;
   }
 
+  const lowConfidenceTag =
+    verdict.confidence < BORDERLINE_CONFIDENCE
+      ? ` ⚠ low confidence (${verdict.confidence.toFixed(2)}) — verify manually`
+      : '';
+
   const summary = verdict.pass
-    ? `✓ Visual check passed.`
-    : `✗ Visual check failed — ${verdict.issues.length} issue${verdict.issues.length === 1 ? '' : 's'}:\n${verdict.issues.map((i) => `  • ${i}`).join('\n')}`;
+    ? `✓ Visual check passed${lowConfidenceTag}.`
+    : `✗ Visual check failed${lowConfidenceTag} — ${verdict.issues.length} issue${verdict.issues.length === 1 ? '' : 's'}:\n${verdict.issues.map((i) => `  • ${i}`).join('\n')}`;
 
   return `${summary}\n\n${JSON.stringify(verdict)}`;
 }
