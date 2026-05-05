@@ -2,9 +2,11 @@ import { window, commands, workspace, ExtensionContext } from 'vscode';
 import { getConfig } from '../config/settings.js';
 import { clearAll as clearSidecarDiagnostics } from '../agent/sidecarDiagnostics.js';
 import type { SideCarClient } from '../ollama/client.js';
+import type { ChatViewProvider } from '../webview/chatView.js';
 
 export interface AgentCommandDeps {
   createClient: () => SideCarClient;
+  getChatProvider?: () => ChatViewProvider | undefined;
 }
 
 /**
@@ -19,10 +21,14 @@ export function registerAgentCommands(context: ExtensionContext, extensionId: st
     commands.registerCommand('sidecar.audit.review', async () => {
       const { reviewAuditBuffer, createDefaultAuditReviewUi } = await import('../agent/audit/reviewCommands.js');
       const { getRootUri } = await import('../agent/tools/shared.js');
+      const provider = deps.getChatProvider?.();
       await reviewAuditBuffer({
         rootUri: getRootUri(),
         ui: createDefaultAuditReviewUi(),
         reviewGranularity: getConfig().multiFileEditsReviewGranularity,
+        postBatchSummary: provider
+          ? (items) => provider.notify({ command: 'changeSummary', changeSummary: items })
+          : undefined,
       });
     }),
     commands.registerCommand('sidecar.audit.acceptAll', async () => {

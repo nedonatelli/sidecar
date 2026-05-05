@@ -377,7 +377,14 @@ export async function handleUndoChanges(state: ChatState): Promise<void> {
 }
 
 export async function handleRevertFile(state: ChatState, filePath: string): Promise<void> {
-  const success = await state.changelog.rollbackFile(filePath);
+  // Remove from audit buffer if present — audit mode stores writes there,
+  // not in state.changelog, so "revert file" should also drop the buffered entry.
+  const { getDefaultAuditBuffer } = await import('../../agent/audit/auditBuffer.js');
+  const buf = getDefaultAuditBuffer();
+  const wasBuffered = buf.has(filePath);
+  if (wasBuffered) buf.clear([filePath]);
+
+  const success = wasBuffered || (await state.changelog.rollbackFile(filePath));
   if (success) {
     state.postMessage({
       command: 'assistantMessage',
@@ -407,8 +414,35 @@ export async function handleRevertFile(state: ChatState, filePath: string): Prom
   }
 }
 
-export function handleAcceptAllChanges(state: ChatState): void {
+export async function handleAcceptAllChanges(state: ChatState): Promise<void> {
   state.changelog.clear();
+
+  // In audit mode the agent's writes are buffered, not in state.changelog.
+  // Flush them now so "Accept All" in the change-summary panel covers both
+  // the changelog entries (just cleared) and any audit-buffered writes.
+  const { getDefaultAuditBuffer } = await import('../../agent/audit/auditBuffer.js');
+  const buf = getDefaultAuditBuffer();
+  if (!buf.isEmpty) {
+    const folders = workspace.workspaceFolders;
+    if (folders && folders.length > 0) {
+      const rootUri = folders[0].uri;
+      const writeDisk = async (relPath: string, content: string): Promise<void> => {
+        const fileUri = Uri.joinPath(rootUri, relPath);
+        const dir = path.dirname(relPath);
+        if (dir && dir !== '.') await workspace.fs.createDirectory(Uri.joinPath(rootUri, dir));
+        await workspace.fs.writeFile(fileUri, Buffer.from(content, 'utf-8'));
+      };
+      const deleteDisk = async (relPath: string): Promise<void> => {
+        await workspace.fs.delete(Uri.joinPath(rootUri, relPath), { useTrash: true });
+      };
+      try {
+        await buf.flush(writeDisk, deleteDisk);
+      } catch {
+        // Flush errors surface via the audit review UI; don't block the changelog clear.
+      }
+    }
+  }
+
   state.postMessage({
     command: 'assistantMessage',
     content: '\n\n✓ All changes accepted',

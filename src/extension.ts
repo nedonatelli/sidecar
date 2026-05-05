@@ -90,7 +90,7 @@ export function activate(context: ExtensionContext) {
 
   registerStatusBar(context, { getChatProvider: () => chatProvider });
   context.subscriptions.push(disposeDiagnostics());
-  registerAgentCommands(context, context.extension.id, { createClient });
+  registerAgentCommands(context, context.extension.id, { createClient, getChatProvider: () => chatProvider });
   registerBackendCommands(context, () => chatProvider!.client);
   registerSidecarParticipant(context, () => chatProvider!.client);
 

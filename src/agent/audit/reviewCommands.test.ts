@@ -629,3 +629,92 @@ describe('reviewAuditBuffer — granularity switching', () => {
     expect(infoCalls.every((m) => !m.includes('per-hunk'))).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Batch summary (postBatchSummary)
+// ---------------------------------------------------------------------------
+describe('reviewAuditBuffer — postBatchSummary', () => {
+  it('does not add a "View Batch Summary" item when postBatchSummary is omitted', async () => {
+    const buf = await makeBufferWith([{ op: 'write', path: 'a.ts', content: 'new' }], { 'a.ts': 'old' });
+    const ui = makeUi();
+    await reviewAuditBuffer(baseDeps(buf, ui));
+    const items = ui.showQuickPick.mock.calls[0][0] as Array<{ action: string }>;
+    expect(items.find((i) => i.action === 'view-summary')).toBeUndefined();
+  });
+
+  it('adds a "View Batch Summary" item when postBatchSummary is provided', async () => {
+    const buf = await makeBufferWith([{ op: 'write', path: 'a.ts', content: 'new' }], { 'a.ts': 'old' });
+    const ui = makeUi();
+    const postBatchSummary = vi.fn();
+    await reviewAuditBuffer({ ...baseDeps(buf, ui), postBatchSummary });
+    const items = ui.showQuickPick.mock.calls[0][0] as Array<{ action: string }>;
+    expect(items.find((i) => i.action === 'view-summary')).toBeDefined();
+  });
+
+  it('calls postBatchSummary with unified diffs and loops back on view-summary pick', async () => {
+    const buf = await makeBufferWith(
+      [
+        { op: 'write', path: 'a.ts', content: 'new content' },
+        { op: 'delete', path: 'b.ts' },
+      ],
+      { 'a.ts': 'old content', 'b.ts': 'to be deleted' },
+    );
+
+    let callCount = 0;
+    const postBatchSummary = vi.fn();
+    const ui = makeUi({
+      showQuickPick: vi.fn(async (items: readonly { action?: string }[]) => {
+        callCount++;
+        if (callCount === 1) return items.find((i) => i.action === 'view-summary');
+        // On the second call (loop back), cancel to exit.
+        return undefined;
+      }) as unknown as AuditReviewUi['showQuickPick'],
+    });
+
+    await reviewAuditBuffer({ ...baseDeps(buf, ui), postBatchSummary });
+
+    expect(postBatchSummary).toHaveBeenCalledOnce();
+    const summaryItems = postBatchSummary.mock.calls[0][0] as Array<{
+      filePath: string;
+      diff: string;
+      isNew: boolean;
+      isDeleted: boolean;
+    }>;
+    expect(summaryItems.find((s) => s.filePath === 'a.ts')).toBeDefined();
+    expect(summaryItems.find((s) => s.filePath === 'b.ts')).toBeDefined();
+    expect(summaryItems.find((s) => s.filePath === 'b.ts')!.isDeleted).toBe(true);
+
+    // Loop back: picker shown again (second call was the cancel-to-exit).
+    expect(ui.showQuickPick).toHaveBeenCalledTimes(2);
+    // Buffer still intact (no accept/reject chosen).
+    expect(buf.isEmpty).toBe(false);
+  });
+
+  it('postBatchSummary items have non-empty diffs for modified files', async () => {
+    const buf = await makeBufferWith([{ op: 'write', path: 'x.ts', content: 'line1\nline2\n' }], {
+      'x.ts': 'original\n',
+    });
+    const postBatchSummary = vi.fn();
+    const ui = makeUi({
+      showQuickPick: vi.fn(async (items: readonly { action?: string }[]) =>
+        items.find((i) => i.action === 'view-summary'),
+      ) as unknown as AuditReviewUi['showQuickPick'],
+    });
+
+    // The loop will call showQuickPick again after the continue — cancel it.
+    let firstCall = true;
+    (ui.showQuickPick as ReturnType<typeof vi.fn>).mockImplementation(async (items: readonly { action?: string }[]) => {
+      if (firstCall) {
+        firstCall = false;
+        return items.find((i) => i.action === 'view-summary');
+      }
+      return undefined;
+    });
+
+    await reviewAuditBuffer({ ...baseDeps(buf, ui), postBatchSummary });
+
+    const items = postBatchSummary.mock.calls[0][0] as Array<{ filePath: string; diff: string }>;
+    expect(items[0].diff.length).toBeGreaterThan(0);
+    expect(items[0].diff).toContain('line1');
+  });
+});

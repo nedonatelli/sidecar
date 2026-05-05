@@ -50,6 +50,10 @@ vi.mock('../../terminal/shellSession.js', () => {
   };
 });
 
+vi.mock('../../agent/audit/auditBuffer.js', () => ({
+  getDefaultAuditBuffer: () => ({ isEmpty: true, has: () => false, clear: vi.fn(), flush: vi.fn() }),
+}));
+
 // ---------------------------------------------------------------------------
 // classifyError
 // ---------------------------------------------------------------------------
@@ -1465,12 +1469,12 @@ describe('handleDeleteMessage', () => {
 // handleAcceptAllChanges
 // ---------------------------------------------------------------------------
 describe('handleAcceptAllChanges', () => {
-  it('clears changelog and posts confirmation', () => {
+  it('clears changelog and posts confirmation', async () => {
     const state = {
       changelog: { clear: vi.fn() },
       postMessage: vi.fn(),
     };
-    handleAcceptAllChanges(state as never);
+    await handleAcceptAllChanges(state as never);
     expect(state.changelog.clear).toHaveBeenCalled();
     expect(state.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ command: 'assistantMessage', content: expect.stringContaining('accepted') }),

@@ -1,6 +1,7 @@
 import { window, workspace, commands, Uri } from 'vscode';
 import * as path from 'path';
 import { getDefaultAuditBuffer, AuditFlushError, type AuditBuffer, type BufferedChange } from './auditBuffer.js';
+import { computeUnifiedDiff } from '../diff.js';
 
 /**
  * Audit Mode review commands — the user-facing side of the buffer
@@ -75,12 +76,20 @@ export interface AuditReviewDeps {
    * get swallowed.
    */
   reviewGranularity?: 'bulk' | 'per-file' | 'per-hunk';
+  /**
+   * When provided, a "View batch summary in chat" item is added to the
+   * review QuickPick. Selecting it posts the unified diff of every
+   * buffered entry to the chat panel as a `changeSummary` message so
+   * the user can see all pending changes in context before deciding.
+   */
+  postBatchSummary?: (items: { filePath: string; diff: string; isNew: boolean; isDeleted: boolean }[]) => void;
 }
 
 /** Tag every pick item with the action it triggers — `open` also carries the entry. */
 type ReviewPick =
   | { label: string; description?: string; action: 'accept-all' }
   | { label: string; description?: string; action: 'reject-all' }
+  | { label: string; description?: string; action: 'view-summary' }
   | { label: string; description?: string; action: 'open'; entry: BufferedChange };
 
 /** Post-diff follow-up picker — what to do with the single file just diffed. */
@@ -140,6 +149,15 @@ export async function reviewAuditBuffer(deps: AuditReviewDeps): Promise<void> {
         action: 'accept-all',
       },
       { label: '$(discard) Reject All', description: 'Drop every buffered change', action: 'reject-all' },
+      ...(deps.postBatchSummary
+        ? [
+            {
+              label: '$(list-unordered) View Batch Summary in Chat',
+              description: 'Send unified diff of all pending changes to the chat panel',
+              action: 'view-summary' as const,
+            },
+          ]
+        : []),
       ...entries.map((entry): ReviewPick => {
         const fmt = formatEntryLabel(entry);
         return { label: fmt.label, description: fmt.description, action: 'open', entry };
@@ -156,6 +174,22 @@ export async function reviewAuditBuffer(deps: AuditReviewDeps): Promise<void> {
     if (picked.action === 'reject-all') {
       await rejectAllAuditBuffer(deps);
       return;
+    }
+    if (picked.action === 'view-summary') {
+      const summaryItems = entries
+        .map((entry) => ({
+          filePath: entry.path,
+          diff: computeUnifiedDiff(
+            entry.path,
+            entry.originalContent ?? '',
+            entry.op === 'delete' ? '' : (entry.content ?? ''),
+          ),
+          isNew: entry.op === 'create',
+          isDeleted: entry.op === 'delete',
+        }))
+        .filter((item) => item.diff.length > 0 || item.isDeleted);
+      deps.postBatchSummary!(summaryItems);
+      continue;
     }
 
     // 'open' — diff the buffered version against the captured original,
