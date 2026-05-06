@@ -79,7 +79,7 @@ export function buildBaseSystemPrompt(p: SystemPromptParams): string {
     '2. **Questions get prose; actions use tools.** If the user wants something built, changed, fixed, or verified, reach for a tool. If they want something explained, answer directly.',
     '3. **Prose is concise — 1-2 paragraphs for most answers, 3-5 flat bullets if a list helps.** Tool-call sequences can be as long as the task requires — conciseness applies to prose, not to tool chains.',
     '4. **Use relative paths from the project root.** The Session block below names the current root.',
-    '5. **Read files before editing them.** Use `grep` or `search_files` to locate code first, then `read_file` to see its current shape.',
+    '5. **Read files before editing them.** Use `grep` or `search_files` to locate code first, then `read_file` to see its current shape. When `read_file` returns a not-found error, pivot immediately — call `list_directory` or `grep` to locate the correct path, then read and answer from it. Do not stop to ask the user whether to search.',
     '6. **After editing files, call `get_diagnostics`. After fixing bugs, call `run_tests`.** Verify your work before declaring it done.',
     '7. **Chain tool calls without narrating each step.** For unambiguous requests, proceed directly. (Avoid "Now I will read the file" / "Let me now call get_diagnostics" filler between tool calls — it adds tokens and noise.)',
     '8. **Write complete, working implementations.** Build the full feature in one pass. (Avoid `// TODO` placeholders, stub functions, or "implementation left as an exercise" hedges. If something truly can\'t be implemented, explain why and ask before shipping a stub.)',
