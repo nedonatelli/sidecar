@@ -1,6 +1,6 @@
 # SideCar Roadmap
 
-**Current release: v0.85.0** — Security hardening (13 audit fixes), Semantic Time Travel (`git_search_history`), 5 ADRs, `nondeterministicOutput` on tool definitions, MCP/Skill marketplace shortcuts, and 86 new integration tests. See [CHANGELOG](CHANGELOG.md) for full notes.
+**Current release: v0.86.0** — Eval harness correctness (agent harness now wires base system prompt), error-recovery Rule 5 guidance, Ollama `keep_alive` latency fix, parallel pinned-files context build. See [CHANGELOG](CHANGELOG.md) for full notes.
 
 **Coverage floor**: ≥80/70/80/80 (stmts/branches/funcs/lines) enforced by CI. No PR merges that drop any metric.
 
@@ -12,6 +12,7 @@
 
 | Version | Headline |
 |---|---|
+| v0.86 | Eval harness wires system prompt · error-recovery Rule 5 · Ollama keep_alive · parallel pinned-files build |
 | v0.85 | Security audit (13 fixes) · Semantic Time Travel · ADRs · nondeterministicOutput · marketplace shortcuts · 86 new tests |
 | v0.84 | Query rewriting · chunk retrieval · active file bar · normalized cycle detection · sync I/O · 12 fixes |
 | v0.83 | NoSQL MCP install · `extension.ts` decomposition · perf fixes · MCP allowlist · WCAG AA |

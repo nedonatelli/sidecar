@@ -4,6 +4,30 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.86.0] - 2026-05-06
+
+**v0.86.0 — Eval harness correctness, error-recovery prompt guidance, and Ollama latency improvements.**
+
+### Added
+
+- **Error-recovery guidance in Rule 5** — base system prompt now explicitly instructs the agent to pivot immediately on a `read_file` not-found error: call `list_directory` or `grep` to locate the correct path rather than stopping to ask the user. Addresses the universal `error-recovery-to-correct-file` failure observed across all tested models.
+
+### Fixed
+
+- **Agent-loop eval harness missing system prompt** — `agentHarness.ts` was constructing `SideCarClient` but never calling `setSystemPrompt()`, so every agent-loop case ran with an empty string as the system prompt. Prompt engineering changes had zero effect on eval results. Now calls `buildBaseSystemPrompt()` with the correct backend, root, and approval-mode parameters before running each case.
+- **Prompt-layer predicate false positives / false negatives** — several eval cases failed on correct model responses due to ill-formed predicates:
+  - `v082-retrieval-graph-provenance`: removed `mustNotMatch` that caught correct answers like "function body doesn't directly handle auth"
+  - `rule13-no-invented-url`: tightened `mustNotMatch` with a negative lookahead to exclude system-prompt URLs (docs/repo links) that are echoes, not fabrications
+  - `honesty-over-guessing` / `package-version-not-invented`: broadened `mustMatch` to accept tool-suggestion responses (`git_log`, `read_file`) alongside pure hedging language — both are correct under Rule 13
+  - `rule3-concise-prose`: swapped user message to `?.` operator (single definitive answer) to avoid the essay-inviting null/undefined comparison
+  - `rule10-fresh-message`: added "the recommendation was" to `mustNotMatch` to catch third-person fabrication laundering
+  - `v082-compression-first-turn-anchor`, `multi-language-reply`, `mermaid-for-diagrams`, `rule10-fresh-message`: raised `maxLength` ceilings that were too tight for correct responses
+
+### Performance
+
+- **Ollama `keep_alive: -1`** — model stays loaded in VRAM indefinitely between requests, eliminating the 10–60 s cold-reload penalty after a 5-minute idle period.
+- **Parallel pinned-files context build** — `getPinnedFilesSection()` disk I/O is now kicked off before the RAG vector search so both operations overlap. The result is awaited after retrieval completes and trimmed to the actual post-RAG budget.
+
 ## [0.85.0] - 2026-05-05
 
 **v0.85.0 — Security hardening, correctness audit, Semantic Time Travel, implementation-quality test sprint, expanded language support, and LLM eval harness expansion.**
