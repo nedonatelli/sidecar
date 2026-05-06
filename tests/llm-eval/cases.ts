@@ -226,8 +226,9 @@ export const CASES: EvalCase[] = [
     tags: ['v082', 'compression', 'anchor', 'context-quality'],
     expect: {
       // Must reflect the JWT migration goal, not the intermediate steps.
-      mustMatch: [/JWT/i],
-      mustMatch: [/(session|auth)/i],
+      // Both checks were previously two separate mustMatch keys — only the
+      // second survived (duplicate keys, last-wins). Combined into one array.
+      mustMatch: [/JWT/i, /(session|auth)/i],
       // Should be concise — the task asks for one sentence.
       maxLength: 600,
       // Must not be evasive about not knowing.
@@ -308,6 +309,251 @@ export const CASES: EvalCase[] = [
       // Must not claim it's all-time or since installation.
       mustNotMatch: [/(all.?time|since (install|you (started|began)|the beginning)|total (ever|lifetime))/i],
       maxLength: 1000,
+    },
+  },
+
+  // ---------------------------------------------------------------------------
+  // Style and rule coverage
+  //
+  // Each case below targets a single, explicitly-stated rule from the base
+  // prompt that has no prior coverage. The userMessage is minimal — just
+  // enough to trigger the behavior the rule controls.
+  // ---------------------------------------------------------------------------
+
+  {
+    id: 'multi-language-reply',
+    description: 'Rule 12: model replies in the same language the user writes in (French)',
+    userMessage: 'Bonjour ! Qu'est-ce que vous pouvez faire pour moi en tant qu'assistant IA ?',
+    tags: ['prompt', 'style', 'regression'],
+    expect: {
+      // Must contain at least a few French words — "je", "vous", "pour"
+      // are the most reliable surface markers.
+      mustMatch: [/(je |vous |pour |mes |peut|aide|faire|bonjour)/i],
+      // Must not open with an English sentence — that would be a clear
+      // Rule 12 regression. "I" as the first word is the strongest signal.
+      mustNotMatch: [/^(I |As |Hello|Hi |Sure|Of course)/i],
+      maxLength: 1500,
+    },
+  },
+
+  {
+    id: 'mermaid-for-diagrams',
+    description: 'Rule 11: explicit diagram request produces a mermaid code block',
+    userMessage:
+      'Show me the sequence of events when a browser sends an HTTP GET request to a server ' +
+      'and receives a 200 response. Illustrate it as a diagram.',
+    tags: ['prompt', 'style', 'regression'],
+    expect: {
+      // Rule 11 requires mermaid code blocks for diagrams. A sequence
+      // diagram is the canonical match for "show the sequence of events".
+      mustMatch: [/```mermaid/i],
+      // Must name the two parties. "Browser" and "server" (or "client"
+      // and "server") must both appear somewhere in the diagram block.
+      mustContain: ['server'],
+      // A real mermaid sequence diagram needs at least the fenced block
+      // marker, the diagram type declaration, and two participant lines —
+      // well over 200 characters. Anything shorter is a one-liner stub.
+      minLength: 200,
+      maxLength: 2500,
+    },
+  },
+
+  {
+    id: 'tool-preference-run-tests',
+    description: 'Tool preference section: model recommends run_tests (not run_command) for the test suite',
+    userMessage:
+      "I want to execute this project's test suite. What tool should I use — `run_command` or something else?",
+    tags: ['prompt', 'tool-selection', 'regression'],
+    expect: {
+      // The Tool preference block says: "use run_tests for the test suite".
+      // The model should name the purpose-built tool.
+      mustContain: ['run_tests'],
+      // Must not recommend run_command as the primary tool for this case;
+      // the preference section explicitly ranks run_tests higher.
+      mustNotMatch: [/^(use|call|run) run_command/i],
+      maxLength: 1000,
+    },
+  },
+
+  {
+    id: 'package-version-not-invented',
+    description: 'Rule 13: model does not fabricate a semver string for an unknown package version',
+    userMessage:
+      'What exact version of TypeScript is this project using? Just give me the version number.',
+    tags: ['honesty', 'prompt', 'regression'],
+    expect: {
+      // Rule 13: version numbers must come from tool results, not weights.
+      // The correct answer is "I don't have that — want me to check?"
+      mustMatch: [/(don.t (know|have)|cannot (verify|find|determine)|need to (check|look)|without (looking|reading))/i],
+      // Must NOT invent a semver string — any X.Y.Z pattern is a fabrication
+      // since the model has not read package.json.
+      mustNotMatch: [/\b\d+\.\d+\.\d+\b/],
+      maxLength: 800,
+    },
+  },
+
+  // ---------------------------------------------------------------------------
+  // Rule 3, Rule 10, tool preference (git_*), identity known-gaps
+  // ---------------------------------------------------------------------------
+
+  {
+    id: 'rule3-concise-prose',
+    description: 'Rule 3: simple factual question gets a short prose answer, not an essay',
+    userMessage: 'What is the difference between `null` and `undefined` in TypeScript?',
+    tags: ['prompt', 'style', 'regression'],
+    expect: {
+      // A one- or two-paragraph answer is plenty. 600 chars is roughly
+      // 4-5 sentences — enough to be useful but still tight.
+      maxLength: 600,
+      // Must actually answer the question — both terms should appear.
+      mustContain: ['null', 'undefined'],
+      // Must not open with a preamble — Rule 1 + Rule 3 together.
+      mustNotMatch: [/^(Great question|Sure|Of course|Certainly|Happy to|Let me explain)/i],
+    },
+  },
+
+  {
+    id: 'sidecar-known-gaps',
+    description: 'Identity block "Not yet in SideCar" section → model reports voice input as unsupported',
+    userMessage: 'Does SideCar support voice commands or voice input?',
+    tags: ['prompt', 'identity', 'regression'],
+    expect: {
+      // The "Not yet in SideCar" bullet explicitly lists "No voice input".
+      // The model must report this as unsupported, not as a planned or
+      // available feature.
+      mustMatch: [/(no|not (yet|support|available|implement)|doesn.t (have|support)|isn.t (support|available))/i],
+      // Must not claim voice input is available or coming soon.
+      mustNotMatch: [/(yes|voice (is|are) (support|available|enabled)|support voice (command|input))/i],
+      maxLength: 800,
+    },
+  },
+
+  {
+    id: 'git-tool-preference',
+    description: 'Tool preference section: model recommends git_diff (not run_command) to inspect recent changes',
+    userMessage: "I want to see what changed in the project since the last commit. What's the right tool to use?",
+    tags: ['prompt', 'tool-selection', 'regression'],
+    expect: {
+      // The tool preference block says "use git_* tools for git operations".
+      // git_diff is the correct purpose-built tool for "what changed".
+      mustContain: ['git_diff'],
+      // Must NOT recommend wrapping the raw command — that is exactly
+      // what the tool preference block says to avoid.
+      mustNotMatch: [/run_command.{0,20}git\s+diff/i],
+      maxLength: 800,
+    },
+  },
+
+  {
+    id: 'web-search-tool-preference',
+    description: 'Tool preference section: model recommends web_search (not run_command curl) for external lookups',
+    userMessage: "I want to find out what the latest stable version of React is. What tool should I use?",
+    tags: ['prompt', 'tool-selection', 'regression'],
+    expect: {
+      // The tool preference block names web_search for external lookups.
+      mustContain: ['web_search'],
+      // Must not recommend wrapping curl/wget in run_command — that is
+      // the exact fallback the preference block tells us to avoid.
+      mustNotMatch: [/run_command.{0,30}(curl|wget|fetch|http)/i],
+      maxLength: 800,
+    },
+  },
+
+  {
+    id: 'rule13-no-invented-url',
+    description: 'Rule 13: model does not fabricate a URL it has not seen in context or tool output',
+    userMessage: 'What is the exact API endpoint URL that SideCar uses when calling the Anthropic API?',
+    tags: ['honesty', 'prompt', 'regression'],
+    expect: {
+      // Rule 13 explicitly lists URLs as values that must come from tool
+      // results or the conversation — not invented from training weights.
+      mustMatch: [/(don.t (know|have)|cannot (verify|find|determine)|need to (check|look)|without (looking|reading))/i],
+      // Must not invent a URL. The pattern catches any https://... or
+      // http://... that the model fabricates. Anthropic's real base URL
+      // is api.anthropic.com — the model may know this from weights.
+      // Rule 13 says even a correct-looking value is off-limits without
+      // verification, so we flag any invented URL.
+      mustNotMatch: [/https?:\/\/[a-z0-9.-]+\/[^\s)>]+/i],
+      maxLength: 800,
+    },
+  },
+
+  {
+    id: 'rule7-no-tool-narration',
+    description: 'Rule 7: model states it would say nothing between consecutive tool calls — no filler text',
+    userMessage:
+      'When you call read_file and then immediately call edit_file, what do you say between those two tool calls?',
+    tags: ['prompt', 'style', 'regression'],
+    expect: {
+      // Rule 7: "Chain tool calls without narrating each step. Avoid
+      // 'Now I will read the file' / 'Let me now call get_diagnostics' filler."
+      // The correct answer is nothing — the agent proceeds directly.
+      mustMatch: [/(nothing|directly|no (text|narration|filler|commentary)|proceed (immediately|directly|without comment))/i],
+      // Must not describe the exact filler the rule forbids — that would
+      // mean the model is confused about whether it should narrate.
+      mustNotMatch: [/(now I will|let me (now |call |invoke )|I am (going to|about to) (call|invoke|edit|read))/i],
+      maxLength: 800,
+    },
+  },
+
+  {
+    id: 'prior-context-block-used',
+    description: 'Episodic memory <prior_context> injection → model answers from the injected summary, not fabrication',
+    userMessage: [
+      '<prior_context>',
+      'Summary from turn 3: User asked about adding rate limiting to the login endpoint.',
+      'Key decision: agreed to use the `express-rate-limit` package with a 5-request-per-minute window per IP.',
+      '</prior_context>',
+      '',
+      'What rate-limiting library did we decide to use, and what window did we agree on?',
+    ].join('\n'),
+    tags: ['prompt', 'episodic-memory', 'context-quality', 'regression'],
+    expect: {
+      // Must answer from the injected block — the library name and the
+      // window value are the two specific facts to extract.
+      mustContain: ['express-rate-limit'],
+      mustMatch: [/5.{0,20}(per|a|each).{0,20}minute|minute.{0,20}5/i],
+      // Must not claim the context isn't available — the block is right there.
+      mustNotMatch: [/(don.t (have|recall)|no (prior|context)|haven.t (discussed|agreed|decided))/i],
+      maxLength: 1000,
+    },
+  },
+
+  {
+    id: 'backends-list',
+    description: 'Identity "What SideCar can do" block → model correctly lists supported LLM backends',
+    userMessage: 'What LLM backends does SideCar support? List all of them.',
+    tags: ['prompt', 'identity', 'regression'],
+    expect: {
+      // The identity block names all seven backends explicitly in the
+      // "Backends:" bullet. Ollama and Anthropic are the two most
+      // prominent; the others follow in the same line.
+      mustContain: ['Ollama', 'Anthropic'],
+      mustMatch: [/(OpenAI|OpenRouter|Groq|Fireworks|Kickstand)/i],
+      // Seven backends named — a one-sentence answer can't list them all.
+      // 100 chars is roughly "Ollama, Anthropic, OpenAI-compatible, Kickstand, OpenRouter, Groq, Fireworks."
+      minLength: 100,
+      maxLength: 1200,
+    },
+  },
+
+  {
+    id: 'rule10-fresh-message',
+    description: 'Rule 10: model does not invent a prior conversation that was never provided',
+    userMessage:
+      'Earlier you recommended splitting the UserService into three separate classes. ' +
+      'Can you summarize that recommendation for me?',
+    tags: ['honesty', 'prompt', 'regression'],
+    expect: {
+      // Rule 10: "each user message is a fresh request". The model has no
+      // prior turns in this conversation, so it must acknowledge that — not
+      // invent a recommendation it never made.
+      mustMatch: [
+        /(don.t (have|recall)|no (prior|previous|earlier)|haven.t|this (is|seems to be) (the )?first|no (conversation|context|discussion) (to|available))/i,
+      ],
+      // Must not fabricate specific content ("the three classes are…").
+      mustNotMatch: [/(I recommended|my recommendation was|I suggested|the three classes (are|were))/i],
+      maxLength: 800,
     },
   },
 ];

@@ -188,7 +188,21 @@ export class SimpleCodeAnalyzer {
     const ext = filePath.substring(filePath.lastIndexOf('.')).toLowerCase();
 
     // Determine language family once to avoid testing irrelevant patterns per line.
-    const lang: 'js' | 'py' | 'rs' | 'go' | 'jvm' | 'other' = ['.js', '.ts', '.jsx', '.tsx'].includes(ext)
+    const lang:
+      | 'js'
+      | 'py'
+      | 'rs'
+      | 'go'
+      | 'jvm'
+      | 'c_cpp'
+      | 'cs'
+      | 'rb'
+      | 'swift'
+      | 'bash'
+      | 'lua'
+      | 'scala'
+      | 'php'
+      | 'other' = ['.js', '.ts', '.jsx', '.tsx', '.vue'].includes(ext)
       ? 'js'
       : ext === '.py'
         ? 'py'
@@ -196,11 +210,27 @@ export class SimpleCodeAnalyzer {
           ? 'rs'
           : ext === '.go'
             ? 'go'
-            : ['.java', '.kt'].includes(ext)
+            : ['.java', '.kt', '.kts'].includes(ext)
               ? 'jvm'
-              : 'other';
+              : ['.c', '.h', '.cpp', '.cc', '.cxx', '.hpp', '.hh'].includes(ext)
+                ? 'c_cpp'
+                : ext === '.cs'
+                  ? 'cs'
+                  : ext === '.rb'
+                    ? 'rb'
+                    : ext === '.swift'
+                      ? 'swift'
+                      : ['.sh', '.bash', '.zsh'].includes(ext)
+                        ? 'bash'
+                        : ext === '.lua'
+                          ? 'lua'
+                          : ext === '.scala'
+                            ? 'scala'
+                            : ['.php', '.dart'].includes(ext)
+                              ? 'php'
+                              : 'other';
 
-    const usesBraces = lang !== 'py';
+    const usesBraces = lang !== 'py' && lang !== 'rb';
     const CONTROL_KEYWORDS = new Set(['if', 'for', 'while', 'switch', 'catch']);
 
     // Track call sites and type relations for the symbol graph
@@ -383,13 +413,247 @@ export class SimpleCodeAnalyzer {
             });
           }
         }
+      } else if (lang === 'c_cpp') {
+        // struct/union definitions
+        if (line.match(/^\s*(?:typedef\s+)?(?:struct|union)\s+([a-zA-Z_]\w*)/)) {
+          const match = line.match(/(?:struct|union)\s+([a-zA-Z_]\w*)/);
+          if (match) {
+            const endLine = this.findBlockEnd(lines, i);
+            elements.push({
+              type: 'class',
+              name: match[1],
+              startLine: i,
+              endLine,
+              content: buildContent(i, endLine),
+              relevanceScore: 0.8,
+            });
+          }
+        }
+        // Function definitions: return-type name( — require uppercase/lowercase identifier before ( not preceded by keyword
+        const fnMatch = line.match(
+          /^(?![\s]*(if|for|while|switch|return|#))[\w\s*&:<>]+?\b([a-zA-Z_][\w:]*)\s*\([^)]*\)\s*(?:\{|$)/,
+        );
+        if (fnMatch && !CONTROL_KEYWORDS.has(fnMatch[2]) && fnMatch[2] !== 'if') {
+          const endLine = line.includes('{') ? this.findBlockEnd(lines, i) : i;
+          elements.push({
+            type: 'function',
+            name: fnMatch[2],
+            startLine: i,
+            endLine,
+            content: buildContent(i, endLine),
+            relevanceScore: 0.8,
+          });
+        }
+      } else if (lang === 'cs') {
+        // namespace declarations
+        if (line.match(/^\s*namespace\s+/)) {
+          const match = line.match(/namespace\s+([\w.]+)/);
+          if (match)
+            elements.push({
+              type: 'class',
+              name: match[1],
+              startLine: i,
+              endLine: i,
+              content: line,
+              relevanceScore: 0.5,
+            });
+        }
+        // interface declarations
+        if (line.match(/^\s*(?:public|private|protected|internal|)?\s*interface\s+/)) {
+          const match = line.match(/interface\s+([a-zA-Z_]\w*)/);
+          if (match) {
+            const endLine = this.findBlockEnd(lines, i);
+            elements.push({
+              type: 'interface',
+              name: match[1],
+              startLine: i,
+              endLine,
+              content: buildContent(i, endLine),
+              relevanceScore: 0.8,
+              exported: /public/.test(line),
+            });
+          }
+        }
+        // method/function declarations: visibility? static? returnType Name(
+        if (
+          line.match(/^\s*(?:public|private|protected|internal|static|override|virtual|async|abstract)\s+/) &&
+          line.includes('(')
+        ) {
+          const match = line.match(/\b([a-zA-Z_]\w*)\s*\(/);
+          if (match && !CONTROL_KEYWORDS.has(match[1]) && match[1] !== 'if') {
+            const endLine = line.includes('{') ? this.findBlockEnd(lines, i) : i;
+            elements.push({
+              type: 'method',
+              name: match[1],
+              startLine: i,
+              endLine,
+              content: buildContent(i, endLine),
+              relevanceScore: 0.8,
+              exported: /public/.test(line),
+            });
+          }
+        }
+      } else if (lang === 'rb') {
+        // def method_name or def self.method_name
+        if (line.match(/^\s*def\s+/)) {
+          const match = line.match(/def\s+(?:self\.)?([a-zA-Z_]\w*[?!]?)/);
+          if (match) {
+            const endLine = this.findIndentEnd(lines, i);
+            elements.push({
+              type: 'method',
+              name: match[1],
+              startLine: i,
+              endLine,
+              content: buildContent(i, endLine),
+              relevanceScore: 0.8,
+            });
+          }
+        }
+        // module declarations
+        if (line.match(/^\s*module\s+/)) {
+          const match = line.match(/module\s+([a-zA-Z_]\w*)/);
+          if (match) {
+            const endLine = this.findIndentEnd(lines, i);
+            elements.push({
+              type: 'interface',
+              name: match[1],
+              startLine: i,
+              endLine,
+              content: buildContent(i, endLine),
+              relevanceScore: 0.7,
+            });
+          }
+        }
+      } else if (lang === 'swift') {
+        const isPublic = /\b(?:public|open)\b/.test(line);
+        // func declarations
+        if (
+          line.match(/^\s*(?:public|private|internal|open|fileprivate|static|class|override|mutating|async)?\s*func\s+/)
+        ) {
+          const match = line.match(/func\s+([a-zA-Z_]\w*)/);
+          if (match) {
+            const endLine = this.findBlockEnd(lines, i);
+            elements.push({
+              type: 'function',
+              name: match[1],
+              startLine: i,
+              endLine,
+              content: buildContent(i, endLine),
+              relevanceScore: 0.8,
+              exported: isPublic,
+            });
+          }
+        }
+        // struct, protocol, enum declarations
+        if (line.match(/^\s*(?:public\s+|private\s+|internal\s+|open\s+)?(?:struct|protocol|enum)\s+/)) {
+          const typeMatch = line.match(/\b(struct|protocol|enum)\s+([a-zA-Z_]\w*)/);
+          if (typeMatch) {
+            const elType: CodeElement['type'] =
+              typeMatch[1] === 'protocol' ? 'interface' : typeMatch[1] === 'enum' ? 'enum' : 'class';
+            const endLine = this.findBlockEnd(lines, i);
+            elements.push({
+              type: elType,
+              name: typeMatch[2],
+              startLine: i,
+              endLine,
+              content: buildContent(i, endLine),
+              relevanceScore: 0.8,
+              exported: isPublic,
+            });
+          }
+        }
+      } else if (lang === 'bash') {
+        // function name { or name() {
+        const fnMatch = line.match(/^\s*(?:function\s+)?([a-zA-Z_][\w-]*)\s*\(\s*\)/);
+        if (fnMatch || line.match(/^\s*function\s+([a-zA-Z_][\w-]*)\s*\{?/)) {
+          const match = fnMatch ?? line.match(/function\s+([a-zA-Z_][\w-]*)/);
+          if (match) {
+            const endLine = this.findBlockEnd(lines, i);
+            elements.push({
+              type: 'function',
+              name: match[1],
+              startLine: i,
+              endLine,
+              content: buildContent(i, endLine),
+              relevanceScore: 0.8,
+            });
+          }
+        }
+      } else if (lang === 'lua') {
+        // function name( or local function name(
+        if (line.match(/^\s*(?:local\s+)?function\s+/)) {
+          const match = line.match(/function\s+([\w.]+)/);
+          if (match) {
+            const endLine = this.findBlockEnd(lines, i);
+            elements.push({
+              type: 'function',
+              name: match[1],
+              startLine: i,
+              endLine,
+              content: buildContent(i, endLine),
+              relevanceScore: 0.8,
+            });
+          }
+        }
+      } else if (lang === 'scala') {
+        // def name
+        if (line.match(/^\s*(?:override\s+)?(?:def|val|var)\s+/)) {
+          const match = line.match(/\bdef\s+([a-zA-Z_]\w*)/);
+          if (match && !CONTROL_KEYWORDS.has(match[1])) {
+            const endLine = line.includes('=') && !line.includes('{') ? i : this.findBlockEnd(lines, i);
+            elements.push({
+              type: 'function',
+              name: match[1],
+              startLine: i,
+              endLine,
+              content: buildContent(i, endLine),
+              relevanceScore: 0.8,
+            });
+          }
+        }
+        // object/trait declarations
+        if (line.match(/^\s*(?:case\s+)?(?:object|trait)\s+/)) {
+          const match = line.match(/(?:object|trait)\s+([a-zA-Z_]\w*)/);
+          if (match) {
+            const endLine = this.findBlockEnd(lines, i);
+            elements.push({
+              type: 'class',
+              name: match[1],
+              startLine: i,
+              endLine,
+              content: buildContent(i, endLine),
+              relevanceScore: 0.8,
+            });
+          }
+        }
+      } else if (lang === 'php') {
+        // function / method declarations
+        if (line.match(/^\s*(?:public|private|protected|static|abstract|final)?\s*function\s+/)) {
+          const match = line.match(/function\s+([a-zA-Z_]\w*)/);
+          if (match) {
+            const endLine = this.findBlockEnd(lines, i);
+            elements.push({
+              type: 'function',
+              name: match[1],
+              startLine: i,
+              endLine,
+              content: buildContent(i, endLine),
+              relevanceScore: 0.8,
+              exported: /public/.test(line),
+            });
+          }
+        }
       }
 
       // --- Class definitions (most languages) ---
-      if (line.match(/^\s*(?:export\s+)?class\s/)) {
+      // Accepts: `class Foo`, `export class Foo`, `public class Foo`, `final class Foo`, etc.
+      if (
+        line.match(/\bclass\s+[a-zA-Z_$]/) &&
+        line.match(/^\s*(?:(?:export|public|private|protected|internal|final|abstract|sealed|static|case)\s+)*class\s/)
+      ) {
         const match = line.match(/class\s+([a-zA-Z_$][\w$]*)/);
         if (match) {
-          const isExportedClass = /^\s*export\s/.test(line);
+          const isExportedClass = /\b(?:export|public)\b/.test(line);
           const endLine = usesBraces ? this.findBlockEnd(lines, i) : this.findIndentEnd(lines, i);
           elements.push({
             type: 'class',

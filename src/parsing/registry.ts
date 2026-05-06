@@ -7,7 +7,36 @@ import type { CodeAnalyzer, CodeElement, ParsedFile } from './types.js';
 import { SimpleCodeAnalyzer } from '../astContext.js';
 
 // File extensions the regex parser handles
-const REGEX_EXTENSIONS = new Set(['js', 'jsx', 'ts', 'tsx', 'py', 'rs', 'go', 'java', 'kt']);
+const REGEX_EXTENSIONS = new Set([
+  'js',
+  'jsx',
+  'ts',
+  'tsx',
+  'py',
+  'rs',
+  'go',
+  'java',
+  'kt',
+  'kts',
+  'cs',
+  'rb',
+  'swift',
+  'c',
+  'h',
+  'cpp',
+  'cc',
+  'cxx',
+  'hpp',
+  'hh',
+  'sh',
+  'bash',
+  'zsh',
+  'php',
+  'lua',
+  'scala',
+  'dart',
+  'vue',
+]);
 
 /**
  * Wraps SimpleCodeAnalyzer's static methods into the CodeAnalyzer interface.

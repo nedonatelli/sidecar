@@ -1,6 +1,7 @@
 /**
  * Tree-sitter-based code analyzer implementing the CodeAnalyzer interface.
- * Provides accurate AST parsing for JS/TS, Python, Rust, and Go.
+ * Supports JS/TS/TSX, Python, Rust, Go, Java, Kotlin, C#, Ruby, Swift,
+ * C, C++, Bash, PHP, Lua, Scala, Dart, and Vue.
  */
 
 import * as path from 'path';
@@ -16,6 +17,27 @@ const EXT_TO_LANGUAGE: Record<string, string> = {
   py: 'python',
   rs: 'rust',
   go: 'go',
+  java: 'java',
+  kt: 'kotlin',
+  kts: 'kotlin',
+  cs: 'c_sharp',
+  rb: 'ruby',
+  swift: 'swift',
+  c: 'c',
+  h: 'c',
+  cpp: 'cpp',
+  cc: 'cpp',
+  cxx: 'cpp',
+  hpp: 'cpp',
+  hh: 'cpp',
+  sh: 'bash',
+  bash: 'bash',
+  zsh: 'bash',
+  php: 'php',
+  lua: 'lua',
+  scala: 'scala',
+  dart: 'dart',
+  vue: 'vue',
 };
 
 const SUPPORTED_EXTENSIONS = new Set(Object.keys(EXT_TO_LANGUAGE));
@@ -76,7 +98,146 @@ const LANGUAGE_MAPPINGS: Record<string, ElementMapping[]> = {
     { nodeType: 'type_declaration', elementType: 'class' },
     { nodeType: 'import_declaration', elementType: 'import' },
   ],
+  java: [
+    { nodeType: 'method_declaration', elementType: 'method', nameField: 'name' },
+    { nodeType: 'class_declaration', elementType: 'class', nameField: 'name' },
+    { nodeType: 'interface_declaration', elementType: 'interface', nameField: 'name' },
+    { nodeType: 'enum_declaration', elementType: 'enum', nameField: 'name' },
+    { nodeType: 'import_declaration', elementType: 'import' },
+  ],
+  kotlin: [
+    { nodeType: 'function_declaration', elementType: 'function', nameField: 'name' },
+    { nodeType: 'class_declaration', elementType: 'class', nameField: 'name' },
+    { nodeType: 'object_declaration', elementType: 'class', nameField: 'name' },
+    { nodeType: 'interface_declaration', elementType: 'interface', nameField: 'name' },
+    { nodeType: 'import_header', elementType: 'import' },
+  ],
+  c_sharp: [
+    { nodeType: 'method_declaration', elementType: 'method', nameField: 'name' },
+    { nodeType: 'class_declaration', elementType: 'class', nameField: 'name' },
+    { nodeType: 'interface_declaration', elementType: 'interface', nameField: 'name' },
+    { nodeType: 'enum_declaration', elementType: 'enum', nameField: 'name' },
+    { nodeType: 'using_directive', elementType: 'import' },
+  ],
+  ruby: [
+    { nodeType: 'method', elementType: 'method', nameField: 'name' },
+    { nodeType: 'singleton_method', elementType: 'method', nameField: 'name' },
+    { nodeType: 'class', elementType: 'class', nameField: 'name' },
+    { nodeType: 'module', elementType: 'interface', nameField: 'name' },
+  ],
+  swift: [
+    { nodeType: 'function_declaration', elementType: 'function', nameField: 'name' },
+    { nodeType: 'class_declaration', elementType: 'class', nameField: 'name' },
+    { nodeType: 'struct_declaration', elementType: 'class', nameField: 'name' },
+    { nodeType: 'protocol_declaration', elementType: 'interface', nameField: 'name' },
+    { nodeType: 'enum_declaration', elementType: 'enum', nameField: 'name' },
+    { nodeType: 'import_declaration', elementType: 'import' },
+  ],
+  bash: [{ nodeType: 'function_definition', elementType: 'function', nameField: 'name' }],
+  php: [
+    { nodeType: 'function_definition', elementType: 'function', nameField: 'name' },
+    { nodeType: 'class_declaration', elementType: 'class', nameField: 'name' },
+    { nodeType: 'method_declaration', elementType: 'method', nameField: 'name' },
+    { nodeType: 'interface_declaration', elementType: 'interface', nameField: 'name' },
+    { nodeType: 'namespace_use_declaration', elementType: 'import' },
+  ],
+  lua: [
+    { nodeType: 'function_declaration', elementType: 'function', nameField: 'name' },
+    { nodeType: 'local_function', elementType: 'function', nameField: 'name' },
+    { nodeType: 'method_index_expression', elementType: 'method' },
+  ],
+  scala: [
+    { nodeType: 'function_definition', elementType: 'function', nameField: 'name' },
+    { nodeType: 'class_definition', elementType: 'class', nameField: 'name' },
+    { nodeType: 'object_definition', elementType: 'class', nameField: 'name' },
+    { nodeType: 'trait_definition', elementType: 'interface', nameField: 'name' },
+    { nodeType: 'import_declaration', elementType: 'import' },
+  ],
+  dart: [
+    { nodeType: 'function_signature', elementType: 'function', nameField: 'name' },
+    { nodeType: 'function_declaration', elementType: 'function', nameField: 'name' },
+    { nodeType: 'class_definition', elementType: 'class', nameField: 'name' },
+    { nodeType: 'mixin_declaration', elementType: 'interface', nameField: 'name' },
+    { nodeType: 'import_specification', elementType: 'import' },
+  ],
+  // Vue SFCs: function/class nodes inside <script> blocks use the same types as JavaScript
+  vue: [
+    { nodeType: 'function_declaration', elementType: 'function', nameField: 'name' },
+    { nodeType: 'class_declaration', elementType: 'class', nameField: 'name' },
+    { nodeType: 'method_definition', elementType: 'method', nameField: 'name' },
+    { nodeType: 'export_statement', elementType: 'export' },
+    { nodeType: 'import_statement', elementType: 'import' },
+  ],
+  // C and C++ function names are nested in declarator chains — handled via walkDeclarator()
+  c: [
+    { nodeType: 'function_definition', elementType: 'function' },
+    { nodeType: 'struct_specifier', elementType: 'class', nameField: 'name' },
+    { nodeType: 'enum_specifier', elementType: 'enum', nameField: 'name' },
+    { nodeType: 'preproc_include', elementType: 'import' },
+  ],
+  cpp: [
+    { nodeType: 'function_definition', elementType: 'function' },
+    { nodeType: 'class_specifier', elementType: 'class', nameField: 'name' },
+    { nodeType: 'struct_specifier', elementType: 'class', nameField: 'name' },
+    { nodeType: 'enum_specifier', elementType: 'enum', nameField: 'name' },
+    { nodeType: 'namespace_definition', elementType: 'class', nameField: 'name' },
+    { nodeType: 'preproc_include', elementType: 'import' },
+  ],
 };
+
+/**
+ * Walk a C/C++ declarator chain to find the innermost identifier.
+ * function_definition.declarator may be: function_declarator, pointer_declarator,
+ * reference_declarator, qualified_identifier, or identifier.
+ */
+function walkDeclarator(node: AnyNode): string {
+  if (node.type === 'identifier' || node.type === 'field_identifier') {
+    return node.text;
+  }
+  // qualified_identifier: last child is the unqualified name
+  if (node.type === 'qualified_identifier') {
+    const name = node.childForFieldName('name');
+    return name ? name.text : (node.text.split('::').pop() ?? node.text);
+  }
+  // function_declarator carries the callee in its 'declarator' field
+  const inner = node.childForFieldName('declarator');
+  if (inner) return walkDeclarator(inner);
+  // Fallback: first identifier-type child
+  for (let i = 0; i < node.childCount; i++) {
+    const child = node.child(i);
+    if (child && (child.type === 'identifier' || child.type === 'field_identifier')) return child.text;
+  }
+  return '';
+}
+
+interface AnyNode {
+  type: string;
+  text: string;
+  childCount: number;
+  child(i: number): AnyNode | null;
+  childForFieldName(name: string): AnyNode | null;
+}
+
+function hasPublicModifier(node: AnyNode): boolean {
+  for (let i = 0; i < node.childCount; i++) {
+    const child = node.child(i);
+    if (child && (child.type === 'modifiers' || child.type === 'modifier')) {
+      if (child.text.includes('public')) return true;
+    }
+    // Java/Kotlin: modifier nodes are direct children
+    if (child && child.type === 'public') return true;
+  }
+  return false;
+}
+
+function hasSwiftPublicModifier(node: AnyNode): boolean {
+  for (let i = 0; i < node.childCount; i++) {
+    const child = node.child(i);
+    if (child && child.type === 'attribute' && child.text === 'public') return true;
+    if (child && child.type === 'modifier' && (child.text === 'public' || child.text === 'open')) return true;
+  }
+  return false;
+}
 
 class TreeSitterCodeAnalyzer implements CodeAnalyzer {
   readonly supportedExtensions = SUPPORTED_EXTENSIONS;
@@ -117,6 +278,13 @@ class TreeSitterCodeAnalyzer implements CodeAnalyzer {
             }
           }
 
+          // C/C++ function names are buried in a declarator chain:
+          // function_definition → declarator (pointer_declarator | function_declarator) → ... → identifier
+          if (!name && (langName === 'c' || langName === 'cpp') && node.type === 'function_definition') {
+            const declarator = node.childForFieldName('declarator');
+            if (declarator) name = walkDeclarator(declarator);
+          }
+
           // For exports, try to get the name from the inner declaration
           if (!name && mapping.elementType === 'export') {
             const inner = node.childForFieldName('declaration') || node.childForFieldName('value');
@@ -128,7 +296,8 @@ class TreeSitterCodeAnalyzer implements CodeAnalyzer {
 
           // For imports, extract the source module
           if (!name && mapping.elementType === 'import') {
-            const source = node.childForFieldName('source') || node.childForFieldName('path');
+            const source =
+              node.childForFieldName('source') || node.childForFieldName('path') || node.childForFieldName('name'); // Java import_declaration uses 'name'
             name = source ? source.text.replace(/['"]/g, '') : node.text.slice(0, 80);
           }
 
@@ -163,6 +332,13 @@ class TreeSitterCodeAnalyzer implements CodeAnalyzer {
           } else if (langName === 'go' && name.length > 0 && name[0] === name[0].toUpperCase()) {
             exported = true; // Go convention: uppercase = exported
           } else if (langName === 'rust' && node.previousSibling?.type === 'visibility_modifier') {
+            exported = true;
+          } else if (
+            (langName === 'java' || langName === 'c_sharp' || langName === 'kotlin') &&
+            hasPublicModifier(node)
+          ) {
+            exported = true;
+          } else if (langName === 'swift' && hasSwiftPublicModifier(node)) {
             exported = true;
           }
 

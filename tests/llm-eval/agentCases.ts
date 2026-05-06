@@ -74,6 +74,8 @@ export const AGENT_CASES: AgentEvalCase[] = [
     expect: {
       // The agent should read the file first so it knows what to edit.
       toolsCalled: ['read_file'],
+      // read_file must precede the edit — Rule 5 ("Read files before editing").
+      trajectoryOrder: [{ before: 'read_file', after: 'edit_file' }],
       // Post-run: file has the new name, not the old one.
       files: {
         contain: [{ path: 'src/math.ts', substrings: ['function sum(a: number, b: number)'] }],
@@ -238,20 +240,14 @@ export const AGENT_CASES: AgentEvalCase[] = [
       "There's a bug in src/math.ts — the `add` function subtracts instead of adding. Fix it so it correctly returns a + b.",
     expect: {
       toolsCalled: ['read_file'],
+      trajectoryOrder: [{ before: 'read_file', after: 'edit_file' }],
       files: {
         contain: [
           {
             path: 'src/math.ts',
-            // Signature must still exist; return statement must still
-            // exist; both parameters must still be referenced in the
-            // fixed body.
             substrings: ['function add', 'return', 'a', 'b'],
           },
         ],
-        // The bug itself must be gone. We check both `a - b` and
-        // `b - a` orderings since either would be wrong. A correct
-        // fix writes `a + b` or `b + a`, both of which are absent
-        // from these substrings.
         notContain: [
           {
             path: 'src/math.ts',
@@ -286,6 +282,10 @@ export const AGENT_CASES: AgentEvalCase[] = [
       // regress the search_files description or add a tool that
       // shadows it, this case catches the regression.
       toolsCalled: ['search_files'],
+      // The user message explicitly names the glob "**/*.test.ts" — pin
+      // that the agent passes a pattern containing ".test.ts", not a
+      // broader glob that would match non-test files too.
+      toolCallMatches: [{ name: 'search_files', inputPartial: { pattern: '.test.ts' } }],
       // Final text must contain the answer. "2" is specific enough
       // that false positives are unlikely, and any correct answer
       // must contain it.
@@ -366,6 +366,279 @@ export const AGENT_CASES: AgentEvalCase[] = [
       // accept loose substring matching because plan structure
       // varies model-to-model.
       finalTextContains: ['rate', 'auth'],
+      // The system prompt specifies a required plan format:
+      //   ## Plan: <title>
+      //   1. **Step** — description
+      //   ### Risks & Considerations
+      //   ### Estimated Scope
+      // Pin the two structural markers that distinguish a proper plan
+      // from a free-form bullet list.
+      finalTextMatchesRegex: [/##\s*Plan[:\s]/i, /###\s*(Risks|Estimated)/i],
+    },
+  },
+
+  // ---------------------------------------------------------------------------
+  // New cases: disciplined tool sequencing and tool selection
+  // ---------------------------------------------------------------------------
+
+  {
+    id: 'run-tests-after-fix',
+    description: 'Agent calls run_tests after editing a buggy file (Operating rule 6)',
+    tags: ['edit', 'run-tests', 'trajectory', 'regression'],
+    workspace: {
+      // package.json gives run_tests something to run. The echo script
+      // exits 0 so the tool call succeeds — we only care about trajectory
+      // presence, not test output.
+      'package.json': JSON.stringify({ name: 'eval-sandbox', scripts: { test: 'echo "all tests pass"' } }, null, 2),
+      'src/calculator.ts':
+        '// Returns the product of two numbers.\n' +
+        'export function multiply(a: number, b: number): number {\n' +
+        '  return a + b;\n' +
+        '}\n',
+    },
+    userMessage:
+      'There is a bug in src/calculator.ts — the multiply function adds instead of multiplying. ' +
+      'Fix the bug and then run the tests to confirm nothing is broken.',
+    expect: {
+      toolsCalled: ['read_file', 'run_tests'],
+      // Pin the full Rule 6 sequence: read → fix → verify.
+      trajectoryOrder: [
+        { before: 'read_file', after: 'edit_file' },
+        { before: 'edit_file', after: 'run_tests' },
+      ],
+      files: {
+        contain: [{ path: 'src/calculator.ts', substrings: ['return', 'a', 'b'] }],
+        notContain: [{ path: 'src/calculator.ts', substrings: ['a + b'] }],
+      },
+    },
+  },
+
+  {
+    id: 'list-directory-exploration',
+    description: 'Agent calls list_directory to survey project structure instead of reading every file',
+    tags: ['search', 'trajectory', 'tool-selection'],
+    workspace: {
+      'src/index.ts': 'export * from "./auth";\nexport * from "./api";\n',
+      'src/auth.ts': 'export function login(): void {}\n',
+      'src/api.ts': 'export function fetchData(): void {}\n',
+      'tests/auth.test.ts': 'import { login } from "../src/auth";\n',
+      'tests/api.test.ts': 'import { fetchData } from "../src/api";\n',
+      'README.md': '# Eval sandbox\n',
+    },
+    userMessage:
+      "What directories and top-level files exist in this project? Give me a brief overview of the layout. " +
+      "Don't read every file — just list what's here.",
+    expect: {
+      // The agent should call list_directory (or search_files with a broad
+      // glob) rather than sequentially reading each of the six files.
+      toolsCalled: ['list_directory'],
+      // Must surface the two top-level directories. "src" and "tests" are
+      // the reliable markers — the exact format varies by model.
+      finalTextContains: ['src', 'tests'],
+      // Absolutely must not write or edit anything — this is read-only.
+      toolsNotCalled: ['write_file', 'edit_file'],
+    },
+  },
+
+  {
+    id: 'delete-file-when-requested',
+    description: 'Agent deletes a deprecated file when explicitly asked, without touching the unrelated file',
+    tags: ['delete', 'trajectory', 'regression'],
+    workspace: {
+      'src/legacy.ts': '// Deprecated — superseded by modern.ts\nexport const LEGACY_VERSION = "0.1.0";\n',
+      'src/modern.ts': '// Current implementation\nexport const VERSION = "2.0.0";\n',
+    },
+    userMessage:
+      'Delete src/legacy.ts — it is deprecated and has been superseded by modern.ts. ' +
+      'Leave src/modern.ts exactly as it is.',
+    expect: {
+      // The deprecated file must be gone.
+      files: {
+        notExist: ['src/legacy.ts'],
+        // The sibling file must remain untouched.
+        exist: ['src/modern.ts'],
+        contain: [{ path: 'src/modern.ts', substrings: ['VERSION', '2.0.0'] }],
+      },
+      // Must not rewrite the file that should stay untouched.
+      toolsNotCalled: ['write_file'],
+    },
+  },
+
+  {
+    id: 'run-command-usage',
+    description: 'Agent uses run_command to execute a shell command and reports the output',
+    tags: ['run-command', 'trajectory'],
+    workspace: {
+      'README.md': '# Eval sandbox\n',
+    },
+    userMessage:
+      'Run `node --version` and tell me which version of Node.js is installed on this machine.',
+    expect: {
+      // run_command is the only tool that can execute a shell command.
+      // node is guaranteed present since we run in a Node.js process.
+      toolsCalled: ['run_command'],
+      // node --version always prints "vX.Y.Z". The regex checks that the
+      // agent reported the actual version string rather than just guessing
+      // "a version is installed" — finalTextContains: ['v'] would accept
+      // "a version of Node is present" without running the command at all.
+      finalTextMatchesRegex: [/v\d+\.\d+/],
+      // Must not write anything — this is a pure observation task.
+      toolsNotCalled: ['write_file', 'edit_file'],
+    },
+  },
+
+  {
+    id: 'edit-preserves-surrounding-code',
+    description: 'Agent fixes a bug in one function of a multi-function file without disturbing adjacent functions',
+    tags: ['edit', 'trajectory', 'regression'],
+    workspace: {
+      // Three exported functions. The bug is in `abs` (sign inverted for
+      // positive inputs). `square` and `min` are correct and must not
+      // be touched. Single-function files can't catch a write_file-replaces-whole-file
+      // regression; this multi-function layout does.
+      'src/math.ts':
+        '// Returns the square of a number.\n' +
+        'export function square(n: number): number {\n' +
+        '  return n * n;\n' +
+        '}\n' +
+        '\n' +
+        '// Returns the absolute value of a number.\n' +
+        'export function abs(n: number): number {\n' +
+        '  return n > 0 ? -n : n;\n' +
+        '}\n' +
+        '\n' +
+        '// Returns the minimum of two numbers.\n' +
+        'export function min(a: number, b: number): number {\n' +
+        '  return a < b ? a : b;\n' +
+        '}\n',
+    },
+    userMessage:
+      'The `abs` function in src/math.ts is buggy — it returns a negative value for positive inputs. ' +
+      'Fix only the `abs` function. Do not change `square` or `min`.',
+    expect: {
+      toolsCalled: ['read_file'],
+      trajectoryOrder: [{ before: 'read_file', after: 'edit_file' }],
+      files: {
+        contain: [
+          {
+            path: 'src/math.ts',
+            // Both untouched functions must still be present.
+            substrings: ['function square', 'return n * n', 'function min', 'return a < b ? a : b'],
+          },
+        ],
+        notContain: [
+          {
+            path: 'src/math.ts',
+            // The inverted sign bug must be gone.
+            substrings: ['return n > 0 ? -n : n'],
+          },
+        ],
+      },
+    },
+  },
+
+  {
+    id: 'error-recovery-to-correct-file',
+    description: 'Agent recovers from file-not-found by searching for the right file, then answers from it',
+    tags: ['read', 'error-observation', 'recovery', 'trajectory', 'regression'],
+    workspace: {
+      // The user will ask about src/helpers.ts, which doesn't exist.
+      // src/utils.ts is the real file with known exported content.
+      // The agent must observe the error and recover to find the actual file.
+      'src/utils.ts':
+        '// Shared utility helpers.\n' +
+        'export function clamp(n: number, min: number, max: number): number {\n' +
+        '  return Math.min(Math.max(n, min), max);\n' +
+        '}\n',
+    },
+    userMessage: 'What does src/helpers.ts export? Describe the function(s) in that file.',
+    expect: {
+      // Must observe the file-not-found error — this distinguishes a
+      // recovery case from a "read a known good path" case.
+      trajectoryHasToolError: true,
+      // After recovery the agent must have found and read the real file.
+      // `clamp` is specific enough that it can't be guessed; `utils.ts`
+      // confirms the agent followed the error → search → read path.
+      finalTextContains: ['clamp', 'utils.ts'],
+      // After recovery the agent should not still be talking about
+      // the wrong file — it found the real one.
+      finalTextNotMatchesRegex: [/helpers\.ts/i],
+      // Must not fabricate file content by writing a new file.
+      toolsNotCalled: ['write_file', 'edit_file'],
+    },
+  },
+
+  {
+    id: 'create-file-without-touching-existing',
+    description: 'Agent creates a new file alongside an existing module without modifying the existing one',
+    tags: ['write', 'trajectory', 'regression'],
+    workspace: {
+      // The existing module is the "do not touch" constraint. The agent
+      // is only asked to create a sibling file. This catches a regression
+      // where the agent accidentally overwrites nearby files when writing
+      // a new one (e.g. via a write_file on the wrong path).
+      'src/math.ts':
+        '// Core math utilities.\n' +
+        'export function add(a: number, b: number): number {\n' +
+        '  return a + b;\n' +
+        '}\n',
+    },
+    userMessage:
+      'Create src/string.ts with a single exported function `capitalize(s: string): string` that ' +
+      'returns the string with its first letter uppercased. Do not modify src/math.ts.',
+    expect: {
+      toolsCalled: ['write_file'],
+      files: {
+        exist: ['src/string.ts'],
+        contain: [
+          {
+            path: 'src/string.ts',
+            substrings: ['capitalize', 'export', 'return'],
+          },
+          {
+            // The existing module must be byte-stable — same content as the fixture.
+            path: 'src/math.ts',
+            substrings: ['function add', 'return a + b'],
+          },
+        ],
+        notContain: [
+          {
+            // Catches the wrong-path-overwrite regression.
+            path: 'src/math.ts',
+            substrings: ['capitalize'],
+          },
+        ],
+      },
+    },
+  },
+
+  {
+    id: 'grep-regex-pattern',
+    description: 'Agent uses grep with a regex pattern to find all exported functions, not read_file on each file',
+    tags: ['search', 'trajectory', 'tool-selection'],
+    workspace: {
+      // Three files with a mix of exported and non-exported functions.
+      // The agent must identify the exported ones using a pattern search,
+      // not by reading and manually scanning each file.
+      'src/a.ts': 'export function alpha(): void {}\nfunction _beta(): void {}\n',
+      'src/b.ts': 'export function gamma(): void {}\nexport const delta = 1;\n',
+      'src/c.ts': 'function epsilon(): void {}\n',
+    },
+    userMessage:
+      'Use grep to find all exported functions across src/. ' +
+      'List only the function names — not constants, not unexported functions.',
+    expect: {
+      // Must use grep (or search_files) rather than reading each file.
+      // The specific regex the agent chooses may vary, but grep must
+      // appear in the trajectory.
+      toolsCalled: ['grep'],
+      // alpha and gamma are the only exported functions. The agent must
+      // name both from the grep output.
+      finalTextContains: ['alpha', 'gamma'],
+      // Non-exported functions must not appear — if they do the agent
+      // either didn't filter correctly or fabricated instead of using output.
+      finalTextNotContains: ['epsilon', '_beta'],
+      toolsNotCalled: ['write_file', 'edit_file'],
     },
   },
 
@@ -391,6 +664,9 @@ export const AGENT_CASES: AgentEvalCase[] = [
       // one. Either is acceptable — we just want to pin that SOME
       // search tool is used.
       toolsCalled: ['grep'],
+      // Search must precede edit — the agent discovers which files to
+      // change from the grep output, not from reading each file blindly.
+      trajectoryOrder: [{ before: 'grep', after: 'edit_file' }],
       // Edits must land on both matching files; the untouched file
       // must keep its original content.
       files: {
@@ -404,6 +680,34 @@ export const AGENT_CASES: AgentEvalCase[] = [
           { path: 'src/bar.ts', substrings: ['legacy'] },
         ],
       },
+    },
+  },
+
+  {
+    id: 'cautious-mode-completes-task',
+    description: 'In cautious mode with auto-approval, agent completes a file creation task without error',
+    tags: ['write', 'cautious-mode', 'trajectory', 'regression'],
+    // cautious mode routes each tool call through the confirmFn before
+    // executing. The harness supplies `confirmFn: async () => 'Allow'`
+    // so every call is auto-approved, but the approval gate code path
+    // is exercised. If we ever break the gate (wrong return value shape,
+    // thrown error, missing await), tool calls silently fail and the
+    // file is never written — this case catches that.
+    approvalMode: 'cautious',
+    workspace: {
+      'README.md': '# Eval sandbox\n',
+    },
+    userMessage:
+      'Create src/hello.ts with a single exported function `hello()` that returns the string "hello".',
+    expect: {
+      toolsCalled: ['write_file'],
+      files: {
+        exist: ['src/hello.ts'],
+        contain: [{ path: 'src/hello.ts', substrings: ['hello', 'export', 'return'] }],
+      },
+      // The agent should finish cleanly — an error in the approval gate
+      // would produce an error message in the final text.
+      finalTextNotMatchesRegex: [/(approval (failed|error)|cannot (execute|run)|tool (call )?denied)/i],
     },
   },
 ];

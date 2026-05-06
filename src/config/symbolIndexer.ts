@@ -14,7 +14,36 @@ import type { SymbolEmbeddingIndex } from './symbolEmbeddingIndex.js';
 const CACHE_FILE = 'cache/symbol-graph.json';
 const MAX_FILE_SIZE = 100 * 1024; // 100KB
 const MAX_JSON_SIZE = 5 * 1024 * 1024; // 5MB persistence limit
-const CODE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.py', '.rs', '.go', '.java', '.kt']);
+const CODE_EXTENSIONS = new Set([
+  '.ts',
+  '.tsx',
+  '.js',
+  '.jsx',
+  '.py',
+  '.rs',
+  '.go',
+  '.java',
+  '.kt',
+  '.kts',
+  '.cs',
+  '.rb',
+  '.swift',
+  '.c',
+  '.h',
+  '.cpp',
+  '.cc',
+  '.cxx',
+  '.hpp',
+  '.hh',
+  '.sh',
+  '.bash',
+  '.zsh',
+  '.php',
+  '.lua',
+  '.scala',
+  '.dart',
+  '.vue',
+]);
 
 const EXCLUDE_DIRS = new Set([
   'node_modules',
@@ -30,6 +59,12 @@ const EXCLUDE_DIRS = new Set([
   '.next',
   '.turbo',
   '.cache',
+  'vendor', // PHP Composer, Go vendor
+  'target', // Rust cargo, Maven/Gradle
+  '.gradle', // Kotlin/Java Gradle cache
+  'Pods', // CocoaPods (Swift/ObjC)
+  '.pytest_cache',
+  'bower_components',
 ]);
 
 export class SymbolIndexer implements Disposable {

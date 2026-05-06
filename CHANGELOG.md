@@ -6,7 +6,7 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [0.85.0] - 2026-05-05
 
-**v0.85.0 — Security hardening, correctness audit, Semantic Time Travel, and implementation-quality test sprint.**
+**v0.85.0 — Security hardening, correctness audit, Semantic Time Travel, implementation-quality test sprint, expanded language support, and LLM eval harness expansion.**
 
 ### Added
 
@@ -15,6 +15,8 @@ All notable changes to the SideCar extension will be documented in this file.
 - **Skill Marketplace shortcut** — `SideCar: Browse Skill Marketplace` opens `github.com/topics/sidecar-skill`, a public filterable index of community skill repos tagged with the `sidecar-skill` topic.
 - **Architecture Decision Records** — five retroactive ADRs added to `docs/adr/`: 001 (local-first via Ollama), 002 (stateful agent loop), 003 (shadow workspace isolation), 004 (FlatVectorStore choice), 005 (typed facets). Each covers context, decision, and consequences. `docs/adr/README.md` includes the template for future ADRs.
 - **`ToolDefinition.nondeterministicOutput`** — canonical flag marking tools whose results must never be dedup'd by the prompt pruner (set on `read_file`, `get_diagnostics`, `git_diff`, `git_status`). `PrunerOptions` gains `dedupExemptTools?: ReadonlySet<string>`; backends derive the set from the `tools[]` array at call time so definition and pruner stay in sync without any hardcoded string list at the call site.
+- **Expanded tree-sitter language support** — PKI semantic search and the symbol graph now cover 20 languages: adds Java, Kotlin, C#, Ruby, Swift, C, C++, Bash, PHP, Lua, Scala, Dart, and Vue to the existing JS/TS/Python/Rust/Go baseline. Corresponding WASM grammars (13 total) are copied during `npm run build`. The regex fallback analyzer (`SimpleCodeAnalyzer`) gains parallel coverage for all new languages so symbol extraction degrades gracefully when tree-sitter is unavailable. `symbolIndexer` `EXCLUDE_DIRS` extended with `vendor`, `target`, `.gradle`, `Pods`, `.pytest_cache`, and `bower_components` to prevent dependency directories from flooding the index in PHP, Swift, Kotlin, and Python projects.
+- **LLM eval harness expansion** — prompt-layer suite grows from 13 → 24 cases; agent-loop suite grows from 11 → 20 cases. Three new `AgentExpectations` predicates: `trajectoryOrder` (assert tool A before tool B), `finalTextMatchesRegex`, `finalTextNotMatchesRegex`. README scoring-model table updated to document all 11 agent predicates.
 
 ### Fixed
 

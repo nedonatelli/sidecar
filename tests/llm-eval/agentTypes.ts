@@ -106,6 +106,29 @@ export interface AgentExpectations {
   finalTextContains?: string[];
   finalTextNotContains?: string[];
   /**
+   * Regex patterns the final assistant text must match. Complements
+   * `finalTextContains` for structural patterns — e.g. `/v\d+\.\d+/` to
+   * verify a version string format rather than just the letter "v".
+   * Patterns are tested against the full concatenated final text as-is
+   * (no case folding — include the `i` flag explicitly if needed).
+   */
+  finalTextMatchesRegex?: RegExp[];
+  /** Regex patterns the final assistant text must NOT match. */
+  finalTextNotMatchesRegex?: RegExp[];
+  /**
+   * Ordering constraints on the tool-call trajectory. Each entry asserts
+   * that the first occurrence of `before` appears at a strictly lower
+   * index than the first occurrence of `after`. Both tools must appear —
+   * pair with `toolsCalled` so that absence produces a clear failure
+   * message rather than a silent ordering failure.
+   *
+   * Examples:
+   *   `{ before: 'read_file', after: 'edit_file' }` — pins read-before-write
+   *   `{ before: 'edit_file', after: 'run_tests' }` — pins verify-after-fix
+   *   `{ before: 'grep', after: 'edit_file' }` — pins search-before-edit
+   */
+  trajectoryOrder?: Array<{ before: string; after: string }>;
+  /**
    * When `true`, at least one `tool_result` event in the trajectory
    * must have `isError === true`. Useful for cases that deliberately
    * give the agent a bad input and want to pin that the agent

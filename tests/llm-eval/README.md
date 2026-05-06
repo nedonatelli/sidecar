@@ -98,12 +98,31 @@ summary is printed after the last case in each layer.
 
 ### Scoring model
 
-All scoring is deterministic so results are stable across runs:
+All scoring is deterministic so results are stable across runs.
 
-- `mustContain` — case-insensitive substring, all listed must be present.
-- `mustNotContain` — case-insensitive substring, none may be present.
-- `mustMatch` / `mustNotMatch` — regex, same meaning.
-- `minLength` / `maxLength` — character-count bounds on the response.
+**Prompt layer** (`Expectations` in [`types.ts`](types.ts)):
+
+| Predicate | Semantics |
+|-----------|-----------|
+| `mustContain` | Case-insensitive substring — all listed strings must be present. |
+| `mustNotContain` | Case-insensitive substring — none may be present. |
+| `mustMatch` / `mustNotMatch` | Regex — tested against the full response. Include `i` flag explicitly when needed. |
+| `minLength` / `maxLength` | Character-count bounds. Use `minLength` when the answer must be substantive (e.g. listing N items); use `maxLength` when Rule 3 conciseness is what you're testing. |
+
+**Agent-loop layer** (`AgentExpectations` in [`agentTypes.ts`](agentTypes.ts)):
+
+| Predicate | Semantics |
+|-----------|-----------|
+| `toolsCalled` | Tool names that must appear at least once in the trajectory. |
+| `toolsNotCalled` | Tool names that must NOT appear — forbid regressions like "agent rewrote the whole file instead of editing". |
+| `toolCallMatches` | Specific `(name, inputPartial)` pairs — the recorded call's input must contain every key/value in `inputPartial`. String fields use substring matching (`actual.includes(expected)`) to tolerate `src/a.ts` vs `./src/a.ts`. |
+| `trajectoryOrder` | Array of `{ before, after }` pairs — the first occurrence of `before` must come before the first occurrence of `after` in the tool-call sequence. Both tools must appear. Use to pin read-before-write (`read_file → edit_file`) or verify-after-fix (`edit_file → run_tests`). |
+| `files.exist` / `files.notExist` | Post-run workspace: file must / must not be present. |
+| `files.contain` / `files.notContain` | Post-run workspace: file must contain / must not contain listed substrings. |
+| `files.equal` | Post-run workspace: file content must exactly equal the expected string. Use sparingly — LLMs vary in whitespace and newlines. |
+| `finalTextContains` / `finalTextNotContains` | Case-insensitive substring checks on the concatenated final assistant text. |
+| `finalTextMatchesRegex` / `finalTextNotMatchesRegex` | Regex checks on the final text. No automatic case-folding — include `i` flag if needed. Use when a structural pattern matters more than a literal substring (e.g. `/v\d+\.\d+/` for a version string). |
+| `trajectoryHasToolError` | When `true`, at least one `tool_result` must have `isError === true`. Pins that the agent observed a failure rather than silently succeeding on a bad input. |
 
 LLM-as-judge scoring is not implemented yet; when added it will live in
 `scorers.ts` as an opt-in predicate. The MVP sticks to deterministic
@@ -164,5 +183,5 @@ When a case alternates pass/fail on consecutive runs against the same model, inv
 ## Related
 
 - Cycle-2 ai-engineering audit finding: *"No evaluation harness for LLM behavior. 1505 unit tests cover deterministic code; zero LLM-specific evaluation."*
-- Base prompt source of truth: [`src/webview/handlers/chatHandlers.ts`](../../src/webview/handlers/chatHandlers.ts) → `buildBaseSystemPrompt`.
+- Base prompt source of truth: [`src/webview/handlers/basePrompt.ts`](../../src/webview/handlers/basePrompt.ts) → `buildBaseSystemPrompt`.
 - Cases live in [`cases.ts`](cases.ts). Scorers in [`scorers.ts`](scorers.ts). Backend calls in [`backend.ts`](backend.ts). The vitest runner itself is [`prompt.eval.ts`](prompt.eval.ts).

@@ -137,6 +137,37 @@ export function scoreAgentCase(evalCase: AgentEvalCase, run: AgentRun): AgentCas
       }
     }
   }
+  if (expect.finalTextMatchesRegex) {
+    for (const pattern of expect.finalTextMatchesRegex) {
+      if (!pattern.test(run.finalText)) {
+        failures.push(`finalTextMatchesRegex: final text did not match ${pattern}`);
+      }
+    }
+  }
+  if (expect.finalTextNotMatchesRegex) {
+    for (const pattern of expect.finalTextNotMatchesRegex) {
+      if (pattern.test(run.finalText)) {
+        failures.push(`finalTextNotMatchesRegex: final text matched ${pattern}`);
+      }
+    }
+  }
+
+  // --- trajectory ordering ---
+  if (expect.trajectoryOrder) {
+    for (const { before, after } of expect.trajectoryOrder) {
+      const beforeIdx = firstToolCallIndex(run.trajectory, before);
+      const afterIdx = firstToolCallIndex(run.trajectory, after);
+      if (beforeIdx === -1) {
+        failures.push(`trajectoryOrder: "${before}" was never called (must appear before "${after}")`);
+      } else if (afterIdx === -1) {
+        failures.push(`trajectoryOrder: "${after}" was never called (must appear after "${before}")`);
+      } else if (beforeIdx >= afterIdx) {
+        failures.push(
+          `trajectoryOrder: expected "${before}" (event ${beforeIdx}) before "${after}" (event ${afterIdx}), but order was reversed`,
+        );
+      }
+    }
+  }
 
   // --- trajectory error observation ---
   if (expect.trajectoryHasToolError === true) {
@@ -163,6 +194,10 @@ export function scoreAgentCase(evalCase: AgentEvalCase, run: AgentRun): AgentCas
 
 function hasToolCall(trajectory: TrajectoryEvent[], name: string): boolean {
   return trajectory.some((e) => e.type === 'tool_call' && e.name === name);
+}
+
+function firstToolCallIndex(trajectory: TrajectoryEvent[], name: string): number {
+  return trajectory.findIndex((e) => e.type === 'tool_call' && e.name === name);
 }
 
 function findToolCallWithPartialInput(
