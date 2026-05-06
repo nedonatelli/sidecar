@@ -64,6 +64,7 @@ export interface SideCarConfig {
   agentMode: string;
   agentTemperature: number;
   ollamaNumCtx: number | null;
+  ollamaDisableThinking: boolean;
   agentMaxIterations: number;
   agentMaxMessages: number;
   agentMaxTokens: number;
@@ -328,6 +329,7 @@ function readConfig(): SideCarConfig {
     agentMode: cfg.get<string>('agentMode', 'cautious'),
     agentTemperature: clampMin(cfg.get<number>('agentTemperature'), 0, 0.2),
     ollamaNumCtx: cfg.get<number | null>('ollama.numCtx', null),
+    ollamaDisableThinking: cfg.get<boolean>('ollama.disableThinking', process.env.SIDECAR_DISABLE_THINKING === 'true'),
     agentMaxIterations: clampMin(cfg.get<number>('agentMaxIterations'), 1, 50),
     agentMaxMessages: clampMin(cfg.get<number>('agentMaxMessages'), 5, 100),
     agentMaxTokens: clampMin(cfg.get<number>('agentMaxTokens'), 1000, 200000),

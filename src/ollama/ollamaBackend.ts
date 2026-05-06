@@ -323,7 +323,7 @@ export class OllamaBackend implements ApiBackend {
     signal?: AbortSignal,
     tools?: ToolDefinition[],
   ): AsyncGenerator<StreamEvent> {
-    const { agentTemperature, ollamaNumCtx } = getConfig();
+    const { agentTemperature, ollamaNumCtx, ollamaDisableThinking } = getConfig();
     const probedNumCtx = numCtxCache.get(model) ?? null;
     // Clamp to [32 768, LOCAL_CONTEXT_CAP] when the user hasn't pinned a value.
     // Without the upper cap, models with a large native context (e.g. Gemma4's 128 K)
@@ -332,6 +332,7 @@ export class OllamaBackend implements ApiBackend {
     // set sidecar.ollamaNumCtx explicitly to override.
     const numCtx = ollamaNumCtx ?? Math.min(Math.max(probedNumCtx ?? 0, 32_768), LOCAL_CONTEXT_CAP);
     const options: Record<string, unknown> = { temperature: agentTemperature, num_ctx: numCtx };
+    if (ollamaDisableThinking) options.think = false;
     const body: Record<string, unknown> = {
       model,
       messages: toOllamaMessages(messages, systemPrompt),

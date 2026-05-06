@@ -293,6 +293,16 @@
             ],
             "markdownDescription": "Override the context window size (`num_ctx`) sent to Ollama with every request. When set, this takes precedence over the value probed from the model's Modelfile.\n\nLeave `null` to use the model's default (recommended). Set to `8192`, `32768`, `65536`, etc. to force a specific window. Only applies to the Ollama backend."
           },
+          "sidecar.ollama.disableThinking": {
+            "type": "boolean",
+            "default": false,
+            "order": 23,
+            "tags": [
+              "sidecar",
+              "backend"
+            ],
+            "markdownDescription": "Disable the extended reasoning (`think`) phase for Ollama models that support it (e.g. Qwen3, DeepSeek-R1). When `true`, SideCar passes `think: false` with every request, skipping the internal chain-of-thought and reducing latency significantly at the cost of reasoning depth.\n\nLeave `false` (default) to keep thinking enabled — recommended for complex coding tasks. Enable when speed matters more than depth, or when running evals."
+          },
           "sidecar.agentMaxIterations": {
             "type": "number",
             "default": 25,
@@ -2300,7 +2310,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:integration": "tsc -p src/test/integration/tsconfig.json && find src -name '*.js' -not -path 'src/test/*' -delete 2>/dev/null; vscode-test",
-    "eval:llm": "vitest run --config vitest.eval.config.ts",
+    "eval:llm": "SIDECAR_DISABLE_THINKING=true vitest run --config vitest.eval.config.ts",
     "eval:parity": "vitest run --config vitest.eval.config.ts tests/llm-eval/embeddingParity.eval.ts",
     "eval:parity:record": "SIDECAR_RECORD_PARITY_BASELINE=1 vitest run --config vitest.eval.config.ts tests/llm-eval/embeddingParity.eval.ts",
     "lint": "eslint src/",

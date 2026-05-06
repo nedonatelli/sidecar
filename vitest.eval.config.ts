@@ -26,7 +26,9 @@ export default defineConfig({
     include: ['tests/llm-eval/**/*.eval.ts'],
     // Eval runs network requests against real LLM backends. Default
     // vitest timeout (5s) is too short for anything but local Ollama.
-    testTimeout: 60_000,
+    // Agent-loop cases can span 8 iterations with a slow local model —
+    // 3 minutes per case is the safe floor for llama3.2 on local Ollama.
+    testTimeout: 180_000,
     // Eval cases carry their own logs; don't drown them in vitest's
     // default noisy output.
     reporters: ['verbose'],

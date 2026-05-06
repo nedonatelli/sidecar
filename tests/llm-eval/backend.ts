@@ -105,6 +105,7 @@ class OllamaEvalBackend implements ModelBackend {
       options: {
         temperature: opts.temperature ?? 0.2,
         num_predict: opts.maxTokens ?? 1024,
+        think: false,
       },
       messages: [
         { role: 'system', content: opts.systemPrompt },
