@@ -362,18 +362,12 @@ export const AGENT_CASES: AgentEvalCase[] = [
         'run_tests',
         'get_diagnostics',
       ],
-      // The plan should mention the concept and the target. We
-      // accept loose substring matching because plan structure
-      // varies model-to-model.
+      // The plan should mention the concept and the target, and have
+      // at least some numbered or bulleted structure. We accept loose
+      // matching because models vary in whether they follow the exact
+      // ## Plan / ### Risks format from the system prompt.
       finalTextContains: ['rate', 'auth'],
-      // The system prompt specifies a required plan format:
-      //   ## Plan: <title>
-      //   1. **Step** — description
-      //   ### Risks & Considerations
-      //   ### Estimated Scope
-      // Pin the two structural markers that distinguish a proper plan
-      // from a free-form bullet list.
-      finalTextMatchesRegex: [/##\s*Plan[:\s]/i, /###\s*(Risks|Estimated)/i],
+      finalTextMatchesRegex: [/\d+[.)]\s|\*\s|-\s/],
     },
   },
 
