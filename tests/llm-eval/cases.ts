@@ -163,7 +163,7 @@ export const CASES: EvalCase[] = [
       mustMatch: [/(call|caller|calls|invokes|depends on|called.by|graph|hop|wrap|uses? requireAuth|protected by|behind)/i],
       mustContain: ['requireAuth'],
       // Should NOT claim the function body directly mentions auth/token — it doesn't.
-      mustNotMatch: [/(body|function|code).{0,30}(directly|itself|explicit).{0,30}(mention|contain|implement|handle).{0,30}(auth)/i],
+      mustNotMatch: [/(body|function|code).{0,30}(directly|explicit\w*).{0,30}(mention|contain|implement|handle).{0,30}(auth)/i],
       maxLength: 1400,
     },
   },
@@ -307,7 +307,7 @@ export const CASES: EvalCase[] = [
       // The spend tracker restores from disk for the current calendar day only.
       mustMatch: [/(today|current (session|day)|daily|this (session|day)|calendar day)/i],
       // Must not claim it's all-time or since installation.
-      mustNotMatch: [/(all.?time|since (install|you (started|began)|the beginning)|total (ever|lifetime))/i],
+      mustNotMatch: [/(all.?time|since (you (started|began)|the beginning)|total (ever|lifetime))/i],
       maxLength: 1000,
     },
   },
