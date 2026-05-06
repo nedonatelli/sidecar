@@ -2356,6 +2356,9 @@ describe('handleRegenerateResponse', () => {
 
   it('splices messages from the last user message onward before re-submitting', async () => {
     const { handleRegenerateResponse } = await import('./chatHandlers.js');
+    const providerReachability = await import('../../config/providerReachability.js');
+    vi.spyOn(providerReachability, 'isProviderReachable').mockResolvedValue(true);
+
     const messages: Array<{ role: string; content: unknown }> = [
       { role: 'user', content: 'first message' },
       { role: 'assistant', content: 'first reply' },
