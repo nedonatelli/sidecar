@@ -192,6 +192,18 @@ export async function injectSystemContext(
     }
   }
 
+  // Hoist toolOverheadChars so we can compute the pinned-files budget
+  // before the RAG retrieval starts (used again in the workspace block below).
+  const toolOverheadChars = isLocal ? 10_000 : 0;
+
+  // Kick off pinned-files disk reads before RAG so they overlap with
+  // vector search. Budget uses the pre-RAG prompt length as a ceiling;
+  // if RAG consumes some of that space we trim the result when appending.
+  const pinnedSectionPromise: Promise<string> =
+    getWorkspaceEnabled() && state.workspaceIndex?.isReady()
+      ? state.workspaceIndex.getPinnedFilesSection(Math.max(0, maxSystemChars - prompt.length - toolOverheadChars))
+      : Promise.resolve('');
+
   const retrievalBudget = maxSystemChars - prompt.length;
   if (text && retrievalBudget > 500) {
     const retrievers = [];
@@ -262,11 +274,15 @@ export async function injectSystemContext(
   // is appended last under its own marker so the cache boundary stays
   // stable.
   if (getWorkspaceEnabled()) {
-    const toolOverheadChars = isLocal ? 10_000 : 0;
     const contextBudget = Math.max(0, maxSystemChars - prompt.length - toolOverheadChars);
 
     if (state.workspaceIndex?.isReady()) {
-      const pinnedSection = await state.workspaceIndex.getPinnedFilesSection(contextBudget);
+      // Await the pinned section started before RAG. It is usually already
+      // resolved by now; if not, we wait the remaining I/O time only.
+      // Trim to the actual post-RAG budget in the rare case RAG consumed
+      // more space than the conservative pre-RAG estimate left for pinned files.
+      const pinnedRaw = await pinnedSectionPromise;
+      const pinnedSection = pinnedRaw.length <= contextBudget ? pinnedRaw : pinnedRaw.slice(0, contextBudget);
       if (pinnedSection) {
         prompt += `\n\n## Workspace Context${pinnedSection}`;
       }

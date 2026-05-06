@@ -338,6 +338,10 @@ export class OllamaBackend implements ApiBackend {
       messages: toOllamaMessages(messages, systemPrompt),
       stream: true,
       options,
+      // Keep the model loaded in VRAM indefinitely between requests.
+      // Without this Ollama unloads after 5 min idle, causing a 10-60s
+      // cold-reload penalty on the next request.
+      keep_alive: -1,
     };
 
     if (tools && tools.length > 0) {
