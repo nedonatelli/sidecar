@@ -5,6 +5,7 @@ import { ToolRuntime } from '../../src/agent/tools/runtime.js';
 import { installSandbox, type WorkspaceFixture } from './workspaceSandbox.js';
 import type { AgentEvalCase, AgentCaseResult, TrajectoryEvent } from './agentTypes.js';
 import { scoreAgentCase } from './agentScorers.js';
+import { buildBaseSystemPrompt } from '../../src/webview/handlers/basePrompt.js';
 
 // ---------------------------------------------------------------------------
 // Agent-loop eval runner.
@@ -143,6 +144,16 @@ export async function runAgentCase(
 
   const toolRuntime = new ToolRuntime();
   const client = new SideCarClient(backend.defaultModel(), backend.baseUrl(), backend.apiKey());
+  client.setSystemPrompt(
+    buildBaseSystemPrompt({
+      isLocal: backend.name === 'ollama',
+      extensionVersion: '0.0.0-eval',
+      repoUrl: '',
+      docsUrl: '',
+      root: sandbox.root,
+      approvalMode: evalCase.approvalMode || 'autonomous',
+    }),
+  );
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), timeoutMs);
 
