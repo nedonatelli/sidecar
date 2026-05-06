@@ -606,14 +606,11 @@ describe('reviewAuditBuffer — granularity switching', () => {
     expect(ui.showQuickPick).not.toHaveBeenCalled();
   });
 
-  it('per-hunk mode surfaces an info toast and falls back to per-file behavior', async () => {
+  it('omitting reviewGranularity defaults to per-file behavior', async () => {
     const buf = await makeBufferWith([{ op: 'write', path: 'a.ts', content: 'A' }]);
     const ui = makeUi(); // default showQuickPick → undefined → cancels per-file loop
-    await reviewAuditBuffer({ ...baseDeps(buf, ui), reviewGranularity: 'per-hunk' });
-    // Info toast fires with the fallback notice.
-    const infoCalls = ui.showInfo.mock.calls.map((c) => c[0] as string);
-    expect(infoCalls.some((m) => m.includes('per-hunk') && m.includes('not yet implemented'))).toBe(true);
-    // Then the per-file loop runs — it shows a picker (canceled here).
+    await reviewAuditBuffer(baseDeps(buf, ui));
+    // per-file loop runs — picker is shown, user cancels, loop exits.
     expect(ui.showQuickPick).toHaveBeenCalled();
   });
 

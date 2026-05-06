@@ -4,6 +4,7 @@ src/**
 out/**
 node_modules/**
 !node_modules/web-tree-sitter/**
+!node_modules/@lancedb/**
 .gitignore
 tsconfig.json
 **/*.ts

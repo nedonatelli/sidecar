@@ -443,11 +443,10 @@
             "type": "string",
             "enum": [
               "bulk",
-              "per-file",
-              "per-hunk"
+              "per-file"
             ],
             "default": "per-file",
-            "description": "How the Pending Changes panel presents a multi-file edit. 'bulk' = accept/reject all as one unit, 'per-file' = checkboxes per file (default), 'per-hunk' = drill down to hunk-level across files."
+            "description": "How the Pending Changes panel presents a multi-file edit. 'bulk' = accept/reject all as one unit, 'per-file' = walk each file individually with Accept / Reject / diff (default)."
           },
           "sidecar.retrieval.graphExpansion.enabled": {
             "type": "boolean",
@@ -793,7 +792,7 @@
             "tags": [
               "sidecar"
             ],
-            "markdownDescription": "*(Project Knowledge Index, v0.62)* Vector storage backend for the symbol embedding index.\n\n- `flat` (default, shipped) — in-memory `Float32Array` with linear cosine-scan search. Fast enough for workspaces up to ~100k symbols.\n- `lance` — reserved for a future release with LanceDB-backed HNSW ANN. Selecting it today logs a warning and falls back to `flat`.\n\nThe backend is swappable without rebuilding the index — both implementations read the same on-disk format."
+            "markdownDescription": "*(Project Knowledge Index, v0.62)* Vector storage backend for the symbol embedding index.\n\n- `flat` (default) — in-memory `Float32Array` with linear cosine-scan search. Fast enough for workspaces up to ~100k symbols.\n- `lance` — LanceDB-backed persistent store. Immediately durable (no persist step), handles large indexes that don't fit in memory. Requires `@lancedb/lancedb` to be installed (`npm install -g @lancedb/lancedb`); falls back to `flat` with a warning if the package is absent.\n\nThe backend is swappable without rebuilding the index — both implementations serve the same `VectorStore<M>` interface."
           },
           "sidecar.merkleIndex.enabled": {
             "type": "boolean",
@@ -2345,6 +2344,9 @@
     "mermaid": "^11.14.0",
     "pdf-parse": "^2.4.5",
     "web-tree-sitter": "^0.24.7"
+  },
+  "optionalDependencies": {
+    "@lancedb/lancedb": "^0.27.2"
   },
   "overrides": {
     "uuid": ">=14.0.0",

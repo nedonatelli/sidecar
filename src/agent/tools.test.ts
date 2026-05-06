@@ -994,30 +994,71 @@ describe('tools.ts', () => {
   });
 
   describe('runCommand executor - actual execution', () => {
-    // Note: Skipping actual runCommand tests as they require complex ShellSession class mocking
-    // The tool is already tested in integration tests
-    it.skip('should execute a command and return string', async () => {
+    // Inject a fake toolRuntime so tests control ShellSession behaviour without
+    // hitting child_process or VS Code terminal APIs. terminalExecutionEnabled
+    // is absent from the getConfig() mock so tryTerminalExecute returns null
+    // immediately, leaving ShellSession as the only execution path.
+    function makeRuntime(
+      overrides: Partial<{
+        execute: ReturnType<typeof vi.fn>;
+        executeBackground: ReturnType<typeof vi.fn>;
+        checkBackground: ReturnType<typeof vi.fn>;
+      }> = {},
+    ) {
+      const session = {
+        execute: overrides.execute ?? vi.fn().mockResolvedValue({ stdout: '', exitCode: 0 }),
+        executeBackground: overrides.executeBackground ?? vi.fn().mockReturnValue('bg-0'),
+        checkBackground: overrides.checkBackground ?? vi.fn().mockReturnValue(null),
+        isAlive: true,
+        dispose: vi.fn(),
+      };
+      return { toolRuntime: { getShellSession: () => session }, _session: session };
+    }
+
+    it('should execute a command and return the stdout string', async () => {
       const tool = TOOL_REGISTRY.find((t) => t.definition.name === 'run_command');
-      const result = await tool!.executor({ command: 'echo test' });
+      const { toolRuntime, _session } = makeRuntime({
+        execute: vi.fn().mockResolvedValue({ stdout: 'hello world', exitCode: 0 }),
+      });
+      const result = await tool!.executor({ command: 'echo hello world' }, { toolRuntime } as any);
       expect(typeof result).toBe('string');
+      expect(result).toContain('hello world');
+      expect(_session.execute).toHaveBeenCalledWith(
+        'echo hello world',
+        expect.objectContaining({ timeout: expect.any(Number) }),
+      );
     });
 
-    it.skip('should start background commands and return string', async () => {
+    it('should start a background command and return an ID string', async () => {
       const tool = TOOL_REGISTRY.find((t) => t.definition.name === 'run_command');
-      const result = await tool!.executor({ command: 'long-task', background: true });
+      const { toolRuntime, _session } = makeRuntime({
+        executeBackground: vi.fn().mockReturnValue('bg-123'),
+      });
+      const result = await tool!.executor({ command: 'long-task', background: true }, { toolRuntime } as any);
       expect(typeof result).toBe('string');
+      expect(result).toContain('bg-123');
+      expect(_session.executeBackground).toHaveBeenCalledWith('long-task');
     });
 
-    it.skip('should check background command status', async () => {
+    it('should check background command status and surface output', async () => {
       const tool = TOOL_REGISTRY.find((t) => t.definition.name === 'run_command');
-      const result = await tool!.executor({ command_id: 'bg-123' });
+      const { toolRuntime } = makeRuntime({
+        checkBackground: vi.fn().mockReturnValue({ done: true, exitCode: 0, output: 'done output' }),
+      });
+      const result = await tool!.executor({ command_id: 'bg-123' }, { toolRuntime } as any);
       expect(typeof result).toBe('string');
+      expect(result).toContain('done output');
+      expect(result).toContain('finished');
     });
 
-    it.skip('should handle command execution gracefully', async () => {
+    it('should return an error string when command execution throws', async () => {
       const tool = TOOL_REGISTRY.find((t) => t.definition.name === 'run_command');
-      const result = await tool!.executor({ command: 'nonexistent' });
+      const { toolRuntime } = makeRuntime({
+        execute: vi.fn().mockRejectedValue(new Error('spawn ENOENT')),
+      });
+      const result = await tool!.executor({ command: 'nonexistent-cmd' }, { toolRuntime } as any);
       expect(typeof result).toBe('string');
+      expect(result).toContain('spawn ENOENT');
     });
   });
 

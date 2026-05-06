@@ -103,7 +103,7 @@ export interface SideCarConfig {
   multiFileEditsPlanningPass: boolean;
   multiFileEditsMinFilesForPlan: number;
   multiFileEditsPlannerModel: string;
-  multiFileEditsReviewGranularity: 'bulk' | 'per-file' | 'per-hunk';
+  multiFileEditsReviewGranularity: 'bulk' | 'per-file';
   retrievalGraphExpansionEnabled: boolean;
   retrievalGraphExpansionMaxHits: number;
   retrievalQueryRewrite: 'off' | 'rule' | 'llm' | 'expand';
@@ -194,9 +194,10 @@ export interface SideCarConfig {
   /* Project Knowledge Index */
   projectKnowledgeEnabled: boolean;
   projectKnowledgeMaxSymbolsPerFile: number;
-  /** Storage backend for the symbol embedding index. `flat` is the only
-   *  implementation shipped today; `lance` reserves the name for a future
-   *  release and returns a clear "not yet implemented" warning when selected. */
+  /** Storage backend for the symbol embedding index. `flat` (default) uses
+   *  in-memory Float32Array; `lance` uses LanceDB for persistent on-disk
+   *  storage — requires `@lancedb/lancedb` installed, falls back to flat
+   *  with a warning if the package is absent. */
   projectKnowledgeBackend: 'flat' | 'lance';
   /* Skill Sync & Registry */
   /** Git URL (or absolute local folder) cloned into ~/.sidecar/user-skills/ at activation. Empty → disabled. */
@@ -368,8 +369,7 @@ function readConfig(): SideCarConfig {
     multiFileEditsPlannerModel: cfg.get<string>('multiFileEdits.plannerModel', ''),
     multiFileEditsReviewGranularity: cfg.get<string>('multiFileEdits.reviewGranularity', 'per-file') as
       | 'bulk'
-      | 'per-file'
-      | 'per-hunk',
+      | 'per-file',
     retrievalGraphExpansionEnabled: cfg.get<boolean>('retrieval.graphExpansion.enabled', true),
     retrievalGraphExpansionMaxHits: clampMin(cfg.get<number>('retrieval.graphExpansion.maxHits', 8), 0, 50),
     retrievalQueryRewrite: cfg.get<string>('retrieval.queryRewrite', 'rule') as 'off' | 'rule' | 'llm' | 'expand',

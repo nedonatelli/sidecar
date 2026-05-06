@@ -70,12 +70,8 @@ export interface AuditReviewDeps {
    * `'bulk'` collapses the whole review flow into one Accept-all /
    * Reject-all / Cancel prompt; no per-file walk.
    *
-   * `'per-hunk'` is reserved for a future release; this slim ships
-   * with a fallback that surfaces a "not implemented yet" info toast
-   * and proceeds as `'per-file'` so the enum choice doesn't silently
-   * get swallowed.
    */
-  reviewGranularity?: 'bulk' | 'per-file' | 'per-hunk';
+  reviewGranularity?: 'bulk' | 'per-file';
   /**
    * When provided, a "View batch summary in chat" item is added to the
    * review QuickPick. Selecting it posts the unified diff of every
@@ -118,21 +114,10 @@ function formatEntryLabel(entry: BufferedChange): { label: string; description: 
 export async function reviewAuditBuffer(deps: AuditReviewDeps): Promise<void> {
   const buf = deps.buffer ?? getDefaultAuditBuffer();
 
-  // Review granularity . `'bulk'` takes a
-  // short-circuit path: one three-way prompt, no per-file walk.
-  // `'per-hunk'` isn't implemented yet — surface a one-time info and
-  // fall through to the per-file loop so the feature is visible but
-  // doesn't block.
   const granularity = deps.reviewGranularity ?? 'per-file';
   if (granularity === 'bulk') {
     await reviewAuditBufferBulk(deps, buf);
     return;
-  }
-  if (granularity === 'per-hunk') {
-    deps.ui.showInfo(
-      'SideCar audit: per-hunk review is not yet implemented; falling back to per-file. ' +
-        'Change `sidecar.multiFileEdits.reviewGranularity` to `bulk` or `per-file` to suppress this message.',
-    );
   }
 
   while (true) {
