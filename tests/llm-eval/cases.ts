@@ -323,7 +323,7 @@ export const CASES: EvalCase[] = [
   {
     id: 'multi-language-reply',
     description: 'Rule 12: model replies in the same language the user writes in (French)',
-    userMessage: 'Bonjour ! Qu'est-ce que vous pouvez faire pour moi en tant qu'assistant IA ?',
+    userMessage: "Bonjour ! Qu'est-ce que vous pouvez faire pour moi en tant qu'assistant IA ?",
     tags: ['prompt', 'style', 'regression'],
     expect: {
       // Must contain at least a few French words — "je", "vous", "pour"
@@ -423,7 +423,7 @@ export const CASES: EvalCase[] = [
       // available feature.
       mustMatch: [/(no|not (yet|support|available|implement)|doesn.t (have|support)|isn.t (support|available))/i],
       // Must not claim voice input is available or coming soon.
-      mustNotMatch: [/(yes|voice (is|are) (support|available|enabled)|support voice (command|input))/i],
+      mustNotMatch: [/(yes|voice (?:is|are) (?:support|available|enabled))/i],
       maxLength: 800,
     },
   },
