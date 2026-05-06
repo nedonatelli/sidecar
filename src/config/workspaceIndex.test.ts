@@ -158,6 +158,28 @@ describe('WorkspaceIndex', () => {
     expect(() => index.dispose()).not.toThrow();
   });
 
+  it('disposes old watchers when initialize is called a second time', async () => {
+    vi.spyOn(workspace, 'findFiles').mockResolvedValue([] as never);
+
+    const disposeFirst = vi.fn();
+    let callCount = 0;
+    vi.spyOn(workspace, 'createFileSystemWatcher').mockImplementation(
+      () =>
+        ({
+          dispose: callCount++ === 0 ? disposeFirst : vi.fn(),
+          onDidCreate: () => ({ dispose: () => {} }),
+          onDidChange: () => ({ dispose: () => {} }),
+          onDidDelete: () => ({ dispose: () => {} }),
+        }) as never,
+    );
+
+    await index.initialize(['**/*.ts']);
+    expect(disposeFirst).not.toHaveBeenCalled();
+
+    await index.initialize(['**/*.ts']);
+    expect(disposeFirst).toHaveBeenCalledOnce();
+  });
+
   // --- Context pinning tests ---
 
   it('addPin and removePin manage pinned paths', () => {
