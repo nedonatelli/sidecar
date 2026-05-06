@@ -34,6 +34,32 @@ const TEMPERATURE_SUPPORTED_PREFIXES = [
   'claude-3-7-sonnet',
 ];
 
+/**
+ * Per-model output token ceilings as documented by Anthropic.
+ * Keyed by model-id prefix (longest match wins if multiple apply).
+ * Used to clamp `max_tokens` before sending — the API hard-rejects
+ * any value above the model's ceiling.
+ */
+const ANTHROPIC_MAX_OUTPUT_TOKENS: Record<string, number> = {
+  'claude-opus-4': 32_000,
+  'claude-sonnet-4': 64_000,
+  'claude-haiku-4': 64_000,
+  'claude-3-7-sonnet': 64_000,
+  'claude-3-5-sonnet': 8_192,
+  'claude-3-5-haiku': 8_192,
+  'claude-3-opus': 4_096,
+  'claude-3-sonnet': 4_096,
+  'claude-3-haiku': 4_096,
+};
+
+function maxOutputTokensForModel(model: string): number {
+  const lower = model.toLowerCase();
+  const match = Object.keys(ANTHROPIC_MAX_OUTPUT_TOKENS)
+    .sort((a, b) => b.length - a.length)
+    .find((prefix) => lower.startsWith(prefix));
+  return match ? ANTHROPIC_MAX_OUTPUT_TOKENS[match] : 64_000;
+}
+
 function supportsTemperature(model: string): boolean {
   const lower = model.toLowerCase();
   return TEMPERATURE_SUPPORTED_PREFIXES.some((prefix) => lower.startsWith(prefix));
@@ -82,9 +108,14 @@ export function buildSystemBlocks(
  */
 export function prepareToolsForCache(tools: ToolDefinition[]): ToolDefinition[] {
   if (tools.length === 0) return tools;
-  return tools.map((tool, i) =>
-    i === tools.length - 1 ? ({ ...tool, cache_control: { type: 'ephemeral' } } as ToolDefinition) : tool,
-  );
+  return tools.map((tool, i) => {
+    // Strip internal SideCar fields (nondeterministicOutput) before sending to
+    // Anthropic — the API rejects unknown top-level fields on tool definitions.
+    const { nondeterministicOutput: _nd, ...apiTool } = tool;
+    return i === tools.length - 1
+      ? ({ ...apiTool, cache_control: { type: 'ephemeral' } } as ToolDefinition)
+      : (apiTool as ToolDefinition);
+  });
 }
 
 /**
@@ -178,7 +209,7 @@ export class AnthropicBackend implements ApiBackend {
     // console.info so the SideCar output channel captures it.
     const _pruneLog = formatPruneStats(pruned.stats);
     if (_pruneLog) console.info(`[SideCar] ${_pruneLog}`);
-    const maxOutputTokens = cfg.agentMaxTokens;
+    const maxOutputTokens = Math.min(cfg.agentMaxTokens, maxOutputTokensForModel(model));
     const body: Record<string, unknown> = {
       model,
       max_tokens: maxOutputTokens,
