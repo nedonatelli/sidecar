@@ -137,6 +137,10 @@ export interface LoopState {
   // sub-agents) to avoid the updateSystemPrompt/restore race on the
   // shared client object.
   readonly systemPromptOverride?: string;
+  // When set, every streamChat call for this run uses this model instead
+  // of client.model. Used by concurrent Facet/fork runs to avoid the
+  // setTurnOverride/restore race on the shared client object.
+  readonly modelOverride?: string;
 }
 
 /**
@@ -172,6 +176,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     iteration: 0,
     totalChars,
     systemPromptOverride: options.systemPromptOverride,
+    modelOverride: options.modelOverride,
 
     episodicMemory: new EpisodicMemoryStore(),
     recentToolCalls: [],

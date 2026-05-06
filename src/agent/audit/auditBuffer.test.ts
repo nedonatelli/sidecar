@@ -179,7 +179,13 @@ describe('AuditBuffer', () => {
         disk.set(path, content);
       });
 
-      await expect(buf.flush(failingWrite, deleteDisk)).rejects.toBeInstanceOf(AuditFlushError);
+      const err = await buf.flush(failingWrite, deleteDisk).catch((e) => e);
+      expect(err).toBeInstanceOf(AuditFlushError);
+
+      // Write-failure path: nothing is on disk after rollback.
+      expect(err.applied).toHaveLength(0);
+      expect(err.rolledBack).toContain('a.ts');
+      expect(err.rolledBack).toContain('existing.ts');
 
       // Rollback: existing.ts should be back to 'original content'
       // (restored from originalContent), and a.ts should be deleted
@@ -188,7 +194,28 @@ describe('AuditBuffer', () => {
       expect(deleteDisk).toHaveBeenCalledWith('a.ts');
     });
 
-    it('AuditFlushError carries the applied and failed lists', async () => {
+    it('still throws AuditFlushError when the rollback undo itself fails (best-effort rollback)', async () => {
+      // First write succeeds (existing.ts is a modify), second write
+      // fails (b.ts is a create), triggering rollback of existing.ts.
+      // The rollback write also throws — verify the error is swallowed
+      // and AuditFlushError is still the outcome.
+      await buf.write('existing.ts', 'new-content', readDisk);
+      await buf.write('b.ts', 'B-new', readDisk);
+
+      let callCount = 0;
+      const unreliableWrite = vi.fn(async (path: string, content: string) => {
+        callCount += 1;
+        if (callCount === 1) {
+          disk.set(path, content); // existing.ts write succeeds
+        } else {
+          throw new Error('disk full'); // b.ts write + rollback of existing.ts all fail
+        }
+      }) as WriteDiskFn & ReturnType<typeof vi.fn>;
+
+      await expect(buf.flush(unreliableWrite, deleteDisk)).rejects.toBeInstanceOf(AuditFlushError);
+    });
+
+    it('AuditFlushError: applied is empty (nothing on disk after rollback); rolledBack lists the undone paths', async () => {
       await buf.write('ok.ts', 'x', readDisk);
       const failingWrite = vi.fn(async (path: string) => {
         if (path === 'bad.ts') throw new Error('perm denied');
@@ -202,7 +229,9 @@ describe('AuditBuffer', () => {
       } catch (err) {
         expect(err).toBeInstanceOf(AuditFlushError);
         const afe = err as AuditFlushError;
-        expect(afe.applied).toContain('ok.ts');
+        // Write-failure path: applied = [] (nothing on disk), rolledBack = [ok.ts].
+        expect(afe.applied).toHaveLength(0);
+        expect(afe.rolledBack).toContain('ok.ts');
         expect(afe.failed[0].path).toBe('bad.ts');
         expect(afe.failed[0].error).toContain('perm denied');
       }
@@ -331,7 +360,12 @@ describe('AuditBuffer', () => {
         throw new Error('nothing to commit');
       });
 
-      await expect(buf.flush(writeDisk, deleteDisk, undefined, executeCommit)).rejects.toBeInstanceOf(AuditFlushError);
+      const err = await buf.flush(writeDisk, deleteDisk, undefined, executeCommit).catch((e) => e);
+      expect(err).toBeInstanceOf(AuditFlushError);
+
+      // Commit-failure path: applied lists what's on disk; rolledBack is empty.
+      expect(err.applied).toContain('a.ts');
+      expect(err.rolledBack).toHaveLength(0);
 
       // File write landed on disk — not rolled back because it
       // completed successfully before the commit step.

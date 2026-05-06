@@ -124,7 +124,7 @@ export async function streamOneTurn(
     ? (state.systemPromptOverride ?? client.getSystemPrompt()) + '\n\n' + episodicAddon
     : state.systemPromptOverride;
 
-  const stream = client.streamChat(state.messages, signal, iterTools, effectiveSystemPrompt);
+  const stream = client.streamChat(state.messages, signal, iterTools, effectiveSystemPrompt, state.modelOverride);
   const iter = stream[Symbol.asyncIterator]();
   let receivedFirstToken = false;
   try {

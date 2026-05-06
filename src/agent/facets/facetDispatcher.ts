@@ -92,12 +92,6 @@ export async function dispatchFacet(
   options: DispatchFacetOptions,
 ): Promise<FacetDispatchResult> {
   const startMs = Date.now();
-  const priorModelOverride = client.getTurnOverride();
-
-  // Pin the facet's preferred model before the sandbox run.
-  if (facet.preferredModel && facet.preferredModel.length > 0) {
-    client.setTurnOverride(facet.preferredModel);
-  }
 
   // Compose facet system prompt on top of the existing one so the
   // orchestrator's operating rules (file safety, audit gate, etc.)
@@ -202,9 +196,11 @@ export async function dispatchFacet(
         // session. Approval still fires for destructive tools that
         // opt in via `alwaysRequireApproval`.
         approvalMode: 'autonomous',
-        // Pass composed system prompt via override so concurrent facet
-        // runs don't race on the shared client.systemPrompt field.
+        // Pass composed system prompt and preferred model via per-run
+        // overrides so concurrent facet runs don't race on the shared
+        // client.systemPrompt / client.model fields.
         systemPromptOverride: composedSystemPrompt,
+        modelOverride: facet.preferredModel || undefined,
       },
       // Force shadow on — every facet run is sandboxed regardless of
       // the user's global shadowWorkspaceMode preference. Defer the
@@ -235,8 +231,6 @@ export async function dispatchFacet(
       sandbox: { mode: 'direct', applied: false, reason: 'apply-failed' },
       durationMs: Date.now() - startMs,
     };
-  } finally {
-    client.setTurnOverride(priorModelOverride);
   }
 }
 
@@ -369,6 +363,7 @@ export async function dispatchFacets(
     await runForEachWithCap(
       layer,
       async (facet) => {
+        const facetStartMs = Date.now();
         progressItems.set(facet.id, { id: facet.id, label: facet.displayName, status: 'running' });
         emitProgress();
         try {
@@ -381,7 +376,21 @@ export async function dispatchFacets(
           progressItems.set(facet.id, { id: facet.id, label: facet.displayName, status: r.success ? 'done' : 'error' });
           doneCount++;
           emitProgress();
-        } catch {
+        } catch (err) {
+          // dispatchFacet has its own try/catch that converts errors to
+          // { success: false } results, so this branch is defensive. If it
+          // does fire, write a real error result so the output builder never
+          // emits the misleading "Unknown facet id" synthetic error.
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          resultsById.set(facet.id, {
+            facetId: facet.id,
+            output: '',
+            success: false,
+            errorMessage,
+            charsConsumed: 0,
+            sandbox: { mode: 'direct', applied: false, reason: 'apply-failed' },
+            durationMs: Date.now() - facetStartMs,
+          });
           progressItems.set(facet.id, { id: facet.id, label: facet.displayName, status: 'error' });
           doneCount++;
           emitProgress();

@@ -314,9 +314,11 @@ async function runOneFork(
       errorMessage,
       output: output.trim(),
       charsConsumed,
-      // A failed run may never have created a shadow; report 'direct'
-      // so callers don't try to read a non-existent shadow diff.
-      sandbox: { mode: 'direct', applied: false, reason: 'apply-failed' },
+      // Fork always runs with forceShadow:true, so the intended mode is
+      // 'shadow' even when the run failed before producing a diff.
+      // Callers (forkReview) only read pendingDiff on successful forks,
+      // so this is diagnostic metadata only.
+      sandbox: { mode: 'shadow', applied: false, reason: 'apply-failed' },
       durationMs: Date.now() - startMs,
     };
   }

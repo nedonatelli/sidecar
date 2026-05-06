@@ -257,6 +257,28 @@ describe('applyBudgetCompression', () => {
     expect(info).toHaveBeenCalled();
   });
 
+  it('returns "ok" even when episodic memory add() rejects (failure is swallowed, not propagated)', async () => {
+    makeSummarizerMock({
+      freedChars: 100_000,
+      turnsSummarized: 2,
+      turnsCount: 4,
+      messages: [{ role: 'assistant', content: 'summary text' }],
+    });
+    const faultyEpisodic = {
+      add: vi.fn().mockRejectedValue(new Error('embedding model failed to load')),
+    } as unknown as EpisodicMemoryStore;
+    const state = stubState({
+      maxTokens: 100_000,
+      totalChars: 300_000,
+      episodicMemory: faultyEpisodic,
+    });
+
+    const outcome = await applyBudgetCompression({} as SideCarClient, state);
+
+    expect(outcome).toBe('ok');
+    expect(faultyEpisodic.add).toHaveBeenCalledOnce();
+  });
+
   it('returns "exhausted" when compaction cannot bring totalChars below maxTokens × CHARS_PER_TOKEN', async () => {
     makeSummarizerMock({ freedChars: 0 });
     const state = stubState({

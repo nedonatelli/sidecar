@@ -472,8 +472,17 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     state.postMessage({ command: 'setLoading', isLoading: false });
     healthStatus.setOk();
   } catch (err) {
+    // Recover any messages from iterations that completed before the error
+    // so they're not silently discarded from history.
+    const partialMessages = (err as { partialMessages?: ChatMessage[] })?.partialMessages;
+    if (partialMessages && partialMessages.length > state.messages.length) {
+      state.messages = partialMessages;
+      state.trimHistory();
+    }
+    state.saveHistory();
+    state.autoSave();
+
     if (err instanceof Error && err.name === 'AbortError') {
-      state.autoSave();
       state.postMessage({ command: 'done' });
       state.postMessage({ command: 'setLoading', isLoading: false });
       return;
@@ -553,6 +562,7 @@ export async function handleReconnect(state: ChatState): Promise<void> {
       // trailing assistant messages) so handleUserMessage starts clean.
       const lastUserIdx = state.messages.lastIndexOf(lastUserMsg);
       if (lastUserIdx >= 0) state.messages.splice(lastUserIdx);
+      state.saveHistory();
       await handleUserMessage(state, text);
     }
   } else {
@@ -696,6 +706,7 @@ export async function handleRegenerateResponse(state: ChatState): Promise<void> 
   // Remove from the last user message onward (strips the stale assistant turn).
   const idx = state.messages.lastIndexOf(lastUserMsg);
   if (idx >= 0) state.messages.splice(idx);
+  state.saveHistory();
 
   await handleUserMessage(state, text);
 }

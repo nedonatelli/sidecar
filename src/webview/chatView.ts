@@ -106,7 +106,10 @@ export class ChatViewProvider implements WebviewViewProvider {
       this.context.subscriptions,
     );
 
-    webviewView.onDidDispose(() => this.state.autoSave());
+    webviewView.onDidDispose(() => {
+      this.state.saveHistory();
+      this.state.autoSave();
+    });
 
     if (this.state.messages.length === 0) this.state.messages = this.state.loadHistory();
     if (this.state.messages.length > 0) this.postMessage({ command: 'init', messages: this.state.messages });

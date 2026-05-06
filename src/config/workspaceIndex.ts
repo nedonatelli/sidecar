@@ -358,6 +358,8 @@ export class WorkspaceIndex implements Disposable {
 
     // Watch for file changes across every active root — debounce rebuilds to avoid thrashing.
     // One watcher per root so paths in all roots are tracked, not just the first.
+    // Dispose any existing watchers first (defensive against re-initialization).
+    for (const w of this.watchers) w.dispose();
     const watchRoots = this.activeRoots.length > 0 ? this.activeRoots : [{ uri: rootUri, fsPath: rootPath }];
     this.watchers = watchRoots.map((root) => {
       const watchRoot = root.uri.fsPath;

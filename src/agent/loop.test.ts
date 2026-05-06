@@ -744,3 +744,106 @@ describe('runAgentLoop — policy hook enforcement', () => {
     vi.restoreAllMocks();
   });
 });
+
+// ---------------------------------------------------------------------------
+// runAgentLoop — partial message recovery on non-policy errors
+// ---------------------------------------------------------------------------
+describe('runAgentLoop — partial message recovery', () => {
+  async function stubConfig() {
+    const settings = await import('../config/settings.js');
+    return vi.spyOn(settings, 'getConfig').mockReturnValue({
+      requestTimeout: 30,
+      agentMaxIterations: 10,
+      agentMaxTokens: 100_000,
+      autoFixOnFailure: false,
+      autoFixMaxRetries: 3,
+      promptPruningEnabled: false,
+    } as ReturnType<typeof import('../config/settings.js').getConfig>);
+  }
+
+  function makeCallbacks(): AgentCallbacks {
+    return { onText: () => {}, onToolCall: () => {}, onToolResult: () => {}, onDone: () => {} };
+  }
+
+  it('attaches state.messages as partialMessages on non-PolicyEnforcementError before rethrowing', async () => {
+    await stubConfig();
+
+    // First stream call: yields a tool_use so the loop adds an assistant
+    // message (and a tool-result message after dispatch) before the second call.
+    // Second stream call: throws a plain backend error.
+    let callCount = 0;
+    async function* twoRoundStream(): AsyncGenerator<StreamEvent> {
+      callCount++;
+      if (callCount === 1) {
+        yield {
+          type: 'tool_use',
+          toolUse: { type: 'tool_use', id: 'tc1', name: 'read_file', input: { path: 'x.ts' } },
+        };
+        yield { type: 'stop', stopReason: 'tool_use' };
+      } else {
+        throw new Error('network failure on round 2');
+      }
+    }
+
+    const client = {
+      streamChat: twoRoundStream,
+      getSystemPrompt: () => '',
+      getRouter: () => null,
+      getModel: () => 'mock-model',
+    } as unknown as SideCarClient;
+
+    const initial: ChatMessage[] = [{ role: 'user', content: 'do stuff' }];
+    let caughtErr: (Error & { partialMessages?: ChatMessage[] }) | undefined;
+
+    try {
+      await runAgentLoop(client, initial, makeCallbacks(), new AbortController().signal);
+    } catch (err) {
+      caughtErr = err as Error & { partialMessages?: ChatMessage[] };
+    }
+
+    expect(caughtErr).toBeDefined();
+    expect(caughtErr!.message).toBe('network failure on round 2');
+    // partialMessages must be set and contain more than the initial user message —
+    // the loop added at least an assistant message before the error fired.
+    expect(Array.isArray(caughtErr!.partialMessages)).toBe(true);
+    expect(caughtErr!.partialMessages!.length).toBeGreaterThan(initial.length);
+
+    vi.restoreAllMocks();
+  });
+
+  it('does not rethrow PolicyEnforcementError (no partialMessages needed)', async () => {
+    await stubConfig();
+
+    // A hook that throws a plain error — the HookBus wraps it as PolicyEnforcementError.
+    const crashHook: PolicyHook = {
+      name: 'policycrash',
+      async onEmptyResponse() {
+        throw new Error('policy violation');
+      },
+    };
+
+    async function* responder(): AsyncGenerator<StreamEvent> {
+      yield { type: 'stop', stopReason: 'end_turn' };
+    }
+    const client = {
+      streamChat: responder,
+      getSystemPrompt: () => '',
+      getRouter: () => null,
+      getModel: () => 'mock-model',
+    } as unknown as SideCarClient;
+
+    let caught: Error | undefined;
+    try {
+      await runAgentLoop(client, [{ role: 'user', content: 'hi' }], makeCallbacks(), new AbortController().signal, {
+        extraPolicyHooks: [crashHook],
+      });
+    } catch (err) {
+      caught = err as Error;
+    }
+
+    // PolicyEnforcementError is caught inside the loop — no rethrow, nothing for caller to handle.
+    expect(caught).toBeUndefined();
+
+    vi.restoreAllMocks();
+  });
+});

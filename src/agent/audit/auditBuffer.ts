@@ -104,8 +104,21 @@ export interface AuditBufferPersistence {
 export class AuditFlushError extends Error {
   constructor(
     message: string,
+    /**
+     * Paths that are on disk after this error was thrown.
+     * - Write-failure path: empty — the rollback restored original content.
+     * - Commit-failure path: the paths that were written before the commit
+     *   step failed (those writes are NOT rolled back in the commit path).
+     */
     public readonly applied: string[],
     public readonly failed: Array<{ path: string; error: string }>,
+    /**
+     * Paths that were written successfully and then rolled back.
+     * Non-empty only on the write-failure path. After rollback these
+     * files are back to their pre-flush state — nothing in this list
+     * is on disk.
+     */
+    public readonly rolledBack: string[] = [],
   ) {
     super(message);
     this.name = 'AuditFlushError';
@@ -370,10 +383,14 @@ export class AuditBuffer {
             // AuditFlushError's `applied` list but don't throw here.
           }
         }
+        // applied paths were rolled back — nothing is on disk. Pass them
+        // as rolledBack so callers can report the count accurately, and
+        // keep applied=[] to mean "paths currently on disk after this throw".
         throw new AuditFlushError(
-          `Audit flush failed on ${entry.path}: ${failed[0].error}. ${applied.length} prior writes rolled back.`,
-          applied,
+          `Audit flush failed on ${entry.path}: ${failed[0].error}. ${applied.length} prior write${applied.length === 1 ? '' : 's'} rolled back.`,
+          [],
           failed,
+          applied,
         );
       }
     }

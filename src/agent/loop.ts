@@ -220,6 +220,14 @@ export interface AgentOptions {
    * each other's prompts.
    */
   systemPromptOverride?: string;
+  /**
+   * Per-run model override. When set, every `streamChat` call for this
+   * run uses this model name instead of `client.model`. Avoids mutating
+   * the shared `client.model` field via `setTurnOverride`/restore in
+   * concurrent dispatch scenarios (Facets, fork) where two runs racing
+   * on that field corrupt each other's model selection.
+   */
+  modelOverride?: string;
 }
 
 // DEFAULT_MAX_ITERATIONS moved to loop/state.ts along with initLoopState.
@@ -516,6 +524,11 @@ export async function runAgentLoop(
       callbacks.onText(msg);
       // Do not re-throw — finalize() below fires onDone and flushes cleanly.
     } else {
+      // Stash completed iterations before rethrowing so the caller can
+      // persist whatever the agent produced before the error hit.
+      if (err instanceof Error) {
+        (err as Error & { partialMessages?: ChatMessage[] }).partialMessages = [...state.messages];
+      }
       throw err;
     }
   } finally {

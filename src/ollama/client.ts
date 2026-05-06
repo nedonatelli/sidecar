@@ -214,15 +214,23 @@ export class SideCarClient {
     signal?: AbortSignal,
     tools?: ToolDefinition[],
     systemPromptOverride?: string,
+    modelOverride?: string,
   ): AsyncGenerator<StreamEvent> {
+    const effectiveModel = modelOverride ?? this.model;
     const effectiveSystemPrompt = systemPromptOverride ?? this.systemPrompt;
-    this.pushModelUsageLog({ model: this.model, role: 'chat', timestamp: new Date() });
+    this.pushModelUsageLog({ model: effectiveModel, role: 'chat', timestamp: new Date() });
     // Fast-fail when the breaker is open so the user sees a clear error
     // instead of the request hanging on a dead provider. Advances an
     // open breaker to half-open once the cooldown has elapsed.
     circuitBreaker.guard(this.getProviderType());
     try {
-      for await (const event of this.backend.streamChat(this.model, effectiveSystemPrompt, messages, signal, tools)) {
+      for await (const event of this.backend.streamChat(
+        effectiveModel,
+        effectiveSystemPrompt,
+        messages,
+        signal,
+        tools,
+      )) {
         if (event.type === 'usage') this.chargeLastDecision(spendTracker.record(event.model, event.usage));
         yield event;
       }
@@ -246,7 +254,7 @@ export class SideCarClient {
         try {
           yield { type: 'warning', message: 'Retrying against native protocol…' };
           for await (const event of nativeRetry.fallbackStreamChat(
-            this.model,
+            effectiveModel,
             effectiveSystemPrompt,
             messages,
             signal,
@@ -275,7 +283,13 @@ export class SideCarClient {
         console.warn(`[SideCar] Primary backend failed, switching to fallback: ${(err as Error).message}`);
         yield { type: 'warning', message: 'Primary backend unavailable — using fallback.' };
         circuitBreaker.guard(this.getProviderType());
-        for await (const event of this.backend.streamChat(this.model, effectiveSystemPrompt, messages, signal, tools)) {
+        for await (const event of this.backend.streamChat(
+          effectiveModel,
+          effectiveSystemPrompt,
+          messages,
+          signal,
+          tools,
+        )) {
           if (event.type === 'usage') this.chargeLastDecision(spendTracker.record(event.model, event.usage));
           yield event;
         }

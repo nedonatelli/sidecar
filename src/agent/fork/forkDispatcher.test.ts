@@ -178,7 +178,7 @@ describe('dispatchForks — failure isolation', () => {
     expect(batch.results[0].success).toBe(true);
     expect(batch.results[1].success).toBe(false);
     expect(batch.results[1].errorMessage).toBe('boom');
-    expect(batch.results[1].sandbox.mode).toBe('direct'); // synthesized no-shadow result
+    expect(batch.results[1].sandbox.mode).toBe('shadow'); // fork always uses forceShadow:true
     expect(batch.results[2].success).toBe(true);
   });
 

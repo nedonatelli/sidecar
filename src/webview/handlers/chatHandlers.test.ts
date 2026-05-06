@@ -2369,6 +2369,9 @@ describe('handleRegenerateResponse', () => {
       messages,
       postMessage: vi.fn(),
       saveHistory: vi.fn(),
+      autoSave: vi.fn(),
+      trimHistory: vi.fn(),
+      metricsCollector: { getCurrentRunTokens: vi.fn().mockReturnValue(0), endRun: vi.fn() },
       abortController: null,
       chatGeneration: 0,
       logMessage: vi.fn(),
@@ -2376,6 +2379,10 @@ describe('handleRegenerateResponse', () => {
       client: {
         getProviderType: vi.fn().mockReturnValue('anthropic'),
         isLocalOllama: vi.fn().mockReturnValue(false),
+        setTurnOverride: vi.fn(),
+        updateConnection: vi.fn(),
+        updateModel: vi.fn(),
+        getSystemPrompt: vi.fn().mockReturnValue(''),
         // Immediately throw to stop the agent loop after the message splice
         streamChat: vi.fn().mockImplementation(async function* () {
           throw new Error('stop');
@@ -2383,15 +2390,53 @@ describe('handleRegenerateResponse', () => {
       },
     };
 
-    try {
-      await handleRegenerateResponse(state as never);
-    } catch {
-      // expected — mock client throws
-    }
+    await handleRegenerateResponse(state as never);
 
     // The stale assistant reply must be gone — spliced out before handleUserMessage re-ran.
     expect(state.messages.find((m) => m.content === 'stale reply — should be stripped')).toBeUndefined();
     // handleUserMessage re-pushes the user turn, so final length is 3 (not 4)
     expect(state.messages.length).toBeLessThanOrEqual(3);
+  });
+
+  it('calls saveHistory after the splice so the trimmed state survives a crash in handleUserMessage', async () => {
+    const { handleRegenerateResponse } = await import('./chatHandlers.js');
+    const providerReachability = await import('../../config/providerReachability.js');
+    vi.spyOn(providerReachability, 'isProviderReachable').mockResolvedValue(true);
+
+    const messages: Array<{ role: string; content: unknown }> = [
+      { role: 'user', content: 'ask' },
+      { role: 'assistant', content: 'reply' },
+    ];
+    const saveHistory = vi.fn();
+    const state = {
+      messages,
+      postMessage: vi.fn(),
+      saveHistory,
+      autoSave: vi.fn(),
+      trimHistory: vi.fn(),
+      metricsCollector: { getCurrentRunTokens: vi.fn().mockReturnValue(0), endRun: vi.fn() },
+      abortController: null,
+      chatGeneration: 0,
+      logMessage: vi.fn(),
+      abort: vi.fn(),
+      client: {
+        getProviderType: vi.fn().mockReturnValue('anthropic'),
+        isLocalOllama: vi.fn().mockReturnValue(false),
+        setTurnOverride: vi.fn(),
+        updateConnection: vi.fn(),
+        updateModel: vi.fn(),
+        getSystemPrompt: vi.fn().mockReturnValue(''),
+        streamChat: vi.fn().mockImplementation(async function* () {
+          throw new Error('fail');
+        }),
+      },
+    };
+
+    await handleRegenerateResponse(state as never);
+
+    // saveHistory must be called at least once by the splice path (before
+    // handleUserMessage runs) and at least once by the catch-block save.
+    expect(saveHistory.mock.calls.length).toBeGreaterThanOrEqual(2);
+    vi.restoreAllMocks();
   });
 });

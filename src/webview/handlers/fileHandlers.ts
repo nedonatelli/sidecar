@@ -162,12 +162,14 @@ export async function handleDroppedPaths(state: ChatState, paths: string[]): Pro
       }
       const folderName = path.basename(uri.fsPath);
       let taken = 0;
+      let eligible = 0;
       for (const [name, type] of entries) {
-        if (collected.length >= MAX_ATTACHMENTS_PER_DROP) break;
-        if (taken >= MAX_FOLDER_ENTRIES) break;
         if (name.startsWith('.')) continue;
         if (SKIPPED_DIR_ENTRIES.has(name)) continue;
         if (type !== FileType.File) continue;
+        eligible++;
+        if (collected.length >= MAX_ATTACHMENTS_PER_DROP) continue;
+        if (taken >= MAX_FOLDER_ENTRIES) continue;
         const childUri = Uri.joinPath(uri, name);
         try {
           const childStat = await workspace.fs.stat(childUri);
@@ -177,8 +179,8 @@ export async function handleDroppedPaths(state: ChatState, paths: string[]): Pro
           skipped.push(`${folderName}/${name} (unreadable)`);
         }
       }
-      if (entries.length > taken) {
-        skipped.push(`${folderName}/ (${entries.length - taken} more entries not attached)`);
+      if (eligible > taken) {
+        skipped.push(`${folderName}/ (${eligible - taken} more file${eligible - taken === 1 ? '' : 's'} not attached)`);
       }
       continue;
     }

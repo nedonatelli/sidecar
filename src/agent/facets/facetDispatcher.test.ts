@@ -90,21 +90,21 @@ describe('dispatchFacet — success path', () => {
     expect(sandboxOpts).toEqual({ forceShadow: true, deferPrompt: true });
   });
 
-  it('pins preferredModel via setTurnOverride and restores it on exit', async () => {
+  it('passes preferredModel as modelOverride in AgentOptions — never calls setTurnOverride', async () => {
     runAgentLoopInSandboxMock.mockResolvedValue({ mode: 'shadow', applied: true });
     const client = makeClient();
-    client.getTurnOverride = vi.fn().mockReturnValue(null);
     const f = facet({ id: 'dsp', preferredModel: 'claude-sonnet-4' });
     await dispatchFacet(client, f, makeCallbacks(), {
       task: 'x',
       signal: new AbortController().signal,
     });
-    expect(client.setTurnOverride).toHaveBeenCalledWith('claude-sonnet-4');
-    // Last call restores to the pre-dispatch value (null here).
-    expect(client.setTurnOverride.mock.calls.at(-1)![0]).toBeNull();
+    // Model is threaded as a per-run override, not via shared client mutation.
+    expect(client.setTurnOverride).not.toHaveBeenCalled();
+    const agentOpts = runAgentLoopInSandboxMock.mock.calls[0][4];
+    expect(agentOpts.modelOverride).toBe('claude-sonnet-4');
   });
 
-  it('does not pin model when preferredModel is unset', async () => {
+  it('omits modelOverride from AgentOptions when preferredModel is unset', async () => {
     runAgentLoopInSandboxMock.mockResolvedValue({ mode: 'shadow', applied: true });
     const client = makeClient();
     const f = facet({ preferredModel: undefined });
@@ -112,12 +112,9 @@ describe('dispatchFacet — success path', () => {
       task: 'x',
       signal: new AbortController().signal,
     });
-    // setTurnOverride called only to restore (which is a no-op path too),
-    // and only once if at all. Assertion: never called with a non-null
-    // value.
-    for (const call of client.setTurnOverride.mock.calls) {
-      expect(call[0]).not.toBe('claude-sonnet-4');
-    }
+    expect(client.setTurnOverride).not.toHaveBeenCalled();
+    const agentOpts = runAgentLoopInSandboxMock.mock.calls[0][4];
+    expect(agentOpts.modelOverride).toBeUndefined();
   });
 
   it('composes the facet system prompt and passes it via systemPromptOverride', async () => {
@@ -245,18 +242,16 @@ describe('dispatchFacet — failure path', () => {
     expect(result.sandbox.applied).toBe(false);
   });
 
-  it('restores model override even on failure; never mutates system prompt', async () => {
+  it('never mutates shared client state (no setTurnOverride, no updateSystemPrompt) even on failure', async () => {
     runAgentLoopInSandboxMock.mockRejectedValue(new Error('boom'));
     const client = makeClient();
-    client.getTurnOverride = vi.fn().mockReturnValue('prior-model');
     await dispatchFacet(client, facet({ preferredModel: 'specialist-model' }), makeCallbacks(), {
       task: 'x',
       signal: new AbortController().signal,
     });
-    // System prompt is passed via systemPromptOverride — client must not be mutated.
+    // Both model and system prompt flow through per-run AgentOptions, not client mutations.
     expect(client.updateSystemPrompt).not.toHaveBeenCalled();
-    // Model override final call is the restore.
-    expect(client.setTurnOverride.mock.calls.at(-1)![0]).toBe('prior-model');
+    expect(client.setTurnOverride).not.toHaveBeenCalled();
   });
 });
 
@@ -331,6 +326,23 @@ describe('dispatchFacets — orchestration', () => {
       maxConcurrent: 4,
     });
     expect(batch.results.map((r) => r.facetId)).toEqual(['leaf', 'independent', 'root']);
+  });
+
+  it('if dispatchFacet throws past its own try/catch, real error message surfaces (not "Unknown facet id")', async () => {
+    // dispatchFacet's outer catch converts all errors to { success: false }
+    // results. This test simulates the defensive path where it somehow
+    // throws anyway, and verifies the outer worker's catch still writes a
+    // real FacetDispatchResult with the actual error message.
+    runAgentLoopInSandboxMock.mockRejectedValue(new Error('unexpected internal failure'));
+    const reg = buildFacetRegistry([facet({ id: 'boom' })]);
+    const batch = await dispatchFacets(makeClient(), reg, ['boom'], makeCallbacks(), {
+      task: 'x',
+      signal: new AbortController().signal,
+      maxConcurrent: 4,
+    });
+    expect(batch.results[0].success).toBe(false);
+    expect(batch.results[0].errorMessage).toBe('unexpected internal failure');
+    expect(batch.results[0].errorMessage).not.toContain('Unknown facet id');
   });
 
   it('surfaces unknown facet ids as synthetic error results without aborting the batch', async () => {

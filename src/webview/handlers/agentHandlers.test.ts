@@ -633,6 +633,7 @@ describe('handleExecutePlan (happy path)', () => {
       pendingPlan: 'Step 1 — do X',
       pendingPlanMessages: [{ role: 'user', content: 'original ask' }],
       messages: [],
+      saveHistory: vi.fn(),
     };
     await mod.handleExecutePlan(state as never);
     expect(mockHandleUserMessage).toHaveBeenCalledOnce();
@@ -642,6 +643,9 @@ describe('handleExecutePlan (happy path)', () => {
     // The messages array was populated from the pendingPlanMessages copy
     // (which grew by one: the "execute the plan" instruction message).
     expect(state.messages.length).toBeGreaterThan(0);
+    // saveHistory must be called before handleUserMessage so the reassigned
+    // messages survive any crash inside handleUserMessage.
+    expect(state.saveHistory).toHaveBeenCalled();
   });
 });
 
@@ -656,6 +660,7 @@ describe('handleRevisePlan (happy path)', () => {
       pendingPlan: 'current plan',
       pendingPlanMessages: [{ role: 'user', content: 'original ask' }],
       messages: [],
+      saveHistory: vi.fn(),
     };
     await mod.handleRevisePlan(state as never, 'try a different approach');
     expect(mockHandleUserMessage).toHaveBeenCalledOnce();
@@ -664,6 +669,8 @@ describe('handleRevisePlan (happy path)', () => {
     // Last message in state.messages carries the feedback.
     const last = state.messages[state.messages.length - 1] as { content: string };
     expect(last.content).toContain('try a different approach');
+    // saveHistory must fire before handleUserMessage for the same reason as ExecutePlan.
+    expect(state.saveHistory).toHaveBeenCalled();
   });
 });
 

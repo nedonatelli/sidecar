@@ -28,6 +28,7 @@ export async function handleExecutePlan(state: ChatState): Promise<void> {
   state.messages = state.pendingPlanMessages;
   state.pendingPlan = null;
   state.pendingPlanMessages = [];
+  state.saveHistory();
   // Temporarily switch out of plan mode during execution so we execute instead of planning again
   const config = workspace.getConfiguration('sidecar');
   const previousMode = config.get<string>('agentMode', 'cautious');
@@ -50,6 +51,7 @@ export async function handleRevisePlan(state: ChatState, feedback: string): Prom
   state.messages = state.pendingPlanMessages;
   state.pendingPlan = null;
   state.pendingPlanMessages = [];
+  state.saveHistory();
   // Temporarily switch out of plan mode during revision so we get a revised plan, not another plan of a plan
   const config = workspace.getConfiguration('sidecar');
   const previousMode = config.get<string>('agentMode', 'cautious');

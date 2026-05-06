@@ -401,10 +401,15 @@ async function flushBufferPaths(deps: AuditReviewDeps, paths?: string[]): Promis
     deps.ui.showInfo(`SideCar audit: accepted ${n} change${n === 1 ? '' : 's'}${commitStr}.`);
   } catch (err) {
     if (err instanceof AuditFlushError) {
-      deps.ui.showError(
-        `SideCar audit flush failed: ${err.message} ` +
-          `Rolled back ${err.applied.length} prior write${err.applied.length === 1 ? '' : 's'}; buffer preserved so you can retry.`,
-      );
+      // Write-failure path: rolledBack is non-empty, applied is empty.
+      // Commit-failure path: applied lists what's on disk, rolledBack is empty.
+      const detail =
+        err.rolledBack.length > 0
+          ? `Rolled back ${err.rolledBack.length} prior write${err.rolledBack.length === 1 ? '' : 's'}; buffer preserved so you can retry.`
+          : err.applied.length > 0
+            ? `${err.applied.length} file${err.applied.length === 1 ? '' : 's'} landed on disk; buffer preserved so you can retry the commit.`
+            : 'Buffer preserved so you can retry.';
+      deps.ui.showError(`SideCar audit flush failed: ${err.message} ${detail}`);
       return;
     }
     const msg = err instanceof Error ? err.message : String(err);
