@@ -287,6 +287,52 @@ describe('acceptAllAuditBuffer', () => {
     expect(writeFileSpy).not.toHaveBeenCalled();
   });
 
+  it('write-failure path: error message says "Rolled back" (nothing on disk after rollback)', async () => {
+    // ok.ts writes first, bad.ts write fails → rollback restores ok.ts.
+    // rolledBack=[ok.ts], applied=[] — message should say "Rolled back 1 prior write".
+    const buf = await makeBufferWith(
+      [
+        { op: 'write', path: 'ok.ts', content: 'A' },
+        { op: 'write', path: 'bad.ts', content: 'B' },
+      ],
+      { 'ok.ts': 'original' },
+    );
+    // Conflict detection reads disk before flushing; return the captured
+    // originalContent so ok.ts doesn't register as a conflict.
+    readFileSpy.mockImplementation(async (uri: unknown) => {
+      const p = (uri as { fsPath: string }).fsPath;
+      if (p.endsWith('ok.ts')) return Buffer.from('original') as never;
+      throw new Error('FileNotFound');
+    });
+    let call = 0;
+    writeFileSpy.mockImplementation(async (uri: unknown) => {
+      call += 1;
+      const p = (uri as { fsPath: string }).fsPath;
+      if (p.endsWith('bad.ts')) throw new Error('disk full');
+    });
+    const ui = makeUi();
+    await acceptAllAuditBuffer(baseDeps(buf, ui));
+    const msg: string = ui.showError.mock.calls[0][0];
+    expect(msg).toContain('Rolled back');
+    expect(msg).not.toContain('landed on disk');
+    expect(call).toBeGreaterThan(0);
+  });
+
+  it('commit-failure path: error message says "landed on disk" (files are on disk, commit failed)', async () => {
+    // Write succeeds, commit fails → files ARE on disk.
+    // applied=[a.ts], rolledBack=[] — message should say "1 file landed on disk".
+    const buf = await makeBufferWith([{ op: 'write', path: 'a.ts', content: 'X' }]);
+    await buf.queueCommit('feat: a');
+    const executeCommit = vi.fn(async () => {
+      throw new Error('nothing to commit');
+    });
+    const ui = makeUi();
+    await acceptAllAuditBuffer({ ...baseDeps(buf, ui), executeCommit });
+    const msg: string = ui.showError.mock.calls[0][0];
+    expect(msg).toContain('landed on disk');
+    expect(msg).not.toContain('Rolled back');
+  });
+
   it('shows an error and preserves the buffer when flush fails', async () => {
     const buf = await makeBufferWith([
       { op: 'write', path: 'ok.ts', content: 'A' },
