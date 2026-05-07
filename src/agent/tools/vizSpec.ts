@@ -136,6 +136,7 @@ export const vizSpecTools: RegisteredTool[] = [
           },
           data: {
             type: 'array',
+            items: {},
             description: 'Array of data points or objects. For charts: array of numbers. For tables: array of objects.',
           },
           labels: {

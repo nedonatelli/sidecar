@@ -1,4 +1,4 @@
-import { describe, it } from 'vitest';
+import { describe, it, afterAll } from 'vitest';
 import { AGENT_CASES } from './agentCases.js';
 import { CODE_QUALITY_CASES } from './codeQualityCases.js';
 import { runAgentCase, AGENT_BACKENDS } from './agentHarness.js';
@@ -63,6 +63,25 @@ function parseCompareModels(): ModelSpec[] | null {
 
 const models = parseCompareModels();
 
+/**
+ * Unload an Ollama model from VRAM after its cases finish so it doesn't
+ * accumulate alongside subsequent models during a multi-model comparison run.
+ * Best-effort — a failed unload is logged but never fails the suite.
+ */
+async function unloadOllamaModel(baseUrl: string, model: string): Promise<void> {
+  try {
+    await fetch(`${baseUrl}/api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, keep_alive: 0 }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    console.log(`[eval:compare] unloaded ${model}`);
+  } catch (err) {
+    console.warn(`[eval:compare] failed to unload ${model}:`, err instanceof Error ? err.message : err);
+  }
+}
+
 // results[caseId][modelLabel] = AgentCaseResult or an Error (infra failure surfaced here too)
 type RunOutcome = AgentCaseResult | { infra: true; message: string };
 const matrix = new Map<string, Map<string, RunOutcome>>();
@@ -71,6 +90,12 @@ for (const c of ALL_CASES) matrix.set(c.id, new Map());
 describe.skipIf(!models)('llm-eval :: model comparison', () => {
   for (const spec of models ?? []) {
     describe(`model: ${spec.label}`, () => {
+      afterAll(async () => {
+        if (spec.backend.name === 'ollama') {
+          await unloadOllamaModel(spec.backend.baseUrl(), spec.model);
+        }
+      });
+
       for (const evalCase of ALL_CASES) {
         it(evalCase.id, async () => {
           let result: AgentCaseResult;
