@@ -75,7 +75,9 @@ export const CODE_QUALITY_CASES: AgentEvalCase[] = [
               'NotImplementedError',
               'implement',
               '// for now',
-              '...',
+              // Note: '...' is intentionally absent here — truncate() must
+              // return s.slice(0, max - 3) + '...', so the ellipsis string
+              // is part of a correct implementation, not a stub marker.
             ],
           },
         ],
