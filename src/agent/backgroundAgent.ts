@@ -55,11 +55,24 @@ export class BackgroundAgentManager implements Disposable {
   private callbacks: BackgroundAgentCallbacks;
   private logger: AgentLogger | undefined;
   private mcpManager: MCPManager | undefined;
+  private changeListeners: Array<() => void> = [];
 
   constructor(callbacks: BackgroundAgentCallbacks, logger?: AgentLogger, mcpManager?: MCPManager) {
     this.callbacks = callbacks;
     this.logger = logger;
     this.mcpManager = mcpManager;
+  }
+
+  /** Subscribe to any run status change. Returns an unsubscribe function. */
+  onStatusChange(cb: () => void): () => void {
+    this.changeListeners.push(cb);
+    return () => {
+      this.changeListeners = this.changeListeners.filter((l) => l !== cb);
+    };
+  }
+
+  private notifyChange(): void {
+    for (const cb of this.changeListeners) cb();
   }
 
   start(task: string): string {
@@ -75,6 +88,7 @@ export class BackgroundAgentManager implements Disposable {
     };
     this.runs.set(id, run);
     this.callbacks.onStatusChange(serializeRun(run));
+    this.notifyChange();
 
     this.drainQueue();
     return id;
@@ -88,6 +102,7 @@ export class BackgroundAgentManager implements Disposable {
       run.status = 'cancelled';
       run.completedAt = Date.now();
       this.callbacks.onStatusChange(serializeRun(run));
+      this.notifyChange();
       this.drainQueue();
     }
     return true;
@@ -101,6 +116,16 @@ export class BackgroundAgentManager implements Disposable {
         run.completedAt = Date.now();
       }
     }
+  }
+
+  /** Remove all completed, failed, and cancelled runs from the list. */
+  removeTerminated(): void {
+    for (const [id, run] of this.runs) {
+      if (run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') {
+        this.runs.delete(id);
+      }
+    }
+    this.notifyChange();
   }
 
   list(): BackgroundAgentRunInfo[] {
@@ -127,6 +152,7 @@ export class BackgroundAgentManager implements Disposable {
       if (run.status === 'queued') {
         run.status = 'running';
         this.callbacks.onStatusChange(serializeRun(run));
+        this.notifyChange();
         this.executeRun(run).catch(() => {
           // Error already handled inside executeRun
         });
@@ -192,6 +218,7 @@ export class BackgroundAgentManager implements Disposable {
       run.status = 'completed';
       run.completedAt = Date.now();
       this.callbacks.onComplete(serializeRun(run));
+      this.notifyChange();
     } catch (err) {
       if (run.status === 'cancelled') {
         // Already handled by stop()
@@ -203,6 +230,7 @@ export class BackgroundAgentManager implements Disposable {
       run.completedAt = Date.now();
       this.logger?.error(`[${run.id}] Failed: ${msg}`);
       this.callbacks.onComplete(serializeRun(run));
+      this.notifyChange();
     } finally {
       toolRuntime.dispose();
       this.drainQueue();

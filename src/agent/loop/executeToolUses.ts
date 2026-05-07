@@ -167,6 +167,7 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
       // Config injected from the loop's state so tools don't call the
       // global getConfig() singleton — enables unit test injection.
       config: state.config,
+      editTimeline: options.editTimeline,
     },
     inlineEditFn: options.inlineEditFn,
     streamingDiffPreviewFn: options.streamingDiffPreviewFn,

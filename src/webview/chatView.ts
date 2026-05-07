@@ -27,6 +27,7 @@ import { getConfig, detectActiveProfile } from '../config/settings.js';
 import { wrapUntrustedTerminalOutput } from '../agent/injectionScanner.js';
 import { handleUserMessage } from './handlers/chatHandlers.js';
 import { handleUndoChanges, handleExportChat } from './handlers/chatHandlers.js';
+import { handleLoadSession } from './handlers/sessionHandlers.js';
 import { loadModels } from './handlers/modelHandlers.js';
 import { initializeChatSubsystems } from './chatStateInit.js';
 import { setModel, refreshOpenRouterCostsIfActive } from './modelSwitcher.js';
@@ -194,6 +195,18 @@ export class ChatViewProvider implements WebviewViewProvider {
   }
   public get client() {
     return this.state.client;
+  }
+
+  public get backgroundAgentManager(): BackgroundAgentManager {
+    return this.bgManager;
+  }
+
+  public loadSession(id: string): void {
+    handleLoadSession(this._state, id);
+  }
+
+  public saveCurrentSession(name: string): void {
+    this._state.sessionManager.save(name, this._state.messages);
   }
 
   public pushActiveBackendProfile(): void {

@@ -8,6 +8,7 @@ import type { SideCarConfig } from '../../config/settings.js';
 // cycles in TypeScript.
 import type { ToolRuntime } from './runtime.js';
 import type { SideCarClient } from '../../ollama/client.js';
+import type { EditTimelineStore } from '../editTimeline.js';
 
 // Re-exported so sibling tool modules can import ToolDefinition from a
 // single shared entrypoint if they prefer.
@@ -73,6 +74,15 @@ export interface ToolExecutorContext {
    * existing tool logic.
    */
   cwd?: string;
+  /**
+   * Session-scoped edit timeline. When set, `write_file` and `edit_file`
+   * record each real-disk write so the sidebar timeline view can show
+   * what the agent changed and offer per-file revert. Omitted for
+   * shadow-workspace and audit-mode writes (those have their own
+   * accept/reject flows), and for background-agent runs that the user
+   * didn't explicitly opt into tracking.
+   */
+  editTimeline?: EditTimelineStore;
 }
 
 export interface ToolExecutor {

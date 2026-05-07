@@ -94,7 +94,7 @@ class OpenAIAgentBackend implements AgentEvalBackend {
   }
 }
 
-const AGENT_BACKENDS: Record<string, AgentEvalBackend> = {
+export const AGENT_BACKENDS: Record<string, AgentEvalBackend> = {
   ollama: new OllamaAgentBackend(),
   anthropic: new AnthropicAgentBackend(),
   openai: new OpenAIAgentBackend(),
@@ -129,12 +129,29 @@ export function pickAgentBackend(): AgentEvalBackend | null {
  * Run one agent-loop eval case end-to-end. Throws on infrastructure
  * errors (sandbox setup, backend unreachable); returns a pass/fail
  * result otherwise.
+ *
+ * @param evalCase  The eval case to run.
+ * @param backend   The backend to use for the run.
+ * @param timeoutMs  Milliseconds before the run is aborted. Defaults to 120 000.
+ * @param modelOverride  Override the backend's `defaultModel()`. Pass
+ *   explicitly when running a comparison across multiple models on the
+ *   same backend so each call uses a different model without mutating
+ *   the backend object.
  */
 export async function runAgentCase(
   evalCase: AgentEvalCase,
   backend: AgentEvalBackend,
-  timeoutMs = 120_000,
+  timeoutMs?: number,
+  modelOverride?: string,
+): Promise<AgentCaseResult>;
+/** @deprecated Pass timeoutMs as the third argument. */
+export async function runAgentCase(
+  evalCase: AgentEvalCase,
+  backend: AgentEvalBackend,
+  timeoutMsOrOpts?: number,
+  modelOverride?: string,
 ): Promise<AgentCaseResult> {
+  const timeoutMs = timeoutMsOrOpts ?? 120_000;
   const start = Date.now();
   const sandbox = await installSandbox(evalCase.workspace, evalCase.id);
   let snapshot: WorkspaceFixture = {};
@@ -143,8 +160,9 @@ export async function runAgentCase(
   let iterationsUsed = 0;
 
   const toolRuntime = new ToolRuntime();
-  const client = new SideCarClient(backend.defaultModel(), backend.baseUrl(), backend.apiKey());
-  client.setSystemPrompt(
+  const model = modelOverride ?? backend.defaultModel();
+  const client = new SideCarClient(model, backend.baseUrl(), backend.apiKey());
+  client.updateSystemPrompt(
     buildBaseSystemPrompt({
       isLocal: backend.name === 'ollama',
       extensionVersion: '0.0.0-eval',

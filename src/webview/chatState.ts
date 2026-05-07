@@ -21,6 +21,7 @@ import { DocumentationIndexer } from '../config/documentationIndexer.js';
 import { AgentMemory } from '../agent/agentMemory.js';
 import { PinnedMemoryStore } from '../agent/memory/pinnedMemory.js';
 import { AuditLog } from '../agent/auditLog.js';
+import { EditTimelineStore } from '../agent/editTimeline.js';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -101,6 +102,7 @@ export class ChatState {
   agentMemory: AgentMemory | null = null;
   pinnedMemoryStore: PinnedMemoryStore | null = null;
   auditLog: AuditLog | null = null;
+  editTimeline = new EditTimelineStore();
 
   /** ID of the current auto-saved session, null if conversation is empty/unsaved */
   currentSessionId: string | null = null;
@@ -370,6 +372,7 @@ export class ChatState {
     this.pendingSteerSnapshot = null;
     this.pendingQuestion = null;
     this.changelog.clear();
+    this.editTimeline.clear();
     this.currentSessionId = null;
     this.chatGeneration++;
     this.resetChatLog();

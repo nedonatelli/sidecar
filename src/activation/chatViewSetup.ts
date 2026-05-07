@@ -6,6 +6,10 @@ import { registerJsDocSync } from '../docs/jsDocSyncProvider.js';
 import { registerReadmeSync } from '../docs/readmeSyncProvider.js';
 import { registerReviewPanel } from '../agent/reviewPanel.js';
 import { registerPinnedMemoryView } from '../views/pinnedMemoryView.js';
+import { registerBackgroundAgentsView } from '../views/backgroundAgentsView.js';
+import { registerMcpServersView } from '../views/mcpServersView.js';
+import { registerSessionsView } from '../views/sessionsView.js';
+import { registerEditTimelineView } from '../views/editTimelineView.js';
 import { InlineEditProvider } from '../edits/inlineEditProvider.js';
 import { PendingEditDecorationProvider } from '../edits/pendingEditDecorationProvider.js';
 import type { TerminalManager } from '../terminal/manager.js';
@@ -70,6 +74,15 @@ export function setupChatView(context: ExtensionContext, deps: ChatViewSetupDeps
   context.subscriptions.push(registerReadmeSync());
   context.subscriptions.push(registerReviewPanel(context, chatProvider.pendingEditStore, proposedContentProvider));
   context.subscriptions.push(registerPinnedMemoryView(context, chatProvider.state.pinnedMemoryStore));
+  context.subscriptions.push(registerEditTimelineView(context, chatProvider.state.editTimeline));
+  context.subscriptions.push(registerBackgroundAgentsView(context, chatProvider.backgroundAgentManager));
+  context.subscriptions.push(registerMcpServersView(context, mcpManager));
+  context.subscriptions.push(
+    registerSessionsView(context, chatProvider.state.sessionManager, {
+      loadSession: (id) => chatProvider.loadSession(id),
+      saveCurrentSession: (name) => chatProvider.saveCurrentSession(name),
+    }),
+  );
 
   const pendingDecorations = new PendingEditDecorationProvider(chatProvider.pendingEditStore);
   context.subscriptions.push(window.registerFileDecorationProvider(pendingDecorations), pendingDecorations);

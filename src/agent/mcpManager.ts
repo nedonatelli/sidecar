@@ -132,6 +132,19 @@ export class MCPManager {
   private connections: MCPConnection[] = [];
   private toolCache: RegisteredTool[] = [];
   private disposed = false;
+  private changeListeners: Array<() => void> = [];
+
+  /** Subscribe to connection-status changes. Returns an unsubscribe function. */
+  onStatusChange(cb: () => void): () => void {
+    this.changeListeners.push(cb);
+    return () => {
+      this.changeListeners = this.changeListeners.filter((l) => l !== cb);
+    };
+  }
+
+  private notifyStatusChange(): void {
+    for (const cb of this.changeListeners) cb();
+  }
 
   /**
    * Connect to all configured MCP servers.
@@ -184,6 +197,7 @@ export class MCPManager {
         `Refused to start stdio MCP server "${name}" because this workspace is not trusted. ` +
         `If you want to run it, trust the workspace from the VS Code command palette first.`;
       console.warn(`[SideCar] ${conn.error}`);
+      this.notifyStatusChange();
       return;
     }
 
@@ -280,11 +294,13 @@ export class MCPManager {
       conn.connectedAt = Date.now();
       conn.reconnectAttempts = 0;
       console.log(`[SideCar] Connected to MCP server "${name}" (${transportType}) — ${conn.tools.length} tool(s)`);
+      this.notifyStatusChange();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       conn.status = 'failed';
       conn.error = msg;
       console.error(`[SideCar] Failed to connect to MCP server "${name}" (${transportType}):`, msg);
+      this.notifyStatusChange();
 
       // Schedule reconnection
       this.scheduleReconnect(conn);
@@ -426,6 +442,26 @@ export class MCPManager {
 
   getServerNames(): string[] {
     return this.connections.map((c) => c.name);
+  }
+
+  /** Force-reconnect a single server by name. No-ops if not found. */
+  async reconnectServer(name: string): Promise<void> {
+    const idx = this.connections.findIndex((c) => c.name === name);
+    if (idx === -1) return;
+    const conn = this.connections[idx];
+    if (conn.reconnectTimer) {
+      clearTimeout(conn.reconnectTimer);
+      conn.reconnectTimer = undefined;
+    }
+    try {
+      await conn.client?.close();
+    } catch {
+      // ignore close errors
+    }
+    const config = conn.config;
+    this.connections.splice(idx, 1);
+    await this.connectServer(name, config);
+    this.rebuildToolCache();
   }
 
   /** Get detailed status for all servers. */

@@ -189,6 +189,14 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
   if (dir && dir !== '.') {
     await workspace.fs.createDirectory(Uri.joinPath(rootUri, dir));
   }
+
+  // Record to edit timeline before overwriting so we capture the original.
+  // Skip when cwd is set (shadow workspace — sandbox has its own review flow).
+  if (context?.editTimeline && !context.cwd) {
+    const original = await readDiskViaWorkspace(context, filePath);
+    context.editTimeline.record(filePath, original, content);
+  }
+
   await workspace.fs.writeFile(fileUri, Buffer.from(content, 'utf-8'));
   return `File written: ${filePath}`;
 }
@@ -240,6 +248,13 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
     return `Error: Search text not found in ${filePath}`;
   }
   const newText = text.replace(search, () => replace);
+
+  // Record to edit timeline before overwriting.
+  // Skip when cwd is set (shadow workspace).
+  if (context?.editTimeline && !context.cwd) {
+    context.editTimeline.record(filePath, text, newText);
+  }
+
   await workspace.fs.writeFile(fileUri, Buffer.from(newText, 'utf-8'));
   return `File edited: ${filePath}`;
 }

@@ -1691,6 +1691,30 @@
           "name": "Pinned Memory",
           "icon": "$(pin)",
           "when": "true"
+        },
+        {
+          "id": "sidecar.editTimeline",
+          "name": "Agent Edit History",
+          "icon": "$(history)",
+          "when": "true"
+        },
+        {
+          "id": "sidecar.backgroundAgents",
+          "name": "Background Agents",
+          "icon": "$(play-circle)",
+          "when": "true"
+        },
+        {
+          "id": "sidecar.mcpServers",
+          "name": "MCP Servers",
+          "icon": "$(plug)",
+          "when": "true"
+        },
+        {
+          "id": "sidecar.sessions",
+          "name": "Saved Sessions",
+          "icon": "$(history)",
+          "when": "true"
         }
       ]
     },
@@ -1702,6 +1726,22 @@
       {
         "view": "sidecar.pinnedMemory",
         "contents": "No pinned memory entries.\n\nPin files, selections, or notes to inject them into every chat session.\n\n[Pin a file](command:sidecar.pinToMemory)\n[Pin active file](command:sidecar.pinActiveFileToMemory)"
+      },
+      {
+        "view": "sidecar.editTimeline",
+        "contents": "No agent edits yet.\n\nFiles the agent writes or edits during this chat session will appear here. You can revert individual files or all changes at once."
+      },
+      {
+        "view": "sidecar.backgroundAgents",
+        "contents": "No background agents running.\n\nBackground agents run tasks asynchronously while you keep working. Start one with `/bg <task>` in the chat."
+      },
+      {
+        "view": "sidecar.mcpServers",
+        "contents": "No MCP servers configured.\n\nMCP servers extend the agent with external tools. Add them in Settings under `sidecar.mcpServers`.\n\n[Open Settings](command:workbench.action.openSettings?%5B%22sidecar.mcpServers%22%5D)"
+      },
+      {
+        "view": "sidecar.sessions",
+        "contents": "No saved sessions.\n\nSave your current conversation to pick it back up later.\n\n[Save Current Session](command:sidecar.sessions.save)"
       }
     ],
     "chatParticipants": [
@@ -1760,6 +1800,65 @@
         "title": "Refresh Pinned Memory from Disk",
         "category": "SideCar",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "sidecar.editTimeline.revert",
+        "title": "Revert File to Pre-Agent State",
+        "category": "SideCar",
+        "icon": "$(discard)"
+      },
+      {
+        "command": "sidecar.editTimeline.revertAll",
+        "title": "Revert All Agent Edits",
+        "category": "SideCar",
+        "icon": "$(discard)"
+      },
+      {
+        "command": "sidecar.editTimeline.clear",
+        "title": "Clear Edit History",
+        "category": "SideCar",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "sidecar.bgAgents.cancelRun",
+        "title": "Cancel Background Agent Run",
+        "category": "SideCar",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "sidecar.bgAgents.clearCompleted",
+        "title": "Clear Completed Runs",
+        "category": "SideCar",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "sidecar.mcp.reconnectServer",
+        "title": "Reconnect MCP Server",
+        "category": "SideCar",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "sidecar.mcp.reconnectAll",
+        "title": "Reconnect All MCP Servers",
+        "category": "SideCar",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "sidecar.sessions.save",
+        "title": "Save Current Session",
+        "category": "SideCar",
+        "icon": "$(save)"
+      },
+      {
+        "command": "sidecar.sessions.load",
+        "title": "Load Session",
+        "category": "SideCar"
+      },
+      {
+        "command": "sidecar.sessions.delete",
+        "title": "Delete Session",
+        "category": "SideCar",
+        "icon": "$(trash)"
       },
       {
         "command": "sidecar.adaptivePaste.transform",
@@ -2239,6 +2338,31 @@
           "command": "sidecar.showSpend",
           "when": "view == sidecar.chatView",
           "group": "1_config@2"
+        },
+        {
+          "command": "sidecar.editTimeline.revertAll",
+          "when": "view == sidecar.editTimeline",
+          "group": "navigation@1"
+        },
+        {
+          "command": "sidecar.editTimeline.clear",
+          "when": "view == sidecar.editTimeline",
+          "group": "navigation@2"
+        },
+        {
+          "command": "sidecar.bgAgents.clearCompleted",
+          "when": "view == sidecar.backgroundAgents",
+          "group": "navigation@1"
+        },
+        {
+          "command": "sidecar.mcp.reconnectAll",
+          "when": "view == sidecar.mcpServers",
+          "group": "navigation@1"
+        },
+        {
+          "command": "sidecar.sessions.save",
+          "when": "view == sidecar.sessions",
+          "group": "navigation@1"
         }
       ],
       "view/item/context": [
@@ -2255,6 +2379,26 @@
         {
           "command": "sidecar.unpinMemory",
           "when": "view == sidecar.pinnedMemory && viewItem == pinnedEntry",
+          "group": "inline@1"
+        },
+        {
+          "command": "sidecar.editTimeline.revert",
+          "when": "view == sidecar.editTimeline && viewItem == timelineFile",
+          "group": "inline@1"
+        },
+        {
+          "command": "sidecar.bgAgents.cancelRun",
+          "when": "view == sidecar.backgroundAgents && viewItem == bgRunActive",
+          "group": "inline@1"
+        },
+        {
+          "command": "sidecar.mcp.reconnectServer",
+          "when": "view == sidecar.mcpServers && viewItem == mcpServerFailed",
+          "group": "inline@1"
+        },
+        {
+          "command": "sidecar.sessions.delete",
+          "when": "view == sidecar.sessions && viewItem == sessionEntry",
           "group": "inline@1"
         }
       ]
@@ -2343,6 +2487,7 @@
     "eval:llm": "SIDECAR_DISABLE_THINKING=true vitest run --config vitest.eval.config.ts",
     "eval:parity": "vitest run --config vitest.eval.config.ts tests/llm-eval/embeddingParity.eval.ts",
     "eval:parity:record": "SIDECAR_RECORD_PARITY_BASELINE=1 vitest run --config vitest.eval.config.ts tests/llm-eval/embeddingParity.eval.ts",
+    "eval:compare": "SIDECAR_DISABLE_THINKING=true vitest run --config vitest.eval.config.ts tests/llm-eval/modelComparison.eval.ts",
     "lint": "eslint src/",
     "format": "prettier --write 'src/**/*.ts'",
     "format:check": "prettier --check 'src/**/*.ts'",

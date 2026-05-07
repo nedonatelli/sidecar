@@ -39,6 +39,7 @@ export { compressMessages, parseTextToolCalls, stripRepeatedContent };
 export { runCriticChecks };
 export type { RunCriticOptions };
 import type { PendingEditStore } from './pendingEdits.js';
+import type { EditTimelineStore } from './editTimeline.js';
 
 export interface AgentCallbacks {
   onText: (text: string) => void;
@@ -131,6 +132,12 @@ export interface AgentOptions {
    * instead of touching disk. Forwarded from extension activation.
    */
   pendingEdits?: PendingEditStore;
+  /**
+   * Session-scoped edit timeline. When set, every real-disk write_file
+   * and edit_file call records the file path, original content, and new
+   * content so the sidebar timeline can offer per-file revert.
+   */
+  editTimeline?: EditTimelineStore;
   /**
    * Override the tool list sent to the model. Used by the local
    * delegate-task worker to hand the model a read-only subset so it
