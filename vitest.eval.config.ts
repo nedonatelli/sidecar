@@ -19,6 +19,14 @@ import { defineConfig } from 'vitest/config';
 // the suite is always green in environments that can't pay the cost.
 // ---------------------------------------------------------------------------
 
+// SIDECAR_EVAL_CASE_TIMEOUT drives both the per-case agent abort (in
+// agentHarness.ts) and the vitest test timeout (here). The vitest
+// timeout is set to case timeout + 60 s to allow for sandbox
+// setup/teardown on top of the model response time.
+const rawCaseTimeout = parseInt(process.env.SIDECAR_EVAL_CASE_TIMEOUT ?? '', 10);
+const caseTimeout = Number.isFinite(rawCaseTimeout) && rawCaseTimeout > 0 ? rawCaseTimeout : 120_000;
+const vitestTimeout = caseTimeout + 60_000;
+
 export default defineConfig({
   test: {
     globals: true,
@@ -26,9 +34,8 @@ export default defineConfig({
     include: ['tests/llm-eval/**/*.eval.ts'],
     // Eval runs network requests against real LLM backends. Default
     // vitest timeout (5s) is too short for anything but local Ollama.
-    // Agent-loop cases can span 8 iterations with a slow local model —
-    // 3 minutes per case is the safe floor for llama3.2 on local Ollama.
-    testTimeout: 180_000,
+    // Set via SIDECAR_EVAL_CASE_TIMEOUT (default 120 000 ms) + 60 s overhead.
+    testTimeout: vitestTimeout,
     // Eval cases carry their own logs; don't drown them in vitest's
     // default noisy output.
     reporters: ['verbose'],
