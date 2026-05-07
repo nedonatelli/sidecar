@@ -36,6 +36,13 @@ export default defineConfig({
     // vitest timeout (5s) is too short for anything but local Ollama.
     // Set via SIDECAR_EVAL_CASE_TIMEOUT (default 120 000 ms) + 60 s overhead.
     testTimeout: vitestTimeout,
+    // Run test files sequentially so all files share the same Ollama
+    // connection without contention. Parallel file execution causes prompt
+    // and agent eval workers to queue requests on the same local model
+    // simultaneously — prompt cases exhaust most of the agent case timeout
+    // before the model becomes available, producing spurious empty-trajectory
+    // failures that look like the model can't tool-call at all.
+    fileParallelism: false,
     // Eval cases carry their own logs; don't drown them in vitest's
     // default noisy output.
     reporters: ['verbose'],
