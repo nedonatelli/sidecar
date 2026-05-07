@@ -316,6 +316,7 @@ export async function runAgentLoop(
       // Pre-turn budget compression. Returns 'exhausted' when
       // compaction couldn't bring us below the hard ceiling.
       const compressionOutcome = await applyBudgetCompression(client, state);
+      if (signal.aborted) break;
       if (compressionOutcome === 'exhausted') {
         const estimatedTokens =
           state.lastActualInputTokens ?? estimateTokensFromState(state.totalChars, state.messages);

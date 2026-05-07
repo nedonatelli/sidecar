@@ -1,5 +1,5 @@
 import type { SideCarClient } from '../../ollama/client.js';
-import type { StreamEvent, ToolUseContentBlock } from '../../ollama/types.js';
+import type { ToolUseContentBlock } from '../../ollama/types.js';
 import { getContentText } from '../../ollama/types.js';
 import type { AgentCallbacks } from '../loop.js';
 import type { LoopState } from './state.js';
@@ -54,9 +54,32 @@ export interface TurnResult {
   terminated: TurnTermination;
 }
 
-// Sentinel used inside Promise.race for the per-event timeout. String-tagged
-// so we can differentiate from real errors without swallowing them.
-const REQUEST_TIMEOUT_SENTINEL = '__REQUEST_TIMEOUT__';
+/**
+ * Race `promise` against an AbortSignal. Rejects with a `DOMException`
+ * AbortError when the signal fires before the promise settles. This is
+ * needed so that hanging mock generators (used in tests) can be
+ * interrupted by a timeout, in addition to real fetch generators which
+ * are cancelled via the underlying AbortSignal passed to streamChat.
+ */
+function raceWithAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) {
+    return Promise.reject(new DOMException('Aborted', 'AbortError'));
+  }
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(new DOMException('Aborted', 'AbortError'));
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then(
+      (val) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(val);
+      },
+      (err: unknown) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(err);
+      },
+    );
+  });
+}
 
 /**
  * Query the session's episodic memory store and return a formatted
@@ -124,41 +147,55 @@ export async function streamOneTurn(
     ? (state.systemPromptOverride ?? client.getSystemPrompt()) + '\n\n' + episodicAddon
     : state.systemPromptOverride;
 
-  const stream = client.streamChat(state.messages, signal, iterTools, effectiveSystemPrompt, state.modelOverride);
+  // Per-turn AbortController for timeouts. Aborting this controller
+  // cancels the underlying fetch TCP connection immediately — unlike
+  // iter.return() which only schedules a return at the next await
+  // point and doesn't close the socket.
+  const timeoutController = new AbortController();
+  const combinedSignal = AbortSignal.any([signal, timeoutController.signal]);
+
+  const stream = client.streamChat(
+    state.messages,
+    combinedSignal,
+    iterTools,
+    effectiveSystemPrompt,
+    state.modelOverride,
+  );
   const iter = stream[Symbol.asyncIterator]();
-  let receivedFirstToken = false;
+  let timedOut = false;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+  // Arms (or re-arms) the stall timer. When it fires it aborts the
+  // timeout controller, which propagates through combinedSignal and
+  // closes the underlying fetch socket. Passing ms <= 0 disables it.
+  const armTimeout = (ms: number) => {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
+    if (ms <= 0) return;
+    timeoutId = setTimeout(() => {
+      timedOut = true;
+      timeoutController.abort();
+    }, ms);
+  };
+
+  // First-token wait: local models may need time to load from disk
+  // or warm the KV cache. Tighten to requestTimeoutMs once streaming
+  // has begun, so mid-stream stalls are caught promptly.
+  armTimeout(firstTokenTimeoutMs > 0 ? firstTokenTimeoutMs : requestTimeoutMs);
+
   try {
     while (true) {
-      if (signal.aborted) {
-        terminated = 'aborted';
+      if (combinedSignal.aborted) {
+        terminated = timedOut ? 'timeout' : 'aborted';
         break;
       }
 
-      // Use firstTokenTimeoutMs for the initial wait, then requestTimeoutMs
-      // for subsequent events. Local models (Ollama) may need extra time
-      // to load from disk or warm up the KV cache before producing the
-      // first token, while mid-stream gaps are a reliable sign of a stall.
-      const activeTimeoutMs = !receivedFirstToken && firstTokenTimeoutMs > 0 ? firstTokenTimeoutMs : requestTimeoutMs;
-
-      // Race the next stream event against the timeout. Clear the
-      // timer when next() wins so we don't leak timers and keep the
-      // event loop alive longer than needed.
-      let result: IteratorResult<StreamEvent>;
-      if (activeTimeoutMs > 0) {
-        let timeoutId: ReturnType<typeof setTimeout> | undefined;
-        const nextPromise = iter.next();
-        const timeoutPromise = new Promise<never>((_, reject) => {
-          timeoutId = setTimeout(() => reject(new Error(REQUEST_TIMEOUT_SENTINEL)), activeTimeoutMs);
-        });
-        try {
-          result = await Promise.race([nextPromise, timeoutPromise]);
-        } finally {
-          if (timeoutId !== undefined) clearTimeout(timeoutId);
-        }
-      } else {
-        result = await iter.next();
-      }
-      receivedFirstToken = true;
+      // Race against combinedSignal so that:
+      //   - real generators: abort closes the underlying fetch TCP connection
+      //   - mock generators (tests): the race interrupts a hanging next()
+      const result = await raceWithAbort(iter.next(), combinedSignal);
+      // Reset the stall timer on every event (switch from first-token
+      // wait to per-event wait after the first token arrives).
+      armTimeout(requestTimeoutMs);
 
       if (result.done) break;
       const event = result.value;
@@ -211,16 +248,10 @@ export async function streamOneTurn(
       }
     }
   } catch (err) {
-    if (err instanceof Error && err.message === REQUEST_TIMEOUT_SENTINEL) {
-      terminated = 'timeout';
-      // Best-effort cleanup — the generator may not support return().
-      try {
-        iter.return?.(undefined);
-      } catch {
-        /* stream cleanup is best-effort */
-      }
-    } else if (err instanceof Error && err.name === 'AbortError') {
-      terminated = 'aborted';
+    if (err instanceof Error && err.name === 'AbortError') {
+      // AbortError from combinedSignal — decide whether it was a stall
+      // timeout or a user/outer abort based on which controller fired.
+      terminated = timedOut ? 'timeout' : 'aborted';
     } else {
       // Capture the partial before re-throwing so /resume can pick it up.
       // Fire only when we actually accumulated text — empty-partial
@@ -235,6 +266,17 @@ export async function streamOneTurn(
         }
       }
       throw err;
+    }
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
+    // Ensure the timeout controller is always aborted so the fetch
+    // connection is released even on normal completion or re-throw.
+    if (!timeoutController.signal.aborted) timeoutController.abort();
+    // Best-effort generator cleanup.
+    try {
+      iter.return?.(undefined);
+    } catch {
+      /* ignore */
     }
   }
 
