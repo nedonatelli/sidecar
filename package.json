@@ -1694,6 +1694,16 @@
         }
       ]
     },
+    "viewsWelcome": [
+      {
+        "view": "sidecar.reviewPanel",
+        "contents": "No pending agent changes.\n\nWhen SideCar edits files, proposed changes appear here so you can review them before they're written to disk.\n\n[Accept All](command:sidecar.review.acceptAll)\n[Discard All](command:sidecar.review.discardAll)"
+      },
+      {
+        "view": "sidecar.pinnedMemory",
+        "contents": "No pinned memory entries.\n\nPin files, selections, or notes to inject them into every chat session.\n\n[Pin a file](command:sidecar.pinToMemory)\n[Pin active file](command:sidecar.pinActiveFileToMemory)"
+      }
+    ],
     "chatParticipants": [
       {
         "id": "sidecar.sidecar",
@@ -2206,6 +2216,21 @@
           "group": "navigation@2"
         },
         {
+          "command": "sidecar.pinActiveFileToMemory",
+          "when": "view == sidecar.pinnedMemory",
+          "group": "navigation@1"
+        },
+        {
+          "command": "sidecar.pinToMemory",
+          "when": "view == sidecar.pinnedMemory",
+          "group": "navigation@2"
+        },
+        {
+          "command": "sidecar.pinnedMemory.refresh",
+          "when": "view == sidecar.pinnedMemory",
+          "group": "navigation@3"
+        },
+        {
           "command": "sidecar.setApiKey",
           "when": "view == sidecar.chatView",
           "group": "navigation@1"
@@ -2226,6 +2251,11 @@
           "command": "sidecar.review.discardFile",
           "when": "view == sidecar.reviewPanel && viewItem == sidecar.reviewEntry",
           "group": "inline@2"
+        },
+        {
+          "command": "sidecar.unpinMemory",
+          "when": "view == sidecar.pinnedMemory && viewItem == pinnedEntry",
+          "group": "inline@1"
         }
       ]
     },
