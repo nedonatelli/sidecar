@@ -208,6 +208,8 @@ interface OllamaChatChunk {
   message: {
     role: string;
     content: string;
+    /** Native thinking field used by models like GLM that don't use <think> tags. */
+    thinking?: string;
     tool_calls?: OllamaToolCall[];
   };
   done: boolean;
@@ -413,6 +415,14 @@ export class OllamaBackend implements ApiBackend {
           } catch {
             console.warn('[SideCar] Ollama: failed to parse NDJSON line:', trimmed.slice(0, 200));
             continue;
+          }
+
+          // Emit native thinking field (used by models like GLM-4 that put
+          // their chain-of-thought in message.thinking rather than <think>
+          // tags inside message.content). Emitting these events keeps the
+          // per-event stall timer alive while the model reasons.
+          if (chunk.message.thinking) {
+            yield { type: 'thinking', thinking: chunk.message.thinking };
           }
 
           // Emit text content, parsing <think> tags for reasoning models

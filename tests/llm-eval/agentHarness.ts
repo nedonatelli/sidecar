@@ -126,13 +126,27 @@ export function pickAgentBackend(): AgentEvalBackend | null {
 }
 
 /**
+ * Per-case timeout override. Set SIDECAR_EVAL_CASE_TIMEOUT (milliseconds) to
+ * give slow local models more time to process the large system prompt before
+ * the outer AbortController fires. Default is 120 000 ms (2 min), which is
+ * comfortable for cloud models but tight for large Ollama models on consumer
+ * hardware. Example: SIDECAR_EVAL_CASE_TIMEOUT=300000 for 5 min per case.
+ */
+export const DEFAULT_CASE_TIMEOUT_MS = (() => {
+  const raw = process.env.SIDECAR_EVAL_CASE_TIMEOUT;
+  const parsed = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 120_000;
+})();
+
+/**
  * Run one agent-loop eval case end-to-end. Throws on infrastructure
  * errors (sandbox setup, backend unreachable); returns a pass/fail
  * result otherwise.
  *
  * @param evalCase  The eval case to run.
  * @param backend   The backend to use for the run.
- * @param timeoutMs  Milliseconds before the run is aborted. Defaults to 120 000.
+ * @param timeoutMs  Milliseconds before the run is aborted. Defaults to
+ *   `DEFAULT_CASE_TIMEOUT_MS` (120 000 ms, or SIDECAR_EVAL_CASE_TIMEOUT).
  * @param modelOverride  Override the backend's `defaultModel()`. Pass
  *   explicitly when running a comparison across multiple models on the
  *   same backend so each call uses a different model without mutating
@@ -151,7 +165,7 @@ export async function runAgentCase(
   timeoutMsOrOpts?: number,
   modelOverride?: string,
 ): Promise<AgentCaseResult> {
-  const timeoutMs = timeoutMsOrOpts ?? 120_000;
+  const timeoutMs = timeoutMsOrOpts ?? DEFAULT_CASE_TIMEOUT_MS;
   const start = Date.now();
   const sandbox = await installSandbox(evalCase.workspace, evalCase.id);
   let snapshot: WorkspaceFixture = {};

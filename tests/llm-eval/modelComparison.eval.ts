@@ -1,7 +1,7 @@
 import { describe, it, afterAll } from 'vitest';
 import { AGENT_CASES } from './agentCases.js';
 import { CODE_QUALITY_CASES } from './codeQualityCases.js';
-import { runAgentCase, AGENT_BACKENDS } from './agentHarness.js';
+import { runAgentCase, AGENT_BACKENDS, DEFAULT_CASE_TIMEOUT_MS } from './agentHarness.js';
 import type { AgentEvalBackend } from './agentHarness.js';
 import type { AgentCaseResult, AgentEvalCase } from './agentTypes.js';
 
@@ -100,7 +100,7 @@ describe.skipIf(!models)('llm-eval :: model comparison', () => {
         it(evalCase.id, async () => {
           let result: AgentCaseResult;
           try {
-            result = await runAgentCase(evalCase, spec.backend, 120_000, spec.model);
+            result = await runAgentCase(evalCase, spec.backend, DEFAULT_CASE_TIMEOUT_MS, spec.model);
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             matrix.get(evalCase.id)!.set(spec.label, { infra: true, message: msg });

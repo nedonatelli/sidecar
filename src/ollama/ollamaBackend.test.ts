@@ -380,6 +380,31 @@ describe('OllamaBackend', () => {
       // Should emit end-of-reasoning marker
       expect(events).toContainEqual({ type: 'thinking', thinking: '\n(end of reasoning)' });
     });
+
+    it('emits thinking events from native message.thinking field (GLM-style)', async () => {
+      // GLM-4 and similar models put their chain-of-thought in message.thinking
+      // with message.content="" during reasoning, then switch to message.content
+      // for the final answer. Our parser must emit thinking events so the
+      // per-event stall timer stays alive while the model reasons.
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        body: ndjsonBody([
+          { model: 'test', message: { role: 'assistant', content: '', thinking: 'The user' }, done: false },
+          { model: 'test', message: { role: 'assistant', content: '', thinking: ' wants a greeting' }, done: false },
+          { model: 'test', message: { role: 'assistant', content: 'Hello!', thinking: '' }, done: false },
+          { model: 'test', message: { role: 'assistant', content: '' }, done: true, done_reason: 'stop' },
+        ]),
+      });
+
+      const events = [];
+      for await (const event of backend.streamChat('test', '', [{ role: 'user', content: 'hi' }])) {
+        events.push(event);
+      }
+
+      expect(events).toContainEqual({ type: 'thinking', thinking: 'The user' });
+      expect(events).toContainEqual({ type: 'thinking', thinking: ' wants a greeting' });
+      expect(events).toContainEqual({ type: 'text', text: 'Hello!' });
+    });
   });
 
   describe('complete', () => {
