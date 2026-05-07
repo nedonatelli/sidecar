@@ -187,6 +187,15 @@ function normalizeSignature(pendingToolUses: ToolUseContentBlock[]): string {
           return `${tu.name}:${v.slice(0, 80)}`;
         }
       }
+      // Fall back to the first non-empty string value among remaining args so
+      // tools without a canonical resource key (e.g. run_tests with a suite
+      // name) don't all collapse to the bare tool name and falsely trigger
+      // the normalized-cycle detector when called with different inputs.
+      for (const v of Object.values(input)) {
+        if (typeof v === 'string' && v) {
+          return `${tu.name}:${v.slice(0, 80)}`;
+        }
+      }
       return tu.name;
     })
     .join('|');

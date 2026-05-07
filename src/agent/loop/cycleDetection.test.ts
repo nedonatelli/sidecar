@@ -323,15 +323,38 @@ describe('detectCycleAndBail — normalized signature pass', () => {
     expect(cb.texts[0]).toContain('same resource');
   });
 
-  it('falls back to tool name alone when input has no recognized resource key', () => {
-    // Tools with no path/command/query — normalized sig is just the tool name.
-    // Three calls → fires at 3 repeats.
+  it('uses first non-primary string arg so different values do not collide', () => {
+    // Tools with no path/command/query fall back to the first string value
+    // in the input rather than bare tool name — so different filter values
+    // produce distinct signatures and do NOT trigger a false-positive cycle.
+    const state = stubState();
+    const cb = stubCallbacks();
+    for (let i = 0; i < 3; i++) {
+      expect(detectCycleAndBail([makeToolUse('list_processes', { filter: `p${i}` })], state, cb)).toBe(false);
+    }
+    expect(cb.texts).toHaveLength(0);
+  });
+
+  it('fires when no-primary-key tool is called with the same args repeatedly', () => {
+    // Same tool, same non-primary arg value 3 times → normalized sig repeats → cycle.
     const state = stubState();
     const cb = stubCallbacks();
     for (let i = 0; i < 2; i++) {
-      expect(detectCycleAndBail([makeToolUse('list_processes', { filter: `p${i}` })], state, cb)).toBe(false);
+      expect(detectCycleAndBail([makeToolUse('list_processes', { filter: 'stuck' })], state, cb)).toBe(false);
     }
-    expect(detectCycleAndBail([makeToolUse('list_processes', { filter: 'p2' })], state, cb)).toBe(true);
+    expect(detectCycleAndBail([makeToolUse('list_processes', { filter: 'stuck' })], state, cb)).toBe(true);
+    expect(cb.texts[0]).toContain('same resource');
+  });
+
+  it('falls back to tool name alone when input has no string args at all', () => {
+    // Tools with zero string args normalize to just the tool name.
+    // Three bare calls → fires at 3 repeats.
+    const state = stubState();
+    const cb = stubCallbacks();
+    for (let i = 0; i < 2; i++) {
+      expect(detectCycleAndBail([makeToolUse('list_processes', { limit: i })], state, cb)).toBe(false);
+    }
+    expect(detectCycleAndBail([makeToolUse('list_processes', { limit: 99 })], state, cb)).toBe(true);
     expect(cb.texts[0]).toContain('same resource');
   });
 

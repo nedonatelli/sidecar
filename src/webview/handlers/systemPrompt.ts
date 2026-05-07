@@ -107,15 +107,19 @@ export async function injectSystemContext(
   sizes['SIDECAR.md'] = prompt.length - prevLen;
   prevLen = prompt.length;
 
-  // User system prompt — the user's own setting, safe in both trust states
-  if (config.systemPrompt && prompt.length < maxSystemChars) {
+  // User system prompt — the user's own setting, safe in both trust states.
+  // Call ensureBoundary before the budget check so `remaining` is computed
+  // against the post-boundary length (boundary can be ~180 chars).
+  if (config.systemPrompt) {
     prompt = ensureBoundary(prompt);
     const remaining = maxSystemChars - prompt.length;
-    const truncated =
-      config.systemPrompt.length > remaining
-        ? config.systemPrompt.slice(0, remaining - 50) + '\n... (system prompt truncated)'
-        : config.systemPrompt;
-    prompt += `\n\nUser instructions:\n${truncated}`;
+    if (remaining > 0) {
+      const truncated =
+        config.systemPrompt.length > remaining
+          ? config.systemPrompt.slice(0, remaining - 50) + '\n... (system prompt truncated)'
+          : config.systemPrompt;
+      prompt += `\n\nUser instructions:\n${truncated}`;
+    }
   }
   sizes['User instructions'] = prompt.length - prevLen;
   prevLen = prompt.length;
