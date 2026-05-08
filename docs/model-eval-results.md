@@ -14,15 +14,15 @@ The suite has two layers:
 
 **Agent cases (46 total)** — the model runs inside the full agent loop with real tools against a sandboxed workspace. Cases test tool selection, file editing, code quality, error recovery, and operating rules (e.g. run tests after a fix, use `search_files` not `list_directory + filter`).
 
-**Prompt cases (24 total)** — the model is tested against the base system prompt without tool calls: identity, honesty, conciseness, language mirroring, injection resistance, retrieval citation, and tool preference rules.
+**Prompt cases (29 total)** — the model is tested against the base system prompt without tool calls: identity, honesty, conciseness, language mirroring, injection resistance, retrieval citation, and tool preference rules.
 
 Cases are scored deterministically (string matching, regex, trajectory inspection — no LLM-as-judge). A case passes only when every expectation holds. Some expectations use `softExpect` (reported but not counted toward pass/fail) for answer-quality checks where the core behavioral signal is in the trajectory.
 
 ## Results
 
-> Last updated: 2026-05-08. Run with `SIDECAR_EVAL_CASE_TIMEOUT=300000` for local models, `120000` for cloud. Suite v0.89 (46 agent + 24 prompt cases).
+> Last updated: 2026-05-08. Run with `SIDECAR_EVAL_CASE_TIMEOUT=300000` for local models, `120000` for cloud. Suite v0.89 (46 agent + 29 prompt cases).
 > Scores reflect the test suite at time of run; re-run models after any structural fix to get current numbers.
-> Suite now has 46 agent cases + 24 prompt cases. Table scores are from v0.87 (32 cases) — re-run to get current numbers. Prompt denominator may vary by backend (some cases are backend-specific or skipped when a case times out).
+> Suite now has 46 agent cases + 29 prompt cases. Table scores are from v0.87 (32 cases) — re-run to get current numbers. Prompt denominator may vary by backend (some cases are backend-specific or skipped when a case times out).
 
 | Model | Backend | Size | Agent | Prompt | Total | Notes |
 |-------|---------|------|-------|--------|-------|-------|
