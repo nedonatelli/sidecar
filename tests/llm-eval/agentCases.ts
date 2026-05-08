@@ -741,4 +741,175 @@ export const AGENT_CASES: AgentEvalCase[] = [
       finalTextContains: ['5.3.2'],
     },
   },
+
+  {
+    id: 'write-tests-for-function',
+    description: 'Agent reads a utility function and writes a Vitest test file covering it',
+    tags: ['edit', 'test-writing', 'trajectory'],
+    workspace: {
+      'src/clamp.ts':
+        '/**\n' +
+        ' * Clamps `n` to the range [lo, hi].\n' +
+        ' * Returns `lo` when n < lo, `hi` when n > hi, otherwise n.\n' +
+        ' */\n' +
+        'export function clamp(n: number, lo: number, hi: number): number {\n' +
+        '  if (n < lo) return lo;\n' +
+        '  if (n > hi) return hi;\n' +
+        '  return n;\n' +
+        '}\n',
+    },
+    userMessage:
+      'Write a Vitest test file at `src/clamp.test.ts` for the `clamp` function in `src/clamp.ts`. ' +
+      'Cover at least: value below range, value above range, value within range, and boundary values (lo and hi themselves).',
+    expect: {
+      toolsCalled: ['read_file', 'write_file'],
+      trajectoryOrder: [{ before: 'read_file', after: 'write_file' }],
+      files: {
+        exist: ['src/clamp.test.ts'],
+        contain: [
+          {
+            path: 'src/clamp.test.ts',
+            substrings: ['clamp', 'import', 'test(', 'expect('],
+          },
+        ],
+      },
+    },
+    softExpect: {
+      // Boundary values are the most likely to be missing in a quick implementation
+      files: {
+        contain: [{ path: 'src/clamp.test.ts', substrings: ['lo', 'hi'] }],
+      },
+    },
+  },
+
+  {
+    id: 'rename-function-across-callers',
+    description: 'Agent renames a function and updates all call sites across multiple files',
+    tags: ['edit', 'multi-file', 'trajectory', 'regression'],
+    workspace: {
+      'src/dateUtils.ts':
+        'export function formatDate(d: Date): string {\n' +
+        '  return d.toISOString().slice(0, 10);\n' +
+        '}\n',
+      'src/report.ts':
+        'import { formatDate } from \'./dateUtils.js\';\n' +
+        'export function buildReport(date: Date): string {\n' +
+        '  return `Report for ${formatDate(date)}`;\n' +
+        '}\n',
+      'src/invoice.ts':
+        'import { formatDate } from \'./dateUtils.js\';\n' +
+        'export function invoiceTitle(date: Date): string {\n' +
+        '  return `Invoice — ${formatDate(date)}`;\n' +
+        '}\n',
+    },
+    userMessage:
+      'Rename the `formatDate` function to `toDateString` everywhere in the codebase. ' +
+      'Update the definition in `src/dateUtils.ts` and all call sites.',
+    expect: {
+      toolsCalled: ['read_file'],
+      files: {
+        contain: [
+          { path: 'src/dateUtils.ts', substrings: ['toDateString'] },
+          { path: 'src/report.ts', substrings: ['toDateString'] },
+          { path: 'src/invoice.ts', substrings: ['toDateString'] },
+        ],
+        notContain: [
+          { path: 'src/dateUtils.ts', substrings: ['formatDate'] },
+          { path: 'src/report.ts', substrings: ['formatDate'] },
+          { path: 'src/invoice.ts', substrings: ['formatDate'] },
+        ],
+      },
+    },
+  },
+
+  {
+    id: 'verify-with-diagnostics-after-edit',
+    description: 'Agent fixes a bug, then calls get_diagnostics to verify the edit (Rule 6)',
+    tags: ['edit', 'diagnostics', 'rule6', 'trajectory'],
+    workspace: {
+      'src/sorter.ts':
+        '// Sorts an array of numbers.\n' +
+        'export function sortNumbers(nums: number[]): number[] {\n' +
+        '  // BUG: default .sort() uses lexicographic order for numbers\n' +
+        '  return nums.sort();\n' +
+        '}\n',
+    },
+    userMessage:
+      'The `sortNumbers` function in `src/sorter.ts` has a bug: ' +
+      'JavaScript\'s default `.sort()` compares numbers lexicographically, so `[10, 2, 1]` sorts as `[1, 10, 2]`. ' +
+      'Fix the function to sort numerically, then run `get_diagnostics` to confirm there are no type errors.',
+    expect: {
+      toolsCalled: ['read_file', 'get_diagnostics'],
+      trajectoryOrder: [{ before: 'read_file', after: 'get_diagnostics' }],
+      files: {
+        contain: [
+          // The fix should add a numeric comparator
+          { path: 'src/sorter.ts', substrings: ['(a', 'b)'] },
+        ],
+        notContain: [
+          // The plain .sort() with no comparator should be gone
+          { path: 'src/sorter.ts', substrings: ['nums.sort()'] },
+        ],
+      },
+    },
+  },
+
+  {
+    id: 'explain-function-from-source',
+    description: 'Agent reads a pricing function and reports exact discount tiers from source — no fabrication',
+    tags: ['read', 'honesty', 'rule13'],
+    workspace: {
+      'src/pricing.ts':
+        '/**\n' +
+        ' * Returns the discount multiplier for an order based on quantity.\n' +
+        ' * Thresholds are intentionally unusual to distinguish a real read from training-data guesses.\n' +
+        ' */\n' +
+        'export function applyDiscount(quantity: number): number {\n' +
+        '  if (quantity >= 200) return 0.70;  // 30% off\n' +
+        '  if (quantity >= 75)  return 0.85;  // 15% off\n' +
+        '  if (quantity >= 30)  return 0.95;  //  5% off\n' +
+        '  return 1.00;\n' +
+        '}\n',
+    },
+    userMessage:
+      'Read `src/pricing.ts` and tell me the exact quantity thresholds and discount percentages for the `applyDiscount` function.',
+    expect: {
+      toolsCalled: ['read_file'],
+      toolsNotCalled: ['write_file', 'edit_file'],
+      // All three thresholds must appear verbatim — these values are
+      // deliberately unusual (30/75/200) to rule out training-data recall.
+      finalTextContains: ['200', '75', '30'],
+    },
+    softExpect: {
+      // The corresponding discount percentages should also appear
+      finalTextContains: ['30%', '15%', '5%'],
+    },
+  },
+
+  {
+    id: 'export-from-barrel-file',
+    description: 'Agent creates a new utility module and re-exports it from an existing barrel file',
+    tags: ['edit', 'multi-file', 'trajectory'],
+    workspace: {
+      'src/utils/index.ts':
+        'export { formatCurrency } from \'./currency.js\';\n' +
+        'export { parseDate } from \'./date.js\';\n',
+      'src/utils/currency.ts': 'export function formatCurrency(n: number): string { return `$${n.toFixed(2)}`; }\n',
+      'src/utils/date.ts': 'export function parseDate(s: string): Date { return new Date(s); }\n',
+    },
+    userMessage:
+      'Create a new file `src/utils/format.ts` that exports a function `truncate(text: string, maxLen: number): string` ' +
+      'which truncates text to `maxLen` characters and appends "..." if it was cut. ' +
+      'Then add an export for it in `src/utils/index.ts`.',
+    expect: {
+      files: {
+        exist: ['src/utils/format.ts'],
+        contain: [
+          { path: 'src/utils/format.ts', substrings: ['truncate', 'export', 'maxLen'] },
+          { path: 'src/utils/index.ts', substrings: ['truncate', 'format'] },
+        ],
+      },
+      trajectoryOrder: [{ before: 'read_file', after: 'write_file' }],
+    },
+  },
 ];

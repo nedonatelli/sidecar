@@ -44,9 +44,17 @@ All notable changes to the SideCar extension will be documented in this file.
 
 - **Ollama model not unloaded after eval** — eval harness now sends a `keep_alive: 0` unload request after each model run to free VRAM, preventing OOM when testing multiple large models in sequence.
 
+### Fixed
+
+- **Rule 5 read-proactively** — strengthened the base system prompt instruction: after `list_directory` reveals a candidate file, the agent must call `read_file` immediately and must never end its turn with "Would you like me to read X?" or "Shall I check X?". Previously the rule said only "do not surface as an intermediate step", which left room for the ask-first pattern. Addresses the universal `error-recovery-to-correct-file` failure observed across all tested models.
+
+- **`cautious-mode-completes-task` assertion** — removed `'return'` from the `substrings` check for `src/hello.ts`. Arrow function syntax (`export const hello = () => 'hello'`) is valid and does not contain the literal `return`; the old assertion falsely failed correct implementations.
+
 ### Eval harness
 
-- **Suite expanded to 32 agent + 24 prompt cases** — new cases: `delete-file-when-requested`, `version-from-package-json`, and 11 code-quality cases (anti-stub cluster + bug-fix cluster).
+- **Suite expanded to 40 agent + 24 prompt cases** — new cases: `delete-file-when-requested`, `version-from-package-json`, and 11 code-quality cases (anti-stub cluster + bug-fix cluster).
+- **8 new agent cases (v0.88)** — `write-tests-for-function`, `rename-function-across-callers`, `verify-with-diagnostics-after-edit`, `explain-function-from-source`, `export-from-barrel-file` (in `agentCases.ts`); `git-diff-not-run-command`, `git-status-not-run-command`, `git-log-recent-commit` (in new `gitCases.ts`). Git cases require a real repo in the sandbox, enabled by the new `setupCommands` harness field.
+- **`setupCommands` harness field** — `AgentEvalCase.setupCommands?: string[]` runs shell commands in the sandbox root after files are materialized and before the agent starts. Used to initialize a git repo and stage commits so git tool cases see a realistic working tree.
 - **Cloud backends** — OpenRouter and Gemini added to agent eval; all OpenAI-compatible backends (OpenAI, Groq, Fireworks, OpenRouter, Gemini) supported in prompt eval via a shared `OpenAICompatEvalBackend`.
 - **Sequential file execution** — eval files run with `fileParallelism: false` to avoid concurrent Ollama requests from multiple eval files.
 - **`testTimeout` synced to `SIDECAR_EVAL_CASE_TIMEOUT`** — vitest per-test timeout is now `caseTimeout + 60_000` ms so timed-out cases are marked failed at the right point rather than running as zombie promises past the case deadline.

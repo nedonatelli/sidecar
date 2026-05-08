@@ -1,11 +1,12 @@
 import { describe, it } from 'vitest';
 import { AGENT_CASES } from './agentCases.js';
 import { CODE_QUALITY_CASES } from './codeQualityCases.js';
+import { GIT_CASES } from './gitCases.js';
 import { runAgentCase, pickAgentBackend } from './agentHarness.js';
 import { renderAgentReport } from './agentScorers.js';
 import type { AgentCaseResult } from './agentTypes.js';
 
-const ALL_CASES = [...AGENT_CASES, ...CODE_QUALITY_CASES];
+const ALL_CASES = [...AGENT_CASES, ...CODE_QUALITY_CASES, ...GIT_CASES];
 
 // ---------------------------------------------------------------------------
 // Agent-loop eval runner.

@@ -237,6 +237,14 @@ export async function runAgentCase(
   const timeoutMs = timeoutMsOrOpts ?? DEFAULT_CASE_TIMEOUT_MS;
   const start = Date.now();
   const sandbox = await installSandbox(evalCase.workspace, evalCase.id);
+
+  if (evalCase.setupCommands?.length) {
+    const { execSync } = await import('node:child_process');
+    for (const cmd of evalCase.setupCommands) {
+      execSync(cmd, { cwd: sandbox.root, stdio: 'pipe' });
+    }
+  }
+
   let snapshot: WorkspaceFixture = {};
   const trajectory: TrajectoryEvent[] = [];
   const textBuffer: string[] = [];

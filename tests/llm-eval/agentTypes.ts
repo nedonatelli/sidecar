@@ -65,6 +65,13 @@ export interface AgentEvalCase {
    */
   softExpect?: AgentExpectations;
   /**
+   * Shell commands run in the sandbox root after files are materialized
+   * and before the agent starts. Use this to set up git state (init,
+   * stage changes, create commits) that the agent's git tools will see.
+   * Commands run via execSync with cwd=sandbox.root; any failure throws.
+   */
+  setupCommands?: string[];
+  /**
    * Agent loop options. Defaults: approvalMode='autonomous',
    * maxIterations=8 (eval cases should be focused — runaway loops
    * almost always mean the case is wrong or the model regressed).
