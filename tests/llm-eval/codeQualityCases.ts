@@ -504,16 +504,18 @@ export const CODE_QUALITY_CASES: AgentEvalCase[] = [
               // min is unchanged — still uses <=
               'function min',
               'a <= b ? a : b',
-              // max now uses > — the canonical correct form
               'function max',
-              'a > b',
             ],
           },
+        ],
+        // Accept any correct implementation: a > b ? a : b, a < b ? b : a, Math.max, etc.
+        matchesRegex: [
+          { path: 'src/minmax.ts', patterns: [/function max[\s\S]*?(a\s*>\s*b|a\s*<\s*b\s*\?\s*b|Math\.max)/] },
         ],
         notContain: [
           {
             path: 'src/minmax.ts',
-            // the buggy max body (strict <) must be gone after the fix
+            // the original buggy max body (returns minimum) must be gone
             substrings: ['TODO', 'FIXME', 'not implemented', 'a < b ? a : b'],
           },
         ],

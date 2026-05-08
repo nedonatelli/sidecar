@@ -959,8 +959,12 @@ export const AGENT_CASES: AgentEvalCase[] = [
         contain: [
           {
             path: 'src/clamp.test.ts',
-            substrings: ['clamp', 'import', 'test(', 'expect('],
+            substrings: ['clamp', 'import', 'expect('],
           },
+        ],
+        // Vitest exposes both test() and it() as aliases; accept either
+        matchesRegex: [
+          { path: 'src/clamp.test.ts', patterns: [/\b(test|it)\s*\(/] },
         ],
       },
     },
@@ -1099,7 +1103,9 @@ export const AGENT_CASES: AgentEvalCase[] = [
           { path: 'src/utils/index.ts', substrings: ['truncate', 'format'] },
         ],
       },
-      trajectoryOrder: [{ before: 'read_file', after: 'write_file' }],
+      // The model must read index.ts before updating it, but may write
+      // the new format.ts file first (no prior read needed for a new file).
+      trajectoryOrder: [{ before: 'read_file', after: 'edit_file' }],
     },
   },
 

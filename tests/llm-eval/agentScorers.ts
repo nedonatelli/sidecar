@@ -108,6 +108,20 @@ function collectFailures(expect: AgentExpectations, run: AgentRun, out: string[]
       }
     }
   }
+  if (expect.files?.matchesRegex) {
+    for (const spec of expect.files.matchesRegex) {
+      const content = run.workspaceAfter[spec.path];
+      if (content === undefined) {
+        out.push(`files.matchesRegex: "${spec.path}" does not exist`);
+        continue;
+      }
+      for (const pat of spec.patterns) {
+        if (!pat.test(content)) {
+          out.push(`files.matchesRegex: "${spec.path}" does not match ${pat}`);
+        }
+      }
+    }
+  }
   if (expect.files?.equal) {
     for (const spec of expect.files.equal) {
       const content = run.workspaceAfter[spec.path];

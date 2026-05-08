@@ -22,20 +22,20 @@ Cases are scored deterministically (string matching, regex, trajectory inspectio
 
 > Last updated: 2026-05-08. Run with `SIDECAR_EVAL_CASE_TIMEOUT=300000` for local models, `120000` for cloud. Suite v0.89 (47 agent + 31 prompt cases).
 > Scores reflect the test suite at time of run; re-run models after any structural fix to get current numbers.
-> Suite now has 47 agent cases + 31 prompt cases. Table scores are from v0.87 (32 cases) — re-run to get current numbers. Prompt denominator may vary by backend (some cases are backend-specific or skipped when a case times out).
+> Rows marked †v0.87 are from the old 32-case suite and need re-running. Prompt denominator may vary by backend (some cases are backend-specific or skipped when a case times out).
 
 | Model | Backend | Size | Agent | Prompt | Total | Notes |
 |-------|---------|------|-------|--------|-------|-------|
-| **deepseek-v4-pro** | Fireworks | — | 30/32 (94%) | 22/24 (92%) | **52/56 (93%)** | Tied #1; 2 agent timeouts (no-stub-add, fix-type-annotation) not counted in score; 1M token context window |
-| **claude-haiku-4-5-20251001** | Anthropic | — | 30/32 (94%) | 22/24 (92%) | **52/56 (93%)** | Tied #1; cautious-mode-completes-task fail was a test assertion bug (now fixed); error-recovery is the one remaining universal pattern |
-| **qwen/qwen3-235b-a22b** | OpenRouter | — | 28/32 (87%) | 22/24 (92%) | **50/56 (89%)** | Stream-cancel fix (v0.87) resolved 17+ min abort hangs; 4 agent fails include common error-recovery and multi-tool-iteration patterns |
-| **gemini-2.5-flash** | Gemini | — | 28/32 (87%) | 19/24 (79%) | **47/56 (84%)** | Prompt improved +3 from prior run; agent -1 (plan-mode-no-tools new fail); error-recovery and grep-regex-pattern are universal failures |
-| **ministral-3:latest** | Ollama | 6 GB | 30/32 (94%) | 13/24 (54%) | **43/56 (77%)** | Best local agent score; prompt highly variable on local hardware (13/24 this run vs 18/23 prior); error-recovery and grep-regex-pattern are the 2 agent fails |
-| **granite4.1:3b** | Ollama | 2 GB | 25/31 (81%) | 19/23 (83%) | **44/61 (72%)** | Punches well above its weight; 2 cases scraped the 300s timeout |
-| **qwen3.5:latest** | Ollama | 6 GB | 22/32 (69%) | 21/24 (88%) | **43/56 (77%)** | Strong prompt adherence; gains delete-file; loses version-from-package-json (reads file, answers wrong field) |
-| **gemma4:e4b** | Ollama | 9 GB | 20/32 (62%) | 21/24 (88%) | **41/56 (73%)** | Strong prompt adherence; edit_file reliability is main weakness — all bug-fix cases fail (claims success but file unchanged); no timeouts post-stream-cancel fix |
-| **gpt-4.1-mini** | OpenAI | — | 16/31 (52%) | 20/23 (87%) | **36/54 (67%)** | Underperforms for agent tasks; passed delete-file case; all no-stub cases failed; 2 cases timed out at ~250s |
-| **gpt-4o-mini** | OpenAI | — | 15/31 (48%) | 16/22 (73%) | **~35/57 (61%)** | Underperforms its size; struggles with complex tool-use cases |
+| **deepseek-v4-pro** | Fireworks | — | 46/47 (98%) | 25/31 (81%) | **71/78 (91%)** | Highest agent score; plan-mode-no-tools is sole agent fail; prompt weaker on new rule3/rule13/plan-mode cases; 1M token context window |
+| **claude-haiku-4-5-20251001** | Anthropic | — | 44/47 (94%) | 27/31 (87%) | **71/78 (91%)** | 2 assertion-bug inflations (fix-wrong-comparison, autonomous-mode-scope) — true score ~73/78 (94%); error-recovery and grep-regex are universal failures |
+| **qwen/qwen3-235b-a22b** | OpenRouter | — | 40/47 (85%) | 23/31 (74%) | **63/78 (81%)** | Prompt dropped on new rule2/rule4/rule13 cases; error-recovery, grep-regex, multi-tool-iteration are common agent fails; run-tests-fail-fix-iterate timed out |
+| **gemini-2.5-flash** | Gemini | — | 28/32 (87%) | 19/24 (79%) | **47/56 (84%)** | †v0.87 scores — re-run needed. error-recovery and grep-regex-pattern are universal failures |
+| **ministral-3:latest** | Ollama | 6 GB | 30/32 (94%) | 13/24 (54%) | **43/56 (77%)** | †v0.87 scores — re-run needed. Best local agent score; error-recovery and grep-regex-pattern are the 2 agent fails |
+| **granite4.1:3b** | Ollama | 2 GB | 25/31 (81%) | 19/23 (83%) | **44/61 (72%)** | †v0.87 scores — re-run needed. Punches well above its weight; 2 cases scraped the 300s timeout |
+| **gemma4:e4b** | Ollama | 9 GB | 26/47 (55%) | 25/31 (81%) | **51/78 (65%)** | edit_file reliability is dominant weakness — 21 agent failures are almost all edit_file failing to apply; prompt adherence strong |
+| **qwen3.5:latest** | Ollama | 6 GB | 22/32 (69%) | 21/24 (88%) | **43/56 (77%)** | †v0.87 scores — re-run needed. Strong prompt adherence; loses version-from-package-json (reads file, answers wrong field) |
+| **gpt-4.1-mini** | OpenAI | — | 16/31 (52%) | 20/23 (87%) | **36/54 (67%)** | †v0.87 scores — re-run needed. Underperforms for agent tasks; all no-stub cases failed; 2 cases timed out at ~250s |
+| **gpt-4o-mini** | OpenAI | — | 15/31 (48%) | 16/22 (73%) | **~35/57 (61%)** | †v0.87 scores — re-run needed. Underperforms its size; struggles with complex tool-use cases |
 | **gpt-4o** | OpenAI | — | ❌ rate limited | — | — | Free tier 30K TPM; our prompt+tools is ~23K tokens, exhausted after 1 case |
 | **llama-4-scout-17b-16e-instruct** | Groq | — | ❌ rate limited | — | — | Free tier 30K TPM; same constraint as gpt-4o above |
 | **llama-3.3-70b-versatile** | Groq | — | ❌ rate limited | 17/22 (77%) | — | Free tier 12K TPM; too small even for a single request |
@@ -72,13 +72,15 @@ These failures appear across multiple models and indicate areas for prompt impro
 | Pattern | Affected models | Description |
 |---------|----------------|-------------|
 | `rule3-concise-prose` | all tested | Model writes an essay for a simple factual question |
-| `rule7-no-tool-narration` | haiku, gpt-4o-mini, groq, qwen3.5 | Model emits filler text between consecutive tool calls |
-| `git-tool-preference` | haiku, gpt-4o-mini, groq | Model recommends `run_command git diff` instead of `git_diff` tool |
 | `error-recovery-to-correct-file` | all tested | Model finds the candidate file via `list_directory` but asks "would you like me to read it?" instead of reading immediately — Rule 5 strengthened in v0.87 to close this gap |
-| `plan-mode-no-tools` | deepseek | Model says "let me explore first" and calls tools instead of producing the plan directly |
-| `no-stub-add-function-to-existing-file` | deepseek, gemini (cycle detector) | Model enters a long edit-retry loop; deepseek v4-pro times out, Gemini hits the cycle detector false-positive |
-| `version-from-package-json` | qwen3.5 | Model reads the file correctly but answers with the wrong field (e.g. top-level `version` instead of `devDependencies.typescript`) |
-| `edit_file` search-string mismatch | gemma4, gpt-4.1-mini | Model reports success after `edit_file` returns a search-not-found error instead of retrying — improved error message in v0.87 helps other models; gemma4 still claims success without modifying the file |
+| `grep-regex-pattern` | all tested | Model reads every file individually instead of using `grep` with a regex to search across files |
+| `rule7-no-tool-narration` | haiku, gemma4, gpt-4o-mini, qwen3.5 | Model emits filler text between consecutive tool calls |
+| `plan-mode-no-tools` | deepseek, qwen3-235b | Model says "let me explore first" and calls tools instead of producing the plan directly |
+| `plan-mode-behavior` (prompt) | deepseek, qwen3-235b, gemma4 | Model does not describe ExitPlanMode or plan-then-present behavior when explaining plan mode |
+| `rule13-no-invented-url` / `package-version-not-invented` | deepseek, qwen3-235b | Model fabricates a URL or package version it has not seen in context |
+| `edit_file` search-string mismatch | gemma4, gpt-4.1-mini | Model reports success after `edit_file` returns a search-not-found error instead of retrying; gemma4 consistently claims edits landed when the file is unchanged |
+| `rule2/rule4` (new) | qwen3-235b | Rule 2 (name the tool, don't guess inline) and Rule 4 (relative paths) — qwen3-235b fails both on the new prompt cases |
+| `run-tests-fail-fix-iterate` (multi-bug) | qwen3-235b | Multi-iteration fix loop (fix bug 1 → re-run → fix bug 2) times out at 120 s for large cloud models |
 ## Running the eval yourself
 
 ```bash

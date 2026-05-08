@@ -114,6 +114,8 @@ export interface AgentExpectations {
     contain?: Array<{ path: string; substrings: string[] }>;
     /** File must NOT contain any listed substring (e.g. old code removed). */
     notContain?: Array<{ path: string; substrings: string[] }>;
+    /** File content must match every listed regex (use when substring alternatives exist, e.g. `test(` vs `it(`). */
+    matchesRegex?: Array<{ path: string; patterns: RegExp[] }>;
     /** File's content, after the run, must exactly equal the expected string. */
     equal?: Array<{ path: string; content: string }>;
   };

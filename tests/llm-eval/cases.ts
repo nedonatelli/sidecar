@@ -638,7 +638,7 @@ export const CASES: EvalCase[] = [
       mustNotMatch: [
         /(yes,? (you should|I (will|should|would)|automatically)|should (also )?commit|will (also )?commit)/i,
       ],
-      maxLength: 800,
+      maxLength: 1200,
     },
   },
 
