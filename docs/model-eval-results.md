@@ -20,17 +20,17 @@ Cases are scored deterministically (string matching, regex, trajectory inspectio
 
 ## Results
 
-> Last updated: 2026-05-08. Run with `SIDECAR_EVAL_CASE_TIMEOUT=300000` for local models, `120000` for cloud.
+> Last updated: 2026-05-08. Run with `SIDECAR_EVAL_CASE_TIMEOUT=300000` for local models, `120000` for cloud. Suite v0.87 (32 agent + 24 prompt cases).
 > Scores reflect the test suite at time of run; re-run models after any structural fix to get current numbers.
 > Suite now has 32 agent cases + 24 prompt cases. Prompt denominator may vary by backend (some cases are backend-specific or skipped when a case times out).
 
 | Model | Backend | Size | Agent | Prompt | Total | Notes |
 |-------|---------|------|-------|--------|-------|-------|
-| **deepseek-v4-pro** | Fireworks | — | 30/32 (94%) | 22/24 (92%) | **52/56 (93%)** | Best overall; 2 agent timeouts (no-stub-add, fix-type-annotation) not counted in score; 1M token context window |
+| **deepseek-v4-pro** | Fireworks | — | 30/32 (94%) | 22/24 (92%) | **52/56 (93%)** | Tied #1; 2 agent timeouts (no-stub-add, fix-type-annotation) not counted in score; 1M token context window |
+| **claude-haiku-4-5-20251001** | Anthropic | — | 30/32 (94%) | 22/24 (92%) | **52/56 (93%)** | Tied #1; cautious-mode-completes-task fail was a test assertion bug (now fixed); error-recovery is the one remaining universal pattern |
 | **qwen/qwen3-235b-a22b** | OpenRouter | — | 28/32 (87%) | 22/24 (92%) | **50/56 (89%)** | Stream-cancel fix (v0.87) resolved 17+ min abort hangs; 4 agent fails include common error-recovery and multi-tool-iteration patterns |
-| **claude-haiku-4-5-20251001** | Anthropic | — | 30/32 (94%) | 18/22 (82%) | **48/54 (89%)** | 2 agent fails used old assertions (grep-regex-pattern would pass with current); 2 prompt timeouts likely rate-limit related |
-| **ministral-3:latest** | Ollama | 6 GB | 29/31 (94%) | 18/23 (78%) | **47/54 (87%)** | Best local agent score; both agent fails have fixes shipped this session |
-| **gemini-2.5-flash** | Gemini | — | 29/32 (91%) | 16/24 (67%) | **45/56 (80%)** | Strong agent; weaker prompt adherence; no-stub-add-function cycle-detector false positive |
+| **gemini-2.5-flash** | Gemini | — | 28/32 (87%) | 19/24 (79%) | **47/56 (84%)** | Prompt improved +3 from prior run; agent -1 (plan-mode-no-tools new fail); error-recovery and grep-regex-pattern are universal failures |
+| **ministral-3:latest** | Ollama | 6 GB | 30/32 (94%) | 13/24 (54%) | **43/56 (77%)** | Best local agent score; prompt highly variable on local hardware (13/24 this run vs 18/23 prior); error-recovery and grep-regex-pattern are the 2 agent fails |
 | **granite4.1:3b** | Ollama | 2 GB | 25/31 (81%) | 19/23 (83%) | **44/61 (72%)** | Punches well above its weight; 2 cases scraped the 300s timeout |
 | **qwen3.5:latest** | Ollama | 6 GB | 22/32 (69%) | 21/24 (88%) | **43/56 (77%)** | Strong prompt adherence; gains delete-file; loses version-from-package-json (reads file, answers wrong field) |
 | **gemma4:e4b** | Ollama | 9 GB | 20/32 (62%) | 21/24 (88%) | **41/56 (73%)** | Strong prompt adherence; edit_file reliability is main weakness — all bug-fix cases fail (claims success but file unchanged); no timeouts post-stream-cancel fix |
@@ -74,7 +74,7 @@ These failures appear across multiple models and indicate areas for prompt impro
 | `rule3-concise-prose` | all tested | Model writes an essay for a simple factual question |
 | `rule7-no-tool-narration` | haiku, gpt-4o-mini, groq, qwen3.5 | Model emits filler text between consecutive tool calls |
 | `git-tool-preference` | haiku, gpt-4o-mini, groq | Model recommends `run_command git diff` instead of `git_diff` tool |
-| `error-recovery-to-correct-file` | haiku, deepseek, qwen3-235b | Model asks "would you like me to read it?" instead of reading proactively; or mentions the missing filename in final text — assertions tightened in v0.87 to allow explaining absence |
+| `error-recovery-to-correct-file` | all tested | Model finds the candidate file via `list_directory` but asks "would you like me to read it?" instead of reading immediately — Rule 5 strengthened in v0.87 to close this gap |
 | `plan-mode-no-tools` | deepseek | Model says "let me explore first" and calls tools instead of producing the plan directly |
 | `no-stub-add-function-to-existing-file` | deepseek, gemini (cycle detector) | Model enters a long edit-retry loop; deepseek v4-pro times out, Gemini hits the cycle detector false-positive |
 | `version-from-package-json` | qwen3.5 | Model reads the file correctly but answers with the wrong field (e.g. top-level `version` instead of `devDependencies.typescript`) |
