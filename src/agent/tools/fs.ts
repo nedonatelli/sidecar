@@ -99,7 +99,11 @@ export const editFileDef: ToolDefinition = {
         description:
           'Exact text to find in the file. Must be unique — include enough surrounding context to match only one location. Only the first match is replaced; if the search text appears multiple times the call returns an error.',
       },
-      replace: { type: 'string', description: 'Text to replace the search match with' },
+      replace: {
+        type: 'string',
+        description:
+          'New text to substitute for the search match. Must differ from search — if they are identical the call returns an error.',
+      },
     },
     required: ['path', 'search', 'replace'],
   },
@@ -229,6 +233,13 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   }
   const search = input.search as string;
   const replace = input.replace as string;
+
+  if (search === replace) {
+    return (
+      `Error: edit_file failed — search and replace text are identical; no change would be made. ` +
+      `Verify your replace argument contains the corrected content, not a copy of the search text.`
+    );
+  }
 
   // Audit Mode: read the current state (from buffer if already there,
   // else from disk), apply the substring replacement, and write the

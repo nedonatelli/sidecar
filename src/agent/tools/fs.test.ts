@@ -80,6 +80,16 @@ describe('editFile audit mode', () => {
     expect(result).toContain('edit_file failed');
   });
 
+  it('returns error when search and replace are identical (no-op guard)', async () => {
+    const context = { config: { agentMode: 'audit' } as never };
+    await buf.write('src/noop.ts', 'const x = 1;', async () => undefined);
+    const result = await editFile({ path: 'src/noop.ts', search: 'const x = 1;', replace: 'const x = 1;' }, context);
+    expect(result).toContain('identical');
+    // File must be unchanged
+    const state = buf.read('src/noop.ts');
+    expect(state.content).toBe('const x = 1;');
+  });
+
   it('reads from disk via workspace when file is not in buffer', async () => {
     const context = { config: { agentMode: 'audit' } as never };
     const { workspace } = await import('vscode');
