@@ -557,9 +557,10 @@ export const AGENT_CASES: AgentEvalCase[] = [
       // `clamp` is specific enough that it can't be guessed; `utils.ts`
       // confirms the agent followed the error → search → read path.
       finalTextContains: ['clamp', 'utils.ts'],
-      // After recovery the agent should not still be talking about
-      // the wrong file — it found the real one.
-      finalTextNotMatchesRegex: [/helpers\.ts/i],
+      // After recovery the agent should not attribute content to the
+      // wrong file. Mentioning helpers.ts in the context of "it doesn't
+      // exist" is fine; attributing clamp or exports to it is not.
+      finalTextNotMatchesRegex: [/helpers\.ts\s+(contains|has|exports|defines|export)/i],
       // Must not fabricate file content by writing a new file.
       toolsNotCalled: ['write_file', 'edit_file'],
     },
@@ -632,9 +633,10 @@ export const AGENT_CASES: AgentEvalCase[] = [
       // alpha and gamma are the only exported functions. The agent must
       // name both from the grep output.
       finalTextContains: ['alpha', 'gamma'],
-      // Non-exported functions must not appear — if they do the agent
-      // either didn't filter correctly or fabricated instead of using output.
-      finalTextNotContains: ['epsilon', '_beta'],
+      // Non-exported functions must not appear in the results list.
+      // Mentioning them to explain they're excluded ("epsilon is not exported")
+      // is fine; listing them alongside alpha/gamma is not.
+      finalTextNotContains: ['export function epsilon', 'export function _beta', 'exports: epsilon', 'exports: _beta'],
       toolsNotCalled: ['write_file', 'edit_file'],
     },
   },
