@@ -4,6 +4,53 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Sidebar tree-view panels** — four new panels in the SideCar activity bar: Background Agents (running loops with status badges), MCP Servers (connection state + reconnect), Sessions (saved sessions with restore), and Edit Timeline (per-file revert of in-progress agent edits). Each panel shows live updates and has a contextual empty-state welcome message.
+
+- **Edit Timeline** — `EditTimelineStore` captures the pre-edit content of every file the agent touches. The Edit Timeline panel lets users revert individual files or all agent edits at once without leaving the editor. Bypasses shadow-workspace and audit-mode paths (those have their own review flow).
+
+- **`delete_file` tool** — agents can now delete files when explicitly instructed. Routed through the audit buffer, shadow workspace, and the standard sensitive-path guard. Tool budget and approval gates apply as with other write tools.
+
+- **Sidebar empty states and toolbar buttons** — Pending Agent Changes: welcome text + Accept All / Discard All in the empty state. Pinned Memory: welcome text + pin buttons in empty state; title bar gains pin-active-file, pin-by-path, and refresh toolbar icons; memory items get an inline Unpin button on hover.
+
+- **Multi-model comparison runner** — `npm run eval:compare` accepts `SIDECAR_EVAL_COMPARE_MODELS="backend:model,..."` and runs the eval suite against multiple backends in sequence, printing a per-case ✅/❌ table with per-tag pass-rate breakdown.
+
+### Fixed
+
+- **Hung HTTP connections after AbortSignal** — all three streaming backends (`OllamaBackend`, `AnthropicBackend`, all OpenAI-compatible backends) called `reader.releaseLock()` in their `finally` blocks. `releaseLock()` releases the JS lock but leaves the TCP connection alive; the model keeps streaming until a natural TCP timeout (up to 17–22 min for large local models). Replaced with `reader.cancel()` which closes the underlying ReadableStream source immediately. Wrapped in `try { reader.cancel().catch(() => {}); } catch { reader.releaseLock(); }` so mock readers in tests fall back gracefully without masking the original exception.
+
+- **AbortSignal timeout propagation** — replaced `REQUEST_TIMEOUT_SENTINEL` module-level sentinel (compared with `===` to detect timeouts) with `AbortSignal.any([timeoutSignal, externalSignal])` so abort propagates correctly through async generator boundaries and fires reliably on long-running tool calls.
+
+- **GLM-style thinking field** — models like GLM-4 emit chain-of-thought in `message.thinking` (a native Ollama field) rather than inline `<think>` tags. The Ollama backend was silently dropping these, producing empty agent trajectories. Now reads `message.thinking` and emits it as a `thinking` content block.
+
+- **`edit_file` search-not-found error message** — the old error gave no recovery hint; models would report success after a search-not-found response instead of retrying. New message: *"edit_file failed — search string not found in `<file>`. The file was NOT modified. Call `read_file` to see the exact current content, then retry with a corrected search string."*
+
+- **Autonomous mode scope guard** — the AUTONOMOUS MODE block in the base system prompt now includes: *"Complete only what the user asked for — do not add unrequested steps such as git commits, pushes, or deploys unless explicitly instructed."* Without this, some models interpreted autonomous approval as license to add commit steps and hallucinate non-existent tools.
+
+- **`get_diagnostics` authority note** — removed the implicit `npx eslint` escape-hatch from the tool description. The old text implied falling back to `run_command("npx eslint")` was appropriate; this produced repeated ESLint-not-found errors in the eval sandbox (and in any project without a root eslint config). Updated to: *"The result is authoritative — 'No diagnostics' means the change is clean."*
+
+- **System-prompt budget boundary off-by-one** — `ensureBoundary` ran after the remaining-budget calculation, so the ~180-char boundary marker silently reduced the user system-prompt allocation. Moved before the budget check.
+
+- **Cycle-detection false positives on distinct shell invocations** — `run_tests('suite-a')` and `run_tests('suite-b')` collapsed to the same normalized signature `run_tests`, falsely firing the cycle detector after 3 calls. The normalizer now falls back to the first non-empty string argument when no primary resource key is found.
+
+- **Agent history not saved on loop error or abort** — partial messages were not attached to thrown errors, so the catch path had nothing to persist. Loops that error mid-run (tool failure, abort, OOM) now attach completed iterations to the thrown error and always call `saveHistory()` + `autoSave()` in the catch block.
+
+- **Concurrent facet dispatch corrupted active model** — `dispatchFacet` used `client.setTurnOverride` / restore to pin each facet's `preferredModel`; concurrent runs raced on the shared `client.model` field and the last restore won, permanently corrupting the model after the batch. Replaced with a `modelOverride` option threaded through `AgentOptions → LoopState → streamChat`, mirroring the existing `systemPromptOverride` design.
+
+- **`AuditFlushError` misleading `applied` field** — write-failure path reported applied paths even though writes were rolled back. Added `rolledBack` field: write-failure now reports `applied=[], rolledBack=[undone paths]`; commit-failure reports `applied=[on-disk paths]` (writes stay, commit queued for retry). `reviewCommands.ts` uses the correct field for each message.
+
+- **`render_viz` schema missing `items`** — the `data` array schema lacked an `items` definition, causing strict JSON Schema validators to reject tool calls. Added `items: { type: 'object' }`.
+
+- **Ollama model not unloaded after eval** — eval harness now sends a `keep_alive: 0` unload request after each model run to free VRAM, preventing OOM when testing multiple large models in sequence.
+
+### Eval harness
+
+- **Suite expanded to 32 agent + 24 prompt cases** — new cases: `delete-file-when-requested`, `version-from-package-json`, and 11 code-quality cases (anti-stub cluster + bug-fix cluster).
+- **Cloud backends** — OpenRouter and Gemini added to agent eval; all OpenAI-compatible backends (OpenAI, Groq, Fireworks, OpenRouter, Gemini) supported in prompt eval via a shared `OpenAICompatEvalBackend`.
+- **Sequential file execution** — eval files run with `fileParallelism: false` to avoid concurrent Ollama requests from multiple eval files.
+- **`testTimeout` synced to `SIDECAR_EVAL_CASE_TIMEOUT`** — vitest per-test timeout is now `caseTimeout + 60_000` ms so timed-out cases are marked failed at the right point rather than running as zombie promises past the case deadline.
+
 ## [0.86.0] - 2026-05-06
 
 **v0.86.0 — Eval harness correctness, error-recovery prompt guidance, and Ollama latency improvements.**
