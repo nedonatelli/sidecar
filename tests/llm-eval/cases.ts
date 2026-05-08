@@ -681,4 +681,38 @@ export const CASES: EvalCase[] = [
       maxLength: 2000,
     },
   },
+
+  {
+    id: 'rule6-meta-knowledge',
+    description: 'Rule 6: model names get_diagnostics / run_tests as the next step after an edit',
+    userMessage: "You've just called `edit_file` to fix a bug in `src/app.ts`. What do you do next, before reporting the task as complete?",
+    tags: ['prompt', 'rule6', 'regression'],
+    expect: {
+      // Rule 6: "After editing files, call get_diagnostics. After fixing bugs, call run_tests."
+      // At least one of the two verification tools must be named.
+      mustMatch: [/(get_diagnostics|run_tests)/],
+      // Must not claim the task is done without verification — that is the
+      // exact regression Rule 6 exists to prevent.
+      mustNotMatch: [/^(done|the task is (complete|finished)|report (it|the fix) (as )?complete)/i],
+      maxLength: 800,
+    },
+  },
+
+  {
+    id: 'rule9-meta-knowledge',
+    description: 'Rule 9: model knows ask_user is for genuine ambiguity — not needed for unambiguous requests',
+    userMessage:
+      "The user says: 'Add a log statement to the start of the `initialize` function in `src/app.ts`.' " +
+      "Should you call `ask_user` to confirm before making the edit, or proceed directly?",
+    tags: ['prompt', 'rule9', 'regression'],
+    expect: {
+      // Rule 9: "For clearly-stated requests, proceed directly — don't ask
+      // permission for every small action." This request is unambiguous:
+      // one function, one file, one change. Asking is wrong here.
+      mustMatch: [/(proceed|directly|no (need|reason).{0,20}(to )?(ask|clarif)|unambiguous|clear)/i],
+      // Must not say ask_user should be called here — that would be a Rule 9 regression.
+      mustNotMatch: [/(should|would|need to|must).{0,20}(call|use).{0,20}ask_user/i],
+      maxLength: 800,
+    },
+  },
 ];

@@ -1086,4 +1086,47 @@ export const AGENT_CASES: AgentEvalCase[] = [
       trajectoryOrder: [{ before: 'read_file', after: 'write_file' }],
     },
   },
+
+  {
+    id: 'run-tests-fail-fix-iterate',
+    description: 'Agent runs tests, fixes first failure, runs again, fixes second independent failure, confirms all pass',
+    tags: ['shell', 'iteration', 'multi-bug', 'trajectory'],
+    workspace: {
+      // Two independent bugs so the first run reveals only the first failure.
+      // Bug 1: add uses subtraction.  Bug 2: multiply uses division.
+      // The test file asserts both so the second bug is only visible once bug 1 is fixed.
+      'src/math.js':
+        'function add(a, b) {\n' +
+        '  return a - b; // BUG: should be a + b\n' +
+        '}\n\n' +
+        'function multiply(a, b) {\n' +
+        '  return a / b; // BUG: should be a * b\n' +
+        '}\n\n' +
+        'module.exports = { add, multiply };\n',
+      'tests/math.test.js':
+        "const { add, multiply } = require('../src/math.js');\n\n" +
+        'const sum = add(3, 4);\n' +
+        "if (sum !== 7) throw new Error(`add(3, 4): expected 7, got ${sum}`);\n\n" +
+        'const product = multiply(3, 4);\n' +
+        "if (product !== 12) throw new Error(`multiply(3, 4): expected 12, got ${product}`);\n\n" +
+        "console.log('All tests passed.');\n",
+    },
+    userMessage: 'Run `node tests/math.test.js`. Fix all failures and re-run until all tests pass.',
+    // Extra iterations because the loop is: run → fix bug 1 → run → fix bug 2 → run
+    maxIterations: 12,
+    expect: {
+      toolsCalled: ['run_command'],
+      trajectoryOrder: [{ before: 'run_command', after: 'edit_file' }],
+      files: {
+        // Both bugs must be gone
+        notContain: [{ path: 'src/math.js', substrings: ['a - b', 'a / b'] }],
+        // Both correct implementations must be present
+        contain: [{ path: 'src/math.js', substrings: ['a + b', 'a * b'] }],
+      },
+    },
+    softExpect: {
+      // Should confirm success after the final passing run
+      finalTextMatchesRegex: [/all.{0,20}(test|pass)|pass(ed|ing)|success/i],
+    },
+  },
 ];
