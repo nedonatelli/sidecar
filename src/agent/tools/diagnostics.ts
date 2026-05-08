@@ -15,7 +15,8 @@ export const getDiagnosticsDef: ToolDefinition = {
     "Fetch compiler errors, warnings, and lint issues from VS Code's language services for a file or the whole workspace. " +
     'Use after every `write_file` / `edit_file` to verify your change type-checks — per the operating rules, this is mandatory for any code edit. ' +
     "Also use before starting a task to understand what is already broken in the file, or before a final hand-off to confirm you've left the workspace clean. " +
-    'Not for running tests (use `run_tests`) or for custom lint commands (use `run_command "npm run lint"` if the editor integration isn\'t picking them up). ' +
+    'The result is authoritative: "No diagnostics" means the change is clean — do not follow up with `npx eslint` or `tsc` as a secondary check. ' +
+    'Not for running tests (use `run_tests`). ' +
     'Omit `path` to get a project-wide summary. ' +
     'Example after an edit: `get_diagnostics(path="src/utils.ts")`.',
   input_schema: {

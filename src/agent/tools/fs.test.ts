@@ -77,7 +77,7 @@ describe('editFile audit mode', () => {
     const context = { config: { agentMode: 'audit' } as never };
     await buf.write('src/edit2.ts', 'const keep = 1;', async () => undefined);
     const result = await editFile({ path: 'src/edit2.ts', search: 'NOT_IN_FILE', replace: 'replacement' }, context);
-    expect(result).toContain('Error: Search text not found');
+    expect(result).toContain('edit_file failed');
   });
 
   it('reads from disk via workspace when file is not in buffer', async () => {

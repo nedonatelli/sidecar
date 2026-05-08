@@ -469,12 +469,14 @@ export const CODE_QUALITY_CASES: AgentEvalCase[] = [
     description: 'Agent fixes a max function that uses < instead of > and leaves min untouched',
     tags: ['edit', 'bugfix', 'regression'],
     workspace: {
-      // `max` uses < — identical symptom to the min function — so the
-      // agent must understand the semantic intent, not just the operator.
+      // `max` uses < (same bug as returning a minimum).
+      // `min` uses <= so the two bodies are distinct — edit_file's first-match
+      // replacement can't accidentally corrupt min when the model searches for
+      // `a < b ? a : b` (which only appears in max).
       'src/minmax.ts':
         '// Returns the smaller of two numbers.\n' +
         'export function min(a: number, b: number): number {\n' +
-        '  return a < b ? a : b;\n' +
+        '  return a <= b ? a : b;\n' +
         '}\n' +
         '\n' +
         '// Returns the larger of two numbers.\n' +
@@ -494,11 +496,11 @@ export const CODE_QUALITY_CASES: AgentEvalCase[] = [
           {
             path: 'src/minmax.ts',
             substrings: [
-              // min is unchanged — still has the same ternary
+              // min is unchanged — still uses <=
               'function min',
-              'a < b ? a : b',
-              'function max',
+              'a <= b ? a : b',
               // max now uses > — the canonical correct form
+              'function max',
               'a > b',
             ],
           },
@@ -506,7 +508,8 @@ export const CODE_QUALITY_CASES: AgentEvalCase[] = [
         notContain: [
           {
             path: 'src/minmax.ts',
-            substrings: ['TODO', 'FIXME', 'not implemented'],
+            // the buggy max body (strict <) must be gone after the fix
+            substrings: ['TODO', 'FIXME', 'not implemented', 'a < b ? a : b'],
           },
         ],
       },

@@ -251,7 +251,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
       currentText = diskText;
     }
     if (!currentText.includes(search)) {
-      return `Error: Search text not found in ${filePath}`;
+      return `Error: edit_file failed — search string not found in ${filePath}. The file was NOT modified. Call read_file to see the exact current content, then retry with a corrected search string.`;
     }
     const newText = currentText.replace(search, () => replace);
     await buf.write(filePath, newText, (p) => readDiskViaWorkspace(context, p));
@@ -262,7 +262,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   const bytes = await workspace.fs.readFile(fileUri);
   const text = Buffer.from(bytes).toString('utf-8');
   if (!text.includes(search)) {
-    return `Error: Search text not found in ${filePath}`;
+    return `Error: edit_file failed — search string not found in ${filePath}. The file was NOT modified. Call read_file to see the exact current content, then retry with a corrected search string.`;
   }
   const newText = text.replace(search, () => replace);
 

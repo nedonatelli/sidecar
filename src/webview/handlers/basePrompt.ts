@@ -120,6 +120,13 @@ export function buildBaseSystemPrompt(p: SystemPromptParams): string {
   // the model applies it even when the user says "just give me the answer".
   let prompt = `${identity}\n\n${rules}\n\n${toolPreference}\n\n${example}\n\n${safetyRules}`;
 
+  if (p.approvalMode === 'autonomous') {
+    prompt +=
+      '\n\nAUTONOMOUS MODE: All tool calls execute immediately without user confirmation. ' +
+      'Proceed directly — do not pause to ask "shall I proceed?", "want me to continue?", or similar. ' +
+      'Execute your full plan in one uninterrupted sequence.';
+  }
+
   if (p.approvalMode === 'plan') {
     prompt +=
       '\n\nPLAN MODE ACTIVE:\n' +
