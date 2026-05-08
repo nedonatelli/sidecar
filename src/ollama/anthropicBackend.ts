@@ -387,7 +387,11 @@ export class AnthropicBackend implements ApiBackend {
         }
       }
     } finally {
-      reader.releaseLock();
+      try {
+        reader.cancel().catch(() => {});
+      } catch {
+        reader.releaseLock();
+      }
     }
   }
 

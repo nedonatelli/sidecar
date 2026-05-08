@@ -525,7 +525,11 @@ export class OllamaBackend implements ApiBackend {
         yield { type: 'thinking', thinking: '\n(end of reasoning)' };
       }
     } finally {
-      reader.releaseLock();
+      try {
+        reader.cancel().catch(() => {});
+      } catch {
+        reader.releaseLock();
+      }
     }
   }
 

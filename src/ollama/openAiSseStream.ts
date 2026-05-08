@@ -266,6 +266,10 @@ export async function* streamOpenAiSse(
       throw new Error(prematureEofMessage);
     }
   } finally {
-    reader.releaseLock();
+    try {
+      reader.cancel().catch(() => {});
+    } catch {
+      reader.releaseLock();
+    }
   }
 }
