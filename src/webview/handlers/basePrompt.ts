@@ -124,7 +124,8 @@ export function buildBaseSystemPrompt(p: SystemPromptParams): string {
     prompt +=
       '\n\nAUTONOMOUS MODE: All tool calls execute immediately without user confirmation. ' +
       'Proceed directly — do not pause to ask "shall I proceed?", "want me to continue?", or similar. ' +
-      'Execute your full plan in one uninterrupted sequence.';
+      'Execute your full plan in one uninterrupted sequence. ' +
+      'Complete only what the user asked for — do not add unrequested steps such as git commits, pushes, or deploys unless explicitly instructed.';
   }
 
   if (p.approvalMode === 'plan') {

@@ -309,8 +309,13 @@ export const CODE_QUALITY_CASES: AgentEvalCase[] = [
       'The return type annotation on `getAnswer` in src/answer.ts is wrong — it says `string` but the function returns a number. ' +
       'Fix only the return type annotation to `number`. Do not change the function body.',
     expect: {
-      toolsCalled: ['read_file'],
-      trajectoryOrder: [{ before: 'read_file', after: 'edit_file' }],
+      // read_file is best-practice but not required — the task description
+      // already names the file and the exact change; a model that skips
+      // directly to edit_file and gets it right should still pass.
+      softExpect: {
+        toolsCalled: ['read_file'],
+        trajectoryOrder: [{ before: 'read_file', after: 'edit_file' }],
+      },
       files: {
         contain: [
           {
