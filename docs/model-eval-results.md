@@ -30,7 +30,7 @@ Cases are scored deterministically (string matching, regex, trajectory inspectio
 | **qwen3.5:latest** | Ollama | 6 GB | 22/32 (69%) | 21/24 (88%) | **43/56 (77%)** | Strong prompt adherence; gains delete-file; loses version-from-package-json (reads file, answers wrong field) |
 | **ministral-3:latest** | Ollama | 6 GB | 29/31 (94%) | 18/23 (78%) | **47/54 (87%)** | Best local agent score; both agent fails have fixes shipped this session |
 | **granite4.1:3b** | Ollama | 2 GB | 25/31 (81%) | 19/23 (83%) | **44/61 (72%)** | Punches well above its weight; 2 cases scraped the 300s timeout |
-| **gemma4:e4b** | Ollama | 9 GB | 21/31 (68%) | 21/23 (91%) | **42/54 (78%)** | Stronger prompt adherence, weaker on bug-fix cases; improved with delete_file tool + Rule 5 update |
+| **gemma4:e4b** | Ollama | 9 GB | 19/32 (59%) | 21/24 (88%) | **40/56 (71%)** | Strong prompt adherence; passes delete-file and version-from-package-json; fails all bug-fix code quality cases |
 | **gpt-4.1-mini** | OpenAI | — | 16/31 (52%) | 20/23 (87%) | **36/54 (67%)** | Underperforms for agent tasks; passed delete-file case; all no-stub cases failed; 2 cases timed out at ~250s |
 | **gpt-4o-mini** | OpenAI | — | 15/31 (48%) | 16/22 (73%) | **~35/57 (61%)** | Underperforms its size; struggles with complex tool-use cases |
 | **gpt-4o** | OpenAI | — | ❌ rate limited | — | — | Free tier 30K TPM; our prompt+tools is ~23K tokens, exhausted after 1 case |
@@ -74,6 +74,7 @@ These failures appear across multiple models and indicate areas for prompt impro
 | `grep-regex-pattern` | qwen3.5, granite, haiku | Model uses correct tool but omits results from final reply |
 | `error-recovery-to-correct-file` | qwen3.5, granite, haiku | Model finds the correct file but still references the wrong filename |
 | `version-from-package-json` | qwen3.5 | Model reads the file correctly but answers with the wrong field (e.g. top-level `version` instead of `devDependencies.typescript`) |
+| bug-fix code quality cases | gemma4 | Model reads the file and identifies the bug but then asks "shall I proceed?" instead of editing — approval-seeking in autonomous mode |
 
 ## Running the eval yourself
 
