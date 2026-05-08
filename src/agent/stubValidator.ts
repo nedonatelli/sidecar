@@ -53,6 +53,13 @@ const STUB_PATTERNS: Array<[string, RegExp]> = [
 
   // pass statement as sole function body (Python)
   ['pass-body', /^\s*pass\s*(?:#.*)?$/],
+
+  // Inline empty body on a typed function/method (non-void return type).
+  // Fires on patterns like: value(): number {}  or  pop(): T | undefined {}
+  // Void methods intentionally excluded — increment(): void {} is valid.
+  // (?!\s*void\b) checks past any leading whitespace so the lookahead fires
+  // on the type name itself, not the space that precedes it.
+  ['empty-typed-body', /\)\s*:\s*(?!\s*void\b)[\w<\[\]|& ,]+\s*\{\s*\}/],
 ];
 
 /**
@@ -91,6 +98,16 @@ export function detectStubs(file: string, content: string): StubMatch[] {
         break; // one match per line is enough
       }
     }
+  }
+
+  // Multi-line empty typed body: catches non-void methods whose body spans two
+  // lines but contains only whitespace between { and }.
+  // Example:
+  //   value(): number {
+  //   }
+  const multiLineEmptyTyped = /\)\s*:\s*(?!void\b)[\w<\[\]|& ,]+\s*\{\s*\n\s*\}/g;
+  for (const m of content.matchAll(multiLineEmptyTyped)) {
+    matches.push({ file, match: m[0].replace(/\s+/g, ' ').trim(), category: 'empty-typed-body' });
   }
 
   return matches;

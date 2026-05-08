@@ -699,6 +699,29 @@ export const CASES: EvalCase[] = [
   },
 
   {
+    id: 'rule9-ambiguous-target',
+    description: 'Rule 9: model knows to ask before acting when singular-target language matches multiple candidates',
+    userMessage:
+      "The user says: 'Rename the function to `handleItems` in `src/utils.ts`.' " +
+      "The file contains two exported functions: `processItems` and `transformItems`. " +
+      "Should you pick one and rename it, or ask the user which function they meant?",
+    tags: ['prompt', 'rule9', 'regression'],
+    expect: {
+      // Rule 9 critical case: singular-target language ("the function") with
+      // multiple candidates — must ask before acting.
+      mustMatch: [/(ask|clarif|which (function|one)|ambig)/i],
+      // Narrow the pattern to active first-person intent:
+      // - "I'll/I will/I should proceed/rename" — agent commits to acting
+      // - "rename processItems/transformItems" — agent picks a specific function
+      // - "pick one/the first" — agent picks arbitrarily
+      // Do NOT match bare "proceeding" — it appears in correct responses like
+      // "proceeding with an edit is explicitly forbidden."
+      mustNotMatch: [/(rename (?:process|transform)Items\b|I(?:'ll| will| should) (?:proceed|rename)|pick (?:one|the first))/i],
+      maxLength: 800,
+    },
+  },
+
+  {
     id: 'rule9-meta-knowledge',
     description: 'Rule 9: model knows ask_user is for genuine ambiguity — not needed for unambiguous requests',
     userMessage:

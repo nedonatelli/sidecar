@@ -97,6 +97,34 @@ describe('detectStubs', () => {
     expect(stubs[0].category).toBe('pass-body');
   });
 
+  it('detects inline empty typed body', () => {
+    const stubs = detectStubs('file.ts', 'value(): number {}');
+    expect(stubs).toHaveLength(1);
+    expect(stubs[0].category).toBe('empty-typed-body');
+  });
+
+  it('detects multi-line empty typed body', () => {
+    const code = ['size(): number {', '}'].join('\n');
+    const stubs = detectStubs('file.ts', code);
+    expect(stubs).toHaveLength(1);
+    expect(stubs[0].category).toBe('empty-typed-body');
+  });
+
+  it('does not flag empty void body (void is intentionally empty)', () => {
+    const stubs = detectStubs('file.ts', 'increment(): void {}');
+    expect(stubs).toHaveLength(0);
+  });
+
+  it('does not flag constructor with empty body (no return type)', () => {
+    const stubs = detectStubs('file.ts', 'constructor() {}');
+    expect(stubs).toHaveLength(0);
+  });
+
+  it('does not flag typed body that has a real implementation', () => {
+    const code = 'getValue(): number { return this.count; }';
+    expect(detectStubs('file.ts', code)).toHaveLength(0);
+  });
+
   it('returns empty for clean code', () => {
     const code = ['function add(a: number, b: number): number {', '  return a + b;', '}'].join('\n');
     expect(detectStubs('file.ts', code)).toHaveLength(0);
