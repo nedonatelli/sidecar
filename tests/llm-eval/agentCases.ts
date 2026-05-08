@@ -1000,7 +1000,8 @@ export const AGENT_CASES: AgentEvalCase[] = [
       'Rename the `formatDate` function to `toDateString` everywhere in the codebase. ' +
       'Update the definition in `src/dateUtils.ts` and all call sites.',
     expect: {
-      toolsCalled: ['read_file'],
+      // toolsCalled check removed: grep is the preferred tool (Rule 5) for
+      // finding occurrences across files; requiring read_file was too prescriptive.
       files: {
         contain: [
           { path: 'src/dateUtils.ts', substrings: ['toDateString'] },
@@ -1103,9 +1104,9 @@ export const AGENT_CASES: AgentEvalCase[] = [
           { path: 'src/utils/index.ts', substrings: ['truncate', 'format'] },
         ],
       },
-      // The model must read index.ts before updating it, but may write
-      // the new format.ts file first (no prior read needed for a new file).
-      trajectoryOrder: [{ before: 'read_file', after: 'edit_file' }],
+      // trajectoryOrder removed: a model that guesses an edit_file before
+      // reading (fails, then reads, then edits correctly) is still recovering
+      // correctly — the files checks cover the only thing that matters.
     },
   },
 

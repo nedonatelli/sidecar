@@ -102,7 +102,8 @@ export const editFileDef: ToolDefinition = {
       replace: {
         type: 'string',
         description:
-          'New text to substitute for the search match. Must differ from search — if they are identical the call returns an error.',
+          'New text to substitute for the search match. Must differ from search — if they are identical the call returns an error. ' +
+          'If the replacement is very short and appears verbatim inside the search string, the call succeeds but appends a warning; call read_file to verify the result.',
       },
     },
     required: ['path', 'search', 'replace'],
@@ -241,6 +242,14 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
     );
   }
 
+  // If the replacement is a short substring of the search string the edit
+  // will silently truncate context (e.g. replacing a full function signature
+  // with just "string"). Warn so the model re-reads and self-corrects.
+  const partialReplaceWarning =
+    replace.length > 0 && replace.length < search.length / 2 && search.includes(replace)
+      ? ` Warning: replace text (${replace.length} chars) is a substring of search text (${search.length} chars) — call read_file to verify the result is correct before continuing.`
+      : '';
+
   // Audit Mode: read the current state (from buffer if already there,
   // else from disk), apply the substring replacement, and write the
   // result back to the buffer. The buffer's own write() method handles
@@ -266,7 +275,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
     }
     const newText = currentText.replace(search, () => replace);
     await buf.write(filePath, newText, (p) => readDiskViaWorkspace(context, p));
-    return `File edited: ${filePath} (buffered for audit review)`;
+    return `File edited: ${filePath} (buffered for audit review)${partialReplaceWarning}`;
   }
 
   const fileUri = Uri.joinPath(resolveRootUri(context), filePath);
@@ -284,7 +293,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   }
 
   await workspace.fs.writeFile(fileUri, Buffer.from(newText, 'utf-8'));
-  return `File edited: ${filePath}`;
+  return `File edited: ${filePath}${partialReplaceWarning}`;
 }
 
 export async function deleteFile(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {

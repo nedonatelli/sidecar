@@ -20,7 +20,7 @@ Cases are scored deterministically (string matching, regex, trajectory inspectio
 
 ## Results
 
-> Last updated: 2026-05-08. Run with `SIDECAR_EVAL_CASE_TIMEOUT=300000` for local models, `120000` for cloud. Suite v0.89 (47 agent + 31 prompt cases).
+> Last updated: 2026-05-08. Run with `SIDECAR_EVAL_CASE_TIMEOUT=300000` for local models, `120000` for cloud. Suite v0.87 (47 agent + 31 prompt cases).
 > Scores reflect the test suite at time of run; re-run models after any structural fix to get current numbers.
 > Rows marked †v0.87 are from the old 32-case suite and need re-running. Prompt denominator may vary by backend (some cases are backend-specific or skipped when a case times out).
 
@@ -32,7 +32,7 @@ Cases are scored deterministically (string matching, regex, trajectory inspectio
 | **gemini-2.5-flash** | Gemini | — | 28/32 (87%) | 19/24 (79%) | **47/56 (84%)** | †v0.87 scores — re-run needed. error-recovery and grep-regex-pattern are universal failures |
 | **ministral-3:latest** | Ollama | 6 GB | 30/32 (94%) | 13/24 (54%) | **43/56 (77%)** | †v0.87 scores — re-run needed. Best local agent score; error-recovery and grep-regex-pattern are the 2 agent fails |
 | **granite4.1:3b** | Ollama | 2 GB | 25/31 (81%) | 19/23 (83%) | **44/61 (72%)** | †v0.87 scores — re-run needed. Punches well above its weight; 2 cases scraped the 300s timeout |
-| **gemma4:e4b** | Ollama | 9 GB | 38/47 (81%) | 25/31 (81%) | **63/78 (81%)** | edit_file no-op guard (v0.89.1) recovered +12 agent passes vs prior run (55%→81%); remaining failures are behavioral (no-op-recognition, error-recovery, ambiguous-rename) |
+| **gemma4:e4b** | Ollama | 9 GB | 38/47 (81%) | 25/31 (81%) | **63/78 (81%)** | edit_file no-op guard recovered +12 agent passes vs prior run (55%→81%); remaining failures are behavioral (no-op-recognition, error-recovery, ambiguous-rename) |
 | **qwen3.5:latest** | Ollama | 6 GB | 22/32 (69%) | 21/24 (88%) | **43/56 (77%)** | †v0.87 scores — re-run needed. Strong prompt adherence; loses version-from-package-json (reads file, answers wrong field) |
 | **gpt-4.1-mini** | OpenAI | — | 16/31 (52%) | 20/23 (87%) | **36/54 (67%)** | †v0.87 scores — re-run needed. Underperforms for agent tasks; all no-stub cases failed; 2 cases timed out at ~250s |
 | **gpt-4o-mini** | OpenAI | — | 15/31 (48%) | 16/22 (73%) | **~35/57 (61%)** | †v0.87 scores — re-run needed. Underperforms its size; struggles with complex tool-use cases |
@@ -80,6 +80,7 @@ These failures appear across multiple models and indicate areas for prompt impro
 | `rule13-no-invented-url` / `package-version-not-invented` | deepseek, qwen3-235b | Model fabricates a URL or package version it has not seen in context |
 | `edit_file` search-string mismatch | gpt-4.1-mini | Model reports success after `edit_file` returns a search-not-found error instead of retrying |
 | `edit_file` no-op (search == replace) | gemma4 (pre-v0.89.1) | Model populated `replace` with the same text as `search` — silent success, file unchanged. Fixed by adding a guard that returns an error when `search === replace`, which lets models that understand error recovery (like gemma4) retry correctly |
+| `edit_file` partial replace (replace ⊂ search) | gemma4 | Model puts a substring of the search string as the replacement (e.g. search = full function signature, replace = `"string"`), silently truncating the file. A warning is now appended to the success response when replace is < 50% of search length and appears verbatim inside it — prompts the model to re-read and self-correct |
 | `rule2/rule4` (new) | qwen3-235b | Rule 2 (name the tool, don't guess inline) and Rule 4 (relative paths) — qwen3-235b fails both on the new prompt cases |
 | `run-tests-fail-fix-iterate` (multi-bug) | qwen3-235b | Multi-iteration fix loop (fix bug 1 → re-run → fix bug 2) times out at 120 s for large cloud models |
 ## Running the eval yourself

@@ -2,7 +2,7 @@
   "name": "sidecar-ai",
   "displayName": "SideCar",
   "description": "Autonomous AI agent for coding — run full agent loops with local Ollama, Anthropic Claude, or OpenAI models",
-  "version": "0.86.0",
+  "version": "0.87.0",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -473,7 +473,12 @@
           "sidecar.retrieval.queryRewrite": {
             "type": "string",
             "default": "rule",
-            "enum": ["off", "rule", "llm", "expand"],
+            "enum": [
+              "off",
+              "rule",
+              "llm",
+              "expand"
+            ],
             "enumDescriptions": [
               "No rewriting — the raw user message is embedded as-is.",
               "Free, synchronous: strips conversational preambles (\"how do I\", \"can you help me with\", etc.) and expands camelCase identifiers so the embedding model can match partial terms.",
@@ -1619,7 +1624,9 @@
           },
           "sidecar.visualVerify.allowedDomains": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "default": [],
             "markdownDescription": "Domains or hostnames that are permitted for `screenshot_page` even when they resolve to a loopback or private-network address (e.g. `localhost`, `192.168.1.1`). Use this to allow local dev servers."
           }

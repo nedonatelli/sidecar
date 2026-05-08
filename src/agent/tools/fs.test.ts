@@ -90,6 +90,20 @@ describe('editFile audit mode', () => {
     expect(state.content).toBe('const x = 1;');
   });
 
+  it('appends partial-replace warning when replace is a short substring of search', async () => {
+    const context = { config: { agentMode: 'audit' } as never };
+    // Simulate the gemma4 pattern: search = full function signature,
+    // replace = just the return type keyword (which appears inside search).
+    // search: "export function getAnswer(): string {" (38 chars)
+    // replace: "string" (6 chars) — IS a substring of search → warning fires
+    const fullSig = 'export function getAnswer(): string {';
+    await buf.write('src/partial.ts', `${fullSig}\n  return 42;\n}\n`, async () => undefined);
+    const result = await editFile({ path: 'src/partial.ts', search: fullSig, replace: 'string' }, context);
+    expect(result).toContain('File edited');
+    expect(result).toContain('Warning');
+    expect(result).toContain('substring');
+  });
+
   it('reads from disk via workspace when file is not in buffer', async () => {
     const context = { config: { agentMode: 'audit' } as never };
     const { workspace } = await import('vscode');

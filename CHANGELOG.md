@@ -4,6 +4,10 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.87.0] - 2026-05-08
+
+**v0.87.0 — Sidebar panels, Edit Timeline, eval suite expansion (47 agent + 31 prompt), `edit_file` guardrails, and multi-model results.**
+
 ### Added
 
 - **Sidebar tree-view panels** — four new panels in the SideCar activity bar: Background Agents (running loops with status badges), MCP Servers (connection state + reconnect), Sessions (saved sessions with restore), and Edit Timeline (per-file revert of in-progress agent edits). Each panel shows live updates and has a contextual empty-state welcome message.
@@ -25,6 +29,10 @@ All notable changes to the SideCar extension will be documented in this file.
 - **GLM-style thinking field** — models like GLM-4 emit chain-of-thought in `message.thinking` (a native Ollama field) rather than inline `<think>` tags. The Ollama backend was silently dropping these, producing empty agent trajectories. Now reads `message.thinking` and emits it as a `thinking` content block.
 
 - **`edit_file` search-not-found error message** — the old error gave no recovery hint; models would report success after a search-not-found response instead of retrying. New message: *"edit_file failed — search string not found in `<file>`. The file was NOT modified. Call `read_file` to see the exact current content, then retry with a corrected search string."*
+
+- **`edit_file` no-op guard** — when `search === replace`, the call now returns an error instead of silently succeeding with no change. Prevents the failure mode where a model copies the search text verbatim into the replace field.
+
+- **`edit_file` partial-replace warning** — when the replacement text is a verbatim substring of the search text and less than half its length, the success response now appends: *"Warning: replace text (N chars) is a substring of search text (M chars) — call read_file to verify the result is correct before continuing."* This surfaces the failure mode where a model puts only a fragment (e.g. `"string"`) instead of the full corrected line, causing the file to be silently truncated.
 
 - **Autonomous mode scope guard** — the AUTONOMOUS MODE block in the base system prompt now includes: *"Complete only what the user asked for — do not add unrequested steps such as git commits, pushes, or deploys unless explicitly instructed."* Without this, some models interpreted autonomous approval as license to add commit steps and hallucinate non-existent tools.
 
@@ -53,13 +61,15 @@ All notable changes to the SideCar extension will be documented in this file.
 ### Eval harness
 
 - **Suite expanded to 47 agent + 31 prompt cases** — new cases: `delete-file-when-requested`, `version-from-package-json`, and 11 code-quality cases (anti-stub cluster + bug-fix cluster).
-- **14 new agent cases (v0.88–v0.89)** — `write-tests-for-function`, `rename-function-across-callers`, `verify-with-diagnostics-after-edit`, `explain-function-from-source`, `export-from-barrel-file` (in `agentCases.ts`); `git-diff-not-run-command`, `git-status-not-run-command`, `git-log-recent-commit` (in new `gitCases.ts`); `sidecar-md-jsdoc-rule`, `ask-user-ambiguous-rename`, `shell-error-recovery`, `injection-resistance`, `run-fix-iteration-cycle`, `no-op-recognition` (in `agentCases.ts`). Git cases require a real repo in the sandbox, enabled by the new `setupCommands` harness field.
+- **14 new agent cases** — `write-tests-for-function`, `rename-function-across-callers`, `verify-with-diagnostics-after-edit`, `explain-function-from-source`, `export-from-barrel-file` (in `agentCases.ts`); `git-diff-not-run-command`, `git-status-not-run-command`, `git-log-recent-commit` (in new `gitCases.ts`); `sidecar-md-jsdoc-rule`, `ask-user-ambiguous-rename`, `shell-error-recovery`, `injection-resistance`, `run-fix-iteration-cycle`, `no-op-recognition` (in `agentCases.ts`). Git cases require a real repo in the sandbox, enabled by the new `setupCommands` harness field.
 - **`setupCommands` harness field** — `AgentEvalCase.setupCommands?: string[]` runs shell commands in the sandbox root after files are materialized and before the agent starts. Used to initialize a git repo and stage commits so git tool cases see a realistic working tree.
 - **5 new prompt cases** — `rule2-action-uses-tools`, `rule4-relative-paths`, `rule8-complete-implementation`, `plan-mode-behavior`, `autonomous-mode-scope`, `rule13-no-invented-line-numbers`. Fills coverage gaps for Rules 2, 4, 8 (previously agent-only) and adds meta-knowledge cases for plan mode and autonomous mode scope.
 - **SIDECAR.md injection in harness** — if a workspace fixture includes a `SIDECAR.md` file, the harness now appends its content to the system prompt as `Project instructions (from SIDECAR.md):`, matching the production `injectSystemContext` behavior. Enables testing whether agents follow workspace-specific coding rules.
 - **Cloud backends** — OpenRouter and Gemini added to agent eval; all OpenAI-compatible backends (OpenAI, Groq, Fireworks, OpenRouter, Gemini) supported in prompt eval via a shared `OpenAICompatEvalBackend`.
 - **Sequential file execution** — eval files run with `fileParallelism: false` to avoid concurrent Ollama requests from multiple eval files.
 - **`testTimeout` synced to `SIDECAR_EVAL_CASE_TIMEOUT`** — vitest per-test timeout is now `caseTimeout + 60_000` ms so timed-out cases are marked failed at the right point rather than running as zombie promises past the case deadline.
+- **`files.matchesRegex` assertion type** — new expectation field accepts a list of `{ path, patterns: RegExp[] }` entries; all patterns must match the file content. Used where substring matching is ambiguous (e.g. `test(` vs `it(` in Vitest).
+- **Assertion fixes** — `write-tests-for-function` no longer requires literal `test(` (accepts `it(` via `matchesRegex`); `fix-wrong-comparison-operator` accepts `Math.max` and ternary forms via `matchesRegex`; `autonomous-mode-scope` `maxLength` bumped 800 → 1200; `export-from-barrel-file` `trajectoryOrder` removed (guess→fail→read→edit is valid recovery); `rename-function-across-callers` `toolsCalled: read_file` removed (grep is the Rule 5-preferred approach).
 
 ## [0.86.0] - 2026-05-06
 
