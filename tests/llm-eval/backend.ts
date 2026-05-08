@@ -131,17 +131,95 @@ class OllamaEvalBackend implements ModelBackend {
   }
 }
 
+// --- OpenAI-compatible (OpenAI, Groq, Fireworks, OpenRouter, Gemini) ---
+
+class OpenAICompatEvalBackend implements ModelBackend {
+  readonly name: string;
+  private readonly baseUrl: string;
+  private readonly apiKeyEnv: string;
+  readonly defaultModelId: string;
+  private readonly chatPath: string;
+
+  constructor(name: string, baseUrl: string, apiKeyEnv: string, defaultModelId: string, chatPath = '/v1/chat/completions') {
+    this.name = name;
+    this.baseUrl = baseUrl;
+    this.apiKeyEnv = apiKeyEnv;
+    this.defaultModelId = defaultModelId;
+    this.chatPath = chatPath;
+  }
+
+  available(): boolean {
+    return Boolean(process.env[this.apiKeyEnv]);
+  }
+
+  async complete(opts: CallOptions): Promise<string> {
+    const apiKey = process.env[this.apiKeyEnv] ?? '';
+    const body = {
+      model: opts.model,
+      max_tokens: opts.maxTokens ?? 1024,
+      temperature: opts.temperature ?? 0.2,
+      messages: [
+        { role: 'system', content: opts.systemPrompt },
+        { role: 'user', content: opts.userMessage },
+      ],
+      stream: false,
+    };
+
+    const response = await fetch(`${this.baseUrl}${this.chatPath}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      throw new Error(`${this.name} API ${response.status}: ${text.slice(0, 500)}`);
+    }
+
+    const data = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    return data.choices?.[0]?.message?.content ?? '';
+  }
+}
+
 // --- Registry ---
 
 const BACKENDS: Record<string, ModelBackend> = {
   anthropic: new AnthropicEvalBackend(),
   ollama: new OllamaEvalBackend(),
+  openai: new OpenAICompatEvalBackend('openai', 'https://api.openai.com', 'OPENAI_API_KEY', 'gpt-4o-mini'),
+  groq: new OpenAICompatEvalBackend('groq', 'https://api.groq.com/openai', 'GROQ_API_KEY', 'llama-3.3-70b-versatile'),
+  fireworks: new OpenAICompatEvalBackend(
+    'fireworks',
+    'https://api.fireworks.ai/inference',
+    'FIREWORKS_API_KEY',
+    'accounts/fireworks/models/deepseek-v4-pro',
+  ),
+  openrouter: new OpenAICompatEvalBackend(
+    'openrouter',
+    'https://openrouter.ai/api',
+    'OPENROUTER_API_KEY',
+    'google/gemini-2.5-flash',
+  ),
+  // Gemini's OpenAI-compat path is /v1beta/openai/chat/completions (no /v1/).
+  gemini: new OpenAICompatEvalBackend(
+    'gemini',
+    'https://generativelanguage.googleapis.com/v1beta/openai',
+    'GEMINI_API_KEY',
+    'gemini-2.5-flash',
+    '/chat/completions',
+  ),
 };
 
 /**
  * Pick the first available backend. Preference order:
- *   1. Explicit `SIDECAR_EVAL_BACKEND` env var (one of: anthropic)
- *   2. First backend whose `available()` returns true
+ *   1. Explicit `SIDECAR_EVAL_BACKEND` env var
+ *   2. Anthropic (if key present)
+ *   3. Ollama (always reports available)
  *
  * Returns null when nothing is available, so the eval suite can
  * skip cleanly instead of failing in environments without an API
@@ -160,14 +238,14 @@ export function pickBackend(): ModelBackend | null {
 }
 
 /**
- * Which model to use for eval. Defaults per backend:
- *   - anthropic: claude-haiku-4-5-20251001 (cheapest, fast)
- *   - ollama: llama3.2 (small, widely available locally)
- * Override via `SIDECAR_EVAL_MODEL`.
+ * Which model to use for eval. Override via `SIDECAR_EVAL_MODEL`.
+ * Defaults fall back to each backend's registered default.
  */
 export function pickModel(backend: ModelBackend): string {
   if (process.env.SIDECAR_EVAL_MODEL) return process.env.SIDECAR_EVAL_MODEL;
   if (backend.name === 'anthropic') return 'claude-haiku-4-5-20251001';
   if (backend.name === 'ollama') return 'llama3.2';
-  return '';
+  // OpenAI-compat backends carry their default in the registry entry.
+  const b = BACKENDS[backend.name];
+  return b instanceof OpenAICompatEvalBackend ? b.defaultModelId : '';
 }

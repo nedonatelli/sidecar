@@ -35,7 +35,7 @@ import { buildBaseSystemPrompt } from '../../src/webview/handlers/basePrompt.js'
 
 /** Where to point the SideCarClient for the eval run. */
 export interface AgentEvalBackend {
-  readonly name: 'ollama' | 'anthropic' | 'openai';
+  readonly name: 'ollama' | 'anthropic' | 'openai' | 'groq' | 'fireworks' | 'openrouter' | 'gemini';
   available(): boolean;
   baseUrl(): string;
   apiKey(): string;
@@ -49,7 +49,8 @@ class OllamaAgentBackend implements AgentEvalBackend {
     // async to the signature, so treat Ollama as "available unless
     // explicitly disabled". The actual connection error surfaces in
     // the first streamChat call with a clear message.
-    return process.env.SIDECAR_EVAL_BACKEND !== 'anthropic' && process.env.SIDECAR_EVAL_BACKEND !== 'openai';
+    const b = process.env.SIDECAR_EVAL_BACKEND;
+    return b !== 'anthropic' && b !== 'openai' && b !== 'groq' && b !== 'fireworks' && b !== 'openrouter' && b !== 'gemini';
   }
   baseUrl(): string {
     return process.env.SIDECAR_EVAL_BASE_URL || 'http://localhost:11434';
@@ -94,10 +95,78 @@ class OpenAIAgentBackend implements AgentEvalBackend {
   }
 }
 
+class GroqAgentBackend implements AgentEvalBackend {
+  readonly name = 'groq' as const;
+  available(): boolean {
+    return Boolean(process.env.GROQ_API_KEY);
+  }
+  baseUrl(): string {
+    return process.env.SIDECAR_EVAL_BASE_URL || 'https://api.groq.com/openai';
+  }
+  apiKey(): string {
+    return process.env.GROQ_API_KEY || '';
+  }
+  defaultModel(): string {
+    return process.env.SIDECAR_EVAL_MODEL || 'llama-3.3-70b-versatile';
+  }
+}
+
+class FireworksAgentBackend implements AgentEvalBackend {
+  readonly name = 'fireworks' as const;
+  available(): boolean {
+    return Boolean(process.env.FIREWORKS_API_KEY);
+  }
+  baseUrl(): string {
+    return process.env.SIDECAR_EVAL_BASE_URL || 'https://api.fireworks.ai/inference';
+  }
+  apiKey(): string {
+    return process.env.FIREWORKS_API_KEY || '';
+  }
+  defaultModel(): string {
+    return process.env.SIDECAR_EVAL_MODEL || 'accounts/fireworks/models/deepseek-v4-pro';
+  }
+}
+
+class OpenRouterAgentBackend implements AgentEvalBackend {
+  readonly name = 'openrouter' as const;
+  available(): boolean {
+    return Boolean(process.env.OPENROUTER_API_KEY);
+  }
+  baseUrl(): string {
+    return process.env.SIDECAR_EVAL_BASE_URL || 'https://openrouter.ai/api';
+  }
+  apiKey(): string {
+    return process.env.OPENROUTER_API_KEY || '';
+  }
+  defaultModel(): string {
+    return process.env.SIDECAR_EVAL_MODEL || 'google/gemini-2.5-flash';
+  }
+}
+
+class GeminiAgentBackend implements AgentEvalBackend {
+  readonly name = 'gemini' as const;
+  available(): boolean {
+    return Boolean(process.env.GEMINI_API_KEY);
+  }
+  baseUrl(): string {
+    return process.env.SIDECAR_EVAL_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta/openai';
+  }
+  apiKey(): string {
+    return process.env.GEMINI_API_KEY || '';
+  }
+  defaultModel(): string {
+    return process.env.SIDECAR_EVAL_MODEL || 'gemini-2.5-flash';
+  }
+}
+
 export const AGENT_BACKENDS: Record<string, AgentEvalBackend> = {
   ollama: new OllamaAgentBackend(),
   anthropic: new AnthropicAgentBackend(),
   openai: new OpenAIAgentBackend(),
+  groq: new GroqAgentBackend(),
+  fireworks: new FireworksAgentBackend(),
+  openrouter: new OpenRouterAgentBackend(),
+  gemini: new GeminiAgentBackend(),
 };
 
 /**
@@ -250,6 +319,7 @@ export async function runAgentCase(
       description: evalCase.description,
       passed: false,
       failures: [`runAgentLoop threw: ${runError.message}`],
+      softFailures: [],
       trajectory,
       finalText: textBuffer.join(''),
       workspaceAfter: snapshot,

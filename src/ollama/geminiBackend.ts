@@ -11,13 +11,23 @@ import { sidecarFetch } from './sidecarFetch.js';
  * A thin subclass is enough; all stream parsing reuses OpenAIBackend.
  *
  * Configure the profile with:
- *   baseUrl: 'https://generativelanguage.googleapis.com/openai'
+ *   baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai'
  *   apiKey:  your Google AI Studio key
  *   model:   'gemini-2.0-flash' | 'gemini-1.5-pro' | ...
  */
 export class GeminiBackend extends OpenAIBackend {
   constructor(baseUrl: string, apiKey: string, rateLimits: RateLimitStore = new RateLimitStore()) {
     super(baseUrl, apiKey, rateLimits);
+  }
+
+  // Google's OpenAI-compatible endpoint lives at /v1beta/openai/chat/completions,
+  // not /v1beta/openai/v1/chat/completions — override to drop the extra /v1.
+  protected override get chatUrl(): string {
+    return `${this.baseUrl}/chat/completions`;
+  }
+
+  protected override get modelsUrl(): string {
+    return `${this.baseUrl}/models`;
   }
 
   /** List models available for the current API key via the Gemini models endpoint. */

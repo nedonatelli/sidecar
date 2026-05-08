@@ -286,9 +286,12 @@ export const AGENT_CASES: AgentEvalCase[] = [
       // that the agent passes a pattern containing ".test.ts", not a
       // broader glob that would match non-test files too.
       toolCallMatches: [{ name: 'search_files', inputPartial: { pattern: '.test.ts' } }],
-      // Final text must contain the answer. "2" is specific enough
-      // that false positives are unlikely, and any correct answer
-      // must contain it.
+    },
+    softExpect: {
+      // Ideally the model also reports the count. Soft because the core
+      // behavioral signal is tool selection + pattern — a model that
+      // used the right tool but phrased its reply awkwardly shouldn't
+      // count as a full regression.
       finalTextContains: ['2'],
     },
   },

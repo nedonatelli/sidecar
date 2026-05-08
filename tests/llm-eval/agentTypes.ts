@@ -57,6 +57,14 @@ export interface AgentEvalCase {
    */
   expect: AgentExpectations;
   /**
+   * Soft expectations: evaluated and reported like `expect`, but
+   * failures here do NOT affect `passed`. Use for answer-quality checks
+   * (e.g. "final text contains the count") when the core behavioral
+   * signal is in `expect` (e.g. "used the right tool with the right
+   * pattern"). Soft failures appear as a separate section in the report.
+   */
+  softExpect?: AgentExpectations;
+  /**
    * Agent loop options. Defaults: approvalMode='autonomous',
    * maxIterations=8 (eval cases should be focused — runaway loops
    * almost always mean the case is wrong or the model regressed).
@@ -148,6 +156,8 @@ export interface AgentCaseResult {
   description: string;
   passed: boolean;
   failures: string[];
+  /** Failures from `softExpect` — reported but do not affect `passed`. */
+  softFailures: string[];
   /** Every tool call + result + text emission the agent produced. */
   trajectory: TrajectoryEvent[];
   /** Final assistant text concatenated across turns. */

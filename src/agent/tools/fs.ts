@@ -105,6 +105,23 @@ export const editFileDef: ToolDefinition = {
   },
 };
 
+export const deleteFileDef: ToolDefinition = {
+  name: 'delete_file',
+  description:
+    'Permanently delete a file at the given relative path. ' +
+    'Use when the user explicitly asks you to remove or delete a file, or when a refactor requires removing a deprecated module. ' +
+    'Not for emptying a file — use `write_file` with empty content if you want to keep the file but clear it. ' +
+    'Not for deleting directories — this tool only removes individual files. ' +
+    'Example: `delete_file(path="src/legacy.ts")`.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      path: { type: 'string', description: 'Relative file path from the project root' },
+    },
+    required: ['path'],
+  },
+};
+
 export const listDirectoryDef: ToolDefinition = {
   name: 'list_directory',
   description:
@@ -259,6 +276,32 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   return `File edited: ${filePath}`;
 }
 
+export async function deleteFile(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
+  const filePath = input.path as string;
+  const pathError = validateFilePath(filePath);
+  if (pathError) return pathError;
+  const protectedError = isProtectedWritePath(filePath);
+  if (protectedError) return protectedError;
+  if (isSensitiveFile(filePath)) {
+    return `Error: "${filePath}" appears to contain secrets or credentials. The agent is not permitted to delete this file.`;
+  }
+
+  if (isAuditModeActive(context)) {
+    await getDefaultAuditBuffer().deleteFile(filePath, (p) => readDiskViaWorkspace(context, p));
+    return `File deleted: ${filePath} (buffered for audit review)`;
+  }
+
+  const fileUri = Uri.joinPath(resolveRootUri(context), filePath);
+
+  if (context?.editTimeline && !context.cwd) {
+    const original = await readDiskViaWorkspace(context, filePath);
+    context.editTimeline.record(filePath, original, '');
+  }
+
+  await workspace.fs.delete(fileUri, { useTrash: false });
+  return `File deleted: ${filePath}`;
+}
+
 export async function listDirectory(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   const dirPath = (input.path as string) || '.';
   // `.` is the workspace root itself — skip validation for the empty
@@ -281,5 +324,6 @@ export const fsTools: RegisteredTool[] = [
   { definition: readFileDef, executor: readFile, requiresApproval: false },
   { definition: writeFileDef, executor: writeFile, requiresApproval: true },
   { definition: editFileDef, executor: editFile, requiresApproval: true },
+  { definition: deleteFileDef, executor: deleteFile, requiresApproval: true },
   { definition: listDirectoryDef, executor: listDirectory, requiresApproval: false },
 ];

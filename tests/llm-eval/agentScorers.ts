@@ -1,4 +1,4 @@
-import type { AgentEvalCase, AgentCaseResult, TrajectoryEvent } from './agentTypes.js';
+import type { AgentEvalCase, AgentCaseResult, AgentExpectations, TrajectoryEvent } from './agentTypes.js';
 import type { WorkspaceFixture } from './workspaceSandbox.js';
 
 // ---------------------------------------------------------------------------
@@ -39,15 +39,12 @@ interface AgentRun {
   iterationsUsed: number;
 }
 
-export function scoreAgentCase(evalCase: AgentEvalCase, run: AgentRun): AgentCaseResult {
-  const failures: string[] = [];
-  const { expect } = evalCase;
-
+function collectFailures(expect: AgentExpectations, run: AgentRun, out: string[]): void {
   // --- trajectory: tools called ---
   if (expect.toolsCalled) {
     for (const name of expect.toolsCalled) {
       if (!hasToolCall(run.trajectory, name)) {
-        failures.push(`toolsCalled: expected "${name}" to be called at least once, but it was not`);
+        out.push(`toolsCalled: expected "${name}" to be called at least once, but it was not`);
       }
     }
   }
@@ -56,7 +53,7 @@ export function scoreAgentCase(evalCase: AgentEvalCase, run: AgentRun): AgentCas
   if (expect.toolsNotCalled) {
     for (const name of expect.toolsNotCalled) {
       if (hasToolCall(run.trajectory, name)) {
-        failures.push(`toolsNotCalled: expected "${name}" to NOT be called, but it was`);
+        out.push(`toolsNotCalled: expected "${name}" to NOT be called, but it was`);
       }
     }
   }
@@ -66,7 +63,7 @@ export function scoreAgentCase(evalCase: AgentEvalCase, run: AgentRun): AgentCas
     for (const match of expect.toolCallMatches) {
       const found = findToolCallWithPartialInput(run.trajectory, match.name, match.inputPartial);
       if (!found) {
-        failures.push(
+        out.push(
           `toolCallMatches: no call to "${match.name}" matched partial input ${JSON.stringify(match.inputPartial)}`,
         );
       }
@@ -76,12 +73,12 @@ export function scoreAgentCase(evalCase: AgentEvalCase, run: AgentRun): AgentCas
   // --- files: existence ---
   if (expect.files?.exist) {
     for (const p of expect.files.exist) {
-      if (!(p in run.workspaceAfter)) failures.push(`files.exist: "${p}" does not exist in the post-run workspace`);
+      if (!(p in run.workspaceAfter)) out.push(`files.exist: "${p}" does not exist in the post-run workspace`);
     }
   }
   if (expect.files?.notExist) {
     for (const p of expect.files.notExist) {
-      if (p in run.workspaceAfter) failures.push(`files.notExist: "${p}" still exists in the post-run workspace`);
+      if (p in run.workspaceAfter) out.push(`files.notExist: "${p}" still exists in the post-run workspace`);
     }
   }
 
@@ -90,12 +87,12 @@ export function scoreAgentCase(evalCase: AgentEvalCase, run: AgentRun): AgentCas
     for (const spec of expect.files.contain) {
       const content = run.workspaceAfter[spec.path];
       if (content === undefined) {
-        failures.push(`files.contain: "${spec.path}" does not exist (can't check substrings)`);
+        out.push(`files.contain: "${spec.path}" does not exist (can't check substrings)`);
         continue;
       }
       for (const needle of spec.substrings) {
         if (!content.includes(needle)) {
-          failures.push(`files.contain: "${spec.path}" is missing substring ${JSON.stringify(needle)}`);
+          out.push(`files.contain: "${spec.path}" is missing substring ${JSON.stringify(needle)}`);
         }
       }
     }
@@ -106,7 +103,7 @@ export function scoreAgentCase(evalCase: AgentEvalCase, run: AgentRun): AgentCas
       if (content === undefined) continue; // absent = vacuously "doesn't contain"
       for (const needle of spec.substrings) {
         if (content.includes(needle)) {
-          failures.push(`files.notContain: "${spec.path}" still contains ${JSON.stringify(needle)}`);
+          out.push(`files.notContain: "${spec.path}" still contains ${JSON.stringify(needle)}`);
         }
       }
     }
@@ -115,9 +112,9 @@ export function scoreAgentCase(evalCase: AgentEvalCase, run: AgentRun): AgentCas
     for (const spec of expect.files.equal) {
       const content = run.workspaceAfter[spec.path];
       if (content === undefined) {
-        failures.push(`files.equal: "${spec.path}" does not exist`);
+        out.push(`files.equal: "${spec.path}" does not exist`);
       } else if (content !== spec.content) {
-        failures.push(`files.equal: "${spec.path}" content differs from expected`);
+        out.push(`files.equal: "${spec.path}" content differs from expected`);
       }
     }
   }
@@ -126,28 +123,28 @@ export function scoreAgentCase(evalCase: AgentEvalCase, run: AgentRun): AgentCas
   if (expect.finalTextContains) {
     for (const needle of expect.finalTextContains) {
       if (!run.finalText.toLowerCase().includes(needle.toLowerCase())) {
-        failures.push(`finalTextContains: missing "${needle}"`);
+        out.push(`finalTextContains: missing "${needle}"`);
       }
     }
   }
   if (expect.finalTextNotContains) {
     for (const needle of expect.finalTextNotContains) {
       if (run.finalText.toLowerCase().includes(needle.toLowerCase())) {
-        failures.push(`finalTextNotContains: present "${needle}"`);
+        out.push(`finalTextNotContains: present "${needle}"`);
       }
     }
   }
   if (expect.finalTextMatchesRegex) {
     for (const pattern of expect.finalTextMatchesRegex) {
       if (!pattern.test(run.finalText)) {
-        failures.push(`finalTextMatchesRegex: final text did not match ${pattern}`);
+        out.push(`finalTextMatchesRegex: final text did not match ${pattern}`);
       }
     }
   }
   if (expect.finalTextNotMatchesRegex) {
     for (const pattern of expect.finalTextNotMatchesRegex) {
       if (pattern.test(run.finalText)) {
-        failures.push(`finalTextNotMatchesRegex: final text matched ${pattern}`);
+        out.push(`finalTextNotMatchesRegex: final text matched ${pattern}`);
       }
     }
   }
@@ -158,11 +155,11 @@ export function scoreAgentCase(evalCase: AgentEvalCase, run: AgentRun): AgentCas
       const beforeIdx = firstToolCallIndex(run.trajectory, before);
       const afterIdx = firstToolCallIndex(run.trajectory, after);
       if (beforeIdx === -1) {
-        failures.push(`trajectoryOrder: "${before}" was never called (must appear before "${after}")`);
+        out.push(`trajectoryOrder: "${before}" was never called (must appear before "${after}")`);
       } else if (afterIdx === -1) {
-        failures.push(`trajectoryOrder: "${after}" was never called (must appear after "${before}")`);
+        out.push(`trajectoryOrder: "${after}" was never called (must appear after "${before}")`);
       } else if (beforeIdx >= afterIdx) {
-        failures.push(
+        out.push(
           `trajectoryOrder: expected "${before}" (event ${beforeIdx}) before "${after}" (event ${afterIdx}), but order was reversed`,
         );
       }
@@ -173,8 +170,20 @@ export function scoreAgentCase(evalCase: AgentEvalCase, run: AgentRun): AgentCas
   if (expect.trajectoryHasToolError === true) {
     const hasError = run.trajectory.some((e) => e.type === 'tool_result' && e.isError);
     if (!hasError) {
-      failures.push(`trajectoryHasToolError: expected at least one tool_result with isError=true, but none observed`);
+      out.push(`trajectoryHasToolError: expected at least one tool_result with isError=true, but none observed`);
     }
+  }
+}
+
+export function scoreAgentCase(evalCase: AgentEvalCase, run: AgentRun): AgentCaseResult {
+  const failures: string[] = [];
+  const softFailures: string[] = [];
+  const { expect } = evalCase;
+
+  collectFailures(expect, run, failures);
+
+  if (evalCase.softExpect) {
+    collectFailures(evalCase.softExpect, run, softFailures);
   }
 
   return {
@@ -182,6 +191,7 @@ export function scoreAgentCase(evalCase: AgentEvalCase, run: AgentRun): AgentCas
     description: evalCase.description,
     passed: failures.length === 0,
     failures,
+    softFailures,
     trajectory: run.trajectory,
     finalText: run.finalText,
     workspaceAfter: run.workspaceAfter,
@@ -244,6 +254,11 @@ export function renderAgentReport(results: AgentCaseResult[]): string {
       lines.push('');
       lines.push('Failures:');
       for (const f of r.failures) lines.push(`- ${f}`);
+    }
+    if (r.softFailures.length > 0) {
+      lines.push('');
+      lines.push('Soft failures (informational — do not affect pass/fail):');
+      for (const f of r.softFailures) lines.push(`- ${f}`);
     }
     lines.push('');
     lines.push('<details><summary>Trajectory</summary>');
