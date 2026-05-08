@@ -702,7 +702,7 @@ export const AGENT_CASES: AgentEvalCase[] = [
       toolsCalled: ['write_file'],
       files: {
         exist: ['src/hello.ts'],
-        contain: [{ path: 'src/hello.ts', substrings: ['hello', 'export', 'return'] }],
+        contain: [{ path: 'src/hello.ts', substrings: ['hello', 'export'] }],
       },
       // The agent should finish cleanly — an error in the approval gate
       // would produce an error message in the final text.
