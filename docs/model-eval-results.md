@@ -12,7 +12,7 @@ SideCar ships a deterministic LLM evaluation harness (`npm run eval:llm`) that m
 
 The suite has two layers:
 
-**Agent cases (40 total)** — the model runs inside the full agent loop with real tools against a sandboxed workspace. Cases test tool selection, file editing, code quality, error recovery, and operating rules (e.g. run tests after a fix, use `search_files` not `list_directory + filter`).
+**Agent cases (46 total)** — the model runs inside the full agent loop with real tools against a sandboxed workspace. Cases test tool selection, file editing, code quality, error recovery, and operating rules (e.g. run tests after a fix, use `search_files` not `list_directory + filter`).
 
 **Prompt cases (24 total)** — the model is tested against the base system prompt without tool calls: identity, honesty, conciseness, language mirroring, injection resistance, retrieval citation, and tool preference rules.
 
@@ -20,9 +20,9 @@ Cases are scored deterministically (string matching, regex, trajectory inspectio
 
 ## Results
 
-> Last updated: 2026-05-08. Run with `SIDECAR_EVAL_CASE_TIMEOUT=300000` for local models, `120000` for cloud. Suite v0.88 (40 agent + 24 prompt cases).
+> Last updated: 2026-05-08. Run with `SIDECAR_EVAL_CASE_TIMEOUT=300000` for local models, `120000` for cloud. Suite v0.89 (46 agent + 24 prompt cases).
 > Scores reflect the test suite at time of run; re-run models after any structural fix to get current numbers.
-> Suite now has 40 agent cases + 24 prompt cases (8 new cases added in v0.88: test-writing, multi-file rename, diagnostics-after-edit, source-reading honesty, barrel-file export, and 3 git-tool-preference cases). Table scores are from v0.87 (32 cases) — re-run to get v0.88 numbers. Prompt denominator may vary by backend (some cases are backend-specific or skipped when a case times out).
+> Suite now has 46 agent cases + 24 prompt cases. Table scores are from v0.87 (32 cases) — re-run to get current numbers. Prompt denominator may vary by backend (some cases are backend-specific or skipped when a case times out).
 
 | Model | Backend | Size | Agent | Prompt | Total | Notes |
 |-------|---------|------|-------|--------|-------|-------|

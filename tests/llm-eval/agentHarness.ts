@@ -253,16 +253,20 @@ export async function runAgentCase(
   const toolRuntime = new ToolRuntime();
   const model = modelOverride ?? backend.defaultModel();
   const client = new SideCarClient(model, backend.baseUrl(), backend.apiKey());
-  client.updateSystemPrompt(
-    buildBaseSystemPrompt({
-      isLocal: backend.name === 'ollama',
-      extensionVersion: '0.0.0-eval',
-      repoUrl: '',
-      docsUrl: '',
-      root: sandbox.root,
-      approvalMode: evalCase.approvalMode || 'autonomous',
-    }),
-  );
+  let systemPrompt = buildBaseSystemPrompt({
+    isLocal: backend.name === 'ollama',
+    extensionVersion: '0.0.0-eval',
+    repoUrl: '',
+    docsUrl: '',
+    root: sandbox.root,
+    approvalMode: evalCase.approvalMode || 'autonomous',
+  });
+  // Inject SIDECAR.md when present in the workspace fixture, mirroring
+  // what injectSystemContext does in production for real workspaces.
+  if (evalCase.workspace['SIDECAR.md']) {
+    systemPrompt += `\n\nProject instructions (from SIDECAR.md):\n${evalCase.workspace['SIDECAR.md']}`;
+  }
+  client.updateSystemPrompt(systemPrompt);
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), timeoutMs);
 
