@@ -699,6 +699,24 @@ export const CASES: EvalCase[] = [
   },
 
   {
+    id: 'rule5-no-alternatives-menu',
+    description: 'Rule 5: after list_directory reveals a single candidate file, model reads it immediately — no offer of alternatives',
+    userMessage:
+      "You called `read_file(\"src/helpers.ts\")` and got a not-found error. " +
+      "You then called `list_directory(\"src\")` and it returned one file: `utils.ts`. " +
+      "What is the correct next action?",
+    tags: ['prompt', 'rule5', 'regression'],
+    expect: {
+      // Rule 5: "Once list_directory reveals a candidate file, call read_file
+      // on it immediately — do not offer alternatives or ask permission."
+      mustMatch: [/(read_file|read.*utils\.ts|call.*read)/i],
+      // Must not present a numbered menu of options or ask permission to read.
+      mustNotMatch: [/(would you like|shall I|do you want|option[s12]|instead[,?]|search (the|entire|workspace))/i],
+      maxLength: 600,
+    },
+  },
+
+  {
     id: 'rule9-ambiguous-target',
     description: 'Rule 9: model knows to ask before acting when singular-target language matches multiple candidates',
     userMessage:
