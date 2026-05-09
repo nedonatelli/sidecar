@@ -752,7 +752,7 @@ export const CASES: EvalCase[] = [
       // one function, one file, one change. Asking is wrong here.
       mustMatch: [/(proceed|directly|no (need|reason).{0,20}(to )?(ask|clarif)|unambiguous|clear)/i],
       // Must not say ask_user should be called here — that would be a Rule 9 regression.
-      mustNotMatch: [/(should|would|need to|must).{0,20}(call|use).{0,20}ask_user/i],
+      mustNotMatch: [/(should|would|need to|must).{0,20}\b(call|use)\b.{0,20}ask_user/i],
       maxLength: 800,
     },
   },

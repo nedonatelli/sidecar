@@ -20,25 +20,27 @@ Cases are scored deterministically (string matching, regex, trajectory inspectio
 
 ## Results
 
-> Last updated: 2026-05-08. Run with `SIDECAR_EVAL_CASE_TIMEOUT=300000` for local models, `120000` for cloud.
-> **Suite v0.87a** (47 agent + 32 prompt = 79 cases) — current; includes `rule9-ambiguous-target` added after initial v0.87 release.
-> **Suite v0.87** (47 agent + 31 prompt = 78 cases) — pre-`rule9-ambiguous-target` run; rows marked with ‡.
+> Last updated: 2026-05-09. Run with `SIDECAR_EVAL_CASE_TIMEOUT=300000` for local models, `120000` for cloud.
+> **Suite v0.87b** (47 agent + 34 prompt = 81 cases) — current; adds `rule5-no-alternatives-menu` and `rule9-ambiguous-target` + `rule9-meta-knowledge` prompt cases; includes prompt fixes for Rule 3/5/9.
+> **Suite v0.87a** (47 agent + 32 prompt = 79 cases) — pre-Rule5/9-fix run; rows marked with ‡.
+> **Suite v0.87** (47 agent + 31 prompt = 78 cases) — pre-`rule9-ambiguous-target` run; rows marked with ‡‡.
 > Scores reflect the test suite at time of run; re-run models after any structural fix to get current numbers.
+> Rows marked ‡ are from the v0.87a suite (79 cases); rows marked ‡‡ are from the v0.87 suite (78 cases) — both need re-running on v0.87b.
 > Rows marked †v0.87 are from the old 56-case suite (32 agent + 24 prompt) and need re-running. Prompt denominator may vary by backend (some cases are backend-specific or skipped when a case times out).
 
 | Model | Backend | Size | Agent | Prompt | Total | Notes |
 |-------|---------|------|-------|--------|-------|-------|
-| **deepseek-v4-pro** | Fireworks | — | 45/47 (96%) | 30/32 (94%) | **75/79 (95%)** | Suite v0.87a. Highest total score; plan-mode-no-tools + error-recovery are agent fails; rule13/plan-mode are sole prompt fails; 1M token context |
-| **claude-haiku-4-5-20251001** | Anthropic | — | 44/47 (94%) | 29/31 (94%) | **73/78 (94%)** ‡ | Suite v0.87 (78-case). error-recovery, cautious-mode, ask-user-ambiguous-rename are agent fails; rule3/rule7 are prompt fails |
-| **x-ai/grok-3-mini** | OpenRouter | — | 42/47 (89%) | 28/32 (87.5%) | **70/79 (89%)** | Suite v0.87a. Strong agent; fails error-recovery, rename-across-callers, export-barrel, grep-regex, run-tests-iterate; prompt fails rule3/rule8/plan-mode |
-| **gemini-2.5-flash** | Gemini | — | 44/47 (94%) | 23/31 (74%) | **67/78 (86%)** ‡ | Suite v0.87. Strong agent; prompt weaker on rule2/rule3/rule10/rule13 honesty/freshness tests; rename-function + error-recovery + ask-user-ambiguous-rename fail |
-| **qwen/qwen3-235b-a22b** | OpenRouter | — | 40/47 (85%) | 23/31 (74%) | **63/78 (81%)** ‡ | Suite v0.87. Prompt dropped on new rule2/rule4/rule13 cases; error-recovery, grep-regex, multi-tool-iteration common agent fails |
-| **gemma4:e4b** | Ollama | 9 GB | 34/47 (72%) | 27/32 (84%) | **61/79 (77%)** | Suite v0.87a. edit_file partial-replace warning (v0.87) helps fix-wrong-type-annotation; 1 rule9-ambiguous-target is false failure (regex fixed); 13 agent + 6 prompt real failures |
-| **ministral-3:latest** | Ollama | 6 GB | 46/47 (98%) | 20/32 (62%) | **66/79 (84%)** | Highest agent score of all models tested; sole agent fail is multi-tool-iteration; prompt weaker on rule3/rule7/rule13/rule2/rule4/plan-mode — typical small-model instruction-following gap; requires 600 s case timeout (model is slow) |
+| **deepseek-v4-pro** | Fireworks | — | 45/47 (96%) | 30/32 (94%) | **75/79 (95%)** ‡ | Suite v0.87a. Highest total score; plan-mode-no-tools + error-recovery are agent fails; rule13/plan-mode are sole prompt fails; 1M token context |
+| **claude-haiku-4-5-20251001** | Anthropic | — | 44/47 (94%) | 29/31 (94%) | **73/78 (94%)** ‡‡ | Suite v0.87 (78-case). error-recovery, cautious-mode, ask-user-ambiguous-rename are agent fails; rule3/rule7 are prompt fails |
+| **x-ai/grok-3-mini** | OpenRouter | — | 42/47 (89%) | 28/32 (87.5%) | **70/79 (89%)** ‡ | Suite v0.87a. Strong agent; fails error-recovery, rename-across-callers, export-barrel, grep-regex, run-tests-iterate; prompt fails rule3/rule8/plan-mode |
+| **gemma4:e4b** | Ollama | 9 GB | 37/47 (79%) | 29/34 (85%) | **66/81 (81%)** | Suite v0.87b. +3 agent / +2 prompt vs v0.87a run; edit_file no-op + partial-replace fixes account for agent gains; 10 agent + 5 prompt real failures; rule5/rule9-ambiguous-target new cases both pass |
+| **ministral-3:latest** | Ollama | 6 GB | 46/47 (98%) | 20/32 (62%) | **66/79 (84%)** ‡ | Suite v0.87a. Highest agent score of all models tested; sole agent fail is multi-tool-iteration; prompt weaker on rule3/rule7/rule13/rule2/rule4/plan-mode — typical small-model instruction-following gap; requires 600 s case timeout (model is slow) |
+| **gemini-2.5-flash** | Gemini | — | 44/47 (94%) | 23/31 (74%) | **67/78 (86%)** ‡‡ | Suite v0.87. Strong agent; prompt weaker on rule2/rule3/rule10/rule13 honesty/freshness tests; rename-function + error-recovery + ask-user-ambiguous-rename fail |
+| **qwen/qwen3-235b-a22b** | OpenRouter | — | 40/47 (85%) | 23/31 (74%) | **63/78 (81%)** ‡‡ | Suite v0.87. Prompt dropped on new rule2/rule4/rule13 cases; error-recovery, grep-regex, multi-tool-iteration common agent fails |
 | **granite4.1:3b** | Ollama | 2 GB | 25/31 (81%) | 19/23 (83%) | **44/61 (72%)** | †v0.87 scores — re-run needed. Punches well above its weight; 2 cases scraped the 300s timeout |
 | **qwen3.5:latest** | Ollama | 6 GB | 22/32 (69%) | 21/24 (88%) | **43/56 (77%)** | †v0.87 scores — re-run needed. Strong prompt adherence; loses version-from-package-json (reads file, answers wrong field) |
-| **mistral-large-2411** | OpenRouter | — | partial | partial | **~63/78** ‡ | Suite v0.87. Result unreliable — ~4+ agent cases hit upstream 429 rate limits; real behavioral failures: multi-tool-iteration, error-recovery, ask-user-ambiguous-rename + 5 prompt cases |
-| **gpt-4.1-mini** | OpenAI | — | partial | partial | **~40/78** ‡ | Suite v0.87. Result unreliable — many cases hit 200K TPM limit; agent score was ~51%; strong prompt adherence where it ran |
+| **mistral-large-2411** | OpenRouter | — | partial | partial | **~63/78** ‡‡ | Suite v0.87. Result unreliable — ~4+ agent cases hit upstream 429 rate limits; real behavioral failures: multi-tool-iteration, error-recovery, ask-user-ambiguous-rename + 5 prompt cases |
+| **gpt-4.1-mini** | OpenAI | — | partial | partial | **~40/78** ‡‡ | Suite v0.87. Result unreliable — many cases hit 200K TPM limit; agent score was ~51%; strong prompt adherence where it ran |
 | **gpt-4o-mini** | OpenAI | — | 15/31 (48%) | 16/22 (73%) | **~35/57 (61%)** | †v0.87 scores — re-run needed. Underperforms its size; struggles with complex tool-use cases |
 | **gpt-4o** | OpenAI | — | ❌ rate limited | — | — | Free tier 30K TPM; our prompt+tools is ~23K tokens, exhausted after 1 case |
 | **meta-llama/llama-4-maverick** | OpenRouter | — | ❌ no tool use | — | — | OpenRouter routing for this model has no tool-use endpoint; 404 on all agent cases |
