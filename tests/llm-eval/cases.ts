@@ -507,7 +507,9 @@ export const CASES: EvalCase[] = [
       mustMatch: [/(nothing|directly|no (text|narration|filler|commentary)|proceed (immediately|directly|without comment))/i],
       // Must not describe the exact filler the rule forbids — that would
       // mean the model is confused about whether it should narrate.
-      mustNotMatch: [/(now I will|let me (now |call |invoke )|I am (going to|about to) (call|invoke|edit|read))/i],
+      // Anchored to line-start (m flag) to avoid firing on quoted bad-example
+      // text that models cite when explaining the rule back.
+      mustNotMatch: [/(^now I will|^let me (now |call |invoke )|^I am (going to|about to) (call|invoke|edit|read))/im],
       maxLength: 800,
     },
   },
@@ -711,7 +713,9 @@ export const CASES: EvalCase[] = [
       // on it immediately — do not offer alternatives or ask permission."
       mustMatch: [/(read_file|read.*utils\.ts|call.*read)/i],
       // Must not present a numbered menu of options or ask permission to read.
-      mustNotMatch: [/(would you like|shall I|do you want|option[s12]|instead[,?]|search (the|entire|workspace))/i],
+      // option[s12] replaced with 'option [12]:' to avoid firing on "list of
+      // options" in quoted rule text; 'here are.*option' catches offering menus.
+      mustNotMatch: [/(would you like|shall I|do you want|option [12]:|here are.*option|instead[,?]|search (the|entire|workspace))/i],
       maxLength: 600,
     },
   },
