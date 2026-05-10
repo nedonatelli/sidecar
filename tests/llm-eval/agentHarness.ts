@@ -317,6 +317,17 @@ export async function runAgentCase(
 
   const durationMs = Date.now() - start;
 
+  // Detect API unavailability: the run used most of its timeout budget but the
+  // model produced zero output (no text, tool calls, or results). This pattern
+  // — empty trajectory + long duration — means the API was hanging (overloaded,
+  // rate-limit queue, cold start) rather than the model behaving incorrectly.
+  // Flagging these separately lets the report exclude them from pass/fail and
+  // lets the circuit breaker in agent.eval.ts stop early when the API is down.
+  const hasModelContent = trajectory.some(
+    (e) => e.type === 'text' || e.type === 'tool_call' || e.type === 'tool_result',
+  );
+  const apiUnavailable = !hasModelContent && durationMs >= timeoutMs * 0.8;
+
   if (runError) {
     // Re-throw infra errors (aborts, network failures) so the runner
     // treats them as infra breakage rather than case regressions.
@@ -340,11 +351,12 @@ export async function runAgentCase(
     };
   }
 
-  return scoreAgentCase(evalCase, {
+  const scored = scoreAgentCase(evalCase, {
     trajectory,
     finalText: textBuffer.join(''),
     workspaceAfter: snapshot,
     durationMs,
     iterationsUsed,
   });
+  return apiUnavailable ? { ...scored, apiUnavailable: true } : scored;
 }

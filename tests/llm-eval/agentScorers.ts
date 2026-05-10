@@ -254,14 +254,22 @@ function findToolCallWithPartialInput(
  */
 export function renderAgentReport(results: AgentCaseResult[]): string {
   const passed = results.filter((r) => r.passed).length;
-  const total = results.length;
+  const unavailable = results.filter((r) => r.apiUnavailable && !r.passed).length;
+  const scored = results.length - unavailable;
   const lines: string[] = [];
   lines.push(`# LLM Eval Report — Agent Loop`);
   lines.push('');
-  lines.push(`**Score: ${passed} / ${total} passed**`);
+  if (unavailable > 0) {
+    lines.push(
+      `**Score: ${passed} / ${scored} scored** ` +
+        `(${unavailable} ⚠️ api-unavailable — API hung/rate-limited, not counted as failures)`,
+    );
+  } else {
+    lines.push(`**Score: ${passed} / ${results.length} passed**`);
+  }
   lines.push('');
   for (const r of results) {
-    const mark = r.passed ? '✅' : '❌';
+    const mark = r.passed ? '✅' : r.apiUnavailable ? '⚠️' : '❌';
     lines.push(`## ${mark} ${r.id} — ${r.description}`);
     lines.push(`*Duration: ${r.durationMs}ms · Iterations: ${r.iterationsUsed} · Trajectory events: ${r.trajectory.length}*`);
     if (r.failures.length > 0) {

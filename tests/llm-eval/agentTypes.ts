@@ -175,4 +175,12 @@ export interface AgentCaseResult {
   workspaceAfter: WorkspaceFixture;
   durationMs: number;
   iterationsUsed: number;
+  /**
+   * True when the case timed out with no model output whatsoever (no text,
+   * tool calls, or tool results). Indicates an API availability problem
+   * (hanging connection, rate-limit queue, server overload) — NOT a model
+   * behavioral regression. These cases are excluded from the pass/fail score
+   * and shown with ⚠️ in the report.
+   */
+  apiUnavailable?: boolean;
 }

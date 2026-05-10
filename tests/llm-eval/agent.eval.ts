@@ -50,10 +50,41 @@ const backend = pickAgentBackend();
 describe.skipIf(!backend)('llm-eval :: agent loop', () => {
   const allResults: AgentCaseResult[] = [];
 
+  // Circuit breaker: if this many consecutive cases produce zero model output
+  // (empty trajectory + near-timeout duration), the API is likely unavailable.
+  // Skip remaining cases rather than burning 120 s × N on a dead endpoint.
+  let consecutiveApiUnavailable = 0;
+  const CIRCUIT_BREAKER_THRESHOLD = 3;
+
   for (const evalCase of ALL_CASES) {
     if (CASE_FILTER && !CASE_FILTER.some((f) => evalCase.id.includes(f))) continue;
     it(`${evalCase.id} — ${evalCase.description}`, async () => {
       const b = backend!;
+
+      // Circuit breaker check — fire before spending another timeout budget.
+      if (consecutiveApiUnavailable >= CIRCUIT_BREAKER_THRESHOLD) {
+        const synthetic: AgentCaseResult = {
+          id: evalCase.id,
+          description: evalCase.description,
+          passed: false,
+          apiUnavailable: true,
+          failures: [],
+          softFailures: [],
+          trajectory: [],
+          finalText: '',
+          workspaceAfter: {},
+          durationMs: 0,
+          iterationsUsed: 0,
+        };
+        allResults.push(synthetic);
+        consecutiveApiUnavailable++;
+        throw new Error(
+          `[circuit-breaker] API appears unavailable — ${consecutiveApiUnavailable} consecutive cases produced zero model output. ` +
+            `Check rate limits or network connectivity and re-run. ` +
+            `Set SIDECAR_EVAL_CASE_TIMEOUT to a higher value if the model is slow to respond.`,
+        );
+      }
+
       let result: AgentCaseResult;
       try {
         result = await runAgentCase(evalCase, b);
@@ -67,7 +98,24 @@ describe.skipIf(!backend)('llm-eval :: agent loop', () => {
 
       allResults.push(result);
 
+      // Update the circuit-breaker counter before checking pass/fail so
+      // that api-unavailable cases don't pollute the failure output.
+      if (result.apiUnavailable) {
+        consecutiveApiUnavailable++;
+      } else {
+        consecutiveApiUnavailable = 0;
+      }
+
       if (!result.passed) {
+        if (result.apiUnavailable) {
+          // Surface as a distinct infra signal, not a model regression.
+          throw new Error(
+            `Agent case "${evalCase.id}" api-unavailable: ` +
+              `the model produced no output within the case timeout. ` +
+              `This is an API availability problem, not a behavioral regression. ` +
+              `Re-run when the API is healthy, or increase SIDECAR_EVAL_CASE_TIMEOUT.`,
+          );
+        }
         const lines = [`Agent case "${evalCase.id}" regressed:`];
         for (const f of result.failures) lines.push(`  - ${f}`);
         lines.push('');
