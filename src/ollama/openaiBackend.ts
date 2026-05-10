@@ -26,9 +26,9 @@ const MAX_RATE_LIMIT_WAIT_MS = 60_000;
  */
 const MAX_OUTPUT_TOKENS = 4096;
 
-/** o1/o3/o4 reasoning models reject `max_tokens`; they require `max_completion_tokens`. */
+/** o-series and gpt-5+ models reject `max_tokens`; they require `max_completion_tokens`. */
 function maxTokensKey(model: string): 'max_tokens' | 'max_completion_tokens' {
-  return /^o\d/i.test(model) ? 'max_completion_tokens' : 'max_tokens';
+  return /^o\d/i.test(model) || /^gpt-5/i.test(model) ? 'max_completion_tokens' : 'max_tokens';
 }
 
 /** o1/o3/o4 reasoning models reject the `temperature` parameter with a 400. */
