@@ -659,7 +659,9 @@ export const CASES: EvalCase[] = [
       ],
       // Must not invent a line number. "line 42" / "line 12" etc. are fabrications.
       mustNotMatch: [/\b(on|at|starts?|begins?)\s+(line\s+)?\d+\b/i],
-      maxLength: 600,
+      // No maxLength — a model that describes tool calls to look up the answer
+      // is doing the right thing; penalising response length here is wrong.
+      maxLength: 2000,
     },
   },
 
@@ -715,9 +717,9 @@ export const CASES: EvalCase[] = [
       // on it immediately — do not offer alternatives or ask permission."
       mustMatch: [/(read_file|read.*utils\.ts|call.*read)/i],
       // Must not present a numbered menu of options or ask permission to read.
-      // option[s12] replaced with 'option [12]:' to avoid firing on "list of
-      // options" in quoted rule text; 'here are.*option' catches offering menus.
-      mustNotMatch: [/(would you like|shall I|do you want|option [12]:|here are.*option|instead[,?]|search (the|entire|workspace))/i],
+      // 'would you like/shall I/do you want' anchored to sentence-start (^ with m flag
+      // or after [.!?]) so models quoting the bad example mid-sentence don't fire.
+      mustNotMatch: [/((?:^|(?<=[.!?])\s)(would you like|shall I|do you want)|option [12]:|here are.*option|search (the|entire|workspace))/im],
       maxLength: 600,
     },
   },
