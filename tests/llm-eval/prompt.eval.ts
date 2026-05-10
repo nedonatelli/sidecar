@@ -19,6 +19,10 @@ import type { CaseResult } from './types.js';
 
 const backend = pickBackend();
 
+// When SIDECAR_EVAL_CASE is set, only register it() blocks for matching cases.
+// Accepts comma-separated IDs or substrings: SIDECAR_EVAL_CASE=rule3,plan-mode
+const CASE_FILTER = process.env.SIDECAR_EVAL_CASE?.split(',').map((s) => s.trim());
+
 // Stable fixture — keeps the expected-version regex in the identity
 // case byte-identical across runs. Everything project-specific
 // (baseUrl, model, etc.) comes from env vars at real run time; this
@@ -36,6 +40,7 @@ describe.skipIf(!backend)(`llm-eval :: base system prompt [${backend?.name ?? 'u
   const allResults: CaseResult[] = [];
 
   for (const testCase of CASES) {
+    if (CASE_FILTER && !CASE_FILTER.some((f) => testCase.id.includes(f))) continue;
     it(`${testCase.id} — ${testCase.description}`, async () => {
       // Resolved lazily inside the test so the suite setup can't
       // dereference `backend` before `skipIf` has a chance to run.

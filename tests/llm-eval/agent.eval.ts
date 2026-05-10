@@ -8,6 +8,11 @@ import type { AgentCaseResult } from './agentTypes.js';
 
 const ALL_CASES = [...AGENT_CASES, ...CODE_QUALITY_CASES, ...GIT_CASES];
 
+// When SIDECAR_EVAL_CASE is set, only register it() blocks for matching cases
+// so a single targeted run completes in seconds instead of the full suite.
+// Accepts comma-separated IDs or substrings: SIDECAR_EVAL_CASE=error-recovery,grep-regex
+const CASE_FILTER = process.env.SIDECAR_EVAL_CASE?.split(',').map((s) => s.trim());
+
 // ---------------------------------------------------------------------------
 // Agent-loop eval runner.
 //
@@ -46,6 +51,7 @@ describe.skipIf(!backend)('llm-eval :: agent loop', () => {
   const allResults: AgentCaseResult[] = [];
 
   for (const evalCase of ALL_CASES) {
+    if (CASE_FILTER && !CASE_FILTER.some((f) => evalCase.id.includes(f))) continue;
     it(`${evalCase.id} — ${evalCase.description}`, async () => {
       const b = backend!;
       let result: AgentCaseResult;
