@@ -1,6 +1,6 @@
 # SideCar Roadmap
 
-**Current release: v0.87.0** — Sidebar tree-view panels (Background Agents, MCP Servers, Sessions, Edit Timeline), `edit_file` no-op and partial-replace guardrails, eval suite expanded to 47 agent + 31 prompt cases with multi-model results. See [CHANGELOG](CHANGELOG.md) for full notes.
+**Current release: v0.87.1** — API unavailability detection + circuit breaker in agent eval harness; `max_completion_tokens` fix for gpt-5/o-series; system prompt Rule 3/9 tightening; targeted eval case runner (`SIDECAR_EVAL_CASE`); v0.87b multi-model results (haiku 95%, deepseek 93%, grok-3-mini/gemini/qwen3-235b 88%). See [CHANGELOG](CHANGELOG.md) for full notes.
 
 **Coverage floor**: ≥80/70/80/80 (stmts/branches/funcs/lines) enforced by CI. No PR merges that drop any metric.
 

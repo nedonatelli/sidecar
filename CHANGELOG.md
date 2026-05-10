@@ -4,6 +4,32 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.87.1] - 2026-05-10
+
+**v0.87.1 — Eval harness reliability, gpt-5 token fix, prompt tightening, and v0.87b multi-model results.**
+
+### Added
+
+- **API unavailability detection in agent eval** — when an agent eval case times out with zero model output (no text, tool calls, or tool results), the harness now flags it as `apiUnavailable` rather than counting it as a behavioral regression. These cases show as ⚠️ in the report and are excluded from the pass/fail denominator, so rate-limit hangs and overloaded endpoints don't pollute model scores.
+
+- **Circuit breaker for sustained API outages** — after 3 consecutive `apiUnavailable` results, the agent eval runner skips all remaining cases instead of burning N × timeout-budget on a dead endpoint. The circuit-breaker case shows a clear message distinguishing infra failure from model regression.
+
+- **Targeted eval case runner** — `SIDECAR_EVAL_CASE=error-recovery,grep-regex npm run eval:llm` now runs only the matching cases (comma-separated IDs or substrings), completing in seconds instead of the full suite. Added `eval:agent`, `eval:prompt`, and `eval:case` npm scripts as convenience wrappers.
+
+### Fixed
+
+- **`max_completion_tokens` for gpt-5 and o-series models** — both the production `OpenAIBackend` (`src/ollama/openAiBackend.ts`) and the eval harness backend (`tests/llm-eval/backend.ts`) now use `max_completion_tokens` instead of `max_tokens` for models matching `/^o\d/i` or `/^gpt-5/i`. The o-series and gpt-5 APIs return a 400 error for `max_tokens`; this caused every eval case to fail with an API error rather than a behavioral regression.
+
+- **System prompt Rule 3 conciseness** — tightened the prose-conciseness rule to better distinguish "factual question → one sentence" from "explanation needed → short paragraph". Reduces the `rule3-concise-prose` failure observed across all tested models.
+
+- **System prompt Rule 9 inference escape** — updated Rule 9 (ambiguous target) to explicitly cover the singular-target / multiple-candidates case: when the user names one thing and two candidates match, the model must ask which one rather than guess and hedge. Fixes the `ask-user-ambiguous-rename` failure pattern across multiple models.
+
+- **Eval regex false positives** — fixed three eval case assertions that matched correct model output as failures due to overly strict patterns (plan-mode, autonomous-mode-scope, rule9-meta-knowledge).
+
+### Docs
+
+- **v0.87b multi-model eval results** — updated results table with confirmed v0.87b (81-case) scores: haiku 77/81 (95%), deepseek-v4-pro 75/81 (93%), grok-3-mini 71/81 (88%), gemini-2.5-flash 71/81 (88%), qwen3-235b 71/81 (88%), gemma4:e4b 67/81 (83%). deepseek-v4-pro agent score confirmed identical to v0.87a (45/47); previous run's 27 apparent failures were API timeouts, not behavioral regressions.
+
 ## [0.87.0] - 2026-05-08
 
 **v0.87.0 — Sidebar panels, Edit Timeline, eval suite expansion (47 agent + 31 prompt), `edit_file` guardrails, and multi-model results.**
