@@ -6,7 +6,7 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [0.87.1] - 2026-05-10
 
-**v0.87.1 — Eval harness reliability, gpt-5 token fix, prompt tightening, and v0.87b multi-model results.**
+**v0.87.1 — Eval harness reliability, gpt-5 token fix, prompt tightening, v0.87c thinking cases, and multi-model results.**
 
 ### Added
 
@@ -16,19 +16,38 @@ All notable changes to the SideCar extension will be documented in this file.
 
 - **Targeted eval case runner** — `SIDECAR_EVAL_CASE=error-recovery,grep-regex npm run eval:llm` now runs only the matching cases (comma-separated IDs or substrings), completing in seconds instead of the full suite. Added `eval:agent`, `eval:prompt`, and `eval:case` npm scripts as convenience wrappers.
 
+- **Suite v0.87c — 4 reasoning-model eval cases** (`tests/llm-eval/thinkingCases.ts`, total now 51 agent + 34 prompt = 85):
+  - `thinking-cross-file-causality` — argument order swapped at the call site but not the definition; model must read both files and fix the caller only
+  - `thinking-semantic-version-compare` — `>=` string comparison fails for `"10.0.0"` vs `"9.0.0"`; fix requires numeric split/parseInt
+  - `thinking-missing-await-in-loop` — `results.push(fetch(url))` stores a Promise, not the resolved value; fix is `await fetch(url)`
+  - `thinking-aliased-mutation` — `Object.assign(DEFAULTS, overrides)` mutates the shared defaults object; fix must spread into a new object
+  - All four use `softExpect: { trajectoryHasThinking: true }` so non-thinking models are evaluated on correctness only and do not fail on the presence check.
+
+- **`trajectoryHasThinking` assertion** (`AgentExpectations`) — scores at least one `thinking` event in the agent trajectory. Always used as `softExpect`; reported but not counted toward pass/fail for models that don't emit thinking blocks.
+
 ### Fixed
 
 - **`max_completion_tokens` for gpt-5 and o-series models** — both the production `OpenAIBackend` (`src/ollama/openAiBackend.ts`) and the eval harness backend (`tests/llm-eval/backend.ts`) now use `max_completion_tokens` instead of `max_tokens` for models matching `/^o\d/i` or `/^gpt-5/i`. The o-series and gpt-5 APIs return a 400 error for `max_tokens`; this caused every eval case to fail with an API error rather than a behavioral regression.
+
+- **`temperature` rejected by gpt-5** — `supportsTemperature()` in `OpenAIBackend` and the eval backend now also strips `temperature` for gpt-5 (previously only o-series was excluded). gpt-5 returns a 400 error when `temperature` is present.
+
+- **System prompt Rule 5 — "want me to read it?" escape hatch closed** — the previous wording forbade specific phrases but models rephrased the same avoidance differently. New wording bans the pattern: after `list_directory` reveals a candidate file, the next action must be `read_file` — not a question, not a summary, not a numbered alternatives menu. Fixes the `error-recovery-to-correct-file` failure pattern observed across all tested models.
 
 - **System prompt Rule 3 conciseness** — tightened the prose-conciseness rule to better distinguish "factual question → one sentence" from "explanation needed → short paragraph". Reduces the `rule3-concise-prose` failure observed across all tested models.
 
 - **System prompt Rule 9 inference escape** — updated Rule 9 (ambiguous target) to explicitly cover the singular-target / multiple-candidates case: when the user names one thing and two candidates match, the model must ask which one rather than guess and hedge. Fixes the `ask-user-ambiguous-rename` failure pattern across multiple models.
 
-- **Eval regex false positives** — fixed three eval case assertions that matched correct model output as failures due to overly strict patterns (plan-mode, autonomous-mode-scope, rule9-meta-knowledge).
+- **Eval false positive: `cautious-mode-completes-task`** — removed `finalTextNotMatchesRegex` assertion whose pattern matched innocent explanatory prose from compliant models. File-existence and content assertions are sufficient to verify task completion.
+
+- **Eval false positive: `run-command-usage`** — moved version-string regex to `softExpect` and loosened from `/v\d+\.\d+/` to `/v?\d+\.\d+/` to accommodate models that report version numbers without a leading `v`.
+
+- **Eval regex false positives** — fixed three additional eval case assertions that matched correct model output as failures due to overly strict patterns (plan-mode, autonomous-mode-scope, rule9-meta-knowledge).
 
 ### Docs
 
-- **v0.87b multi-model eval results** — updated results table with confirmed v0.87b (81-case) scores: haiku 77/81 (95%), deepseek-v4-pro 75/81 (93%), grok-3-mini 71/81 (88%), gemini-2.5-flash 71/81 (88%), qwen3-235b 71/81 (88%), gemma4:e4b 67/81 (83%). deepseek-v4-pro agent score confirmed identical to v0.87a (45/47); previous run's 27 apparent failures were API timeouts, not behavioral regressions.
+- **README backend setup** — added per-backend Getting Started sections for all 8 working backends: Ollama, Anthropic, OpenAI, Fireworks AI, OpenRouter, Google Gemini, Groq, and Kickstand. Each section includes the base URL, API key setup, recommended model, and relevant caveats (OpenAI 200K TPM ceiling, Groq free-tier TPM limit).
+
+- **v0.87c multi-model eval results** — updated results table with confirmed v0.87c (85-case) scores; granite4.1:3b added (56/85, 66%); gpt-4o-mini and gpt-4.1-mini removed from the results table (200K TPM org cap causes 300–400 rate-limit failures per run, making scores unreproducible) and moved to "Models confirmed not working"; "OpenAI 200K TPM ceiling" added to known constraints.
 
 ## [0.87.0] - 2026-05-08
 
