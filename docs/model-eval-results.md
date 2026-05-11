@@ -20,8 +20,9 @@ Cases are scored deterministically (string matching, regex, trajectory inspectio
 
 ## Results
 
-> Last updated: 2026-05-09. Run with `SIDECAR_EVAL_CASE_TIMEOUT=300000` for local models, `120000` for cloud.
-> **Suite v0.87b** (47 agent + 34 prompt = 81 cases) — current; adds `rule5-no-alternatives-menu` and `rule9-ambiguous-target` + `rule9-meta-knowledge` prompt cases; includes prompt fixes for Rule 3/5/9. Last updated: 2026-05-09.
+> Last updated: 2026-05-10. Run with `SIDECAR_EVAL_CASE_TIMEOUT=300000` for local models, `120000` for cloud.
+> **Suite v0.87c** (51 agent + 34 prompt = 85 cases) — current; adds 4 reasoning cases (`thinking-cross-file-causality`, `thinking-semantic-version-compare`, `thinking-missing-await-in-loop`, `thinking-aliased-mutation`) with `softExpect.trajectoryHasThinking` assertions. Last updated: 2026-05-10.
+> **Suite v0.87b** (47 agent + 34 prompt = 81 cases) — adds `rule5-no-alternatives-menu` and `rule9-ambiguous-target` + `rule9-meta-knowledge` prompt cases; includes prompt fixes for Rule 3/5/9.
 > **Suite v0.87a** (47 agent + 32 prompt = 79 cases) — pre-Rule5/9-fix run; rows marked with ‡.
 > Scores reflect the test suite at time of run; re-run models after any structural fix to get current numbers.
 > Rows marked ‡ are from the v0.87a suite (79 cases) and need re-running on v0.87b.
@@ -36,11 +37,9 @@ Cases are scored deterministically (string matching, regex, trajectory inspectio
 | **qwen/qwen3-235b-a22b** | OpenRouter | — | 44/47 (94%) | 27/34 (79%) | **71/81 (88%)** | Suite v0.87b. Agent improved (rule 5/9 fixes): fails ask-user-ambiguous-rename, write-tests-for-function, rename-across-callers; prompt fails: rule3/rule13-url/rule13-lineno/plan-mode/rule10/retrieval-provenance/package-version |
 | **ministral-3:latest** | Ollama | 6 GB | 46/47 (98%) | 20/32 (62%) | **66/79 (84%)** ‡ | Suite v0.87a. Highest agent score of all models tested; sole agent fail is multi-tool-iteration; prompt weaker on rule3/rule7/rule13/rule2/rule4/plan-mode — typical small-model instruction-following gap; requires 600 s case timeout (model is slow) |
 | **gemma4:e4b** | Ollama | 9 GB | 36/47 (77%) | 31/34 (91%) | **67/81 (83%)** | Suite v0.87b (post-regex-fix). prompt +2 from autonomous-mode-scope/rule9-meta-knowledge fixes; agent ±2 stochastic variance between runs; consistent agent fails: error-recovery, grep-regex, ask-user-ambiguous-rename, rename-across-callers, sidecar-md-jsdoc, no-op-recognition, no-stub-error-handling, fix-wrong-type-annotation, fix-wrong-comparison-operator |
-| **granite4.1:3b** | Ollama | 2 GB | 25/31 (81%) | 19/23 (83%) | **44/61 (72%)** | †v0.87 scores — re-run needed. Punches well above its weight; 2 cases scraped the 300s timeout |
+| **granite4.1:3b** | Ollama | 2 GB | 34/51 (67%) | 22/34 (65%) | **56/85 (66%)** | Suite v0.87c (85 total). Agent fails: rename-function (writes without reading first), error-recovery, grep-regex, search-then-edit, ask-user-ambiguous-rename, shell-error-recovery, run-fix-iteration-cycle (fixes wrong bug), no-op-recognition (edits already-correct file), write-tests-for-function, rename-across-callers, export-from-barrel, run-tests-iterate, no-stub-multi-function, no-stub-add-function, fix-wrong-type-annotation, thinking-cross-file-causality, thinking-aliased-mutation; thinking 2/4; prompt fails: tool-output-as-data/honesty/retrieval-provenance/spend-tracker/package-version/rule3/rule13-url/prior-context/rule2/rule13-lineno/rule10/rule9-meta-knowledge |
 | **qwen3.5:latest** | Ollama | 6 GB | 22/32 (69%) | 21/24 (88%) | **43/56 (77%)** | †v0.87 scores — re-run needed. Strong prompt adherence; loses version-from-package-json (reads file, answers wrong field) |
 | **mistral-large-2411** | OpenRouter | — | partial | partial | **~63/78** ‡‡ | Suite v0.87. Result unreliable — ~4+ agent cases hit upstream 429 rate limits; real behavioral failures: multi-tool-iteration, error-recovery, ask-user-ambiguous-rename + 5 prompt cases |
-| **gpt-4.1-mini** | OpenAI | — | partial | partial | **~40/78** ‡‡ | Suite v0.87. Result unreliable — many cases hit 200K TPM limit; agent score was ~51%; strong prompt adherence where it ran |
-| **gpt-4o-mini** | OpenAI | — | 15/31 (48%) | 16/22 (73%) | **~35/57 (61%)** | †v0.87 scores — re-run needed. Underperforms its size; struggles with complex tool-use cases |
 | **gpt-4o** | OpenAI | — | ❌ rate limited | — | — | Free tier 30K TPM; our prompt+tools is ~23K tokens, exhausted after 1 case |
 | **meta-llama/llama-4-maverick** | OpenRouter | — | ❌ no tool use | — | — | OpenRouter routing for this model has no tool-use endpoint; 404 on all agent cases |
 | **llama-4-scout-17b-16e-instruct** | Groq | — | ❌ rate limited | — | — | Free tier 30K TPM; same constraint as gpt-4o above |
@@ -58,6 +57,8 @@ Cases are scored deterministically (string matching, regex, trajectory inspectio
 | `glm-4.7-flash` | Ollama | Prefill >300s on 36 GB hardware; too slow to be usable |
 | `llama-v3p3-70b-instruct` | Fireworks | 401 tokens over the 131,072-token context limit when tool schemas are included |
 | `gpt-4o` | OpenAI | Free tier (30K TPM) exhausted after 1 case; requires paid tier |
+| `gpt-4o-mini` | OpenAI | 200K TPM exhausted after ~8 requests (our system prompt is ~23K tokens); 340+ rate-limit errors in a full suite run render scores meaningless |
+| `gpt-4.1-mini` | OpenAI | Same 200K TPM constraint as gpt-4o-mini; results unreliable |
 | `llama-4-scout-17b-16e-instruct` | Groq | Free tier (30K TPM) exhausted after 1 case; requires paid tier |
 | `llama-3.3-70b-versatile` | Groq | Free tier (12K TPM) too small for even a single request |
 | `qwen3.6` | Ollama | Causes kernel panic (OOM) on 36 GB hardware when loaded alongside other models |
@@ -67,6 +68,8 @@ Cases are scored deterministically (string matching, regex, trajectory inspectio
 **Local model RAM limits:** On a 36 GB unified-memory machine, models larger than ~12 GB risk OOM. Always unload the previous model before loading a large one. `qwen3.6` (23 GB) caused a kernel panic when loaded alongside another model.
 
 **Cloud API rate limits:** SideCar's system prompt + tool schemas totals ~23K tokens per request on typical tokenizers (and up to ~131K on some llama tokenizers when tool schemas are included). Free-tier accounts on OpenAI (30K TPM) and Groq (12K–30K TPM) exhaust their per-minute budget after 1–2 cases, causing the circuit breaker to trip for all subsequent cases. Upgrade to a paid tier, or use the Anthropic backend which has higher free limits.
+
+**OpenAI 200K TPM ceiling:** Even on paid tiers, `gpt-4o-mini` and `gpt-4.1-mini` share a 200K TPM org-level limit. At ~23K tokens per request, a full 85-case eval burns through the budget in ~8 requests, causing 300–400 rate-limit failures per run. Scores are not reproducible. These models are excluded from the results table. Use `gpt-5` or a model with a higher TPM allocation for OpenAI evals.
 
 **Fireworks context limit:** `llama-v3p3-70b-instruct` has a 131,072 token context window. Our prompt + tool schemas lands at 131,473 tokens on the llama tokenizer — 401 tokens over. Prompt-only cases work fine. Use a Fireworks model with a larger context window, or wait for tool-catalog trimming in a future release.
 

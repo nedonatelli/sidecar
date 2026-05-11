@@ -6,7 +6,7 @@
 
 [![VS Code Marketplace](https://badgen.net/vs-marketplace/v/nedonatelli.sidecar-ai)](https://marketplace.visualstudio.com/items?itemName=nedonatelli.sidecar-ai)
 
-**SideCar** is a free, self-hosted VS Code extension that serves as a drop-in replacement for GitHub Copilot and Claude Code. Use local [Ollama](https://ollama.com) models, the [Anthropic API](https://api.anthropic.com), [Kickstand](https://github.com/nedonatelli/kickstand) (self-hosted), or any [OpenAI-compatible server](https://nedonatelli.github.io/sidecar/getting-started#using-openai-compatible-servers) (LM Studio, vLLM, llama.cpp, OpenRouter) for AI-powered coding — with full agentic capabilities, inline completions, and tool use.
+**SideCar** is a free, self-hosted VS Code extension that serves as a drop-in replacement for GitHub Copilot and Claude Code. Use local [Ollama](https://ollama.com) models, the [Anthropic API](https://api.anthropic.com), [OpenAI](https://platform.openai.com), [Fireworks AI](https://fireworks.ai), [OpenRouter](https://openrouter.ai), [Google Gemini](https://aistudio.google.com), [Groq](https://groq.com), [Kickstand](https://github.com/nedonatelli/kickstand) (self-hosted), or any OpenAI-compatible server (LM Studio, vLLM, llama.cpp) for AI-powered coding — with full agentic capabilities, inline completions, and tool use.
 
 > A free, open-source, local-first **autonomous AI agent for coding**. Full agent loop, not just chat. No subscriptions, no data leaving your machine.
 
@@ -104,30 +104,86 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 
 ## Requirements
 
-- **[Ollama](https://ollama.com)** installed and in your PATH (for local models)
 - **Visual Studio Code** 1.88.0 or later
+- **[Ollama](https://ollama.com)** installed and in your PATH (for local models only)
 
 ## Getting Started
+
+### Ollama (local, free)
 
 1. Install [Ollama](https://ollama.com) if you haven't already
 2. Install the SideCar extension
 3. Click the SideCar icon in the activity bar
-4. Start chatting — SideCar launches Ollama automatically
+4. Start chatting — SideCar launches Ollama automatically and downloads a starter model
 
-### Using with Anthropic API
+Recommended models: `qwen3-coder:30b` (coding), `gemma4:e4b` (fast + accurate), `ministral-3:latest` (best agentic score at 6 GB)
 
-1. Click the ☰ menu button in the chat header → **Anthropic Claude** under Backend.
-2. SideCar prompts for your API key on first switch — paste it and you're done.
+### Anthropic (Claude)
 
-Or manually: set `sidecar.baseUrl` to `https://api.anthropic.com`, run `SideCar: Set / Refresh API Key`, and set `sidecar.model` to `claude-sonnet-4-6`.
+1. Click the ☰ menu in the chat header → **Anthropic Claude** under Backend
+2. SideCar prompts for your API key on first switch — paste it and you're done
 
-### Using with OpenAI-compatible servers
+Or manually: `sidecar.baseUrl` = `https://api.anthropic.com`, run `SideCar: Set / Refresh API Key`, set `sidecar.model` = `claude-sonnet-4-6`.
+
+SideCar uses Anthropic's prompt caching automatically — subsequent turns in a session cost ~90% less on input tokens.
+
+### OpenAI
+
+1. Set `sidecar.baseUrl` to `https://api.openai.com`
+2. Run `SideCar: Set / Refresh API Key` and paste your OpenAI key
+3. Set `sidecar.model` to `gpt-5` (recommended — higher TPM than mini models)
+
+> **Note:** `gpt-4o-mini` and `gpt-4.1-mini` share a 200K TPM org-level cap. At ~23K tokens per request (system prompt + tools), the budget exhausts after ~8 requests. Use `gpt-5` or a model with a higher TPM allocation.
+
+### Fireworks AI
+
+Fireworks offers fast inference for large open-source models including DeepSeek and Llama variants.
+
+1. Set `sidecar.baseUrl` to `https://api.fireworks.ai/inference`
+2. Run `SideCar: Set / Refresh API Key` and paste your Fireworks key
+3. Set `sidecar.model` to `accounts/fireworks/models/deepseek-v4-pro` (recommended)
+
+### OpenRouter
+
+OpenRouter provides a single API key for 100+ models across providers.
+
+1. Set `sidecar.baseUrl` to `https://openrouter.ai/api`
+2. Run `SideCar: Set / Refresh API Key` and paste your OpenRouter key
+3. Set `sidecar.model` to e.g. `x-ai/grok-3-mini` or `google/gemini-2.5-flash`
+
+### Google Gemini
+
+1. Set `sidecar.baseUrl` to `https://generativelanguage.googleapis.com/v1beta/openai`
+2. Run `SideCar: Set / Refresh API Key` and paste your Gemini API key
+3. Set `sidecar.model` to `gemini-2.5-flash`
+
+### Groq
+
+Groq offers very fast inference for open-source models via their LPU hardware.
+
+1. Set `sidecar.baseUrl` to `https://api.groq.com/openai`
+2. Run `SideCar: Set / Refresh API Key` and paste your Groq key
+3. Set `sidecar.model` to e.g. `llama-3.3-70b-versatile`
+
+> **Note:** Groq's free tier (12K–30K TPM) is exhausted after 1–2 requests from SideCar's system prompt + tool schemas. A paid tier is required for reliable use.
+
+### Kickstand (self-hosted manager)
+
+[Kickstand](https://github.com/nedonatelli/kickstand) is a self-hosted model manager that wraps Ollama with a management API, model registry, and load/unload controls.
+
+1. Run Kickstand locally — it auto-generates a bearer token at `~/.config/kickstand/token`
+2. Set `sidecar.baseUrl` to your Kickstand URL (default `http://localhost:4000`)
+3. SideCar reads the token file automatically — no API key prompt needed
+
+### Other OpenAI-compatible servers
+
+LM Studio, vLLM, llama.cpp, and other OpenAI-compatible servers work out of the box:
 
 1. Set `sidecar.baseUrl` to your server URL (e.g. `http://localhost:1234`)
 2. Set `sidecar.model` to the model name on your server
 3. Run `SideCar: Set / Refresh API Key` if your server requires authentication
 
-SideCar auto-detects the provider. Override with `sidecar.provider: "openai"` if needed.
+SideCar auto-detects the provider from the URL. Override with `sidecar.provider: "openai"` if needed.
 
 ## Keyboard Shortcuts
 
