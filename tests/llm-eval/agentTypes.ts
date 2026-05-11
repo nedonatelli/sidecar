@@ -153,6 +153,14 @@ export interface AgentExpectations {
    * use `toolsCalled` to assert it then tried a recovery tool).
    */
   trajectoryHasToolError?: boolean;
+  /**
+   * When `true`, at least one `thinking` event must appear in the
+   * trajectory. Use this in `softExpect` for cases designed for
+   * reasoning models (DeepSeek-R1, QwQ, Claude extended thinking) —
+   * soft so non-thinking models still get evaluated on correctness
+   * without failing on the presence check.
+   */
+  trajectoryHasThinking?: boolean;
 }
 
 /**

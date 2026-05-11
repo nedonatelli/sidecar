@@ -31,9 +31,9 @@ function maxTokensKey(model: string): 'max_tokens' | 'max_completion_tokens' {
   return /^o\d/i.test(model) || /^gpt-5/i.test(model) ? 'max_completion_tokens' : 'max_tokens';
 }
 
-/** o1/o3/o4 reasoning models reject the `temperature` parameter with a 400. */
+/** o1/o3/o4/gpt-5 reasoning models reject the `temperature` parameter with a 400. */
 function supportsTemperature(model: string): boolean {
-  return !/^o\d/i.test(model);
+  return !/^o\d/i.test(model) && !/^gpt-5/i.test(model);
 }
 
 function estimateRequestTokens(systemPrompt: string, messages: ChatMessage[], maxOutputTokens: number): number {

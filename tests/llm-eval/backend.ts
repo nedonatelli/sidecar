@@ -154,14 +154,12 @@ class OpenAICompatEvalBackend implements ModelBackend {
 
   async complete(opts: CallOptions): Promise<string> {
     const apiKey = process.env[this.apiKeyEnv] ?? '';
-    const maxTokensKey =
-      /^o\d/i.test(opts.model) || /^gpt-5/i.test(opts.model)
-        ? 'max_completion_tokens'
-        : 'max_tokens';
+    const isReasoningModel = /^o\d/i.test(opts.model) || /^gpt-5/i.test(opts.model);
+    const maxTokensKey = isReasoningModel ? 'max_completion_tokens' : 'max_tokens';
     const body = {
       model: opts.model,
       [maxTokensKey]: opts.maxTokens ?? 1024,
-      temperature: opts.temperature ?? 0.2,
+      ...(!isReasoningModel && { temperature: opts.temperature ?? 0.2 }),
       messages: [
         { role: 'system', content: opts.systemPrompt },
         { role: 'user', content: opts.userMessage },

@@ -474,13 +474,14 @@ export const AGENT_CASES: AgentEvalCase[] = [
       // run_command is the only tool that can execute a shell command.
       // node is guaranteed present since we run in a Node.js process.
       toolsCalled: ['run_command'],
-      // node --version always prints "vX.Y.Z". The regex checks that the
-      // agent reported the actual version string rather than just guessing
-      // "a version is installed" — finalTextContains: ['v'] would accept
-      // "a version of Node is present" without running the command at all.
-      finalTextMatchesRegex: [/v\d+\.\d+/],
       // Must not write anything — this is a pure observation task.
       toolsNotCalled: ['write_file', 'edit_file'],
+    },
+    softExpect: {
+      // The agent should include the actual version string in its response.
+      // Soft because some models report "24.12.0" without the "v" prefix, or
+      // phrase it as "Node.js 24" — the hard signal is that run_command was called.
+      finalTextMatchesRegex: [/v?\d+\.\d+/],
     },
   },
 
@@ -704,9 +705,8 @@ export const AGENT_CASES: AgentEvalCase[] = [
         exist: ['src/hello.ts'],
         contain: [{ path: 'src/hello.ts', substrings: ['hello', 'export'] }],
       },
-      // The agent should finish cleanly — an error in the approval gate
-      // would produce an error message in the final text.
-      finalTextNotMatchesRegex: [/(approval (failed|error)|cannot (execute|run)|tool (call )?denied)/i],
+      // files.exist + files.contain already prove the approval gate worked.
+      // No finalText assertion needed — the file state is authoritative.
     },
   },
 

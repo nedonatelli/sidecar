@@ -187,6 +187,14 @@ function collectFailures(expect: AgentExpectations, run: AgentRun, out: string[]
       out.push(`trajectoryHasToolError: expected at least one tool_result with isError=true, but none observed`);
     }
   }
+
+  // --- thinking observation ---
+  if (expect.trajectoryHasThinking === true) {
+    const hasThinking = run.trajectory.some((e) => e.type === 'thinking');
+    if (!hasThinking) {
+      out.push(`trajectoryHasThinking: expected at least one thinking event, but none observed (model may not support extended thinking)`);
+    }
+  }
 }
 
 export function scoreAgentCase(evalCase: AgentEvalCase, run: AgentRun): AgentCaseResult {
