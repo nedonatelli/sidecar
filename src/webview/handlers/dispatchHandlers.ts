@@ -365,6 +365,8 @@ export function buildDispatchHandlers(
     showSystemPrompt: () =>
       import('./chatHandlers.js').then(({ handleShowSystemPrompt }) => handleShowSystemPrompt(state)),
     reconnect: () => import('./chatHandlers.js').then(({ handleReconnect }) => handleReconnect(state)),
+    refreshModels: () => import('./modelHandlers.js').then(({ loadModels }) => loadModels(state)),
+    restartOllama: () => import('./chatHandlers.js').then(({ handleRestartOllama }) => handleRestartOllama(state)),
 
     dismissOnboarding: () => {
       globalState.update('sidecar.onboardingComplete', true);

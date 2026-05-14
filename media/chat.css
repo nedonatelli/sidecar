@@ -274,7 +274,14 @@ body {
   font-size: 13px;
 }
 
-#close-panel {
+#model-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+#close-panel,
+#refresh-models-btn {
   background: none;
   border: none;
   color: var(--vscode-editor-foreground);
@@ -286,9 +293,43 @@ body {
   border-radius: 4px;
 }
 
-#close-panel:hover {
+#close-panel:hover,
+#refresh-models-btn:hover {
   opacity: 1;
   background: var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
+}
+
+#refresh-models-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+#ollama-actions {
+  padding: 8px 12px;
+  border-top: 1px solid var(--vscode-widget-border);
+}
+
+#restart-ollama-btn {
+  width: 100%;
+  padding: 6px 12px;
+  background: none;
+  border: 1px solid var(--vscode-button-border, var(--vscode-widget-border));
+  color: var(--vscode-editor-foreground);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  opacity: 0.8;
+  text-align: center;
+}
+
+#restart-ollama-btn:hover {
+  opacity: 1;
+  background: var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
+}
+
+#restart-ollama-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 #model-search-row {

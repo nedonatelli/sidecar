@@ -25,6 +25,9 @@
   const modelPanel = document.getElementById('model-panel');
   const modelList = document.getElementById('model-list');
   const closePanel = document.getElementById('close-panel');
+  const refreshModelsBtn = document.getElementById('refresh-models-btn');
+  const ollamaActions = document.getElementById('ollama-actions');
+  const restartOllamaBtn = document.getElementById('restart-ollama-btn');
   const installProgress = document.getElementById('install-progress');
   const installText = document.getElementById('install-text');
   const installBar = document.getElementById('install-bar');
@@ -363,6 +366,25 @@
 
   closePanel.addEventListener('click', () => {
     modelPanel.classList.add('hidden');
+  });
+
+  refreshModelsBtn.addEventListener('click', () => {
+    refreshModelsBtn.disabled = true;
+    vscode.postMessage({ command: 'refreshModels' });
+    setTimeout(() => {
+      refreshModelsBtn.disabled = false;
+    }, 2000);
+  });
+
+  restartOllamaBtn.addEventListener('click', () => {
+    restartOllamaBtn.disabled = true;
+    restartOllamaBtn.textContent = 'Restarting...';
+    modelPanel.classList.add('hidden');
+    vscode.postMessage({ command: 'restartOllama' });
+    setTimeout(() => {
+      restartOllamaBtn.disabled = false;
+      restartOllamaBtn.textContent = 'Restart Ollama';
+    }, 5000);
   });
 
   modelSearchInput.addEventListener('input', () => {
@@ -4686,6 +4708,9 @@
 
       case 'setModels':
         renderModelList(event.data.models || []);
+        if (ollamaActions) {
+          ollamaActions.classList.toggle('hidden', !event.data.isLocalOllama);
+        }
         break;
 
       case 'setCurrentModel': {

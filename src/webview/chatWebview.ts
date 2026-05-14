@@ -88,7 +88,9 @@ export interface WebviewMessage {
     | 'notebookStart'
     | 'notebookExit'
     | 'requestFileCompletion'
-    | 'regenerateResponse';
+    | 'regenerateResponse'
+    | 'refreshModels'
+    | 'restartOllama';
   images?: { mediaType: string; data: string }[];
   text?: string;
   model?: string;
@@ -219,6 +221,8 @@ export interface ExtensionMessage {
   messages?: ChatMessage[];
   isLoading?: boolean;
   models?: LibraryModelUI[];
+  /** Sent with 'setModels' — true when the active backend is local Ollama. */
+  isLocalOllama?: boolean;
   currentModel?: string;
   modelName?: string;
   progress?: string;
@@ -432,7 +436,13 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
     <div id="model-panel" class="hidden" role="dialog" aria-label="Model picker">
     <div id="model-panel-header">
       <span>Select Model</span>
-      <button id="close-panel">&times;</button>
+      <div id="model-panel-actions">
+        <button id="refresh-models-btn" data-tooltip="Refresh model list" aria-label="Refresh model list" title="Refresh model list">&#8635;</button>
+        <button id="close-panel">&times;</button>
+      </div>
+    </div>
+    <div id="ollama-actions" class="hidden">
+      <button id="restart-ollama-btn" aria-label="Restart Ollama">Restart Ollama</button>
     </div>
     <div id="model-search-row">
       <input id="model-search-input" type="text" placeholder="Search models..." />

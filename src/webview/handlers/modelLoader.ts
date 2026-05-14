@@ -51,7 +51,7 @@ export async function loadModels(state: ChatState): Promise<void> {
       };
     });
 
-    state.postMessage({ command: 'setModels', models: modelsUI });
+    state.postMessage({ command: 'setModels', models: modelsUI, isLocalOllama: state.client.isLocalOllama() });
 
     // Warn loudly when the persisted model isn't actually installed —
     // a stale HF-style name in sidecar.model would 404 every chat turn

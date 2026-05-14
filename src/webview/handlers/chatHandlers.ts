@@ -538,6 +538,44 @@ export function handleUserMessageWithImages(
   state.saveHistory();
 }
 
+export async function handleRestartOllama(state: ChatState): Promise<void> {
+  if (!state.client.isLocalOllama()) return;
+
+  state.postMessage({ command: 'typingStatus', content: 'Restarting Ollama...' });
+  state.postMessage({ command: 'setLoading', isLoading: true });
+
+  try {
+    const { execSync } = await import('child_process');
+    // Kill any running Ollama process (best-effort — ignore failures)
+    try {
+      execSync('pkill -x ollama', { stdio: 'ignore' });
+    } catch {
+      /* not running */
+    }
+    await new Promise((r) => setTimeout(r, 1500));
+  } catch {
+    /* ignore */
+  }
+
+  const started = await ensureProviderRunning(state);
+  state.postMessage({ command: 'setLoading', isLoading: false });
+
+  if (started) {
+    const { loadModels } = await import('./modelLoader.js');
+    await loadModels(state);
+    state.postMessage({ command: 'assistantMessage', content: 'Ollama restarted successfully.\n' });
+    state.postMessage({ command: 'done' });
+  } else {
+    state.postMessage({
+      command: 'error',
+      content: 'Could not restart Ollama. Make sure it is installed and in your PATH.',
+      errorType: 'connection',
+      errorAction: 'Retry',
+      errorActionCommand: 'restartOllama',
+    });
+  }
+}
+
 export async function handleReconnect(state: ChatState): Promise<void> {
   state.postMessage({ command: 'setLoading', isLoading: true });
   state.postMessage({ command: 'typingStatus', content: 'Reconnecting...' });
