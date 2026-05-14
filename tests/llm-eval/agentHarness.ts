@@ -6,6 +6,7 @@ import { installSandbox, type WorkspaceFixture } from './workspaceSandbox.js';
 import type { AgentEvalCase, AgentCaseResult, TrajectoryEvent } from './agentTypes.js';
 import { scoreAgentCase } from './agentScorers.js';
 import { buildBaseSystemPrompt } from '../../src/webview/handlers/basePrompt.js';
+import { getConfig } from '../../src/config/settings.js';
 
 // ---------------------------------------------------------------------------
 // Agent-loop eval runner.
@@ -299,6 +300,9 @@ export async function runAgentCase(
     // Permissive confirmFn for the rare case an irrecoverable-gate
     // or alwaysRequireApproval tool fires under autonomous mode.
     confirmFn: async () => 'Allow',
+    // Merge configOverrides over defaults so cases can opt-in to
+    // features off by default (critic, autoFix) without a full config.
+    ...(evalCase.configOverrides ? { config: { ...getConfig(), ...evalCase.configOverrides } } : {}),
   };
 
   const initialMessages: ChatMessage[] = [{ role: 'user', content: evalCase.userMessage }];

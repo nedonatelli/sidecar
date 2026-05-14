@@ -3,11 +3,12 @@ import { AGENT_CASES } from './agentCases.js';
 import { CODE_QUALITY_CASES } from './codeQualityCases.js';
 import { GIT_CASES } from './gitCases.js';
 import { THINKING_CASES } from './thinkingCases.js';
+import { SYSTEM_CASES } from './systemCases.js';
 import { runAgentCase, pickAgentBackend } from './agentHarness.js';
 import { renderAgentReport } from './agentScorers.js';
 import type { AgentCaseResult } from './agentTypes.js';
 
-const ALL_CASES = [...AGENT_CASES, ...CODE_QUALITY_CASES, ...GIT_CASES, ...THINKING_CASES];
+const ALL_CASES = [...AGENT_CASES, ...CODE_QUALITY_CASES, ...GIT_CASES, ...THINKING_CASES, ...SYSTEM_CASES];
 
 // When SIDECAR_EVAL_CASE is set, only register it() blocks for matching cases
 // so a single targeted run completes in seconds instead of the full suite.
