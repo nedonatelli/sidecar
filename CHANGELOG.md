@@ -18,6 +18,8 @@ All notable changes to the SideCar extension will be documented in this file.
 
 - **Refresh Models and Restart Ollama buttons** — model panel now shows a "Refresh models" icon button that re-fetches the model list, and a "Restart Ollama" button (only shown for local Ollama backends) that calls `ollama serve` to recover from a crashed daemon.
 
+- **74 Fabric patterns in `skills/fabric/`** — curated import of 74 patterns from [danielmiessler/fabric](https://github.com/danielmiessler/fabric) covering security (Sigma rules, STRIDE, threat scenarios, pentest findings, Nuclei templates, HackerOne reports, CTF writeups, PoC extraction), dev workflow (PRDs, user stories, LOE docs, PR descriptions), visualization (Mermaid, MarkMap, GraphViz investigation), docs/planning (explain_docs, explain_project, summarize_meeting, recursive outlining), AI/prompting (improve_prompt, extract_mcp_servers, suggest_pattern), analysis (extract_wisdom/ideas/insights/references/recommendations, find_logical_fallacies), and text processing (translate, improve_writing, clean_text, fix_typos, convert_to_markdown). Import script at `scripts/import-fabric-patterns.ts` — re-run with `--filter` to pull additional patterns.
+
 - **Eval suite v0.87d** — 5 new system-infrastructure cases (57 agent + 35 prompt = 92 total): `gate-blocks-finish-without-tests`, `stub-validator-reprompts-placeholder`, `critic-hook-catches-regression`, `sidecarmd-scoped-section`, `cycle-detection-halts-loop`. These verify SideCar's own compensating mechanisms rather than raw model behavior.
 
 ### Fixed
