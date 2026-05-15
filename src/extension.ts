@@ -10,6 +10,7 @@ import { registerSettingsCommands } from './commands/settingsCommands.js';
 import { registerAgentCommands } from './commands/agentCommands.js';
 import { registerStatusBar } from './ui/statusBar.js';
 import { registerSidecarParticipant } from './chat/sidecarParticipant.js';
+import { registerLmTools } from './chat/lmTools.js';
 import { dispose as disposeDiagnostics } from './agent/sidecarDiagnostics.js';
 import { setGrammarsPath } from './parsing/registry.js';
 import { disposeShellSession } from './agent/tools.js';
@@ -93,6 +94,7 @@ export function activate(context: ExtensionContext) {
   registerAgentCommands(context, context.extension.id, { createClient, getChatProvider: () => chatProvider });
   registerBackendCommands(context, () => chatProvider!.client);
   registerSidecarParticipant(context, () => chatProvider!.client);
+  registerLmTools(context);
 
   // First-install auto-open. Gated behind a globalState flag so
   // existing users and every subsequent launch skip it. Fires after a

@@ -1777,6 +1777,63 @@
         ]
       }
     ],
+    "languageModelTools": [
+      {
+        "name": "sidecar_read_file",
+        "displayName": "Read File (SideCar)",
+        "modelDescription": "Read the full contents of a file. Returns the file text. Use when you need to inspect source code, config, or any workspace file."
+      },
+      {
+        "name": "sidecar_write_file",
+        "displayName": "Write File (SideCar)",
+        "modelDescription": "Create or fully overwrite a file with provided content. Use for new files or complete rewrites; prefer sidecar_edit_file for targeted changes."
+      },
+      {
+        "name": "sidecar_edit_file",
+        "displayName": "Edit File (SideCar)",
+        "modelDescription": "Apply a targeted search-and-replace edit to an existing file. Provide the exact text to find (search) and the replacement text."
+      },
+      {
+        "name": "sidecar_list_directory",
+        "displayName": "List Directory (SideCar)",
+        "modelDescription": "List files and directories at a given path. Returns names, types, and sizes. Use to explore workspace structure."
+      },
+      {
+        "name": "sidecar_search_files",
+        "displayName": "Search Files (SideCar)",
+        "modelDescription": "Search across workspace files using a regex pattern and optional glob filter. Returns matching file paths and line excerpts."
+      },
+      {
+        "name": "sidecar_run_command",
+        "displayName": "Run Command (SideCar)",
+        "modelDescription": "Execute a shell command in the workspace root and return its stdout/stderr. Use for build steps, formatting, or any shell operation."
+      },
+      {
+        "name": "sidecar_run_tests",
+        "displayName": "Run Tests (SideCar)",
+        "modelDescription": "Run the project's test suite (or a specific test file/pattern) and return the results. Prefer this over run_command for test execution."
+      },
+      {
+        "name": "sidecar_git_diff",
+        "displayName": "Git Diff (SideCar)",
+        "modelDescription": "Show unstaged changes, staged changes, or diff against a specific commit or branch. Use instead of running 'git diff' via shell."
+      },
+      {
+        "name": "sidecar_git_status",
+        "displayName": "Git Status (SideCar)",
+        "modelDescription": "Show the current git working tree status: staged, unstaged, and untracked files."
+      },
+      {
+        "name": "sidecar_git_log",
+        "displayName": "Git Log (SideCar)",
+        "modelDescription": "Show recent git commit history with author, date, and message. Optionally filter by file path or limit the number of commits."
+      },
+      {
+        "name": "sidecar_web_search",
+        "displayName": "Web Search (SideCar)",
+        "modelDescription": "Search the web for up-to-date information. Returns ranked result snippets. Use for library docs, error messages, or anything not in the workspace."
+      }
+    ],
     "commands": [
       {
         "command": "sidecar.pinToMemory",

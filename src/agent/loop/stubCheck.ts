@@ -43,6 +43,10 @@ export function applyStubCheck(
   if (!reprompt) return false;
 
   state.stubFixRetries++;
+  // Reset the normalized-call ring buffer so cycle detection doesn't fire
+  // while the model makes multiple edits to fix the same file's stubs.
+  // The stub validator's own MAX_STUB_RETRIES cap prevents infinite loops.
+  state.recentNormalizedCalls = [];
   state.logger?.info(
     `Stub validator: found placeholders, reprompting (attempt ${state.stubFixRetries}/${MAX_STUB_RETRIES})`,
   );

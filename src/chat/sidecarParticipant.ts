@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { runAgentLoop, type AgentCallbacks } from '../agent/loop.js';
+import { getWorkspaceRoot } from '../config/workspace.js';
 import type { SideCarClient } from '../ollama/client.js';
 import type { ChatMessage } from '../ollama/types.js';
 
@@ -209,16 +211,35 @@ export function registerSidecarParticipant(context: vscode.ExtensionContext, get
     // All other requests: full agent loop with tool use.
     response.progress('Starting SideCar agent…');
 
+    const editedFiles = new Set<string>();
+    const workspaceRoot = getWorkspaceRoot();
+
     const callbacks: AgentCallbacks = {
       onText: (text) => response.markdown(text),
       onThinking: () => {}, // suppress raw thinking blocks in chat
       onToolCall: (name) => response.progress(`Running \`${name}\`…`),
-      onToolResult: (_name, _result, isError) => {
-        if (isError) response.markdown('\n> ⚠️ Tool returned an error.\n');
+      onToolResult: (name, _result, isError, _id) => {
+        if (isError) {
+          response.markdown('\n> ⚠️ Tool returned an error.\n');
+          return;
+        }
+        // Track files written or edited so we can surface them as anchors.
+        // Tool input isn't available here — we capture paths from onToolCall instead.
+        void name;
       },
       onToolOutput: (_name, chunk) => response.markdown(chunk),
       onProgressSummary: (summary) => response.progress(summary),
       onDone: () => {},
+    };
+
+    // Capture file paths from write/edit tool calls.
+    const originalOnToolCall = callbacks.onToolCall!;
+    callbacks.onToolCall = (name, input, id) => {
+      if ((name === 'write_file' || name === 'edit_file' || name === 'create_file') && typeof input.path === 'string') {
+        const filePath = path.isAbsolute(input.path) ? input.path : path.join(workspaceRoot, input.path);
+        editedFiles.add(filePath);
+      }
+      originalOnToolCall(name, input, id);
     };
 
     try {
@@ -229,6 +250,15 @@ export function registerSidecarParticipant(context: vscode.ExtensionContext, get
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return;
       throw err;
+    }
+
+    // Surface edited files as clickable anchors and a review button.
+    if (editedFiles.size > 0) {
+      response.markdown('\n\n**Files changed:**\n');
+      for (const filePath of editedFiles) {
+        response.anchor(vscode.Uri.file(filePath), path.relative(workspaceRoot, filePath));
+      }
+      response.button({ command: 'sidecar.reviewChanges', title: 'Review Changes' });
     }
   };
 
