@@ -150,7 +150,7 @@ GPU-Native Hot-Swapping · GPU-Aware Load Balancing · Multi-repo cross-talk · 
 | Eval harness: retriever / cost / summarizer fixtures | ✅ v0.62 |
 | Eval harness: auto-fix + critic paths | ✅ v0.71 |
 | Eval harness: Ollama backend + v0.82 cases | ✅ v0.82 |
-| Shared test-helper module (`stubLoopState()`, `stubToolContext()`) | 🔜 v1.0 |
+| Shared test-helper module (`stubLoopState()`, `stubCallbacks()`) | ✅ v0.88 — `src/agent/loop/testHelpers.ts`; 16 loop test files migrated |
 | Subsystem unit tests (scheduler · eventHooks · inlineChatProvider) | 🔜 v1.0 |
 
 ### Theme 3 — Boilerplate reduction

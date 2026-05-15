@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { EpisodicMemoryStore } from '../episodicMemory.js';
+import { stubLoopState, stubCallbacks } from './testHelpers.js';
 
 // ---------------------------------------------------------------------------
 // Tests for postTurnPolicies.ts (loop helper hardening).
@@ -30,48 +30,8 @@ import { applyPostTurnPolicies } from './postTurnPolicies.js';
 import { applyAutoFix } from './autoFix.js';
 import { applyStubCheck } from './stubCheck.js';
 import { applyCritic } from './criticHook.js';
-import type { LoopState } from './state.js';
 import type { SideCarClient } from '../../ollama/client.js';
-import type { AgentCallbacks } from '../loop.js';
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/types.js';
-
-function stubState(): LoopState {
-  return {
-    startTime: Date.now(),
-    runId: 'test-task',
-    config: {} as import('../../config/settings.js').SideCarConfig,
-    maxIterations: 25,
-    maxTokens: 100_000,
-    approvalMode: 'cautious',
-    tools: [],
-    logger: undefined,
-    changelog: undefined,
-    mcpManager: undefined,
-    messages: [],
-    iteration: 1,
-    totalChars: 0,
-    recentToolCalls: [],
-    episodicMemory: new EpisodicMemoryStore(),
-    recentNormalizedCalls: [],
-    autoFixRetriesByFile: new Map(),
-    stubFixRetries: 0,
-    criticInjectionsByFile: new Map(),
-    criticInjectionsByTestHash: new Map(),
-    toolCallCounts: new Map(),
-    gateState: {} as LoopState['gateState'],
-    currentEditPlan: null,
-    checkpointFired: false,
-  };
-}
-
-function stubCallbacks(): AgentCallbacks {
-  return {
-    onText: vi.fn(),
-    onToolCall: vi.fn(),
-    onToolResult: vi.fn(),
-    onDone: vi.fn(),
-  };
-}
 
 describe('applyPostTurnPolicies', () => {
   beforeEach(() => {
@@ -94,7 +54,7 @@ describe('applyPostTurnPolicies', () => {
       callOrder.push('critic');
     });
 
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     const client = {} as SideCarClient;
     const config = {} as Parameters<typeof applyPostTurnPolicies>[2];
@@ -106,7 +66,7 @@ describe('applyPostTurnPolicies', () => {
   });
 
   it('passes the signal through to both async policies (autoFix + critic)', async () => {
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     const client = {} as SideCarClient;
     const config = {} as Parameters<typeof applyPostTurnPolicies>[2];
@@ -122,7 +82,7 @@ describe('applyPostTurnPolicies', () => {
   });
 
   it('passes toolUses + toolResults to every policy that needs them', async () => {
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     const client = {} as SideCarClient;
     const config = {} as Parameters<typeof applyPostTurnPolicies>[2];
@@ -171,7 +131,7 @@ describe('applyPostTurnPolicies', () => {
       events.push('critic-end');
     });
 
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     const client = {} as SideCarClient;
     const config = {} as Parameters<typeof applyPostTurnPolicies>[2];

@@ -1,8 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { EpisodicMemoryStore } from '../episodicMemory.js';
+import { stubLoopState, stubCallbacks } from './testHelpers.js';
 import { exceedsBurstCap, detectCycleAndBail } from './cycleDetection.js';
 import type { LoopState } from './state.js';
-import type { AgentCallbacks } from '../loop.js';
 import type { ToolUseContentBlock } from '../../ollama/types.js';
 
 // ---------------------------------------------------------------------------
@@ -24,52 +23,9 @@ function makeToolUse(name: string, input: Record<string, unknown> = {}): ToolUse
   return { type: 'tool_use', id: `tu-${name}-${JSON.stringify(input)}`, name, input };
 }
 
-function stubCallbacks(): AgentCallbacks & { texts: string[] } {
-  const texts: string[] = [];
-  return {
-    texts,
-    onText: (t: string) => texts.push(t),
-    onToolCall: vi.fn(),
-    onToolResult: vi.fn(),
-    onDone: vi.fn(),
-  };
-}
-
-function stubState(overrides: Partial<LoopState> = {}): LoopState {
-  // Minimal stub — cycle/burst helpers read `recentToolCalls`,
-  // `recentNormalizedCalls`, and `logger`.
-  return {
-    startTime: Date.now(),
-    runId: 'test-task',
-    config: {} as import('../../config/settings.js').SideCarConfig,
-    maxIterations: 25,
-    maxTokens: 100_000,
-    approvalMode: 'cautious',
-    tools: [],
-    logger: undefined,
-    changelog: undefined,
-    mcpManager: undefined,
-    messages: [],
-    iteration: 1,
-    totalChars: 0,
-    recentToolCalls: [],
-    episodicMemory: new EpisodicMemoryStore(),
-    recentNormalizedCalls: [],
-    autoFixRetriesByFile: new Map(),
-    stubFixRetries: 0,
-    criticInjectionsByFile: new Map(),
-    criticInjectionsByTestHash: new Map(),
-    toolCallCounts: new Map(),
-    gateState: {} as LoopState['gateState'],
-    currentEditPlan: null,
-    checkpointFired: false,
-    ...overrides,
-  };
-}
-
 describe('exceedsBurstCap', () => {
   it('returns false for an empty tool-use batch', () => {
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     expect(exceedsBurstCap([], state, cb)).toBe(false);
     expect(cb.texts).toHaveLength(0);
@@ -77,7 +33,7 @@ describe('exceedsBurstCap', () => {
 
   it('returns false at exactly MAX_TOOL_CALLS_PER_ITERATION (12) — the cap is inclusive', () => {
     const twelve = Array.from({ length: 12 }, (_, i) => makeToolUse(`t${i}`));
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     expect(exceedsBurstCap(twelve, state, cb)).toBe(false);
     expect(cb.texts).toHaveLength(0);
@@ -85,7 +41,7 @@ describe('exceedsBurstCap', () => {
 
   it('returns true at 13 tool calls and surfaces a user-visible warning', () => {
     const thirteen = Array.from({ length: 13 }, (_, i) => makeToolUse(`t${i}`));
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     expect(exceedsBurstCap(thirteen, state, cb)).toBe(true);
     expect(cb.texts).toHaveLength(1);
@@ -95,7 +51,7 @@ describe('exceedsBurstCap', () => {
 
   it('logs the burst via state.logger when present', () => {
     const warn = vi.fn();
-    const state = stubState({ logger: { warn } as unknown as LoopState['logger'] });
+    const state = stubLoopState({ logger: { warn } as unknown as LoopState['logger'] });
     const cb = stubCallbacks();
     const big = Array.from({ length: 20 }, (_, i) => makeToolUse(`read_file`, { path: `f${i}.ts` }));
     exceedsBurstCap(big, state, cb);
@@ -107,14 +63,14 @@ describe('exceedsBurstCap', () => {
 
 describe('detectCycleAndBail', () => {
   it('returns false and pushes the signature when the ring is empty', () => {
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     expect(detectCycleAndBail([makeToolUse('read_file', { path: 'a.ts' })], state, cb)).toBe(false);
     expect(state.recentToolCalls).toHaveLength(1);
   });
 
   it('returns false when the ring contains 2 identical signatures (below MIN_NORMALIZED_REPEATS=3)', () => {
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     const call = [makeToolUse('ls', { dir: '.' })];
     for (let i = 0; i < 2; i++) {
@@ -127,7 +83,7 @@ describe('detectCycleAndBail', () => {
     // The normalized-signature check fires at MIN_NORMALIZED_REPEATS=3, which is
     // lower than the exact-match threshold of 4. For completely identical calls,
     // the normalized pass triggers first with its "same resource" message.
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     const call = [makeToolUse('ls', { dir: '.' })];
     let bailed = false;
@@ -147,7 +103,7 @@ describe('detectCycleAndBail', () => {
     // to be the distinguishing check — but the 4-repeat exact behavior still exists.)
     // This test confirms the exact check is still in place via logger call count.
     const warn = vi.fn();
-    const state = stubState({
+    const state = stubLoopState({
       logger: { warn, info: vi.fn(), debug: vi.fn(), error: vi.fn() } as unknown as LoopState['logger'],
     });
     const cb = stubCallbacks();
@@ -163,7 +119,7 @@ describe('detectCycleAndBail', () => {
   });
 
   it('distinguishes different inputs for the same tool name', () => {
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     for (let i = 0; i < 4; i++) {
       const decision = detectCycleAndBail([makeToolUse('read_file', { path: `f${i}.ts` })], state, cb);
@@ -173,7 +129,7 @@ describe('detectCycleAndBail', () => {
   });
 
   it('detects a length-2 A,B,A,B cycle on the first full repetition', () => {
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     const A = [makeToolUse('read_file', { path: 'a.ts' })];
     const B = [makeToolUse('read_file', { path: 'b.ts' })];
@@ -185,7 +141,7 @@ describe('detectCycleAndBail', () => {
   });
 
   it('detects a length-3 cycle (A,B,C,A,B,C)', () => {
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     const A = [makeToolUse('a')];
     const B = [makeToolUse('b')];
@@ -196,7 +152,7 @@ describe('detectCycleAndBail', () => {
   });
 
   it('detects a length-4 cycle (A,B,C,D,A,B,C,D)', () => {
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     const A = [makeToolUse('a')];
     const B = [makeToolUse('b')];
@@ -208,7 +164,7 @@ describe('detectCycleAndBail', () => {
   });
 
   it('does NOT fire on a length-5 pattern (MAX_CYCLE_LEN=4)', () => {
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     const seq = ['a', 'b', 'c', 'd', 'e'].map((n) => [makeToolUse(n)]);
     // Pattern ABCDE,ABCDE has length 5 — above MAX_CYCLE_LEN. The ring
@@ -221,7 +177,7 @@ describe('detectCycleAndBail', () => {
   });
 
   it('trims the ring buffer at CYCLE_WINDOW=8 entries', () => {
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     for (let i = 0; i < 10; i++) {
       detectCycleAndBail([makeToolUse(`t${i}`)], state, cb);
@@ -236,7 +192,7 @@ describe('detectCycleAndBail', () => {
     // A turn that calls read_file + grep in one iteration has a
     // composite signature. Two such turns in a row = length-1 cycle?
     // No — need 4 for length-1. But A,B cycle works with composites.
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     const turn1 = [makeToolUse('read_file', { path: 'a' }), makeToolUse('grep', { pattern: 'x' })];
     const turn2 = [makeToolUse('ls', { dir: '.' })];
@@ -255,7 +211,7 @@ describe('detectCycleAndBail — normalized signature pass', () => {
   // time" loops that the exact-match pass misses.
 
   it('fires at 3 repeats when primary resource is identical but edit content differs', () => {
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     // Each call has the same path but different search/replace content.
     for (let i = 0; i < 2; i++) {
@@ -279,7 +235,7 @@ describe('detectCycleAndBail — normalized signature pass', () => {
   });
 
   it('does NOT fire when the primary resource changes between calls', () => {
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     // Different files each time — normalized sigs differ, no cycle.
     for (let i = 0; i < 6; i++) {
@@ -297,7 +253,7 @@ describe('detectCycleAndBail — normalized signature pass', () => {
     // Turn A: read_file(a.ts) with some content args
     // Turn B: edit_file(a.ts) with different content each round
     // After A,B,A,B the normalized cycle (length 2) should fire.
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     const makeA = (i: number) => [makeToolUse('read_file', { path: 'a.ts', startLine: i })];
     const makeB = (i: number) => [makeToolUse('edit_file', { path: 'a.ts', search: `v${i}`, replace: `w${i}` })];
@@ -309,7 +265,7 @@ describe('detectCycleAndBail — normalized signature pass', () => {
   });
 
   it('uses command key as primary resource for run_command', () => {
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     // Same command, different env/cwd each time — normalized sig is command.
     for (let i = 0; i < 2; i++) {
@@ -327,7 +283,7 @@ describe('detectCycleAndBail — normalized signature pass', () => {
     // Tools with no path/command/query fall back to the first string value
     // in the input rather than bare tool name — so different filter values
     // produce distinct signatures and do NOT trigger a false-positive cycle.
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     for (let i = 0; i < 3; i++) {
       expect(detectCycleAndBail([makeToolUse('list_processes', { filter: `p${i}` })], state, cb)).toBe(false);
@@ -337,7 +293,7 @@ describe('detectCycleAndBail — normalized signature pass', () => {
 
   it('fires when no-primary-key tool is called with the same args repeatedly', () => {
     // Same tool, same non-primary arg value 3 times → normalized sig repeats → cycle.
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     for (let i = 0; i < 2; i++) {
       expect(detectCycleAndBail([makeToolUse('list_processes', { filter: 'stuck' })], state, cb)).toBe(false);
@@ -349,7 +305,7 @@ describe('detectCycleAndBail — normalized signature pass', () => {
   it('falls back to tool name alone when input has no string args at all', () => {
     // Tools with zero string args normalize to just the tool name.
     // Three bare calls → fires at 3 repeats.
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     for (let i = 0; i < 2; i++) {
       expect(detectCycleAndBail([makeToolUse('list_processes', { limit: i })], state, cb)).toBe(false);
@@ -364,7 +320,7 @@ describe('detectCycleAndBail — normalized signature pass', () => {
     // so calls 1-3 test normalized, call 4 fires exact first.
     // (Both checks fire on the 3rd call for identical calls since normalized
     // threshold is 3 — confirm the message is about "same resource".)
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     const call = [makeToolUse('read_file', { path: 'x.ts' })];
     expect(detectCycleAndBail(call, state, cb)).toBe(false);

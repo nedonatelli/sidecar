@@ -1,49 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { EpisodicMemoryStore } from '../episodicMemory.js';
+import { stubLoopState } from './testHelpers.js';
 import { window } from 'vscode';
 import { applyAgentLoopRouting } from './routing.js';
 import { SideCarClient } from '../../ollama/client.js';
 import { ModelRouter } from '../../ollama/modelRouter.js';
-import type { LoopState } from './state.js';
 import type { ChatMessage } from '../../ollama/types.js';
 
 const showWarning = vi.spyOn(window, 'showWarningMessage');
 beforeEach(() => showWarning.mockReset());
-
-function stubState(overrides: Partial<LoopState> = {}): LoopState {
-  // Minimal LoopState stub — applyAgentLoopRouting only reads `iteration`
-  // and `messages`. The rest is filled with empty/zero values so the
-  // type checks.
-  return {
-    startTime: Date.now(),
-    runId: 'test-task',
-    config: {} as import('../../config/settings.js').SideCarConfig,
-    maxIterations: 25,
-    maxTokens: 100_000,
-    approvalMode: 'cautious',
-    tools: [],
-    logger: undefined,
-    changelog: undefined,
-    mcpManager: undefined,
-    messages: [],
-    iteration: 1,
-    totalChars: 0,
-    recentToolCalls: [],
-    episodicMemory: new EpisodicMemoryStore(),
-    recentNormalizedCalls: [],
-    autoFixRetriesByFile: new Map(),
-    stubFixRetries: 0,
-    criticInjectionsByFile: new Map(),
-    criticInjectionsByTestHash: new Map(),
-    toolCallCounts: new Map(),
-    // applyAgentLoopRouting never touches gateState — a minimal shape
-    // with no fields is enough for the type check.
-    gateState: {} as LoopState['gateState'],
-    currentEditPlan: null,
-    checkpointFired: false,
-    ...overrides,
-  };
-}
 
 describe('applyAgentLoopRouting', () => {
   const showInfo = vi.spyOn(window, 'showInformationMessage');
@@ -54,7 +18,7 @@ describe('applyAgentLoopRouting', () => {
 
   it('is a no-op when no router is attached', () => {
     const client = new SideCarClient('ollama/qwen3-coder:30b', 'http://localhost:11434', 'ollama');
-    const state = stubState();
+    const state = stubLoopState();
     applyAgentLoopRouting(client, state, { modelRoutingVisibleSwaps: true, modelRoutingDryRun: false });
     expect(client.getModel()).toBe('ollama/qwen3-coder:30b');
     expect(showInfo).not.toHaveBeenCalled();
@@ -65,7 +29,7 @@ describe('applyAgentLoopRouting', () => {
     client.setRouter(
       new ModelRouter([{ when: 'agent-loop.complexity=high', model: 'claude-opus-4-6' }], 'ollama/qwen3-coder:30b'),
     );
-    const state = stubState({ iteration: 10 }); // triggers complexity=high
+    const state = stubLoopState({ iteration: 10 }); // triggers complexity=high
     applyAgentLoopRouting(client, state, { modelRoutingVisibleSwaps: true, modelRoutingDryRun: false });
     expect(client.getModel()).toBe('claude-opus-4-6');
   });
@@ -75,7 +39,7 @@ describe('applyAgentLoopRouting', () => {
     client.setRouter(
       new ModelRouter([{ when: 'agent-loop.complexity=high', model: 'claude-opus-4-6' }], 'ollama/qwen3-coder:30b'),
     );
-    const state = stubState({ iteration: 10 });
+    const state = stubLoopState({ iteration: 10 });
     applyAgentLoopRouting(client, state, { modelRoutingVisibleSwaps: true, modelRoutingDryRun: false });
     expect(showInfo).toHaveBeenCalledOnce();
     expect(showInfo.mock.calls[0][0]).toContain('claude-opus-4-6');
@@ -87,7 +51,7 @@ describe('applyAgentLoopRouting', () => {
     client.setRouter(
       new ModelRouter([{ when: 'agent-loop.complexity=high', model: 'claude-opus-4-6' }], 'ollama/qwen3-coder:30b'),
     );
-    const state = stubState({ iteration: 10 });
+    const state = stubLoopState({ iteration: 10 });
     applyAgentLoopRouting(client, state, { modelRoutingVisibleSwaps: false, modelRoutingDryRun: false });
     expect(client.getModel()).toBe('claude-opus-4-6'); // still swaps
     expect(showInfo).not.toHaveBeenCalled();
@@ -99,7 +63,7 @@ describe('applyAgentLoopRouting', () => {
     client.setRouter(
       new ModelRouter([{ when: 'agent-loop.complexity=high', model: 'claude-opus-4-6' }], 'ollama/qwen3-coder:30b'),
     );
-    const state = stubState({ iteration: 10 });
+    const state = stubLoopState({ iteration: 10 });
     applyAgentLoopRouting(client, state, { modelRoutingVisibleSwaps: true, modelRoutingDryRun: true });
     expect(client.getModel()).toBe('ollama/qwen3-coder:30b');
     expect(infoLog).toHaveBeenCalled();
@@ -115,7 +79,7 @@ describe('applyAgentLoopRouting', () => {
     client.setRouter(
       new ModelRouter([{ when: 'agent-loop.complexity=high', model: 'claude-opus-4-6' }], 'ollama/qwen3-coder:30b'),
     );
-    const state = stubState({ iteration: 10 });
+    const state = stubLoopState({ iteration: 10 });
 
     // Turn 1: dryRun on — decision recorded, model reverted.
     applyAgentLoopRouting(client, state, { modelRoutingVisibleSwaps: true, modelRoutingDryRun: true });
@@ -138,7 +102,7 @@ describe('applyAgentLoopRouting', () => {
       new ModelRouter([{ when: 'agent-loop.complexity=high', model: 'claude-opus-4-6' }], 'ollama/qwen3-coder:30b'),
     );
     const messages: ChatMessage[] = [{ role: 'user', content: 'Please prove this theorem step by step' }];
-    const state = stubState({ messages });
+    const state = stubLoopState({ messages });
     applyAgentLoopRouting(client, state, { modelRoutingVisibleSwaps: false, modelRoutingDryRun: false });
     expect(client.getModel()).toBe('claude-opus-4-6');
   });
@@ -158,7 +122,7 @@ describe('applyAgentLoopRouting', () => {
       { role: 'user', content: 'hello' },
       { role: 'assistant', content: tenToolUses },
     ];
-    const state = stubState({ messages });
+    const state = stubLoopState({ messages });
     applyAgentLoopRouting(client, state, { modelRoutingVisibleSwaps: false, modelRoutingDryRun: false });
     expect(client.getModel()).toBe('claude-opus-4-6');
   });
@@ -173,7 +137,7 @@ describe('applyAgentLoopRouting', () => {
       client.setRouter(router);
 
       // First call: in-budget, no downgrade, no warning.
-      const state = stubState();
+      const state = stubLoopState();
       applyAgentLoopRouting(client, state, { modelRoutingVisibleSwaps: true, modelRoutingDryRun: false });
       expect(showWarning).not.toHaveBeenCalled();
 
@@ -196,7 +160,7 @@ describe('applyAgentLoopRouting', () => {
       client.setRouter(router);
       router.recordSpend(router.getRules()[0], 1.0);
 
-      const state = stubState();
+      const state = stubLoopState();
       applyAgentLoopRouting(client, state, { modelRoutingVisibleSwaps: true, modelRoutingDryRun: false });
       applyAgentLoopRouting(client, state, { modelRoutingVisibleSwaps: true, modelRoutingDryRun: false });
       applyAgentLoopRouting(client, state, { modelRoutingVisibleSwaps: true, modelRoutingDryRun: false });
@@ -212,7 +176,7 @@ describe('applyAgentLoopRouting', () => {
       client.setRouter(router);
       router.recordSpend(router.getRules()[0], 1.0);
 
-      const state = stubState();
+      const state = stubLoopState();
       applyAgentLoopRouting(client, state, { modelRoutingVisibleSwaps: false, modelRoutingDryRun: false });
       expect(showWarning).toHaveBeenCalledOnce();
     });

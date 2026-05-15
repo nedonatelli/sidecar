@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { EpisodicMemoryStore } from '../episodicMemory.js';
+import { stubLoopState } from './testHelpers.js';
 
 // ---------------------------------------------------------------------------
 // Tests for executeToolUses.ts (loop helper hardening).
@@ -35,40 +35,9 @@ import { executeTool } from '../executor.js';
 import { spawnSubAgent } from '../subagent.js';
 import { runLocalWorker } from '../localWorker.js';
 import { checkToolBudget } from './toolBudget.js';
-import type { LoopState } from './state.js';
 import type { SideCarClient } from '../../ollama/client.js';
 import type { AgentCallbacks, AgentOptions } from '../loop.js';
 import type { ToolUseContentBlock } from '../../ollama/types.js';
-
-function stubState(overrides: Partial<LoopState> = {}): LoopState {
-  return {
-    startTime: Date.now(),
-    runId: 'test-task',
-    config: {} as import('../../config/settings.js').SideCarConfig,
-    maxIterations: 25,
-    maxTokens: 100_000,
-    approvalMode: 'cautious',
-    tools: [],
-    logger: undefined,
-    changelog: undefined,
-    mcpManager: undefined,
-    messages: [],
-    iteration: 1,
-    totalChars: 0,
-    recentToolCalls: [],
-    episodicMemory: new EpisodicMemoryStore(),
-    recentNormalizedCalls: [],
-    autoFixRetriesByFile: new Map(),
-    stubFixRetries: 0,
-    criticInjectionsByFile: new Map(),
-    criticInjectionsByTestHash: new Map(),
-    toolCallCounts: new Map(),
-    gateState: {} as LoopState['gateState'],
-    currentEditPlan: null,
-    checkpointFired: false,
-    ...overrides,
-  };
-}
 
 function stubCallbacks() {
   // Avoid a typed return annotation — vi.fn() is too wide to unify
@@ -104,7 +73,7 @@ describe('executeToolUses — dispatch routing', () => {
       content: 'file content',
       is_error: false,
     });
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     const results = await executeToolUses(
       state,
@@ -128,7 +97,7 @@ describe('executeToolUses — dispatch routing', () => {
       success: true,
       charsConsumed: 5000,
     });
-    const state = stubState({ totalChars: 1000 });
+    const state = stubLoopState({ totalChars: 1000 });
     const cb = stubCallbacks();
     const results = await executeToolUses(
       state,
@@ -153,7 +122,7 @@ describe('executeToolUses — dispatch routing', () => {
       charsConsumed: 100,
     });
     const results = await executeToolUses(
-      stubState(),
+      stubLoopState(),
       [use('spawn_agent', { task: 'x' })],
       {} as SideCarClient,
       {} as AgentOptions,
@@ -170,7 +139,7 @@ describe('executeToolUses — dispatch routing', () => {
       charsConsumed: 800,
       model: 'ollama/qwen2.5:7b',
     });
-    const state = stubState({ totalChars: 1000 });
+    const state = stubLoopState({ totalChars: 1000 });
     const cb = stubCallbacks();
     await executeToolUses(
       state,
@@ -190,7 +159,7 @@ describe('executeToolUses — budget check short-circuit', () => {
     vi.mocked(checkToolBudget).mockReturnValueOnce('read_file exceeded per-turn limit (3/3)');
     const cb = stubCallbacks();
     const results = await executeToolUses(
-      stubState(),
+      stubLoopState(),
       [use('read_file')],
       {} as SideCarClient,
       {} as AgentOptions,
@@ -226,7 +195,7 @@ describe('executeToolUses — parallel execution + error promotion', () => {
       });
 
     const results = await executeToolUses(
-      stubState(),
+      stubLoopState(),
       [use('a'), use('b')],
       {} as SideCarClient,
       {} as AgentOptions,
@@ -243,7 +212,7 @@ describe('executeToolUses — parallel execution + error promotion', () => {
       .mockRejectedValueOnce(new Error('disk full'))
       .mockResolvedValueOnce({ type: 'tool_result', tool_use_id: 'tu-b', content: 'b', is_error: false });
 
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     const results = await executeToolUses(
       state,
@@ -273,7 +242,7 @@ describe('executeToolUses — memory + chain recording', () => {
     });
     const cb = stubCallbacks();
     await executeToolUses(
-      stubState(),
+      stubLoopState(),
       [use('read_file', { path: 'a.ts' })],
       {} as SideCarClient,
       {} as AgentOptions,
@@ -293,7 +262,7 @@ describe('executeToolUses — memory + chain recording', () => {
     });
     const cb = stubCallbacks();
     await executeToolUses(
-      stubState(),
+      stubLoopState(),
       [use('edit_file', { path: 'a.ts' })],
       {} as SideCarClient,
       {} as AgentOptions,

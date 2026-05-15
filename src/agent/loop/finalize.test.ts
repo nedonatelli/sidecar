@@ -1,8 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { EpisodicMemoryStore } from '../episodicMemory.js';
+import { stubLoopState, stubCallbacks } from './testHelpers.js';
 import { finalize } from './finalize.js';
 import type { LoopState } from './state.js';
-import type { AgentCallbacks } from '../loop.js';
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/types.js';
 
 // ---------------------------------------------------------------------------
@@ -18,46 +17,6 @@ import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/t
 // callback payload.
 // ---------------------------------------------------------------------------
 
-function stubState(overrides: Partial<LoopState> = {}): LoopState {
-  return {
-    startTime: Date.now(),
-    runId: 'test-task',
-    config: {} as import('../../config/settings.js').SideCarConfig,
-    maxIterations: 25,
-    maxTokens: 100_000,
-    approvalMode: 'cautious',
-    tools: [],
-    logger: undefined,
-    changelog: undefined,
-    mcpManager: undefined,
-    messages: [],
-    iteration: 2,
-    totalChars: 0,
-    recentToolCalls: [],
-    episodicMemory: new EpisodicMemoryStore(),
-    recentNormalizedCalls: [],
-    autoFixRetriesByFile: new Map(),
-    stubFixRetries: 0,
-    criticInjectionsByFile: new Map(),
-    criticInjectionsByTestHash: new Map(),
-    toolCallCounts: new Map(),
-    gateState: {} as LoopState['gateState'],
-    currentEditPlan: null,
-    checkpointFired: false,
-    ...overrides,
-  };
-}
-
-function stubCallbacks(overrides: Partial<AgentCallbacks> = {}): AgentCallbacks {
-  return {
-    onText: vi.fn(),
-    onToolCall: vi.fn(),
-    onToolResult: vi.fn(),
-    onDone: vi.fn(),
-    ...overrides,
-  };
-}
-
 function use(name: string, input: Record<string, unknown> = {}): ToolUseContentBlock {
   return { type: 'tool_use', id: `tu-${name}`, name, input };
 }
@@ -69,7 +28,7 @@ function result(id: string, isError = false, content = 'ok'): ToolResultContentB
 describe('finalize — plumbing', () => {
   it('always fires onDone and returns state.messages', () => {
     const onDone = vi.fn();
-    const state = stubState({ messages: [{ role: 'user', content: 'hi' }] });
+    const state = stubLoopState({ iteration: 2, messages: [{ role: 'user', content: 'hi' }] });
     const result = finalize(state, stubCallbacks({ onDone }));
     expect(onDone).toHaveBeenCalledOnce();
     expect(result).toBe(state.messages);
@@ -77,17 +36,17 @@ describe('finalize — plumbing', () => {
 
   it('calls onToolChainFlush when the callback is defined', () => {
     const onToolChainFlush = vi.fn();
-    finalize(stubState(), stubCallbacks({ onToolChainFlush }));
+    finalize(stubLoopState({ iteration: 2 }), stubCallbacks({ onToolChainFlush }));
     expect(onToolChainFlush).toHaveBeenCalledOnce();
   });
 
   it('no-ops silently when onToolChainFlush is undefined', () => {
-    expect(() => finalize(stubState(), stubCallbacks())).not.toThrow();
+    expect(() => finalize(stubLoopState({ iteration: 2 }), stubCallbacks())).not.toThrow();
   });
 
   it('logs done with the iteration count via state.logger.logDone', () => {
     const logDone = vi.fn();
-    const state = stubState({
+    const state = stubLoopState({
       iteration: 7,
       logger: { logDone, warn: vi.fn(), info: vi.fn() } as unknown as LoopState['logger'],
     });
@@ -99,7 +58,7 @@ describe('finalize — plumbing', () => {
 describe('finalize — next-step suggestions gating', () => {
   it('skips suggestions entirely when iteration <= 1 (single Q&A turn)', () => {
     const onSuggestNextSteps = vi.fn();
-    const state = stubState({
+    const state = stubLoopState({
       iteration: 1,
       messages: [{ role: 'assistant', content: [use('write_file', { path: 'a.ts' })] }],
     });
@@ -108,7 +67,7 @@ describe('finalize — next-step suggestions gating', () => {
   });
 
   it('skips suggestions when onSuggestNextSteps callback is undefined', () => {
-    const state = stubState({
+    const state = stubLoopState({
       iteration: 3,
       messages: [{ role: 'assistant', content: [use('write_file', { path: 'a.ts' })] }],
     });
@@ -117,7 +76,7 @@ describe('finalize — next-step suggestions gating', () => {
 
   it('skips the emit when the analysis produces zero suggestions', () => {
     const onSuggestNextSteps = vi.fn();
-    const state = stubState({
+    const state = stubLoopState({
       iteration: 3,
       // Assistant turns with no tool_use — nothing to suggest.
       messages: [{ role: 'assistant', content: 'Just text, no tool calls.' }],
@@ -130,7 +89,7 @@ describe('finalize — next-step suggestions gating', () => {
 describe('finalize — suggestion contents', () => {
   it('suggests "Run tests" when files were written but no tests ran', () => {
     const onSuggestNextSteps = vi.fn();
-    const state = stubState({
+    const state = stubLoopState({
       iteration: 3,
       messages: [{ role: 'assistant', content: [use('write_file', { path: 'a.ts' })] }],
     });
@@ -141,7 +100,7 @@ describe('finalize — suggestion contents', () => {
 
   it('does NOT suggest tests when run_tests already ran', () => {
     const onSuggestNextSteps = vi.fn();
-    const state = stubState({
+    const state = stubLoopState({
       iteration: 3,
       messages: [{ role: 'assistant', content: [use('write_file', { path: 'a.ts' }), use('run_tests')] }],
     });
@@ -152,7 +111,7 @@ describe('finalize — suggestion contents', () => {
 
   it('suggests "Review errors" when any tool_result had is_error: true', () => {
     const onSuggestNextSteps = vi.fn();
-    const state = stubState({
+    const state = stubLoopState({
       iteration: 3,
       messages: [
         { role: 'assistant', content: [use('write_file', { path: 'a.ts' })] },
@@ -166,7 +125,7 @@ describe('finalize — suggestion contents', () => {
 
   it('suggests "Review the diff" when files were written', () => {
     const onSuggestNextSteps = vi.fn();
-    const state = stubState({
+    const state = stubLoopState({
       iteration: 3,
       messages: [{ role: 'assistant', content: [use('edit_file', { path: 'a.ts' })] }],
     });
@@ -177,7 +136,7 @@ describe('finalize — suggestion contents', () => {
 
   it('suggests "Apply the findings" when search_files ran but nothing was written', () => {
     const onSuggestNextSteps = vi.fn();
-    const state = stubState({
+    const state = stubLoopState({
       iteration: 3,
       messages: [{ role: 'assistant', content: [use('search_files', { query: 'x' })] }],
     });
@@ -188,7 +147,7 @@ describe('finalize — suggestion contents', () => {
 
   it('caps suggestions at 3 even when every trigger fires', () => {
     const onSuggestNextSteps = vi.fn();
-    const state = stubState({
+    const state = stubLoopState({
       iteration: 3,
       messages: [
         {
@@ -205,7 +164,7 @@ describe('finalize — suggestion contents', () => {
 
   it('ignores string-content messages when scanning for tool_use (only array content has blocks)', () => {
     const onSuggestNextSteps = vi.fn();
-    const state = stubState({
+    const state = stubLoopState({
       iteration: 3,
       messages: [{ role: 'assistant', content: 'This is just text with no tool calls.' }],
     });

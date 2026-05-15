@@ -21,52 +21,9 @@ vi.mock('../tools.js', () => ({
 
 import { applyAutoFix } from './autoFix.js';
 import { getDiagnostics } from '../tools.js';
-import type { LoopState } from './state.js';
-import type { AgentCallbacks } from '../loop.js';
 import type { ToolUseContentBlock } from '../../ollama/types.js';
 import type { getConfig } from '../../config/settings.js';
-import { EpisodicMemoryStore } from '../episodicMemory.js';
-
-function stubState(overrides: Partial<LoopState> = {}): LoopState {
-  return {
-    startTime: Date.now(),
-    runId: 'test-task',
-    config: {} as import('../../config/settings.js').SideCarConfig,
-    maxIterations: 25,
-    maxTokens: 100_000,
-    approvalMode: 'cautious',
-    tools: [],
-    logger: undefined,
-    changelog: undefined,
-    mcpManager: undefined,
-    messages: [],
-    iteration: 1,
-    totalChars: 0,
-    recentToolCalls: [],
-    episodicMemory: new EpisodicMemoryStore(),
-    recentNormalizedCalls: [],
-    autoFixRetriesByFile: new Map(),
-    stubFixRetries: 0,
-    criticInjectionsByFile: new Map(),
-    criticInjectionsByTestHash: new Map(),
-    toolCallCounts: new Map(),
-    gateState: {} as LoopState['gateState'],
-    currentEditPlan: null,
-    checkpointFired: false,
-    ...overrides,
-  };
-}
-
-function stubCallbacks(): AgentCallbacks & { texts: string[] } {
-  const texts: string[] = [];
-  return {
-    texts,
-    onText: (t: string) => texts.push(t),
-    onToolCall: vi.fn(),
-    onToolResult: vi.fn(),
-    onDone: vi.fn(),
-  };
-}
+import { stubLoopState, stubCallbacks } from './testHelpers.js';
 
 function stubConfig(overrides: Partial<ReturnType<typeof getConfig>> = {}): ReturnType<typeof getConfig> {
   return {
@@ -86,7 +43,7 @@ beforeEach(() => {
 
 describe('applyAutoFix', () => {
   it('returns false immediately when autoFixOnFailure is disabled', async () => {
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     const result = await applyAutoFix(state, [writeFile('a.ts')], stubConfig({ autoFixOnFailure: false }), cb);
     expect(result).toBe(false);
@@ -94,7 +51,7 @@ describe('applyAutoFix', () => {
   });
 
   it('returns false when no write_file / edit_file calls were made this turn', async () => {
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     const readCall: ToolUseContentBlock = {
       type: 'tool_use',
@@ -108,7 +65,7 @@ describe('applyAutoFix', () => {
   });
 
   it('returns false when every written file has exhausted its retry budget', async () => {
-    const state = stubState({
+    const state = stubLoopState({
       autoFixRetriesByFile: new Map([
         ['a.ts', 3],
         ['b.ts', 3],
@@ -127,7 +84,7 @@ describe('applyAutoFix', () => {
 
   it('returns false when getDiagnostics reports a clean file (no [Error] marker)', async () => {
     vi.mocked(getDiagnostics).mockResolvedValueOnce('No diagnostics found.');
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     const result = await applyAutoFix(state, [writeFile('a.ts')], stubConfig(), cb);
     expect(result).toBe(false);
@@ -137,7 +94,7 @@ describe('applyAutoFix', () => {
 
   it('injects a reprompt + bumps the retry counter when [Error] diagnostics are present', async () => {
     vi.mocked(getDiagnostics).mockResolvedValueOnce('src/a.ts:10 [Error] TS2304: Cannot find name "foo".');
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     const result = await applyAutoFix(state, [writeFile('a.ts')], stubConfig(), cb);
     expect(result).toBe(true);
@@ -157,7 +114,7 @@ describe('applyAutoFix', () => {
     vi.mocked(getDiagnostics)
       .mockResolvedValueOnce('src/a.ts:1 [Error] problem here')
       .mockResolvedValueOnce('b.ts looks clean.');
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     await applyAutoFix(state, [writeFile('a.ts'), writeFile('b.ts')], stubConfig(), cb);
     expect(state.autoFixRetriesByFile.get('a.ts')).toBe(1);
@@ -166,7 +123,7 @@ describe('applyAutoFix', () => {
 
   it('filters out exhausted files but proceeds with the eligible remainder', async () => {
     vi.mocked(getDiagnostics).mockResolvedValueOnce('src/b.ts:5 [Error] nope');
-    const state = stubState({
+    const state = stubLoopState({
       autoFixRetriesByFile: new Map([['a.ts', 3]]), // exhausted
     });
     const cb = stubCallbacks();
@@ -185,7 +142,7 @@ describe('applyAutoFix', () => {
 
   it('handles a rejected getDiagnostics promise by treating it as "no errors"', async () => {
     vi.mocked(getDiagnostics).mockRejectedValueOnce(new Error('LSP offline'));
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     const result = await applyAutoFix(state, [writeFile('a.ts')], stubConfig(), cb);
     expect(result).toBe(false);
@@ -194,7 +151,7 @@ describe('applyAutoFix', () => {
 
   it('reads file_path as well as path (compat for tools that use either key)', async () => {
     vi.mocked(getDiagnostics).mockResolvedValueOnce('[Error] something');
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     const tu: ToolUseContentBlock = {
       type: 'tool_use',

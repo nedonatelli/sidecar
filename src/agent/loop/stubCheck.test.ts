@@ -1,8 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { EpisodicMemoryStore } from '../episodicMemory.js';
+import { stubLoopState, stubCallbacks } from './testHelpers.js';
 import { applyStubCheck } from './stubCheck.js';
 import type { LoopState } from './state.js';
-import type { AgentCallbacks } from '../loop.js';
 import type { ToolUseContentBlock } from '../../ollama/types.js';
 
 // ---------------------------------------------------------------------------
@@ -25,50 +24,9 @@ function toolUseWriteFile(path: string, content: string): ToolUseContentBlock {
   return { type: 'tool_use', id: `tu-${path}`, name: 'write_file', input: { path, content } };
 }
 
-function stubCallbacks(): AgentCallbacks & { texts: string[] } {
-  const texts: string[] = [];
-  return {
-    texts,
-    onText: (t: string) => texts.push(t),
-    onToolCall: vi.fn(),
-    onToolResult: vi.fn(),
-    onDone: vi.fn(),
-  };
-}
-
-function stubState(overrides: Partial<LoopState> = {}): LoopState {
-  return {
-    startTime: Date.now(),
-    runId: 'test-task',
-    config: {} as import('../../config/settings.js').SideCarConfig,
-    maxIterations: 25,
-    maxTokens: 100_000,
-    approvalMode: 'cautious',
-    tools: [],
-    logger: undefined,
-    changelog: undefined,
-    mcpManager: undefined,
-    messages: [],
-    iteration: 1,
-    totalChars: 0,
-    recentToolCalls: [],
-    episodicMemory: new EpisodicMemoryStore(),
-    recentNormalizedCalls: [],
-    autoFixRetriesByFile: new Map(),
-    stubFixRetries: 0,
-    criticInjectionsByFile: new Map(),
-    criticInjectionsByTestHash: new Map(),
-    toolCallCounts: new Map(),
-    gateState: {} as LoopState['gateState'],
-    currentEditPlan: null,
-    checkpointFired: false,
-    ...overrides,
-  };
-}
-
 describe('applyStubCheck', () => {
   it('returns false when no stub patterns are found in the written content', () => {
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     const clean = toolUseWriteFile(
       'src/real.ts',
@@ -80,7 +38,7 @@ describe('applyStubCheck', () => {
   });
 
   it('returns true + injects a reprompt when a stub pattern is detected', () => {
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     const stubbed = toolUseWriteFile('src/stub.ts', 'export function hello(): void {\n  // TODO: implement this\n}');
     expect(applyStubCheck(state, [stubbed], cb)).toBe(true);
@@ -91,7 +49,7 @@ describe('applyStubCheck', () => {
   });
 
   it('refuses to inject a second reprompt — MAX_STUB_RETRIES=1 is a hard cap', () => {
-    const state = stubState({ stubFixRetries: 1 }); // already at the cap
+    const state = stubLoopState({ stubFixRetries: 1 }); // already at the cap
     const cb = stubCallbacks();
     const stubbed = toolUseWriteFile('src/stub.ts', '// TODO: implement\nfunction x() {}');
     expect(applyStubCheck(state, [stubbed], cb)).toBe(false);
@@ -101,7 +59,7 @@ describe('applyStubCheck', () => {
 
   it('logs the retry attempt via state.logger.info when present', () => {
     const info = vi.fn();
-    const state = stubState({ logger: { info, warn: vi.fn() } as unknown as LoopState['logger'] });
+    const state = stubLoopState({ logger: { info, warn: vi.fn() } as unknown as LoopState['logger'] });
     const cb = stubCallbacks();
     const stubbed = toolUseWriteFile('src/stub.ts', '// TODO: implement\nfunction x() {}');
     applyStubCheck(state, [stubbed], cb);
@@ -111,7 +69,7 @@ describe('applyStubCheck', () => {
   });
 
   it('silently returns false when there are no write_file / edit_file calls', () => {
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     const readCall: ToolUseContentBlock = {
       type: 'tool_use',
@@ -124,7 +82,7 @@ describe('applyStubCheck', () => {
   });
 
   it('handles edit_file with a stubbed replacement', () => {
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     const edit: ToolUseContentBlock = {
       type: 'tool_use',

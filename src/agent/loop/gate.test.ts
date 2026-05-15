@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { EpisodicMemoryStore } from '../episodicMemory.js';
+import { stubLoopState, stubCallbacks } from './testHelpers.js';
 
 // ---------------------------------------------------------------------------
 // Tests for gate.ts (loop helper hardening).
@@ -24,7 +24,7 @@ vi.mock('../completionGate.js', () => ({
 import { recordGateToolUses, maybeInjectCompletionGate } from './gate.js';
 import { recordToolCall, checkCompletionGate } from '../completionGate.js';
 import type { LoopState } from './state.js';
-import type { AgentCallbacks, AgentOptions } from '../loop.js';
+import type { AgentOptions } from '../loop.js';
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/types.js';
 import type { getConfig } from '../../config/settings.js';
 
@@ -33,47 +33,6 @@ function stubGateState() {
     editedFiles: new Set<string>(),
     gateInjections: 0,
   } as unknown as LoopState['gateState'];
-}
-
-function stubState(overrides: Partial<LoopState> = {}): LoopState {
-  return {
-    startTime: Date.now(),
-    runId: 'test-task',
-    config: {} as import('../../config/settings.js').SideCarConfig,
-    maxIterations: 25,
-    maxTokens: 100_000,
-    approvalMode: 'cautious',
-    tools: [],
-    logger: undefined,
-    changelog: undefined,
-    mcpManager: undefined,
-    messages: [],
-    iteration: 1,
-    totalChars: 0,
-    recentToolCalls: [],
-    episodicMemory: new EpisodicMemoryStore(),
-    recentNormalizedCalls: [],
-    autoFixRetriesByFile: new Map(),
-    stubFixRetries: 0,
-    criticInjectionsByFile: new Map(),
-    criticInjectionsByTestHash: new Map(),
-    toolCallCounts: new Map(),
-    gateState: stubGateState(),
-    currentEditPlan: null,
-    checkpointFired: false,
-    ...overrides,
-  };
-}
-
-function stubCallbacks(): AgentCallbacks & { texts: string[] } {
-  const texts: string[] = [];
-  return {
-    texts,
-    onText: (t: string) => texts.push(t),
-    onToolCall: vi.fn(),
-    onToolResult: vi.fn(),
-    onDone: vi.fn(),
-  };
 }
 
 function stubConfig(overrides: Partial<ReturnType<typeof getConfig>> = {}): ReturnType<typeof getConfig> {
@@ -95,7 +54,7 @@ beforeEach(() => {
 
 describe('recordGateToolUses', () => {
   it('calls recordToolCall once per matching (use, result) pair', () => {
-    const state = stubState();
+    const state = stubLoopState({ gateState: stubGateState() });
     const uses = [use('write_file', { path: 'a.ts' }), use('read_file', { path: 'b.ts' })];
     const results = [result('tu-write_file'), result('tu-read_file')];
     recordGateToolUses(state, uses, results);
@@ -103,7 +62,7 @@ describe('recordGateToolUses', () => {
   });
 
   it('skips indexes where the tool result is missing (partial execution fell off)', () => {
-    const state = stubState();
+    const state = stubLoopState({ gateState: stubGateState() });
     const uses = [use('write_file', { path: 'a.ts' }), use('read_file', { path: 'b.ts' })];
     // Second result is missing — simulate truncated execution.
     const results = [result('tu-write_file')] as unknown as ToolResultContentBlock[];
@@ -112,7 +71,7 @@ describe('recordGateToolUses', () => {
   });
 
   it('is a no-op when pendingToolUses is empty', () => {
-    recordGateToolUses(stubState(), [], []);
+    recordGateToolUses(stubLoopState({ gateState: stubGateState() }), [], []);
     expect(recordToolCall).not.toHaveBeenCalled();
   });
 });
@@ -124,7 +83,7 @@ describe('maybeInjectCompletionGate — skip paths', () => {
   it('skips when signal is aborted', async () => {
     const ctrl = new AbortController();
     ctrl.abort();
-    const state = stubState({
+    const state = stubLoopState({
       gateState: { editedFiles: new Set(['a.ts']), gateInjections: 0 } as unknown as LoopState['gateState'],
     });
     expect(await maybeInjectCompletionGate(state, stubConfig(), options, ctrl.signal, stubCallbacks())).toBe('skip');
@@ -132,7 +91,7 @@ describe('maybeInjectCompletionGate — skip paths', () => {
   });
 
   it('skips in plan mode even when edits are present', async () => {
-    const state = stubState({
+    const state = stubLoopState({
       gateState: { editedFiles: new Set(['a.ts']), gateInjections: 0 } as unknown as LoopState['gateState'],
     });
     expect(
@@ -141,7 +100,7 @@ describe('maybeInjectCompletionGate — skip paths', () => {
   });
 
   it('skips when completionGateEnabled is false', async () => {
-    const state = stubState({
+    const state = stubLoopState({
       gateState: { editedFiles: new Set(['a.ts']), gateInjections: 0 } as unknown as LoopState['gateState'],
     });
     expect(
@@ -156,13 +115,13 @@ describe('maybeInjectCompletionGate — skip paths', () => {
   });
 
   it('skips when no files were edited (gate has nothing to verify)', async () => {
-    const state = stubState(); // editedFiles starts empty
+    const state = stubLoopState({ gateState: stubGateState() }); // editedFiles starts empty
     expect(await maybeInjectCompletionGate(state, stubConfig(), options, signal, stubCallbacks())).toBe('skip');
   });
 
   it('skips + warns when gate has already injected MAX_GATE_INJECTIONS times', async () => {
     const warn = vi.fn();
-    const state = stubState({
+    const state = stubLoopState({
       logger: { warn, info: vi.fn() } as unknown as LoopState['logger'],
       gateState: { editedFiles: new Set(['a.ts']), gateInjections: 2 } as unknown as LoopState['gateState'],
     });
@@ -175,7 +134,7 @@ describe('maybeInjectCompletionGate — skip paths', () => {
     // Theoretically unreachable (the edited-files check would fire
     // first), but tests the defensive branch in the helper.
     const warn = vi.fn();
-    const state = stubState({
+    const state = stubLoopState({
       logger: { warn, info: vi.fn() } as unknown as LoopState['logger'],
       gateState: { editedFiles: new Set(), gateInjections: 2 } as unknown as LoopState['gateState'],
     });
@@ -185,7 +144,7 @@ describe('maybeInjectCompletionGate — skip paths', () => {
 
   it('skips when checkCompletionGate returns no findings', async () => {
     vi.mocked(checkCompletionGate).mockResolvedValueOnce([]);
-    const state = stubState({
+    const state = stubLoopState({
       gateState: { editedFiles: new Set(['a.ts']), gateInjections: 0 } as unknown as LoopState['gateState'],
     });
     expect(await maybeInjectCompletionGate(state, stubConfig(), options, signal, stubCallbacks())).toBe('skip');
@@ -198,7 +157,7 @@ describe('maybeInjectCompletionGate — injection path', () => {
     vi.mocked(checkCompletionGate).mockResolvedValueOnce([
       { kind: 'unverified-edit', file: 'a.ts', hint: 'run tests' },
     ] as unknown as Awaited<ReturnType<typeof checkCompletionGate>>);
-    const state = stubState({
+    const state = stubLoopState({
       gateState: { editedFiles: new Set(['a.ts']), gateInjections: 0 } as unknown as LoopState['gateState'],
     });
     const cb = stubCallbacks();
@@ -215,7 +174,7 @@ describe('maybeInjectCompletionGate — injection path', () => {
       ReturnType<typeof checkCompletionGate>
     >);
     const info = vi.fn();
-    const state = stubState({
+    const state = stubLoopState({
       logger: { info, warn: vi.fn() } as unknown as LoopState['logger'],
       gateState: { editedFiles: new Set(['a.ts']), gateInjections: 0 } as unknown as LoopState['gateState'],
     });

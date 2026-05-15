@@ -1,9 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { EpisodicMemoryStore } from '../episodicMemory.js';
+import { stubLoopState, stubCallbacks } from './testHelpers.js';
 import { drainSteerQueueAtBoundary } from './steerDrain.js';
 import { SteerQueue } from '../steerQueue.js';
-import type { LoopState } from './state.js';
-import type { AgentCallbacks } from '../loop.js';
 
 // ---------------------------------------------------------------------------
 // Tests for steerDrain.ts .
@@ -19,50 +17,9 @@ import type { AgentCallbacks } from '../loop.js';
 //   6. returns early on aborted signal without draining.
 // ---------------------------------------------------------------------------
 
-function stubState(overrides: Partial<LoopState> = {}): LoopState {
-  return {
-    startTime: Date.now(),
-    runId: 'test-task',
-    config: {} as import('../../config/settings.js').SideCarConfig,
-    maxIterations: 25,
-    maxTokens: 100_000,
-    approvalMode: 'cautious',
-    tools: [],
-    logger: undefined,
-    changelog: undefined,
-    mcpManager: undefined,
-    messages: [],
-    iteration: 1,
-    totalChars: 0,
-    recentToolCalls: [],
-    episodicMemory: new EpisodicMemoryStore(),
-    recentNormalizedCalls: [],
-    autoFixRetriesByFile: new Map(),
-    stubFixRetries: 0,
-    criticInjectionsByFile: new Map(),
-    criticInjectionsByTestHash: new Map(),
-    toolCallCounts: new Map(),
-    gateState: {} as LoopState['gateState'],
-    currentEditPlan: null,
-    checkpointFired: false,
-    ...overrides,
-  };
-}
-
-function stubCallbacks(): AgentCallbacks & { texts: string[] } {
-  const texts: string[] = [];
-  return {
-    texts,
-    onText: (t: string) => texts.push(t),
-    onToolCall: vi.fn(),
-    onToolResult: vi.fn(),
-    onDone: vi.fn(),
-  };
-}
-
 describe('drainSteerQueueAtBoundary — no-op paths', () => {
   it('no-ops when queue is undefined', async () => {
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     await drainSteerQueueAtBoundary(state, undefined, new AbortController().signal, cb, { coalesceWindowMs: 0 });
     expect(state.messages).toHaveLength(0);
@@ -70,7 +27,7 @@ describe('drainSteerQueueAtBoundary — no-op paths', () => {
   });
 
   it('no-ops when queue is empty', async () => {
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     const q = new SteerQueue();
     await drainSteerQueueAtBoundary(state, q, new AbortController().signal, cb, { coalesceWindowMs: 0 });
@@ -80,7 +37,7 @@ describe('drainSteerQueueAtBoundary — no-op paths', () => {
 
 describe('drainSteerQueueAtBoundary — drain happy path', () => {
   it('pushes a single user message and bumps totalChars', async () => {
-    const state = stubState({ totalChars: 100 });
+    const state = stubLoopState({ totalChars: 100 });
     const cb = stubCallbacks();
     const q = new SteerQueue({ now: () => 1000 });
     q.enqueue('focus on the formula', 'nudge');
@@ -97,7 +54,7 @@ describe('drainSteerQueueAtBoundary — drain happy path', () => {
   });
 
   it('emits a breadcrumb with the count', async () => {
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     const q = new SteerQueue();
     q.enqueue('a', 'nudge');
@@ -109,7 +66,7 @@ describe('drainSteerQueueAtBoundary — drain happy path', () => {
   });
 
   it('uses singular "steer" when exactly one item drains', async () => {
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     const q = new SteerQueue();
     q.enqueue('solo', 'nudge');
@@ -121,7 +78,7 @@ describe('drainSteerQueueAtBoundary — drain happy path', () => {
 
 describe('drainSteerQueueAtBoundary — coalesce window', () => {
   it('waits out the remaining window when the newest steer is fresh', async () => {
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     const sleeps: number[] = [];
     const sleep = vi.fn(async (ms: number) => {
@@ -147,7 +104,7 @@ describe('drainSteerQueueAtBoundary — coalesce window', () => {
   });
 
   it('does not sleep when coalesceWindowMs is 0', async () => {
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     const sleep = vi.fn();
     const q = new SteerQueue();
@@ -161,7 +118,7 @@ describe('drainSteerQueueAtBoundary — coalesce window', () => {
   });
 
   it('does not sleep when the newest steer is already past the window', async () => {
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     const sleep = vi.fn();
     const q = new SteerQueue({ now: () => 1000 });
@@ -176,7 +133,7 @@ describe('drainSteerQueueAtBoundary — coalesce window', () => {
   });
 
   it('bails early when signal aborts during the coalesce wait — leaves queue untouched', async () => {
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     const ctrl = new AbortController();
     const sleep = vi.fn(async () => {
@@ -197,7 +154,7 @@ describe('drainSteerQueueAtBoundary — coalesce window', () => {
   it('exercises the module-default sleep when no sleep override is provided', async () => {
     vi.useFakeTimers();
     try {
-      const state = stubState();
+      const state = stubLoopState();
       const cb = stubCallbacks();
       let nowMs = 0;
       const q = new SteerQueue({ now: () => nowMs });
@@ -221,7 +178,7 @@ describe('drainSteerQueueAtBoundary — coalesce window', () => {
   });
 
   it('handles cancellation mid-wait by re-peeking and early-return', async () => {
-    const state = stubState();
+    const state = stubLoopState();
     const cb = stubCallbacks();
     const q = new SteerQueue({ now: () => 0 });
     q.enqueue('will-be-cancelled', 'nudge');

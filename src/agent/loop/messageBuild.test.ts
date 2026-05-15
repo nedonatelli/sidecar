@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { EpisodicMemoryStore } from '../episodicMemory.js';
+import { stubLoopState } from './testHelpers.js';
 import { pushAssistantMessage, pushToolResultsMessage, accountToolTokens, capToolResults } from './messageBuild.js';
-import type { LoopState } from './state.js';
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/types.js';
 
 // ---------------------------------------------------------------------------
@@ -17,36 +16,6 @@ import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/t
 //   - accountToolTokens: sums both sides into state.totalChars
 // ---------------------------------------------------------------------------
 
-function stubState(overrides: Partial<LoopState> = {}): LoopState {
-  return {
-    startTime: Date.now(),
-    runId: 'test-task',
-    config: {} as import('../../config/settings.js').SideCarConfig,
-    maxIterations: 25,
-    maxTokens: 100_000,
-    approvalMode: 'cautious',
-    tools: [],
-    logger: undefined,
-    changelog: undefined,
-    mcpManager: undefined,
-    messages: [],
-    iteration: 1,
-    totalChars: 0,
-    recentToolCalls: [],
-    episodicMemory: new EpisodicMemoryStore(),
-    recentNormalizedCalls: [],
-    autoFixRetriesByFile: new Map(),
-    stubFixRetries: 0,
-    criticInjectionsByFile: new Map(),
-    criticInjectionsByTestHash: new Map(),
-    toolCallCounts: new Map(),
-    gateState: {} as LoopState['gateState'],
-    currentEditPlan: null,
-    checkpointFired: false,
-    ...overrides,
-  };
-}
-
 function toolUse(name: string, input: Record<string, unknown> = {}): ToolUseContentBlock {
   return { type: 'tool_use', id: `tu-${name}`, name, input };
 }
@@ -57,13 +26,13 @@ function toolResult(toolUseId: string, content: string, isError = false): ToolRe
 
 describe('pushAssistantMessage', () => {
   it('does not push anything when both text AND tool-uses are empty', () => {
-    const state = stubState();
+    const state = stubLoopState();
     pushAssistantMessage(state, '', []);
     expect(state.messages).toHaveLength(0);
   });
 
   it('pushes a text-only assistant message', () => {
-    const state = stubState();
+    const state = stubLoopState();
     pushAssistantMessage(state, 'Hello there.', []);
     expect(state.messages).toHaveLength(1);
     expect(state.messages[0].role).toBe('assistant');
@@ -71,7 +40,7 @@ describe('pushAssistantMessage', () => {
   });
 
   it('pushes tool-uses only (empty text)', () => {
-    const state = stubState();
+    const state = stubLoopState();
     const tu = toolUse('read_file', { path: 'a.ts' });
     pushAssistantMessage(state, '', [tu]);
     expect(state.messages).toHaveLength(1);
@@ -79,7 +48,7 @@ describe('pushAssistantMessage', () => {
   });
 
   it('pushes text + tool-uses in order (text first)', () => {
-    const state = stubState();
+    const state = stubLoopState();
     const tu1 = toolUse('read_file', { path: 'a.ts' });
     const tu2 = toolUse('grep', { pattern: 'foo' });
     pushAssistantMessage(state, 'Reasoning first.', [tu1, tu2]);
@@ -91,7 +60,7 @@ describe('pushAssistantMessage', () => {
   });
 
   it('leaves prior messages in place when appending', () => {
-    const state = stubState({
+    const state = stubLoopState({
       messages: [{ role: 'user', content: 'hi' }],
     });
     pushAssistantMessage(state, 'hello', []);
@@ -103,7 +72,7 @@ describe('pushAssistantMessage', () => {
 
 describe('pushToolResultsMessage', () => {
   it('wraps tool results in a user-role message', () => {
-    const state = stubState();
+    const state = stubLoopState();
     const results = [toolResult('tu-1', 'ok'), toolResult('tu-2', 'done')];
     pushToolResultsMessage(state, results);
     expect(state.messages).toHaveLength(1);
@@ -115,7 +84,7 @@ describe('pushToolResultsMessage', () => {
     // This isn't a use case the loop invokes — if there are no tool
     // uses there should be no results call — but the helper doesn't
     // guard and test pins current behavior.
-    const state = stubState();
+    const state = stubLoopState();
     pushToolResultsMessage(state, []);
     expect(state.messages).toHaveLength(1);
     expect(state.messages[0].content).toEqual([]);
@@ -127,15 +96,15 @@ describe('accountToolTokens', () => {
     // Delegates sizing to `getContentLength` (covered in types.test.ts);
     // this test pins that BOTH sides get accounted, without depending on
     // the exact byte formula inside `getContentLength`.
-    const state = stubState({ totalChars: 100 });
+    const state = stubLoopState({ totalChars: 100 });
     const tu = toolUse('read_file', { path: 'a.ts' });
     const tr = toolResult(tu.id, 'file content here');
 
-    const beforeOnlyUse = stubState({ totalChars: 100 });
+    const beforeOnlyUse = stubLoopState({ totalChars: 100 });
     accountToolTokens(beforeOnlyUse, [tu], []);
     const deltaUseOnly = beforeOnlyUse.totalChars - 100;
 
-    const beforeOnlyResult = stubState({ totalChars: 100 });
+    const beforeOnlyResult = stubLoopState({ totalChars: 100 });
     accountToolTokens(beforeOnlyResult, [], [tr]);
     const deltaResultOnly = beforeOnlyResult.totalChars - 100;
 
@@ -146,13 +115,13 @@ describe('accountToolTokens', () => {
   });
 
   it('is a no-op for empty tool-use + tool-result arrays', () => {
-    const state = stubState({ totalChars: 500 });
+    const state = stubLoopState({ totalChars: 500 });
     accountToolTokens(state, [], []);
     expect(state.totalChars).toBe(500);
   });
 
   it('accumulates across multiple calls within the same turn', () => {
-    const state = stubState();
+    const state = stubLoopState();
     const tu1 = toolUse('read_file', { path: 'a' });
     const tu2 = toolUse('grep', { pattern: 'x' });
     accountToolTokens(state, [tu1], []);

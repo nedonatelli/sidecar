@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { EpisodicMemoryStore } from '../episodicMemory.js';
+import { stubLoopState } from './testHelpers.js';
 
 // ---------------------------------------------------------------------------
 // Tests for dispatchToolUses.ts .
@@ -38,36 +38,6 @@ import type { AgentCallbacks, AgentOptions } from '../loop.js';
 import type { ToolUseContentBlock } from '../../ollama/types.js';
 import type { EditPlan } from '../editPlan.js';
 import type { SideCarConfig } from '../../config/settings.js';
-
-function stubState(overrides: Partial<LoopState> = {}): LoopState {
-  return {
-    startTime: Date.now(),
-    runId: 'test-task',
-    config: {} as import('../../config/settings.js').SideCarConfig,
-    maxIterations: 25,
-    maxTokens: 100_000,
-    approvalMode: 'cautious',
-    tools: [],
-    logger: { info: vi.fn(), warn: vi.fn() } as unknown as LoopState['logger'],
-    changelog: undefined,
-    mcpManager: undefined,
-    messages: [{ role: 'user', content: 'refactor auth' }],
-    iteration: 1,
-    totalChars: 0,
-    recentToolCalls: [],
-    episodicMemory: new EpisodicMemoryStore(),
-    recentNormalizedCalls: [],
-    autoFixRetriesByFile: new Map(),
-    stubFixRetries: 0,
-    criticInjectionsByFile: new Map(),
-    criticInjectionsByTestHash: new Map(),
-    toolCallCounts: new Map(),
-    gateState: {} as LoopState['gateState'],
-    currentEditPlan: null,
-    checkpointFired: false,
-    ...overrides,
-  };
-}
 
 function stubCallbacks() {
   const cb = {
@@ -115,7 +85,18 @@ describe('dispatchPendingToolUses — mixed tool_use', () => {
       tu('read_file', 'c.ts'),
       tu('write_file', 'd.ts'),
     ];
-    await dispatchPendingToolUses(stubState(), pending, client, options, stubCallbacks(), signal, config());
+    await dispatchPendingToolUses(
+      stubLoopState({
+        logger: { info: vi.fn(), warn: vi.fn() } as unknown as LoopState['logger'],
+        messages: [{ role: 'user', content: 'refactor auth' }],
+      }),
+      pending,
+      client,
+      options,
+      stubCallbacks(),
+      signal,
+      config(),
+    );
     expect(shouldRunPlannerPass).not.toHaveBeenCalled();
     expect(requestEditPlan).not.toHaveBeenCalled();
     expect(executeToolUses).toHaveBeenCalledOnce();
@@ -123,7 +104,18 @@ describe('dispatchPendingToolUses — mixed tool_use', () => {
 
   it('skips planner when batch is pure-non-write tools', async () => {
     const pending = [tu('read_file', 'a.ts'), tu('grep', 'b.ts')];
-    await dispatchPendingToolUses(stubState(), pending, client, options, stubCallbacks(), signal, config());
+    await dispatchPendingToolUses(
+      stubLoopState({
+        logger: { info: vi.fn(), warn: vi.fn() } as unknown as LoopState['logger'],
+        messages: [{ role: 'user', content: 'refactor auth' }],
+      }),
+      pending,
+      client,
+      options,
+      stubCallbacks(),
+      signal,
+      config(),
+    );
     expect(shouldRunPlannerPass).not.toHaveBeenCalled();
     expect(executeToolUses).toHaveBeenCalledOnce();
   });
@@ -133,7 +125,18 @@ describe('dispatchPendingToolUses — gate decisions', () => {
   it('pure-writes but gate returns false → executeToolUses', async () => {
     vi.mocked(shouldRunPlannerPass).mockReturnValue(false);
     const pending = [tu('write_file', 'a.ts'), tu('write_file', 'b.ts')];
-    await dispatchPendingToolUses(stubState(), pending, client, options, stubCallbacks(), signal, config());
+    await dispatchPendingToolUses(
+      stubLoopState({
+        logger: { info: vi.fn(), warn: vi.fn() } as unknown as LoopState['logger'],
+        messages: [{ role: 'user', content: 'refactor auth' }],
+      }),
+      pending,
+      client,
+      options,
+      stubCallbacks(),
+      signal,
+      config(),
+    );
     expect(shouldRunPlannerPass).toHaveBeenCalledOnce();
     expect(requestEditPlan).not.toHaveBeenCalled();
     expect(executeToolUses).toHaveBeenCalledOnce();
@@ -146,7 +149,18 @@ describe('dispatchPendingToolUses — gate decisions', () => {
     vi.mocked(executeMultiFilePlan).mockResolvedValue([]);
     const cb = stubCallbacks();
     const pending = [tu('write_file', 'a.ts'), tu('write_file', 'b.ts'), tu('write_file', 'c.ts')];
-    await dispatchPendingToolUses(stubState(), pending, client, options, cb, signal, config());
+    await dispatchPendingToolUses(
+      stubLoopState({
+        logger: { info: vi.fn(), warn: vi.fn() } as unknown as LoopState['logger'],
+        messages: [{ role: 'user', content: 'refactor auth' }],
+      }),
+      pending,
+      client,
+      options,
+      cb,
+      signal,
+      config(),
+    );
     expect(requestEditPlan).toHaveBeenCalledOnce();
     expect(executeMultiFilePlan).toHaveBeenCalledOnce();
     expect(executeToolUses).not.toHaveBeenCalled();
@@ -167,7 +181,18 @@ describe('dispatchPendingToolUses — gate decisions', () => {
     const onEditPlanProgress = vi.fn();
     const cb = { ...stubCallbacks(), onEditPlanProgress } as ReturnType<typeof stubCallbacks>;
     const pending = [tu('write_file', 'a.ts'), tu('write_file', 'b.ts'), tu('write_file', 'c.ts')];
-    await dispatchPendingToolUses(stubState(), pending, client, options, cb, signal, config());
+    await dispatchPendingToolUses(
+      stubLoopState({
+        logger: { info: vi.fn(), warn: vi.fn() } as unknown as LoopState['logger'],
+        messages: [{ role: 'user', content: 'refactor auth' }],
+      }),
+      pending,
+      client,
+      options,
+      cb,
+      signal,
+      config(),
+    );
     const pendingEvents = onEditPlanProgress.mock.calls
       .map((c) => c[0] as { path: string; status: string })
       .filter((e) => e.status === 'pending');
@@ -178,7 +203,10 @@ describe('dispatchPendingToolUses — gate decisions', () => {
     vi.mocked(shouldRunPlannerPass).mockReturnValue(true);
     vi.mocked(requestEditPlan).mockResolvedValue({ plan: null, rawText: 'raw', retried: true });
     const cb = stubCallbacks();
-    const state = stubState();
+    const state = stubLoopState({
+      logger: { info: vi.fn(), warn: vi.fn() } as unknown as LoopState['logger'],
+      messages: [{ role: 'user', content: 'refactor auth' }],
+    });
     const pending = [tu('write_file', 'a.ts'), tu('write_file', 'b.ts'), tu('write_file', 'c.ts')];
     await dispatchPendingToolUses(state, pending, client, options, cb, signal, config());
     expect(executeMultiFilePlan).not.toHaveBeenCalled();
@@ -191,7 +219,8 @@ describe('dispatchPendingToolUses — gate decisions', () => {
 describe('dispatchPendingToolUses — user prompt sentinel scan', () => {
   it('passes the latest user string-content to shouldRunPlannerPass', async () => {
     vi.mocked(shouldRunPlannerPass).mockReturnValue(false);
-    const state = stubState({
+    const state = stubLoopState({
+      logger: { info: vi.fn(), warn: vi.fn() } as unknown as LoopState['logger'],
       messages: [
         { role: 'user', content: 'initial task' },
         { role: 'assistant', content: 'ok' },
@@ -206,7 +235,8 @@ describe('dispatchPendingToolUses — user prompt sentinel scan', () => {
 
   it('walks content-block arrays to find the first text block on the latest user message', async () => {
     vi.mocked(shouldRunPlannerPass).mockReturnValue(false);
-    const state = stubState({
+    const state = stubLoopState({
+      logger: { info: vi.fn(), warn: vi.fn() } as unknown as LoopState['logger'],
       messages: [
         {
           role: 'user',
@@ -224,7 +254,10 @@ describe('dispatchPendingToolUses — user prompt sentinel scan', () => {
 
   it('empty when there is no user message (treats as "sentinel not present")', async () => {
     vi.mocked(shouldRunPlannerPass).mockReturnValue(false);
-    const state = stubState({ messages: [{ role: 'assistant', content: 'hi' }] });
+    const state = stubLoopState({
+      logger: { info: vi.fn(), warn: vi.fn() } as unknown as LoopState['logger'],
+      messages: [{ role: 'assistant', content: 'hi' }],
+    });
     const pending = [tu('write_file', 'a.ts'), tu('write_file', 'b.ts'), tu('write_file', 'c.ts')];
     await dispatchPendingToolUses(state, pending, client, options, stubCallbacks(), signal, config());
     expect(vi.mocked(shouldRunPlannerPass).mock.calls[0][1].userPromptText).toBe('');
@@ -241,7 +274,10 @@ describe('dispatchPendingToolUses — currentEditPlan lifecycle ', () => {
       observedPlan = state.currentEditPlan;
       return [];
     });
-    const state = stubState();
+    const state = stubLoopState({
+      logger: { info: vi.fn(), warn: vi.fn() } as unknown as LoopState['logger'],
+      messages: [{ role: 'user', content: 'refactor auth' }],
+    });
     const pending = [tu('write_file', 'a.ts'), tu('write_file', 'b.ts'), tu('write_file', 'c.ts')];
     await dispatchPendingToolUses(state, pending, client, options, stubCallbacks(), signal, config());
     expect(observedPlan).toBe(plan);
@@ -254,7 +290,10 @@ describe('dispatchPendingToolUses — currentEditPlan lifecycle ', () => {
     vi.mocked(shouldRunPlannerPass).mockReturnValueOnce(true).mockReturnValueOnce(false);
     vi.mocked(requestEditPlan).mockResolvedValue({ plan, rawText: '', retried: false });
     vi.mocked(executeMultiFilePlan).mockResolvedValue([]);
-    const state = stubState();
+    const state = stubLoopState({
+      logger: { info: vi.fn(), warn: vi.fn() } as unknown as LoopState['logger'],
+      messages: [{ role: 'user', content: 'refactor auth' }],
+    });
     const pending = [tu('write_file', 'a.ts'), tu('write_file', 'b.ts'), tu('write_file', 'c.ts')];
     await dispatchPendingToolUses(state, pending, client, options, stubCallbacks(), signal, config());
     expect(state.currentEditPlan).toBe(plan);
@@ -267,7 +306,10 @@ describe('dispatchPendingToolUses — currentEditPlan lifecycle ', () => {
   it('leaves currentEditPlan null when the planner falls back to executeToolUses', async () => {
     vi.mocked(shouldRunPlannerPass).mockReturnValue(true);
     vi.mocked(requestEditPlan).mockResolvedValue({ plan: null, rawText: '', retried: true });
-    const state = stubState();
+    const state = stubLoopState({
+      logger: { info: vi.fn(), warn: vi.fn() } as unknown as LoopState['logger'],
+      messages: [{ role: 'user', content: 'refactor auth' }],
+    });
     const pending = [tu('write_file', 'a.ts'), tu('write_file', 'b.ts'), tu('write_file', 'c.ts')];
     await dispatchPendingToolUses(state, pending, client, options, stubCallbacks(), signal, config());
     expect(state.currentEditPlan).toBeNull();
@@ -282,7 +324,10 @@ describe('dispatchPendingToolUses — config threading', () => {
     vi.mocked(executeMultiFilePlan).mockResolvedValue([]);
     const pending = [tu('write_file', 'a.ts'), tu('write_file', 'b.ts'), tu('write_file', 'c.ts')];
     await dispatchPendingToolUses(
-      stubState(),
+      stubLoopState({
+        logger: { info: vi.fn(), warn: vi.fn() } as unknown as LoopState['logger'],
+        messages: [{ role: 'user', content: 'refactor auth' }],
+      }),
       pending,
       client,
       options,
@@ -300,7 +345,10 @@ describe('dispatchPendingToolUses — config threading', () => {
     vi.mocked(executeMultiFilePlan).mockResolvedValue([]);
     const pending = [tu('write_file', 'a.ts'), tu('write_file', 'b.ts'), tu('write_file', 'c.ts')];
     await dispatchPendingToolUses(
-      stubState(),
+      stubLoopState({
+        logger: { info: vi.fn(), warn: vi.fn() } as unknown as LoopState['logger'],
+        messages: [{ role: 'user', content: 'refactor auth' }],
+      }),
       pending,
       client,
       options,

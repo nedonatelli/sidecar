@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { EpisodicMemoryStore } from '../episodicMemory.js';
+import { stubLoopState } from './testHelpers.js';
+import type { EpisodicMemoryStore } from '../episodicMemory.js';
 
 // ---------------------------------------------------------------------------
 // Tests for compression.ts (loop helper hardening).
@@ -48,37 +49,6 @@ import { compressMessages, applyBudgetCompression, maybeCompressPostTool } from 
 import type { ChatMessage, ContentBlock } from '../../ollama/types.js';
 import type { SideCarClient } from '../../ollama/client.js';
 import type { LoopState } from './state.js';
-
-function stubState(overrides: Partial<LoopState> = {}): LoopState {
-  return {
-    startTime: Date.now(),
-    runId: 'test-task',
-    config: {} as import('../../config/settings.js').SideCarConfig,
-    maxIterations: 25,
-    maxTokens: 100_000,
-    approvalMode: 'cautious',
-    tools: [],
-    logger: undefined,
-    changelog: undefined,
-    mcpManager: undefined,
-    messages: [],
-    iteration: 1,
-    totalChars: 0,
-    lastActualInputTokens: undefined,
-    recentToolCalls: [],
-    episodicMemory: new EpisodicMemoryStore(),
-    recentNormalizedCalls: [],
-    autoFixRetriesByFile: new Map(),
-    stubFixRetries: 0,
-    criticInjectionsByFile: new Map(),
-    criticInjectionsByTestHash: new Map(),
-    toolCallCounts: new Map(),
-    gateState: {} as LoopState['gateState'],
-    currentEditPlan: null,
-    checkpointFired: false,
-    ...overrides,
-  };
-}
 
 function toolResultBlock(content: string): ContentBlock {
   return { type: 'tool_result', tool_use_id: 'tu1', content, is_error: false };
@@ -182,7 +152,7 @@ describe('compressMessages', () => {
 describe('maybeCompressPostTool', () => {
   it('is a no-op when totalChars is below the compression threshold', () => {
     const info = vi.fn();
-    const state = stubState({
+    const state = stubLoopState({
       maxTokens: 100_000,
       totalChars: 100,
       logger: { info, warn: vi.fn() } as unknown as LoopState['logger'],
@@ -202,7 +172,7 @@ describe('maybeCompressPostTool', () => {
       messages.push({ role: 'user', content: [toolResultBlock(long)] });
     }
     const info = vi.fn();
-    const state = stubState({
+    const state = stubLoopState({
       maxTokens: 100_000,
       totalChars: 300_000,
       messages,
@@ -235,7 +205,7 @@ describe('applyBudgetCompression', () => {
   }
 
   it('returns "ok" without invoking the summarizer when below the threshold', async () => {
-    const state = stubState({ maxTokens: 100_000, totalChars: 100 });
+    const state = stubLoopState({ maxTokens: 100_000, totalChars: 100 });
     const client = {} as SideCarClient;
     const outcome = await applyBudgetCompression(client, state);
     expect(outcome).toBe('ok');
@@ -245,7 +215,7 @@ describe('applyBudgetCompression', () => {
   it('invokes the summarizer + compressMessages when over the threshold and returns "ok" when back under budget', async () => {
     makeSummarizerMock({ freedChars: 100_000, turnsSummarized: 3, turnsCount: 5, messages: [] });
     const info = vi.fn();
-    const state = stubState({
+    const state = stubLoopState({
       maxTokens: 100_000,
       totalChars: 300_000, // above 70% of 100K tokens × 4 chars = 280K
       logger: { info, warn: vi.fn() } as unknown as LoopState['logger'],
@@ -267,7 +237,7 @@ describe('applyBudgetCompression', () => {
     const faultyEpisodic = {
       add: vi.fn().mockRejectedValue(new Error('embedding model failed to load')),
     } as unknown as EpisodicMemoryStore;
-    const state = stubState({
+    const state = stubLoopState({
       maxTokens: 100_000,
       totalChars: 300_000,
       episodicMemory: faultyEpisodic,
@@ -281,7 +251,7 @@ describe('applyBudgetCompression', () => {
 
   it('returns "exhausted" when compaction cannot bring totalChars below maxTokens × CHARS_PER_TOKEN', async () => {
     makeSummarizerMock({ freedChars: 0 });
-    const state = stubState({
+    const state = stubLoopState({
       maxTokens: 100_000,
       totalChars: 500_000, // stays above 100K tokens × 4 after 0-freed compaction
     });
@@ -292,7 +262,7 @@ describe('applyBudgetCompression', () => {
   it('does not splice state.messages when the summarizer freed 0 chars', async () => {
     makeSummarizerMock({ freedChars: 0, messages: [{ role: 'user', content: 'replacement' }] });
     const original: ChatMessage[] = [{ role: 'user', content: 'original' }];
-    const state = stubState({
+    const state = stubLoopState({
       maxTokens: 100_000,
       totalChars: 300_000,
       messages: original,
@@ -306,7 +276,7 @@ describe('applyBudgetCompression', () => {
     // Below the threshold via char estimate alone (50K/4 = 12.5K << 70K threshold)
     // but above via actual tokens (80K > 70K). Should trigger compression.
     makeSummarizerMock({ freedChars: 10_000, messages: [], turnsSummarized: 1, turnsCount: 3 });
-    const state = stubState({
+    const state = stubLoopState({
       maxTokens: 100_000,
       totalChars: 50_000,
       lastActualInputTokens: 80_000, // above 70% of 100K

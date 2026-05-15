@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { EpisodicMemoryStore } from '../episodicMemory.js';
+import { stubLoopState } from './testHelpers.js';
 
 // ---------------------------------------------------------------------------
 // Tests for multiFileEdit.ts .
@@ -28,36 +28,6 @@ import type { SideCarClient } from '../../ollama/client.js';
 import type { AgentCallbacks, AgentOptions } from '../loop.js';
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/types.js';
 import type { EditPlan } from '../editPlan.js';
-
-function stubState(overrides: Partial<LoopState> = {}): LoopState {
-  return {
-    startTime: Date.now(),
-    runId: 'test-task',
-    config: {} as import('../../config/settings.js').SideCarConfig,
-    maxIterations: 25,
-    maxTokens: 100_000,
-    approvalMode: 'cautious',
-    tools: [],
-    logger: { info: vi.fn(), warn: vi.fn() } as unknown as LoopState['logger'],
-    changelog: undefined,
-    mcpManager: undefined,
-    messages: [],
-    iteration: 1,
-    totalChars: 0,
-    recentToolCalls: [],
-    episodicMemory: new EpisodicMemoryStore(),
-    recentNormalizedCalls: [],
-    autoFixRetriesByFile: new Map(),
-    stubFixRetries: 0,
-    criticInjectionsByFile: new Map(),
-    criticInjectionsByTestHash: new Map(),
-    toolCallCounts: new Map(),
-    gateState: {} as LoopState['gateState'],
-    currentEditPlan: null,
-    checkpointFired: false,
-    ...overrides,
-  };
-}
 
 function stubCallbacks() {
   const texts: string[] = [];
@@ -100,7 +70,7 @@ describe('executeMultiFilePlan — result alignment', () => {
     const results = await executeMultiFilePlan(
       plan,
       pending,
-      stubState(),
+      stubLoopState({ logger: { info: vi.fn(), warn: vi.fn() } as unknown as LoopState['logger'] }),
       {} as SideCarClient,
       {} as AgentOptions,
       stubCallbacks(),
@@ -143,7 +113,7 @@ describe('executeMultiFilePlan — DAG ordering', () => {
     const p = executeMultiFilePlan(
       plan,
       pending,
-      stubState(),
+      stubLoopState({ logger: { info: vi.fn(), warn: vi.fn() } as unknown as LoopState['logger'] }),
       {} as SideCarClient,
       {} as AgentOptions,
       stubCallbacks(),
@@ -180,7 +150,7 @@ describe('executeMultiFilePlan — DAG ordering', () => {
     await executeMultiFilePlan(
       plan,
       pending,
-      stubState(),
+      stubLoopState({ logger: { info: vi.fn(), warn: vi.fn() } as unknown as LoopState['logger'] }),
       {} as SideCarClient,
       {} as AgentOptions,
       stubCallbacks(),
@@ -210,7 +180,7 @@ describe('executeMultiFilePlan — bounded parallelism', () => {
     await executeMultiFilePlan(
       plan,
       pending,
-      stubState(),
+      stubLoopState({ logger: { info: vi.fn(), warn: vi.fn() } as unknown as LoopState['logger'] }),
       {} as SideCarClient,
       {} as AgentOptions,
       stubCallbacks(),
@@ -234,7 +204,7 @@ describe('executeMultiFilePlan — same-path duplicates', () => {
     const results = await executeMultiFilePlan(
       plan,
       pending,
-      stubState(),
+      stubLoopState({ logger: { info: vi.fn(), warn: vi.fn() } as unknown as LoopState['logger'] }),
       {} as SideCarClient,
       {} as AgentOptions,
       stubCallbacks(),
@@ -258,7 +228,7 @@ describe('executeMultiFilePlan — planner invented path', () => {
   it('skips plan entries whose path is not in pending, logging a warning', async () => {
     vi.mocked(executeOneToolUse).mockImplementation(async (_ctx, pendingTu) => result(pendingTu.id, 'ok'));
     const pending = [tu('a.ts')];
-    const state = stubState();
+    const state = stubLoopState({ logger: { info: vi.fn(), warn: vi.fn() } as unknown as LoopState['logger'] });
     const plan: EditPlan = {
       edits: [
         { path: 'a.ts', op: 'edit', rationale: '', dependsOn: [] },
@@ -289,7 +259,7 @@ describe('executeMultiFilePlan — planner invented path', () => {
     const results = await executeMultiFilePlan(
       plan,
       pending,
-      stubState(),
+      stubLoopState({ logger: { info: vi.fn(), warn: vi.fn() } as unknown as LoopState['logger'] }),
       {} as SideCarClient,
       {} as AgentOptions,
       stubCallbacks(),
@@ -322,7 +292,7 @@ describe('executeMultiFilePlan — error handling', () => {
     const results = await executeMultiFilePlan(
       plan,
       pending,
-      stubState(),
+      stubLoopState({ logger: { info: vi.fn(), warn: vi.fn() } as unknown as LoopState['logger'] }),
       {} as SideCarClient,
       {} as AgentOptions,
       cb,
@@ -355,7 +325,7 @@ describe('executeMultiFilePlan — abort', () => {
     const results = await executeMultiFilePlan(
       plan,
       pending,
-      stubState(),
+      stubLoopState({ logger: { info: vi.fn(), warn: vi.fn() } as unknown as LoopState['logger'] }),
       {} as SideCarClient,
       {} as AgentOptions,
       stubCallbacks(),
@@ -389,7 +359,7 @@ describe('executeMultiFilePlan — onEditPlanProgress events ', () => {
     await executeMultiFilePlan(
       plan,
       pending,
-      stubState(),
+      stubLoopState({ logger: { info: vi.fn(), warn: vi.fn() } as unknown as LoopState['logger'] }),
       {} as SideCarClient,
       {} as AgentOptions,
       cb,
@@ -416,7 +386,7 @@ describe('executeMultiFilePlan — onEditPlanProgress events ', () => {
     await executeMultiFilePlan(
       plan,
       pending,
-      stubState(),
+      stubLoopState({ logger: { info: vi.fn(), warn: vi.fn() } as unknown as LoopState['logger'] }),
       {} as SideCarClient,
       {} as AgentOptions,
       cb,
@@ -442,7 +412,7 @@ describe('executeMultiFilePlan — onEditPlanProgress events ', () => {
     await executeMultiFilePlan(
       plan,
       pending,
-      stubState(),
+      stubLoopState({ logger: { info: vi.fn(), warn: vi.fn() } as unknown as LoopState['logger'] }),
       {} as SideCarClient,
       {} as AgentOptions,
       cb,
@@ -469,7 +439,16 @@ describe('executeMultiFilePlan — onEditPlanProgress events ', () => {
       ],
     };
     const cb = stubCallbacks();
-    await executeMultiFilePlan(plan, pending, stubState(), {} as SideCarClient, {} as AgentOptions, cb, ctrl.signal, 8);
+    await executeMultiFilePlan(
+      plan,
+      pending,
+      stubLoopState({ logger: { info: vi.fn(), warn: vi.fn() } as unknown as LoopState['logger'] }),
+      {} as SideCarClient,
+      {} as AgentOptions,
+      cb,
+      ctrl.signal,
+      8,
+    );
     const bStatuses = (cb.onEditPlanProgress as ReturnType<typeof vi.fn>).mock.calls
       .map((c) => c[0] as { path: string; status: string })
       .filter((p) => p.path === 'b.ts')

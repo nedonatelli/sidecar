@@ -1,8 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { EpisodicMemoryStore } from '../episodicMemory.js';
+import { stubLoopState, stubCallbacks } from './testHelpers.js';
 import { notifyIterationStart, maybeEmitProgressSummary, shouldStopAtCheckpoint } from './notifications.js';
 import type { LoopState } from './state.js';
-import type { AgentCallbacks } from '../loop.js';
 import type { getConfig } from '../../config/settings.js';
 
 // ---------------------------------------------------------------------------
@@ -14,46 +13,6 @@ import type { getConfig } from '../../config/settings.js';
 // and a minimal `LoopState` slice.
 // ---------------------------------------------------------------------------
 
-function stubState(overrides: Partial<LoopState> = {}): LoopState {
-  return {
-    startTime: Date.now(),
-    runId: 'test-task',
-    config: {} as import('../../config/settings.js').SideCarConfig,
-    maxIterations: 25,
-    maxTokens: 100_000,
-    approvalMode: 'cautious',
-    tools: [],
-    logger: undefined,
-    changelog: undefined,
-    mcpManager: undefined,
-    messages: [],
-    iteration: 1,
-    totalChars: 0,
-    recentToolCalls: [],
-    episodicMemory: new EpisodicMemoryStore(),
-    recentNormalizedCalls: [],
-    autoFixRetriesByFile: new Map(),
-    stubFixRetries: 0,
-    criticInjectionsByFile: new Map(),
-    criticInjectionsByTestHash: new Map(),
-    toolCallCounts: new Map(),
-    gateState: {} as LoopState['gateState'],
-    currentEditPlan: null,
-    checkpointFired: false,
-    ...overrides,
-  };
-}
-
-function stubCallbacks(overrides: Partial<AgentCallbacks> = {}): AgentCallbacks {
-  return {
-    onText: vi.fn(),
-    onToolCall: vi.fn(),
-    onToolResult: vi.fn(),
-    onDone: vi.fn(),
-    ...overrides,
-  };
-}
-
 function stubConfig(agentMaxMessages = 100): ReturnType<typeof getConfig> {
   return { agentMaxMessages } as unknown as ReturnType<typeof getConfig>;
 }
@@ -61,7 +20,7 @@ function stubConfig(agentMaxMessages = 100): ReturnType<typeof getConfig> {
 describe('notifyIterationStart', () => {
   it('fires onIterationStart with every field the webview consumes', () => {
     const onIterationStart = vi.fn();
-    const state = stubState({
+    const state = stubLoopState({
       iteration: 7,
       messages: Array(30).fill({ role: 'user', content: 'x' }) as LoopState['messages'],
       totalChars: 40_000, // ~10K tokens via CHARS_PER_TOKEN=4
@@ -90,7 +49,7 @@ describe('notifyIterationStart', () => {
 
   it('clamps messagesRemaining at 0 and flips atCapacity when at/over the ceiling', () => {
     const onIterationStart = vi.fn();
-    const state = stubState({
+    const state = stubLoopState({
       messages: Array(100).fill({ role: 'user', content: 'x' }) as LoopState['messages'],
     });
     notifyIterationStart(state, stubConfig(100), stubCallbacks({ onIterationStart }));
@@ -102,21 +61,21 @@ describe('notifyIterationStart', () => {
 
   it('no-ops silently when the callback is undefined', () => {
     // Just ensure no throw; there's no observable side effect.
-    expect(() => notifyIterationStart(stubState(), stubConfig(100), stubCallbacks())).not.toThrow();
+    expect(() => notifyIterationStart(stubLoopState(), stubConfig(100), stubCallbacks())).not.toThrow();
   });
 });
 
 describe('maybeEmitProgressSummary', () => {
   it('stays quiet for iteration 1 (rate-limit — no 0% messages on short runs)', () => {
     const onProgressSummary = vi.fn();
-    maybeEmitProgressSummary(stubState({ iteration: 1 }), stubCallbacks({ onProgressSummary }));
+    maybeEmitProgressSummary(stubLoopState({ iteration: 1 }), stubCallbacks({ onProgressSummary }));
     expect(onProgressSummary).not.toHaveBeenCalled();
   });
 
   it('stays quiet for iterations that are not multiples of 5', () => {
     const onProgressSummary = vi.fn();
     for (const it of [2, 3, 4, 6, 7, 11, 13]) {
-      maybeEmitProgressSummary(stubState({ iteration: it }), stubCallbacks({ onProgressSummary }));
+      maybeEmitProgressSummary(stubLoopState({ iteration: it }), stubCallbacks({ onProgressSummary }));
     }
     expect(onProgressSummary).not.toHaveBeenCalled();
   });
@@ -124,14 +83,14 @@ describe('maybeEmitProgressSummary', () => {
   it('fires on iteration 5, 10, 15, …', () => {
     const onProgressSummary = vi.fn();
     for (const it of [5, 10, 15, 20]) {
-      maybeEmitProgressSummary(stubState({ iteration: it }), stubCallbacks({ onProgressSummary }));
+      maybeEmitProgressSummary(stubLoopState({ iteration: it }), stubCallbacks({ onProgressSummary }));
     }
     expect(onProgressSummary).toHaveBeenCalledTimes(4);
   });
 
   it('includes iteration ratio, elapsed seconds, % context, and message count in the summary', () => {
     const onProgressSummary = vi.fn();
-    const state = stubState({
+    const state = stubLoopState({
       iteration: 10,
       maxIterations: 25,
       totalChars: 200_000, // 50K tokens on maxTokens 100K → 50%
@@ -148,19 +107,19 @@ describe('maybeEmitProgressSummary', () => {
 
   it('no-ops when onProgressSummary callback is undefined even on a fire iteration', () => {
     // Ensure no throw — iteration is 5 but callback is undefined.
-    expect(() => maybeEmitProgressSummary(stubState({ iteration: 5 }), stubCallbacks())).not.toThrow();
+    expect(() => maybeEmitProgressSummary(stubLoopState({ iteration: 5 }), stubCallbacks())).not.toThrow();
   });
 });
 
 describe('shouldStopAtCheckpoint', () => {
   it('returns false when onCheckpoint is undefined', async () => {
-    const state = stubState({ iteration: 15, maxIterations: 25 }); // 60% of 25 = 15
+    const state = stubLoopState({ iteration: 15, maxIterations: 25 }); // 60% of 25 = 15
     expect(await shouldStopAtCheckpoint(state, stubCallbacks())).toBe(false);
   });
 
   it('returns false when we are not at the 60% boundary', async () => {
     const onCheckpoint = vi.fn().mockResolvedValue(true);
-    const state = stubState({ iteration: 10, maxIterations: 25 }); // 60% is 15
+    const state = stubLoopState({ iteration: 10, maxIterations: 25 }); // 60% is 15
     expect(await shouldStopAtCheckpoint(state, stubCallbacks({ onCheckpoint }))).toBe(false);
     expect(onCheckpoint).not.toHaveBeenCalled();
   });
@@ -168,14 +127,14 @@ describe('shouldStopAtCheckpoint', () => {
   it('stays quiet on short runs where iteration <= 3', async () => {
     const onCheckpoint = vi.fn().mockResolvedValue(true);
     // maxIterations=5, 60% = 3 → iteration 3 hits boundary but <= 3 guard should silence
-    const state = stubState({ iteration: 3, maxIterations: 5 });
+    const state = stubLoopState({ iteration: 3, maxIterations: 5 });
     expect(await shouldStopAtCheckpoint(state, stubCallbacks({ onCheckpoint }))).toBe(false);
     expect(onCheckpoint).not.toHaveBeenCalled();
   });
 
   it('at the 60% boundary, delegates to onCheckpoint and returns false when user continues', async () => {
     const onCheckpoint = vi.fn().mockResolvedValue(true);
-    const state = stubState({ iteration: 15, maxIterations: 25 });
+    const state = stubLoopState({ iteration: 15, maxIterations: 25 });
     expect(await shouldStopAtCheckpoint(state, stubCallbacks({ onCheckpoint }))).toBe(false);
     expect(onCheckpoint).toHaveBeenCalledOnce();
     const args = onCheckpoint.mock.calls[0];
@@ -187,14 +146,14 @@ describe('shouldStopAtCheckpoint', () => {
   it('returns true and emits "Stopped at checkpoint" when user declines', async () => {
     const onCheckpoint = vi.fn().mockResolvedValue(false);
     const onText = vi.fn();
-    const state = stubState({ iteration: 15, maxIterations: 25 });
+    const state = stubLoopState({ iteration: 15, maxIterations: 25 });
     expect(await shouldStopAtCheckpoint(state, stubCallbacks({ onCheckpoint, onText }))).toBe(true);
     expect(onText).toHaveBeenCalledWith(expect.stringContaining('Stopped at checkpoint'));
   });
 
   it('logs the decision via state.logger.info when the user stops', async () => {
     const info = vi.fn();
-    const state = stubState({
+    const state = stubLoopState({
       iteration: 15,
       maxIterations: 25,
       logger: { info, warn: vi.fn() } as unknown as LoopState['logger'],

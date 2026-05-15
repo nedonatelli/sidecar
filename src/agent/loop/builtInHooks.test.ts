@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { EpisodicMemoryStore } from '../episodicMemory.js';
+import { stubLoopState } from './testHelpers.js';
 
 // ---------------------------------------------------------------------------
 // Tests for builtInHooks.ts (loop helper hardening).
@@ -39,39 +39,8 @@ import { applyAutoFix } from './autoFix.js';
 import { applyStubCheck } from './stubCheck.js';
 import { applyCritic } from './criticHook.js';
 import { recordGateToolUses, maybeInjectCompletionGate } from './gate.js';
-import type { LoopState } from './state.js';
 import type { HookContext } from './policyHook.js';
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/types.js';
-
-function stubState(overrides: Partial<LoopState> = {}): LoopState {
-  return {
-    startTime: Date.now(),
-    runId: 'test-task',
-    config: {} as import('../../config/settings.js').SideCarConfig,
-    maxIterations: 25,
-    maxTokens: 100_000,
-    approvalMode: 'cautious',
-    tools: [],
-    logger: undefined,
-    changelog: undefined,
-    mcpManager: undefined,
-    messages: [],
-    iteration: 1,
-    totalChars: 0,
-    recentToolCalls: [],
-    episodicMemory: new EpisodicMemoryStore(),
-    recentNormalizedCalls: [],
-    autoFixRetriesByFile: new Map(),
-    stubFixRetries: 0,
-    criticInjectionsByFile: new Map(),
-    criticInjectionsByTestHash: new Map(),
-    toolCallCounts: new Map(),
-    gateState: {} as LoopState['gateState'],
-    currentEditPlan: null,
-    checkpointFired: false,
-    ...overrides,
-  };
-}
 
 function stubContext(overrides: Partial<HookContext> = {}): HookContext {
   return {
@@ -131,14 +100,14 @@ describe('autoFix adapter', () => {
   const hook = defaultPolicyHooks()[0];
 
   it('short-circuits to mutated:false when pendingToolUses is missing', async () => {
-    const result = await hook.afterToolResults!(stubState(), stubContext({ pendingToolUses: undefined }));
+    const result = await hook.afterToolResults!(stubLoopState(), stubContext({ pendingToolUses: undefined }));
     expect(result).toEqual({ mutated: false });
     expect(applyAutoFix).not.toHaveBeenCalled();
   });
 
   it('delegates to applyAutoFix and returns its boolean as mutated', async () => {
     vi.mocked(applyAutoFix).mockResolvedValueOnce(true);
-    const result = await hook.afterToolResults!(stubState(), stubContext({ pendingToolUses: [sampleToolUse] }));
+    const result = await hook.afterToolResults!(stubLoopState(), stubContext({ pendingToolUses: [sampleToolUse] }));
     expect(result?.mutated).toBe(true);
     expect(applyAutoFix).toHaveBeenCalledOnce();
   });
@@ -148,14 +117,14 @@ describe('stubValidator adapter', () => {
   const hook = defaultPolicyHooks()[1];
 
   it('short-circuits when pendingToolUses is missing', async () => {
-    const result = await hook.afterToolResults!(stubState(), stubContext({ pendingToolUses: undefined }));
+    const result = await hook.afterToolResults!(stubLoopState(), stubContext({ pendingToolUses: undefined }));
     expect(result).toEqual({ mutated: false });
     expect(applyStubCheck).not.toHaveBeenCalled();
   });
 
   it('wraps synchronous applyStubCheck in an async return', async () => {
     vi.mocked(applyStubCheck).mockReturnValueOnce(true);
-    const result = await hook.afterToolResults!(stubState(), stubContext({ pendingToolUses: [sampleToolUse] }));
+    const result = await hook.afterToolResults!(stubLoopState(), stubContext({ pendingToolUses: [sampleToolUse] }));
     expect(result?.mutated).toBe(true);
   });
 });
@@ -166,7 +135,7 @@ describe('adversarialCritic adapter', () => {
   it('short-circuits when any of pendingToolUses / toolResults / fullText is missing', async () => {
     // Missing fullText
     const r1 = await hook.afterToolResults!(
-      stubState(),
+      stubLoopState(),
       stubContext({ pendingToolUses: [sampleToolUse], toolResults: [sampleToolResult] }),
     );
     expect(r1?.mutated).toBe(false);
@@ -178,7 +147,7 @@ describe('adversarialCritic adapter', () => {
     vi.mocked(applyCritic).mockImplementationOnce(async (state) => {
       state.messages.push({ role: 'user', content: 'injected by critic' });
     });
-    const state = stubState();
+    const state = stubLoopState();
     const result = await hook.afterToolResults!(
       state,
       stubContext({
@@ -194,7 +163,7 @@ describe('adversarialCritic adapter', () => {
   it('reports mutated:false when critic runs but does not inject', async () => {
     vi.mocked(applyCritic).mockResolvedValueOnce(undefined);
     const result = await hook.afterToolResults!(
-      stubState(),
+      stubLoopState(),
       stubContext({
         pendingToolUses: [sampleToolUse],
         toolResults: [sampleToolResult],
@@ -212,7 +181,7 @@ describe('completionGate adapter', () => {
   describe('afterToolResults phase (recording)', () => {
     it('short-circuits when pendingToolUses or toolResults are missing', async () => {
       const result = await hook.afterToolResults!(
-        stubState(),
+        stubLoopState(),
         stubContext({ pendingToolUses: undefined, toolResults: [sampleToolResult] }),
       );
       expect(result?.mutated).toBe(false);
@@ -220,7 +189,7 @@ describe('completionGate adapter', () => {
     });
 
     it('records tool uses into gate state and always reports mutated:false', async () => {
-      const state = stubState();
+      const state = stubLoopState();
       const result = await hook.afterToolResults!(
         state,
         stubContext({ pendingToolUses: [sampleToolUse], toolResults: [sampleToolResult] }),
@@ -233,13 +202,13 @@ describe('completionGate adapter', () => {
   describe('onEmptyResponse phase (injection)', () => {
     it('returns mutated:true when maybeInjectCompletionGate returns "injected"', async () => {
       vi.mocked(maybeInjectCompletionGate).mockResolvedValueOnce('injected');
-      const result = await hook.onEmptyResponse!(stubState(), stubContext());
+      const result = await hook.onEmptyResponse!(stubLoopState(), stubContext());
       expect(result?.mutated).toBe(true);
     });
 
     it('returns mutated:false on any non-"injected" outcome', async () => {
       vi.mocked(maybeInjectCompletionGate).mockResolvedValueOnce('skip');
-      const result = await hook.onEmptyResponse!(stubState(), stubContext());
+      const result = await hook.onEmptyResponse!(stubLoopState(), stubContext());
       expect(result?.mutated).toBe(false);
     });
   });

@@ -1,44 +1,15 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi } from 'vitest';
-import { EpisodicMemoryStore } from '../episodicMemory.js';
+import { stubLoopState } from './testHelpers.js';
 import { streamOneTurn, resolveTurnContent } from './streamTurn';
-import type { LoopState } from './state';
 import type { AgentCallbacks } from '../loop.js';
 import type { StreamEvent } from '../../ollama/types.js';
 
-/**
- * Minimum viable LoopState + callbacks for streamOneTurn. We only
- * need the fields the helper actually touches; unrelated ones are
- * filled with safe defaults so the test stays focused on the partial-
- * capture behavior added for /resume.
- */
-function makeState(): LoopState {
-  return {
-    startTime: Date.now(),
-    runId: 'test-task',
-    config: {} as import('../../config/settings.js').SideCarConfig,
-    maxIterations: 10,
-    maxTokens: 100_000,
+function makeState() {
+  return stubLoopState({
     approvalMode: 'autonomous',
-    tools: [],
-    logger: undefined,
-    changelog: undefined,
-    mcpManager: undefined,
     messages: [{ role: 'user', content: 'hi' }],
-    iteration: 1,
-    totalChars: 0,
-    episodicMemory: new EpisodicMemoryStore(),
-    recentToolCalls: [],
-    recentNormalizedCalls: [],
-    autoFixRetriesByFile: new Map(),
-    stubFixRetries: 0,
-    criticInjectionsByFile: new Map(),
-    criticInjectionsByTestHash: new Map(),
-    toolCallCounts: new Map(),
-    gateState: null as any,
-    checkpointFired: false,
-    currentEditPlan: null,
-  };
+  });
 }
 
 function makeCallbacks(overrides: Partial<AgentCallbacks> = {}): AgentCallbacks {
