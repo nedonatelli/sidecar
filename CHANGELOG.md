@@ -4,6 +4,39 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.88.0] - 2026-05-15
+
+**v0.88.0 — Copilot interop, `@sidecar` full agent loop, Refresh Models button, v0.87d eval suite, and reliability fixes.**
+
+### Added
+
+- **`vscode.lm.registerTool` — SideCar tools in Copilot agent mode** — 11 core tools (`read_file`, `write_file`, `edit_file`, `list_directory`, `search_files`, `run_command`, `run_tests`, `git_diff`, `git_status`, `git_log`, `web_search`) are now registered with VS Code's LM tool API under `sidecar_*` names. Copilot agent mode, the VS Code Agents Window, and any extension that queries `vscode.lm.tools` can invoke them directly. Guard rails: gracefully no-ops on VS Code < 1.90 where `vscode.lm.registerTool` is unavailable. (`src/chat/lmTools.ts`)
+
+- **`@sidecar` participant routes through the full agent loop** — the `@sidecar` chat participant now runs `runAgentLoop` in autonomous mode rather than a plain completion. It has access to all tools, injects the same system prompt as the sidebar, and emits file anchors + a "Review Changes" button after edits. Slash commands (`/review`, `/fix`, `/explain`, `/commit-message`) stay on the lightweight completion path. (`src/chat/sidecarParticipant.ts`)
+
+- **VS Code Agents Window opt-in** — documented in README: add `"extensions.supportAgentsWindow": { "nedonatelli.sidecar-ai": true }` to `settings.json` to surface SideCar in the dedicated Agents Window (preview).
+
+- **Refresh Models and Restart Ollama buttons** — model panel now shows a "Refresh models" icon button that re-fetches the model list, and a "Restart Ollama" button (only shown for local Ollama backends) that calls `ollama serve` to recover from a crashed daemon.
+
+- **Eval suite v0.87d** — 5 new system-infrastructure cases (57 agent + 35 prompt = 92 total): `gate-blocks-finish-without-tests`, `stub-validator-reprompts-placeholder`, `critic-hook-catches-regression`, `sidecarmd-scoped-section`, `cycle-detection-halts-loop`. These verify SideCar's own compensating mechanisms rather than raw model behavior.
+
+### Fixed
+
+- **Stub-validator / cycle-detection conflict** — when the stub validator injected a reprompt, the normalized cycle-detection ring buffer (`recentNormalizedCalls`) was not reset. On the second edit attempt the normalized check (same tool + same file, fires at 3 hits) fired before the model could fix its own stubs, aborting the loop prematurely. Fix: reset `recentNormalizedCalls` in `applyStubCheck` when a reprompt is injected; `MAX_STUB_RETRIES = 1` prevents infinite loops. (`src/agent/loop/stubCheck.ts`)
+
+- **`ensureChatLogPath` — synchronous path assignment** — `chatLogPath` was set after `await fs.promises.mkdir`, so a fire-and-forget `logMessage()` call returned before the path was assigned. `getChatLogPath()` called immediately after always returned `null`, making the `resetChatLog` test flaky on slow CI runners. Fix: assign `chatLogPath` before the first `await` so the value is visible synchronously. (`src/webview/chatState.ts`)
+
+### Refactor
+
+- **`chatView.ts` decomposition** — extracted pure, testable helpers out of `ChatViewProvider`:
+  - `src/webview/codeActions.ts` — `buildCodeActionPrompt`, `buildTerminalErrorPrompt`, `fileDisplayName`
+  - `src/webview/chatViewLifecycle.ts` — `buildUiSettingsMessage`, `buildAgentModeMessage`, `buildActiveFileMessage`, `UI_CONFIG_KEYS`
+  - 18 new tests across `codeActions.test.ts` and `chatViewLifecycle.test.ts`
+
+### CI
+
+- **Actions upgraded to v6** — `actions/checkout` and `actions/setup-node` updated from v4 to v6 (Node 24 runtime), resolving the Node 20 deprecation warning that will become an error on 2026-06-02.
+
 ## [0.87.1] - 2026-05-10
 
 **v0.87.1 — Eval harness reliability, gpt-5 token fix, prompt tightening, v0.87c thinking cases, and multi-model results.**
