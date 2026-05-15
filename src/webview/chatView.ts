@@ -10,7 +10,6 @@ import {
   CancellationToken,
   type TextEditor,
 } from 'vscode';
-import * as path from 'path';
 import { ChatState } from './chatState.js';
 import type { PendingEditStore } from '../agent/pendingEdits.js';
 import { getChatWebviewHtml, type WebviewMessage, type ExtensionMessage } from './chatWebview.js';
@@ -24,8 +23,14 @@ import type { SkillLoader } from '../agent/skillLoader.js';
 import type { InlineEditProvider } from '../edits/inlineEditProvider.js';
 import type { BackgroundAgentManager } from '../agent/backgroundAgent.js';
 import { getConfig, detectActiveProfile } from '../config/settings.js';
-import { wrapUntrustedTerminalOutput } from '../agent/injectionScanner.js';
 import { handleUserMessage } from './handlers/chatHandlers.js';
+import { buildCodeActionPrompt, buildTerminalErrorPrompt } from './codeActions.js';
+import {
+  buildUiSettingsMessage,
+  buildAgentModeMessage,
+  buildActiveFileMessage,
+  UI_CONFIG_KEYS,
+} from './chatViewLifecycle.js';
 import { handleUndoChanges, handleExportChat } from './handlers/chatHandlers.js';
 import { handleLoadSession } from './handlers/sessionHandlers.js';
 import { loadModels } from './handlers/modelHandlers.js';
@@ -117,20 +122,17 @@ export class ChatViewProvider implements WebviewViewProvider {
 
     loadModels(this.state);
     const initConfig = getConfig();
-    this.postMessage({
-      command: 'setAgentMode',
-      agentMode: initConfig.agentMode,
-      customModes: initConfig.customModes.map((m) => ({ name: m.name, description: m.description })),
-    });
+    this.postMessage(
+      buildAgentModeMessage({
+        agentMode: initConfig.agentMode,
+        customModes: initConfig.customModes.map((m) => ({ name: m.name, description: m.description })),
+      }),
+    );
     this.pushUiSettings();
 
     this.context.subscriptions.push(
       workspace.onDidChangeConfiguration((e) => {
-        if (
-          e.affectsConfiguration('sidecar.chatDensity') ||
-          e.affectsConfiguration('sidecar.chatFontSize') ||
-          e.affectsConfiguration('sidecar.chatAccentColor')
-        ) {
+        if (UI_CONFIG_KEYS.some((k) => e.affectsConfiguration(k))) {
           this.pushUiSettings();
         }
         if (e.affectsConfiguration('sidecar.modelRouting')) this.state.refreshModelRouter();
@@ -142,28 +144,15 @@ export class ChatViewProvider implements WebviewViewProvider {
 
     // Keep the active-file bar in sync with the focused editor.
     const pushActiveFile = (editor: TextEditor | undefined): void => {
-      if (editor && !editor.document.isUntitled) {
-        this.postMessage({
-          command: 'activeFileChanged',
-          fileName: path.basename(editor.document.fileName),
-          filePath: editor.document.fileName,
-        });
-      } else {
-        this.postMessage({ command: 'activeFileChanged', fileName: undefined });
-      }
+      const filePath = editor && !editor.document.isUntitled ? editor.document.fileName : undefined;
+      this.postMessage(buildActiveFileMessage(filePath));
     };
     pushActiveFile(window.activeTextEditor);
     this.context.subscriptions.push(window.onDidChangeActiveTextEditor(pushActiveFile));
   }
 
   private pushUiSettings(): void {
-    const cfg = getConfig();
-    this.postMessage({
-      command: 'uiSettings',
-      chatDensity: cfg.chatDensity,
-      chatFontSize: cfg.chatFontSize,
-      chatAccentColor: cfg.chatAccentColor,
-    });
+    this.postMessage(buildUiSettingsMessage(getConfig()));
   }
 
   private async dispatch(msg: WebviewMessage): Promise<void> {
@@ -228,8 +217,7 @@ export class ChatViewProvider implements WebviewViewProvider {
   }
 
   public async sendCodeAction(action: string, code: string, fileName: string, diagnostic?: string): Promise<void> {
-    let prompt = `${action} this code from ${fileName}:\n\`\`\`\n${code}\n\`\`\``;
-    if (diagnostic) prompt += `\n\nDiagnostic reported by the editor:\n\`\`\`\n${diagnostic}\n\`\`\``;
+    const prompt = buildCodeActionPrompt(action, code, fileName, diagnostic);
     if (this.webviewView) this.webviewView.show(true);
     this.postMessage({ command: 'addUserMessage', content: prompt });
     await handleUserMessage(this.state, prompt);
@@ -241,14 +229,7 @@ export class ChatViewProvider implements WebviewViewProvider {
     cwd: string | undefined;
     output: string;
   }): Promise<void> {
-    const cwdLine = event.cwd ? `\nWorking directory: ${event.cwd}` : '';
-    const wrappedOutputBlock = wrapUntrustedTerminalOutput(event.output || '');
-    const prompt =
-      `A command in my terminal just failed. Help me diagnose and fix it.\n\n` +
-      `Command: \`${event.commandLine}\`\n` +
-      `Exit code: ${event.exitCode}` +
-      cwdLine +
-      wrappedOutputBlock;
+    const prompt = buildTerminalErrorPrompt(event);
     if (this.webviewView) this.webviewView.show(true);
     this.postMessage({ command: 'addUserMessage', content: prompt });
     await handleUserMessage(this.state, prompt);

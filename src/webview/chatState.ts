@@ -169,8 +169,10 @@ export class ChatState {
     if (!this.chatLogPath) {
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const tmpDir = path.join(os.tmpdir(), 'sidecar-chatlogs');
-      await fs.promises.mkdir(tmpDir, { recursive: true });
+      // Assign synchronously (before the first await) so getChatLogPath() returns
+      // a non-null value even when logMessage() is called fire-and-forget.
       this.chatLogPath = path.join(tmpDir, `sidecar-chat-${timestamp}.jsonl`);
+      await fs.promises.mkdir(tmpDir, { recursive: true });
     }
     return this.chatLogPath;
   }
