@@ -47,7 +47,42 @@ vi.mock('../../config/settings.js', async () => {
   };
 });
 
-import { loadModels, handleInstallModel } from './modelHandlers.js';
+// Kickstand backend mocks — used by handleInstallModel (kickstand path),
+// handleKickstandLoadModel, handleKickstandUnloadModel.
+const mockKickstandListRegistry = vi.fn();
+const mockKickstandLoadModel = vi.fn();
+const mockKickstandUnloadModel = vi.fn();
+const mockKickstandPull = vi.fn();
+const mockDeleteOllamaModel = vi.fn();
+const mockProbeModelToolSupport = vi.fn().mockResolvedValue(true);
+
+vi.mock('../../ollama/kickstandBackend.js', () => ({
+  kickstandListRegistry: (...args: unknown[]) => mockKickstandListRegistry(...args),
+  kickstandLoadModel: (...args: unknown[]) => mockKickstandLoadModel(...args),
+  kickstandUnloadModel: (...args: unknown[]) => mockKickstandUnloadModel(...args),
+  kickstandPullModel: (...args: unknown[]) => mockKickstandPull(...args),
+  normalizeHfRepo: (s: string) => s.replace(/^https?:\/\/huggingface\.co\//i, '').replace(/\/+$/, ''),
+}));
+
+vi.mock('../../ollama/ollamaBackend.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../ollama/ollamaBackend.js')>();
+  return {
+    ...actual,
+    probeModelToolSupport: (...args: unknown[]) => mockProbeModelToolSupport(...args),
+    probeAllModelToolSupport: vi.fn().mockResolvedValue(undefined),
+    deleteOllamaModel: (...args: unknown[]) => mockDeleteOllamaModel(...args),
+    modelSupportsTools: vi.fn().mockReturnValue(true),
+    getCachedOllamaNumCtx: vi.fn().mockReturnValue(undefined),
+  };
+});
+
+import {
+  loadModels,
+  handleInstallModel,
+  handleKickstandLoadModel,
+  handleKickstandUnloadModel,
+  handleDeleteModel,
+} from './modelHandlers.js';
 import { window } from 'vscode';
 
 function mockState(overrides: Record<string, unknown> = {}) {
@@ -169,6 +204,7 @@ describe('handleInstallModel', () => {
     mockImport.mockReset();
     mockGetHFToken.mockReset();
     mockGetHFToken.mockResolvedValue(undefined);
+    mockProbeModelToolSupport.mockResolvedValue(true);
   });
 
   /** Queue one response for the HF /api/models/... lookup. */
@@ -556,6 +592,462 @@ describe('handleInstallModel', () => {
     expect(state.client.updateModel).toHaveBeenCalledWith('google/gemma-4-26B-A4B');
     expect(state.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ command: 'setCurrentModel', currentModel: 'google/gemma-4-26B-A4B' }),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleKickstandLoadModel
+// ---------------------------------------------------------------------------
+
+describe('handleKickstandLoadModel', () => {
+  function mockKickstandState(loadModelImpl?: () => Promise<string | undefined>) {
+    const loadModelFn = loadModelImpl
+      ? vi.fn().mockImplementation(loadModelImpl)
+      : vi.fn().mockResolvedValue('loaded summary');
+    return mockState({
+      client: {
+        isLocalOllama: vi.fn().mockReturnValue(false),
+        getProviderType: vi.fn().mockReturnValue('kickstand'),
+        listLibraryModels: vi.fn().mockResolvedValue([]),
+        updateModel: vi.fn(),
+        pullModel: vi.fn(),
+        getBackendCapabilities: vi.fn().mockReturnValue({
+          lifecycle: { loadModel: loadModelFn },
+        }),
+      },
+    });
+  }
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    mockFetch.mockReset();
+    // status: 200 needed so isProviderReachable('kickstand') passes
+    // (it checks response.status < 500, not response.ok)
+    mockFetch.mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
+  });
+
+  it('posts summary and updates model on success', async () => {
+    const state = mockKickstandState(() => Promise.resolve('loaded summary'));
+
+    await handleKickstandLoadModel(state as never, 'my-model');
+
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'assistantMessage', content: expect.stringContaining('Loading') }),
+    );
+    expect(state.client.updateModel).toHaveBeenCalledWith('my-model');
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'setCurrentModel', currentModel: 'my-model' }),
+    );
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'assistantMessage', content: expect.stringContaining('loaded summary') }),
+    );
+    // loadModels is always called at the end
+    expect(state.client.listLibraryModels).toHaveBeenCalled();
+  });
+
+  it('uses fallback message when loadModel resolves to undefined', async () => {
+    const state = mockKickstandState(() => Promise.resolve(undefined));
+
+    await handleKickstandLoadModel(state as never, 'my-model');
+
+    expect(state.client.updateModel).toHaveBeenCalledWith('my-model');
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: 'assistantMessage',
+        content: expect.stringContaining('my-model loaded'),
+      }),
+    );
+  });
+
+  it('posts error when loadModel rejects and still calls loadModels', async () => {
+    const state = mockKickstandState(() => Promise.reject(new Error('VRAM full')));
+
+    await handleKickstandLoadModel(state as never, 'my-model');
+
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'error', content: expect.stringContaining('VRAM full') }),
+    );
+    // loadModels is always called even on error
+    expect(state.client.listLibraryModels).toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleKickstandUnloadModel
+// ---------------------------------------------------------------------------
+
+describe('handleKickstandUnloadModel', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    mockFetch.mockReset();
+    // status: 200 needed so isProviderReachable('kickstand') passes
+    mockFetch.mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
+    mockKickstandUnloadModel.mockReset();
+  });
+
+  function kickstandUnloadState() {
+    return mockState({
+      client: {
+        isLocalOllama: vi.fn().mockReturnValue(false),
+        getProviderType: vi.fn().mockReturnValue('kickstand'),
+        listLibraryModels: vi.fn().mockResolvedValue([]),
+        updateModel: vi.fn(),
+        pullModel: vi.fn(),
+        getBackendCapabilities: vi.fn().mockReturnValue(null),
+      },
+    });
+  }
+
+  it('posts unloading and unloaded messages on success, then calls loadModels', async () => {
+    mockKickstandUnloadModel.mockResolvedValue(undefined);
+    const state = kickstandUnloadState();
+
+    await handleKickstandUnloadModel(state as never, 'my-model');
+
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'assistantMessage', content: expect.stringContaining('Unloading') }),
+    );
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'assistantMessage', content: expect.stringContaining('unloaded') }),
+    );
+    expect(state.client.listLibraryModels).toHaveBeenCalled();
+  });
+
+  it('posts error when kickstandUnloadModel rejects and still calls loadModels', async () => {
+    mockKickstandUnloadModel.mockRejectedValue(new Error('GPU error'));
+    const state = kickstandUnloadState();
+
+    await handleKickstandUnloadModel(state as never, 'my-model');
+
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'error', content: expect.stringContaining('GPU error') }),
+    );
+    expect(state.client.listLibraryModels).toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleDeleteModel
+// ---------------------------------------------------------------------------
+
+describe('handleDeleteModel', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    mockFetch.mockReset();
+    // status: 200 needed for isProviderReachable, ok: true for Ollama reachability
+    mockFetch.mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
+    mockDeleteOllamaModel.mockReset();
+  });
+
+  it('returns immediately without dialog when backend is not local Ollama', async () => {
+    const state = mockState({
+      client: {
+        isLocalOllama: vi.fn().mockReturnValue(false),
+        listLibraryModels: vi.fn().mockResolvedValue([]),
+        updateModel: vi.fn(),
+        getProviderType: vi.fn().mockReturnValue('openai'),
+        pullModel: vi.fn(),
+        getBackendCapabilities: vi.fn().mockReturnValue(null),
+      },
+    });
+    // window.showWarningMessage is a vi.fn() in the vscode mock — reset it
+    // so stale calls from prior tests don't contaminate this assertion.
+    (window.showWarningMessage as ReturnType<typeof vi.fn>).mockReset();
+    const callCountBefore = (window.showWarningMessage as ReturnType<typeof vi.fn>).mock.calls.length;
+
+    await handleDeleteModel(state as never, 'some-model');
+
+    const callCountAfter = (window.showWarningMessage as ReturnType<typeof vi.fn>).mock.calls.length;
+    expect(callCountAfter).toBe(callCountBefore); // no new calls
+    expect(mockDeleteOllamaModel).not.toHaveBeenCalled();
+  });
+
+  it('does not delete when user dismisses the confirmation dialog (returns undefined)', async () => {
+    const state = mockState();
+    vi.spyOn(window, 'showWarningMessage').mockResolvedValue(undefined as never);
+
+    await handleDeleteModel(state as never, 'llama3:latest');
+
+    expect(mockDeleteOllamaModel).not.toHaveBeenCalled();
+  });
+
+  it('does not delete when user clicks Cancel (returns non-Delete string)', async () => {
+    const state = mockState();
+    vi.spyOn(window, 'showWarningMessage').mockResolvedValue('Cancel' as never);
+
+    await handleDeleteModel(state as never, 'llama3:latest');
+
+    expect(mockDeleteOllamaModel).not.toHaveBeenCalled();
+  });
+
+  it('calls deleteOllamaModel and then loadModels when user confirms Delete', async () => {
+    const state = mockState({
+      client: {
+        isLocalOllama: vi.fn().mockReturnValue(true),
+        listLibraryModels: vi.fn().mockResolvedValue([]),
+        updateModel: vi.fn(),
+        getProviderType: vi.fn().mockReturnValue('ollama'),
+        pullModel: vi.fn(),
+      },
+    });
+    vi.spyOn(window, 'showWarningMessage').mockResolvedValue('Delete' as never);
+    mockDeleteOllamaModel.mockResolvedValue(undefined);
+
+    await handleDeleteModel(state as never, 'llama3:latest');
+
+    expect(mockDeleteOllamaModel).toHaveBeenCalledWith(expect.any(String), 'llama3:latest');
+    expect(state.client.listLibraryModels).toHaveBeenCalled();
+  });
+
+  it('posts error message when deleteOllamaModel throws', async () => {
+    const state = mockState({
+      client: {
+        isLocalOllama: vi.fn().mockReturnValue(true),
+        listLibraryModels: vi.fn().mockResolvedValue([]),
+        updateModel: vi.fn(),
+        getProviderType: vi.fn().mockReturnValue('ollama'),
+        pullModel: vi.fn(),
+      },
+    });
+    vi.spyOn(window, 'showWarningMessage').mockResolvedValue('Delete' as never);
+    mockDeleteOllamaModel.mockRejectedValue(new Error('model not found'));
+
+    await handleDeleteModel(state as never, 'llama3:latest');
+
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'error', content: expect.stringContaining('model not found') }),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleInstallModel — Kickstand path (runKickstandInstall)
+// ---------------------------------------------------------------------------
+
+describe('handleInstallModel — Kickstand path', () => {
+  function kickstandInstallState(overrides: Record<string, unknown> = {}) {
+    return mockState({
+      client: {
+        isLocalOllama: vi.fn().mockReturnValue(false),
+        getProviderType: vi.fn().mockReturnValue('kickstand'),
+        listLibraryModels: vi.fn().mockResolvedValue([]),
+        updateModel: vi.fn(),
+        pullModel: vi.fn(),
+        getBackendCapabilities: vi.fn().mockReturnValue(null),
+      },
+      installAbortController: null,
+      ...overrides,
+    });
+  }
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    mockFetch.mockReset();
+    // status: 200 needed so isProviderReachable('kickstand') passes
+    mockFetch.mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
+    mockKickstandListRegistry.mockReset();
+    mockKickstandLoadModel.mockReset();
+    mockKickstandUnloadModel.mockReset();
+    mockKickstandPull.mockReset();
+  });
+
+  it('posts "already loaded" and returns without pulling when model is ready+loaded in registry', async () => {
+    mockKickstandListRegistry.mockResolvedValue([
+      {
+        model_id: 'qwen3:8b',
+        hf_repo: 'Qwen/Qwen3-8B-GGUF',
+        status: 'ready',
+        loaded: true,
+        local_path: '/models/qwen3-8b.gguf',
+      },
+    ]);
+    const state = kickstandInstallState();
+
+    await handleInstallModel(state as never, 'qwen3:8b');
+
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('already loaded') }),
+    );
+    expect(mockKickstandPull).not.toHaveBeenCalled();
+    expect(mockKickstandLoadModel).not.toHaveBeenCalled();
+    expect(state.client.updateModel).toHaveBeenCalledWith('qwen3:8b');
+  });
+
+  it('loads existing downloaded model when ready but not loaded', async () => {
+    mockKickstandListRegistry.mockResolvedValue([
+      {
+        model_id: 'qwen3:8b',
+        hf_repo: 'Qwen/Qwen3-8B-GGUF',
+        status: 'ready',
+        loaded: false,
+        local_path: '/models/qwen3-8b.gguf',
+      },
+    ]);
+    mockKickstandLoadModel.mockResolvedValue(undefined);
+    const state = kickstandInstallState();
+
+    await handleInstallModel(state as never, 'qwen3:8b');
+
+    expect(mockKickstandLoadModel).toHaveBeenCalled();
+    expect(state.client.updateModel).toHaveBeenCalledWith('qwen3:8b');
+    expect(state.client.listLibraryModels).toHaveBeenCalled();
+    expect(mockKickstandPull).not.toHaveBeenCalled();
+  });
+
+  it('posts error when loading existing downloaded model fails', async () => {
+    mockKickstandListRegistry.mockResolvedValue([
+      {
+        model_id: 'qwen3:8b',
+        hf_repo: 'Qwen/Qwen3-8B-GGUF',
+        status: 'ready',
+        loaded: false,
+        local_path: '/models/qwen3-8b.gguf',
+      },
+    ]);
+    mockKickstandLoadModel.mockRejectedValue(new Error('insufficient VRAM'));
+    const state = kickstandInstallState();
+
+    await handleInstallModel(state as never, 'qwen3:8b');
+
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'error', content: expect.stringContaining('insufficient VRAM') }),
+    );
+  });
+
+  it('streams pull events (downloading + progress + done) and then loads model', async () => {
+    // Registry returns empty — no existing model
+    mockKickstandListRegistry.mockResolvedValue([]);
+    mockKickstandLoadModel.mockResolvedValue(undefined);
+
+    async function* fakePull() {
+      yield { status: 'downloading', format: 'gguf', repo: 'Qwen/Qwen3-8B-GGUF' };
+      yield { status: 'progress', bytes_done: 512 * 1024 * 1024, bytes_total: 1024 * 1024 * 1024, percent: 50 };
+      yield { status: 'done' };
+    }
+    mockKickstandPull.mockReturnValue(fakePull());
+
+    const state = kickstandInstallState();
+
+    await handleInstallModel(state as never, 'Qwen/Qwen3-8B-GGUF');
+
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'installProgress', modelName: 'Qwen/Qwen3-8B-GGUF' }),
+    );
+    expect(mockKickstandLoadModel).toHaveBeenCalled();
+    expect(state.client.updateModel).toHaveBeenCalled();
+    expect(state.postMessage).toHaveBeenCalledWith(expect.objectContaining({ command: 'installComplete' }));
+  });
+
+  it('posts error and returns when pull emits an error event', async () => {
+    mockKickstandListRegistry.mockResolvedValue([]);
+
+    async function* fakePull() {
+      yield { status: 'error', message: 'quota exceeded' };
+    }
+    mockKickstandPull.mockReturnValue(fakePull());
+
+    const state = kickstandInstallState();
+
+    await handleInstallModel(state as never, 'Qwen/Qwen3-8B-GGUF');
+
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'error', content: expect.stringContaining('quota exceeded') }),
+    );
+    expect(mockKickstandLoadModel).not.toHaveBeenCalled();
+  });
+
+  it('posts installComplete without error when signal is aborted during stream', async () => {
+    mockKickstandListRegistry.mockResolvedValue([]);
+
+    mockKickstandPull.mockImplementation(async function* () {
+      yield { status: 'progress', bytes_done: 100, bytes_total: 100, percent: 100 };
+      // Throw an AbortError to exercise the abort catch path.
+      const err = new Error('Aborted');
+      err.name = 'AbortError';
+      throw err;
+    });
+
+    const state = kickstandInstallState();
+
+    await handleInstallModel(state as never, 'Qwen/Qwen3-8B-GGUF');
+
+    expect(state.postMessage).toHaveBeenCalledWith(expect.objectContaining({ command: 'installComplete' }));
+    // No error should have been posted
+    const calls = (state.postMessage as ReturnType<typeof vi.fn>).mock.calls;
+    const errorCalls = calls.filter((c: unknown[]) => (c[0] as { command: string }).command === 'error');
+    expect(errorCalls).toHaveLength(0);
+  });
+
+  it('posts warning but still sets model when kickstandLoadModel fails after pull', async () => {
+    mockKickstandListRegistry.mockResolvedValue([]);
+    mockKickstandLoadModel.mockRejectedValue(new Error('load failed'));
+
+    async function* fakePull() {
+      yield { status: 'done' };
+    }
+    mockKickstandPull.mockReturnValue(fakePull());
+
+    const state = kickstandInstallState();
+
+    await handleInstallModel(state as never, 'Qwen/Qwen3-8B-GGUF');
+
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: 'assistantMessage',
+        content: expect.stringContaining('Warning'),
+      }),
+    );
+    // loadModels is still called
+    expect(state.client.listLibraryModels).toHaveBeenCalled();
+  });
+
+  it('falls through to pull when registry is unreachable', async () => {
+    mockKickstandListRegistry.mockRejectedValue(new Error('ECONNREFUSED'));
+    mockKickstandLoadModel.mockResolvedValue(undefined);
+
+    async function* fakePull() {
+      yield { status: 'done' };
+    }
+    mockKickstandPull.mockReturnValue(fakePull());
+
+    const state = kickstandInstallState();
+
+    await handleInstallModel(state as never, 'Qwen/Qwen3-8B-GGUF');
+
+    // Should have attempted a pull despite the registry error
+    expect(mockKickstandPull).toHaveBeenCalled();
+  });
+
+  it('resolves modelId from registry when done event includes local_path', async () => {
+    // First call (registry check) — no existing model
+    mockKickstandListRegistry
+      .mockResolvedValueOnce([])
+      // Second call (after done event with local_path) — registry now has the model
+      .mockResolvedValueOnce([
+        {
+          model_id: 'resolved-model-id',
+          hf_repo: 'Qwen/Qwen3-8B-GGUF',
+          status: 'ready',
+          loaded: false,
+          local_path: '/models/resolved.gguf',
+        },
+      ]);
+    mockKickstandLoadModel.mockResolvedValue(undefined);
+
+    async function* fakePull() {
+      yield { status: 'done', local_path: '/models/resolved.gguf' };
+    }
+    mockKickstandPull.mockReturnValue(fakePull());
+
+    const state = kickstandInstallState();
+
+    await handleInstallModel(state as never, 'Qwen/Qwen3-8B-GGUF');
+
+    // The model_id from registry lookup should be used
+    expect(state.client.updateModel).toHaveBeenCalledWith('resolved-model-id');
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'installComplete', modelName: 'resolved-model-id' }),
     );
   });
 });

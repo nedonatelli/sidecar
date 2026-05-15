@@ -2288,6 +2288,759 @@ describe('isUndoRequest guard paths', () => {
 });
 
 // ---------------------------------------------------------------------------
+// handleRestartOllama
+// ---------------------------------------------------------------------------
+import { handleRestartOllama } from './chatHandlers.js';
+
+vi.mock('child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('child_process')>();
+  return {
+    ...actual,
+    execSync: vi.fn(),
+    spawn: vi.fn(() => ({ unref: vi.fn() })),
+  };
+});
+
+vi.mock('./modelLoader.js', () => ({
+  loadModels: vi.fn().mockResolvedValue(undefined),
+}));
+
+describe('handleRestartOllama', () => {
+  function makeState(isLocal: boolean) {
+    return {
+      postMessage: vi.fn(),
+      client: {
+        getProviderType: vi.fn().mockReturnValue(isLocal ? 'ollama' : 'anthropic'),
+        isLocalOllama: vi.fn().mockReturnValue(isLocal),
+      },
+    };
+  }
+
+  it('returns early without posting when provider is not local Ollama', async () => {
+    const state = makeState(false);
+    await handleRestartOllama(state as never);
+    expect(state.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('posts success messages when provider comes back online', async () => {
+    const providerReachability = await import('../../config/providerReachability.js');
+    vi.spyOn(providerReachability, 'isProviderReachable').mockResolvedValue(true);
+
+    const state = makeState(true);
+    await handleRestartOllama(state as never);
+
+    const commands = state.postMessage.mock.calls.map((c: unknown[]) => (c[0] as { command: string }).command);
+    expect(commands).toContain('typingStatus');
+    expect(commands).toContain('setLoading');
+    expect(commands).toContain('assistantMessage');
+    expect(commands).toContain('done');
+
+    const assistantMsg = state.postMessage.mock.calls.find(
+      (c: unknown[]) => (c[0] as { command: string }).command === 'assistantMessage',
+    );
+    expect((assistantMsg![0] as { content: string }).content).toContain('restarted successfully');
+
+    vi.restoreAllMocks();
+  });
+
+  it('posts error when provider does not come back online', async () => {
+    // Use fake timers so the 30 * 500ms retry loop in ensureProviderRunning
+    // completes instantly without blocking the test runner.
+    vi.useFakeTimers();
+    const providerReachability = await import('../../config/providerReachability.js');
+    vi.spyOn(providerReachability, 'isProviderReachable').mockResolvedValue(false);
+
+    const state = makeState(true);
+    const promise = handleRestartOllama(state as never);
+    // Advance through all 30 half-second waits
+    await vi.runAllTimersAsync();
+    await promise;
+
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: 'error',
+        errorType: 'connection',
+      }),
+    );
+
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleGenerateCommit — additional branches
+// ---------------------------------------------------------------------------
+
+// Shared mock fns for GitCLI — must be declared at module scope so the hoisted
+// vi.mock factory can close over them.
+const gitMockStatus = vi.fn();
+const gitMockDiff = vi.fn();
+const gitMockStage = vi.fn();
+const gitMockCommit = vi.fn();
+
+vi.mock('../../github/git.js', () => ({
+  GitCLI: class {
+    status(...args: unknown[]) {
+      return gitMockStatus(...args);
+    }
+    diff(...args: unknown[]) {
+      return gitMockDiff(...args);
+    }
+    stage(...args: unknown[]) {
+      return gitMockStage(...args);
+    }
+    commit(...args: unknown[]) {
+      return gitMockCommit(...args);
+    }
+  },
+}));
+
+describe('handleGenerateCommit — git branches', () => {
+  beforeEach(() => {
+    gitMockStatus.mockReset();
+    gitMockDiff.mockReset();
+    gitMockStage.mockReset();
+    gitMockCommit.mockReset();
+  });
+
+  function makeState() {
+    return {
+      postMessage: vi.fn(),
+      client: {
+        updateConnection: vi.fn(),
+        updateModel: vi.fn(),
+        complete: vi.fn().mockResolvedValue('feat: add feature\n\n- detail one'),
+      },
+    };
+  }
+
+  it('posts "No changes to commit" when working tree is clean', async () => {
+    gitMockStatus.mockResolvedValue('Working tree clean.');
+
+    const state = makeState();
+    await handleGenerateCommit(state as never);
+
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'assistantMessage', content: 'No changes to commit.' }),
+    );
+    expect(state.postMessage).toHaveBeenCalledWith(expect.objectContaining({ command: 'done' }));
+  });
+
+  it('posts "No diff found" when status is not clean but diff is empty', async () => {
+    gitMockStatus.mockResolvedValue('M  src/app.ts');
+    gitMockDiff.mockResolvedValue({ diff: 'No diff output.' });
+
+    const state = makeState();
+    await handleGenerateCommit(state as never);
+
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: 'assistantMessage',
+        content: expect.stringContaining('No diff found'),
+      }),
+    );
+  });
+
+  it('posts commit result on happy path', async () => {
+    gitMockStatus.mockResolvedValue('M  src/app.ts');
+    gitMockDiff.mockResolvedValue({ diff: 'diff --git a/src/app.ts b/src/app.ts\n+added line' });
+    gitMockStage.mockResolvedValue(undefined);
+    gitMockCommit.mockResolvedValue('[main abc1234] feat: add feature');
+
+    const state = makeState();
+    await handleGenerateCommit(state as never);
+
+    const assistantCalls = state.postMessage.mock.calls.filter(
+      (c: unknown[]) => (c[0] as { command: string }).command === 'assistantMessage',
+    );
+    const contents = assistantCalls.map((c: unknown[]) => (c[0] as { content: string }).content);
+    expect(contents.some((c: string) => c.includes('[main abc1234]'))).toBe(true);
+    expect(state.postMessage).toHaveBeenCalledWith(expect.objectContaining({ command: 'done' }));
+  });
+
+  it('posts error when git.status() throws', async () => {
+    gitMockStatus.mockRejectedValue(new Error('git not found'));
+
+    const state = makeState();
+    await handleGenerateCommit(state as never);
+
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: 'error',
+        content: expect.stringContaining('git not found'),
+      }),
+    );
+  });
+
+  it('posts error when git.commit() throws', async () => {
+    gitMockStatus.mockResolvedValue('M  src/app.ts');
+    gitMockDiff.mockResolvedValue({ diff: 'diff --git a/src/app.ts b/src/app.ts\n+added line' });
+    gitMockStage.mockResolvedValue(undefined);
+    gitMockCommit.mockRejectedValue(new Error('nothing to commit'));
+
+    const state = makeState();
+    await handleGenerateCommit(state as never);
+
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: 'error',
+        content: expect.stringContaining('nothing to commit'),
+      }),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleExportChat — full success path
+// ---------------------------------------------------------------------------
+describe('handleExportChat — success path', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('writes the file and shows an info message on the happy path', async () => {
+    const fakeUri = { fsPath: '/tmp/sidecar-chat.md', scheme: 'file', path: '/tmp/sidecar-chat.md' };
+    vi.spyOn(window, 'showSaveDialog').mockResolvedValue(fakeUri as never);
+    const writeSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined as never);
+    const infoSpy = vi.spyOn(window, 'showInformationMessage').mockResolvedValue(undefined as never);
+
+    const state = {
+      messages: [
+        { role: 'user', content: 'hello' },
+        { role: 'assistant', content: 'hi there' },
+      ],
+      postMessage: vi.fn(),
+    };
+    await handleExportChat(state as never);
+
+    expect(writeSpy).toHaveBeenCalledWith(fakeUri, expect.any(Buffer));
+    expect(infoSpy).toHaveBeenCalledWith(expect.stringContaining('sidecar-chat.md'));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleReconnect — with lastUserMsg (covers lines 591-605)
+// ---------------------------------------------------------------------------
+describe('handleReconnect — with last user message', () => {
+  it('splices and re-submits last user message after successful reconnect', async () => {
+    const providerReachability = await import('../../config/providerReachability.js');
+    vi.spyOn(providerReachability, 'isProviderReachable').mockResolvedValue(true);
+
+    const messages: Array<{ role: string; content: unknown }> = [
+      { role: 'user', content: 'my question' },
+      { role: 'assistant', content: 'reply' },
+    ];
+    const state = {
+      postMessage: vi.fn(),
+      saveHistory: vi.fn(),
+      autoSave: vi.fn(),
+      trimHistory: vi.fn(),
+      messages,
+      abortController: null as AbortController | null,
+      chatGeneration: 0,
+      logMessage: vi.fn(),
+      currentSteerQueue: null,
+      currentSteerDisposer: null,
+      cancelCallbacks: null,
+      pendingSteerSnapshot: null,
+      metricsCollector: { getCurrentRunTokens: vi.fn().mockReturnValue(0), endRun: vi.fn() },
+      client: {
+        getProviderType: vi.fn().mockReturnValue('anthropic'),
+        isLocalOllama: vi.fn().mockReturnValue(false),
+        setTurnOverride: vi.fn(),
+        updateConnection: vi.fn(),
+        updateModel: vi.fn(),
+        getSystemPrompt: vi.fn().mockReturnValue(''),
+        streamChat: vi.fn().mockImplementation(async function* () {
+          throw new Error('stop');
+        }),
+      },
+    };
+
+    await handleReconnect(state as never);
+
+    // The Reconnected message should have been posted
+    const reconnectedCall = state.postMessage.mock.calls.find(
+      (c: unknown[]) => (c[0] as { command: string }).command === 'assistantMessage',
+    );
+    expect(reconnectedCall).toBeDefined();
+    expect((reconnectedCall![0] as { content: string }).content).toContain('Reconnected');
+    // saveHistory should have been called (from the splice in handleReconnect)
+    expect(state.saveHistory).toHaveBeenCalled();
+
+    vi.restoreAllMocks();
+  });
+
+  it('extracts text from content-block array for last user message', async () => {
+    const providerReachability = await import('../../config/providerReachability.js');
+    vi.spyOn(providerReachability, 'isProviderReachable').mockResolvedValue(true);
+
+    const messages: Array<{ role: string; content: unknown }> = [
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'block message text' }],
+      },
+    ];
+    const logMessage = vi.fn();
+    const state = {
+      postMessage: vi.fn(),
+      saveHistory: vi.fn(),
+      autoSave: vi.fn(),
+      trimHistory: vi.fn(),
+      messages,
+      abortController: null as AbortController | null,
+      chatGeneration: 0,
+      logMessage,
+      currentSteerQueue: null,
+      currentSteerDisposer: null,
+      cancelCallbacks: null,
+      pendingSteerSnapshot: null,
+      metricsCollector: { getCurrentRunTokens: vi.fn().mockReturnValue(0), endRun: vi.fn() },
+      client: {
+        getProviderType: vi.fn().mockReturnValue('anthropic'),
+        isLocalOllama: vi.fn().mockReturnValue(false),
+        setTurnOverride: vi.fn(),
+        updateConnection: vi.fn(),
+        updateModel: vi.fn(),
+        getSystemPrompt: vi.fn().mockReturnValue(''),
+        streamChat: vi.fn().mockImplementation(async function* () {
+          throw new Error('stop');
+        }),
+      },
+    };
+
+    await handleReconnect(state as never);
+
+    // The user message was re-submitted; logMessage('user', ...) should contain the block text
+    const userLog = logMessage.mock.calls.find((c: unknown[]) => c[0] === 'user');
+    expect(userLog).toBeDefined();
+    expect(userLog![1]).toContain('block message text');
+
+    vi.restoreAllMocks();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleUserMessage — connection failed path (covers !started error posting)
+// ---------------------------------------------------------------------------
+describe('handleUserMessage — connection failed', () => {
+  it('posts a connection error when provider cannot be reached after retries (non-local)', async () => {
+    const { handleUserMessage } = await import('./chatHandlers.js');
+    const providerReachability = await import('../../config/providerReachability.js');
+    vi.spyOn(providerReachability, 'isProviderReachable').mockResolvedValue(false);
+
+    const settingsMod = await import('../../config/settings.js');
+    vi.spyOn(settingsMod, 'getConfig').mockReturnValue({
+      dailyBudget: 0,
+      weeklyBudget: 0,
+      steerQueueMaxPending: 10,
+      model: 'test-model',
+      baseUrl: 'http://remote.api',
+      apiKey: '',
+      agentMode: 'cautious',
+      customModes: [],
+      agentMaxIterations: 20,
+      agentMaxTokens: 4096,
+      expandThinking: false,
+      verboseMode: false,
+    } as never);
+
+    vi.useFakeTimers();
+
+    const state = {
+      messages: [],
+      postMessage: vi.fn(),
+      saveHistory: vi.fn(),
+      autoSave: vi.fn(),
+      trimHistory: vi.fn(),
+      logMessage: vi.fn(),
+      abortController: null as AbortController | null,
+      chatGeneration: 0,
+      pendingPartialAssistant: null,
+      pendingSteerSnapshot: null,
+      currentSteerQueue: null as unknown,
+      currentSteerDisposer: null as unknown,
+      cancelCallbacks: null,
+      metricsCollector: {
+        getCurrentRunTokens: vi.fn().mockReturnValue(0),
+        endRun: vi.fn(),
+        getSpendBreakdown: vi.fn().mockReturnValue({ daily: 0, weekly: 0 }),
+      },
+      client: {
+        getProviderType: vi.fn().mockReturnValue('anthropic'),
+        isLocalOllama: vi.fn().mockReturnValue(false),
+        setTurnOverride: vi.fn(),
+        updateConnection: vi.fn(),
+        updateModel: vi.fn(),
+      },
+    };
+
+    const promise = handleUserMessage(state as never, 'hello');
+    await vi.runAllTimersAsync();
+    await promise;
+
+    // Should post a connection error
+    const errorCall = state.postMessage.mock.calls.find(
+      (c: unknown[]) => (c[0] as { command: string }).command === 'error',
+    );
+    expect(errorCall).toBeDefined();
+    expect((errorCall![0] as { errorType: string }).errorType).toBe('connection');
+
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleUserMessage — abort-prior-run branch (covers lines 299-301)
+// ---------------------------------------------------------------------------
+describe('handleUserMessage — abort prior run', () => {
+  it('aborts an in-progress abortController before starting a new run', async () => {
+    const { handleUserMessage } = await import('./chatHandlers.js');
+    const providerReachability = await import('../../config/providerReachability.js');
+    vi.spyOn(providerReachability, 'isProviderReachable').mockResolvedValue(true);
+
+    const settingsMod = await import('../../config/settings.js');
+    vi.spyOn(settingsMod, 'getConfig').mockReturnValue({
+      dailyBudget: 10,
+      weeklyBudget: 0,
+      steerQueueMaxPending: 10,
+      model: 'test-model',
+      baseUrl: 'http://localhost',
+      apiKey: '',
+      agentMode: 'cautious',
+      customModes: [],
+      agentMaxIterations: 20,
+      agentMaxTokens: 4096,
+      expandThinking: false,
+      verboseMode: false,
+    } as never);
+
+    const priorAbortController = new AbortController();
+    const abortSpy = vi.spyOn(priorAbortController, 'abort');
+
+    const state = {
+      messages: [],
+      postMessage: vi.fn(),
+      saveHistory: vi.fn(),
+      autoSave: vi.fn(),
+      trimHistory: vi.fn(),
+      logMessage: vi.fn(),
+      // A prior run is in progress
+      abortController: priorAbortController as AbortController | null,
+      chatGeneration: 0,
+      pendingPartialAssistant: null,
+      pendingSteerSnapshot: null,
+      currentSteerQueue: null as unknown,
+      currentSteerDisposer: null as unknown,
+      cancelCallbacks: null,
+      metricsCollector: {
+        getCurrentRunTokens: vi.fn().mockReturnValue(0),
+        endRun: vi.fn(),
+        // At budget limit so we short-circuit after connectWithRetry
+        getSpendBreakdown: vi.fn().mockReturnValue({ daily: 10, weekly: 0 }),
+      },
+      client: {
+        getProviderType: vi.fn().mockReturnValue('anthropic'),
+        isLocalOllama: vi.fn().mockReturnValue(false),
+        setTurnOverride: vi.fn(),
+        updateConnection: vi.fn(),
+        updateModel: vi.fn(),
+      },
+    };
+
+    await handleUserMessage(state as never, 'new message');
+
+    // The prior abortController should have been aborted
+    expect(abortSpy).toHaveBeenCalled();
+
+    vi.restoreAllMocks();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleUserMessage — budget-blocked early-exit path
+// ---------------------------------------------------------------------------
+describe('handleUserMessage — budget-blocked path', () => {
+  it('posts setLoading false and returns when daily budget is exceeded', async () => {
+    const { handleUserMessage } = await import('./chatHandlers.js');
+    const providerReachability = await import('../../config/providerReachability.js');
+    vi.spyOn(providerReachability, 'isProviderReachable').mockResolvedValue(true);
+
+    const settingsMod = await import('../../config/settings.js');
+    vi.spyOn(settingsMod, 'getConfig').mockReturnValue({
+      dailyBudget: 1.0,
+      weeklyBudget: 0,
+      steerQueueMaxPending: 10,
+      model: 'test-model',
+      baseUrl: 'http://localhost',
+      apiKey: '',
+      agentMode: 'cautious',
+      customModes: [],
+      agentMaxIterations: 20,
+      agentMaxTokens: 4096,
+      expandThinking: false,
+      verboseMode: false,
+    } as never);
+
+    const state = {
+      messages: [],
+      postMessage: vi.fn(),
+      saveHistory: vi.fn(),
+      autoSave: vi.fn(),
+      trimHistory: vi.fn(),
+      logMessage: vi.fn(),
+      abortController: null as AbortController | null,
+      chatGeneration: 0,
+      pendingPartialAssistant: null,
+      // Include a steer snapshot to cover the restore branch (lines 330-331)
+      pendingSteerSnapshot: [{ id: 's1', text: 'steer text', urgency: 'nudge' as const, createdAt: Date.now() }],
+      currentSteerQueue: null as unknown,
+      currentSteerDisposer: null as unknown,
+      cancelCallbacks: null,
+      metricsCollector: {
+        getCurrentRunTokens: vi.fn().mockReturnValue(0),
+        endRun: vi.fn(),
+        // daily spend already AT the $1.00 limit
+        getSpendBreakdown: vi.fn().mockReturnValue({ daily: 1.0, weekly: 0 }),
+      },
+      client: {
+        getProviderType: vi.fn().mockReturnValue('anthropic'),
+        isLocalOllama: vi.fn().mockReturnValue(false),
+        setTurnOverride: vi.fn(),
+        updateConnection: vi.fn(),
+        updateModel: vi.fn(),
+      },
+    };
+
+    await handleUserMessage(state as never, 'hello');
+
+    // Budget blocked — should post setLoading false
+    const loadingFalseCalls = state.postMessage.mock.calls.filter(
+      (c: unknown[]) =>
+        (c[0] as { command: string; isLoading?: boolean }).command === 'setLoading' &&
+        (c[0] as { isLoading: boolean }).isLoading === false,
+    );
+    expect(loadingFalseCalls.length).toBeGreaterThan(0);
+
+    // runAgentLoop should NOT have been called (returned early)
+    expect(state.client.updateModel).not.toHaveBeenCalled();
+
+    // pendingSteerSnapshot should have been consumed (set to null)
+    expect(state.pendingSteerSnapshot).toBeNull();
+
+    vi.restoreAllMocks();
+  });
+
+  it('restores steer queue from pendingSteerSnapshot and fires steerQueueUpdate', async () => {
+    const { handleUserMessage } = await import('./chatHandlers.js');
+    const providerReachability = await import('../../config/providerReachability.js');
+    vi.spyOn(providerReachability, 'isProviderReachable').mockResolvedValue(true);
+
+    const settingsMod = await import('../../config/settings.js');
+    vi.spyOn(settingsMod, 'getConfig').mockReturnValue({
+      dailyBudget: 5.0,
+      weeklyBudget: 0,
+      steerQueueMaxPending: 10,
+      model: 'test-model',
+      baseUrl: 'http://localhost',
+      apiKey: '',
+      agentMode: 'cautious',
+      customModes: [],
+      agentMaxIterations: 20,
+      agentMaxTokens: 4096,
+      expandThinking: false,
+      verboseMode: false,
+    } as never);
+
+    const state = {
+      messages: [],
+      postMessage: vi.fn(),
+      saveHistory: vi.fn(),
+      autoSave: vi.fn(),
+      trimHistory: vi.fn(),
+      logMessage: vi.fn(),
+      abortController: null as AbortController | null,
+      chatGeneration: 0,
+      pendingPartialAssistant: null,
+      pendingSteerSnapshot: [{ id: 'steer1', text: 'please hurry', urgency: 'nudge' as const, createdAt: Date.now() }],
+      currentSteerQueue: null as unknown,
+      currentSteerDisposer: null as unknown,
+      cancelCallbacks: null,
+      metricsCollector: {
+        getCurrentRunTokens: vi.fn().mockReturnValue(0),
+        endRun: vi.fn(),
+        // Over budget so we short-circuit quickly
+        getSpendBreakdown: vi.fn().mockReturnValue({ daily: 5.0, weekly: 0 }),
+      },
+      client: {
+        getProviderType: vi.fn().mockReturnValue('anthropic'),
+        isLocalOllama: vi.fn().mockReturnValue(false),
+        setTurnOverride: vi.fn(),
+        updateConnection: vi.fn(),
+        updateModel: vi.fn(),
+      },
+    };
+
+    await handleUserMessage(state as never, '');
+
+    // The onChange listener fires when steerQueue.restore() calls notify(),
+    // which means steerQueueUpdate should have been posted with steerEnabled: true
+    const steerUpdates = state.postMessage.mock.calls.filter(
+      (c: unknown[]) => (c[0] as { command: string }).command === 'steerQueueUpdate',
+    );
+    expect(steerUpdates.length).toBeGreaterThan(0);
+    expect(state.pendingSteerSnapshot).toBeNull();
+
+    vi.restoreAllMocks();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ensureProviderRunning — kickstand branch
+// ---------------------------------------------------------------------------
+describe('ensureProviderRunning — kickstand path', () => {
+  it('calls ensureKickstandRunning when provider is kickstand and isProviderReachable is false', async () => {
+    const providerReachability = await import('../../config/providerReachability.js');
+    vi.spyOn(providerReachability, 'isProviderReachable').mockResolvedValue(false);
+    const ensureKickstandSpy = vi.spyOn(providerReachability, 'ensureKickstandRunning').mockResolvedValue(true);
+
+    const state = {
+      postMessage: vi.fn(),
+      saveHistory: vi.fn(),
+      autoSave: vi.fn(),
+      trimHistory: vi.fn(),
+      messages: [],
+      abortController: null as AbortController | null,
+      chatGeneration: 0,
+      logMessage: vi.fn(),
+      currentSteerQueue: null,
+      currentSteerDisposer: null,
+      cancelCallbacks: null,
+      pendingSteerSnapshot: null,
+      metricsCollector: { getCurrentRunTokens: vi.fn().mockReturnValue(0), endRun: vi.fn() },
+      client: {
+        getProviderType: vi.fn().mockReturnValue('kickstand'),
+        isLocalOllama: vi.fn().mockReturnValue(false),
+      },
+    };
+
+    // handleReconnect calls ensureProviderRunning internally
+    await handleReconnect(state as never);
+
+    expect(ensureKickstandSpy).toHaveBeenCalled();
+
+    vi.restoreAllMocks();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleDeleteMessage — abortController branch
+// ---------------------------------------------------------------------------
+describe('handleDeleteMessage — abort branch', () => {
+  it('posts error when abortController is active (agent is running)', () => {
+    const state = {
+      messages: [{ role: 'user', content: 'hello' }],
+      saveHistory: vi.fn(),
+      postMessage: vi.fn(),
+      abortController: new AbortController(),
+    };
+    handleDeleteMessage(state as never, 0);
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: 'error',
+        content: expect.stringContaining('agent is running'),
+      }),
+    );
+    // Message should NOT have been deleted
+    expect(state.messages).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleShowSystemPrompt — sidecarMd branch
+// ---------------------------------------------------------------------------
+describe('handleShowSystemPrompt — sidecarMd present', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.spyOn(workspace.fs, 'readFile').mockRejectedValue(new Error('not found'));
+  });
+
+  it('includes SIDECAR.md content in the prompt when loadSidecarMd returns content', async () => {
+    const state = {
+      context: { extension: { packageJSON: { version: '2.0.0' } } },
+      postMessage: vi.fn(),
+      loadSidecarMd: async () => '## Rules\nAlways use TypeScript.',
+    };
+    await handleShowSystemPrompt(state as never);
+    const call = (state.postMessage as ReturnType<typeof vi.fn>).mock.calls.find(
+      (c: unknown[]) => (c[0] as { command: string }).command === 'verboseLog',
+    );
+    expect((call![0] as { content: string }).content).toContain('Project instructions (from SIDECAR.md)');
+    expect((call![0] as { content: string }).content).toContain('Always use TypeScript.');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleRegenerateResponse — content-block array branch
+// ---------------------------------------------------------------------------
+describe('handleRegenerateResponse — content block array', () => {
+  it('extracts text from content-block arrays when regenerating', async () => {
+    const { handleRegenerateResponse } = await import('./chatHandlers.js');
+    const providerReachability = await import('../../config/providerReachability.js');
+    // Make the provider reachable so connectWithRetry returns immediately without retries.
+    vi.spyOn(providerReachability, 'isProviderReachable').mockResolvedValue(true);
+
+    const messages: Array<{ role: string; content: unknown }> = [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'block one' },
+          { type: 'text', text: 'block two' },
+        ],
+      },
+    ];
+    const logMessage = vi.fn();
+    const state = {
+      messages,
+      postMessage: vi.fn(),
+      saveHistory: vi.fn(),
+      autoSave: vi.fn(),
+      trimHistory: vi.fn(),
+      metricsCollector: { getCurrentRunTokens: vi.fn().mockReturnValue(0), endRun: vi.fn() },
+      abortController: null as AbortController | null,
+      chatGeneration: 0,
+      logMessage,
+      abort: vi.fn(),
+      currentSteerQueue: null,
+      currentSteerDisposer: null,
+      cancelCallbacks: null,
+      pendingSteerSnapshot: null,
+      client: {
+        getProviderType: vi.fn().mockReturnValue('anthropic'),
+        isLocalOllama: vi.fn().mockReturnValue(false),
+        setTurnOverride: vi.fn(),
+        updateConnection: vi.fn(),
+        updateModel: vi.fn(),
+        getSystemPrompt: vi.fn().mockReturnValue(''),
+        streamChat: vi.fn().mockImplementation(async function* () {
+          throw new Error('stop');
+        }),
+      },
+    };
+
+    await handleRegenerateResponse(state as never);
+
+    // logMessage should have been called with the extracted text from the content blocks
+    const userLog = logMessage.mock.calls.find((c: unknown[]) => c[0] === 'user');
+    expect(userLog).toBeDefined();
+    expect(userLog![1]).toContain('block one');
+    vi.restoreAllMocks();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // isContinuationRequest
 // ---------------------------------------------------------------------------
 describe('isContinuationRequest', () => {

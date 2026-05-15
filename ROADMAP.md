@@ -139,7 +139,7 @@ GPU-Native Hot-Swapping · GPU-Aware Load Balancing · Multi-repo cross-talk · 
 | `executor.ts` | ✅ decomposed v0.80 |
 | `settings.ts` | ✅ domain split done |
 | `extension.ts` | ✅ 135 lines (v0.81) |
-| `chatView.ts` | 🔜 v1.0 — 0% coverage; decomposition unlocks testability |
+| `chatView.ts` | ✅ decomposed v0.88 — `codeActions.ts` + `chatViewLifecycle.ts` extracted with tests |
 
 ### Theme 2 — Test-surface hardening
 
@@ -176,7 +176,7 @@ GPU-Native Hot-Swapping · GPU-Aware Load Balancing · Multi-repo cross-talk · 
 | v0.80 | ✅ | Security fixes + shared test helpers |
 | v0.81 | ✅ | Arch integrity + perf fixes |
 | v0.82 | ✅ | NotebookLM + compression paths |
-| v1.0 | 🔜 | `chatView.ts` decomposition + sustained floor |
+| v0.88 | ✅ | `chatView.ts` decomposition + sustained floor (80.32/71.32/80.89/81.66) |
 
 **Enforcement**: CI `--coverage.thresholds.stmts=80 --branches=70 --funcs=80 --lines=80`. Every new file lands with ≥80%; per-PR diff check blocks merges that add uncovered code. Error-path and concurrent-race branches are the remaining gap — every new test suite deliberately targets those.
 
