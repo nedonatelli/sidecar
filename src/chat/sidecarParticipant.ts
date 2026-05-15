@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { runAgentLoop, type AgentCallbacks } from '../agent/loop.js';
 import type { SideCarClient } from '../ollama/client.js';
 import type { ChatMessage } from '../ollama/types.js';
 
@@ -171,29 +172,60 @@ export function buildHistoryFromChatContext(
 /**
  * Register the `@sidecar` native VS Code chat participant.
  * Called from extension.ts after chatProvider is initialised.
+ *
+ * Slash commands (/review, /fix, /explain, /commit-message) run a plain
+ * completion with a specialised system prompt — they're Q&A style, not
+ * agentic, so the full loop would be overkill. All other requests go
+ * through `runAgentLoop` with autonomous tool approval so the agent can
+ * read files, run commands, edit code, etc. without a confirm dialog.
  */
 export function registerSidecarParticipant(context: vscode.ExtensionContext, getClient: () => SideCarClient): void {
   const handler: vscode.ChatRequestHandler = async (request, chatContext, response, token) => {
     const client = getClient();
     const { userText, systemPrompt } = await resolveRequestContent(request);
-
-    client.updateSystemPrompt(systemPrompt);
     const messages = buildHistoryFromChatContext(chatContext.history, userText);
     const signal = tokenToSignal(token);
 
-    response.progress('Thinking…');
+    // Slash commands use a focused system prompt + plain completion.
+    if (request.command && SLASH_COMMANDS[request.command]) {
+      client.updateSystemPrompt(systemPrompt);
+      response.progress('Thinking…');
+      try {
+        for await (const event of client.streamChat(messages, signal)) {
+          if (token.isCancellationRequested) break;
+          if (event.type === 'text') {
+            response.markdown(event.text);
+          } else if (event.type === 'stop') {
+            break;
+          }
+        }
+      } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') return;
+        throw err;
+      }
+      return;
+    }
+
+    // All other requests: full agent loop with tool use.
+    response.progress('Starting SideCar agent…');
+
+    const callbacks: AgentCallbacks = {
+      onText: (text) => response.markdown(text),
+      onThinking: () => {}, // suppress raw thinking blocks in chat
+      onToolCall: (name) => response.progress(`Running \`${name}\`…`),
+      onToolResult: (_name, _result, isError) => {
+        if (isError) response.markdown('\n> ⚠️ Tool returned an error.\n');
+      },
+      onToolOutput: (_name, chunk) => response.markdown(chunk),
+      onProgressSummary: (summary) => response.progress(summary),
+      onDone: () => {},
+    };
 
     try {
-      for await (const event of client.streamChat(messages, signal)) {
-        if (token.isCancellationRequested) break;
-        if (event.type === 'text') {
-          response.markdown(event.text);
-        } else if (event.type === 'warning') {
-          response.markdown(`\n> ⚠️ ${event.message}\n`);
-        } else if (event.type === 'stop') {
-          break;
-        }
-      }
+      await runAgentLoop(client, messages, callbacks, signal, {
+        approvalMode: 'autonomous',
+        systemPromptOverride: systemPrompt,
+      });
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return;
       throw err;

@@ -185,6 +185,20 @@ LM Studio, vLLM, llama.cpp, and other OpenAI-compatible servers work out of the 
 
 SideCar auto-detects the provider from the URL. Override with `sidecar.provider: "openai"` if needed.
 
+## VS Code Copilot Chat & Agents Window
+
+SideCar registers as a native VS Code chat participant — type `@sidecar` in the Copilot Chat panel to talk to your configured backend without opening the SideCar sidebar. Slash commands `/review`, `/fix`, `/explain`, and `/commit-message` are available.
+
+**VS Code Agents Window (Preview):** To use SideCar in the dedicated [Agents Window](https://code.visualstudio.com/docs/copilot/agents/agents-window), add the following to your VS Code `settings.json`:
+
+```json
+"extensions.supportAgentsWindow": {
+    "nedonatelli.sidecar-ai": true
+}
+```
+
+The extension must be installed in your default VS Code profile.
+
 ## Keyboard Shortcuts
 
 | Shortcut | Action |

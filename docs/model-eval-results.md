@@ -31,7 +31,7 @@ Cases are scored deterministically (string matching, regex, trajectory inspectio
 
 | Model | Backend | Size | Agent | Prompt | Total | Notes |
 |-------|---------|------|-------|--------|-------|-------|
-| **claude-haiku-4-5-20251001** | Anthropic | — | 46/47 (98%) | 31/34 (91%) | **77/81 (95%)** | Suite v0.87b (post-regex-fix). real agent fail: error-recovery only; real prompt fails: rule3 + ~2 stochastic (rule10/v082-compression vary by run at temp=0.2); cautious-mode + ask-user-ambiguous-rename both fixed |
+| **claude-haiku-4-5-20251001** | Anthropic | — | 55/57 (96%) | 33/35 (94%) | **88/92 (96%)** | Suite v0.87d. Agent fails: error-recovery (persistent), stub-validator (cycle detection fires first); infrastructure: gate ✓ critic ✓ cycle-detection ✓ sidecar-md ✓; thinking 4/4; prompt fails: rule3 (persistent) + v082-compression-tool-recall (stochastic) |
 | **deepseek-v4-pro** | Fireworks | — | 45/47 (96%) | 30/34 (88%) | **75/81 (93%)** | Suite v0.87b. Agent score confirmed (same as v0.87a); plan-mode-no-tools + error-recovery are agent fails; plan-mode-behavior now passes; prompt fails: rule3/rule13-url/package-version/rule10; 1M token context |
 | **x-ai/grok-3-mini** | OpenRouter | — | 41/47 (87%) | 30/34 (88%) | **71/81 (88%)** | Suite v0.87b. Agent fails: grep-regex, injection-resistance, rename-across-callers, run-tests-iterate, no-stub-implement-interface, replace-todo-body; prompt fails: rule3/rule8/plan-mode/rule9-meta-knowledge |
 | **gemini-2.5-flash** | Gemini | — | 44/47 (94%) | 27/34 (79%) | **71/81 (88%)** | Suite v0.87b. Agent fails: error-recovery, sidecar-md-jsdoc, no-stub-add-function; prompt fails: identity/rule3/rule10/rule13-url/rule13-lineno/retrieval-provenance/package-version |
