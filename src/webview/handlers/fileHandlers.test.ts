@@ -1,6 +1,24 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { workspace, FileType } from 'vscode';
-import { handleDroppedPaths } from './fileHandlers.js';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { workspace, window, Uri, FileType } from 'vscode';
+import {
+  handleDroppedPaths,
+  handleAttachFile,
+  handleAttachActiveFile,
+  handleAcceptAllChanges,
+} from './fileHandlers.js';
+
+// ---------------------------------------------------------------------------
+// Mutable audit buffer mock — allows individual tests to set isEmpty
+// ---------------------------------------------------------------------------
+const mockAuditBuf = {
+  isEmpty: true,
+  flush: vi.fn().mockResolvedValue({ applied: [] }),
+  has: vi.fn().mockReturnValue(false),
+  clear: vi.fn(),
+};
+vi.mock('../../agent/audit/auditBuffer.js', () => ({
+  getDefaultAuditBuffer: () => mockAuditBuf,
+}));
 
 function makeState() {
   return { postMessage: vi.fn() };
@@ -85,5 +103,322 @@ describe('handleDroppedPaths — folder drop eligible-file count', () => {
 
     // 11 eligible, 10 taken → 1 not attached (singular)
     expect(showInfo).toHaveBeenCalledWith(expect.stringContaining('1 more file not attached'));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleAttachFile
+// ---------------------------------------------------------------------------
+describe('handleAttachFile', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('returns early when user cancels the quick-pick (no editor)', async () => {
+    // No active editor → only "Browse..." in the list → showQuickPick is called
+    vi.spyOn(window, 'showQuickPick').mockResolvedValue(undefined as never);
+    const state = makeState();
+    await handleAttachFile(state as never);
+    expect(state.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('posts fileAttached for the active text file (no editor dialog)', async () => {
+    const mockEditor = {
+      document: {
+        fileName: '/workspace/src/foo.ts',
+        getText: vi.fn().mockReturnValue('const x = 1;'),
+      },
+    };
+    vi.spyOn(window, 'activeTextEditor', 'get').mockReturnValue(mockEditor as never);
+    // Two options are built: "Active File: foo.ts" and "Browse..."
+    // Simulate user picking the active file option.
+    vi.spyOn(window, 'showQuickPick').mockResolvedValue('Active File: foo.ts' as never);
+
+    const state = makeState();
+    await handleAttachFile(state as never);
+
+    expect(state.postMessage).toHaveBeenCalledWith({
+      command: 'fileAttached',
+      fileName: 'foo.ts',
+      fileContent: 'const x = 1;',
+    });
+  });
+
+  it('shows warning when active text file is too large', async () => {
+    const bigContent = 'x'.repeat(500_001);
+    const mockEditor = {
+      document: {
+        fileName: '/workspace/src/big.ts',
+        getText: vi.fn().mockReturnValue(bigContent),
+      },
+    };
+    vi.spyOn(window, 'activeTextEditor', 'get').mockReturnValue(mockEditor as never);
+    vi.spyOn(window, 'showQuickPick').mockResolvedValue('Active File: big.ts' as never);
+    const warnSpy = vi.spyOn(window, 'showWarningMessage').mockResolvedValue(undefined as never);
+
+    const state = makeState();
+    await handleAttachFile(state as never);
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('too large'));
+    expect(state.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('posts imageAttached when the active file is an image', async () => {
+    const mockEditor = {
+      document: {
+        fileName: '/workspace/assets/logo.png',
+        getText: vi.fn().mockReturnValue(''),
+      },
+    };
+    vi.spyOn(window, 'activeTextEditor', 'get').mockReturnValue(mockEditor as never);
+    vi.spyOn(window, 'showQuickPick').mockResolvedValue('Active File: logo.png' as never);
+    // attachImage reads the file via workspace.fs.readFile
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(
+      new Uint8Array([0x89, 0x50, 0x4e, 0x47]) as never, // PNG header
+    );
+
+    const state = makeState();
+    await handleAttachFile(state as never);
+
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'imageAttached', mediaType: 'image/png' }),
+    );
+  });
+
+  it('returns early when browse dialog is cancelled', async () => {
+    // No active editor → only Browse option → auto-selected (options.length === 1)
+    vi.spyOn(window, 'showOpenDialog').mockResolvedValue(undefined as never);
+
+    const state = makeState();
+    await handleAttachFile(state as never);
+
+    expect(state.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('posts fileAttached when a text file is chosen via Browse', async () => {
+    // No active editor → only Browse option is in list → length===1, auto-picked
+    vi.spyOn(window, 'showOpenDialog').mockResolvedValue([Uri.file('/workspace/docs/readme.txt')] as never);
+    vi.spyOn(workspace, 'openTextDocument').mockResolvedValue({
+      getText: () => 'hello from readme',
+      uri: Uri.file('/workspace/docs/readme.txt'),
+    } as never);
+
+    const state = makeState();
+    await handleAttachFile(state as never);
+
+    expect(state.postMessage).toHaveBeenCalledWith({
+      command: 'fileAttached',
+      fileName: 'readme.txt',
+      fileContent: 'hello from readme',
+    });
+  });
+
+  it('shows warning when a browsed text file is too large', async () => {
+    vi.spyOn(window, 'showOpenDialog').mockResolvedValue([Uri.file('/workspace/huge.txt')] as never);
+    vi.spyOn(workspace, 'openTextDocument').mockResolvedValue({
+      getText: () => 'x'.repeat(500_001),
+      uri: Uri.file('/workspace/huge.txt'),
+    } as never);
+    const warnSpy = vi.spyOn(window, 'showWarningMessage').mockResolvedValue(undefined as never);
+
+    const state = makeState();
+    await handleAttachFile(state as never);
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('too large'));
+    expect(state.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('posts imageAttached when an image is chosen via Browse', async () => {
+    vi.spyOn(window, 'showOpenDialog').mockResolvedValue([Uri.file('/workspace/photo.jpg')] as never);
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(
+      new Uint8Array([0xff, 0xd8, 0xff]) as never, // JPEG header
+    );
+
+    const state = makeState();
+    await handleAttachFile(state as never);
+
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'imageAttached', mediaType: 'image/jpeg' }),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleAttachActiveFile
+// ---------------------------------------------------------------------------
+describe('handleAttachActiveFile', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('returns immediately when there is no active editor', async () => {
+    vi.spyOn(window, 'activeTextEditor', 'get').mockReturnValue(undefined as never);
+    const state = makeState();
+    await handleAttachActiveFile(state as never);
+    expect(state.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('posts fileAttached for a normal text file', async () => {
+    const mockEditor = {
+      document: {
+        fileName: '/workspace/src/utils.ts',
+        getText: vi.fn().mockReturnValue('export function add(a: number, b: number) { return a + b; }'),
+      },
+    };
+    vi.spyOn(window, 'activeTextEditor', 'get').mockReturnValue(mockEditor as never);
+
+    const state = makeState();
+    await handleAttachActiveFile(state as never);
+
+    expect(state.postMessage).toHaveBeenCalledWith({
+      command: 'fileAttached',
+      fileName: 'utils.ts',
+      fileContent: 'export function add(a: number, b: number) { return a + b; }',
+    });
+  });
+
+  it('shows warning and does not post when the file is too large', async () => {
+    const mockEditor = {
+      document: {
+        fileName: '/workspace/src/giant.ts',
+        getText: vi.fn().mockReturnValue('y'.repeat(500_001)),
+      },
+    };
+    vi.spyOn(window, 'activeTextEditor', 'get').mockReturnValue(mockEditor as never);
+    const warnSpy = vi.spyOn(window, 'showWarningMessage').mockResolvedValue(undefined as never);
+
+    const state = makeState();
+    await handleAttachActiveFile(state as never);
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('too large'));
+    expect(state.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('posts imageAttached when the active file is an image', async () => {
+    const mockEditor = {
+      document: {
+        fileName: '/workspace/assets/banner.webp',
+        getText: vi.fn().mockReturnValue(''),
+      },
+    };
+    vi.spyOn(window, 'activeTextEditor', 'get').mockReturnValue(mockEditor as never);
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(
+      new Uint8Array([0x52, 0x49, 0x46, 0x46]) as never, // RIFF header (WebP)
+    );
+
+    const state = makeState();
+    await handleAttachActiveFile(state as never);
+
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'imageAttached', mediaType: 'image/webp' }),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleAcceptAllChanges — audit buffer flush path
+// ---------------------------------------------------------------------------
+describe('handleAcceptAllChanges — audit buffer non-empty', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    mockAuditBuf.isEmpty = false;
+    mockAuditBuf.flush.mockClear();
+    mockAuditBuf.flush.mockResolvedValue({ applied: [] });
+  });
+
+  afterEach(() => {
+    // Reset to the safe default so other tests are not affected.
+    mockAuditBuf.isEmpty = true;
+    mockAuditBuf.flush.mockClear();
+  });
+
+  it('calls buf.flush with writeDisk/deleteDisk helpers when audit buffer is non-empty', async () => {
+    const state = {
+      changelog: { clear: vi.fn() },
+      postMessage: vi.fn(),
+    };
+
+    await handleAcceptAllChanges(state as never);
+
+    expect(mockAuditBuf.flush).toHaveBeenCalled();
+    // writeDisk and deleteDisk are arrow functions passed as the first two args
+    const [writeDiskArg, deleteDiskArg] = mockAuditBuf.flush.mock.calls[0] as [
+      (rel: string, content: string) => Promise<void>,
+      (rel: string) => Promise<void>,
+    ];
+    expect(typeof writeDiskArg).toBe('function');
+    expect(typeof deleteDiskArg).toBe('function');
+  });
+
+  it('invokes workspace.fs.writeFile via the writeDisk closure', async () => {
+    const state = {
+      changelog: { clear: vi.fn() },
+      postMessage: vi.fn(),
+    };
+    const writeSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined as never);
+    vi.spyOn(workspace.fs, 'createDirectory').mockResolvedValue(undefined as never);
+
+    // Override flush to immediately invoke writeDisk with a test path
+    mockAuditBuf.flush.mockImplementation(async (writeDisk: (rel: string, content: string) => Promise<void>) => {
+      await writeDisk('src/generated.ts', 'export const x = 1;');
+      return { applied: ['src/generated.ts'] };
+    });
+
+    await handleAcceptAllChanges(state as never);
+
+    expect(writeSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ fsPath: expect.stringContaining('generated.ts') }),
+      expect.any(Uint8Array),
+    );
+  });
+
+  it('invokes workspace.fs.delete via the deleteDisk closure', async () => {
+    const state = {
+      changelog: { clear: vi.fn() },
+      postMessage: vi.fn(),
+    };
+    const deleteSpy = vi.spyOn(workspace.fs, 'delete').mockResolvedValue(undefined as never);
+
+    mockAuditBuf.flush.mockImplementation(async (_writeDisk: unknown, deleteDisk: (rel: string) => Promise<void>) => {
+      await deleteDisk('src/old.ts');
+      return { applied: ['src/old.ts'] };
+    });
+
+    await handleAcceptAllChanges(state as never);
+
+    expect(deleteSpy).toHaveBeenCalledWith(expect.objectContaining({ fsPath: expect.stringContaining('old.ts') }), {
+      useTrash: true,
+    });
+  });
+
+  it('still posts confirmation even when flush throws', async () => {
+    const state = {
+      changelog: { clear: vi.fn() },
+      postMessage: vi.fn(),
+    };
+    mockAuditBuf.flush.mockRejectedValue(new Error('disk full'));
+
+    await handleAcceptAllChanges(state as never);
+
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'assistantMessage', content: expect.stringContaining('accepted') }),
+    );
+  });
+
+  it('skips flush when there are no workspace folders', async () => {
+    const origFolders = workspace.workspaceFolders;
+    (workspace as Record<string, unknown>).workspaceFolders = undefined;
+
+    const state = {
+      changelog: { clear: vi.fn() },
+      postMessage: vi.fn(),
+    };
+
+    await handleAcceptAllChanges(state as never);
+
+    expect(mockAuditBuf.flush).not.toHaveBeenCalled();
+    expect(state.postMessage).toHaveBeenCalledWith(expect.objectContaining({ command: 'assistantMessage' }));
+
+    (workspace as Record<string, unknown>).workspaceFolders = origFolders;
   });
 });
