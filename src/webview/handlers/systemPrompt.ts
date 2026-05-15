@@ -26,6 +26,7 @@ import {
 import type { CompleteFn } from '../../agent/retrieval/index.js';
 import { enhanceContextWithSmartElements } from '../../agent/context.js';
 import { parseSidecarMd, selectSidecarMdSections } from '../../agent/sidecarMdParser.js';
+import { renderDesignMdContext } from '../../config/designMdLoader.js';
 
 export type { SystemPromptParams } from './basePrompt.js';
 export { buildBaseSystemPrompt } from './basePrompt.js';
@@ -105,6 +106,26 @@ export async function injectSystemContext(
     }
   }
   sizes['SIDECAR.md'] = prompt.length - prevLen;
+  prevLen = prompt.length;
+
+  // DESIGN.md — design system tokens + rationale, only in trusted workspaces.
+  // Tokens block is always injected when present (compact, ~200 chars).
+  // Prose rationale is scoped to UI files (*.css, *.tsx, *.svelte, etc.).
+  if (workspaceTrusted && config.designMdEnabled) {
+    const designMd = await state.loadDesignMd();
+    if (designMd) {
+      const remaining = maxSystemChars - prompt.length - 100;
+      const rendered = renderDesignMdContext(designMd, {
+        activeFilePath: activeFilePathFor(text),
+        maxChars: Math.max(remaining, 200),
+      });
+      if (rendered) {
+        prompt = ensureBoundary(prompt);
+        prompt += `\n\nDesign system (from DESIGN.md):\n${rendered}`;
+      }
+    }
+  }
+  sizes['DESIGN.md'] = prompt.length - prevLen;
   prevLen = prompt.length;
 
   // User system prompt — the user's own setting, safe in both trust states.

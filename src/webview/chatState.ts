@@ -121,6 +121,10 @@ export class ChatState {
   private sidecarMdCache: string | null | undefined;
   private sidecarMdWatcher: Disposable | null = null;
 
+  /** DESIGN.md content cache — same tri-state semantics as sidecarMdCache. */
+  private designMdCache: string | null | undefined;
+  private designMdWatcher: Disposable | null = null;
+
   /** Tracks whether this state has been disposed, to reject late callers. */
   private disposed = false;
 
@@ -452,6 +456,43 @@ export class ChatState {
   }
 
   /**
+   * Load DESIGN.md content (cached, with filesystem watcher for cache
+   * invalidation). Checks `DESIGN.md` at the project root only — the spec
+   * does not define a `.sidecar/` fallback path. Returns trimmed content,
+   * or null if the file is absent or empty.
+   */
+  async loadDesignMd(): Promise<string | null> {
+    if (this.disposed) return null;
+    if (this.designMdCache !== undefined) return this.designMdCache;
+
+    const rootUri = workspace.workspaceFolders?.[0]?.uri;
+    if (!rootUri) return null;
+
+    this.designMdCache = null;
+    const fileUri = Uri.joinPath(rootUri, 'DESIGN.md');
+    try {
+      const bytes = await workspace.fs.readFile(fileUri);
+      const content = Buffer.from(bytes).toString('utf-8').trim();
+      if (content) this.designMdCache = content;
+    } catch {
+      // File absent — leave cache as null
+    }
+
+    if (!this.designMdWatcher) {
+      const invalidate = () => {
+        this.designMdCache = undefined;
+      };
+      const watcher = workspace.createFileSystemWatcher(new RelativePattern(rootUri, 'DESIGN.md'));
+      watcher.onDidChange(invalidate);
+      watcher.onDidCreate(invalidate);
+      watcher.onDidDelete(invalidate);
+      this.designMdWatcher = { dispose: () => watcher.dispose() };
+    }
+
+    return this.designMdCache;
+  }
+
+  /**
    * Tear down every resource owned by this ChatState. Safe to call
    * multiple times. Idempotent.
    *
@@ -480,5 +521,8 @@ export class ChatState {
     this.sidecarMdWatcher?.dispose();
     this.sidecarMdWatcher = null;
     this.sidecarMdCache = undefined;
+    this.designMdWatcher?.dispose();
+    this.designMdWatcher = null;
+    this.designMdCache = undefined;
   }
 }

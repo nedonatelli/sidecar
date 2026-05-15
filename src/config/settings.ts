@@ -112,6 +112,7 @@ export interface SideCarConfig {
   facetsMaxConcurrent: number;
   facetsRpcTimeoutMs: number;
   facetsRegistry: string[];
+  designMdEnabled: boolean;
   sidecarMdMode: 'full' | 'sections';
   sidecarMdAlwaysIncludeHeadings: string[];
   sidecarMdLowPriorityHeadings: string[];
@@ -379,6 +380,7 @@ function readConfig(): SideCarConfig {
     facetsMaxConcurrent: clampMin(cfg.get<number>('facets.maxConcurrent', 3), 1, 16),
     facetsRpcTimeoutMs: clampMin(cfg.get<number>('facets.rpcTimeoutMs', 30_000), 1_000, 300_000),
     facetsRegistry: cfg.get<string[]>('facets.registry', []),
+    designMdEnabled: cfg.get<boolean>('designMd.enabled', true),
     sidecarMdMode: cfg.get<'full' | 'sections'>('sidecarMd.mode', 'sections'),
     sidecarMdAlwaysIncludeHeadings: cfg.get<string[]>('sidecarMd.alwaysIncludeHeadings', [
       'Build',

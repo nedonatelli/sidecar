@@ -514,6 +514,11 @@
             "default": [],
             "description": "Absolute paths to additional facet .md files (merged with built-ins). Omit to use only the built-in catalog plus any facets at .sidecar/facets/*.md in the active workspace."
           },
+          "sidecar.designMd.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "When true, SideCar reads DESIGN.md from the workspace root and injects design tokens into the agent's context. The compact tokens block (colors, typography, spacing) is always included; the full prose rationale is added only when the active file is a UI file (*.css, *.tsx, *.svelte, etc.). Disable to suppress injection in projects that don't use DESIGN.md."
+          },
           "sidecar.sidecarMd.mode": {
             "type": "string",
             "enum": [
