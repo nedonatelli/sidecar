@@ -749,3 +749,41 @@ export async function handleRegenerateResponse(state: ChatState): Promise<void> 
 
   await handleUserMessage(state, text);
 }
+
+/**
+ * Selective regeneration — rewrite one highlighted section of the last assistant
+ * response without re-running the full agent loop.
+ *
+ * Builds a focused single-turn prompt, runs a non-agent completion against the
+ * active model, and posts `regenSectionResult` back to the webview. The webview
+ * replaces `selectedText` with the new text inside `dataset.rawContent` and
+ * re-renders only that message div — the conversation history is unchanged so
+ * the agent's original reasoning context is preserved.
+ */
+export async function handleRegenSection(
+  state: ChatState,
+  selectedText: string,
+  instruction: string,
+  msgIndex: number,
+): Promise<void> {
+  if (!selectedText.trim()) return;
+
+  const prompt = instruction.trim()
+    ? `Rewrite the following section. Return ONLY the replacement text — no preamble, no explanation, no surrounding quotes:\n\n${selectedText}\n\nInstruction: ${instruction}`
+    : `Rewrite the following section more clearly and concisely. Return ONLY the replacement text — no preamble, no explanation:\n\n${selectedText}`;
+
+  try {
+    const newText = await state.client.complete([{ role: 'user', content: prompt }], /* maxTokens */ 1024);
+    state.postMessage({
+      command: 'regenSectionResult',
+      msgIndex,
+      originalText: selectedText,
+      newText: newText.trim(),
+    });
+  } catch (err) {
+    state.postMessage({
+      command: 'error',
+      content: `Selective regen failed: ${err instanceof Error ? err.message : String(err)}`,
+    });
+  }
+}

@@ -309,6 +309,20 @@ export function buildDispatchHandlers(
       }
     },
 
+    arenaStart: async (msg) => {
+      const { commands } = await import('vscode');
+      await commands.executeCommand('sidecar.arena.open', {
+        models: msg.models && msg.models.length >= 2 ? msg.models : undefined,
+      });
+    },
+
+    arenaAgentStart: async (msg) => {
+      const task = msg.text?.trim();
+      if (!task) return;
+      const { commands } = await import('vscode');
+      await commands.executeCommand('sidecar.arena.agent', { task });
+    },
+
     forkStart: async (msg) => {
       const task = msg.text?.trim();
       if (!task) return;
@@ -417,6 +431,11 @@ export function buildDispatchHandlers(
     requestFileCompletion: () => handleRequestFileCompletion(state),
 
     regenerateResponse: () => handleRegenerateResponse(state),
+
+    regenSection: async (msg) => {
+      const { handleRegenSection } = await import('./chatHandlers.js');
+      await handleRegenSection(state, msg.selectedText || '', msg.instruction || '', msg.msgIndex ?? -1);
+    },
 
     // loadModels is not a webview command but kept here for discoverability;
     // it fires from resolveWebviewView, not from the dispatch table.

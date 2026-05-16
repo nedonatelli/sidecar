@@ -62,6 +62,9 @@ export interface WebviewMessage {
     | 'bgList'
     | 'bgExpand'
     | 'forkStart'
+    | 'arenaStart'
+    | 'arenaAgentStart'
+    | 'regenSection'
     | 'switchBackend'
     | 'kickstandLoad'
     | 'kickstandUnload'
@@ -126,6 +129,14 @@ export interface WebviewMessage {
   commandId?: string;
   /** Arguments forwarded to the command for 'executeExtensionCommand'. */
   args?: unknown[];
+  /** Arena: pre-selected model IDs (may be empty — triggers QuickPick). */
+  models?: string[];
+  /** Selective regen: the text the user highlighted inside an assistant message. */
+  selectedText?: string;
+  /** Selective regen: optional user guidance for how to rewrite the selection. */
+  instruction?: string;
+  /** Selective regen: webview-side message counter index of the target message. */
+  msgIndex?: number;
   /** Filesystem paths dropped into the chat webview. */
   paths?: string[];
   /** Steer queue: the id of a pending steer for cancel/edit. */
@@ -185,7 +196,13 @@ export interface ExtensionMessage {
     | 'activeFileChanged'
     | 'setActiveBackendProfile'
     | 'fileCompletionList'
-    | 'batchProgress';
+    | 'batchProgress'
+    | 'regenSectionResult';
+  /** Selective regen result: the original selected text and the replacement. */
+  originalText?: string;
+  newText?: string;
+  /** Selective regen: which message div (by webview counter) to update. */
+  msgIndex?: number;
   /** Active backend profile id sent with 'setActiveBackendProfile'. */
   activeBackendProfileId?: string | null;
   agentMode?: string;
@@ -503,6 +520,12 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
   <div id="slash-autocomplete" class="hidden" role="listbox" aria-label="Slash commands"></div>
   <div id="at-autocomplete" class="hidden" role="listbox" aria-label="File mentions"></div>
   <div id="resume-strip" class="hidden" role="region" aria-label="Resume available"></div>
+  <div id="regen-bar" class="hidden" role="region" aria-label="Regenerate selection">
+    <span id="regen-bar-label">↻ Regenerate selection</span>
+    <input id="regen-instruction" type="text" placeholder="How should it change? (optional)" autocomplete="off" />
+    <button id="regen-submit-btn">Regenerate</button>
+    <button id="regen-dismiss-btn" title="Dismiss" aria-label="Dismiss">&times;</button>
+  </div>
   <div id="steer-queue-strip" class="hidden" role="region" aria-label="Queued steers"></div>
   <div id="auto-mode-strip" class="hidden" role="region" aria-label="Auto Mode progress"></div>
   <div id="input-area">

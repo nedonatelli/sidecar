@@ -950,6 +950,8 @@
     { cmd: '/init', desc: 'Generate SIDECAR.md project notes from codebase' },
     { cmd: '/bg', desc: 'Run a task in the background' },
     { cmd: '/fork', desc: 'Run N parallel approaches to the same task and pick the winner' },
+    { cmd: '/arena', desc: 'Open Model Arena — compare 2–4 models side-by-side with ELO ratings' },
+    { cmd: '/arena agent', desc: 'Model Arena agent mode — run a task through different models and pick the winner' },
     { cmd: '/notebook', desc: 'Enter source-grounded research mode with mandatory citations' },
     { cmd: '/code', desc: 'Exit Notebook Mode and return to coding-agent mode' },
     { cmd: '/resume', desc: 'Resume a response that was cut off mid-stream' },
@@ -1341,6 +1343,10 @@
         syntax: '/fork <task>',
         desc: 'Run N parallel approaches to the same task in isolated Shadow Workspaces, then pick the winner',
       },
+      '/arena agent': {
+        syntax: '/arena agent <task>',
+        desc: 'Run a task through different models in parallel and compare results',
+      },
     };
     const bareCmd = text.trim().match(/^(\/\w+)$/);
     if (bareCmd && usageHints[bareCmd[1]]) {
@@ -1410,6 +1416,32 @@
       if (forkTask) {
         appendMessage('user', text);
         vscode.postMessage({ command: 'forkStart', text: forkTask });
+        input.value = '';
+        input.style.height = 'auto';
+        return;
+      }
+    }
+    if (text.trim() === '/arena' || (text.startsWith('/arena ') && !text.startsWith('/arena agent'))) {
+      // /arena            → open arena (model QuickPick in extension)
+      // /arena m1,m2      → open arena with pre-selected models
+      const rest = text.slice(6).trim();
+      const models = rest
+        ? rest
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : [];
+      appendMessage('user', text);
+      vscode.postMessage({ command: 'arenaStart', models });
+      input.value = '';
+      input.style.height = 'auto';
+      return;
+    }
+    if (text.startsWith('/arena agent ')) {
+      const agentTask = text.slice(13).trim();
+      if (agentTask) {
+        appendMessage('user', text);
+        vscode.postMessage({ command: 'arenaAgentStart', text: agentTask });
         input.value = '';
         input.style.height = 'auto';
         return;
@@ -4915,6 +4947,108 @@
         setLoading(false);
         break;
       }
+
+      case 'regenSectionResult': {
+        const { msgIndex: regenMsgIdx, originalText: origText, newText } = event.data;
+        if (typeof regenMsgIdx !== 'number' || !origText || !newText) break;
+        const targetDiv = messagesContainer.querySelector(`.message.assistant[data-msg-index="${regenMsgIdx}"]`);
+        if (!targetDiv) break;
+        // Replace inside raw markdown, then re-render
+        const raw = targetDiv.dataset.rawContent || '';
+        const updated = raw.includes(origText) ? raw.replace(origText, newText) : raw + '\n\n' + newText;
+        targetDiv.dataset.rawContent = updated;
+        // Re-render the content area (keep action buttons)
+        const existingActions = targetDiv.querySelector('.message-actions');
+        targetDiv.innerHTML = '';
+        targetDiv.appendChild(renderContent(updated, window.currentModelSupportsTools));
+        postProcessMarkdown(targetDiv);
+        if (existingActions) targetDiv.appendChild(existingActions);
+        else addMessageActions(targetDiv, true);
+        // Remove pending highlight if any
+        targetDiv.querySelectorAll('.regen-pending').forEach((el) => el.classList.remove('regen-pending'));
+        break;
+      }
     }
   });
+
+  // ---------------------------------------------------------------------------
+  // Selective regeneration bar
+  // ---------------------------------------------------------------------------
+
+  const regenBar = document.getElementById('regen-bar');
+  const regenInstruction = document.getElementById('regen-instruction');
+  const regenSubmitBtn = document.getElementById('regen-submit-btn');
+  const regenDismissBtn = document.getElementById('regen-dismiss-btn');
+
+  // Track the current selection: text + the assistant message div it lives in
+  let regenSelectedText = '';
+  let regenMsgDiv = null;
+  let regenSelectionTimeout = null;
+
+  document.addEventListener('selectionchange', () => {
+    clearTimeout(regenSelectionTimeout);
+    regenSelectionTimeout = setTimeout(() => {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed || !sel.toString().trim()) {
+        // Don't hide immediately — user may have clicked into the instruction input
+        return;
+      }
+      const text = sel.toString().trim();
+      // Only activate when the selection is inside an assistant message
+      const range = sel.getRangeAt(0);
+      const msgDiv =
+        range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
+          ? range.commonAncestorContainer.closest('.message.assistant')
+          : range.commonAncestorContainer.parentElement?.closest('.message.assistant');
+      if (!msgDiv) return;
+      regenSelectedText = text;
+      regenMsgDiv = msgDiv;
+      regenBar.classList.remove('hidden');
+      regenInstruction.value = '';
+    }, 120);
+  });
+
+  regenDismissBtn.addEventListener('click', () => {
+    regenBar.classList.add('hidden');
+    regenSelectedText = '';
+    regenMsgDiv = null;
+    window.getSelection()?.removeAllRanges();
+  });
+
+  regenSubmitBtn.addEventListener('click', submitRegen);
+  regenInstruction.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      submitRegen();
+    }
+    if (e.key === 'Escape') regenDismissBtn.click();
+  });
+
+  function submitRegen() {
+    if (!regenSelectedText || !regenMsgDiv) return;
+    const instruction = regenInstruction.value.trim();
+    const msgIndex = parseInt(regenMsgDiv.dataset.msgIndex, 10);
+    if (isNaN(msgIndex)) return;
+
+    // Visual pending state
+    regenSubmitBtn.disabled = true;
+    regenSubmitBtn.textContent = '…';
+
+    vscode.postMessage({
+      command: 'regenSection',
+      selectedText: regenSelectedText,
+      instruction,
+      msgIndex,
+    });
+
+    // Hide the bar immediately after submit (result arrives asynchronously)
+    regenBar.classList.add('hidden');
+    regenSelectedText = '';
+    regenMsgDiv = null;
+    window.getSelection()?.removeAllRanges();
+    setTimeout(() => {
+      regenSubmitBtn.disabled = false;
+      regenSubmitBtn.textContent = 'Regenerate';
+    }, 800);
+  }
 })();

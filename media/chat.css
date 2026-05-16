@@ -3185,3 +3185,78 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ── Selective regeneration bar ── */
+#regen-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  background: var(--vscode-editor-background);
+  border-top: 1px solid var(--vscode-focusBorder, var(--vscode-widget-border));
+  font-size: 12px;
+  flex-shrink: 0;
+}
+#regen-bar.hidden {
+  display: none;
+}
+#regen-bar-label {
+  flex-shrink: 0;
+  font-weight: 500;
+  color: var(--vscode-foreground);
+  white-space: nowrap;
+}
+#regen-instruction {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 7px;
+  border-radius: 3px;
+  border: 1px solid var(--vscode-input-border, #555);
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  font-family: inherit;
+  font-size: 12px;
+  outline: none;
+}
+#regen-instruction:focus {
+  border-color: var(--vscode-focusBorder);
+}
+#regen-submit-btn {
+  flex-shrink: 0;
+  padding: 3px 12px;
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  border: 1px solid transparent;
+  border-radius: 3px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+#regen-submit-btn:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+#regen-submit-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+#regen-dismiss-btn {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  color: var(--vscode-foreground);
+  opacity: 0.6;
+  cursor: pointer;
+  font-size: 15px;
+  padding: 0 3px;
+  line-height: 1;
+}
+#regen-dismiss-btn:hover {
+  opacity: 1;
+}
+/* Pulse highlight on a section being replaced */
+.regen-pending {
+  background: var(--vscode-editor-findMatchHighlightBackground, rgba(255, 255, 0, 0.15));
+  border-radius: 2px;
+  transition: background 0.4s;
+}
