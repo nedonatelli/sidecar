@@ -150,6 +150,8 @@ export interface SideCarConfig {
   maxTraversalDepth: number;
   enableLazyIndexing: boolean;
   maxIndexedFiles: number;
+  /* External context providers (GitHub Issues, Linear, Jira) */
+  contextProviders: import('../context/types.js').ContextProviderConfig[];
   /* RAG and documentation retrieval */
   enableDocumentationRAG: boolean;
   ragMaxDocEntries: number;
@@ -435,6 +437,7 @@ function readConfig(): SideCarConfig {
     enableLazyIndexing: cfg.get<boolean>('enableLazyIndexing', true),
     maxIndexedFiles: clampMin(cfg.get<number>('maxIndexedFiles'), 10, 1000),
     /* RAG and documentation retrieval */
+    contextProviders: cfg.get<import('../context/types.js').ContextProviderConfig[]>('contextProviders', []),
     enableDocumentationRAG: cfg.get<boolean>('enableDocumentationRAG', true),
     ragMaxDocEntries: clampMin(cfg.get<number>('ragMaxDocEntries'), 1, 20),
     ragUpdateIntervalMinutes: clampMin(cfg.get<number>('ragUpdateIntervalMinutes'), 5, 360),

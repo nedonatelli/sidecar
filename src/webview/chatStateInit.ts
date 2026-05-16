@@ -7,9 +7,10 @@
  * in a standalone function makes it testable without a real webview context.
  */
 
-import { window, commands } from 'vscode';
+import { window, commands, workspace } from 'vscode';
 import { BackgroundAgentManager } from '../agent/backgroundAgent.js';
 import { notifyBgComplete } from '../agent/bgNotifier.js';
+import { ContextProviderManager } from '../context/contextProviderManager.js';
 import { DocumentationIndexer } from '../config/documentationIndexer.js';
 import { AgentMemory } from '../agent/agentMemory.js';
 import { PinnedMemoryStore } from '../agent/memory/pinnedMemory.js';
@@ -35,6 +36,11 @@ export function initializeChatSubsystems(
   mcpManager: MCPManager,
   postMessage: (msg: ExtensionMessage) => void,
 ): BackgroundAgentManager {
+  if (config.contextProviders?.length) {
+    const root = workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+    state.contextProviderManager = new ContextProviderManager(config.contextProviders, undefined, root);
+  }
+
   if (config.enableDocumentationRAG) {
     state.documentationIndexer = new DocumentationIndexer();
     state.documentationIndexer.initialize().catch((err) => {

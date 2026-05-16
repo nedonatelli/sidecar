@@ -21,6 +21,7 @@ import { DocumentationIndexer } from '../config/documentationIndexer.js';
 import { AgentMemory } from '../agent/agentMemory.js';
 import { PinnedMemoryStore } from '../agent/memory/pinnedMemory.js';
 import { AuditLog } from '../agent/auditLog.js';
+import type { ContextProviderManager } from '../context/contextProviderManager.js';
 import { EditTimelineStore } from '../agent/editTimeline.js';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -102,6 +103,7 @@ export class ChatState {
   agentMemory: AgentMemory | null = null;
   pinnedMemoryStore: PinnedMemoryStore | null = null;
   auditLog: AuditLog | null = null;
+  contextProviderManager: ContextProviderManager | null = null;
   editTimeline = new EditTimelineStore();
 
   /** ID of the current auto-saved session, null if conversation is empty/unsaved */

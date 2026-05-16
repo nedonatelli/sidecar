@@ -728,6 +728,23 @@
       {
         "title": "SideCar: Retrieval & Context",
         "properties": {
+          "sidecar.contextProviders": {
+            "type": "array",
+            "default": [],
+            "markdownDescription": "External issue-tracker integrations injected into every agent system prompt as an `## Active Issues` block. Each entry configures one provider.\n\n**Supported types:** `github`, `linear`, `jira`\n\n**Example:**\n```json\n[\n  {\n    \"type\": \"github\",\n    \"token\": \"ghp_...\",\n    \"project\": \"owner/repo\",\n    \"filter\": \"assigned\",\n    \"maxIssues\": 5\n  },\n  {\n    \"type\": \"linear\",\n    \"token\": \"lin_api_...\",\n    \"filter\": \"assigned\",\n    \"maxIssues\": 5\n  },\n  {\n    \"type\": \"jira\",\n    \"token\": \"...\",\n    \"baseUrl\": \"https://yourco.atlassian.net\",\n    \"project\": \"MYPROJ\",\n    \"filter\": \"assigned\",\n    \"maxIssues\": 5\n  }\n]\n```\n\n**token** — GitHub: Personal Access Token (`ghp_...` or fine-grained). Linear: API key from Linear → Settings → API. Jira: Personal Access Token. ⚠️ Avoid committing tokens — use `${env:MY_TOKEN}` substitution or leave blank and set the `SIDECAR_CTX_TOKEN_GITHUB` / `SIDECAR_CTX_TOKEN_LINEAR` / `SIDECAR_CTX_TOKEN_JIRA` environment variable instead.\n\n**filter** — `assigned` (default): only your open issues. `open`: all open issues in the repo/project. `recent`: recently updated.\n\n**maxIssues** — issues injected per provider (default: 5). Keep low to avoid bloating the context.",
+            "items": {
+              "type": "object",
+              "required": ["type", "filter", "maxIssues"],
+              "properties": {
+                "type": { "type": "string", "enum": ["github", "linear", "jira"] },
+                "token": { "type": "string", "default": "" },
+                "baseUrl": { "type": "string", "default": "" },
+                "project": { "type": "string", "default": "" },
+                "filter": { "type": "string", "enum": ["assigned", "open", "recent"], "default": "assigned" },
+                "maxIssues": { "type": "number", "default": 5, "minimum": 1, "maximum": 20 }
+              }
+            }
+          },
           "sidecar.includeWorkspace": {
             "type": "boolean",
             "default": true,

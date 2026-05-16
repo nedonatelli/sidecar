@@ -100,11 +100,12 @@ describe('package.json contributes.configuration — 12-category layout', () => 
     // + v0.88 Architect/Editor split (+1: editorModel).
     // + v0.88 Pluggable web search (+2: webSearch.provider/apiKey).
     // + v0.88.1 Seatbelt sandbox (+1: sandbox.enabled).
+    // + v0.89 External context providers (+1: contextProviders).
     // Adding a setting requires bumping this + adding it to one of
     // the sections.
     const cfg = loadConfiguration();
     const totalKeys = cfg.reduce((sum, s) => sum + Object.keys(s.properties).length, 0);
-    expect(totalKeys).toBe(165);
+    expect(totalKeys).toBe(166);
   });
 
   it('no setting key is duplicated across sections', () => {

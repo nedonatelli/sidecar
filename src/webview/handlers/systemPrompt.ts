@@ -397,6 +397,20 @@ export async function injectSystemContext(
   }
   sizes['Session'] = prompt.length - prevLen;
 
+  // External context providers — GitHub Issues, Linear, Jira.
+  // Fetched async with a 5-minute TTL; injected after Session so it stays
+  // in the uncached suffix (values change per turn as issues are updated).
+  if (state.contextProviderManager) {
+    prevLen = prompt.length;
+    try {
+      const issuesBlock = await state.contextProviderManager.buildPromptBlock();
+      if (issuesBlock) prompt += `\n\n${issuesBlock}`;
+    } catch {
+      // Non-fatal — failing to fetch issues should never block the agent.
+    }
+    sizes['Active Issues'] = prompt.length - prevLen;
+  }
+
   if (config.verboseMode) {
     const tok = (chars: number) => charsToTokens(chars);
     const maxLabel = Math.max(...Object.keys(sizes).map((k) => k.length));
