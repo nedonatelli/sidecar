@@ -9,6 +9,7 @@ import {
   window,
   ThemeIcon,
   commands,
+  StatusBarAlignment,
 } from 'vscode';
 import type { BackgroundAgentManager, BackgroundAgentRunInfo } from '../agent/backgroundAgent.js';
 
@@ -74,10 +75,54 @@ class BackgroundAgentsTreeProvider implements TreeDataProvider<BgRunItem> {
   }
 }
 
+// Duration (ms) the "done / failed" state lingers in the status bar
+// before the item hides itself. Short enough not to be annoying; long
+// enough that a user glancing at the bar after switching tabs sees it.
+const BG_DONE_LINGER_MS = 6000;
+
 export function registerBackgroundAgentsView(context: ExtensionContext, manager: BackgroundAgentManager): Disposable {
   const provider = new BackgroundAgentsTreeProvider(manager);
   const treeView = window.createTreeView(VIEW_ID, { treeDataProvider: provider, showCollapseAll: false });
 
+  // ── Status bar item ──────────────────────────────────────────────────────
+  // Visible anywhere in VS Code (not just when the bg-agents panel is open).
+  // Clicking it focuses the Background Agents panel.
+  const statusItem = window.createStatusBarItem(StatusBarAlignment.Left, 10);
+  statusItem.command = 'sidecar.backgroundAgents.focus';
+  let lingerTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const updateStatusBar = (): void => {
+    const runs = manager.list();
+    const active = runs.filter((r) => r.status === 'running' || r.status === 'queued');
+    const lastCompleted = runs.find((r) => r.status === 'completed' || r.status === 'failed');
+
+    if (active.length > 0) {
+      clearTimeout(lingerTimer);
+      const n = active.length;
+      statusItem.text = `$(sync~spin) ${n} bg agent${n === 1 ? '' : 's'}`;
+      statusItem.tooltip = `${n} background agent${n === 1 ? '' : 's'} running — click to view`;
+      statusItem.show();
+    } else if (lastCompleted) {
+      // All tasks are done — show a brief done/failed state then hide.
+      clearTimeout(lingerTimer);
+      if (lastCompleted.status === 'failed') {
+        statusItem.text = `$(error) bg agent failed`;
+        statusItem.tooltip = `Background agent failed: "${lastCompleted.task}" — click to view`;
+      } else {
+        statusItem.text = `$(check) bg agent done`;
+        statusItem.tooltip = `Background agent completed: "${lastCompleted.task}" — click to view`;
+      }
+      statusItem.show();
+      lingerTimer = setTimeout(() => statusItem.hide(), BG_DONE_LINGER_MS);
+    } else {
+      clearTimeout(lingerTimer);
+      statusItem.hide();
+    }
+  };
+
+  manager.onStatusChange(updateStatusBar);
+
+  // ── Tree view badge ──────────────────────────────────────────────────────
   const updateBadge = (): void => {
     const active = manager.list().filter((r) => r.status === 'running' || r.status === 'queued').length;
     treeView.badge =
@@ -93,7 +138,7 @@ export function registerBackgroundAgentsView(context: ExtensionContext, manager:
     manager.removeTerminated();
   });
 
-  context.subscriptions.push(treeView, provider, cancelCmd, clearCmd);
+  context.subscriptions.push(treeView, provider, statusItem, cancelCmd, clearCmd);
 
   return treeView;
 }

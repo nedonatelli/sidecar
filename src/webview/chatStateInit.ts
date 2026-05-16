@@ -7,7 +7,9 @@
  * in a standalone function makes it testable without a real webview context.
  */
 
+import { window, commands } from 'vscode';
 import { BackgroundAgentManager } from '../agent/backgroundAgent.js';
+import { notifyBgComplete } from '../agent/bgNotifier.js';
 import { DocumentationIndexer } from '../config/documentationIndexer.js';
 import { AgentMemory } from '../agent/agentMemory.js';
 import { PinnedMemoryStore } from '../agent/memory/pinnedMemory.js';
@@ -71,6 +73,11 @@ export function initializeChatSubsystems(
             : `Background task **"${run.task}"** failed: ${run.error}`;
         postMessage({ command: 'assistantMessage', content: summary });
         postMessage({ command: 'done' });
+        notifyBgComplete(run, {
+          showInformationMessage: window.showInformationMessage.bind(window),
+          showErrorMessage: window.showErrorMessage.bind(window),
+          executeCommand: commands.executeCommand.bind(commands),
+        });
       },
     },
     agentLogger,
