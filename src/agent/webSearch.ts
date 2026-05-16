@@ -1,7 +1,13 @@
 /**
- * Web search via DuckDuckGo HTML — no API key required.
- * Extracts search results from the HTML response.
+ * Web search — pluggable provider backend.
+ *
+ * Providers:
+ *   duckduckgo — HTML scraping, no API key required (default).
+ *   tavily     — REST API, requires sidecar.webSearch.apiKey (tvly-xxx).
+ *   brave      — REST API, requires sidecar.webSearch.apiKey (BSAxxx).
  */
+
+export type WebSearchProvider = 'duckduckgo' | 'tavily' | 'brave';
 
 export interface SearchResult {
   title: string;
@@ -71,15 +77,19 @@ export async function checkInternetConnectivity(): Promise<boolean> {
 }
 
 /**
- * Search the web using DuckDuckGo and return parsed results.
- * Returns an empty array if offline or the search fails.
+ * Search the web using the configured provider.
  *
- * Throws `SearchQueryBlockedError` if the query matches a credential
- * pattern — this is the exfiltration gate that prevents a prompt-
- * injected agent from leaking secrets into DuckDuckGo's query-string
- * logs via a `web_search("my secret is sk-ant-xxx")` call.
+ * Throws `SearchQueryBlockedError` if the query matches a credential pattern.
+ *
+ * @param query      The search query string.
+ * @param provider   Which backend to use (default: duckduckgo).
+ * @param apiKey     API key for Tavily or Brave (ignored for duckduckgo).
  */
-export async function searchWeb(query: string): Promise<SearchResult[]> {
+export async function searchWeb(
+  query: string,
+  provider: WebSearchProvider = 'duckduckgo',
+  apiKey = '',
+): Promise<SearchResult[]> {
   const leakedSecret = checkSearchQueryForSecrets(query);
   if (leakedSecret) {
     throw new SearchQueryBlockedError(
@@ -90,6 +100,12 @@ export async function searchWeb(query: string): Promise<SearchResult[]> {
     );
   }
 
+  if (provider === 'tavily') return searchWebTavily(query, apiKey);
+  if (provider === 'brave') return searchWebBrave(query, apiKey);
+  return searchWebDuckDuckGo(query);
+}
+
+async function searchWebDuckDuckGo(query: string): Promise<SearchResult[]> {
   const params = new URLSearchParams({ q: query });
 
   const response = await fetch(SEARCH_URL, {
@@ -108,6 +124,54 @@ export async function searchWeb(query: string): Promise<SearchResult[]> {
 
   const html = await response.text();
   return parseSearchResults(html);
+}
+
+async function searchWebTavily(query: string, apiKey: string): Promise<SearchResult[]> {
+  if (!apiKey) throw new Error('Tavily requires sidecar.webSearch.apiKey (get one at tavily.com).');
+
+  const response = await fetch('https://api.tavily.com/search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ api_key: apiKey, query, max_results: MAX_RESULTS, include_raw_content: false }),
+    signal: AbortSignal.timeout(SEARCH_TIMEOUT),
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new Error(`Tavily search failed: ${response.status} ${response.statusText}${body ? ` — ${body}` : ''}`);
+  }
+
+  const json = (await response.json()) as { results?: Array<{ title?: string; url?: string; content?: string }> };
+  return (json.results ?? []).slice(0, MAX_RESULTS).map((r) => ({
+    title: r.title ?? '',
+    url: r.url ?? '',
+    snippet: r.content ?? '',
+  }));
+}
+
+async function searchWebBrave(query: string, apiKey: string): Promise<SearchResult[]> {
+  if (!apiKey) throw new Error('Brave Search requires sidecar.webSearch.apiKey (get one at brave.com/search/api).');
+
+  const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${MAX_RESULTS}`;
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: { Accept: 'application/json', 'X-Subscription-Token': apiKey },
+    signal: AbortSignal.timeout(SEARCH_TIMEOUT),
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new Error(`Brave search failed: ${response.status} ${response.statusText}${body ? ` — ${body}` : ''}`);
+  }
+
+  const json = (await response.json()) as {
+    web?: { results?: Array<{ title?: string; url?: string; description?: string }> };
+  };
+  return (json.web?.results ?? []).slice(0, MAX_RESULTS).map((r) => ({
+    title: r.title ?? '',
+    url: r.url ?? '',
+    snippet: r.description ?? '',
+  }));
 }
 
 /**

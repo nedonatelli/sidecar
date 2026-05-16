@@ -2,6 +2,7 @@ import { workspace, Uri } from 'vscode';
 import type { ToolDefinition } from '../../ollama/types.js';
 import { searchWeb, formatSearchResults, checkInternetConnectivity } from '../webSearch.js';
 import { validateFilePath, getRootUri, formatToolError, type RegisteredTool } from './shared.js';
+import { getConfig } from '../../config/settings.js';
 
 // Knowledge tools: web_search and display_diagram. Grouped because both
 // surface "external knowledge" into the chat — one live from the web, the
@@ -12,7 +13,7 @@ import { validateFilePath, getRootUri, formatToolError, type RegisteredTool } fr
 export const webSearchDef: ToolDefinition = {
   name: 'web_search',
   description:
-    'Search the web via DuckDuckGo and return titles, URLs, and snippets. ' +
+    'Search the web and return titles, URLs, and snippets. ' +
     'Use to find current documentation, solutions to error messages, library API references, or any information not in the local codebase. ' +
     'Not for looking things up inside the workspace (use `grep` / `search_files` / `read_file`). ' +
     'Not for exfiltrating secrets: queries that contain credential-shaped substrings (API keys, JWTs, private-key headers) are blocked with an error, because the query becomes part of the URL logged by the search engine. ' +
@@ -53,7 +54,8 @@ export async function webSearch(input: Record<string, unknown>): Promise<string>
   }
 
   try {
-    const results = await searchWeb(query);
+    const cfg = getConfig();
+    const results = await searchWeb(query, cfg.webSearchProvider, cfg.webSearchApiKey);
     if (results.length === 0) {
       return `No results found for: "${query}". Try rephrasing the query.`;
     }

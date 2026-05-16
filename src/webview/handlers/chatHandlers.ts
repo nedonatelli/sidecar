@@ -626,7 +626,7 @@ export async function handleShowSystemPrompt(state: ChatState): Promise<void> {
 
   const sidecarMd = await state.loadSidecarMd();
   if (sidecarMd) {
-    systemPrompt += `\n\nProject instructions (from SIDECAR.md):\n${sidecarMd}`;
+    systemPrompt += `\n\nProject instructions (from ${state.sidecarMdSource}):\n${sidecarMd}`;
   }
 
   const userSystemPrompt = config.systemPrompt;

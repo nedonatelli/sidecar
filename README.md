@@ -25,7 +25,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 | Autonomous agent loop | **Yes** | Yes | Partial | No |
 | File read/write/edit tools | **Yes** | Yes | Yes | No |
 | Run commands & tests | **Yes** (persistent shell) | Yes | Yes | No |
-| Web search | **Yes** (built-in) | Yes | Yes | No |
+| Web search | **Yes** (DuckDuckGo / Tavily / Brave) | Yes | Yes | No |
 | Security & secrets scanning | **Yes** (Problems panel) | Partial | No | No |
 | MCP server support | **Yes** | Yes | No | No |
 | Git integration (commit, PR, releases) | **Yes** | Partial | No | No |
@@ -73,7 +73,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 - **True agentic autonomy** — reads code, edits files, runs tests, and iterates until the task is done across cautious / autonomous / manual / plan / review / audit modes.
 - **No vendor lock-in** — Ollama, Anthropic, OpenAI-compatible (LM Studio, vLLM, OpenRouter), Kickstand, or GGUF directly from HuggingFace.
 - **Feels first-party** — status bar health indicator, native error toasts, lightbulb code actions, Problems panel integration, file decorations, activity-bar badge, and a `SideCar:` command palette category.
-- **Hybrid cost-aware** — Anthropic prompt caching + 90%-reduction prompt pruner + `delegate_task` to a local Ollama worker + session spend tracker + daily/weekly budgets.
+- **Hybrid cost-aware** — Anthropic prompt caching + 90%-reduction prompt pruner + `delegate_task` to a local Ollama worker + session spend tracker + daily/weekly budgets + architect/editor model split (`sidecar.editorModel`) that auto-routes execution turns to a faster/cheaper model.
 - **Security from the ground up** — OS keychain key storage, secrets detection, vuln scanning, path traversal protection, workspace hook warnings.
 - **Extensible** — MCP (stdio / HTTP / SSE), custom skills via markdown, 8 built-in skills, NoSQL quick-install for MongoDB + Redis.
 - **Production-grade safety** — review mode, audit mode (atomic flush), shadow workspaces, completion gate, cycle detection, stub validator, regression guards.
@@ -92,7 +92,8 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 | **Active file context bar** | Pill above the chat input — one click includes or excludes the currently open file from agent context |
 | **Adversarial Critic** | Second LLM call after every edit that finds bugs, regressions, and security issues — blocks the turn on high-severity findings |
 | **Completion gate** | Blocks the agent from declaring done until lint and colocated tests for edited files have actually run |
-| **SIDECAR.md** | Path-scoped project instructions — sections inject only when the active file matches their `@paths` glob |
+| **SIDECAR.md** | Path-scoped project instructions — sections inject only when the active file matches their `@paths` glob; per-directory files cascade root-to-leaf; falls back to `AGENTS.md` / `CLAUDE.md` / `.cursorrules` when no SIDECAR.md is present |
+| **DESIGN.md** | Always-injected architecture / style guide — place `.sidecar/DESIGN.md` (or `DESIGN.md`) to keep domain knowledge in every system prompt without SIDECAR.md boilerplate |
 | **Inline completions** | Copilot-style autocomplete via Ollama FIM or Anthropic (opt-in via `sidecar.enableInlineCompletions`) |
 | **Inline chat** | `Cmd+I` — edit code in place; lightbulb integration surfaces **Fix / Explain / Refactor** on diagnostics |
 | **Background agents** | `/bg <task>` spawns parallel autonomous agents with a status dashboard |

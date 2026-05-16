@@ -56,10 +56,14 @@ export { resolveMode } from './settings/agent.js';
 
 export interface SideCarConfig {
   model: string;
+  /** Cheaper model used for tool-execution turns in the architect/editor split. Empty = disabled. */
+  editorModel: string;
   provider: 'auto' | 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks' | 'gemini';
   systemPrompt: string;
   baseUrl: string;
   apiKey: string;
+  webSearchProvider: 'duckduckgo' | 'tavily' | 'brave';
+  webSearchApiKey: string;
   includeActiveFile: boolean;
   agentMode: string;
   agentTemperature: number;
@@ -322,6 +326,9 @@ function readConfig(): SideCarConfig {
       : rawModel;
   return {
     model,
+    editorModel: cfg.get<string>('editorModel', ''),
+    webSearchProvider: cfg.get<'duckduckgo' | 'tavily' | 'brave'>('webSearch.provider', 'duckduckgo'),
+    webSearchApiKey: cfg.get<string>('webSearch.apiKey', ''),
     provider: rawProvider,
     systemPrompt: cfg.get<string>('systemPrompt', ''),
     baseUrl: rawBaseUrl,

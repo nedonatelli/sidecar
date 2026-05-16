@@ -2972,6 +2972,7 @@ describe('handleShowSystemPrompt — sidecarMd present', () => {
       context: { extension: { packageJSON: { version: '2.0.0' } } },
       postMessage: vi.fn(),
       loadSidecarMd: async () => '## Rules\nAlways use TypeScript.',
+      sidecarMdSource: 'SIDECAR.md',
     };
     await handleShowSystemPrompt(state as never);
     const call = (state.postMessage as ReturnType<typeof vi.fn>).mock.calls.find(

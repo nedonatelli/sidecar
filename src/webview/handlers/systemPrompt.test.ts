@@ -121,6 +121,8 @@ function makeConfig(overrides: Record<string, unknown> = {}) {
 function makeState(overrides: Record<string, unknown> = {}) {
   return {
     loadSidecarMd: vi.fn().mockResolvedValue(''),
+    sidecarMdSource: 'SIDECAR.md',
+    loadPerDirSidecarMd: vi.fn().mockResolvedValue([]),
     skillLoader: undefined,
     workspaceIndex: undefined,
     agentMemory: undefined,

@@ -1,5 +1,11 @@
-import { describe, it, expect } from 'vitest';
-import { formatSearchResults, checkSearchQueryForSecrets, type SearchResult } from './webSearch.js';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import {
+  formatSearchResults,
+  checkSearchQueryForSecrets,
+  searchWeb,
+  SearchQueryBlockedError,
+  type SearchResult,
+} from './webSearch.js';
 
 describe('formatSearchResults', () => {
   it('returns no results message for empty array', () => {
@@ -64,5 +70,74 @@ describe('checkSearchQueryForSecrets — exfiltration defense', () => {
 
   it('blocks queries embedding Slack tokens', () => {
     expect(checkSearchQueryForSecrets('debugging xoxb-1234567890-abcdefghij')).toBe('Slack Token');
+  });
+});
+
+describe('searchWeb — provider dispatch', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  it('throws SearchQueryBlockedError before dispatching when query has a credential', async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    await expect(searchWeb('AKIAIOSFODNN7EXAMPLE', 'tavily', 'tvly-key')).rejects.toBeInstanceOf(
+      SearchQueryBlockedError,
+    );
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('calls Tavily endpoint with the api_key in the body', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        results: [{ title: 'Tavily result', url: 'https://example.com', content: 'snippet' }],
+      }),
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const results = await searchWeb('typescript generics', 'tavily', 'tvly-test');
+    expect(mockFetch).toHaveBeenCalledOnce();
+    const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://api.tavily.com/search');
+    const body = JSON.parse(init.body as string);
+    expect(body.api_key).toBe('tvly-test');
+    expect(body.query).toBe('typescript generics');
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('Tavily result');
+    expect(results[0].snippet).toBe('snippet');
+  });
+
+  it('throws when Tavily is selected but apiKey is empty', async () => {
+    await expect(searchWeb('test', 'tavily', '')).rejects.toThrow('sidecar.webSearch.apiKey');
+  });
+
+  it('calls Brave endpoint with X-Subscription-Token header', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        web: { results: [{ title: 'Brave result', url: 'https://brave.com', description: 'brave snippet' }] },
+      }),
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const results = await searchWeb('rust ownership', 'brave', 'BSA-test-key');
+    expect(mockFetch).toHaveBeenCalledOnce();
+    const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('api.search.brave.com');
+    expect(url).toContain(encodeURIComponent('rust ownership'));
+    expect((init.headers as Record<string, string>)['X-Subscription-Token']).toBe('BSA-test-key');
+    expect(results[0].title).toBe('Brave result');
+    expect(results[0].snippet).toBe('brave snippet');
+  });
+
+  it('throws when Brave is selected but apiKey is empty', async () => {
+    await expect(searchWeb('test', 'brave', '')).rejects.toThrow('sidecar.webSearch.apiKey');
+  });
+
+  it('returns empty array when Tavily returns no results', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ results: [] }) }));
+    const results = await searchWeb('obscure query', 'tavily', 'tvly-key');
+    expect(results).toEqual([]);
   });
 });

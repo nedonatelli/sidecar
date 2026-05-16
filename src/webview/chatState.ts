@@ -120,10 +120,25 @@ export class ChatState {
    */
   private sidecarMdCache: string | null | undefined;
   private sidecarMdWatcher: Disposable | null = null;
+  /** Basename of the file that populated sidecarMdCache (e.g. 'AGENTS.md'). */
+  private lastSidecarMdSource = 'SIDECAR.md';
+
+  /** Which project-instructions file was actually found on the last load. */
+  get sidecarMdSource(): string {
+    return this.lastSidecarMdSource;
+  }
 
   /** DESIGN.md content cache — same tri-state semantics as sidecarMdCache. */
   private designMdCache: string | null | undefined;
   private designMdWatcher: Disposable | null = null;
+
+  /**
+   * Per-directory SIDECAR.md cache. Keyed by absolute directory path.
+   * A single recursive glob watcher (any-depth SIDECAR.md) clears the whole
+   * map on any change so per-file checks don't each need their own watcher.
+   */
+  private perDirSidecarMdCache = new Map<string, string | null>();
+  private perDirSidecarMdWatcher: Disposable | null = null;
 
   /** Tracks whether this state has been disposed, to reject late callers. */
   private disposed = false;
@@ -414,16 +429,25 @@ export class ChatState {
     const rootUri = workspace.workspaceFolders?.[0]?.uri;
     if (!rootUri) return null;
 
-    // Check .sidecar/SIDECAR.md first, fall back to root SIDECAR.md
-    const candidates = [Uri.joinPath(rootUri, '.sidecar', 'SIDECAR.md'), Uri.joinPath(rootUri, 'SIDECAR.md')];
+    // Priority order: .sidecar/SIDECAR.md → SIDECAR.md → AGENTS.md → CLAUDE.md → .cursorrules
+    // Fallback files (AGENTS.md etc.) are injected verbatim; they have no @paths sentinels
+    // but sidecarMdParser treats unsectioned content as priority:'always' which is correct.
+    const candidates: Array<{ uri: Uri; name: string }> = [
+      { uri: Uri.joinPath(rootUri, '.sidecar', 'SIDECAR.md'), name: 'SIDECAR.md' },
+      { uri: Uri.joinPath(rootUri, 'SIDECAR.md'), name: 'SIDECAR.md' },
+      { uri: Uri.joinPath(rootUri, 'AGENTS.md'), name: 'AGENTS.md' },
+      { uri: Uri.joinPath(rootUri, 'CLAUDE.md'), name: 'CLAUDE.md' },
+      { uri: Uri.joinPath(rootUri, '.cursorrules'), name: '.cursorrules' },
+    ];
 
     this.sidecarMdCache = null;
-    for (const fileUri of candidates) {
+    for (const { uri, name } of candidates) {
       try {
-        const bytes = await workspace.fs.readFile(fileUri);
+        const bytes = await workspace.fs.readFile(uri);
         const content = Buffer.from(bytes).toString('utf-8').trim();
         if (content) {
           this.sidecarMdCache = content;
+          this.lastSidecarMdSource = name;
           break;
         }
       } catch {
@@ -431,28 +455,108 @@ export class ChatState {
       }
     }
 
-    // Watch for changes at both locations and invalidate cache. Wire
-    // the watcher once per state instance; it's disposed by `dispose()`.
+    // Watch for changes at all candidate locations and invalidate cache.
+    // Wired once per state instance; disposed by `dispose()`.
     if (!this.sidecarMdWatcher) {
       const invalidate = () => {
         this.sidecarMdCache = undefined;
       };
-      const watcher1 = workspace.createFileSystemWatcher(new RelativePattern(rootUri, 'SIDECAR.md'));
-      const watcher2 = workspace.createFileSystemWatcher(new RelativePattern(rootUri, '.sidecar/SIDECAR.md'));
-      for (const w of [watcher1, watcher2]) {
+      const patterns = ['SIDECAR.md', '.sidecar/SIDECAR.md', 'AGENTS.md', 'CLAUDE.md', '.cursorrules'];
+      const watchers = patterns.map((p) => workspace.createFileSystemWatcher(new RelativePattern(rootUri, p)));
+      for (const w of watchers) {
         w.onDidChange(invalidate);
         w.onDidCreate(invalidate);
         w.onDidDelete(invalidate);
       }
       this.sidecarMdWatcher = {
         dispose: () => {
-          watcher1.dispose();
-          watcher2.dispose();
+          for (const w of watchers) w.dispose();
         },
       };
     }
 
     return this.sidecarMdCache;
+  }
+
+  /**
+   * Load per-directory SIDECAR.md files for the active file.
+   *
+   * Walks upward from the active file's directory to (but not including) the
+   * workspace root, collecting any `SIDECAR.md` or `.sidecar/SIDECAR.md` found
+   * along the way. Results are returned root-to-leaf so more-specific rules
+   * follow more-general ones at the injection site.
+   *
+   * Results are cached per directory. A single recursive glob watcher
+   * invalidates the whole cache on any SIDECAR.md change.
+   *
+   * @param activeFilePath Absolute path of the currently open file.
+   */
+  async loadPerDirSidecarMd(activeFilePath: string): Promise<Array<{ content: string; relativePath: string }>> {
+    if (this.disposed) return [];
+
+    const rootUri = workspace.workspaceFolders?.[0]?.uri;
+    if (!rootUri) return [];
+    const rootPath = rootUri.fsPath;
+
+    // Collect ancestor directories between root (exclusive) and the file's
+    // directory (inclusive), then reverse so we walk root → leaf.
+    const dirs: string[] = [];
+    let dir = path.dirname(activeFilePath);
+    while (true) {
+      const rel = path.relative(rootPath, dir);
+      if (rel === '' || rel.startsWith('..')) break; // reached or passed root
+      dirs.push(dir);
+      const parent = path.dirname(dir);
+      if (parent === dir) break; // filesystem root
+      dir = parent;
+    }
+    dirs.reverse();
+
+    // Wire recursive watcher once per state instance.
+    if (!this.perDirSidecarMdWatcher) {
+      const invalidate = () => {
+        this.perDirSidecarMdCache.clear();
+      };
+      const w1 = workspace.createFileSystemWatcher(new RelativePattern(rootUri, '**/SIDECAR.md'));
+      const w2 = workspace.createFileSystemWatcher(new RelativePattern(rootUri, '**/.sidecar/SIDECAR.md'));
+      for (const w of [w1, w2]) {
+        w.onDidChange(invalidate);
+        w.onDidCreate(invalidate);
+        w.onDidDelete(invalidate);
+      }
+      this.perDirSidecarMdWatcher = {
+        dispose: () => {
+          w1.dispose();
+          w2.dispose();
+        },
+      };
+    }
+
+    const results: Array<{ content: string; relativePath: string }> = [];
+    for (const dirPath of dirs) {
+      if (!this.perDirSidecarMdCache.has(dirPath)) {
+        const dirUri = Uri.file(dirPath);
+        let found: string | null = null;
+        for (const candidate of [Uri.joinPath(dirUri, '.sidecar', 'SIDECAR.md'), Uri.joinPath(dirUri, 'SIDECAR.md')]) {
+          try {
+            const bytes = await workspace.fs.readFile(candidate);
+            const content = Buffer.from(bytes).toString('utf-8').trim();
+            if (content) {
+              found = content;
+              break;
+            }
+          } catch {
+            // not present at this location
+          }
+        }
+        this.perDirSidecarMdCache.set(dirPath, found);
+      }
+      const content = this.perDirSidecarMdCache.get(dirPath);
+      if (content) {
+        results.push({ content, relativePath: path.relative(rootPath, dirPath) });
+      }
+    }
+    return results;
   }
 
   /**
@@ -524,5 +628,8 @@ export class ChatState {
     this.designMdWatcher?.dispose();
     this.designMdWatcher = null;
     this.designMdCache = undefined;
+    this.perDirSidecarMdWatcher?.dispose();
+    this.perDirSidecarMdWatcher = null;
+    this.perDirSidecarMdCache.clear();
   }
 }

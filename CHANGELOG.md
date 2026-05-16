@@ -4,11 +4,41 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.88.1] - 2026-05-15
+
+**v0.88.1 — DESIGN.md injection, project-instructions fallback, OS+shell in prompt, architect/editor model split, per-directory SIDECAR.md, pluggable web search.**
+
+### Added
+
+- **DESIGN.md native context injection** — create `.sidecar/DESIGN.md` (or `DESIGN.md` at workspace root) and it is injected into every agent system prompt automatically — no SIDECAR.md section required. Ideal for architecture docs, coding-style guides, and domain glossaries that should always be in context. Gated by `sidecar.designMd.enabled` (default `true`).
+
+- **`AGENTS.md` / `CLAUDE.md` / `.cursorrules` fallback** — when no `SIDECAR.md` is present, SideCar now loads the first project-instructions file it finds in priority order: `.sidecar/SIDECAR.md` → `SIDECAR.md` → `AGENTS.md` → `CLAUDE.md` → `.cursorrules`. The source file name is shown in the system-prompt report so users know which file was picked up.
+
+- **OS + shell injection into system prompt** — the `## Session` block now includes the host OS (`darwin` / `win32` / `linux`) and the active shell (`$SHELL` / `%COMSPEC%`). The LLM uses this to generate correct shell commands (PowerShell vs. bash vs. zsh) without guessing.
+
+- **Architect / editor two-model split** (`sidecar.editorModel`) — set a cheaper, faster model (e.g. `qwen3-coder:8b`) as the editor. When the previous assistant turn contained tool calls (the agent is in an execution streak), SideCar automatically switches to `editorModel` for that turn; when there are no pending tool calls (planning / reasoning turn), it uses the full `sidecar.model`. The model is always restored after the loop. Zero-config if `editorModel` is left blank.
+
+- **Per-directory SIDECAR.md** — place `SIDECAR.md` files inside subdirectories (e.g. `src/api/SIDECAR.md`) and their contents inject into the system prompt only when the active file lives under that directory. Injection order is root-to-leaf so more-specific rules override general ones. Results are cached and a recursive watcher invalidates stale entries on changes. (`src/webview/chatState.ts`)
+
+- **Pluggable web search** (`sidecar.webSearch.provider` + `sidecar.webSearch.apiKey`) — choose between DuckDuckGo (free, no key), [Tavily](https://tavily.com) (high-quality, key required), and [Brave Search](https://api.search.brave.com) (key required). The exfiltration guard (credential-shaped substrings blocked before any network call) applies uniformly to all three providers.
+
 ## [0.88.0] - 2026-05-15
 
 **v0.88.0 — Copilot interop, `@sidecar` full agent loop, Refresh Models button, v0.87d eval suite, and reliability fixes.**
 
 ### Added
+
+- **DESIGN.md native context injection** — create `.sidecar/DESIGN.md` (or `DESIGN.md` at workspace root) and it is injected into every agent system prompt automatically — no SIDECAR.md section required. Ideal for architecture docs, coding-style guides, and domain glossaries that should always be in context. Gated by `sidecar.designMd.enabled` (default `true`).
+
+- **`AGENTS.md` / `CLAUDE.md` / `.cursorrules` fallback** — when no `SIDECAR.md` is present, SideCar now loads the first project-instructions file it finds in priority order: `.sidecar/SIDECAR.md` → `SIDECAR.md` → `AGENTS.md` → `CLAUDE.md` → `.cursorrules`. The source file name is shown in the system-prompt report so users know which file was picked up.
+
+- **OS + shell injection into system prompt** — the `## Session` block now includes the host OS (`darwin` / `win32` / `linux`) and the active shell (`$SHELL` / `%COMSPEC%`). The LLM uses this to generate correct shell commands (PowerShell vs. bash vs. zsh) without guessing.
+
+- **Architect / editor two-model split** (`sidecar.editorModel`) — set a cheaper, faster model (e.g. `qwen3-coder:8b`) as the editor. When the previous assistant turn contained tool calls (the agent is in an execution streak), SideCar automatically switches to `editorModel` for that turn; when there are no pending tool calls (planning / reasoning turn), it uses the full `sidecar.model`. The model is always restored after the loop. Zero-config if `editorModel` is left blank.
+
+- **Per-directory SIDECAR.md** — place `SIDECAR.md` files inside subdirectories (e.g. `src/api/SIDECAR.md`) and their contents inject into the system prompt only when the active file lives under that directory. Injection order is root-to-leaf so more-specific rules override general ones. Results are cached and a recursive watcher invalidates stale entries on changes. (`src/webview/chatState.ts`)
+
+- **Pluggable web search** (`sidecar.webSearch.provider` + `sidecar.webSearch.apiKey`) — choose between DuckDuckGo (free, no key), [Tavily](https://tavily.com) (high-quality, key required), and [Brave Search](https://api.search.brave.com) (key required). The exfiltration guard (credential-shaped substrings blocked before any network call) applies uniformly to all three providers.
 
 - **`vscode.lm.registerTool` — SideCar tools in Copilot agent mode** — 11 core tools (`read_file`, `write_file`, `edit_file`, `list_directory`, `search_files`, `run_command`, `run_tests`, `git_diff`, `git_status`, `git_log`, `web_search`) are now registered with VS Code's LM tool API under `sidecar_*` names. Copilot agent mode, the VS Code Agents Window, and any extension that queries `vscode.lm.tools` can invoke them directly. Guard rails: gracefully no-ops on VS Code < 1.90 where `vscode.lm.registerTool` is unavailable. (`src/chat/lmTools.ts`)
 

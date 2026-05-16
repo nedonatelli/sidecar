@@ -94,6 +94,37 @@ export function applyAgentLoopRouting(
   return false;
 }
 
+// ---------------------------------------------------------------------------
+// Architect / Editor model split
+//
+// When `sidecar.editorModel` is set, the agent loop uses two models:
+//   - "architect" (sidecar.model): planning turns — first turn and any turn
+//     that follows a pure-text assistant response (no tool calls).
+//   - "editor" (sidecar.editorModel): execution turns — any turn that follows
+//     an assistant turn that ended with at least one tool_use block.
+//
+// The heuristic is stable at iteration 0: countLastAssistantToolUses returns
+// 0 when there is no previous assistant message, so the first turn always
+// uses the architect model.
+//
+// Call this BEFORE applyAgentLoopRouting so custom routing rules can still
+// override the split for specific roles if the user configures them.
+// ---------------------------------------------------------------------------
+
+export function applyArchitectEditorSplit(
+  client: SideCarClient,
+  messages: readonly ChatMessage[],
+  architectModel: string,
+  editorModel: string,
+): void {
+  if (!editorModel) return; // feature disabled — single-model behaviour
+  const toolUses = countLastAssistantToolUses(messages);
+  const target = toolUses > 0 ? editorModel : architectModel;
+  if (client.getModel() !== target) {
+    client.updateModel(target);
+  }
+}
+
 /** Find the first user message in the conversation — the initial prompt. */
 function extractUserPrompt(messages: readonly ChatMessage[]): string | undefined {
   for (const msg of messages) {

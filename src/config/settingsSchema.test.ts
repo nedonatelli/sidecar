@@ -97,11 +97,13 @@ describe('package.json contributes.configuration — 12-category layout', () => 
     // + v0.79 Doc-to-Test (+6: docTests.enabled/testFramework/outputDir/
     // floatTolerance/extractionModel/requireConstraintApproval).
     // + v0.88 DESIGN.md (+1: designMd.enabled).
+    // + v0.88 Architect/Editor split (+1: editorModel).
+    // + v0.88 Pluggable web search (+2: webSearch.provider/apiKey).
     // Adding a setting requires bumping this + adding it to one of
     // the sections.
     const cfg = loadConfiguration();
     const totalKeys = cfg.reduce((sum, s) => sum + Object.keys(s.properties).length, 0);
-    expect(totalKeys).toBe(161);
+    expect(totalKeys).toBe(164);
   });
 
   it('no setting key is duplicated across sections', () => {

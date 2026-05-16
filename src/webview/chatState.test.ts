@@ -352,6 +352,137 @@ describe('ChatState', () => {
       expect(result).toBe('# Root');
       state.dispose();
     });
+
+    it('falls back to AGENTS.md when no SIDECAR.md exists', async () => {
+      const { workspace } = await import('vscode');
+      const enoent = new Error('ENOENT');
+      vi.spyOn(workspace.fs, 'readFile')
+        .mockRejectedValueOnce(enoent) // .sidecar/SIDECAR.md
+        .mockRejectedValueOnce(enoent) // SIDECAR.md
+        .mockResolvedValueOnce(Buffer.from('# Agent conventions') as never); // AGENTS.md
+      const state = createState();
+      const result = await state.loadSidecarMd();
+      expect(result).toBe('# Agent conventions');
+      expect(state.sidecarMdSource).toBe('AGENTS.md');
+      state.dispose();
+    });
+
+    it('falls back to CLAUDE.md when no SIDECAR.md or AGENTS.md exists', async () => {
+      const { workspace } = await import('vscode');
+      const enoent = new Error('ENOENT');
+      vi.spyOn(workspace.fs, 'readFile')
+        .mockRejectedValueOnce(enoent) // .sidecar/SIDECAR.md
+        .mockRejectedValueOnce(enoent) // SIDECAR.md
+        .mockRejectedValueOnce(enoent) // AGENTS.md
+        .mockResolvedValueOnce(Buffer.from('# Claude instructions') as never); // CLAUDE.md
+      const state = createState();
+      const result = await state.loadSidecarMd();
+      expect(result).toBe('# Claude instructions');
+      expect(state.sidecarMdSource).toBe('CLAUDE.md');
+      state.dispose();
+    });
+
+    it('falls back to .cursorrules as last resort', async () => {
+      const { workspace } = await import('vscode');
+      const enoent = new Error('ENOENT');
+      vi.spyOn(workspace.fs, 'readFile')
+        .mockRejectedValueOnce(enoent) // .sidecar/SIDECAR.md
+        .mockRejectedValueOnce(enoent) // SIDECAR.md
+        .mockRejectedValueOnce(enoent) // AGENTS.md
+        .mockRejectedValueOnce(enoent) // CLAUDE.md
+        .mockResolvedValueOnce(Buffer.from('Always use functional components') as never); // .cursorrules
+      const state = createState();
+      const result = await state.loadSidecarMd();
+      expect(result).toBe('Always use functional components');
+      expect(state.sidecarMdSource).toBe('.cursorrules');
+      state.dispose();
+    });
+
+    it('sidecarMdSource is SIDECAR.md when that file is found', async () => {
+      const { workspace } = await import('vscode');
+      vi.spyOn(workspace.fs, 'readFile').mockResolvedValueOnce(Buffer.from('# My Guide') as never);
+      const state = createState();
+      await state.loadSidecarMd();
+      expect(state.sidecarMdSource).toBe('SIDECAR.md');
+      state.dispose();
+    });
+  });
+
+  describe('loadPerDirSidecarMd()', () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    it('returns empty array when no workspace folder is set', async () => {
+      const { workspace } = await import('vscode');
+      vi.spyOn(workspace, 'workspaceFolders', 'get').mockReturnValue(undefined as never);
+      const state = createState();
+      const result = await state.loadPerDirSidecarMd('/some/file.ts');
+      expect(result).toEqual([]);
+      state.dispose();
+    });
+
+    it('returns empty array when active file is at workspace root', async () => {
+      const { workspace } = await import('vscode');
+      // The mock root is '/mock-workspace'; a file directly in it has no ancestor dirs between root and file
+      vi.spyOn(workspace.fs, 'readFile').mockRejectedValue(new Error('ENOENT'));
+      const state = createState();
+      const result = await state.loadPerDirSidecarMd('/mock-workspace/file.ts');
+      expect(result).toEqual([]);
+      state.dispose();
+    });
+
+    it('returns per-dir SIDECAR.md when found in a subdirectory', async () => {
+      const { workspace } = await import('vscode');
+      const enoent = new Error('ENOENT');
+      vi.spyOn(workspace.fs, 'readFile')
+        .mockRejectedValueOnce(enoent) // .sidecar/SIDECAR.md in src/
+        .mockResolvedValueOnce(Buffer.from('# API rules') as never); // SIDECAR.md in src/
+      const state = createState();
+      const result = await state.loadPerDirSidecarMd('/mock-workspace/src/routes.ts');
+      expect(result).toHaveLength(1);
+      expect(result[0].content).toBe('# API rules');
+      expect(result[0].relativePath).toBe('src');
+      state.dispose();
+    });
+
+    it('returns multiple entries in root-to-leaf order for nested dirs', async () => {
+      const { workspace } = await import('vscode');
+      const enoent = new Error('ENOENT');
+      vi.spyOn(workspace.fs, 'readFile')
+        // src/.sidecar/SIDECAR.md → missing
+        .mockRejectedValueOnce(enoent)
+        // src/SIDECAR.md → found
+        .mockResolvedValueOnce(Buffer.from('# src rules') as never)
+        // src/api/.sidecar/SIDECAR.md → missing
+        .mockRejectedValueOnce(enoent)
+        // src/api/SIDECAR.md → found
+        .mockResolvedValueOnce(Buffer.from('# api rules') as never);
+      const state = createState();
+      const result = await state.loadPerDirSidecarMd('/mock-workspace/src/api/handler.ts');
+      expect(result).toHaveLength(2);
+      expect(result[0].relativePath).toBe('src'); // root-to-leaf
+      expect(result[1].relativePath).toBe('src/api');
+      state.dispose();
+    });
+
+    it('caches per-dir results so readFile is not called twice for the same directory', async () => {
+      const { workspace } = await import('vscode');
+      const readFileSpy = vi
+        .spyOn(workspace.fs, 'readFile')
+        .mockRejectedValueOnce(new Error('ENOENT'))
+        .mockResolvedValueOnce(Buffer.from('# rules') as never);
+      const state = createState();
+      await state.loadPerDirSidecarMd('/mock-workspace/src/a.ts');
+      await state.loadPerDirSidecarMd('/mock-workspace/src/b.ts'); // same dir — should use cache
+      expect(readFileSpy).toHaveBeenCalledTimes(2); // only 2 calls for the first load, not 4
+      state.dispose();
+    });
+
+    it('returns empty array after dispose()', async () => {
+      const state = createState();
+      state.dispose();
+      const result = await state.loadPerDirSidecarMd('/mock-workspace/src/file.ts');
+      expect(result).toEqual([]);
+    });
   });
 
   // -------------------------------------------------------------------------

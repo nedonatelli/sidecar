@@ -1,5 +1,6 @@
 import { window, workspace } from 'vscode';
 import * as path from 'path';
+import * as os from 'os';
 import type { ChatState } from '../chatState.js';
 import { getConfig } from '../../config/settings.js';
 import { charsToTokens } from '../../config/tokenEstimation.js';
@@ -101,11 +102,39 @@ export async function injectSystemContext(
       });
       if (rendered.length > 0) {
         prompt = ensureBoundary(prompt);
-        prompt += `\n\nProject instructions (from SIDECAR.md):\n${rendered}`;
+        prompt += `\n\nProject instructions (from ${state.sidecarMdSource}):\n${rendered}`;
       }
     }
   }
   sizes['SIDECAR.md'] = prompt.length - prevLen;
+  prevLen = prompt.length;
+
+  // Per-directory SIDECAR.md — injected root-to-leaf so more-specific rules
+  // follow more-general ones. Only fires when the active file is open and its
+  // directory chain contains at least one SIDECAR.md between it and the root.
+  if (workspaceTrusted) {
+    const activeAbsPath = window.activeTextEditor?.document.uri.fsPath;
+    if (activeAbsPath) {
+      const perDirEntries = await state.loadPerDirSidecarMd(activeAbsPath);
+      for (const { content, relativePath } of perDirEntries) {
+        const remaining = maxSystemChars - prompt.length - 200;
+        const rendered = injectSidecarMd(content, {
+          mode: config.sidecarMdMode,
+          alwaysIncludeHeadings: config.sidecarMdAlwaysIncludeHeadings,
+          lowPriorityHeadings: config.sidecarMdLowPriorityHeadings,
+          maxScopedSections: config.sidecarMdMaxScopedSections,
+          activeFilePath: activeFilePathFor(text),
+          mentionedPaths: mentionedPathsFrom(text),
+          maxChars: Math.max(remaining, 200),
+        });
+        if (rendered.length > 0) {
+          prompt = ensureBoundary(prompt);
+          prompt += `\n\nProject instructions (from ${relativePath}/SIDECAR.md):\n${rendered}`;
+        }
+      }
+    }
+  }
+  sizes['per-dir SIDECAR.md'] = prompt.length - prevLen;
   prevLen = prompt.length;
 
   // DESIGN.md — design system tokens + rationale, only in trusted workspaces.
@@ -358,7 +387,10 @@ export async function injectSystemContext(
     const activeFile = window.activeTextEditor
       ? path.relative(sessionRoot, window.activeTextEditor.document.uri.fsPath)
       : undefined;
+    const platform = os.platform(); // 'win32' | 'darwin' | 'linux' | …
+    const shell = platform === 'win32' ? (process.env.COMSPEC ?? 'cmd.exe') : (process.env.SHELL ?? '/bin/bash');
     prompt += `\n\n## Session\n- Project root: ${sessionRoot}`;
+    prompt += `\n- OS: ${platform}  Shell: ${shell}`;
     if (activeFile) {
       prompt += `\n- Active file: ${activeFile}`;
     }

@@ -14,7 +14,7 @@ import { compressMessages, applyBudgetCompression, maybeCompressPostTool } from 
 import { initLoopState } from './loop/state.js';
 import { parseTextToolCalls, stripRepeatedContent } from './loop/textParsing.js';
 import { streamOneTurn, resolveTurnContent } from './loop/streamTurn.js';
-import { applyAgentLoopRouting } from './loop/routing.js';
+import { applyAgentLoopRouting, applyArchitectEditorSplit } from './loop/routing.js';
 import { exceedsBurstCap, detectCycleAndBail } from './loop/cycleDetection.js';
 import {
   pushAssistantMessage,
@@ -333,6 +333,12 @@ export async function runAgentLoop(
       maybeEmitProgressSummary(state, callbacks);
       if (await shouldStopAtCheckpoint(state, callbacks)) break;
 
+      // Architect / Editor model split. No-op when sidecar.editorModel is
+      // blank (the default). When set, planning turns use sidecar.model and
+      // tool-execution turns use editorModel — reducing cost on long runs.
+      // Runs before role-based routing so custom rules can still override.
+      applyArchitectEditorSplit(client, state.messages, state.config.model, state.config.editorModel);
+
       // Role-Based Model Routing. No-op when no router is
       // attached to the client (the default) — preserves legacy
       // static-model dispatch without branching at the call site.
@@ -542,6 +548,11 @@ export async function runAgentLoop(
   } finally {
     disposeSteerListener();
     currentTurnController = null;
+    // Restore the client to the user's configured model so subsequent
+    // non-agent requests (chat, completions) aren't left on editorModel.
+    if (state.config.editorModel) {
+      client.updateModel(state.config.model);
+    }
   }
 
   return finalize(state, callbacks);

@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { stubLoopState } from './testHelpers.js';
 import { window } from 'vscode';
-import { applyAgentLoopRouting } from './routing.js';
+import { applyAgentLoopRouting, applyArchitectEditorSplit } from './routing.js';
 import { SideCarClient } from '../../ollama/client.js';
 import { ModelRouter } from '../../ollama/modelRouter.js';
-import type { ChatMessage } from '../../ollama/types.js';
+import type { ChatMessage, ContentBlock } from '../../ollama/types.js';
 
 const showWarning = vi.spyOn(window, 'showWarningMessage');
 beforeEach(() => showWarning.mockReset());
@@ -126,59 +126,120 @@ describe('applyAgentLoopRouting', () => {
     applyAgentLoopRouting(client, state, { modelRoutingVisibleSwaps: false, modelRoutingDryRun: false });
     expect(client.getModel()).toBe('claude-opus-4-6');
   });
+});
 
-  describe('downgrade toast ', () => {
-    it('fires a warning toast the first time a rule downgrades due to budget', () => {
-      const client = new SideCarClient('claude-opus-4-6', 'https://api.anthropic.com', 'sk-test');
-      const router = new ModelRouter(
-        [{ when: 'agent-loop', model: 'claude-opus-4-6', fallbackModel: 'claude-haiku-4-5', sessionBudget: 0.5 }],
-        'default',
-      );
-      client.setRouter(router);
+describe('applyArchitectEditorSplit', () => {
+  const ARCHITECT = 'claude-opus-4-7';
+  const EDITOR = 'claude-haiku-4-5';
 
-      // First call: in-budget, no downgrade, no warning.
-      const state = stubLoopState();
-      applyAgentLoopRouting(client, state, { modelRoutingVisibleSwaps: true, modelRoutingDryRun: false });
-      expect(showWarning).not.toHaveBeenCalled();
+  function makeClient(model = ARCHITECT) {
+    return new SideCarClient(model, 'https://api.anthropic.com', 'sk-test');
+  }
 
-      // Charge the rule over its cap.
-      router.recordSpend(router.getRules()[0], 1.0);
+  function toolUseMsg(count: number): ChatMessage {
+    const blocks: ContentBlock[] = Array.from({ length: count }, (_, i) => ({
+      type: 'tool_use' as const,
+      id: `t${i}`,
+      name: 'read_file',
+      input: {},
+    }));
+    return { role: 'assistant', content: blocks };
+  }
 
-      // Second call: downgrade fires, warning shown.
-      applyAgentLoopRouting(client, state, { modelRoutingVisibleSwaps: true, modelRoutingDryRun: false });
-      expect(showWarning).toHaveBeenCalledOnce();
-      expect(showWarning.mock.calls[0][0]).toContain('budget cap hit');
-      expect(showWarning.mock.calls[0][0]).toContain('claude-haiku-4-5');
-    });
+  it('is a no-op when editorModel is empty', () => {
+    const client = makeClient();
+    applyArchitectEditorSplit(client, [], ARCHITECT, '');
+    expect(client.getModel()).toBe(ARCHITECT);
+  });
 
-    it('does not re-fire the warning on subsequent downgraded dispatches of the same rule', () => {
-      const client = new SideCarClient('claude-opus-4-6', 'https://api.anthropic.com', 'sk-test');
-      const router = new ModelRouter(
-        [{ when: 'agent-loop', model: 'claude-opus-4-6', fallbackModel: 'claude-haiku-4-5', sessionBudget: 0.5 }],
-        'default',
-      );
-      client.setRouter(router);
-      router.recordSpend(router.getRules()[0], 1.0);
+  it('uses architect model on turn 0 (no previous assistant message)', () => {
+    const client = makeClient(EDITOR); // pretend previous session left it on editor
+    const messages: ChatMessage[] = [{ role: 'user', content: 'hi' }];
+    applyArchitectEditorSplit(client, messages, ARCHITECT, EDITOR);
+    expect(client.getModel()).toBe(ARCHITECT);
+  });
 
-      const state = stubLoopState();
-      applyAgentLoopRouting(client, state, { modelRoutingVisibleSwaps: true, modelRoutingDryRun: false });
-      applyAgentLoopRouting(client, state, { modelRoutingVisibleSwaps: true, modelRoutingDryRun: false });
-      applyAgentLoopRouting(client, state, { modelRoutingVisibleSwaps: true, modelRoutingDryRun: false });
-      expect(showWarning).toHaveBeenCalledOnce();
-    });
+  it('uses editor model when the last assistant turn had tool calls', () => {
+    const client = makeClient(ARCHITECT);
+    const messages: ChatMessage[] = [
+      { role: 'user', content: 'refactor auth' },
+      toolUseMsg(3),
+      { role: 'user', content: '[tool results]' },
+    ];
+    applyArchitectEditorSplit(client, messages, ARCHITECT, EDITOR);
+    expect(client.getModel()).toBe(EDITOR);
+  });
 
-    it('fires the downgrade warning even when visibleSwaps is off (budget events are always surfaced)', () => {
-      const client = new SideCarClient('claude-opus-4-6', 'https://api.anthropic.com', 'sk-test');
-      const router = new ModelRouter(
-        [{ when: 'agent-loop', model: 'claude-opus-4-6', fallbackModel: 'claude-haiku-4-5', sessionBudget: 0.5 }],
-        'default',
-      );
-      client.setRouter(router);
-      router.recordSpend(router.getRules()[0], 1.0);
+  it('switches back to architect when the last assistant turn had no tool calls', () => {
+    const client = makeClient(EDITOR);
+    const messages: ChatMessage[] = [
+      { role: 'user', content: 'hello' },
+      { role: 'assistant', content: 'Here is the plan.' }, // pure text
+    ];
+    applyArchitectEditorSplit(client, messages, ARCHITECT, EDITOR);
+    expect(client.getModel()).toBe(ARCHITECT);
+  });
 
-      const state = stubLoopState();
-      applyAgentLoopRouting(client, state, { modelRoutingVisibleSwaps: false, modelRoutingDryRun: false });
-      expect(showWarning).toHaveBeenCalledOnce();
-    });
+  it('is a no-op (no updateModel call) when already on the correct model', () => {
+    const client = makeClient(EDITOR);
+    const spy = vi.spyOn(client, 'updateModel');
+    const messages: ChatMessage[] = [{ role: 'user', content: 'hi' }, toolUseMsg(2), { role: 'user', content: '' }];
+    applyArchitectEditorSplit(client, messages, ARCHITECT, EDITOR);
+    expect(spy).not.toHaveBeenCalled(); // already on EDITOR
+  });
+});
+
+describe('applyAgentLoopRouting — downgrade toast', () => {
+  it('fires a warning toast the first time a rule downgrades due to budget', () => {
+    const client = new SideCarClient('claude-opus-4-6', 'https://api.anthropic.com', 'sk-test');
+    const router = new ModelRouter(
+      [{ when: 'agent-loop', model: 'claude-opus-4-6', fallbackModel: 'claude-haiku-4-5', sessionBudget: 0.5 }],
+      'default',
+    );
+    client.setRouter(router);
+
+    // First call: in-budget, no downgrade, no warning.
+    const state = stubLoopState();
+    applyAgentLoopRouting(client, state, { modelRoutingVisibleSwaps: true, modelRoutingDryRun: false });
+    expect(showWarning).not.toHaveBeenCalled();
+
+    // Charge the rule over its cap.
+    router.recordSpend(router.getRules()[0], 1.0);
+
+    // Second call: downgrade fires, warning shown.
+    applyAgentLoopRouting(client, state, { modelRoutingVisibleSwaps: true, modelRoutingDryRun: false });
+    expect(showWarning).toHaveBeenCalledOnce();
+    expect(showWarning.mock.calls[0][0]).toContain('budget cap hit');
+    expect(showWarning.mock.calls[0][0]).toContain('claude-haiku-4-5');
+  });
+
+  it('does not re-fire the warning on subsequent downgraded dispatches of the same rule', () => {
+    const client = new SideCarClient('claude-opus-4-6', 'https://api.anthropic.com', 'sk-test');
+    const router = new ModelRouter(
+      [{ when: 'agent-loop', model: 'claude-opus-4-6', fallbackModel: 'claude-haiku-4-5', sessionBudget: 0.5 }],
+      'default',
+    );
+    client.setRouter(router);
+    router.recordSpend(router.getRules()[0], 1.0);
+
+    const state = stubLoopState();
+    applyAgentLoopRouting(client, state, { modelRoutingVisibleSwaps: true, modelRoutingDryRun: false });
+    applyAgentLoopRouting(client, state, { modelRoutingVisibleSwaps: true, modelRoutingDryRun: false });
+    applyAgentLoopRouting(client, state, { modelRoutingVisibleSwaps: true, modelRoutingDryRun: false });
+    expect(showWarning).toHaveBeenCalledOnce();
+  });
+
+  it('fires the downgrade warning even when visibleSwaps is off (budget events are always surfaced)', () => {
+    const client = new SideCarClient('claude-opus-4-6', 'https://api.anthropic.com', 'sk-test');
+    const router = new ModelRouter(
+      [{ when: 'agent-loop', model: 'claude-opus-4-6', fallbackModel: 'claude-haiku-4-5', sessionBudget: 0.5 }],
+      'default',
+    );
+    client.setRouter(router);
+    router.recordSpend(router.getRules()[0], 1.0);
+
+    const state = stubLoopState();
+    applyAgentLoopRouting(client, state, { modelRoutingVisibleSwaps: false, modelRoutingDryRun: false });
+    expect(showWarning).toHaveBeenCalledOnce();
   });
 });
