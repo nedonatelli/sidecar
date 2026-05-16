@@ -4,6 +4,17 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.91.1] - 2026-05-16
+
+**v0.91.1 — Documentation fixes.**
+
+### Fixed
+
+- Corrected stale built-in tool count (61 → 62) in `docs/agent-mode.md` and `CLAUDE.md`.
+- Added `check_dependencies` to the agent tools table in `docs/agent-mode.md`.
+- Removed all "Kickstand *(coming soon)*" qualifiers from `docs/getting-started.md` — Kickstand is fully shipped.
+- Completed full v0.91.0 documentation pass: updated `CHANGELOG.md`, `ROADMAP.md`, `README.md`, `docs/index.html`, `docs/slash-commands.md`, `docs/configuration.md`, and `docs/security-scanning.md` to reflect Dependency Drift Alerts and Model Arena.
+
 ## [0.91.0] - 2026-05-16
 
 **v0.91.0 — Dependency Drift Alerts.**
