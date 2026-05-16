@@ -4,6 +4,20 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.90.0] - 2026-05-16
+
+**v0.90.0 — Model Arena, `/arena` slash command, selective section regeneration.**
+
+### Added
+
+- **Model Arena** (`SideCar: Open Model Arena (Chat)`) — a full-editor `WebviewPanel` that streams responses from 2–4 models in parallel side-by-side columns. Pick any models from your installed list via multi-select QuickPick (or pre-fill via `/arena model1,model2`). Vote buttons (👑 Best) are enabled as soon as any lane produces output. Each vote updates a local ELO leaderboard persisted to `.sidecar/arena/elo.json` (K=32, multi-way pairwise). Multi-turn: prompt bar re-enables after each vote for the next round. "Change models" button triggers a new QuickPick without closing the panel. (`src/arena/`)
+
+- **Model Arena agent mode** (`SideCar: Open Model Arena (Agent Task)`) — runs the same coding task through multiple models in parallel, each in its own Shadow Workspace, then surfaces the results in the existing Fork diff-review UI with model names as labels. Picking a winner records the ELO. Reuses the Fork dispatcher with a new `modelOverrides` option that pins each fork to a different model. (`src/agent/fork/forkDispatcher.ts`)
+
+- **`/arena` slash command** — `/arena` (or `/arena model1,model2`) opens the Arena chat panel; `/arena agent <task>` dispatches the agent arena. Both appear in the slash autocomplete dropdown.
+
+- **Selective section regeneration** — select any text inside an assistant message and a bar slides in above the input area with an optional instruction field ("make it more concise", "use TypeScript", etc.). Clicking **Regenerate** (or Enter) runs a focused single-turn completion that rewrites just the highlighted section and patches it in-place; the conversation history is unchanged so the agent's original context is preserved. (`src/webview/handlers/chatHandlers.ts`, `media/chat.js`)
+
 ## [0.89.0] - 2026-05-16
 
 **v0.89.0 — macOS Seatbelt sandbox, background task notifications, external context providers.**
