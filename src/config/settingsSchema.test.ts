@@ -101,11 +101,12 @@ describe('package.json contributes.configuration — 12-category layout', () => 
     // + v0.88 Pluggable web search (+2: webSearch.provider/apiKey).
     // + v0.88.1 Seatbelt sandbox (+1: sandbox.enabled).
     // + v0.89 External context providers (+1: contextProviders).
+    // + v0.90 Model Arena (+2: arena.enabled/defaultModels).
     // Adding a setting requires bumping this + adding it to one of
     // the sections.
     const cfg = loadConfiguration();
     const totalKeys = cfg.reduce((sum, s) => sum + Object.keys(s.properties).length, 0);
-    expect(totalKeys).toBe(166);
+    expect(totalKeys).toBe(168);
   });
 
   it('no setting key is duplicated across sections', () => {

@@ -608,6 +608,17 @@
             "maximum": 10,
             "description": "Max forks running in parallel at once. Clamped to [1, numForks] per dispatch. Higher values finish faster at the cost of more concurrent Shadow Workspaces (disk churn) and more concurrent LLM requests (cost + rate limits)."
           },
+          "sidecar.arena.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Enable Model Arena — side-by-side comparison of 2–4 models on the same prompt, with ELO ratings stored in .sidecar/arena/elo.json."
+          },
+          "sidecar.arena.defaultModels": {
+            "type": "array",
+            "items": { "type": "string" },
+            "default": [],
+            "description": "Pre-populated model list for the Arena panel. When non-empty, the QuickPick is skipped and these models are used. Example: [\"llama3.2:3b\", \"qwen3:8b\"]."
+          },
           "sidecar.kickstand.nCtx": {
             "type": "number",
             "default": 32768,
@@ -2239,6 +2250,18 @@
         "title": "Fork & Compare",
         "category": "SideCar",
         "icon": "$(repo-forked)"
+      },
+      {
+        "command": "sidecar.arena.open",
+        "title": "Open Model Arena (Chat)",
+        "category": "SideCar",
+        "icon": "$(beaker)"
+      },
+      {
+        "command": "sidecar.arena.agent",
+        "title": "Open Model Arena (Agent Task)",
+        "category": "SideCar",
+        "icon": "$(beaker)"
       },
       {
         "command": "sidecar.noSql.install",

@@ -122,6 +122,14 @@ export interface ForkDispatchOptions {
    * for every fork rather than silently aligning.
    */
   readonly labels?: readonly string[];
+  /**
+   * Per-fork model overrides for arena / model-comparison dispatch.
+   * When provided, `modelOverrides.length` determines `numForks`
+   * (takes precedence over the `numForks` field) and each fork runs
+   * with its own model pinned via `AgentOptions.modelOverride`.
+   * Labels default to the model names when not separately supplied.
+   */
+  readonly modelOverrides?: readonly string[];
   /** Optional progress callback fired when each fork starts and finishes. */
   readonly onBatchProgress?: ForkBatchProgressCallback;
 }
@@ -143,13 +151,15 @@ export async function dispatchForks(
   options: ForkDispatchOptions,
 ): Promise<ForkDispatchBatchResult> {
   const startMs = Date.now();
-  const numForks = Math.max(1, options.numForks);
+  // When modelOverrides is set it drives fork count; numForks is a fallback.
+  const numForks = options.modelOverrides ? Math.max(1, options.modelOverrides.length) : Math.max(1, options.numForks);
   const cap = Math.min(Math.max(1, options.maxConcurrent), numForks);
 
   // Resolve per-fork labels up-front so the telemetry surface is
   // stable from the moment dispatch starts — useful for UIs that
   // render N columns before any fork produces output.
-  const labels = resolveLabels(numForks, options.labels);
+  const effectiveLabels = options.modelOverrides && !options.labels ? [...options.modelOverrides] : options.labels;
+  const labels = resolveLabels(numForks, effectiveLabels);
 
   parentCallbacks.onText(
     `\n[fork dispatching ${numForks} parallel approach${numForks === 1 ? '' : 'es'}: ${options.task.slice(0, 80)}]\n`,
@@ -176,7 +186,8 @@ export async function dispatchForks(
     return () => {
       progressItems[i] = { id: `fork-${i}`, label: labels[i], status: 'running' };
       emitProgress();
-      return runOneFork(client, parentCallbacks, options, i, labels[i]).then(
+      const modelOverride = options.modelOverrides?.[i];
+      return runOneFork(client, parentCallbacks, options, i, labels[i], modelOverride).then(
         (r) => {
           progressItems[i] = { id: r.forkId, label: labels[i], status: r.success ? 'done' : 'error' };
           doneCount++;
@@ -233,6 +244,7 @@ async function runOneFork(
   options: ForkDispatchOptions,
   index: number,
   label: string,
+  modelOverride?: string,
 ): Promise<ForkResult> {
   const forkId = `fork-${index}`;
   const startMs = Date.now();
@@ -286,6 +298,8 @@ async function runOneFork(
         // Autonomous — fork is a non-interactive parallel solve.
         // Approval still fires for destructive tools that opt in.
         approvalMode: 'autonomous',
+        // Arena / model-comparison: pin this fork to a specific model.
+        ...(modelOverride ? { modelOverride } : {}),
       },
       // Force shadow + defer the per-run prompt:
       // the aggregated Fork review UI (chunk 5) applies diffs after
