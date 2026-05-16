@@ -1,6 +1,6 @@
 # SideCar Roadmap
 
-**Current release: v0.90.0** — Model Arena (side-by-side chat comparison + agent mode with local ELO); `/arena` slash command; selective section regeneration. See [CHANGELOG](CHANGELOG.md) for full notes.
+**Current release: v0.91.0** — Dependency Drift Alerts (Problems panel + `check_dependencies` agent tool; OSV vulnerabilities; npm/PyPI/cargo/Go). See [CHANGELOG](CHANGELOG.md) for full notes.
 
 **Coverage floor**: ≥80/70/80/80 (stmts/branches/funcs/lines) enforced by CI. No PR merges that drop any metric.
 
@@ -12,6 +12,7 @@
 
 | Version | Headline |
 |---|---|
+| v0.91.0 | Dependency Drift Alerts (Problems panel · `check_dependencies` tool · OSV vulns · npm/PyPI/cargo/Go) |
 | v0.90.0 | Model Arena (chat + agent, ELO ratings) · `/arena` slash command · selective section regeneration |
 | v0.89.0 | macOS Seatbelt sandbox · background task notifications + status bar spinner · external context providers (GitHub / Linear / Jira) |
 | v0.88.1 | DESIGN.md injection · `AGENTS.md`/`CLAUDE.md`/`.cursorrules` fallback · OS+shell in prompt · architect/editor split (`editorModel`) · per-directory SIDECAR.md · pluggable web search (Tavily/Brave/DDG) |
@@ -124,9 +125,9 @@
 
 Not promised to any specific release. Full specs in [docs/feature-specs.md](docs/feature-specs.md).
 
-GPU-Native Hot-Swapping · GPU-Aware Load Balancing · Multi-repo cross-talk · Semantic Agentic Search for Monorepos · Selective Regeneration · Persistent Executive Function · LaTeX Agentic Debugging · Inline Edit Enhancement · Zen Mode Context Filtering · Dependency Drift Alerts · Enterprise & Collaboration · Voice Input · Agentic Task Delegation via MCP · Model Comparison / Arena Mode · Real-time Code Profiling · Bitbucket/Atlassian integration
+GPU-Native Hot-Swapping · GPU-Aware Load Balancing · Multi-repo cross-talk · Semantic Agentic Search for Monorepos · Selective Regeneration · Persistent Executive Function · LaTeX Agentic Debugging · Inline Edit Enhancement · Zen Mode Context Filtering · Enterprise & Collaboration · Voice Input · Agentic Task Delegation via MCP · Model Comparison / Arena Mode · Real-time Code Profiling · Bitbucket/Atlassian integration
 
-*(Promoted to shipped: Semantic Time Travel → `git_search_history` tool v1.0; MCP Marketplace → `sidecar.mcp.openMarketplace` command v1.0)*
+*(Promoted to shipped: Semantic Time Travel → `git_search_history` tool v1.0; MCP Marketplace → `sidecar.mcp.openMarketplace` command v1.0; Dependency Drift Alerts → `check_dependencies` tool + Problems panel v0.91.0; Model Arena → `sidecar.arena.*` commands v0.90.0)*
 
 ---
 

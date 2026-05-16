@@ -2,7 +2,7 @@
   "name": "sidecar-ai",
   "displayName": "SideCar",
   "description": "Autonomous AI agent for coding — run full agent loops with local Ollama, Anthropic Claude, or OpenAI models",
-  "version": "0.90.0",
+  "version": "0.91.0",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -1741,6 +1741,21 @@
             "description": "When true, the agent presents the constraint manifest for review before calling synthesize_tests. When false, the agent synthesizes tests immediately after extraction."
           }
         }
+      },
+      {
+        "title": "SideCar: Dependencies",
+        "properties": {
+          "sidecar.deps.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Enable Dependency Drift Alerts — scans package.json, requirements.txt, Cargo.toml, and go.mod for outdated and vulnerable dependencies. Findings appear in the Problems panel and via the check_dependencies agent tool."
+          },
+          "sidecar.deps.checkVulnerabilities": {
+            "type": "boolean",
+            "default": true,
+            "description": "Query the OSV (Open Source Vulnerabilities) API when scanning dependencies. Requires internet access. Disable for offline or air-gapped environments."
+          }
+        }
       }
     ],
     "viewsContainers": {
@@ -2262,6 +2277,12 @@
         "title": "Open Model Arena (Agent Task)",
         "category": "SideCar",
         "icon": "$(beaker)"
+      },
+      {
+        "command": "sidecar.deps.scan",
+        "title": "Scan Dependencies for Drift & Vulnerabilities",
+        "category": "SideCar",
+        "icon": "$(shield)"
       },
       {
         "command": "sidecar.noSql.install",

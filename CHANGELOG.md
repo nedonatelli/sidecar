@@ -4,6 +4,20 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.91.0] - 2026-05-16
+
+**v0.91.0 — Dependency Drift Alerts.**
+
+### Added
+
+- **Dependency Drift Alerts** — SideCar now scans `package.json`, `requirements*.txt`, `Cargo.toml`, and `go.mod` files for outdated and vulnerable dependencies. Findings surface in the VS Code **Problems panel** under source `sidecar-deps`: `Information` for outdated packages, `Warning` for medium/high vulnerabilities, `Error` for critical ones. File watchers trigger a re-scan automatically 2 seconds after each manifest save. The `sidecar.deps.scan` command forces an immediate workspace-wide scan from the command palette.
+
+- **`check_dependencies` agent tool** — the agent can now call `check_dependencies` (optionally with an `ecosystem` filter: `npm | pypi | cargo | go`, or `checkVulnerabilities: false` for an offline check). Returns a structured report grouped by manifest file with outdated package counts and CVE/GHSA IDs from the [OSV API](https://osv.dev).
+
+- **`sidecar.deps.enabled`** (default `true`) — gates the Dependency Drift feature entirely.
+
+- **`sidecar.deps.checkVulnerabilities`** (default `true`) — controls whether SideCar hits the OSV API. Disable in offline / air-gapped environments.
+
 ## [0.90.0] - 2026-05-16
 
 **v0.90.0 — Model Arena, `/arena` slash command, selective section regeneration.**

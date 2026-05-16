@@ -31,7 +31,7 @@ function loadConfiguration(): ConfigSection[] {
   return cfg;
 }
 
-describe('package.json contributes.configuration — 12-category layout', () => {
+describe('package.json contributes.configuration — 13-category layout', () => {
   const EXPECTED_TITLES = [
     'SideCar: Backend & Models',
     'SideCar: Agent',
@@ -45,11 +45,12 @@ describe('package.json contributes.configuration — 12-category layout', () => 
     'SideCar: Databases',
     'SideCar: Visual Verification',
     'SideCar: Doc-to-Test',
+    'SideCar: Dependencies',
   ];
 
-  it('is an array of exactly 12 categorized sections', () => {
+  it('is an array of exactly 13 categorized sections', () => {
     const cfg = loadConfiguration();
-    expect(cfg).toHaveLength(12);
+    expect(cfg).toHaveLength(13);
   });
 
   it('sections appear in the expected top-to-bottom order', () => {
@@ -102,11 +103,12 @@ describe('package.json contributes.configuration — 12-category layout', () => 
     // + v0.88.1 Seatbelt sandbox (+1: sandbox.enabled).
     // + v0.89 External context providers (+1: contextProviders).
     // + v0.90 Model Arena (+2: arena.enabled/defaultModels).
+    // + v0.91 Dependency Drift (+2: deps.enabled/checkVulnerabilities).
     // Adding a setting requires bumping this + adding it to one of
     // the sections.
     const cfg = loadConfiguration();
     const totalKeys = cfg.reduce((sum, s) => sum + Object.keys(s.properties).length, 0);
-    expect(totalKeys).toBe(168);
+    expect(totalKeys).toBe(170);
   });
 
   it('no setting key is duplicated across sections', () => {

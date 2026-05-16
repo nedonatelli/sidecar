@@ -285,6 +285,9 @@ export interface SideCarConfig {
   notebookModeStudyAidsEnabled: boolean;
   /* API call audit log */
   verboseLogs: boolean;
+  /* Dependency Drift */
+  depsEnabled: boolean;
+  depsCheckVulnerabilities: boolean;
 }
 
 /**
@@ -547,6 +550,9 @@ function readConfig(): SideCarConfig {
     notebookModeSlidesEnabled: cfg.get<boolean>('notebookMode.sources.slides', true),
     notebookModeStudyAidsEnabled: cfg.get<boolean>('notebookMode.studyAids.enabled', true),
     verboseLogs: cfg.get<boolean>('verboseLogs', false),
+    /* Dependency Drift */
+    depsEnabled: cfg.get<boolean>('deps.enabled', true),
+    depsCheckVulnerabilities: cfg.get<boolean>('deps.checkVulnerabilities', true),
   };
 }
 

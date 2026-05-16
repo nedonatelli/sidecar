@@ -22,6 +22,7 @@ import { initWarmup } from './activation/warmup.js';
 import { registerEditorFeatures } from './activation/editorFeatures.js';
 import { setupChatView } from './activation/chatViewSetup.js';
 import { registerArenaCommands } from './activation/arenaSetup.js';
+import { registerDepsFeature } from './activation/depsSetup.js';
 import { createSdkApi } from './sdk/api.js';
 
 let chatProvider: ChatViewProvider | undefined;
@@ -97,6 +98,7 @@ export function activate(context: ExtensionContext) {
   registerSidecarParticipant(context, () => chatProvider!.client);
   registerLmTools(context);
   registerArenaCommands(context, createClient, sidecarDir);
+  registerDepsFeature(context);
 
   // First-install auto-open. Gated behind a globalState flag so
   // existing users and every subsequent launch skip it. Fires after a
