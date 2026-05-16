@@ -76,6 +76,42 @@ When prompted, choose **Allow** to trust the workspace config for this session, 
 
 When no explicit confirmation function is available (e.g., headless or programmatic usage), tool calls default to **deny**. This ensures tools that require approval (file writes, shell commands, git operations) are never auto-approved without a UI to confirm them.
 
+## Dependency Drift Alerts
+
+SideCar scans your manifest files for outdated dependencies and known vulnerabilities.
+
+### What gets scanned
+
+| Manifest | Ecosystem |
+|----------|-----------|
+| `package.json` | npm |
+| `requirements*.txt` | PyPI |
+| `Cargo.toml` | crates.io |
+| `go.mod` | Go modules |
+
+### How it works
+
+1. **Version check** — fetches the latest stable version from the upstream registry (npm registry, PyPI, crates.io, Go proxy) using a 1-hour in-memory cache to avoid hammering the APIs on every save.
+2. **Vulnerability check** — batches a `POST` to the [OSV API](https://osv.dev) (`api.osv.dev/v1/querybatch`) with every resolved version. Returns CVE/GHSA IDs and severity ratings.
+3. **Problems panel** — findings surface under `source: sidecar-deps` alongside compiler errors:
+   - `Error` — Critical vulnerabilities
+   - `Warning` — High / Medium vulnerabilities, or packages with any vulnerability
+   - `Information` — Outdated packages (no known vulnerability)
+
+### Triggering a scan
+
+- **Automatic** — a file watcher rescans any manifest 2 seconds after it is saved
+- **On startup** — SideCar runs an initial workspace-wide scan when the extension activates
+- **On demand** — `SideCar: Scan Dependencies for Drift & Vulnerabilities` from the Command Palette
+- **Via the agent** — call `check_dependencies` (optionally with `ecosystem: "npm"` to filter, or `checkVulnerabilities: false` for a fast offline check)
+
+### Settings
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `sidecar.deps.enabled` | `true` | Master toggle |
+| `sidecar.deps.checkVulnerabilities` | `true` | OSV API lookups (disable offline) |
+
 ## SVG sanitization
 
 Mermaid diagrams and any SVG content rendered in chat are sanitized using a DOM parser with an allowlist of safe SVG elements. Dangerous elements (`<script>`, `<animate>`, `<set>`) are removed. `<style>` tags are preserved (needed for diagram theming) but `@import` and `url()` directives are stripped. Links (`<a>`) are restricted to fragment-only (`#`) hrefs.

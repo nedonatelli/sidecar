@@ -432,3 +432,55 @@ Memory is also recorded during agent runs whenever:
 ```
 
 Custom tools appear alongside built-in tools and go through the same approval flow.
+
+## macOS Seatbelt Sandbox (v0.89+)
+
+Wraps agent `run_command` and `run_tests` calls with `/usr/bin/sandbox-exec` on macOS. The deny-default SBPL profile allows reads everywhere, network-outbound, and writes only inside the workspace root, `/tmp`, and common build caches (`~/.npm`, `~/.cargo`, `~/.gradle`, `~/.m2`). Automatically disabled on Linux and Windows where `sandbox-exec` is unavailable.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.sandbox.enabled` | boolean | `true` | Enable the macOS Seatbelt sandbox for agent shell commands. Disable if a tool you rely on writes outside the allowed paths and you have verified it is safe |
+
+## External Context Providers (v0.89+)
+
+Pull live issue-tracker context into every agent system prompt. At the start of each turn SideCar fetches the configured trackers, injects an `## Active Issues` block, and caches results for 5 minutes. Errors (bad token, network failure) are non-fatal — a `⚠️` line appears in the block but the turn continues.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.contextProviders` | array | `[]` | List of context provider configs. Each entry has `type` (`github` \| `linear` \| `jira`), `filter`, `maxIssues`, and provider-specific fields (`owner`/`repo`, `apiKey`, `teamId`, etc.) |
+
+**GitHub Issues example:**
+
+```json
+"sidecar.contextProviders": [
+  {
+    "type": "github",
+    "filter": "assigned",
+    "maxIssues": 5
+  }
+]
+```
+
+The GitHub provider auto-detects `owner/repo` from `git remote get-url origin`. For Linear and Jira supply `apiKey` and optionally `teamId` / `projectKey`.
+
+## Model Arena (v0.90+)
+
+Side-by-side streaming comparison of 2–4 models on the same prompt, with a local ELO leaderboard. See [Slash Commands — Model Arena](slash-commands#model-arena-new-in-v090) for the full flow.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.arena.enabled` | boolean | `true` | Master toggle for Model Arena. When `false`, `/arena` and the palette entries show a one-line info toast |
+| `sidecar.arena.defaultModels` | string[] | `[]` | Pre-populated model list — when non-empty, the QuickPick is skipped and these models are used directly. Example: `["llama3.2:3b", "qwen3:8b"]` |
+
+ELO ratings are persisted to `.sidecar/arena/elo.json` (K=32, multi-way pairwise) and accumulate across both chat and agent arena runs.
+
+## Dependency Drift Alerts (v0.91+)
+
+Scans `package.json`, `requirements*.txt`, `Cargo.toml`, and `go.mod` for outdated dependencies and known vulnerabilities. Findings appear in the VS Code **Problems panel** (`source: sidecar-deps`) — `Information` for outdated, `Warning` for medium/high vulnerabilities, `Error` for critical. File watchers trigger a debounced (2 s) re-scan on manifest save. See [Security Scanning — Dependency Drift](security-scanning#dependency-drift-alerts) for details.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.deps.enabled` | boolean | `true` | Enable Dependency Drift Alerts, the file watchers, and the `check_dependencies` agent tool |
+| `sidecar.deps.checkVulnerabilities` | boolean | `true` | Query the [OSV](https://osv.dev) API for CVE/GHSA matches. Disable in offline or air-gapped environments |
+
+Force an immediate workspace-wide scan with `SideCar: Scan Dependencies for Drift & Vulnerabilities` from the Command Palette, or call the `check_dependencies` agent tool directly.

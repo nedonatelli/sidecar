@@ -720,9 +720,11 @@ permalink: /
   <div class="ticker-track">
     <span class="tick">Fully Offline</span><span class="tick-sep">&middot;</span>
     <span class="tick">Autonomous Agent Loop</span><span class="tick-sep">&middot;</span>
-    <span class="tick">55 Built-in Tools</span><span class="tick-sep">&middot;</span>
+    <span class="tick">62 Built-in Tools</span><span class="tick-sep">&middot;</span>
     <span class="tick">MCP Server Support</span><span class="tick-sep">&middot;</span>
     <span class="tick">Security Scanning</span><span class="tick-sep">&middot;</span>
+    <span class="tick">Dep Drift Alerts</span><span class="tick-sep">&middot;</span>
+    <span class="tick">Model Arena</span><span class="tick-sep">&middot;</span>
     <span class="tick">Git Integration</span><span class="tick-sep">&middot;</span>
     <span class="tick">Smart Context</span><span class="tick-sep">&middot;</span>
     <span class="tick">Diff Preview &amp; Undo</span><span class="tick-sep">&middot;</span>
@@ -734,9 +736,11 @@ permalink: /
     <!-- Duplicate for seamless loop -->
     <span class="tick">Fully Offline</span><span class="tick-sep">&middot;</span>
     <span class="tick">Autonomous Agent Loop</span><span class="tick-sep">&middot;</span>
-    <span class="tick">55 Built-in Tools</span><span class="tick-sep">&middot;</span>
+    <span class="tick">62 Built-in Tools</span><span class="tick-sep">&middot;</span>
     <span class="tick">MCP Server Support</span><span class="tick-sep">&middot;</span>
     <span class="tick">Security Scanning</span><span class="tick-sep">&middot;</span>
+    <span class="tick">Dep Drift Alerts</span><span class="tick-sep">&middot;</span>
+    <span class="tick">Model Arena</span><span class="tick-sep">&middot;</span>
     <span class="tick">Git Integration</span><span class="tick-sep">&middot;</span>
     <span class="tick">Smart Context</span><span class="tick-sep">&middot;</span>
     <span class="tick">Diff Preview &amp; Undo</span><span class="tick-sep">&middot;</span>
@@ -756,7 +760,7 @@ permalink: /
   </div>
   <div class="stat-div"></div>
   <div class="stat-item">
-    <span class="stat-num">4128</span>
+    <span class="stat-num">5427</span>
     <span class="stat-label">tests passing</span>
   </div>
   <div class="stat-div"></div>
@@ -766,7 +770,7 @@ permalink: /
   </div>
   <div class="stat-div"></div>
   <div class="stat-item">
-    <span class="stat-num">55</span>
+    <span class="stat-num">62</span>
     <span class="stat-label">built-in tools</span>
   </div>
 </div>
@@ -797,6 +801,8 @@ permalink: /
         <span class="feat-pill">database query</span>
         <span class="feat-pill">visual verification</span>
         <span class="feat-pill">doc-to-test</span>
+        <span class="feat-pill">dep drift alerts</span>
+        <span class="feat-pill">model arena</span>
       </div>
     </div>
 
@@ -810,6 +816,18 @@ permalink: /
       <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="1.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
       <h3>Security Scanning</h3>
       <p>Built-in secrets detection and vulnerability patterns. Scans staged files before every commit.</p>
+    </div>
+
+    <div class="feat-card">
+      <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="1.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+      <h3>Dependency Drift Alerts</h3>
+      <p>Scans package.json, requirements.txt, Cargo.toml, and go.mod for outdated and vulnerable deps. CVE/GHSA IDs from OSV surface in the Problems panel.</p>
+    </div>
+
+    <div class="feat-card">
+      <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="1.5"><rect x="2" y="3" width="9" height="18" rx="1"/><rect x="13" y="3" width="9" height="18" rx="1"/></svg></div>
+      <h3>Model Arena</h3>
+      <p>Compare 2&ndash;4 models side-by-side on the same prompt. Local ELO ratings, multi-turn chat, and agent-mode (fork dispatch per model).</p>
     </div>
 
     <div class="feat-card">

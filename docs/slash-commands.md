@@ -28,7 +28,8 @@ Type `/` in the chat input to see all available commands. An autocomplete dropdo
 | `/context` | Visualize context window |
 | `/test` | Generate tests |
 | `/lint` | Run linter |
-| `/deps` | Analyze dependencies |
+| `/arena [models]` | Side-by-side model comparison (chat or agent mode) |
+| `/deps` | Scan dependencies for drift and vulnerabilities |
 | `/scaffold <type>` | Generate boilerplate |
 | `/commit` | Generate commit and push |
 | `/audit` | Agent action audit log |
@@ -127,11 +128,15 @@ Scans staged git files for secrets and vulnerabilities before committing. See [S
 
 ### `/deps`
 
-Analyzes project dependencies:
-- Package counts and lists
-- Unused package detection (Node.js)
-- Outdated version checks
-- Supports Node.js, Python, and Go
+Triggers a Dependency Drift scan across all manifest files in the workspace (`package.json`, `requirements*.txt`, `Cargo.toml`, `go.mod`):
+
+- Fetches latest versions from npm, PyPI, crates.io, and the Go module proxy
+- Queries the [OSV](https://osv.dev) vulnerability database for CVE/GHSA matches
+- Surfaces findings in the VS Code **Problems panel** (`source: sidecar-deps`): `Information` for outdated packages, `Warning` for medium/high vulnerabilities, `Error` for critical ones
+
+Same action as `SideCar: Scan Dependencies for Drift & Vulnerabilities` in the Command Palette, or calling the `check_dependencies` agent tool.
+
+Configure via `sidecar.deps.enabled` and `sidecar.deps.checkVulnerabilities`.
 
 ---
 
@@ -311,6 +316,24 @@ Background agents:
 Up to 3 agents run concurrently (configurable via `sidecar.bgMaxConcurrent`). Additional tasks queue automatically. When an agent completes, a summary is posted to the main chat.
 
 See [Agent Mode — Background agents](agent-mode#background-agents) for details.
+
+## Model Arena *(new in v0.90)*
+
+### `/arena [models]`
+
+Opens the **Model Arena** — a full-editor panel that streams the same prompt through 2–4 models in parallel side-by-side columns.
+
+```
+/arena                               # QuickPick to choose models
+/arena llama3.2:3b,qwen3:8b         # pre-fill two models (comma-separated)
+/arena agent refactor the auth module  # agent-mode: run task via fork dispatch
+```
+
+**Chat mode** (`/arena` or `/arena model1,model2`): the panel opens with one streaming column per model. Vote buttons (👑 Best) appear once any lane produces output. Each vote updates a local ELO leaderboard persisted to `.sidecar/arena/elo.json`. Multi-turn: a new prompt bar re-enables after each vote so you can continue the conversation. "Change models" lets you swap models without closing the panel.
+
+**Agent mode** (`/arena agent <task>`): runs the task through each chosen model inside its own Shadow Workspace (one fork per model), then opens the normal Fork diff-review UI. The winner's ELO is updated when you pick a diff.
+
+Configured via `sidecar.arena.enabled` (default `true`) and `sidecar.arena.defaultModels` (pre-fill list so the QuickPick is skipped). Also available from the Command Palette as `SideCar: Open Model Arena (Chat)` and `SideCar: Open Model Arena (Agent Task)`.
 
 ## Fork & Parallel Solve *(new in v0.67)*
 
