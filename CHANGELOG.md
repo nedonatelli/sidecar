@@ -4,6 +4,20 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.89.0] - 2026-05-16
+
+**v0.89.0 — macOS Seatbelt sandbox, background task notifications, external context providers.**
+
+### Added
+
+- **macOS Seatbelt sandbox** (`sidecar.sandbox.enabled`, default `true`) — agent `run_command` and `run_tests` calls are wrapped with `/usr/bin/sandbox-exec` on macOS. The deny-default SBPL profile allows file reads everywhere, network-outbound, and writes only inside the workspace root, `/tmp`, and common build caches (`~/.npm`, `~/.cargo`, `~/.gradle`, `~/.m2`). Prevents a rogue tool call from writing outside the project tree or exfiltrating secrets to a remote server. Automatically disabled on Linux/Windows (where `sandbox-exec` is unavailable) and when the user sets the flag to `false`. The VS Code-owned terminal (`AgentTerminalExecutor`) is exempt — VS Code creates that process and cannot be sandboxed via spawn args. (`src/terminal/seatbelt.ts`)
+
+- **Background task notifications** — when a `/bg` background agent task completes or fails, SideCar now fires a VS Code information or error toast (`window.showInformationMessage` / `showErrorMessage`) with a **View Output** action that focuses the Background Agents panel. Previously the completion was silent unless the user happened to be watching the panel. (`src/agent/bgNotifier.ts`)
+
+- **Status bar spinner for background agents** — the status bar shows a `$(sync~spin) BG` spinner while any background agent is running and a `$(check) BG done` indicator for 6 s after the last task completes, then hides. Gives a low-noise ambient signal without requiring the panel to be open. (`src/views/backgroundAgentsView.ts`)
+
+- **External context providers** (`sidecar.contextProviders`) — configure GitHub Issues, Linear, or Jira as live context sources. At the start of each agent turn SideCar fetches the configured trackers, injects an `## Active Issues` block into the system prompt, and caches results for 5 minutes. Each provider supports `filter` (assigned / created / all / team / sprint / etc.) and `maxIssues`. Errors (bad token, network failure) are non-fatal — a `⚠️ …` warning line appears in the block but the agent turn continues. Auto-detects `owner/repo` from `git remote get-url origin` for GitHub. (`src/context/`)
+
 ## [0.88.1] - 2026-05-15
 
 **v0.88.1 — DESIGN.md injection, project-instructions fallback, OS+shell in prompt, architect/editor model split, per-directory SIDECAR.md, pluggable web search.**

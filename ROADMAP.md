@@ -1,6 +1,6 @@
 # SideCar Roadmap
 
-**Current release: v0.88.1** — DESIGN.md injection; `AGENTS.md`/`CLAUDE.md`/`.cursorrules` fallback; OS + shell in system prompt; architect/editor two-model split (`sidecar.editorModel`); per-directory SIDECAR.md; pluggable web search (DuckDuckGo / Tavily / Brave). Also ships all v0.88.0 features: Copilot interop via `vscode.lm.registerTool` (11 tools); `@sidecar` participant runs full agent loop; VS Code Agents Window opt-in; Refresh Models + Restart Ollama buttons; stub-validator/cycle-detection conflict fix; eval suite v0.87d (92 cases). See [CHANGELOG](CHANGELOG.md) for full notes.
+**Current release: v0.89.0** — macOS Seatbelt sandbox for agent shell commands; background task toast notifications + status bar spinner; external context providers (GitHub Issues / Linear / Jira) injected into system prompt. See [CHANGELOG](CHANGELOG.md) for full notes.
 
 **Coverage floor**: ≥80/70/80/80 (stmts/branches/funcs/lines) enforced by CI. No PR merges that drop any metric.
 
@@ -12,6 +12,7 @@
 
 | Version | Headline |
 |---|---|
+| v0.89.0 | macOS Seatbelt sandbox · background task notifications + status bar spinner · external context providers (GitHub / Linear / Jira) |
 | v0.88.1 | DESIGN.md injection · `AGENTS.md`/`CLAUDE.md`/`.cursorrules` fallback · OS+shell in prompt · architect/editor split (`editorModel`) · per-directory SIDECAR.md · pluggable web search (Tavily/Brave/DDG) |
 | v0.88 | Copilot interop (`vscode.lm.registerTool`) · `@sidecar` full agent loop · Agents Window opt-in · Refresh Models/Restart Ollama · eval suite v0.87d (92 cases) |
 | v0.87 | Sidebar panels (Background Agents · MCP Servers · Sessions · Edit Timeline) · `edit_file` guardrails · eval suite 47+31 cases |

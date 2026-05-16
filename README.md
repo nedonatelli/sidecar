@@ -74,7 +74,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 - **No vendor lock-in** — Ollama, Anthropic, OpenAI-compatible (LM Studio, vLLM, OpenRouter), Kickstand, or GGUF directly from HuggingFace.
 - **Feels first-party** — status bar health indicator, native error toasts, lightbulb code actions, Problems panel integration, file decorations, activity-bar badge, and a `SideCar:` command palette category.
 - **Hybrid cost-aware** — Anthropic prompt caching + 90%-reduction prompt pruner + `delegate_task` to a local Ollama worker + session spend tracker + daily/weekly budgets + architect/editor model split (`sidecar.editorModel`) that auto-routes execution turns to a faster/cheaper model.
-- **Security from the ground up** — OS keychain key storage, secrets detection, vuln scanning, path traversal protection, workspace hook warnings.
+- **Security from the ground up** — OS keychain key storage, secrets detection, vuln scanning, path traversal protection, workspace hook warnings, macOS Seatbelt sandbox for agent shell commands.
 - **Extensible** — MCP (stdio / HTTP / SSE), custom skills via markdown, 8 built-in skills, NoSQL quick-install for MongoDB + Redis.
 - **Production-grade safety** — review mode, audit mode (atomic flush), shadow workspaces, completion gate, cycle detection, stub validator, regression guards.
 
@@ -96,7 +96,9 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 | **DESIGN.md** | Always-injected architecture / style guide — place `.sidecar/DESIGN.md` (or `DESIGN.md`) to keep domain knowledge in every system prompt without SIDECAR.md boilerplate |
 | **Inline completions** | Copilot-style autocomplete via Ollama FIM or Anthropic (opt-in via `sidecar.enableInlineCompletions`) |
 | **Inline chat** | `Cmd+I` — edit code in place; lightbulb integration surfaces **Fix / Explain / Refactor** on diagnostics |
-| **Background agents** | `/bg <task>` spawns parallel autonomous agents with a status dashboard |
+| **Background agents** | `/bg <task>` spawns parallel autonomous agents with a status dashboard; toast notification + status bar spinner on completion |
+| **External context providers** | Pull live GitHub Issues, Linear, or Jira tickets into every agent system prompt via `sidecar.contextProviders` |
+| **macOS Seatbelt sandbox** | `sidecar.sandbox.enabled` wraps agent shell commands with a deny-default SBPL profile — writes restricted to the workspace + `/tmp` + build caches |
 | **Security scanning** | Secrets, SQL injection, XSS, eval — findings in VS Code Problems panel (`source:sidecar-*`) |
 | **Doc sync** | Checks JSDoc `@param` staleness and README call-site arity on every save |
 | **MCP** | stdio / HTTP / SSE transports, per-server tool allowlist, `sidecar.noSql.install` for one-click MongoDB + Redis |
