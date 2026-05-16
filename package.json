@@ -992,6 +992,15 @@
             ],
             "markdownDescription": "*(v0.62.1)* Sweep orphan shadow worktrees at activation. A VS Code crash mid-shadow-run can leave git metadata under `.git/worktrees/<id>/` pointing at a directory that no longer exists — downstream `git status` / `git fetch` / `git push` start failing mysteriously. When enabled (default), SideCar runs `git worktree remove --force` on any stale entry whose shadow path is gone + deletes orphan dirs under `.sidecar/shadows/` that aren't registered with git.\n\nDisable when doing crash-recovery forensics on your own shadows; the manual `SideCar: Shadow Workspaces: Sweep Stale Worktrees` command stays available regardless of this setting."
           },
+          "sidecar.sandbox.enabled": {
+            "type": "boolean",
+            "default": true,
+            "order": 13,
+            "tags": [
+              "sidecar"
+            ],
+            "markdownDescription": "*(macOS only)* Wrap agent shell commands (`run_command`, `run_tests`, background commands) in the macOS Seatbelt sandbox via `/usr/bin/sandbox-exec`. The profile allows all file reads, network access, and process execution, but restricts **writes** to the workspace directory, `/tmp`, and common build-tool caches (`~/.npm`, `~/.cargo`, `~/.cache`, etc.). Writes to sensitive paths such as `~/.ssh`, `~/.aws`, `/etc`, and `/usr/local` are denied.\n\nHas no effect on Linux or Windows. The VS Code terminal-integration path (`sidecar.terminalExecution.enabled`) is not sandboxed — VS Code creates that process outside SideCar's spawn call.\n\nDisable if you need agent shell commands to write outside these paths (e.g. system-wide Homebrew installs)."
+          },
           "sidecar.terminalExecution.enabled": {
             "type": "boolean",
             "default": true,

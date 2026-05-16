@@ -4,6 +4,7 @@ import * as os from 'os';
 import { MAX_BACKGROUND_COMMANDS } from '../config/constants.js';
 import { stripAnsi } from './ansi.js';
 import { ManagedChildProcess, getProcessRegistry } from '../agent/processLifecycle.js';
+import { isSeatbeltSupported, wrapWithSeatbelt } from './seatbelt.js';
 
 export interface ShellExecuteOptions {
   timeout?: number; // ms, default 120_000
@@ -92,7 +93,18 @@ export class ShellSession {
    *  shell dialect to emit (bash vs zsh vs windows). */
   private shellPath: string;
 
-  constructor(cwd: string, env?: Record<string, string>, maxOutputSize: number = 10 * 1024 * 1024) {
+  /**
+   * @param sandboxEnabled  When true and on macOS, wraps shell spawns in
+   *   /usr/bin/sandbox-exec. Silently ignored on Windows/Linux.
+   *   Note: the AgentTerminalExecutor (VS Code terminal integration) path
+   *   is not wrapped — VS Code creates that process outside our spawn call.
+   */
+  constructor(
+    cwd: string,
+    env?: Record<string, string>,
+    maxOutputSize: number = 10 * 1024 * 1024,
+    private readonly sandboxEnabled = false,
+  ) {
     this.cwd = cwd;
     this.env = { ...(process.env as Record<string, string>), ...env };
     this.maxOutputSize = maxOutputSize;
@@ -122,7 +134,13 @@ export class ShellSession {
       args = ['--norc', '--noprofile'];
     }
 
-    this.proc = spawn(shellPath, args, {
+    let spawnCmd = shellPath;
+    let spawnArgs = args;
+    if (!this.isWindows && this.sandboxEnabled && isSeatbeltSupported()) {
+      ({ cmd: spawnCmd, args: spawnArgs } = wrapWithSeatbelt(shellPath, args, this.cwd));
+    }
+
+    this.proc = spawn(spawnCmd, spawnArgs, {
       cwd: this.cwd,
       env: this.env,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -402,11 +420,16 @@ export class ShellSession {
     }
 
     const id = randomBytes(4).toString('hex');
-    const rawProc = spawn(
-      this.isWindows ? process.env.COMSPEC || 'cmd.exe' : process.env.SHELL || '/bin/bash',
-      this.isWindows ? ['/C', command] : ['-c', command],
-      { cwd: this.cwd, env: this.env, stdio: ['ignore', 'pipe', 'pipe'] },
-    );
+    let bgCmd = this.isWindows ? process.env.COMSPEC || 'cmd.exe' : this.shellPath;
+    let bgArgs = this.isWindows ? ['/C', command] : ['-c', command];
+    if (!this.isWindows && this.sandboxEnabled && isSeatbeltSupported()) {
+      ({ cmd: bgCmd, args: bgArgs } = wrapWithSeatbelt(bgCmd, bgArgs, this.cwd));
+    }
+    const rawProc = spawn(bgCmd, bgArgs, {
+      cwd: this.cwd,
+      env: this.env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
 
     // Wrap in ManagedChildProcess for lifecycle tracking
     const proc = new ManagedChildProcess(rawProc, `bg-cmd:${id}`, getProcessRegistry());

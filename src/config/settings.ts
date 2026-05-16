@@ -187,6 +187,8 @@ export interface SideCarConfig {
   terminalExecutionTerminalName: string;
   terminalExecutionFallbackToChildProcess: boolean;
   terminalExecutionShellIntegrationTimeoutMs: number;
+  /** Wrap agent shell commands in macOS Seatbelt (sandbox-exec). macOS only; no-op on other platforms. */
+  sandboxEnabled: boolean;
   /* Shadow Workspaces */
   shadowWorkspaceMode: 'off' | 'opt-in' | 'always';
   shadowWorkspaceAutoCleanup: boolean;
@@ -466,6 +468,7 @@ function readConfig(): SideCarConfig {
       100,
       2000,
     ),
+    sandboxEnabled: cfg.get<boolean>('sandbox.enabled', true),
     /* Shadow Workspaces */
     shadowWorkspaceMode: cfg.get<'off' | 'opt-in' | 'always'>('shadowWorkspace.mode', 'off'),
     shadowWorkspaceAutoCleanup: cfg.get<boolean>('shadowWorkspace.autoCleanup', true),

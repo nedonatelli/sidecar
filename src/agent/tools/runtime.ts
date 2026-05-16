@@ -32,7 +32,7 @@ export class ToolRuntime {
     if (this.shell && this.shell.isAlive) return this.shell;
     const config = injectedConfig ?? getConfig();
     const maxOutput = (config.shellMaxOutputMB || 10) * 1024 * 1024;
-    this.shell = new ShellSession(getRoot(), undefined, maxOutput);
+    this.shell = new ShellSession(getRoot(), undefined, maxOutput, config.sandboxEnabled);
     return this.shell;
   }
 
