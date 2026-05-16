@@ -111,7 +111,7 @@ This lets you steer the agent mid-run without waiting for it to finish. The back
 
 ## Built-in tools
 
-SideCar has 29 built-in tools the agent can use (`delegate_task` is only exposed when the active backend is paid, so local-only users see 22):
+SideCar has 62 built-in tools the agent can use. The table below covers the core agentic tools; additional specialized tools are available for databases, vision verification, PDF/Zotero research, notebook mode, dependency scanning, and doc-to-test synthesis (some gated by feature flags). `delegate_task` is only exposed when the active backend is paid.
 
 | Tool | Description |
 |------|-------------|
@@ -139,6 +139,7 @@ SideCar has 29 built-in tools the agent can use (`delegate_task` is only exposed
 | `web_search` | Search the web via DuckDuckGo |
 | `display_diagram` | Extract and render diagrams from markdown files |
 | `ask_user` | Ask the user a clarifying question with selectable options |
+| `check_dependencies` | Scan package.json / requirements.txt / Cargo.toml / go.mod for outdated and vulnerable deps (OSV API) |
 | `kickstand_list_loras` *(Kickstand only)* | List LoRA adapters currently attached to a loaded Kickstand model |
 | `kickstand_attach_lora` *(Kickstand only)* | Attach a LoRA adapter to a loaded Kickstand model without reloading — requires approval |
 | `kickstand_detach_lora` *(Kickstand only)* | Detach a previously-attached LoRA adapter — requires approval |
