@@ -101,6 +101,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 | **Background agents** | `/bg <task>` spawns parallel autonomous agents with a status dashboard; toast notification + status bar spinner on completion |
 | **External context providers** | Pull live GitHub Issues, Linear, or Jira tickets into every agent system prompt via `sidecar.contextProviders` |
 | **macOS Seatbelt sandbox** | `sidecar.sandbox.enabled` wraps agent shell commands with a deny-default SBPL profile — writes restricted to the workspace + `/tmp` + build caches |
+| **Dependency Drift Alerts** | Scans `package.json`, `requirements.txt`, `Cargo.toml`, and `go.mod` for outdated and vulnerable deps — CVE/GHSA IDs from the OSV API surface in the Problems panel; `check_dependencies` agent tool for on-demand reports |
 | **Security scanning** | Secrets, SQL injection, XSS, eval — findings in VS Code Problems panel (`source:sidecar-*`) |
 | **Doc sync** | Checks JSDoc `@param` staleness and README call-site arity on every save |
 | **MCP** | stdio / HTTP / SSE transports, per-server tool allowlist, `sidecar.noSql.install` for one-click MongoDB + Redis |
