@@ -4,6 +4,22 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.92.0] - 2026-05-17
+
+**v0.92.0 — SIDECAR.md Retrieval Mode + Shell Execution Unification.**
+
+### Added
+
+- **SIDECAR.md Retrieval Mode** (`sidecar.sidecarMd.mode: "retrieval"`) — for large SIDECAR.md files (20+ sections), semantic retrieval now replaces path-scoped injection for `scoped` and `low` sections. `always`-priority sections (Build, Conventions, Setup, etc.) still inject verbatim every turn. All other sections are embedded with MiniLM-L6-v2, persisted to `.sidecar/cache/sidecarMd/`, and scored against the current query via the existing RRF fusion pipeline alongside `DocRetriever`, `SemanticRetriever`, etc. Incremental update: only sections whose body changes are re-embedded — embedding cost on repeat turns is typically zero.
+
+- **`sidecar.sidecarMd.retrieval.topK`** (default `5`, clamped 1–20) — maximum number of SIDECAR.md sections to surface per turn in retrieval mode.
+
+- **`sidecar.sidecarMd.retrieval.minScore`** (default `0.3`, range 0–1) — cosine-similarity floor; sections below this threshold are never injected even if they rank in the top-K.
+
+### Changed
+
+- **Shell execution unification** — the try-terminal / fall-back-to-ShellSession routing that was duplicated identically in both `runCommand` and `runTests` is now consolidated in a single `CompositeShellExecutor` (`src/terminal/shellExecutor.ts`). Both tools share a single `executeShell()` helper. `AgentTerminalExecutor` is only instantiated when `sidecar.terminalExecution.enabled` is `true` — this also fixes a latent test-environment issue where the constructor subscribed to `window.onDidCloseTerminal` even when terminal execution was disabled.
+
 ## [0.91.1] - 2026-05-16
 
 **v0.91.1 — Documentation fixes.**

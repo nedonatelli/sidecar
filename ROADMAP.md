@@ -1,6 +1,6 @@
 # SideCar Roadmap
 
-**Current release: v0.91.0** — Dependency Drift Alerts (Problems panel + `check_dependencies` agent tool; OSV vulnerabilities; npm/PyPI/cargo/Go). See [CHANGELOG](CHANGELOG.md) for full notes.
+**Current release: v0.92.0** — SIDECAR.md Retrieval Mode (`sidecar.sidecarMd.mode: 'retrieval'`) + Shell Execution Unification (`CompositeShellExecutor`). See [CHANGELOG](CHANGELOG.md) for full notes.
 
 **Coverage floor**: ≥80/70/80/80 (stmts/branches/funcs/lines) enforced by CI. No PR merges that drop any metric.
 
@@ -12,6 +12,7 @@
 
 | Version | Headline |
 |---|---|
+| v0.92.0 | SIDECAR.md Retrieval Mode (`sidecar.sidecarMd.mode: 'retrieval'`) · Shell Execution Unification (`CompositeShellExecutor`) |
 | v0.91.0 | Dependency Drift Alerts (Problems panel · `check_dependencies` tool · OSV vulns · npm/PyPI/cargo/Go) |
 | v0.90.0 | Model Arena (chat + agent, ELO ratings) · `/arena` slash command · selective section regeneration |
 | v0.89.0 | macOS Seatbelt sandbox · background task notifications + status bar spinner · external context providers (GitHub / Linear / Jira) |
@@ -163,7 +164,7 @@ GPU-Native Hot-Swapping · GPU-Aware Load Balancing · Multi-repo cross-talk · 
 |---|---|
 | `ollama/types.ts` split into domain files | ✅ v0.69 |
 | Tool `catch` block consolidation (`formatToolError`) | ✅ v0.82 |
-| Shell execution unification | 🔜 v1.0 |
+| Shell execution unification | ✅ v0.92 — `CompositeShellExecutor` consolidates terminal + ShellSession routing |
 | Backend abstraction maturity (`sidecarFetch`) | 🔜 v1.0 |
 | Handler registry pattern (webview/handlers typed dispatch) | 🔜 v1.0 |
 

@@ -281,16 +281,22 @@ Optional sandbox for agent tasks. When enabled, the agent runs in an ephemeral g
 
 At task completion, SideCar shows a `showQuickPick` with the diff summary (file count, line count) and an Accept / Reject choice. Accept applies the diff to main as staged changes (so you see them in `git status`). Reject discards the shadow and leaves your main tree untouched. The v0.59 MVP uses an accept-all / reject-all prompt; per-hunk review UI, conflict handling, symlinked build dirs, and `/sandbox <task>` slash command wiring land in v0.60+.
 
-## SIDECAR.md Path-Scoped Section Injection (v0.67+)
+## SIDECAR.md Path-Scoped Section Injection (v0.67+) + Retrieval Mode (v0.92+)
 
-Pre-v0.67, the entire SIDECAR.md body landed in every agent turn's system prompt and got mid-chopped on overflow. v0.67 replaces that with a deterministic, path-aware selector that routes sections by `<!-- @paths: glob -->` sentinels. See [SIDECAR.md](sidecar-md#path-scoped-section-injection-v067) for the sentinel schema.
+Pre-v0.67, the entire SIDECAR.md body landed in every agent turn's system prompt and got mid-chopped on overflow. v0.67 replaces that with a deterministic, path-aware selector that routes sections by `<!-- @paths: glob -->` sentinels. v0.92 adds a third mode — `retrieval` — for large SIDECAR.md files where path-scoped routing is either unannotated or too coarse.
+
+See [SIDECAR.md](sidecar-md#path-scoped-section-injection-v067) for the sentinel schema.
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
-| `sidecar.sidecarMd.mode` | enum | `"sections"` | `sections` parses H2 boundaries and routes sections by `@paths` sentinels + active file + mentioned paths. Drops whole sections on overflow instead of mid-chopping. Degrades to `full` when no section declares a sentinel. `full` is the legacy pre-v0.67 behavior — dump the whole file, mid-chop on overflow. Use `full` if your SIDECAR.md can't be cleanly sectioned |
-| `sidecar.sidecarMd.alwaysIncludeHeadings` | string[] | `["Build", "Conventions", "Setup"]` | H2 headings that always get included regardless of sentinels. Case-insensitive match against section heading. Useful for teams who don't want to edit their SIDECAR.md — the "always include Build" rule lives in user settings |
-| `sidecar.sidecarMd.lowPriorityHeadings` | string[] | `["Glossary", "FAQ", "Changelog"]` | H2 headings demoted to low priority — included only when budget remains after always + scoped sections |
-| `sidecar.sidecarMd.maxScopedSections` | number | `5` | Cap on how many path-scoped sections can land in one injection. Guards against a wildcard-ish glob matching 30 sections. Clamped 1–50 |
+| `sidecar.sidecarMd.mode` | enum | `"sections"` | How SIDECAR.md content is injected. `sections` (default) — path-scoped routing by `@paths` sentinels + active file + mentioned paths. `retrieval` — only `always`-priority sections inject verbatim; all other sections are scored by semantic similarity at query time via the RRF fusion pipeline. Best for files with 20+ sections. `full` — legacy whole-file dump with mid-chop on overflow |
+| `sidecar.sidecarMd.alwaysIncludeHeadings` | string[] | `["Build", "Conventions", "Setup"]` | H2 headings that always inject verbatim in every mode. Case-insensitive match |
+| `sidecar.sidecarMd.lowPriorityHeadings` | string[] | `["Glossary", "FAQ", "Changelog"]` | H2 headings demoted to low priority in `sections` mode — included only when budget remains. In `retrieval` mode these are scored like any other section |
+| `sidecar.sidecarMd.maxScopedSections` | number | `5` | Cap on path-scoped sections per injection in `sections` mode. Clamped 1–50 |
+| `sidecar.sidecarMd.retrieval.topK` | number | `5` | Max SIDECAR.md sections surfaced per turn in `retrieval` mode. Clamped 1–20 |
+| `sidecar.sidecarMd.retrieval.minScore` | number | `0.3` | Cosine-similarity floor for retrieval mode. Sections below this threshold are never injected even if they rank in the top-K. Range 0–1 |
+
+**Retrieval mode detail:** on first use (or after a content change), each section body is embedded with `all-MiniLM-L6-v2` and persisted to `.sidecar/cache/sidecarMd/`. Subsequent turns only re-embed sections whose content changed. The `SidecarMdRetriever` joins the existing RRF fusion pipeline alongside `DocRetriever`, `SemanticRetriever`, etc. — so SIDECAR.md sections compete on the same relevance footing as project knowledge and documentation.
 
 ## Fork & Parallel Solve (v0.67+)
 

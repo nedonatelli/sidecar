@@ -217,14 +217,15 @@ v0.67 chunk 1. Pure primitive (no VS Code imports) that replaces the pre-v0.67 w
 - `pathMatchesAnyGlob(filePath, globs)` — simple glob→regex conversion supporting `**` (any depth), `*` (non-slash segment), `?` (single non-slash char), trailing `/` as `/**`. Normalizes Windows back-slashes.
 - `selectSidecarMdSections(parsed, ctx)` — applies priority rules (always > scoped > low), routes scoped sections by `activeFilePath` + `mentionedPaths`, caps at `maxScopedSections`, drops whole sections in reverse priority on overflow — never mid-chops.
 
-The `v0.70+` retrieval-mode successor (documented on ROADMAP) will layer a `SidecarMdRetriever` onto the existing `fuseRetrievers` pipeline that uses the same chunk output — so the primitive is designed to double as the chunker for future embedding-based routing.
+**v0.92 retrieval-mode layer** (`src/agent/sidecarMdIndex.ts` + `src/agent/retrieval/sidecarMdRetriever.ts`): `SidecarMdIndex` embeds each parsed section with MiniLM-L6-v2 into a persisted `FlatVectorStore` at `.sidecar/cache/sidecarMd/`. Incremental update: `quickHash` change-detects per section; only changed bodies are re-embedded; removed sections are pruned. `SidecarMdRetriever` implements `Retriever` and plugs into the RRF fusion pipeline. When `sidecarMdMode === 'retrieval'`: `always`-priority sections inject verbatim in `systemPrompt.ts`; all other sections are surfaced by the retriever at query time.
 
-Config: `sidecar.sidecarMd.{mode, alwaysIncludeHeadings, lowPriorityHeadings, maxScopedSections}`.
+Config: `sidecar.sidecarMd.{mode, alwaysIncludeHeadings, lowPriorityHeadings, maxScopedSections, retrieval.topK, retrieval.minScore}`.
 
 ### Terminal Execution (`src/terminal/`)
 
 - `shellSession.ts` — long-lived `child_process.spawn`-based shell with per-command alias/function namespace reset. Fallback path for agent commands when shell integration isn't available.
 - `agentExecutor.ts` — v0.59+ `AgentTerminalExecutor` routes agent `run_command` / `run_tests` through VS Code's `terminal.shellIntegration.executeCommand` API in a reusable *SideCar Agent* terminal. Listens to `onDidEndTerminalShellExecution` for exit codes. Returns `null` when shellIntegration is unavailable — caller falls back to `ShellSession`.
+- `shellExecutor.ts` — v0.92 `CompositeShellExecutor` + `IShellExecutor` interface. Consolidates the terminal→ShellSession routing that `shell.ts` previously duplicated in `runCommand` and `runTests`. Foreground commands try `AgentTerminalExecutor` first; background commands always use `ShellSession`. `AgentTerminalExecutor` is only instantiated when `terminalExecution.enabled` is true.
 - `manager.ts` — user-facing terminal manager for `handleRunCommand` (chat "run this command" prompts). Distinct from the agent-facing path above.
 - `errorWatcher.ts` — subscribes to `onDidStartTerminalShellExecution` / `onDidEndTerminalShellExecution` to surface user-run command failures to the agent.
 
