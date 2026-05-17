@@ -290,6 +290,9 @@ export interface SideCarConfig {
   /* Dependency Drift */
   depsEnabled: boolean;
   depsCheckVulnerabilities: boolean;
+  /* Code Profiling */
+  profilingEnabled: boolean;
+  profilingTopN: number;
 }
 
 /**
@@ -557,6 +560,8 @@ function readConfig(): SideCarConfig {
     /* Dependency Drift */
     depsEnabled: cfg.get<boolean>('deps.enabled', true),
     depsCheckVulnerabilities: cfg.get<boolean>('deps.checkVulnerabilities', true),
+    profilingEnabled: cfg.get<boolean>('profiling.enabled', false),
+    profilingTopN: clampMin(cfg.get<number>('profiling.topN', 10), 1, 50),
   };
 }
 

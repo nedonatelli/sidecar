@@ -2,7 +2,7 @@
   "name": "sidecar-ai",
   "displayName": "SideCar",
   "description": "Autonomous AI agent for coding — run full agent loops with local Ollama, Anthropic Claude, or OpenAI models",
-  "version": "0.92.0",
+  "version": "0.93.0",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -1769,6 +1769,18 @@
             "type": "boolean",
             "default": true,
             "description": "Query the OSV (Open Source Vulnerabilities) API when scanning dependencies. Requires internet access. Disable for offline or air-gapped environments."
+          },
+          "sidecar.profiling.enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enable the profile_code agent tool. Profiles Node.js (--prof), Python (cProfile), Go (go test -bench), and Rust (cargo bench) projects and returns top-N CPU hotspots."
+          },
+          "sidecar.profiling.topN": {
+            "type": "number",
+            "default": 10,
+            "minimum": 1,
+            "maximum": 50,
+            "description": "Number of hotspot entries to return from the profiler output. The profile_code tool's top_n parameter overrides this per-call."
           }
         }
       }

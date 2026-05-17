@@ -1,28 +1,32 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { window, workspace, Selection, Position } from 'vscode';
+import { window, workspace, commands, Selection, Position } from 'vscode';
 import { handleInlineChat } from './inlineChatProvider.js';
 import type { SideCarClient } from '../ollama/client.js';
 
 // ---------------------------------------------------------------------------
-// Tests for inlineChatProvider.ts .
+// Tests for inlineChatProvider.ts — streaming inline edit flow.
 //
-// `handleInlineChat` is the inline "cmd-K" flow: user selects code or
-// places cursor, types an instruction, and the LLM's response is
-// applied as a WorkspaceEdit. These tests cover every branch:
+// `handleInlineChat` now:
+//   1. Shows an input box for the instruction
+//   2. Streams the LLM response via client.streamChat (cancellable)
+//   3. Shows a diff preview (vscode.diff) using ProposedContentProvider
+//   4. Shows an Accept/Reject modal
+//   5. Applies the WorkspaceEdit only if the user accepts
+//
+// Test cases:
 //   - no active editor
 //   - user cancels inputBox
-//   - client returns empty → warning
-//   - client throws → error
-//   - with selection → replace edit
-//   - without selection → insert edit
-//   - applyEdit rejection → error surfaced
+//   - stream returns empty text → warning, no diff shown
+//   - stream throws → error surfaced, no diff shown
+//   - user rejects diff → edit NOT applied
+//   - with selection + accept → replace WorkspaceEdit applied
+//   - without selection + accept → insert WorkspaceEdit applied
+//   - applyEdit failure → error surfaced
+//   - surrounding context clamped to file bounds
+//   - workspace-relative filename in prompt
 // ---------------------------------------------------------------------------
 
 function makeSelection(start: Position, end: Position): Selection {
-  // The vscode mock's Selection lacks `.active` (the real VS Code has
-  // it: position of the cursor, = end in a forward selection). Bolt it
-  // on here so `handleInlineChat`'s insert-path (`selection.active.line`)
-  // has something to read.
   const sel = new Selection(start, end) as Selection & { active: Position };
   sel.active = end;
   return sel;
@@ -49,18 +53,36 @@ function makeEditor(selection: Selection, lineCount = 100, lineText = 'code line
   return { editor };
 }
 
-function makeClient(responseOrThrow: string | Error): SideCarClient {
+async function* textChunks(chunks: string[]) {
+  for (const chunk of chunks) {
+    yield { type: 'text' as const, text: chunk };
+  }
+}
+
+function makeClient(chunks: string[] | Error): SideCarClient {
   return {
-    complete: vi.fn(async () => {
-      if (responseOrThrow instanceof Error) throw responseOrThrow;
-      return responseOrThrow;
+    streamChat: vi.fn(async function* () {
+      if (chunks instanceof Error) throw chunks;
+      yield* textChunks(chunks as string[]);
     }),
   } as unknown as SideCarClient;
 }
 
+function makeContentProvider() {
+  const proposals = new Map<string, string>();
+  return {
+    addProposal: vi.fn((key: string, content: string) => {
+      proposals.set(key, content);
+      return { scheme: 'sidecar-proposed', path: key };
+    }),
+    removeProposal: vi.fn((key: string) => proposals.delete(key)),
+    proposals,
+  };
+}
+
 beforeEach(() => {
-  // Reset window state between tests.
   (window as { activeTextEditor: unknown }).activeTextEditor = undefined;
+  vi.clearAllMocks();
 });
 
 afterEach(() => {
@@ -70,64 +92,121 @@ afterEach(() => {
 describe('handleInlineChat — guard paths', () => {
   it('shows a warning and returns when there is no active editor', async () => {
     const warnSpy = vi.spyOn(window, 'showWarningMessage');
-    const client = makeClient('unreachable');
-    await handleInlineChat(client);
+    const client = makeClient(['unreachable']);
+    const provider = makeContentProvider();
+    await handleInlineChat(client, provider as never);
     expect(warnSpy).toHaveBeenCalledWith('No active editor.');
-    expect(client.complete).not.toHaveBeenCalled();
+    expect(client.streamChat).not.toHaveBeenCalled();
   });
 
   it('returns silently when the user cancels the input box', async () => {
     const { editor } = makeEditor(makeSelection(new Position(0, 0), new Position(0, 0)));
     (window as { activeTextEditor: unknown }).activeTextEditor = editor;
     vi.spyOn(window, 'showInputBox').mockResolvedValue(undefined);
-    const client = makeClient('unused');
-    await handleInlineChat(client);
-    expect(client.complete).not.toHaveBeenCalled();
+    const client = makeClient(['unused']);
+    const provider = makeContentProvider();
+    await handleInlineChat(client, provider as never);
+    expect(client.streamChat).not.toHaveBeenCalled();
   });
 
-  it('warns and returns when the client returns an empty response', async () => {
+  it('warns and returns when the stream yields only whitespace', async () => {
     const { editor } = makeEditor(makeSelection(new Position(5, 0), new Position(5, 10)));
     (window as { activeTextEditor: unknown }).activeTextEditor = editor;
     vi.spyOn(window, 'showInputBox').mockResolvedValue('add null check');
     const warnSpy = vi.spyOn(window, 'showWarningMessage');
-    const client = makeClient('   \n  ');
-    await handleInlineChat(client);
+    const client = makeClient(['   ', '\n  ']);
+    const provider = makeContentProvider();
+    await handleInlineChat(client, provider as never);
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('empty response'));
+    expect(provider.addProposal).not.toHaveBeenCalled();
   });
 
-  it('surfaces thrown client errors via showErrorMessage', async () => {
+  it('surfaces thrown stream errors via showErrorMessage and shows no diff', async () => {
     const { editor } = makeEditor(makeSelection(new Position(0, 0), new Position(0, 0)));
     (window as { activeTextEditor: unknown }).activeTextEditor = editor;
     vi.spyOn(window, 'showInputBox').mockResolvedValue('do X');
     const errSpy = vi.spyOn(window, 'showErrorMessage');
     const client = makeClient(new Error('backend timeout'));
-    await handleInlineChat(client);
+    const provider = makeContentProvider();
+    await handleInlineChat(client, provider as never);
     expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('backend timeout'));
+    expect(provider.addProposal).not.toHaveBeenCalled();
   });
 });
 
-describe('handleInlineChat — replace path (selection present)', () => {
-  it('builds an edit-selection prompt and applies a replace WorkspaceEdit', async () => {
+describe('handleInlineChat — diff preview and accept/reject', () => {
+  it('opens a diff and applies edit when user accepts (selection present)', async () => {
     const selection = makeSelection(new Position(4, 0), new Position(6, 15));
     const { editor } = makeEditor(selection);
     (window as { activeTextEditor: unknown }).activeTextEditor = editor;
     vi.spyOn(window, 'showInputBox').mockResolvedValue('convert to async');
+    vi.spyOn(window, 'showInformationMessage').mockResolvedValue('Accept' as never);
     const applyEdit = vi.fn(async () => true);
     (workspace as Record<string, unknown>).applyEdit = applyEdit;
-    const client = makeClient('const result = await fetch(url);');
+    const client = makeClient(['const result = ', 'await fetch(url);']);
+    const provider = makeContentProvider();
 
-    await handleInlineChat(client);
+    await handleInlineChat(client, provider as never);
 
-    // Client saw a prompt that references the selected range + instruction.
-    const completeMock = client.complete as ReturnType<typeof vi.fn>;
-    expect(completeMock).toHaveBeenCalled();
-    const prompt = completeMock.mock.calls[0][0][0].content as string;
-    expect(prompt).toContain('Edit the following code');
-    expect(prompt).toContain('convert to async');
-    expect(prompt).toContain('lines 5-7');
-    expect(prompt).toContain('Selected code to edit');
+    // diff should have been opened
+    expect(commands.executeCommand).toHaveBeenCalledWith(
+      'vscode.diff',
+      expect.anything(),
+      expect.anything(),
+      'SideCar: Proposed Edit',
+      { preview: true },
+    );
+    // proposals should have been cleaned up
+    expect(provider.removeProposal).toHaveBeenCalledTimes(2);
+    // edit applied
+    expect(applyEdit).toHaveBeenCalledOnce();
+  });
 
-    // applyEdit was called — replacement path.
+  it('opens a diff but does NOT apply edit when user dismisses modal', async () => {
+    const selection = makeSelection(new Position(0, 0), new Position(0, 5));
+    const { editor } = makeEditor(selection);
+    (window as { activeTextEditor: unknown }).activeTextEditor = editor;
+    vi.spyOn(window, 'showInputBox').mockResolvedValue('x');
+    // showInformationMessage returns undefined = user closed without choosing
+    vi.spyOn(window, 'showInformationMessage').mockResolvedValue(undefined as never);
+    const applyEdit = vi.fn(async () => true);
+    (workspace as Record<string, unknown>).applyEdit = applyEdit;
+    const client = makeClient(['new code']);
+    const provider = makeContentProvider();
+
+    await handleInlineChat(client, provider as never);
+
+    expect(commands.executeCommand).toHaveBeenCalledWith(
+      'vscode.diff',
+      expect.anything(),
+      expect.anything(),
+      expect.any(String),
+      expect.any(Object),
+    );
+    expect(provider.removeProposal).toHaveBeenCalledTimes(2);
+    expect(applyEdit).not.toHaveBeenCalled();
+  });
+
+  it('applies an insert WorkspaceEdit on accept when no selection', async () => {
+    const cursor = makeSelection(new Position(10, 0), new Position(10, 0));
+    const { editor } = makeEditor(cursor);
+    (window as { activeTextEditor: unknown }).activeTextEditor = editor;
+    vi.spyOn(window, 'showInputBox').mockResolvedValue('add import for lodash');
+    vi.spyOn(window, 'showInformationMessage').mockResolvedValue('Accept' as never);
+    const applyEdit = vi.fn(async () => true);
+    (workspace as Record<string, unknown>).applyEdit = applyEdit;
+    const client = makeClient(["import _ from 'lodash';"]);
+    const provider = makeContentProvider();
+
+    await handleInlineChat(client, provider as never);
+
+    expect(commands.executeCommand).toHaveBeenCalledWith(
+      'vscode.diff',
+      expect.anything(),
+      expect.anything(),
+      'SideCar: Code to Insert',
+      { preview: true },
+    );
     expect(applyEdit).toHaveBeenCalledOnce();
   });
 
@@ -136,63 +215,88 @@ describe('handleInlineChat — replace path (selection present)', () => {
     const { editor } = makeEditor(selection);
     (window as { activeTextEditor: unknown }).activeTextEditor = editor;
     vi.spyOn(window, 'showInputBox').mockResolvedValue('x');
+    vi.spyOn(window, 'showInformationMessage').mockResolvedValue('Accept' as never);
     (workspace as Record<string, unknown>).applyEdit = vi.fn(async () => false);
     const errSpy = vi.spyOn(window, 'showErrorMessage');
-    const client = makeClient('new code');
+    const client = makeClient(['new code']);
+    const provider = makeContentProvider();
 
-    await handleInlineChat(client);
+    await handleInlineChat(client, provider as never);
 
     expect(errSpy).toHaveBeenCalledWith('Failed to apply inline edit.');
   });
 });
 
-describe('handleInlineChat — insert path (no selection)', () => {
-  it('builds an insert-at-cursor prompt and applies an insert WorkspaceEdit', async () => {
-    const cursor = makeSelection(new Position(10, 0), new Position(10, 0)); // empty selection
+describe('handleInlineChat — prompt content', () => {
+  it('builds an edit-selection prompt with instruction and line range', async () => {
+    const selection = makeSelection(new Position(4, 0), new Position(6, 15));
+    const { editor } = makeEditor(selection);
+    (window as { activeTextEditor: unknown }).activeTextEditor = editor;
+    vi.spyOn(window, 'showInputBox').mockResolvedValue('convert to async');
+    vi.spyOn(window, 'showInformationMessage').mockResolvedValue(undefined as never);
+    const applyEdit = vi.fn(async () => true);
+    (workspace as Record<string, unknown>).applyEdit = applyEdit;
+    const client = makeClient(['result']);
+    const provider = makeContentProvider();
+
+    await handleInlineChat(client, provider as never);
+
+    const streamMock = client.streamChat as ReturnType<typeof vi.fn>;
+    expect(streamMock).toHaveBeenCalled();
+    const prompt = streamMock.mock.calls[0][0][0].content as string;
+    expect(prompt).toContain('Edit the following code');
+    expect(prompt).toContain('convert to async');
+    expect(prompt).toContain('lines 5-7');
+    expect(prompt).toContain('Selected code to edit');
+  });
+
+  it('builds an insert-at-cursor prompt when there is no selection', async () => {
+    const cursor = makeSelection(new Position(10, 0), new Position(10, 0));
     const { editor } = makeEditor(cursor);
     (window as { activeTextEditor: unknown }).activeTextEditor = editor;
     vi.spyOn(window, 'showInputBox').mockResolvedValue('add import for lodash');
-    const applyEdit = vi.fn(async () => true);
-    (workspace as Record<string, unknown>).applyEdit = applyEdit;
-    const client = makeClient("import _ from 'lodash';");
+    vi.spyOn(window, 'showInformationMessage').mockResolvedValue(undefined as never);
+    (workspace as Record<string, unknown>).applyEdit = vi.fn(async () => true);
+    const client = makeClient(["import _ from 'lodash';"]);
+    const provider = makeContentProvider();
 
-    await handleInlineChat(client);
+    await handleInlineChat(client, provider as never);
 
-    const completeMock = client.complete as ReturnType<typeof vi.fn>;
-    const prompt = completeMock.mock.calls[0][0][0].content as string;
+    const streamMock = client.streamChat as ReturnType<typeof vi.fn>;
+    const prompt = streamMock.mock.calls[0][0][0].content as string;
     expect(prompt).toContain('Insert code at line 11');
     expect(prompt).toContain('add import for lodash');
     expect(prompt).not.toContain('Selected code to edit');
-    expect(applyEdit).toHaveBeenCalledOnce();
-  });
-});
-
-describe('handleInlineChat — surrounding-context window', () => {
-  it('clamps the surrounding window to the file bounds (not below 0 or above lineCount-1)', async () => {
-    // Small file, cursor at line 1 — startLine should clamp to 0.
-    const cursor = makeSelection(new Position(1, 0), new Position(1, 0));
-    const { editor } = makeEditor(cursor, 5);
-    (window as { activeTextEditor: unknown }).activeTextEditor = editor;
-    vi.spyOn(window, 'showInputBox').mockResolvedValue('x');
-    (workspace as Record<string, unknown>).applyEdit = vi.fn(async () => true);
-    const client = makeClient('inserted');
-
-    // Should not throw — clamping prevents negative line indices.
-    await expect(handleInlineChat(client)).resolves.toBeUndefined();
   });
 
-  it('uses the workspace-relative filename in the prompt when root is set', async () => {
+  it('uses the workspace-relative filename in the prompt', async () => {
     const selection = makeSelection(new Position(2, 0), new Position(3, 0));
     const { editor } = makeEditor(selection);
     (window as { activeTextEditor: unknown }).activeTextEditor = editor;
     vi.spyOn(window, 'showInputBox').mockResolvedValue('x');
+    vi.spyOn(window, 'showInformationMessage').mockResolvedValue(undefined as never);
     (workspace as Record<string, unknown>).applyEdit = vi.fn(async () => true);
-    const client = makeClient('new');
+    const client = makeClient(['new']);
+    const provider = makeContentProvider();
 
-    await handleInlineChat(client);
+    await handleInlineChat(client, provider as never);
 
-    const prompt = (client.complete as ReturnType<typeof vi.fn>).mock.calls[0][0][0].content as string;
-    // Should include the relative path (src/file.ts), not the full path.
+    const streamMock = client.streamChat as ReturnType<typeof vi.fn>;
+    const prompt = streamMock.mock.calls[0][0][0].content as string;
     expect(prompt).toContain('src/file.ts');
+  });
+
+  it('clamps the surrounding window to file bounds', async () => {
+    const cursor = makeSelection(new Position(1, 0), new Position(1, 0));
+    const { editor } = makeEditor(cursor, 5);
+    (window as { activeTextEditor: unknown }).activeTextEditor = editor;
+    vi.spyOn(window, 'showInputBox').mockResolvedValue('x');
+    vi.spyOn(window, 'showInformationMessage').mockResolvedValue(undefined as never);
+    (workspace as Record<string, unknown>).applyEdit = vi.fn(async () => true);
+    const client = makeClient(['inserted']);
+    const provider = makeContentProvider();
+
+    // Should not throw — clamping prevents negative line indices
+    await expect(handleInlineChat(client, provider as never)).resolves.toBeUndefined();
   });
 });

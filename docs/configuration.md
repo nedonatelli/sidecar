@@ -490,3 +490,16 @@ Scans `package.json`, `requirements*.txt`, `Cargo.toml`, and `go.mod` for outdat
 | `sidecar.deps.checkVulnerabilities` | boolean | `true` | Query the [OSV](https://osv.dev) API for CVE/GHSA matches. Disable in offline or air-gapped environments |
 
 Force an immediate workspace-wide scan with `SideCar: Scan Dependencies for Drift & Vulnerabilities` from the Command Palette, or call the `check_dependencies` agent tool directly.
+
+## Code Profiling (v0.93+)
+
+The `profile_code` agent tool auto-detects the project ecosystem and runs the appropriate profiler, returning the top-N CPU hotspots as ranked markdown. Disabled by default to avoid unexpected shell executions.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.profiling.enabled` | boolean | `false` | Enable the `profile_code` agent tool |
+| `sidecar.profiling.topN` | number | `10` | Default number of hotspots to return (1–50). Override per-call with `top_n` |
+
+**Ecosystem detection** (first match wins): `package.json` → Node.js, `requirements.txt`/`pyproject.toml`/`setup.py` → Python, `Cargo.toml` → Rust, `go.mod` → Go. Override with `ecosystem="node|python|go|rust"`.
+
+**Node.js and Python** require a `script` parameter pointing to the entry file (e.g. `profile_code(ecosystem="python", script="src/main.py")`). Go and Rust use their built-in bench runners and need no script.

@@ -4,6 +4,25 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.93.0] - 2026-05-17
+
+**v0.93.0 — Inline Edit Enhancement + Real-time Code Profiling.**
+
+### Added
+
+- **Inline Edit Enhancement** (`⌘I` / `Ctrl+I`) — the inline chat flow now streams the LLM response instead of blocking, shows a cancellable progress notification during generation, and opens a side-by-side diff preview (the selected text vs. the proposed replacement) via VS Code's native `vscode.diff` panel before any changes are applied. An **Accept** / **Dismiss** modal confirms intent. Cancelling mid-stream via the notification's Cancel button cleanly aborts the request without leaving partial text.
+
+- **`profile_code` agent tool** — profiles the active project and returns the top-N CPU hotspots. Auto-detects the ecosystem from workspace manifests:
+  - **Python** — runs `python -m cProfile -s cumulative <script>` and parses the `ncalls / cumtime` table.
+  - **Go** — runs `go test -bench=. -run=^$ -benchmem ./...` and ranks benchmarks by `ns/op` descending.
+  - **Rust** — runs `cargo bench` and ranks entries by `ns/iter` descending.
+  - **Node.js** — runs `node --prof <script>` + `node --prof-process` and extracts the bottom-up heavy-profile section.
+  Returns structured markdown with ranked hotspots plus a collapsible `<details>` block containing the raw profiler output. Ecosystem can be forced with `ecosystem=node|python|go|rust`; `top_n` overrides the per-call default.
+
+- **`sidecar.profiling.enabled`** (default `false`) — gates the `profile_code` agent tool.
+
+- **`sidecar.profiling.topN`** (default `10`, range 1–50) — default number of hotspots to return. Overridable per-call via the tool's `top_n` parameter.
+
 ## [0.92.0] - 2026-05-17
 
 **v0.92.0 — SIDECAR.md Retrieval Mode + Shell Execution Unification.**

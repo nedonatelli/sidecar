@@ -80,6 +80,7 @@ export function activate(context: ExtensionContext) {
     agentLogger,
     mcpManager,
     symbolIndexer,
+    proposedContentProvider,
   });
 
   const autoModeStatusBar = registerAutoModeCommands(context, {

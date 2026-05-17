@@ -1,10 +1,24 @@
-import { window, workspace, Selection, Range, Position, WorkspaceEdit, type TextEditor } from 'vscode';
+import {
+  window,
+  workspace,
+  commands,
+  Selection,
+  Range,
+  Position,
+  WorkspaceEdit,
+  ProgressLocation,
+  type TextEditor,
+} from 'vscode';
 import * as path from 'path';
 import { SideCarClient } from '../ollama/client.js';
 import { getWorkspaceRoot } from '../config/workspace.js';
 import type { ChatMessage } from '../ollama/types.js';
+import type { ProposedContentProvider } from '../edits/proposedContentProvider.js';
 
-export async function handleInlineChat(client: SideCarClient): Promise<void> {
+export async function handleInlineChat(
+  client: SideCarClient,
+  proposedContentProvider: ProposedContentProvider,
+): Promise<void> {
   const editor = window.activeTextEditor;
   if (!editor) {
     window.showWarningMessage('No active editor.');
@@ -67,25 +81,60 @@ Respond with ONLY the code to insert, no explanation, no code fences.`;
 
   const messages: ChatMessage[] = [{ role: 'user', content: prompt }];
 
-  // Show progress while generating
+  // Stream the response with a cancellable progress notification
+  const controller = new AbortController();
+  let result = '';
+
   await window.withProgress(
     {
-      location: { viewId: 'sidecar.chatView' },
-      title: 'SideCar: generating...',
+      location: ProgressLocation.Notification,
+      title: 'SideCar: generating edit...',
+      cancellable: true,
     },
-    async () => {
+    async (_progress, token) => {
+      token?.onCancellationRequested?.(() => controller.abort());
       try {
-        const result = await client.complete(messages, 2048);
-        if (!result.trim()) {
-          window.showWarningMessage('SideCar returned an empty response.');
-          return;
+        for await (const event of client.streamChat(messages, controller.signal)) {
+          if (event.type === 'text') result += event.text;
         }
-        await applyInlineEdit(editor, selection, result, hasSelection);
       } catch (err) {
-        window.showErrorMessage(`SideCar inline chat failed: ${err instanceof Error ? err.message : String(err)}`);
+        if (err instanceof Error && err.name !== 'AbortError') {
+          window.showErrorMessage(`SideCar inline chat failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
       }
     },
   );
+
+  if (controller.signal.aborted || !result.trim()) {
+    if (!controller.signal.aborted) {
+      window.showWarningMessage('SideCar returned an empty response.');
+    }
+    return;
+  }
+
+  // Show a diff preview so the user can review before applying
+  const key = `inline-chat/${Date.now()}`;
+  const beforeKey = `${key}/before`;
+  const afterKey = `${key}/after`;
+  const beforeUri = proposedContentProvider.addProposal(beforeKey, hasSelection ? selectedText : '');
+  const afterUri = proposedContentProvider.addProposal(afterKey, result);
+  const label = hasSelection ? 'Proposed Edit' : 'Code to Insert';
+
+  await commands.executeCommand('vscode.diff', beforeUri, afterUri, `SideCar: ${label}`, { preview: true });
+
+  const choice = await window.showInformationMessage(
+    `Apply this ${hasSelection ? 'edit' : 'insertion'}?`,
+    { modal: true },
+    'Accept',
+  );
+
+  // Cleanup content-provider entries regardless of user choice
+  proposedContentProvider.removeProposal(beforeKey);
+  proposedContentProvider.removeProposal(afterKey);
+
+  if (choice === 'Accept') {
+    await applyInlineEdit(editor, selection, result, hasSelection);
+  }
 }
 
 async function applyInlineEdit(

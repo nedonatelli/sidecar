@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-SideCar is a VS Code extension that turns local and cloud LLMs into a full agentic coding assistant. It supports Ollama, Anthropic, OpenAI-compatible servers, Kickstand, OpenRouter, Groq, and Fireworks as backends. The extension provides an agent loop with 62 built-in tools (file ops, shell, git, web search, vision, database, doc-to-test synthesis, PDF/Zotero, MCP, Notebook Mode research, dependency drift), inline completions, code review, and a chat UI.
+SideCar is a VS Code extension that turns local and cloud LLMs into a full agentic coding assistant. It supports Ollama, Anthropic, OpenAI-compatible servers, Kickstand, OpenRouter, Groq, and Fireworks as backends. The extension provides an agent loop with 63 built-in tools (file ops, shell, git, web search, vision, database, doc-to-test synthesis, PDF/Zotero, MCP, Notebook Mode research, dependency drift, code profiling), inline completions, code review, and a chat UI.
 
 ## Architecture diagrams (start here when onboarding)
 
@@ -220,6 +220,20 @@ v0.67 chunk 1. Pure primitive (no VS Code imports) that replaces the pre-v0.67 w
 **v0.92 retrieval-mode layer** (`src/agent/sidecarMdIndex.ts` + `src/agent/retrieval/sidecarMdRetriever.ts`): `SidecarMdIndex` embeds each parsed section with MiniLM-L6-v2 into a persisted `FlatVectorStore` at `.sidecar/cache/sidecarMd/`. Incremental update: `quickHash` change-detects per section; only changed bodies are re-embedded; removed sections are pruned. `SidecarMdRetriever` implements `Retriever` and plugs into the RRF fusion pipeline. When `sidecarMdMode === 'retrieval'`: `always`-priority sections inject verbatim in `systemPrompt.ts`; all other sections are surfaced by the retriever at query time.
 
 Config: `sidecar.sidecarMd.{mode, alwaysIncludeHeadings, lowPriorityHeadings, maxScopedSections, retrieval.topK, retrieval.minScore}`.
+
+### Inline Edit (`src/inline/`)
+
+`inlineChatProvider.ts` — `handleInlineChat` (`⌘I` / `Ctrl+I` command). v0.93+ streams the LLM response via `client.streamChat()` with a cancellable `ProgressLocation.Notification` indicator. After streaming completes, opens a side-by-side diff preview using `ProposedContentProvider` + `vscode.diff` (the same scheme used by the agent review panel) showing the original selection vs. the proposed replacement. A modal Accept/Dismiss dialog gates the final `WorkspaceEdit` apply — no changes land until the user accepts. `proposedContentProvider` is threaded from `initBaseServices` through `EditorFeatureDeps` into the command handler.
+
+### Code Profiling (`src/agent/tools/profiling.ts`)
+
+v0.93+ `profile_code` agent tool. Auto-detects ecosystem from workspace manifests (`package.json` → node, `requirements.txt`/`pyproject.toml` → python, `Cargo.toml` → rust, `go.mod` → go). Builds and runs the appropriate profiler command via `getDefaultToolRuntime().getShellSession()`. Parses structured output for each ecosystem:
+- **Python**: `python -m cProfile -s cumulative` — parses `ncalls/tottime/cumtime` table.
+- **Go**: `go test -bench=. -run=^$ -benchmem` — ranks by `ns/op` descending.
+- **Rust**: `cargo bench` — ranks by `ns/iter` descending.
+- **Node.js**: `node --prof <script>` + `node --prof-process` — extracts the bottom-up heavy-profile section.
+
+Returns ranked hotspot markdown + raw `<details>` block. Gated by `sidecar.profiling.enabled` (default `false`). Config: `sidecar.profiling.{enabled, topN}`.
 
 ### Terminal Execution (`src/terminal/`)
 

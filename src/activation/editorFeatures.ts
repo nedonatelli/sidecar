@@ -19,6 +19,7 @@ import type { MCPManager } from '../agent/mcpManager.js';
 import type { SymbolIndexer } from '../config/symbolIndexer.js';
 import type { SideCarConfig } from '../config/settings.js';
 import type { ChatViewProvider } from '../webview/chatView.js';
+import type { ProposedContentProvider } from '../edits/proposedContentProvider.js';
 
 export interface EditorFeatureDeps {
   getChatProvider: () => ChatViewProvider | undefined;
@@ -26,6 +27,7 @@ export interface EditorFeatureDeps {
   agentLogger: AgentLogger;
   mcpManager: MCPManager;
   symbolIndexer: SymbolIndexer;
+  proposedContentProvider: ProposedContentProvider;
 }
 
 interface CodeActionArgs {
@@ -44,7 +46,7 @@ export function registerEditorFeatures(
   config: SideCarConfig,
   deps: EditorFeatureDeps,
 ): void {
-  const { getChatProvider, createClient, agentLogger, mcpManager, symbolIndexer } = deps;
+  const { getChatProvider, createClient, agentLogger, mcpManager, symbolIndexer, proposedContentProvider } = deps;
 
   // Code actions (right-click menu + lightbulb)
   function registerCodeAction(commandId: string, action: string) {
@@ -89,7 +91,7 @@ export function registerEditorFeatures(
 
   context.subscriptions.push(
     commands.registerCommand('sidecar.inlineChat', () => {
-      handleInlineChat(createClient());
+      handleInlineChat(createClient(), proposedContentProvider);
     }),
   );
 

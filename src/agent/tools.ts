@@ -33,6 +33,7 @@ import { visionTools } from './tools/vision.js';
 import { docTestsTools } from './tools/docTests.js';
 import { notebookTools } from './tools/notebook.js';
 import { depsTools } from './tools/deps.js';
+import { profilingTools } from './tools/profiling.js';
 
 // ---------------------------------------------------------------------------
 // tools.ts is the slim composition layer. Each tool category lives under
@@ -77,6 +78,7 @@ export const TOOL_REGISTRY: RegisteredTool[] = [
   ...(getConfig().docTestsEnabled ? docTestsTools : []),
   ...(getConfig().notebookModeEnabled ? notebookTools : []),
   ...(getConfig().depsEnabled ? depsTools : []),
+  ...(getConfig().profilingEnabled ? profilingTools : []),
   {
     definition: {
       name: 'ask_user',
