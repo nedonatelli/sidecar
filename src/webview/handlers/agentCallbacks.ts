@@ -2,6 +2,8 @@ import type { ChatState } from '../chatState.js';
 import type { ChatMessage } from '../../ollama/types.js';
 import type { AgentCallbacks } from '../../agent/loop.js';
 import { getConfig } from '../../config/settings.js';
+import type { PlanStore } from '../../agent/plans/planStore.js';
+import { extractGoal } from '../../agent/plans/planStore.js';
 
 // ---------------------------------------------------------------------------
 // Agent callbacks factory (extracted from chatHandlers.ts).
@@ -25,6 +27,7 @@ export function createAgentCallbacks(
   state: ChatState,
   config: ReturnType<typeof getConfig>,
   chatMessages: ChatMessage[],
+  planStore?: PlanStore,
 ): { callbacks: AgentCallbacks; cancel: () => void } {
   const verbose = config.verboseMode;
   const verboseLog = (label: string, content: string) => {
@@ -37,6 +40,8 @@ export function createAgentCallbacks(
   // so that a pending flushTimer from an aborted run cannot inject stale
   // text into a freshly loaded session's webview.
   let cancelled = false;
+  const runId = `run-${Date.now()}`;
+  const runStartedAt = Date.now();
 
   let textBuffer = '';
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -111,6 +116,16 @@ export function createAgentCallbacks(
     },
     onIterationStart: (info) => {
       currentIteration = info.iteration;
+      if (planStore && config.executiveFunctionEnabled) {
+        void planStore.save({
+          goal: extractGoal(chatMessages),
+          messages: [...chatMessages],
+          turnCount: info.iteration,
+          runId,
+          createdAt: runStartedAt,
+          updatedAt: Date.now(),
+        });
+      }
       state.postMessage({
         command: 'agentProgress',
         iteration: info.iteration,
@@ -224,6 +239,9 @@ export function createAgentCallbacks(
     },
     onDone: () => {
       flushTextBuffer();
+      if (planStore && config.executiveFunctionEnabled) {
+        void planStore.clear();
+      }
       if (!cancelled) state.postMessage({ command: 'done' });
     },
   };

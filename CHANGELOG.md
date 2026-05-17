@@ -4,6 +4,24 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.94.0] - 2026-05-17
+
+**v0.94.0 — Persistent Executive Function + LaTeX Agentic Debugging + Bitbucket Integration.**
+
+### Added
+
+- **Persistent Executive Function** — the agent now checkpoints its task state (goal, full conversation snapshot, turn count) to `.sidecar/plans/active.json` after each iteration. If VS Code closes mid-run, the next activation detects the interrupted task and offers a **Resume** / **Discard** notification. Resuming restores the conversation in the chat panel and continues the agent loop from where it left off. Checkpoints older than 24 hours are silently discarded. Gated by `sidecar.executiveFunction.enabled` (default `false`).
+
+- **`latex_compile` agent tool** — compiles a `.tex` document and returns structured errors and warnings with file and line references. Auto-detects the workspace's main `.tex` file; accepts an explicit `file` parameter for multi-document projects. Parses both the classic pdflatex `!` error format and the inline `file:line: message` format produced by latexmk. Surfaces LaTeX/Package/Overfull warnings with extracted line numbers. Returns a full collapsible `<details>` block with raw compiler output for debugging. Prefers `latexmk` (handles bibliography and multi-pass compilation automatically), falls back to `pdflatex` if latexmk is unavailable. Gated by `sidecar.latex.enabled` (default `false`).
+
+- **Bitbucket Cloud context provider** — adds `type: 'bitbucket'` to the `sidecar.contextProviders` array, fetching open pull requests from Bitbucket Cloud and injecting them into the agent's `## Active Issues` system-prompt block. Supports both Basic auth (`username:app_password` → base64 Basic header) and Bearer (OAuth token). The `project` field takes `workspace/repo` format. Custom `baseUrl` supports self-hosted Bitbucket Data Center. PR descriptions are truncated at 400 characters; reviewer names surface as labels. Results are cached for 5 minutes alongside the existing GitHub/Linear/Jira providers.
+
+- **`sidecar.executiveFunction.enabled`** (default `false`) — enables agent task checkpointing and VS Code restart resume.
+
+- **`sidecar.latex.enabled`** (default `false`) — enables the `latex_compile` agent tool.
+
+- **`sidecar.latex.compiler`** (default `"latexmk"`, options: `"latexmk"` | `"pdflatex"`) — selects the LaTeX compiler. `latexmk` handles multi-pass compilation automatically; `pdflatex` is simpler but requires manual extra passes for bibliography/cross-references.
+
 ## [0.93.0] - 2026-05-17
 
 **v0.93.0 — Inline Edit Enhancement + Real-time Code Profiling.**

@@ -293,6 +293,11 @@ export interface SideCarConfig {
   /* Code Profiling */
   profilingEnabled: boolean;
   profilingTopN: number;
+  /* LaTeX Agentic Debugging */
+  latexEnabled: boolean;
+  latexCompiler: 'latexmk' | 'pdflatex';
+  /* Executive Function — task checkpointing */
+  executiveFunctionEnabled: boolean;
 }
 
 /**
@@ -562,6 +567,9 @@ function readConfig(): SideCarConfig {
     depsCheckVulnerabilities: cfg.get<boolean>('deps.checkVulnerabilities', true),
     profilingEnabled: cfg.get<boolean>('profiling.enabled', false),
     profilingTopN: clampMin(cfg.get<number>('profiling.topN', 10), 1, 50),
+    latexEnabled: cfg.get<boolean>('latex.enabled', false),
+    latexCompiler: cfg.get<'latexmk' | 'pdflatex'>('latex.compiler', 'latexmk'),
+    executiveFunctionEnabled: cfg.get<boolean>('executiveFunction.enabled', false),
   };
 }
 

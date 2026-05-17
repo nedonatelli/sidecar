@@ -19,6 +19,7 @@ import type { AgentLogger } from '../agent/logger.js';
 import type { MCPManager } from '../agent/mcpManager.js';
 import type { WorkspaceIndex } from '../config/workspaceIndex.js';
 import type { SidecarDir } from '../config/sidecarDir.js';
+import type { PlanCheckpoint } from '../agent/plans/planStore.js';
 import type { SkillLoader } from '../agent/skillLoader.js';
 import type { InlineEditProvider } from '../edits/inlineEditProvider.js';
 import type { BackgroundAgentManager } from '../agent/backgroundAgent.js';
@@ -221,6 +222,15 @@ export class ChatViewProvider implements WebviewViewProvider {
     if (this.webviewView) this.webviewView.show(true);
     this.postMessage({ command: 'addUserMessage', content: prompt });
     await handleUserMessage(this.state, prompt);
+  }
+
+  public async resumeFromCheckpoint(checkpoint: PlanCheckpoint): Promise<void> {
+    this._state.messages = [...checkpoint.messages];
+    this.postMessage({ command: 'init', messages: checkpoint.messages });
+    if (this.webviewView) this.webviewView.show(true);
+    const resumePrompt = '(Resuming previous task. Continue where you left off.)';
+    this.postMessage({ command: 'addUserMessage', content: resumePrompt });
+    await handleUserMessage(this.state, resumePrompt);
   }
 
   public async diagnoseTerminalError(event: {

@@ -1,4 +1,4 @@
-export type ContextProviderType = 'github' | 'linear' | 'jira';
+export type ContextProviderType = 'github' | 'linear' | 'jira' | 'bitbucket';
 
 export type ContextProviderFilter = 'assigned' | 'open' | 'recent';
 

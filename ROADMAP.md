@@ -1,6 +1,6 @@
 # SideCar Roadmap
 
-**Current release: v0.93.0** — Inline Edit Enhancement (streaming + diff preview + Accept/Reject) + Real-time Code Profiling (`profile_code` tool, Node.js/Python/Go/Rust). See [CHANGELOG](CHANGELOG.md) for full notes.
+**Current release: v0.94.0** — Persistent Executive Function (task checkpointing + VS Code restart resume) + LaTeX Agentic Debugging (`latex_compile` tool) + Bitbucket Cloud context provider. See [CHANGELOG](CHANGELOG.md) for full notes.
 
 **Coverage floor**: ≥80/70/80/80 (stmts/branches/funcs/lines) enforced by CI. No PR merges that drop any metric.
 
@@ -12,6 +12,7 @@
 
 | Version | Headline |
 |---|---|
+| v0.94.0 | Persistent Executive Function (task checkpointing · VS Code restart resume) · LaTeX Agentic Debugging (`latex_compile` tool) · Bitbucket Cloud context provider |
 | v0.93.0 | Inline Edit Enhancement (streaming · diff preview · Accept/Reject) · Real-time Code Profiling (`profile_code` tool, Node.js/Python/Go/Rust) |
 | v0.92.0 | SIDECAR.md Retrieval Mode (`sidecar.sidecarMd.mode: 'retrieval'`) · Shell Execution Unification (`CompositeShellExecutor`) |
 | v0.91.0 | Dependency Drift Alerts (Problems panel · `check_dependencies` tool · OSV vulns · npm/PyPI/cargo/Go) |

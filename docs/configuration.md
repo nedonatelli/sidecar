@@ -503,3 +503,24 @@ The `profile_code` agent tool auto-detects the project ecosystem and runs the ap
 **Ecosystem detection** (first match wins): `package.json` → Node.js, `requirements.txt`/`pyproject.toml`/`setup.py` → Python, `Cargo.toml` → Rust, `go.mod` → Go. Override with `ecosystem="node|python|go|rust"`.
 
 **Node.js and Python** require a `script` parameter pointing to the entry file (e.g. `profile_code(ecosystem="python", script="src/main.py")`). Go and Rust use their built-in bench runners and need no script.
+
+## LaTeX Agentic Debugging (v0.94+)
+
+The `latex_compile` agent tool compiles a `.tex` document and returns structured errors and warnings with file and line references. Disabled by default.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.latex.enabled` | boolean | `false` | Enable the `latex_compile` agent tool |
+| `sidecar.latex.compiler` | string | `"latexmk"` | Compiler to use: `"latexmk"` (handles multi-pass automatically) or `"pdflatex"` |
+
+The tool auto-detects the main `.tex` file in the workspace root; pass `file="path/to/main.tex"` to target a specific document. `latexmk` is probed at each call and falls back to `pdflatex` if not installed.
+
+## Persistent Executive Function (v0.94+)
+
+When enabled, the agent checkpoints its task state to `.sidecar/plans/active.json` after each iteration. If VS Code closes mid-run, the next activation prompts you to resume or discard the interrupted task.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.executiveFunction.enabled` | boolean | `false` | Enable agent task checkpointing and VS Code restart resume |
+
+Checkpoints older than 24 hours are automatically discarded on the next activation.

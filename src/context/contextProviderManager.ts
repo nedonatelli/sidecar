@@ -2,6 +2,7 @@ import type { ContextProviderConfig, ContextProviderResult, ContextIssue } from 
 import { fetchGitHubIssues } from './providers/github.js';
 import { fetchLinearIssues } from './providers/linear.js';
 import { fetchJiraIssues } from './providers/jira.js';
+import { fetchBitbucketPRs } from './providers/bitbucket.js';
 
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -85,6 +86,8 @@ export class ContextProviderManager {
         return fetchLinearIssues(cfg, this.fetchFn);
       case 'jira':
         return fetchJiraIssues(cfg, this.fetchFn);
+      case 'bitbucket':
+        return fetchBitbucketPRs(cfg, this.fetchFn);
     }
   }
 

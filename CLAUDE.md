@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-SideCar is a VS Code extension that turns local and cloud LLMs into a full agentic coding assistant. It supports Ollama, Anthropic, OpenAI-compatible servers, Kickstand, OpenRouter, Groq, and Fireworks as backends. The extension provides an agent loop with 63 built-in tools (file ops, shell, git, web search, vision, database, doc-to-test synthesis, PDF/Zotero, MCP, Notebook Mode research, dependency drift, code profiling), inline completions, code review, and a chat UI.
+SideCar is a VS Code extension that turns local and cloud LLMs into a full agentic coding assistant. It supports Ollama, Anthropic, OpenAI-compatible servers, Kickstand, OpenRouter, Groq, and Fireworks as backends. The extension provides an agent loop with 64 built-in tools (file ops, shell, git, web search, vision, database, doc-to-test synthesis, PDF/Zotero, MCP, Notebook Mode research, dependency drift, code profiling, LaTeX compilation), inline completions, code review, and a chat UI.
 
 ## Architecture diagrams (start here when onboarding)
 
@@ -234,6 +234,23 @@ v0.93+ `profile_code` agent tool. Auto-detects ecosystem from workspace manifest
 - **Node.js**: `node --prof <script>` + `node --prof-process` — extracts the bottom-up heavy-profile section.
 
 Returns ranked hotspot markdown + raw `<details>` block. Gated by `sidecar.profiling.enabled` (default `false`). Config: `sidecar.profiling.{enabled, topN}`.
+
+### LaTeX Agentic Debugging (`src/agent/tools/latex.ts`)
+
+v0.94+ `latex_compile` agent tool. Compiles a `.tex` document and returns structured errors and warnings with file and line references. `parseLatexOutput(output, mainFile)` is a pure function that handles:
+- Classic pdflatex `! Error message` / `l.NNN context` two-line format
+- Inline `file:line: message` format (latexmk / pdflatex with `-file-line-error`)
+- LaTeX/Package/Overfull/Underfull warning lines with embedded line-number extraction
+
+`resolveCompilerCommand` probes `latexmk --version` first; falls back to `pdflatex` if unavailable. Gated by `sidecar.latex.enabled` (default `false`). Config: `sidecar.latex.{enabled, compiler}`.
+
+### Persistent Executive Function (`src/agent/plans/`, `src/activation/executiveFunctionSetup.ts`)
+
+v0.94+ task checkpointing. `PlanStore` (`planStore.ts`) reads/writes `PlanCheckpoint` to `.sidecar/plans/active.json` via `sidecarDir.readJson/writeJson`. `extractGoal(messages)` extracts the first user message, truncated to 80 chars. `createAgentCallbacks` accepts an optional 4th `planStore` parameter; when present + `executiveFunctionEnabled`: saves a snapshot in `onIterationStart`, clears in `onDone`. `ChatViewProvider.resumeFromCheckpoint(checkpoint)` restores `state.messages`, syncs the webview with `{ command: 'init' }`, and calls `handleUserMessage` with a resume prompt. `initExecutiveFunctionSetup` registers `sidecar.executiveFunction.resume` and `sidecar.executiveFunction.discard` commands and fires the startup check (deferred 2s). Gated by `sidecar.executiveFunction.enabled` (default `false`).
+
+### Bitbucket Cloud Context Provider (`src/context/providers/bitbucket.ts`)
+
+v0.94+ `type: 'bitbucket'` provider. `fetchBitbucketPRs(config, fetchFn?)` — calls `${baseUrl}/repositories/${workspace/repo}/pullrequests?state=OPEN&pagelen=N`. Auth: `buildAuthHeader(token)` sends `Basic base64(user:pass)` when token contains `:`, else `Bearer`. Maps `BitbucketPR` → `ContextIssue`: `id: '#N'`, `title`, `status`, `body` (truncated 400 chars + `'…'`), `url`, `labels` (reviewer `display_name` array), `updatedAt`. Wired via `ContextProviderType = 'bitbucket'` in `types.ts` and `case 'bitbucket':` in `contextProviderManager.ts`.
 
 ### Terminal Execution (`src/terminal/`)
 

@@ -223,6 +223,7 @@ async function buildSystemPromptForRun(
 // ---------------------------------------------------------------------------
 
 import { createAgentCallbacks } from './agentCallbacks.js';
+import { PlanStore } from '../../agent/plans/planStore.js';
 
 // ---------------------------------------------------------------------------
 // Cost recording
@@ -430,7 +431,13 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
       const sessionId = state.agentMemory?.getSessionId() || `s-${Date.now()}`;
       state.auditLog.setContext(sessionId, config.model, effectiveApprovalMode);
     }
-    const { callbacks: agentCbs, cancel: cancelAgentCbs } = createAgentCallbacks(state, config, chatMessages);
+    const planStore = state.sidecarDir ? new PlanStore(state.sidecarDir) : undefined;
+    const { callbacks: agentCbs, cancel: cancelAgentCbs } = createAgentCallbacks(
+      state,
+      config,
+      chatMessages,
+      planStore,
+    );
     state.cancelCallbacks = cancelAgentCbs;
     const updatedMessages = await runAgentLoop(state.client, chatMessages, agentCbs, state.abortController.signal, {
       logger: state.agentLogger,
