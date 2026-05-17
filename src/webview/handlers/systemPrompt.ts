@@ -19,6 +19,7 @@ import {
   SemanticRetriever,
   PdfRetriever,
   ChunkRetriever,
+  SidecarMdRetriever,
   adaptiveGraphDepth,
   fuseRetrieversMultiQuery,
   renderFusedContext,
@@ -83,14 +84,23 @@ export async function injectSystemContext(
   }
 
   // SIDECAR.md — only in trusted workspaces.
-  // SIDECAR.md path-scoped injection. Mode `sections` parses H2 boundaries
-  // and routes sections by @paths sentinel + active-file match + priority
-  // overrides; mode `full` preserves whole-file behavior (still truncated,
-  // used when the user explicitly opts in or the file has no sentinels).
+  // Three modes:
+  //   `sections` — parse + select by @paths sentinels + priority (default)
+  //   `full`     — legacy whole-file dump, mid-chopped on overflow
+  //   `retrieval`— only inject `always` sections verbatim here; the
+  //                SidecarMdRetriever handles scoped/low sections via RRF
   if (workspaceTrusted) {
     const sidecarMd = await state.loadSidecarMd();
     if (sidecarMd) {
-      const remaining = maxSystemChars - prompt.length - 200; // leave headroom for header + other injections
+      // In retrieval mode, feed the index before the verbatim injection so
+      // it's ready when SidecarMdRetriever.isReady() is checked below.
+      if (config.sidecarMdMode === 'retrieval' && state.sidecarMdIndex) {
+        state.sidecarMdIndex.update(sidecarMd).catch(() => {
+          // Non-fatal — retriever will just be not-ready this turn
+        });
+      }
+
+      const remaining = maxSystemChars - prompt.length - 200;
       const rendered = injectSidecarMd(sidecarMd, {
         mode: config.sidecarMdMode,
         alwaysIncludeHeadings: config.sidecarMdAlwaysIncludeHeadings,
@@ -294,6 +304,14 @@ export async function injectSystemContext(
         new SemanticRetriever(state.workspaceIndex, activeFilePath, undefined, undefined, graphExpansion),
       );
     }
+    // SIDECAR.md retrieval mode: scoped + low sections are scored
+    // semantically and injected via RRF alongside the other retrievers.
+    // `always` sections are already injected verbatim above.
+    if (workspaceTrusted && config.sidecarMdMode === 'retrieval' && state.sidecarMdIndex) {
+      retrievers.push(
+        new SidecarMdRetriever(state.sidecarMdIndex, config.sidecarMdRetrievalTopK, config.sidecarMdRetrievalMinScore),
+      );
+    }
     if (retrievers.length > 0) {
       const topK = Math.max(config.ragMaxDocEntries, 5);
       // Rewrite the user query before retrieval to improve recall. 'rule' is
@@ -436,7 +454,7 @@ export async function injectSystemContext(
 }
 
 interface SidecarMdInjectionOptions {
-  readonly mode: 'full' | 'sections';
+  readonly mode: 'full' | 'sections' | 'retrieval';
   readonly alwaysIncludeHeadings: readonly string[];
   readonly lowPriorityHeadings: readonly string[];
   readonly maxScopedSections: number;
@@ -460,6 +478,27 @@ function injectSidecarMd(content: string, opts: SidecarMdInjectionOptions): stri
   }
 
   const parsed = parseSidecarMd(content);
+
+  if (opts.mode === 'retrieval') {
+    // In retrieval mode the SidecarMdRetriever handles scoped + low sections
+    // via semantic search. Inject only the `always`-priority sections here so
+    // deterministic project-wide rules (Build, Conventions, Setup) are always
+    // present, while contextual sections are scored at query time.
+    const alwaysHeadings = new Set(opts.alwaysIncludeHeadings.map((h) => h.toLowerCase()));
+    const lowHeadings = new Set(opts.lowPriorityHeadings.map((h) => h.toLowerCase()));
+    const alwaysSections = parsed.sections.filter((s) => {
+      const lower = s.heading.toLowerCase();
+      if (lowHeadings.has(lower)) return false;
+      if (alwaysHeadings.has(lower)) return true;
+      return s.priority === 'always';
+    });
+    const parts: string[] = [];
+    if (parsed.preamble) parts.push(parsed.preamble);
+    parts.push(...alwaysSections.map((s) => s.body));
+    const combined = parts.join('\n\n');
+    return combined.length <= opts.maxChars ? combined : combined.slice(0, opts.maxChars - 50) + '\n... (truncated)';
+  }
+
   if (!parsed.hasAnyPathSentinel) {
     // Backward compat: no sentinels means the selector's path-scoped
     // routing has nothing to do — fall back to full-file injection so

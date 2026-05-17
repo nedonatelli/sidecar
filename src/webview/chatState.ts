@@ -100,6 +100,7 @@ export class ChatState {
   contentProvider: ProposedContentProvider | null = null;
   inlineEditProvider: InlineEditProvider | null = null;
   documentationIndexer: DocumentationIndexer | null = null;
+  sidecarMdIndex: import('../agent/sidecarMdIndex.js').SidecarMdIndex | null = null;
   agentMemory: AgentMemory | null = null;
   pinnedMemoryStore: PinnedMemoryStore | null = null;
   auditLog: AuditLog | null = null;

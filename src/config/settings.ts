@@ -117,7 +117,9 @@ export interface SideCarConfig {
   facetsRpcTimeoutMs: number;
   facetsRegistry: string[];
   designMdEnabled: boolean;
-  sidecarMdMode: 'full' | 'sections';
+  sidecarMdMode: 'full' | 'sections' | 'retrieval';
+  sidecarMdRetrievalTopK: number;
+  sidecarMdRetrievalMinScore: number;
   sidecarMdAlwaysIncludeHeadings: string[];
   sidecarMdLowPriorityHeadings: string[];
   sidecarMdMaxScopedSections: number;
@@ -395,7 +397,9 @@ function readConfig(): SideCarConfig {
     facetsRpcTimeoutMs: clampMin(cfg.get<number>('facets.rpcTimeoutMs', 30_000), 1_000, 300_000),
     facetsRegistry: cfg.get<string[]>('facets.registry', []),
     designMdEnabled: cfg.get<boolean>('designMd.enabled', true),
-    sidecarMdMode: cfg.get<'full' | 'sections'>('sidecarMd.mode', 'sections'),
+    sidecarMdMode: cfg.get<'full' | 'sections' | 'retrieval'>('sidecarMd.mode', 'sections'),
+    sidecarMdRetrievalTopK: clampMin(cfg.get<number>('sidecarMd.retrieval.topK', 5), 1, 20),
+    sidecarMdRetrievalMinScore: Math.min(Math.max(cfg.get<number>('sidecarMd.retrieval.minScore', 0.3), 0), 1),
     sidecarMdAlwaysIncludeHeadings: cfg.get<string[]>('sidecarMd.alwaysIncludeHeadings', [
       'Build',
       'Conventions',

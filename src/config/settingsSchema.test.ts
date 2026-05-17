@@ -104,11 +104,12 @@ describe('package.json contributes.configuration — 13-category layout', () => 
     // + v0.89 External context providers (+1: contextProviders).
     // + v0.90 Model Arena (+2: arena.enabled/defaultModels).
     // + v0.91 Dependency Drift (+2: deps.enabled/checkVulnerabilities).
+    // + v0.92 SIDECAR.md retrieval mode (+2: sidecarMd.retrieval.topK/minScore).
     // Adding a setting requires bumping this + adding it to one of
     // the sections.
     const cfg = loadConfiguration();
     const totalKeys = cfg.reduce((sum, s) => sum + Object.keys(s.properties).length, 0);
-    expect(totalKeys).toBe(170);
+    expect(totalKeys).toBe(172);
   });
 
   it('no setting key is duplicated across sections', () => {

@@ -2,7 +2,7 @@
   "name": "sidecar-ai",
   "displayName": "SideCar",
   "description": "Autonomous AI agent for coding — run full agent loops with local Ollama, Anthropic Claude, or OpenAI models",
-  "version": "0.91.1",
+  "version": "0.92.0",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -553,10 +553,25 @@
             "type": "string",
             "enum": [
               "full",
-              "sections"
+              "sections",
+              "retrieval"
             ],
             "default": "sections",
-            "markdownDescription": "How SIDECAR.md content is injected into the system prompt.\n\n| Mode | Behavior |\n|---|---|\n| `sections` (default) | Parse H2 boundaries, route sections to the system prompt based on `<!-- @paths: glob -->` sentinels, active editor, and user-mentioned paths. Sections without a sentinel default to always-included. Drops whole sections on overflow instead of mid-chopping. Degrades to `full` when no section declares a sentinel. |\n| `full` | Legacy behavior — dump the entire file and mid-chop on overflow. Use this if you've customized your SIDECAR.md in ways the parser doesn't handle cleanly. |\n\nPath-scoped sections declare their globs via an HTML-comment sentinel immediately under the H2 heading (invisible in GitHub's markdown preview):\n\n```markdown\n## Transforms\n<!-- @paths: src/transforms/**, src/dsp/** -->\nFilter kernels go under src/transforms/...\n```"
+            "markdownDescription": "How SIDECAR.md content is injected into the system prompt.\n\n| Mode | Behavior |\n|---|---|\n| `sections` (default) | Parse H2 boundaries, route sections based on `<!-- @paths: glob -->` sentinels, active editor, and user-mentioned paths. |\n| `retrieval` | Semantic retrieval mode — only `always`-priority sections are injected verbatim; all other sections are scored against the current query via cosine similarity and the top-K most relevant ones surface via the RRF fusion pipeline. Best for large SIDECAR.md files (20+ sections). |\n| `full` | Legacy behavior — dump the entire file and mid-chop on overflow. |\n\nPath-scoped sections declare their globs via an HTML-comment sentinel immediately under the H2 heading:\n\n```markdown\n## Transforms\n<!-- @paths: src/transforms/**, src/dsp/** -->\nFilter kernels go under src/transforms/...\n```"
+          },
+          "sidecar.sidecarMd.retrieval.topK": {
+            "type": "number",
+            "default": 5,
+            "minimum": 1,
+            "maximum": 20,
+            "description": "Maximum number of SIDECAR.md sections to surface per turn in retrieval mode. Only the top-K sections by cosine similarity (above minScore) are injected. Has no effect in `sections` or `full` mode."
+          },
+          "sidecar.sidecarMd.retrieval.minScore": {
+            "type": "number",
+            "default": 0.3,
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Minimum cosine similarity for a SIDECAR.md section to be included in retrieval mode. Sections below this threshold are never injected even if they rank in the top-K. Raise this to 0.4–0.5 to get tighter relevance; lower it toward 0 to always include the full top-K."
           },
           "sidecar.sidecarMd.alwaysIncludeHeadings": {
             "type": "array",

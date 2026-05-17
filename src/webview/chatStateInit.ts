@@ -12,6 +12,7 @@ import { BackgroundAgentManager } from '../agent/backgroundAgent.js';
 import { notifyBgComplete } from '../agent/bgNotifier.js';
 import { ContextProviderManager } from '../context/contextProviderManager.js';
 import { DocumentationIndexer } from '../config/documentationIndexer.js';
+import { SidecarMdIndex } from '../agent/sidecarMdIndex.js';
 import { AgentMemory } from '../agent/agentMemory.js';
 import { PinnedMemoryStore } from '../agent/memory/pinnedMemory.js';
 import { AuditLog } from '../agent/auditLog.js';
@@ -45,6 +46,13 @@ export function initializeChatSubsystems(
     state.documentationIndexer = new DocumentationIndexer();
     state.documentationIndexer.initialize().catch((err) => {
       console.warn('Failed to initialize documentation indexer:', err);
+    });
+  }
+
+  if (config.sidecarMdMode === 'retrieval' && sidecarDir) {
+    state.sidecarMdIndex = new SidecarMdIndex(sidecarDir);
+    state.sidecarMdIndex.restore().catch((err) => {
+      console.warn('Failed to restore SIDECAR.md index:', err);
     });
   }
 

@@ -10,29 +10,16 @@ import {
   type RegisteredTool,
 } from './shared.js';
 import { getDefaultToolRuntime } from './runtime.js';
-import type { ShellSession, ShellResult } from '../../terminal/shellSession.js';
+import type { ShellSession } from '../../terminal/shellSession.js';
 import { AgentTerminalExecutor } from '../../terminal/agentExecutor.js';
+import { CompositeShellExecutor } from '../../terminal/shellExecutor.js';
 
 // Shell tools: run_command (generic shell) and run_tests (test-runner
-// auto-detection). v0.59 splits execution into two layers:
-//
-//   1. AgentTerminalExecutor — first-choice path when
-//      `sidecar.terminalExecution.enabled` is true and the terminal's
-//      `shellIntegration` is available. Runs the command in a reusable
-//      "SideCar Agent" terminal so the user sees the execution live,
-//      streams stdout back via the shell-integration `read()` API, and
-//      reads the exit code from `onDidEndTerminalShellExecution`.
-//
-//   2. ShellSession — fallback when terminal execution returns null
-//      (shell integration unavailable) or when the user has disabled
-//      the terminal path. Uses `child_process.spawn` with the hardened
-//      per-command prefix. Kept for parity with pre-v0.59 behavior and
-//      as a safety net for bare shells.
-//
-// Background commands always take the ShellSession path — the shell
-// integration API has no `executeBackground` equivalent and the existing
-// per-session background-tracking infrastructure is what consumers of
-// `command_id` expect.
+// auto-detection). v0.92 unifies the two execution paths behind
+// CompositeShellExecutor: the terminal (shell-integration) path is tried
+// first; ShellSession is the fallback. Background commands always route
+// to ShellSession — the shell-integration API has no background-execution
+// equivalent.
 
 /**
  * Resolve the ShellSession for this tool call. When a per-call
@@ -65,23 +52,45 @@ function getAgentTerminalExecutor(): AgentTerminalExecutor {
 }
 
 /**
- * Try the shell-integrated terminal path first. Returns the result on
- * success or `null` if the feature is disabled / integration is absent,
- * letting the caller fall back to `ShellSession`.
+ * Build a CompositeShellExecutor for the current tool call, wiring the
+ * process-wide terminal executor against the per-context shell session.
+ *
+ * AgentTerminalExecutor is only constructed when terminalExecution is enabled
+ * — its constructor subscribes to window.onDidCloseTerminal, which fails in
+ * test environments that don't provide a window mock. When the terminal path
+ * is disabled a no-op placeholder satisfies the interface and is never called.
  */
-async function tryTerminalExecute(
-  command: string,
-  timeoutMs: number,
-  context?: ToolExecutorContext,
-): Promise<ShellResult | null> {
+function buildExecutor(context?: ToolExecutorContext): CompositeShellExecutor {
   const cfg = context?.config ?? getConfig();
-  if (!cfg.terminalExecutionEnabled) return null;
-  const executor = getAgentTerminalExecutor();
-  return executor.execute(command, {
-    timeout: timeoutMs,
-    onOutput: context?.onOutput,
-    signal: context?.signal,
+  const session = resolveShellSession(context);
+  const terminalEnabled = cfg.terminalExecutionEnabled;
+  const terminal = terminalEnabled
+    ? getAgentTerminalExecutor()
+    : ({ execute: async () => null, dispose: () => {} } as never);
+  return new CompositeShellExecutor(terminal, session, {
+    terminalEnabled,
+    fallbackToChildProcess: cfg.terminalExecutionFallbackToChildProcess,
   });
+}
+
+/**
+ * Shared execution helper: run `command` via the composite executor and
+ * format the result as a tool-result string.
+ */
+async function executeShell(command: string, timeoutMs: number, context?: ToolExecutorContext): Promise<string> {
+  const executor = buildExecutor(context);
+  try {
+    const result = await executor.execute(command, {
+      timeout: timeoutMs,
+      onOutput: context?.onOutput,
+      signal: context?.signal,
+    });
+    const status = result.exitCode !== 0 ? `\n(exit code: ${result.exitCode})` : '';
+    return result.stdout.trim() + status || '(no output)';
+  } catch (err) {
+    const error = err as { message?: string };
+    return `Command failed:\n${error.message || 'Unknown error'}`;
+  }
 }
 
 export const runCommandDef: ToolDefinition = {
@@ -144,7 +153,6 @@ export async function runCommand(input: Record<string, unknown>, context?: ToolE
   const command = input.command as string;
 
   // Command filter check (used by delegate_task worker to restrict to read-only commands)
-  // Skip for command_id lookups — those are always read-only (just checking status)
   if (command && !input.command_id && context?.commandFilter && !context.commandFilter(command)) {
     return `Command rejected: "${command}" is not in the allowed list for this context. Only read-only commands (grep, cat, find, ls, etc.) are permitted.`;
   }
@@ -160,52 +168,16 @@ export async function runCommand(input: Record<string, unknown>, context?: ToolE
     return `${header}\n\nOutput:\n${status.output || '(no output yet)'}`;
   }
 
-  // Start a background command
+  // Start a background command — always ShellSession (no terminal equivalent)
   if (input.background) {
     const session = resolveShellSession(context);
     const id = session.executeBackground(command);
     return `Background command started with ID: ${id}\nUse run_command with command_id="${id}" to check on it.`;
   }
 
-  // Normal execution — try the shell-integrated terminal path first,
-  // fall back to ShellSession if integration is unavailable or disabled.
   const config = context?.config ?? getConfig();
-  const timeoutSec = (input.timeout as number) || config.shellTimeout || 120;
-  const timeoutMs = timeoutSec * 1000;
-
-  try {
-    const terminalResult = await tryTerminalExecute(command, timeoutMs, context);
-    if (terminalResult) {
-      const status = terminalResult.exitCode !== 0 ? `\n(exit code: ${terminalResult.exitCode})` : '';
-      return terminalResult.stdout.trim() + status || '(no output)';
-    }
-  } catch (err) {
-    // Terminal path threw — fall through to ShellSession unless the user
-    // explicitly disabled the fallback. This matches the
-    // `terminalExecution.fallbackToChildProcess` contract from the
-    // package.json description.
-    if (!config.terminalExecutionFallbackToChildProcess) {
-      const error = err as { message?: string };
-      return `Command failed in terminal executor:\n${error.message || 'Unknown error'}`;
-    }
-  }
-  if (!config.terminalExecutionFallbackToChildProcess && config.terminalExecutionEnabled) {
-    return 'Command not executed: shell integration is unavailable and `sidecar.terminalExecution.fallbackToChildProcess` is false.';
-  }
-
-  const session = resolveShellSession(context);
-  try {
-    const result = await session.execute(command, {
-      timeout: timeoutMs,
-      onOutput: context?.onOutput,
-      signal: context?.signal,
-    });
-    const status = result.exitCode !== 0 ? `\n(exit code: ${result.exitCode})` : '';
-    return result.stdout.trim() + status || '(no output)';
-  } catch (err) {
-    const error = err as { message?: string };
-    return `Command failed:\n${error.message || 'Unknown error'}`;
-  }
+  const timeoutMs = ((input.timeout as number) || config.shellTimeout || 120) * 1000;
+  return executeShell(command, timeoutMs, context);
 }
 
 export async function runTests(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
@@ -225,7 +197,6 @@ export async function runTests(input: Record<string, unknown>, context?: ToolExe
     }
 
     if (!command) {
-      // Check for common test files/configs
       const checks: [string, string][] = [
         ['pytest.ini', 'pytest'],
         ['setup.py', 'pytest'],
@@ -252,12 +223,6 @@ export async function runTests(input: Record<string, unknown>, context?: ToolExe
   }
 
   if (file) {
-    // Defend against shell injection via the `file` parameter. The model
-    // can (intentionally or via prompt injection) submit
-    // `file: "foo.test.ts; rm -rf ~"`, and an unquoted interpolation
-    // would execute both. Validate as a relative path first, then
-    // reject anything containing shell metacharacters, then single-quote
-    // the final value for POSIX shells.
     const pathError = validateFilePath(file);
     if (pathError) return `Invalid file path for run_tests: ${pathError}`;
     if (hasShellMetachar(file)) {
@@ -266,39 +231,9 @@ export async function runTests(input: Record<string, unknown>, context?: ToolExe
     command += ` ${shellQuote(file)}`;
   }
 
-  // Test execution follows the same try-terminal-then-fall-back-to-
-  // ShellSession dispatch as runCommand above. Tests benefit especially
-  // from the terminal path: the user can watch test output scroll live
-  // and jump to failures via the terminal's shell-integration gutter
-  // markers.
   const config = context?.config ?? getConfig();
   const timeoutMs = (config.shellTimeout || 120) * 1000;
-
-  try {
-    const terminalResult = await tryTerminalExecute(command, timeoutMs, context);
-    if (terminalResult) {
-      const status = terminalResult.exitCode !== 0 ? `\n(exit code: ${terminalResult.exitCode})` : '';
-      return terminalResult.stdout.trim() + status || '(no output)';
-    }
-  } catch (err) {
-    if (!config.terminalExecutionFallbackToChildProcess) {
-      const error = err as { message?: string };
-      return `Test command failed in terminal executor: ${error.message || 'Unknown error'}`;
-    }
-  }
-  if (!config.terminalExecutionFallbackToChildProcess && config.terminalExecutionEnabled) {
-    return 'Tests not executed: shell integration is unavailable and `sidecar.terminalExecution.fallbackToChildProcess` is false.';
-  }
-
-  const session = resolveShellSession(context);
-  try {
-    const result = await session.execute(command, { timeout: timeoutMs });
-    const status = result.exitCode !== 0 ? `\n(exit code: ${result.exitCode})` : '';
-    return result.stdout.trim() + status || '(no output)';
-  } catch (err) {
-    const error = err as { message?: string };
-    return `Test command failed: ${error.message || 'Unknown error'}`;
-  }
+  return executeShell(command, timeoutMs, context);
 }
 
 export const shellTools: RegisteredTool[] = [

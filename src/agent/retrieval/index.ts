@@ -10,6 +10,7 @@ export { MemoryRetriever } from './memoryRetriever';
 export { SemanticRetriever } from './semanticRetriever';
 export { PdfRetriever } from './pdfRetriever';
 export { ChunkRetriever } from './chunkRetriever';
+export { SidecarMdRetriever } from './sidecarMdRetriever';
 export { adaptiveGraphDepth, enrichWithGraphWalk } from './graphExpansion';
 export type { EnrichedHit, GraphWalkOptions } from './graphExpansion';
 
