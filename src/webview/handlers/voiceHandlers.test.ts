@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { handleStartVoice } from './voiceHandlers.js';
+import { handleStartVoice, handleVoiceAudio } from './voiceHandlers.js';
 import type { ExtensionMessage } from '../chatWebview.js';
+
+vi.mock('child_process', () => ({
+  exec: vi.fn(),
+}));
+
+vi.mock('os', () => ({ platform: () => 'darwin' }));
 
 vi.mock('../../config/settings.js', () => ({
   getConfig: vi.fn(),
@@ -13,6 +19,7 @@ vi.mock('../../voice/transcriptionClient.js', () => ({
 vi.mock('../../voice/localTranscriber.js', () => ({
   transcribeLocally: vi.fn(),
   isLocalModel: vi.fn((m: string) => m.includes('/')),
+  isModelLoaded: vi.fn().mockReturnValue(true),
 }));
 
 vi.mock('../../voice/recordingServer.js', () => ({
@@ -26,11 +33,14 @@ vi.mock('vscode', async () => {
   return mod;
 });
 
+import { exec } from 'child_process';
 import { getConfig } from '../../config/settings.js';
 import { transcribeAudio } from '../../voice/transcriptionClient.js';
 import { transcribeLocally } from '../../voice/localTranscriber.js';
 import { VoiceRecordingSession } from '../../voice/recordingServer.js';
 import * as vscode from 'vscode';
+
+const mockExec = vi.mocked(exec);
 
 const mockGetConfig = vi.mocked(getConfig);
 const mockTranscribe = vi.mocked(transcribeAudio);
@@ -65,7 +75,9 @@ function makeSession(overrides?: { waitForAudio?: () => Promise<{ buffer: Buffer
 beforeEach(() => {
   vi.clearAllMocks();
   mockGetConfig.mockReturnValue(baseConfig() as ReturnType<typeof getConfig>);
-  vi.mocked(vscode.env.openExternal).mockResolvedValue(true);
+  mockExec.mockImplementation(((_cmd: string, cb: (err: null) => void) => {
+    cb(null);
+  }) as never);
   vi.spyOn(vscode.window, 'showInformationMessage').mockResolvedValue(undefined);
 });
 
@@ -129,6 +141,18 @@ describe('handleStartVoice', () => {
 
     expect(mockCreate).not.toHaveBeenCalled();
     expect(sent[0]).toMatchObject({ command: 'voiceResult', voiceError: expect.stringContaining('disabled') });
+  });
+
+  it('opens the system browser via exec, not vscode.env.openExternal', async () => {
+    const session = makeSession();
+    mockCreate.mockResolvedValue(session as never);
+    mockTranscribeLocally.mockResolvedValue('ok');
+    const { postMessage } = captureMessages();
+
+    await handleStartVoice(postMessage);
+
+    expect(mockExec).toHaveBeenCalledWith(expect.stringContaining(session.url), expect.any(Function));
+    expect(vscode.env.openExternal).not.toHaveBeenCalled();
   });
 
   it('shows a notification with Copy URL after opening the browser', async () => {
@@ -225,5 +249,48 @@ describe('handleStartVoice', () => {
 
     const opts = mockTranscribe.mock.calls[0][2];
     expect(opts.transcriptionUrl).toBe('http://localhost:9000/transcribe');
+  });
+});
+
+describe('handleVoiceAudio', () => {
+  it('transcribes pcmBase64 payload via local pipeline', async () => {
+    const pcm = Buffer.alloc(8);
+    const msg = { command: 'voiceAudio' as const, pcmBase64: pcm.toString('base64'), mimeType: 'audio/pcm-f32le' };
+    mockTranscribeLocally.mockResolvedValue('hi there');
+    const { sent, postMessage } = captureMessages();
+
+    await handleVoiceAudio(msg as never, postMessage);
+
+    expect(mockTranscribeLocally).toHaveBeenCalledWith(expect.any(Buffer), 'Xenova/whisper-tiny');
+    expect(sent[0]).toMatchObject({ command: 'voiceResult', voiceText: 'hi there' });
+  });
+
+  it('posts voiceError when pcmBase64 is missing', async () => {
+    const msg = { command: 'voiceAudio' as const };
+    const { sent, postMessage } = captureMessages();
+
+    await handleVoiceAudio(msg as never, postMessage);
+
+    expect(sent[0]).toMatchObject({ command: 'voiceResult', voiceError: expect.stringContaining('No audio') });
+  });
+
+  it('posts voiceError when voice is disabled', async () => {
+    mockGetConfig.mockReturnValue(baseConfig({ voiceEnabled: false }) as ReturnType<typeof getConfig>);
+    const { sent, postMessage } = captureMessages();
+
+    await handleVoiceAudio({ command: 'voiceAudio' as const } as never, postMessage);
+
+    expect(sent[0]).toMatchObject({ command: 'voiceResult', voiceError: expect.stringContaining('disabled') });
+  });
+
+  it('does not crash when postMessage throws (webview disposed)', async () => {
+    const pcm = Buffer.alloc(8);
+    const msg = { command: 'voiceAudio' as const, pcmBase64: pcm.toString('base64') };
+    mockTranscribeLocally.mockResolvedValue('ok');
+    const brokenPost = () => {
+      throw new Error('webview disposed');
+    };
+
+    await expect(handleVoiceAudio(msg as never, brokenPost)).resolves.toBeUndefined();
   });
 });

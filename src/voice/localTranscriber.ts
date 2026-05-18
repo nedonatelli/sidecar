@@ -67,6 +67,11 @@ export function isLocalModel(model: string): boolean {
   return model.includes('/');
 }
 
+/** True when the pipeline is already loaded for the given model (no download needed). */
+export function isModelLoaded(model: string): boolean {
+  return _pipeline !== null && _loadedModel === model;
+}
+
 /** Test-only: inject a pre-built pipeline and skip model loading. */
 export function _setPipelineForTests(p: AsrPipeline | null, model = '__test__'): void {
   _pipeline = p;

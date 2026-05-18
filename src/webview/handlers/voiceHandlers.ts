@@ -1,9 +1,34 @@
 import * as vscode from 'vscode';
+import { exec } from 'child_process';
+import * as os from 'os';
 import { getConfig } from '../../config/settings.js';
 import { transcribeAudio } from '../../voice/transcriptionClient.js';
-import { transcribeLocally, isLocalModel } from '../../voice/localTranscriber.js';
+import { transcribeLocally, isLocalModel, isModelLoaded } from '../../voice/localTranscriber.js';
 import { VoiceRecordingSession } from '../../voice/recordingServer.js';
 import type { WebviewMessage, ExtensionMessage } from '../chatWebview.js';
+
+function safePost(postMessage: (msg: ExtensionMessage) => void, msg: ExtensionMessage): void {
+  try {
+    postMessage(msg);
+  } catch {
+    // webview was disposed while voice handler was waiting
+  }
+}
+
+function openSystemBrowser(url: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const platform = os.platform();
+    const cmd =
+      platform === 'darwin' ? `open "${url}"` : platform === 'win32' ? `start "" "${url}"` : `xdg-open "${url}"`;
+    exec(cmd, (err) => (err ? reject(err) : resolve()));
+  });
+}
+
+function transcribeProgressTitle(model: string): string {
+  return isLocalModel(model) && !isModelLoaded(model)
+    ? `SideCar Voice: downloading ${model} (~75 MB, first run)…`
+    : 'SideCar Voice: transcribing…';
+}
 
 /**
  * Primary path: the webview recorded audio and decoded it to Float32 PCM at
@@ -16,13 +41,16 @@ export async function handleVoiceAudio(
   const config = getConfig();
 
   if (!config.voiceEnabled) {
-    postMessage({ command: 'voiceResult', voiceError: 'Voice input is disabled. Enable sidecar.voice.enabled.' });
+    safePost(postMessage, {
+      command: 'voiceResult',
+      voiceError: 'Voice input is disabled. Enable sidecar.voice.enabled.',
+    });
     return;
   }
 
   const { pcmBase64 } = msg;
   if (typeof pcmBase64 !== 'string' || pcmBase64.length === 0) {
-    postMessage({ command: 'voiceResult', voiceError: 'No audio data received.' });
+    safePost(postMessage, { command: 'voiceResult', voiceError: 'No audio data received.' });
     return;
   }
 
@@ -31,7 +59,14 @@ export async function handleVoiceAudio(
     let text: string;
 
     if (isLocalModel(config.voiceModel)) {
-      text = await transcribeLocally(pcmBuffer, config.voiceModel);
+      text = await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: transcribeProgressTitle(config.voiceModel),
+          cancellable: false,
+        },
+        () => transcribeLocally(pcmBuffer, config.voiceModel),
+      );
     } else {
       const baseUrl = config.baseUrl.replace(/\/+$/, '');
       const transcriptionUrl = config.voiceTranscriptionUrl || `${baseUrl}/audio/transcriptions`;
@@ -42,9 +77,9 @@ export async function handleVoiceAudio(
       });
     }
 
-    postMessage({ command: 'voiceResult', voiceText: text });
+    safePost(postMessage, { command: 'voiceResult', voiceText: text });
   } catch (err) {
-    postMessage({ command: 'voiceResult', voiceError: err instanceof Error ? err.message : String(err) });
+    safePost(postMessage, { command: 'voiceResult', voiceError: err instanceof Error ? err.message : String(err) });
   }
 }
 
@@ -52,7 +87,7 @@ export async function handleStartVoice(postMessage: (msg: ExtensionMessage) => v
   const config = getConfig();
 
   if (!config.voiceEnabled) {
-    postMessage({
+    safePost(postMessage, {
       command: 'voiceResult',
       voiceError: 'Voice input is disabled. Enable sidecar.voice.enabled in settings.',
     });
@@ -63,15 +98,12 @@ export async function handleStartVoice(postMessage: (msg: ExtensionMessage) => v
   let session: VoiceRecordingSession | undefined;
   try {
     session = await VoiceRecordingSession.create({ useLocalTranscription: local });
-    // Open in the system browser. VS Code's Simple Browser extension can
-    // intercept localhost URLs and route them to a webview, which blocks
-    // getUserMedia. The notification gives the user a fallback copy action.
-    await vscode.env.openExternal(vscode.Uri.parse(session.url));
+    // Use child_process.exec to open the system browser directly.
+    // vscode.env.openExternal is intercepted by VS Code's Simple Browser
+    // extension for localhost URLs, which opens a webview that blocks getUserMedia.
+    await openSystemBrowser(session.url);
     vscode.window
-      .showInformationMessage(
-        'SideCar Voice: recording page opened. If it opened inside VS Code instead of Chrome/Firefox, copy the URL and paste it into an external browser.',
-        'Copy URL',
-      )
+      .showInformationMessage('SideCar Voice: recording page opened in your browser.', 'Copy URL')
       .then((choice) => {
         if (choice === 'Copy URL') vscode.env.clipboard.writeText(session!.url);
       });
@@ -80,7 +112,14 @@ export async function handleStartVoice(postMessage: (msg: ExtensionMessage) => v
 
     let text: string;
     if (local) {
-      text = await transcribeLocally(buffer, config.voiceModel);
+      text = await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: transcribeProgressTitle(config.voiceModel),
+          cancellable: false,
+        },
+        () => transcribeLocally(buffer, config.voiceModel),
+      );
     } else {
       const baseUrl = config.baseUrl.replace(/\/+$/, '');
       const transcriptionUrl = config.voiceTranscriptionUrl || `${baseUrl}/audio/transcriptions`;
@@ -91,9 +130,9 @@ export async function handleStartVoice(postMessage: (msg: ExtensionMessage) => v
       });
     }
 
-    postMessage({ command: 'voiceResult', voiceText: text });
+    safePost(postMessage, { command: 'voiceResult', voiceText: text });
   } catch (err) {
-    postMessage({
+    safePost(postMessage, {
       command: 'voiceResult',
       voiceError: err instanceof Error ? err.message : String(err),
     });
