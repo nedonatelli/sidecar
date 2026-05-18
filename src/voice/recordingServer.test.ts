@@ -8,7 +8,7 @@ describe('VoiceRecordingSession', () => {
   it('creates a session with a valid localhost URL and 32-char hex token', async () => {
     const session = await VoiceRecordingSession.create();
     try {
-      expect(session.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/\?token=[0-9a-f]{32}$/);
+      expect(session.url).toMatch(/^http:\/\/localhost:\d+\/\?token=[0-9a-f]{32}$/);
     } finally {
       session.dispose();
     }

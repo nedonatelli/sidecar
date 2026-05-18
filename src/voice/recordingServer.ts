@@ -3,6 +3,14 @@
 // audio via POST. Used because VS Code webviews cannot access getUserMedia
 // (the Permissions Policy iframe attribute `allow="microphone"` is not set
 // by VS Code's webview host). The system browser has full mic access.
+//
+// When useLocalTranscription is true (default), the recording page uses
+// AudioContext to decode the WebM blob to mono Float32 PCM at 16 kHz before
+// POSTing, so the extension host can pass it directly to the Whisper ONNX
+// pipeline without any server-side audio decoding.
+//
+// When useLocalTranscription is false the raw audio blob is posted so it
+// can be forwarded to an OpenAI-compatible /audio/transcriptions endpoint.
 // ---------------------------------------------------------------------------
 
 import * as crypto from 'crypto';
@@ -11,7 +19,12 @@ import * as net from 'net';
 
 export interface RecordingResult {
   buffer: Buffer;
+  /** 'audio/pcm-f32le' for local-model path; raw mime (e.g. 'audio/webm') for HTTP API path. */
   mimeType: string;
+}
+
+export interface VoiceSessionOptions {
+  useLocalTranscription?: boolean;
 }
 
 function findFreePort(): Promise<number> {
@@ -25,7 +38,58 @@ function findFreePort(): Promise<number> {
   });
 }
 
-function recordingPageHtml(token: string): string {
+function recordingPageHtml(token: string, useLocalTranscription: boolean): string {
+  // When useLocalTranscription is true, the submit handler decodes the
+  // recorded blob to Float32 PCM via AudioContext before POSTing binary data.
+  // When false, the raw blob is posted directly for forwarding to an HTTP API.
+  const submitScript = useLocalTranscription
+    ? `
+    submitBtn.addEventListener('click', async () => {
+      if (!blob) return;
+      submitBtn.disabled = true;
+      status.textContent = 'Decoding audio\\u2026';
+      try {
+        const arrayBuffer = await blob.arrayBuffer();
+        const audioCtx = new AudioContext({ sampleRate: 16000 });
+        const decoded = await audioCtx.decodeAudioData(arrayBuffer);
+        // Resample to mono channel 0 (already at 16 kHz due to AudioContext sampleRate).
+        const pcm = decoded.getChannelData(0);
+        status.textContent = 'Sending\\u2026';
+        const r = await fetch('/audio?token=' + TOKEN, {
+          method: 'POST',
+          headers: { 'Content-Type': 'audio/pcm-f32le' },
+          body: pcm.buffer,
+        });
+        if (!r.ok) throw new Error('Server error ' + r.status);
+        status.textContent = '\\u2713 Done! You can close this tab.';
+        submitBtn.style.display = 'none';
+        setTimeout(() => window.close(), 1800);
+      } catch (e) {
+        status.textContent = e.message;
+        submitBtn.disabled = false;
+      }
+    });`
+    : `
+    submitBtn.addEventListener('click', async () => {
+      if (!blob) return;
+      submitBtn.disabled = true;
+      status.textContent = 'Sending\\u2026';
+      try {
+        const r = await fetch('/audio?token=' + TOKEN, {
+          method: 'POST',
+          headers: { 'Content-Type': mimeType },
+          body: blob,
+        });
+        if (!r.ok) throw new Error('Server error ' + r.status);
+        status.textContent = '\\u2713 Done! You can close this tab.';
+        submitBtn.style.display = 'none';
+        setTimeout(() => window.close(), 1800);
+      } catch (e) {
+        status.textContent = e.message;
+        submitBtn.disabled = false;
+      }
+    });`;
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -82,22 +146,7 @@ function recordingPageHtml(token: string): string {
         status.textContent = (e.name === 'NotAllowedError' ? 'Microphone permission denied.' : e.message);
       }
     });
-
-    submitBtn.addEventListener('click', async () => {
-      if (!blob) return;
-      submitBtn.disabled = true;
-      status.textContent = 'Sending\\u2026';
-      try {
-        const r = await fetch('/audio?token=' + TOKEN, { method: 'POST', headers: { 'Content-Type': mimeType }, body: blob });
-        if (!r.ok) throw new Error('Server error ' + r.status);
-        status.textContent = '\\u2713 Done! You can close this tab.';
-        submitBtn.style.display = 'none';
-        setTimeout(() => window.close(), 1800);
-      } catch (e) {
-        status.textContent = e.message;
-        submitBtn.disabled = false;
-      }
-    });
+    ${submitScript}
   </script>
 </body>
 </html>`;
@@ -106,6 +155,7 @@ function recordingPageHtml(token: string): string {
 export class VoiceRecordingSession {
   readonly url: string;
   private readonly _server: http.Server;
+  private readonly _useLocalTranscription: boolean;
   private _resolve?: (r: RecordingResult) => void;
   private _reject?: (e: Error) => void;
   private _timer?: ReturnType<typeof setTimeout>;
@@ -114,15 +164,19 @@ export class VoiceRecordingSession {
   private constructor(
     private readonly port: number,
     private readonly token: string,
+    opts: Required<VoiceSessionOptions>,
   ) {
-    this.url = `http://127.0.0.1:${port}/?token=${token}`;
+    this.url = `http://localhost:${port}/?token=${token}`;
+    this._useLocalTranscription = opts.useLocalTranscription;
     this._server = this._buildServer();
   }
 
-  static async create(): Promise<VoiceRecordingSession> {
+  static async create(opts: VoiceSessionOptions = {}): Promise<VoiceRecordingSession> {
     const port = await findFreePort();
     const token = crypto.randomBytes(16).toString('hex');
-    return new VoiceRecordingSession(port, token);
+    return new VoiceRecordingSession(port, token, {
+      useLocalTranscription: opts.useLocalTranscription ?? true,
+    });
   }
 
   waitForAudio(timeoutMs = 120_000): Promise<RecordingResult> {
@@ -148,7 +202,7 @@ export class VoiceRecordingSession {
 
   private _buildServer(): http.Server {
     const server = http.createServer((req, res) => {
-      const url = new URL(req.url ?? '/', `http://127.0.0.1:${this.port}`);
+      const url = new URL(req.url ?? '/', `http://localhost:${this.port}`);
       const tok = url.searchParams.get('token');
       if (tok !== this.token) {
         res.writeHead(403).end('Forbidden');
@@ -157,7 +211,7 @@ export class VoiceRecordingSession {
 
       if (req.method === 'GET' && url.pathname === '/') {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(recordingPageHtml(this.token));
+        res.end(recordingPageHtml(this.token, this._useLocalTranscription));
         return;
       }
 

@@ -601,7 +601,7 @@ function readConfig(): SideCarConfig {
     zenModeMinScore: clampMin(cfg.get<number>('zenMode.minScore'), 0, 0.35),
     monorepoEnabled: cfg.get<boolean>('monorepo.enabled', true),
     voiceEnabled: cfg.get<boolean>('voice.enabled', false),
-    voiceModel: cfg.get<string>('voice.model', 'whisper-1'),
+    voiceModel: cfg.get<string>('voice.model', 'Xenova/whisper-tiny'),
     voiceTranscriptionUrl: cfg.get<string>('voice.transcriptionUrl', ''),
   };
 }

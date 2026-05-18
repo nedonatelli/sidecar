@@ -1003,8 +1003,8 @@
           },
           "sidecar.voice.model": {
             "type": "string",
-            "default": "whisper-1",
-            "description": "Whisper model name to use for speech-to-text. `whisper-1` for OpenAI; `whisper-large-v3-turbo` for Groq (faster and free-tier friendly); or a model name supported by your local Whisper server."
+            "default": "Xenova/whisper-tiny",
+            "description": "Whisper model for speech-to-text. HuggingFace hub IDs (containing '/') run in-process via ONNX — no API key needed (e.g. `Xenova/whisper-tiny` ~75 MB, `Xenova/whisper-base` ~145 MB). Plain names like `whisper-1` or `whisper-large-v3-turbo` use the HTTP transcriptions API (OpenAI / Groq)."
           },
           "sidecar.voice.transcriptionUrl": {
             "type": "string",

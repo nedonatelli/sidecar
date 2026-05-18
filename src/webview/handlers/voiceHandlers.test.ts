@@ -10,6 +10,11 @@ vi.mock('../../voice/transcriptionClient.js', () => ({
   transcribeAudio: vi.fn(),
 }));
 
+vi.mock('../../voice/localTranscriber.js', () => ({
+  transcribeLocally: vi.fn(),
+  isLocalModel: vi.fn((m: string) => m.includes('/')),
+}));
+
 vi.mock('../../voice/recordingServer.js', () => ({
   VoiceRecordingSession: {
     create: vi.fn(),
@@ -23,17 +28,19 @@ vi.mock('vscode', async () => {
 
 import { getConfig } from '../../config/settings.js';
 import { transcribeAudio } from '../../voice/transcriptionClient.js';
+import { transcribeLocally } from '../../voice/localTranscriber.js';
 import { VoiceRecordingSession } from '../../voice/recordingServer.js';
 import * as vscode from 'vscode';
 
 const mockGetConfig = vi.mocked(getConfig);
 const mockTranscribe = vi.mocked(transcribeAudio);
+const mockTranscribeLocally = vi.mocked(transcribeLocally);
 const mockCreate = vi.mocked(VoiceRecordingSession.create);
 
 function baseConfig(overrides?: Record<string, unknown>) {
   return {
     voiceEnabled: true,
-    voiceModel: 'whisper-1',
+    voiceModel: 'Xenova/whisper-tiny',
     voiceTranscriptionUrl: '',
     baseUrl: 'https://api.openai.com/v1',
     apiKey: 'sk-test',
@@ -59,22 +66,59 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockGetConfig.mockReturnValue(baseConfig() as ReturnType<typeof getConfig>);
   vi.mocked(vscode.env.openExternal).mockResolvedValue(true);
+  vi.spyOn(vscode.window, 'showInformationMessage').mockResolvedValue(undefined);
 });
 
 describe('handleStartVoice', () => {
-  it('opens the recording URL in the system browser and transcribes the result', async () => {
+  it('uses local transcription when model is a HuggingFace hub ID', async () => {
     const session = makeSession();
     mockCreate.mockResolvedValue(session as never);
-    mockTranscribe.mockResolvedValue('Hello world.');
+    mockTranscribeLocally.mockResolvedValue('Hello world.');
     const { sent, postMessage } = captureMessages();
 
     await handleStartVoice(postMessage);
 
-    expect(vscode.env.openExternal).toHaveBeenCalledWith(vscode.Uri.parse('http://127.0.0.1:12345/?token=abc'));
-    expect(mockTranscribe).toHaveBeenCalledOnce();
-    expect(sent).toHaveLength(1);
+    expect(mockTranscribeLocally).toHaveBeenCalledWith(expect.any(Buffer), 'Xenova/whisper-tiny');
+    expect(mockTranscribe).not.toHaveBeenCalled();
     expect(sent[0]).toMatchObject({ command: 'voiceResult', voiceText: 'Hello world.' });
     expect(session.dispose).toHaveBeenCalled();
+  });
+
+  it('uses HTTP transcription when model is a plain API name', async () => {
+    mockGetConfig.mockReturnValue(baseConfig({ voiceModel: 'whisper-1' }) as ReturnType<typeof getConfig>);
+    const session = makeSession();
+    mockCreate.mockResolvedValue(session as never);
+    mockTranscribe.mockResolvedValue('Hello API.');
+    const { sent, postMessage } = captureMessages();
+
+    await handleStartVoice(postMessage);
+
+    expect(mockTranscribe).toHaveBeenCalledOnce();
+    expect(mockTranscribeLocally).not.toHaveBeenCalled();
+    expect(sent[0]).toMatchObject({ command: 'voiceResult', voiceText: 'Hello API.' });
+  });
+
+  it('passes useLocalTranscription:true to session when model is local', async () => {
+    const session = makeSession();
+    mockCreate.mockResolvedValue(session as never);
+    mockTranscribeLocally.mockResolvedValue('ok');
+    const { postMessage } = captureMessages();
+
+    await handleStartVoice(postMessage);
+
+    expect(mockCreate).toHaveBeenCalledWith({ useLocalTranscription: true });
+  });
+
+  it('passes useLocalTranscription:false to session when model is HTTP API', async () => {
+    mockGetConfig.mockReturnValue(baseConfig({ voiceModel: 'whisper-1' }) as ReturnType<typeof getConfig>);
+    const session = makeSession();
+    mockCreate.mockResolvedValue(session as never);
+    mockTranscribe.mockResolvedValue('ok');
+    const { postMessage } = captureMessages();
+
+    await handleStartVoice(postMessage);
+
+    expect(mockCreate).toHaveBeenCalledWith({ useLocalTranscription: false });
   });
 
   it('posts voiceError and skips transcription when voice is disabled', async () => {
@@ -87,17 +131,18 @@ describe('handleStartVoice', () => {
     expect(sent[0]).toMatchObject({ command: 'voiceResult', voiceError: expect.stringContaining('disabled') });
   });
 
-  it('posts voiceError when openExternal returns false', async () => {
-    vi.mocked(vscode.env.openExternal).mockResolvedValue(false);
+  it('shows a notification with Copy URL after opening the browser', async () => {
     const session = makeSession();
     mockCreate.mockResolvedValue(session as never);
-    const { sent, postMessage } = captureMessages();
+    mockTranscribeLocally.mockResolvedValue('ok');
+    const { postMessage } = captureMessages();
 
     await handleStartVoice(postMessage);
 
-    expect(mockTranscribe).not.toHaveBeenCalled();
-    expect(sent[0]).toMatchObject({ command: 'voiceResult', voiceError: expect.stringContaining('Could not open') });
-    expect(session.dispose).toHaveBeenCalled();
+    expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
+      expect.stringContaining('recording page opened'),
+      'Copy URL',
+    );
   });
 
   it('posts voiceError when waitForAudio times out', async () => {
@@ -113,22 +158,22 @@ describe('handleStartVoice', () => {
     expect(session.dispose).toHaveBeenCalled();
   });
 
-  it('posts voiceError when transcribeAudio throws', async () => {
+  it('posts voiceError when local transcription throws', async () => {
     const session = makeSession();
     mockCreate.mockResolvedValue(session as never);
-    mockTranscribe.mockRejectedValue(new Error('Whisper offline'));
+    mockTranscribeLocally.mockRejectedValue(new Error('model load failed'));
     const { sent, postMessage } = captureMessages();
 
     await handleStartVoice(postMessage);
 
-    expect(sent[0]).toMatchObject({ command: 'voiceResult', voiceError: 'Whisper offline' });
+    expect(sent[0]).toMatchObject({ command: 'voiceResult', voiceError: 'model load failed' });
     expect(session.dispose).toHaveBeenCalled();
   });
 
   it('coerces non-Error throws to string', async () => {
     const session = makeSession();
     mockCreate.mockResolvedValue(session as never);
-    mockTranscribe.mockRejectedValue('raw string error');
+    mockTranscribeLocally.mockRejectedValue('raw string error');
     const { sent, postMessage } = captureMessages();
 
     await handleStartVoice(postMessage);
@@ -136,7 +181,8 @@ describe('handleStartVoice', () => {
     expect(sent[0]).toMatchObject({ command: 'voiceResult', voiceError: 'raw string error' });
   });
 
-  it('derives transcriptionUrl from baseUrl when voiceTranscriptionUrl is empty', async () => {
+  it('derives transcriptionUrl from baseUrl for HTTP API model', async () => {
+    mockGetConfig.mockReturnValue(baseConfig({ voiceModel: 'whisper-1' }) as ReturnType<typeof getConfig>);
     const session = makeSession();
     mockCreate.mockResolvedValue(session as never);
     mockTranscribe.mockResolvedValue('ok');
@@ -148,9 +194,9 @@ describe('handleStartVoice', () => {
     expect(opts.transcriptionUrl).toBe('https://api.openai.com/v1/audio/transcriptions');
   });
 
-  it('trims trailing slash from baseUrl', async () => {
+  it('trims trailing slash from baseUrl for HTTP API model', async () => {
     mockGetConfig.mockReturnValue(
-      baseConfig({ baseUrl: 'https://api.openai.com/v1/' }) as ReturnType<typeof getConfig>,
+      baseConfig({ voiceModel: 'whisper-1', baseUrl: 'https://api.openai.com/v1/' }) as ReturnType<typeof getConfig>,
     );
     const session = makeSession();
     mockCreate.mockResolvedValue(session as never);
@@ -163,9 +209,12 @@ describe('handleStartVoice', () => {
     expect(opts.transcriptionUrl).toBe('https://api.openai.com/v1/audio/transcriptions');
   });
 
-  it('uses voiceTranscriptionUrl override when set', async () => {
+  it('uses voiceTranscriptionUrl override for HTTP API model', async () => {
     mockGetConfig.mockReturnValue(
-      baseConfig({ voiceTranscriptionUrl: 'http://localhost:9000/transcribe' }) as ReturnType<typeof getConfig>,
+      baseConfig({
+        voiceModel: 'whisper-1',
+        voiceTranscriptionUrl: 'http://localhost:9000/transcribe',
+      }) as ReturnType<typeof getConfig>,
     );
     const session = makeSession();
     mockCreate.mockResolvedValue(session as never);
