@@ -6,22 +6,30 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [0.98.0] - 2026-05-18
 
-**v0.98.0 — Voice Input.**
+**v0.98.0 — Voice Input (extension-host recording, no browser).**
 
 ### Added
 
-- **Voice input** — microphone button (`🎤`) in the chat input area. Click once to start recording; the button pulses red while active. Click again to stop. The audio blob is sent to a Whisper-compatible `/v1/audio/transcriptions` endpoint and the transcribed text is injected directly into the chat input box, ready to send or edit. Gated by `sidecar.voice.enabled` (default `false`).
+- **Voice input** — microphone button (`🎤`) in the chat input area. Click to start recording; the button pulses red while active. Audio is captured directly in the VS Code extension host — no external browser is ever opened. Transcribed text is injected into the chat input box ready to send or edit. Gated by `sidecar.voice.enabled` (default `false`).
 
-- **Transcription backend** — uses the standard OpenAI-compatible Whisper API. Works out of the box with OpenAI (`whisper-1`), Groq (`whisper-large-v3-turbo` — free-tier, fast), or any local server (whisper.cpp, faster-whisper, Ollama if Whisper endpoint is exposed). The transcription URL defaults to `{baseUrl}/audio/transcriptions`; override it with `sidecar.voice.transcriptionUrl` to point at a dedicated Whisper server.
+- **Cross-platform extension-host recorder** (`src/voice/hostRecorder.ts`) — zero new npm dependencies; uses OS-native audio tools per platform:
+  - **macOS**: Swift/AVFoundation binary compiled once with `swiftc` and cached at `~/.config/sidecar/bin/recorder-darwin-<arch>`. Binary recompiles automatically only when the embedded source changes (SHA-256 stamp). Records at the hardware sample rate and resamples to Float32 PCM 16 kHz inline via `AVAudioEngine`. On first use a one-time "compiled" notification is shown in VS Code.
+  - **Linux**: `arecord` (alsa-utils) or `sox`; records S16_LE at 16 kHz and converts to Float32 in Node.js. If neither tool is found, a clear install hint (`sudo apt install alsa-utils`) is surfaced via the chat error message.
+  - **Windows**: PowerShell script using `winmm.dll` MCI API (`mciSendString`); records to a temp WAV file, strips the RIFF header via chunk-based parsing, and converts to Float32.
+
+- **Local Whisper transcription** (`sidecar.voice.model: 'Xenova/whisper-tiny'` or any HuggingFace path) — runs entirely on-device via `@huggingface/transformers` (already bundled for PKI embeddings). First run downloads the model (~75 MB); subsequent runs are instant. No API key or server required.
+
+- **HTTP transcription fallback** — when `sidecar.voice.model` is a plain API model name (e.g. `whisper-1`), audio is sent to a Whisper-compatible `/v1/audio/transcriptions` endpoint. Works with OpenAI, Groq (`whisper-large-v3-turbo`), whisper.cpp, faster-whisper, or any local server. The URL defaults to `{baseUrl}/audio/transcriptions`; override with `sidecar.voice.transcriptionUrl`.
 
 - **`sidecar.voice.enabled`** (default `false`) — show the mic button and enable voice recording.
-- **`sidecar.voice.model`** (default `whisper-1`) — Whisper model name.
-- **`sidecar.voice.transcriptionUrl`** (default `""`) — override URL; empty = derived from `sidecar.baseUrl`.
+- **`sidecar.voice.model`** (default `Xenova/whisper-tiny`) — HuggingFace model path for local transcription, or an API model name for HTTP transcription.
+- **`sidecar.voice.transcriptionUrl`** (default `""`) — override URL for HTTP transcription; empty = derived from `sidecar.baseUrl`.
 
 ### Changed
 
 - `sidecar.voice.enabled` is wired into the `uiSettings` message so the mic button appears/disappears live when the setting is toggled — no restart needed.
 - `UI_CONFIG_KEYS` in `chatViewLifecycle.ts` extended with `sidecar.voice.enabled` so the configuration watcher fires on voice-setting changes.
+- Recording UX uses `vscode.window.withProgress` with three labeled stages: "preparing microphone", "recording… click Cancel to stop" (cancellable — Cancel stops and transcribes what was captured; auto-stops after 2 minutes), and "transcribing".
 
 ## [0.97.0] - 2026-05-18
 

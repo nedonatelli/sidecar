@@ -415,7 +415,7 @@ Detailed specifications for every entry in the SideCar release plan. Each entry 
 - **Extension / plugin API** *(vision-shelf — superseded by `@sidecar/sdk` above)* — the original bullet described the intent; the spec above is the concrete v0.73 implementation.
 - **Agentic Task Delegation via MCP** — elevates MCP from a static tool registry into a dynamic sub-agent orchestration layer. Instead of treating every MCP server as a dumb function call, SideCar can spawn specialised servers on-demand (e.g. a `math-engine` for symbolic computation, a `web-searcher` for live retrieval, a `code-executor` sandbox) and route sub-tasks to them as first-class agents with their own reasoning loop. The lead agent decomposes the user's request, dispatches sub-tasks to the most capable server via a new `delegate_to_mcp` tool call, collects structured results, and synthesises a final response — mirroring the hierarchical multi-agent pattern but using the MCP protocol as the inter-agent transport. Server lifecycle (spawn, health-check, teardown) is managed automatically, and each delegation is recorded in the audit log with the server name, input, output, and latency. Configurable via `sidecar.mcpDelegation.enabled` and `sidecar.mcpDelegation.allowedServers`.
 
-- **Voice input** — Web Speech API or local STT model
+- **Voice input** *(shipped v0.98.0)* — microphone button in chat UI. Audio recorded in the VS Code extension host (Swift/AVFoundation on macOS, arecord on Linux, PowerShell+WinMM on Windows — no browser window). Transcribed locally via `@huggingface/transformers` Whisper or via any HTTP Whisper endpoint. Gated by `sidecar.voice.enabled`.
 
 ### Enterprise & Collaboration
 
