@@ -20,6 +20,7 @@
   const input = document.getElementById('input');
   const sendBtn = document.getElementById('send');
   const attachBtn = document.getElementById('attach-btn');
+  const micBtn = document.getElementById('mic-btn');
   const modelBtn = document.getElementById('model-btn');
   const modelName = document.getElementById('model-name');
   const modelPanel = document.getElementById('model-panel');
@@ -119,6 +120,14 @@
       root.style.removeProperty('--sidecar-chat-accent');
     } else if (isSafeCssColor(raw)) {
       root.style.setProperty('--sidecar-chat-accent', raw);
+    }
+
+    if (micBtn) {
+      if (opts.voiceEnabled) {
+        micBtn.classList.remove('hidden');
+      } else {
+        micBtn.classList.add('hidden');
+      }
     }
   }
 
@@ -501,6 +510,67 @@
     e.stopPropagation();
     showAttachMenu();
   });
+
+  // ---------------------------------------------------------------------------
+  // Voice input — MediaRecorder → Whisper transcription
+  // ---------------------------------------------------------------------------
+  if (micBtn) {
+    let mediaRecorder = null;
+    let audioChunks = [];
+    let isRecording = false;
+
+    async function startVoiceRecording() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+        audioChunks = [];
+        mediaRecorder.addEventListener('dataavailable', (e) => {
+          if (e.data && e.data.size > 0) audioChunks.push(e.data);
+        });
+        mediaRecorder.addEventListener('stop', () => {
+          const mimeType = mediaRecorder.mimeType || 'audio/webm';
+          const blob = new Blob(audioChunks, { type: mimeType });
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const dataUrl = reader.result;
+            if (typeof dataUrl === 'string') {
+              const base64 = dataUrl.split(',')[1];
+              micBtn.textContent = '⏳';
+              micBtn.disabled = true;
+              vscode.postMessage({ command: 'voiceAudio', audioBase64: base64, mimeType });
+            }
+          };
+          reader.readAsDataURL(blob);
+          stream.getTracks().forEach((t) => t.stop());
+        });
+        mediaRecorder.start();
+        micBtn.textContent = '⏹';
+        micBtn.classList.add('mic-recording');
+        isRecording = true;
+      } catch (err) {
+        micBtn.textContent = '🎤';
+        micBtn.disabled = false;
+        isRecording = false;
+        console.error('[SideCar] Voice recording error:', err);
+      }
+    }
+
+    function stopVoiceRecording() {
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+        micBtn.classList.remove('mic-recording');
+        isRecording = false;
+      }
+    }
+
+    micBtn.addEventListener('click', () => {
+      if (isRecording) {
+        stopVoiceRecording();
+      } else {
+        void startVoiceRecording();
+      }
+    });
+  }
 
   // The original single-file "×" button removes whichever file the user
   // has clicked within the chip list; legacy selector is kept so the CSS
@@ -4945,6 +5015,27 @@
         messagesContainer.appendChild(errorDiv);
         scrollToBottom();
         setLoading(false);
+        break;
+      }
+
+      case 'voiceResult': {
+        if (micBtn) {
+          micBtn.textContent = '🎤'; // 🎤
+          micBtn.disabled = false;
+          micBtn.classList.remove('mic-recording', 'mic-processing');
+        }
+        if (typeof event.data.voiceText === 'string' && event.data.voiceText.trim()) {
+          input.value = event.data.voiceText;
+          input.style.height = 'auto';
+          input.style.height = Math.min(input.scrollHeight, 300) + 'px';
+          input.focus();
+        } else if (event.data.voiceError) {
+          const errDiv = document.createElement('div');
+          errDiv.className = 'message assistant';
+          errDiv.textContent = '⚠️ Voice error: ' + event.data.voiceError;
+          messagesContainer.appendChild(errDiv);
+          messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
         break;
       }
 

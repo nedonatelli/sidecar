@@ -437,6 +437,11 @@ export function buildDispatchHandlers(
       await handleRegenSection(state, msg.selectedText || '', msg.instruction || '', msg.msgIndex ?? -1);
     },
 
+    voiceAudio: async (msg) => {
+      const { handleVoiceAudio } = await import('./voiceHandlers.js');
+      await handleVoiceAudio(msg, state.postMessage);
+    },
+
     // loadModels is not a webview command but kept here for discoverability;
     // it fires from resolveWebviewView, not from the dispatch table.
     _loadModels: () => loadModels(state),

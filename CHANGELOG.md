@@ -4,6 +4,25 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.98.0] - 2026-05-18
+
+**v0.98.0 — Voice Input.**
+
+### Added
+
+- **Voice input** — microphone button (`🎤`) in the chat input area. Click once to start recording; the button pulses red while active. Click again to stop. The audio blob is sent to a Whisper-compatible `/v1/audio/transcriptions` endpoint and the transcribed text is injected directly into the chat input box, ready to send or edit. Gated by `sidecar.voice.enabled` (default `false`).
+
+- **Transcription backend** — uses the standard OpenAI-compatible Whisper API. Works out of the box with OpenAI (`whisper-1`), Groq (`whisper-large-v3-turbo` — free-tier, fast), or any local server (whisper.cpp, faster-whisper, Ollama if Whisper endpoint is exposed). The transcription URL defaults to `{baseUrl}/audio/transcriptions`; override it with `sidecar.voice.transcriptionUrl` to point at a dedicated Whisper server.
+
+- **`sidecar.voice.enabled`** (default `false`) — show the mic button and enable voice recording.
+- **`sidecar.voice.model`** (default `whisper-1`) — Whisper model name.
+- **`sidecar.voice.transcriptionUrl`** (default `""`) — override URL; empty = derived from `sidecar.baseUrl`.
+
+### Changed
+
+- `sidecar.voice.enabled` is wired into the `uiSettings` message so the mic button appears/disappears live when the setting is toggled — no restart needed.
+- `UI_CONFIG_KEYS` in `chatViewLifecycle.ts` extended with `sidecar.voice.enabled` so the configuration watcher fires on voice-setting changes.
+
 ## [0.97.0] - 2026-05-18
 
 **v0.97.0 — Semantic Agentic Search for Monorepos + test-hardening + boilerplate theme completions.**

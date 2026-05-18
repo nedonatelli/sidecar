@@ -10,18 +10,25 @@ import * as path from 'path';
 import type { ExtensionMessage } from './chatWebview.js';
 
 /** Config keys whose changes should trigger a UI settings push. */
-export const UI_CONFIG_KEYS = ['sidecar.chatDensity', 'sidecar.chatFontSize', 'sidecar.chatAccentColor'] as const;
+export const UI_CONFIG_KEYS = [
+  'sidecar.chatDensity',
+  'sidecar.chatFontSize',
+  'sidecar.chatAccentColor',
+  'sidecar.voice.enabled',
+] as const;
 
 export function buildUiSettingsMessage(cfg: {
   chatDensity: 'compact' | 'normal' | 'comfortable';
   chatFontSize: number;
   chatAccentColor: string;
+  voiceEnabled: boolean;
 }): ExtensionMessage {
   return {
     command: 'uiSettings',
     chatDensity: cfg.chatDensity,
     chatFontSize: cfg.chatFontSize,
     chatAccentColor: cfg.chatAccentColor,
+    voiceEnabled: cfg.voiceEnabled,
   };
 }
 

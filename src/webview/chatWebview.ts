@@ -93,7 +93,8 @@ export interface WebviewMessage {
     | 'requestFileCompletion'
     | 'regenerateResponse'
     | 'refreshModels'
-    | 'restartOllama';
+    | 'restartOllama'
+    | 'voiceAudio';
   images?: { mediaType: string; data: string }[];
   text?: string;
   model?: string;
@@ -143,6 +144,10 @@ export interface WebviewMessage {
   steerId?: string;
   /** Steer queue: urgency for a new submission. */
   steerUrgency?: 'nudge' | 'interrupt';
+  /** Voice input: base64-encoded audio blob sent for transcription. */
+  audioBase64?: string;
+  /** Voice input: MIME type of the audio blob (e.g. 'audio/webm;codecs=opus'). */
+  mimeType?: string;
 }
 
 export interface ExtensionMessage {
@@ -197,7 +202,8 @@ export interface ExtensionMessage {
     | 'setActiveBackendProfile'
     | 'fileCompletionList'
     | 'batchProgress'
-    | 'regenSectionResult';
+    | 'regenSectionResult'
+    | 'voiceResult';
   /** Selective regen result: the original selected text and the replacement. */
   originalText?: string;
   newText?: string;
@@ -259,6 +265,7 @@ export interface ExtensionMessage {
   chatDensity?: 'compact' | 'normal' | 'comfortable';
   chatFontSize?: number;
   chatAccentColor?: string;
+  voiceEnabled?: boolean;
   verboseLabel?: string;
   skills?: { id: string; name: string; description: string }[];
   suggestions?: string[];
@@ -343,6 +350,10 @@ export interface ExtensionMessage {
    * Facet or Fork batch progress snapshot. Sent before each worker
    * starts and after it finishes so the UI can track per-item status.
    */
+  /** Voice input: transcribed text from the Whisper backend. */
+  voiceText?: string;
+  /** Voice input: error message when transcription fails. */
+  voiceError?: string;
   batchProgress?: {
     kind: 'facets' | 'forks';
     task: string;
@@ -530,6 +541,7 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
   <div id="auto-mode-strip" class="hidden" role="region" aria-label="Auto Mode progress"></div>
   <div id="input-area">
     <button id="attach-btn" data-tooltip="Attach file" aria-label="Attach file">&#128206;</button>
+    <button id="mic-btn" class="hidden" data-tooltip="Voice input" aria-label="Start voice recording">&#127908;</button>
     <textarea id="input" rows="1" placeholder="Ask SideCar…"></textarea>
     <button id="send">Send</button>
   </div>

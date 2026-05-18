@@ -1834,6 +1834,47 @@ body {
   background: var(--vscode-button-secondaryHoverBackground);
 }
 
+#mic-btn {
+  padding: 8px;
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+  border: 1px solid var(--vscode-widget-border);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+
+#mic-btn:hover {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+#mic-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+#mic-btn.mic-recording {
+  background: var(--vscode-statusBarItem-errorBackground, #cc3300);
+  color: #fff;
+  border-color: transparent;
+  animation: mic-pulse 1s ease-in-out infinite;
+}
+
+@keyframes mic-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
 /* Block-level markdown in assistant messages — override pre-wrap for blocks */
 .message h2,
 .message h3,

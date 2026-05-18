@@ -1,6 +1,6 @@
 # SideCar Roadmap
 
-**Current release: v0.97.0** — Semantic Agentic Search for Monorepos (`monorepo_packages` tool, auto-detects Nx/Turbo/pnpm/yarn/Lerna) · test-hardening subsystem rows marked complete · boilerplate theme rows marked complete. See [CHANGELOG](CHANGELOG.md) for full notes.
+**Current release: v0.98.0** — Voice Input: microphone button in chat UI → MediaRecorder → Whisper transcription → text injected into input. Works with OpenAI, Groq, and any OpenAI-compatible Whisper server. See [CHANGELOG](CHANGELOG.md) for full notes.
 
 **Coverage floor**: ≥80/70/80/80 (stmts/branches/funcs/lines) enforced by CI. No PR merges that drop any metric.
 
@@ -12,6 +12,7 @@
 
 | Version | Headline |
 |---|---|
+| v0.98.0 | Voice Input (`sidecar.voice.enabled` · mic button · MediaRecorder · Whisper `/v1/audio/transcriptions` · OpenAI / Groq / local) |
 | v0.97.0 | Semantic Agentic Search for Monorepos (`monorepo_packages` tool · `detectMonorepo` auto-detects Nx / Turbo / pnpm / yarn / Lerna · `sidecar.monorepo.enabled`) |
 | v0.96.0 | Zen Mode Context Filtering (`sidecar.zenMode.enabled`) · Agent Scheduling enhancements (cron, onSave triggers, `sidecar.scheduler.run` command, run history) |
 | v0.95.0 | Agentic Task Delegation via MCP: `delegate_to_mcp` tool + SideCar MCP Agent Server (`sidecar.mcpServer.enabled`) |

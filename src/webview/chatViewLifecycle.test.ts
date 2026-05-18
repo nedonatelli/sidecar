@@ -8,7 +8,12 @@ import {
 
 describe('buildUiSettingsMessage', () => {
   it('returns a uiSettings command with all fields', () => {
-    const msg = buildUiSettingsMessage({ chatDensity: 'compact', chatFontSize: 14, chatAccentColor: '#ff0000' });
+    const msg = buildUiSettingsMessage({
+      chatDensity: 'compact',
+      chatFontSize: 14,
+      chatAccentColor: '#ff0000',
+      voiceEnabled: false,
+    });
     expect(msg.command).toBe('uiSettings');
     expect(msg.chatDensity).toBe('compact');
     expect(msg.chatFontSize).toBe(14);
@@ -17,7 +22,12 @@ describe('buildUiSettingsMessage', () => {
 
   it('accepts all three density values', () => {
     for (const density of ['compact', 'normal', 'comfortable'] as const) {
-      const msg = buildUiSettingsMessage({ chatDensity: density, chatFontSize: 13, chatAccentColor: '' });
+      const msg = buildUiSettingsMessage({
+        chatDensity: density,
+        chatFontSize: 13,
+        chatAccentColor: '',
+        voiceEnabled: false,
+      });
       expect(msg.chatDensity).toBe(density);
     }
   });
@@ -68,7 +78,7 @@ describe('UI_CONFIG_KEYS', () => {
     expect(UI_CONFIG_KEYS).toContain('sidecar.chatAccentColor');
   });
 
-  it('has exactly three entries', () => {
-    expect(UI_CONFIG_KEYS).toHaveLength(3);
+  it('has exactly four entries', () => {
+    expect(UI_CONFIG_KEYS).toHaveLength(4);
   });
 });

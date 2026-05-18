@@ -2,7 +2,7 @@
   "name": "sidecar-ai",
   "displayName": "SideCar",
   "description": "Autonomous AI agent for coding — run full agent loops with local Ollama, Anthropic Claude, or OpenAI models",
-  "version": "0.97.0",
+  "version": "0.98.0",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -995,6 +995,21 @@
             "type": "boolean",
             "default": true,
             "description": "Enable monorepo package discovery. When on, SideCar auto-detects Nx, Turborepo, pnpm, yarn-workspaces, and Lerna layouts and exposes a `monorepo_packages` tool so the agent can enumerate packages and scope `project_knowledge_search` to a single package via `pathPrefix`."
+          },
+          "sidecar.voice.enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enable voice input. Shows a microphone button in the chat input area. Click once to start recording, click again to stop. Audio is sent to a Whisper-compatible transcription endpoint and the result is injected into the chat input box."
+          },
+          "sidecar.voice.model": {
+            "type": "string",
+            "default": "whisper-1",
+            "description": "Whisper model name to use for speech-to-text. `whisper-1` for OpenAI; `whisper-large-v3-turbo` for Groq (faster and free-tier friendly); or a model name supported by your local Whisper server."
+          },
+          "sidecar.voice.transcriptionUrl": {
+            "type": "string",
+            "default": "",
+            "description": "Override URL for the Whisper transcription endpoint. Leave empty to derive from the active backend's base URL (`{baseUrl}/audio/transcriptions`). Useful when transcription runs on a different server than the chat model (e.g. a local whisper.cpp instance)."
           },
           "sidecar.jsDocSync.enabled": {
             "type": "boolean",

@@ -312,6 +312,10 @@ export interface SideCarConfig {
   zenModeMinScore: number;
   /* Monorepo — cross-package semantic search */
   monorepoEnabled: boolean;
+  /* Voice input — Whisper transcription */
+  voiceEnabled: boolean;
+  voiceModel: string;
+  voiceTranscriptionUrl: string;
 }
 
 /**
@@ -596,6 +600,9 @@ function readConfig(): SideCarConfig {
     zenModeEnabled: cfg.get<boolean>('zenMode.enabled', false),
     zenModeMinScore: clampMin(cfg.get<number>('zenMode.minScore'), 0, 0.35),
     monorepoEnabled: cfg.get<boolean>('monorepo.enabled', true),
+    voiceEnabled: cfg.get<boolean>('voice.enabled', false),
+    voiceModel: cfg.get<string>('voice.model', 'whisper-1'),
+    voiceTranscriptionUrl: cfg.get<string>('voice.transcriptionUrl', ''),
   };
 }
 
