@@ -1,10 +1,9 @@
 import * as vscode from 'vscode';
-import { exec } from 'child_process';
-import * as os from 'os';
 import { getConfig } from '../../config/settings.js';
 import { transcribeAudio } from '../../voice/transcriptionClient.js';
 import { transcribeLocally, isLocalModel, isModelLoaded } from '../../voice/localTranscriber.js';
-import { VoiceRecordingSession } from '../../voice/recordingServer.js';
+import { isHostRecordingAvailable, startHostRecording } from '../../voice/hostRecorder.js';
+import type { RecordingHandle } from '../../voice/hostRecorder.js';
 import type { WebviewMessage, ExtensionMessage } from '../chatWebview.js';
 
 function safePost(postMessage: (msg: ExtensionMessage) => void, msg: ExtensionMessage): void {
@@ -13,15 +12,6 @@ function safePost(postMessage: (msg: ExtensionMessage) => void, msg: ExtensionMe
   } catch {
     // webview was disposed while voice handler was waiting
   }
-}
-
-function openSystemBrowser(url: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const platform = os.platform();
-    const cmd =
-      platform === 'darwin' ? `open "${url}"` : platform === 'win32' ? `start "" "${url}"` : `xdg-open "${url}"`;
-    exec(cmd, (err) => (err ? reject(err) : resolve()));
-  });
 }
 
 function transcribeProgressTitle(model: string): string {
@@ -79,10 +69,17 @@ export async function handleVoiceAudio(
 
     safePost(postMessage, { command: 'voiceResult', voiceText: text });
   } catch (err) {
-    safePost(postMessage, { command: 'voiceResult', voiceError: err instanceof Error ? err.message : String(err) });
+    safePost(postMessage, {
+      command: 'voiceResult',
+      voiceError: err instanceof Error ? err.message : String(err),
+    });
   }
 }
 
+/**
+ * Fallback path triggered when the webview's getUserMedia fails (always in VS Code).
+ * Records directly in the extension host — no browser window.
+ */
 export async function handleStartVoice(postMessage: (msg: ExtensionMessage) => void): Promise<void> {
   const config = getConfig();
 
@@ -94,21 +91,65 @@ export async function handleStartVoice(postMessage: (msg: ExtensionMessage) => v
     return;
   }
 
-  const local = isLocalModel(config.voiceModel);
-  let session: VoiceRecordingSession | undefined;
-  try {
-    session = await VoiceRecordingSession.create({ useLocalTranscription: local });
-    // Use child_process.exec to open the system browser directly.
-    // vscode.env.openExternal is intercepted by VS Code's Simple Browser
-    // extension for localhost URLs, which opens a webview that blocks getUserMedia.
-    await openSystemBrowser(session.url);
-    vscode.window
-      .showInformationMessage('SideCar Voice: recording page opened in your browser.', 'Copy URL')
-      .then((choice) => {
-        if (choice === 'Copy URL') vscode.env.clipboard.writeText(session!.url);
-      });
+  if (!(await isHostRecordingAvailable())) {
+    const platform = process.platform;
+    const hint =
+      platform === 'linux'
+        ? 'Install alsa-utils: sudo apt install alsa-utils'
+        : platform === 'darwin'
+          ? 'Install Xcode command line tools: xcode-select --install'
+          : 'Ensure PowerShell is available.';
+    safePost(postMessage, {
+      command: 'voiceResult',
+      voiceError: `Voice recording is not available on this system. ${hint}`,
+    });
+    return;
+  }
 
-    const { buffer, mimeType } = await session.waitForAudio();
+  const local = isLocalModel(config.voiceModel);
+  let handle: RecordingHandle | undefined;
+  try {
+    let needsCompile = false;
+
+    handle = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: 'SideCar Voice: preparing microphone…',
+        cancellable: false,
+      },
+      () =>
+        startHostRecording(() => {
+          needsCompile = true;
+        }),
+    );
+
+    // If the Swift binary was compiled during this call, the progress title was wrong —
+    // show a brief "compiled" notification so the user knows the wait was one-time.
+    if (needsCompile) {
+      vscode.window.showInformationMessage('SideCar Voice: microphone helper compiled (one-time setup).');
+    }
+
+    const buffer = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: 'SideCar Voice: recording… click Cancel to stop',
+        cancellable: true,
+      },
+      (_progress, token) =>
+        new Promise<Buffer>((resolve, reject) => {
+          const finish = (fn: () => Promise<Buffer>) => {
+            fn().then(resolve).catch(reject);
+          };
+          token.onCancellationRequested(() => finish(() => handle!.stop()));
+          // Auto-stop after 2 minutes
+          setTimeout(() => finish(() => handle!.stop()), 120_000);
+        }),
+    );
+
+    if (buffer.length < 256) {
+      safePost(postMessage, { command: 'voiceResult', voiceError: 'No audio captured.' });
+      return;
+    }
 
     let text: string;
     if (local) {
@@ -123,7 +164,7 @@ export async function handleStartVoice(postMessage: (msg: ExtensionMessage) => v
     } else {
       const baseUrl = config.baseUrl.replace(/\/+$/, '');
       const transcriptionUrl = config.voiceTranscriptionUrl || `${baseUrl}/audio/transcriptions`;
-      text = await transcribeAudio(buffer, mimeType, {
+      text = await transcribeAudio(buffer, 'audio/pcm-f32le', {
         model: config.voiceModel,
         apiKey: config.apiKey || '',
         transcriptionUrl,
@@ -137,6 +178,6 @@ export async function handleStartVoice(postMessage: (msg: ExtensionMessage) => v
       voiceError: err instanceof Error ? err.message : String(err),
     });
   } finally {
-    session?.dispose();
+    handle?.dispose();
   }
 }

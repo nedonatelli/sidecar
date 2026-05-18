@@ -87,7 +87,10 @@ export const window = {
   showErrorMessage: async () => undefined,
   showTextDocument: async () => undefined,
   showInputBox: async () => undefined,
-  withProgress: async (_opts: unknown, task: (progress: unknown) => Promise<unknown>) => task({}),
+  withProgress: async (_opts: unknown, task: (progress: unknown, token: unknown) => Promise<unknown>) => {
+    const token = { onCancellationRequested: (_cb: () => void) => {} };
+    return task({}, token);
+  },
   onDidCloseTerminal: () => ({ dispose: () => {} }),
   onDidEndTerminalShellExecution: () => ({ dispose: () => {} }),
   onDidChangeTerminalShellIntegration: () => ({ dispose: () => {} }),
