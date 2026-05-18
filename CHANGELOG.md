@@ -4,6 +4,17 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.98.1] - 2026-05-18
+
+**v0.98.1 — Voice patch: extension-host recording replaces browser path.**
+
+### Fixed
+
+- **Voice recording no longer requires a browser window.** The initial v0.98.0 release recorded audio via a local HTTP server + system browser (`open`/`start`/`xdg-open`). v0.98.1 replaces this entirely with direct microphone capture in the VS Code extension host — no browser is ever opened. Three platform paths with zero new npm dependencies: Swift/AVFoundation on macOS (compiled once, cached), `arecord`/`sox` on Linux, PowerShell + `winmm.dll` MCI API on Windows.
+- **`safePost()` guard** — postMessage calls no longer throw when the webview is disposed while the voice handler is awaiting transcription.
+- **Cancel-to-stop UX** — a cancellable `withProgress` notification ("Recording… click Cancel to stop") now controls the recording lifetime. Auto-stops after 2 minutes.
+- **One-time compile notification** — on first macOS use, a brief VS Code information message confirms the Swift helper was compiled successfully.
+
 ## [0.98.0] - 2026-05-18
 
 **v0.98.0 — Voice Input (extension-host recording, no browser).**
