@@ -512,63 +512,18 @@
   });
 
   // ---------------------------------------------------------------------------
-  // Voice input — MediaRecorder → Whisper transcription
-  // ---------------------------------------------------------------------------
+  // Voice input — opens a recording page in the system browser (VS Code webviews
+  // cannot use getUserMedia; the extension host serves the page locally).
   if (micBtn) {
-    let mediaRecorder = null;
-    let audioChunks = [];
-    let isRecording = false;
-
-    async function startVoiceRecording() {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        mediaRecorder = new MediaRecorder(stream);
-        audioChunks = [];
-        mediaRecorder.addEventListener('dataavailable', (e) => {
-          if (e.data && e.data.size > 0) audioChunks.push(e.data);
-        });
-        mediaRecorder.addEventListener('stop', () => {
-          const mimeType = mediaRecorder.mimeType || 'audio/webm';
-          const blob = new Blob(audioChunks, { type: mimeType });
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            const dataUrl = reader.result;
-            if (typeof dataUrl === 'string') {
-              const base64 = dataUrl.split(',')[1];
-              micBtn.textContent = '⏳';
-              micBtn.disabled = true;
-              vscode.postMessage({ command: 'voiceAudio', audioBase64: base64, mimeType });
-            }
-          };
-          reader.readAsDataURL(blob);
-          stream.getTracks().forEach((t) => t.stop());
-        });
-        mediaRecorder.start();
-        micBtn.textContent = '⏹';
-        micBtn.classList.add('mic-recording');
-        isRecording = true;
-      } catch (err) {
-        micBtn.textContent = '🎤';
-        micBtn.disabled = false;
-        isRecording = false;
-        console.error('[SideCar] Voice recording error:', err);
-      }
-    }
-
-    function stopVoiceRecording() {
-      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-        mediaRecorder.stop();
-        micBtn.classList.remove('mic-recording');
-        isRecording = false;
-      }
-    }
+    let voicePending = false;
 
     micBtn.addEventListener('click', () => {
-      if (isRecording) {
-        stopVoiceRecording();
-      } else {
-        void startVoiceRecording();
-      }
+      if (voicePending) return;
+      voicePending = true;
+      micBtn.disabled = true;
+      micBtn.textContent = '⏳';
+      micBtn.title = 'Waiting for browser recording…';
+      vscode.postMessage({ command: 'startVoice' });
     });
   }
 
@@ -5020,8 +4975,9 @@
 
       case 'voiceResult': {
         if (micBtn) {
-          micBtn.textContent = '🎤'; // 🎤
+          micBtn.textContent = '🎤';
           micBtn.disabled = false;
+          micBtn.title = 'Voice input';
           micBtn.classList.remove('mic-recording', 'mic-processing');
         }
         if (typeof event.data.voiceText === 'string' && event.data.voiceText.trim()) {

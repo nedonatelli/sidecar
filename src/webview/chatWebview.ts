@@ -94,7 +94,7 @@ export interface WebviewMessage {
     | 'regenerateResponse'
     | 'refreshModels'
     | 'restartOllama'
-    | 'voiceAudio';
+    | 'startVoice';
   images?: { mediaType: string; data: string }[];
   text?: string;
   model?: string;
@@ -144,10 +144,6 @@ export interface WebviewMessage {
   steerId?: string;
   /** Steer queue: urgency for a new submission. */
   steerUrgency?: 'nudge' | 'interrupt';
-  /** Voice input: base64-encoded audio blob sent for transcription. */
-  audioBase64?: string;
-  /** Voice input: MIME type of the audio blob (e.g. 'audio/webm;codecs=opus'). */
-  mimeType?: string;
 }
 
 export interface ExtensionMessage {

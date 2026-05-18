@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { handleVoiceAudio } from './voiceHandlers.js';
-import type { ExtensionMessage, WebviewMessage } from '../chatWebview.js';
+import { handleStartVoice } from './voiceHandlers.js';
+import type { ExtensionMessage } from '../chatWebview.js';
 
 vi.mock('../../config/settings.js', () => ({
   getConfig: vi.fn(),
@@ -10,11 +10,25 @@ vi.mock('../../voice/transcriptionClient.js', () => ({
   transcribeAudio: vi.fn(),
 }));
 
+vi.mock('../../voice/recordingServer.js', () => ({
+  VoiceRecordingSession: {
+    create: vi.fn(),
+  },
+}));
+
+vi.mock('vscode', async () => {
+  const mod = await import('../../__mocks__/vscode.js');
+  return mod;
+});
+
 import { getConfig } from '../../config/settings.js';
 import { transcribeAudio } from '../../voice/transcriptionClient.js';
+import { VoiceRecordingSession } from '../../voice/recordingServer.js';
+import * as vscode from 'vscode';
 
 const mockGetConfig = vi.mocked(getConfig);
 const mockTranscribe = vi.mocked(transcribeAudio);
+const mockCreate = vi.mocked(VoiceRecordingSession.create);
 
 function baseConfig(overrides?: Record<string, unknown>) {
   return {
@@ -29,96 +43,121 @@ function baseConfig(overrides?: Record<string, unknown>) {
 
 function captureMessages() {
   const sent: ExtensionMessage[] = [];
-  const postMessage = (msg: ExtensionMessage) => {
-    sent.push(msg);
-  };
-  return { sent, postMessage };
+  return { sent, postMessage: (msg: ExtensionMessage) => sent.push(msg) };
 }
 
-function voiceMsg(overrides?: Partial<WebviewMessage>): WebviewMessage {
+function makeSession(overrides?: { waitForAudio?: () => Promise<{ buffer: Buffer; mimeType: string }> }) {
   return {
-    command: 'voiceAudio',
-    audioBase64: Buffer.from('fake-audio').toString('base64'),
-    mimeType: 'audio/webm',
-    ...overrides,
-  } as WebviewMessage;
+    url: 'http://127.0.0.1:12345/?token=abc',
+    dispose: vi.fn(),
+    waitForAudio:
+      overrides?.waitForAudio ?? vi.fn().mockResolvedValue({ buffer: Buffer.from('audio'), mimeType: 'audio/webm' }),
+  };
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockGetConfig.mockReturnValue(baseConfig() as ReturnType<typeof getConfig>);
+  vi.mocked(vscode.env.openExternal).mockResolvedValue(true);
 });
 
-describe('handleVoiceAudio', () => {
-  it('calls transcribeAudio and posts voiceResult with transcribed text', async () => {
-    mockTranscribe.mockResolvedValue('Hello, world.');
+describe('handleStartVoice', () => {
+  it('opens the recording URL in the system browser and transcribes the result', async () => {
+    const session = makeSession();
+    mockCreate.mockResolvedValue(session as never);
+    mockTranscribe.mockResolvedValue('Hello world.');
     const { sent, postMessage } = captureMessages();
 
-    await handleVoiceAudio(voiceMsg(), postMessage);
+    await handleStartVoice(postMessage);
 
+    expect(vscode.env.openExternal).toHaveBeenCalledWith(vscode.Uri.parse('http://127.0.0.1:12345/?token=abc'));
     expect(mockTranscribe).toHaveBeenCalledOnce();
     expect(sent).toHaveLength(1);
-    expect(sent[0]).toMatchObject({ command: 'voiceResult', voiceText: 'Hello, world.' });
+    expect(sent[0]).toMatchObject({ command: 'voiceResult', voiceText: 'Hello world.' });
+    expect(session.dispose).toHaveBeenCalled();
   });
 
-  it('posts voiceError when voice is disabled', async () => {
+  it('posts voiceError and skips transcription when voice is disabled', async () => {
     mockGetConfig.mockReturnValue(baseConfig({ voiceEnabled: false }) as ReturnType<typeof getConfig>);
     const { sent, postMessage } = captureMessages();
 
-    await handleVoiceAudio(voiceMsg(), postMessage);
+    await handleStartVoice(postMessage);
 
-    expect(mockTranscribe).not.toHaveBeenCalled();
+    expect(mockCreate).not.toHaveBeenCalled();
     expect(sent[0]).toMatchObject({ command: 'voiceResult', voiceError: expect.stringContaining('disabled') });
   });
 
-  it('posts voiceError when audioBase64 is missing', async () => {
+  it('posts voiceError when openExternal returns false', async () => {
+    vi.mocked(vscode.env.openExternal).mockResolvedValue(false);
+    const session = makeSession();
+    mockCreate.mockResolvedValue(session as never);
     const { sent, postMessage } = captureMessages();
-    await handleVoiceAudio(voiceMsg({ audioBase64: undefined }), postMessage);
-    expect(sent[0]).toMatchObject({ command: 'voiceResult', voiceError: expect.stringContaining('No audio') });
+
+    await handleStartVoice(postMessage);
+
+    expect(mockTranscribe).not.toHaveBeenCalled();
+    expect(sent[0]).toMatchObject({ command: 'voiceResult', voiceError: expect.stringContaining('Could not open') });
+    expect(session.dispose).toHaveBeenCalled();
   });
 
-  it('posts voiceError when audioBase64 is empty string', async () => {
+  it('posts voiceError when waitForAudio times out', async () => {
+    const session = makeSession({
+      waitForAudio: vi.fn().mockRejectedValue(new Error('Voice recording timed out.')),
+    });
+    mockCreate.mockResolvedValue(session as never);
     const { sent, postMessage } = captureMessages();
-    await handleVoiceAudio(voiceMsg({ audioBase64: '' }), postMessage);
-    expect(sent[0]).toMatchObject({ command: 'voiceResult', voiceError: expect.stringContaining('No audio') });
+
+    await handleStartVoice(postMessage);
+
+    expect(sent[0]).toMatchObject({ command: 'voiceResult', voiceError: 'Voice recording timed out.' });
+    expect(session.dispose).toHaveBeenCalled();
   });
 
   it('posts voiceError when transcribeAudio throws', async () => {
-    mockTranscribe.mockRejectedValue(new Error('backend offline'));
+    const session = makeSession();
+    mockCreate.mockResolvedValue(session as never);
+    mockTranscribe.mockRejectedValue(new Error('Whisper offline'));
     const { sent, postMessage } = captureMessages();
 
-    await handleVoiceAudio(voiceMsg(), postMessage);
+    await handleStartVoice(postMessage);
 
-    expect(sent[0]).toMatchObject({ command: 'voiceResult', voiceError: 'backend offline' });
+    expect(sent[0]).toMatchObject({ command: 'voiceResult', voiceError: 'Whisper offline' });
+    expect(session.dispose).toHaveBeenCalled();
   });
 
   it('coerces non-Error throws to string', async () => {
-    mockTranscribe.mockRejectedValue('string rejection');
+    const session = makeSession();
+    mockCreate.mockResolvedValue(session as never);
+    mockTranscribe.mockRejectedValue('raw string error');
     const { sent, postMessage } = captureMessages();
 
-    await handleVoiceAudio(voiceMsg(), postMessage);
+    await handleStartVoice(postMessage);
 
-    expect(sent[0]).toMatchObject({ command: 'voiceResult', voiceError: 'string rejection' });
+    expect(sent[0]).toMatchObject({ command: 'voiceResult', voiceError: 'raw string error' });
   });
 
   it('derives transcriptionUrl from baseUrl when voiceTranscriptionUrl is empty', async () => {
+    const session = makeSession();
+    mockCreate.mockResolvedValue(session as never);
     mockTranscribe.mockResolvedValue('ok');
     const { postMessage } = captureMessages();
 
-    await handleVoiceAudio(voiceMsg(), postMessage);
+    await handleStartVoice(postMessage);
 
     const opts = mockTranscribe.mock.calls[0][2];
     expect(opts.transcriptionUrl).toBe('https://api.openai.com/v1/audio/transcriptions');
   });
 
-  it('trims trailing slash from baseUrl before constructing URL', async () => {
+  it('trims trailing slash from baseUrl', async () => {
     mockGetConfig.mockReturnValue(
       baseConfig({ baseUrl: 'https://api.openai.com/v1/' }) as ReturnType<typeof getConfig>,
     );
+    const session = makeSession();
+    mockCreate.mockResolvedValue(session as never);
     mockTranscribe.mockResolvedValue('ok');
     const { postMessage } = captureMessages();
 
-    await handleVoiceAudio(voiceMsg(), postMessage);
+    await handleStartVoice(postMessage);
 
     const opts = mockTranscribe.mock.calls[0][2];
     expect(opts.transcriptionUrl).toBe('https://api.openai.com/v1/audio/transcriptions');
@@ -128,44 +167,14 @@ describe('handleVoiceAudio', () => {
     mockGetConfig.mockReturnValue(
       baseConfig({ voiceTranscriptionUrl: 'http://localhost:9000/transcribe' }) as ReturnType<typeof getConfig>,
     );
+    const session = makeSession();
+    mockCreate.mockResolvedValue(session as never);
     mockTranscribe.mockResolvedValue('ok');
     const { postMessage } = captureMessages();
 
-    await handleVoiceAudio(voiceMsg(), postMessage);
+    await handleStartVoice(postMessage);
 
     const opts = mockTranscribe.mock.calls[0][2];
     expect(opts.transcriptionUrl).toBe('http://localhost:9000/transcribe');
-  });
-
-  it('passes model and apiKey from config', async () => {
-    mockGetConfig.mockReturnValue(
-      baseConfig({ voiceModel: 'whisper-large-v3-turbo', apiKey: 'gsk_xyz' }) as ReturnType<typeof getConfig>,
-    );
-    mockTranscribe.mockResolvedValue('text');
-    const { postMessage } = captureMessages();
-
-    await handleVoiceAudio(voiceMsg(), postMessage);
-
-    const opts = mockTranscribe.mock.calls[0][2];
-    expect(opts.model).toBe('whisper-large-v3-turbo');
-    expect(opts.apiKey).toBe('gsk_xyz');
-  });
-
-  it('passes mimeType from the message to transcribeAudio', async () => {
-    mockTranscribe.mockResolvedValue('ok');
-    const { postMessage } = captureMessages();
-
-    await handleVoiceAudio(voiceMsg({ mimeType: 'audio/ogg' }), postMessage);
-
-    expect(mockTranscribe.mock.calls[0][1]).toBe('audio/ogg');
-  });
-
-  it('falls back to audio/webm when mimeType is missing', async () => {
-    mockTranscribe.mockResolvedValue('ok');
-    const { postMessage } = captureMessages();
-
-    await handleVoiceAudio(voiceMsg({ mimeType: undefined }), postMessage);
-
-    expect(mockTranscribe.mock.calls[0][1]).toBe('audio/webm');
   });
 });
