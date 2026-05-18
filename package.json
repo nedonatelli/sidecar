@@ -2,7 +2,7 @@
   "name": "sidecar-ai",
   "displayName": "SideCar",
   "description": "Autonomous AI agent for coding — run full agent loops with local Ollama, Anthropic Claude, or OpenAI models",
-  "version": "0.96.0",
+  "version": "0.97.0",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -990,6 +990,11 @@
             "minimum": 0,
             "maximum": 1,
             "description": "Minimum RRF score for a retrieved context hit to be included when Zen Mode is enabled. 0 disables filtering even when zenMode.enabled is true."
+          },
+          "sidecar.monorepo.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Enable monorepo package discovery. When on, SideCar auto-detects Nx, Turborepo, pnpm, yarn-workspaces, and Lerna layouts and exposes a `monorepo_packages` tool so the agent can enumerate packages and scope `project_knowledge_search` to a single package via `pathPrefix`."
           },
           "sidecar.jsDocSync.enabled": {
             "type": "boolean",

@@ -1,6 +1,6 @@
 # SideCar Roadmap
 
-**Current release: v0.96.0** — Zen Mode Context Filtering (drop low-relevance RAG hits) · Agent Scheduling enhancements (cron syntax, file-save triggers, manual `sidecar.scheduler.run` command, run history). See [CHANGELOG](CHANGELOG.md) for full notes.
+**Current release: v0.97.0** — Semantic Agentic Search for Monorepos (`monorepo_packages` tool, auto-detects Nx/Turbo/pnpm/yarn/Lerna) · test-hardening subsystem rows marked complete · boilerplate theme rows marked complete. See [CHANGELOG](CHANGELOG.md) for full notes.
 
 **Coverage floor**: ≥80/70/80/80 (stmts/branches/funcs/lines) enforced by CI. No PR merges that drop any metric.
 
@@ -12,6 +12,7 @@
 
 | Version | Headline |
 |---|---|
+| v0.97.0 | Semantic Agentic Search for Monorepos (`monorepo_packages` tool · `detectMonorepo` auto-detects Nx / Turbo / pnpm / yarn / Lerna · `sidecar.monorepo.enabled`) |
 | v0.96.0 | Zen Mode Context Filtering (`sidecar.zenMode.enabled`) · Agent Scheduling enhancements (cron, onSave triggers, `sidecar.scheduler.run` command, run history) |
 | v0.95.0 | Agentic Task Delegation via MCP: `delegate_to_mcp` tool + SideCar MCP Agent Server (`sidecar.mcpServer.enabled`) |
 | v0.94.0 | Persistent Executive Function (task checkpointing · VS Code restart resume) · LaTeX Agentic Debugging (`latex_compile` tool) · Bitbucket Cloud context provider |
@@ -132,7 +133,7 @@ Not promised to any specific release. Full specs in [docs/feature-specs.md](docs
 
 GPU-Native Hot-Swapping · GPU-Aware Load Balancing · Multi-repo cross-talk · Semantic Agentic Search for Monorepos · Selective Regeneration · Persistent Executive Function · LaTeX Agentic Debugging · Inline Edit Enhancement · Zen Mode Context Filtering · Enterprise & Collaboration · Voice Input · Agentic Task Delegation via MCP · Model Comparison / Arena Mode · Real-time Code Profiling · Bitbucket/Atlassian integration
 
-*(Promoted to shipped: Semantic Time Travel → `git_search_history` tool v1.0; MCP Marketplace → `sidecar.mcp.openMarketplace` command v1.0; Dependency Drift Alerts → `check_dependencies` tool + Problems panel v0.91.0; Model Arena → `sidecar.arena.*` commands v0.90.0)*
+*(Promoted to shipped: Semantic Time Travel → `git_search_history` tool v1.0; MCP Marketplace → `sidecar.mcp.openMarketplace` command v1.0; Dependency Drift Alerts → `check_dependencies` tool + Problems panel v0.91.0; Model Arena → `sidecar.arena.*` commands v0.90.0; Semantic Agentic Search for Monorepos → `monorepo_packages` tool v0.97.0)*
 
 ---
 
@@ -160,7 +161,7 @@ GPU-Native Hot-Swapping · GPU-Aware Load Balancing · Multi-repo cross-talk · 
 | Eval harness: auto-fix + critic paths | ✅ v0.71 |
 | Eval harness: Ollama backend + v0.82 cases | ✅ v0.82 |
 | Shared test-helper module (`stubLoopState()`, `stubCallbacks()`) | ✅ v0.88 — `src/agent/loop/testHelpers.ts`; 16 loop test files migrated |
-| Subsystem unit tests (scheduler · eventHooks · inlineChatProvider) | 🔜 v1.0 |
+| Subsystem unit tests (scheduler · eventHooks · inlineChatProvider) | ✅ v0.97.0 |
 
 ### Theme 3 — Boilerplate reduction
 
@@ -169,8 +170,8 @@ GPU-Native Hot-Swapping · GPU-Aware Load Balancing · Multi-repo cross-talk · 
 | `ollama/types.ts` split into domain files | ✅ v0.69 |
 | Tool `catch` block consolidation (`formatToolError`) | ✅ v0.82 |
 | Shell execution unification | ✅ v0.92 — `CompositeShellExecutor` consolidates terminal + ShellSession routing |
-| Backend abstraction maturity (`sidecarFetch`) | 🔜 v1.0 |
-| Handler registry pattern (webview/handlers typed dispatch) | 🔜 v1.0 |
+| Backend abstraction maturity (`sidecarFetch`) | ✅ v0.97.0 (unified in v0.64) |
+| Handler registry pattern (webview/handlers typed dispatch) | ✅ v0.97.0 (mature since v0.88) |
 
 ---
 

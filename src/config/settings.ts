@@ -310,6 +310,8 @@ export interface SideCarConfig {
   /* Zen Mode — RAG hit score filtering */
   zenModeEnabled: boolean;
   zenModeMinScore: number;
+  /* Monorepo — cross-package semantic search */
+  monorepoEnabled: boolean;
 }
 
 /**
@@ -593,6 +595,7 @@ function readConfig(): SideCarConfig {
     mcpServerMaxConcurrent: clampMin(cfg.get<number>('mcpServer.maxConcurrent'), 1, 1),
     zenModeEnabled: cfg.get<boolean>('zenMode.enabled', false),
     zenModeMinScore: clampMin(cfg.get<number>('zenMode.minScore'), 0, 0.35),
+    monorepoEnabled: cfg.get<boolean>('monorepo.enabled', true),
   };
 }
 

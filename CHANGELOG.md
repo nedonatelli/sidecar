@@ -4,6 +4,24 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.97.0] - 2026-05-18
+
+**v0.97.0 — Semantic Agentic Search for Monorepos + test-hardening + boilerplate theme completions.**
+
+### Added
+
+- **`monorepo_packages` tool** — lists every package discovered in the monorepo alongside its workspace-relative path. Auto-detects the layout type (Nx · Turborepo · pnpm-workspace · yarn/npm workspaces · Lerna); falls back to scanning conventional directories (`packages/`, `apps/`, `libs/`, `services/`). Output includes a tip showing how to pass any `relativePath` as `pathPrefix` to `project_knowledge_search` to scope a semantic symbol search to a single package. Gated by `sidecar.monorepo.enabled` (default `true`).
+
+- **`MonorepoDetector`** (`src/config/monorepoDetector.ts`) — pure library with no VS Code API dependency. Detection priority: `pnpm-workspace.yaml` → `nx.json` → `turbo.json` → `lerna.json` → `package.json#workspaces` → structural directory scan. Accepts an injectable `FsAdapter` for unit-test isolation. Handles `packages/*`, `apps/*`, `./packages/*`, and `packages/**` glob forms; skips exclusion patterns (`!packages/internal`); reads each package's `package.json` for its `name` field, falling back to the directory name.
+
+- **`sidecar.monorepo.enabled`** (default `true`) — enable/disable monorepo package discovery and the `monorepo_packages` tool.
+
+### Internal / Test Hardening
+
+- Marked **subsystem unit tests** as complete in the cross-cutting theme table. `scheduler.test.ts`, `eventHooks.test.ts`, and `inlineChatProvider.test.ts` are all comprehensive; the 🔜 marker was stale.
+
+- Marked **boilerplate theme rows** as complete: `sidecarFetch` backend abstraction has been unified since v0.64; the `dispatchHandlers.ts` typed registry has been mature since v0.88.
+
 ## [0.96.0] - 2026-05-18
 
 **v0.96.0 — Zen Mode Context Filtering + Scheduler Enhancements (cron, file-save triggers, manual run).**
