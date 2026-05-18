@@ -168,6 +168,7 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
       // global getConfig() singleton — enables unit test injection.
       config: state.config,
       editTimeline: options.editTimeline,
+      mcpManager: state.mcpManager,
     },
     inlineEditFn: options.inlineEditFn,
     streamingDiffPreviewFn: options.streamingDiffPreviewFn,

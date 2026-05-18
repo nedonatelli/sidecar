@@ -2,7 +2,7 @@
   "name": "sidecar-ai",
   "displayName": "SideCar",
   "description": "Autonomous AI agent for coding — run full agent loops with local Ollama, Anthropic Claude, or OpenAI models",
-  "version": "0.94.0",
+  "version": "0.95.0",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -1797,6 +1797,46 @@
             "type": "boolean",
             "default": false,
             "description": "Enable persistent executive function. The agent checkpoints its task state after each iteration so it can resume after a VS Code restart."
+          },
+          "sidecar.mcpDelegation.enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enable the delegate_to_mcp tool, which lets the SideCar agent delegate sub-tasks to agentic MCP servers."
+          },
+          "sidecar.mcpDelegation.allowedServers": {
+            "type": "array",
+            "items": { "type": "string" },
+            "default": [],
+            "description": "Allowlist of MCP server names that delegate_to_mcp may target. Empty list allows all connected servers."
+          },
+          "sidecar.mcpServer.enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Expose SideCar's agent loop as a local MCP server so external agents can delegate tasks to it."
+          },
+          "sidecar.mcpServer.port": {
+            "type": "number",
+            "default": 3457,
+            "minimum": 1024,
+            "maximum": 65535,
+            "description": "TCP port the SideCar MCP server listens on (127.0.0.1 only)."
+          },
+          "sidecar.mcpServer.requireAuth": {
+            "type": "boolean",
+            "default": false,
+            "description": "Require a bearer token for requests to the SideCar MCP server."
+          },
+          "sidecar.mcpServer.authToken": {
+            "type": "string",
+            "default": "",
+            "description": "Bearer token clients must supply when sidecar.mcpServer.requireAuth is true."
+          },
+          "sidecar.mcpServer.maxConcurrent": {
+            "type": "number",
+            "default": 1,
+            "minimum": 1,
+            "maximum": 10,
+            "description": "Maximum number of agent tasks the MCP server will run concurrently."
           }
         }
       }

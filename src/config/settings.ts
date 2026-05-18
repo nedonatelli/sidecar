@@ -298,6 +298,15 @@ export interface SideCarConfig {
   latexCompiler: 'latexmk' | 'pdflatex';
   /* Executive Function — task checkpointing */
   executiveFunctionEnabled: boolean;
+  /* MCP Task Delegation — delegate_to_mcp tool */
+  mcpDelegationEnabled: boolean;
+  mcpDelegationAllowedServers: string[];
+  /* MCP Agent Server — SideCar as an MCP server */
+  mcpServerEnabled: boolean;
+  mcpServerPort: number;
+  mcpServerRequireAuth: boolean;
+  mcpServerAuthToken: string | null;
+  mcpServerMaxConcurrent: number;
 }
 
 /**
@@ -570,6 +579,15 @@ function readConfig(): SideCarConfig {
     latexEnabled: cfg.get<boolean>('latex.enabled', false),
     latexCompiler: cfg.get<'latexmk' | 'pdflatex'>('latex.compiler', 'latexmk'),
     executiveFunctionEnabled: cfg.get<boolean>('executiveFunction.enabled', false),
+    /* MCP Task Delegation */
+    mcpDelegationEnabled: cfg.get<boolean>('mcpDelegation.enabled', false),
+    mcpDelegationAllowedServers: cfg.get<string[]>('mcpDelegation.allowedServers', []),
+    /* MCP Agent Server */
+    mcpServerEnabled: cfg.get<boolean>('mcpServer.enabled', false),
+    mcpServerPort: clampMin(cfg.get<number>('mcpServer.port'), 1024, 3457),
+    mcpServerRequireAuth: cfg.get<boolean>('mcpServer.requireAuth', false),
+    mcpServerAuthToken: cfg.get<string>('mcpServer.authToken', '') || null,
+    mcpServerMaxConcurrent: clampMin(cfg.get<number>('mcpServer.maxConcurrent'), 1, 1),
   };
 }
 

@@ -252,6 +252,14 @@ v0.94+ task checkpointing. `PlanStore` (`planStore.ts`) reads/writes `PlanCheckp
 
 v0.94+ `type: 'bitbucket'` provider. `fetchBitbucketPRs(config, fetchFn?)` — calls `${baseUrl}/repositories/${workspace/repo}/pullrequests?state=OPEN&pagelen=N`. Auth: `buildAuthHeader(token)` sends `Basic base64(user:pass)` when token contains `:`, else `Bearer`. Maps `BitbucketPR` → `ContextIssue`: `id: '#N'`, `title`, `status`, `body` (truncated 400 chars + `'…'`), `url`, `labels` (reviewer `display_name` array), `updatedAt`. Wired via `ContextProviderType = 'bitbucket'` in `types.ts` and `case 'bitbucket':` in `contextProviderManager.ts`.
 
+### Agentic Task Delegation via MCP (`src/agent/tools/mcpDelegate.ts`, `src/mcpServer/agentServer.ts`)
+
+v0.95+ two-direction MCP delegation.
+
+**Direction A — `delegate_to_mcp` tool** (`src/agent/tools/mcpDelegate.ts`): the SideCar agent can delegate sub-tasks to any configured MCP server. `resolveTaskTool(serverName, toolNames, explicitTool?)` auto-detects the entry-point tool from the `TASK_TOOL_CANDIDATES` list (`run_task`, `execute_task`, `task`, `run`, `execute`, `process`, `handle`). `delegateToMcp(input, context?)` enforces `mcpDelegationEnabled` gate, validates `server`/`task` params, checks the allowlist, verifies server connection, resolves the tool, and calls `mcpManager.callServerTool`. Gated by `sidecar.mcpDelegation.enabled` (default `false`). Allowlist: `sidecar.mcpDelegation.allowedServers` (empty = all). New `MCPManager` methods: `getServerToolNames(serverName)` (strips `mcp_${name}_` prefix), `callServerTool(serverName, toolName, input)` (looks up cached executor and calls it). `ToolExecutorContext.mcpManager` field threads the manager into tool executors so `delegate_to_mcp` can resolve it at call time.
+
+**Direction B — SideCar as MCP server** (`src/mcpServer/agentServer.ts`): `McpAgentServer` class wraps `@modelcontextprotocol/sdk` `Server` + `StreamableHTTPServerTransport` on `127.0.0.1:${port}` (default 3457). Exposes one tool: `run_agent_task(task, maxIterations?, approvalMode?)`. Spawns `runAgentLoop` with `createClient()`, collects `onText` output, returns batch text. Optional bearer-token auth (`requireAuth` + `authToken`). Concurrency guard: `activeTaskCount >= maxConcurrent` returns "busy" without invoking the loop. `initMcpServer` activation module (`src/activation/mcpServerSetup.ts`) starts the server at activation if `sidecar.mcpServer.enabled` is `true` and registers a disposable for clean shutdown.
+
 ### Terminal Execution (`src/terminal/`)
 
 - `shellSession.ts` — long-lived `child_process.spawn`-based shell with per-command alias/function namespace reset. Fallback path for agent commands when shell integration isn't available.

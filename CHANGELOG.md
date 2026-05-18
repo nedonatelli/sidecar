@@ -4,6 +4,34 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.95.0] - 2026-05-17
+
+**v0.95.0 — Agentic Task Delegation via MCP (both directions).**
+
+### Added
+
+- **`delegate_to_mcp` agent tool** — lets the SideCar agent delegate sub-tasks to any configured MCP server that exposes an agentic entry-point. SideCar auto-detects the server's task tool (`run_task`, `execute_task`, `task`, `run`, `execute`, `process`, `handle` — checked in order); callers can also name an explicit tool via the `tool` parameter. Supports an optional `context` string to pass current-conversation context alongside the task. An `allowedServers` allowlist (default: empty = all servers) gates which servers may be targeted. Gated by `sidecar.mcpDelegation.enabled` (default `false`).
+
+- **SideCar MCP Agent Server** — exposes SideCar's own agent loop as a local MCP server so external agents (Claude Desktop, Cursor, other AI tools) can delegate tasks to your local SideCar instance. Listens on `127.0.0.1` only (no external exposure). Exposes one tool: `run_agent_task(task, maxIterations?, approvalMode?)`. Auth is optional (bearer token); concurrency is configurable (`maxConcurrent`, default 1). Gated by `sidecar.mcpServer.enabled` (default `false`).
+
+- **`MCPManager.callServerTool(server, tool, input)`** — new method on the internal MCP manager that looks up a server tool by name and calls its executor, enabling `delegate_to_mcp` to drive MCP servers without going through the global tool registry.
+
+- **`MCPManager.getServerToolNames(server)`** — returns the bare tool names for a given connected server (strips the `mcp_<server>_` prefix), used by `delegate_to_mcp` for tool auto-detection.
+
+- **`sidecar.mcpDelegation.enabled`** (default `false`) — enable the `delegate_to_mcp` tool.
+
+- **`sidecar.mcpDelegation.allowedServers`** (default `[]` = all) — restrict which MCP servers may be targeted.
+
+- **`sidecar.mcpServer.enabled`** (default `false`) — expose SideCar as an MCP server.
+
+- **`sidecar.mcpServer.port`** (default `3457`) — port for the SideCar MCP server.
+
+- **`sidecar.mcpServer.requireAuth`** (default `false`) — require a bearer token.
+
+- **`sidecar.mcpServer.authToken`** (default `""`) — the bearer token clients must supply when `requireAuth` is `true`.
+
+- **`sidecar.mcpServer.maxConcurrent`** (default `1`, max `10`) — maximum simultaneous agent tasks the MCP server will accept.
+
 ## [0.94.0] - 2026-05-17
 
 **v0.94.0 — Persistent Executive Function + LaTeX Agentic Debugging + Bitbucket Integration.**

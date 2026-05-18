@@ -9,6 +9,7 @@ import type { SideCarConfig } from '../../config/settings.js';
 import type { ToolRuntime } from './runtime.js';
 import type { SideCarClient } from '../../ollama/client.js';
 import type { EditTimelineStore } from '../editTimeline.js';
+import type { MCPManager } from '../mcpManager.js';
 
 // Re-exported so sibling tool modules can import ToolDefinition from a
 // single shared entrypoint if they prefer.
@@ -83,6 +84,12 @@ export interface ToolExecutorContext {
    * didn't explicitly opt into tracking.
    */
   editTimeline?: EditTimelineStore;
+  /**
+   * Active MCPManager for this agent run. Passed so tools like
+   * `delegate_to_mcp` can call specific MCP servers by name without
+   * going through the global TOOL_REGISTRY lookup path.
+   */
+  mcpManager?: MCPManager;
 }
 
 export interface ToolExecutor {

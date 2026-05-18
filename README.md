@@ -82,7 +82,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 
 | Feature | Description |
 |---|---|
-| **64 built-in tools** | File ops, shell, git, web search, database (SQLite/PG/MySQL/DuckDB), screenshot, doc-to-test synthesis, code profiling, LaTeX compilation, and more — [full list](https://nedonatelli.github.io/sidecar/tools) |
+| **65 built-in tools** | File ops, shell, git, web search, database (SQLite/PG/MySQL/DuckDB), screenshot, doc-to-test synthesis, code profiling, LaTeX compilation, MCP task delegation, and more — [full list](https://nedonatelli.github.io/sidecar/tools) |
 | **Review / Audit modes** | Buffer all writes in-memory; review per-file diffs before anything touches disk. Audit adds atomic flush + deletion coverage |
 | **Shadow Workspaces** | Run tasks in an ephemeral `git worktree` — main tree untouched until you accept |
 | **Typed Sub-Agent Facets** | Dispatch named specialists (`test-author`, `security-reviewer`, etc.) in parallel, each with its own tool allowlist and preferred model |
@@ -231,6 +231,11 @@ Core settings — full reference at [nedonatelli.github.io/sidecar/settings](htt
 | `sidecar.hooks` | `{}` | Pre/post execution hooks per tool |
 | `sidecar.completionGate.enabled` | `true` | Block agent finish until lint + tests pass |
 | `sidecar.enableInlineCompletions` | `false` | Copilot-style autocomplete (opt-in) |
+| `sidecar.mcpDelegation.enabled` | `false` | Enable `delegate_to_mcp` tool (agent → MCP server) |
+| `sidecar.mcpDelegation.allowedServers` | `[]` | Allowlist of servers `delegate_to_mcp` may target (empty = all) |
+| `sidecar.mcpServer.enabled` | `false` | Expose SideCar's agent loop as a local MCP server |
+| `sidecar.mcpServer.port` | `3457` | Port for the SideCar MCP server (127.0.0.1 only) |
+| `sidecar.mcpServer.requireAuth` | `false` | Require bearer token for inbound MCP requests |
 | `sidecar.dailyBudget` | — | Daily spend cap in USD (paid backends) |
 | `sidecar.weeklyBudget` | — | Weekly spend cap in USD (paid backends) |
 

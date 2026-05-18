@@ -481,6 +481,30 @@ export class MCPManager {
     return this.connections.some((c) => c.name === name && c.status === 'connected');
   }
 
+  /** List tool names exposed by a specific server (bare names, no `mcp_` prefix). */
+  getServerToolNames(serverName: string): string[] {
+    const conn = this.connections.find((c) => c.name === serverName);
+    if (!conn) return [];
+    return conn.tools.map((t) => t.definition.name.replace(`mcp_${serverName}_`, ''));
+  }
+
+  /**
+   * Call a tool on a specific server by bare tool name (without the
+   * `mcp_${serverName}_` prefix). Returns the extracted text output,
+   * identical to what the orchestrator receives via the tool cache path.
+   */
+  async callServerTool(serverName: string, toolName: string, input: Record<string, unknown>): Promise<string> {
+    const qualifiedName = `mcp_${serverName}_${toolName}`;
+    const tool = this.toolCache.find((t) => t.definition.name === qualifiedName);
+    if (!tool) {
+      throw new Error(
+        `MCP tool "${toolName}" not found on server "${serverName}". ` +
+          `Available: ${this.getServerToolNames(serverName).join(', ') || '(none)'}`,
+      );
+    }
+    return tool.executor(input);
+  }
+
   async disconnect(): Promise<void> {
     for (const conn of this.connections) {
       if (conn.reconnectTimer) clearTimeout(conn.reconnectTimer);

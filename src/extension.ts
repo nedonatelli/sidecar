@@ -24,6 +24,7 @@ import { setupChatView } from './activation/chatViewSetup.js';
 import { registerArenaCommands } from './activation/arenaSetup.js';
 import { registerDepsFeature } from './activation/depsSetup.js';
 import { initExecutiveFunctionSetup } from './activation/executiveFunctionSetup.js';
+import { initMcpServer } from './activation/mcpServerSetup.js';
 import { createSdkApi } from './sdk/api.js';
 
 let chatProvider: ChatViewProvider | undefined;
@@ -102,6 +103,7 @@ export function activate(context: ExtensionContext) {
   registerArenaCommands(context, createClient, sidecarDir);
   registerDepsFeature(context);
   initExecutiveFunctionSetup(context, sidecarDir, () => chatProvider);
+  void initMcpServer(context);
 
   // First-install auto-open. Gated behind a globalState flag so
   // existing users and every subsequent launch skip it. Fires after a
