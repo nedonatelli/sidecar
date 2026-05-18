@@ -437,6 +437,14 @@ export function buildDispatchHandlers(
       await handleRegenSection(state, msg.selectedText || '', msg.instruction || '', msg.msgIndex ?? -1);
     },
 
+    // Primary path: webview recorded audio and decoded to PCM Float32 in-browser.
+    voiceAudio: async (msg) => {
+      const { handleVoiceAudio } = await import('./voiceHandlers.js');
+      await handleVoiceAudio(msg, state.postMessage);
+    },
+
+    // Fallback path: getUserMedia was blocked in the webview; opens an
+    // external browser recording page served by a local HTTP server.
     startVoice: async () => {
       const { handleStartVoice } = await import('./voiceHandlers.js');
       await handleStartVoice(state.postMessage);

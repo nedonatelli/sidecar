@@ -94,7 +94,8 @@ export interface WebviewMessage {
     | 'regenerateResponse'
     | 'refreshModels'
     | 'restartOllama'
-    | 'startVoice';
+    | 'startVoice'
+    | 'voiceAudio';
   images?: { mediaType: string; data: string }[];
   text?: string;
   model?: string;
@@ -144,6 +145,10 @@ export interface WebviewMessage {
   steerId?: string;
   /** Steer queue: urgency for a new submission. */
   steerUrgency?: 'nudge' | 'interrupt';
+  /** Voice input: base64-encoded Float32 PCM at 16 kHz (local path) or empty string (error). */
+  pcmBase64?: string;
+  /** Voice input: 'audio/pcm-f32le' for local path, raw mime for server fallback path. */
+  mimeType?: string;
 }
 
 export interface ExtensionMessage {

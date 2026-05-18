@@ -3,7 +3,50 @@ import { getConfig } from '../../config/settings.js';
 import { transcribeAudio } from '../../voice/transcriptionClient.js';
 import { transcribeLocally, isLocalModel } from '../../voice/localTranscriber.js';
 import { VoiceRecordingSession } from '../../voice/recordingServer.js';
-import type { ExtensionMessage } from '../chatWebview.js';
+import type { WebviewMessage, ExtensionMessage } from '../chatWebview.js';
+
+/**
+ * Primary path: the webview recorded audio and decoded it to Float32 PCM at
+ * 16 kHz via AudioContext before sending. No server round-trip needed.
+ */
+export async function handleVoiceAudio(
+  msg: WebviewMessage,
+  postMessage: (msg: ExtensionMessage) => void,
+): Promise<void> {
+  const config = getConfig();
+
+  if (!config.voiceEnabled) {
+    postMessage({ command: 'voiceResult', voiceError: 'Voice input is disabled. Enable sidecar.voice.enabled.' });
+    return;
+  }
+
+  const { pcmBase64 } = msg;
+  if (typeof pcmBase64 !== 'string' || pcmBase64.length === 0) {
+    postMessage({ command: 'voiceResult', voiceError: 'No audio data received.' });
+    return;
+  }
+
+  try {
+    const pcmBuffer = Buffer.from(pcmBase64, 'base64');
+    let text: string;
+
+    if (isLocalModel(config.voiceModel)) {
+      text = await transcribeLocally(pcmBuffer, config.voiceModel);
+    } else {
+      const baseUrl = config.baseUrl.replace(/\/+$/, '');
+      const transcriptionUrl = config.voiceTranscriptionUrl || `${baseUrl}/audio/transcriptions`;
+      text = await transcribeAudio(pcmBuffer, msg.mimeType || 'audio/pcm-f32le', {
+        model: config.voiceModel,
+        apiKey: config.apiKey || '',
+        transcriptionUrl,
+      });
+    }
+
+    postMessage({ command: 'voiceResult', voiceText: text });
+  } catch (err) {
+    postMessage({ command: 'voiceResult', voiceError: err instanceof Error ? err.message : String(err) });
+  }
+}
 
 export async function handleStartVoice(postMessage: (msg: ExtensionMessage) => void): Promise<void> {
   const config = getConfig();

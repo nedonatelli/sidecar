@@ -512,18 +512,102 @@
   });
 
   // ---------------------------------------------------------------------------
-  // Voice input — opens a recording page in the system browser (VS Code webviews
-  // cannot use getUserMedia; the extension host serves the page locally).
+  // Voice input — record directly in the webview via MediaRecorder, then send
+  // the audio to the extension host for local Whisper transcription.
+  // Falls back to the external browser recording server if getUserMedia is
+  // blocked (e.g. VS Code Web or a stripped-down webview environment).
   if (micBtn) {
-    let voicePending = false;
+    let mediaRecorder = null;
+    let audioChunks = [];
+    let isRecording = false;
+
+    function resetMicBtn() {
+      micBtn.textContent = '🎤';
+      micBtn.disabled = false;
+      micBtn.title = 'Voice input';
+      micBtn.classList.remove('mic-recording');
+      isRecording = false;
+      mediaRecorder = null;
+      audioChunks = [];
+    }
+
+    async function startRecording() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+          ? 'audio/webm;codecs=opus'
+          : 'audio/webm';
+        mediaRecorder = new MediaRecorder(stream, { mimeType });
+        audioChunks = [];
+        mediaRecorder.addEventListener('dataavailable', (e) => {
+          if (e.data && e.data.size > 0) audioChunks.push(e.data);
+        });
+        mediaRecorder.addEventListener('stop', () => {
+          stream.getTracks().forEach((t) => t.stop());
+          const blob = new Blob(audioChunks, { type: mimeType.split(';')[0] });
+          // Decode to Float32 PCM at 16 kHz in the browser so the extension
+          // host can pass it directly to the Whisper ONNX pipeline.
+          const reader = new FileReader();
+          reader.onloadend = async () => {
+            micBtn.textContent = '⏳';
+            micBtn.disabled = true;
+            try {
+              const arrayBuffer = await blob.arrayBuffer();
+              const audioCtx = new AudioContext({ sampleRate: 16000 });
+              const decoded = await audioCtx.decodeAudioData(arrayBuffer);
+              const pcm = decoded.getChannelData(0); // Float32Array, mono, 16 kHz
+              vscode.postMessage({
+                command: 'voiceAudio',
+                pcmBase64: btoa(String.fromCharCode(...new Uint8Array(pcm.buffer))),
+                mimeType: 'audio/pcm-f32le',
+              });
+            } catch (err) {
+              resetMicBtn();
+              vscode.postMessage({
+                command: 'voiceAudio',
+                pcmBase64: '',
+                mimeType: 'audio/webm',
+                voiceError: err.message,
+              });
+            }
+          };
+          reader.readAsArrayBuffer(blob);
+        });
+        mediaRecorder.start();
+        micBtn.textContent = '⏹';
+        micBtn.classList.add('mic-recording');
+        micBtn.title = 'Click to stop recording';
+        isRecording = true;
+      } catch (err) {
+        if (err.name === 'NotAllowedError' || err.name === 'NotFoundError') {
+          // getUserMedia blocked — fall back to external browser recording server.
+          micBtn.textContent = '⏳';
+          micBtn.disabled = true;
+          micBtn.title = 'Waiting for browser recording…';
+          vscode.postMessage({ command: 'startVoice' });
+        } else {
+          resetMicBtn();
+        }
+      }
+    }
+
+    function stopRecording() {
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+        micBtn.classList.remove('mic-recording');
+        micBtn.textContent = '⏳';
+        micBtn.disabled = true;
+        isRecording = false;
+      }
+    }
 
     micBtn.addEventListener('click', () => {
-      if (voicePending) return;
-      voicePending = true;
-      micBtn.disabled = true;
-      micBtn.textContent = '⏳';
-      micBtn.title = 'Waiting for browser recording…';
-      vscode.postMessage({ command: 'startVoice' });
+      if (micBtn.disabled) return;
+      if (isRecording) {
+        stopRecording();
+      } else {
+        void startRecording();
+      }
     });
   }
 
