@@ -37,7 +37,21 @@ export interface HookConfig {
 
 export interface ScheduledTask {
   name: string;
-  intervalMinutes: number;
+  /**
+   * Interval-based trigger: run every N minutes.
+   * Mutually exclusive with `cron` — if both are set, `cron` wins.
+   */
+  intervalMinutes?: number;
+  /**
+   * Cron-based trigger: standard 5-field cron expression ("minute hour day month weekday").
+   * Example: "0 9 * * 1-5" = weekdays at 09:00.
+   */
+  cron?: string;
+  /**
+   * File-save trigger: run whenever a saved file matches any of these glob patterns.
+   * Example: ["src/**\/*.ts", "package.json"]
+   */
+  onSave?: string[];
   prompt: string;
   enabled: boolean;
   /** Optional list of file paths this task targets; used to check for unsaved edits */

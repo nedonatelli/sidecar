@@ -13,6 +13,7 @@ export { ChunkRetriever } from './chunkRetriever';
 export { SidecarMdRetriever } from './sidecarMdRetriever';
 export { adaptiveGraphDepth, enrichWithGraphWalk } from './graphExpansion';
 export type { EnrichedHit, GraphWalkOptions } from './graphExpansion';
+export { applyZenFilter } from './zenFilter.js';
 
 /**
  * Run retrieval for each query variant, then fuse all result lists with RRF.

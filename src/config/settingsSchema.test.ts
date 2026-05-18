@@ -105,11 +105,12 @@ describe('package.json contributes.configuration — 13-category layout', () => 
     // + v0.90 Model Arena (+2: arena.enabled/defaultModels).
     // + v0.91 Dependency Drift (+2: deps.enabled/checkVulnerabilities).
     // + v0.92 SIDECAR.md retrieval mode (+2: sidecarMd.retrieval.topK/minScore).
+    // + v0.95 Zen Mode (+2: zenMode.enabled/minScore).
     // Adding a setting requires bumping this + adding it to one of
     // the sections.
     const cfg = loadConfiguration();
     const totalKeys = cfg.reduce((sum, s) => sum + Object.keys(s.properties).length, 0);
-    expect(totalKeys).toBe(184);
+    expect(totalKeys).toBe(186);
   });
 
   it('no setting key is duplicated across sections', () => {

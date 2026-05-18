@@ -322,7 +322,11 @@ export async function injectSystemContext(
         : undefined;
       const retrievalQueries = await rewriteQuery(text, config.retrievalQueryRewrite, completeFn);
       const fused = await fuseRetrieversMultiQuery(retrievers, retrievalQueries, topK, topK);
-      const fusedContext = renderFusedContext(fused);
+      const filtered =
+        config.zenModeEnabled && config.zenModeMinScore > 0
+          ? fused.filter((h) => h.score >= config.zenModeMinScore)
+          : fused;
+      const fusedContext = renderFusedContext(filtered);
       if (fusedContext && prompt.length + fusedContext.length < maxSystemChars) {
         prompt = ensureBoundary(prompt);
         const remaining = maxSystemChars - prompt.length;

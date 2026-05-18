@@ -2,7 +2,7 @@
   "name": "sidecar-ai",
   "displayName": "SideCar",
   "description": "Autonomous AI agent for coding — run full agent loops with local Ollama, Anthropic Claude, or OpenAI models",
-  "version": "0.95.0",
+  "version": "0.96.0",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -979,6 +979,18 @@
             ],
             "markdownDescription": "Maximum token count for any single `tool_result` block sent to a paid backend. Longer results are head+tail truncated with an elision marker. Raise this if you need the agent to see full file contents; lower it to reduce cost on heavy exploration tasks."
           },
+          "sidecar.zenMode.enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enable Zen Mode context filtering. When on, only RAG hits scoring at or above sidecar.zenMode.minScore are injected into the system prompt — reduces noise for local models on focused tasks."
+          },
+          "sidecar.zenMode.minScore": {
+            "type": "number",
+            "default": 0.35,
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Minimum RRF score for a retrieved context hit to be included when Zen Mode is enabled. 0 disables filtering even when zenMode.enabled is true."
+          },
           "sidecar.jsDocSync.enabled": {
             "type": "boolean",
             "default": true,
@@ -1495,29 +1507,44 @@
           "sidecar.scheduledTasks": {
             "type": "array",
             "default": [],
-            "description": "Recurring tasks to run on interval",
+            "description": "Recurring agent tasks. Each task runs on an interval, a cron schedule, or when a file matching onSave globs is saved. Run any task immediately via the 'SideCar: Run Scheduled Task Now' command.",
             "items": {
               "type": "object",
               "properties": {
                 "name": {
-                  "type": "string"
+                  "type": "string",
+                  "description": "Human-readable task name (also used as the lock key — must be unique)"
                 },
                 "intervalMinutes": {
-                  "type": "number"
+                  "type": "number",
+                  "minimum": 1,
+                  "description": "Run every N minutes. Ignored if `cron` is set."
+                },
+                "cron": {
+                  "type": "string",
+                  "description": "5-field cron expression (minute hour day month weekday). Example: '0 9 * * 1-5' = weekdays at 09:00. Takes precedence over intervalMinutes."
+                },
+                "onSave": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "Run whenever a saved file matches any of these glob patterns. Example: ['src/**/*.ts', 'package.json']"
                 },
                 "prompt": {
-                  "type": "string"
+                  "type": "string",
+                  "description": "Natural language task prompt sent to the agent"
                 },
                 "enabled": {
                   "type": "boolean",
-                  "default": true
+                  "default": true,
+                  "description": "Set to false to disable without removing the entry"
+                },
+                "targetPaths": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "File paths this task may write. If any are unsaved when the task fires, it runs in a Shadow Workspace for safety."
                 }
               },
-              "required": [
-                "name",
-                "intervalMinutes",
-                "prompt"
-              ]
+              "required": ["name", "prompt"]
             }
           },
           "sidecar.delegateTask.enabled": {
@@ -2342,6 +2369,12 @@
         "title": "Stop Auto Mode",
         "category": "SideCar",
         "icon": "$(stop)"
+      },
+      {
+        "command": "sidecar.scheduler.run",
+        "title": "Run Scheduled Task Now",
+        "category": "SideCar",
+        "icon": "$(run)"
       },
       {
         "command": "sidecar.fork.dispatch",

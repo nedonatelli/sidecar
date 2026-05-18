@@ -182,6 +182,28 @@ export function registerEditorFeatures(
   }
 
   context.subscriptions.push(
+    commands.registerCommand('sidecar.scheduler.run', async () => {
+      const names = scheduler.getTaskNames();
+      if (names.length === 0) {
+        window.showInformationMessage('SideCar: No enabled scheduled tasks defined in sidecar.scheduledTasks.');
+        return;
+      }
+      const picked = await window.showQuickPick(names, {
+        placeHolder: 'Select a scheduled task to run now',
+      });
+      if (!picked) return;
+      try {
+        await scheduler.runNow(picked);
+        window.showInformationMessage(`SideCar: Task "${picked}" completed.`);
+      } catch (err) {
+        window.showErrorMessage(
+          `SideCar: Task "${picked}" failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }),
+  );
+
+  context.subscriptions.push(
     workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('sidecar.scheduledTasks')) {
         scheduler.stop();

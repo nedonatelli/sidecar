@@ -307,6 +307,9 @@ export interface SideCarConfig {
   mcpServerRequireAuth: boolean;
   mcpServerAuthToken: string | null;
   mcpServerMaxConcurrent: number;
+  /* Zen Mode — RAG hit score filtering */
+  zenModeEnabled: boolean;
+  zenModeMinScore: number;
 }
 
 /**
@@ -588,6 +591,8 @@ function readConfig(): SideCarConfig {
     mcpServerRequireAuth: cfg.get<boolean>('mcpServer.requireAuth', false),
     mcpServerAuthToken: cfg.get<string>('mcpServer.authToken', '') || null,
     mcpServerMaxConcurrent: clampMin(cfg.get<number>('mcpServer.maxConcurrent'), 1, 1),
+    zenModeEnabled: cfg.get<boolean>('zenMode.enabled', false),
+    zenModeMinScore: clampMin(cfg.get<number>('zenMode.minScore'), 0, 0.35),
   };
 }
 

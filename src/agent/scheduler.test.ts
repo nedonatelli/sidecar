@@ -26,6 +26,14 @@ vi.mock('./loop.js', () => ({
   runAgentLoop: vi.fn(async () => Promise.resolve()),
 }));
 
+vi.mock('./shadow/sandbox.js', () => ({
+  runAgentLoopInSandbox: vi.fn(async () => ({ success: true, output: '' })),
+}));
+
+vi.mock('./documentGate.js', () => ({
+  checkDocumentGate: vi.fn(() => ({ dirty: false, dirtyFiles: [] })),
+}));
+
 describe('Scheduler', () => {
   let scheduler: Scheduler;
   let mockLogger: Partial<AgentLogger>;
@@ -323,6 +331,103 @@ describe('Scheduler', () => {
       await (scheduler as { runTask: (t: ScheduledTask) => Promise<void> }).runTask(task);
 
       expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining('string rejection'));
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Cron trigger
+  // -------------------------------------------------------------------------
+  describe('cron trigger', () => {
+    it('logs cron expression on start', () => {
+      const task: ScheduledTask = {
+        name: 'cron-task',
+        enabled: true,
+        prompt: 'nightly',
+        cron: '0 2 * * *',
+      };
+      scheduler.start([task]);
+      expect(vi.mocked(mockLogger.info)).toHaveBeenCalledWith(expect.stringMatching(/cron-task.*0 2 \* \* \*/));
+    });
+
+    it('warns and skips tasks with invalid cron expression', () => {
+      const task: ScheduledTask = {
+        name: 'bad-cron',
+        enabled: true,
+        prompt: 'x',
+        cron: 'not-a-cron',
+      };
+      scheduler.start([task]);
+      expect(vi.mocked(mockLogger.warn)).toHaveBeenCalledWith(expect.stringContaining('invalid cron'));
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // runNow (manual trigger)
+  // -------------------------------------------------------------------------
+  describe('runNow', () => {
+    beforeEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('runs a named task immediately', async () => {
+      const task: ScheduledTask = { name: 'manual', enabled: true, prompt: 'go', intervalMinutes: 60 };
+      scheduler.start([task]);
+      vi.clearAllMocks();
+      await scheduler.runNow('manual');
+      expect(runAgentLoop).toHaveBeenCalledOnce();
+    });
+
+    it('throws when task name is not found', async () => {
+      scheduler.start([]);
+      await expect(scheduler.runNow('no-such-task')).rejects.toThrow('"no-such-task"');
+    });
+
+    it('records a successful run in run history', async () => {
+      const task: ScheduledTask = { name: 'hist-task', enabled: true, prompt: 'x', intervalMinutes: 60 };
+      scheduler.start([task]);
+      await scheduler.runNow('hist-task');
+      const history = scheduler.getRunHistory();
+      expect(history).toHaveLength(1);
+      expect(history[0].taskName).toBe('hist-task');
+      expect(history[0].success).toBe(true);
+      expect(history[0].finishedAt).toBeGreaterThanOrEqual(history[0].startedAt);
+    });
+
+    it('records a failed run with errorMessage in history', async () => {
+      vi.mocked(runAgentLoop).mockRejectedValueOnce(new Error('agent failed'));
+      const task: ScheduledTask = { name: 'fail-task', enabled: true, prompt: 'x', intervalMinutes: 60 };
+      scheduler.start([task]);
+      await scheduler.runNow('fail-task');
+      const history = scheduler.getRunHistory();
+      expect(history[0].success).toBe(false);
+      expect(history[0].errorMessage).toContain('agent failed');
+    });
+
+    it('caps history at 100 entries (FIFO)', async () => {
+      const task: ScheduledTask = { name: 't', enabled: true, prompt: 'x', intervalMinutes: 60 };
+      scheduler.start([task]);
+      for (let i = 0; i < 105; i++) {
+        await scheduler.runNow('t');
+      }
+      expect(scheduler.getRunHistory()).toHaveLength(100);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // getTaskNames
+  // -------------------------------------------------------------------------
+  describe('getTaskNames', () => {
+    it('returns enabled task names', () => {
+      scheduler.start([
+        { name: 'a', enabled: true, prompt: 'x', intervalMinutes: 1 },
+        { name: 'b', enabled: false, prompt: 'x', intervalMinutes: 1 },
+        { name: 'c', enabled: true, prompt: 'x', cron: '* * * * *' },
+      ]);
+      expect(scheduler.getTaskNames()).toEqual(['a', 'c']);
+    });
+
+    it('returns empty array when no tasks loaded', () => {
+      expect(scheduler.getTaskNames()).toEqual([]);
     });
   });
 });

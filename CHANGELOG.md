@@ -4,6 +4,29 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.96.0] - 2026-05-18
+
+**v0.96.0 — Zen Mode Context Filtering + Scheduler Enhancements (cron, file-save triggers, manual run).**
+
+### Added
+
+- **Zen Mode context filtering** — when `sidecar.zenMode.enabled` is `true`, the RAG pipeline drops any retrieved context hit scoring below `sidecar.zenMode.minScore` (default 0.35) before injecting into the system prompt. Eliminates low-relevance noise on focused tasks; particularly effective with local models that have tighter context budgets. Setting `minScore` to `0` disables the filter even when zen mode is on.
+
+- **Cron-syntax scheduled tasks** — `sidecar.scheduledTasks` entries now accept a `cron` field (5-field standard cron: `"minute hour day month weekday"`). Example: `"0 9 * * 1-5"` fires every weekday at 09:00. Takes precedence over `intervalMinutes` when both are set. Invalid expressions are logged as warnings and skipped rather than silently failing. Checked by a single shared once-per-minute tick — no overhead per additional cron task.
+
+- **File-save triggers** — `sidecar.scheduledTasks` entries now accept an `onSave` field (array of glob patterns). The task fires whenever a saved file matches any pattern. Example: `["src/**/*.ts", "package.json"]`. Uses `workspace.onDidSaveTextDocument` — one shared listener across all onSave tasks.
+
+- **`SideCar: Run Scheduled Task Now` command** — run any enabled scheduled task immediately from the command palette without waiting for its timer or trigger. QuickPick lists all enabled tasks by name. Reports completion or error via VS Code notification. Registered as `sidecar.scheduler.run`.
+
+- **Scheduler run history** — `Scheduler.getRunHistory()` returns the last 100 task run records (`taskName`, `startedAt`, `finishedAt`, `success`, `errorMessage?`). New runs are prepended; the list is capped at 100 entries. Used internally and available to the command for future status display.
+
+- **`sidecar.zenMode.enabled`** (default `false`) — enable Zen Mode context filtering.
+- **`sidecar.zenMode.minScore`** (default `0.35`, range 0–1) — minimum RRF score for retrieved context to be injected. `0` = no filtering.
+
+### Changed
+
+- `sidecar.scheduledTasks` schema updated: `intervalMinutes` is now optional (not required), `cron` and `onSave` fields added, `targetPaths` documented. Tasks with neither `intervalMinutes` nor `cron` that lack an `onSave` trigger are silently inert — this is intentional (onSave-only tasks). The `name` + `prompt` combination remains the only required pair.
+
 ## [0.95.0] - 2026-05-17
 
 **v0.95.0 — Agentic Task Delegation via MCP (both directions).**
