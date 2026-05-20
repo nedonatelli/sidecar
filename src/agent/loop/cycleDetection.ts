@@ -1,6 +1,6 @@
 import type { ToolUseContentBlock } from '../../ollama/types.js';
 import type { AgentCallbacks } from '../loop.js';
-import type { LoopState } from './state.js';
+import type { LoopState, NormalizedEntry } from './state.js';
 
 // ---------------------------------------------------------------------------
 // Per-iteration safety checks on tool-use bursts and repeat patterns.
@@ -118,31 +118,43 @@ export function detectCycleAndBail(
   }
 
   // --- Normalized signature pass ---
-  const normSignature = normalizeSignature(pendingToolUses);
-  state.recentNormalizedCalls.push(normSignature);
+  const normEntry = normalizeEntry(pendingToolUses);
+  state.recentNormalizedCalls.push(normEntry);
   if (state.recentNormalizedCalls.length > CYCLE_WINDOW) {
     state.recentNormalizedCalls.shift();
   }
 
   if (state.recentNormalizedCalls.length >= MIN_NORMALIZED_REPEATS) {
     const lastN = state.recentNormalizedCalls.slice(-MIN_NORMALIZED_REPEATS);
-    if (lastN.every((v) => v === lastN[0])) {
-      state.logger?.warn(
-        `Agent loop normalized cycle detected (${MIN_NORMALIZED_REPEATS} repeats) — ${normSignature.slice(0, 100)}`,
-      );
-      callbacks.onText(
-        `\n\n⚠️ Agent stopped: same tool calls on the same resource repeated ` +
-          `${MIN_NORMALIZED_REPEATS} times — try a different approach.\n`,
-      );
-      return true;
+    if (lastN.every((e) => e.sig === lastN[0].sig)) {
+      // Same tool+resource repeated MIN_NORMALIZED_REPEATS times. Only bail if
+      // at least one secondary-args fingerprint recurs — all-unique secondary
+      // hashes means the agent is making meaningfully different calls each time
+      // (e.g. editing the same file with different content), not stuck.
+      const seen = new Set<string>();
+      const hasRepeatedSecondary = lastN.some((e) => {
+        if (seen.has(e.secondaryHash)) return true;
+        seen.add(e.secondaryHash);
+        return false;
+      });
+      if (hasRepeatedSecondary) {
+        state.logger?.warn(
+          `Agent loop normalized cycle detected (${MIN_NORMALIZED_REPEATS} repeats, repeated secondary args) — ${normEntry.sig.slice(0, 100)}`,
+        );
+        callbacks.onText(
+          `\n\n⚠️ Agent stopped: same tool calls on the same resource repeated ` +
+            `${MIN_NORMALIZED_REPEATS} times — try a different approach.\n`,
+        );
+        return true;
+      }
     }
   }
 
   for (let len = 2; len <= MAX_CYCLE_LEN && len * 2 <= state.recentNormalizedCalls.length; len++) {
     const tail = state.recentNormalizedCalls.slice(-len);
     const prev = state.recentNormalizedCalls.slice(-2 * len, -len);
-    if (tail.length === prev.length && tail.every((v, i) => v === prev[i])) {
-      state.logger?.warn(`Agent loop normalized cycle detected (length ${len}) — ${normSignature.slice(0, 100)}`);
+    if (tail.length === prev.length && tail.every((v, i) => v.sig === prev[i].sig)) {
+      state.logger?.warn(`Agent loop normalized cycle detected (length ${len}) — ${normEntry.sig.slice(0, 100)}`);
       callbacks.onText(`\n\n⚠️ Agent stopped: detected repeating pattern of length ${len} on the same resources.\n`);
       return true;
     }
@@ -167,36 +179,59 @@ function sortedStringify(value: unknown): string {
 }
 
 /**
- * Reduced tool-call signature that keeps the tool name and its primary
- * resource (file path, command string, query, etc.) while discarding
- * secondary arguments such as edit content, line ranges, and flags.
+ * Build a NormalizedEntry for this iteration's tool calls.
  *
- * This lets the normalized-cycle check catch "same tool on the same
- * file with different secondary args" loops — e.g.:
- *   edit_file(a.ts, "search1", "replace1")
- *   edit_file(a.ts, "search2", "replace2")   ← different exact sig
- *   edit_file(a.ts, "search3", "replace3")   ← fires at MIN_NORMALIZED_REPEATS
+ * `sig`          — `tool:primaryResource` joined across all tool uses.
+ * `secondaryHash`— sorted-stringify of every arg *except* the primary
+ *                  resource key, joined across all tool uses. Two calls
+ *                  with the same primary resource but different content,
+ *                  flags, or line ranges will have different secondaryHash
+ *                  values, so the streak check can distinguish "trying
+ *                  different things" from "truly stuck".
  */
-function normalizeSignature(pendingToolUses: ToolUseContentBlock[]): string {
-  return pendingToolUses
-    .map((tu) => {
-      const input = tu.input as Record<string, unknown>;
-      for (const key of PRIMARY_RESOURCE_KEYS) {
-        const v = input[key];
+function normalizeEntry(pendingToolUses: ToolUseContentBlock[]): NormalizedEntry {
+  const sigParts: string[] = [];
+  const secondaryParts: string[] = [];
+
+  for (const tu of pendingToolUses) {
+    const input = tu.input as Record<string, unknown>;
+
+    let primaryKey: string | undefined;
+    let primaryValue: string | undefined;
+
+    for (const key of PRIMARY_RESOURCE_KEYS) {
+      const v = input[key];
+      if (typeof v === 'string' && v) {
+        primaryKey = key;
+        primaryValue = v;
+        break;
+      }
+    }
+
+    if (!primaryKey) {
+      // Fall back to first non-empty string value so tools without a
+      // canonical resource key don't all collapse to bare tool name.
+      for (const [k, v] of Object.entries(input)) {
         if (typeof v === 'string' && v) {
-          return `${tu.name}:${v.slice(0, 80)}`;
+          primaryKey = k;
+          primaryValue = v;
+          break;
         }
       }
-      // Fall back to the first non-empty string value among remaining args so
-      // tools without a canonical resource key (e.g. run_tests with a suite
-      // name) don't all collapse to the bare tool name and falsely trigger
-      // the normalized-cycle detector when called with different inputs.
-      for (const v of Object.values(input)) {
-        if (typeof v === 'string' && v) {
-          return `${tu.name}:${v.slice(0, 80)}`;
-        }
+    }
+
+    if (primaryKey && primaryValue) {
+      sigParts.push(`${tu.name}:${primaryValue.slice(0, 80)}`);
+      const secondary: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(input)) {
+        if (k !== primaryKey) secondary[k] = v;
       }
-      return tu.name;
-    })
-    .join('|');
+      secondaryParts.push(sortedStringify(secondary));
+    } else {
+      sigParts.push(tu.name);
+      secondaryParts.push(sortedStringify(input));
+    }
+  }
+
+  return { sig: sigParts.join('|'), secondaryHash: secondaryParts.join('|') };
 }

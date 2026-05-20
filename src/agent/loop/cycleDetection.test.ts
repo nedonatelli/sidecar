@@ -80,9 +80,8 @@ describe('detectCycleAndBail', () => {
   });
 
   it('returns true when the same signature fires 3 times (normalized pass fires before exact at 4)', () => {
-    // The normalized-signature check fires at MIN_NORMALIZED_REPEATS=3, which is
-    // lower than the exact-match threshold of 4. For completely identical calls,
-    // the normalized pass triggers first with its "same resource" message.
+    // Identical calls have identical secondary args, so the normalized check fires
+    // at 3 (secondary hash repeats on call 2) before the exact check fires at 4.
     const state = stubLoopState();
     const cb = stubCallbacks();
     const call = [makeToolUse('ls', { dir: '.' })];
@@ -210,11 +209,12 @@ describe('detectCycleAndBail — normalized signature pass', () => {
   // is to catch "same tool on the same file with different content each
   // time" loops that the exact-match pass misses.
 
-  it('fires at 3 repeats when primary resource is identical but edit content differs', () => {
+  it('does NOT fire when same file is edited 3 times with all-unique content', () => {
+    // Core fix: three edits to the same file with different search/replace each
+    // time should not kill the loop — the agent is making progress.
     const state = stubLoopState();
     const cb = stubCallbacks();
-    // Each call has the same path but different search/replace content.
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < 3; i++) {
       expect(
         detectCycleAndBail(
           [makeToolUse('edit_file', { path: 'src/auth.ts', search: `foo${i}`, replace: `bar${i}` })],
@@ -223,14 +223,19 @@ describe('detectCycleAndBail — normalized signature pass', () => {
         ),
       ).toBe(false);
     }
-    // Third call with yet another diff — normalized sig is the same all three times.
-    expect(
-      detectCycleAndBail(
-        [makeToolUse('edit_file', { path: 'src/auth.ts', search: 'foo2', replace: 'bar2' })],
-        state,
-        cb,
-      ),
-    ).toBe(true);
+    expect(cb.texts).toHaveLength(0);
+  });
+
+  it('fires when same file is edited and a previous search/replace is reused', () => {
+    // If secondary args repeat (agent tried the same edit twice), it is stuck.
+    const state = stubLoopState();
+    const cb = stubCallbacks();
+    const edit0 = [makeToolUse('edit_file', { path: 'src/auth.ts', search: 'foo0', replace: 'bar0' })];
+    const edit1 = [makeToolUse('edit_file', { path: 'src/auth.ts', search: 'foo1', replace: 'bar1' })];
+    expect(detectCycleAndBail(edit0, state, cb)).toBe(false);
+    expect(detectCycleAndBail(edit1, state, cb)).toBe(false);
+    // Third call reuses edit0's content — secondary hash recurs → loop detected.
+    expect(detectCycleAndBail(edit0, state, cb)).toBe(true);
     expect(cb.texts[0]).toContain('same resource');
   });
 
@@ -264,16 +269,29 @@ describe('detectCycleAndBail — normalized signature pass', () => {
     expect(cb.texts[0]).toContain('length 2');
   });
 
-  it('uses command key as primary resource for run_command', () => {
+  it('does NOT fire when same command runs with a different cwd each time', () => {
+    // Running npm test in 3 different directories is legitimate, not a loop.
     const state = stubLoopState();
     const cb = stubCallbacks();
-    // Same command, different env/cwd each time — normalized sig is command.
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < 3; i++) {
       expect(
         detectCycleAndBail([makeToolUse('run_command', { command: 'npm test', cwd: `/project${i}` })], state, cb),
       ).toBe(false);
     }
-    expect(detectCycleAndBail([makeToolUse('run_command', { command: 'npm test', cwd: '/project2' })], state, cb)).toBe(
+    expect(cb.texts).toHaveLength(0);
+  });
+
+  it('fires when same command and cwd repeats', () => {
+    // Two unique cwds then a repeat of the first — secondary hash recurs → loop.
+    const state = stubLoopState();
+    const cb = stubCallbacks();
+    expect(detectCycleAndBail([makeToolUse('run_command', { command: 'npm test', cwd: '/project0' })], state, cb)).toBe(
+      false,
+    );
+    expect(detectCycleAndBail([makeToolUse('run_command', { command: 'npm test', cwd: '/project1' })], state, cb)).toBe(
+      false,
+    );
+    expect(detectCycleAndBail([makeToolUse('run_command', { command: 'npm test', cwd: '/project0' })], state, cb)).toBe(
       true,
     );
     expect(cb.texts[0]).toContain('same resource');
@@ -302,15 +320,25 @@ describe('detectCycleAndBail — normalized signature pass', () => {
     expect(cb.texts[0]).toContain('same resource');
   });
 
-  it('falls back to tool name alone when input has no string args at all', () => {
-    // Tools with zero string args normalize to just the tool name.
-    // Three bare calls → fires at 3 repeats.
+  it('does NOT fire when tool-name-only sig has different numeric args each time', () => {
+    // No string args → sig is just the tool name. Different numeric args each
+    // time means all-unique secondary hashes → not a loop.
+    const state = stubLoopState();
+    const cb = stubCallbacks();
+    for (let i = 0; i < 3; i++) {
+      expect(detectCycleAndBail([makeToolUse('list_processes', { limit: i })], state, cb)).toBe(false);
+    }
+    expect(cb.texts).toHaveLength(0);
+  });
+
+  it('fires when tool-name-only sig and secondary args also repeat', () => {
+    // Same tool, same numeric arg each time → secondary hash repeats → loop.
     const state = stubLoopState();
     const cb = stubCallbacks();
     for (let i = 0; i < 2; i++) {
-      expect(detectCycleAndBail([makeToolUse('list_processes', { limit: i })], state, cb)).toBe(false);
+      expect(detectCycleAndBail([makeToolUse('list_processes', { limit: 10 })], state, cb)).toBe(false);
     }
-    expect(detectCycleAndBail([makeToolUse('list_processes', { limit: 99 })], state, cb)).toBe(true);
+    expect(detectCycleAndBail([makeToolUse('list_processes', { limit: 10 })], state, cb)).toBe(true);
     expect(cb.texts[0]).toContain('same resource');
   });
 

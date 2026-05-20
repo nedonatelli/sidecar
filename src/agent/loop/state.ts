@@ -43,6 +43,15 @@ import { EpisodicMemoryStore } from '../episodicMemory.js';
 
 export const DEFAULT_MAX_ITERATIONS = 25;
 
+/** One entry in the normalized-call ring buffer. */
+export interface NormalizedEntry {
+  /** `tool:primaryResource` — the part that identifies "same operation on same target". */
+  sig: string;
+  /** Fingerprint of all args except the primary resource. All-unique secondary hashes
+   * within a streak means the agent is trying different approaches; a repeat means stuck. */
+  secondaryHash: string;
+}
+
 export interface LoopState {
   // --- Immutable inputs captured at init ---
   readonly startTime: number;
@@ -86,11 +95,13 @@ export interface LoopState {
   // cycleDetection.ts is the only thing that reads or writes it.
   recentToolCalls: string[];
 
-  // Parallel ring buffer of normalized signatures (tool + primary resource only,
-  // secondary args stripped). Used by the normalized-cycle check in
-  // cycleDetection.ts to catch "same tool, same file, different edit content"
-  // loops that the exact-match ring misses.
-  recentNormalizedCalls: string[];
+  // Parallel ring buffer of normalized call entries (tool + primary resource +
+  // secondary-args fingerprint). Used by the normalized-cycle check in
+  // cycleDetection.ts. Storing the secondary-args hash alongside the sig lets
+  // the check distinguish "same tool on same file, different content each time"
+  // (legitimate multi-step edits) from "same tool on same file, same content
+  // repeated" (stuck loop).
+  recentNormalizedCalls: NormalizedEntry[];
 
   // Per-file auto-fix retry counter. autoFix.ts is the only writer.
   autoFixRetriesByFile: Map<string, number>;
