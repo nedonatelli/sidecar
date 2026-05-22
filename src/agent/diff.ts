@@ -3,7 +3,7 @@
  * No external dependencies — uses a basic LCS algorithm.
  */
 
-interface DiffHunk {
+export interface DiffHunk {
   oldStart: number;
   oldCount: number;
   newStart: number;
@@ -142,6 +142,81 @@ function buildHunks(ops: { type: 'equal' | 'add' | 'del'; line: string }[], cont
   }
 
   return hunks;
+}
+
+/**
+ * Compute the list of diff hunks between two file contents.
+ * Exported so callers can inspect individual hunks (e.g. per-hunk audit review)
+ * without going through the full string serialisation path.
+ */
+export function computeHunks(original: string, current: string): DiffHunk[] {
+  if (original === current) return [];
+  const oldLines = original.split('\n');
+  const newLines = current.split('\n');
+  const dp = lcsTable(oldLines, newLines);
+  const ops = backtrack(dp, oldLines, newLines, oldLines.length, newLines.length);
+  return buildHunks(ops);
+}
+
+/**
+ * Apply a subset of hunks to the original content.
+ * Accepted hunk indices (0-based into `hunks`) have their changes applied;
+ * rejected hunks keep the original lines. This enables per-hunk audit review
+ * where the user accepts some edits and discards others within one file.
+ */
+export function applySelectedHunks(original: string, hunks: DiffHunk[], selected: Set<number>): string {
+  if (hunks.length === 0) return original;
+
+  const originalLines = original.split('\n');
+  const result: string[] = [];
+  let originalPos = 0; // 0-indexed cursor into originalLines
+
+  for (let hi = 0; hi < hunks.length; hi++) {
+    const hunk = hunks[hi];
+    const accept = selected.has(hi);
+
+    // Copy original lines that precede this hunk
+    const hunkOrigStart = hunk.oldStart - 1; // convert to 0-indexed
+    while (originalPos < hunkOrigStart) {
+      result.push(originalLines[originalPos]);
+      originalPos++;
+    }
+
+    // Process hunk lines
+    for (const line of hunk.lines) {
+      const sigil = line[0];
+      const content = line.slice(1);
+
+      if (sigil === ' ') {
+        // Context line — always keep original
+        result.push(originalLines[originalPos]);
+        originalPos++;
+      } else if (sigil === '-') {
+        if (accept) {
+          // Accept: discard original line
+          originalPos++;
+        } else {
+          // Reject: keep original line
+          result.push(originalLines[originalPos]);
+          originalPos++;
+        }
+      } else if (sigil === '+') {
+        if (accept) {
+          // Accept: include the new line
+          result.push(content);
+        }
+        // Reject: discard the new line (don't advance originalPos)
+      }
+    }
+  }
+
+  // Copy any remaining original lines after the last hunk
+  while (originalPos < originalLines.length) {
+    result.push(originalLines[originalPos]);
+    originalPos++;
+  }
+
+  return result.join('\n');
 }
 
 /**

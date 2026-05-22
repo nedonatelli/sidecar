@@ -286,6 +286,20 @@ export class AuditBuffer {
     return this.entries.has(filePath);
   }
 
+  /**
+   * Replace the buffered `content` for an existing entry without touching
+   * `originalContent`. Used by per-hunk audit review to store a partially-
+   * applied result before flushing — the conflict-detection pre-flight still
+   * compares `originalContent` against disk, so baseline integrity is kept.
+   * No-ops when the path is not in the buffer or the entry is a delete.
+   */
+  overwriteContent(filePath: string, content: string): void {
+    const entry = this.entries.get(filePath);
+    if (!entry || entry.op === 'delete') return;
+    entry.content = content;
+    entry.timestamp = Date.now();
+  }
+
   /** List every buffered entry, newest first. Consumers render this. */
   list(): BufferedChange[] {
     return Array.from(this.entries.values()).sort((a, b) => b.timestamp - a.timestamp);

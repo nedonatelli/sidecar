@@ -108,7 +108,7 @@ export interface SideCarConfig {
   multiFileEditsPlanningPass: boolean;
   multiFileEditsMinFilesForPlan: number;
   multiFileEditsPlannerModel: string;
-  multiFileEditsReviewGranularity: 'bulk' | 'per-file';
+  multiFileEditsReviewGranularity: 'bulk' | 'per-file' | 'per-hunk';
   retrievalGraphExpansionEnabled: boolean;
   retrievalGraphExpansionMaxHits: number;
   retrievalQueryRewrite: 'off' | 'rule' | 'llm' | 'expand';
@@ -421,7 +421,8 @@ function readConfig(): SideCarConfig {
     multiFileEditsPlannerModel: cfg.get<string>('multiFileEdits.plannerModel', ''),
     multiFileEditsReviewGranularity: cfg.get<string>('multiFileEdits.reviewGranularity', 'per-file') as
       | 'bulk'
-      | 'per-file',
+      | 'per-file'
+      | 'per-hunk',
     retrievalGraphExpansionEnabled: cfg.get<boolean>('retrieval.graphExpansion.enabled', true),
     retrievalGraphExpansionMaxHits: clampMin(cfg.get<number>('retrieval.graphExpansion.maxHits', 8), 0, 50),
     retrievalQueryRewrite: cfg.get<string>('retrieval.queryRewrite', 'rule') as 'off' | 'rule' | 'llm' | 'expand',

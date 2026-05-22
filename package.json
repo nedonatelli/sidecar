@@ -483,10 +483,11 @@
             "type": "string",
             "enum": [
               "bulk",
-              "per-file"
+              "per-file",
+              "per-hunk"
             ],
             "default": "per-file",
-            "description": "How the Pending Changes panel presents a multi-file edit. 'bulk' = accept/reject all as one unit, 'per-file' = walk each file individually with Accept / Reject / diff (default)."
+            "description": "How the Pending Changes panel presents a multi-file edit. 'bulk' = accept/reject all as one unit, 'per-file' = walk each file individually with Accept / Reject / diff (default), 'per-hunk' = walk each file's individual diff hunks with checkboxes so you can accept some edits and discard others within the same file."
           },
           "sidecar.retrieval.graphExpansion.enabled": {
             "type": "boolean",

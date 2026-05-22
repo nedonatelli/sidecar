@@ -1,7 +1,7 @@
 import { window, workspace, commands, Uri } from 'vscode';
 import * as path from 'path';
 import { getDefaultAuditBuffer, AuditFlushError, type AuditBuffer, type BufferedChange } from './auditBuffer.js';
-import { computeUnifiedDiff } from '../diff.js';
+import { computeUnifiedDiff, computeHunks, applySelectedHunks, type DiffHunk } from '../diff.js';
 
 /**
  * Audit Mode review commands — the user-facing side of the buffer
@@ -32,6 +32,8 @@ export interface AuditReviewUi {
   showError(message: string): void;
   /** Open VS Code's diff editor showing the two URIs side-by-side. */
   openDiff(beforeUri: Uri, afterUri: Uri, title: string): Promise<void>;
+  /** Multi-select variant — returns the selected subset, or undefined on cancel. */
+  showMultiQuickPick<T extends { label: string }>(items: T[], placeholder: string): Promise<T[] | undefined>;
   /**
    * Modal prompt surfaced by conflict detection : disk
    * has diverged from the baseline since the buffer captured it.
@@ -71,7 +73,7 @@ export interface AuditReviewDeps {
    * Reject-all / Cancel prompt; no per-file walk.
    *
    */
-  reviewGranularity?: 'bulk' | 'per-file';
+  reviewGranularity?: 'bulk' | 'per-file' | 'per-hunk';
   /**
    * When provided, a "View batch summary in chat" item is added to the
    * review QuickPick. Selecting it posts the unified diff of every
@@ -117,6 +119,10 @@ export async function reviewAuditBuffer(deps: AuditReviewDeps): Promise<void> {
   const granularity = deps.reviewGranularity ?? 'per-file';
   if (granularity === 'bulk') {
     await reviewAuditBufferBulk(deps, buf);
+    return;
+  }
+  if (granularity === 'per-hunk') {
+    await reviewAuditBufferPerHunk(deps, buf);
     return;
   }
 
@@ -194,6 +200,164 @@ export async function reviewAuditBuffer(deps: AuditReviewDeps): Promise<void> {
     } else if (postPick.action === 'reject-one') {
       await rejectFileAuditBuffer(deps, picked.entry.path);
       // loop back
+    }
+  }
+}
+
+// ─── Per-hunk review ─────────────────────────────────────────────────────────
+
+function formatHunkLabel(hunk: DiffHunk, index: number): { label: string; description: string; detail: string } {
+  const added = hunk.lines.filter((l) => l[0] === '+').length;
+  const removed = hunk.lines.filter((l) => l[0] === '-').length;
+  const changed = hunk.lines.filter((l) => l[0] === '+' || l[0] === '-');
+  const preview = changed
+    .slice(0, 3)
+    .map((l) => l.slice(0, 80))
+    .join('  ');
+  return {
+    label: `Hunk ${index + 1}  @@ -${hunk.oldStart},${hunk.oldCount} +${hunk.newStart},${hunk.newCount} @@`,
+    description: `+${added} -${removed}`,
+    detail: preview || '(context only)',
+  };
+}
+
+/**
+ * Per-hunk review for a single `modify` entry. Shows all hunks in a
+ * multi-select QuickPick (all pre-checked = accept everything). Returns
+ * `'accepted'`, `'rejected'`, or `'skipped'` so the outer loop knows
+ * whether to continue.
+ */
+async function reviewPerHunkForFile(
+  entry: BufferedChange,
+  deps: AuditReviewDeps,
+  buf: AuditBuffer,
+): Promise<'accepted' | 'rejected' | 'skipped'> {
+  const original = entry.originalContent ?? '';
+  const current = entry.content ?? '';
+
+  const hunks = computeHunks(original, current);
+  if (hunks.length === 0) {
+    // No diff — accept silently (nothing changes on disk)
+    buf.clear([entry.path]);
+    return 'accepted';
+  }
+
+  type HunkItem = { label: string; description: string; detail: string; picked: boolean; index: number };
+  const items: HunkItem[] = hunks.map((h, i) => ({
+    ...formatHunkLabel(h, i),
+    picked: true, // pre-check all hunks
+    index: i,
+  }));
+
+  const selected = await deps.ui.showMultiQuickPick(
+    items,
+    `${entry.path} — check hunks to accept (uncheck to discard)`,
+  );
+  if (selected === undefined) return 'skipped'; // Escape → back
+
+  if (selected.length === 0) {
+    // All hunks rejected → reject the whole file
+    buf.clear([entry.path]);
+    deps.ui.showInfo(`SideCar audit: rejected all hunks in ${entry.path}.`);
+    return 'rejected';
+  }
+
+  const selectedSet = new Set(selected.map((item) => item.index));
+
+  if (selectedSet.size === hunks.length) {
+    // All hunks accepted → normal flush
+    await acceptFileAuditBuffer(deps, entry.path);
+    return 'accepted';
+  }
+
+  // Partial selection — apply only selected hunks and flush
+  const partialContent = applySelectedHunks(original, hunks, selectedSet);
+  buf.overwriteContent(entry.path, partialContent);
+  await acceptFileAuditBuffer(deps, entry.path);
+  deps.ui.showInfo(`SideCar audit: applied ${selectedSet.size} of ${hunks.length} hunks in ${entry.path}.`);
+  return 'accepted';
+}
+
+/**
+ * Per-hunk review path. Same outer loop as per-file but when the user
+ * opens a `modify` entry they see individual hunks with checkboxes rather
+ * than the whole-file diff. New/deleted files fall back to per-file
+ * accept/reject since they have no meaningful hunk breakdown.
+ */
+async function reviewAuditBufferPerHunk(deps: AuditReviewDeps, buf: AuditBuffer): Promise<void> {
+  while (true) {
+    const entries = buf.list();
+    if (entries.length === 0) {
+      deps.ui.showInfo('SideCar audit: buffer is empty — no pending changes.');
+      return;
+    }
+
+    const items: ReviewPick[] = [
+      {
+        label: '$(check-all) Accept All',
+        description: `${entries.length} file${entries.length === 1 ? '' : 's'}`,
+        action: 'accept-all',
+      },
+      { label: '$(discard) Reject All', description: 'Drop every buffered change', action: 'reject-all' },
+      ...(deps.postBatchSummary
+        ? [
+            {
+              label: '$(list-unordered) View Batch Summary in Chat',
+              description: 'Send unified diff of all pending changes to the chat panel',
+              action: 'view-summary' as const,
+            },
+          ]
+        : []),
+      ...entries.map((entry): ReviewPick => {
+        const fmt = formatEntryLabel(entry);
+        return { label: fmt.label, description: fmt.description, action: 'open', entry };
+      }),
+    ];
+
+    const picked = await deps.ui.showQuickPick(items, 'SideCar audit (per-hunk): review buffered changes');
+    if (!picked) return;
+
+    if (picked.action === 'accept-all') {
+      await acceptAllAuditBuffer(deps);
+      return;
+    }
+    if (picked.action === 'reject-all') {
+      await rejectAllAuditBuffer(deps);
+      return;
+    }
+    if (picked.action === 'view-summary') {
+      const summaryItems = entries
+        .map((entry) => ({
+          filePath: entry.path,
+          diff: computeUnifiedDiff(
+            entry.path,
+            entry.originalContent ?? '',
+            entry.op === 'delete' ? '' : (entry.content ?? ''),
+          ),
+          isNew: entry.op === 'create',
+          isDeleted: entry.op === 'delete',
+        }))
+        .filter((item) => item.diff.length > 0 || item.isDeleted);
+      deps.postBatchSummary!(summaryItems);
+      continue;
+    }
+
+    const entry = picked.entry;
+    if (entry.op === 'modify') {
+      // Per-hunk path for modified files
+      await reviewPerHunkForFile(entry, deps, buf);
+    } else {
+      // New/deleted files: show diff then offer accept/reject
+      await openBufferedDiff(entry, deps);
+      const postItems: PostDiffPick[] = [
+        { label: '$(check) Accept This File', action: 'accept-one' },
+        { label: '$(discard) Reject This File', action: 'reject-one' },
+        { label: '$(arrow-left) Back to Review', action: 'back' },
+      ];
+      const postPick = await deps.ui.showQuickPick(postItems, `SideCar audit: action for ${entry.path}`);
+      if (!postPick || postPick.action === 'back') continue;
+      if (postPick.action === 'accept-one') await acceptFileAuditBuffer(deps, entry.path);
+      else if (postPick.action === 'reject-one') await rejectFileAuditBuffer(deps, entry.path);
     }
   }
 }
@@ -507,6 +671,11 @@ export function createDefaultAuditReviewUi(): AuditReviewUi {
     },
     async openDiff(beforeUri, afterUri, title) {
       await commands.executeCommand('vscode.diff', beforeUri, afterUri, title, { preview: true });
+    },
+    async showMultiQuickPick(items, placeholder) {
+      return window.showQuickPick(items, { placeHolder: placeholder, canPickMany: true }) as Promise<
+        typeof items | undefined
+      >;
     },
     async showConflictDialog(message) {
       const choice = await window.showWarningMessage(message, { modal: true }, 'Apply Anyway');
