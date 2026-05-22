@@ -1,5 +1,6 @@
 import { window, commands, workspace, ExtensionContext, StatusBarAlignment, ThemeColor, MarkdownString } from 'vscode';
 import { getConfig, isLocalOllama, isKickstand } from '../config/settings.js';
+import { getActivePolicy } from '../agent/policy/policyLoader.js';
 import { healthStatus, type HealthSnapshot } from '../ollama/healthStatus.js';
 import { spendTracker, formatUsd } from '../ollama/spendTracker.js';
 import { circuitBreaker } from '../ollama/circuitBreaker.js';
@@ -59,7 +60,8 @@ export function registerStatusBar(context: ExtensionContext, deps: StatusBarDeps
         statusLine = 'Ready — no requests yet this session';
     }
 
-    statusBar.text = `${icon} ${shortModel}`;
+    const policyActive = getActivePolicy() !== null;
+    statusBar.text = policyActive ? `${icon} ${shortModel} $(shield)` : `${icon} ${shortModel}`;
     statusBar.backgroundColor = bgColor;
 
     const md = new MarkdownString('', true);
@@ -69,6 +71,9 @@ export function registerStatusBar(context: ExtensionContext, deps: StatusBarDeps
     md.appendMarkdown(`${statusLine}\n\n`);
     md.appendMarkdown(`**Model:** \`${liveModel}\`  \n`);
     md.appendMarkdown(`**Backend:** ${provider}\n\n`);
+    if (policyActive) {
+      md.appendMarkdown(`$(shield) **Repo policy active** — tool permissions governed by \`.sidecar/policy.json\`\n\n`);
+    }
 
     const router = getChatProvider()?.client.getRouter();
     if (router) {

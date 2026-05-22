@@ -17,6 +17,7 @@ import { detectIrrecoverable } from './executor/irrecoverableDetector.js';
 import { WRITE_TOOLS, NATIVE_MODAL_APPROVAL_TOOLS, resolveApprovalNeeded } from './executor/permissionsGate.js';
 import { runHook } from './executor/hookRunner.js';
 import { handleReviewModeTool, computePendingOverlay, REVIEW_OVERLAY_TOOLS } from './executor/reviewModeHandler.js';
+import { getActivePolicy, mergePermLevel } from './policy/policyLoader.js';
 
 // Re-export ApprovalMode so all existing importers keep working unchanged.
 export type { ApprovalMode } from './executor/permissionsGate.js';
@@ -171,11 +172,22 @@ export async function executeTool(
     }
   }
 
+  // Repo policy (.sidecar/policy.json) applies restrictions on top of user settings.
+  // Policy is restrictions-only so it bypasses the workspace trust gate.
+  const repoPolicy = getActivePolicy();
+  const policyPerm = repoPolicy?.toolPermissions?.[toolUse.name];
+  const fromPolicy = policyPerm === 'deny' && (explicitPermission ?? 'allow') !== 'deny';
+  if (policyPerm) {
+    explicitPermission = mergePermLevel(explicitPermission, policyPerm);
+  }
+
   if (explicitPermission === 'deny') {
     return {
       type: 'tool_result',
       tool_use_id: toolUse.id,
-      content: `Tool "${toolUse.name}" is denied by policy.`,
+      content: fromPolicy
+        ? `Tool "${toolUse.name}" is denied by repo policy (.sidecar/policy.json).`
+        : `Tool "${toolUse.name}" is denied by policy.`,
       is_error: true,
     };
   }

@@ -1,4 +1,4 @@
-import { commands, ExtensionContext } from 'vscode';
+import { commands, ExtensionContext, workspace } from 'vscode';
 import * as path from 'path';
 import { ChatViewProvider } from './webview/chatView.js';
 import { registerAutoModeCommands } from './commands/autoModeCommands.js';
@@ -26,6 +26,7 @@ import { registerDepsFeature } from './activation/depsSetup.js';
 import { initExecutiveFunctionSetup } from './activation/executiveFunctionSetup.js';
 import { initMcpServer } from './activation/mcpServerSetup.js';
 import { createSdkApi } from './sdk/api.js';
+import { loadRepoPolicy, setActivePolicy } from './agent/policy/policyLoader.js';
 
 let chatProvider: ChatViewProvider | undefined;
 
@@ -44,6 +45,14 @@ export function activate(context: ExtensionContext) {
   initSecrets(context).catch((err) => {
     console.warn('[SideCar] Failed to initialize secrets:', err);
   });
+
+  // Load repo-level policy from .sidecar/policy.json (restrictions-only, non-fatal).
+  const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (workspaceRoot) {
+    loadRepoPolicy(workspaceRoot)
+      .then((policy) => setActivePolicy(policy))
+      .catch(() => {});
+  }
 
   // Read config once upfront for status bar display
   const config = getConfig();
