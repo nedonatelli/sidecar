@@ -2,39 +2,37 @@
  * Chat message handling — thin orchestrator.
  *
  * The bulk of the logic has been extracted into focused submodules:
- *   - messageUtils.ts  — continuation detection, error classification, relevance
- *   - systemPrompt.ts  — base prompt, context injection, message enrichment
- *   - fileHandlers.ts  — file attach/drop/save/create/move/undo/revert
+ *   - messageUtils.ts        — continuation detection, error classification, relevance
+ *   - systemPrompt.ts        — base prompt, context injection, message enrichment
+ *   - fileHandlers.ts        — file attach/drop/save/create/move/undo/revert
+ *   - connectionHandlers.ts  — provider connection, retry, restart, reconnect
+ *   - chatUtilHandlers.ts    — show prompt, delete message, export chat, image messages
+ *   - generateHandlers.ts    — commit generation, selective section regen
  *
  * This file keeps:
  *   - handleUserMessage (the core agent-loop orchestrator)
- *   - Provider connection + budget management
- *   - Agent callback factory
- *   - Secondary handlers (reconnect, images, delete, export, commit, show prompt)
- *   - Re-exports from submodules for backward compatibility
+ *   - handleReconnect (calls handleUserMessage — must be co-located)
+ *   - handleRegenerateResponse (calls handleUserMessage — must be co-located)
+ *   - Budget / cost helpers (called at start + end of handleUserMessage)
+ *   - Re-exports from all submodules for backward compatibility
  */
 
-import { window, workspace, Uri } from 'vscode';
 import type { ChatState } from '../chatState.js';
-import type { ContentBlock } from '../../ollama/types.js';
-import { getContentText } from '../../ollama/types.js';
+import type { ChatMessage } from '../../ollama/types.js';
 import { getConfig, estimateCost, resolveMode } from '../../config/settings.js';
 import { parseModelSentinel } from '../../ollama/modelSentinels.js';
-import { isProviderReachable } from '../../config/providerReachability.js';
 import { DEFAULT_MAX_SYSTEM_CHARS, LOCAL_CONTEXT_CAP, INPUT_TOKEN_RATIO } from '../../config/constants.js';
 import { tokensToChars, estimateTokensFromText } from '../../config/tokenEstimation.js';
-import { GitCLI } from '../../github/git.js';
 import { surfaceNativeToast } from '../errorSurface.js';
 import { healthStatus } from '../../ollama/healthStatus.js';
 import { getWorkspaceRoot, getContextLimit } from '../../config/workspace.js';
 import { runAgentLoop } from '../../agent/loop.js';
 import { SteerQueue } from '../../agent/steerQueue.js';
-import type { ChatMessage } from '../../ollama/types.js';
 import type { ApprovalMode } from '../../agent/executor.js';
 import { computeUnifiedDiff } from '../../agent/diff.js';
 
 // --- Submodule re-exports for backward compatibility ---
-// External callers (chatView.ts, tests) import from this file.
+// External callers (chatView.ts, tests, dispatchHandlers.ts) import from this file.
 
 export {
   isContinuationRequest,
@@ -66,64 +64,29 @@ export {
   handleAcceptAllChanges,
 } from './fileHandlers.js';
 
+export { ensureProviderRunning, connectWithRetry, handleRestartOllama } from './connectionHandlers.js';
+
+export {
+  handleShowSystemPrompt,
+  handleDeleteMessage,
+  handleExportChat,
+  handleUserMessageWithImages,
+} from './chatUtilHandlers.js';
+
+export { handleGenerateCommit, handleRegenSection } from './generateHandlers.js';
+
 // --- Local imports from submodules (used within this file) ---
 
-import { classifyError, updateWorkspaceRelevance, prepareUserMessageText } from './messageUtils.js';
-import { shouldAutoEnablePlanMode } from './messageUtils.js';
+import {
+  classifyError,
+  updateWorkspaceRelevance,
+  prepareUserMessageText,
+  shouldAutoEnablePlanMode,
+} from './messageUtils.js';
 import { buildBaseSystemPrompt, injectSystemContext, enrichAndPruneMessages } from './systemPrompt.js';
-
-// ---------------------------------------------------------------------------
-// Provider connection
-// ---------------------------------------------------------------------------
-
-async function ensureProviderRunning(state: ChatState): Promise<boolean> {
-  if (await isProviderReachable(state.client.getProviderType())) return true;
-
-  // Auto-start Kickstand if the provider is kickstand
-  if (state.client.getProviderType() === 'kickstand') {
-    const { ensureKickstandRunning } = await import('../../config/providerReachability.js');
-    return ensureKickstandRunning(getConfig().baseUrl);
-  }
-
-  if (!state.client.isLocalOllama()) return false;
-
-  try {
-    const { spawn } = await import('child_process');
-    const child = spawn('ollama', ['serve'], {
-      detached: true,
-      stdio: 'ignore',
-    });
-    child.unref();
-  } catch {
-    return false;
-  }
-
-  for (let i = 0; i < 30; i++) {
-    await new Promise((r) => setTimeout(r, 500));
-    if (await isProviderReachable(state.client.getProviderType())) return true;
-  }
-
-  return false;
-}
-
-async function connectWithRetry(state: ChatState): Promise<boolean> {
-  state.postMessage({ command: 'typingStatus', content: 'Connecting to model...' });
-  let started = await ensureProviderRunning(state);
-  if (started) return true;
-
-  const retryDelays = [2000, 4000, 8000];
-  for (let attempt = 0; attempt < retryDelays.length; attempt++) {
-    state.postMessage({
-      command: 'typingStatus',
-      content: `Connection failed — retrying (${attempt + 1}/${retryDelays.length})...`,
-    });
-    await new Promise((r) => setTimeout(r, retryDelays[attempt]));
-    if (state.abortController?.signal.aborted) return false;
-    started = await isProviderReachable(state.client.getProviderType());
-    if (started) return true;
-  }
-  return false;
-}
+import { connectWithRetry, ensureProviderRunning } from './connectionHandlers.js';
+import { createAgentCallbacks } from './agentCallbacks.js';
+import { PlanStore } from '../../agent/plans/planStore.js';
 
 // ---------------------------------------------------------------------------
 // Budget management
@@ -160,6 +123,20 @@ export function checkBudgetLimits(state: ChatState, config: ReturnType<typeof ge
     });
   }
   return 'ok';
+}
+
+// ---------------------------------------------------------------------------
+// Cost recording
+// ---------------------------------------------------------------------------
+
+export function recordRunCost(state: ChatState): void {
+  const runConfig = getConfig();
+  const currentTokens = state.metricsCollector.getCurrentRunTokens();
+  if (currentTokens <= 0) return;
+  const inputTokens = Math.round(currentTokens * INPUT_TOKEN_RATIO);
+  const outputTokens = currentTokens - inputTokens;
+  const runCost = estimateCost(runConfig.model, inputTokens, outputTokens);
+  state.metricsCollector.recordCost(runCost);
 }
 
 // ---------------------------------------------------------------------------
@@ -214,29 +191,6 @@ async function buildSystemPromptForRun(
 
   systemPrompt = await injectSystemContext(systemPrompt, maxSystemChars, state, config, text, isLocal, contextLength);
   return { systemPrompt, contextLength };
-}
-
-// ---------------------------------------------------------------------------
-// Agent callback factory — extracted to ./agentCallbacks.ts so each
-// callback's behavior can be unit-tested without standing up the full
-// handleUserMessage pipeline.
-// ---------------------------------------------------------------------------
-
-import { createAgentCallbacks } from './agentCallbacks.js';
-import { PlanStore } from '../../agent/plans/planStore.js';
-
-// ---------------------------------------------------------------------------
-// Cost recording
-// ---------------------------------------------------------------------------
-
-export function recordRunCost(state: ChatState): void {
-  const runConfig = getConfig();
-  const currentTokens = state.metricsCollector.getCurrentRunTokens();
-  if (currentTokens <= 0) return;
-  const inputTokens = Math.round(currentTokens * INPUT_TOKEN_RATIO);
-  const outputTokens = currentTokens - inputTokens;
-  const runCost = estimateCost(runConfig.model, inputTokens, outputTokens);
-  state.metricsCollector.recordCost(runCost);
 }
 
 // ---------------------------------------------------------------------------
@@ -303,10 +257,9 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
   }
 
   // @-prefixed model sentinels. Strip the sentinel from the stored message
-  // text so it doesn't clutter chat history or
-  // get sent as prose to the model; the model pin is applied further
-  // down, AFTER `updateModel(config.model)` resets the client — that
-  // reset would otherwise overwrite our turn-override.
+  // text so it doesn't clutter chat history or get sent as prose to the model;
+  // the model pin is applied further down, AFTER `updateModel(config.model)`
+  // resets the client — that reset would otherwise overwrite our turn-override.
   const sentinel = text ? parseModelSentinel(text) : { cleaned: text, override: null };
   const turnText = sentinel.cleaned;
 
@@ -322,10 +275,9 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
   state.abortController = new AbortController();
 
   // Steer queue: one instance per agent run. Subscribes to mutations so
-  // the webview strip UI re-renders
-  // from a single authoritative source. When a prior run crashed
-  // mid-turn and stashed pending steers (chunk 3.4), restore them
-  // here so intent survives stream-failure / resume.
+  // the webview strip UI re-renders from a single authoritative source.
+  // When a prior run crashed mid-turn and stashed pending steers, restore
+  // them here so intent survives stream-failure / resume.
   const steerQueue = new SteerQueue({ maxPending: getConfig().steerQueueMaxPending });
   if (state.pendingSteerSnapshot && state.pendingSteerSnapshot.length > 0) {
     steerQueue.restore(state.pendingSteerSnapshot);
@@ -495,9 +447,9 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
       state.postMessage({ command: 'setLoading', isLoading: false });
       return;
     }
-    // Non-abort error bubbling out of runAgentLoop. Stash pending
-    // steers so the user's typed intent survives the crash and
-    // rematerializes on the next run (resume or fresh turn).
+    // Non-abort error bubbling out of runAgentLoop. Stash pending steers so
+    // the user's typed intent survives the crash and rematerializes on the
+    // next run (resume or fresh turn).
     const snapshot = state.currentSteerQueue?.serialize();
     if (snapshot && snapshot.length > 0) {
       state.pendingSteerSnapshot = snapshot;
@@ -528,60 +480,8 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
 }
 
 // ---------------------------------------------------------------------------
-// Secondary handlers
+// Reconnect — must be co-located with handleUserMessage (calls it directly)
 // ---------------------------------------------------------------------------
-
-export function handleUserMessageWithImages(
-  state: ChatState,
-  text: string,
-  images: { mediaType: string; data: string }[],
-): void {
-  const content: ContentBlock[] = images.map((img) => ({
-    type: 'image' as const,
-    source: { type: 'base64' as const, media_type: img.mediaType as 'image/png', data: img.data },
-  }));
-  content.push({ type: 'text', text: text || '' });
-  state.messages.push({ role: 'user', content });
-  state.saveHistory();
-}
-
-export async function handleRestartOllama(state: ChatState): Promise<void> {
-  if (!state.client.isLocalOllama()) return;
-
-  state.postMessage({ command: 'typingStatus', content: 'Restarting Ollama...' });
-  state.postMessage({ command: 'setLoading', isLoading: true });
-
-  try {
-    const { execSync } = await import('child_process');
-    // Kill any running Ollama process (best-effort — ignore failures)
-    try {
-      execSync('pkill -x ollama', { stdio: 'ignore' });
-    } catch {
-      /* not running */
-    }
-    await new Promise((r) => setTimeout(r, 1500));
-  } catch {
-    /* ignore */
-  }
-
-  const started = await ensureProviderRunning(state);
-  state.postMessage({ command: 'setLoading', isLoading: false });
-
-  if (started) {
-    const { loadModels } = await import('./modelLoader.js');
-    await loadModels(state);
-    state.postMessage({ command: 'assistantMessage', content: 'Ollama restarted successfully.\n' });
-    state.postMessage({ command: 'done' });
-  } else {
-    state.postMessage({
-      command: 'error',
-      content: 'Could not restart Ollama. Make sure it is installed and in your PATH.',
-      errorType: 'connection',
-      errorAction: 'Retry',
-      errorActionCommand: 'restartOllama',
-    });
-  }
-}
 
 export async function handleReconnect(state: ChatState): Promise<void> {
   state.postMessage({ command: 'setLoading', isLoading: true });
@@ -622,119 +522,9 @@ export async function handleReconnect(state: ChatState): Promise<void> {
   }
 }
 
-export async function handleShowSystemPrompt(state: ChatState): Promise<void> {
-  const config = getConfig();
-
-  const pkg = state.context.extension?.packageJSON || {};
-  const extensionVersion = pkg.version || 'unknown';
-  const repoUrl = pkg.repository?.url || 'https://github.com/nedonatelli/sidecar';
-  const docsUrl = 'https://nedonatelli.github.io/sidecar/';
-  let systemPrompt = `You are SideCar v${extensionVersion}, an AI coding assistant running inside VS Code. GitHub: ${repoUrl} | Docs: ${docsUrl}\nProject root: ${getWorkspaceRoot()}\n\n(Use /verbose to see the full prompt sent during agent runs)`;
-
-  const sidecarMd = await state.loadSidecarMd();
-  if (sidecarMd) {
-    systemPrompt += `\n\nProject instructions (from ${state.sidecarMdSource}):\n${sidecarMd}`;
-  }
-
-  const userSystemPrompt = config.systemPrompt;
-  if (userSystemPrompt) {
-    systemPrompt += `\n\n${userSystemPrompt}`;
-  }
-
-  state.postMessage({ command: 'verboseLog', content: systemPrompt, verboseLabel: 'System Prompt' });
-}
-
-export function handleDeleteMessage(state: ChatState, index: number): void {
-  if (index < 0 || index >= state.messages.length) return;
-  if (state.abortController) {
-    state.postMessage({
-      command: 'error',
-      content: 'Cannot delete a message while the agent is running. Press Escape to stop the run first.',
-      errorType: 'unknown',
-    });
-    return;
-  }
-  state.messages.splice(index, 1);
-  state.saveHistory();
-}
-
-export async function handleExportChat(state: ChatState): Promise<void> {
-  if (state.messages.length === 0) return;
-  const lines: string[] = [];
-  for (const msg of state.messages) {
-    const label = msg.role === 'user' ? '## User' : '## Assistant';
-    const text = getContentText(msg.content);
-    lines.push(`${label}\n\n${text}\n`);
-  }
-  const content = lines.join('\n---\n\n');
-  const uri = await window.showSaveDialog({
-    filters: { Markdown: ['md'] },
-    defaultUri: Uri.file('sidecar-chat.md'),
-  });
-  if (!uri) return;
-  await workspace.fs.writeFile(uri, Buffer.from(content, 'utf-8'));
-  window.showInformationMessage(`Chat exported to ${uri.fsPath.split('/').pop()}`);
-}
-
-export async function handleGenerateCommit(state: ChatState): Promise<void> {
-  const cwd = getWorkspaceRoot();
-  if (!cwd) {
-    state.postMessage({ command: 'error', content: 'No workspace folder open.' });
-    return;
-  }
-
-  const git = new GitCLI(cwd);
-
-  try {
-    const status = await git.status();
-    if (status === 'Working tree clean.') {
-      state.postMessage({ command: 'assistantMessage', content: 'No changes to commit.' });
-      state.postMessage({ command: 'done' });
-      return;
-    }
-
-    const { diff } = await git.diff();
-    if (diff === 'No diff output.') {
-      state.postMessage({ command: 'assistantMessage', content: 'No diff found. Stage files first or make changes.' });
-      state.postMessage({ command: 'done' });
-      return;
-    }
-
-    const maxDiff = 15_000;
-    const truncated = diff.length > maxDiff ? diff.slice(0, maxDiff) + '\n... (truncated)' : diff;
-
-    state.postMessage({ command: 'setLoading', isLoading: true });
-    state.postMessage({ command: 'assistantMessage', content: 'Generating commit message...\n\n' });
-
-    const config = getConfig();
-    state.client.updateConnection(config.baseUrl, config.apiKey);
-    state.client.updateModel(config.model);
-
-    const messages: ChatMessage[] = [
-      {
-        role: 'user',
-        content: `Generate a concise git commit message for these changes. Follow conventional commits format (type: description). First line max 72 chars. Add a blank line then bullet points for details if needed. Output ONLY the commit message, nothing else.\n\n\`\`\`diff\n${truncated}\n\`\`\``,
-      },
-    ];
-
-    let message = await state.client.complete(messages, 512);
-    message = message
-      .replace(/^```\w*\n?/, '')
-      .replace(/\n?```$/, '')
-      .trim();
-
-    await git.stage();
-    const result = await git.commit(message);
-
-    state.postMessage({ command: 'assistantMessage', content: result + '\n' });
-    state.postMessage({ command: 'done' });
-    state.postMessage({ command: 'setLoading', isLoading: false });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    state.postMessage({ command: 'error', content: `Commit failed: ${msg}` });
-    state.postMessage({ command: 'setLoading', isLoading: false });
-  }
-}
+// ---------------------------------------------------------------------------
+// Regenerate — must be co-located with handleUserMessage (calls it directly)
+// ---------------------------------------------------------------------------
 
 /** Re-run the last user message, discarding the most recent assistant turn. */
 export async function handleRegenerateResponse(state: ChatState): Promise<void> {
@@ -755,42 +545,4 @@ export async function handleRegenerateResponse(state: ChatState): Promise<void> 
   state.saveHistory();
 
   await handleUserMessage(state, text);
-}
-
-/**
- * Selective regeneration — rewrite one highlighted section of the last assistant
- * response without re-running the full agent loop.
- *
- * Builds a focused single-turn prompt, runs a non-agent completion against the
- * active model, and posts `regenSectionResult` back to the webview. The webview
- * replaces `selectedText` with the new text inside `dataset.rawContent` and
- * re-renders only that message div — the conversation history is unchanged so
- * the agent's original reasoning context is preserved.
- */
-export async function handleRegenSection(
-  state: ChatState,
-  selectedText: string,
-  instruction: string,
-  msgIndex: number,
-): Promise<void> {
-  if (!selectedText.trim()) return;
-
-  const prompt = instruction.trim()
-    ? `Rewrite the following section. Return ONLY the replacement text — no preamble, no explanation, no surrounding quotes:\n\n${selectedText}\n\nInstruction: ${instruction}`
-    : `Rewrite the following section more clearly and concisely. Return ONLY the replacement text — no preamble, no explanation:\n\n${selectedText}`;
-
-  try {
-    const newText = await state.client.complete([{ role: 'user', content: prompt }], /* maxTokens */ 1024);
-    state.postMessage({
-      command: 'regenSectionResult',
-      msgIndex,
-      originalText: selectedText,
-      newText: newText.trim(),
-    });
-  } catch (err) {
-    state.postMessage({
-      command: 'error',
-      content: `Selective regen failed: ${err instanceof Error ? err.message : String(err)}`,
-    });
-  }
 }
