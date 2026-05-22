@@ -26,6 +26,10 @@ import type { ApprovalMode } from '../agent/executor.js';
 // Concurrency: a simple busy flag rejects concurrent calls — the agent loop
 // is a stateful, workspace-mutating operation and running two in parallel
 // would produce interlocked writes and unpredictable results.
+//
+// Transport: stateless StreamableHTTP — a fresh Server + transport is created
+// per HTTP request so the MCP initialize/notification handshake can complete
+// within a single client session without reusing consumed transport state.
 // ---------------------------------------------------------------------------
 
 export interface McpAgentServerOptions {
@@ -43,7 +47,6 @@ export interface McpAgentServerStatus {
 
 export class McpAgentServer {
   private httpServer: http.Server | null = null;
-  private mcpServer: Server | null = null;
   private activeTaskCount = 0;
   private readonly options: McpAgentServerOptions;
 
@@ -51,9 +54,12 @@ export class McpAgentServer {
     this.options = options;
   }
 
-  async start(): Promise<void> {
-    if (this.httpServer) return; // already running
-
+  /**
+   * Build a fresh MCP Server with request handlers registered.
+   * Called once per HTTP request so every client session gets its own
+   * transport instance — required by the stateless StreamableHTTP spec.
+   */
+  private buildMcpServer(): Server {
     const mcpServer = new Server({ name: 'sidecar-agent', version: '0.95.0' }, { capabilities: { tools: {} } });
 
     mcpServer.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -126,9 +132,11 @@ export class McpAgentServer {
       }
     });
 
-    const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: undefined, // stateless — no session affinity needed
-    });
+    return mcpServer;
+  }
+
+  async start(): Promise<void> {
+    if (this.httpServer) return; // already running
 
     const httpServer = http.createServer(async (req, res) => {
       // Auth check
@@ -149,7 +157,7 @@ export class McpAgentServer {
         return;
       }
 
-      // Buffer body then hand to transport
+      // Buffer body then hand to a fresh per-request transport
       const chunks: Buffer[] = [];
       req.on('data', (chunk: Buffer) => chunks.push(chunk));
       req.on('end', async () => {
@@ -161,11 +169,17 @@ export class McpAgentServer {
           res.end(JSON.stringify({ error: 'Invalid JSON' }));
           return;
         }
+
+        // Fresh Server + transport per request: correct stateless MCP pattern.
+        // The StreamableHTTPServerTransport tracks per-session initialized state;
+        // reusing a single instance across requests causes 500s on the second POST
+        // (notifications/initialized) because the transport's state is consumed.
+        const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+        const mcpServer = this.buildMcpServer();
+        await mcpServer.connect(transport);
         await transport.handleRequest(req, res, body);
       });
     });
-
-    await mcpServer.connect(transport);
 
     await new Promise<void>((resolve, reject) => {
       httpServer.listen(this.options.port, '127.0.0.1', () => resolve());
@@ -173,23 +187,20 @@ export class McpAgentServer {
     });
 
     this.httpServer = httpServer;
-    this.mcpServer = mcpServer;
   }
 
   async stop(): Promise<void> {
     if (!this.httpServer) return;
-    await Promise.all([
-      new Promise<void>((resolve, reject) => this.httpServer!.close((err) => (err ? reject(err) : resolve()))),
-      this.mcpServer?.close(),
-    ]);
+    await new Promise<void>((resolve, reject) => this.httpServer!.close((err) => (err ? reject(err) : resolve())));
     this.httpServer = null;
-    this.mcpServer = null;
   }
 
   getStatus(): McpAgentServerStatus {
+    const addr = this.httpServer?.address();
+    const port = addr && typeof addr === 'object' ? addr.port : this.options.port;
     return {
       running: this.httpServer !== null,
-      port: this.options.port,
+      port,
       activeTaskCount: this.activeTaskCount,
     };
   }
