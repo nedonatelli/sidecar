@@ -4,7 +4,6 @@ export { rewriteQuery } from './queryRewriter';
 export type { QueryRewriteMode, CompleteFn } from './queryRewriter';
 
 export { Retriever, RetrievalHit } from './retriever';
-export { reciprocalRankFusion } from './fusion';
 export { DocRetriever } from './docRetriever';
 export { MemoryRetriever } from './memoryRetriever';
 export { SemanticRetriever } from './semanticRetriever';

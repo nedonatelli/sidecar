@@ -1,5 +1,5 @@
 import { window, workspace, commands, ExtensionContext, StatusBarAlignment, ProgressLocation } from 'vscode';
-import { getConfig, isLocalOllama, isKickstand } from '../config/settings.js';
+import { getConfig, isLocalOllama, isKickstand, providerDisplayLabel } from '../config/settings.js';
 import { SideCarClient } from '../ollama/client.js';
 import type { ChatViewProvider } from '../webview/chatView.js';
 import { reviewCurrentChanges } from '../review/reviewer.js';
@@ -376,14 +376,7 @@ export function registerPrAndReviewCommands(context: ExtensionContext, deps: PrA
 
         const installed = libraryModels.filter((m) => m.installed);
         const notInstalled = libraryModels.filter((m) => !m.installed);
-        const providerLabel =
-          provider === 'ollama'
-            ? 'Ollama'
-            : provider === 'anthropic'
-              ? 'Anthropic'
-              : provider === 'openai'
-                ? 'OpenAI'
-                : 'Kickstand';
+        const providerLabel = providerDisplayLabel(provider);
 
         const items: ModelQuickPickItem[] = installed.map((m) => ({
           label: m.name === currentModel ? `$(check) ${m.name}` : m.name,

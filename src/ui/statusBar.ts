@@ -1,5 +1,5 @@
 import { window, commands, workspace, ExtensionContext, StatusBarAlignment, ThemeColor, MarkdownString } from 'vscode';
-import { getConfig, isLocalOllama, isKickstand } from '../config/settings.js';
+import { getConfig, detectProvider, providerDisplayLabel } from '../config/settings.js';
 import { getActivePolicy } from '../agent/policy/policyLoader.js';
 import { healthStatus, type HealthSnapshot } from '../ollama/healthStatus.js';
 import { spendTracker, formatUsd } from '../ollama/spendTracker.js';
@@ -21,19 +21,11 @@ export function registerStatusBar(context: ExtensionContext, deps: StatusBarDeps
   const statusBar = window.createStatusBarItem(StatusBarAlignment.Right, 100);
   statusBar.command = 'sidecar.toggleChat';
 
-  function providerLabel(baseUrl: string): string {
-    if (isLocalOllama(baseUrl)) return 'Ollama';
-    if (baseUrl.includes('anthropic')) return 'Anthropic';
-    if (baseUrl.includes('openai')) return 'OpenAI';
-    if (isKickstand(baseUrl)) return 'Kickstand';
-    return 'Remote';
-  }
-
   function renderStatusBar(health: HealthSnapshot): void {
     const cfg = getConfig();
     const liveModel = getChatProvider()?.client.getModel() ?? cfg.model;
     const shortModel = liveModel.split(':')[0];
-    const provider = providerLabel(cfg.baseUrl);
+    const provider = providerDisplayLabel(detectProvider(cfg.baseUrl, cfg.provider));
 
     let icon: string;
     let bgColor: ThemeColor | undefined;

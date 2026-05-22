@@ -260,3 +260,25 @@ export function detectProvider(
   if (isGemini(baseUrl)) return 'gemini';
   return 'openai';
 }
+
+/** Map a resolved provider identifier to a user-facing display label. */
+export function providerDisplayLabel(provider: ReturnType<typeof detectProvider>): string {
+  switch (provider) {
+    case 'ollama':
+      return 'Ollama';
+    case 'anthropic':
+      return 'Anthropic';
+    case 'openai':
+      return 'OpenAI';
+    case 'kickstand':
+      return 'Kickstand';
+    case 'openrouter':
+      return 'OpenRouter';
+    case 'groq':
+      return 'Groq';
+    case 'fireworks':
+      return 'Fireworks';
+    case 'gemini':
+      return 'Gemini';
+  }
+}

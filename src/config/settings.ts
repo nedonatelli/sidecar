@@ -33,6 +33,7 @@ export {
   isFireworks,
   isGemini,
   detectProvider,
+  providerDisplayLabel,
 } from './settings/backends.js';
 
 // ---------------------------------------------------------------------------
