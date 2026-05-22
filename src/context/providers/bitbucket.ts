@@ -1,4 +1,5 @@
 import type { ContextProviderConfig, ContextProviderResult, ContextIssue } from '../types.js';
+import { stripTrailingSlash } from '../../util/url.js';
 
 interface BitbucketPR {
   id: number;
@@ -34,7 +35,7 @@ export async function fetchBitbucketPRs(
   config: ContextProviderConfig,
   fetchFn: typeof fetch = fetch,
 ): Promise<ContextProviderResult> {
-  const baseUrl = config.baseUrl?.replace(/\/$/, '') ?? 'https://api.bitbucket.org/2.0';
+  const baseUrl = config.baseUrl ? stripTrailingSlash(config.baseUrl) : 'https://api.bitbucket.org/2.0';
   const projectSlug = config.project?.trim() ?? '';
   const providerLabel = `Bitbucket (${projectSlug || 'unknown repo'})`;
 

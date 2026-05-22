@@ -1,6 +1,7 @@
 import { workspace, commands, Uri, CancellationToken, SymbolInformation } from 'vscode';
 import * as path from 'path';
 import { getConfig } from './settings.js';
+import { unescapeHtml } from '../util/html.js';
 
 export interface WorkspaceFile {
   relativePath: string;
@@ -342,17 +343,8 @@ function extractReadableContent(html: string): string {
   text = text.replace(/<style[\s\S]*?<\/style>/gi, '');
   text = text.replace(/<nav[\s\S]*?<\/nav>/gi, '');
   text = text.replace(/<footer[\s\S]*?<\/footer>/gi, '');
-  // Strip remaining HTML tags
-  text = text.replace(/<[^>]+>/g, ' ');
-  // Decode common HTML entities
-  text = text
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, ' ');
-  // Collapse whitespace
-  text = text.replace(/\s+/g, ' ').trim();
-  return text;
+  // Strip remaining HTML tags, decode entities, collapse whitespace
+  return unescapeHtml(text.replace(/<[^>]+>/g, ' '))
+    .replace(/\s+/g, ' ')
+    .trim();
 }

@@ -217,16 +217,11 @@ function parseSearchResults(html: string): SearchResult[] {
   return results;
 }
 
+import { unescapeHtml } from '../util/html.js';
+
 /** Strip HTML tags from a string. */
 function stripHtml(html: string): string {
-  return html
-    .replace(/<[^>]+>/g, '')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#x27;/g, "'")
-    .replace(/&nbsp;/g, ' ');
+  return unescapeHtml(html.replace(/<[^>]+>/g, ''));
 }
 
 /**

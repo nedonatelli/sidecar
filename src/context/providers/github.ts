@@ -1,6 +1,7 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import type { ContextProviderConfig, ContextProviderResult, ContextIssue } from '../types.js';
+import { stripTrailingSlash } from '../../util/url.js';
 
 const execAsync = promisify(exec);
 
@@ -35,7 +36,7 @@ export async function fetchGitHubIssues(
   workspacePath: string,
   fetchFn: typeof fetch = fetch,
 ): Promise<ContextProviderResult> {
-  const baseUrl = config.baseUrl?.replace(/\/$/, '') || 'https://api.github.com';
+  const baseUrl = config.baseUrl ? stripTrailingSlash(config.baseUrl) : 'https://api.github.com';
   const repo = config.project || (await detectRepo(workspacePath));
 
   if (!repo) {

@@ -14,6 +14,7 @@ import * as path from 'path';
 import { getRoot, formatToolError } from './shared.js';
 import type { RegisteredTool, ToolExecutorContext } from './shared.js';
 import { getConfig } from '../../config/settings.js';
+import { unescapeHtml } from '../../util/html.js';
 
 // ---------------------------------------------------------------------------
 // Source store — in-memory registry of ingested sources for the session.
@@ -51,19 +52,14 @@ async function ensureResearchDir(project: string): Promise<string> {
 // ---------------------------------------------------------------------------
 
 function stripHtml(html: string): string {
-  return html
+  const stripped = html
     .replace(/<script[\s\S]*?<\/script>/gi, '')
     .replace(/<style[\s\S]*?<\/style>/gi, '')
     .replace(/<nav[\s\S]*?<\/nav>/gi, '')
     .replace(/<header[\s\S]*?<\/header>/gi, '')
     .replace(/<footer[\s\S]*?<\/footer>/gi, '')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
+    .replace(/<[^>]+>/g, ' ');
+  return unescapeHtml(stripped)
     .replace(/\s{2,}/g, ' ')
     .trim();
 }

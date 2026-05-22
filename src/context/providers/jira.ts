@@ -1,4 +1,5 @@
 import type { ContextProviderConfig, ContextProviderResult, ContextIssue } from '../types.js';
+import { stripTrailingSlash } from '../../util/url.js';
 
 interface JiraIssue {
   key: string;
@@ -31,7 +32,7 @@ export async function fetchJiraIssues(
   config: ContextProviderConfig,
   fetchFn: typeof fetch = fetch,
 ): Promise<ContextProviderResult> {
-  const base = config.baseUrl?.replace(/\/$/, '');
+  const base = config.baseUrl ? stripTrailingSlash(config.baseUrl) : undefined;
   const host = base ? new URL(base).hostname : 'jira';
   const providerLabel = `Jira (${host})`;
 

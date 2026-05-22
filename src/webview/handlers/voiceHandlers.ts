@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { getConfig } from '../../config/settings.js';
+import { stripTrailingSlash } from '../../util/url.js';
 import { transcribeAudio } from '../../voice/transcriptionClient.js';
 import { transcribeLocally, isLocalModel, isModelLoaded } from '../../voice/localTranscriber.js';
 import { isHostRecordingAvailable, startHostRecording } from '../../voice/hostRecorder.js';
@@ -58,7 +59,7 @@ export async function handleVoiceAudio(
         () => transcribeLocally(pcmBuffer, config.voiceModel),
       );
     } else {
-      const baseUrl = config.baseUrl.replace(/\/+$/, '');
+      const baseUrl = stripTrailingSlash(config.baseUrl);
       const transcriptionUrl = config.voiceTranscriptionUrl || `${baseUrl}/audio/transcriptions`;
       text = await transcribeAudio(pcmBuffer, msg.mimeType || 'audio/pcm-f32le', {
         model: config.voiceModel,
@@ -162,7 +163,7 @@ export async function handleStartVoice(postMessage: (msg: ExtensionMessage) => v
         () => transcribeLocally(buffer, config.voiceModel),
       );
     } else {
-      const baseUrl = config.baseUrl.replace(/\/+$/, '');
+      const baseUrl = stripTrailingSlash(config.baseUrl);
       const transcriptionUrl = config.voiceTranscriptionUrl || `${baseUrl}/audio/transcriptions`;
       text = await transcribeAudio(buffer, 'audio/pcm-f32le', {
         model: config.voiceModel,

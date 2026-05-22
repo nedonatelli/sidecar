@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { stripTrailingSlash } from '../util/url.js';
 import type { ApiBackend, BackendCapabilities } from './backend.js';
 import type { ChatMessage, ContentBlock, ToolDefinition, StreamEvent } from './types.js';
 import { streamOpenAiSse } from './openAiSseStream.js';
@@ -475,7 +476,7 @@ export async function* kickstandPullModel(
   hfToken?: string,
   signal?: AbortSignal,
 ): AsyncGenerator<KickstandPullEvent> {
-  const url = `${baseUrl.replace(/\/+$/, '')}/api/v1/models/pull`;
+  const url = `${stripTrailingSlash(baseUrl)}/api/v1/models/pull`;
   const body: Record<string, unknown> = { repo };
   if (filename) body.filename = filename;
   if (hfToken) body.token = hfToken;
@@ -555,7 +556,7 @@ function isVramError(err: unknown): boolean {
 
 /** List all models in Kickstand's registry (downloaded + loaded state). */
 export async function kickstandListRegistry(baseUrl: string): Promise<KickstandRegistryModel[]> {
-  const url = `${baseUrl.replace(/\/+$/, '')}/api/v1/models`;
+  const url = `${stripTrailingSlash(baseUrl)}/api/v1/models`;
   const response = await fetch(url, { headers: await kickstandHeaders(), signal: AbortSignal.timeout(5000) });
   if (!response.ok) return [];
   return (await response.json()) as KickstandRegistryModel[];
@@ -567,7 +568,7 @@ export async function kickstandLoadModel(
   modelId: string,
   opts: { n_gpu_layers?: number; n_ctx?: number } = {},
 ): Promise<{ status: string; model_id: string; socket?: string }> {
-  const url = `${baseUrl.replace(/\/+$/, '')}/api/v1/models/${encodeURIComponent(modelId)}/load`;
+  const url = `${stripTrailingSlash(baseUrl)}/api/v1/models/${encodeURIComponent(modelId)}/load`;
   const response = await fetch(url, {
     method: 'POST',
     headers: await kickstandHeaders(),
@@ -585,7 +586,7 @@ export async function kickstandUnloadModel(
   baseUrl: string,
   modelId: string,
 ): Promise<{ status: string; model_id: string }> {
-  const url = `${baseUrl.replace(/\/+$/, '')}/api/v1/models/${encodeURIComponent(modelId)}/unload`;
+  const url = `${stripTrailingSlash(baseUrl)}/api/v1/models/${encodeURIComponent(modelId)}/unload`;
   const response = await fetch(url, {
     method: 'POST',
     headers: await kickstandHeaders(),
@@ -607,7 +608,7 @@ export async function kickstandListAdapters(
   baseUrl: string,
   modelId: string,
 ): Promise<{ id: string; path: string; scale: number }[]> {
-  const url = `${baseUrl.replace(/\/+$/, '')}/api/v1/models/${encodeURIComponent(modelId)}/lora`;
+  const url = `${stripTrailingSlash(baseUrl)}/api/v1/models/${encodeURIComponent(modelId)}/lora`;
   const response = await fetch(url, { headers: await kickstandHeaders(), signal: AbortSignal.timeout(5000) });
   if (!response.ok) return [];
   const data = await response.json();
@@ -621,7 +622,7 @@ export async function kickstandLoadAdapter(
   adapterPath: string,
   scale: number = 1.0,
 ): Promise<{ adapter_id: string; status: string }> {
-  const url = `${baseUrl.replace(/\/+$/, '')}/api/v1/models/${encodeURIComponent(modelId)}/lora`;
+  const url = `${stripTrailingSlash(baseUrl)}/api/v1/models/${encodeURIComponent(modelId)}/lora`;
   const response = await fetch(url, {
     method: 'POST',
     headers: await kickstandHeaders(),
@@ -640,7 +641,7 @@ export async function kickstandUnloadAdapter(
   modelId: string,
   adapterId: string,
 ): Promise<{ status: string }> {
-  const url = `${baseUrl.replace(/\/+$/, '')}/api/v1/models/${encodeURIComponent(modelId)}/lora/${encodeURIComponent(adapterId)}`;
+  const url = `${stripTrailingSlash(baseUrl)}/api/v1/models/${encodeURIComponent(modelId)}/lora/${encodeURIComponent(adapterId)}`;
   const response = await fetch(url, {
     method: 'DELETE',
     headers: await kickstandHeaders(),
@@ -661,7 +662,7 @@ export async function kickstandBrowseRepo(
   baseUrl: string,
   repo: string,
 ): Promise<{ filename: string; sizeBytes: number; quant?: string; format: string }[]> {
-  const url = `${baseUrl.replace(/\/+$/, '')}/api/v1/models/browse/${repo}`;
+  const url = `${stripTrailingSlash(baseUrl)}/api/v1/models/browse/${repo}`;
   const response = await fetch(url, { headers: await kickstandHeaders(), signal: AbortSignal.timeout(15000) });
   if (!response.ok) {
     const text = await response.text().catch(() => '');
