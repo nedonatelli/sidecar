@@ -1011,6 +1011,22 @@
             "default": "",
             "description": "Override URL for the Whisper transcription endpoint. Leave empty to derive from the active backend's base URL (`{baseUrl}/audio/transcriptions`). Useful when transcription runs on a different server than the chat model (e.g. a local whisper.cpp instance)."
           },
+          "sidecar.ci.analysis.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Enable the `analyze_ci_failure` agent tool. When enabled, the agent can fetch and parse GitHub Actions logs for the most recent failed run on the current branch, trimming the output down to the relevant failure context."
+          },
+          "sidecar.ci.analysis.maxLogBytes": {
+            "type": "number",
+            "default": 4000000,
+            "description": "Maximum bytes to download per CI job log. Logs larger than this are tailed (the end of the log is kept, since failures appear there). Minimum 100 000. Default 4 MB."
+          },
+          "sidecar.ci.analysis.jobFilter": {
+            "type": "array",
+            "items": { "type": "string" },
+            "default": ["*"],
+            "description": "Glob patterns matched against CI job names. Only jobs whose names match at least one pattern are analyzed by `analyze_ci_failure`. Use `[\"*\"]` to analyze all failed jobs, or narrow to e.g. `[\"test\", \"lint\"]`."
+          },
           "sidecar.jsDocSync.enabled": {
             "type": "boolean",
             "default": true,

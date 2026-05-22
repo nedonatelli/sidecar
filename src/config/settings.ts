@@ -316,6 +316,10 @@ export interface SideCarConfig {
   voiceEnabled: boolean;
   voiceModel: string;
   voiceTranscriptionUrl: string;
+  /* CI failure analysis — GitHub Actions log fetching + parsing */
+  ciAnalysisEnabled: boolean;
+  ciAnalysisMaxLogBytes: number;
+  ciAnalysisJobFilter: string[];
 }
 
 /**
@@ -603,6 +607,9 @@ function readConfig(): SideCarConfig {
     voiceEnabled: cfg.get<boolean>('voice.enabled', false),
     voiceModel: cfg.get<string>('voice.model', 'Xenova/whisper-tiny'),
     voiceTranscriptionUrl: cfg.get<string>('voice.transcriptionUrl', ''),
+    ciAnalysisEnabled: cfg.get<boolean>('ci.analysis.enabled', true),
+    ciAnalysisMaxLogBytes: Math.max(100_000, cfg.get<number>('ci.analysis.maxLogBytes', 4_000_000)),
+    ciAnalysisJobFilter: cfg.get<string[]>('ci.analysis.jobFilter', ['*']),
   };
 }
 
