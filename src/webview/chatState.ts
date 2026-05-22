@@ -20,6 +20,7 @@ import { getConfig } from '../config/settings.js';
 import { DocumentationIndexer } from '../config/documentationIndexer.js';
 import { AgentMemory } from '../agent/agentMemory.js';
 import { PinnedMemoryStore } from '../agent/memory/pinnedMemory.js';
+import { TeamMemoryStore } from '../agent/memory/teamMemory.js';
 import { AuditLog } from '../agent/auditLog.js';
 import type { ContextProviderManager } from '../context/contextProviderManager.js';
 import { EditTimelineStore } from '../agent/editTimeline.js';
@@ -103,6 +104,7 @@ export class ChatState {
   sidecarMdIndex: import('../agent/sidecarMdIndex.js').SidecarMdIndex | null = null;
   agentMemory: AgentMemory | null = null;
   pinnedMemoryStore: PinnedMemoryStore | null = null;
+  teamMemoryStore: TeamMemoryStore | null = null;
   auditLog: AuditLog | null = null;
   contextProviderManager: ContextProviderManager | null = null;
   editTimeline = new EditTimelineStore();

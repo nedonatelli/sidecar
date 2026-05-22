@@ -15,6 +15,7 @@ import { DocumentationIndexer } from '../config/documentationIndexer.js';
 import { SidecarMdIndex } from '../agent/sidecarMdIndex.js';
 import { AgentMemory } from '../agent/agentMemory.js';
 import { PinnedMemoryStore } from '../agent/memory/pinnedMemory.js';
+import { TeamMemoryStore } from '../agent/memory/teamMemory.js';
 import { AuditLog } from '../agent/auditLog.js';
 import type { AgentLogger } from '../agent/logger.js';
 import type { MCPManager } from '../agent/mcpManager.js';
@@ -67,6 +68,13 @@ export function initializeChatSubsystems(
     state.pinnedMemoryStore = new PinnedMemoryStore(sidecarDir.getPath());
     state.pinnedMemoryStore.load().catch((err) => {
       console.warn('Failed to load pinned memory:', err);
+    });
+  }
+
+  if (sidecarDir) {
+    state.teamMemoryStore = new TeamMemoryStore(sidecarDir.getPath());
+    state.teamMemoryStore.load().catch((err) => {
+      console.warn('Failed to load team memory:', err);
     });
   }
 

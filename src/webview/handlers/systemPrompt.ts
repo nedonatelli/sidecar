@@ -212,6 +212,30 @@ export async function injectSystemContext(
   sizes['Pinned memory'] = prompt.length - prevLen;
   prevLen = prompt.length;
 
+  // Team memory — shared context from .sidecar/team-memory/*.md, committed to git.
+  // Injected after personal pinned memory so personal overrides land first in
+  // the prompt when the model reads top-to-bottom.
+  if (state.teamMemoryStore?.isReady()) {
+    const teamEntries = state.teamMemoryStore.getEntries();
+    const teamLines: string[] = [];
+    for (const entry of teamEntries) {
+      const chunk =
+        entry.content.length > config.pinnedMemoryMaxCharsPerPin
+          ? entry.content.slice(0, config.pinnedMemoryMaxCharsPerPin) + '\n... (truncated)'
+          : entry.content;
+      const block = `\n\n### ${entry.label}\n${chunk}`;
+      if (prompt.length + teamLines.join('').length + block.length < maxSystemChars) {
+        teamLines.push(block);
+      }
+    }
+    if (teamLines.length > 0) {
+      prompt = ensureBoundary(prompt);
+      prompt += `\n\n## Team Memory\n<!-- Shared team context from .sidecar/team-memory/ — committed to git -->${teamLines.join('')}`;
+    }
+  }
+  sizes['Team memory'] = prompt.length - prevLen;
+  prevLen = prompt.length;
+
   // Skill injection — only in trusted workspaces because .sidecar/skills/
   // can ship with a cloned repo. When the matched skill came from a
   // workspace-local directory (as opposed to the user's ~/.claude or
