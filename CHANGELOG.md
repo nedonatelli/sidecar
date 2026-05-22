@@ -4,6 +4,18 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.100.0] - 2026-05-21
+
+**v0.100.0 — Enterprise & Collaboration: repo policy, shared team memory, agent handoff.**
+
+### Added
+
+- **Repo-level tool permission policy** — commit a `.sidecar/policy.json` file (version: 1) to restrict what the agent can do for every developer who opens the repo. Maps tool names to `"allow"` / `"ask"` / `"deny"`; merges with each developer's personal `toolPermissions` by taking the more restrictive of the two — policy can never expand access, only restrict it. Blocked tools surface a distinct `"denied by repo policy (.sidecar/policy.json)"` message distinguishable from personal denials. Status bar gains a `$(shield)` suffix and tooltip note when a policy file is detected. Loaded at activation from the first workspace folder; parse errors are non-fatal and logged. (`src/agent/policy/policyLoader.ts`, `src/agent/executor.ts`, `src/ui/statusBar.ts`)
+
+- **Shared team memory** — any `.md` file placed in the committed `.sidecar/team-memory/` directory is injected into every developer's system prompt as a `## Team Memory` section on every agent turn. Files are sorted alphabetically (stable diff output), empty files are skipped, and unreadable files fail silently. Uses the same per-entry character cap as personal pinned memory (`sidecar.pinnedMemory.maxCharsPerPin`). No configuration required — directory presence is the on/off switch. (`src/agent/memory/teamMemory.ts`, `src/webview/handlers/systemPrompt.ts`)
+
+- **Agent handoff — session export/import** — `SideCar: Export Handoff` serialises the current conversation to a portable `.json` bundle (version: 1, exportedAt, task excerpt, optional note, messages); the user picks the save location via a dialog and optionally adds a handoff note. `SideCar: Import Handoff` opens a file picker, shows a QuickPick preview of the task and note, and resumes the conversation exactly where the exporter left off — same abort/generation-bump/UI-sync dance as session load. Bundles are self-contained JSON that can be shared via Slack, email, or committed to the repo. (`src/agent/handoff/handoff.ts`, `src/commands/handoffCommands.ts`)
+
 ## [0.99.0] - 2026-05-21
 
 **v0.99.0 — CI Failure Analysis + Branch Protection Awareness.**
