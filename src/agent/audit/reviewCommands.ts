@@ -101,31 +101,43 @@ function formatEntryLabel(entry: BufferedChange): { label: string; description: 
   return { label: `${opMark} ${entry.path}`, description: sizeHint };
 }
 
+/** Build the standard review picker items (Accept All / Reject All / optional summary / per-file entries). */
+function buildReviewPicks(entries: BufferedChange[], deps: AuditReviewDeps): ReviewPick[] {
+  return [
+    {
+      label: '$(check-all) Accept All',
+      description: `${entries.length} file${entries.length === 1 ? '' : 's'}`,
+      action: 'accept-all',
+    },
+    { label: '$(discard) Reject All', description: 'Drop every buffered change', action: 'reject-all' },
+    ...(deps.postBatchSummary
+      ? [
+          {
+            label: '$(list-unordered) View Batch Summary in Chat',
+            description: 'Send unified diff of all pending changes to the chat panel',
+            action: 'view-summary' as const,
+          },
+        ]
+      : []),
+    ...entries.map((entry): ReviewPick => {
+      const fmt = formatEntryLabel(entry);
+      return { label: fmt.label, description: fmt.description, action: 'open', entry };
+    }),
+  ];
+}
+
 /**
- * Entry point for `sidecar.audit.review`. Shows a picker listing bulk
- * actions + each buffered file; dispatches to the relevant handler
- * based on the user's pick. Returning early on an empty buffer avoids
- * a confusing "nothing to do" pick dialog.
- *
- * Loops after per-file actions so the user can walk through the
- * buffer one file at a time without re-invoking the command between
- * each decision. Bulk actions and outright cancellation still
- * terminate, because those have a clear end state (buffer empty or
- * user backed out).
+ * Shared outer review loop used by per-file and per-hunk paths. Handles
+ * the empty-buffer guard, Accept All, Reject All, and View Summary
+ * identically; delegates the 'open' case to `handleOpen` so each path
+ * can apply its own diff/hunk UI.
  */
-export async function reviewAuditBuffer(deps: AuditReviewDeps): Promise<void> {
-  const buf = deps.buffer ?? getDefaultAuditBuffer();
-
-  const granularity = deps.reviewGranularity ?? 'per-file';
-  if (granularity === 'bulk') {
-    await reviewAuditBufferBulk(deps, buf);
-    return;
-  }
-  if (granularity === 'per-hunk') {
-    await reviewAuditBufferPerHunk(deps, buf);
-    return;
-  }
-
+async function runReviewLoop(
+  deps: AuditReviewDeps,
+  buf: AuditBuffer,
+  title: string,
+  handleOpen: (entry: BufferedChange) => Promise<void>,
+): Promise<void> {
   while (true) {
     const entries = buf.list();
     if (entries.length === 0) {
@@ -133,29 +145,7 @@ export async function reviewAuditBuffer(deps: AuditReviewDeps): Promise<void> {
       return;
     }
 
-    const items: ReviewPick[] = [
-      {
-        label: '$(check-all) Accept All',
-        description: `${entries.length} file${entries.length === 1 ? '' : 's'}`,
-        action: 'accept-all',
-      },
-      { label: '$(discard) Reject All', description: 'Drop every buffered change', action: 'reject-all' },
-      ...(deps.postBatchSummary
-        ? [
-            {
-              label: '$(list-unordered) View Batch Summary in Chat',
-              description: 'Send unified diff of all pending changes to the chat panel',
-              action: 'view-summary' as const,
-            },
-          ]
-        : []),
-      ...entries.map((entry): ReviewPick => {
-        const fmt = formatEntryLabel(entry);
-        return { label: fmt.label, description: fmt.description, action: 'open', entry };
-      }),
-    ];
-
-    const picked = await deps.ui.showQuickPick(items, 'SideCar audit: review buffered changes');
+    const picked = await deps.ui.showQuickPick(buildReviewPicks(entries, deps), title);
     if (!picked) return;
 
     if (picked.action === 'accept-all') {
@@ -183,25 +173,44 @@ export async function reviewAuditBuffer(deps: AuditReviewDeps): Promise<void> {
       continue;
     }
 
-    // 'open' — diff the buffered version against the captured original,
-    // then ask the user what to do with that specific file. Loop back
-    // to the review picker unless they explicitly took a bulk action.
-    await openBufferedDiff(picked.entry, deps);
-    const postItems: PostDiffPick[] = [
-      { label: '$(check) Accept This File', action: 'accept-one' },
-      { label: '$(discard) Reject This File', action: 'reject-one' },
-      { label: '$(arrow-left) Back to Review', action: 'back' },
-    ];
-    const postPick = await deps.ui.showQuickPick(postItems, `SideCar audit: action for ${picked.entry.path}`);
-    if (!postPick || postPick.action === 'back') continue;
-    if (postPick.action === 'accept-one') {
-      await acceptFileAuditBuffer(deps, picked.entry.path);
-      // loop back — may still have more entries to review
-    } else if (postPick.action === 'reject-one') {
-      await rejectFileAuditBuffer(deps, picked.entry.path);
-      // loop back
-    }
+    await handleOpen(picked.entry);
   }
+}
+
+/** Post-diff follow-up picker shared by both per-file and per-hunk paths for non-modify entries. */
+async function handlePostDiff(entry: BufferedChange, deps: AuditReviewDeps): Promise<void> {
+  const postItems: PostDiffPick[] = [
+    { label: '$(check) Accept This File', action: 'accept-one' },
+    { label: '$(discard) Reject This File', action: 'reject-one' },
+    { label: '$(arrow-left) Back to Review', action: 'back' },
+  ];
+  const postPick = await deps.ui.showQuickPick(postItems, `SideCar audit: action for ${entry.path}`);
+  if (!postPick || postPick.action === 'back') return;
+  if (postPick.action === 'accept-one') await acceptFileAuditBuffer(deps, entry.path);
+  else if (postPick.action === 'reject-one') await rejectFileAuditBuffer(deps, entry.path);
+}
+
+/**
+ * Entry point for `sidecar.audit.review`. Shows a picker listing bulk
+ * actions + each buffered file; dispatches to the relevant handler
+ * based on the user's pick. Loops after per-file actions so the user
+ * can walk through the buffer one file at a time.
+ */
+export async function reviewAuditBuffer(deps: AuditReviewDeps): Promise<void> {
+  const buf = deps.buffer ?? getDefaultAuditBuffer();
+  const granularity = deps.reviewGranularity ?? 'per-file';
+  if (granularity === 'bulk') {
+    await reviewAuditBufferBulk(deps, buf);
+    return;
+  }
+  if (granularity === 'per-hunk') {
+    await reviewAuditBufferPerHunk(deps, buf);
+    return;
+  }
+  await runReviewLoop(deps, buf, 'SideCar audit: review buffered changes', async (entry) => {
+    await openBufferedDiff(entry, deps);
+    await handlePostDiff(entry, deps);
+  });
 }
 
 // ─── Per-hunk review ─────────────────────────────────────────────────────────
@@ -285,81 +294,14 @@ async function reviewPerHunkForFile(
  * accept/reject since they have no meaningful hunk breakdown.
  */
 async function reviewAuditBufferPerHunk(deps: AuditReviewDeps, buf: AuditBuffer): Promise<void> {
-  while (true) {
-    const entries = buf.list();
-    if (entries.length === 0) {
-      deps.ui.showInfo('SideCar audit: buffer is empty — no pending changes.');
-      return;
-    }
-
-    const items: ReviewPick[] = [
-      {
-        label: '$(check-all) Accept All',
-        description: `${entries.length} file${entries.length === 1 ? '' : 's'}`,
-        action: 'accept-all',
-      },
-      { label: '$(discard) Reject All', description: 'Drop every buffered change', action: 'reject-all' },
-      ...(deps.postBatchSummary
-        ? [
-            {
-              label: '$(list-unordered) View Batch Summary in Chat',
-              description: 'Send unified diff of all pending changes to the chat panel',
-              action: 'view-summary' as const,
-            },
-          ]
-        : []),
-      ...entries.map((entry): ReviewPick => {
-        const fmt = formatEntryLabel(entry);
-        return { label: fmt.label, description: fmt.description, action: 'open', entry };
-      }),
-    ];
-
-    const picked = await deps.ui.showQuickPick(items, 'SideCar audit (per-hunk): review buffered changes');
-    if (!picked) return;
-
-    if (picked.action === 'accept-all') {
-      await acceptAllAuditBuffer(deps);
-      return;
-    }
-    if (picked.action === 'reject-all') {
-      await rejectAllAuditBuffer(deps);
-      return;
-    }
-    if (picked.action === 'view-summary') {
-      const summaryItems = entries
-        .map((entry) => ({
-          filePath: entry.path,
-          diff: computeUnifiedDiff(
-            entry.path,
-            entry.originalContent ?? '',
-            entry.op === 'delete' ? '' : (entry.content ?? ''),
-          ),
-          isNew: entry.op === 'create',
-          isDeleted: entry.op === 'delete',
-        }))
-        .filter((item) => item.diff.length > 0 || item.isDeleted);
-      deps.postBatchSummary!(summaryItems);
-      continue;
-    }
-
-    const entry = picked.entry;
+  await runReviewLoop(deps, buf, 'SideCar audit (per-hunk): review buffered changes', async (entry) => {
     if (entry.op === 'modify') {
-      // Per-hunk path for modified files
       await reviewPerHunkForFile(entry, deps, buf);
     } else {
-      // New/deleted files: show diff then offer accept/reject
       await openBufferedDiff(entry, deps);
-      const postItems: PostDiffPick[] = [
-        { label: '$(check) Accept This File', action: 'accept-one' },
-        { label: '$(discard) Reject This File', action: 'reject-one' },
-        { label: '$(arrow-left) Back to Review', action: 'back' },
-      ];
-      const postPick = await deps.ui.showQuickPick(postItems, `SideCar audit: action for ${entry.path}`);
-      if (!postPick || postPick.action === 'back') continue;
-      if (postPick.action === 'accept-one') await acceptFileAuditBuffer(deps, entry.path);
-      else if (postPick.action === 'reject-one') await rejectFileAuditBuffer(deps, entry.path);
+      await handlePostDiff(entry, deps);
     }
-  }
+  });
 }
 
 /**
