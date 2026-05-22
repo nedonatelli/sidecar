@@ -7,6 +7,8 @@
  */
 
 import { workspace, Uri } from 'vscode';
+import { matchGlob } from '../util/glob.js';
+export { matchGlob };
 
 export interface ContextRule {
   /** How to apply this rule */
@@ -24,33 +26,6 @@ export interface StructuredContextRules {
 }
 
 const VALID_TYPES = new Set(['prefer', 'ban', 'require']);
-
-/**
- * Simple glob matcher supporting *, **, and ? against relative paths.
- * Avoids a runtime dependency on minimatch/picomatch.
- */
-export function matchGlob(pattern: string, filePath: string): boolean {
-  // Normalise separators
-  const p = pattern.replace(/\\/g, '/');
-  const f = filePath.replace(/\\/g, '/');
-
-  // Convert glob to regex:
-  //   **  → match any path segments (including /)
-  //   *   → match within a single segment (no /)
-  //   ?   → match a single non-/ character
-  //   .   → literal dot
-  const regexStr = p
-    .split('**')
-    .map((segment) =>
-      segment
-        .replace(/[.+^${}()|[\]\\]/g, '\\$&') // escape regex specials (except * and ?)
-        .replace(/\*/g, '[^/]*')
-        .replace(/\?/g, '[^/]'),
-    )
-    .join('.*');
-
-  return new RegExp(`^${regexStr}$`).test(f);
-}
 
 /**
  * Read and validate .sidecarrules from the workspace root.

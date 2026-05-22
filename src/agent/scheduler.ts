@@ -10,6 +10,7 @@ import type { MCPManager } from './mcpManager.js';
 import { checkDocumentGate } from './documentGate.js';
 import { FileLock } from './lockPrimitives.js';
 import { parseCron, cronMatches } from './cronParser.js';
+import { matchGlob } from '../util/glob.js';
 
 // ---------------------------------------------------------------------------
 // Scheduler — runs ScheduledTask entries on three trigger types:
@@ -32,18 +33,6 @@ export interface TaskRunRecord {
   finishedAt: number;
   success: boolean;
   errorMessage?: string;
-}
-
-function globMatchesFile(glob: string, filePath: string): boolean {
-  const normalized = filePath.replace(/\\/g, '/');
-  const escaped = glob
-    .replace(/\\/g, '/')
-    .replace(/[.+^${}()|[\]]/g, '\\$&')
-    .replace(/\*\*/g, '\x00')
-    .replace(/\*/g, '[^/]*')
-    .replace(/\x00/g, '.*')
-    .replace(/\?/g, '[^/]');
-  return new RegExp(`^${escaped}$`).test(normalized);
 }
 
 export class Scheduler implements Disposable {
@@ -115,9 +104,7 @@ export class Scheduler implements Disposable {
         const saved = doc.uri.fsPath.replace(/\\/g, '/');
         for (const task of enabled) {
           if (!task.onSave?.length) continue;
-          const matches = task.onSave.some(
-            (g) => globMatchesFile(g, saved) || globMatchesFile(g, path.basename(saved)),
-          );
+          const matches = task.onSave.some((g) => matchGlob(g, saved) || matchGlob(g, path.basename(saved)));
           if (matches) {
             this.logger?.info(`Scheduled task "${task.name}" triggered by save: ${path.basename(saved)}`);
             void this.runTask(task);
