@@ -2375,6 +2375,18 @@
         "icon": "$(clear-all)"
       },
       {
+        "command": "sidecar.handoff.export",
+        "title": "Export Handoff",
+        "category": "SideCar",
+        "icon": "$(export)"
+      },
+      {
+        "command": "sidecar.handoff.import",
+        "title": "Import Handoff",
+        "category": "SideCar",
+        "icon": "$(import)"
+      },
+      {
         "command": "sidecar.audit.review",
         "title": "Audit: Review Buffered Changes",
         "category": "SideCar",

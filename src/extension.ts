@@ -27,6 +27,7 @@ import { initExecutiveFunctionSetup } from './activation/executiveFunctionSetup.
 import { initMcpServer } from './activation/mcpServerSetup.js';
 import { createSdkApi } from './sdk/api.js';
 import { loadRepoPolicy, setActivePolicy } from './agent/policy/policyLoader.js';
+import { registerHandoffCommands } from './commands/handoffCommands.js';
 
 let chatProvider: ChatViewProvider | undefined;
 
@@ -106,6 +107,7 @@ export function activate(context: ExtensionContext) {
   registerStatusBar(context, { getChatProvider: () => chatProvider });
   context.subscriptions.push(disposeDiagnostics());
   registerAgentCommands(context, context.extension.id, { createClient, getChatProvider: () => chatProvider });
+  registerHandoffCommands(context, { getChatProvider: () => chatProvider });
   registerBackendCommands(context, () => chatProvider!.client);
   registerSidecarParticipant(context, () => chatProvider!.client);
   registerLmTools(context);
