@@ -1,6 +1,7 @@
 import { window } from 'vscode';
 import { SideCarClient } from '../ollama/client.js';
 import type { ChatMessage } from '../ollama/types.js';
+import { stripCodeFences } from '../util/text.js';
 
 const DOC_SYSTEM_PROMPT = `You are a documentation generator. Given code, generate clear documentation:
 - For functions/methods: JSDoc/docstring with @param, @returns, @throws, description
@@ -25,8 +26,7 @@ export async function generateDocumentation(
 
   try {
     let result = await client.complete(messages, 4096);
-    // Strip code fence wrapper if present
-    result = result.replace(/^```\w*\n?/, '').replace(/\n?```$/, '');
+    result = stripCodeFences(result);
     return result;
   } catch (err) {
     window.showErrorMessage(`Documentation generation failed: ${err instanceof Error ? err.message : String(err)}`);

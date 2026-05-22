@@ -1,3 +1,5 @@
+import { stripCodeFences } from '../../util/text.js';
+
 export const MIN_PREFIX_LENGTH = 10;
 export const MAX_PREFIX_CHARS = 8000;
 export const MAX_SUFFIX_CHARS = 2000;
@@ -48,7 +50,7 @@ export class PredictiveContext {
 
   static cleanCompletion(raw: string, prefix: string, suffix: string): string {
     let text = raw;
-    text = text.replace(/^```\w*\n?/, '').replace(/\n?```$/, '');
+    text = stripCodeFences(text);
     text = text.replace(/^\n+/, '').replace(/\n+$/, '');
     const lastPrefixLine = prefix.split('\n').pop() || '';
     if (lastPrefixLine && text.startsWith(lastPrefixLine)) {

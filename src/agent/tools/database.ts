@@ -16,6 +16,7 @@ import * as path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { getConfig, type SideCarConfig } from '../../config/settings.js';
+import { escHtml } from '../../util/html.js';
 import { connectionManager } from '../../db/connectionManager.js';
 import { getDefaultAuditBuffer } from '../audit/auditBuffer.js';
 import type { RegisteredTool } from './shared.js';
@@ -24,14 +25,6 @@ import { assertReadOnly } from '../../db/provider.js';
 import { getRoot } from './shared.js';
 
 const execFileAsync = promisify(execFile);
-
-// ---------------------------------------------------------------------------
-// Rendering helpers
-// ---------------------------------------------------------------------------
-
-function escHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
 
 /**
  * Render a QueryResult as a self-contained sortable HTML table.

@@ -15,6 +15,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import type { SidecarDir } from './sidecarDir.js';
+import { cosine } from './math.js';
 
 const MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
 const DIMENSION = 384;
@@ -360,15 +361,4 @@ export class EmbeddingIndex implements Disposable {
   }
 }
 
-/**
- * Cosine similarity between two unit vectors.
- * Since vectors are normalized during embedding, this is just the dot product.
- */
-export function cosine(a: Float32Array, b: Float32Array): number {
-  let dot = 0;
-  const len = Math.min(a.length, b.length);
-  for (let i = 0; i < len; i++) {
-    dot += a[i] * b[i];
-  }
-  return dot;
-}
+export { cosine };

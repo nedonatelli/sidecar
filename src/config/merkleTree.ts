@@ -30,6 +30,7 @@
  */
 
 import * as crypto from 'crypto';
+import { cosine } from './math.js';
 
 const HASH_ALGO = 'sha256';
 /** Separator for canonical-string construction. `|` is rare in
@@ -307,15 +308,4 @@ export class MerkleTree {
     }
     return { pickedFiles, leafIds };
   }
-}
-
-/** Cosine similarity for unit vectors. Inlined rather than imported
- *  from `vectorStore.ts` so this module stays standalone — callers
- *  that want to use just the Merkle primitive shouldn't need to
- *  pull in the whole PKI vector backend. */
-function cosine(a: Float32Array, b: Float32Array): number {
-  let dot = 0;
-  const len = Math.min(a.length, b.length);
-  for (let i = 0; i < len; i++) dot += a[i] * b[i];
-  return dot;
 }

@@ -1,6 +1,7 @@
 import { workspace, Uri } from 'vscode';
 import { SideCarClient } from '../ollama/client.js';
 import type { ChatMessage } from '../ollama/types.js';
+import { stripCodeFences } from '../util/text.js';
 
 const TEST_SYSTEM_PROMPT = `You are a test generation expert. Given source code, generate comprehensive tests:
 - Detect the language and appropriate test framework (Vitest/Jest for TS/JS, pytest for Python, Go test for Go, etc.)
@@ -56,7 +57,7 @@ export async function generateTests(
 
   try {
     let result = await client.complete(messages, 4096);
-    result = result.replace(/^```\w*\n?/, '').replace(/\n?```$/, '');
+    result = stripCodeFences(result);
 
     // Compute test file name
     const baseName = fileName.replace(/\.\w+$/, '');

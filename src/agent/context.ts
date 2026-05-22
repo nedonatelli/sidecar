@@ -2,6 +2,7 @@ import type { ChatMessage, ContentBlock, ToolResultContentBlock, ToolUseContentB
 import { getContentLength } from '../ollama/types.js';
 import { getRegexAnalyzer } from '../parsing/registry.js';
 import { AgentMemory } from './agentMemory.js';
+import { stripCodeFences } from '../util/text.js';
 
 /**
  * Prune conversation history between user turns to keep context manageable.
@@ -260,7 +261,7 @@ export function enhanceContextWithSmartElements(context: string, query: string, 
     }
 
     // Strip code fence markers so the parser sees raw source
-    const rawContent = fileContent.replace(/^```\w*\n?/, '').replace(/\n?```\s*$/, '');
+    const rawContent = stripCodeFences(fileContent);
 
     // Try to extract relevant code elements using AST analysis
     let enhancedContent = rawContent;

@@ -20,6 +20,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { SidecarDir } from './sidecarDir.js';
+import { cosine } from './math.js';
 
 /** A single stored vector with associated domain metadata. */
 export interface VectorRecord<M> {
@@ -347,19 +348,7 @@ export class FlatVectorStore<M> implements VectorStore<M> {
   }
 }
 
-/**
- * Cosine similarity between two unit vectors. Exposed so stores that
- * normalize vectors at upsert time can fall back to the dot product
- * (which is what cosine reduces to for unit vectors).
- */
-export function cosine(a: Float32Array, b: Float32Array): number {
-  let dot = 0;
-  const len = Math.min(a.length, b.length);
-  for (let i = 0; i < len; i++) {
-    dot += a[i] * b[i];
-  }
-  return dot;
-}
+export { cosine };
 
 /**
  * Error thrown when a caller asks for a backend that isn't

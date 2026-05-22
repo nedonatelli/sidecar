@@ -1,5 +1,6 @@
 import { SideCarClient } from '../ollama/client.js';
 import type { ChatMessage } from '../ollama/types.js';
+import { stripCodeFences } from '../util/text.js';
 
 const SCAFFOLD_SYSTEM_PROMPT = `You are a code scaffolding generator. Given a template type and project context, generate production-ready boilerplate code.
 - Follow the conventions of the project's language and framework
@@ -42,7 +43,7 @@ export async function generateScaffold(
 
   try {
     let result = await client.complete(messages, 4096);
-    result = result.replace(/^```\w*\n?/, '').replace(/\n?```$/, '');
+    result = stripCodeFences(result);
     return result;
   } catch {
     return null;

@@ -671,8 +671,10 @@ window.addEventListener('message', e => {
 // ---------------------------------------------------------------------------
 function escHtml(s) {
   return String(s)
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-    .replace(/"/g,'&quot;');
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 function shortLabel(model) {
   // "qwen3-coder:30b-a3b-q4_K_M" → "qwen3-coder:30b"
