@@ -23,6 +23,7 @@ function makeUi(overrides: Partial<AuditReviewUi> = {}): AuditReviewUi & {
   showError: ReturnType<typeof vi.fn>;
   openDiff: ReturnType<typeof vi.fn>;
   showConflictDialog: ReturnType<typeof vi.fn>;
+  showMultiQuickPick: ReturnType<typeof vi.fn>;
 } {
   return {
     showQuickPick: vi.fn(async () => undefined),
@@ -30,9 +31,8 @@ function makeUi(overrides: Partial<AuditReviewUi> = {}): AuditReviewUi & {
     showWarningConfirm: vi.fn(async () => undefined),
     showError: vi.fn(),
     openDiff: vi.fn(async () => {}),
-    // Default: no conflict dialog response pre-programmed; tests that
-    // exercise the conflict path override this.
     showConflictDialog: vi.fn(async () => undefined),
+    showMultiQuickPick: vi.fn(async () => undefined),
     ...overrides,
   } as never;
 }
@@ -759,5 +759,188 @@ describe('reviewAuditBuffer — postBatchSummary', () => {
     const items = postBatchSummary.mock.calls[0][0] as Array<{ filePath: string; diff: string }>;
     expect(items[0].diff.length).toBeGreaterThan(0);
     expect(items[0].diff).toContain('line1');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Per-hunk granularity
+// ---------------------------------------------------------------------------
+describe('reviewAuditBuffer — per-hunk granularity', () => {
+  let writeFileSpy: ReturnType<typeof vi.spyOn>;
+  let createDirSpy: ReturnType<typeof vi.spyOn>;
+  let readFileSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    writeFileSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined);
+    createDirSpy = vi.spyOn(workspace.fs, 'createDirectory').mockResolvedValue(undefined);
+    readFileSpy = vi.spyOn(workspace.fs, 'readFile').mockRejectedValue(new Error('FileNotFound'));
+  });
+
+  afterEach(() => {
+    writeFileSpy.mockRestore();
+    createDirSpy.mockRestore();
+    readFileSpy.mockRestore();
+  });
+
+  it('shows the empty-buffer toast and returns immediately', async () => {
+    const buf = new AuditBuffer();
+    const ui = makeUi();
+    await reviewAuditBuffer({ ...baseDeps(buf, ui), reviewGranularity: 'per-hunk' });
+    expect(ui.showInfo).toHaveBeenCalledWith(expect.stringContaining('empty'));
+    expect(ui.showQuickPick).not.toHaveBeenCalled();
+  });
+
+  it('top-level accept-all flushes every entry', async () => {
+    const buf = await makeBufferWith([
+      { op: 'write', path: 'a.ts', content: 'new-a' },
+      { op: 'write', path: 'b.ts', content: 'new-b' },
+    ]);
+    const ui = makeUi({
+      showQuickPick: vi.fn(async (items: readonly { action?: string }[]) =>
+        items.find((i) => i.action === 'accept-all'),
+      ) as unknown as AuditReviewUi['showQuickPick'],
+    });
+    await reviewAuditBuffer({ ...baseDeps(buf, ui), reviewGranularity: 'per-hunk' });
+    expect(writeFileSpy).toHaveBeenCalledTimes(2);
+    expect(buf.isEmpty).toBe(true);
+  });
+
+  it('top-level reject-all clears the buffer after confirmation', async () => {
+    const buf = await makeBufferWith([{ op: 'write', path: 'a.ts', content: 'A' }]);
+    const ui = makeUi({
+      showQuickPick: vi.fn(async (items: readonly { action?: string }[]) =>
+        items.find((i) => i.action === 'reject-all'),
+      ) as unknown as AuditReviewUi['showQuickPick'],
+      showWarningConfirm: vi.fn(async () => 'Reject All'),
+    });
+    await reviewAuditBuffer({ ...baseDeps(buf, ui), reviewGranularity: 'per-hunk' });
+    expect(buf.isEmpty).toBe(true);
+    expect(writeFileSpy).not.toHaveBeenCalled();
+  });
+
+  it('cancelling the top-level picker leaves the buffer intact', async () => {
+    const buf = await makeBufferWith([{ op: 'write', path: 'a.ts', content: 'A' }]);
+    const ui = makeUi(); // showQuickPick returns undefined
+    await reviewAuditBuffer({ ...baseDeps(buf, ui), reviewGranularity: 'per-hunk' });
+    expect(buf.has('a.ts')).toBe(true);
+    expect(writeFileSpy).not.toHaveBeenCalled();
+  });
+
+  it('modify entry: Escape on hunk picker loops back to review picker', async () => {
+    const buf = await makeBufferWith([{ op: 'write', path: 'a.ts', content: 'new content' }], {
+      'a.ts': 'original content',
+    });
+    let reviewPickCalls = 0;
+    const ui = makeUi({
+      showQuickPick: vi.fn(async (items: readonly { action?: string }[]) => {
+        reviewPickCalls += 1;
+        if (reviewPickCalls === 1) return items.find((i) => i.action === 'open');
+        return undefined; // cancel on second call to exit the loop
+      }) as unknown as AuditReviewUi['showQuickPick'],
+      showMultiQuickPick: vi.fn(async () => undefined), // Escape
+    });
+    await reviewAuditBuffer({ ...baseDeps(buf, ui), reviewGranularity: 'per-hunk' });
+    expect(reviewPickCalls).toBe(2); // opened once + looped back once before cancel
+    expect(buf.has('a.ts')).toBe(true); // skipped → not flushed or rejected
+  });
+
+  it('modify entry: all hunks accepted → file flushed to disk', async () => {
+    const buf = await makeBufferWith([{ op: 'write', path: 'a.ts', content: 'new content' }], {
+      'a.ts': 'original content',
+    });
+    readFileSpy.mockResolvedValue(Buffer.from('original content') as never);
+    const ui = makeUi({
+      showQuickPick: vi.fn(async (items: readonly { action?: string }[]) =>
+        items.find((i) => i.action === 'open'),
+      ) as unknown as AuditReviewUi['showQuickPick'],
+      showMultiQuickPick: vi.fn(async (items: unknown[]) => items) as unknown as AuditReviewUi['showMultiQuickPick'], // all items selected
+    });
+    await reviewAuditBuffer({ ...baseDeps(buf, ui), reviewGranularity: 'per-hunk' });
+    expect(writeFileSpy).toHaveBeenCalledTimes(1);
+    expect(buf.has('a.ts')).toBe(false);
+  });
+
+  it('modify entry: no hunks selected → file rejected from buffer', async () => {
+    const buf = await makeBufferWith([{ op: 'write', path: 'a.ts', content: 'new content' }], {
+      'a.ts': 'original content',
+    });
+    const ui = makeUi({
+      showQuickPick: vi.fn(async (items: readonly { action?: string }[]) =>
+        items.find((i) => i.action === 'open'),
+      ) as unknown as AuditReviewUi['showQuickPick'],
+      showMultiQuickPick: vi.fn(async () => []), // empty selection = reject all
+    });
+    await reviewAuditBuffer({ ...baseDeps(buf, ui), reviewGranularity: 'per-hunk' });
+    expect(writeFileSpy).not.toHaveBeenCalled();
+    expect(buf.has('a.ts')).toBe(false);
+    expect(ui.showInfo).toHaveBeenCalledWith(expect.stringContaining('rejected all hunks'));
+  });
+
+  it('modify entry: partial hunk selection writes only the accepted changes', async () => {
+    // Two hunks: line 2 and line 17 changed. Accept only hunk 0.
+    const lines = Array.from({ length: 20 }, (_, i) => `line${i}`);
+    const original = lines.join('\n');
+    const modLines = [...lines];
+    modLines[2] = 'LINE2';
+    modLines[17] = 'LINE17';
+    const current = modLines.join('\n');
+
+    const buf = await makeBufferWith([{ op: 'write', path: 'f.ts', content: current }], { 'f.ts': original });
+    readFileSpy.mockResolvedValue(Buffer.from(original) as never);
+
+    let writtenContent = '';
+    writeFileSpy.mockImplementation(async (_uri: unknown, data: Uint8Array) => {
+      writtenContent = Buffer.from(data).toString('utf-8');
+    });
+
+    const ui = makeUi({
+      showQuickPick: vi.fn(async (items: readonly { action?: string }[]) =>
+        items.find((i) => i.action === 'open'),
+      ) as unknown as AuditReviewUi['showQuickPick'],
+      showMultiQuickPick: vi.fn(async (items: unknown[]) => [
+        (items as Array<{ index: number }>)[0],
+      ]) as unknown as AuditReviewUi['showMultiQuickPick'], // accept hunk 0 only
+    });
+    await reviewAuditBuffer({ ...baseDeps(buf, ui), reviewGranularity: 'per-hunk' });
+
+    expect(writeFileSpy).toHaveBeenCalledTimes(1);
+    const resultLines = writtenContent.split('\n');
+    expect(resultLines[2]).toBe('LINE2'); // hunk 0 applied
+    expect(resultLines[17]).toBe('line17'); // hunk 1 skipped
+    expect(ui.showInfo).toHaveBeenCalledWith(expect.stringContaining('1 of 2 hunks'));
+  });
+
+  it('modify entry with no diff (identical content) is silently accepted', async () => {
+    // write() with identical content → op: 'modify', but computeHunks returns []
+    const buf = await makeBufferWith([{ op: 'write', path: 'same.ts', content: 'identical' }], {
+      'same.ts': 'identical',
+    });
+    readFileSpy.mockResolvedValue(Buffer.from('identical') as never);
+    const ui = makeUi({
+      showQuickPick: vi.fn(async (items: readonly { action?: string }[]) =>
+        items.find((i) => i.action === 'open'),
+      ) as unknown as AuditReviewUi['showQuickPick'],
+    });
+    await reviewAuditBuffer({ ...baseDeps(buf, ui), reviewGranularity: 'per-hunk' });
+    // No hunk picker needed — accepted silently, buffer cleared
+    expect(ui.showMultiQuickPick).not.toHaveBeenCalled();
+    expect(buf.has('same.ts')).toBe(false);
+  });
+
+  it('create entry falls back to per-file diff + accept', async () => {
+    const buf = await makeBufferWith([{ op: 'write', path: 'new.ts', content: 'brand new' }]);
+    const ui = makeUi({
+      showQuickPick: vi.fn(async (items: readonly { label: string; action?: string }[]) => {
+        // 1st call: top-level review picker → open the create entry
+        if (items.some((i) => i.action === 'open')) return items.find((i) => i.action === 'open');
+        // 2nd call: post-diff picker → accept-one
+        return items.find((i) => i.action === 'accept-one');
+      }) as unknown as AuditReviewUi['showQuickPick'],
+    });
+    await reviewAuditBuffer({ ...baseDeps(buf, ui), reviewGranularity: 'per-hunk' });
+    expect(ui.showMultiQuickPick).not.toHaveBeenCalled(); // create uses diff, not hunk picker
+    expect(ui.openDiff).toHaveBeenCalledTimes(1);
+    expect(writeFileSpy).toHaveBeenCalledTimes(1);
+    expect(buf.has('new.ts')).toBe(false);
   });
 });
