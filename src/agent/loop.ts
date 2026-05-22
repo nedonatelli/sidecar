@@ -10,9 +10,8 @@ import { type ApprovalMode, type ConfirmFn, type DiffPreviewFn, type StreamingDi
 import type { AgentLogger } from './logger.js';
 import type { ChangeLog } from './changelog.js';
 import type { MCPManager } from './mcpManager.js';
-import { compressMessages, applyBudgetCompression, maybeCompressPostTool } from './loop/compression.js';
+import { applyBudgetCompression, maybeCompressPostTool } from './loop/compression.js';
 import { initLoopState } from './loop/state.js';
-import { parseTextToolCalls, stripRepeatedContent } from './loop/textParsing.js';
 import { streamOneTurn, resolveTurnContent } from './loop/streamTurn.js';
 import { applyAgentLoopRouting, applyArchitectEditorSplit } from './loop/routing.js';
 import { exceedsBurstCap, detectCycleAndBail } from './loop/cycleDetection.js';
@@ -22,7 +21,6 @@ import {
   accountToolTokens,
   capToolResults,
 } from './loop/messageBuild.js';
-import { runCriticChecks, type RunCriticOptions } from './loop/criticHook.js';
 import { HookBus, PolicyEnforcementError, type PolicyHook, type HookContext } from './loop/policyHook.js';
 import { defaultPolicyHooks } from './loop/builtInHooks.js';
 import { buildRegressionGuardHooks } from './guards/regressionGuardHook.js';
@@ -32,12 +30,6 @@ import { notifyIterationStart, maybeEmitProgressSummary, shouldStopAtCheckpoint 
 import { finalize } from './loop/finalize.js';
 import { drainSteerQueueAtBoundary } from './loop/steerDrain.js';
 import type { SteerQueue } from './steerQueue.js';
-export { compressMessages, parseTextToolCalls, stripRepeatedContent };
-// runCriticChecks + RunCriticOptions were extracted into
-// ./loop/criticHook.ts. Re-exported so critic.runner.test.ts still
-// imports them from './loop.js' without a coordinated rewrite.
-export { runCriticChecks };
-export type { RunCriticOptions };
 import type { PendingEditStore } from './pendingEdits.js';
 import type { EditTimelineStore } from './editTimeline.js';
 
@@ -557,12 +549,3 @@ export async function runAgentLoop(
 
   return finalize(state, callbacks);
 }
-
-// The adversarial critic runner (runCriticChecks, RunCriticOptions,
-// buildCriticDiff, extractAgentIntent) lives in ./loop/criticHook.ts.
-// runCriticChecks + RunCriticOptions are re-exported near the top of
-// this file so critic.runner.test.ts keeps its existing import path.
-
-// parseTextToolCalls + stripRepeatedContent were extracted into
-// ./loop/textParsing.ts. Re-exported at the top of this file so
-// existing imports in loop.test.ts keep working.

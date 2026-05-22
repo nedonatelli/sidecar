@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { parseTextToolCalls, compressMessages, stripRepeatedContent, runAgentLoop } from './loop.js';
+import { runAgentLoop } from './loop.js';
+import { parseTextToolCalls, stripRepeatedContent } from './loop/textParsing.js';
+import { compressMessages } from './loop/compression.js';
 import type { ToolDefinition, ChatMessage, StreamEvent } from '../ollama/types.js';
 import type { SideCarClient } from '../ollama/client.js';
 import type { AgentCallbacks, AgentOptions } from './loop.js';

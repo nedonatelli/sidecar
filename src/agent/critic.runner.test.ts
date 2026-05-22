@@ -42,7 +42,7 @@ vi.mock('./tools.js', () => ({
   getDiagnostics: async () => 'No diagnostics',
 }));
 
-import { runCriticChecks, type RunCriticOptions } from './loop.js';
+import { runCriticChecks, type RunCriticOptions } from './loop/criticHook.js';
 import type { AgentCallbacks } from './loop.js';
 import { normalizeTestOutput, hashTestOutput } from './loop/criticHook.js';
 import type { SideCarClient } from '../ollama/client.js';
