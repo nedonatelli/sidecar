@@ -2,10 +2,14 @@ import { exec, execFile } from 'child_process';
 import { promisify } from 'util';
 import type { ToolDefinition } from '../../ollama/types.js';
 import { GitCLI } from '../../github/git.js';
+import { GitHubAPI } from '../../github/api.js';
+import { getGitHubToken } from '../../github/auth.js';
+import { canPushDirect, summarizeProtection, formatProtectionMarkdown } from '../../github/branchProtection.js';
 import { getRoot, formatToolError, type ToolExecutorContext, type RegisteredTool } from './shared.js';
 import { compressGitDiff } from './compression.js';
 import { getDefaultAuditBuffer } from '../audit/auditBuffer.js';
 import { shouldBufferCommits } from './auditHelper.js';
+import { getConfig } from '../../config/settings.js';
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
@@ -192,9 +196,49 @@ export const gitPushDef: ToolDefinition = {
   },
 };
 
-export async function gitPush(input: Record<string, unknown>): Promise<string> {
+export async function gitPush(input: Record<string, unknown>, _context?: ToolExecutorContext): Promise<string> {
+  const config = getConfig();
+  const git = new GitCLI();
+
+  if (config.branchProtectionEnabled) {
+    try {
+      const currentBranch = await git.getCurrentBranch();
+      if (currentBranch) {
+        const remoteUrl = await git.getRemoteUrl();
+        if (remoteUrl) {
+          const parsed = GitHubAPI.parseRepo(remoteUrl);
+          if (parsed) {
+            const token = await getGitHubToken().catch(() => null);
+            if (token) {
+              const api = new GitHubAPI(token);
+              const protection = await api
+                .getBranchProtection(parsed.owner, parsed.repo, currentBranch)
+                .catch(() => null);
+              if (!canPushDirect(protection)) {
+                const summary = formatProtectionMarkdown(summarizeProtection(protection));
+                return (
+                  `Branch protection check: \`${currentBranch}\` requires a pull request — direct push is blocked.\n\n` +
+                  summary +
+                  `\n\nPush aborted. Create a PR from this branch instead of pushing directly.`
+                );
+              }
+              if (config.branchProtectionWarnEvenIfPassing && protection) {
+                const lines = summarizeProtection(protection);
+                if (lines.length > 0) {
+                  const pushResult = input.setUpstream ? await git.push('origin', currentBranch) : await git.push();
+                  return `${pushResult}\n\nBranch protection on \`${currentBranch}\`:\n${formatProtectionMarkdown(lines)}`;
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch {
+      // Non-fatal — if the protection check fails for any reason, fall through to the push.
+    }
+  }
+
   try {
-    const git = new GitCLI();
     if (input.setUpstream) {
       const branch = await git.getCurrentBranch();
       return await git.push('origin', branch);

@@ -84,20 +84,38 @@ vi.mock('../terminal/shellSession.js', () => ({
 
 // Mock github/git
 vi.mock('../github/git.js', () => ({
-  GitCLI: vi.fn(() => ({
-    diff: vi.fn(),
-    status: vi.fn(),
-    stage: vi.fn(),
-    commit: vi.fn(),
-    log: vi.fn(),
-    push: vi.fn(),
-    pull: vi.fn(),
-    getCurrentBranch: vi.fn(),
-    createBranch: vi.fn(),
-    switchBranch: vi.fn(),
-    listBranches: vi.fn(),
-    stash: vi.fn(),
-  })),
+  GitCLI: vi.fn(function () {
+    return {
+      diff: vi.fn().mockResolvedValue({ summary: '1 file changed', diff: '--- a\n+++ b' }),
+      status: vi.fn().mockResolvedValue('On branch main\nnothing to commit'),
+      stage: vi.fn().mockResolvedValue('staged: src/foo.ts'),
+      commit: vi.fn().mockResolvedValue('committed abc123'),
+      log: vi.fn().mockResolvedValue([{ hash: 'abc', message: 'feat', author: 'dev', date: '2024-01-01' }]),
+      push: vi.fn().mockResolvedValue('pushed ok'),
+      pull: vi.fn().mockResolvedValue('pulled ok'),
+      getCurrentBranch: vi.fn().mockResolvedValue('feature/x'),
+      getRemoteUrl: vi.fn().mockResolvedValue(null),
+      createBranch: vi.fn().mockResolvedValue('branch created'),
+      switchBranch: vi.fn().mockResolvedValue('switched'),
+      listBranches: vi.fn().mockResolvedValue(['main', 'feature/x']),
+      stash: vi.fn().mockResolvedValue('stashed'),
+    };
+  }),
+}));
+
+vi.mock('../github/api.js', () => {
+  const GitHubAPI = vi.fn(function () {
+    return { getBranchProtection: vi.fn().mockResolvedValue(null) };
+  });
+  (GitHubAPI as unknown as Record<string, unknown>).parseRepo = (url: string) => {
+    const m = url.match(/github\.com[/:]([^/]+)\/([^/.]+)/);
+    return m ? { owner: m[1], repo: m[2] } : null;
+  };
+  return { GitHubAPI };
+});
+
+vi.mock('../github/auth.js', () => ({
+  getGitHubToken: vi.fn().mockRejectedValue(new Error('no token in test')),
 }));
 
 // Mock agent/securityScanner

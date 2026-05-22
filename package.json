@@ -2,7 +2,7 @@
   "name": "sidecar-ai",
   "displayName": "SideCar",
   "description": "Autonomous AI agent for coding — run full agent loops with local Ollama, Anthropic Claude, or OpenAI models",
-  "version": "0.98.1",
+  "version": "0.99.0",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -748,6 +748,16 @@
             "type": "string",
             "default": "auto",
             "markdownDescription": "*(Draft PR, v0.68)* How to handle repo PR templates. `auto` (default) reads `.github/pull_request_template.md` or `.github/PULL_REQUEST_TEMPLATE.md` and asks the model to fill each section. `ignore` writes a fresh Summary + Test Plan body regardless. Any other value is treated as an absolute/relative path to a custom template file."
+          },
+          "sidecar.pr.branchProtection.enabled": {
+            "type": "boolean",
+            "default": true,
+            "markdownDescription": "*(Branch Protection Awareness, v0.99)* When true (default), `git_push` checks the target branch's protection rules before pushing. If the branch requires a pull request (i.e. direct pushes are blocked), the push is aborted and the agent is told why — preventing the \"pushed straight to main\" footgun. Disable if your GitHub token lacks `repo` scope or you're pushing to a private fork where the protection rules are irrelevant."
+          },
+          "sidecar.pr.branchProtection.warnEvenIfPassing": {
+            "type": "boolean",
+            "default": false,
+            "markdownDescription": "*(Branch Protection Awareness, v0.99)* When true, the `git_push` result includes a summary of branch protection rules even when direct pushes ARE allowed — so the agent knows about required status checks and reviewer counts before the PR is submitted. Off by default to keep push output concise."
           }
         }
       },

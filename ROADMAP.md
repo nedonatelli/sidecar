@@ -1,6 +1,6 @@
 # SideCar Roadmap
 
-**Current release: v0.98.1** — Voice patch: extension-host recording replaces browser path. Audio captured directly in Node.js (Swift/macOS, arecord/Linux, PowerShell+WinMM/Windows). Cancel-to-stop UX, safePost guard, one-time compile notification. See [CHANGELOG](CHANGELOG.md) for full notes.
+**Current release: v0.99.0** — CI Failure Analysis (`analyze_ci_failure` tool + `SideCar: Analyze CI Failure` command) + Branch Protection Awareness (pre-push guard in `git_push`) + cycle detection false-positive fix. See [CHANGELOG](CHANGELOG.md) for full notes.
 
 **Coverage floor**: ≥80/70/80/80 (stmts/branches/funcs/lines) enforced by CI. No PR merges that drop any metric.
 
@@ -12,6 +12,7 @@
 
 | Version | Headline |
 |---|---|
+| v0.99.0 | CI Failure Analysis (`analyze_ci_failure` tool · `SideCar: Analyze CI Failure` command · GHA log parsing · failure windowing) + Branch Protection Awareness (pre-push guard in `git_push` · `sidecar.pr.branchProtection.*`) |
 | v0.98.1 | Voice patch: extension-host recording (Swift/macOS · arecord/Linux · PowerShell+WinMM/Windows) — no browser window; Cancel-to-stop UX |
 | v0.98.0 | Voice Input (`sidecar.voice.enabled` · mic button · local Whisper via `@huggingface/transformers` · HTTP Whisper API fallback) |
 | v0.97.0 | Semantic Agentic Search for Monorepos (`monorepo_packages` tool · `detectMonorepo` auto-detects Nx / Turbo / pnpm / yarn / Lerna · `sidecar.monorepo.enabled`) |

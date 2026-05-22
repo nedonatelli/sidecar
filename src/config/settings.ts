@@ -320,6 +320,9 @@ export interface SideCarConfig {
   ciAnalysisEnabled: boolean;
   ciAnalysisMaxLogBytes: number;
   ciAnalysisJobFilter: string[];
+  /* Branch protection awareness — pre-push guard on protected branches */
+  branchProtectionEnabled: boolean;
+  branchProtectionWarnEvenIfPassing: boolean;
 }
 
 /**
@@ -610,6 +613,8 @@ function readConfig(): SideCarConfig {
     ciAnalysisEnabled: cfg.get<boolean>('ci.analysis.enabled', true),
     ciAnalysisMaxLogBytes: Math.max(100_000, cfg.get<number>('ci.analysis.maxLogBytes', 4_000_000)),
     ciAnalysisJobFilter: cfg.get<string[]>('ci.analysis.jobFilter', ['*']),
+    branchProtectionEnabled: cfg.get<boolean>('pr.branchProtection.enabled', true),
+    branchProtectionWarnEvenIfPassing: cfg.get<boolean>('pr.branchProtection.warnEvenIfPassing', false),
   };
 }
 

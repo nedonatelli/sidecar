@@ -26,6 +26,7 @@ vi.mock('../../github/git.js', () => {
       push: vi.fn().mockResolvedValue('pushed ok'),
       pull: vi.fn().mockResolvedValue('pulled ok'),
       getCurrentBranch: vi.fn().mockResolvedValue('main'),
+      getRemoteUrl: vi.fn().mockResolvedValue(null),
       createBranch: vi.fn().mockResolvedValue('branch created'),
       switchBranch: vi.fn().mockResolvedValue('switched'),
       listBranches: vi.fn().mockResolvedValue(['main', 'feature/x']),
@@ -34,6 +35,23 @@ vi.mock('../../github/git.js', () => {
   }
   return { GitCLI: vi.fn().mockImplementation(MockGitCLI) };
 });
+
+vi.mock('../../github/api.js', () => {
+  const GitHubAPI = vi.fn().mockImplementation(function () {
+    return {
+      getBranchProtection: vi.fn().mockResolvedValue(null),
+    };
+  });
+  (GitHubAPI as unknown as Record<string, unknown>).parseRepo = (url: string) => {
+    const m = url.match(/github\.com[/:]([^/]+)\/([^/.]+)/);
+    return m ? { owner: m[1], repo: m[2] } : null;
+  };
+  return { GitHubAPI };
+});
+
+vi.mock('../../github/auth.js', () => ({
+  getGitHubToken: vi.fn().mockResolvedValue('fake-token'),
+}));
 
 vi.mock('child_process', () => ({
   exec: vi.fn(),
@@ -231,7 +249,11 @@ describe('gitPush', () => {
     const pushMock = vi.fn().mockResolvedValue('upstream set + pushed');
     const { GitCLI } = await import('../../github/git.js');
     vi.mocked(GitCLI).mockImplementationOnce(function () {
-      return { getCurrentBranch: vi.fn().mockResolvedValue('feature/x'), push: pushMock };
+      return {
+        getCurrentBranch: vi.fn().mockResolvedValue('feature/x'),
+        getRemoteUrl: vi.fn().mockResolvedValue(null),
+        push: pushMock,
+      };
     });
     const result = await gitPush({ setUpstream: true });
     expect(pushMock).toHaveBeenCalledWith('origin', 'feature/x');
@@ -241,10 +263,110 @@ describe('gitPush', () => {
   it('returns error prefix on failure', async () => {
     const { GitCLI } = await import('../../github/git.js');
     vi.mocked(GitCLI).mockImplementationOnce(function () {
-      return { push: vi.fn().mockRejectedValue(new Error('push fail')) };
+      return {
+        getCurrentBranch: vi.fn().mockResolvedValue('main'),
+        getRemoteUrl: vi.fn().mockResolvedValue(null),
+        push: vi.fn().mockRejectedValue(new Error('push fail')),
+      };
     });
     const result = await gitPush({});
     expect(result).toContain('git push failed');
+  });
+});
+
+describe('gitPush — branch protection', () => {
+  it('blocks push when branch requires a PR (pullRequestRequired)', async () => {
+    const { GitCLI } = await import('../../github/git.js');
+    vi.mocked(GitCLI).mockImplementationOnce(function () {
+      return {
+        getCurrentBranch: vi.fn().mockResolvedValue('main'),
+        getRemoteUrl: vi.fn().mockResolvedValue('https://github.com/owner/repo.git'),
+        push: vi.fn().mockResolvedValue('should not reach'),
+      };
+    });
+    const { GitHubAPI } = await import('../../github/api.js');
+    vi.mocked(GitHubAPI).mockImplementationOnce(function () {
+      return {
+        getBranchProtection: vi.fn().mockResolvedValue({
+          pullRequestRequired: true,
+          requiredApprovingReviews: 2,
+          codeOwnersRequired: false,
+          requiredStatusChecks: [],
+          signedCommitsRequired: false,
+          linearHistoryRequired: false,
+          enforceAdmins: false,
+          forcePushesAllowed: false,
+        }),
+      };
+    });
+    vi.spyOn(settings, 'getConfig').mockReturnValue({
+      branchProtectionEnabled: true,
+      branchProtectionWarnEvenIfPassing: false,
+    } as never);
+    const result = await gitPush({});
+    expect(result).toContain('requires a pull request');
+    expect(result).toContain('direct push is blocked');
+    expect(result).toContain('Push aborted');
+  });
+
+  it('allows push and appends protection info when warnEvenIfPassing is true', async () => {
+    const { GitCLI } = await import('../../github/git.js');
+    const pushMock = vi.fn().mockResolvedValue('pushed ok');
+    vi.mocked(GitCLI).mockImplementationOnce(function () {
+      return {
+        getCurrentBranch: vi.fn().mockResolvedValue('feature/x'),
+        getRemoteUrl: vi.fn().mockResolvedValue('https://github.com/owner/repo.git'),
+        push: pushMock,
+      };
+    });
+    const { GitHubAPI } = await import('../../github/api.js');
+    vi.mocked(GitHubAPI).mockImplementationOnce(function () {
+      return {
+        getBranchProtection: vi.fn().mockResolvedValue({
+          pullRequestRequired: false,
+          requiredApprovingReviews: undefined,
+          codeOwnersRequired: false,
+          requiredStatusChecks: ['ci/test'],
+          signedCommitsRequired: false,
+          linearHistoryRequired: false,
+          enforceAdmins: false,
+          forcePushesAllowed: false,
+        }),
+      };
+    });
+    vi.spyOn(settings, 'getConfig').mockReturnValue({
+      branchProtectionEnabled: true,
+      branchProtectionWarnEvenIfPassing: true,
+    } as never);
+    const result = await gitPush({});
+    expect(result).toContain('pushed ok');
+    expect(result).toContain('Branch protection on');
+    expect(result).toContain('ci/test');
+  });
+
+  it('falls through when branchProtectionEnabled is false', async () => {
+    vi.spyOn(settings, 'getConfig').mockReturnValue({ branchProtectionEnabled: false } as never);
+    const result = await gitPush({});
+    expect(result).toContain('pushed ok');
+  });
+
+  it('falls through when getGitHubToken rejects (no token configured)', async () => {
+    const { getGitHubToken } = await import('../../github/auth.js');
+    vi.mocked(getGitHubToken).mockRejectedValueOnce(new Error('no token'));
+    vi.spyOn(settings, 'getConfig').mockReturnValue({
+      branchProtectionEnabled: true,
+      branchProtectionWarnEvenIfPassing: false,
+    } as never);
+    const { GitCLI } = await import('../../github/git.js');
+    vi.mocked(GitCLI).mockImplementationOnce(function () {
+      return {
+        getCurrentBranch: vi.fn().mockResolvedValue('main'),
+        getRemoteUrl: vi.fn().mockResolvedValue('https://github.com/owner/repo.git'),
+        push: vi.fn().mockResolvedValue('pushed ok despite no token'),
+      };
+    });
+    const result = await gitPush({});
+    expect(result).toContain('pushed ok despite no token');
   });
 });
 

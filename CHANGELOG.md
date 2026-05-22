@@ -4,6 +4,30 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.99.0] - 2026-05-21
+
+**v0.99.0 — CI Failure Analysis + Branch Protection Awareness.**
+
+### Added
+
+- **`analyze_ci_failure` agent tool** — fetches the most recent failed GitHub Actions run on the current branch, downloads each failed job's logs (capped at `sidecar.ci.analysis.maxLogBytes`, default 4 MB), strips ANSI codes and GHA timestamp noise, windows the output to the failure context using test-runner pattern detection (vitest / jest / pytest / go test / cargo test / rspec), and returns a structured markdown summary of which steps failed and why. Glob-pattern `sidecar.ci.analysis.jobFilter` scopes analysis to specific jobs. Requires a GitHub token with `actions:read` scope. (`src/agent/tools/ci.ts`, `src/ci/logParser.ts`)
+
+- **`SideCar: Analyze CI Failure` command** — palette command equivalent of the agent tool for when you want to read the failure summary yourself without starting an agent turn. Opens the summary in a preview tab; offers to send the full context to the agent for a fix in one click. (`src/review/analyzeCiFailure.ts`)
+
+- **Branch Protection Awareness — pre-push guard in `git_push`** — before executing `git push`, the tool checks the remote branch's protection rules. If the branch requires a pull request (`pullRequestRequired: true`), the push is aborted and the agent receives a clear explanation including the protection rules that block it — preventing the "pushed straight to main" footgun. Falls through silently when no GitHub token is configured or when the branch is unprotected. When `sidecar.pr.branchProtection.warnEvenIfPassing` is `true`, the push result includes the protection rule summary even when direct pushes are allowed, so the agent knows what CI checks and reviewer counts the resulting PR will need. (`src/agent/tools/git.ts`, `src/github/branchProtection.ts`)
+
+- **`sidecar.ci.analysis.enabled`** (default `true`) — enable the `analyze_ci_failure` tool and `SideCar: Analyze CI Failure` command.
+- **`sidecar.ci.analysis.maxLogBytes`** (default `4000000`) — cap on raw log bytes fetched per job; the tail is kept when the cap is hit.
+- **`sidecar.ci.analysis.jobFilter`** (default `["*"]`) — glob array scoping CI analysis to matching job names.
+- **`sidecar.pr.branchProtection.enabled`** (default `true`) — enable the pre-push branch protection check in `git_push`.
+- **`sidecar.pr.branchProtection.warnEvenIfPassing`** (default `false`) — include protection rule summary in push output even when direct pushes are allowed.
+
+### Internal
+
+- **Normalized cycle detection false-positive fix** — the two-tier cycle detector's normalized-signature ring buffer now only fires when the same secondary-args fingerprint ALSO repeats, not just the same tool + primary resource. Prevents the agent from being killed while making genuine progress on a file (e.g. three sequential edits to the same file with three different content changes). (`src/agent/loop/cycleDetection.ts`)
+- **Voice recording dead code removed** — `recordingServer.ts` (the old browser-based HTTP server approach, superseded by the extension-host recorder in v0.98.0) deleted. (`src/voice/`)
+- **`tools.test.ts` mock hardening** — `GitCLI` mock switched from arrow function to `function` for Vitest 4.x constructor compatibility; `GitHubAPI` and `getGitHubToken` mocks added to cover `git_push`'s new branch protection imports.
+
 ## [0.98.1] - 2026-05-18
 
 **v0.98.1 — Voice patch: extension-host recording replaces browser path.**
