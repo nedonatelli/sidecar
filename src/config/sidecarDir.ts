@@ -91,6 +91,14 @@ export class SidecarDir {
     return path.join(this.root, ...segments);
   }
 
+  /** Ensure the first path segment of `subpath` exists as a subdirectory. No-op for root-level paths. */
+  private async ensureParentSubdir(subpath: string): Promise<void> {
+    const first = subpath.split('/')[0];
+    if (first && first !== subpath) {
+      await this.ensureSubdir(first as (typeof SidecarDir.SUBDIRS)[number]);
+    }
+  }
+
   /** URI for a file or subdirectory within `.sidecar/`. */
   getUri(...segments: string[]): Uri {
     return Uri.file(this.getPath(...segments));
@@ -122,26 +130,18 @@ export class SidecarDir {
 
   /** Write a JSON file to `.sidecar/`, creating parent directories as needed. */
   async writeJson(subpath: string, data: unknown): Promise<void> {
-    const uri = this.getUri(subpath);
-    const dir = path.dirname(subpath);
-    if (dir && dir !== '.') {
-      await this.ensureSubdir(dir.split(path.sep)[0] as (typeof SidecarDir.SUBDIRS)[number]);
-    }
-    await workspace.fs.writeFile(uri, Buffer.from(JSON.stringify(data, null, 2), 'utf-8'));
+    await this.ensureParentSubdir(subpath);
+    await workspace.fs.writeFile(this.getUri(subpath), Buffer.from(JSON.stringify(data, null, 2), 'utf-8'));
   }
 
   /** Append a line to a JSONL file (for logs). */
   async appendJsonl(subpath: string, data: unknown): Promise<void> {
+    await this.ensureParentSubdir(subpath);
     const uri = this.getUri(subpath);
-    const dir = path.dirname(subpath);
-    if (dir && dir !== '.') {
-      await this.ensureSubdir(dir.split(path.sep)[0] as (typeof SidecarDir.SUBDIRS)[number]);
-    }
     const line = JSON.stringify(data) + '\n';
     try {
       const existing = await workspace.fs.readFile(uri);
-      const combined = Buffer.concat([existing, Buffer.from(line, 'utf-8')]);
-      await workspace.fs.writeFile(uri, combined);
+      await workspace.fs.writeFile(uri, Buffer.concat([existing, Buffer.from(line, 'utf-8')]));
     } catch {
       // File doesn't exist yet — create it
       await workspace.fs.writeFile(uri, Buffer.from(line, 'utf-8'));
@@ -150,12 +150,8 @@ export class SidecarDir {
 
   /** Write a text file (for plans, specs, markdown). */
   async writeText(subpath: string, content: string): Promise<void> {
-    const uri = this.getUri(subpath);
-    const dir = path.dirname(subpath);
-    if (dir && dir !== '.') {
-      await this.ensureSubdir(dir.split(path.sep)[0] as (typeof SidecarDir.SUBDIRS)[number]);
-    }
-    await workspace.fs.writeFile(uri, Buffer.from(content, 'utf-8'));
+    await this.ensureParentSubdir(subpath);
+    await workspace.fs.writeFile(this.getUri(subpath), Buffer.from(content, 'utf-8'));
   }
 
   /** Read a text file from `.sidecar/`. Returns null if not found. */

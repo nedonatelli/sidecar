@@ -45,28 +45,30 @@ import {
   handleExecutePlan,
   handleRevisePlan,
   handleBatch,
-  handleInsight,
   handleSpec,
   handleGenerateDoc,
-  handleUsage,
   handleResume,
-  handleContext,
   handleGenerateTests,
+  handleScaffold,
+  handleExplainToolDecision,
+  handleInit,
+  handleCompactContext,
+} from './agentHandlers.js';
+import {
+  handleInsight,
+  handleUsage,
+  handleContext,
   handleLint,
   handleDeps,
-  handleScaffold,
   handleAudit,
   handleInsights,
-  handleExplainToolDecision,
   handleMcpStatus,
-  handleInit,
   handleListMemories,
   handleSearchMemories,
-  handleCompactContext,
   handleToggleVerbose,
   handleListSkills,
   handleGetSkillsForMenu,
-} from './agentHandlers.js';
+} from './infoHandlers.js';
 import { handleSaveSession, handleLoadSession, handleDeleteSession, handleListSessions } from './sessionHandlers.js';
 import { handleNotebookStart, handleNotebookExit } from './notebookHandlers.js';
 

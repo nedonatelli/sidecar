@@ -38,24 +38,27 @@ vi.mock('./agentHandlers.js', () => ({
   handleExecutePlan: vi.fn().mockResolvedValue(undefined),
   handleRevisePlan: vi.fn().mockResolvedValue(undefined),
   handleBatch: vi.fn(),
-  handleInsight: vi.fn(),
   handleSpec: vi.fn(),
   handleGenerateDoc: vi.fn(),
-  handleUsage: vi.fn(),
   handleResume: vi.fn(),
-  handleContext: vi.fn(),
   handleGenerateTests: vi.fn(),
+  handleScaffold: vi.fn(),
+  handleExplainToolDecision: vi.fn(),
+  handleInit: vi.fn(),
+  handleCompactContext: vi.fn(),
+}));
+
+vi.mock('./infoHandlers.js', () => ({
+  handleInsight: vi.fn(),
+  handleUsage: vi.fn(),
+  handleContext: vi.fn(),
   handleLint: vi.fn(),
   handleDeps: vi.fn(),
-  handleScaffold: vi.fn(),
   handleAudit: vi.fn(),
   handleInsights: vi.fn(),
-  handleExplainToolDecision: vi.fn(),
   handleMcpStatus: vi.fn(),
-  handleInit: vi.fn(),
   handleListMemories: vi.fn(),
   handleSearchMemories: vi.fn(),
-  handleCompactContext: vi.fn(),
   handleToggleVerbose: vi.fn(),
   handleListSkills: vi.fn(),
   handleGetSkillsForMenu: vi.fn(),
@@ -518,7 +521,7 @@ describe('buildDispatchHandlers', () => {
   });
 
   it('insight delegates to handleInsight', async () => {
-    const { handleInsight } = await import('./agentHandlers.js');
+    const { handleInsight } = await import('./infoHandlers.js');
     await invoke(handlers, 'insight');
     expect(handleInsight).toHaveBeenCalledWith(state);
   });
@@ -536,7 +539,7 @@ describe('buildDispatchHandlers', () => {
   });
 
   it('usage delegates to handleUsage', async () => {
-    const { handleUsage } = await import('./agentHandlers.js');
+    const { handleUsage } = await import('./infoHandlers.js');
     await invoke(handlers, 'usage');
     expect(handleUsage).toHaveBeenCalledWith(state);
   });
@@ -548,7 +551,7 @@ describe('buildDispatchHandlers', () => {
   });
 
   it('context delegates to handleContext', async () => {
-    const { handleContext } = await import('./agentHandlers.js');
+    const { handleContext } = await import('./infoHandlers.js');
     await invoke(handlers, 'context');
     expect(handleContext).toHaveBeenCalledWith(state);
   });
@@ -560,13 +563,13 @@ describe('buildDispatchHandlers', () => {
   });
 
   it('lint delegates to handleLint', async () => {
-    const { handleLint } = await import('./agentHandlers.js');
+    const { handleLint } = await import('./infoHandlers.js');
     await invoke(handlers, 'lint', { text: 'src/' });
     expect(handleLint).toHaveBeenCalledWith(state, 'src/');
   });
 
   it('deps delegates to handleDeps', async () => {
-    const { handleDeps } = await import('./agentHandlers.js');
+    const { handleDeps } = await import('./infoHandlers.js');
     await invoke(handlers, 'deps');
     expect(handleDeps).toHaveBeenCalledWith(state);
   });
@@ -578,13 +581,13 @@ describe('buildDispatchHandlers', () => {
   });
 
   it('audit delegates to handleAudit', async () => {
-    const { handleAudit } = await import('./agentHandlers.js');
+    const { handleAudit } = await import('./infoHandlers.js');
     await invoke(handlers, 'audit', { text: 'auth' });
     expect(handleAudit).toHaveBeenCalledWith(state, 'auth');
   });
 
   it('insights delegates to handleInsights', async () => {
-    const { handleInsights } = await import('./agentHandlers.js');
+    const { handleInsights } = await import('./infoHandlers.js');
     await invoke(handlers, 'insights');
     expect(handleInsights).toHaveBeenCalledWith(state);
   });
@@ -596,31 +599,31 @@ describe('buildDispatchHandlers', () => {
   });
 
   it('toggleVerbose delegates to handleToggleVerbose', async () => {
-    const { handleToggleVerbose } = await import('./agentHandlers.js');
+    const { handleToggleVerbose } = await import('./infoHandlers.js');
     await invoke(handlers, 'toggleVerbose');
     expect(handleToggleVerbose).toHaveBeenCalledWith(state);
   });
 
   it('listSkills delegates to handleListSkills', async () => {
-    const { handleListSkills } = await import('./agentHandlers.js');
+    const { handleListSkills } = await import('./infoHandlers.js');
     await invoke(handlers, 'listSkills');
     expect(handleListSkills).toHaveBeenCalledWith(state);
   });
 
   it('getSkillsForMenu delegates to handleGetSkillsForMenu', async () => {
-    const { handleGetSkillsForMenu } = await import('./agentHandlers.js');
+    const { handleGetSkillsForMenu } = await import('./infoHandlers.js');
     await invoke(handlers, 'getSkillsForMenu');
     expect(handleGetSkillsForMenu).toHaveBeenCalledWith(state);
   });
 
   it('listMemories delegates to handleListMemories', async () => {
-    const { handleListMemories } = await import('./agentHandlers.js');
+    const { handleListMemories } = await import('./infoHandlers.js');
     await invoke(handlers, 'listMemories');
     expect(handleListMemories).toHaveBeenCalledWith(state);
   });
 
   it('searchMemories delegates to handleSearchMemories', async () => {
-    const { handleSearchMemories } = await import('./agentHandlers.js');
+    const { handleSearchMemories } = await import('./infoHandlers.js');
     await invoke(handlers, 'searchMemories', { text: 'auth token' });
     expect(handleSearchMemories).toHaveBeenCalledWith(state, 'auth token');
   });
@@ -650,7 +653,7 @@ describe('buildDispatchHandlers', () => {
   });
 
   it('mcpStatus delegates to handleMcpStatus', async () => {
-    const { handleMcpStatus } = await import('./agentHandlers.js');
+    const { handleMcpStatus } = await import('./infoHandlers.js');
     await invoke(handlers, 'mcpStatus');
     expect(handleMcpStatus).toHaveBeenCalledWith(state);
   });

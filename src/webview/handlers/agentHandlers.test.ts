@@ -1,16 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { handleResume, handleCompactContext, handleGenerateDoc, handleGenerateTests } from './agentHandlers.js';
 import {
   handleMcpStatus,
-  handleResume,
   handleListMemories,
   handleSearchMemories,
   handleListSkills,
   handleGetSkillsForMenu,
   handleToggleVerbose,
-  handleCompactContext,
-  handleGenerateDoc,
-  handleGenerateTests,
-} from './agentHandlers.js';
+} from './infoHandlers.js';
 import { window, workspace } from 'vscode';
 
 // Mock dependent modules so agentHandlers can call them without real LLM/filesystem
@@ -144,7 +141,7 @@ describe('handleAudit', () => {
   let handleAudit: (state: any, args: string) => Promise<void>;
 
   beforeEach(async () => {
-    const mod = await import('./agentHandlers.js');
+    const mod = await import('./infoHandlers.js');
     handleAudit = mod.handleAudit;
   });
 
@@ -191,7 +188,7 @@ describe('handleInsights', () => {
   let handleInsights: (state: any) => Promise<void>;
 
   beforeEach(async () => {
-    const mod = await import('./agentHandlers.js');
+    const mod = await import('./infoHandlers.js');
     handleInsights = mod.handleInsights;
   });
 
@@ -220,7 +217,7 @@ describe('handleInsights', () => {
   });
 
   it('generates the analytics report and posts a done frame when audit entries exist', async () => {
-    const mod = await import('./agentHandlers.js');
+    const mod = await import('./infoHandlers.js');
     const state = {
       auditLog: {
         query: vi.fn().mockResolvedValue([
@@ -482,7 +479,7 @@ describe('handleLint (integration)', () => {
 
   beforeEach(async () => {
     vi.restoreAllMocks();
-    const mod = await import('./agentHandlers.js');
+    const mod = await import('./infoHandlers.js');
     handleLint = mod.handleLint;
   });
 
@@ -502,7 +499,7 @@ describe('handleDeps (integration)', () => {
 
   beforeEach(async () => {
     vi.restoreAllMocks();
-    const mod = await import('./agentHandlers.js');
+    const mod = await import('./infoHandlers.js');
     handleDeps = mod.handleDeps;
   });
 
@@ -523,7 +520,7 @@ describe('handleContext (integration)', () => {
 
   beforeEach(async () => {
     vi.restoreAllMocks();
-    const mod = await import('./agentHandlers.js');
+    const mod = await import('./infoHandlers.js');
     handleContext = mod.handleContext;
   });
 
@@ -676,7 +673,7 @@ describe('handleRevisePlan (happy path)', () => {
 
 describe('handleUsage', () => {
   it('handles an empty metrics history without crashing', async () => {
-    const mod = await import('./agentHandlers.js');
+    const mod = await import('./infoHandlers.js');
     const state = { metricsCollector: { getHistory: () => [] } };
     await mod.handleUsage(state as never);
   });
@@ -684,7 +681,7 @@ describe('handleUsage', () => {
 
 describe('handleInsight', () => {
   it('renders an insight report without throwing', async () => {
-    const mod = await import('./agentHandlers.js');
+    const mod = await import('./infoHandlers.js');
     const state = { metricsCollector: { getHistory: () => [] } };
     await mod.handleInsight(state as never);
   });
@@ -790,7 +787,7 @@ describe('handleBatch', () => {
 
 describe('handleAudit (formatted report)', () => {
   it('renders a markdown table and filter footer when entries exist', async () => {
-    const mod = await import('./agentHandlers.js');
+    const mod = await import('./infoHandlers.js');
     const state = {
       auditLog: {
         query: vi.fn().mockResolvedValue([
@@ -823,7 +820,7 @@ describe('handleAudit (formatted report)', () => {
   });
 
   it('parses tool: / last: / since: filter segments into the query', async () => {
-    const mod = await import('./agentHandlers.js');
+    const mod = await import('./infoHandlers.js');
     const state = {
       auditLog: {
         query: vi.fn().mockResolvedValue([]),

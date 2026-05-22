@@ -12,10 +12,10 @@ import {
   hasVisionSupport,
   validateCssSelector,
   validateScreenshotUrl,
-  resizePngBuffer,
   checkVisionRateLimit,
   resetVisionRateLimits,
 } from './vision.js';
+import { resizePngBuffer } from './pngUtils.js';
 
 // ---------------------------------------------------------------------------
 // Test helper: build a minimal valid PNG in memory
