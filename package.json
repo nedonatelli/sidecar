@@ -759,6 +759,11 @@
             "type": "boolean",
             "default": false,
             "markdownDescription": "*(Branch Protection Awareness, v0.99)* When true, the `git_push` result includes a summary of branch protection rules even when direct pushes ARE allowed — so the agent knows about required status checks and reviewer counts before the PR is submitted. Off by default to keep push output concise."
+          },
+          "sidecar.codeLens.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Show SideCar code lenses above functions and TODO comments for quick Explain/Fix actions."
           }
         }
       },
@@ -2193,6 +2198,11 @@
       {
         "command": "sidecar.nextEdit.dismiss",
         "title": "Next Edit: Dismiss Suggestions",
+        "category": "SideCar"
+      },
+      {
+        "command": "sidecar.codelens.invoke",
+        "title": "SideCar: Invoke CodeLens Action",
         "category": "SideCar"
       },
       {

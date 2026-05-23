@@ -324,6 +324,7 @@ export interface SideCarConfig {
   /* Branch protection awareness — pre-push guard on protected branches */
   branchProtectionEnabled: boolean;
   branchProtectionWarnEvenIfPassing: boolean;
+  codeLensEnabled: boolean;
 }
 
 /**
@@ -617,6 +618,7 @@ function readConfig(): SideCarConfig {
     ciAnalysisJobFilter: cfg.get<string[]>('ci.analysis.jobFilter', ['*']),
     branchProtectionEnabled: cfg.get<boolean>('pr.branchProtection.enabled', true),
     branchProtectionWarnEvenIfPassing: cfg.get<boolean>('pr.branchProtection.warnEvenIfPassing', false),
+    codeLensEnabled: cfg.get<boolean>('codeLens.enabled', true),
   };
 }
 

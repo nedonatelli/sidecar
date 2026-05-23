@@ -108,11 +108,12 @@ describe('package.json contributes.configuration — 13-category layout', () => 
     // + v0.95 Zen Mode (+2: zenMode.enabled/minScore).
     // + v0.99 CI Failure Analysis (+3: ci.analysis.enabled/maxLogBytes/jobFilter).
     // + v0.99 Branch Protection Awareness (+2: pr.branchProtection.enabled/warnEvenIfPassing).
+    // + v0.100 CodeLens (+1: codeLens.enabled).
     // Adding a setting requires bumping this + adding it to one of
     // the sections.
     const cfg = loadConfiguration();
     const totalKeys = cfg.reduce((sum, s) => sum + Object.keys(s.properties).length, 0);
-    expect(totalKeys).toBe(195);
+    expect(totalKeys).toBe(196);
   });
 
   it('no setting key is duplicated across sections', () => {

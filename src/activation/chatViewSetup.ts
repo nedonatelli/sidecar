@@ -19,6 +19,7 @@ import type { MCPManager } from '../agent/mcpManager.js';
 import type { WorkspaceIndex } from '../config/workspaceIndex.js';
 import type { SidecarDir } from '../config/sidecarDir.js';
 import type { SkillLoader } from '../agent/skillLoader.js';
+import type { AgentModDecorationManager } from '../views/agentModDecoration.js';
 
 export interface ChatViewSetupDeps {
   terminalManager: TerminalManager;
@@ -28,6 +29,7 @@ export interface ChatViewSetupDeps {
   workspaceIndex: WorkspaceIndex;
   sidecarDir: SidecarDir;
   skillLoader: SkillLoader;
+  agentModDecorationManager?: AgentModDecorationManager;
 }
 
 /**
@@ -38,8 +40,16 @@ export interface ChatViewSetupDeps {
  * Extracted from extension.ts to keep the entry point under 150 lines.
  */
 export function setupChatView(context: ExtensionContext, deps: ChatViewSetupDeps): ChatViewProvider {
-  const { terminalManager, proposedContentProvider, agentLogger, mcpManager, workspaceIndex, sidecarDir, skillLoader } =
-    deps;
+  const {
+    terminalManager,
+    proposedContentProvider,
+    agentLogger,
+    mcpManager,
+    workspaceIndex,
+    sidecarDir,
+    skillLoader,
+    agentModDecorationManager,
+  } = deps;
 
   const inlineEditProvider = new InlineEditProvider();
   context.subscriptions.push(inlineEditProvider);
@@ -75,6 +85,7 @@ export function setupChatView(context: ExtensionContext, deps: ChatViewSetupDeps
   context.subscriptions.push(registerReviewPanel(context, chatProvider.pendingEditStore, proposedContentProvider));
   context.subscriptions.push(registerPinnedMemoryView(context, chatProvider.state.pinnedMemoryStore));
   context.subscriptions.push(registerEditTimelineView(context, chatProvider.state.editTimeline));
+  agentModDecorationManager?.attach(chatProvider.state.editTimeline);
   context.subscriptions.push(registerBackgroundAgentsView(context, chatProvider.backgroundAgentManager));
   context.subscriptions.push(registerMcpServersView(context, mcpManager));
   context.subscriptions.push(

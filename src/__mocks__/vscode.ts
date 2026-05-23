@@ -162,6 +162,7 @@ export const languages = {
   getDiagnostics: (_uri?: unknown) => [],
   registerInlineCompletionItemProvider: () => ({ dispose: () => {} }),
   createDiagnosticCollection: (name: string) => new MockDiagnosticCollection(name),
+  registerCodeLensProvider: () => ({ dispose: () => {} }),
 };
 
 export class Diagnostic {
@@ -277,6 +278,13 @@ export enum ViewColumn {
   Three = 3,
 }
 
+export enum OverviewRulerLane {
+  Left = 1,
+  Center = 2,
+  Right = 4,
+  Full = 7,
+}
+
 export enum InlineCompletionTriggerKind {
   Invoke = 0,
   Automatic = 1,
@@ -361,6 +369,16 @@ export class TestRunRequest {
 
 export class TestMessage {
   constructor(public message: string) {}
+}
+
+export class CodeLens {
+  constructor(
+    public range: Range,
+    public command?: { title: string; command: string; arguments?: unknown[] },
+  ) {}
+  get isResolved(): boolean {
+    return this.command !== undefined;
+  }
 }
 
 export const tests = {

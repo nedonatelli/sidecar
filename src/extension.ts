@@ -29,6 +29,8 @@ import { createSdkApi } from './sdk/api.js';
 import { loadRepoPolicy, setActivePolicy } from './agent/policy/policyLoader.js';
 import { registerHandoffCommands } from './commands/handoffCommands.js';
 import { initAuditDecorations } from './activation/auditDecorationsSetup.js';
+import { initAgentModDecoration } from './activation/agentModDecorationSetup.js';
+import { initCodeLens } from './activation/codeLensSetup.js';
 
 let chatProvider: ChatViewProvider | undefined;
 
@@ -67,6 +69,11 @@ export function activate(context: ExtensionContext) {
   initWorkspaceIndex(context, workspaceIndex, symbolIndexer, sidecarDir, config);
   initWarmup(config);
 
+  const agentModDecorationManager = initAgentModDecoration(context);
+  if (config.codeLensEnabled) {
+    initCodeLens(context);
+  }
+
   chatProvider = setupChatView(context, {
     terminalManager,
     proposedContentProvider,
@@ -75,6 +82,7 @@ export function activate(context: ExtensionContext) {
     workspaceIndex,
     sidecarDir,
     skillLoader,
+    agentModDecorationManager,
   });
 
   registerSettingsCommands(context, {
