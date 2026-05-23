@@ -1,6 +1,6 @@
 # SideCar Roadmap
 
-**Current release: v0.100.0** — Enterprise & Collaboration batch: repo-level tool policy (`.sidecar/policy.json`), shared team memory (`.sidecar/team-memory/*.md`), agent handoff (export/import session bundles). See [CHANGELOG](CHANGELOG.md) for full notes.
+**Current release: v0.101.0** — VS Code Native Integrations: Test Explorer, file-tree audit badges, SCM commit message helper, CodeLensProvider, agent-mod line decorations, streaming inline diffs, episodic memory persistence, read-only tool tier + describe_tool, fork/facet WebviewPanel review. See [CHANGELOG](CHANGELOG.md) for full notes.
 
 **Coverage floor**: ≥80/70/80/80 (stmts/branches/funcs/lines) enforced by CI. No PR merges that drop any metric.
 
@@ -11,6 +11,8 @@
 ### Shipped
 
 | Version | Headline |
+|---|---|
+| v0.101.0 | VS Code Native Integrations: Test Explorer (`TestController`) · file-tree audit badges (`FileDecorationProvider`) · SCM commit message helper · CodeLensProvider (Explain/Fix on functions/TODOs) · agent-mod line decorations · streaming inline diffs · episodic memory persistence · read-only tool tier + `describe_tool` · fork/facet WebviewPanel review |
 |---|---|
 | v0.100.0 | Enterprise & Collaboration: repo-level policy (`.sidecar/policy.json` · restrictions-only · `$(shield)` status bar) + shared team memory (`.sidecar/team-memory/*.md` · injected as `## Team Memory`) + agent handoff (`SideCar: Export Handoff` / `SideCar: Import Handoff` · portable JSON session bundles) |
 | v0.99.0 | CI Failure Analysis (`analyze_ci_failure` tool · `SideCar: Analyze CI Failure` command · GHA log parsing · failure windowing) + Branch Protection Awareness (pre-push guard in `git_push` · `sidecar.pr.branchProtection.*`) |

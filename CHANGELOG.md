@@ -4,6 +4,40 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.101.0] - 2026-05-23
+
+**v0.101.0 — VS Code Native Integrations: Test Explorer, CodeLens, line decorations, inline diffs, and a smarter context pipeline.**
+
+### Added
+
+- **Test Explorer integration** (`TestController`) — agent `run_tests` output now appears in VS Code's built-in Test Explorer. Output is auto-detected as Vitest, pytest, Go, Rust, or Jest and parsed into a file → test-case tree with native pass/fail/skip icons. Results are registered as a persistent run so they survive editor focus changes. (`src/testing/testController.ts`, `src/testing/testOutputParser.ts`)
+
+- **File decoration for audit-buffer state** (`FileDecorationProvider`) — when audit mode is active, files with buffered agent writes show `~` (pending change) and `✗` (pending delete) badges in the Explorer file tree. Badges refresh after every buffered write and clear on accept/reject flush. (`src/testing/auditDecorations.ts`)
+
+- **SCM commit message helper** — new `SideCar: Suggest Commit Message` command reads the staged diff via the built-in `vscode.git` extension, sends it to the active model, and writes a generated conventional-commit message directly into the source-control input box. (`src/scm/commitMessageHelper.ts`)
+
+- **CodeLensProvider** — `⚡ SideCar: Explain` lenses above function/class/test declarations and `⚡ SideCar: Fix` lenses above TODO/FIXME comments, for TypeScript, JavaScript, Python, Go, and Rust files. Clicking sets the editor selection to that code range and fires the existing `explainSelection`/`fixSelection` commands. Capped at 50 lenses per file with 2-line cluster dedup. Gated by `sidecar.codeLens.enabled` (default `true`). (`src/codelens/sidecarCodeLensProvider.ts`)
+
+- **Agent-mod line decorations** — lines the agent writes or modifies in the current session receive a 3 px colored left-border stripe (mirrors VS Code's git-modified gutter). Updated live as the `EditTimelineStore` changes; clears when the active file has no agent edits. Uses `parseModifiedRanges()` to extract new-file line positions from the unified diff. (`src/views/agentModDecoration.ts`)
+
+- **Streaming inline diffs in chat** — `edit_file` and `write_file` now emit a colored unified diff into the chat panel as each tool call completes. Added/removed/context/hunk lines are rendered with distinct CSS classes (`diff-add`, `diff-del`, `diff-hunk`, `diff-ctx`). Emitted via `onOutput` with a `\x00diff\x00` sentinel so callers that omit `onOutput` see no change. (`src/agent/tools/fs.ts`, `media/chat.js`, `media/chat.css`)
+
+- **Episodic memory persists across sessions** — `EpisodicMemoryStore` now accepts a `SidecarDir` and writes summaries to `.sidecar/cache/episodic/` via `FlatVectorStore`. The VS Code session holds one shared store restored at activation; context compressed from previous sessions is retrievable by future agent turns. `compression.ts` calls `persist()` after every `add()` so no summary is lost on extension restart. (`src/agent/episodicMemory.ts`, `src/webview/chatStateInit.ts`)
+
+- **Read-only tool tier + `describe_tool`** — `getToolDefinitionsForTier('read')` returns an observation-only catalog (read_file, grep, git_diff, web_search, project_knowledge_search, get_diagnostics, describe_tool). Extended tools in the `full` tier are stub-collapsed to empty schemas with a `describe_tool('name') for parameters` hint, trimming prompt size for models that don't need the full set. `resolveToolTier()` classifies short read-query messages (explain, search, inspect without action verbs) to `'read'`; everything else uses `'full'`. The retrieval `topK` doubles for read-tier turns since the model answers from context rather than fetching files. (`src/agent/tools.ts`, `src/webview/handlers/messageUtils.ts`)
+
+- **Fork/Facet review WebviewPanel** — the QuickPick-driven review flow for fork and facet dispatch is replaced by a `WebviewPanel` showing all results simultaneously with inline colored diffs. Fork review uses radio-button single-winner selection; facet review shows independent Accept/Reject/Skip buttons per card. Overlap warnings surface cross-facet file conflicts. (`src/review/reviewPanel.ts`)
+
+- **Per-hunk audit-mode review** — `sidecar.audit.review` now defaults to showing individual diff hunks rather than full-file diffs, controlled by `sidecar.agentReview.granularity`. Speeds up reviewing large files with small agent edits.
+
+- **`sidecar.codeLens.enabled`** (default `true`) — show SideCar code lenses above functions and TODO comments.
+- **`sidecar.codelens.invoke`** — internal command used by code lenses to set the editor selection before firing an action.
+
+### Internal
+
+- `computeLineDiff` extracted from `fs.ts` to `src/agent/tools/diffUtils.ts` and exported; `fs.ts` now imports it from there. Both the streaming-diff pipeline and the agent-mod decoration manager share this module.
+- SIDECAR.md restructured into 14 scoped sections (5 always-include, 9 path-gated with `<!-- @paths: -->` sentinels) so the retrieval layer injects only the sections relevant to files currently being edited.
+
 ## [0.100.0] - 2026-05-21
 
 **v0.100.0 — Enterprise & Collaboration: repo policy, shared team memory, agent handoff.**

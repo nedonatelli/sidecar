@@ -34,6 +34,8 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 | Review mode (accept/discard per file) | **Yes** | Partial | No | No |
 | Pending-change file decorations | **Yes** | No | No | No |
 | Activity-bar review badge | **Yes** | No | No | No |
+| Test Explorer integration | **Yes** | No | No | No |
+| CodeLens Explain/Fix on functions & TODOs | **Yes** | Partial | No | No |
 | Native lightbulb code actions | **Yes** | Partial | No | No |
 | Built-in skills (8) | **Yes** | Yes | No | No |
 | Tree-sitter AST parsing | **Yes** | Yes | No | No |
@@ -61,6 +63,8 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 | Plan-then-execute mode | **Yes** | Yes | Yes | Yes |
 | Review mode (batch diff review) | **Yes** | No | Partial | No |
 | Native Problems panel integration | **Yes** | No | No | No |
+| Test Explorer integration (agent test runs) | **Yes** | No | No | No |
+| Inline diff streaming in chat | **Yes** | No | No | No |
 | Status bar health indicator | **Yes** | Partial | No | No |
 | Getting-started walkthrough | **Yes** | Yes | No | No |
 | Native modal approval for destructive tools | **Yes** | No | No | Partial |
