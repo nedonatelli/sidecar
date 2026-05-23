@@ -9,6 +9,7 @@
 
 import { window, commands, workspace } from 'vscode';
 import { BackgroundAgentManager } from '../agent/backgroundAgent.js';
+import { SidecarTestController } from '../testing/testController.js';
 import { notifyBgComplete } from '../agent/bgNotifier.js';
 import { ContextProviderManager } from '../context/contextProviderManager.js';
 import { DocumentationIndexer } from '../config/documentationIndexer.js';
@@ -39,6 +40,10 @@ export function initializeChatSubsystems(
   mcpManager: MCPManager,
   postMessage: (msg: ExtensionMessage) => void,
 ): BackgroundAgentManager {
+  if (state.context) {
+    state.testController = new SidecarTestController(state.context);
+  }
+
   if (config.contextProviders?.length) {
     const root = workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
     state.contextProviderManager = new ContextProviderManager(config.contextProviders, undefined, root);

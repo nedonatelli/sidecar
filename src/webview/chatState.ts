@@ -109,6 +109,7 @@ export class ChatState {
   auditLog: AuditLog | null = null;
   contextProviderManager: ContextProviderManager | null = null;
   editTimeline = new EditTimelineStore();
+  testController: import('../testing/testController.js').SidecarTestController | null = null;
 
   /** ID of the current auto-saved session, null if conversation is empty/unsaved */
   currentSessionId: string | null = null;

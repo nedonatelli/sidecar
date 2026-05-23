@@ -148,5 +148,9 @@ export function registerAgentCommands(context: ExtensionContext, extensionId: st
     commands.registerCommand('sidecar.openWalkthrough', () => {
       commands.executeCommand('workbench.action.openWalkthrough', `${extensionId}#sidecar.gettingStarted`, false);
     }),
+    commands.registerCommand('sidecar.scm.suggestCommitMessage', async () => {
+      const { suggestCommitMessage } = await import('../scm/commitMessageHelper.js');
+      await suggestCommitMessage(createClient);
+    }),
   );
 }

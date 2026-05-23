@@ -425,6 +425,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
       steerQueue,
       toolTier: resolveToolTier(turnText),
       episodicMemory: state.episodicMemoryStore ?? undefined,
+      testController: state.testController ?? undefined,
     });
 
     if (state.chatGeneration !== generationAtStart) {

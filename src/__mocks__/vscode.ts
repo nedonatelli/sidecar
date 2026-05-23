@@ -120,6 +120,7 @@ export const window = {
   createTextEditorDecorationType: () => ({
     dispose: () => {},
   }),
+  registerFileDecorationProvider: (_provider: unknown) => ({ dispose: () => {} }),
 };
 
 export const authentication = {
@@ -324,6 +325,64 @@ export class Location {
 export const chat = {
   createChatParticipant: (_id: string, _handler: unknown) => ({
     iconPath: undefined as unknown,
+    dispose: () => {},
+  }),
+};
+
+export enum TestRunProfileKind {
+  Run = 1,
+  Debug = 2,
+  Coverage = 3,
+}
+
+class MockTestItemCollection {
+  private store = new Map<string, unknown>();
+  add(item: { id: string }) {
+    this.store.set(item.id, item);
+  }
+  delete(id: string) {
+    this.store.delete(id);
+  }
+  get(id: string) {
+    return this.store.get(id);
+  }
+  get size() {
+    return this.store.size;
+  }
+}
+
+export class TestRunRequest {
+  constructor(
+    public include?: unknown[],
+    public exclude?: unknown[],
+    public profile?: unknown,
+  ) {}
+}
+
+export class TestMessage {
+  constructor(public message: string) {}
+}
+
+export const tests = {
+  createTestController: (_id: string, _label: string) => ({
+    items: new MockTestItemCollection(),
+    createTestItem: (id: string, label: string, uri?: unknown) => ({
+      id,
+      label,
+      uri,
+      children: new MockTestItemCollection(),
+    }),
+    createRunProfile: (_label: string, _kind: TestRunProfileKind, _runHandler: unknown, _isDefault?: boolean) => ({
+      dispose: () => {},
+    }),
+    createTestRun: (_request: unknown, _name?: string, _persist?: boolean) => ({
+      started: (_item: unknown) => {},
+      passed: (_item: unknown, _duration?: number) => {},
+      failed: (_item: unknown, _message: unknown, _duration?: number) => {},
+      skipped: (_item: unknown) => {},
+      appendOutput: (_output: string) => {},
+      end: () => {},
+    }),
     dispose: () => {},
   }),
 };

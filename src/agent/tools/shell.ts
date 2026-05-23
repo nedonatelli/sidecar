@@ -233,7 +233,9 @@ export async function runTests(input: Record<string, unknown>, context?: ToolExe
 
   const config = context?.config ?? getConfig();
   const timeoutMs = (config.shellTimeout || 120) * 1000;
-  return executeShell(command, timeoutMs, context);
+  const output = await executeShell(command, timeoutMs, context);
+  context?.testController?.reportRun(command, output);
+  return output;
 }
 
 export const shellTools: RegisteredTool[] = [

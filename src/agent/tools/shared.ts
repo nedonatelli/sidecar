@@ -10,6 +10,7 @@ import type { ToolRuntime } from './runtime.js';
 import type { SideCarClient } from '../../ollama/client.js';
 import type { EditTimelineStore } from '../editTimeline.js';
 import type { MCPManager } from '../mcpManager.js';
+import type { SidecarTestController } from '../../testing/testController.js';
 
 // Re-exported so sibling tool modules can import ToolDefinition from a
 // single shared entrypoint if they prefer.
@@ -90,6 +91,12 @@ export interface ToolExecutorContext {
    * going through the global TOOL_REGISTRY lookup path.
    */
   mcpManager?: MCPManager;
+  /**
+   * VS Code TestController integration. When set, `run_tests` reports
+   * its output here after execution so results appear in the native
+   * Test Explorer panel without the user re-running manually.
+   */
+  testController?: SidecarTestController;
 }
 
 export interface ToolExecutor {

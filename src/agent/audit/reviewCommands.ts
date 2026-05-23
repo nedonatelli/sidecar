@@ -2,6 +2,7 @@ import { window, workspace, commands, Uri } from 'vscode';
 import * as path from 'path';
 import { getDefaultAuditBuffer, AuditFlushError, type AuditBuffer, type BufferedChange } from './auditBuffer.js';
 import { computeUnifiedDiff, computeHunks, applySelectedHunks, type DiffHunk } from '../diff.js';
+import { getAuditDecorationProvider } from '../../testing/auditDecorations.js';
 
 /**
  * Audit Mode review commands — the user-facing side of the buffer
@@ -501,6 +502,7 @@ async function flushBufferPaths(deps: AuditReviewDeps, paths?: string[]): Promis
 
   try {
     const result = await buf.flush(writeDisk, deleteDisk, paths, deps.executeCommit);
+    getAuditDecorationProvider()?.refresh();
     const n = result.applied.length;
     const c = result.committed.length;
     const commitStr = c > 0 ? ` and ran ${c} commit${c === 1 ? '' : 's'}` : '';
@@ -589,6 +591,7 @@ export async function rejectAllAuditBuffer(deps: AuditReviewDeps): Promise<void>
   if (choice !== 'Reject All') return;
 
   buf.clear();
+  getAuditDecorationProvider()?.refresh();
   deps.ui.showInfo(`SideCar audit: rejected ${count} change${count === 1 ? '' : 's'}.`);
 }
 

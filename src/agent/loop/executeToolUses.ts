@@ -169,6 +169,7 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
       config: state.config,
       editTimeline: options.editTimeline,
       mcpManager: state.mcpManager,
+      testController: options.testController,
     },
     inlineEditFn: options.inlineEditFn,
     streamingDiffPreviewFn: options.streamingDiffPreviewFn,

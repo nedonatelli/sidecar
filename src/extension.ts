@@ -28,6 +28,7 @@ import { initMcpServer } from './activation/mcpServerSetup.js';
 import { createSdkApi } from './sdk/api.js';
 import { loadRepoPolicy, setActivePolicy } from './agent/policy/policyLoader.js';
 import { registerHandoffCommands } from './commands/handoffCommands.js';
+import { initAuditDecorations } from './activation/auditDecorationsSetup.js';
 
 let chatProvider: ChatViewProvider | undefined;
 
@@ -115,6 +116,7 @@ export function activate(context: ExtensionContext) {
   registerDepsFeature(context);
   initExecutiveFunctionSetup(context, sidecarDir, () => chatProvider);
   void initMcpServer(context);
+  initAuditDecorations(context);
 
   // First-install auto-open. Gated behind a globalState flag so
   // existing users and every subsequent launch skip it. Fires after a

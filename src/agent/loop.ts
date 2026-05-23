@@ -243,6 +243,12 @@ export interface AgentOptions {
    * on that field corrupt each other's model selection.
    */
   modelOverride?: string;
+  /**
+   * VS Code TestController for surfacing `run_tests` results in the
+   * native Test Explorer panel. When set, the executor calls
+   * `testController.reportRun(command, output)` after each test run.
+   */
+  testController?: import('../testing/testController.js').SidecarTestController;
 }
 
 // DEFAULT_MAX_ITERATIONS moved to loop/state.ts along with initLoopState.

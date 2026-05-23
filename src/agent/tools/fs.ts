@@ -12,6 +12,7 @@ import {
 import { compactSourceFile, outlineSourceFile } from './compression.js';
 import { getDefaultAuditBuffer } from '../audit/auditBuffer.js';
 import { isAuditModeActive } from './auditHelper.js';
+import { getAuditDecorationProvider } from '../../testing/auditDecorations.js';
 
 /**
  * Read buffered content for a workspace-relative path if Audit Mode
@@ -264,6 +265,7 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
   // flushes (applies every buffered change atomically) or rejects.
   if (isAuditModeActive(context)) {
     await getDefaultAuditBuffer().write(filePath, content, (p) => readDiskViaWorkspace(context, p));
+    getAuditDecorationProvider()?.refresh();
     return `File written: ${filePath} (buffered for audit review)`;
   }
 
@@ -346,6 +348,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
     }
     const newText = currentText.replace(search, () => replace);
     await buf.write(filePath, newText, (p) => readDiskViaWorkspace(context, p));
+    getAuditDecorationProvider()?.refresh();
     return `File edited: ${filePath} (buffered for audit review)${partialReplaceWarning}`;
   }
 
@@ -384,6 +387,7 @@ export async function deleteFile(input: Record<string, unknown>, context?: ToolE
 
   if (isAuditModeActive(context)) {
     await getDefaultAuditBuffer().deleteFile(filePath, (p) => readDiskViaWorkspace(context, p));
+    getAuditDecorationProvider()?.refresh();
     return `File deleted: ${filePath} (buffered for audit review)`;
   }
 
