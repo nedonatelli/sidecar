@@ -236,6 +236,7 @@ describe('applyBudgetCompression', () => {
     });
     const faultyEpisodic = {
       add: vi.fn().mockRejectedValue(new Error('embedding model failed to load')),
+      persist: vi.fn().mockResolvedValue(undefined),
     } as unknown as EpisodicMemoryStore;
     const state = stubLoopState({
       maxTokens: 100_000,

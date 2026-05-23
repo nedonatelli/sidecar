@@ -16,6 +16,7 @@
  */
 
 import { FlatVectorStore } from '../config/vectorStore.js';
+import type { SidecarDir } from '../config/sidecarDir.js';
 
 const MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
 const DIMENSION = 384;
@@ -43,14 +44,34 @@ type EmbeddingPipeline = (
 ) => Promise<{ data: Float32Array }>;
 
 export class EpisodicMemoryStore {
-  private store = new FlatVectorStore<EpisodicMeta>(null, {
-    dimension: DIMENSION,
-    version: 1,
-    binFile: '',
-    metaFile: '',
-  });
+  private store: FlatVectorStore<EpisodicMeta>;
   private pipeline: EmbeddingPipeline | null = null;
   private modelLoading: Promise<boolean> | null = null;
+
+  constructor(sidecarDir: SidecarDir | null = null) {
+    this.store = new FlatVectorStore<EpisodicMeta>(sidecarDir, {
+      dimension: DIMENSION,
+      version: 1,
+      binFile: 'cache/episodic/vectors.bin',
+      metaFile: 'cache/episodic/meta.json',
+      extraMeta: { modelId: MODEL_ID },
+      validateMeta(meta) {
+        return (
+          meta.version === 1 && meta.dimension === DIMENSION && (meta as { modelId?: string }).modelId === MODEL_ID
+        );
+      },
+    });
+  }
+
+  /** Flush the current store entries to disk. No-op when no sidecarDir. */
+  async persist(): Promise<void> {
+    await this.store.persist();
+  }
+
+  /** Restore store entries from disk. No-op when no sidecarDir or cache absent. */
+  async restore(): Promise<void> {
+    await this.store.restore();
+  }
 
   isEmpty(): boolean {
     return this.store.size() === 0;
@@ -102,7 +123,7 @@ export class EpisodicMemoryStore {
     const lines = hits.map((h) => `- ${h.summary.replace(/\n+/g, ' ').trim().slice(0, 400)}`);
     return (
       `<prior_context>\n` +
-      `Relevant context from earlier in this session (retrieved by semantic similarity to current task):\n` +
+      `Relevant context from earlier in this or previous sessions (retrieved by semantic similarity to current task):\n` +
       lines.join('\n') +
       `\n</prior_context>`
     );

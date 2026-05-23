@@ -181,6 +181,9 @@ export async function applyBudgetCompression(client: SideCarClient, state: LoopS
         await state.episodicMemory.add(summaryText, summarized.metadata.turnsSummarized).catch((err: unknown) => {
           state.logger?.info(`Episodic memory indexing failed: ${err instanceof Error ? err.message : String(err)}`);
         });
+        state.episodicMemory.persist().catch((err: unknown) => {
+          state.logger?.info(`Episodic memory persist failed: ${err instanceof Error ? err.message : String(err)}`);
+        });
       }
     }
 

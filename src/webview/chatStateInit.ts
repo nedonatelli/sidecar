@@ -14,6 +14,7 @@ import { ContextProviderManager } from '../context/contextProviderManager.js';
 import { DocumentationIndexer } from '../config/documentationIndexer.js';
 import { SidecarMdIndex } from '../agent/sidecarMdIndex.js';
 import { AgentMemory } from '../agent/agentMemory.js';
+import { EpisodicMemoryStore } from '../agent/episodicMemory.js';
 import { PinnedMemoryStore } from '../agent/memory/pinnedMemory.js';
 import { TeamMemoryStore } from '../agent/memory/teamMemory.js';
 import { AuditLog } from '../agent/auditLog.js';
@@ -61,6 +62,13 @@ export function initializeChatSubsystems(
     state.agentMemory = new AgentMemory(sidecarDir.getPath());
     state.agentMemory.load().catch((err) => {
       console.warn('Failed to load agent memory:', err);
+    });
+  }
+
+  if (sidecarDir) {
+    state.episodicMemoryStore = new EpisodicMemoryStore(sidecarDir);
+    state.episodicMemoryStore.restore().catch((err) => {
+      console.warn('Failed to restore episodic memory:', err);
     });
   }
 

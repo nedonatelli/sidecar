@@ -103,6 +103,7 @@ export class ChatState {
   documentationIndexer: DocumentationIndexer | null = null;
   sidecarMdIndex: import('../agent/sidecarMdIndex.js').SidecarMdIndex | null = null;
   agentMemory: AgentMemory | null = null;
+  episodicMemoryStore: import('../agent/episodicMemory.js').EpisodicMemoryStore | null = null;
   pinnedMemoryStore: PinnedMemoryStore | null = null;
   teamMemoryStore: TeamMemoryStore | null = null;
   auditLog: AuditLog | null = null;

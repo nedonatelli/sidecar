@@ -109,7 +109,7 @@ describe('EpisodicMemoryStore', () => {
     if (block !== undefined) {
       expect(block).toContain('<prior_context>');
       expect(block).toContain('</prior_context>');
-      expect(block).toContain('from earlier in this session');
+      expect(block).toContain('in this or previous sessions');
     }
     // May be undefined if fake pipeline similarity doesn't clear the floor for
     // this particular query — that is acceptable and tested by the empty case above.
@@ -128,5 +128,39 @@ describe('EpisodicMemoryStore', () => {
     store.setPipelineForTests(null as any);
     const hits = await store.query('any query text', 3);
     expect(hits).toHaveLength(0);
+  });
+
+  describe('persist() / restore()', () => {
+    it('persist() resolves without throwing in session-only mode (null sidecarDir)', async () => {
+      await store.add('Fixed auth middleware', 1);
+      await expect(store.persist()).resolves.toBeUndefined();
+    });
+
+    it('restore() resolves without throwing in session-only mode (null sidecarDir)', async () => {
+      await expect(store.restore()).resolves.toBeUndefined();
+    });
+
+    it('restore() leaves store empty when sidecarDir is null (no files to read)', async () => {
+      await store.restore();
+      expect(store.isEmpty()).toBe(true);
+    });
+
+    it('restore() followed by add() still works (pipeline not affected by restore)', async () => {
+      await store.restore();
+      await store.add('Post-restore entry about authentication', 1);
+      expect(store.size()).toBe(1);
+    });
+  });
+
+  describe('constructor backward compatibility', () => {
+    it('no-arg constructor (session-only) behaves identically to explicit null', async () => {
+      const storeNull = new EpisodicMemoryStore(null);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      storeNull.setPipelineForTests(fakePipeline() as any);
+      await storeNull.add('some entry', 1);
+      await expect(storeNull.persist()).resolves.toBeUndefined();
+      await expect(storeNull.restore()).resolves.toBeUndefined();
+      expect(storeNull.size()).toBe(1);
+    });
   });
 });
