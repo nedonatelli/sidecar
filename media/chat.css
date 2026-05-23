@@ -2669,6 +2669,20 @@ body {
   white-space: pre;
 }
 
+.tool-diff-patch {
+  margin: 4px 0 0;
+  padding: 6px 10px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: var(--vscode-editor-font-size, 12px);
+  line-height: 1.5;
+  white-space: pre;
+  overflow-x: auto;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--vscode-textCodeBlock-background, rgba(127, 127, 127, 0.1));
+  border-radius: 3px;
+}
+
 .diff-add {
   color: var(--vscode-gitDecoration-addedResourceForeground, #4ec9b0);
 }

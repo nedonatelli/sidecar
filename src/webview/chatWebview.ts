@@ -215,6 +215,7 @@ export interface ExtensionMessage {
   agentMode?: string;
   toolName?: string;
   toolCallId?: string;
+  isDiff?: boolean;
   confirmId?: string;
   confirmActions?: string[];
   clarifyId?: string;

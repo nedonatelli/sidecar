@@ -223,3 +223,82 @@ describe('isSensitiveFile guard', () => {
     }
   });
 });
+
+describe('streaming diff via onOutput', () => {
+  const DIFF_PREFIX = '\x00diff\x00';
+
+  it('editFile emits a unified diff via onOutput when content changes', async () => {
+    const { workspace } = await import('vscode');
+    const oldContent = 'const x = 1;\nconst y = 2;\nconst z = 3;\n';
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValueOnce(Buffer.from(oldContent) as never);
+    vi.spyOn(workspace.fs, 'writeFile').mockResolvedValueOnce(undefined as never);
+
+    const chunks: string[] = [];
+    const context = { onOutput: (c: string) => chunks.push(c) };
+    const result = await editFile({ path: 'src/foo.ts', search: 'const y = 2;', replace: 'const y = 99;' }, context);
+
+    expect(result).toBe('File edited: src/foo.ts');
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]).toMatch(/^\x00diff\x00/);
+    const patch = chunks[0].slice(DIFF_PREFIX.length);
+    expect(patch).toContain('--- a/src/foo.ts');
+    expect(patch).toContain('+++ b/src/foo.ts');
+    expect(patch).toContain('-const y = 2;');
+    expect(patch).toContain('+const y = 99;');
+    vi.restoreAllMocks();
+  });
+
+  it('editFile emits no diff when search === replace (error path, no write)', async () => {
+    const chunks: string[] = [];
+    const context = { onOutput: (c: string) => chunks.push(c) };
+    const result = await editFile({ path: 'src/foo.ts', search: 'same', replace: 'same' }, context);
+    expect(result).toContain('Error');
+    expect(chunks).toHaveLength(0);
+  });
+
+  it('writeFile emits diff via onOutput when file already exists', async () => {
+    const { workspace } = await import('vscode');
+    const original = 'line A\nline B\nline C\n';
+    const newContent = 'line A\nline B modified\nline C\n';
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValueOnce(Buffer.from(original) as never);
+    vi.spyOn(workspace.fs, 'writeFile').mockResolvedValueOnce(undefined as never);
+    vi.spyOn(workspace.fs, 'createDirectory').mockResolvedValueOnce(undefined as never);
+
+    const chunks: string[] = [];
+    const context = { onOutput: (c: string) => chunks.push(c) };
+    const result = await writeFile({ path: 'src/bar.ts', content: newContent }, context);
+
+    expect(result).toBe('File written: src/bar.ts');
+    expect(chunks).toHaveLength(1);
+    const patch = chunks[0].slice(DIFF_PREFIX.length);
+    expect(patch).toContain('-line B');
+    expect(patch).toContain('+line B modified');
+    vi.restoreAllMocks();
+  });
+
+  it('writeFile emits all-additions diff when file is new', async () => {
+    const { workspace } = await import('vscode');
+    vi.spyOn(workspace.fs, 'readFile').mockRejectedValueOnce(new Error('ENOENT'));
+    vi.spyOn(workspace.fs, 'writeFile').mockResolvedValueOnce(undefined as never);
+    vi.spyOn(workspace.fs, 'createDirectory').mockResolvedValueOnce(undefined as never);
+
+    const chunks: string[] = [];
+    const context = { onOutput: (c: string) => chunks.push(c) };
+    await writeFile({ path: 'src/new.ts', content: 'export const x = 1;\n' }, context);
+
+    expect(chunks).toHaveLength(1);
+    const patch = chunks[0].slice(DIFF_PREFIX.length);
+    expect(patch).toContain('+export const x = 1;');
+    vi.restoreAllMocks();
+  });
+
+  it('editFile emits no diff output when onOutput is absent', async () => {
+    const { workspace } = await import('vscode');
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValueOnce(Buffer.from('old') as never);
+    vi.spyOn(workspace.fs, 'writeFile').mockResolvedValueOnce(undefined as never);
+    // No onOutput in context — should not throw
+    const result = await editFile({ path: 'src/x.ts', search: 'old', replace: 'new' }, {});
+    expect(result).toBe('File edited: src/x.ts');
+    vi.restoreAllMocks();
+  });
+});

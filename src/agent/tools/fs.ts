@@ -32,6 +32,69 @@ async function readDiskViaWorkspace(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Streaming diff helpers
+// ---------------------------------------------------------------------------
+
+const DIFF_PREFIX = '\x00diff\x00';
+const DIFF_CONTEXT_LINES = 3;
+const DIFF_MAX_OUTPUT_LINES = 150;
+
+/**
+ * Compute a compact unified diff between `oldText` and `newText`.
+ * Uses common-prefix / common-suffix detection — correct for edit_file's
+ * single-replacement model and fast enough for write_file rewrites.
+ * Returns '' when the texts are identical or when the change region is
+ * too large to diff meaningfully (>5000 lines each side).
+ */
+function computeLineDiff(oldText: string, newText: string, relPath: string): string {
+  if (oldText === newText) return '';
+  const oldLines = oldText.split('\n');
+  const newLines = newText.split('\n');
+  if (oldLines.length > 5000 || newLines.length > 5000) return '';
+
+  let pre = 0;
+  while (pre < oldLines.length && pre < newLines.length && oldLines[pre] === newLines[pre]) pre++;
+
+  let suf = 0;
+  while (
+    suf < oldLines.length - pre &&
+    suf < newLines.length - pre &&
+    oldLines[oldLines.length - 1 - suf] === newLines[newLines.length - 1 - suf]
+  )
+    suf++;
+
+  const oldDel = oldLines.slice(pre, oldLines.length - suf || undefined);
+  const newAdd = newLines.slice(pre, newLines.length - suf || undefined);
+  if (oldDel.length === 0 && newAdd.length === 0) return '';
+
+  const ctxStart = Math.max(0, pre - DIFF_CONTEXT_LINES);
+  const ctxEnd = suf > 0 ? oldLines.length - suf : oldLines.length;
+  const before = oldLines.slice(ctxStart, pre);
+  const after = oldLines.slice(ctxEnd, Math.min(oldLines.length, ctxEnd + DIFF_CONTEXT_LINES));
+
+  const oldStart = ctxStart + 1;
+  const newStart = ctxStart + 1;
+  const oldCount = before.length + oldDel.length + after.length;
+  const newCount = before.length + newAdd.length + after.length;
+
+  const lines = [
+    `--- a/${relPath}`,
+    `+++ b/${relPath}`,
+    `@@ -${oldStart},${oldCount} +${newStart},${newCount} @@`,
+    ...before.map((l) => ` ${l}`),
+    ...oldDel.map((l) => `-${l}`),
+    ...newAdd.map((l) => `+${l}`),
+    ...after.map((l) => ` ${l}`),
+  ];
+
+  if (lines.length > DIFF_MAX_OUTPUT_LINES) {
+    return lines.slice(0, DIFF_MAX_OUTPUT_LINES).join('\n') + '\n... (diff truncated)';
+  }
+  return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
 // Filesystem tools: read_file / write_file / edit_file / list_directory.
 // All four route through VS Code's workspace.fs (rather than node:fs) so
 // that virtual filesystems, remote workspaces, and the workspace trust
@@ -212,14 +275,22 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
     await workspace.fs.createDirectory(Uri.joinPath(rootUri, dir));
   }
 
-  // Record to edit timeline before overwriting so we capture the original.
+  // Read original once for both edit timeline and streaming diff.
   // Skip when cwd is set (shadow workspace — sandbox has its own review flow).
+  const needsOriginal = (context?.editTimeline && !context.cwd) || !!context?.onOutput;
+  const original = needsOriginal ? await readDiskViaWorkspace(context, filePath) : undefined;
+
   if (context?.editTimeline && !context.cwd) {
-    const original = await readDiskViaWorkspace(context, filePath);
     context.editTimeline.record(filePath, original, content);
   }
 
   await workspace.fs.writeFile(fileUri, Buffer.from(content, 'utf-8'));
+
+  if (context?.onOutput) {
+    const patch = computeLineDiff(original ?? '', content, filePath);
+    if (patch) context.onOutput(DIFF_PREFIX + patch);
+  }
+
   return `File written: ${filePath}`;
 }
 
@@ -285,6 +356,11 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
     return `Error: edit_file failed — search string not found in ${filePath}. The file was NOT modified. Call read_file to see the exact current content, then retry with a corrected search string.`;
   }
   const newText = text.replace(search, () => replace);
+
+  if (context?.onOutput) {
+    const patch = computeLineDiff(text, newText, filePath);
+    if (patch) context.onOutput(DIFF_PREFIX + patch);
+  }
 
   // Record to edit timeline before overwriting.
   // Skip when cwd is set (shadow workspace).

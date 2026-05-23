@@ -112,7 +112,18 @@ export function createAgentCallbacks(
       state.auditLog?.recordToolResult(name, id, result, isError, durationMs);
     },
     onToolOutput: (name, chunk, id) => {
-      state.postMessage({ command: 'toolOutput', content: chunk, toolName: name, toolCallId: id });
+      const DIFF_PREFIX = '\x00diff\x00';
+      if (chunk.startsWith(DIFF_PREFIX)) {
+        state.postMessage({
+          command: 'toolOutput',
+          content: chunk.slice(DIFF_PREFIX.length),
+          toolName: name,
+          toolCallId: id,
+          isDiff: true,
+        });
+      } else {
+        state.postMessage({ command: 'toolOutput', content: chunk, toolName: name, toolCallId: id });
+      }
     },
     onIterationStart: (info) => {
       currentIteration = info.iteration;

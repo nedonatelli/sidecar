@@ -4711,7 +4711,27 @@
         if (activeToolForOutput) {
           const body = activeToolForOutput.querySelector('.tool-call-body');
           if (body) {
-            body.textContent += event.data.content || '';
+            if (event.data.isDiff) {
+              const pre = document.createElement('pre');
+              pre.className = 'tool-diff-patch';
+              for (const line of (event.data.content || '').split('\n')) {
+                const span = document.createElement('span');
+                if (line.startsWith('+') && !line.startsWith('+++')) {
+                  span.className = 'diff-add';
+                } else if (line.startsWith('-') && !line.startsWith('---')) {
+                  span.className = 'diff-del';
+                } else if (line.startsWith('@@')) {
+                  span.className = 'diff-hunk';
+                } else {
+                  span.className = 'diff-ctx';
+                }
+                span.textContent = line + '\n';
+                pre.appendChild(span);
+              }
+              body.appendChild(pre);
+            } else {
+              body.textContent += event.data.content || '';
+            }
             // Auto-open the details when output starts flowing
             activeToolForOutput.open = true;
           }
