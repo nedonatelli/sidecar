@@ -61,6 +61,7 @@ export function registerAgentCommands(context: ExtensionContext, extensionId: st
       const { runFacetDispatchCommand, createDefaultFacetCommandUi } = await import('../agent/facets/facetCommands.js');
       const { loadFacetRegistry } = await import('../agent/facets/facetDiskLoader.js');
       const { createDefaultFacetReviewUi, getWorkspaceMainRoot } = await import('../agent/facets/facetReview.js');
+      const { reviewFacetBatchWithPanel } = await import('../review/reviewPanel.js');
       const cfg = getConfig();
       const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath;
       const mainRoot = getWorkspaceMainRoot();
@@ -78,6 +79,7 @@ export function registerAgentCommands(context: ExtensionContext, extensionId: st
           maxConcurrent: cfg.facetsMaxConcurrent,
           rpcTimeoutMs: cfg.facetsRpcTimeoutMs,
         },
+        review: mainRoot ? (batch, reviewDeps) => reviewFacetBatchWithPanel(batch, reviewDeps, context) : undefined,
         reviewDeps: mainRoot ? { ui: createDefaultFacetReviewUi(), mainRoot } : undefined,
         onBatchProgress: provider
           ? (state) =>
@@ -97,6 +99,7 @@ export function registerAgentCommands(context: ExtensionContext, extensionId: st
     commands.registerCommand('sidecar.fork.dispatch', async () => {
       const { runForkDispatchCommand, createDefaultForkCommandUi } = await import('../agent/fork/forkCommands.js');
       const { createDefaultForkReviewUi, getWorkspaceMainRoot } = await import('../agent/fork/forkReview.js');
+      const { reviewForkBatchWithPanel } = await import('../review/reviewPanel.js');
       const cfg = getConfig();
       const mainRoot = getWorkspaceMainRoot();
       const provider = deps.getChatProvider?.();
@@ -108,6 +111,7 @@ export function registerAgentCommands(context: ExtensionContext, extensionId: st
           defaultCount: cfg.forkDefaultCount,
           maxConcurrent: cfg.forkMaxConcurrent,
         },
+        review: mainRoot ? (batch, reviewDeps) => reviewForkBatchWithPanel(batch, reviewDeps, context) : undefined,
         reviewDeps: mainRoot ? { ui: createDefaultForkReviewUi(), mainRoot } : undefined,
         onBatchProgress: provider
           ? (state) =>
