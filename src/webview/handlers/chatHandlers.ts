@@ -43,6 +43,7 @@ export {
   isShowDiffRequest,
   isDeferredAnswer,
   shouldAutoEnablePlanMode,
+  resolveToolTier,
   classifyError,
   keywordOverlap,
   updateWorkspaceRelevance,
@@ -82,6 +83,7 @@ import {
   updateWorkspaceRelevance,
   prepareUserMessageText,
   shouldAutoEnablePlanMode,
+  resolveToolTier,
 } from './messageUtils.js';
 import { buildBaseSystemPrompt, injectSystemContext, enrichAndPruneMessages } from './systemPrompt.js';
 import { connectWithRetry, ensureProviderRunning } from './connectionHandlers.js';
@@ -421,6 +423,8 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
       pendingEdits: state.pendingEdits,
       editTimeline: state.editTimeline,
       steerQueue,
+      toolTier: resolveToolTier(turnText),
+      episodicMemory: state.episodicMemoryStore ?? undefined,
     });
 
     if (state.chatGeneration !== generationAtStart) {

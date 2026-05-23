@@ -11,6 +11,7 @@ import { SteerQueue } from './steerQueue.js';
 // Mock getToolDefinitions to avoid workspace API calls in tests
 vi.mock('./tools.js', () => ({
   getToolDefinitions: () => [],
+  getToolDefinitionsForTier: () => [],
   getDiagnostics: async () => 'No diagnostics',
 }));
 

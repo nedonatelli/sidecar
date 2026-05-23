@@ -5,7 +5,7 @@ import type { AgentLogger } from '../logger.js';
 import type { ChangeLog } from '../changelog.js';
 import type { MCPManager } from '../mcpManager.js';
 import { createGateState } from '../completionGate.js';
-import { getToolDefinitions } from '../tools.js';
+import { getToolDefinitionsForTier } from '../tools.js';
 import type { AgentOptions } from '../loop.js';
 import type { EditPlan } from '../editPlan.js';
 import { type SideCarConfig, getConfig } from '../../config/settings.js';
@@ -178,7 +178,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     maxIterations: options.maxIterations || DEFAULT_MAX_ITERATIONS,
     maxTokens: options.maxTokens || 100_000,
     approvalMode: options.approvalMode || 'cautious',
-    tools: options.toolOverride ?? getToolDefinitions(options.mcpManager),
+    tools: options.toolOverride ?? getToolDefinitionsForTier(options.toolTier ?? 'full', options.mcpManager),
     logger: options.logger,
     changelog: options.changelog,
     mcpManager: options.mcpManager,
@@ -189,7 +189,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     systemPromptOverride: options.systemPromptOverride,
     modelOverride: options.modelOverride,
 
-    episodicMemory: new EpisodicMemoryStore(),
+    episodicMemory: options.episodicMemory ?? new EpisodicMemoryStore(),
     recentToolCalls: [],
     recentNormalizedCalls: [],
     autoFixRetriesByFile: new Map<string, number>(),

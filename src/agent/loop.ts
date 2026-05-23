@@ -138,6 +138,22 @@ export interface AgentOptions {
    */
   toolOverride?: ToolDefinition[];
   /**
+   * Restrict the active tool set to the read-only tier for pure information
+   * queries (explain, search, inspect) where write/shell tools add no value
+   * and only inflate the prompt. 'read' keeps observation tools only;
+   * 'full' (default) sends the complete catalog. Ignored when toolOverride
+   * is set — the explicit override always wins.
+   */
+  toolTier?: 'read' | 'full';
+  /**
+   * Pre-existing episodic memory store to use for this run. When supplied
+   * (from ChatState.episodicMemoryStore), the loop shares one persistent
+   * store across all agent runs in the VS Code session — summaries from
+   * previous sessions are retrieved by `streamTurn.ts` before each LLM call.
+   * When absent, the loop creates a fresh in-memory-only store.
+   */
+  episodicMemory?: import('./episodicMemory.js').EpisodicMemoryStore;
+  /**
    * Ephemeral `RegisteredTool[]` scoped to this run .
    * Threaded into the executor so the tool dispatch path can resolve
    * them BEFORE consulting the global `TOOL_REGISTRY`. Used by the

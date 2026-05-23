@@ -6,6 +6,7 @@ import {
   SPAWN_AGENT_DEFINITION,
   DELEGATE_TASK_DEFINITION,
   getToolDefinitions,
+  getToolDefinitionsForTier,
   findTool,
   setSymbolGraph,
   initCustomToolsTrust,
@@ -1306,5 +1307,113 @@ graph 2
       const result = await tool!.executor({ path: 'doc.md', index: 10 });
       expect(result).toContain('out of range');
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getToolDefinitionsForTier
+// ---------------------------------------------------------------------------
+
+describe('getToolDefinitionsForTier', () => {
+  it("'full' returns the same tool names as getToolDefinitions()", () => {
+    const fullNames = new Set(getToolDefinitions().map((t) => t.name));
+    const tieredNames = new Set(getToolDefinitionsForTier('full').map((t) => t.name));
+    expect(tieredNames).toEqual(fullNames);
+  });
+
+  it("'full' tier keeps full schema for core tools like write_file and run_command", () => {
+    const full = getToolDefinitionsForTier('full');
+    const writeFile = full.find((t) => t.name === 'write_file');
+    expect(writeFile).toBeDefined();
+    // Core tools have a non-empty input_schema with real properties
+    expect(Object.keys(writeFile!.input_schema.properties ?? {}).length).toBeGreaterThan(0);
+  });
+
+  it("'full' tier stubs extended built-in tools with empty input_schema", () => {
+    const full = getToolDefinitionsForTier('full');
+    // Stubs carry the specific suffix injected by getToolDefinitionsForTier
+    const stubs = full.filter((t) => t.description.includes('stub — call describe_tool('));
+    expect(stubs.length).toBeGreaterThan(0);
+    for (const stub of stubs) {
+      expect(Object.keys(stub.input_schema.properties ?? {}).length).toBe(0);
+    }
+  });
+
+  it("'full' tier stub descriptions contain a describe_tool reference for their own name", () => {
+    const full = getToolDefinitionsForTier('full');
+    const stubs = full.filter((t) => t.description.includes('stub — call describe_tool('));
+    expect(stubs.length).toBeGreaterThan(0);
+    for (const stub of stubs) {
+      expect(stub.description).toContain(`describe_tool('${stub.name}') for parameters]`);
+    }
+  });
+
+  it("'full' tier always includes describe_tool with its real schema (not stubbed)", () => {
+    const full = getToolDefinitionsForTier('full');
+    const dt = full.find((t) => t.name === 'describe_tool');
+    expect(dt).toBeDefined();
+    // describe_tool is core — it has real properties, not an empty stub schema
+    expect(Object.keys(dt!.input_schema.properties ?? {}).length).toBeGreaterThan(0);
+  });
+
+  it("'read' tier includes read_file, grep, web_search, describe_tool", () => {
+    const names = getToolDefinitionsForTier('read').map((t) => t.name);
+    expect(names).toContain('read_file');
+    expect(names).toContain('grep');
+    expect(names).toContain('web_search');
+    expect(names).toContain('project_knowledge_search');
+    expect(names).toContain('git_diff');
+    expect(names).toContain('get_diagnostics');
+    expect(names).toContain('describe_tool');
+  });
+
+  it("'read' tier excludes write and shell tools", () => {
+    const names = getToolDefinitionsForTier('read').map((t) => t.name);
+    expect(names).not.toContain('write_file');
+    expect(names).not.toContain('edit_file');
+    expect(names).not.toContain('delete_file');
+    expect(names).not.toContain('run_command');
+    expect(names).not.toContain('run_tests');
+    expect(names).not.toContain('git_commit');
+    expect(names).not.toContain('git_push');
+  });
+
+  it("'read' tool names are a subset of 'full' tool names", () => {
+    const fullNames = new Set(getToolDefinitionsForTier('full').map((t) => t.name));
+    const readNames = getToolDefinitionsForTier('read').map((t) => t.name);
+    expect(readNames.length).toBeGreaterThan(0);
+    expect(readNames.length).toBeLessThan(fullNames.size);
+    for (const name of readNames) {
+      expect(fullNames.has(name)).toBe(true);
+    }
+  });
+});
+
+describe('describe_tool executor', () => {
+  it('returns formatted schema for a known tool', async () => {
+    const tool = TOOL_REGISTRY.find((t) => t.definition.name === 'describe_tool');
+    expect(tool).toBeDefined();
+    const result = await tool!.executor({ name: 'read_file' });
+    expect(result).toContain('## read_file');
+    expect(result).toContain('```json');
+    expect(result).toContain('"properties"');
+  });
+
+  it('returns an error for an unknown tool name', async () => {
+    const tool = TOOL_REGISTRY.find((t) => t.definition.name === 'describe_tool');
+    const result = await tool!.executor({ name: 'nonexistent_tool_xyz' });
+    expect(result).toContain('Unknown tool');
+  });
+
+  it('returns an error when name is missing', async () => {
+    const tool = TOOL_REGISTRY.find((t) => t.definition.name === 'describe_tool');
+    const result = await tool!.executor({});
+    expect(result).toContain('Error');
+  });
+
+  it('can describe itself', async () => {
+    const tool = TOOL_REGISTRY.find((t) => t.definition.name === 'describe_tool');
+    const result = await tool!.executor({ name: 'describe_tool' });
+    expect(result).toContain('## describe_tool');
   });
 });

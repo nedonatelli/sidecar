@@ -29,6 +29,7 @@ import type { CompleteFn } from '../../agent/retrieval/index.js';
 import { enhanceContextWithSmartElements } from '../../agent/context.js';
 import { parseSidecarMd, selectSidecarMdSections } from '../../agent/sidecarMdParser.js';
 import { renderDesignMdContext } from '../../config/designMdLoader.js';
+import { resolveToolTier } from './messageUtils.js';
 
 export type { SystemPromptParams } from './basePrompt.js';
 export { buildBaseSystemPrompt } from './basePrompt.js';
@@ -337,7 +338,13 @@ export async function injectSystemContext(
       );
     }
     if (retrievers.length > 0) {
-      const topK = Math.max(config.ragMaxDocEntries, 5);
+      // Information queries (explain, search, inspect) benefit from richer context
+      // since the model answers directly from what it sees. Agentic tasks lower the
+      // topK because the agent will read files with tools and pre-loading wastes budget.
+      const topK =
+        resolveToolTier(text) === 'read'
+          ? Math.max(config.ragMaxDocEntries * 2, 10)
+          : Math.max(config.ragMaxDocEntries, 5);
       // Rewrite the user query before retrieval to improve recall. 'rule' is
       // free (synchronous); 'llm' and 'expand' use a non-streaming complete()
       // call with a 3-second timeout that falls back to the rule-cleaned query.

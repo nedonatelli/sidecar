@@ -256,6 +256,29 @@ export function shouldAutoEnablePlanMode(text: string, conversationLength: numbe
   return false;
 }
 
+const READ_QUERY_PREFIX =
+  /^(what|how|why|where|when|which|who|explain|describe|show me|tell me|find|search for|look (up|for)|list (all|the)|what (is|are|does|do|did)|how does|where (is|are))\b/i;
+
+const ACTION_WORD =
+  /\b(fix|implement|add|create|write|edit|delete|remove|refactor|change|update|run|execute|make|build|commit|push|pull|generate|convert|install|deploy|migrate|rename|move|rewrite|replace|extract|split|merge)\b/i;
+
+/**
+ * Classify whether a user message needs the full tool catalog or only
+ * the read-only observation tier.
+ *
+ * Returns 'read' only when we're confident the user wants information
+ * (explain, search, inspect) and no action words suggest otherwise.
+ * Defaults to 'full' — the safe direction is over-provision, not under.
+ */
+export function resolveToolTier(text: string): 'read' | 'full' {
+  if (!text) return 'full';
+  if (text.length > 300) return 'full';
+  const lower = text.toLowerCase().trim();
+  if (ACTION_WORD.test(lower)) return 'full';
+  if (READ_QUERY_PREFIX.test(lower)) return 'read';
+  return 'full';
+}
+
 export function classifyError(message: string): {
   errorType:
     | 'connection'

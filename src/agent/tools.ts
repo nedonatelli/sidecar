@@ -118,6 +118,41 @@ export const TOOL_REGISTRY: RegisteredTool[] = [
     executor: async () => 'ask_user should be handled by the executor, not called directly',
     requiresApproval: false,
   },
+  {
+    definition: {
+      name: 'describe_tool',
+      description:
+        'Return the full schema and parameter documentation for any registered tool. ' +
+        "Use this before calling a tool whose definition is marked '(describe_tool for full schema)' — " +
+        'those tools show only a one-line summary in the prompt to save context; this call fetches the real parameter list. ' +
+        "Example: `describe_tool(name='latex_compile')` returns the full input schema with all parameters and their types.",
+      input_schema: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'The exact name of the tool to describe.' },
+        },
+        required: ['name'],
+      },
+    },
+    executor: async (input: Record<string, unknown>) => {
+      const toolName = input.name as string;
+      if (!toolName) return 'Error: name is required.';
+      const found = TOOL_REGISTRY.find((t) => t.definition.name === toolName);
+      if (!found) return `Unknown tool: "${toolName}". Check the tool catalog for the correct name.`;
+      const { name, description, input_schema } = found.definition;
+      return [
+        `## ${name}`,
+        '',
+        description,
+        '',
+        '### Parameters',
+        '```json',
+        JSON.stringify(input_schema, null, 2),
+        '```',
+      ].join('\n');
+    },
+    requiresApproval: false,
+  },
 ];
 
 /**
@@ -270,6 +305,108 @@ function getCustomToolRegistry(injectedConfig?: SideCarConfig): RegisteredTool[]
   }));
   _customToolConfigSnapshot = snapshot;
   return _customToolCache;
+}
+
+/**
+ * Tool names that are safe to include in the read-only tier.
+ * These tools observe state but never mutate disk, git history, or external services.
+ * Used by getToolDefinitionsForTier() when resolving a 'read' tier request.
+ */
+const READ_TIER_TOOL_NAMES = new Set<string>([
+  'read_file',
+  'list_directory',
+  'search_files',
+  'grep',
+  'find_references',
+  'web_search',
+  'project_knowledge_search',
+  'display_diagram',
+  'git_diff',
+  'git_status',
+  'git_log',
+  'git_search_history',
+  'get_diagnostics',
+  'system_monitor',
+  'check_dependencies',
+  'ask_user',
+  'delegate_task',
+  'describe_tool',
+]);
+
+/**
+ * Tools that always receive their full definition in the 'full' tier (beyond what
+ * READ_TIER_TOOL_NAMES already covers). Everything else in TOOL_REGISTRY gets a
+ * compact one-line stub; the model calls describe_tool() to fetch the full schema
+ * before using those less-common tools. This keeps prompt size down for the ~30
+ * domain-specific tools (vision, database, LaTeX, notebook, etc.) that are rarely
+ * called in typical agentic coding sessions.
+ */
+const CORE_FULL_TIER_TOOL_NAMES = new Set<string>([
+  'write_file',
+  'edit_file',
+  'delete_file',
+  'run_command',
+  'run_tests',
+  'git_stage',
+  'git_commit',
+  'git_push',
+  'git_pull',
+  'git_branch',
+  'git_stash',
+  'spawn_agent',
+]);
+
+/**
+ * Pre-computed set of all built-in tool names (from TOOL_REGISTRY). Used by
+ * getToolDefinitionsForTier to avoid stubbing custom/SDK/MCP tools that we
+ * don't have special knowledge about.
+ */
+let _builtInToolNames: Set<string> | null = null;
+function getBuiltInToolNames(): Set<string> {
+  if (!_builtInToolNames) {
+    _builtInToolNames = new Set(TOOL_REGISTRY.map((t) => t.definition.name));
+  }
+  return _builtInToolNames;
+}
+
+/**
+ * Like getToolDefinitions() but shapes the tool catalog by tier:
+ *
+ * - 'read': only observation tools — no writes, no shell, no git mutations.
+ *   Intended for pure information queries where write access adds no value.
+ *
+ * - 'full': all tools, but built-in tools outside the core set are sent as
+ *   compact one-line stubs (name + first sentence + "call describe_tool for
+ *   full schema"). Core and read-tier tools keep their full definitions.
+ *   Custom/SDK/MCP tools are never stubbed — pass through unchanged.
+ *
+ * toolOverride in AgentOptions takes precedence; tier only applies when
+ * no explicit override is set.
+ */
+export function getToolDefinitionsForTier(
+  tier: 'read' | 'full',
+  mcpManager?: MCPManager,
+  injectedConfig?: SideCarConfig,
+): ToolDefinition[] {
+  const all = getToolDefinitions(mcpManager, injectedConfig);
+  if (tier === 'read') return all.filter((t) => READ_TIER_TOOL_NAMES.has(t.name));
+
+  // 'full' tier: core tools get full schemas; extended built-ins get compact stubs.
+  const coreNames = new Set([...READ_TIER_TOOL_NAMES, ...CORE_FULL_TIER_TOOL_NAMES]);
+  const builtInNames = getBuiltInToolNames();
+  return all.map((def) => {
+    if (coreNames.has(def.name) || !builtInNames.has(def.name)) return def;
+    // Extended built-in: emit a compact stub. The model calls describe_tool(name)
+    // to get the full schema before using the tool.
+    const dotIdx = def.description.indexOf('. ');
+    const firstSentence = dotIdx >= 0 ? def.description.slice(0, dotIdx + 1) : def.description;
+    return {
+      name: def.name,
+      description: `${firstSentence} [stub — call describe_tool('${def.name}') for parameters]`,
+      input_schema: { type: 'object' as const, properties: {}, required: [] },
+      ...(def.nondeterministicOutput ? { nondeterministicOutput: true } : {}),
+    };
+  });
 }
 
 export function getToolDefinitions(mcpManager?: MCPManager, injectedConfig?: SideCarConfig): ToolDefinition[] {
