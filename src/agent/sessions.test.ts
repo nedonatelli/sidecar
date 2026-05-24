@@ -152,6 +152,19 @@ describe('SessionManager', () => {
     expect(manager.list()).toHaveLength(0);
   });
 
+  it('rename changes the session name and bumps updatedAt', () => {
+    const saved = manager.save('Old Name', [{ role: 'user', content: 'hi' }]);
+    const result = manager.rename(saved.id, 'New Name');
+    expect(result).toBe(true);
+    const loaded = manager.load(saved.id);
+    expect(loaded!.name).toBe('New Name');
+    expect(loaded!.updatedAt).toBeGreaterThanOrEqual(saved.updatedAt);
+  });
+
+  it('rename returns false for unknown id', () => {
+    expect(manager.rename('nonexistent', 'Whatever')).toBe(false);
+  });
+
   it('delete is a no-op for unknown id', () => {
     manager.save('Keep Me', [{ role: 'user', content: 'stay' }]);
     manager.delete('nonexistent');

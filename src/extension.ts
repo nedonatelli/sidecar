@@ -71,7 +71,7 @@ export function activate(context: ExtensionContext) {
 
   const agentModDecorationManager = initAgentModDecoration(context);
   if (config.codeLensEnabled) {
-    initCodeLens(context);
+    initCodeLens(context, () => chatProvider);
   }
 
   chatProvider = setupChatView(context, {

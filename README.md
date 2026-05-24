@@ -35,7 +35,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 | Pending-change file decorations | **Yes** | No | No | No |
 | Activity-bar review badge | **Yes** | No | No | No |
 | Test Explorer integration | **Yes** | No | No | No |
-| CodeLens Explain/Fix on functions & TODOs | **Yes** | Partial | No | No |
+| CodeLens Explain/Add tests/Refactor/Fix on functions & TODOs | **Yes** | Partial | No | No |
 | Native lightbulb code actions | **Yes** | Partial | No | No |
 | Built-in skills (8) | **Yes** | Yes | No | No |
 | Tree-sitter AST parsing | **Yes** | Yes | No | No |

@@ -86,15 +86,29 @@ export function registerSessionsView(
   const treeView = window.createTreeView(VIEW_ID, { treeDataProvider: provider, showCollapseAll: false });
 
   const loadCmd = commands.registerCommand('sidecar.sessions.load', (item?: SessionItem) => {
-    if (item) {
-      deps.loadSession(item.session.id);
-      provider.refresh();
-    }
+    const target = item ?? treeView.selection[0];
+    if (!target) return;
+    deps.loadSession(target.session.id);
+    provider.refresh();
   });
 
   const deleteCmd = commands.registerCommand('sidecar.sessions.delete', (item?: SessionItem) => {
-    if (!item) return;
-    manager.delete(item.session.id);
+    const target = item ?? treeView.selection[0];
+    if (!target) return;
+    manager.delete(target.session.id);
+    provider.refresh();
+  });
+
+  const renameCmd = commands.registerCommand('sidecar.sessions.rename', async (item?: SessionItem) => {
+    const target = item ?? treeView.selection[0];
+    if (!target) return;
+    const newName = await window.showInputBox({
+      prompt: 'Rename session',
+      value: target.session.name,
+      valueSelection: [0, target.session.name.length],
+    });
+    if (!newName?.trim()) return;
+    manager.rename(target.session.id, newName.trim());
     provider.refresh();
   });
 
@@ -109,7 +123,7 @@ export function registerSessionsView(
     void window.showInformationMessage(`SideCar: Session "${name}" saved.`);
   });
 
-  context.subscriptions.push(treeView, provider, loadCmd, deleteCmd, saveCmd);
+  context.subscriptions.push(treeView, provider, loadCmd, deleteCmd, renameCmd, saveCmd);
 
   return treeView;
 }

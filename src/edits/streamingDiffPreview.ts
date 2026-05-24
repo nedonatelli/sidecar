@@ -13,6 +13,7 @@
 
 import { workspace, window, commands, Uri, ViewColumn } from 'vscode';
 import type { ProposedContentProvider } from './proposedContentProvider.js';
+import { computeUnifiedDiff } from './unifiedDiff.js';
 
 export interface DiffPreviewSession {
   /** Update the proposed content (diff view refreshes automatically). */
@@ -39,7 +40,7 @@ export async function openDiffPreview(
   filePath: string,
   proposedContent: string,
   contentProvider: ProposedContentProvider,
-  confirmFn: (message: string, actions: string[]) => Promise<string | undefined>,
+  confirmFn: (message: string, actions: string[], diffBlock?: string) => Promise<string | undefined>,
 ): Promise<DiffPreviewSession> {
   const workspaceFolders = workspace.workspaceFolders;
   if (!workspaceFolders || workspaceFolders.length === 0) {
@@ -49,6 +50,16 @@ export async function openDiffPreview(
   const originalUri = Uri.joinPath(workspaceFolders[0].uri, filePath);
   const key = `/${filePath}`;
 
+  // Read the original for diff computation. Gracefully ignore errors
+  // (new file, unreadable) — the diff block just won't appear.
+  let originalContent = '';
+  try {
+    const bytes = await workspace.fs.readFile(originalUri);
+    originalContent = Buffer.from(bytes).toString('utf-8');
+  } catch {
+    // new file — diff will be all additions
+  }
+
   // Register initial proposed content
   const proposedUri = contentProvider.addProposal(key, proposedContent);
 
@@ -57,6 +68,9 @@ export async function openDiffPreview(
     preview: true,
     viewColumn: ViewColumn.One,
   });
+
+  // Capture original for the inline diff card (stays constant for the session).
+  const diffBlock = computeUnifiedDiff(originalContent, proposedContent);
 
   return {
     update(content: string) {
@@ -73,7 +87,7 @@ export async function openDiffPreview(
         'Accept',
         'Reject',
       );
-      const chatPromise = confirmFn(`Apply changes to **${filePath}**?`, ['Accept', 'Reject']);
+      const chatPromise = confirmFn(`Apply changes to **${filePath}**?`, ['Accept', 'Reject'], diffBlock || undefined);
 
       const result = await Promise.race([
         editorPromise.then((choice) => (choice === 'Accept' ? ('accept' as const) : ('reject' as const))),

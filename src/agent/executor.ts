@@ -36,6 +36,8 @@ export interface ConfirmOptions {
    * message verbatim.
    */
   detail?: string;
+  /** Unified diff to display inline in the chat confirm card. */
+  diffBlock?: string;
 }
 export type ConfirmFn = (message: string, actions: string[], options?: ConfirmOptions) => Promise<string | undefined>;
 export type DiffPreviewFn = (filePath: string, proposedContent: string) => Promise<'accept' | 'reject'>;

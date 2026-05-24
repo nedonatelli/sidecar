@@ -4596,6 +4596,19 @@
         confirmMsg.className = 'confirm-message';
         confirmMsg.textContent = content || 'Confirm action?';
         confirmCard.appendChild(confirmMsg);
+        if (event.data.diffBlock) {
+          const diffPre = document.createElement('pre');
+          diffPre.className = 'confirm-diff-block';
+          for (const line of event.data.diffBlock.split('\n')) {
+            const span = document.createElement('span');
+            span.textContent = line + '\n';
+            if (line.startsWith('+') && !line.startsWith('+++')) span.className = 'diff-add';
+            else if (line.startsWith('-') && !line.startsWith('---')) span.className = 'diff-del';
+            else if (line.startsWith('@@')) span.className = 'diff-hunk';
+            diffPre.appendChild(span);
+          }
+          confirmCard.appendChild(diffPre);
+        }
         const confirmActions = document.createElement('div');
         confirmActions.className = 'confirm-actions';
         const actions = event.data.confirmActions || ['Allow', 'Deny'];

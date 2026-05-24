@@ -1,4 +1,13 @@
-import { window, workspace, commands, ExtensionContext, StatusBarAlignment, ProgressLocation } from 'vscode';
+import {
+  window,
+  workspace,
+  commands,
+  languages,
+  CodeActionKind,
+  ExtensionContext,
+  StatusBarAlignment,
+  ProgressLocation,
+} from 'vscode';
 import { getConfig, isLocalOllama, isKickstand, providerDisplayLabel } from '../config/settings.js';
 import { SideCarClient } from '../ollama/client.js';
 import type { ChatViewProvider } from '../webview/chatView.js';
@@ -13,6 +22,8 @@ import { respondToPrComments, type PrRespondUi } from '../review/prRespond.js';
 import { postPrReview, type PrPostReviewUi } from '../review/prPostReview.js';
 import { markPrReady, checkPrCi, type PrMarkReadyUi, type PrCiUi } from '../review/prLifecycle.js';
 import { runPreCommitScan } from '../agent/preCommitScan.js';
+import { CiDiagnostics } from '../ci/ciDiagnostics.js';
+import { CiCodeActionProvider } from '../ci/ciCodeActions.js';
 
 export interface PrAndReviewDeps {
   createClient: () => SideCarClient;
@@ -25,6 +36,21 @@ export interface PrAndReviewDeps {
  */
 export function registerPrAndReviewCommands(context: ExtensionContext, deps: PrAndReviewDeps): void {
   const { createClient, getChatProvider } = deps;
+  const ciDiagnostics = new CiDiagnostics();
+  context.subscriptions.push(
+    ciDiagnostics,
+    languages.registerCodeActionsProvider('*', new CiCodeActionProvider(), {
+      providedCodeActionKinds: [CodeActionKind.QuickFix, CodeActionKind.Empty],
+    }),
+    commands.registerCommand('sidecar.ci.fixFromDiagnostic', async (message: string) => {
+      const chatProvider = getChatProvider();
+      if (!chatProvider) {
+        window.showErrorMessage('SideCar: chat view is not ready yet.');
+        return;
+      }
+      chatProvider.injectPrompt(`Fix the CI failure: ${message}`);
+    }),
+  );
 
   context.subscriptions.push(
     commands.registerCommand('sidecar.reviewChanges', async () => {
@@ -135,7 +161,17 @@ export function registerPrAndReviewCommands(context: ExtensionContext, deps: PrA
         },
         async (progress) => {
           progress.report({ message: 'Fetching workflow runs and logs...' });
-          await analyzeCiFailure({ ui, cwd });
+          const outcome = await analyzeCiFailure({ ui, cwd });
+          if (outcome.mode === 'rendered') {
+            await ciDiagnostics.report(outcome.blocks, {
+              runNumber: outcome.run.runNumber,
+              branch: outcome.run.headBranch,
+              workflowName: outcome.run.name,
+              runUrl: outcome.run.url,
+            });
+          } else if (outcome.mode === 'no-failures') {
+            ciDiagnostics.clear();
+          }
         },
       );
     }),

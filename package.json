@@ -2187,6 +2187,12 @@
         "category": "SideCar"
       },
       {
+        "command": "sidecar.sessions.rename",
+        "title": "Rename Session",
+        "category": "SideCar",
+        "icon": "$(pencil)"
+      },
+      {
         "command": "sidecar.sessions.delete",
         "title": "Delete Session",
         "category": "SideCar",
@@ -2622,6 +2628,16 @@
         "key": "ctrl+right",
         "mac": "cmd+right",
         "when": "inlineSuggestionVisible && !editorReadonly"
+      },
+      {
+        "command": "sidecar.sessions.rename",
+        "key": "f2",
+        "when": "focusedView == sidecar.sessions && listHasSelectionOrFocus"
+      },
+      {
+        "command": "sidecar.sessions.load",
+        "key": "enter",
+        "when": "focusedView == sidecar.sessions && listHasSelectionOrFocus"
       }
     ],
     "menus": {
@@ -2768,6 +2784,11 @@
           "command": "sidecar.mcp.reconnectServer",
           "when": "view == sidecar.mcpServers && viewItem == mcpServerFailed",
           "group": "inline@1"
+        },
+        {
+          "command": "sidecar.sessions.rename",
+          "when": "view == sidecar.sessions && viewItem == sessionEntry",
+          "group": "inline@2"
         },
         {
           "command": "sidecar.sessions.delete",

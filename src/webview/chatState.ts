@@ -272,7 +272,7 @@ export class ChatState {
   async requestConfirm(
     message: string,
     actions: string[],
-    options?: { modal?: boolean; detail?: string },
+    options?: { modal?: boolean; detail?: string; diffBlock?: string },
   ): Promise<string | undefined> {
     if (options?.modal) {
       // Native modal path: strip markdown bold markers from the
@@ -290,7 +290,13 @@ export class ChatState {
     const id = `confirm_${++this.confirmCounter}`;
     return new Promise((resolve) => {
       this.pendingConfirms.set(id, resolve);
-      this.postMessage({ command: 'confirm', content: message, confirmId: id, confirmActions: actions });
+      this.postMessage({
+        command: 'confirm',
+        content: message,
+        confirmId: id,
+        confirmActions: actions,
+        diffBlock: options?.diffBlock,
+      });
     });
   }
 

@@ -6,15 +6,25 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [0.103.0] - 2026-05-24
 
-**v0.103.0 — Chat UI polish: persistent Stop, auto-collapse tool calls, output truncation, copy buttons.**
+**v0.103.0 — Chat UI & editor polish: inline diff preview, enhanced CodeLens, CI Problems panel, session browser rename, and chat strip improvements.**
 
 ### Added
 
-- **Persistent Stop button in agent progress strip** — `#agent-progress` now includes a `■ Stop` button that fires `abort` directly. Previously the only Stop was the Send button morphing to Stop — invisible once the chat had scrolled past the input area. The progress strip sits above the input bar and is always in view during agent runs. (`media/chat.js`, `src/webview/chatWebview.ts`)
+- **Inline diff in chat confirm card** — when the agent proposes `write_file` or `edit_file` in cautious mode, the Accept/Reject card in the chat panel now shows a compact unified diff block (green additions, red deletions, grey hunk headers) so the user can review changes without switching to the diff editor tab. Diff is computed by a new pure LCS-based engine (`src/edits/unifiedDiff.ts`) capped at 300 lines per side; larger files show a `+N / -M lines` summary. (`src/edits/unifiedDiff.ts`, `src/edits/streamingDiffPreview.ts`, `src/webview/chatState.ts`, `media/chat.js`, `media/chat.css`)
 
-- **Auto-collapse successful tool calls** — tool `<details>` blocks that complete without error now close automatically after 800 ms. Error results stay open so the failure is visible. Users can still re-expand any block manually. Eliminates the wall-of-text UX when the agent reads many files in sequence. (`media/chat.js`)
+- **CodeLens: Add tests + Refactor actions** — function and class declarations now show three CodeLens actions: `⚡ Explain` (existing), `⚡ Add tests` (injects a prompt to generate tests using the project's test framework), and `⚡ Refactor` (QuickPick with 7 refactor directions — Extract function, Add type annotations, Convert to async/await, Improve error handling, Add JSDoc, Reduce complexity, Custom). Each action selects the full function body using a new `findSymbolEnd()` helper that walks brace depth (TS/JS/Go/Rust) or indentation (Python). (`src/codelens/sidecarCodeLensProvider.ts`, `src/activation/codeLensSetup.ts`)
 
-- **Tool output truncation with "Show all" toggle** — streaming tool output is capped at 8 000 chars in the chat panel. When a tool produces more, the body shows the first 8 K with a `▸ N more chars hidden` notice and a **Show all** button. Total char count is tracked per tool-call-id so truncation is precise even when output arrives in many small chunks. (`media/chat.js`)
+- **CI failure analysis → Problems panel** — running `SideCar: Analyze CI Failure` now also populates the Problems panel (`sidecar-ci` source). Each failed step becomes a VS Code `Diagnostic` linked to the matching workflow YAML (or nearest manifest); the diagnostic `code` links directly to the GitHub Actions run URL. Diagnostics are cleared automatically when CI is clean. (`src/ci/ciDiagnostics.ts`)
+
+- **"Ask SideCar to fix" CI quick-fix** — a `CiCodeActionProvider` registers on all file types. Right-clicking a `sidecar-ci` diagnostic offers two code actions: **Ask SideCar to fix this CI failure** (sends the failure message directly to the agent) and **Analyze CI failure…** (re-runs the full fetch + preview flow). (`src/ci/ciCodeActions.ts`, `src/commands/prAndReviewCommands.ts`)
+
+- **Session browser: rename with F2** — the Sessions sidebar now supports inline rename via the F2 key (mirrors VS Code file explorer UX). The rename command falls back to `treeView.selection[0]` when called from the keyboard rather than the inline toolbar, and pre-selects the full name so it can be overtyped immediately. Enter also triggers load from the keyboard. `SessionManager.rename(id, newName)` added. (`src/agent/sessions.ts`, `src/views/sessionsView.ts`, `package.json`)
+
+- **Persistent Stop button in agent progress strip** — `#agent-progress` now includes a `■ Stop` button that fires `abort` directly. Previously the only Stop was the Send button morphing to Stop — invisible once the chat had scrolled past the input area. (`media/chat.js`, `src/webview/chatWebview.ts`)
+
+- **Auto-collapse successful tool calls** — tool `<details>` blocks that complete without error now close automatically after 800 ms. Error results stay open so the failure is visible. (`media/chat.js`)
+
+- **Tool output truncation with "Show all" toggle** — streaming tool output is capped at 8 000 chars in the chat panel. When a tool produces more, the body shows the first 8 K with a `▸ N more chars hidden` notice and a **Show all** button. (`media/chat.js`)
 
 - **Copy button on tool output** — each completed tool call's summary row gains a **Copy** button (visible on hover) that writes the full body text to the clipboard. (`media/chat.js`, `media/chat.css`)
 

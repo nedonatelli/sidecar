@@ -884,6 +884,37 @@ body {
   margin-bottom: 8px;
 }
 
+.confirm-diff-block {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  line-height: 1.5;
+  margin: 6px 0 8px;
+  padding: 6px 8px;
+  border-radius: 3px;
+  background: var(--vscode-editor-background);
+  border: 1px solid var(--vscode-widget-border);
+  overflow-x: auto;
+  white-space: pre;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.confirm-diff-block .diff-add {
+  display: block;
+  background: color-mix(in srgb, var(--vscode-diffEditor-insertedLineBackground, #2ea04326) 60%, transparent);
+  color: var(--vscode-terminal-ansiGreen, #4ec94e);
+}
+.confirm-diff-block .diff-del {
+  display: block;
+  background: color-mix(in srgb, var(--vscode-diffEditor-removedLineBackground, #f8514926) 60%, transparent);
+  color: var(--vscode-terminal-ansiRed, #f85149);
+}
+.confirm-diff-block .diff-hunk {
+  display: block;
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+}
+
 .confirm-actions {
   display: flex;
   gap: 8px;

@@ -404,8 +404,11 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
       diffPreviewFn: state.contentProvider
         ? async (filePath: string, proposedContent: string) => {
             const { openDiffPreview } = await import('../../edits/streamingDiffPreview.js');
-            const session = await openDiffPreview(filePath, proposedContent, state.contentProvider!, (msg, actions) =>
-              state.requestConfirm(msg, actions),
+            const session = await openDiffPreview(
+              filePath,
+              proposedContent,
+              state.contentProvider!,
+              (msg, actions, diffBlock) => state.requestConfirm(msg, actions, { diffBlock }),
             );
             try {
               return await session.finalize();

@@ -62,6 +62,16 @@ export class SessionManager {
     return true;
   }
 
+  rename(id: string, newName: string): boolean {
+    const sessions = this.list();
+    const session = sessions.find((s) => s.id === id);
+    if (!session) return false;
+    session.name = newName;
+    session.updatedAt = Date.now();
+    this.globalState.update(STORAGE_KEY, sessions);
+    return true;
+  }
+
   delete(id: string): void {
     const sessions = this.list().filter((s) => s.id !== id);
     this.globalState.update(STORAGE_KEY, sessions);

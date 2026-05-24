@@ -1,6 +1,6 @@
 # SideCar Roadmap
 
-**Current release: v0.103.0** — Chat UI polish: persistent Stop button in agent progress strip, auto-collapse successful tool calls, 8 K output truncation with Show-all toggle, Copy button on tool output. See [CHANGELOG](CHANGELOG.md) for full notes.
+**Current release: v0.103.0** — Inline diff preview in chat confirm cards, CodeLens Add-tests + Refactor actions with function-body selection, CI failures surfaced in the Problems panel with a "Ask SideCar to fix" quick-fix code action, Session browser F2 rename, and chat strip polish (persistent Stop, auto-collapse, output truncation, copy buttons). See [CHANGELOG](CHANGELOG.md) for full notes.
 
 **Coverage floor**: ≥80/70/80/80 (stmts/branches/funcs/lines) enforced by CI. No PR merges that drop any metric.
 
@@ -12,7 +12,7 @@
 
 | Version | Headline |
 |---|---|
-| v0.103.0 | Chat UI polish: persistent Stop in agent progress strip · auto-collapse successful tool calls · 8 K output truncation + Show-all toggle · Copy button on tool output |
+| v0.103.0 | Inline diff preview in chat confirm card · CodeLens Add-tests + Refactor (with `findSymbolEnd`) · CI Problems panel + "Ask SideCar to fix" quick-fix · Session browser F2 rename · chat strip polish (Stop button · auto-collapse · 8 K truncation · copy) |
 | v0.102.0 | GitHub Copilot backend (`CopilotBackend` via `vscode.lm`) · `'gemini'` + `'copilot'` added to `sidecar.provider` enum in Settings UI · `sidecar.notebookMode.*` settings added to schema |
 | v0.101.0 | VS Code Native Integrations: Test Explorer (`TestController`) · file-tree audit badges (`FileDecorationProvider`) · SCM commit message helper · CodeLensProvider (Explain/Fix on functions/TODOs) · agent-mod line decorations · streaming inline diffs · episodic memory persistence · read-only tool tier + `describe_tool` · fork/facet WebviewPanel review |
 |---|---|

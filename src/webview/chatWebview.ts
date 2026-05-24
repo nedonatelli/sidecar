@@ -218,6 +218,8 @@ export interface ExtensionMessage {
   isDiff?: boolean;
   confirmId?: string;
   confirmActions?: string[];
+  /** Unified diff to render inline in the confirm card. */
+  diffBlock?: string;
   clarifyId?: string;
   clarifyOptions?: string[];
   clarifyAllowCustom?: boolean;
