@@ -1,6 +1,6 @@
 # SideCar Roadmap
 
-**Current release: v0.101.0** — VS Code Native Integrations: Test Explorer, file-tree audit badges, SCM commit message helper, CodeLensProvider, agent-mod line decorations, streaming inline diffs, episodic memory persistence, read-only tool tier + describe_tool, fork/facet WebviewPanel review. See [CHANGELOG](CHANGELOG.md) for full notes.
+**Current release: v0.102.0** — GitHub Copilot backend (`vscode.lm`): zero-key-config backend for GitHub Copilot subscribers + package.json schema cleanup (gemini + copilot in provider enum, notebookMode settings). See [CHANGELOG](CHANGELOG.md) for full notes.
 
 **Coverage floor**: ≥80/70/80/80 (stmts/branches/funcs/lines) enforced by CI. No PR merges that drop any metric.
 
@@ -12,6 +12,7 @@
 
 | Version | Headline |
 |---|---|
+| v0.102.0 | GitHub Copilot backend (`CopilotBackend` via `vscode.lm`) · `'gemini'` + `'copilot'` added to `sidecar.provider` enum in Settings UI · `sidecar.notebookMode.*` settings added to schema |
 | v0.101.0 | VS Code Native Integrations: Test Explorer (`TestController`) · file-tree audit badges (`FileDecorationProvider`) · SCM commit message helper · CodeLensProvider (Explain/Fix on functions/TODOs) · agent-mod line decorations · streaming inline diffs · episodic memory persistence · read-only tool tier + `describe_tool` · fork/facet WebviewPanel review |
 |---|---|
 | v0.100.0 | Enterprise & Collaboration: repo-level policy (`.sidecar/policy.json` · restrictions-only · `$(shield)` status bar) + shared team memory (`.sidecar/team-memory/*.md` · injected as `## Team Memory`) + agent handoff (`SideCar: Export Handoff` / `SideCar: Import Handoff` · portable JSON session bundles) |

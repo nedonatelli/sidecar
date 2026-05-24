@@ -118,17 +118,21 @@
               "openrouter",
               "groq",
               "fireworks",
-              "kickstand"
+              "gemini",
+              "kickstand",
+              "copilot"
             ],
             "enumDescriptions": [
-              "Detect from the base URL: localhost:11434 → Ollama, anthropic.com → Anthropic, openrouter.ai → OpenRouter, groq.com → Groq, fireworks.ai → Fireworks, localhost:11435 → Kickstand (coming soon), anything else → OpenAI-compatible.",
+              "Detect from the base URL: localhost:11434 → Ollama, anthropic.com → Anthropic, openrouter.ai → OpenRouter, groq.com → Groq, fireworks.ai → Fireworks, generativelanguage.googleapis.com → Gemini, localhost:11435 → Kickstand, anything else → OpenAI-compatible.",
               "Local Ollama (http://localhost:11434). Free, private, no key needed.",
               "Anthropic Claude API. Requires an API key stored via `SideCar: Set / Refresh API Key`.",
               "OpenAI-compatible API (OpenAI, LM Studio, vLLM, llama.cpp, together.ai). Requires an API key.",
               "OpenRouter (https://openrouter.ai/api/v1). One API key unlocks hundreds of models across providers (Anthropic, OpenAI, Google, Mistral, Meta, and more) with per-model pricing pulled live from their catalog. Requires an OpenRouter API key.",
               "Groq (https://api.groq.com/openai/v1). LPU inference serves open-weight models (Llama 3.3, Mixtral, DeepSeek R1 distills) at thousands of tokens/sec. Free tier with rate limits. Requires a Groq API key from console.groq.com.",
               "Fireworks (https://api.fireworks.ai/inference/v1). Hosts open-weight models like DeepSeek V3, Qwen 2.5 Coder, Llama 3.3, Mixtral at OpenAI-compatible pricing. Requires an API key from fireworks.ai.",
-              "Kickstand self-hosted LLM server (http://localhost:11435). Coming soon — not yet officially released; the backend adapter ships today for anyone running a local dev build. Reads its token from `~/.config/kickstand/token`."
+              "Google Gemini (https://generativelanguage.googleapis.com/openai). Gemini 2.0 Flash, Pro, and Ultra via the OpenAI-compatible endpoint. Requires an API key from aistudio.google.com/apikey.",
+              "Kickstand self-hosted LLM server (http://localhost:11435). Reads its bearer token automatically from `~/.config/kickstand/token`. No API key prompt shown.",
+              "GitHub Copilot via `vscode.lm`. Uses your existing GitHub Copilot subscription — no separate API key required. Requires the GitHub Copilot extension to be installed and signed in."
             ],
             "default": "auto",
             "order": 3,
@@ -1440,6 +1444,21 @@
             "type": "boolean",
             "default": false,
             "description": "Include indexed PDF literature (from .sidecar/literature/) in retrieval context. Use index_pdf to add papers first."
+          },
+          "sidecar.notebookMode.enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enable Notebook Mode source-grounded research tools: ingest_source, generate_briefing, generate_study_guide, generate_faq, generate_timeline, generate_outline. Each artifact carries per-sentence citations back to the ingested source."
+          },
+          "sidecar.notebookMode.requireCitations": {
+            "type": "boolean",
+            "default": true,
+            "description": "When true, Notebook Mode artifacts are rejected if they contain uncited claims. The agent is instructed to re-generate any section that lacks source references."
+          },
+          "sidecar.notebookMode.studyAids.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Enable the generate_study_guide and generate_faq Notebook Mode tools. Disable to keep only the core ingest + briefing + outline pipeline."
           },
           "sidecar.zotero.userId": {
             "type": "string",
