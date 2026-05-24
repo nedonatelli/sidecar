@@ -513,6 +513,7 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
     <span id="progress-step"></span>
     <span id="progress-time"></span>
     <span id="progress-tokens"></span>
+    <button id="progress-stop" class="progress-stop-btn" title="Stop agent" aria-label="Stop agent">&#9632; Stop</button>
   </div>
   <div id="stream-stats" class="hidden"></div>
   <div id="install-progress" class="hidden">

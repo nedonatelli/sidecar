@@ -4,6 +4,20 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.103.0] - 2026-05-24
+
+**v0.103.0 — Chat UI polish: persistent Stop, auto-collapse tool calls, output truncation, copy buttons.**
+
+### Added
+
+- **Persistent Stop button in agent progress strip** — `#agent-progress` now includes a `■ Stop` button that fires `abort` directly. Previously the only Stop was the Send button morphing to Stop — invisible once the chat had scrolled past the input area. The progress strip sits above the input bar and is always in view during agent runs. (`media/chat.js`, `src/webview/chatWebview.ts`)
+
+- **Auto-collapse successful tool calls** — tool `<details>` blocks that complete without error now close automatically after 800 ms. Error results stay open so the failure is visible. Users can still re-expand any block manually. Eliminates the wall-of-text UX when the agent reads many files in sequence. (`media/chat.js`)
+
+- **Tool output truncation with "Show all" toggle** — streaming tool output is capped at 8 000 chars in the chat panel. When a tool produces more, the body shows the first 8 K with a `▸ N more chars hidden` notice and a **Show all** button. Total char count is tracked per tool-call-id so truncation is precise even when output arrives in many small chunks. (`media/chat.js`)
+
+- **Copy button on tool output** — each completed tool call's summary row gains a **Copy** button (visible on hover) that writes the full body text to the clipboard. (`media/chat.js`, `media/chat.css`)
+
 ## [0.102.0] - 2026-05-23
 
 **v0.102.0 — GitHub Copilot backend (`vscode.lm`).**

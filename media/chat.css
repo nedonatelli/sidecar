@@ -2444,6 +2444,70 @@ body {
   color: var(--vscode-foreground);
 }
 
+.progress-stop-btn {
+  padding: 1px 8px;
+  font-size: 11px;
+  border: 1px solid var(--vscode-button-border, transparent);
+  border-radius: 3px;
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+  cursor: pointer;
+  opacity: 0.85;
+  transition: opacity 0.1s;
+}
+.progress-stop-btn:hover {
+  opacity: 1;
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.tool-copy-btn {
+  margin-left: 4px;
+  padding: 1px 6px;
+  font-size: 10px;
+  border: 1px solid var(--vscode-widget-border, transparent);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.tool-call:hover .tool-copy-btn,
+.tool-call summary:hover .tool-copy-btn {
+  opacity: 1;
+}
+.tool-copy-btn:hover {
+  background: var(--vscode-list-hoverBackground);
+  color: var(--vscode-foreground);
+}
+
+.tool-truncation-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 3px 6px;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  background: var(--vscode-editor-inactiveSelectionBackground);
+  border-radius: 3px;
+}
+.tool-truncation-notice span {
+  flex: 1;
+}
+.tool-show-more-btn {
+  padding: 1px 6px;
+  font-size: 11px;
+  border: 1px solid var(--vscode-widget-border, transparent);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--vscode-textLink-foreground);
+  cursor: pointer;
+}
+.tool-show-more-btn:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
 #stream-stats {
   text-align: center;
   font-size: 11px;

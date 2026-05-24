@@ -30,6 +30,10 @@
   const ollamaActions = document.getElementById('ollama-actions');
   const restartOllamaBtn = document.getElementById('restart-ollama-btn');
   const installProgress = document.getElementById('install-progress');
+  const progressStop = document.getElementById('progress-stop');
+  const MAX_TOOL_OUTPUT_CHARS = 8000;
+  // Per-tool-id char counts for truncation tracking (cleared when agent finishes)
+  const toolOutputChars = new Map();
   const installText = document.getElementById('install-text');
   const installBar = document.getElementById('install-bar');
   const cancelInstall = document.getElementById('cancel-install');
@@ -403,6 +407,12 @@
   cancelInstall.addEventListener('click', () => {
     vscode.postMessage({ command: 'cancelInstall' });
   });
+
+  if (progressStop) {
+    progressStop.addEventListener('click', () => {
+      vscode.postMessage({ command: 'abort' });
+    });
+  }
 
   // Attach button context menu — shows file attach + available skills
   let attachMenuEl = null;
@@ -4233,6 +4243,7 @@
       case 'done': {
         finishAssistantMessage();
         setLoading(false);
+        toolOutputChars.clear();
         userScrolledUp = false;
         // Clear the persistent resume strip — a successful completion
         // (normal or post-resume) means there's nothing to resume.
@@ -4711,10 +4722,17 @@
         if (activeToolForOutput) {
           const body = activeToolForOutput.querySelector('.tool-call-body');
           if (body) {
-            if (event.data.isDiff) {
+            const toolKey = toolIdForOutput || activeToolForOutput.getAttribute('data-tool-id') || '_last';
+            const prevChars = toolOutputChars.get(toolKey) || 0;
+            const incoming = event.data.content || '';
+
+            if (prevChars >= MAX_TOOL_OUTPUT_CHARS) {
+              // Already truncated — just tally chars for the final badge
+              toolOutputChars.set(toolKey, prevChars + incoming.length);
+            } else if (event.data.isDiff) {
               const pre = document.createElement('pre');
               pre.className = 'tool-diff-patch';
-              for (const line of (event.data.content || '').split('\n')) {
+              for (const line of incoming.split('\n')) {
                 const span = document.createElement('span');
                 if (line.startsWith('+') && !line.startsWith('+++')) {
                   span.className = 'diff-add';
@@ -4729,8 +4747,16 @@
                 pre.appendChild(span);
               }
               body.appendChild(pre);
+              toolOutputChars.set(toolKey, prevChars + incoming.length);
             } else {
-              body.textContent += event.data.content || '';
+              const remaining = MAX_TOOL_OUTPUT_CHARS - prevChars;
+              if (incoming.length <= remaining) {
+                body.textContent += incoming;
+              } else {
+                body.textContent += incoming.slice(0, remaining);
+                body.dataset.truncated = 'true';
+              }
+              toolOutputChars.set(toolKey, prevChars + incoming.length);
             }
             // Auto-open the details when output starts flowing
             activeToolForOutput.open = true;
@@ -4786,6 +4812,23 @@
               vscode.postMessage({ command: 'explainToolDecision', toolCallId: whyToolId });
             });
             matchedSummary.appendChild(whyBtn);
+
+            // Copy button — copies full body text to clipboard
+            const copyToolBtn = document.createElement('button');
+            copyToolBtn.className = 'tool-copy-btn';
+            copyToolBtn.textContent = 'Copy';
+            copyToolBtn.title = 'Copy tool output to clipboard';
+            copyToolBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              const bodyEl = matchedTool.querySelector('.tool-call-body');
+              const fullText = bodyEl ? (bodyEl.textContent || '') + (bodyEl.dataset.fullOutput || '') : text;
+              navigator.clipboard.writeText(fullText.trim()).then(() => {
+                copyToolBtn.textContent = '✓';
+                setTimeout(() => (copyToolBtn.textContent = 'Copy'), 1500);
+              });
+            });
+            matchedSummary.appendChild(copyToolBtn);
           }
 
           // Append result output to the tool call body
@@ -4811,6 +4854,38 @@
 
           if (isError) {
             matchedTool.classList.add('error');
+          } else {
+            // Auto-collapse successful tool calls after a short delay so the
+            // chat doesn't become an endless wall of expanded output blocks.
+            setTimeout(() => {
+              if (matchedTool && !matchedTool.classList.contains('error')) {
+                matchedTool.open = false;
+              }
+            }, 800);
+          }
+
+          // Show truncation notice if output was cut
+          const toolKey = resultToolId || matchedTool.getAttribute('data-tool-id') || '_last';
+          const totalChars = toolOutputChars.get(toolKey) || 0;
+          const matchedBody2 = matchedTool.querySelector('.tool-call-body');
+          if (matchedBody2 && matchedBody2.dataset.truncated === 'true' && totalChars > MAX_TOOL_OUTPUT_CHARS) {
+            const hidden = totalChars - MAX_TOOL_OUTPUT_CHARS;
+            const notice = document.createElement('div');
+            notice.className = 'tool-truncation-notice';
+            // Store full output so copy button can access it
+            matchedBody2.dataset.fullOutput = '';
+            notice.innerHTML =
+              '<span>▸ ' +
+              hidden.toLocaleString() +
+              ' more chars hidden</span>' +
+              '<button class="tool-show-more-btn">Show all</button>';
+            notice.querySelector('.tool-show-more-btn').addEventListener('click', () => {
+              vscode.postMessage({ command: 'getFullToolOutput', toolKey });
+            });
+            matchedBody2.appendChild(notice);
+            toolOutputChars.delete(toolKey);
+          } else {
+            toolOutputChars.delete(toolKey);
           }
         } else {
           // No matching tool call found — show a standalone result block
