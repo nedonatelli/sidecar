@@ -8,6 +8,7 @@ import { OpenRouterBackend } from './openrouterBackend.js';
 import { GroqBackend } from './groqBackend.js';
 import { FireworksBackend } from './fireworksBackend.js';
 import { GeminiBackend } from './geminiBackend.js';
+import { CopilotBackend } from './copilotBackend.js';
 import { isLocalOllama, detectProvider, getConfig } from '../config/settings.js';
 import { MODEL_CONTEXT_LENGTHS } from '../config/constants.js';
 import { RateLimitStore } from './rateLimitState.js';
@@ -136,7 +137,7 @@ export class SideCarClient {
   // providers (update() keeps old values when new ones are absent),
   // leaking one provider's remaining-token counts into another's view.
   private rateLimitsByProvider = new Map<
-    'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks' | 'gemini',
+    'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks' | 'gemini' | 'copilot',
     RateLimitStore
   >();
 
@@ -176,13 +177,24 @@ export class SideCarClient {
         return new FireworksBackend(this.baseUrl, this.apiKey, this.rateLimitsFor('fireworks'));
       case 'gemini':
         return new GeminiBackend(this.baseUrl, this.apiKey, this.rateLimitsFor('gemini'));
+      case 'copilot':
+        return new CopilotBackend();
       case 'openai':
         return new OpenAIBackend(this.baseUrl, this.apiKey, this.rateLimitsFor('openai'));
     }
   }
 
   private rateLimitsFor(
-    provider: 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks' | 'gemini',
+    provider:
+      | 'ollama'
+      | 'anthropic'
+      | 'openai'
+      | 'kickstand'
+      | 'openrouter'
+      | 'groq'
+      | 'fireworks'
+      | 'gemini'
+      | 'copilot',
   ): RateLimitStore {
     let store = this.rateLimitsByProvider.get(provider);
     if (!store) {
@@ -622,6 +634,10 @@ export class SideCarClient {
   async getModelContextLength(): Promise<number | null> {
     const provider = this.getProviderType();
 
+    if (provider === 'copilot') {
+      return CopilotBackend.getModelContextLength(this.model);
+    }
+
     if (provider === 'kickstand') {
       // Kickstand reports the loaded handle's n_ctx on the OAI card
       // (post-v0.6 patch). Query /v1/models, find our model, return
@@ -698,12 +714,26 @@ export class SideCarClient {
     return provider === 'openai';
   }
 
-  getProviderType(): 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks' | 'gemini' {
+  getProviderType():
+    | 'ollama'
+    | 'anthropic'
+    | 'openai'
+    | 'kickstand'
+    | 'openrouter'
+    | 'groq'
+    | 'fireworks'
+    | 'gemini'
+    | 'copilot' {
     return detectProvider(this.baseUrl, getConfig().provider);
   }
 
   async listInstalledModels(): Promise<InstalledModel[]> {
     const provider = this.getProviderType();
+
+    if (provider === 'copilot') {
+      const models = await CopilotBackend.listAvailableModels();
+      return models.map((m) => ({ name: m.name || m.id, model: m.id, size: 0 }));
+    }
 
     if (provider === 'anthropic') {
       const fallback = (): InstalledModel[] =>

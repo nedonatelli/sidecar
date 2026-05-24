@@ -30,7 +30,8 @@ export type ProviderType =
   | 'openrouter'
   | 'groq'
   | 'fireworks'
-  | 'gemini';
+  | 'gemini'
+  | 'copilot';
 
 export type CircuitState = 'closed' | 'open' | 'half-open';
 

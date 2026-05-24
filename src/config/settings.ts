@@ -59,7 +59,17 @@ export interface SideCarConfig {
   model: string;
   /** Cheaper model used for tool-execution turns in the architect/editor split. Empty = disabled. */
   editorModel: string;
-  provider: 'auto' | 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks' | 'gemini';
+  provider:
+    | 'auto'
+    | 'ollama'
+    | 'anthropic'
+    | 'openai'
+    | 'kickstand'
+    | 'openrouter'
+    | 'groq'
+    | 'fireworks'
+    | 'gemini'
+    | 'copilot';
   systemPrompt: string;
   baseUrl: string;
   apiKey: string;
@@ -358,7 +368,16 @@ function readConfig(): SideCarConfig {
   const cfg = workspace.getConfiguration('sidecar');
   const rawModel = cfg.get<string>('model', OLLAMA_DEFAULT_MODEL) || OLLAMA_DEFAULT_MODEL;
   const rawProvider = cfg.get<
-    'auto' | 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks'
+    | 'auto'
+    | 'ollama'
+    | 'anthropic'
+    | 'openai'
+    | 'kickstand'
+    | 'openrouter'
+    | 'groq'
+    | 'fireworks'
+    | 'gemini'
+    | 'copilot'
   >('provider', 'auto');
   const rawBaseUrl = cfg.get<string>('baseUrl', 'http://localhost:11434') || 'http://localhost:11434';
   // Provider-aware default: if the user switched provider to Anthropic but left

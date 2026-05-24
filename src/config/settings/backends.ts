@@ -18,7 +18,16 @@ export interface BackendProfile {
   /** Human-readable label shown in the chat menu. */
   name: string;
   /** Provider type the client will instantiate. */
-  provider: 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks' | 'gemini';
+  provider:
+    | 'ollama'
+    | 'anthropic'
+    | 'openai'
+    | 'kickstand'
+    | 'openrouter'
+    | 'groq'
+    | 'fireworks'
+    | 'gemini'
+    | 'copilot';
   /** API base URL to bake into sidecar.baseUrl. */
   baseUrl: string;
   /** Default model to select when switching to this profile. */
@@ -115,6 +124,16 @@ export const BUILT_IN_BACKEND_PROFILES: readonly BackendProfile[] = [
     secretKey: 'sidecar.profileKey.gemini',
     description:
       'Google Gemini models (Flash, Pro) via the OpenAI-compatible endpoint. Gemini 2.0 Flash is fast and free-tier friendly. Requires an API key from aistudio.google.com/apikey.',
+  },
+  {
+    id: 'copilot',
+    name: 'GitHub Copilot',
+    provider: 'copilot',
+    baseUrl: 'vscode://github.copilot',
+    defaultModel: 'gpt-4o',
+    secretKey: null,
+    description:
+      'Use SideCar with your existing GitHub Copilot subscription — no separate API key needed. Requires GitHub Copilot extension installed and signed in.',
   },
 ] as const;
 
@@ -248,8 +267,18 @@ export function isGemini(baseUrl: string): boolean {
 /** Determine which backend provider to use based on URL and explicit setting. */
 export function detectProvider(
   baseUrl: string,
-  provider: 'auto' | 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks' | 'gemini',
-): 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks' | 'gemini' {
+  provider:
+    | 'auto'
+    | 'ollama'
+    | 'anthropic'
+    | 'openai'
+    | 'kickstand'
+    | 'openrouter'
+    | 'groq'
+    | 'fireworks'
+    | 'gemini'
+    | 'copilot',
+): 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks' | 'gemini' | 'copilot' {
   if (provider !== 'auto') return provider;
   if (isLocalOllama(baseUrl)) return 'ollama';
   if (isAnthropic(baseUrl)) return 'anthropic';
@@ -280,5 +309,7 @@ export function providerDisplayLabel(provider: ReturnType<typeof detectProvider>
       return 'Fireworks';
     case 'gemini':
       return 'Gemini';
+    case 'copilot':
+      return 'GitHub Copilot';
   }
 }

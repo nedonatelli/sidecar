@@ -4,6 +4,20 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.102.0] - 2026-05-23
+
+**v0.102.0 — GitHub Copilot backend (`vscode.lm`).**
+
+### Added
+
+- **GitHub Copilot backend** — new `CopilotBackend` wraps `vscode.lm.selectChatModels` / `model.sendRequest` so users who already have a GitHub Copilot subscription can use SideCar with zero API key configuration. Full tool-calling support: `ToolDefinition` → `LanguageModelChatTool`, `LanguageModelToolCallPart` → `StreamToolUseEvent`, `LanguageModelToolResultPart` in user messages. System prompt is injected as a leading User message with a `[System Instructions]` prefix (no system role in vscode.lm). Abort signal bridges to `CancellationTokenSource`. Model selection tries exact id first, then family, then any available model. (`src/ollama/copilotBackend.ts`)
+
+- **`'copilot'` provider** — added to `BackendProfile.provider`, `SideCarConfig.provider`, `detectProvider()`, `providerDisplayLabel()`, `ProviderType` (circuit breaker), `isProviderReachable()` (always returns `true` — reachability is governed by the extension install, not HTTP). `createBackend()` instantiates `CopilotBackend` for this provider. `listInstalledModels()` calls `CopilotBackend.listAvailableModels()` which enumerates via `vscode.lm.selectChatModels()`. `getModelContextLength()` reads `model.maxInputTokens` for copilot models. (`src/config/settings/backends.ts`, `src/config/settings.ts`, `src/ollama/client.ts`, `src/ollama/circuitBreaker.ts`, `src/config/providerReachability.ts`)
+
+- **Built-in Copilot profile** — `BUILT_IN_BACKEND_PROFILES` now includes a `'copilot'` entry with `secretKey: null` (no key prompt ever shown), `defaultModel: 'gpt-4o'`, and a descriptive one-liner.
+
+- **`vscode.lm` mock** — added `LanguageModelTextPart`, `LanguageModelToolCallPart`, `LanguageModelToolResultPart`, `LanguageModelChatMessage` (with static `.User()` / `.Assistant()` factories), and `lm.selectChatModels` (vi.fn stub) to `src/__mocks__/vscode.ts`.
+
 ## [0.101.0] - 2026-05-23
 
 **v0.101.0 — VS Code Native Integrations: Test Explorer, CodeLens, line decorations, inline diffs, and a smarter context pipeline.**

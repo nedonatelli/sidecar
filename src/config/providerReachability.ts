@@ -37,9 +37,23 @@ async function readKickstandTokenForProbe(): Promise<string> {
  * network errors and timeouts return false.
  */
 export async function isProviderReachable(
-  providerType: 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks' | 'gemini',
+  providerType:
+    | 'ollama'
+    | 'anthropic'
+    | 'openai'
+    | 'kickstand'
+    | 'openrouter'
+    | 'groq'
+    | 'fireworks'
+    | 'gemini'
+    | 'copilot',
   config?: SideCarConfig,
 ): Promise<boolean> {
+  // Copilot uses vscode.lm — reachability is determined by whether the extension
+  // is installed and the user is signed in, which is not checkable via HTTP.
+  // Always return true and let the first model request surface any real error.
+  if (providerType === 'copilot') return true;
+
   const cfg = config || getConfig();
   try {
     let checkUrl: string;

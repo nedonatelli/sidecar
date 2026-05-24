@@ -381,6 +381,47 @@ export class CodeLens {
   }
 }
 
+export class LanguageModelTextPart {
+  constructor(public value: string) {}
+}
+
+export class LanguageModelToolCallPart {
+  constructor(
+    public callId: string,
+    public name: string,
+    public input: object,
+  ) {}
+}
+
+export class LanguageModelToolResultPart {
+  constructor(
+    public callId: string,
+    public content: unknown[],
+  ) {}
+}
+
+export class LanguageModelChatMessage {
+  role: number = 0;
+  content: unknown = undefined;
+  static User(content: unknown): LanguageModelChatMessage {
+    const m = new LanguageModelChatMessage();
+    m.role = 1;
+    m.content = content;
+    return m;
+  }
+  static Assistant(content: unknown): LanguageModelChatMessage {
+    const m = new LanguageModelChatMessage();
+    m.role = 2;
+    m.content = content;
+    return m;
+  }
+}
+
+export const lm = {
+  selectChatModels: vi.fn().mockResolvedValue([]),
+  onDidChangeChatModels: noopEvent,
+};
+
 export const tests = {
   createTestController: (_id: string, _label: string) => ({
     items: new MockTestItemCollection(),
