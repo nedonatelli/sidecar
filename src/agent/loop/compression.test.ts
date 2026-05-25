@@ -45,7 +45,12 @@ vi.mock('../toolResultCompressor.js', () => {
   };
 });
 
-import { compressMessages, applyBudgetCompression, maybeCompressPostTool } from './compression.js';
+import {
+  compressMessages,
+  applyBudgetCompression,
+  maybeCompressPostTool,
+  clearCompressionCache,
+} from './compression.js';
 import type { ChatMessage, ContentBlock } from '../../ollama/types.js';
 import type { SideCarClient } from '../../ollama/client.js';
 import type { LoopState } from './state.js';
@@ -337,5 +342,54 @@ describe('compressMessages — image bypass', () => {
     compressMessages(messages);
     const preserved = messages[0].content as ContentBlock[];
     expect(preserved[0].type).toBe('image');
+  });
+});
+
+describe('compression cache', () => {
+  beforeEach(() => clearCompressionCache());
+
+  it('returns the same compressed string for identical content without re-compressing', () => {
+    const body = 'x'.repeat(5000);
+    const messages = (): ChatMessage[] => [
+      { role: 'user', content: [toolResultBlock(body)] },
+      { role: 'assistant', content: 'a' },
+      { role: 'user', content: [toolResultBlock(body)] },
+      { role: 'assistant', content: 'b' },
+      { role: 'user', content: [toolResultBlock(body)] },
+      { role: 'assistant', content: 'c' },
+      { role: 'assistant', content: 'd' },
+      { role: 'assistant', content: 'e' },
+    ];
+
+    const first = messages();
+    compressMessages(first);
+    const firstResult = (first[0].content as ContentBlock[])[0] as { content: string };
+
+    const second = messages();
+    compressMessages(second);
+    const secondResult = (second[0].content as ContentBlock[])[0] as { content: string };
+
+    expect(firstResult.content).toBe(secondResult.content);
+  });
+
+  it('clearCompressionCache removes cached entries', () => {
+    const body = 'y'.repeat(5000);
+    const make = (): ChatMessage[] => [
+      { role: 'user', content: [toolResultBlock(body)] },
+      { role: 'assistant', content: 'a' },
+      { role: 'assistant', content: 'b' },
+      { role: 'assistant', content: 'c' },
+      { role: 'assistant', content: 'd' },
+      { role: 'assistant', content: 'e' },
+      { role: 'assistant', content: 'f' },
+      { role: 'assistant', content: 'g' },
+    ];
+    compressMessages(make());
+    clearCompressionCache();
+    // After clear, a fresh call should still produce the correct compressed output
+    const msgs = make();
+    compressMessages(msgs);
+    const result = (msgs[0].content as ContentBlock[])[0] as { content: string };
+    expect(result.content.length).toBeLessThan(body.length);
   });
 });

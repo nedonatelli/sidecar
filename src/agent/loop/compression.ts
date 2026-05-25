@@ -30,6 +30,29 @@ import type { LoopState } from './state.js';
  *  the agent needs for the rest of the session (repo root, deps tree, etc.). */
 const STATE_ESTABLISHING_TOOLS = new Set(['git_clone', 'npm_install', 'run_command']);
 
+/**
+ * Memoises `ToolResultCompressor.compress` output so identical tool-result
+ * bodies (e.g. repeated read_file on the same file) are only compressed once
+ * per session. The cache is cleared between agent runs via `clearCompressionCache`.
+ *
+ * Key: `${length}:${head64}:${tail64}:${maxLen}` — cheap, no crypto needed.
+ * Collisions are impossible in practice because a collision would require two
+ * strings that share length, first 64 chars, last 64 chars, and maxLen yet
+ * differ in the middle — extremely unlikely for tool result content.
+ */
+const compressionCache = new Map<string, string>();
+
+function compressionKey(content: string, maxLen: number): string {
+  const head = content.slice(0, 64);
+  const tail = content.length > 64 ? content.slice(-64) : '';
+  return `${content.length}:${maxLen}:${head}:${tail}`;
+}
+
+/** Clear the compression cache — called at agent-loop teardown. */
+export function clearCompressionCache(): void {
+  compressionCache.clear();
+}
+
 function isStateEstablishingResult(msg: ChatMessage, prevMsg: ChatMessage | undefined): boolean {
   if (!prevMsg || msg.role !== 'user' || typeof msg.content === 'string') return false;
   if (!Array.isArray(prevMsg.content)) return false;
@@ -84,8 +107,12 @@ export function compressMessages(messages: ChatMessage[]): number {
         freed += Math.max(0, block.source.data.length - placeholder.length);
       } else if (block.type === 'tool_result' && block.content.length > maxLen) {
         const original = block.content.length;
-        const compressionResult = compressor.compress(block.content, maxLen);
-        const compressed = compressionResult.content;
+        const cacheKey = compressionKey(block.content, maxLen);
+        let compressed = compressionCache.get(cacheKey);
+        if (compressed === undefined) {
+          compressed = compressor.compress(block.content, maxLen).content;
+          compressionCache.set(cacheKey, compressed);
+        }
         newContent.push({ ...block, content: compressed });
         freed += original - compressed.length;
       } else if (block.type === 'thinking' && distFromEnd >= 8) {

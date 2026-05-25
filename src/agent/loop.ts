@@ -10,7 +10,7 @@ import { type ApprovalMode, type ConfirmFn, type DiffPreviewFn, type StreamingDi
 import type { AgentLogger } from './logger.js';
 import type { ChangeLog } from './changelog.js';
 import type { MCPManager } from './mcpManager.js';
-import { applyBudgetCompression, maybeCompressPostTool } from './loop/compression.js';
+import { applyBudgetCompression, maybeCompressPostTool, clearCompressionCache } from './loop/compression.js';
 import { initLoopState } from './loop/state.js';
 import { streamOneTurn, resolveTurnContent } from './loop/streamTurn.js';
 import { applyAgentLoopRouting, applyArchitectEditorSplit } from './loop/routing.js';
@@ -562,6 +562,7 @@ export async function runAgentLoop(
   } finally {
     disposeSteerListener();
     currentTurnController = null;
+    clearCompressionCache();
     // Restore the client to the user's configured model so subsequent
     // non-agent requests (chat, completions) aren't left on editorModel.
     if (state.config.editorModel) {

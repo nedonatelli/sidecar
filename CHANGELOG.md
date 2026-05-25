@@ -4,6 +4,20 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.106.0] - 2026-05-25
+
+**v0.106.0 — Circuit breaker exponential backoff, compression result cache, `/undo` slash command, and session search.**
+
+### Added
+
+- **Circuit breaker exponential backoff** — the per-provider circuit breaker now doubles its cooldown on each successive failed probe, up to a configurable `maxCooldownMs` ceiling (default 120 s). First trip: 15 s. Second: 30 s. Third: 60 s. Fourth+: 120 s. `openCount` resets to zero after a successful probe so a provider that recovers starts fresh. (`src/ollama/circuitBreaker.ts`)
+
+- **Compression result cache** — `compressMessages()` memoises `ToolResultCompressor.compress()` output using a cheap key (`length:maxLen:head64:tail64`) so identical tool-result bodies (e.g. repeated `read_file` on the same file) are only compressed once per agent run. `clearCompressionCache()` is called in the agent loop `finally` block to prevent cross-run stale hits. (`src/agent/loop/compression.ts`, `src/agent/loop.ts`)
+
+- **`/undo` slash command** — type `/undo` in the chat input to revert all file changes from the last agent turn and trim the last assistant+tool-result turn from the history. Previously `/undo` was silently swallowed by the natural-language undo detector (which explicitly skips `/`-prefixed text). Added an explicit regex intercept before the NL check. Also listed in slash-command autocomplete and `/help`. (`src/webview/handlers/dispatchHandlers.ts`, `media/chat.js`)
+
+- **Session search** — a filter input appears at the top of the Sessions panel. Typing narrows the list client-side (case-insensitive substring match on session name) with no round-trip. Search resets automatically when the panel opens. (`src/webview/chatWebview.ts`, `media/chat.js`, `media/chat.css`)
+
 ## [0.105.0] - 2026-05-25
 
 **v0.105.0 — Message editing, `/compact` slash command, and edit visual preview.**

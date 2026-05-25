@@ -38,12 +38,18 @@ export type CircuitState = 'closed' | 'open' | 'half-open';
 export interface CircuitBreakerOptions {
   /** How many consecutive failures trip the breaker. Default: 5. */
   failureThreshold?: number;
-  /** How long the breaker stays open before transitioning to half-open. Default: 60_000 ms. */
+  /**
+   * Initial cooldown after the first trip (ms). Subsequent trips double this
+   * up to `maxCooldownMs`. Default: 15_000.
+   */
   cooldownMs?: number;
+  /** Ceiling for exponential backoff. Default: 120_000 ms. */
+  maxCooldownMs?: number;
 }
 
 const DEFAULT_FAILURE_THRESHOLD = 5;
-const DEFAULT_COOLDOWN_MS = 60_000;
+const DEFAULT_COOLDOWN_MS = 15_000;
+const DEFAULT_MAX_COOLDOWN_MS = 120_000;
 
 /**
  * Thrown by `guard()` when the breaker is open and no probe is allowed
@@ -70,22 +76,31 @@ interface BreakerEntry {
   consecutiveFailures: number;
   openedAt: number;
   probeInFlight: boolean;
+  /** Number of times the breaker has tripped open (resets on full success). Used for backoff tier. */
+  openCount: number;
 }
 
 export class CircuitBreaker {
   private entries = new Map<ProviderType, BreakerEntry>();
   private readonly failureThreshold: number;
   private readonly cooldownMs: number;
+  private readonly maxCooldownMs: number;
 
   constructor(options: CircuitBreakerOptions = {}) {
     this.failureThreshold = options.failureThreshold ?? DEFAULT_FAILURE_THRESHOLD;
     this.cooldownMs = options.cooldownMs ?? DEFAULT_COOLDOWN_MS;
+    this.maxCooldownMs = options.maxCooldownMs ?? DEFAULT_MAX_COOLDOWN_MS;
+  }
+
+  /** Cooldown for the current trip tier: doubles each open, capped at maxCooldownMs. */
+  private tierCooldown(openCount: number): number {
+    return Math.min(this.maxCooldownMs, this.cooldownMs * Math.pow(2, Math.max(0, openCount - 1)));
   }
 
   private get(provider: ProviderType): BreakerEntry {
     let entry = this.entries.get(provider);
     if (!entry) {
-      entry = { state: 'closed', consecutiveFailures: 0, openedAt: 0, probeInFlight: false };
+      entry = { state: 'closed', consecutiveFailures: 0, openedAt: 0, probeInFlight: false, openCount: 0 };
       this.entries.set(provider, entry);
     }
     return entry;
@@ -101,7 +116,7 @@ export class CircuitBreaker {
     const entry = this.get(provider);
     if (entry.state === 'closed') return true;
     if (entry.state === 'open') {
-      if (Date.now() - entry.openedAt >= this.cooldownMs) {
+      if (Date.now() - entry.openedAt >= this.tierCooldown(entry.openCount)) {
         entry.state = 'half-open';
         entry.probeInFlight = false;
       } else {
@@ -129,6 +144,7 @@ export class CircuitBreaker {
   recordSuccess(provider: ProviderType): void {
     const entry = this.get(provider);
     entry.consecutiveFailures = 0;
+    entry.openCount = 0;
     entry.state = 'closed';
     entry.openedAt = 0;
     entry.probeInFlight = false;
@@ -137,7 +153,8 @@ export class CircuitBreaker {
   recordFailure(provider: ProviderType): void {
     const entry = this.get(provider);
     if (entry.state === 'half-open') {
-      // Probe failed — flip straight back to open with a fresh cooldown.
+      // Probe failed — flip straight back to open, advancing the backoff tier.
+      entry.openCount++;
       entry.state = 'open';
       entry.openedAt = Date.now();
       entry.probeInFlight = false;
@@ -145,6 +162,7 @@ export class CircuitBreaker {
     }
     entry.consecutiveFailures++;
     if (entry.consecutiveFailures >= this.failureThreshold) {
+      entry.openCount++;
       entry.state = 'open';
       entry.openedAt = Date.now();
       entry.probeInFlight = false;
@@ -154,7 +172,8 @@ export class CircuitBreaker {
   /** Read-only view of a provider's current state, for telemetry / UI. */
   describe(provider: ProviderType): { state: CircuitState; consecutiveFailures: number; cooldownRemainingMs: number } {
     const entry = this.get(provider);
-    const remaining = entry.state === 'open' ? Math.max(0, this.cooldownMs - (Date.now() - entry.openedAt)) : 0;
+    const remaining =
+      entry.state === 'open' ? Math.max(0, this.tierCooldown(entry.openCount) - (Date.now() - entry.openedAt)) : 0;
     return {
       state: entry.state,
       consecutiveFailures: entry.consecutiveFailures,

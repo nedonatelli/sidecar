@@ -5,7 +5,10 @@ describe('CircuitBreaker', () => {
   let breaker: CircuitBreaker;
 
   beforeEach(() => {
-    breaker = new CircuitBreaker({ failureThreshold: 3, cooldownMs: 1000 });
+    // Use a small cooldownMs so timer-based tests stay fast.
+    // maxCooldownMs is set high enough that the cap doesn't interfere with
+    // the two-trip exponential test (1000 * 2 = 2000 < 8000).
+    breaker = new CircuitBreaker({ failureThreshold: 3, cooldownMs: 1000, maxCooldownMs: 8000 });
   });
 
   describe('closed state', () => {
@@ -89,6 +92,66 @@ describe('CircuitBreaker', () => {
       breaker.recordFailure('openai');
       expect(breaker.describe('openai').state).toBe('open');
       expect(breaker.describe('openai').cooldownRemainingMs).toBeGreaterThan(900);
+    });
+  });
+
+  describe('exponential backoff', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('doubles cooldown on each failed probe', () => {
+      // Trip 1 — cooldown = 1000ms
+      for (let i = 0; i < 3; i++) breaker.recordFailure('openai');
+      expect(breaker.describe('openai').cooldownRemainingMs).toBeGreaterThan(900);
+
+      // Advance past first cooldown, let probe fail → Trip 2
+      vi.advanceTimersByTime(1001);
+      breaker.allow('openai');
+      breaker.recordFailure('openai');
+
+      // Cooldown is now doubled (2000ms)
+      expect(breaker.describe('openai').cooldownRemainingMs).toBeGreaterThan(1900);
+
+      // The original 1000ms cooldown is not enough to re-enter half-open
+      vi.advanceTimersByTime(1001);
+      expect(breaker.allow('openai')).toBe(false);
+
+      // But 2000ms total is enough
+      vi.advanceTimersByTime(1000);
+      expect(breaker.allow('openai')).toBe(true);
+    });
+
+    it('resets openCount to 0 after a successful probe', () => {
+      for (let i = 0; i < 3; i++) breaker.recordFailure('openai');
+      vi.advanceTimersByTime(1001);
+      breaker.allow('openai');
+      breaker.recordSuccess('openai');
+
+      // Trip again — cooldown should be back to 1000ms (openCount reset)
+      for (let i = 0; i < 3; i++) breaker.recordFailure('openai');
+      expect(breaker.describe('openai').cooldownRemainingMs).toBeGreaterThan(900);
+      expect(breaker.describe('openai').cooldownRemainingMs).toBeLessThanOrEqual(1000);
+    });
+
+    it('caps cooldown at maxCooldownMs', () => {
+      const capped = new CircuitBreaker({ failureThreshold: 1, cooldownMs: 1000, maxCooldownMs: 3000 });
+      vi.useFakeTimers();
+      // Trip 1 → 1000ms, Trip 2 → 2000ms, Trip 3 → 3000ms (capped), Trip 4 → 3000ms (still capped)
+      capped.recordFailure('openai'); // trip 1
+      vi.advanceTimersByTime(1001);
+      capped.allow('openai');
+      capped.recordFailure('openai'); // trip 2
+      vi.advanceTimersByTime(2001);
+      capped.allow('openai');
+      capped.recordFailure('openai'); // trip 3
+      vi.advanceTimersByTime(3001);
+      capped.allow('openai');
+      capped.recordFailure('openai'); // trip 4 — should still be capped
+      expect(capped.describe('openai').cooldownRemainingMs).toBeLessThanOrEqual(3000);
     });
   });
 
