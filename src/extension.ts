@@ -24,6 +24,7 @@ import { setupChatView } from './activation/chatViewSetup.js';
 import { registerArenaCommands } from './activation/arenaSetup.js';
 import { registerDepsFeature } from './activation/depsSetup.js';
 import { initExecutiveFunctionSetup } from './activation/executiveFunctionSetup.js';
+import { initResearchSetup } from './activation/researchSetup.js';
 import { initMcpServer } from './activation/mcpServerSetup.js';
 import { createSdkApi } from './sdk/api.js';
 import { loadRepoPolicy, setActivePolicy } from './agent/policy/policyLoader.js';
@@ -123,6 +124,7 @@ export function activate(context: ExtensionContext) {
   registerArenaCommands(context, createClient, sidecarDir);
   registerDepsFeature(context);
   initExecutiveFunctionSetup(context, sidecarDir, () => chatProvider);
+  initResearchSetup(context, sidecarDir);
   void initMcpServer(context);
   initAuditDecorations(context);
 

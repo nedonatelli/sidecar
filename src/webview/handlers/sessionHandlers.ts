@@ -44,6 +44,44 @@ export function handleDeleteSession(state: ChatState, id: string): void {
 
 export function handleListSessions(state: ChatState): void {
   const sessions = state.sessionManager.list();
-  const data = sessions.map((s) => ({ id: s.id, name: s.name, createdAt: s.createdAt }));
+  const data = sessions.map((s) => ({
+    id: s.id,
+    name: s.name,
+    createdAt: s.createdAt,
+    parentId: s.parentId,
+  }));
   state.postMessage({ command: 'sessionList', content: JSON.stringify(data) });
+}
+
+export async function handleBranchSession(state: ChatState, branchName?: string): Promise<void> {
+  const name =
+    branchName?.trim() ||
+    (await window.showInputBox({
+      prompt: 'Name for this branch',
+      placeHolder: 'e.g. "try-different-approach"',
+      value: state.currentSessionId
+        ? `${state.sessionManager.load(state.currentSessionId)?.name ?? 'Branch'} (alt)`
+        : 'Branch',
+    }));
+  if (!name?.trim()) return;
+
+  // Auto-save current state before branching so neither thread loses progress.
+  state.autoSave();
+
+  const parentId = state.currentSessionId;
+  if (!parentId) {
+    // No saved session yet — save first, then branch from it.
+    const parent = state.sessionManager.save(name.trim() + ' (original)', state.messages);
+    const child = state.sessionManager.branch(parent.id, name.trim(), state.messages);
+    state.currentSessionId = child.id;
+  } else {
+    const child = state.sessionManager.branch(parentId, name.trim(), state.messages);
+    state.currentSessionId = child.id;
+  }
+
+  state.postMessage({
+    command: 'threadSwitched',
+    content: `Branched: **${name.trim()}**. Continuing in new branch — the original thread is preserved in Sessions.`,
+  });
+  handleListSessions(state);
 }

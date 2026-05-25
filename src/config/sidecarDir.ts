@@ -26,6 +26,7 @@ export class SidecarDir {
     'scratchpad',
     'audit-buffer',
     'literature',
+    'research',
   ] as const;
 
   /** Subdirectories excluded from git. */

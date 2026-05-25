@@ -92,6 +92,7 @@ export function setupChatView(context: ExtensionContext, deps: ChatViewSetupDeps
     registerSessionsView(context, chatProvider.state.sessionManager, {
       loadSession: (id) => chatProvider.loadSession(id),
       saveCurrentSession: (name) => chatProvider.saveCurrentSession(name),
+      branchCurrentSession: (name) => chatProvider.branchCurrentSession(name),
     }),
   );
 

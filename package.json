@@ -2,7 +2,7 @@
   "name": "sidecar-ai",
   "displayName": "SideCar",
   "description": "Autonomous AI agent for coding — run full agent loops with local Ollama, Anthropic Claude, or OpenAI models",
-  "version": "0.103.0",
+  "version": "0.104.0",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -1868,6 +1868,16 @@
             "default": true,
             "description": "Query the OSV (Open Source Vulnerabilities) API when scanning dependencies. Requires internet access. Disable for offline or air-gapped environments."
           },
+          "sidecar.research.enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enable the Research Assistant. Provides research_create_project, research_add_hypothesis, research_log_experiment, and research_add_observation agent tools. Projects are stored under .sidecar/research/ and tracked in git."
+          },
+          "sidecar.research.activeProject": {
+            "type": "string",
+            "default": "",
+            "description": "Slug of the active research project. When set, research tools default to this project."
+          },
           "sidecar.profiling.enabled": {
             "type": "boolean",
             "default": false,
@@ -1990,6 +2000,12 @@
           "name": "Saved Sessions",
           "icon": "$(history)",
           "when": "true"
+        },
+        {
+          "id": "sidecar.research",
+          "name": "Research",
+          "icon": "$(beaker)",
+          "when": "config.sidecar.research.enabled"
         }
       ]
     },
@@ -2017,6 +2033,10 @@
       {
         "view": "sidecar.sessions",
         "contents": "No saved sessions.\n\nSave your current conversation to pick it back up later.\n\n[Save Current Session](command:sidecar.sessions.save)"
+      },
+      {
+        "view": "sidecar.research",
+        "contents": "No research projects yet.\n\nCreate a project to start tracking hypotheses, experiments, and observations.\n\n[New Project](command:sidecar.research.newProject)"
       }
     ],
     "chatParticipants": [
@@ -2197,6 +2217,24 @@
         "title": "Delete Session",
         "category": "SideCar",
         "icon": "$(trash)"
+      },
+      {
+        "command": "sidecar.sessions.branch",
+        "title": "Branch Session",
+        "category": "SideCar",
+        "icon": "$(git-branch)"
+      },
+      {
+        "command": "sidecar.research.newProject",
+        "title": "New Research Project",
+        "category": "SideCar",
+        "icon": "$(add)"
+      },
+      {
+        "command": "sidecar.research.refresh",
+        "title": "Refresh Research View",
+        "category": "SideCar",
+        "icon": "$(refresh)"
       },
       {
         "command": "sidecar.adaptivePaste.transform",
@@ -2752,6 +2790,16 @@
           "command": "sidecar.sessions.save",
           "when": "view == sidecar.sessions",
           "group": "navigation@1"
+        },
+        {
+          "command": "sidecar.research.newProject",
+          "when": "view == sidecar.research",
+          "group": "navigation@1"
+        },
+        {
+          "command": "sidecar.research.refresh",
+          "when": "view == sidecar.research",
+          "group": "navigation@2"
         }
       ],
       "view/item/context": [
@@ -2784,6 +2832,11 @@
           "command": "sidecar.mcp.reconnectServer",
           "when": "view == sidecar.mcpServers && viewItem == mcpServerFailed",
           "group": "inline@1"
+        },
+        {
+          "command": "sidecar.sessions.branch",
+          "when": "view == sidecar.sessions && viewItem == sessionEntry",
+          "group": "inline@3"
         },
         {
           "command": "sidecar.sessions.rename",

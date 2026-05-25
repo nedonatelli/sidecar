@@ -38,6 +38,7 @@ import { latexTools } from './tools/latex.js';
 import { mcpDelegateTools } from './tools/mcpDelegate.js';
 import { monorepoTools } from './tools/monorepoPackages.js';
 import { ciTools } from './tools/ci.js';
+import { researchTools } from './tools/research.js';
 
 // ---------------------------------------------------------------------------
 // tools.ts is the slim composition layer. Each tool category lives under
@@ -87,6 +88,7 @@ export const TOOL_REGISTRY: RegisteredTool[] = [
   ...(getConfig().mcpDelegationEnabled ? mcpDelegateTools : []),
   ...(getConfig().monorepoEnabled ? monorepoTools : []),
   ...(getConfig().ciAnalysisEnabled ? ciTools : []),
+  ...(getConfig().researchEnabled ? researchTools : []),
   {
     definition: {
       name: 'ask_user',

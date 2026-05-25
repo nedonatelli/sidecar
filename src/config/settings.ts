@@ -301,6 +301,9 @@ export interface SideCarConfig {
   /* Dependency Drift */
   depsEnabled: boolean;
   depsCheckVulnerabilities: boolean;
+  /* Research Assistant */
+  researchEnabled: boolean;
+  researchActiveProject: string;
   /* Code Profiling */
   profilingEnabled: boolean;
   profilingTopN: number;
@@ -612,6 +615,8 @@ function readConfig(): SideCarConfig {
     /* Dependency Drift */
     depsEnabled: cfg.get<boolean>('deps.enabled', true),
     depsCheckVulnerabilities: cfg.get<boolean>('deps.checkVulnerabilities', true),
+    researchEnabled: cfg.get<boolean>('research.enabled', false),
+    researchActiveProject: cfg.get<string>('research.activeProject', ''),
     profilingEnabled: cfg.get<boolean>('profiling.enabled', false),
     profilingTopN: clampMin(cfg.get<number>('profiling.topN', 10), 1, 50),
     latexEnabled: cfg.get<boolean>('latex.enabled', false),

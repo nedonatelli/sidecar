@@ -18,8 +18,8 @@ class SessionItem implements TreeItem {
   readonly label: string;
   readonly description: string;
   readonly tooltip: string;
-  readonly iconPath = new ThemeIcon('comment-discussion');
-  readonly collapsibleState = TreeItemCollapsibleState.None;
+  readonly iconPath: ThemeIcon;
+  readonly collapsibleState: TreeItemCollapsibleState;
   readonly contextValue = 'sessionEntry';
   readonly command = {
     command: 'sidecar.sessions.load',
@@ -27,8 +27,14 @@ class SessionItem implements TreeItem {
     arguments: [this],
   };
 
-  constructor(readonly session: SavedSession) {
+  constructor(
+    readonly session: SavedSession,
+    hasBranches = false,
+  ) {
     this.label = session.name;
+    const isBranch = !!session.parentId;
+    this.iconPath = new ThemeIcon(isBranch ? 'git-branch' : 'comment-discussion');
+    this.collapsibleState = hasBranches ? TreeItemCollapsibleState.Collapsed : TreeItemCollapsibleState.None;
     const date = new Date(session.updatedAt ?? session.createdAt).toLocaleDateString(undefined, {
       month: 'short',
       day: 'numeric',
@@ -36,7 +42,7 @@ class SessionItem implements TreeItem {
     const turns = session.messages.filter((m) => m.role === 'user').length;
     this.description = `${date} · ${turns} turn${turns === 1 ? '' : 's'}`;
     this.tooltip = [
-      `Session: ${session.name}`,
+      `${isBranch ? 'Branch' : 'Session'}: ${session.name}`,
       `Created: ${new Date(session.createdAt).toLocaleString()}`,
       `Last updated: ${new Date(session.updatedAt ?? session.createdAt).toLocaleString()}`,
       `User turns: ${turns}`,
@@ -54,11 +60,23 @@ class SessionsTreeProvider implements TreeDataProvider<SessionItem> {
     return element;
   }
 
-  getChildren(): SessionItem[] {
-    return this.manager
-      .list()
+  getChildren(element?: SessionItem): SessionItem[] {
+    const all = this.manager.list();
+
+    if (!element) {
+      // Root: sessions without a parentId, sorted newest first.
+      const childIds = new Set(all.filter((s) => s.parentId).map((s) => s.parentId!));
+      return all
+        .filter((s) => !s.parentId)
+        .sort((a, b) => (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt))
+        .map((s) => new SessionItem(s, childIds.has(s.id)));
+    }
+
+    // Children of a parent, sorted newest first.
+    return all
+      .filter((s) => s.parentId === element.session.id)
       .sort((a, b) => (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt))
-      .map((s) => new SessionItem(s));
+      .map((s) => new SessionItem(s, false));
   }
 
   refresh(): void {
@@ -75,6 +93,8 @@ export interface SessionsViewDeps {
   loadSession: (id: string) => void;
   /** Save the current chat under a user-supplied name. */
   saveCurrentSession: (name: string) => void;
+  /** Fork the current chat into a new named branch. */
+  branchCurrentSession: (name?: string) => void;
 }
 
 export function registerSessionsView(
@@ -123,7 +143,21 @@ export function registerSessionsView(
     void window.showInformationMessage(`SideCar: Session "${name}" saved.`);
   });
 
-  context.subscriptions.push(treeView, provider, loadCmd, deleteCmd, renameCmd, saveCmd);
+  const branchCmd = commands.registerCommand('sidecar.sessions.branch', async (item?: SessionItem) => {
+    // If invoked from the tree (on a specific session), load it first then branch.
+    if (item) {
+      deps.loadSession(item.session.id);
+    }
+    const name = await window.showInputBox({
+      prompt: 'Name for this branch',
+      placeHolder: 'e.g. "try-different-approach"',
+    });
+    if (!name?.trim()) return;
+    deps.branchCurrentSession(name.trim());
+    provider.refresh();
+  });
+
+  context.subscriptions.push(treeView, provider, loadCmd, deleteCmd, renameCmd, saveCmd, branchCmd);
 
   return treeView;
 }

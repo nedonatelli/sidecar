@@ -8,9 +8,17 @@ export interface SavedSession {
   messages: ChatMessage[];
   createdAt: number;
   updatedAt: number;
+  /** ID of the parent session this was branched from, if any. */
+  parentId?: string;
+  /** Index into the parent's message array at the time of branching. */
+  branchPoint?: number;
 }
 
 const STORAGE_KEY = 'sidecar.sessions';
+let _idCounter = 0;
+function newSessionId(): string {
+  return `session_${Date.now()}_${++_idCounter}`;
+}
 
 export class SessionManager {
   constructor(private globalState: Memento) {}
@@ -24,7 +32,7 @@ export class SessionManager {
     }));
 
     const session: SavedSession = {
-      id: `session_${Date.now()}`,
+      id: newSessionId(),
       name,
       messages: cleanMessages,
       createdAt: Date.now(),
@@ -70,6 +78,35 @@ export class SessionManager {
     session.updatedAt = Date.now();
     this.globalState.update(STORAGE_KEY, sessions);
     return true;
+  }
+
+  /**
+   * Fork a session at a given message index. The child starts with a copy
+   * of messages[0..atMessage] and is linked to the parent via `parentId`.
+   * Returns the new child session.
+   */
+  branch(parentId: string, name: string, messages: ChatMessage[]): SavedSession {
+    const sessions = this.list();
+    const parent = sessions.find((s) => s.id === parentId);
+
+    const child: SavedSession = {
+      id: newSessionId(),
+      name,
+      messages: messages.map((m) => ({ role: m.role, content: serializeContent(m.content) })),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      parentId,
+      branchPoint: parent ? parent.messages.length : undefined,
+    };
+
+    sessions.push(child);
+    this.globalState.update(STORAGE_KEY, sessions);
+    return child;
+  }
+
+  /** Return all direct children of a session. */
+  listChildren(parentId: string): SavedSession[] {
+    return this.list().filter((s) => s.parentId === parentId);
   }
 
   delete(id: string): void {

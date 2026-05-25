@@ -143,7 +143,15 @@ describe('injectSystemContext', () => {
   it('adds an Untrusted Workspace warning and skips SIDECAR.md when the workspace is untrusted', async () => {
     (workspace as unknown as { isTrusted: boolean }).isTrusted = false;
     const state = makeState({ loadSidecarMd: vi.fn().mockResolvedValue('should-not-appear') });
-    const result = await injectSystemContext('BASE', 200_000, state, makeConfig(), 'user text', false, 8192);
+    const { prompt: result } = await injectSystemContext(
+      'BASE',
+      200_000,
+      state,
+      makeConfig(),
+      'user text',
+      false,
+      8192,
+    );
     expect(result).toContain('## Untrusted Workspace');
     expect(result).not.toContain('should-not-appear');
   });
@@ -152,7 +160,7 @@ describe('injectSystemContext', () => {
     const state = makeState({
       loadSidecarMd: vi.fn().mockResolvedValue('Project: SideCar\n- Conventions'),
     });
-    const result = await injectSystemContext('BASE', 200_000, state, makeConfig(), 'hi', false, 8192);
+    const { prompt: result } = await injectSystemContext('BASE', 200_000, state, makeConfig(), 'hi', false, 8192);
     expect(result).toContain('Project instructions (from SIDECAR.md)');
     expect(result).toContain('Project: SideCar');
   });
@@ -183,7 +191,7 @@ describe('injectSystemContext', () => {
             ].join('\n'),
           ),
       });
-      const result = await injectSystemContext('BASE', 200_000, state, makeConfig(), 'hi', false, 8192);
+      const { prompt: result } = await injectSystemContext('BASE', 200_000, state, makeConfig(), 'hi', false, 8192);
       expect(result).toContain('## Build'); // always included (no sentinel)
       expect(result).toContain('## Transforms'); // matched active file
       expect(result).not.toContain('## UI'); // didn't match active file
@@ -197,7 +205,7 @@ describe('injectSystemContext', () => {
     // sentinels behaves exactly as before — whole file injected.
     const legacyContent = '## Build\n- Old-style doc\n## Notes\n- More prose';
     const state = makeState({ loadSidecarMd: vi.fn().mockResolvedValue(legacyContent) });
-    const result = await injectSystemContext('BASE', 200_000, state, makeConfig(), 'hi', false, 8192);
+    const { prompt: result } = await injectSystemContext('BASE', 200_000, state, makeConfig(), 'hi', false, 8192);
     expect(result).toContain('## Build');
     expect(result).toContain('## Notes'); // both included — no routing
   });
@@ -215,7 +223,7 @@ describe('injectSystemContext', () => {
             ),
           ),
       });
-      const result = await injectSystemContext(
+      const { prompt: result } = await injectSystemContext(
         'BASE',
         200_000,
         state,
@@ -231,7 +239,7 @@ describe('injectSystemContext', () => {
   });
 
   it('appends the user-configured systemPrompt regardless of trust state', async () => {
-    const result = await injectSystemContext(
+    const { prompt: result } = await injectSystemContext(
       'BASE',
       200_000,
       makeState(),
@@ -256,7 +264,7 @@ describe('injectSystemContext', () => {
     const state = makeState({
       loadSidecarMd: vi.fn().mockResolvedValue('# Project\n\nFull file content.'),
     });
-    const result = await injectSystemContext(
+    const { prompt: result } = await injectSystemContext(
       'BASE',
       200_000,
       state,
@@ -273,7 +281,7 @@ describe('injectSystemContext', () => {
     const state = makeState({
       loadSidecarMd: vi.fn().mockResolvedValue(longContent),
     });
-    const result = await injectSystemContext(
+    const { prompt: result } = await injectSystemContext(
       'BASE',
       500,
       state,
@@ -289,7 +297,7 @@ describe('injectSystemContext', () => {
     const state = makeState({
       loadSidecarMd: vi.fn().mockResolvedValue('## Section\n<!-- @paths: src/foo.ts -->\nfoo info'),
     });
-    const result = await injectSystemContext(
+    const { prompt: result } = await injectSystemContext(
       'BASE',
       200_000,
       state,
@@ -303,7 +311,7 @@ describe('injectSystemContext', () => {
 
   it('truncates an oversized user systemPrompt to fit the budget', async () => {
     const huge = 'x'.repeat(10_000);
-    const result = await injectSystemContext(
+    const { prompt: result } = await injectSystemContext(
       'BASE',
       1_000,
       makeState(),
@@ -326,7 +334,7 @@ describe('injectSystemContext', () => {
         match: vi.fn().mockReturnValue(skill),
       },
     });
-    const result = await injectSystemContext(
+    const { prompt: result } = await injectSystemContext(
       'BASE',
       200_000,
       state,
@@ -349,12 +357,12 @@ describe('injectSystemContext', () => {
         match: vi.fn().mockReturnValue(skill),
       },
     });
-    const result = await injectSystemContext('BASE', 200_000, state, makeConfig(), 'trigger', false, 8192);
+    const { prompt: result } = await injectSystemContext('BASE', 200_000, state, makeConfig(), 'trigger', false, 8192);
     expect(result).toContain('workspace-sourced from /ws/.sidecar/skills/local.md');
   });
 
   it('appends a Session block with project root', async () => {
-    const result = await injectSystemContext('BASE', 200_000, makeState(), makeConfig(), 'hi', false, 8192);
+    const { prompt: result } = await injectSystemContext('BASE', 200_000, makeState(), makeConfig(), 'hi', false, 8192);
     expect(result).toContain('## Session');
     expect(result).toContain('- Project root: /mock-workspace');
   });
@@ -365,7 +373,7 @@ describe('injectSystemContext', () => {
     vi.mocked(renderFusedContext).mockReturnValueOnce('### Retrieved\n- hit A');
 
     const state = makeState({ documentationIndexer: { ready: true } });
-    const result = await injectSystemContext(
+    const { prompt: result } = await injectSystemContext(
       'BASE',
       200_000,
       state,
@@ -388,7 +396,7 @@ describe('injectSystemContext', () => {
     vi.mocked(renderFusedContext).mockReturnValueOnce(content);
 
     const state = makeState({ documentationIndexer: { ready: true } });
-    const result = await injectSystemContext(
+    const { prompt: result } = await injectSystemContext(
       'BASE',
       800,
       state,
@@ -417,7 +425,7 @@ describe('injectSystemContext', () => {
       },
     });
 
-    const result = await injectSystemContext(
+    const { prompt: result } = await injectSystemContext(
       'BASE',
       200_000,
       state,
@@ -445,7 +453,15 @@ describe('injectSystemContext', () => {
     vi.mocked(getWorkspaceEnabled).mockReturnValue(true);
     vi.mocked(getWorkspaceContext).mockResolvedValueOnce('raw file tree content');
 
-    const result = await injectSystemContext('BASE', 200_000, makeState(), makeConfig(), 'any', false, 8192);
+    const { prompt: result } = await injectSystemContext(
+      'BASE',
+      200_000,
+      makeState(),
+      makeConfig(),
+      'any',
+      false,
+      8192,
+    );
     expect(result).toContain('## Workspace Context');
     expect(result).toContain('raw file tree content');
 
@@ -458,7 +474,15 @@ describe('injectSystemContext', () => {
       document: { uri: { fsPath: '/mock-workspace/src/foo.ts' } },
     };
     try {
-      const result = await injectSystemContext('BASE', 200_000, makeState(), makeConfig(), 'hi', false, 8192);
+      const { prompt: result } = await injectSystemContext(
+        'BASE',
+        200_000,
+        makeState(),
+        makeConfig(),
+        'hi',
+        false,
+        8192,
+      );
       expect(result).toContain('- Active file: src/foo.ts');
     } finally {
       (window as unknown as { activeTextEditor: unknown }).activeTextEditor = prior;

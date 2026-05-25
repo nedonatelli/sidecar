@@ -36,7 +36,7 @@ describe('SessionManager', () => {
     ];
     const session = manager.save('Test Chat', messages);
 
-    expect(session.id).toMatch(/^session_\d+$/);
+    expect(session.id).toMatch(/^session_\d+_\d+$/);
     expect(session.name).toBe('Test Chat');
     expect(session.messages).toHaveLength(2);
     expect(session.createdAt).toBeGreaterThan(0);
@@ -179,5 +179,63 @@ describe('SessionManager', () => {
     const all = manager.list();
     expect(all).toHaveLength(3);
     expect(all.map((s) => s.name)).toEqual(['Chat 1', 'Chat 2', 'Chat 3']);
+  });
+
+  // ---------------------------------------------------------------------------
+  // branch / listChildren
+  // ---------------------------------------------------------------------------
+
+  it('branch creates a child session with parentId set', () => {
+    const parent = manager.save('Parent', [
+      { role: 'user', content: 'hello' },
+      { role: 'assistant', content: 'hi' },
+    ]);
+    const child = manager.branch(parent.id, 'Alt approach', parent.messages);
+
+    expect(child.parentId).toBe(parent.id);
+    expect(child.name).toBe('Alt approach');
+    expect(child.messages).toHaveLength(2);
+    expect(child.id).not.toBe(parent.id);
+  });
+
+  it('branch records branchPoint as the parent message count at branch time', () => {
+    const msgs: ChatMessage[] = [
+      { role: 'user', content: 'q1' },
+      { role: 'assistant', content: 'a1' },
+    ];
+    const parent = manager.save('Parent', msgs);
+    const child = manager.branch(parent.id, 'Branch', msgs);
+
+    expect(child.branchPoint).toBe(2);
+  });
+
+  it('branch persists the child in the global store', () => {
+    const parent = manager.save('P', [{ role: 'user', content: 'x' }]);
+    manager.branch(parent.id, 'Child', []);
+
+    expect(manager.list()).toHaveLength(2);
+  });
+
+  it('listChildren returns only direct children of the given parent', () => {
+    const p1 = manager.save('P1', []);
+    const p2 = manager.save('P2', []);
+    manager.branch(p1.id, 'C1', []);
+    manager.branch(p1.id, 'C2', []);
+    manager.branch(p2.id, 'C3', []);
+
+    const children = manager.listChildren(p1.id);
+    expect(children).toHaveLength(2);
+    expect(children.map((s) => s.id)).not.toContain(p2.id);
+  });
+
+  it('listChildren returns empty array when no children exist', () => {
+    const p = manager.save('Lone', []);
+    expect(manager.listChildren(p.id)).toHaveLength(0);
+  });
+
+  it('branch with unknown parentId still creates the child but has undefined branchPoint', () => {
+    const child = manager.branch('ghost-id', 'Orphan', []);
+    expect(child.parentId).toBe('ghost-id');
+    expect(child.branchPoint).toBeUndefined();
   });
 });

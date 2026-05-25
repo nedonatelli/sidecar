@@ -153,6 +153,123 @@ describe('SkillLoader', () => {
     expect(loader.count).toBe(0);
   });
 
+  // ---------------------------------------------------------------------------
+  // Skills 2.0 — enforced frontmatter fields
+  // ---------------------------------------------------------------------------
+
+  it('parses allowed-tools as inline comma list', async () => {
+    loader.setBuiltinPath('/ext/skills');
+    mockReadDir.mockImplementation(async (uri: any) => {
+      if (uri.fsPath.includes('/ext/skills')) return [['restricted.md', FileType.File]];
+      return [];
+    });
+    mockReadFile.mockImplementation(async () =>
+      Buffer.from('---\nname: Restricted\nallowed-tools: read_file, list_files\n---\nContent'),
+    );
+
+    await loader.initialize();
+    const skill = loader.get('restricted');
+    expect(skill!.allowedTools).toEqual(['read_file', 'list_files']);
+  });
+
+  it('parses allowed-tools as YAML block list', async () => {
+    loader.setBuiltinPath('/ext/skills');
+    mockReadDir.mockImplementation(async (uri: any) => {
+      if (uri.fsPath.includes('/ext/skills')) return [['block.md', FileType.File]];
+      return [];
+    });
+    mockReadFile.mockImplementation(async () =>
+      Buffer.from('---\nname: Block\nallowed-tools:\n  - read_file\n  - run_command\n---\nContent'),
+    );
+
+    await loader.initialize();
+    const skill = loader.get('block');
+    expect(skill!.allowedTools).toEqual(['read_file', 'run_command']);
+  });
+
+  it('parses preferred-model', async () => {
+    loader.setBuiltinPath('/ext/skills');
+    mockReadDir.mockImplementation(async (uri: any) => {
+      if (uri.fsPath.includes('/ext/skills')) return [['smart.md', FileType.File]];
+      return [];
+    });
+    mockReadFile.mockImplementation(async () =>
+      Buffer.from('---\nname: Smart\npreferred-model: claude-opus-4-7\n---\nContent'),
+    );
+
+    await loader.initialize();
+    expect(loader.get('smart')!.preferredModel).toBe('claude-opus-4-7');
+  });
+
+  it('parses max-iterations', async () => {
+    loader.setBuiltinPath('/ext/skills');
+    mockReadDir.mockImplementation(async (uri: any) => {
+      if (uri.fsPath.includes('/ext/skills')) return [['quick.md', FileType.File]];
+      return [];
+    });
+    mockReadFile.mockImplementation(async () => Buffer.from('---\nname: Quick\nmax-iterations: 5\n---\nContent'));
+
+    await loader.initialize();
+    expect(loader.get('quick')!.maxIterations).toBe(5);
+  });
+
+  it('parses disable-model-invocation: true', async () => {
+    loader.setBuiltinPath('/ext/skills');
+    mockReadDir.mockImplementation(async (uri: any) => {
+      if (uri.fsPath.includes('/ext/skills')) return [['ref.md', FileType.File]];
+      return [];
+    });
+    mockReadFile.mockImplementation(async () =>
+      Buffer.from('---\nname: Ref\ndisable-model-invocation: true\n---\nContent'),
+    );
+
+    await loader.initialize();
+    expect(loader.get('ref')!.disableModelInvocation).toBe(true);
+  });
+
+  it('does not set skills 2.0 fields when not in frontmatter', async () => {
+    loader.setBuiltinPath('/ext/skills');
+    mockReadDir.mockImplementation(async (uri: any) => {
+      if (uri.fsPath.includes('/ext/skills')) return [['plain.md', FileType.File]];
+      return [];
+    });
+    mockReadFile.mockImplementation(async () =>
+      Buffer.from('---\nname: Plain\ndescription: Simple skill\n---\nContent'),
+    );
+
+    await loader.initialize();
+    const skill = loader.get('plain');
+    expect(skill!.allowedTools).toBeUndefined();
+    expect(skill!.preferredModel).toBeUndefined();
+    expect(skill!.maxIterations).toBeUndefined();
+    expect(skill!.disableModelInvocation).toBeUndefined();
+  });
+
+  it('listFormatted shows shield badge for restricted skills', async () => {
+    loader.setBuiltinPath('/ext/skills');
+    mockReadDir.mockImplementation(async (uri: any) => {
+      if (uri.fsPath.includes('/ext/skills'))
+        return [
+          ['restricted.md', FileType.File],
+          ['plain.md', FileType.File],
+        ];
+      return [];
+    });
+    mockReadFile.mockImplementation(async (uri: any) => {
+      if (uri.fsPath.includes('restricted'))
+        return Buffer.from('---\nname: Restricted\nallowed-tools: read_file\n---\nContent');
+      return Buffer.from('---\nname: Plain\n---\nContent');
+    });
+
+    await loader.initialize();
+    const list = loader.listFormatted();
+    const lines = list.split('\n');
+    const restrictedLine = lines.find((l) => l.includes('/restricted'));
+    const plainLine = lines.find((l) => l.includes('/plain'));
+    expect(restrictedLine).toContain('🛡');
+    expect(plainLine).not.toContain('🛡');
+  });
+
   it('skips non-.md files', async () => {
     loader.setBuiltinPath('/ext/skills');
     mockReadDir.mockImplementation(async (uri: any) => {

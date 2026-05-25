@@ -69,7 +69,13 @@ import {
   handleListSkills,
   handleGetSkillsForMenu,
 } from './infoHandlers.js';
-import { handleSaveSession, handleLoadSession, handleDeleteSession, handleListSessions } from './sessionHandlers.js';
+import {
+  handleSaveSession,
+  handleLoadSession,
+  handleDeleteSession,
+  handleListSessions,
+  handleBranchSession,
+} from './sessionHandlers.js';
 import { handleNotebookStart, handleNotebookExit } from './notebookHandlers.js';
 
 export interface HandlerDeps {
@@ -110,6 +116,13 @@ export function buildDispatchHandlers(
         return;
       }
       const text = msg.text || '';
+
+      // /branch [name] — fork current conversation into a new named thread.
+      const branchMatch = text.match(/^\/branch(?:\s+(.+))?$/i);
+      if (branchMatch) {
+        await handleBranchSession(state, branchMatch[1]);
+        return;
+      }
       if (state.pendingPlan) {
         if (isPlanApproval(text)) {
           await handleExecutePlan(state);
@@ -214,6 +227,7 @@ export function buildDispatchHandlers(
     loadSession: (msg) => handleLoadSession(state, msg.text || ''),
     deleteSession: (msg) => handleDeleteSession(state, msg.text || ''),
     listSessions: () => handleListSessions(state),
+    branchSession: (msg) => handleBranchSession(state, msg.text),
     insight: () => handleInsight(state),
     spec: (msg) => handleSpec(state, msg.text || ''),
     generateDoc: () => handleGenerateDoc(state),

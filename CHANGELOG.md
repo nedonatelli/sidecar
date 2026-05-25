@@ -4,6 +4,21 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.104.0] - 2026-05-24
+
+**v0.104.0 — Agent Capabilities: Skills 2.0, Chat Threads & Branching, and Research Assistant.**
+
+### Added
+
+- **Skills 2.0 — constrained execution** — skill `.md` files now support four enforcement frontmatter fields: `allowed-tools` (comma list or YAML block list restricts the agent to a named tool subset), `preferred-model` (overrides the active model for this skill's run), `max-iterations` (caps the loop), and `disable-model-invocation: true` (returns the skill body directly to the user without any LLM call — useful for prompt templates and code snippets). A 🛡 badge appears in the skills QuickPick for skills that constrain tool access. (`src/agent/skillLoader.ts`, `src/webview/handlers/systemPrompt.ts`, `src/webview/handlers/chatHandlers.ts`)
+
+- **Chat Threads & Branching** — `/branch [name]` creates a fork of the current conversation thread. The original thread is auto-saved and preserved; the new branch starts with identical message history and continues independently. Sessions in the sidebar now show parent/child hierarchy — branches are nested under their parent with a `$(git-branch)` icon; branch button (`$(git-branch)`) added to the Sessions toolbar at `inline@3`. `SavedSession.parentId` + `branchPoint` fields added. (`src/agent/sessions.ts`, `src/views/sessionsView.ts`, `src/webview/handlers/sessionHandlers.ts`, `src/webview/handlers/dispatchHandlers.ts`, `package.json`)
+
+- **Research Assistant** — new sidebar panel (`sidecar.research`, gated by `sidecar.research.enabled`) for structured project tracking. Four agent tools: `research_create_project` (initialises `.sidecar/research/<slug>/project.yaml`), `research_add_hypothesis` (appends to the hypotheses array), `research_log_experiment` (writes `experiments/<id>/manifest.yaml`, runs the command, captures output tail), and `research_add_observation` (saves timestamped `.md` notes). Projects persist under `.sidecar/research/` and are tracked in git. The tree view expands Projects → Hypotheses / Experiments / Observations with clickable nodes that open the underlying files. Gated by `sidecar.research.enabled` (default `false`). (`src/agent/research/researchStore.ts`, `src/agent/tools/research.ts`, `src/views/researchView.ts`, `src/activation/researchSetup.ts`)
+
+- **`sidecar.research.enabled`** — enable the Research Assistant sidebar and agent tools.
+- **`sidecar.research.activeProject`** — default project slug pre-filled in the new-project prompt.
+
 ## [0.103.0] - 2026-05-24
 
 **v0.103.0 — Chat UI & editor polish: inline diff preview, enhanced CodeLens, CI Problems panel, session browser rename, and chat strip improvements.**

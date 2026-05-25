@@ -151,7 +151,11 @@ async function buildSystemPromptForRun(
   text: string,
   effectiveApprovalMode: ApprovalMode,
   resolvedSystemPrompt: string | undefined,
-): Promise<{ systemPrompt: string; contextLength: number | null }> {
+): Promise<{
+  systemPrompt: string;
+  contextLength: number | null;
+  matchedSkill: import('../../agent/skillLoader.js').Skill | null;
+}> {
   const isLocal = state.client.isLocalOllama();
   const pkg = state.context.extension?.packageJSON || {};
   const extensionVersion = pkg.version || 'unknown';
@@ -191,8 +195,16 @@ async function buildSystemPromptForRun(
   // tighter message-history budget (see effectiveMaxTokens calculation below).
   const maxSystemChars = contextLength ? Math.floor(tokensToChars(contextLength) * 0.4) : DEFAULT_MAX_SYSTEM_CHARS;
 
-  systemPrompt = await injectSystemContext(systemPrompt, maxSystemChars, state, config, text, isLocal, contextLength);
-  return { systemPrompt, contextLength };
+  const { prompt: injectedPrompt, matchedSkill } = await injectSystemContext(
+    systemPrompt,
+    maxSystemChars,
+    state,
+    config,
+    text,
+    isLocal,
+    contextLength,
+  );
+  return { systemPrompt: injectedPrompt, contextLength, matchedSkill };
 }
 
 // ---------------------------------------------------------------------------
@@ -349,7 +361,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
       });
     }
 
-    const { systemPrompt, contextLength } = await buildSystemPromptForRun(
+    const { systemPrompt, contextLength, matchedSkill } = await buildSystemPromptForRun(
       state,
       config,
       turnText,
@@ -357,6 +369,13 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
       resolved.systemPrompt,
     );
     state.client.updateSystemPrompt(systemPrompt);
+
+    // Skills 2.0 — disableModelInvocation: return the skill body directly.
+    if (matchedSkill?.disableModelInvocation) {
+      state.postMessage({ command: 'assistantMessage', content: matchedSkill.content });
+      state.postMessage({ command: 'done' });
+      return;
+    }
 
     const generationAtStart = state.chatGeneration;
 
@@ -393,13 +412,24 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
       planStore,
     );
     state.cancelCallbacks = cancelAgentCbs;
+    // Skills 2.0 — build tool override from the skill's allowedTools list.
+    let skillToolOverride: import('../../ollama/types.js').ToolDefinition[] | undefined;
+    if (matchedSkill?.allowedTools && matchedSkill.allowedTools.length > 0) {
+      const { TOOL_REGISTRY } = await import('../../agent/tools.js');
+      skillToolOverride = TOOL_REGISTRY.filter((t) => matchedSkill.allowedTools!.includes(t.definition.name)).map(
+        (t) => t.definition,
+      );
+    }
+
     const updatedMessages = await runAgentLoop(state.client, chatMessages, agentCbs, state.abortController.signal, {
       logger: state.agentLogger,
       changelog: state.changelog,
       mcpManager: state.mcpManager,
       approvalMode: effectiveApprovalMode,
-      maxIterations: config.agentMaxIterations,
+      maxIterations: matchedSkill?.maxIterations ?? config.agentMaxIterations,
       maxTokens: effectiveMaxTokens,
+      ...(skillToolOverride && { toolOverride: skillToolOverride }),
+      ...(matchedSkill?.preferredModel && { modelOverride: matchedSkill.preferredModel }),
       confirmFn: (msg, actions, options) => state.requestConfirm(msg, actions, options),
       diffPreviewFn: state.contentProvider
         ? async (filePath: string, proposedContent: string) => {

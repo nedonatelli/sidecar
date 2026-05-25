@@ -1160,7 +1160,7 @@ describe('injectSystemContext', () => {
     // every other injection source is disabled or empty. It lands
     // after the `## Workspace Structure` cache marker so it doesn't
     // invalidate cross-project prompt caching.
-    const result = await injectSystemContext(
+    const { prompt: result } = await injectSystemContext(
       'base prompt',
       10000,
       mockState(),
@@ -1175,7 +1175,7 @@ describe('injectSystemContext', () => {
   });
 
   it('appends user system prompt', async () => {
-    const result = await injectSystemContext(
+    const { prompt: result } = await injectSystemContext(
       'base prompt',
       10000,
       mockState(),
@@ -1189,7 +1189,7 @@ describe('injectSystemContext', () => {
   });
 
   it('adds injection boundary before user content', async () => {
-    const result = await injectSystemContext(
+    const { prompt: result } = await injectSystemContext(
       'base prompt',
       10000,
       mockState(),
@@ -1206,7 +1206,7 @@ describe('injectSystemContext', () => {
       isReady: () => true,
       match: () => ({ name: 'React Expert', content: 'Use functional components' }),
     };
-    const result = await injectSystemContext(
+    const { prompt: result } = await injectSystemContext(
       'base prompt',
       10000,
       mockState({ skillLoader }),
@@ -1224,7 +1224,7 @@ describe('injectSystemContext', () => {
       isReady: () => true,
       match: () => null,
     };
-    const result = await injectSystemContext(
+    const { prompt: result } = await injectSystemContext(
       'base prompt',
       10000,
       mockState({ skillLoader }),
@@ -1249,7 +1249,7 @@ describe('injectSystemContext', () => {
         },
       ],
     };
-    const result = await injectSystemContext(
+    const { prompt: result } = await injectSystemContext(
       'base prompt',
       10000,
       mockState({ documentationIndexer }),
@@ -1276,7 +1276,7 @@ describe('injectSystemContext', () => {
         },
       ],
     };
-    const result = await injectSystemContext(
+    const { prompt: result } = await injectSystemContext(
       'base prompt',
       10000,
       mockState({ agentMemory }),
@@ -1291,7 +1291,7 @@ describe('injectSystemContext', () => {
 
   it('respects max system chars budget by not appending when full', async () => {
     const basePrompt = 'x'.repeat(500);
-    const result = await injectSystemContext(
+    const { prompt: result } = await injectSystemContext(
       basePrompt,
       500, // budget already fully used by base prompt
       mockState(),
@@ -1306,7 +1306,7 @@ describe('injectSystemContext', () => {
 
   it('truncates user system prompt when it exceeds remaining budget', async () => {
     const longPrompt = 'y'.repeat(5000);
-    const result = await injectSystemContext(
+    const { prompt: result } = await injectSystemContext(
       'base prompt',
       1000, // budget leaves room for boundary but not the full 5000-char prompt
       mockState(),
@@ -1364,7 +1364,7 @@ describe('injectSystemContext', () => {
 
       const first = await call();
       const second = await call();
-      expect(second).toBe(first);
+      expect(second.prompt).toBe(first.prompt);
     });
 
     it('locates the Session block after the Workspace Structure cache marker', async () => {
@@ -1372,7 +1372,7 @@ describe('injectSystemContext', () => {
       // root, active file) that must live OUTSIDE the cached prefix.
       // If the Session block ever moves above the workspace-structure
       // marker, the Anthropic prompt cache hit rate tanks silently.
-      const result = await injectSystemContext(
+      const { prompt: result } = await injectSystemContext(
         'base prompt',
         10000,
         mockState(),
@@ -1402,7 +1402,7 @@ describe('injectSystemContext', () => {
       // no random hash-looking strings. This catches developers who
       // accidentally sprinkle `new Date().toISOString()` into an
       // injection section.
-      const result = await injectSystemContext(
+      const { prompt: result } = await injectSystemContext(
         'base prompt',
         10000,
         mockState(),

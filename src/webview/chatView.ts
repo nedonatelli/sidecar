@@ -33,7 +33,7 @@ import {
   UI_CONFIG_KEYS,
 } from './chatViewLifecycle.js';
 import { handleUndoChanges, handleExportChat } from './handlers/chatHandlers.js';
-import { handleLoadSession } from './handlers/sessionHandlers.js';
+import { handleLoadSession, handleBranchSession } from './handlers/sessionHandlers.js';
 import { loadModels } from './handlers/modelHandlers.js';
 import { initializeChatSubsystems } from './chatStateInit.js';
 import { setModel, refreshOpenRouterCostsIfActive } from './modelSwitcher.js';
@@ -197,6 +197,10 @@ export class ChatViewProvider implements WebviewViewProvider {
 
   public saveCurrentSession(name: string): void {
     this._state.sessionManager.save(name, this._state.messages);
+  }
+
+  public branchCurrentSession(name?: string): void {
+    void handleBranchSession(this._state, name);
   }
 
   public pushActiveBackendProfile(): void {

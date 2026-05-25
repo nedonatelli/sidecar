@@ -5019,6 +5019,11 @@
         break;
       }
 
+      case 'threadSwitched': {
+        appendMessage('assistant', content || 'Switched thread.');
+        break;
+      }
+
       case 'installProgress':
         installingModel = event.data.modelName;
         installProgress.classList.remove('hidden');

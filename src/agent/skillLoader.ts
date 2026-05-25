@@ -26,6 +26,16 @@ export interface Skill {
   registrySlug?: string;
   /** Original file path */
   filePath: string;
+
+  // Skills 2.0 — enforced runtime constraints parsed from frontmatter.
+  /** Restrict the agent to only these tool names. Empty = no restriction. */
+  allowedTools?: string[];
+  /** Pin the agent to a specific model for this skill's session. */
+  preferredModel?: string;
+  /** Cap the number of agent iterations for this skill. */
+  maxIterations?: number;
+  /** When true, inject the skill body into the system prompt but do not start the agent loop. */
+  disableModelInvocation?: boolean;
 }
 
 /**
@@ -38,6 +48,10 @@ function parseSkillFile(filePath: string, raw: string, source: Skill['source']):
   let name = id;
   let description = '';
   let content = raw;
+  let allowedTools: string[] | undefined;
+  let preferredModel: string | undefined;
+  let maxIterations: number | undefined;
+  let disableModelInvocation: boolean | undefined;
 
   // Parse YAML frontmatter
   const fmMatch = raw.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/);
@@ -45,19 +59,55 @@ function parseSkillFile(filePath: string, raw: string, source: Skill['source']):
     const frontmatter = fmMatch[1];
     content = fmMatch[2].trim();
 
-    // Extract known fields with simple line parsing (avoids YAML dependency)
     for (const line of frontmatter.split('\n')) {
-      const kvMatch = line.match(/^(\w[\w-]*):\s*(.+)$/);
+      // YAML list item under allowed-tools: "  - tool_name"
+      if (allowedTools !== undefined && /^\s+-\s+(.+)$/.test(line)) {
+        const m = line.match(/^\s+-\s+(.+)$/);
+        if (m) allowedTools.push(m[1].trim());
+        continue;
+      }
+      const kvMatch = line.match(/^(\w[\w-]*):\s*(.*)$/);
       if (!kvMatch) continue;
       const [, key, value] = kvMatch;
       const cleaned = value.replace(/^["']|["']$/g, '').trim();
-      if (key === 'name') name = cleaned;
-      else if (key === 'description') description = cleaned;
-      // Silently ignore: allowed-tools, disable-model-invocation, etc.
+      if (key === 'name') {
+        name = cleaned;
+      } else if (key === 'description') {
+        description = cleaned;
+      } else if (key === 'allowed-tools') {
+        // Inline list: "allowed-tools: read_file, write_file"
+        if (cleaned) {
+          allowedTools = cleaned
+            .split(',')
+            .map((t) => t.trim())
+            .filter(Boolean);
+        } else {
+          // Block list — items collected by the loop above
+          allowedTools = [];
+        }
+      } else if (key === 'preferred-model') {
+        preferredModel = cleaned || undefined;
+      } else if (key === 'max-iterations') {
+        const n = parseInt(cleaned, 10);
+        if (!isNaN(n) && n > 0) maxIterations = n;
+      } else if (key === 'disable-model-invocation') {
+        disableModelInvocation = cleaned === 'true';
+      }
     }
   }
 
-  return { id, name, description, content, source, filePath };
+  return {
+    id,
+    name,
+    description,
+    content,
+    source,
+    filePath,
+    ...(allowedTools !== undefined && { allowedTools }),
+    ...(preferredModel !== undefined && { preferredModel }),
+    ...(maxIterations !== undefined && { maxIterations }),
+    ...(disableModelInvocation !== undefined && { disableModelInvocation }),
+  };
 }
 
 /**
@@ -285,7 +335,13 @@ export class SkillLoader {
     for (const skill of this.skills.values()) {
       const desc = skill.description ? ` — ${skill.description}` : '';
       const src = skill.source === 'user' ? '' : ` [${skill.source}]`;
-      lines.push(`  /${skill.id}${desc}${src}`);
+      const hasRestrictions =
+        (skill.allowedTools && skill.allowedTools.length > 0) ||
+        skill.preferredModel ||
+        skill.maxIterations ||
+        skill.disableModelInvocation;
+      const badge = hasRestrictions ? ' 🛡' : '';
+      lines.push(`  /${skill.id}${badge}${desc}${src}`);
     }
     return `**Available skills (${this.skills.size}):**\n${lines.join('\n')}`;
   }

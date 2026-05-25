@@ -86,7 +86,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 
 | Feature | Description |
 |---|---|
-| **65 built-in tools** | File ops, shell, git, web search, database (SQLite/PG/MySQL/DuckDB), screenshot, doc-to-test synthesis, code profiling, LaTeX compilation, MCP task delegation, and more — [full list](https://nedonatelli.github.io/sidecar/tools) |
+| **69 built-in tools** | File ops, shell, git, web search, database (SQLite/PG/MySQL/DuckDB), screenshot, doc-to-test synthesis, code profiling, LaTeX compilation, MCP task delegation, and more — [full list](https://nedonatelli.github.io/sidecar/tools) |
 | **Review / Audit modes** | Buffer all writes in-memory; review per-file diffs before anything touches disk. Audit adds atomic flush + deletion coverage |
 | **Shadow Workspaces** | Run tasks in an ephemeral `git worktree` — main tree untouched until you accept |
 | **Typed Sub-Agent Facets** | Dispatch named specialists (`test-author`, `security-reviewer`, etc.) in parallel, each with its own tool allowlist and preferred model |
@@ -109,8 +109,11 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 | **Security scanning** | Secrets, SQL injection, XSS, eval — findings in VS Code Problems panel (`source:sidecar-*`) |
 | **Doc sync** | Checks JSDoc `@param` staleness and README call-site arity on every save |
 | **MCP** | stdio / HTTP / SSE transports, per-server tool allowlist, `sidecar.noSql.install` for one-click MongoDB + Redis |
+| **Skills 2.0** | Constrained skills: `allowed-tools`, `preferred-model`, `max-iterations`, and `disable-model-invocation` frontmatter fields enforce execution contracts per skill; 🛡 badge in QuickPick for restricted skills |
+| **Chat Threads & Branching** | `/branch [name]` forks the current conversation — original preserved, branch continues independently; nested parent/child tree in the Sessions sidebar |
+| **Research Assistant** | Structured project tracking: `research_create_project`, `research_add_hypothesis`, `research_log_experiment`, `research_add_observation` tools + a sidebar panel with Projects → Hypotheses / Experiments / Observations hierarchy. Gated by `sidecar.research.enabled` |
 | **Skills** | 8 built-in skills (review-code, debug, refactor, write-tests, break-this, explain-code, create-skill, mcp-builder) + custom markdown skills |
-| **Slash commands** | `/model`, `/fork`, `/notebook`, `/bg`, `/pr`, `/review`, `/ci`, `/memories`, `/commit`, `/doc`, `/spec`, `/revise`, and 25+ more with autocomplete |
+| **Slash commands** | `/model`, `/fork`, `/branch`, `/notebook`, `/bg`, `/pr`, `/review`, `/ci`, `/memories`, `/commit`, `/doc`, `/spec`, `/revise`, and 25+ more with autocomplete |
 
 ## Requirements
 
