@@ -202,6 +202,7 @@ export interface ExtensionMessage {
     | 'autoModeTaskUpdate'
     | 'autoModeDone'
     | 'activeFileChanged'
+    | 'contextFill'
     | 'setActiveBackendProfile'
     | 'fileCompletionList'
     | 'batchProgress'
@@ -367,6 +368,9 @@ export interface ExtensionMessage {
     doneCount: number;
     totalCount: number;
   };
+  /** Context window fill. Used + total tokens for the progress indicator. */
+  contextUsed?: number;
+  contextTotal?: number;
 }
 
 export interface LibraryModelUI {
@@ -546,6 +550,7 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
   </div>
   <div id="steer-queue-strip" class="hidden" role="region" aria-label="Queued steers"></div>
   <div id="auto-mode-strip" class="hidden" role="region" aria-label="Auto Mode progress"></div>
+  <div id="context-bar-wrap" class="hidden" title="" aria-label="Context window usage"><div id="context-bar"></div></div>
   <div id="input-area">
     <button id="attach-btn" data-tooltip="Attach file" aria-label="Attach file">&#128206;</button>
     <button id="mic-btn" class="hidden" data-tooltip="Voice input" aria-label="Start voice recording">&#127908;</button>

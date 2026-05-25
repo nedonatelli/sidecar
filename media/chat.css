@@ -1741,6 +1741,33 @@ body {
   background: var(--vscode-button-hoverBackground);
 }
 
+#context-bar-wrap {
+  height: 3px;
+  background: transparent;
+  overflow: hidden;
+}
+
+#context-bar-wrap.hidden {
+  display: none;
+}
+
+#context-bar {
+  height: 100%;
+  width: 0%;
+  background: var(--vscode-progressBar-background, #0e70c0);
+  transition:
+    width 0.3s ease,
+    background-color 0.3s ease;
+}
+
+#context-bar.ctx-warn {
+  background: #d9a800;
+}
+
+#context-bar.ctx-danger {
+  background: #cc3333;
+}
+
 #file-attachment {
   display: flex;
   flex-wrap: wrap;

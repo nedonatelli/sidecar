@@ -405,11 +405,21 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
       state.auditLog.setContext(sessionId, config.model, effectiveApprovalMode);
     }
     const planStore = state.sidecarDir ? new PlanStore(state.sidecarDir) : undefined;
+    if (contextLength) {
+      const initialUsed = Math.ceil(
+        estimateTokensFromText(
+          chatMessages.map((m) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content))).join(' '),
+        ) + systemPromptTokens,
+      );
+      state.postMessage({ command: 'contextFill', contextUsed: initialUsed, contextTotal: contextLength });
+    }
+
     const { callbacks: agentCbs, cancel: cancelAgentCbs } = createAgentCallbacks(
       state,
       config,
       chatMessages,
       planStore,
+      rawMaxTokens,
     );
     state.cancelCallbacks = cancelAgentCbs;
     // Skills 2.0 — build tool override from the skill's allowedTools list.

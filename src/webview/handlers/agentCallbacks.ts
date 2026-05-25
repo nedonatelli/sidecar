@@ -28,6 +28,7 @@ export function createAgentCallbacks(
   config: ReturnType<typeof getConfig>,
   chatMessages: ChatMessage[],
   planStore?: PlanStore,
+  contextLength?: number | null,
 ): { callbacks: AgentCallbacks; cancel: () => void } {
   const verbose = config.verboseMode;
   const verboseLog = (label: string, content: string) => {
@@ -147,6 +148,9 @@ export function createAgentCallbacks(
         messagesRemaining: info.messagesRemaining,
         atCapacity: info.atCapacity,
       });
+      if (contextLength) {
+        state.postMessage({ command: 'contextFill', contextUsed: info.estimatedTokens, contextTotal: contextLength });
+      }
       if (verbose) {
         const elapsed = (info.elapsedMs / 1000).toFixed(1);
         const capacityWarning = info.atCapacity ? ' ⚠️ At message limit!' : '';

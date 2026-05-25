@@ -4191,6 +4191,22 @@
         break;
       }
 
+      case 'contextFill': {
+        const cbWrap = document.getElementById('context-bar-wrap');
+        const cbBar = document.getElementById('context-bar');
+        if (cbWrap && cbBar && msg.contextTotal > 0) {
+          const pct = Math.min(100, (msg.contextUsed / msg.contextTotal) * 100);
+          cbBar.style.width = pct + '%';
+          cbBar.classList.toggle('ctx-warn', pct >= 60 && pct < 80);
+          cbBar.classList.toggle('ctx-danger', pct >= 80);
+          const usedK = msg.contextUsed >= 1000 ? `${Math.round(msg.contextUsed / 1000)}K` : msg.contextUsed;
+          const totalK = msg.contextTotal >= 1000 ? `${Math.round(msg.contextTotal / 1000)}K` : msg.contextTotal;
+          cbWrap.title = `Context: ${usedK} / ${totalK} tokens (${Math.round(pct)}%)`;
+          cbWrap.classList.remove('hidden');
+        }
+        break;
+      }
+
       case 'steerQueueUpdate': {
         steerEnabled = !!msg.steerEnabled;
         steerItems = Array.isArray(msg.steerQueue) ? msg.steerQueue : [];
@@ -4439,6 +4455,7 @@
         emptyStateEl = null; // innerHTML wipe already detached it
         // New conversation — any stashed resume-state is stale.
         hideResumeStrip();
+        document.getElementById('context-bar-wrap')?.classList.add('hidden');
         maybeRenderEmptyState();
         break;
 
