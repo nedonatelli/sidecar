@@ -851,13 +851,20 @@
   const sessionsPanel = document.getElementById('sessions-panel');
   const sessionsList = document.getElementById('sessions-list');
   const sessionsEmpty = document.getElementById('sessions-empty');
+  const sessionsSearch = document.getElementById('sessions-search');
+  let allSessions = [];
 
   document.getElementById('history-btn').addEventListener('click', () => {
     const isOpen = !sessionsPanel.classList.contains('hidden');
     sessionsPanel.classList.toggle('hidden');
     if (!isOpen) {
+      sessionsSearch.value = '';
       vscode.postMessage({ command: 'listSessions' });
     }
+  });
+
+  sessionsSearch.addEventListener('input', () => {
+    renderSessionsList(allSessions, sessionsSearch.value);
   });
 
   document.getElementById('close-sessions').addEventListener('click', () => {
@@ -881,19 +888,24 @@
     }
   });
 
-  function renderSessionsList(sessions) {
+  function renderSessionsList(sessions, filter) {
+    if (sessions) {
+      allSessions = sessions;
+      allSessions.sort((a, b) => b.createdAt - a.createdAt);
+    }
+    const query = (filter || '').trim().toLowerCase();
+    const visible = query ? allSessions.filter((s) => s.name.toLowerCase().includes(query)) : allSessions;
+
     sessionsList.innerHTML = '';
-    if (!sessions || sessions.length === 0) {
+    if (visible.length === 0) {
       sessionsEmpty.classList.remove('hidden');
       return;
     }
     sessionsEmpty.classList.add('hidden');
-    // Sort newest first
-    sessions.sort((a, b) => b.createdAt - a.createdAt);
 
     // Build all items in a fragment to avoid per-item reflow
     const fragment = document.createDocumentFragment();
-    for (const s of sessions) {
+    for (const s of visible) {
       const item = document.createElement('div');
       item.className = 'session-item';
       item.dataset.sessionId = s.id;
@@ -1086,6 +1098,7 @@
     { cmd: '/memories', desc: 'Browse agent memories' },
     { cmd: '/memory-search', desc: 'Search agent memories' },
     { cmd: '/compact', desc: 'Summarize older turns to free context window space' },
+    { cmd: '/undo', desc: 'Revert last agent file changes and trim last turn' },
     { cmd: '/branch', desc: 'Fork the current conversation into a new named thread' },
     { cmd: '/research', desc: 'Set active research project or log an observation' },
   ];
@@ -1816,6 +1829,7 @@
           '`/mcp` — MCP server status\n' +
           '`/verbose` — Toggle verbose mode (show agent reasoning)\n' +
           '`/compact` — Summarize older turns to free context window space\n' +
+          '`/undo` — Revert last agent file changes and trim last turn\n' +
           '`/branch [name]` — Fork the current conversation into a new named thread\n' +
           '`/research [observe <note>]` — Set active research project or log an observation\n' +
           '`/init` — Generate SIDECAR.md project notes from codebase\n' +

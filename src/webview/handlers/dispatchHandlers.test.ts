@@ -912,4 +912,16 @@ describe('buildDispatchHandlers', () => {
     await invoke(handlers, 'userMessage', { text: '/COMPACT' });
     expect(handleCompactContext).toHaveBeenCalledWith(state);
   });
+
+  it('userMessage /undo calls handleUndoChanges', async () => {
+    const { handleUndoChanges } = await import('./chatHandlers.js');
+    await invoke(handlers, 'userMessage', { text: '/undo' });
+    expect(handleUndoChanges).toHaveBeenCalledWith(state);
+  });
+
+  it('userMessage /UNDO (case-insensitive) calls handleUndoChanges', async () => {
+    const { handleUndoChanges } = await import('./chatHandlers.js');
+    await invoke(handlers, 'userMessage', { text: '/UNDO' });
+    expect(handleUndoChanges).toHaveBeenCalledWith(state);
+  });
 });

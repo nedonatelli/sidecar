@@ -633,6 +633,30 @@ body {
   background: var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
 }
 
+#sessions-search-wrap {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--vscode-widget-border);
+}
+
+#sessions-search {
+  width: 100%;
+  padding: 4px 8px;
+  font-size: 12px;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-input-border, var(--vscode-widget-border));
+  border-radius: 4px;
+  outline: none;
+}
+
+#sessions-search:focus {
+  border-color: var(--vscode-focusBorder, #007fd4);
+}
+
+#sessions-search::placeholder {
+  color: var(--vscode-input-placeholderForeground);
+}
+
 #sessions-list {
   overflow-y: auto;
   flex: 1;

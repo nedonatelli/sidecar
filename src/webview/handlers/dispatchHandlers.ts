@@ -139,6 +139,12 @@ export function buildDispatchHandlers(
         return;
       }
 
+      // /undo — revert last agent file changes.
+      if (/^\/undo$/i.test(text)) {
+        await handleUndoChanges(state);
+        return;
+      }
+
       if (state.pendingPlan) {
         if (isPlanApproval(text)) {
           await handleExecutePlan(state);

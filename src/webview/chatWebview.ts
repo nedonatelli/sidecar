@@ -497,6 +497,9 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
       <span>Conversations</span>
       <button id="close-sessions">&times;</button>
     </div>
+    <div id="sessions-search-wrap">
+      <input id="sessions-search" type="search" placeholder="Filter conversations…" autocomplete="off" />
+    </div>
     <div id="sessions-list"></div>
     <div id="sessions-empty" class="hidden">No saved conversations. Use <code>/save &lt;name&gt;</code> to save one.</div>
   </div>
