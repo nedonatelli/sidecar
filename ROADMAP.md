@@ -8,6 +8,19 @@
 
 ## Release Plan
 
+### Planned
+
+| Version | Headline |
+|---|---|
+| v0.106.0 | Chat UX Polish II — session search filter, `/undo` slash command · perf quick-wins: LRU eviction, compression cache, circuit-breaker exponential backoff, lazy-load mermaid/pdf-parse |
+| v0.107.0 | Regression Guards — user-configurable pre/post-completion checks, per-skill guard registration via frontmatter, invariant validation beyond lint/test, guard browser UI |
+| v0.108.0 | Speculative Decoding — zero-latency local autocomplete via draft-model pairing (2–4× FIM throughput on Ollama + Kickstand) |
+| v0.109.0 | Multi-file Edit Streams — DAG-planned edits card, parallel streaming diff previews, atomic accept/reject · semantic importance-aware message compression |
+| v0.110.0 | Symbol-level Project Knowledge Index — symbol-granularity chunking + graph-walk retrieval on FlatVectorStore · bundle size / tree-shake transformers.js |
+| v0.111.0 | Skill Sync & Registry — git-native user + team skill registries, cross-machine sync, Skills Picker UI |
+
+---
+
 ### Shipped
 
 | Version | Headline |
@@ -112,6 +125,112 @@
 
 ---
 
+### v0.106.0 — Chat UX Polish II + Performance Quick-Wins
+
+**Sprint Goal**: *Ship session search and `/undo` alongside a batch of high-ROI audit fixes that have no user-facing API surface.*
+
+**Must Have**:
+- [ ] **Session search filter** — real-time name filter in the Sessions panel; resets on open; shows empty state when no results match. (`src/webview/chatWebview.ts`, `media/chat.js`, `media/chat.css`)
+- [ ] **`/undo` slash command** — explicit `/undo` intercept in dispatch (was broken — `isUndoRequest` rejects `/`-prefixed text); added to autocomplete + `/help`. (`src/webview/handlers/dispatchHandlers.ts`, `media/chat.js`)
+- [ ] **LRU eviction in `LimitedCache`** (Audit 1.1) — replace FIFO `keys().next()` eviction with true LRU via `Map` insertion-order + access-time tracking. 20% less memory in long sessions.
+- [ ] **Compression result cache** (Audit 2.1) — SHA-256-keyed memoization of `compressMessages` output; cache hit skips re-compression for identical tool results across turns. 15% faster loop iterations.
+- [ ] **Circuit-breaker exponential backoff** (Audit 3.2) — replace fixed 60 s cooldown with 15 → 30 → 60 → 120 s sequence; differentiate network errors (backoff) vs. auth errors (fail-fast). (`src/ollama/circuitBreaker.ts`)
+- [ ] **Lazy-load mermaid + pdf-parse** (Audit 4.1) — dynamic `import()` deferred until first use; estimated 200–300 ms faster activation, 25–35% smaller initial bundle. (`src/agent/tools/`)
+
+---
+
+### v0.107.0 — Regression Guards
+
+**Sprint Goal**: *Make "done" mean something. Give the agent configurable completion criteria that fire before it declares success, and make those criteria registerable per-skill.*
+
+**Must Have**:
+- [ ] **`RegressionGuard` interface** — `{ id, name, trigger: 'pre-completion' | 'post-edit', check(context): Promise<GuardResult> }`. Registered on `HookBus`. (`src/agent/guards/`)
+- [ ] **Built-in guards** — `lint-clean` (ESLint/Pyflake/cargo clippy zero warnings), `tests-pass` (run_tests exit 0), `no-new-todos` (grep for TODO/FIXME in edited files), `coverage-floor` (coverage didn't drop below project baseline).
+- [ ] **Per-skill guard registration** — `guards: [lint-clean, tests-pass]` frontmatter field activates named guards for a skill's lifetime only. Deactivate on skill exit.
+- [ ] **Guard browser UI** — slash command `/guards` shows active guards, their last result, and a one-click disable. Guard failures surface in chat with the failing output inline.
+- [ ] **`sidecar.guards.enabled`** — master switch (default `true`); `sidecar.guards.builtin` list of enabled built-ins.
+
+**Should Have**:
+- [ ] **Custom invariant guards** — user-defined guards via `.sidecar/guards/*.guard.ts` files; evaluated in a sandboxed worker.
+- [ ] **Guard result history** — last N guard outcomes stored per session, surfaced in `/guards` panel.
+
+---
+
+### v0.108.0 — Speculative Decoding
+
+**Sprint Goal**: *Make local autocomplete feel instant. Pair a tiny draft model with the main FIM model for 2–4× throughput — local ghost text that competes with Copilot.*
+
+**Must Have**:
+- [ ] **`draftModel` field on `SideCarConfig`** — optional; when set, passes `draft_model` to Ollama `/api/generate` and the equivalent to Kickstand's OAI-compat endpoint.
+- [ ] **`DRAFT_MODEL_MAP`** in `src/config/constants.ts` — curated pairs sharing tokenizer vocab: `qwen3-coder:30b → qwen2.5-coder:0.5b`, `deepseek-coder:33b → deepseek-coder:1.3b-base`, `codellama:34b → codellama:7b-code`. Auto-enables when draft is installed.
+- [ ] **`OllamaBackend.completeFIM` + `KickstandBackend.completeFIM`** — pass `draft_model` when configured; silent no-op on backends that don't support it (Anthropic, OpenAI, remote OAI-compat).
+- [ ] **"Install recommended draft" affordance** — when main model has a curated pair but draft isn't installed, show a one-click install notification. (`src/webview/handlers/modelHandlers.ts`)
+- [ ] **`sidecar.speculativeDecoding.enabled`** — default `true` when a draft mapping exists; `sidecar.completionDraftModel` for explicit override; `sidecar.speculativeDecoding.lookahead` (default `5`).
+
+**Should Have**:
+- [ ] **Accept-rate tracking** — observed accept rate logged per session; auto-disable if below `sidecar.speculativeDecoding.minAcceptRateToKeepEnabled` (default `0.4`) after warmup window.
+- [ ] **VRAM guardrail** — disable speculation when free VRAM drops below threshold (integrates with GPU-Aware Load Balancing when that ships).
+
+---
+
+### v0.109.0 — Multi-file Edit Streams
+
+**Sprint Goal**: *Wide refactors feel coordinated, not sequential. The agent declares what it will touch before touching anything; the user sees all diffs stream in parallel and accepts or steers the whole batch.*
+
+**Must Have**:
+- [ ] **`EditPlan` manifest** — `{ edits: { path, op: 'create'|'edit'|'delete', rationale, dependsOn: path[] }[] }`. Planner agent produces this before any `write_file` fires when task spans ≥ `sidecar.multiFileEdits.minFilesForPlan` files (default `3`).
+- [ ] **DAG builder** — topological sort of `dependsOn` edges; independent nodes dispatch in parallel up to `sidecar.multiFileEdits.maxParallel` (default `8`); dependents wait for prerequisites.
+- [ ] **"Planned edits" card** — collapsible card in chat UI listing all planned paths + ops before execution. Steer Queue nudges (e.g. "skip `src/legacy/**`") revision the plan.
+- [ ] **Parallel streaming diff previews** — N concurrent `tool-diff-patch` streams, one per in-flight file; Pending Changes panel shows each with a per-file abort button.
+- [ ] **Atomic accept/reject** — default `bulk` granularity (accept-all or reject-all); `sidecar.multiFileEdits.reviewGranularity: 'per-file' | 'per-hunk'` for surgical control.
+- [ ] **Semantic importance-aware compression** (Audit 5.2) — errors/warnings: never compress; successful writes: compress after 3 turns; read-only results: aggressive. Replaces distance-from-end heuristic in `compression.ts`.
+
+**Should Have**:
+- [ ] **Conflict detection at plan time** — DAG builder merges two `edit` ops targeting the same file into one; rejects circular deps with a single revision request.
+- [ ] **`@no-plan` sentinel** — skip the planner pass for users who know better.
+- [ ] **`sidecar.multiFileEdits.plannerModel`** — use a smaller model for the structured planning pass (default: main model).
+
+---
+
+### v0.110.0 — Symbol-level Project Knowledge Index
+
+**Sprint Goal**: *"Where is auth handled?" returns the middleware AND every route that wraps it. Upgrade the flat file-level index to symbol-granularity vectors with graph-walk retrieval.*
+
+**Must Have**:
+- [ ] **Symbol-level chunking in `SymbolEmbeddingIndex`** — each `SymbolNode` from tree-sitter becomes its own indexed chunk (body + docstring), tagged `{ filePath, range, kind, name, containerSymbol }`. Replaces one-vector-per-file.
+- [ ] **Graph-walk retrieval in `SemanticRetriever`** — after vector hit, walk `SymbolGraph` edges (`calls`, `used-by`, `imports`) up to `sidecar.projectKnowledge.graphWalkDepth` (default `2`); surface reached symbols tagged with relationship path (`graph: used-by, 1 hop from requireAuth`).
+- [ ] **Incremental symbol-level updates** — on `onDidChangeTextDocument`, re-embed only changed symbols (content-hashed); unchanged symbols keep cached vectors. One-line edit costs one re-embed, not whole-file.
+- [ ] **`project_knowledge_search` result shape** — structured `{ symbol, filePath, range, score, relationship }[]`; `relationship` distinguishes direct vector hits from graph-walked hits.
+- [ ] **Migration from file-level index** — transparent on first activation; existing `.sidecar/cache/` re-chunked to symbol-level; old file kept one version as rollback.
+- [ ] **Bundle size / tree-shake transformers.js** (Audit 4.1) — only bundle embedding pipeline, not full model zoo; estimated 25–35% smaller bundle.
+
+**Should Have**:
+- [ ] **`sidecar.projectKnowledge.graphWalkDepth`** (default `2`) and `sidecar.projectKnowledge.maxGraphHits` (default `10`) — guard against popular symbols drowning results.
+- [ ] **PKI sidebar panel** — index health: symbols indexed, last update, vector count, disk footprint, rebuild button, interactive search box.
+
+**Deferred**:
+- LanceDB HNSW backend — deferred to avoid native binary deployment complexity; FlatVectorStore stays as the backend for this release. Symbol chunking + graph-walk delivers the quality improvement without the platform risk.
+
+---
+
+### v0.111.0 — Skill Sync & Registry
+
+**Sprint Goal**: *Skills follow you across machines and teams. Git-native sync — no hosted registry required.*
+
+**Must Have**:
+- [ ] **`sidecar.skills.userRegistry`** — git URL (or local folder) the user owns; SideCar clones/pulls to `~/.sidecar/user-skills/` on activation. `SkillLoader` picks up every `.agent.md` inside as user-scope skills.
+- [ ] **Publish from "Create Skill" flow** — *Publish to your registry* checkbox writes the new skill into the clone, commits, pushes. Standard git auth (SSH keys, tokens).
+- [ ] **`sidecar.skills.teamRegistries`** — array of git URLs; each cloned into `~/.sidecar/team-skills/<slug>/`; Skills Picker tags hits by origin registry.
+- [ ] **`sidecar.skills.autoPull`** — `on-start | hourly | daily | manual` (default `on-start`); conflicts surface as notifications pointing to the managed directory.
+- [ ] **Skills Picker UI** — searchable panel replacing slash-command-from-memory; tagged by category + registry origin; *Stack* button to add without replacing; shows tool-allowlist chips from Skills 2.0 frontmatter.
+
+**Should Have**:
+- [ ] **Skill versioning + pinning** — `version: 1.2.0` in frontmatter; `sidecar.skills.versions` pin map; *Update available* badge in picker.
+- [ ] **Trust prompt on first install** — non-configured registries prompt with full frontmatter + source link before installing. `sidecar.skills.trustedRegistries` skips prompt for known-safe sources.
+- [ ] **`sidecar.skills.offline`** — hard-disable all network operations for air-gapped / CI environments.
+
+---
+
 ### v1.0 — General Availability
 
 **Sprint Goal**: *Reach sustained 80/70/80/80 coverage, decompose the last god module, clear all remaining known CRITICALs, and ship a public skill marketplace.*
@@ -145,7 +264,9 @@
 
 Not promised to any specific release. Full specs in [docs/feature-specs.md](docs/feature-specs.md).
 
-GPU-Native Hot-Swapping · GPU-Aware Load Balancing · Multi-repo cross-talk · Semantic Agentic Search for Monorepos · Selective Regeneration · Persistent Executive Function · LaTeX Agentic Debugging · Inline Edit Enhancement · Zen Mode Context Filtering · Enterprise & Collaboration · Voice Input · Agentic Task Delegation via MCP · Model Comparison / Arena Mode · Real-time Code Profiling · Bitbucket/Atlassian integration
+GPU-Native Hot-Swapping · GPU-Aware Load Balancing · Multi-repo cross-talk · Selective Regeneration · Zen Mode Context Filtering · Enterprise & Collaboration · Bitbucket/Atlassian integration · LanceDB HNSW backend (deferred from v0.110) · Domain Profiles (dense-repo context mode for physics/signal-processing) · Scheduled Task Concurrency Safety (Shadow routing + DocumentConcurrencyGate)
+
+*(Promoted to planned: Speculative Decoding → v0.108; Multi-file Edit Streams → v0.109; Symbol-level PKI → v0.110; Skill Sync & Registry → v0.111; Regression Guards → v0.107)*
 
 *(Promoted to shipped: Semantic Time Travel → `git_search_history` tool v1.0; MCP Marketplace → `sidecar.mcp.openMarketplace` command v1.0; Dependency Drift Alerts → `check_dependencies` tool + Problems panel v0.91.0; Model Arena → `sidecar.arena.*` commands v0.90.0; Semantic Agentic Search for Monorepos → `monorepo_packages` tool v0.97.0)*
 
