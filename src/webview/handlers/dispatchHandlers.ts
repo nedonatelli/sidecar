@@ -54,6 +54,7 @@ import {
   handleExplainToolDecision,
   handleInit,
   handleCompactContext,
+  handleGuardsStatus,
 } from './agentHandlers.js';
 import {
   handleInsight,
@@ -142,6 +143,12 @@ export function buildDispatchHandlers(
       // /undo — revert last agent file changes.
       if (/^\/undo$/i.test(text)) {
         await handleUndoChanges(state);
+        return;
+      }
+
+      // /guards — show active regression guards and built-in guard catalog.
+      if (/^\/guards$/i.test(text)) {
+        await handleGuardsStatus(state);
         return;
       }
 

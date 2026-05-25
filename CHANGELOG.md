@@ -4,6 +4,30 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.107.0] - 2026-05-25
+
+**v0.107.0 — Regression Guards.**
+
+### Added
+
+- **`RegressionGuardHook`** (`src/agent/guards/regressionGuardHook.ts`) — `PolicyHook` implementation for user-configured shell-command guards wired into the agent loop. Supports `post-write` / `post-turn` / `pre-completion` triggers, blocking/advisory modes, glob scopes, per-guard attempt budgets (`maxAttempts`, default 5), and exponential retry. Registered on the `HookBus` via `buildRegressionGuardHooks()` which gates on workspace trust. Guards are configured in `sidecar.regressionGuards`; `sidecar.regressionGuards.mode` (`strict` / `warn` / `off`) provides a global override.
+
+- **Built-in named guards** (`src/agent/guards/builtInGuards.ts`) — ecosystem-aware guard definitions with stable IDs for use in skill frontmatter. Auto-detects Node/Python/Rust/Go from manifest files and produces the appropriate shell command:
+  - `tests-pass` — `npm test --if-present` / `pytest` / `cargo test` / `go test ./...`, fires at `pre-completion`
+  - `lint-clean` — `npx eslint --max-warnings=0 .` / `ruff check .` / `cargo clippy -- -D warnings` / `go vet ./...`, fires at `post-write`
+  - `no-new-todos` — `git diff`-based check that fails if the working-tree diff introduces new TODO/FIXME/HACK/XXX comments, fires at `pre-completion`
+
+- **Per-skill guard registration** — Skills can activate named built-in guards via the `guards:` frontmatter field (inline comma list or YAML block list). Guards are resolved and registered as `extraPolicyHooks` when the skill's agent run starts; they deactivate when the run ends. Example:
+  ```markdown
+  ---
+  name: Careful Refactor
+  guards: lint-clean, tests-pass
+  ---
+  ```
+  (`src/agent/skillLoader.ts`, `src/webview/handlers/chatHandlers.ts`)
+
+- **`/guards` slash command** — type `/guards` in chat to see active guards from `sidecar.regressionGuards`, the current mode, and the full built-in guard catalog with descriptions. (`src/webview/handlers/agentHandlers.ts`, `src/webview/handlers/dispatchHandlers.ts`, `media/chat.js`)
+
 ## [0.106.0] - 2026-05-25
 
 **v0.106.0 — Circuit breaker exponential backoff, compression result cache, `/undo` slash command, and session search.**

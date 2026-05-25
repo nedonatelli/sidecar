@@ -1099,6 +1099,7 @@
     { cmd: '/memory-search', desc: 'Search agent memories' },
     { cmd: '/compact', desc: 'Summarize older turns to free context window space' },
     { cmd: '/undo', desc: 'Revert last agent file changes and trim last turn' },
+    { cmd: '/guards', desc: 'Show active regression guards and built-in guard catalog' },
     { cmd: '/branch', desc: 'Fork the current conversation into a new named thread' },
     { cmd: '/research', desc: 'Set active research project or log an observation' },
   ];
@@ -1830,6 +1831,7 @@
           '`/verbose` — Toggle verbose mode (show agent reasoning)\n' +
           '`/compact` — Summarize older turns to free context window space\n' +
           '`/undo` — Revert last agent file changes and trim last turn\n' +
+          '`/guards` — Show active regression guards and built-in guard catalog\n' +
           '`/branch [name]` — Fork the current conversation into a new named thread\n' +
           '`/research [observe <note>]` — Set active research project or log an observation\n' +
           '`/init` — Generate SIDECAR.md project notes from codebase\n' +

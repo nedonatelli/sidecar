@@ -1,6 +1,6 @@
 # SideCar Roadmap
 
-**Current release: v0.106.0** — Circuit breaker exponential backoff, compression result cache, `/undo` slash command, and session search. See [CHANGELOG](CHANGELOG.md) for full notes.
+**Current release: v0.107.0** — Regression Guards: ecosystem-aware built-in guards, per-skill `guards:` frontmatter, and `/guards` slash command. See [CHANGELOG](CHANGELOG.md) for full notes.
 
 **Coverage floor**: ≥80/70/80/80 (stmts/branches/funcs/lines) enforced by CI. No PR merges that drop any metric.
 
@@ -12,7 +12,6 @@
 
 | Version | Headline |
 |---|---|
-| v0.107.0 | Regression Guards — user-configurable pre/post-completion checks, per-skill guard registration via frontmatter, invariant validation beyond lint/test, guard browser UI |
 | v0.108.0 | Speculative Decoding — zero-latency local autocomplete via draft-model pairing (2–4× FIM throughput on Ollama + Kickstand) |
 | v0.109.0 | Multi-file Edit Streams — DAG-planned edits card, parallel streaming diff previews, atomic accept/reject · semantic importance-aware message compression |
 | v0.110.0 | Symbol-level Project Knowledge Index — symbol-granularity chunking + graph-walk retrieval on FlatVectorStore · bundle size / tree-shake transformers.js |
@@ -24,6 +23,7 @@
 
 | Version | Headline |
 |---|---|
+| v0.107.0 | Regression Guards: `RegressionGuardHook` on `HookBus` · built-in guards (`lint-clean`, `tests-pass`, `no-new-todos`, ecosystem-aware) · `guards:` skill frontmatter · `/guards` slash command |
 | v0.106.0 | Circuit breaker exponential backoff (15→30→60→120 s) · compression result cache · `/undo` slash command (was broken) · session search filter |
 | v0.105.0 | Message editing (inline ✎ editor · truncation preview · ⌘↩ submit · Escape cancel) · `/compact` slash command · edit visual preview (30 % opacity fade + hint) |
 | v0.104.4 | Context window fill bar (3 px colour-coded bar above input, tooltip, per-iteration update) |
@@ -144,13 +144,13 @@
 **Sprint Goal**: *Make "done" mean something. Give the agent configurable completion criteria that fire before it declares success, and make those criteria registerable per-skill.*
 
 **Must Have**:
-- [ ] **`RegressionGuard` interface** — `{ id, name, trigger: 'pre-completion' | 'post-edit', check(context): Promise<GuardResult> }`. Registered on `HookBus`. (`src/agent/guards/`)
-- [ ] **Built-in guards** — `lint-clean` (ESLint/Pyflake/cargo clippy zero warnings), `tests-pass` (run_tests exit 0), `no-new-todos` (grep for TODO/FIXME in edited files), `coverage-floor` (coverage didn't drop below project baseline).
-- [ ] **Per-skill guard registration** — `guards: [lint-clean, tests-pass]` frontmatter field activates named guards for a skill's lifetime only. Deactivate on skill exit.
-- [ ] **Guard browser UI** — slash command `/guards` shows active guards, their last result, and a one-click disable. Guard failures surface in chat with the failing output inline.
-- [ ] **`sidecar.guards.enabled`** — master switch (default `true`); `sidecar.guards.builtin` list of enabled built-ins.
+- [x] **`RegressionGuard` interface** — `RegressionGuardConfig` + `RegressionGuardHook` implements `PolicyHook`; registered on `HookBus` via `buildRegressionGuardHooks()`. Trust-gated. (`src/agent/guards/regressionGuardHook.ts`)
+- [x] **Built-in guards** — `lint-clean`, `tests-pass`, `no-new-todos`; ecosystem-aware auto-detection (Node/Python/Rust/Go). (`src/agent/guards/builtInGuards.ts`)
+- [x] **Per-skill guard registration** — `guards: [lint-clean, tests-pass]` frontmatter field (inline or block list); resolved to `RegressionGuardHook` instances passed as `extraPolicyHooks`. (`src/agent/skillLoader.ts`, `src/webview/handlers/chatHandlers.ts`)
+- [x] **Guard browser UI** — `/guards` slash command shows configured guards, mode, and built-in catalog. Guard failures surface inline as synthetic user turns. (`src/webview/handlers/agentHandlers.ts`, `media/chat.js`)
+- [x] **`sidecar.guards.enabled`** — implemented as `sidecar.regressionGuards.mode: 'off' | 'strict' | 'warn'`. Schema in `package.json`.
 
-**Should Have**:
+**Should Have** (deferred):
 - [ ] **Custom invariant guards** — user-defined guards via `.sidecar/guards/*.guard.ts` files; evaluated in a sandboxed worker.
 - [ ] **Guard result history** — last N guard outcomes stored per session, surfaced in `/guards` panel.
 

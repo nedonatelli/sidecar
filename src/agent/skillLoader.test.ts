@@ -227,6 +227,52 @@ describe('SkillLoader', () => {
     expect(loader.get('ref')!.disableModelInvocation).toBe(true);
   });
 
+  it('parses guards as inline comma list', async () => {
+    loader.setBuiltinPath('/ext/skills');
+    mockReadDir.mockImplementation(async (uri: any) => {
+      if (uri.fsPath.includes('/ext/skills')) return [['guarded.md', FileType.File]];
+      return [];
+    });
+    mockReadFile.mockImplementation(async () =>
+      Buffer.from('---\nname: Guarded\nguards: lint-clean, tests-pass\n---\nContent'),
+    );
+
+    await loader.initialize();
+    expect(loader.get('guarded')!.guards).toEqual(['lint-clean', 'tests-pass']);
+  });
+
+  it('parses guards as YAML block list', async () => {
+    loader.setBuiltinPath('/ext/skills');
+    mockReadDir.mockImplementation(async (uri: any) => {
+      if (uri.fsPath.includes('/ext/skills')) return [['guarded2.md', FileType.File]];
+      return [];
+    });
+    mockReadFile.mockImplementation(async () =>
+      Buffer.from('---\nname: Guarded2\nguards:\n  - no-new-todos\n  - tests-pass\n---\nContent'),
+    );
+
+    await loader.initialize();
+    expect(loader.get('guarded2')!.guards).toEqual(['no-new-todos', 'tests-pass']);
+  });
+
+  it('parses both allowed-tools block list and guards block list independently', async () => {
+    loader.setBuiltinPath('/ext/skills');
+    mockReadDir.mockImplementation(async (uri: any) => {
+      if (uri.fsPath.includes('/ext/skills')) return [['both.md', FileType.File]];
+      return [];
+    });
+    mockReadFile.mockImplementation(async () =>
+      Buffer.from(
+        '---\nname: Both\nallowed-tools:\n  - read_file\n  - write_file\nguards:\n  - lint-clean\n---\nContent',
+      ),
+    );
+
+    await loader.initialize();
+    const skill = loader.get('both');
+    expect(skill!.allowedTools).toEqual(['read_file', 'write_file']);
+    expect(skill!.guards).toEqual(['lint-clean']);
+  });
+
   it('does not set skills 2.0 fields when not in frontmatter', async () => {
     loader.setBuiltinPath('/ext/skills');
     mockReadDir.mockImplementation(async (uri: any) => {
@@ -243,6 +289,7 @@ describe('SkillLoader', () => {
     expect(skill!.preferredModel).toBeUndefined();
     expect(skill!.maxIterations).toBeUndefined();
     expect(skill!.disableModelInvocation).toBeUndefined();
+    expect(skill!.guards).toBeUndefined();
   });
 
   it('listFormatted shows shield badge for restricted skills', async () => {

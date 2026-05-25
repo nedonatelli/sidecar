@@ -36,6 +36,8 @@ export interface Skill {
   maxIterations?: number;
   /** When true, inject the skill body into the system prompt but do not start the agent loop. */
   disableModelInvocation?: boolean;
+  /** Built-in guard IDs to activate for this skill's session (e.g. ['lint-clean', 'tests-pass']). */
+  guards?: string[];
 }
 
 /**
@@ -52,6 +54,7 @@ function parseSkillFile(filePath: string, raw: string, source: Skill['source']):
   let preferredModel: string | undefined;
   let maxIterations: number | undefined;
   let disableModelInvocation: boolean | undefined;
+  let guards: string[] | undefined;
 
   // Parse YAML frontmatter
   const fmMatch = raw.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/);
@@ -59,13 +62,18 @@ function parseSkillFile(filePath: string, raw: string, source: Skill['source']):
     const frontmatter = fmMatch[1];
     content = fmMatch[2].trim();
 
+    let lastArrayKey: 'allowed-tools' | 'guards' | null = null;
     for (const line of frontmatter.split('\n')) {
-      // YAML list item under allowed-tools: "  - tool_name"
-      if (allowedTools !== undefined && /^\s+-\s+(.+)$/.test(line)) {
+      // YAML block list item: "  - item" — append to whichever key was opened last.
+      if (lastArrayKey && /^\s+-\s+(.+)$/.test(line)) {
         const m = line.match(/^\s+-\s+(.+)$/);
-        if (m) allowedTools.push(m[1].trim());
+        if (m) {
+          if (lastArrayKey === 'allowed-tools') allowedTools!.push(m[1].trim());
+          else guards!.push(m[1].trim());
+        }
         continue;
       }
+      lastArrayKey = null;
       const kvMatch = line.match(/^(\w[\w-]*):\s*(.*)$/);
       if (!kvMatch) continue;
       const [, key, value] = kvMatch;
@@ -75,15 +83,24 @@ function parseSkillFile(filePath: string, raw: string, source: Skill['source']):
       } else if (key === 'description') {
         description = cleaned;
       } else if (key === 'allowed-tools') {
-        // Inline list: "allowed-tools: read_file, write_file"
         if (cleaned) {
           allowedTools = cleaned
             .split(',')
             .map((t) => t.trim())
             .filter(Boolean);
         } else {
-          // Block list — items collected by the loop above
           allowedTools = [];
+          lastArrayKey = 'allowed-tools';
+        }
+      } else if (key === 'guards') {
+        if (cleaned) {
+          guards = cleaned
+            .split(',')
+            .map((t) => t.trim())
+            .filter(Boolean);
+        } else {
+          guards = [];
+          lastArrayKey = 'guards';
         }
       } else if (key === 'preferred-model') {
         preferredModel = cleaned || undefined;
@@ -107,6 +124,7 @@ function parseSkillFile(filePath: string, raw: string, source: Skill['source']):
     ...(preferredModel !== undefined && { preferredModel }),
     ...(maxIterations !== undefined && { maxIterations }),
     ...(disableModelInvocation !== undefined && { disableModelInvocation }),
+    ...(guards !== undefined && { guards }),
   };
 }
 
@@ -339,7 +357,8 @@ export class SkillLoader {
         (skill.allowedTools && skill.allowedTools.length > 0) ||
         skill.preferredModel ||
         skill.maxIterations ||
-        skill.disableModelInvocation;
+        skill.disableModelInvocation ||
+        (skill.guards && skill.guards.length > 0);
       const badge = hasRestrictions ? ' 🛡' : '';
       lines.push(`  /${skill.id}${badge}${desc}${src}`);
     }

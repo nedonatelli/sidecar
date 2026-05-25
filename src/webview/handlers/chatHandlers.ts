@@ -431,6 +431,21 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
       );
     }
 
+    // Skills 2.0 — activate named built-in guards from the skill's guards list.
+    let skillExtraPolicyHooks: import('../../agent/loop/policyHook.js').PolicyHook[] | undefined;
+    if (matchedSkill?.guards && matchedSkill.guards.length > 0) {
+      const { workspace: ws } = await import('vscode');
+      const workspaceRoot = ws.workspaceFolders?.[0]?.uri.fsPath ?? '';
+      if (workspaceRoot) {
+        const { resolveGuardsByIds } = await import('../../agent/guards/builtInGuards.js');
+        const { RegressionGuardHook } = await import('../../agent/guards/regressionGuardHook.js');
+        const guardConfigs = resolveGuardsByIds(matchedSkill.guards, workspaceRoot);
+        if (guardConfigs.length > 0) {
+          skillExtraPolicyHooks = guardConfigs.map((g) => new RegressionGuardHook(g));
+        }
+      }
+    }
+
     const updatedMessages = await runAgentLoop(state.client, chatMessages, agentCbs, state.abortController.signal, {
       logger: state.agentLogger,
       changelog: state.changelog,
@@ -462,6 +477,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
             state.inlineEditProvider!.proposeEdit(filePath, searchText, replaceText)
         : undefined,
       clarifyFn: (question, options, allowCustom) => state.requestClarification(question, options, allowCustom),
+      ...(skillExtraPolicyHooks && { extraPolicyHooks: skillExtraPolicyHooks }),
       modeToolPermissions: resolved.toolPermissions,
       pendingEdits: state.pendingEdits,
       editTimeline: state.editTimeline,

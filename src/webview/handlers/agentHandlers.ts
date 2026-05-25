@@ -505,3 +505,55 @@ export async function handleCompactContext(state: ChatState): Promise<void> {
   }
   state.postMessage({ command: 'done' });
 }
+
+/**
+ * `/guards` — list active regression guards from workspace config and report
+ * the current mode. Does not require an agent to be running.
+ */
+export async function handleGuardsStatus(state: ChatState): Promise<void> {
+  const cfg = workspace.getConfiguration('sidecar');
+  const mode = cfg.get<'off' | 'strict' | 'warn'>('regressionGuards.mode', 'strict');
+  const raw = cfg.get<unknown[]>('regressionGuards', []);
+
+  const { BUILT_IN_GUARD_IDS, BUILT_IN_GUARD_DESCRIPTIONS } = await import('../../agent/guards/builtInGuards.js');
+  const { validateGuard } = await import('../../agent/guards/regressionGuardHook.js');
+
+  const lines: string[] = ['**Regression Guards**', ''];
+
+  lines.push(`Mode: \`${mode}\``);
+  if (mode === 'off') {
+    lines.push('All guards are disabled (`sidecar.regressionGuards.mode: "off"`).');
+    state.postMessage({ command: 'assistantMessage', content: lines.join('\n') });
+    state.postMessage({ command: 'done' });
+    return;
+  }
+
+  // User-configured guards
+  const configured: string[] = [];
+  if (Array.isArray(raw) && raw.length > 0) {
+    lines.push('', '**Configured guards** (`sidecar.regressionGuards`):');
+    for (const entry of raw) {
+      const g = validateGuard(entry);
+      if (!g) continue;
+      const blocking = mode === 'warn' ? 'advisory (mode=warn)' : g.blocking === false ? 'advisory' : 'blocking';
+      lines.push(`  - \`${g.name}\` — trigger: \`${g.trigger}\`, ${blocking}`);
+      configured.push(g.name);
+    }
+    if (configured.length === 0) lines.push('  (none — all entries failed validation)');
+  } else {
+    lines.push('', 'No guards configured in `sidecar.regressionGuards`.');
+  }
+
+  // Built-in guards overview
+  lines.push('', '**Built-in guard IDs** (use in skill frontmatter `guards:` field):');
+  for (const id of BUILT_IN_GUARD_IDS) {
+    lines.push(`  - \`${id}\` — ${BUILT_IN_GUARD_DESCRIPTIONS[id]}`);
+  }
+  lines.push('');
+  lines.push(
+    "To activate built-in guards for a skill, add `guards: [lint-clean, tests-pass]` to the skill's frontmatter.",
+  );
+
+  state.postMessage({ command: 'assistantMessage', content: lines.join('\n') });
+  state.postMessage({ command: 'done' });
+}
