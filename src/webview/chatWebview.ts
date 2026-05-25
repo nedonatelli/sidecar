@@ -96,7 +96,8 @@ export interface WebviewMessage {
     | 'refreshModels'
     | 'restartOllama'
     | 'startVoice'
-    | 'voiceAudio';
+    | 'voiceAudio'
+    | 'editMessage';
   images?: { mediaType: string; data: string }[];
   text?: string;
   model?: string;

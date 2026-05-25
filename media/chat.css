@@ -804,6 +804,67 @@ body {
   font-size: 16px;
 }
 
+.message-edit-btn {
+  font-size: 14px;
+}
+
+.msg-inline-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.msg-inline-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--vscode-focusBorder);
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  font-family: inherit;
+  font-size: inherit;
+  resize: vertical;
+  min-height: 2.5em;
+}
+
+.msg-inline-textarea:focus {
+  outline: none;
+}
+
+.msg-inline-btn-row {
+  display: flex;
+  gap: 6px;
+}
+
+.msg-inline-resend,
+.msg-inline-cancel {
+  padding: 3px 10px;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.msg-inline-resend {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+}
+
+.msg-inline-resend:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
+.msg-inline-cancel {
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+}
+
+.msg-inline-cancel:hover {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
 .message.user {
   align-self: flex-end;
   background: var(--sidecar-chat-accent, var(--vscode-button-background));

@@ -2879,6 +2879,18 @@
       actions.appendChild(regenBtn);
     }
 
+    if (!isAssistant && div.dataset.rawContent) {
+      const editBtn = document.createElement('button');
+      editBtn.className = 'message-action-btn message-edit-btn';
+      editBtn.innerHTML = '&#x270e;';
+      editBtn.title = 'Edit and resend';
+      editBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        startInlineEdit(div);
+      });
+      actions.appendChild(editBtn);
+    }
+
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'message-action-btn message-delete-btn';
     deleteBtn.textContent = '\u00d7';
@@ -2894,6 +2906,89 @@
     actions.appendChild(deleteBtn);
 
     div.appendChild(actions);
+  }
+
+  // ------------------------------------------------------------------
+  // Inline message editing — replaces a user message bubble with a
+  // textarea so the user can edit and resend from that point.
+  // ------------------------------------------------------------------
+
+  function startInlineEdit(div) {
+    if (div.dataset.editing === 'true') return;
+    div.dataset.editing = 'true';
+
+    const originalContent = div.dataset.rawContent || '';
+    const originalHTML = div.innerHTML;
+
+    // Hide action buttons while editing
+    const actionsEl = div.querySelector('.message-actions');
+    if (actionsEl) actionsEl.style.display = 'none';
+
+    // Build inline editor
+    const editor = document.createElement('div');
+    editor.className = 'msg-inline-editor';
+
+    const textarea = document.createElement('textarea');
+    textarea.className = 'msg-inline-textarea';
+    textarea.value = originalContent;
+    textarea.rows = Math.max(2, originalContent.split('\n').length);
+    editor.appendChild(textarea);
+
+    const btnRow = document.createElement('div');
+    btnRow.className = 'msg-inline-btn-row';
+
+    const resendBtn = document.createElement('button');
+    resendBtn.className = 'msg-inline-resend';
+    resendBtn.textContent = 'Resend';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'msg-inline-cancel';
+    cancelBtn.textContent = 'Cancel';
+
+    btnRow.appendChild(resendBtn);
+    btnRow.appendChild(cancelBtn);
+    editor.appendChild(btnRow);
+
+    // Replace bubble content with editor (keep the div itself)
+    div.innerHTML = '';
+    div.appendChild(editor);
+
+    textarea.focus();
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+
+    // Auto-resize
+    textarea.addEventListener('input', () => {
+      textarea.style.height = 'auto';
+      textarea.style.height = textarea.scrollHeight + 'px';
+    });
+
+    function cancelEdit() {
+      div.dataset.editing = 'false';
+      div.innerHTML = originalHTML;
+    }
+
+    function submitEdit() {
+      const newText = textarea.value.trim();
+      if (!newText) return;
+      const index = parseInt(div.dataset.msgIndex, 10);
+      if (isNaN(index)) return;
+      div.dataset.editing = 'false';
+      vscode.postMessage({ command: 'editMessage', index, text: newText });
+    }
+
+    cancelBtn.addEventListener('click', cancelEdit);
+    resendBtn.addEventListener('click', submitEdit);
+
+    textarea.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        cancelEdit();
+      }
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        submitEdit();
+      }
+    });
   }
 
   // ------------------------------------------------------------------
@@ -2988,6 +3083,13 @@
         navigator.clipboard.writeText(raw);
       },
     });
+
+    if (!messageDiv.classList.contains('assistant') && messageDiv.dataset.rawContent) {
+      items.push({
+        label: 'Edit and resend',
+        action: () => startInlineEdit(messageDiv),
+      });
+    }
 
     items.push({
       label: 'Delete message',

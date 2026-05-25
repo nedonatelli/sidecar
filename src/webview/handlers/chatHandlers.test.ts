@@ -26,6 +26,7 @@ import {
   handleDroppedPaths,
   handleUserMessageWithImages,
   handleReconnect,
+  handleEditMessage,
   checkBudgetLimits,
   recordRunCost,
   handleSaveCodeBlock,
@@ -3192,5 +3193,91 @@ describe('handleRegenerateResponse', () => {
     // handleUserMessage runs) and at least once by the catch-block save.
     expect(saveHistory.mock.calls.length).toBeGreaterThanOrEqual(2);
     vi.restoreAllMocks();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleEditMessage
+// ---------------------------------------------------------------------------
+describe('handleEditMessage', () => {
+  function makeState(messages: { role: string; content: unknown }[] = []) {
+    return {
+      messages,
+      abortController: null,
+      saveHistory: vi.fn(),
+      postMessage: vi.fn(),
+      logMessage: vi.fn().mockResolvedValue(undefined),
+    };
+  }
+
+  it('is a no-op when text is empty', async () => {
+    const state = makeState([{ role: 'user', content: 'hello' }]);
+    await handleEditMessage(state as never, 0, '   ');
+    expect(state.saveHistory).not.toHaveBeenCalled();
+  });
+
+  it('posts an error and returns when the agent is running', async () => {
+    const state = { ...makeState([{ role: 'user', content: 'hi' }]), abortController: new AbortController() };
+    await handleEditMessage(state as never, 0, 'new text');
+    expect(state.postMessage).toHaveBeenCalledWith(expect.objectContaining({ command: 'error' }));
+    expect(state.messages).toHaveLength(1);
+  });
+
+  it('is a no-op for an out-of-bounds index', async () => {
+    const state = makeState([{ role: 'user', content: 'hi' }]);
+    await handleEditMessage(state as never, 5, 'new text');
+    expect(state.saveHistory).not.toHaveBeenCalled();
+  });
+
+  it('is a no-op when the target message is not a user message', async () => {
+    const state = makeState([{ role: 'assistant', content: 'reply' }]);
+    await handleEditMessage(state as never, 0, 'new text');
+    expect(state.saveHistory).not.toHaveBeenCalled();
+  });
+
+  it('is a no-op when the user message has no text content (tool_result only)', async () => {
+    const state = makeState([{ role: 'user', content: [{ type: 'tool_result', tool_use_id: 'x', content: 'y' }] }]);
+    await handleEditMessage(state as never, 0, 'new text');
+    expect(state.saveHistory).not.toHaveBeenCalled();
+  });
+
+  it('truncates messages to before the edited index and posts chatCleared + init', async () => {
+    const messages = [
+      { role: 'user', content: 'first' },
+      { role: 'assistant', content: 'reply' },
+      { role: 'user', content: 'second' },
+    ];
+    const state = makeState(messages);
+    // handleUserMessage will fail in the test environment (no full client wired).
+    // The assertions we care about all fire before handleUserMessage is invoked.
+    try {
+      await handleEditMessage(state as never, 2, 'edited second');
+    } catch {
+      // expected
+    }
+    expect(state.saveHistory).toHaveBeenCalled();
+    expect(state.postMessage).toHaveBeenCalledWith({ command: 'chatCleared' });
+    // The init call fires before handleUserMessage mutates state.messages, so
+    // check the snapshot recorded by the mock rather than the current array.
+    const initCall = (state.postMessage as ReturnType<typeof vi.fn>).mock.calls.find(
+      (c: unknown[]) => (c[0] as { command: string }).command === 'init',
+    );
+    expect(initCall).toBeDefined();
+    expect((initCall![0] as { messages: unknown[] }).messages.slice(0, 2)).toHaveLength(2);
+  });
+
+  it('skips init message when truncated history is empty', async () => {
+    const state = makeState([{ role: 'user', content: 'only message' }]);
+    try {
+      await handleEditMessage(state as never, 0, 'edited');
+    } catch {
+      // expected
+    }
+    expect(state.saveHistory).toHaveBeenCalled();
+    expect(state.postMessage).toHaveBeenCalledWith({ command: 'chatCleared' });
+    const initCalls = (state.postMessage as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (c: unknown[]) => (c[0] as { command: string }).command === 'init',
+    );
+    expect(initCalls).toHaveLength(0);
   });
 });

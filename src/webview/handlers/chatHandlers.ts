@@ -531,6 +531,37 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
 // Reconnect — must be co-located with handleUserMessage (calls it directly)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Edit message — truncate history to before the edited message and re-run
+// ---------------------------------------------------------------------------
+
+export async function handleEditMessage(state: ChatState, index: number, text: string): Promise<void> {
+  if (!text?.trim()) return;
+  if (state.abortController) {
+    state.postMessage({
+      command: 'error',
+      content: 'Cannot edit a message while the agent is running. Press Escape to stop first.',
+      errorType: 'unknown',
+    });
+    return;
+  }
+  if (index < 0 || index >= state.messages.length) return;
+  const target = state.messages[index];
+  if (target.role !== 'user') return;
+  const hasText =
+    typeof target.content === 'string' ||
+    (Array.isArray(target.content) && target.content.some((b) => (b as { type: string }).type === 'text'));
+  if (!hasText) return;
+
+  state.messages = state.messages.slice(0, index);
+  state.saveHistory();
+  state.postMessage({ command: 'chatCleared' });
+  if (state.messages.length > 0) {
+    state.postMessage({ command: 'init', messages: state.messages });
+  }
+  await handleUserMessage(state, text);
+}
+
 export async function handleReconnect(state: ChatState): Promise<void> {
   state.postMessage({ command: 'setLoading', isLoading: true });
   state.postMessage({ command: 'typingStatus', content: 'Reconnecting...' });
