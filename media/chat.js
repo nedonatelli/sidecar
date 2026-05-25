@@ -2918,12 +2918,23 @@
   // textarea so the user can edit and resend from that point.
   // ------------------------------------------------------------------
 
+  function setTruncatePreview(anchorDiv, active) {
+    let sibling = anchorDiv.nextElementSibling;
+    while (sibling) {
+      sibling.classList.toggle('msg-will-truncate', active);
+      sibling = sibling.nextElementSibling;
+    }
+  }
+
   function startInlineEdit(div) {
     if (div.dataset.editing === 'true') return;
     div.dataset.editing = 'true';
 
     const originalContent = div.dataset.rawContent || '';
     const originalHTML = div.innerHTML;
+
+    // Dim subsequent messages to preview what will be removed on Resend
+    setTruncatePreview(div, true);
 
     // Hide action buttons while editing
     const actionsEl = div.querySelector('.message-actions');
@@ -2938,6 +2949,13 @@
     textarea.value = originalContent;
     textarea.rows = Math.max(2, originalContent.split('\n').length);
     editor.appendChild(textarea);
+
+    if (div.nextElementSibling) {
+      const hint = document.createElement('div');
+      hint.className = 'msg-inline-hint';
+      hint.textContent = 'Messages below will be removed on resend';
+      editor.appendChild(hint);
+    }
 
     const btnRow = document.createElement('div');
     btnRow.className = 'msg-inline-btn-row';
@@ -2970,6 +2988,7 @@
     function cancelEdit() {
       div.dataset.editing = 'false';
       div.innerHTML = originalHTML;
+      setTruncatePreview(div, false);
     }
 
     function submitEdit() {

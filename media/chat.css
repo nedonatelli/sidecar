@@ -865,6 +865,18 @@ body {
   background: var(--vscode-button-secondaryHoverBackground);
 }
 
+.msg-inline-hint {
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  opacity: 0.8;
+}
+
+.msg-will-truncate {
+  opacity: 0.3;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
 .message.user {
   align-self: flex-end;
   background: var(--sidecar-chat-accent, var(--vscode-button-background));
