@@ -232,4 +232,113 @@ describe('ResearchStore', () => {
       expect(path).toBe('/sidecar/research/my-proj/experiments/exp-001/manifest.yaml');
     });
   });
+
+  describe('generateReport', () => {
+    it('returns null when project not found', async () => {
+      vi.mocked(sd.readJson).mockResolvedValueOnce(null);
+      expect(await store.generateReport('missing')).toBeNull();
+    });
+
+    it('includes project title and question', async () => {
+      const project = {
+        slug: 'proj',
+        title: 'FIR vs Wavelet',
+        question: 'Does wavelet beat FFT?',
+        status: 'complete' as const,
+        hypotheses: [],
+        createdAt: 1,
+        updatedAt: 1,
+      };
+      vi.mocked(sd.readJson).mockResolvedValueOnce(project);
+      vi.spyOn(workspace.fs, 'readDirectory').mockResolvedValue([]);
+      const result = await store.generateReport('proj');
+      expect(result).not.toBeNull();
+      expect(result!.markdown).toContain('FIR vs Wavelet');
+      expect(result!.markdown).toContain('Does wavelet beat FFT?');
+      expect(result!.markdown).toContain('complete');
+    });
+
+    it('includes hypotheses table', async () => {
+      const project = {
+        slug: 'proj',
+        title: 'Test',
+        question: 'Q?',
+        status: 'active' as const,
+        hypotheses: [{ id: 'h-1', text: 'Wavelet wins', status: 'supported' as const, addedAt: 1 }],
+        createdAt: 1,
+        updatedAt: 1,
+      };
+      vi.mocked(sd.readJson).mockResolvedValueOnce(project);
+      vi.spyOn(workspace.fs, 'readDirectory').mockResolvedValue([]);
+      const result = await store.generateReport('proj');
+      expect(result!.markdown).toContain('h-1');
+      expect(result!.markdown).toContain('Wavelet wins');
+      expect(result!.markdown).toContain('supported');
+    });
+
+    it('includes experiment output tail in details block', async () => {
+      const project = {
+        slug: 'proj',
+        title: 'Test',
+        question: 'Q?',
+        status: 'active' as const,
+        hypotheses: [],
+        createdAt: 1,
+        updatedAt: 1,
+      };
+      vi.mocked(sd.readJson)
+        .mockResolvedValueOnce(project) // loadProject
+        .mockResolvedValueOnce({
+          // loadExperiment
+          id: 'exp-1',
+          command: 'python train.py',
+          parameters: { lr: 0.01 },
+          status: 'complete' as const,
+          exitCode: 0,
+          outputTail: 'Accuracy: 0.95',
+          createdAt: 1,
+          updatedAt: 2,
+        });
+      vi.spyOn(workspace.fs, 'readDirectory')
+        .mockResolvedValueOnce([['exp-1', 2]]) // experiments dir
+        .mockResolvedValueOnce([]); // observations dir
+      const result = await store.generateReport('proj');
+      expect(result!.markdown).toContain('exp-1');
+      expect(result!.markdown).toContain('python train.py');
+      expect(result!.markdown).toContain('Accuracy: 0.95');
+      expect(result!.markdown).toContain('<details>');
+    });
+
+    it('writes report.md to sidecarDir', async () => {
+      const project = {
+        slug: 'proj',
+        title: 'T',
+        question: 'Q?',
+        status: 'active' as const,
+        hypotheses: [],
+        createdAt: 1,
+        updatedAt: 1,
+      };
+      vi.mocked(sd.readJson).mockResolvedValueOnce(project);
+      vi.spyOn(workspace.fs, 'readDirectory').mockResolvedValue([]);
+      await store.generateReport('proj');
+      expect(sd.writeText).toHaveBeenCalledWith('research/proj/report.md', expect.stringContaining('Research Report'));
+    });
+
+    it('returns the filePath of the written report', async () => {
+      const project = {
+        slug: 'proj',
+        title: 'T',
+        question: 'Q?',
+        status: 'active' as const,
+        hypotheses: [],
+        createdAt: 1,
+        updatedAt: 1,
+      };
+      vi.mocked(sd.readJson).mockResolvedValueOnce(project);
+      vi.spyOn(workspace.fs, 'readDirectory').mockResolvedValue([]);
+      const result = await store.generateReport('proj');
+      expect(result!.filePath).toBe('/sidecar/research/proj/report.md');
+    });
+  });
 });

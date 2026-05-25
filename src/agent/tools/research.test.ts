@@ -17,6 +17,7 @@ function makeStore(): ResearchStore {
     getObservationPath: vi.fn(),
     updateHypothesisStatus: vi.fn(),
     setProjectStatus: vi.fn(),
+    generateReport: vi.fn(),
   } as unknown as ResearchStore;
 }
 
@@ -204,6 +205,40 @@ describe('researchTools', () => {
     });
   });
 
+  describe('research_export_report', () => {
+    let store: ReturnType<typeof makeStore>;
+
+    beforeEach(() => {
+      store = makeStore();
+      setResearchStore(store);
+    });
+
+    it('returns report markdown and file path on success', async () => {
+      vi.mocked(store.generateReport).mockResolvedValueOnce({
+        markdown: '# Research Report: My Project\n\nSome content.',
+        filePath: '/sidecar/research/my-proj/report.md',
+      });
+      const result = await findTool('research_export_report').executor({ project: 'my-proj' });
+      expect(result).toContain('my-proj');
+      expect(result).toContain('/sidecar/research/my-proj/report.md');
+      expect(result).toContain('# Research Report: My Project');
+    });
+
+    it('returns not-found message when project missing', async () => {
+      vi.mocked(store.generateReport).mockResolvedValueOnce(null);
+      const result = await findTool('research_export_report').executor({ project: 'missing' });
+      expect(result).toContain('missing');
+      expect(result).toContain('not found');
+    });
+
+    it('returns error message on store failure', async () => {
+      vi.mocked(store.generateReport).mockRejectedValueOnce(new Error('disk full'));
+      const result = await findTool('research_export_report').executor({ project: 'proj' });
+      expect(result).toContain('Error generating report');
+      expect(result).toContain('disk full');
+    });
+  });
+
   describe('research_set_project_status', () => {
     let store: ReturnType<typeof makeStore>;
 
@@ -254,6 +289,7 @@ describe('researchTools', () => {
         'research_update_hypothesis_status',
         'research_list_projects',
         'research_set_project_status',
+        'research_export_report',
       ]) {
         expect(findTool(name).requiresApproval).toBe(false);
       }

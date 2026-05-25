@@ -105,6 +105,44 @@ export async function handleResearchCommand(state: ChatState, args?: string): Pr
     return;
   }
 
+  // /research report — generate and display the full project report
+  if (args?.trim().toLowerCase() === 'report') {
+    const activeSlug =
+      getConfig().researchActiveProject ||
+      workspace.getConfiguration('sidecar').get<string>('research.activeProject', '');
+
+    if (!activeSlug) {
+      state.postMessage({
+        command: 'assistantMessage',
+        content: 'No active research project set. Use `/research` to pick one.',
+      });
+      state.postMessage({ command: 'done' });
+      return;
+    }
+
+    try {
+      const result = await store.generateReport(activeSlug);
+      if (!result) {
+        state.postMessage({
+          command: 'assistantMessage',
+          content: `Project \`${activeSlug}\` not found.`,
+        });
+      } else {
+        state.postMessage({
+          command: 'assistantMessage',
+          content: [`**Report saved to** \`${result.filePath}\``, '', result.markdown].join('\n'),
+        });
+      }
+    } catch (err) {
+      state.postMessage({
+        command: 'assistantMessage',
+        content: `Error generating report: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+    state.postMessage({ command: 'done' });
+    return;
+  }
+
   // /research status — print a summary of the active project
   if (args?.trim().toLowerCase() === 'status') {
     const activeSlug =

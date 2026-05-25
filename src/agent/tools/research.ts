@@ -352,4 +352,42 @@ export const researchTools: RegisteredTool[] = [
       }
     }) as ToolExecutor,
   },
+
+  // ─── research_export_report ───────────────────────────────────────────────
+  {
+    requiresApproval: false,
+    definition: {
+      name: 'research_export_report',
+      description:
+        'Generate a structured markdown report for a research project. ' +
+        'Includes hypothesis outcomes table, experiment results with output tails, and observations timeline. ' +
+        'Writes the report to `.sidecar/research/<slug>/report.md` and returns the full markdown.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          project: { type: 'string', description: 'Project slug.' },
+        },
+        required: ['project'],
+      },
+    },
+    executor: (async (input: Record<string, unknown>) => {
+      const { project } = input as { project: string };
+      const gate = gateEnabled();
+      if (gate) return gate;
+
+      try {
+        const result = await getStore().generateReport(project);
+        if (!result) return `Project \`${project}\` not found.`;
+
+        return [
+          `**Report generated** for \`${project}\`:`,
+          `- **Saved to:** \`${result.filePath}\``,
+          '',
+          result.markdown,
+        ].join('\n');
+      } catch (err) {
+        return `Error generating report: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }) as ToolExecutor,
+  },
 ];
