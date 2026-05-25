@@ -309,4 +309,47 @@ export const researchTools: RegisteredTool[] = [
       }
     }) as ToolExecutor,
   },
+
+  // ─── research_set_project_status ─────────────────────────────────────────
+  {
+    requiresApproval: false,
+    definition: {
+      name: 'research_set_project_status',
+      description: 'Update the status of a research project. ' + 'Valid statuses: active, paused, complete, abandoned.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          project: { type: 'string', description: 'Project slug.' },
+          status: {
+            type: 'string',
+            enum: ['active', 'paused', 'complete', 'abandoned'],
+            description: 'New project status.',
+          },
+        },
+        required: ['project', 'status'],
+      },
+    },
+    executor: (async (input: Record<string, unknown>) => {
+      const { project, status } = input as {
+        project: string;
+        status: import('../research/researchStore.js').ProjectStatus;
+      };
+      const gate = gateEnabled();
+      if (gate) return gate;
+
+      try {
+        const updated = await getStore().setProjectStatus(project, status);
+        if (!updated) return `Project \`${project}\` not found.`;
+
+        return [
+          `**Project status updated:**`,
+          `- **Slug:** \`${updated.slug}\``,
+          `- **Title:** ${updated.title}`,
+          `- **Status:** ${updated.status}`,
+        ].join('\n');
+      } catch (err) {
+        return `Error updating project status: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }) as ToolExecutor,
+  },
 ];

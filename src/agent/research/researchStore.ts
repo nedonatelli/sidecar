@@ -111,6 +111,16 @@ export class ResearchStore {
     return hypothesis;
   }
 
+  async setProjectStatus(slug: string, status: ProjectStatus): Promise<ResearchProject | null> {
+    const project = await this.loadProject(slug);
+    if (!project) return null;
+
+    project.status = status;
+    project.updatedAt = Date.now();
+    await this.writeProject(project);
+    return project;
+  }
+
   async updateHypothesisStatus(slug: string, id: string, status: HypothesisStatus): Promise<Hypothesis | null> {
     const project = await this.loadProject(slug);
     if (!project) return null;

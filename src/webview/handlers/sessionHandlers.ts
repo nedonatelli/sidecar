@@ -105,6 +105,70 @@ export async function handleResearchCommand(state: ChatState, args?: string): Pr
     return;
   }
 
+  // /research status — print a summary of the active project
+  if (args?.trim().toLowerCase() === 'status') {
+    const activeSlug =
+      getConfig().researchActiveProject ||
+      workspace.getConfiguration('sidecar').get<string>('research.activeProject', '');
+
+    if (!activeSlug) {
+      state.postMessage({
+        command: 'assistantMessage',
+        content: 'No active research project set. Use `/research` to pick one.',
+      });
+      state.postMessage({ command: 'done' });
+      return;
+    }
+
+    const project = await store.loadProject(activeSlug);
+    if (!project) {
+      state.postMessage({
+        command: 'assistantMessage',
+        content: `Project \`${activeSlug}\` not found.`,
+      });
+      state.postMessage({ command: 'done' });
+      return;
+    }
+
+    const hypoLines = project.hypotheses.length
+      ? project.hypotheses.map((h) => `  - \`${h.id}\` ${h.text} — **${h.status}**`)
+      : ['  *(none)*'];
+
+    const [experiments, observations] = await Promise.all([
+      store.listExperiments(activeSlug),
+      store.listObservations(activeSlug),
+    ]);
+
+    state.postMessage({
+      command: 'assistantMessage',
+      content: [
+        `## ${project.title} (\`${project.slug}\`)`,
+        `**Status:** ${project.status} · **Question:** ${project.question}`,
+        '',
+        `### Hypotheses (${project.hypotheses.length})`,
+        ...hypoLines,
+        '',
+        `### Experiments (${experiments.length})`,
+        experiments.length
+          ? experiments
+              .slice(0, 5)
+              .map((e) => `  - \`${e.id}\` — ${e.status}`)
+              .join('\n')
+          : '  *(none)*',
+        '',
+        `### Observations (${observations.length})`,
+        observations.length
+          ? observations
+              .slice(0, 3)
+              .map((o) => `  - ${new Date(o.timestamp).toLocaleString()} — ${o.note.slice(0, 80).replace(/\n/g, ' ')}`)
+              .join('\n')
+          : '  *(none)*',
+      ].join('\n'),
+    });
+    state.postMessage({ command: 'done' });
+    return;
+  }
+
   // /research observe <note>
   const observeMatch = args?.match(/^observe\s+(.+)/is);
   if (observeMatch) {

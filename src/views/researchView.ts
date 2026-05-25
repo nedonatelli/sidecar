@@ -10,6 +10,7 @@ import {
   ThemeIcon,
   commands,
   Uri,
+  workspace,
 } from 'vscode';
 import type {
   ResearchStore,
@@ -216,6 +217,21 @@ export function registerResearchView(context: ExtensionContext, store: ResearchS
     void window.showInformationMessage(`Research project "${title}" created.`);
   });
 
-  context.subscriptions.push(treeView, provider, refreshCmd, newProjectCmd);
+  // Auto-refresh when the agent writes to .sidecar/research/**
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  const scheduleRefresh = () => {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      debounceTimer = null;
+      provider.refresh();
+    }, 500);
+  };
+
+  const watcher = workspace.createFileSystemWatcher('**/.sidecar/research/**');
+  watcher.onDidCreate(scheduleRefresh);
+  watcher.onDidChange(scheduleRefresh);
+  watcher.onDidDelete(scheduleRefresh);
+
+  context.subscriptions.push(treeView, provider, refreshCmd, newProjectCmd, watcher);
   return treeView;
 }

@@ -156,6 +156,33 @@ describe('ResearchStore', () => {
     });
   });
 
+  describe('setProjectStatus', () => {
+    it('returns null when project not found', async () => {
+      vi.mocked(sd.readJson).mockResolvedValueOnce(null);
+      expect(await store.setProjectStatus('missing', 'complete')).toBeNull();
+    });
+
+    it('updates status and writes project', async () => {
+      const project = {
+        slug: 'proj',
+        title: 'Proj',
+        question: 'Q?',
+        status: 'active' as const,
+        hypotheses: [],
+        createdAt: 1,
+        updatedAt: 1,
+      };
+      vi.mocked(sd.readJson).mockResolvedValueOnce(project);
+      const result = await store.setProjectStatus('proj', 'complete');
+      expect(result).not.toBeNull();
+      expect(result!.status).toBe('complete');
+      expect(sd.writeJson).toHaveBeenCalledWith(
+        'research/proj/project.yaml',
+        expect.objectContaining({ status: 'complete' }),
+      );
+    });
+  });
+
   describe('updateHypothesisStatus', () => {
     it('returns null when project not found', async () => {
       vi.mocked(sd.readJson).mockResolvedValueOnce(null);

@@ -16,6 +16,7 @@ function makeStore(): ResearchStore {
     getExperimentPath: vi.fn(),
     getObservationPath: vi.fn(),
     updateHypothesisStatus: vi.fn(),
+    setProjectStatus: vi.fn(),
   } as unknown as ResearchStore;
 }
 
@@ -203,6 +204,43 @@ describe('researchTools', () => {
     });
   });
 
+  describe('research_set_project_status', () => {
+    let store: ReturnType<typeof makeStore>;
+
+    beforeEach(() => {
+      store = makeStore();
+      setResearchStore(store);
+    });
+
+    it('returns updated project on success', async () => {
+      vi.mocked(store.setProjectStatus).mockResolvedValueOnce({
+        slug: 'my-proj',
+        title: 'My Project',
+        question: 'Q?',
+        status: 'complete',
+        hypotheses: [],
+        createdAt: 1,
+        updatedAt: 2,
+      });
+      const result = await findTool('research_set_project_status').executor({
+        project: 'my-proj',
+        status: 'complete',
+      });
+      expect(result).toContain('my-proj');
+      expect(result).toContain('complete');
+    });
+
+    it('returns not-found message when project missing', async () => {
+      vi.mocked(store.setProjectStatus).mockResolvedValueOnce(null);
+      const result = await findTool('research_set_project_status').executor({
+        project: 'missing',
+        status: 'abandoned',
+      });
+      expect(result).toContain('missing');
+      expect(result).toContain('not found');
+    });
+  });
+
   describe('requiresApproval', () => {
     it('research_log_experiment requires approval', () => {
       expect(findTool('research_log_experiment').requiresApproval).toBe(true);
@@ -215,6 +253,7 @@ describe('researchTools', () => {
         'research_add_observation',
         'research_update_hypothesis_status',
         'research_list_projects',
+        'research_set_project_status',
       ]) {
         expect(findTool(name).requiresApproval).toBe(false);
       }
