@@ -4,6 +4,50 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.104.4] - 2026-05-25
+
+**v0.104.4 — Context window indicator.**
+
+### Added
+
+- **Context window fill bar** — a 3 px colour-coded bar sits between the steer strip and the input area, showing how full the model's context window is at a glance. Colour transitions blue → yellow (≥ 60 %) → red (≥ 80 %). Tooltip shows `Context: 12K / 32K tokens (38%)`. Updates on every agent iteration; initial estimate posts as soon as the system prompt is assembled. Clears on new conversation. (`src/webview/chatWebview.ts`, `src/webview/handlers/agentCallbacks.ts`, `src/webview/handlers/chatHandlers.ts`, `media/chat.js`, `media/chat.css`)
+
+## [0.104.3] - 2026-05-25
+
+**v0.104.3 — Research report export.**
+
+### Added
+
+- **`research_export_report` tool** — generates a structured markdown report for a research project: hypothesis outcomes table, experiment results with `<details>` output-tail blocks, and observations in chronological order. Writes to `.sidecar/research/<slug>/report.md` and returns the full markdown inline. (`src/agent/tools/research.ts`, `src/agent/research/researchStore.ts`)
+
+- **`ResearchStore.generateReport()`** — pure method that assembles the report from stored hypotheses, experiments, and observations; writes via `sidecarDir.writeText`; returns `{ markdown, filePath }`.
+
+- **`/research report` slash command** — generates and displays the full project report inline in chat for the active research project. (`src/webview/handlers/sessionHandlers.ts`)
+
+## [0.104.2] - 2026-05-25
+
+**v0.104.2 — Research polish: project status control, status summary, sidebar auto-refresh.**
+
+### Added
+
+- **`research_set_project_status` tool** — updates a research project's status (`active` | `paused` | `complete` | `abandoned`). (`src/agent/tools/research.ts`, `src/agent/research/researchStore.ts`)
+
+- **`/research status` slash command** — prints an inline summary of the active project: status, question, all hypotheses with statuses, the five most recent experiments, and the three most recent observations. (`src/webview/handlers/sessionHandlers.ts`)
+
+- **Research sidebar auto-refresh** — a `FileSystemWatcher` on `**/.sidecar/research/**` with a 500 ms debounce triggers `ResearchViewProvider.refresh()` whenever the agent writes to the research directory — no manual refresh needed. (`src/views/researchView.ts`)
+
+## [0.104.1] - 2026-05-25
+
+**v0.104.1 — Research follow-up: hypothesis status updates, project listing, `/research` slash command.**
+
+### Added
+
+- **`research_update_hypothesis_status` tool** — updates a hypothesis's status (`open` | `supported` | `refuted` | `needs-more-evidence` | `abandoned`). (`src/agent/tools/research.ts`, `src/agent/research/researchStore.ts`)
+
+- **`research_list_projects` tool** — lists all projects with slug, title, status, hypothesis count, and last-updated age. (`src/agent/tools/research.ts`)
+
+- **`/research` slash command** — no args: QuickPick to set `sidecar.research.activeProject`; `observe <note>`: records a timestamped observation into the active project without an LLM call. (`src/webview/handlers/sessionHandlers.ts`, `src/webview/handlers/dispatchHandlers.ts`)
+
 ## [0.104.0] - 2026-05-24
 
 **v0.104.0 — Agent Capabilities: Skills 2.0, Chat Threads & Branching, and Research Assistant.**

@@ -111,7 +111,8 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 | **MCP** | stdio / HTTP / SSE transports, per-server tool allowlist, `sidecar.noSql.install` for one-click MongoDB + Redis |
 | **Skills 2.0** | Constrained skills: `allowed-tools`, `preferred-model`, `max-iterations`, and `disable-model-invocation` frontmatter fields enforce execution contracts per skill; 🛡 badge in QuickPick for restricted skills |
 | **Chat Threads & Branching** | `/branch [name]` forks the current conversation — original preserved, branch continues independently; nested parent/child tree in the Sessions sidebar |
-| **Research Assistant** | Structured project tracking: `research_create_project`, `research_add_hypothesis`, `research_log_experiment`, `research_add_observation` tools + a sidebar panel with Projects → Hypotheses / Experiments / Observations hierarchy. Gated by `sidecar.research.enabled` |
+| **Research Assistant** | Structured project tracking: 8 agent tools (`research_create_project`, `_add_hypothesis`, `_log_experiment`, `_add_observation`, `_update_hypothesis_status`, `_set_project_status`, `_list_projects`, `_export_report`) + sidebar panel + `/research` slash command. Gated by `sidecar.research.enabled` |
+| **Context window bar** | 3 px colour-coded fill bar above the input area — blue → yellow (≥ 60 %) → red (≥ 80 %). Tooltip shows `Context: 12K / 32K tokens (38%)` |
 | **Skills** | 8 built-in skills (review-code, debug, refactor, write-tests, break-this, explain-code, create-skill, mcp-builder) + custom markdown skills |
 | **Slash commands** | `/model`, `/fork`, `/branch`, `/notebook`, `/bg`, `/pr`, `/review`, `/ci`, `/memories`, `/commit`, `/doc`, `/spec`, `/revise`, and 25+ more with autocomplete |
 
