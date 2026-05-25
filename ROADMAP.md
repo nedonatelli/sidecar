@@ -1,6 +1,6 @@
 # SideCar Roadmap
 
-**Current release: v0.104.4** — Research Assistant follow-up (hypothesis/project status tools, `/research` slash command, report export, sidebar auto-refresh) and context window fill bar. See [CHANGELOG](CHANGELOG.md) for full notes.
+**Current release: v0.105.0** — Message editing (inline ✎ editor with truncation preview), `/compact` slash command, and edit visual preview. See [CHANGELOG](CHANGELOG.md) for full notes.
 
 **Coverage floor**: ≥80/70/80/80 (stmts/branches/funcs/lines) enforced by CI. No PR merges that drop any metric.
 
@@ -12,6 +12,7 @@
 
 | Version | Headline |
 |---|---|
+| v0.105.0 | Message editing (inline ✎ editor · truncation preview · ⌘↩ submit · Escape cancel) · `/compact` slash command · edit visual preview (30 % opacity fade + hint) |
 | v0.104.4 | Context window fill bar (3 px colour-coded bar above input, tooltip, per-iteration update) |
 | v0.104.3 | `research_export_report` tool · `ResearchStore.generateReport()` · `/research report` slash command |
 | v0.104.2 | `research_set_project_status` tool · `/research status` slash command · Research sidebar `FileSystemWatcher` auto-refresh |

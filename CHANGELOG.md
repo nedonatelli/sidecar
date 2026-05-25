@@ -4,6 +4,18 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.105.0] - 2026-05-25
+
+**v0.105.0 — Message editing, `/compact` slash command, and edit visual preview.**
+
+### Added
+
+- **Message editing** — click the ✎ button (or right-click → Edit and resend) on any user message to open an inline textarea pre-filled with the original text. **Resend** truncates history to before that message and re-runs the agent with the edited text; the extension sends `chatCleared` + `init` to re-render the thread cleanly. **Cancel** restores the original bubble. ⌘↩ / Ctrl↩ submits; Escape cancels. (`src/webview/chatWebview.ts`, `src/webview/handlers/chatHandlers.ts`, `src/webview/handlers/dispatchHandlers.ts`, `media/chat.js`, `media/chat.css`)
+
+- **Edit visual preview** — when the inline editor opens, all messages after the edited one fade to 30 % opacity and become non-interactive, making the truncation impact obvious before committing. A "Messages below will be removed on resend" hint appears below the textarea when there are downstream messages. Cancel restores full opacity. (`media/chat.js`, `media/chat.css`)
+
+- **`/compact` slash command** — type `/compact` to manually trigger context compression without waiting for the 70 % auto-threshold. Delegates to the existing `handleCompactContext` handler (same logic as the header button). Also added `/compact`, `/branch`, and `/research` to the slash-command autocomplete list and `/help` output — they were missing. (`src/webview/handlers/dispatchHandlers.ts`, `media/chat.js`)
+
 ## [0.104.4] - 2026-05-25
 
 **v0.104.4 — Context window indicator.**

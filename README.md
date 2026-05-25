@@ -113,8 +113,9 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 | **Chat Threads & Branching** | `/branch [name]` forks the current conversation — original preserved, branch continues independently; nested parent/child tree in the Sessions sidebar |
 | **Research Assistant** | Structured project tracking: 8 agent tools (`research_create_project`, `_add_hypothesis`, `_log_experiment`, `_add_observation`, `_update_hypothesis_status`, `_set_project_status`, `_list_projects`, `_export_report`) + sidebar panel + `/research` slash command. Gated by `sidecar.research.enabled` |
 | **Context window bar** | 3 px colour-coded fill bar above the input area — blue → yellow (≥ 60 %) → red (≥ 80 %). Tooltip shows `Context: 12K / 32K tokens (38%)` |
+| **Message editing** | Click ✎ on any user message to edit and resend — subsequent messages fade out as a truncation preview, then history is rewound and the agent re-runs with the edited text |
 | **Skills** | 8 built-in skills (review-code, debug, refactor, write-tests, break-this, explain-code, create-skill, mcp-builder) + custom markdown skills |
-| **Slash commands** | `/model`, `/fork`, `/branch`, `/notebook`, `/bg`, `/pr`, `/review`, `/ci`, `/memories`, `/commit`, `/doc`, `/spec`, `/revise`, and 25+ more with autocomplete |
+| **Slash commands** | `/model`, `/fork`, `/branch`, `/compact`, `/notebook`, `/bg`, `/pr`, `/review`, `/ci`, `/memories`, `/commit`, `/doc`, `/spec`, `/revise`, and 25+ more with autocomplete |
 
 ## Requirements
 
