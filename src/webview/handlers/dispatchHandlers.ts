@@ -132,6 +132,13 @@ export function buildDispatchHandlers(
         await handleResearchCommand(state, researchMatch[1]);
         return;
       }
+
+      // /compact — manually trigger context compression.
+      if (/^\/compact$/i.test(text)) {
+        await handleCompactContext(state);
+        return;
+      }
+
       if (state.pendingPlan) {
         if (isPlanApproval(text)) {
           await handleExecutePlan(state);

@@ -900,4 +900,16 @@ describe('buildDispatchHandlers', () => {
     await invoke(handlers, '_loadModels');
     expect(loadModels).toHaveBeenCalledWith(state);
   });
+
+  it('userMessage /compact calls handleCompactContext', async () => {
+    const { handleCompactContext } = await import('./agentHandlers.js');
+    await invoke(handlers, 'userMessage', { text: '/compact' });
+    expect(handleCompactContext).toHaveBeenCalledWith(state);
+  });
+
+  it('userMessage /COMPACT (case-insensitive) calls handleCompactContext', async () => {
+    const { handleCompactContext } = await import('./agentHandlers.js');
+    await invoke(handlers, 'userMessage', { text: '/COMPACT' });
+    expect(handleCompactContext).toHaveBeenCalledWith(state);
+  });
 });

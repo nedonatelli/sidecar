@@ -1085,6 +1085,9 @@
     { cmd: '/commit-message', desc: 'Generate and copy a commit message' },
     { cmd: '/memories', desc: 'Browse agent memories' },
     { cmd: '/memory-search', desc: 'Search agent memories' },
+    { cmd: '/compact', desc: 'Summarize older turns to free context window space' },
+    { cmd: '/branch', desc: 'Fork the current conversation into a new named thread' },
+    { cmd: '/research', desc: 'Set active research project or log an observation' },
   ];
   const autocompleteEl = document.getElementById('slash-autocomplete');
   let acSelectedIndex = -1;
@@ -1812,9 +1815,11 @@
           '`/insights` — Conversation pattern analysis\n' +
           '`/mcp` — MCP server status\n' +
           '`/verbose` — Toggle verbose mode (show agent reasoning)\n' +
+          '`/compact` — Summarize older turns to free context window space\n' +
+          '`/branch [name]` — Fork the current conversation into a new named thread\n' +
+          '`/research [observe <note>]` — Set active research project or log an observation\n' +
           '`/init` — Generate SIDECAR.md project notes from codebase\n' +
-          '`/prompt` — Show the current system prompt\n\n' +
-          '**Tip:** Clear chat, export, compact context, and undo all live in the header buttons and the Command Palette (`SideCar:` prefix) — no slash command needed.',
+          '`/prompt` — Show the current system prompt',
       );
       input.value = '';
       input.style.height = 'auto';
