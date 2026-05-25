@@ -1,6 +1,6 @@
 # SideCar Roadmap
 
-**Current release: v0.105.0** — Message editing (inline ✎ editor with truncation preview), `/compact` slash command, and edit visual preview. See [CHANGELOG](CHANGELOG.md) for full notes.
+**Current release: v0.106.0** — Circuit breaker exponential backoff, compression result cache, `/undo` slash command, and session search. See [CHANGELOG](CHANGELOG.md) for full notes.
 
 **Coverage floor**: ≥80/70/80/80 (stmts/branches/funcs/lines) enforced by CI. No PR merges that drop any metric.
 
@@ -12,7 +12,6 @@
 
 | Version | Headline |
 |---|---|
-| v0.106.0 | Chat UX Polish II — session search filter, `/undo` slash command · perf quick-wins: LRU eviction, compression cache, circuit-breaker exponential backoff, lazy-load mermaid/pdf-parse |
 | v0.107.0 | Regression Guards — user-configurable pre/post-completion checks, per-skill guard registration via frontmatter, invariant validation beyond lint/test, guard browser UI |
 | v0.108.0 | Speculative Decoding — zero-latency local autocomplete via draft-model pairing (2–4× FIM throughput on Ollama + Kickstand) |
 | v0.109.0 | Multi-file Edit Streams — DAG-planned edits card, parallel streaming diff previews, atomic accept/reject · semantic importance-aware message compression |
@@ -25,6 +24,7 @@
 
 | Version | Headline |
 |---|---|
+| v0.106.0 | Circuit breaker exponential backoff (15→30→60→120 s) · compression result cache · `/undo` slash command (was broken) · session search filter |
 | v0.105.0 | Message editing (inline ✎ editor · truncation preview · ⌘↩ submit · Escape cancel) · `/compact` slash command · edit visual preview (30 % opacity fade + hint) |
 | v0.104.4 | Context window fill bar (3 px colour-coded bar above input, tooltip, per-iteration update) |
 | v0.104.3 | `research_export_report` tool · `ResearchStore.generateReport()` · `/research report` slash command |
@@ -130,12 +130,12 @@
 **Sprint Goal**: *Ship session search and `/undo` alongside a batch of high-ROI audit fixes that have no user-facing API surface.*
 
 **Must Have**:
-- [ ] **Session search filter** — real-time name filter in the Sessions panel; resets on open; shows empty state when no results match. (`src/webview/chatWebview.ts`, `media/chat.js`, `media/chat.css`)
-- [ ] **`/undo` slash command** — explicit `/undo` intercept in dispatch (was broken — `isUndoRequest` rejects `/`-prefixed text); added to autocomplete + `/help`. (`src/webview/handlers/dispatchHandlers.ts`, `media/chat.js`)
-- [ ] **LRU eviction in `LimitedCache`** (Audit 1.1) — replace FIFO `keys().next()` eviction with true LRU via `Map` insertion-order + access-time tracking. 20% less memory in long sessions.
-- [ ] **Compression result cache** (Audit 2.1) — SHA-256-keyed memoization of `compressMessages` output; cache hit skips re-compression for identical tool results across turns. 15% faster loop iterations.
-- [ ] **Circuit-breaker exponential backoff** (Audit 3.2) — replace fixed 60 s cooldown with 15 → 30 → 60 → 120 s sequence; differentiate network errors (backoff) vs. auth errors (fail-fast). (`src/ollama/circuitBreaker.ts`)
-- [ ] **Lazy-load mermaid + pdf-parse** (Audit 4.1) — dynamic `import()` deferred until first use; estimated 200–300 ms faster activation, 25–35% smaller initial bundle. (`src/agent/tools/`)
+- [x] **Session search filter** — real-time name filter in the Sessions panel; resets on open; shows empty state when no results match. (`src/webview/chatWebview.ts`, `media/chat.js`, `media/chat.css`)
+- [x] **`/undo` slash command** — explicit `/undo` intercept in dispatch (was broken — `isUndoRequest` rejects `/`-prefixed text); added to autocomplete + `/help`. (`src/webview/handlers/dispatchHandlers.ts`, `media/chat.js`)
+- [x] **LRU eviction in `LimitedCache`** (Audit 1.1) — already correct: `Map` delete+re-set on access (verified v0.106). No code change needed.
+- [x] **Compression result cache** (Audit 2.1) — `length:maxLen:head64:tail64` key; `clearCompressionCache()` in loop `finally`. (`src/agent/loop/compression.ts`, `src/agent/loop.ts`)
+- [x] **Circuit-breaker exponential backoff** (Audit 3.2) — `tierCooldown(openCount)` doubles per failed probe, capped at `maxCooldownMs` (default 120 s). `openCount` resets on success. (`src/ollama/circuitBreaker.ts`)
+- [x] **Lazy-load mermaid + pdf-parse** (Audit 4.1) — already correct: mermaid injected as URI only when `sidecar.enableMermaid` is true; pdf-parse uses `require()` inside function body (verified v0.106). No code change needed.
 
 ---
 
