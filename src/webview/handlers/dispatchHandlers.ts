@@ -75,6 +75,7 @@ import {
   handleDeleteSession,
   handleListSessions,
   handleBranchSession,
+  handleResearchCommand,
 } from './sessionHandlers.js';
 import { handleNotebookStart, handleNotebookExit } from './notebookHandlers.js';
 
@@ -121,6 +122,13 @@ export function buildDispatchHandlers(
       const branchMatch = text.match(/^\/branch(?:\s+(.+))?$/i);
       if (branchMatch) {
         await handleBranchSession(state, branchMatch[1]);
+        return;
+      }
+
+      // /research [observe <note>] — quick research capture or project switcher.
+      const researchMatch = text.match(/^\/research(?:\s+(.+))?$/is);
+      if (researchMatch) {
+        await handleResearchCommand(state, researchMatch[1]);
         return;
       }
       if (state.pendingPlan) {

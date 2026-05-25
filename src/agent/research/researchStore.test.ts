@@ -156,6 +156,49 @@ describe('ResearchStore', () => {
     });
   });
 
+  describe('updateHypothesisStatus', () => {
+    it('returns null when project not found', async () => {
+      vi.mocked(sd.readJson).mockResolvedValueOnce(null);
+      expect(await store.updateHypothesisStatus('missing', 'h-1', 'supported')).toBeNull();
+    });
+
+    it('returns null when hypothesis id not found', async () => {
+      const project = {
+        slug: 'proj',
+        title: 'Proj',
+        question: 'Q?',
+        status: 'active',
+        hypotheses: [{ id: 'h-1', text: 'T', status: 'open', addedAt: 1 }],
+        createdAt: 1,
+        updatedAt: 1,
+      };
+      vi.mocked(sd.readJson).mockResolvedValueOnce(project);
+      expect(await store.updateHypothesisStatus('proj', 'h-999', 'supported')).toBeNull();
+    });
+
+    it('updates status and writes project', async () => {
+      const project = {
+        slug: 'proj',
+        title: 'Proj',
+        question: 'Q?',
+        status: 'active',
+        hypotheses: [{ id: 'h-1', text: 'Wavelet beats FFT', status: 'open', addedAt: 1 }],
+        createdAt: 1,
+        updatedAt: 1,
+      };
+      vi.mocked(sd.readJson).mockResolvedValueOnce(project);
+      const result = await store.updateHypothesisStatus('proj', 'h-1', 'supported');
+      expect(result).not.toBeNull();
+      expect(result!.status).toBe('supported');
+      expect(sd.writeJson).toHaveBeenCalledWith(
+        'research/proj/project.yaml',
+        expect.objectContaining({
+          hypotheses: expect.arrayContaining([expect.objectContaining({ id: 'h-1', status: 'supported' })]),
+        }),
+      );
+    });
+  });
+
   describe('getExperimentPath', () => {
     it('returns the manifest path', () => {
       const path = store.getExperimentPath('my-proj', 'exp-001');

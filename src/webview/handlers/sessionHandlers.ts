@@ -1,5 +1,7 @@
-import { window } from 'vscode';
+import { window, workspace } from 'vscode';
 import type { ChatState } from '../chatState.js';
+import { getResearchStore } from '../../agent/tools/research.js';
+import { getConfig } from '../../config/settings.js';
 
 export function handleSaveSession(state: ChatState, name: string): void {
   state.sessionManager.save(name, state.messages);
@@ -84,4 +86,95 @@ export async function handleBranchSession(state: ChatState, branchName?: string)
     content: `Branched: **${name.trim()}**. Continuing in new branch — the original thread is preserved in Sessions.`,
   });
   handleListSessions(state);
+}
+
+/**
+ * /research — slash command for quick research interactions.
+ *
+ * /research observe <note>  — log an observation to the active project without LLM.
+ * /research                 — QuickPick to set the active project.
+ */
+export async function handleResearchCommand(state: ChatState, args?: string): Promise<void> {
+  const store = getResearchStore();
+  if (!store) {
+    state.postMessage({
+      command: 'assistantMessage',
+      content: 'Research is disabled. Set `sidecar.research.enabled: true` to enable it.',
+    });
+    state.postMessage({ command: 'done' });
+    return;
+  }
+
+  // /research observe <note>
+  const observeMatch = args?.match(/^observe\s+(.+)/is);
+  if (observeMatch) {
+    const note = observeMatch[1].trim();
+    const activeSlug =
+      getConfig().researchActiveProject ||
+      workspace.getConfiguration('sidecar').get<string>('research.activeProject', '');
+
+    if (!activeSlug) {
+      state.postMessage({
+        command: 'assistantMessage',
+        content:
+          'No active research project set. Use `/research` to pick one, or set `sidecar.research.activeProject` in settings.',
+      });
+      state.postMessage({ command: 'done' });
+      return;
+    }
+
+    try {
+      const obs = await store.addObservation(activeSlug, note);
+      state.postMessage({
+        command: 'assistantMessage',
+        content: [
+          `**Observation recorded** in \`${activeSlug}\`:`,
+          `- **Time:** ${new Date(obs.timestamp).toLocaleString()}`,
+          '',
+          obs.note,
+        ].join('\n'),
+      });
+    } catch (err) {
+      state.postMessage({
+        command: 'assistantMessage',
+        content: `Error recording observation: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+    state.postMessage({ command: 'done' });
+    return;
+  }
+
+  // /research — QuickPick to set active project
+  const projects = await store.listProjects();
+  if (projects.length === 0) {
+    state.postMessage({
+      command: 'assistantMessage',
+      content: 'No research projects found. Ask the agent to `research_create_project` to start one.',
+    });
+    state.postMessage({ command: 'done' });
+    return;
+  }
+
+  const items = projects.map((p) => ({
+    label: p.title,
+    description: `${p.slug} · ${p.status} · ${p.hypotheses.length} hypotheses`,
+    slug: p.slug,
+  }));
+
+  const picked = await window.showQuickPick(items, {
+    title: 'Set Active Research Project',
+    placeHolder: 'Select a project to make active',
+  });
+
+  if (!picked) {
+    state.postMessage({ command: 'done' });
+    return;
+  }
+
+  await workspace.getConfiguration('sidecar').update('research.activeProject', picked.slug, true);
+  state.postMessage({
+    command: 'assistantMessage',
+    content: `Active research project set to **${picked.label}** (\`${picked.slug}\`).`,
+  });
+  state.postMessage({ command: 'done' });
 }

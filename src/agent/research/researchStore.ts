@@ -111,6 +111,19 @@ export class ResearchStore {
     return hypothesis;
   }
 
+  async updateHypothesisStatus(slug: string, id: string, status: HypothesisStatus): Promise<Hypothesis | null> {
+    const project = await this.loadProject(slug);
+    if (!project) return null;
+
+    const hypo = project.hypotheses.find((h) => h.id === id);
+    if (!hypo) return null;
+
+    hypo.status = status;
+    project.updatedAt = Date.now();
+    await this.writeProject(project);
+    return hypo;
+  }
+
   async logExperiment(slug: string, manifest: ExperimentManifest): Promise<void> {
     await this.sidecarDir.writeJson(`research/${slug}/experiments/${manifest.id}/manifest.yaml`, manifest);
     const project = await this.loadProject(slug);

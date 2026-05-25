@@ -15,6 +15,7 @@ function makeStore(): ResearchStore {
     listObservations: vi.fn(),
     getExperimentPath: vi.fn(),
     getObservationPath: vi.fn(),
+    updateHypothesisStatus: vi.fn(),
   } as unknown as ResearchStore;
 }
 
@@ -132,13 +133,89 @@ describe('researchTools', () => {
     });
   });
 
+  describe('research_update_hypothesis_status', () => {
+    let store: ReturnType<typeof makeStore>;
+
+    beforeEach(() => {
+      store = makeStore();
+      setResearchStore(store);
+    });
+
+    it('returns updated hypothesis on success', async () => {
+      vi.mocked(store.updateHypothesisStatus).mockResolvedValueOnce({
+        id: 'h-1',
+        text: 'Wavelet beats FFT',
+        status: 'supported',
+        addedAt: 1,
+      });
+      const result = await findTool('research_update_hypothesis_status').executor({
+        project: 'proj',
+        id: 'h-1',
+        status: 'supported',
+      });
+      expect(result).toContain('h-1');
+      expect(result).toContain('supported');
+    });
+
+    it('returns not-found message when hypothesis missing', async () => {
+      vi.mocked(store.updateHypothesisStatus).mockResolvedValueOnce(null);
+      const result = await findTool('research_update_hypothesis_status').executor({
+        project: 'proj',
+        id: 'h-999',
+        status: 'refuted',
+      });
+      expect(result).toContain('h-999');
+      expect(result).toContain('not found');
+    });
+  });
+
+  describe('research_list_projects', () => {
+    let store: ReturnType<typeof makeStore>;
+
+    beforeEach(() => {
+      store = makeStore();
+      setResearchStore(store);
+    });
+
+    it('returns no-projects message when empty', async () => {
+      vi.mocked(store.listProjects).mockResolvedValueOnce([]);
+      const result = await findTool('research_list_projects').executor({});
+      expect(result).toContain('No research projects');
+    });
+
+    it('lists projects with slug and status', async () => {
+      vi.mocked(store.listProjects).mockResolvedValueOnce([
+        {
+          slug: 'fir-wavelet',
+          title: 'FIR vs Wavelet',
+          status: 'active',
+          hypotheses: [{} as never, {} as never],
+          question: 'Q?',
+          createdAt: 1,
+          updatedAt: Date.now() - 60_000,
+        },
+      ]);
+      const result = await findTool('research_list_projects').executor({});
+      expect(result).toContain('fir-wavelet');
+      expect(result).toContain('FIR vs Wavelet');
+      expect(result).toContain('active');
+      expect(result).toContain('2 hypotheses');
+    });
+  });
+
   describe('requiresApproval', () => {
     it('research_log_experiment requires approval', () => {
       expect(findTool('research_log_experiment').requiresApproval).toBe(true);
     });
 
     it('read-only tools do not require approval', () => {
-      for (const name of ['research_create_project', 'research_add_hypothesis', 'research_add_observation']) {
+      for (const name of [
+        'research_create_project',
+        'research_add_hypothesis',
+        'research_add_observation',
+        'research_update_hypothesis_status',
+        'research_list_projects',
+      ]) {
         expect(findTool(name).requiresApproval).toBe(false);
       }
     });

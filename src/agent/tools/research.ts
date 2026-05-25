@@ -14,6 +14,10 @@ function getStore(): ResearchStore {
   return _store;
 }
 
+export function getResearchStore(): ResearchStore | null {
+  return _store;
+}
+
 function gateEnabled(): string | null {
   if (!_store) return 'Research tools are disabled. Set `sidecar.research.enabled: true` in settings.';
   return null;
@@ -217,6 +221,91 @@ export const researchTools: RegisteredTool[] = [
         ].join('\n');
       } catch (err) {
         return `Error recording observation: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }) as ToolExecutor,
+  },
+
+  // ─── research_update_hypothesis_status ───────────────────────────────────
+  {
+    requiresApproval: false,
+    definition: {
+      name: 'research_update_hypothesis_status',
+      description:
+        'Update the status of a hypothesis in a research project. ' +
+        'Valid statuses: open, supported, refuted, needs-more-evidence, abandoned.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          project: { type: 'string', description: 'Project slug.' },
+          id: { type: 'string', description: 'Hypothesis ID (returned by research_add_hypothesis).' },
+          status: {
+            type: 'string',
+            enum: ['open', 'supported', 'refuted', 'needs-more-evidence', 'abandoned'],
+            description: 'New status for the hypothesis.',
+          },
+        },
+        required: ['project', 'id', 'status'],
+      },
+    },
+    executor: (async (input: Record<string, unknown>) => {
+      const { project, id, status } = input as {
+        project: string;
+        id: string;
+        status: import('../research/researchStore.js').HypothesisStatus;
+      };
+      const gate = gateEnabled();
+      if (gate) return gate;
+
+      try {
+        const hypo = await getStore().updateHypothesisStatus(project, id, status);
+        if (!hypo) return `Hypothesis \`${id}\` not found in project \`${project}\`.`;
+
+        return [
+          `**Hypothesis updated** in \`${project}\`:`,
+          `- **ID:** \`${hypo.id}\``,
+          `- **Text:** ${hypo.text}`,
+          `- **Status:** ${hypo.status}`,
+        ].join('\n');
+      } catch (err) {
+        return `Error updating hypothesis: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }) as ToolExecutor,
+  },
+
+  // ─── research_list_projects ───────────────────────────────────────────────
+  {
+    requiresApproval: false,
+    definition: {
+      name: 'research_list_projects',
+      description:
+        'List all research projects and their summary stats. ' +
+        'Returns project slugs, titles, status, hypothesis count, and last updated time.',
+      input_schema: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+    },
+    executor: (async (_input: Record<string, unknown>) => {
+      const gate = gateEnabled();
+      if (gate) return gate;
+
+      try {
+        const projects = await getStore().listProjects();
+        if (projects.length === 0) {
+          return 'No research projects found. Use `research_create_project` to create one.';
+        }
+
+        const lines = projects.map((p) => {
+          const age = Math.round((Date.now() - p.updatedAt) / 60_000);
+          const ageStr =
+            age < 60 ? `${age}m ago` : age < 1440 ? `${Math.round(age / 60)}h ago` : `${Math.round(age / 1440)}d ago`;
+          return `- **${p.title}** (\`${p.slug}\`) — ${p.status} · ${p.hypotheses.length} hypotheses · updated ${ageStr}`;
+        });
+
+        return [`**Research projects (${projects.length}):**`, '', ...lines].join('\n');
+      } catch (err) {
+        return `Error listing projects: ${err instanceof Error ? err.message : String(err)}`;
       }
     }) as ToolExecutor,
   },
