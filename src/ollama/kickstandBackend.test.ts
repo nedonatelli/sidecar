@@ -117,7 +117,7 @@ describe('KickstandBackend', () => {
       expect(headers.Authorization).toBe('Bearer test-kickstand-token');
     });
 
-    it('sets stream: true in request body', async () => {
+    it('sets stream: true and stream_options.include_usage: true in request body', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         body: sseBody([chunk('', true), '[DONE]']),
@@ -130,6 +130,36 @@ describe('KickstandBackend', () => {
       const call = mockFetch.mock.calls[0];
       const body = JSON.parse(call[1].body);
       expect(body.stream).toBe(true);
+      expect(body.stream_options).toEqual({ include_usage: true });
+    });
+
+    it('emits a usage event when Kickstand returns usage in the final chunk', async () => {
+      const usageChunk = JSON.stringify({
+        id: 'chatcmpl-test',
+        object: 'chat.completion.chunk',
+        created: Date.now(),
+        model: 'test-model',
+        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 42, completion_tokens: 13, total_tokens: 55 },
+      });
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        body: sseBody([chunk('hello', true), usageChunk, '[DONE]']),
+      });
+
+      const events = [];
+      for await (const ev of backend.streamChat('model', '', [{ role: 'user', content: 'test' }])) {
+        events.push(ev);
+      }
+
+      const usageEvent = events.find((e) => e.type === 'usage');
+      expect(usageEvent).toBeDefined();
+      expect(
+        (usageEvent as { type: 'usage'; usage: { inputTokens: number; outputTokens: number } }).usage,
+      ).toMatchObject({
+        inputTokens: 42,
+        outputTokens: 13,
+      });
     });
 
     it('auto-loads model on 404 model-not-loaded and retries', async () => {
@@ -556,7 +586,7 @@ describe('kickstandLoadModel', () => {
     expect(body.n_ctx).toBe(16384);
   });
 
-  it('applies default n_gpu_layers=-1 / n_ctx=4096 when options are omitted', async () => {
+  it('applies default n_gpu_layers=-1 / n_ctx=32768 when options are omitted', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({ status: 'ok', model_id: 'q/q' }),
