@@ -82,6 +82,12 @@ export interface VectorStore<M> {
    *  store. Used when the metadata schema changes in a backwards-
    *  incompatible way and the caller wants a clean rebuild. */
   clearPersisted(): Promise<void>;
+  /** Clear all in-memory records AND delete persisted files. The store
+   *  is empty and consistent (as if freshly constructed) after this call. */
+  clearAll(): Promise<void>;
+  /** Sum of on-disk bytes used by this store's persistence files.
+   *  Returns 0 when no persistence is configured or files don't exist. */
+  getDiskBytes(): Promise<number>;
 }
 
 /**
@@ -346,6 +352,27 @@ export class FlatVectorStore<M> implements VectorStore<M> {
       console.warn('[FlatVectorStore] clearPersisted failed:', err);
     }
   }
+
+  async clearAll(): Promise<void> {
+    this.vectors = new Float32Array(0);
+    this.vectorCount = 0;
+    this.entriesById.clear();
+    await this.clearPersisted();
+  }
+
+  async getDiskBytes(): Promise<number> {
+    if (!this.sidecarDir?.isReady()) return 0;
+    let total = 0;
+    for (const rel of [this.binFile, this.metaFile]) {
+      try {
+        const stat = await fs.promises.stat(this.sidecarDir.getPath(rel));
+        total += stat.size;
+      } catch {
+        // file doesn't exist yet
+      }
+    }
+    return total;
+  }
 }
 
 export { cosine };
@@ -589,5 +616,26 @@ export class LanceVectorStore<M> implements VectorStore<M> {
     }
     this.tbl = null;
     this.metaCache.clear();
+  }
+
+  async clearAll(): Promise<void> {
+    await this.clearPersisted();
+  }
+
+  async getDiskBytes(): Promise<number> {
+    try {
+      let total = 0;
+      for await (const entry of await fs.promises.readdir(this.dbPath, { withFileTypes: true })) {
+        try {
+          const stat = await fs.promises.stat(path.join(this.dbPath, entry.name));
+          total += stat.size;
+        } catch {
+          // skip
+        }
+      }
+      return total;
+    } catch {
+      return 0;
+    }
   }
 }

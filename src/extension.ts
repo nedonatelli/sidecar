@@ -67,7 +67,6 @@ export function activate(context: ExtensionContext) {
   initMcpSetup(context, mcpManager);
 
   const { sidecarDir, skillLoader, workspaceIndex, symbolIndexer } = initCoreServices(context);
-  initWorkspaceIndex(context, workspaceIndex, symbolIndexer, sidecarDir, config);
   initWarmup(config);
 
   const agentModDecorationManager = initAgentModDecoration(context);
@@ -75,7 +74,7 @@ export function activate(context: ExtensionContext) {
     initCodeLens(context, () => chatProvider);
   }
 
-  chatProvider = setupChatView(context, {
+  const { chatProvider: cp, pkiProvider } = setupChatView(context, {
     terminalManager,
     proposedContentProvider,
     agentLogger,
@@ -85,6 +84,9 @@ export function activate(context: ExtensionContext) {
     skillLoader,
     agentModDecorationManager,
   });
+  chatProvider = cp;
+
+  initWorkspaceIndex(context, workspaceIndex, symbolIndexer, sidecarDir, config, pkiProvider);
 
   registerSettingsCommands(context, {
     getChatProvider: () => chatProvider,

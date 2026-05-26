@@ -20,7 +20,6 @@ import {
   PdfRetriever,
   ChunkRetriever,
   SidecarMdRetriever,
-  adaptiveGraphDepth,
   fuseRetrieversMultiQuery,
   renderFusedContext,
   rewriteQuery,
@@ -46,7 +45,7 @@ export async function injectSystemContext(
   config: ReturnType<typeof getConfig>,
   text: string,
   isLocal: boolean,
-  contextLength: number | null,
+  _contextLength: number | null,
 ): Promise<{ prompt: string; matchedSkill: Skill | null }> {
   const INJECTION_BOUNDARY =
     '\n\n---\nThe following sections contain project instructions, user preferences, and skill context. ' +
@@ -323,8 +322,8 @@ export async function injectSystemContext(
       // backends absorb depth 2.
       const graphExpansion = config.retrievalGraphExpansionEnabled
         ? {
-            maxDepth: adaptiveGraphDepth(contextLength),
-            maxGraphHits: config.retrievalGraphExpansionMaxHits,
+            maxDepth: config.projectKnowledgeGraphWalkDepth,
+            maxGraphHits: config.projectKnowledgeMaxGraphHits,
           }
         : undefined;
       retrievers.push(

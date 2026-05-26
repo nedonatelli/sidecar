@@ -134,6 +134,8 @@ export class SymbolEmbeddingIndex implements Disposable {
   /** True when a mutation has landed since the last successful persist. */
   private dirty = false;
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Epoch ms of the last completed embed drain; null until the first drain finishes. */
+  private lastUpdatedMs: number | null = null;
   private static readonly PERSIST_DEBOUNCE_MS = 30_000;
 
   /**
@@ -460,6 +462,7 @@ export class SymbolEmbeddingIndex implements Disposable {
     if (this.pendingQueue.size > 0) {
       this.flushTimer = setTimeout(() => this.flushQueue(), SymbolEmbeddingIndex.FLUSH_DEBOUNCE_MS);
     } else {
+      this.lastUpdatedMs = Date.now();
       this.drainedListener?.();
     }
   }
@@ -635,6 +638,34 @@ export class SymbolEmbeddingIndex implements Disposable {
   /** Look up one symbol's metadata by ID. */
   getSymbolMeta(symbolId: string): SymbolMetadata | null {
     return this.store.getMetadata(symbolId) ?? null;
+  }
+
+  /** Epoch ms of the last completed embed drain; null until the first drain finishes. */
+  getLastUpdatedMs(): number | null {
+    return this.lastUpdatedMs;
+  }
+
+  /** Sum of on-disk bytes used by the vector store's persistence files. */
+  async getDiskBytes(): Promise<number> {
+    return this.store.getDiskBytes();
+  }
+
+  /**
+   * Wipe all indexed symbols and delete the persisted cache files.
+   * Call this before re-indexing from scratch (rebuild flow).
+   * Cancels any pending embed timers so the queue starts clean.
+   */
+  async clearAll(): Promise<void> {
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+    this.pendingQueue.clear();
+    this.merkleTree = null;
+    this.merkleDirty = false;
+    this.dirty = false;
+    this.lastUpdatedMs = null;
+    await this.store.clearAll();
   }
 
   // ---------------------------------------------------------------------------

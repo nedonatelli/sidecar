@@ -198,16 +198,16 @@
 **Sprint Goal**: *"Where is auth handled?" returns the middleware AND every route that wraps it. Upgrade the flat file-level index to symbol-granularity vectors with graph-walk retrieval.*
 
 **Must Have**:
-- [ ] **Symbol-level chunking in `SymbolEmbeddingIndex`** — each `SymbolNode` from tree-sitter becomes its own indexed chunk (body + docstring), tagged `{ filePath, range, kind, name, containerSymbol }`. Replaces one-vector-per-file.
-- [ ] **Graph-walk retrieval in `SemanticRetriever`** — after vector hit, walk `SymbolGraph` edges (`calls`, `used-by`, `imports`) up to `sidecar.projectKnowledge.graphWalkDepth` (default `2`); surface reached symbols tagged with relationship path (`graph: used-by, 1 hop from requireAuth`).
-- [ ] **Incremental symbol-level updates** — on `onDidChangeTextDocument`, re-embed only changed symbols (content-hashed); unchanged symbols keep cached vectors. One-line edit costs one re-embed, not whole-file.
-- [ ] **`project_knowledge_search` result shape** — structured `{ symbol, filePath, range, score, relationship }[]`; `relationship` distinguishes direct vector hits from graph-walked hits.
-- [ ] **Migration from file-level index** — transparent on first activation; existing `.sidecar/cache/` re-chunked to symbol-level; old file kept one version as rollback.
-- [ ] **Bundle size / tree-shake transformers.js** (Audit 4.1) — only bundle embedding pipeline, not full model zoo; estimated 25–35% smaller bundle.
+- [x] **Symbol-level chunking in `SymbolEmbeddingIndex`** — each `SymbolNode` from tree-sitter becomes its own indexed chunk (body + docstring), tagged `{ filePath, range, kind, name }`. Replaces one-vector-per-file. *(shipped v0.61)*
+- [x] **Graph-walk retrieval in `SemanticRetriever`** — after vector hit, walk `SymbolGraph` edges (`calls`, `used-by`, `imports`) up to `sidecar.projectKnowledge.graphWalkDepth` (default `2`); surface reached symbols tagged with relationship path (`graph: used-by, 1 hop from requireAuth`). *(shipped v0.65)*
+- [x] **Incremental symbol-level updates** — on `onDidChangeTextDocument`, re-embed only changed symbols (content-hashed); unchanged symbols keep cached vectors. One-line edit costs one re-embed, not whole-file. *(shipped v0.62)*
+- [x] **`project_knowledge_search` result shape** — structured `{ symbol, filePath, range, score, relationship }[]`; `relationship` distinguishes direct vector hits from graph-walked hits. *(shipped v0.65)*
+- [x] **Migration from file-level index** — transparent on first activation; existing `.sidecar/cache/` re-chunked to symbol-level; old file kept one version as rollback. *(shipped v0.62)*
+- [x] **Bundle size / tree-shake transformers.js** (Audit 4.1) — `@huggingface/transformers` marked `--external` in esbuild; not bundled into the VSIX. *(shipped v0.83)*
 
 **Should Have**:
-- [ ] **`sidecar.projectKnowledge.graphWalkDepth`** (default `2`) and `sidecar.projectKnowledge.maxGraphHits` (default `10`) — guard against popular symbols drowning results.
-- [ ] **PKI sidebar panel** — index health: symbols indexed, last update, vector count, disk footprint, rebuild button, interactive search box.
+- [x] **`sidecar.projectKnowledge.graphWalkDepth`** (default `2`) and `sidecar.projectKnowledge.maxGraphHits` (default `10`) — guard against popular symbols drowning results. *(v0.110)*
+- [x] **PKI sidebar panel** — index health: symbols indexed, last update, disk footprint, rebuild button, interactive search box (`sidecar.pki` TreeView). *(v0.110)*
 
 **Deferred**:
 - LanceDB HNSW backend — deferred to avoid native binary deployment complexity; FlatVectorStore stays as the backend for this release. Symbol chunking + graph-walk delivers the quality improvement without the platform risk.

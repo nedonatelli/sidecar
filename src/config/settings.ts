@@ -231,6 +231,10 @@ export interface SideCarConfig {
    *  storage — requires `@lancedb/lancedb` installed, falls back to flat
    *  with a warning if the package is absent. */
   projectKnowledgeBackend: 'flat' | 'lance';
+  /** Max hops to walk the symbol graph from a direct vector hit (0 = disabled). */
+  projectKnowledgeGraphWalkDepth: number;
+  /** Max symbols surfaced via graph-walk per retrieval query. */
+  projectKnowledgeMaxGraphHits: number;
   /* Skill Sync & Registry */
   /** Git URL (or absolute local folder) cloned into ~/.sidecar/user-skills/ at activation. Empty → disabled. */
   skillsUserRegistry: string;
@@ -570,6 +574,8 @@ function readConfig(): SideCarConfig {
     projectKnowledgeEnabled: cfg.get<boolean>('projectKnowledge.enabled', true),
     projectKnowledgeMaxSymbolsPerFile: cfg.get<number>('projectKnowledge.maxSymbolsPerFile', 500),
     projectKnowledgeBackend: cfg.get<'flat' | 'lance'>('projectKnowledge.backend', 'flat'),
+    projectKnowledgeGraphWalkDepth: clampMin(cfg.get<number>('projectKnowledge.graphWalkDepth', 2), 0, 4),
+    projectKnowledgeMaxGraphHits: clampMin(cfg.get<number>('projectKnowledge.maxGraphHits', 10), 0, 50),
     merkleIndexEnabled: cfg.get<boolean>('merkleIndex.enabled', true),
     /* Skill Sync & Registry */
     skillsUserRegistry: cfg.get<string>('skills.userRegistry', ''),

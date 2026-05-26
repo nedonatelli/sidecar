@@ -5,6 +5,7 @@ import type { WorkspaceIndex } from '../config/workspaceIndex.js';
 import type { SymbolIndexer } from '../config/symbolIndexer.js';
 import type { SidecarDir } from '../config/sidecarDir.js';
 import type { SideCarConfig } from '../config/settings.js';
+import type { PkiTreeProvider } from '../views/pkiView.js';
 
 /**
  * Kick off workspace indexing (symbol graph + optional semantic/PKI embeddings)
@@ -16,6 +17,7 @@ export function initWorkspaceIndex(
   symbolIndexer: SymbolIndexer,
   sidecarDir: SidecarDir,
   config: SideCarConfig,
+  pkiProvider?: PkiTreeProvider,
 ): void {
   if (!workspace.workspaceFolders || workspace.workspaceFolders.length === 0) return;
 
@@ -90,6 +92,7 @@ export function initWorkspaceIndex(
             symbolIndexer.setSymbolEmbeddings(symbolEmbeddings, config.projectKnowledgeMaxSymbolsPerFile);
             setSymbolEmbeddings(symbolEmbeddings);
             workspaceIndex.setSymbolEmbeddings(symbolEmbeddings);
+            pkiProvider?.setIndex(symbolEmbeddings, symbolIndexer, workspaceIndex);
             if (config.merkleIndexEnabled) {
               const { MerkleTree } = await import('../config/merkleTree.js');
               const merkleTree = new MerkleTree();

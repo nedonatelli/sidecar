@@ -10,6 +10,7 @@ import { registerBackgroundAgentsView } from '../views/backgroundAgentsView.js';
 import { registerMcpServersView } from '../views/mcpServersView.js';
 import { registerSessionsView } from '../views/sessionsView.js';
 import { registerEditTimelineView } from '../views/editTimelineView.js';
+import { registerPkiView, type PkiTreeProvider } from '../views/pkiView.js';
 import { InlineEditProvider } from '../edits/inlineEditProvider.js';
 import { PendingEditDecorationProvider } from '../edits/pendingEditDecorationProvider.js';
 import type { TerminalManager } from '../terminal/manager.js';
@@ -36,10 +37,13 @@ export interface ChatViewSetupDeps {
  * Create and wire the ChatViewProvider plus all dependent view registrations
  * (inline edit ghost text, diff review panel, pinned memory, pending decorations,
  * terminal error watcher, JSDoc/README sync).
- * Returns the initialized ChatViewProvider.
+ * Returns the initialized ChatViewProvider and PKI provider for post-wiring.
  * Extracted from extension.ts to keep the entry point under 150 lines.
  */
-export function setupChatView(context: ExtensionContext, deps: ChatViewSetupDeps): ChatViewProvider {
+export function setupChatView(
+  context: ExtensionContext,
+  deps: ChatViewSetupDeps,
+): { chatProvider: ChatViewProvider; pkiProvider: PkiTreeProvider } {
   const {
     terminalManager,
     proposedContentProvider,
@@ -116,5 +120,8 @@ export function setupChatView(context: ExtensionContext, deps: ChatViewSetupDeps
   });
   context.subscriptions.push(terminalErrorWatcher);
 
-  return chatProvider;
+  const { view: pkiView, provider: pkiProvider } = registerPkiView(context);
+  context.subscriptions.push(pkiView);
+
+  return { chatProvider, pkiProvider };
 }

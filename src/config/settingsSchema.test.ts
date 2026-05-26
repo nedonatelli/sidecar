@@ -114,11 +114,12 @@ describe('package.json contributes.configuration — 13-category layout', () => 
     // + v0.108 Kickstand RoPE/YaRN long-context (+4: kickstand.ropeFreqBase/
     // ropeFreqScale/yarnExtFactor/yarnOrigCtx).
     // + v0.109 Kickstand Flash Attention (+1: kickstand.flashAttn).
+    // + v0.110 PKI graph walk (+2: projectKnowledge.graphWalkDepth/maxGraphHits).
     // Adding a setting requires bumping this + adding it to one of
     // the sections.
     const cfg = loadConfiguration();
     const totalKeys = cfg.reduce((sum, s) => sum + Object.keys(s.properties).length, 0);
-    expect(totalKeys).toBe(208);
+    expect(totalKeys).toBe(210);
   });
 
   it('no setting key is duplicated across sections', () => {
