@@ -138,6 +138,11 @@ export interface SideCarConfig {
   forkDefaultCount: number;
   forkMaxConcurrent: number;
   kickstandNCtx: number;
+  kickstandRopeFreqBase: number;
+  kickstandRopeFreqScale: number;
+  kickstandYarnExtFactor: number;
+  kickstandYarnOrigCtx: number;
+  kickstandFlashAttn: boolean;
   criticEnabled: boolean;
   criticModel: string;
   criticBlockOnHighSeverity: boolean;
@@ -469,6 +474,11 @@ function readConfig(): SideCarConfig {
     forkDefaultCount: clampMin(cfg.get<number>('fork.defaultCount', 3), 2, 10),
     forkMaxConcurrent: clampMin(cfg.get<number>('fork.maxConcurrent', 3), 1, 10),
     kickstandNCtx: clampMin(cfg.get<number>('kickstand.nCtx', 32768), 512, 1_000_000),
+    kickstandRopeFreqBase: Math.max(cfg.get<number>('kickstand.ropeFreqBase', 0), 0),
+    kickstandRopeFreqScale: Math.max(cfg.get<number>('kickstand.ropeFreqScale', 0), 0),
+    kickstandYarnExtFactor: cfg.get<number>('kickstand.yarnExtFactor', -1),
+    kickstandYarnOrigCtx: Math.max(cfg.get<number>('kickstand.yarnOrigCtx', 0), 0),
+    kickstandFlashAttn: cfg.get<boolean>('kickstand.flashAttn', false),
     criticEnabled: cfg.get<boolean>('critic.enabled', false),
     // Provider-aware default: an empty `critic.model` historically meant
     // "use the main model," which doubled per-iteration cost on paid Anthropic

@@ -4,6 +4,20 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.109.0] - 2026-05-25
+
+**v0.109.0 — Kickstand: FIM, RoPE/YaRN long-context, grammar-constrained decoding, and Flash Attention.**
+
+### Added
+
+- **Kickstand FIM (Fill-in-Middle)** — inline completions now use Kickstand's native FIM path when the active backend is Kickstand. Token sequence `[FIM_PRE, prefix, FIM_SUF, suffix, FIM_MID]` is assembled by a new `ks_build_fim_tokens` C function (two-pass buffer sizing) and forwarded through the IPC stack. `KickstandBackend.completeFIM()` POSTs to `/api/generate` with a `suffix` field; `fim.ts` routes to this path before falling back to the messages API. (`src/ollama/kickstandBackend.ts`, `src/completions/provider/fim.ts`)
+
+- **Kickstand RoPE / YaRN long-context scaling** — four new settings (`sidecar.kickstand.ropeFreqBase`, `sidecar.kickstand.ropeFreqScale`, `sidecar.kickstand.yarnExtFactor`, `sidecar.kickstand.yarnOrigCtx`) control the RoPE parameters passed to `ks_context_create_ex` when Kickstand loads a model. Enables context extension beyond a model's native training length — e.g. Llama 3.1 128K (`ropeFreqBase=500000, n_ctx=131072`) or generic 2× extension (`ropeFreqScale=0.5`). `yarn_ext_factor=-1` (the default) leaves llama.cpp's YaRN default intact. Parameters are preserved across Kickstand auto-restarts. (`src/config/settings.ts`, `src/ollama/kickstandBackend.ts`, `src/ollama/client.ts`, `package.json`)
+
+- **Kickstand grammar-constrained decoding** — when a Kickstand chat request includes tool definitions, the server automatically applies a GBNF JSON grammar to the llama.cpp sampler chain. The grammar sampler is inserted at chain position 0 (before temperature/top-k), so only tokens that form valid JSON are assigned nonzero probability. Tool call extraction gains a raw-JSON branch to handle grammar-forced output without `<tool_call>` wrappers. Implemented entirely server-side; no SideCar settings required.
+
+- **Kickstand Flash Attention** — new `sidecar.kickstand.flashAttn` boolean (default `false`). When enabled, passes `flash_attn=true` to `ks_context_create_ex`, activating llama.cpp's Flash Attention kernel. Gives 2–4× speedup on long contexts with Metal (macOS) or CUDA backends; silently ignored on CPU-only builds. Preserved across Kickstand auto-restarts. (`src/config/settings.ts`, `src/ollama/kickstandBackend.ts`, `src/ollama/client.ts`, `package.json`)
+
 ## [0.107.0] - 2026-05-25
 
 **v0.107.0 — Regression Guards.**

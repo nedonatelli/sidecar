@@ -5,6 +5,7 @@ import { InlineCompletionTriggerKind, Position, Range } from 'vscode';
 function mockClient(overrides: Record<string, unknown> = {}) {
   return {
     isLocalOllama: vi.fn().mockReturnValue(true),
+    getProviderType: vi.fn().mockReturnValue('ollama'),
     completeFIM: vi.fn().mockResolvedValue('completion text'),
     complete: vi.fn().mockResolvedValue('completion text'),
     completeWithOverrides: vi.fn().mockResolvedValue('completion text'),

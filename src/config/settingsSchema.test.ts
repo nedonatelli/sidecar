@@ -111,11 +111,14 @@ describe('package.json contributes.configuration — 13-category layout', () => 
     // + v0.100 CodeLens (+1: codeLens.enabled).
     // + v0.102 notebookMode.{enabled,requireCitations,studyAids.enabled} (+3).
     // + v0.104 Research Assistant (+2: research.enabled, research.activeProject).
+    // + v0.108 Kickstand RoPE/YaRN long-context (+4: kickstand.ropeFreqBase/
+    // ropeFreqScale/yarnExtFactor/yarnOrigCtx).
+    // + v0.109 Kickstand Flash Attention (+1: kickstand.flashAttn).
     // Adding a setting requires bumping this + adding it to one of
     // the sections.
     const cfg = loadConfiguration();
     const totalKeys = cfg.reduce((sum, s) => sum + Object.keys(s.properties).length, 0);
-    expect(totalKeys).toBe(201);
+    expect(totalKeys).toBe(206);
   });
 
   it('no setting key is duplicated across sections', () => {

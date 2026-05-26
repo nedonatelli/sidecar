@@ -143,6 +143,9 @@ export class SideCarCompletionProvider implements InlineCompletionItemProvider {
           pathLabel = 'ollama-fim';
           completion = await this.client.completeFIM(prefix, suffix, undefined, this.maxTokens, signal);
         }
+      } else if (this.client.getProviderType() === 'kickstand') {
+        pathLabel = 'kickstand-fim';
+        completion = await this.client.completeFIM(prefix, suffix, undefined, this.maxTokens, signal);
       } else {
         pathLabel = 'messages-api';
         const recentEditContext = this.predictiveContext.buildRecentEditContext(document.fileName);

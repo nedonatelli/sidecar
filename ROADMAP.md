@@ -1,6 +1,6 @@
 # SideCar Roadmap
 
-**Current release: v0.107.0** — Regression Guards: ecosystem-aware built-in guards, per-skill `guards:` frontmatter, and `/guards` slash command. See [CHANGELOG](CHANGELOG.md) for full notes.
+**Current release: v0.109.0** — Kickstand backend improvements: FIM inline completions, RoPE/YaRN long-context scaling, grammar-constrained decoding for reliable tool calls, and Flash Attention. See [CHANGELOG](CHANGELOG.md) for full notes.
 
 **Coverage floor**: ≥80/70/80/80 (stmts/branches/funcs/lines) enforced by CI. No PR merges that drop any metric.
 
@@ -12,8 +12,8 @@
 
 | Version | Headline |
 |---|---|
-| v0.108.0 | Speculative Decoding — zero-latency local autocomplete via draft-model pairing (2–4× FIM throughput on Ollama + Kickstand) |
-| v0.109.0 | Multi-file Edit Streams — DAG-planned edits card, parallel streaming diff previews, atomic accept/reject · semantic importance-aware message compression |
+| v0.110.0 | Speculative Decoding — zero-latency local autocomplete via draft-model pairing (2–4× FIM throughput on Ollama + Kickstand) |
+| v0.111.0 | Multi-file Edit Streams — DAG-planned edits card, parallel streaming diff previews, atomic accept/reject · semantic importance-aware message compression |
 | v0.110.0 | Symbol-level Project Knowledge Index — symbol-granularity chunking + graph-walk retrieval on FlatVectorStore · bundle size / tree-shake transformers.js |
 | v0.111.0 | Skill Sync & Registry — git-native user + team skill registries, cross-machine sync, Skills Picker UI |
 
@@ -23,6 +23,7 @@
 
 | Version | Headline |
 |---|---|
+| v0.109.0 | Kickstand backend: FIM inline completions · RoPE/YaRN long-context scaling · grammar-constrained decoding (JSON GBNF for tool calls) · Flash Attention (`sidecar.kickstand.flashAttn`) |
 | v0.107.0 | Regression Guards: `RegressionGuardHook` on `HookBus` · built-in guards (`lint-clean`, `tests-pass`, `no-new-todos`, ecosystem-aware) · `guards:` skill frontmatter · `/guards` slash command |
 | v0.106.0 | Circuit breaker exponential backoff (15→30→60→120 s) · compression result cache · `/undo` slash command (was broken) · session search filter |
 | v0.105.0 | Message editing (inline ✎ editor · truncation preview · ⌘↩ submit · Escape cancel) · `/compact` slash command · edit visual preview (30 % opacity fade + hint) |

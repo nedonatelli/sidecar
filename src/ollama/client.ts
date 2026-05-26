@@ -167,8 +167,16 @@ export class SideCarClient {
         return new OllamaBackend(this.baseUrl);
       case 'anthropic':
         return new AnthropicBackend(this.baseUrl, this.apiKey, this.rateLimitsFor('anthropic'));
-      case 'kickstand':
-        return new KickstandBackend(this.baseUrl, this.rateLimitsFor('kickstand'), getConfig().kickstandNCtx);
+      case 'kickstand': {
+        const cfg = getConfig();
+        return new KickstandBackend(this.baseUrl, this.rateLimitsFor('kickstand'), cfg.kickstandNCtx, {
+          rope_freq_base: cfg.kickstandRopeFreqBase || undefined,
+          rope_freq_scale: cfg.kickstandRopeFreqScale || undefined,
+          yarn_ext_factor: cfg.kickstandYarnExtFactor !== -1 ? cfg.kickstandYarnExtFactor : undefined,
+          yarn_orig_ctx: cfg.kickstandYarnOrigCtx || undefined,
+          flash_attn: cfg.kickstandFlashAttn || undefined,
+        });
+      }
       case 'openrouter':
         return new OpenRouterBackend(this.baseUrl, this.apiKey, this.rateLimitsFor('openrouter'));
       case 'groq':

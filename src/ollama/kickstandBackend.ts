@@ -187,6 +187,7 @@ export class KickstandBackend implements ApiBackend {
     private baseUrl: string,
     private rateLimits: RateLimitStore = new RateLimitStore(),
     private nCtx: number = 32768,
+    private ropeOpts: Omit<KickstandLoadOpts, 'n_gpu_layers' | 'n_ctx'> = {},
   ) {}
 
   getRateLimits(): RateLimitStore {
@@ -195,6 +196,10 @@ export class KickstandBackend implements ApiBackend {
 
   private get chatUrl(): string {
     return `${this.baseUrl}/v1/chat/completions`;
+  }
+
+  private get generateUrl(): string {
+    return `${this.baseUrl}/api/generate`;
   }
 
   /** Returns true when Kickstand rejected the request because the loaded model's n_ctx is too small. */
@@ -214,12 +219,12 @@ export class KickstandBackend implements ApiBackend {
    */
   private async reloadWithLargerCtx(model: string): Promise<void> {
     await kickstandUnloadModel(this.baseUrl, model).catch(() => {});
-    await kickstandLoadModel(this.baseUrl, model, { n_ctx: this.nCtx });
+    await kickstandLoadModel(this.baseUrl, model, { n_ctx: this.nCtx, ...this.ropeOpts });
   }
 
   /** Load `model` with `this.nCtx`. Called when a chat request returns 404 model-not-loaded. */
   private async loadModel(model: string): Promise<void> {
-    await kickstandLoadModel(this.baseUrl, model, { n_ctx: this.nCtx });
+    await kickstandLoadModel(this.baseUrl, model, { n_ctx: this.nCtx, ...this.ropeOpts });
   }
 
   private async getHeaders(): Promise<Record<string, string>> {
@@ -362,6 +367,35 @@ export class KickstandBackend implements ApiBackend {
     return data.choices[0]?.message?.content || '';
   }
 
+  async completeFIM(
+    model: string,
+    prefix: string,
+    suffix: string,
+    maxTokens: number,
+    signal?: AbortSignal,
+  ): Promise<string> {
+    const response = await sidecarFetch(this.generateUrl, {
+      method: 'POST',
+      headers: await this.getHeaders(),
+      body: JSON.stringify({
+        model,
+        prompt: prefix,
+        suffix,
+        stream: false,
+        options: { num_predict: maxTokens },
+      }),
+      signal,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      throw new Error(`Kickstand FIM error ${response.status}: ${errorText}`);
+    }
+
+    const data = (await response.json()) as { response?: string };
+    return data.response ?? '';
+  }
+
   /**
    * Declare Kickstand's native lifecycle capability.
    * Wraps the module-level `kickstandLoadModel` / `kickstandUnloadModel`
@@ -379,7 +413,7 @@ export class KickstandBackend implements ApiBackend {
           // doesn't accept a per-request timeout today, so the
           // parameter is prefixed with `_` to satisfy the lint
           // rule while we wait for Kickstand to grow the option.
-          const loadOpts = { n_gpu_layers: undefined as number | undefined, n_ctx: this.nCtx };
+          const loadOpts = { n_gpu_layers: undefined as number | undefined, n_ctx: this.nCtx, ...this.ropeOpts };
           try {
             const result = await kickstandLoadModel(this.baseUrl, id, loadOpts);
             return result.socket ? `Loaded ${result.model_id} (socket: ${result.socket})` : `Loaded ${result.model_id}`;
@@ -562,17 +596,36 @@ export async function kickstandListRegistry(baseUrl: string): Promise<KickstandR
   return (await response.json()) as KickstandRegistryModel[];
 }
 
+export interface KickstandLoadOpts {
+  n_gpu_layers?: number;
+  n_ctx?: number;
+  rope_freq_base?: number;
+  rope_freq_scale?: number;
+  yarn_ext_factor?: number;
+  yarn_orig_ctx?: number;
+  flash_attn?: boolean;
+}
+
 /** Load a model into GPU memory. */
 export async function kickstandLoadModel(
   baseUrl: string,
   modelId: string,
-  opts: { n_gpu_layers?: number; n_ctx?: number } = {},
+  opts: KickstandLoadOpts = {},
 ): Promise<{ status: string; model_id: string; socket?: string }> {
   const url = `${stripTrailingSlash(baseUrl)}/api/v1/models/${encodeURIComponent(modelId)}/load`;
+  const body: Record<string, number | boolean> = {
+    n_gpu_layers: opts.n_gpu_layers ?? -1,
+    n_ctx: opts.n_ctx ?? 32768,
+  };
+  if (opts.rope_freq_base !== undefined && opts.rope_freq_base !== 0) body.rope_freq_base = opts.rope_freq_base;
+  if (opts.rope_freq_scale !== undefined && opts.rope_freq_scale !== 0) body.rope_freq_scale = opts.rope_freq_scale;
+  if (opts.yarn_ext_factor !== undefined && opts.yarn_ext_factor !== -1) body.yarn_ext_factor = opts.yarn_ext_factor;
+  if (opts.yarn_orig_ctx !== undefined && opts.yarn_orig_ctx !== 0) body.yarn_orig_ctx = opts.yarn_orig_ctx;
+  if (opts.flash_attn) body.flash_attn = true;
   const response = await fetch(url, {
     method: 'POST',
     headers: await kickstandHeaders(),
-    body: JSON.stringify({ n_gpu_layers: opts.n_gpu_layers ?? -1, n_ctx: opts.n_ctx ?? 32768 }),
+    body: JSON.stringify(body),
   });
   if (!response.ok) {
     const text = await response.text().catch(() => '');

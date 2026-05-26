@@ -2,7 +2,7 @@
   "name": "sidecar-ai",
   "displayName": "SideCar",
   "description": "Autonomous AI agent for coding — run full agent loops with local Ollama, Anthropic Claude, or OpenAI models",
-  "version": "0.107.0",
+  "version": "0.109.0",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -644,6 +644,34 @@
             "default": 32768,
             "minimum": 512,
             "description": "Context window size (n_ctx) passed to Kickstand when loading a model. Increase this if you hit 'Prompt too long for model context window' errors. Must not exceed what your GPU VRAM can hold for the chosen model."
+          },
+          "sidecar.kickstand.ropeFreqBase": {
+            "type": "number",
+            "default": 0,
+            "minimum": 0,
+            "description": "RoPE base frequency override for Kickstand models. 0 = use the model's built-in value. Set to 500000 for Llama 3.1/3.3 to enable 128K context, or 1000000 for Qwen3 extended context."
+          },
+          "sidecar.kickstand.ropeFreqScale": {
+            "type": "number",
+            "default": 0,
+            "minimum": 0,
+            "description": "RoPE frequency scale factor for Kickstand models. 0 = use the model's built-in value. Values < 1 extend the context window (e.g. 0.5 doubles effective context length)."
+          },
+          "sidecar.kickstand.yarnExtFactor": {
+            "type": "number",
+            "default": -1,
+            "description": "YaRN extrapolation mix factor. -1 = use the model's built-in default (recommended). 0 = disable YaRN. 1 = full YaRN extrapolation. Most modern long-context models (Llama 3.1, Qwen3) embed YaRN in their weights — leave this at -1 unless you know what you're doing."
+          },
+          "sidecar.kickstand.yarnOrigCtx": {
+            "type": "number",
+            "default": 0,
+            "minimum": 0,
+            "description": "YaRN original training context length. 0 = auto-detect from model metadata. Only needed if the automatic detection is wrong for your model."
+          },
+          "sidecar.kickstand.flashAttn": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enable Flash Attention when loading models in Kickstand. Gives 2–4× speedup on long contexts with Metal (macOS) or CUDA backends. Has no effect on CPU-only inference. Requires a rebuild of libkickstand_llm if not already compiled with Flash Attention support."
           },
           "sidecar.regressionGuards": {
             "type": "array",
