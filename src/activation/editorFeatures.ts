@@ -1,6 +1,7 @@
 import * as path from 'path';
 import { window, workspace, commands, languages, ExtensionContext, Disposable } from 'vscode';
 import { getConfig } from '../config/settings.js';
+import { lookupDraftModel } from '../config/constants.js';
 import { checkWorkspaceConfigTrust } from '../config/workspaceTrust.js';
 import { handleInlineChat } from '../inline/inlineChatProvider.js';
 import { EventHookManager } from '../agent/eventHooks.js';
@@ -153,6 +154,38 @@ export function registerEditorFeatures(
       }
     }),
   );
+
+  // "Install recommended draft" affordance — fire once at startup.
+  // If the active model has a curated draft pair but it isn't installed yet,
+  // offer a one-click install so the user doesn't have to know the pair exists.
+  if (config.enableInlineCompletions && config.speculativeDecoding.enabled && !config.completionDraftModel) {
+    setImmediate(async () => {
+      try {
+        const client = createClient();
+        const providerType = client.getProviderType();
+        if (providerType !== 'ollama' && providerType !== 'kickstand') return;
+
+        const mainModel = client.getModel();
+        const recommendedDraft = lookupDraftModel(mainModel);
+        if (!recommendedDraft) return;
+
+        const installed = await client.listInstalledModels().catch(() => []);
+        const isInstalled = installed.some((m) => m.model === recommendedDraft || m.name === recommendedDraft);
+        if (isInstalled) return;
+
+        const action = await window.showInformationMessage(
+          `SideCar: Install "${recommendedDraft}" to enable speculative FIM completions for ${mainModel} (2–4× faster autocomplete)?`,
+          'Install',
+          'Not now',
+        );
+        if (action === 'Install') {
+          commands.executeCommand('sidecar.installModel', recommendedDraft);
+        }
+      } catch {
+        // Non-fatal — skip silently if model list is unavailable at startup.
+      }
+    });
+  }
 
   // Next Edit Suggestions engine
   if (config.nextEditEnabled) {

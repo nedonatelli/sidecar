@@ -11,6 +11,7 @@ import {
 } from 'vscode';
 import { SideCarClient } from '../../ollama/client.js';
 import { getConfig } from '../../config/settings.js';
+import { lookupDraftModel } from '../../config/constants.js';
 import { Debouncer } from '../debounce.js';
 import {
   PredictiveContext,
@@ -24,6 +25,12 @@ export class SideCarCompletionProvider implements InlineCompletionItemProvider {
   private debouncer = new Debouncer();
   private predictiveContext = new PredictiveContext();
   private editListener;
+
+  // Accept-rate tracking for auto-disable when draft model underperforms.
+  private speculativeDraftWins = 0;
+  private speculativeTotalRaces = 0;
+  private speculativeDisabled = false;
+  private static readonly SPECULATIVE_WARMUP = 10;
 
   constructor(
     private client: SideCarClient,
@@ -49,8 +56,8 @@ export class SideCarCompletionProvider implements InlineCompletionItemProvider {
   /**
    * Race a draft model against the main model for FIM completions.
    * Whichever completes first is returned; the loser is aborted.
-   * This gives real latency benefit when the draft model is much faster
-   * (e.g. 1.5B vs 7B parameter models).
+   * Updates the session accept-rate tracker and auto-disables speculation
+   * when the draft win rate drops below the configured minimum.
    */
   private async raceCompletions(
     prefix: string,
@@ -93,7 +100,25 @@ export class SideCarCompletionProvider implements InlineCompletionItemProvider {
       return '';
     }
 
-    console.info(`[SideCar] Inline completion: FIM race winner = ${winner}`);
+    this.speculativeTotalRaces++;
+    if (winner === 'draft') this.speculativeDraftWins++;
+
+    // After warmup, auto-disable if draft accept rate is too low.
+    if (this.speculativeTotalRaces >= SideCarCompletionProvider.SPECULATIVE_WARMUP) {
+      const rate = this.speculativeDraftWins / this.speculativeTotalRaces;
+      const minRate = getConfig().speculativeDecoding.minAcceptRateToKeepEnabled;
+      if (rate < minRate) {
+        this.speculativeDisabled = true;
+        console.warn(
+          `[SideCar] Speculative decoding auto-disabled: draft win rate ${(rate * 100).toFixed(0)}% < threshold ${(minRate * 100).toFixed(0)}%`,
+        );
+      }
+    }
+
+    console.info(
+      `[SideCar] Inline completion: FIM race winner = ${winner} ` +
+        `(draft ${this.speculativeDraftWins}/${this.speculativeTotalRaces})`,
+    );
     return result;
   }
 
@@ -134,18 +159,24 @@ export class SideCarCompletionProvider implements InlineCompletionItemProvider {
       // autocomplete at a different model than the main agent loop.
       this.client.routeForDispatch({ role: 'completion' });
 
-      if (this.client.isLocalOllama()) {
-        const draftModel = getConfig().completionDraftModel;
-        if (draftModel) {
-          pathLabel = 'ollama-fim-race';
-          completion = await this.raceCompletions(prefix, suffix, draftModel, token);
+      const providerType = this.client.getProviderType();
+      const isLocalFim = this.client.isLocalOllama() || providerType === 'kickstand';
+
+      if (isLocalFim) {
+        const cfg = getConfig();
+        const explicitDraft = cfg.completionDraftModel;
+        const autoDraft =
+          cfg.speculativeDecoding.enabled && !this.speculativeDisabled
+            ? explicitDraft || lookupDraftModel(this.client.getModel())
+            : explicitDraft;
+
+        if (autoDraft) {
+          pathLabel = `${providerType}-fim-race`;
+          completion = await this.raceCompletions(prefix, suffix, autoDraft, token);
         } else {
-          pathLabel = 'ollama-fim';
+          pathLabel = `${providerType}-fim`;
           completion = await this.client.completeFIM(prefix, suffix, undefined, this.maxTokens, signal);
         }
-      } else if (this.client.getProviderType() === 'kickstand') {
-        pathLabel = 'kickstand-fim';
-        completion = await this.client.completeFIM(prefix, suffix, undefined, this.maxTokens, signal);
       } else {
         pathLabel = 'messages-api';
         const recentEditContext = this.predictiveContext.buildRecentEditContext(document.fileName);

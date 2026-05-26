@@ -6,6 +6,7 @@ function mockClient(overrides: Record<string, unknown> = {}) {
   return {
     isLocalOllama: vi.fn().mockReturnValue(true),
     getProviderType: vi.fn().mockReturnValue('ollama'),
+    getModel: vi.fn().mockReturnValue('test-model'),
     completeFIM: vi.fn().mockResolvedValue('completion text'),
     complete: vi.fn().mockResolvedValue('completion text'),
     completeWithOverrides: vi.fn().mockResolvedValue('completion text'),

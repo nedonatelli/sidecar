@@ -1201,7 +1201,19 @@
           "sidecar.completionDraftModel": {
             "type": "string",
             "default": "",
-            "description": "Draft model for speculative FIM completions (Ollama only). When set, completions race the draft model against the main model and return whichever finishes first."
+            "description": "Explicit draft model for speculative FIM completions (Ollama + Kickstand). When set, completions race this model against the main model. Leave empty to auto-detect from the built-in DRAFT_MODEL_MAP."
+          },
+          "sidecar.speculativeDecoding.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Enable speculative FIM decoding. When the active model has a curated draft pair (or completionDraftModel is set), completions race the draft against the main model and return whichever finishes first."
+          },
+          "sidecar.speculativeDecoding.minAcceptRateToKeepEnabled": {
+            "type": "number",
+            "default": 0.4,
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Minimum fraction of completions the draft model must win before speculative decoding is auto-disabled for the session. Only enforced after 10 warmup completions."
           },
           "sidecar.completionMaxTokens": {
             "type": "number",

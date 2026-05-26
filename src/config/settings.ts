@@ -86,6 +86,10 @@ export interface SideCarConfig {
   enableInlineCompletions: boolean;
   completionModel: string;
   completionDraftModel: string;
+  speculativeDecoding: {
+    enabled: boolean;
+    minAcceptRateToKeepEnabled: number;
+  };
   completionMaxTokens: number;
   completionDebounceMs: number;
   toolPermissions: Record<string, 'allow' | 'deny' | 'ask'>;
@@ -415,6 +419,13 @@ function readConfig(): SideCarConfig {
     enableInlineCompletions: cfg.get<boolean>('enableInlineCompletions', false),
     completionModel: cfg.get<string>('completionModel', ''),
     completionDraftModel: cfg.get<string>('completionDraftModel', ''),
+    speculativeDecoding: {
+      enabled: cfg.get<boolean>('speculativeDecoding.enabled', true),
+      minAcceptRateToKeepEnabled: Math.min(
+        Math.max(cfg.get<number>('speculativeDecoding.minAcceptRateToKeepEnabled', 0.4), 0),
+        1,
+      ),
+    },
     completionMaxTokens: clampMin(cfg.get<number>('completionMaxTokens'), 1, 256),
     completionDebounceMs: clampMin(cfg.get<number>('completionDebounceMs'), 0, 300),
     toolPermissions: cfg.get<Record<string, 'allow' | 'deny' | 'ask'>>('toolPermissions', {}),

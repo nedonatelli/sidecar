@@ -57,6 +57,49 @@ export const MAX_BACKGROUND_COMMANDS = 10;
 export const MODEL_PROBE_BATCH_SIZE = 15;
 
 // ---------------------------------------------------------------------------
+// Speculative decoding — curated draft-model pairs
+// ---------------------------------------------------------------------------
+// Each pair shares the same tokenizer vocabulary so acceptance rates stay
+// high. The main model generates the authoritative result; the draft model
+// races it and wins when it finishes first (typical for short completions).
+// Keys use the canonical Ollama/Kickstand model-id prefix without quant
+// suffix so lookupDraftModel() can match tagged variants like
+// `qwen2.5-coder:32b-instruct-q4_k_m`.
+// ---------------------------------------------------------------------------
+
+export const DRAFT_MODEL_MAP: Record<string, string> = {
+  'qwen3-coder:30b': 'qwen2.5-coder:0.5b',
+  'qwen3-coder:14b': 'qwen2.5-coder:0.5b',
+  'qwen2.5-coder:32b': 'qwen2.5-coder:0.5b',
+  'qwen2.5-coder:14b': 'qwen2.5-coder:0.5b',
+  'qwen2.5-coder:7b': 'qwen2.5-coder:0.5b',
+  'qwen3:30b': 'qwen3:1.7b',
+  'qwen3:14b': 'qwen3:1.7b',
+  'qwen3:8b': 'qwen3:1.7b',
+  'deepseek-coder:33b': 'deepseek-coder:1.3b-base',
+  'deepseek-coder-v2:16b': 'deepseek-coder:1.3b-base',
+  'codellama:34b': 'codellama:7b-code',
+  'codellama:13b': 'codellama:7b-code',
+};
+
+/**
+ * Return the recommended draft model for a given main model id, or
+ * undefined when no curated pair exists. Checks for exact match first,
+ * then falls back to prefix matching so variants like
+ * `qwen2.5-coder:32b-instruct-q4_k_m` resolve to the `qwen2.5-coder:32b`
+ * entry.
+ */
+export function lookupDraftModel(mainModel: string): string | undefined {
+  if (DRAFT_MODEL_MAP[mainModel]) return DRAFT_MODEL_MAP[mainModel];
+  for (const [key, draft] of Object.entries(DRAFT_MODEL_MAP)) {
+    if (mainModel.startsWith(key + '-') || mainModel.startsWith(key + '_')) {
+      return draft;
+    }
+  }
+  return undefined;
+}
+
+// ---------------------------------------------------------------------------
 // Well-known model context lengths (tokens)
 // ---------------------------------------------------------------------------
 // Cloud providers don't always expose context length via API. This lookup
