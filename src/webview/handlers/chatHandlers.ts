@@ -202,7 +202,6 @@ async function buildSystemPromptForRun(
     config,
     text,
     isLocal,
-    contextLength,
   );
   return { systemPrompt: injectedPrompt, contextLength, matchedSkill };
 }

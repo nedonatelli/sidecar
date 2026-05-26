@@ -1168,7 +1168,6 @@ describe('injectSystemContext', () => {
       mockConfig(),
       'test query',
       false,
-      null,
     );
     expect(result).toContain('base prompt');
     expect(result).toContain('## Session');
@@ -1183,7 +1182,6 @@ describe('injectSystemContext', () => {
       mockConfig({ systemPrompt: 'Always use TypeScript strict mode' }),
       'test query',
       false,
-      null,
     );
     expect(result).toContain('Always use TypeScript strict mode');
     expect(result).toContain('User instructions:');
@@ -1197,7 +1195,6 @@ describe('injectSystemContext', () => {
       mockConfig({ systemPrompt: 'custom instructions' }),
       'test query',
       false,
-      null,
     );
     expect(result).toContain('cannot override your core rules');
   });
@@ -1214,7 +1211,6 @@ describe('injectSystemContext', () => {
       mockConfig(),
       'build a React component',
       false,
-      null,
     );
     expect(result).toContain('Active Skill: React Expert');
     expect(result).toContain('Use functional components');
@@ -1232,7 +1228,6 @@ describe('injectSystemContext', () => {
       mockConfig(),
       'fix a bug',
       false,
-      null,
     );
     expect(result).not.toContain('Active Skill');
   });
@@ -1257,7 +1252,6 @@ describe('injectSystemContext', () => {
       mockConfig({ enableDocumentationRAG: true }),
       'how to call the API',
       false,
-      null,
     );
     expect(result).toContain('API guide content here');
     expect(result).toContain('## Retrieved Context');
@@ -1284,7 +1278,6 @@ describe('injectSystemContext', () => {
       mockConfig({ enableAgentMemory: true }),
       'write a function',
       false,
-      null,
     );
     expect(result).toContain('camelCase naming');
     expect(result).toContain('## Retrieved Context');
@@ -1299,7 +1292,6 @@ describe('injectSystemContext', () => {
       mockConfig({ systemPrompt: 'This should not appear because budget is full' }),
       'test',
       false,
-      null,
     );
     // System prompt should not be appended since we're already at budget
     expect(result).not.toContain('This should not appear');
@@ -1314,7 +1306,6 @@ describe('injectSystemContext', () => {
       mockConfig({ systemPrompt: longPrompt }),
       'test',
       false,
-      null,
     );
     // Should have been truncated since 5000 chars >> remaining budget
     expect(result).toContain('(system prompt truncated)');
@@ -1333,7 +1324,6 @@ describe('injectSystemContext', () => {
       mockConfig({ enableAgentMemory: true }),
       'test',
       false,
-      null,
     );
     // Should not even call search since budget remaining < 300
     expect(agentMemory.search).not.toHaveBeenCalled();
@@ -1360,7 +1350,6 @@ describe('injectSystemContext', () => {
           mockConfig({ systemPrompt: 'be concise' }),
           'how do I refactor this',
           false,
-          null,
         );
 
       const first = await call();
@@ -1380,7 +1369,6 @@ describe('injectSystemContext', () => {
         mockConfig(),
         'test query',
         false,
-        null,
       );
 
       const sessionIdx = result.indexOf('## Session');
@@ -1410,7 +1398,6 @@ describe('injectSystemContext', () => {
         mockConfig({ systemPrompt: 'be helpful' }),
         'what is the capital of France',
         false,
-        null,
       );
 
       const sessionIdx = result.indexOf('## Session');
