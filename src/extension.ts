@@ -32,6 +32,7 @@ import { registerHandoffCommands } from './commands/handoffCommands.js';
 import { initAuditDecorations } from './activation/auditDecorationsSetup.js';
 import { initAgentModDecoration } from './activation/agentModDecorationSetup.js';
 import { initCodeLens } from './activation/codeLensSetup.js';
+import { initMemorySetup } from './activation/memorySetup.js';
 
 let chatProvider: ChatViewProvider | undefined;
 
@@ -129,6 +130,7 @@ export function activate(context: ExtensionContext) {
   initResearchSetup(context, sidecarDir);
   void initMcpServer(context);
   initAuditDecorations(context);
+  initMemorySetup(context);
 
   // First-install auto-open. Gated behind a globalState flag so
   // existing users and every subsequent launch skip it. Fires after a

@@ -1,4 +1,5 @@
 import { window, commands } from 'vscode';
+import { checkMemoryPreflight } from '../../system/memoryMonitor.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { ChatState } from '../chatState.js';
@@ -233,6 +234,9 @@ async function runSafetensorsImport(
   } catch {
     // `statfs` may fail on unusual filesystems — skip the preflight silently.
   }
+
+  // RAM preflight: model conversion is CPU+RAM bound, not just disk.
+  if (!(await checkMemoryPreflight(`import ${hfRef.org}/${hfRef.repo}`))) return;
 
   state.postMessage({
     command: 'assistantMessage',

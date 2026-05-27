@@ -12,6 +12,7 @@ import {
 } from '../../ollama/kickstandBackend.js';
 import { loadModels } from './modelLoader.js';
 import { handleHuggingFaceInstall } from './hfInstallFlow.js';
+import { checkMemoryPreflight } from '../../system/memoryMonitor.js';
 
 export { loadModels } from './modelLoader.js';
 
@@ -220,6 +221,7 @@ async function runKickstandInstall(state: ChatState, modelName: string): Promise
 }
 
 export async function handleKickstandLoadModel(state: ChatState, modelId: string): Promise<void> {
+  if (!(await checkMemoryPreflight(`load ${modelId} into GPU`))) return;
   state.postMessage({ command: 'assistantMessage', content: `Loading **${modelId}** into GPU...\n\n` });
   try {
     const caps = state.client.getBackendCapabilities();

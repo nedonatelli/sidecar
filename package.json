@@ -2617,6 +2617,12 @@
         "icon": "$(shield)"
       },
       {
+        "command": "sidecar.memory.refresh",
+        "title": "Refresh Memory Stats",
+        "category": "SideCar",
+        "icon": "$(dashboard)"
+      },
+      {
         "command": "sidecar.noSql.install",
         "title": "Install NoSQL MCP Server (MongoDB / Redis)",
         "category": "SideCar",
