@@ -453,7 +453,7 @@ Pull live issue-tracker context into every agent system prompt. At the start of 
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
-| `sidecar.contextProviders` | array | `[]` | List of context provider configs. Each entry has `type` (`github` \| `linear` \| `jira`), `filter`, `maxIssues`, and provider-specific fields (`owner`/`repo`, `apiKey`, `teamId`, etc.) |
+| `sidecar.contextProviders` | array | `[]` | List of context provider configs. Each entry has `type` (`github` \| `linear` \| `jira` \| `bitbucket`), `filter`, `maxIssues`, and provider-specific fields (`owner`/`repo`, `apiKey`, `teamId`, etc.) |
 
 **GitHub Issues example:**
 
@@ -524,3 +524,39 @@ When enabled, the agent checkpoints its task state to `.sidecar/plans/active.jso
 | `sidecar.executiveFunction.enabled` | boolean | `false` | Enable agent task checkpointing and VS Code restart resume |
 
 Checkpoints older than 24 hours are automatically discarded on the next activation.
+
+## Agentic Task Delegation via MCP (v0.95+)
+
+Two-direction MCP delegation: the SideCar agent can sub-delegate tasks to external MCP servers (`delegate_to_mcp` tool), and SideCar can expose its own agent loop as a local MCP server for other tools to call.
+
+### `delegate_to_mcp` — agent → MCP server
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.mcpDelegation.enabled` | boolean | `false` | Enable the `delegate_to_mcp` tool. When `false` the tool is not registered and does not appear in the model's tool list |
+| `sidecar.mcpDelegation.allowedServers` | string[] | `[]` | Allowlist of MCP server names the tool may target. Empty array = all configured servers are allowed |
+
+When enabled, the agent can call `delegate_to_mcp(server="my-server", task="...")` to offload a sub-task. SideCar auto-detects the entry-point tool from the server's catalog (`run_task`, `execute_task`, `task`, `run`, `execute`, `process`, `handle`). Use `sidecar.mcpDelegation.allowedServers` to restrict which servers the agent may reach.
+
+### SideCar as MCP server — inbound calls
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.mcpServer.enabled` | boolean | `false` | Expose SideCar's agent loop as a local MCP server on `127.0.0.1` |
+| `sidecar.mcpServer.port` | number | `3457` | Listening port (1024–65535) |
+| `sidecar.mcpServer.requireAuth` | boolean | `false` | Require a bearer token on inbound requests |
+| `sidecar.mcpServer.authToken` | string | `""` | Bearer token clients must supply when `requireAuth` is `true` |
+| `sidecar.mcpServer.maxConcurrent` | number | `1` | Maximum concurrent agent tasks from inbound calls |
+
+Exposes one tool: `run_agent_task(task, maxIterations?, approvalMode?)`. Other tools (Claude Code, VS Code extensions, CI scripts) can call SideCar's agent loop via HTTP. The server binds to `127.0.0.1` only — never exposed to the network.
+
+## Research Assistant (v0.104+)
+
+Structured project tracking for scientific or engineering research workflows. Projects are stored in `.sidecar/research/` and tracked in git. Eight agent tools plus a sidebar panel and `/research` slash command.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.research.enabled` | boolean | `false` | Enable the Research Assistant and register the 8 research agent tools |
+| `sidecar.research.activeProject` | string | `""` | Name of the currently active project. Set automatically by `research_create_project` or the `/research` slash command |
+
+When enabled: `research_create_project`, `research_add_hypothesis`, `research_log_experiment`, `research_add_observation`, `research_update_hypothesis_status`, `research_set_project_status`, `research_list_projects`, and `research_export_report` are available to the agent. The Research sidebar panel provides a live tree view of all projects.

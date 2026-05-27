@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { getRegexAnalyzer } from './registry.js';
 
 describe('CodeAnalyzer registry', () => {
@@ -63,5 +63,109 @@ describe('CodeAnalyzer registry', () => {
     const a = getRegexAnalyzer();
     const b = getRegexAnalyzer();
     expect(a).toBe(b);
+  });
+});
+
+describe('setGrammarsPath + getAnalyzer (lazy tree-sitter load)', () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('returns regexAnalyzer immediately when no grammarsPath has been set', async () => {
+    const { getAnalyzer, getRegexAnalyzer: getRegex } = await import('./registry.js');
+    const analyzer = await getAnalyzer('ts');
+    expect(analyzer).toBe(getRegex());
+  });
+
+  it('uses tree-sitter analyzer for supported extension after successful load', async () => {
+    const mockTreeSitterAnalyzer = {
+      supportedExtensions: new Set(['ts', 'js']),
+      parseFileContent: vi.fn(),
+      findRelevantElements: vi.fn(),
+      extractRelevantContent: vi.fn(),
+    };
+    vi.doMock('./treeSitterAnalyzer.js', () => ({
+      createTreeSitterAnalyzer: vi.fn().mockResolvedValue(mockTreeSitterAnalyzer),
+    }));
+
+    const { setGrammarsPath, getAnalyzer } = await import('./registry.js');
+    setGrammarsPath('/grammars');
+    const analyzer = await getAnalyzer('ts');
+    expect(analyzer).toBe(mockTreeSitterAnalyzer);
+  });
+
+  it('returns regexAnalyzer for an extension not in the tree-sitter set', async () => {
+    vi.doMock('./treeSitterAnalyzer.js', () => ({
+      createTreeSitterAnalyzer: vi.fn().mockResolvedValue({
+        supportedExtensions: new Set(['ts']),
+        parseFileContent: vi.fn(),
+        findRelevantElements: vi.fn(),
+        extractRelevantContent: vi.fn(),
+      }),
+    }));
+
+    const { setGrammarsPath, getAnalyzer, getRegexAnalyzer: getRegex } = await import('./registry.js');
+    setGrammarsPath('/grammars');
+    const analyzer = await getAnalyzer('txt');
+    expect(analyzer).toBe(getRegex());
+  });
+
+  it('falls back to regexAnalyzer when module has no createTreeSitterAnalyzer export', async () => {
+    vi.doMock('./treeSitterAnalyzer.js', () => ({}));
+
+    const { setGrammarsPath, getAnalyzer, getRegexAnalyzer: getRegex } = await import('./registry.js');
+    setGrammarsPath('/grammars');
+    const analyzer = await getAnalyzer('ts');
+    expect(analyzer).toBe(getRegex());
+  });
+
+  it('falls back to regexAnalyzer when createTreeSitterAnalyzer rejects', async () => {
+    vi.doMock('./treeSitterAnalyzer.js', () => ({
+      createTreeSitterAnalyzer: vi.fn().mockRejectedValue(new Error('WASM unavailable')),
+    }));
+
+    const { setGrammarsPath, getAnalyzer, getRegexAnalyzer: getRegex } = await import('./registry.js');
+    setGrammarsPath('/grammars');
+    const analyzer = await getAnalyzer('ts');
+    expect(analyzer).toBe(getRegex());
+  });
+
+  it('does not retry tree-sitter loading on subsequent getAnalyzer calls', async () => {
+    const createTreeSitterAnalyzer = vi.fn().mockResolvedValue({
+      supportedExtensions: new Set(['ts']),
+      parseFileContent: vi.fn(),
+      findRelevantElements: vi.fn(),
+      extractRelevantContent: vi.fn(),
+    });
+    vi.doMock('./treeSitterAnalyzer.js', () => ({ createTreeSitterAnalyzer }));
+
+    const { setGrammarsPath, getAnalyzer } = await import('./registry.js');
+    setGrammarsPath('/grammars');
+
+    await getAnalyzer('ts');
+    await getAnalyzer('ts');
+    await getAnalyzer('js');
+
+    expect(createTreeSitterAnalyzer).toHaveBeenCalledTimes(1);
+  });
+
+  it('setGrammarsPath stores the path used for createTreeSitterAnalyzer', async () => {
+    const createTreeSitterAnalyzer = vi.fn().mockResolvedValue({
+      supportedExtensions: new Set(['ts']),
+      parseFileContent: vi.fn(),
+      findRelevantElements: vi.fn(),
+      extractRelevantContent: vi.fn(),
+    });
+    vi.doMock('./treeSitterAnalyzer.js', () => ({ createTreeSitterAnalyzer }));
+
+    const { setGrammarsPath, getAnalyzer } = await import('./registry.js');
+    setGrammarsPath('/custom/grammars/path');
+    await getAnalyzer('ts');
+
+    expect(createTreeSitterAnalyzer).toHaveBeenCalledWith('/custom/grammars/path');
   });
 });

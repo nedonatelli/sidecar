@@ -11,7 +11,7 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Stats
 - 6043 total tests (315 test files)
-- 40 built-in tools, 11 skills
+- 79 built-in tools, 11 skills
 
 ## [0.109.0] - 2026-05-25
 

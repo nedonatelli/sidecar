@@ -455,6 +455,99 @@ describe('injectSystemContext', () => {
       (window as unknown as { activeTextEditor: unknown }).activeTextEditor = prior;
     }
   });
+
+  // ---------------------------------------------------------------------------
+  // injectSidecarMd — retrieval mode (lines 517–534 of systemPrompt.ts)
+  // ---------------------------------------------------------------------------
+
+  it('injects only always-priority sections in retrieval mode, skipping scoped ones', async () => {
+    const content = [
+      '## Build',
+      'Run `npm test`.',
+      '',
+      '## Testing',
+      '<!-- @paths: src/**/*.test.ts -->',
+      'Write tests here.',
+      '',
+      '## Conventions',
+      'Use TypeScript strict mode.',
+    ].join('\n');
+
+    const state = makeState({ loadSidecarMd: vi.fn().mockResolvedValue(content) });
+    const { prompt: result } = await injectSystemContext(
+      'BASE',
+      200_000,
+      state,
+      makeConfig({ sidecarMdMode: 'retrieval' }),
+      'hi',
+      false,
+    );
+
+    expect(result).toContain('## Build');
+    expect(result).toContain('## Conventions');
+    expect(result).not.toContain('## Testing'); // scoped section (has @paths sentinel) excluded
+  });
+
+  it('force-includes a scoped section in retrieval mode when its heading is in alwaysIncludeHeadings', async () => {
+    const content = [
+      '## API',
+      '<!-- @paths: src/api/** -->',
+      'API rule: always return JSON.',
+      '',
+      '## Build',
+      'Run npm test.',
+    ].join('\n');
+
+    const state = makeState({ loadSidecarMd: vi.fn().mockResolvedValue(content) });
+    const { prompt: result } = await injectSystemContext(
+      'BASE',
+      200_000,
+      state,
+      makeConfig({ sidecarMdMode: 'retrieval', sidecarMdAlwaysIncludeHeadings: ['Build', 'API'] }),
+      'hi',
+      false,
+    );
+
+    // API section has a path sentinel (scoped) but is in alwaysIncludeHeadings → included
+    expect(result).toContain('API rule: always return JSON.');
+    expect(result).toContain('Run npm test.');
+  });
+
+  it('excludes headings listed in lowPriorityHeadings in retrieval mode', async () => {
+    const content = ['## Build', 'Build info.', '', '## Glossary', 'Term definitions.'].join('\n');
+
+    const state = makeState({ loadSidecarMd: vi.fn().mockResolvedValue(content) });
+    const { prompt: result } = await injectSystemContext(
+      'BASE',
+      200_000,
+      state,
+      makeConfig({ sidecarMdMode: 'retrieval', sidecarMdLowPriorityHeadings: ['Glossary'] }),
+      'hi',
+      false,
+    );
+
+    expect(result).toContain('Build info.');
+    expect(result).not.toContain('Term definitions.'); // excluded by lowPriorityHeadings
+  });
+
+  it('truncates combined retrieval-mode output when it exceeds the budget', async () => {
+    // maxChars is Math.max(remaining, 500) where remaining = maxSystemChars - baseLen - 200.
+    // Use a SIDECAR.md that's clearly larger than 500 chars to trigger truncation.
+    const longBody = 'x'.repeat(800);
+    const content = `## Build\n${longBody}`;
+
+    const state = makeState({ loadSidecarMd: vi.fn().mockResolvedValue(content) });
+    const { prompt: result } = await injectSystemContext(
+      'BASE',
+      500, // tight budget → maxChars = Math.max(296, 500) = 500; combined (~810) > 500 → truncated
+      state,
+      makeConfig({ sidecarMdMode: 'retrieval' }),
+      'hi',
+      false,
+    );
+
+    expect(result).toContain('(truncated)');
+  });
 });
 
 describe('enrichAndPruneMessages', () => {

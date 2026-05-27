@@ -86,7 +86,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 
 | Feature | Description |
 |---|---|
-| **69 built-in tools** | File ops, shell, git, web search, database (SQLite/PG/MySQL/DuckDB), screenshot, doc-to-test synthesis, code profiling, LaTeX compilation, MCP task delegation, and more — [full list](https://nedonatelli.github.io/sidecar/tools) |
+| **79 built-in tools** | File ops, shell, git, web search, database (SQLite/PG/MySQL/DuckDB), screenshot, doc-to-test synthesis, code profiling, LaTeX compilation, MCP task delegation, research assistant, CI failure analysis, and more — [full list](https://nedonatelli.github.io/sidecar/tools) |
 | **Review / Audit modes** | Buffer all writes in-memory; review per-file diffs before anything touches disk. Audit adds atomic flush + deletion coverage |
 | **Shadow Workspaces** | Run tasks in an ephemeral `git worktree` — main tree untouched until you accept |
 | **Typed Sub-Agent Facets** | Dispatch named specialists (`test-author`, `security-reviewer`, etc.) in parallel, each with its own tool allowlist and preferred model |
@@ -103,7 +103,10 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 | **Model Arena** | `/arena` opens a side-by-side panel comparing 2–4 models on the same prompt with live ELO ratings; `/arena agent` runs a task through different models via fork dispatch |
 | **Selective regeneration** | Select any text in an assistant response → a bar appears to rewrite just that section with optional instruction, in-place |
 | **Background agents** | `/bg <task>` spawns parallel autonomous agents with a status dashboard; toast notification + status bar spinner on completion |
-| **External context providers** | Pull live GitHub Issues, Linear, or Jira tickets into every agent system prompt via `sidecar.contextProviders` |
+| **External context providers** | Pull live GitHub Issues, Linear, Jira, or Bitbucket Cloud tickets into every agent system prompt via `sidecar.contextProviders` |
+| **CI Failure Analysis** | `analyze_ci_failure` agent tool + `/ci` slash command parses failing GitHub Actions logs, windows the relevant error region, and proposes a fix. Gated by `sidecar.ciAnalysis.enabled` |
+| **Regression Guards** | `/guards` slash command + `RegressionGuardHook` runs ecosystem-aware post-edit checks (`lint-clean`, `tests-pass`, `no-new-todos`). Declare per-skill guards via `guards:` frontmatter |
+| **Monorepo Support** | `monorepo_packages` tool auto-detects Nx / Turbo / pnpm workspaces / Yarn / Lerna and lists workspace packages with metadata. Gated by `sidecar.monorepo.enabled` |
 | **macOS Seatbelt sandbox** | `sidecar.sandbox.enabled` wraps agent shell commands with a deny-default SBPL profile — writes restricted to the workspace + `/tmp` + build caches |
 | **Dependency Drift Alerts** | Scans `package.json`, `requirements.txt`, `Cargo.toml`, and `go.mod` for outdated and vulnerable deps — CVE/GHSA IDs from the OSV API surface in the Problems panel; `check_dependencies` agent tool for on-demand reports |
 | **Security scanning** | Secrets, SQL injection, XSS, eval — findings in VS Code Problems panel (`source:sidecar-*`) |

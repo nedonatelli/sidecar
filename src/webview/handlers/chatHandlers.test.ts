@@ -2293,6 +2293,20 @@ vi.mock('./modelLoader.js', () => ({
   loadModels: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock('../../agent/loop.js', () => ({
+  runAgentLoop: vi.fn().mockResolvedValue([]),
+}));
+
+vi.mock('./notebookHandlers.js', () => ({
+  isNotebookModeActive: vi.fn().mockReturnValue(false),
+  getNotebookRequireCitations: vi.fn().mockReturnValue(false),
+  notebookSystemPromptPrefix: vi.fn().mockReturnValue(''),
+}));
+
+vi.mock('../errorSurface.js', () => ({
+  surfaceNativeToast: vi.fn(),
+}));
+
 describe('handleRestartOllama', () => {
   function makeState(isLocal: boolean) {
     return {
@@ -3266,5 +3280,181 @@ describe('handleEditMessage', () => {
       (c: unknown[]) => (c[0] as { command: string }).command === 'init',
     );
     expect(initCalls).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleUserMessage — catch-block paths (lines 501–519 of chatHandlers.ts)
+//
+// These tests exercise the error-recovery branches inside the try/catch in
+// handleUserMessage.  We make injectSystemContext throw a controlled error so
+// the catch block fires without needing a fully-wired agent loop.
+// ---------------------------------------------------------------------------
+
+function makeCatchBlockState(overrides: Record<string, unknown> = {}) {
+  return {
+    messages: [] as Array<{ role: string; content: unknown }>,
+    postMessage: vi.fn(),
+    saveHistory: vi.fn(),
+    autoSave: vi.fn(),
+    trimHistory: vi.fn(),
+    logMessage: vi.fn(),
+    abortController: null as AbortController | null,
+    chatGeneration: 0,
+    pendingPartialAssistant: null,
+    pendingSteerSnapshot: null as unknown,
+    currentSteerQueue: null as unknown,
+    currentSteerDisposer: null as unknown,
+    cancelCallbacks: null,
+    editCancelFns: null,
+    context: {},
+    metricsCollector: {
+      getCurrentRunTokens: vi.fn().mockReturnValue(0),
+      endRun: vi.fn(),
+      getSpendBreakdown: vi.fn().mockReturnValue({ daily: 0, weekly: 0 }),
+    },
+    client: {
+      getProviderType: vi.fn().mockReturnValue('anthropic'),
+      isLocalOllama: vi.fn().mockReturnValue(false),
+      setTurnOverride: vi.fn(),
+      updateConnection: vi.fn(),
+      updateModel: vi.fn(),
+      getModelContextLength: vi.fn().mockResolvedValue(null),
+    },
+    ...overrides,
+  };
+}
+
+describe('handleUserMessage — AbortError catch-block (lines 509–512)', () => {
+  it('posts done + setLoading:false and skips posting an error when runAgentLoop is aborted', async () => {
+    const { handleUserMessage } = await import('./chatHandlers.js');
+    const providerReachability = await import('../../config/providerReachability.js');
+    vi.spyOn(providerReachability, 'isProviderReachable').mockResolvedValue(true);
+
+    const settingsMod = await import('../../config/settings.js');
+    vi.spyOn(settingsMod, 'getConfig').mockReturnValue({
+      dailyBudget: 0,
+      weeklyBudget: 0,
+      steerQueueMaxPending: 10,
+      model: 'test-model',
+      baseUrl: 'http://localhost',
+      apiKey: '',
+      agentMode: 'cautious',
+      customModes: [],
+      agentMaxIterations: 20,
+      agentMaxTokens: 4096,
+      expandThinking: false,
+      verboseMode: false,
+    } as never);
+
+    const abortErr = Object.assign(new Error('aborted'), { name: 'AbortError' });
+    const systemPromptMod = await import('./systemPrompt.js');
+    vi.spyOn(systemPromptMod, 'injectSystemContext').mockRejectedValue(abortErr);
+
+    const state = makeCatchBlockState();
+    vi.useFakeTimers();
+    const promise = handleUserMessage(state as never, 'hello');
+    await vi.runAllTimersAsync();
+    await promise;
+    vi.useRealTimers();
+
+    const commands = (state.postMessage as ReturnType<typeof vi.fn>).mock.calls.map(
+      (c: unknown[]) => (c[0] as { command: string }).command,
+    );
+    expect(commands).toContain('done');
+    expect(commands.some((cmd: string) => cmd === 'error')).toBe(false);
+
+    vi.restoreAllMocks();
+  });
+});
+
+describe('handleUserMessage — partial messages rescue (lines 501–504)', () => {
+  it('replaces state.messages with partialMessages from the thrown error when they are longer', async () => {
+    const { handleUserMessage } = await import('./chatHandlers.js');
+    const providerReachability = await import('../../config/providerReachability.js');
+    vi.spyOn(providerReachability, 'isProviderReachable').mockResolvedValue(true);
+
+    const settingsMod = await import('../../config/settings.js');
+    vi.spyOn(settingsMod, 'getConfig').mockReturnValue({
+      dailyBudget: 0,
+      weeklyBudget: 0,
+      steerQueueMaxPending: 10,
+      model: 'test-model',
+      baseUrl: 'http://localhost',
+      apiKey: '',
+      agentMode: 'cautious',
+      customModes: [],
+      agentMaxIterations: 20,
+      agentMaxTokens: 4096,
+      expandThinking: false,
+      verboseMode: false,
+    } as never);
+
+    const partialMessages = [
+      { role: 'user', content: 'hello' },
+      { role: 'assistant', content: 'partial response from iteration 1' },
+    ];
+    const errWithPartial = Object.assign(new Error('partial failure'), { partialMessages });
+    const systemPromptMod = await import('./systemPrompt.js');
+    vi.spyOn(systemPromptMod, 'injectSystemContext').mockRejectedValue(errWithPartial);
+
+    // Start with a single user message (fewer than partialMessages.length)
+    const state = makeCatchBlockState({ messages: [{ role: 'user', content: 'hello' }] });
+    vi.useFakeTimers();
+    const promise = handleUserMessage(state as never, '');
+    await vi.runAllTimersAsync();
+    await promise;
+    vi.useRealTimers();
+
+    // state.messages should be updated to partialMessages (2 items)
+    expect((state.messages as unknown[]).length).toBe(2);
+    expect((state.messages as Array<{ content: string }>)[1].content).toBe('partial response from iteration 1');
+
+    vi.restoreAllMocks();
+  });
+});
+
+describe('handleUserMessage — steer snapshot stash (lines 517–519)', () => {
+  it('serializes the steer queue into pendingSteerSnapshot when a non-AbortError occurs', async () => {
+    const { handleUserMessage } = await import('./chatHandlers.js');
+    const providerReachability = await import('../../config/providerReachability.js');
+    vi.spyOn(providerReachability, 'isProviderReachable').mockResolvedValue(true);
+
+    const settingsMod = await import('../../config/settings.js');
+    vi.spyOn(settingsMod, 'getConfig').mockReturnValue({
+      dailyBudget: 0,
+      weeklyBudget: 0,
+      steerQueueMaxPending: 10,
+      model: 'test-model',
+      baseUrl: 'http://localhost',
+      apiKey: '',
+      agentMode: 'cautious',
+      customModes: [],
+      agentMaxIterations: 20,
+      agentMaxTokens: 4096,
+      expandThinking: false,
+      verboseMode: false,
+    } as never);
+
+    const systemPromptMod = await import('./systemPrompt.js');
+    vi.spyOn(systemPromptMod, 'injectSystemContext').mockRejectedValue(new Error('network dead'));
+
+    // pendingSteerSnapshot has items → they're restored into the steer queue
+    // before the try block, so the catch block can re-serialize them.
+    const state = makeCatchBlockState({
+      pendingSteerSnapshot: [{ id: 'steer1', text: 'hurry', urgency: 'nudge' as const, createdAt: Date.now() }],
+    });
+    vi.useFakeTimers();
+    const promise = handleUserMessage(state as never, 'hello');
+    await vi.runAllTimersAsync();
+    await promise;
+    vi.useRealTimers();
+
+    // After the crash, pendingSteerSnapshot should be re-populated
+    // so the user's steer intent survives to the next run.
+    expect(state.pendingSteerSnapshot).not.toBeNull();
+    expect(Array.isArray(state.pendingSteerSnapshot) && (state.pendingSteerSnapshot as unknown[]).length).toBe(1);
+
+    vi.restoreAllMocks();
   });
 });

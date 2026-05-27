@@ -123,6 +123,10 @@ export const window = {
   registerFileDecorationProvider: (_provider: unknown) => ({ dispose: () => {} }),
 };
 
+export const extensions = {
+  getExtension: vi.fn().mockReturnValue(null),
+};
+
 export const authentication = {
   getSession: async () => null,
 };

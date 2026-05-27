@@ -111,40 +111,91 @@ This lets you steer the agent mid-run without waiting for it to finish. The back
 
 ## Built-in tools
 
-SideCar has 40 built-in tools the agent can use. The table below covers the core agentic tools; additional specialized tools are available for databases, vision verification, PDF/Zotero research, notebook mode, dependency scanning, and doc-to-test synthesis (some gated by feature flags). `delegate_task` is only exposed when the active backend is paid.
+SideCar ships with 79 built-in tools the agent can use. The table below covers the core agentic tools; additional specialized tools are available for databases, vision verification, PDF/Zotero research, notebook mode, dependency scanning, doc-to-test synthesis, CI failure analysis, research assistant, and monorepo analysis (some gated by feature flags). `delegate_task` is only exposed when the active backend is paid.
 
 | Tool | Description |
 |------|-------------|
 | `read_file` | Read file contents |
 | `write_file` | Create or overwrite files |
 | `edit_file` | Search/replace edits in existing files |
+| `delete_file` | Delete a file |
 | `search_files` | Glob pattern file search |
 | `grep` | Content search with regex |
+| `find_references` | Find symbol references across the workspace |
 | `run_command` | Execute shell commands in a persistent session (env/cwd persist, background support) |
+| `run_tests` | Run test suites with auto-detection |
 | `list_directory` | List directory contents |
 | `get_diagnostics` | Read compiler errors, warnings, and security findings |
-| `run_tests` | Run test suites with auto-detection |
+| `web_search` | Search the web via DuckDuckGo / Tavily / Brave |
+| `project_knowledge_search` | Semantic search over workspace symbols via tree-sitter + MiniLM embeddings |
+| `system_monitor` | Report CPU, memory, and disk usage |
+| `get_setting` | Read a VS Code workspace or user setting |
+| `update_setting` | Write a VS Code workspace setting — requires approval |
+| `switch_backend` | Switch to a different LLM backend mid-session |
+| `display_diagram` | Extract and render Mermaid diagrams from markdown files |
+| `render_viz` | Render a Vega-Lite chart or Mermaid diagram inline |
+| `ask_user` | Ask the user a clarifying question with selectable options |
+| `describe_tool` | Return the full schema for any registered tool |
 | `spawn_agent` | Spawn parallel sub-agents for complex tasks (max depth: 3, max 15 iterations each) |
 | `delegate_task` *(paid backends only)* | Offload read-only research to a local Ollama worker — see below |
 | `git_status` | Show working tree status |
 | `git_stage` | Stage files for commit |
 | `git_commit` | Create a commit |
 | `git_log` | View commit history |
-| `git_push` | Push to remote |
+| `git_diff` | Show file diffs |
+| `git_push` | Push to remote (requires approval) |
 | `git_pull` | Pull from remote |
 | `git_branch` | Create/switch/list branches |
 | `git_stash` | Stash/pop changes |
-| `git_diff` | Show file diffs |
-| `find_references` | Find symbol references across the workspace |
-| `web_search` | Search the web via DuckDuckGo |
-| `display_diagram` | Extract and render diagrams from markdown files |
-| `ask_user` | Ask the user a clarifying question with selectable options |
-| `check_dependencies` | Scan package.json / requirements.txt / Cargo.toml / go.mod for outdated and vulnerable deps (OSV API) |
+| `git_search_history` | Search git history by keyword, author, or date range |
+| `create_pr_review` | Create a GitHub PR review with inline comments |
+| `reply_pr_comment` | Reply to a specific PR review thread |
+| `submit_pr_review` | Submit a pending GitHub PR review |
+| `mark_pr_ready` | Mark a draft PR as ready for review |
+| `check_pr_ci` | Check CI status for the current PR |
+| `db_list_connections` | List configured database connections |
+| `db_list_tables` | List tables in a connected database |
+| `db_describe_table` | Describe table schema, columns, and indexes |
+| `db_query` | Run a read-only SQL query |
+| `db_execute` | Execute a write SQL statement (requires approval) |
+| `db_migrate_up` | Apply pending database migrations |
+| `index_pdf` | Index a PDF for citation-aware Q&A |
+| `read_pdf` | Read and extract text from a PDF file |
+| `zotero_search` | Search a Zotero library by keyword |
+| `zotero_get_item` | Fetch a Zotero item by key |
+| `insert_citation` | Insert a formatted citation from a Zotero item |
+| `check_dependencies` *(gated)* | Scan package.json / requirements.txt / Cargo.toml / go.mod for outdated and vulnerable deps (OSV API) |
+| `analyze_ci_failure` *(gated)* | Parse and analyze a failing CI run log |
+| `profile_code` *(gated)* | Profile Node.js / Python / Go / Rust code for hotspots |
+| `latex_compile` *(gated)* | Compile a LaTeX document and return structured errors |
+| `delegate_to_mcp` *(gated)* | Delegate a sub-task to a configured MCP server |
+| `monorepo_packages` *(gated)* | Detect and list monorepo workspace packages (Nx / Turbo / pnpm / Lerna) |
+| `extract_constraints` *(gated)* | Extract testable constraints from documentation |
+| `synthesize_tests` *(gated)* | Generate tests from extracted constraints |
+| `classify_test_failure` *(gated)* | Classify a test failure as code bug vs. outdated test |
+| `ingest_source` *(gated)* | Index a URL or local file for Notebook Mode research |
+| `generate_briefing` *(gated)* | Generate a cited multi-section briefing from ingested sources |
+| `generate_study_guide` *(gated)* | Generate a progressive Q&A study guide |
+| `generate_faq` *(gated)* | Generate a cited FAQ from ingested sources |
+| `generate_timeline` *(gated)* | Extract a chronological timeline from ingested sources |
+| `generate_outline` *(gated)* | Generate a hierarchical outline from ingested sources |
+| `analyze_screenshot` *(gated)* | Analyze a screenshot or image with a vision model |
+| `screenshot_page` *(gated)* | Screenshot a URL via Playwright |
+| `run_playwright_code` *(gated)* | Run arbitrary Playwright automation code |
+| `open_in_browser` *(gated)* | Open a URL in the system default browser |
+| `research_create_project` *(gated)* | Create a structured research project |
+| `research_add_hypothesis` *(gated)* | Add a hypothesis to a research project |
+| `research_log_experiment` *(gated)* | Log an experiment result |
+| `research_add_observation` *(gated)* | Record a research observation |
+| `research_update_hypothesis_status` *(gated)* | Update hypothesis status (supported/refuted/pending) |
+| `research_set_project_status` *(gated)* | Set overall research project status |
+| `research_list_projects` *(gated)* | List all research projects |
+| `research_export_report` *(gated)* | Generate a Markdown report from a research project |
 | `kickstand_list_loras` *(Kickstand only)* | List LoRA adapters currently attached to a loaded Kickstand model |
 | `kickstand_attach_lora` *(Kickstand only)* | Attach a LoRA adapter to a loaded Kickstand model without reloading — requires approval |
 | `kickstand_detach_lora` *(Kickstand only)* | Detach a previously-attached LoRA adapter — requires approval |
 
-Additional tools can be added via [MCP servers](mcp-servers) and [custom tools](hooks-and-tasks#custom-tools).
+*(gated)* = off by default; enable via the corresponding `sidecar.*` feature flag. Additional tools can be added via [MCP servers](mcp-servers) and [custom tools](hooks-and-tasks#custom-tools).
 
 ### Kickstand LoRA tools *(new in v0.67.1)*
 

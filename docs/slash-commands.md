@@ -21,6 +21,7 @@ Type `/` in the chat input to see all available commands. An autocomplete dropdo
 | `/doc` | Generate documentation |
 | `/spec` | Generate structured requirements |
 | `/insight` | Activity analytics |
+| `/insights` | Conversation pattern analysis |
 | `/save <name>` | Save current session |
 | `/sessions` | Browse saved conversations |
 | `/scan` | Scan staged files for secrets |
@@ -29,16 +30,39 @@ Type `/` in the chat input to see all available commands. An autocomplete dropdo
 | `/test` | Generate tests |
 | `/lint` | Run linter |
 | `/arena [models]` | Side-by-side model comparison (chat or agent mode) |
+| `/fork <task>` | Run N parallel approaches to the same task, pick the winner |
 | `/deps` | Scan dependencies for drift and vulnerabilities |
 | `/scaffold <type>` | Generate boilerplate |
-| `/commit` | Generate commit and push |
+| `/commit` | Generate commit message and commit |
+| `/commit-message` | Generate and copy a commit message without committing |
+| `/review` | Review current git changes |
+| `/pr` | Push branch and open a draft pull request |
+| `/pr-summary` | Generate PR title and summary from branch diff |
+| `/pr-ci` | Check the CI status of the current branch PR |
+| `/pr-ready` | Mark the current branch PR as ready for review |
+| `/pr-respond` | Dispatch the agent to respond to all open PR review threads |
+| `/review-comments` | Fetch and display PR review comments for the current branch |
+| `/ci` | Analyze the latest failing CI run on this branch |
 | `/audit` | Agent action audit log |
-| `/insights` | Conversation pattern analysis |
 | `/mcp` | MCP server status |
+| `/memories` | Browse agent memories |
+| `/memory-search` | Search agent memories |
 | `/init` | Generate SIDECAR.md project notes |
 | `/bg <task>` | Run a task in the background |
+| `/notebook` | Enter source-grounded research mode |
+| `/code` | Exit Notebook Mode and return to coding-agent mode |
+| `/branch [name]` | Fork the current conversation into a new named thread |
+| `/compact` | Summarize older turns to free context window space |
+| `/guards` | Show active regression guards and built-in guard catalog |
+| `/research` | Set active research project or log an observation |
 | `/verbose` | Toggle verbose mode |
 | `/prompt` | Show system prompt |
+| `/resume` | Resume a response that was cut off mid-stream |
+| `/skills` | List available skills |
+| `/releases` | List GitHub releases |
+| `/release` | Show, create, or delete a release |
+| `/move` | Move or rename a file |
+| `/clone` | Clone a repository |
 
 The following commands are also available from the **Command Palette** (`Ctrl+Shift+P` / `Cmd+Shift+P`):
 

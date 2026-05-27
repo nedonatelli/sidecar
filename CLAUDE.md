@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-SideCar is a VS Code extension that turns local and cloud LLMs into a full agentic coding assistant. It supports Ollama, Anthropic, OpenAI-compatible servers, Kickstand, OpenRouter, Groq, and Fireworks as backends. The extension provides an agent loop with 64 built-in tools (file ops, shell, git, web search, vision, database, doc-to-test synthesis, PDF/Zotero, MCP, Notebook Mode research, dependency drift, code profiling, LaTeX compilation), inline completions, code review, and a chat UI.
+SideCar is a VS Code extension that turns local and cloud LLMs into a full agentic coding assistant. It supports Ollama, Anthropic, OpenAI-compatible servers, Kickstand, OpenRouter, Groq, and Fireworks as backends. The extension provides an agent loop with 79 built-in tools (file ops, shell, git, web search, vision, database, doc-to-test synthesis, PDF/Zotero, MCP, Notebook Mode research, dependency drift, code profiling, LaTeX compilation, CI failure analysis, research assistant, monorepo analysis), inline completions, code review, and a chat UI.
 
 ## Architecture diagrams (start here when onboarding)
 
