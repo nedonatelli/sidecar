@@ -1,24 +1,11 @@
-import { window, type Terminal, type Disposable } from 'vscode';
+import {
+  window,
+  type Terminal,
+  type Disposable,
+  type TerminalShellExecution,
+  type TerminalShellExecutionEndEvent,
+} from 'vscode';
 import type { ShellExecuteOptions, ShellResult } from './shellSession.js';
-
-/**
- * Shape of VS Code's `TerminalShellIntegration.executeCommand` return value.
- * Typed locally because the `vscode` module typings may not be available in
- * every test environment — the dynamic shape is all we rely on.
- */
-interface TerminalShellExecution {
-  read(): AsyncIterable<string>;
-}
-
-/**
- * The end-of-execution event VS Code fires after `executeCommand` completes.
- * Carries the exit code — the primary reason we listen for it, since
- * `TerminalShellExecution.read()` yields stdout only.
- */
-interface TerminalShellExecutionEndEvent {
-  execution: TerminalShellExecution;
-  exitCode: number | undefined;
-}
 
 export interface AgentTerminalOptions {
   /** Display name of the reusable terminal. Default `"SideCar Agent"`. */
@@ -80,11 +67,7 @@ export class AgentTerminalExecutor implements Disposable {
     const terminal = await this.getReadyTerminal();
     if (!terminal) return null;
 
-    const integration = (
-      terminal as unknown as {
-        shellIntegration?: { executeCommand?: (cmd: string) => TerminalShellExecution };
-      }
-    ).shellIntegration;
+    const integration = terminal.shellIntegration;
     if (!integration?.executeCommand) return null;
 
     let execution: TerminalShellExecution;
@@ -193,8 +176,7 @@ export class AgentTerminalExecutor implements Disposable {
   private async getReadyTerminal(): Promise<Terminal | null> {
     // Reuse existing terminal if it still has shellIntegration attached.
     if (this.terminal && this.terminal.exitStatus === undefined) {
-      const integration = (this.terminal as unknown as { shellIntegration?: unknown }).shellIntegration;
-      if (integration) return this.terminal;
+      if (this.terminal.shellIntegration) return this.terminal;
       // Terminal exists but integration was lost (user ran an integration-
       // breaking command? shell was replaced?). Recreate.
       this.terminal.dispose();
@@ -207,8 +189,7 @@ export class AgentTerminalExecutor implements Disposable {
     // terminal's shell loads VS Code's integration script.
     const start = Date.now();
     while (Date.now() - start < this.shellIntegrationTimeoutMs) {
-      const integration = (this.terminal as unknown as { shellIntegration?: unknown }).shellIntegration;
-      if (integration) return this.terminal;
+      if (this.terminal.shellIntegration) return this.terminal;
       await new Promise((r) => setTimeout(r, 50));
     }
     return null;

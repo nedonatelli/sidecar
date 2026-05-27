@@ -172,8 +172,7 @@ export class ProcessRegistry implements Disposable {
   private async isPidAlive(pid: number, expectedCmdline?: string): Promise<boolean> {
     try {
       // Lightweight check: sending signal 0 to a process checks if it's alive without sending a real signal
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      process.kill(pid, 0 as any); // Cast to bypass TypeScript check (0 is valid but typed as never)
+      process.kill(pid, 0);
 
       // If expectedCmdline is provided, verify the process hasn't been reused
       if (expectedCmdline) {
