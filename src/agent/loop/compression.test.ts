@@ -154,6 +154,138 @@ describe('compressMessages', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Semantic tier routing tests.
+//
+// These require an assistant message with a tool_use block so buildToolNameMap
+// can resolve the tool_use_id → tool name and route to the correct tier.
+// ---------------------------------------------------------------------------
+describe('compressMessages — semantic tiers', () => {
+  const LONG = 'x'.repeat(2000);
+
+  /**
+   * Build a message list:
+   *   [assistant(tool_use name), user(tool_result id), ...distFromEnd padding]
+   *
+   * The tool_result ends up at index 1, so its distFromEnd equals the number
+   * of padding messages appended.
+   */
+  function buildMessages(toolName: string, resultContent: string, distFromEnd: number, isError = false): ChatMessage[] {
+    const id = `tu-${toolName}`;
+    const msgs: ChatMessage[] = [
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id, name: toolName, input: {} } as ContentBlock],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: id, content: resultContent, is_error: isError }],
+      },
+    ];
+    for (let i = 0; i < distFromEnd; i++) {
+      msgs.push({ role: 'assistant', content: 'pad' });
+    }
+    return msgs;
+  }
+
+  function resultContent(msgs: ChatMessage[], index: number): string {
+    return ((msgs[index].content as ContentBlock[])[0] as { content: string }).content;
+  }
+
+  it('error tier: is_error=true result is never compressed at any distance', () => {
+    const msgs = buildMessages('run_command', LONG, 20, true);
+    compressMessages(msgs);
+    expect(resultContent(msgs, 1)).toHaveLength(2000);
+  });
+
+  it('error tier: is_error=true overrides write tool classification', () => {
+    const msgs = buildMessages('write_file', LONG, 20, true);
+    compressMessages(msgs);
+    expect(resultContent(msgs, 1)).toHaveLength(2000);
+  });
+
+  it('write tier: result is preserved when distFromEnd < 6', () => {
+    const msgs = buildMessages('write_file', LONG, 4); // distFromEnd = 4
+    compressMessages(msgs);
+    expect(resultContent(msgs, 1)).toHaveLength(2000);
+  });
+
+  it('write tier: result is preserved at the boundary (distFromEnd = 5)', () => {
+    const msgs = buildMessages('edit_file', LONG, 5); // distFromEnd = 5
+    compressMessages(msgs);
+    expect(resultContent(msgs, 1)).toHaveLength(2000);
+  });
+
+  it('write tier: compressed to ≤1000 chars when 6 ≤ distFromEnd < 12', () => {
+    const msgs = buildMessages('write_file', LONG, 7); // distFromEnd = 7
+    compressMessages(msgs);
+    expect(resultContent(msgs, 1).length).toBeLessThanOrEqual(1001);
+  });
+
+  it('write tier: compressed to ≤200 chars when distFromEnd ≥ 12', () => {
+    const msgs = buildMessages('git_commit', LONG, 15); // distFromEnd = 15
+    compressMessages(msgs);
+    expect(resultContent(msgs, 1).length).toBeLessThanOrEqual(201);
+  });
+
+  it('read tier: compressed to ≤500 chars when 1 ≤ distFromEnd < 5', () => {
+    const msgs = buildMessages('read_file', LONG, 2); // distFromEnd = 2
+    compressMessages(msgs);
+    expect(resultContent(msgs, 1).length).toBeLessThanOrEqual(501);
+  });
+
+  it('read tier: compressed to ≤150 chars when distFromEnd ≥ 5', () => {
+    const msgs = buildMessages('git_diff', LONG, 6); // distFromEnd = 6
+    compressMessages(msgs);
+    expect(resultContent(msgs, 1).length).toBeLessThanOrEqual(151);
+  });
+
+  it('read tier: compressed from distFromEnd = 1 (more aggressive than other tier)', () => {
+    // read is compressed at distFromEnd=1; 'other' tier preserves at distFromEnd<2
+    const readMsgs = buildMessages('web_search', LONG, 1);
+    const otherMsgs = buildMessages('run_tests', LONG, 1);
+    compressMessages(readMsgs);
+    compressMessages(otherMsgs);
+    expect(resultContent(readMsgs, 1).length).toBeLessThanOrEqual(501); // compressed
+    expect(resultContent(otherMsgs, 1)).toHaveLength(2000); // preserved
+  });
+
+  it('other tier: result is preserved when distFromEnd < 2', () => {
+    const msgs = buildMessages('run_tests', LONG, 1); // distFromEnd = 1, unrecognised tool
+    compressMessages(msgs);
+    expect(resultContent(msgs, 1)).toHaveLength(2000);
+  });
+
+  it('buildToolNameMap: resolves names from non-adjacent messages in the same history', () => {
+    // Two tool call pairs with different names; both far enough from end to compress.
+    // write_file at distFromEnd=6 → 1000-char limit
+    // read_file at distFromEnd=4 → 500-char limit (read tier)
+    const writeId = 'tu-write';
+    const readId = 'tu-read';
+    const msgs: ChatMessage[] = [
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: writeId, name: 'write_file', input: {} } as ContentBlock],
+      },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: writeId, content: LONG, is_error: false }] },
+      { role: 'assistant', content: [{ type: 'tool_use', id: readId, name: 'read_file', input: {} } as ContentBlock] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: readId, content: LONG, is_error: false }] },
+      // 4 padding → len=8; writeResult distFromEnd=6, readResult distFromEnd=4
+      { role: 'assistant', content: 'pad' },
+      { role: 'assistant', content: 'pad' },
+      { role: 'assistant', content: 'pad' },
+      { role: 'assistant', content: 'pad' },
+    ];
+    compressMessages(msgs);
+    const writeLen = resultContent(msgs, 1).length;
+    const readLen = resultContent(msgs, 3).length;
+    expect(writeLen).toBeLessThanOrEqual(1001); // write tier
+    expect(readLen).toBeLessThanOrEqual(501); // read tier
+    // read is compressed harder than write at these distances
+    expect(readLen).toBeLessThan(writeLen);
+  });
+});
+
 describe('maybeCompressPostTool', () => {
   it('is a no-op when totalChars is below the compression threshold', () => {
     const info = vi.fn();

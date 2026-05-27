@@ -203,6 +203,11 @@ export function buildDispatchHandlers(
 
     abort: () => state.abort(),
 
+    cancelEditPlanFile: (msg) => {
+      if (!msg.filePath) return;
+      state.editCancelFns?.get(msg.filePath)?.();
+    },
+
     changeModel: async (msg) => {
       await setModel(msg.model || 'llama3');
     },

@@ -97,7 +97,8 @@ export interface WebviewMessage {
     | 'restartOllama'
     | 'startVoice'
     | 'voiceAudio'
-    | 'editMessage';
+    | 'editMessage'
+    | 'cancelEditPlanFile';
   images?: { mediaType: string; data: string }[];
   text?: string;
   model?: string;

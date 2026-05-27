@@ -82,11 +82,43 @@ export async function executeMultiFilePlan(
     // aligned after nulls (plan-invented paths with no matching tool_use)
     // are removed. Using layer[i] after filter would index into the wrong
     // layer entry when any task is skipped.
+    //
+    // Each edit gets a child AbortController linked to the parent signal
+    // so the user can cancel a single file without aborting the whole run.
+    // The controller is registered via onRegisterEditCancel so the UI can
+    // wire a per-file cancel button; it fires when either the parent signal
+    // aborts or the user explicitly cancels that one file.
     const layerTasks = layer
-      .map((edit) => ({ edit, task: buildLayerTask(edit, firstUseByPath, ctx) }))
-      .filter((e): e is { edit: PlannedEdit; task: () => Promise<ToolResultContentBlock> } => e.task !== null);
+      .map((edit) => {
+        const editController = new AbortController();
+        if (signal.aborted) editController.abort();
+        const onParentAbort = () => editController.abort();
+        signal.addEventListener('abort', onParentAbort, { once: true });
+        callbacks.onRegisterEditCancel?.(edit.path, () => editController.abort());
+        const childCtx = { ...ctx, signal: editController.signal };
+        const task = buildLayerTask(edit, firstUseByPath, childCtx);
+        return { edit, task, onParentAbort, editController };
+      })
+      .filter(
+        (
+          e,
+        ): e is {
+          edit: PlannedEdit;
+          task: () => Promise<ToolResultContentBlock>;
+          onParentAbort: () => void;
+          editController: AbortController;
+        } => e.task !== null,
+      );
     const tasks = layerTasks.map((e) => e.task);
     const settled = await runWithCap(tasks, { cap });
+
+    // Remove the parent-abort forwarding listeners now that all tasks in
+    // the layer have settled — avoids accumulating N listeners on the
+    // parent signal across layers.
+    for (const { onParentAbort } of layerTasks) {
+      signal.removeEventListener('abort', onParentAbort);
+    }
+
     for (let i = 0; i < settled.length; i++) {
       const outcome = settled[i];
       const path = layerTasks[i].edit.path;

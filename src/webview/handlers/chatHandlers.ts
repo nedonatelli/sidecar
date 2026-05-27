@@ -296,6 +296,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     steerQueue.restore(state.pendingSteerSnapshot);
     state.pendingSteerSnapshot = null;
   }
+  state.editCancelFns = new Map();
   state.currentSteerQueue = steerQueue;
   const steerDisposer = steerQueue.onChange((snapshot) => {
     state.postMessage({
@@ -535,6 +536,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     state.currentSteerDisposer?.();
     state.currentSteerDisposer = null;
     state.currentSteerQueue = null;
+    state.editCancelFns = null;
     state.postMessage({ command: 'steerQueueUpdate', steerQueue: [], steerEnabled: false });
     state.postMessage({ command: 'setLoading', isLoading: false });
     // Clear any sentinel pin so the next user message routes normally.

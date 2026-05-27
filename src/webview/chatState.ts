@@ -77,6 +77,12 @@ export class ChatState {
   /** Disposer for the steerQueue onChange subscription. */
   currentSteerDisposer: (() => void) | null = null;
   /**
+   * Per-file cancel functions registered during multi-file edit DAG execution.
+   * Non-null during an active planned edit run; null otherwise so cancel
+   * messages arriving outside that window are ignored.
+   */
+  editCancelFns: Map<string, () => void> | null = null;
+  /**
    * Serialized steer queue stashed when a run fails mid-stream
    * . Lets `/resume` (or the next
    * user-initiated turn) repopulate the fresh queue with the

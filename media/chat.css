@@ -1579,6 +1579,31 @@ body {
   font-style: italic;
 }
 
+.edit-plan-cancel {
+  margin-left: auto;
+  padding: 0 4px;
+  font-size: 13px;
+  line-height: 1;
+  background: transparent;
+  border: none;
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+.edit-plan-item:hover .edit-plan-cancel {
+  opacity: 0.7;
+}
+.edit-plan-cancel:hover {
+  opacity: 1 !important;
+  color: var(--vscode-errorForeground);
+}
+.edit-plan-cancel:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
 /* Attach button context menu */
 .attach-menu {
   position: fixed;

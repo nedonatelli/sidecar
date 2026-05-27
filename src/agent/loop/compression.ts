@@ -13,18 +13,91 @@ import type { LoopState } from './state.js';
 // Moved here because it's the core primitive every compression
 // strategy above this layer composes.
 //
-// Compresses old tool results in a message history by tiered
-// max-length caps based on distance from the end:
-//   - last 2 messages: untouched
-//   - 2..6 from end: max 1000 chars per tool_result
-//   - 6+ from end: max 200 chars
-// Old `thinking` blocks (8+ from end) are dropped when standalone, or
-// truncated to 200 chars when paired with a tool_use (Anthropic requires
-// thinking blocks to precede their tool_use — dropping them causes a 400).
+// Compresses old tool results in a message history using semantic
+// importance tiers rather than a flat distance-from-end heuristic:
+//
+//   error   — never compressed. Error context is always diagnostic.
+//   write   — protected for 3 full turns (6 messages); then 1000→200.
+//   read    — compressed aggressively from turn 2; 500→150 chars.
+//   other   — legacy behaviour: 2 messages untouched, 1000→200 chars.
+//
+// Images in the heavy tier (6+ from end) are replaced with a compact
+// placeholder. Old `thinking` blocks (8+ from end) are dropped when
+// standalone, or truncated to 200 chars when paired with a tool_use
+// (Anthropic requires thinking to precede tool_use — dropping causes 400).
 //
 // Returns the number of characters freed so the caller can update
 // totalChars accounting.
 // ---------------------------------------------------------------------------
+
+/** Tools that mutate state — protect results for 3 full turns (6 messages). */
+const WRITE_TOOL_NAMES = new Set([
+  'write_file',
+  'edit_file',
+  'delete_file',
+  'git_commit',
+  'git_stage',
+  'git_push',
+  'git_pull',
+  'git_stash',
+  'db_execute',
+  'db_migrate_up',
+]);
+
+/** Tools that only read / search — compress aggressively. */
+const READ_TOOL_NAMES = new Set([
+  'read_file',
+  'list_directory',
+  'search_files',
+  'find_files',
+  'git_diff',
+  'git_status',
+  'git_log',
+  'git_branch',
+  'git_search_history',
+  'web_search',
+  'project_knowledge_search',
+  'get_diagnostics',
+  'check_dependencies',
+  'monorepo_packages',
+  'analyze_ci_failure',
+  'db_list_connections',
+  'db_list_tables',
+  'db_describe_table',
+  'db_query',
+  'read_pdf',
+  'index_pdf',
+  'profile_code',
+  'display_diagram',
+  'ingest_source',
+  'generate_briefing',
+  'generate_study_guide',
+  'generate_faq',
+  'generate_timeline',
+  'generate_outline',
+]);
+
+type CompressionTier = 'error' | 'write' | 'read' | 'other';
+
+/** Build a tool_use_id → tool_name map by scanning all messages once. */
+function buildToolNameMap(messages: ChatMessage[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const msg of messages) {
+    if (!Array.isArray(msg.content)) continue;
+    for (const block of msg.content) {
+      if (block.type === 'tool_use') map.set(block.id, block.name);
+    }
+  }
+  return map;
+}
+
+function compressionTier(toolUseId: string, isError: boolean, toolNameMap: Map<string, string>): CompressionTier {
+  if (isError) return 'error';
+  const name = toolNameMap.get(toolUseId) ?? '';
+  if (WRITE_TOOL_NAMES.has(name)) return 'write';
+  if (READ_TOOL_NAMES.has(name)) return 'read';
+  return 'other';
+}
 
 /** Tools whose results should never be compressed away — they establish context
  *  the agent needs for the rest of the session (repo root, deps tree, etc.). */
@@ -65,6 +138,7 @@ export function compressMessages(messages: ChatMessage[]): number {
   let freed = 0;
   const len = messages.length;
   const compressor = new ToolResultCompressor();
+  const toolNameMap = buildToolNameMap(messages);
 
   for (let i = 0; i < len; i++) {
     const msg = messages[i];
@@ -81,10 +155,9 @@ export function compressMessages(messages: ChatMessage[]): number {
     if (isStateEstablishingResult(msg, messages[i - 1])) continue;
 
     const distFromEnd = len - 1 - i;
-    let maxLen: number;
-    if (distFromEnd < 2) continue;
-    else if (distFromEnd < 6) maxLen = 1000;
-    else maxLen = 200;
+    // The most aggressive tier (read) compresses from distFromEnd >= 1;
+    // nothing in any tier compresses at distFromEnd 0 (the current message).
+    if (distFromEnd < 1) continue;
 
     // Detect whether this message contains a tool_use block. Anthropic's
     // Extended Thinking API requires that every thinking block immediately
@@ -105,16 +178,52 @@ export function compressMessages(messages: ChatMessage[]): number {
         const placeholder = `[image: ${block.source.media_type}, ~${sizeKB}KB — dropped for context budget]`;
         newContent.push({ type: 'text', text: placeholder });
         freed += Math.max(0, block.source.data.length - placeholder.length);
-      } else if (block.type === 'tool_result' && block.content.length > maxLen) {
-        const original = block.content.length;
-        const cacheKey = compressionKey(block.content, maxLen);
-        let compressed = compressionCache.get(cacheKey);
-        if (compressed === undefined) {
-          compressed = compressor.compress(block.content, maxLen).content;
-          compressionCache.set(cacheKey, compressed);
+      } else if (block.type === 'tool_result') {
+        const tier = compressionTier(block.tool_use_id, !!block.is_error, toolNameMap);
+        let maxLen: number;
+
+        if (tier === 'error') {
+          // Error results document what went wrong — preserve them at any age
+          // so the agent retains full diagnostic context throughout the session.
+          newContent.push(block);
+          continue;
+        } else if (tier === 'write') {
+          // Protect write outcomes for 3 full turns (6 messages) so the agent
+          // can reference the edit context; then apply standard thresholds.
+          if (distFromEnd < 6) {
+            newContent.push(block);
+            continue;
+          }
+          maxLen = distFromEnd < 12 ? 1_000 : 200;
+        } else if (tier === 'read') {
+          // Read / search results go stale quickly — compress from turn 2.
+          if (distFromEnd < 1) {
+            newContent.push(block);
+            continue;
+          }
+          maxLen = distFromEnd < 5 ? 500 : 150;
+        } else {
+          // 'other' — shell commands, git mutations, tests, etc.: legacy behaviour.
+          if (distFromEnd < 2) {
+            newContent.push(block);
+            continue;
+          }
+          maxLen = distFromEnd < 6 ? 1_000 : 200;
         }
-        newContent.push({ ...block, content: compressed });
-        freed += original - compressed.length;
+
+        if (block.content.length > maxLen) {
+          const original = block.content.length;
+          const cacheKey = compressionKey(block.content, maxLen);
+          let compressed = compressionCache.get(cacheKey);
+          if (compressed === undefined) {
+            compressed = compressor.compress(block.content, maxLen).content;
+            compressionCache.set(cacheKey, compressed);
+          }
+          newContent.push({ ...block, content: compressed });
+          freed += original - compressed.length;
+        } else {
+          newContent.push(block);
+        }
       } else if (block.type === 'thinking' && distFromEnd >= 8) {
         if (hasToolUse) {
           // Atomic thinking→tool_use chain: truncate instead of drop so

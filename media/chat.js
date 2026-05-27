@@ -2144,6 +2144,17 @@
         item.appendChild(deps);
       }
 
+      const cancelBtn = document.createElement('button');
+      cancelBtn.className = 'edit-plan-cancel';
+      cancelBtn.textContent = '×';
+      cancelBtn.title = 'Cancel this file';
+      cancelBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        vscode.postMessage({ command: 'cancelEditPlanFile', filePath: e.path });
+        cancelBtn.disabled = true;
+      });
+      item.appendChild(cancelBtn);
+
       list.appendChild(item);
     }
     card.appendChild(list);
@@ -2172,6 +2183,12 @@
     statusEl.title = update.status + (update.errorMessage ? ': ' + update.errorMessage : '');
     // Swap class so CSS can color/animate per state.
     statusEl.className = 'edit-plan-status edit-plan-status-' + update.status;
+    // Hide cancel button once the edit reaches a terminal state.
+    const cancelBtn = row.querySelector('.edit-plan-cancel');
+    if (cancelBtn) {
+      const isTerminal = update.status === 'done' || update.status === 'failed' || update.status === 'aborted';
+      cancelBtn.style.display = isTerminal ? 'none' : '';
+    }
   }
 
   // CSS.escape fallback — the runtime webview hasn't always shipped it.

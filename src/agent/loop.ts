@@ -82,6 +82,13 @@ export interface AgentCallbacks {
     status: 'pending' | 'writing' | 'done' | 'failed' | 'aborted';
     errorMessage?: string;
   }) => void;
+  /**
+   * Called once per planned edit just before its layer dispatches, with
+   * an abort function that cancels only that file's write. The UI uses
+   * this to wire per-file cancel buttons on the Planned Edits card.
+   * Aborting an individual edit leaves the rest of the DAG running.
+   */
+  onRegisterEditCancel?: (path: string, cancel: () => void) => void;
   /** Emit a progress summary during multi-step loops. */
   onProgressSummary?: (summary: string) => void;
   /** Checkpoint: ask user whether to continue a long-running task. Returns true to continue. */

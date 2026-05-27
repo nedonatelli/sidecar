@@ -216,6 +216,9 @@ export function createAgentCallbacks(
         },
       });
     },
+    onRegisterEditCancel: (path, cancel) => {
+      state.editCancelFns?.set(path, cancel);
+    },
     onStreamFailure: (partial, error) => {
       flushTextBuffer();
       state.pendingPartialAssistant = partial;
