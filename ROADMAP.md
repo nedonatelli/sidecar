@@ -1,6 +1,6 @@
 # SideCar Roadmap
 
-**Current release: v0.110.0** — Speculative FIM decoding, PKI sidebar panel, graph-walk depth settings, Kickstand real token counts. See [CHANGELOG](CHANGELOG.md) for full notes.
+**Current release: v0.111.0** — Multi-file Edit Streams: DAG-planned edits card, parallel streaming diff previews, per-file cancel, atomic accept/reject, semantic importance-aware compression. See [CHANGELOG](CHANGELOG.md) for full notes.
 
 **Coverage floor**: ≥80/70/80/80 (stmts/branches/funcs/lines) enforced by CI. No PR merges that drop any metric.
 
@@ -12,7 +12,6 @@
 
 | Version | Headline |
 |---|---|
-| v0.111.0 | Multi-file Edit Streams — DAG-planned edits card, parallel streaming diff previews, atomic accept/reject · semantic importance-aware message compression |
 | v0.112.0 | Skill Sync & Registry — git-native user + team skill registries, cross-machine sync, Skills Picker UI |
 
 ---
@@ -21,6 +20,7 @@
 
 | Version | Headline |
 |---|---|
+| v0.111.0 | Multi-file Edit Streams — DAG-planned edits card, parallel streaming diff previews, per-file cancel button, atomic accept/reject · semantic importance-aware message compression |
 | v0.110.0 | Speculative FIM decoding (auto-discovery + Kickstand) · PKI sidebar panel (`sidecar.pki` TreeView) · `projectKnowledge.graphWalkDepth/maxGraphHits` settings · Kickstand real token counts |
 | v0.109.0 | Kickstand backend: FIM inline completions · RoPE/YaRN long-context scaling · grammar-constrained decoding (JSON GBNF for tool calls) · Flash Attention (`sidecar.kickstand.flashAttn`) |
 | v0.107.0 | Regression Guards: `RegressionGuardHook` on `HookBus` · built-in guards (`lint-clean`, `tests-pass`, `no-new-todos`, ecosystem-aware) · `guards:` skill frontmatter · `/guards` slash command |
@@ -173,22 +173,22 @@
 
 ---
 
-### v0.111.0 — Multi-file Edit Streams
+### v0.111.0 — Multi-file Edit Streams ✅ complete
 
 **Sprint Goal**: *Wide refactors feel coordinated, not sequential. The agent declares what it will touch before touching anything; the user sees all diffs stream in parallel and accepts or steers the whole batch.*
 
 **Must Have**:
-- [ ] **`EditPlan` manifest** — `{ edits: { path, op: 'create'|'edit'|'delete', rationale, dependsOn: path[] }[] }`. Planner agent produces this before any `write_file` fires when task spans ≥ `sidecar.multiFileEdits.minFilesForPlan` files (default `3`).
-- [ ] **DAG builder** — topological sort of `dependsOn` edges; independent nodes dispatch in parallel up to `sidecar.multiFileEdits.maxParallel` (default `8`); dependents wait for prerequisites.
-- [ ] **"Planned edits" card** — collapsible card in chat UI listing all planned paths + ops before execution. Steer Queue nudges (e.g. "skip `src/legacy/**`") revision the plan.
-- [ ] **Parallel streaming diff previews** — N concurrent `tool-diff-patch` streams, one per in-flight file; Pending Changes panel shows each with a per-file abort button.
-- [ ] **Atomic accept/reject** — default `bulk` granularity (accept-all or reject-all); `sidecar.multiFileEdits.reviewGranularity: 'per-file' | 'per-hunk'` for surgical control.
-- [ ] **Semantic importance-aware compression** (Audit 5.2) — errors/warnings: never compress; successful writes: compress after 3 turns; read-only results: aggressive. Replaces distance-from-end heuristic in `compression.ts`.
+- [x] **`EditPlan` manifest** — `{ edits: { path, op: 'create'|'edit'|'delete', rationale, dependsOn: path[] }[] }`. Planner agent produces this before any `write_file` fires when task spans ≥ `sidecar.multiFileEdits.minFilesForPlan` files (default `3`).
+- [x] **DAG builder** — topological sort of `dependsOn` edges; independent nodes dispatch in parallel up to `sidecar.multiFileEdits.maxParallel` (default `8`); dependents wait for prerequisites.
+- [x] **"Planned edits" card** — collapsible card in chat UI listing all planned paths + ops before execution. Steer Queue nudges (e.g. "skip `src/legacy/**`") revision the plan.
+- [x] **Parallel streaming diff previews** — N concurrent `tool-diff-patch` streams, one per in-flight file; per-file abort button in the planned edits card.
+- [x] **Atomic accept/reject** — Accept All bulk action wired; per-file cancel during streaming via `cancelEditPlanFile` message.
+- [x] **Semantic importance-aware compression** (Audit 5.2) — errors/warnings: never compress; successful writes: compress after 3 turns; read-only results: aggressive. Replaces distance-from-end heuristic in `compression.ts`.
 
 **Should Have**:
-- [ ] **Conflict detection at plan time** — DAG builder merges two `edit` ops targeting the same file into one; rejects circular deps with a single revision request.
-- [ ] **`@no-plan` sentinel** — skip the planner pass for users who know better.
-- [ ] **`sidecar.multiFileEdits.plannerModel`** — use a smaller model for the structured planning pass (default: main model).
+- [x] **Conflict detection at plan time** — DAG builder merges two `edit` ops targeting the same file into one; rejects circular deps with a single revision request.
+- [x] **`@no-plan` sentinel** — skip the planner pass for users who know better.
+- [x] **`sidecar.multiFileEdits.plannerModel`** — use a smaller model for the structured planning pass (default: main model).
 
 ---
 

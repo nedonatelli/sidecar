@@ -256,6 +256,67 @@ describe('compressMessages — semantic tiers', () => {
     expect(resultContent(msgs, 1)).toHaveLength(2000);
   });
 
+  it('other tier: compressed to ≤1000 chars when 2 ≤ distFromEnd < 6', () => {
+    const msgs = buildMessages('run_tests', LONG, 3); // distFromEnd = 3
+    compressMessages(msgs);
+    expect(resultContent(msgs, 1).length).toBeLessThanOrEqual(1001);
+    expect(resultContent(msgs, 1).length).toBeGreaterThan(0);
+  });
+
+  it('other tier: compressed to ≤200 chars when distFromEnd ≥ 6', () => {
+    const msgs = buildMessages('run_tests', LONG, 8); // distFromEnd = 8
+    compressMessages(msgs);
+    expect(resultContent(msgs, 1).length).toBeLessThanOrEqual(201);
+  });
+
+  it('other tier applies lesser protection than write (same distFromEnd = 7)', () => {
+    // write tier at distFromEnd=7 → ≤1000; other tier at distFromEnd=7 → ≤200
+    const writeMsgs = buildMessages('write_file', LONG, 7);
+    const otherMsgs = buildMessages('run_tests', LONG, 7);
+    compressMessages(writeMsgs);
+    compressMessages(otherMsgs);
+    expect(resultContent(writeMsgs, 1).length).toBeLessThanOrEqual(1001);
+    expect(resultContent(otherMsgs, 1).length).toBeLessThanOrEqual(201);
+    expect(resultContent(otherMsgs, 1).length).toBeLessThan(resultContent(writeMsgs, 1).length);
+  });
+
+  it('thinking block preserved when distFromEnd < 8', () => {
+    // 5-message history: thinking is at index 0, distFromEnd = 4 → below threshold
+    const messages: ChatMessage[] = [
+      { role: 'assistant', content: [thinkingBlock('a'.repeat(500))] },
+      { role: 'user', content: 'msg' },
+      { role: 'assistant', content: 'msg' },
+      { role: 'user', content: 'msg' },
+      { role: 'assistant', content: 'msg' },
+    ];
+    compressMessages(messages);
+    const firstContent = messages[0].content as ContentBlock[];
+    expect(firstContent[0].type).toBe('thinking');
+    expect((firstContent[0] as { thinking: string }).thinking).toHaveLength(500);
+  });
+
+  it('index-0 pure-text user message is exempt from compression', () => {
+    const messages: ChatMessage[] = [
+      { role: 'user', content: [{ type: 'text', text: 'Fix the auth module'.repeat(200) }] },
+      ...Array.from({ length: 8 }, () => ({ role: 'assistant' as const, content: 'pad' })),
+    ];
+    const originalText = (messages[0].content as ContentBlock[])[0] as { text: string };
+    const originalLen = originalText.text.length;
+    compressMessages(messages);
+    expect((messages[0].content as ContentBlock[])[0]).toMatchObject({ type: 'text', text: originalText.text });
+    expect(((messages[0].content as ContentBlock[])[0] as { text: string }).text).toHaveLength(originalLen);
+  });
+
+  it('index-0 user message with tool_result blocks is NOT exempt', () => {
+    // Exemption only applies to pure-text user messages (the initial task)
+    const messages: ChatMessage[] = [
+      { role: 'user', content: [toolResultBlock(LONG)] },
+      ...Array.from({ length: 8 }, () => ({ role: 'assistant' as const, content: 'pad' })),
+    ];
+    compressMessages(messages);
+    expect(resultContent(messages, 0).length).toBeLessThan(2000);
+  });
+
   it('buildToolNameMap: resolves names from non-adjacent messages in the same history', () => {
     // Two tool call pairs with different names; both far enough from end to compress.
     // write_file at distFromEnd=6 → 1000-char limit
@@ -283,6 +344,72 @@ describe('compressMessages — semantic tiers', () => {
     expect(readLen).toBeLessThanOrEqual(501); // read tier
     // read is compressed harder than write at these distances
     expect(readLen).toBeLessThan(writeLen);
+  });
+});
+
+describe('compressMessages — state-establishing immunity', () => {
+  const LONG = 'x'.repeat(2000);
+
+  function stateEstablishingHistory(toolName: string, distFromEnd: number): ChatMessage[] {
+    // [assistant(tool_use=toolName), user(tool_result), ...padding]
+    // The user message at index 1 must be immune because its preceding
+    // assistant message contains a state-establishing tool_use.
+    const id = `tu-${toolName}`;
+    const msgs: ChatMessage[] = [
+      { role: 'assistant', content: [{ type: 'tool_use', id, name: toolName, input: {} } as ContentBlock] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: LONG, is_error: false }] },
+    ];
+    for (let i = 0; i < distFromEnd; i++) msgs.push({ role: 'assistant', content: 'pad' });
+    return msgs;
+  }
+
+  it('run_command result is immune even when 20 messages from the end', () => {
+    const msgs = stateEstablishingHistory('run_command', 20);
+    compressMessages(msgs);
+    const content = ((msgs[1].content as ContentBlock[])[0] as { content: string }).content;
+    expect(content).toHaveLength(2000);
+  });
+
+  it('npm_install result is immune even when 15 messages from the end', () => {
+    const msgs = stateEstablishingHistory('npm_install', 15);
+    compressMessages(msgs);
+    const content = ((msgs[1].content as ContentBlock[])[0] as { content: string }).content;
+    expect(content).toHaveLength(2000);
+  });
+
+  it('git_clone result is immune even when 12 messages from the end', () => {
+    const msgs = stateEstablishingHistory('git_clone', 12);
+    compressMessages(msgs);
+    const content = ((msgs[1].content as ContentBlock[])[0] as { content: string }).content;
+    expect(content).toHaveLength(2000);
+  });
+
+  it('non-state-establishing tool at same distance is NOT immune', () => {
+    // run_tests is in the 'other' tier and is not state-establishing —
+    // at distFromEnd=12 it hits the ≤200 char rule.
+    const msgs = stateEstablishingHistory('run_tests', 12);
+    compressMessages(msgs);
+    const content = ((msgs[1].content as ContentBlock[])[0] as { content: string }).content;
+    expect(content.length).toBeLessThan(2000);
+  });
+
+  it('immunity applies only to the immediately-following user message, not later ones', () => {
+    // The state-establishing pair is at indices 0-1.
+    // A second unrelated tool result at index 3 should still be compressed.
+    const id1 = 'tu-run_command';
+    const id2 = 'tu-read_file';
+    const msgs: ChatMessage[] = [
+      { role: 'assistant', content: [{ type: 'tool_use', id: id1, name: 'run_command', input: {} } as ContentBlock] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: id1, content: LONG, is_error: false }] },
+      { role: 'assistant', content: [{ type: 'tool_use', id: id2, name: 'read_file', input: {} } as ContentBlock] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: id2, content: LONG, is_error: false }] },
+      ...Array.from({ length: 12 }, () => ({ role: 'assistant' as const, content: 'pad' })),
+    ];
+    compressMessages(msgs);
+    const immuneContent = ((msgs[1].content as ContentBlock[])[0] as { content: string }).content;
+    const compressedContent = ((msgs[3].content as ContentBlock[])[0] as { content: string }).content;
+    expect(immuneContent).toHaveLength(2000); // immune
+    expect(compressedContent.length).toBeLessThan(2000); // compressed (read tier, distFromEnd=12)
   });
 });
 
