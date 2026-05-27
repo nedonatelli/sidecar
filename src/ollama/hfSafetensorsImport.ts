@@ -185,7 +185,7 @@ async function* downloadFile(args: DownloadArgs): AsyncGenerator<ImportProgress>
   // web stream works without needing to shim into a Node Readable.
   const writer = fs.createWriteStream(destPath);
   try {
-    for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
+    for await (const chunk of response.body as AsyncIterable<Uint8Array>) {
       if (signal.aborted) {
         writer.destroy();
         throw new DOMException('Aborted', 'AbortError');

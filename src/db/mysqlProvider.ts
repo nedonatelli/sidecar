@@ -69,8 +69,7 @@ export class MysqlProvider implements DatabaseProvider {
   // -------------------------------------------------------------------------
 
   async connect(profile: ConnectionProfile, password?: string): Promise<void> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const mysqlMod = (await import('mysql2/promise' as any)) as unknown as { default?: MySqlModule } & MySqlModule;
+    const mysqlMod = (await import('mysql2/promise')) as unknown as { default?: MySqlModule } & MySqlModule;
     const mysql = mysqlMod.default ?? mysqlMod;
 
     this.readOnly = profile.readOnly !== false;

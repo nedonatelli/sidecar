@@ -26,15 +26,10 @@ export class TerminalManager implements Disposable {
     terminal.show();
 
     // Try to use shell integration for output capture
-    const shellIntegration = (
-      terminal as unknown as {
-        shellIntegration?: { executeCommand?: (cmd: string) => { read: () => AsyncIterable<string> } };
-      }
-    ).shellIntegration;
-
-    if (shellIntegration?.executeCommand) {
+    const integration = terminal.shellIntegration;
+    if (integration?.executeCommand) {
       try {
-        const execution = shellIntegration.executeCommand(command);
+        const execution = integration.executeCommand(command);
         let output = '';
         for await (const chunk of execution.read()) {
           output += chunk;

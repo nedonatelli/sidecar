@@ -1,4 +1,5 @@
 import type { ContextProviderConfig, ContextProviderResult, ContextIssue } from '../types.js';
+import { truncateIssueBody } from '../types.js';
 import { stripTrailingSlash } from '../../util/url.js';
 
 interface BitbucketPR {
@@ -97,7 +98,7 @@ export async function fetchBitbucketPRs(
       id: `#${pr.id}`,
       title: pr.title,
       status: pr.state,
-      body: pr.description ? pr.description.slice(0, 400) + (pr.description.length > 400 ? '…' : '') : undefined,
+      body: pr.description ? truncateIssueBody(pr.description) : undefined,
       url: pr.links.html.href,
       labels: pr.reviewers?.map((r) => r.display_name).filter(Boolean),
       updatedAt: pr.updated_on ? new Date(pr.updated_on).toLocaleDateString() : undefined,

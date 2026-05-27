@@ -72,6 +72,8 @@ interface OpenAIChatChunk {
      */
     cost?: number;
   };
+  /** Non-standard: some providers (e.g. OpenRouter) surface errors as an in-stream chunk rather than an HTTP error code. */
+  error?: { message?: string };
 }
 
 export interface StreamOpenAiSseOptions {
@@ -218,9 +220,8 @@ export async function* streamOpenAiSse(
           }
         }
 
-        if ((chunk as unknown as { error?: { message?: string } }).error) {
-          const msg = (chunk as unknown as { error: { message?: string } }).error.message ?? 'Server error';
-          throw new Error(`${providerLabel}: ${msg}`);
+        if (chunk.error) {
+          throw new Error(`${providerLabel}: ${chunk.error.message ?? 'Server error'}`);
         }
 
         const choice = chunk.choices?.[0];

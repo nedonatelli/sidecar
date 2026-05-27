@@ -24,16 +24,10 @@ import { parseSidecarMd } from './sidecarMdParser.js';
 import { FlatVectorStore } from '../config/vectorStore.js';
 import type { SidecarDir } from '../config/sidecarDir.js';
 import type { RetrievalHit } from './retrieval/retriever.js';
-
-const MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
+import { MINILM_MODEL_ID as MODEL_ID, type EmbeddingPipeline, loadEmbeddingPipeline } from '../config/hfPipeline.js';
 const DIMENSION = 384;
 const SCHEMA_VERSION = 1;
 const MAX_SECTION_CHARS = 6000;
-
-type EmbeddingPipeline = (
-  texts: string[],
-  opts: { pooling: string; normalize: boolean },
-) => Promise<{ data: Float32Array }>;
 
 interface SectionMeta {
   heading: string;
@@ -145,11 +139,7 @@ export class SidecarMdIndex {
     if (this.modelLoading) return this.modelLoading;
     this.modelLoading = (async () => {
       try {
-        const { pipeline: createPipeline, env } = await import('@huggingface/transformers');
-        env.allowLocalModels = false;
-        this.pipeline = (await createPipeline('feature-extraction', MODEL_ID, {
-          dtype: 'q8',
-        })) as unknown as EmbeddingPipeline;
+        this.pipeline = await loadEmbeddingPipeline(MODEL_ID, { allowLocalModels: false });
         return true;
       } catch (err) {
         console.warn('[SidecarMdIndex] Embedding model failed to load:', err instanceof Error ? err.message : err);

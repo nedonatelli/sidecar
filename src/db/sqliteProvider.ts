@@ -82,8 +82,7 @@ export class SqliteProvider implements DatabaseProvider {
   // -------------------------------------------------------------------------
 
   async connect(profile: ConnectionProfile): Promise<void> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { default: Database } = (await import('better-sqlite3' as any)) as { default: BetterSqlite3Constructor };
+    const { default: Database } = (await import('better-sqlite3')) as unknown as { default: BetterSqlite3Constructor };
 
     if (!profile.filePath) {
       throw new Error('SQLite connection requires a filePath');

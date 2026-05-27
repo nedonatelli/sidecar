@@ -1,4 +1,5 @@
 import type { ContextProviderConfig, ContextProviderResult, ContextIssue } from '../types.js';
+import { truncateIssueBody } from '../types.js';
 import { stripTrailingSlash } from '../../util/url.js';
 
 interface JiraIssue {
@@ -24,8 +25,7 @@ function extractJiraText(doc: JiraIssue['fields']['description']): string {
       if (inline.text) parts.push(inline.text);
     }
   }
-  const text = parts.join(' ').trim();
-  return text.length > 400 ? text.slice(0, 400) + '…' : text;
+  return truncateIssueBody(parts.join(' ').trim());
 }
 
 export async function fetchJiraIssues(

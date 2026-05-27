@@ -97,8 +97,7 @@ export class PostgresProvider implements DatabaseProvider {
   // -------------------------------------------------------------------------
 
   async connect(profile: ConnectionProfile, password?: string): Promise<void> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const pgMod = (await import('pg' as any)) as unknown as { default?: PgModule } & PgModule;
+    const pgMod = (await import('pg')) as unknown as { default?: PgModule } & PgModule;
     const { Pool } = pgMod.default ?? pgMod;
 
     this.readOnly = profile.readOnly !== false;

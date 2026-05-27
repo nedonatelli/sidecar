@@ -3,6 +3,7 @@ import * as fs from 'fs/promises';
 import { buildBundle, parseBundle, formatExportedAt, type HandoffBundle } from '../agent/handoff/handoff.js';
 import type { ChatMessage } from '../ollama/types.js';
 import type { ChatViewProvider } from '../webview/chatView.js';
+import type { ExtensionMessage } from '../webview/chatWebview.js';
 
 export interface HandoffCommandDeps {
   getChatProvider: () => ChatViewProvider | undefined;
@@ -38,7 +39,7 @@ export interface ImportableState {
   currentSteerDisposer: (() => void) | null;
   currentSteerQueue: unknown;
   currentSessionId: unknown;
-  postMessage(msg: unknown): void;
+  postMessage(msg: ExtensionMessage): void;
   saveHistory(): void;
 }
 
@@ -169,7 +170,7 @@ export function registerHandoffCommands(context: ExtensionContext, deps: Handoff
         void window.showWarningMessage('SideCar: open the chat panel before importing a handoff.');
         return;
       }
-      await runImportHandoff(provider.state as unknown as ImportableState, ui);
+      await runImportHandoff(provider.state, ui);
     }),
   );
 }

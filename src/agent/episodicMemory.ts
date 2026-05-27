@@ -17,8 +17,7 @@
 
 import { FlatVectorStore } from '../config/vectorStore.js';
 import type { SidecarDir } from '../config/sidecarDir.js';
-
-const MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
+import { MINILM_MODEL_ID as MODEL_ID, type EmbeddingPipeline, loadEmbeddingPipeline } from '../config/hfPipeline.js';
 const DIMENSION = 384;
 /** Truncate input before embedding to avoid OOM on pathologically long summaries. */
 const MAX_TEXT_CHARS = 8000;
@@ -37,11 +36,6 @@ interface EpisodicMeta {
   turnIndex: number;
   addedAt: number;
 }
-
-type EmbeddingPipeline = (
-  texts: string[],
-  opts: { pooling: string; normalize: boolean },
-) => Promise<{ data: Float32Array }>;
 
 export class EpisodicMemoryStore {
   private store: FlatVectorStore<EpisodicMeta>;
@@ -144,11 +138,7 @@ export class EpisodicMemoryStore {
     if (this.modelLoading) return this.modelLoading;
     this.modelLoading = (async () => {
       try {
-        const { pipeline: createPipeline, env } = await import('@huggingface/transformers');
-        env.allowLocalModels = false;
-        this.pipeline = (await createPipeline('feature-extraction', MODEL_ID, {
-          dtype: 'q8',
-        })) as unknown as EmbeddingPipeline;
+        this.pipeline = await loadEmbeddingPipeline(MODEL_ID, { allowLocalModels: false });
         return true;
       } catch (err) {
         console.warn('[EpisodicMemory] Embedding model failed to load:', err instanceof Error ? err.message : err);

@@ -1,4 +1,5 @@
 import type { ContextProviderConfig, ContextProviderResult, ContextIssue } from '../types.js';
+import { truncateIssueBody } from '../types.js';
 
 const LINEAR_API = 'https://api.linear.app/graphql';
 
@@ -68,7 +69,7 @@ export async function fetchLinearIssues(
       id: li.identifier,
       title: li.title,
       status: li.state.name,
-      body: li.description ? li.description.slice(0, 400) + (li.description.length > 400 ? '…' : '') : undefined,
+      body: li.description ? truncateIssueBody(li.description) : undefined,
       url: li.url,
       labels: li.labels.nodes.map((l) => l.name),
       priority: PRIORITY_LABEL[li.priority] ?? String(li.priority),

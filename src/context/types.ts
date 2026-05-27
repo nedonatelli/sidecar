@@ -30,6 +30,13 @@ export interface ContextIssue {
   updatedAt?: string;
 }
 
+const ISSUE_BODY_MAX_CHARS = 400;
+
+/** Truncate an issue body/description to the shared display limit. */
+export function truncateIssueBody(text: string): string {
+  return text.length > ISSUE_BODY_MAX_CHARS ? text.slice(0, ISSUE_BODY_MAX_CHARS) + '…' : text;
+}
+
 export interface ContextProviderResult {
   /** Label shown in the prompt heading, e.g. "GitHub (owner/repo)" */
   providerLabel: string;

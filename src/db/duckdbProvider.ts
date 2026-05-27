@@ -67,8 +67,8 @@ export class DuckDbProvider implements DatabaseProvider {
   async connect(profile: ConnectionProfile): Promise<void> {
     let mod: DuckDbModule;
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      mod = (await import('@duckdb/node-api' as any)) as unknown as DuckDbModule;
+      // @ts-expect-error — optional peer dep, not in devDependencies
+      mod = (await import('@duckdb/node-api')) as DuckDbModule;
     } catch {
       throw new Error(
         'DuckDB not available — install @duckdb/node-api in your project to use the DuckDB database provider',

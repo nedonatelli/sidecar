@@ -18,8 +18,7 @@ import * as crypto from 'crypto';
 import type { SidecarDir } from './sidecarDir.js';
 import { FlatVectorStore, type VectorStore, type FlatStoreMeta } from './vectorStore.js';
 import { hashLeaf, type MerkleTree } from './merkleTree.js';
-
-const MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
+import { MINILM_MODEL_ID as MODEL_ID, type EmbeddingPipeline, loadEmbeddingPipeline } from './hfPipeline.js';
 const DIMENSION = 384;
 const SCHEMA_VERSION = 1;
 const META_FILE = 'cache/symbol-embeddings-meta.json';
@@ -99,11 +98,6 @@ export interface SymbolMetadata {
    */
   merkleHash?: string;
 }
-
-type EmbeddingPipeline = (
-  texts: string[],
-  options?: { pooling?: string; normalize?: boolean },
-) => Promise<{ data: Float32Array }>;
 
 export class SymbolEmbeddingIndex implements Disposable {
   private pipeline: EmbeddingPipeline | null = null;
@@ -266,18 +260,7 @@ export class SymbolEmbeddingIndex implements Disposable {
 
   private async loadModel(): Promise<void> {
     try {
-      const { pipeline: createPipeline, env } = await import('@huggingface/transformers');
-      // The sidecarDir path still belongs to the caller's world; the
-      // store encapsulates vector storage only.
-      env.allowRemoteModels = true;
-      // @huggingface/transformers@4 replaced the boolean `quantized`
-      // flag with an explicit `dtype` enum. Pin `q8` so the same 8-bit
-      // quantized ONNX weights load as under v2's `quantized: true`;
-      // without this, v4 silently falls back to fp32 and the embeddings
-      // drift enough to fail the parity gate.
-      this.pipeline = (await createPipeline('feature-extraction', MODEL_ID, {
-        dtype: 'q8',
-      })) as unknown as EmbeddingPipeline;
+      this.pipeline = await loadEmbeddingPipeline(MODEL_ID, { allowRemoteModels: true });
       this.ready = true;
     } catch (err) {
       this.ready = false;

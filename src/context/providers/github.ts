@@ -1,6 +1,7 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import type { ContextProviderConfig, ContextProviderResult, ContextIssue } from '../types.js';
+import { truncateIssueBody } from '../types.js';
 import { stripTrailingSlash } from '../../util/url.js';
 
 const execAsync = promisify(exec);
@@ -79,7 +80,7 @@ export async function fetchGitHubIssues(
       id: `#${gh.number}`,
       title: gh.title,
       status: gh.state,
-      body: gh.body ? gh.body.slice(0, 400) + (gh.body.length > 400 ? '…' : '') : undefined,
+      body: gh.body ? truncateIssueBody(gh.body) : undefined,
       url: gh.html_url,
       labels: gh.labels.map((l) => l.name),
       updatedAt: gh.updated_at ? new Date(gh.updated_at).toLocaleDateString() : undefined,

@@ -153,12 +153,12 @@ export function prepareMessagesForCache(messages: ChatMessage[]): ChatMessage[] 
   if (typeof content === 'string') {
     result[targetIdx] = {
       ...target,
-      content: [{ type: 'text', text: content, ...cached } as unknown as ContentBlock],
+      content: [{ type: 'text', text: content, ...cached } as ContentBlock],
     };
   } else if (Array.isArray(content) && content.length > 0) {
     const newBlocks = content.slice();
     const last = newBlocks[newBlocks.length - 1];
-    newBlocks[newBlocks.length - 1] = { ...last, ...cached } as unknown as ContentBlock;
+    newBlocks[newBlocks.length - 1] = { ...last, ...cached } as ContentBlock;
     result[targetIdx] = { ...target, content: newBlocks };
   }
   return result;

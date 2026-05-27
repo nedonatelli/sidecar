@@ -16,8 +16,7 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import type { SidecarDir } from './sidecarDir.js';
 import { cosine } from './math.js';
-
-const MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
+import { MINILM_MODEL_ID as MODEL_ID, type EmbeddingPipeline, loadEmbeddingPipeline } from './hfPipeline.js';
 const DIMENSION = 384;
 const META_FILE = 'cache/embeddings-meta.json';
 const BIN_FILE = 'cache/embeddings.bin';
@@ -38,12 +37,6 @@ interface EmbeddingMeta {
   count: number;
   entries: Record<string, { offset: number; hash: string }>;
 }
-
-// Type for the pipeline function from @huggingface/transformers
-type EmbeddingPipeline = (
-  texts: string[],
-  options?: { pooling?: string; normalize?: boolean },
-) => Promise<{ data: Float32Array }>;
 
 export class EmbeddingIndex implements Disposable {
   private sidecarDir: SidecarDir | null;
@@ -92,25 +85,10 @@ export class EmbeddingIndex implements Disposable {
 
   private async loadModel(): Promise<void> {
     try {
-      // Dynamic import to avoid blocking extension activation
-      const { pipeline: createPipeline, env } = await import('@huggingface/transformers');
-
-      // Use the extension's cache directory if available
-      if (this.sidecarDir?.isReady()) {
-        const cacheDir = this.sidecarDir.getPath('cache', 'models');
-        env.cacheDir = cacheDir;
-      }
-      // Allow downloading models from HuggingFace Hub
-      env.allowRemoteModels = true;
-
-      // @huggingface/transformers@4 replaced the boolean `quantized`
-      // flag with an explicit `dtype` enum. Pin `q8` so the same 8-bit
-      // quantized ONNX weights load as under v2's `quantized: true`;
-      // without this, v4 silently falls back to fp32 and the embeddings
-      // drift enough to fail the parity gate.
-      this.pipeline = (await createPipeline('feature-extraction', MODEL_ID, {
-        dtype: 'q8',
-      })) as unknown as EmbeddingPipeline;
+      this.pipeline = await loadEmbeddingPipeline(MODEL_ID, {
+        cacheDir: this.sidecarDir?.isReady() ? this.sidecarDir.getPath('cache', 'models') : undefined,
+        allowRemoteModels: true,
+      });
       this.ready = true;
       console.log('[SideCar] Embedding model loaded:', MODEL_ID);
     } catch (err) {

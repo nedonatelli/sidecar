@@ -31,7 +31,6 @@ export interface ParsedJobLog {
 // Regex constants
 // ---------------------------------------------------------------------------
 
-const ANSI_RE = /\x1b\[[0-9;]*[mGKHF]/g;
 // GHA prepends an ISO timestamp + space to every line.
 const GHA_TS_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z /;
 // GHA workflow-command lines: ##[group]name, ##[endgroup], ##[error]msg …
@@ -41,9 +40,8 @@ const GHA_CMD_RE = /^##\[(\w+)](.*)/;
 // Low-level string helpers (exported for tests)
 // ---------------------------------------------------------------------------
 
-export function stripAnsi(text: string): string {
-  return text.replace(ANSI_RE, '');
-}
+import { stripAnsi } from '../terminal/ansi.js';
+export { stripAnsi };
 
 export function stripGhaTimestamp(line: string): string {
   return line.replace(GHA_TS_RE, '');
