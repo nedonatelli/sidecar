@@ -5,7 +5,7 @@ import { DriftDiagnostics } from '../deps/driftDiagnostics.js';
 import type { ManifestScanResult } from '../deps/types.js';
 
 const MANIFEST_GLOBS = ['**/package.json', '**/requirements*.txt', '**/Cargo.toml', '**/go.mod'];
-const SKIP_PATTERN = '{**/node_modules/**,**/.git/**,**/vendor/**,**/dist/**,**/build/**}';
+const SKIP_PATTERN = '{**/node_modules/**,**/.git/**,**/vendor/**,**/dist/**,**/build/**,**/.vscode-test/**,**/out/**}';
 
 /**
  * Register the Dependency Drift feature:

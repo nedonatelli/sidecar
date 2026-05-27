@@ -12,6 +12,7 @@ import {
 import type { DepResult, ManifestScanResult } from './types.js';
 
 const MANIFEST_GLOBS = ['**/package.json', '**/requirements*.txt', '**/Cargo.toml', '**/go.mod'];
+const EXCLUDE_SEGMENTS = ['node_modules', '.git', 'vendor', 'dist', 'build', '.vscode-test', 'out'];
 const DEBOUNCE_MS = 2000;
 
 function depSeverity(dep: DepResult): DiagnosticSeverity {
@@ -83,7 +84,11 @@ export class DriftDiagnostics {
     for (const root of roots) {
       for (const glob of MANIFEST_GLOBS) {
         const watcher = workspace.createFileSystemWatcher(`${root.uri.fsPath}/${glob}`);
-        const schedule = (uri: Uri) => this.scheduleScan(uri.fsPath);
+        const schedule = (uri: Uri) => {
+          const p = uri.fsPath;
+          if (EXCLUDE_SEGMENTS.some((seg) => p.includes(`/${seg}/`))) return;
+          this.scheduleScan(p);
+        };
         this.disposables.push(watcher, watcher.onDidChange(schedule), watcher.onDidCreate(schedule));
       }
     }
