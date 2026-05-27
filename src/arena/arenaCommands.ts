@@ -4,6 +4,7 @@ import type { EloStore } from './eloStore.js';
 import { ArenaPanel } from './arenaPanel.js';
 import type { ForkReviewDeps } from '../agent/fork/forkReview.js';
 import type { AgentCallbacks } from '../agent/loop.js';
+import { checkMemoryPreflight } from '../system/memoryMonitor.js';
 
 // ---------------------------------------------------------------------------
 // Arena commands — chat mode + agent mode entry points.
@@ -39,6 +40,8 @@ export async function openArena(deps: ArenaCommandDeps): Promise<void> {
     if (!models) return; // cancelled
   }
 
+  if (!(await checkMemoryPreflight(`run ${models.length} models simultaneously in Arena`))) return;
+
   ArenaPanel.create(deps.context, client, deps.eloStore, models, () => pickModels(client));
 }
 
@@ -70,6 +73,8 @@ export async function openArenaAgent(
   // Lazy-import to avoid loading the heavy fork dispatcher at activate time.
   const { dispatchForks } = await import('../agent/fork/forkDispatcher.js');
   const { reviewForkBatch } = await import('../agent/fork/forkReview.js');
+
+  if (!(await checkMemoryPreflight(`run ${models.length} models simultaneously in Arena (agent mode)`))) return;
 
   const ctrl = new AbortController();
   const labels = models.map((m) => shortLabel(m));

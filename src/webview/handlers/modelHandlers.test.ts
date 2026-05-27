@@ -42,6 +42,11 @@ vi.mock('fs', async () => {
   };
 });
 
+// Always pass the memory preflight so tests never abort due to system RAM.
+vi.mock('../../system/memoryMonitor.js', () => ({
+  checkMemoryPreflight: vi.fn().mockResolvedValue(true),
+}));
+
 // Mock the HF token helper so the default is "no token set".
 const mockGetHFToken = vi.fn(async () => undefined);
 vi.mock('../../config/settings.js', async () => {
