@@ -1,6 +1,6 @@
 # SideCar Roadmap
 
-**Current release: v0.111.0** — Multi-file Edit Streams: DAG-planned edits card, parallel streaming diff previews, per-file cancel, atomic accept/reject, semantic importance-aware compression. See [CHANGELOG](CHANGELOG.md) for full notes.
+**Current release: v0.111.1** — Compression test coverage + documentation pass (tool count, slash commands, configuration). See [CHANGELOG](CHANGELOG.md) for full notes.
 
 **Coverage floor**: ≥80/70/80/80 (stmts/branches/funcs/lines) enforced by CI. No PR merges that drop any metric.
 
@@ -20,6 +20,7 @@
 
 | Version | Headline |
 |---|---|
+| v0.111.1 | Compression tier test coverage · documentation pass (tool count → 79, slash commands → 51, configuration: MCP delegation + research settings) |
 | v0.111.0 | Multi-file Edit Streams — DAG-planned edits card, parallel streaming diff previews, per-file cancel button, atomic accept/reject · semantic importance-aware message compression |
 | v0.110.0 | Speculative FIM decoding (auto-discovery + Kickstand) · PKI sidebar panel (`sidecar.pki` TreeView) · `projectKnowledge.graphWalkDepth/maxGraphHits` settings · Kickstand real token counts |
 | v0.109.0 | Kickstand backend: FIM inline completions · RoPE/YaRN long-context scaling · grammar-constrained decoding (JSON GBNF for tool calls) · Flash Attention (`sidecar.kickstand.flashAttn`) |
@@ -170,6 +171,14 @@
 **Should Have**:
 - [ ] **Accept-rate tracking** — observed accept rate logged per session; auto-disable if below `sidecar.speculativeDecoding.minAcceptRateToKeepEnabled` (default `0.4`) after warmup window.
 - [ ] **VRAM guardrail** — disable speculation when free VRAM drops below threshold (integrates with GPU-Aware Load Balancing when that ships).
+
+---
+
+### v0.111.1 — Test Coverage & Documentation Pass ✅ complete
+
+**Must Have**:
+- [x] **Compression tier test coverage** — full coverage of semantic tiers (error/write/read/other), state-establishing immunity (run_command/npm_install/git_clone), thinking block preservation, and index-0 edge cases.
+- [x] **Documentation pass** — tool count corrected to 79; slash commands expanded to 51; configuration docs updated with MCP delegation and research settings; docs/index.html and README updated.
 
 ---
 
