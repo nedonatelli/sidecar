@@ -1,6 +1,21 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { detectTransforms, BUILTIN_TRANSFORMS } from './pasteTransforms.js';
-import { AdaptivePasteTracker, AdaptivePasteCodeActionProvider } from './adaptivePaste.js';
+import {
+  AdaptivePasteTracker,
+  AdaptivePasteCodeActionProvider,
+  registerAdaptivePasteCommand,
+} from './adaptivePaste.js';
+import { workspace, window, commands } from 'vscode';
+import { getConfig } from '../config/settings.js';
+
+vi.mock('../config/settings.js', () => ({
+  getConfig: vi.fn(() => ({
+    adaptivePasteEnabled: true,
+    adaptivePasteAutoDetect: true,
+    adaptivePasteMinPasteLength: 20,
+    adaptivePasteModel: null,
+  })),
+}));
 
 // ---------------------------------------------------------------------------
 // pasteTransforms.ts — detection logic (pure, no VS Code dependency)
@@ -154,6 +169,126 @@ describe('AdaptivePasteTracker', () => {
 });
 
 // ---------------------------------------------------------------------------
+// AdaptivePasteTracker — onDidChangeTextDocument listener
+// ---------------------------------------------------------------------------
+
+describe('AdaptivePasteTracker — listener', () => {
+  function makeDoc(uri = 'file:///a.ts', languageId = 'typescript') {
+    return {
+      uri: { toString: () => uri },
+      languageId,
+      offsetAt: (pos: { line: number; character: number }) => pos.character,
+      positionAt: (offset: number) => ({ line: 0, character: offset }),
+    };
+  }
+
+  function makeEvent(
+    doc: ReturnType<typeof makeDoc>,
+    changes: {
+      text: string;
+      range: { start: { line: number; character: number }; end: { line: number; character: number }; isEmpty: boolean };
+    }[],
+  ) {
+    return { document: doc, contentChanges: changes };
+  }
+
+  function makeChange(text: string, empty = true) {
+    return {
+      text,
+      range: {
+        start: { line: 0, character: 0 },
+        end: { line: 0, character: empty ? 0 : 5 },
+        isEmpty: empty,
+      },
+    };
+  }
+
+  function captureListener(): { captured: ((e: unknown) => void) | null } {
+    const ref: { captured: ((e: unknown) => void) | null } = { captured: null };
+    vi.spyOn(workspace, 'onDidChangeTextDocument').mockImplementation((cb) => {
+      ref.captured = cb as (e: unknown) => void;
+      return { dispose: vi.fn() };
+    });
+    return ref;
+  }
+
+  beforeEach(() => {
+    vi.mocked(getConfig).mockReturnValue({
+      adaptivePasteEnabled: true,
+      adaptivePasteAutoDetect: true,
+      adaptivePasteMinPasteLength: 20,
+      adaptivePasteModel: null,
+    } as never);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('records a paste on a single-chunk insertion above minPasteLength', () => {
+    const ref = captureListener();
+    const tracker = new AdaptivePasteTracker();
+    const longText = 'x'.repeat(25);
+    ref.captured!(makeEvent(makeDoc(), [makeChange(longText)]));
+
+    const paste = tracker.getLastPaste();
+    expect(paste).not.toBeNull();
+    expect(paste!.text).toBe(longText);
+    expect(paste!.documentUri).toBe('file:///a.ts');
+    expect(paste!.languageId).toBe('typescript');
+  });
+
+  it('ignores change when adaptivePasteEnabled is false', () => {
+    vi.mocked(getConfig).mockReturnValue({
+      adaptivePasteEnabled: false,
+      adaptivePasteAutoDetect: true,
+      adaptivePasteMinPasteLength: 20,
+      adaptivePasteModel: null,
+    } as never);
+
+    const ref = captureListener();
+    const tracker = new AdaptivePasteTracker();
+    ref.captured!(makeEvent(makeDoc(), [makeChange('x'.repeat(25))]));
+    expect(tracker.getLastPaste()).toBeNull();
+  });
+
+  it('ignores change when adaptivePasteAutoDetect is false', () => {
+    vi.mocked(getConfig).mockReturnValue({
+      adaptivePasteEnabled: true,
+      adaptivePasteAutoDetect: false,
+      adaptivePasteMinPasteLength: 20,
+      adaptivePasteModel: null,
+    } as never);
+
+    const ref = captureListener();
+    const tracker = new AdaptivePasteTracker();
+    ref.captured!(makeEvent(makeDoc(), [makeChange('x'.repeat(25))]));
+    expect(tracker.getLastPaste()).toBeNull();
+  });
+
+  it('ignores multi-chunk changes (contentChanges.length !== 1)', () => {
+    const ref = captureListener();
+    const tracker = new AdaptivePasteTracker();
+    ref.captured!(makeEvent(makeDoc(), [makeChange('x'.repeat(25)), makeChange('y'.repeat(25))]));
+    expect(tracker.getLastPaste()).toBeNull();
+  });
+
+  it('ignores insertion below minPasteLength', () => {
+    const ref = captureListener();
+    const tracker = new AdaptivePasteTracker();
+    ref.captured!(makeEvent(makeDoc(), [makeChange('short')]));
+    expect(tracker.getLastPaste()).toBeNull();
+  });
+
+  it('ignores non-empty range (replacement, not insertion)', () => {
+    const ref = captureListener();
+    const tracker = new AdaptivePasteTracker();
+    ref.captured!(makeEvent(makeDoc(), [makeChange('x'.repeat(25), false)]));
+    expect(tracker.getLastPaste()).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // AdaptivePasteCodeActionProvider
 // ---------------------------------------------------------------------------
 
@@ -164,5 +299,190 @@ describe('AdaptivePasteCodeActionProvider', () => {
     const doc = { uri: { toString: () => 'file:///a.ts' }, languageId: 'typescript' } as never;
     const range = { intersection: () => null, isEmpty: false } as never;
     expect(provider.provideCodeActions(doc, range)).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// registerAdaptivePasteCommand
+// ---------------------------------------------------------------------------
+
+describe('registerAdaptivePasteCommand', () => {
+  const PASTE_URI = 'file:///b.ts';
+
+  const fakePaste = {
+    text: 'x'.repeat(30),
+    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 30 } },
+    documentUri: PASTE_URI,
+    languageId: 'typescript',
+  } as never;
+
+  const singleTransform = [
+    {
+      id: 'json-to-ts-type',
+      name: 'JSON → TS type',
+      description: 'desc',
+      transformInstruction: 'convert',
+      detect: () => true,
+    },
+  ] as never;
+
+  const twoTransforms = [
+    {
+      id: 'json-to-ts-type',
+      name: 'JSON → TS type',
+      description: 'desc',
+      transformInstruction: 'convert',
+      detect: () => true,
+    },
+    { id: 'sql-to-orm', name: 'SQL → ORM', description: 'desc2', transformInstruction: 'orm', detect: () => true },
+  ] as never;
+
+  function makeTracker(): AdaptivePasteTracker {
+    return new AdaptivePasteTracker();
+  }
+
+  function makeClient(result: string | null = 'transformed code') {
+    return {
+      completeWithOverrides:
+        result === null ? vi.fn().mockRejectedValue(new Error('LLM failed')) : vi.fn().mockResolvedValue(result),
+    } as never;
+  }
+
+  function fakeEditor(uri = PASTE_URI, languageId = 'typescript') {
+    return {
+      document: {
+        uri: { toString: () => uri },
+        languageId,
+      },
+    };
+  }
+
+  async function captureAndInvoke(client: ReturnType<typeof makeClient>, tracker: AdaptivePasteTracker, args: unknown) {
+    let captured: ((...a: unknown[]) => Promise<unknown>) | null = null;
+    vi.spyOn(commands, 'registerCommand').mockImplementation((_cmd, cb) => {
+      captured = cb as typeof captured;
+      return { dispose: vi.fn() };
+    });
+    registerAdaptivePasteCommand(client, tracker);
+    await captured!(args);
+  }
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    (window as { activeTextEditor: unknown }).activeTextEditor = undefined;
+    // applyEdit does not exist in the base mock — add it so vi.spyOn can wrap it.
+    if (!('applyEdit' in workspace)) {
+      Object.assign(workspace, { applyEdit: async () => true });
+    }
+  });
+
+  it('returns early when called with no args', async () => {
+    const client = makeClient();
+    const tracker = makeTracker();
+    await captureAndInvoke(client, tracker, undefined);
+    expect(
+      (client as { completeWithOverrides: ReturnType<typeof vi.fn> }).completeWithOverrides,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('calls completeWithOverrides and applies WorkspaceEdit on happy path (single transform)', async () => {
+    (window as { activeTextEditor: unknown }).activeTextEditor = fakeEditor();
+    const applyEdit = vi
+      .spyOn(workspace as typeof workspace & { applyEdit: () => Promise<boolean> }, 'applyEdit')
+      .mockResolvedValue(true);
+    const client = makeClient('const result = {};');
+    const tracker = makeTracker();
+
+    await captureAndInvoke(client, tracker, { paste: fakePaste, transforms: singleTransform });
+
+    expect(
+      (client as { completeWithOverrides: ReturnType<typeof vi.fn> }).completeWithOverrides,
+    ).toHaveBeenCalledOnce();
+    expect(applyEdit).toHaveBeenCalledOnce();
+    expect(tracker.getLastPaste()).toBeNull();
+  });
+
+  it('shows QuickPick and uses selected transform when multiple transforms available', async () => {
+    (window as { activeTextEditor: unknown }).activeTextEditor = fakeEditor();
+    vi.spyOn(workspace as typeof workspace & { applyEdit: () => Promise<boolean> }, 'applyEdit').mockResolvedValue(
+      true,
+    );
+    const client = makeClient('result');
+    const tracker = makeTracker();
+
+    vi.spyOn(window, 'showQuickPick').mockResolvedValue({
+      label: 'SQL → ORM',
+      description: 'desc2',
+      transform: (twoTransforms as unknown as (typeof twoTransforms)[])[1],
+    } as never);
+
+    await captureAndInvoke(client, tracker, { paste: fakePaste, transforms: twoTransforms });
+
+    expect(window.showQuickPick).toHaveBeenCalledOnce();
+    expect(
+      (client as { completeWithOverrides: ReturnType<typeof vi.fn> }).completeWithOverrides,
+    ).toHaveBeenCalledOnce();
+  });
+
+  it('returns early when QuickPick is cancelled', async () => {
+    (window as { activeTextEditor: unknown }).activeTextEditor = fakeEditor();
+    const client = makeClient();
+    const tracker = makeTracker();
+    vi.spyOn(window, 'showQuickPick').mockResolvedValue(undefined);
+
+    await captureAndInvoke(client, tracker, { paste: fakePaste, transforms: twoTransforms });
+
+    expect(
+      (client as { completeWithOverrides: ReturnType<typeof vi.fn> }).completeWithOverrides,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('returns early when activeTextEditor is null', async () => {
+    (window as { activeTextEditor: unknown }).activeTextEditor = null;
+    const client = makeClient();
+    const tracker = makeTracker();
+
+    await captureAndInvoke(client, tracker, { paste: fakePaste, transforms: singleTransform });
+
+    expect(
+      (client as { completeWithOverrides: ReturnType<typeof vi.fn> }).completeWithOverrides,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('returns early when editor document URI does not match paste document', async () => {
+    (window as { activeTextEditor: unknown }).activeTextEditor = fakeEditor('file:///other.ts');
+    const client = makeClient();
+    const tracker = makeTracker();
+
+    await captureAndInvoke(client, tracker, { paste: fakePaste, transforms: singleTransform });
+
+    expect(
+      (client as { completeWithOverrides: ReturnType<typeof vi.fn> }).completeWithOverrides,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('shows error message when completeWithOverrides returns empty string', async () => {
+    (window as { activeTextEditor: unknown }).activeTextEditor = fakeEditor();
+    vi.spyOn(workspace as typeof workspace & { applyEdit: () => Promise<boolean> }, 'applyEdit').mockResolvedValue(
+      true,
+    );
+    const showError = vi.spyOn(window, 'showErrorMessage').mockResolvedValue(undefined as never);
+    const client = makeClient('   ');
+    const tracker = makeTracker();
+
+    await captureAndInvoke(client, tracker, { paste: fakePaste, transforms: singleTransform });
+
+    expect(showError).toHaveBeenCalledWith(expect.stringContaining('empty result'));
+  });
+
+  it('shows error message when completeWithOverrides throws', async () => {
+    (window as { activeTextEditor: unknown }).activeTextEditor = fakeEditor();
+    const showError = vi.spyOn(window, 'showErrorMessage').mockResolvedValue(undefined as never);
+    const client = makeClient(null);
+    const tracker = makeTracker();
+
+    await captureAndInvoke(client, tracker, { paste: fakePaste, transforms: singleTransform });
+
+    expect(showError).toHaveBeenCalledWith(expect.stringContaining('LLM failed'));
   });
 });
