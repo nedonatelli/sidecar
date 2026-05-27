@@ -1,6 +1,6 @@
 # SideCar Roadmap
 
-**Current release: v0.109.0** — Kickstand backend improvements: FIM inline completions, RoPE/YaRN long-context scaling, grammar-constrained decoding for reliable tool calls, and Flash Attention. See [CHANGELOG](CHANGELOG.md) for full notes.
+**Current release: v0.110.0** — Speculative FIM decoding, PKI sidebar panel, graph-walk depth settings, Kickstand real token counts. See [CHANGELOG](CHANGELOG.md) for full notes.
 
 **Coverage floor**: ≥80/70/80/80 (stmts/branches/funcs/lines) enforced by CI. No PR merges that drop any metric.
 
@@ -12,7 +12,6 @@
 
 | Version | Headline |
 |---|---|
-| v0.110.0 | Speculative Decoding — zero-latency local autocomplete via draft-model pairing (2–4× FIM throughput on Ollama + Kickstand) |
 | v0.111.0 | Multi-file Edit Streams — DAG-planned edits card, parallel streaming diff previews, atomic accept/reject · semantic importance-aware message compression |
 | v0.112.0 | Skill Sync & Registry — git-native user + team skill registries, cross-machine sync, Skills Picker UI |
 
@@ -22,6 +21,7 @@
 
 | Version | Headline |
 |---|---|
+| v0.110.0 | Speculative FIM decoding (auto-discovery + Kickstand) · PKI sidebar panel (`sidecar.pki` TreeView) · `projectKnowledge.graphWalkDepth/maxGraphHits` settings · Kickstand real token counts |
 | v0.109.0 | Kickstand backend: FIM inline completions · RoPE/YaRN long-context scaling · grammar-constrained decoding (JSON GBNF for tool calls) · Flash Attention (`sidecar.kickstand.flashAttn`) |
 | v0.107.0 | Regression Guards: `RegressionGuardHook` on `HookBus` · built-in guards (`lint-clean`, `tests-pass`, `no-new-todos`, ecosystem-aware) · `guards:` skill frontmatter · `/guards` slash command |
 | v0.106.0 | Circuit breaker exponential backoff (15→30→60→120 s) · compression result cache · `/undo` slash command (was broken) · session search filter |
@@ -192,7 +192,7 @@
 
 ---
 
-### v0.110.0 — Symbol-level Project Knowledge Index
+### v0.110.0 — Symbol-level Project Knowledge Index ✅ complete
 
 **Sprint Goal**: *"Where is auth handled?" returns the middleware AND every route that wraps it. Upgrade the flat file-level index to symbol-granularity vectors with graph-walk retrieval.*
 

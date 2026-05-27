@@ -4,6 +4,15 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.110.0] - 2026-05-27
+
+### Added
+- Speculative FIM decoding, PKI sidebar panel, graph-walk depth settings, Kickstand real token counts
+
+### Stats
+- 6043 total tests (315 test files)
+- 40 built-in tools, 11 skills
+
 ## [0.109.0] - 2026-05-25
 
 **v0.109.0 — Kickstand: FIM, RoPE/YaRN long-context, grammar-constrained decoding, and Flash Attention.**
