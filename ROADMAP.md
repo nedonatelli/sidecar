@@ -14,8 +14,7 @@
 |---|---|
 | v0.110.0 | Speculative Decoding — zero-latency local autocomplete via draft-model pairing (2–4× FIM throughput on Ollama + Kickstand) |
 | v0.111.0 | Multi-file Edit Streams — DAG-planned edits card, parallel streaming diff previews, atomic accept/reject · semantic importance-aware message compression |
-| v0.110.0 | Symbol-level Project Knowledge Index — symbol-granularity chunking + graph-walk retrieval on FlatVectorStore · bundle size / tree-shake transformers.js |
-| v0.111.0 | Skill Sync & Registry — git-native user + team skill registries, cross-machine sync, Skills Picker UI |
+| v0.112.0 | Skill Sync & Registry — git-native user + team skill registries, cross-machine sync, Skills Picker UI |
 
 ---
 
@@ -214,7 +213,7 @@
 
 ---
 
-### v0.111.0 — Skill Sync & Registry
+### v0.112.0 — Skill Sync & Registry
 
 **Sprint Goal**: *Skills follow you across machines and teams. Git-native sync — no hosted registry required.*
 
@@ -267,7 +266,7 @@ Not promised to any specific release. Full specs in [docs/feature-specs.md](docs
 
 GPU-Native Hot-Swapping · GPU-Aware Load Balancing · Multi-repo cross-talk · Selective Regeneration · Zen Mode Context Filtering · Enterprise & Collaboration · Bitbucket/Atlassian integration · LanceDB HNSW backend (deferred from v0.110) · Domain Profiles (dense-repo context mode for physics/signal-processing) · Scheduled Task Concurrency Safety (Shadow routing + DocumentConcurrencyGate)
 
-*(Promoted to planned: Speculative Decoding → v0.108; Multi-file Edit Streams → v0.109; Symbol-level PKI → v0.110; Skill Sync & Registry → v0.111; Regression Guards → v0.107)*
+*(Promoted to planned: Speculative Decoding → v0.108; Multi-file Edit Streams → v0.109; Symbol-level PKI → v0.110; Skill Sync & Registry → v0.111 → v0.112; Regression Guards → v0.107)*
 
 *(Promoted to shipped: Semantic Time Travel → `git_search_history` tool v1.0; MCP Marketplace → `sidecar.mcp.openMarketplace` command v1.0; Dependency Drift Alerts → `check_dependencies` tool + Problems panel v0.91.0; Model Arena → `sidecar.arena.*` commands v0.90.0; Semantic Agentic Search for Monorepos → `monorepo_packages` tool v0.97.0)*
 

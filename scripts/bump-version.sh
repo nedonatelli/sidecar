@@ -30,6 +30,34 @@ fi
 OLD_VERSION=$(node -p "require('./package.json').version")
 TODAY=$(date +%Y-%m-%d)
 
+# --- Validate version is a legal next step from the latest git tag ---
+LATEST_TAG=$(git tag | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+if [[ -n "$LATEST_TAG" ]]; then
+  TAG_VER="${LATEST_TAG#v}"
+  IFS='.' read -r TAG_MAJOR TAG_MINOR TAG_PATCH <<< "$TAG_VER"
+  IFS='.' read -r NEW_MAJOR NEW_MINOR NEW_PATCH <<< "$NEW_VERSION"
+
+  VALID_NEXT=(
+    "$TAG_MAJOR.$TAG_MINOR.$((TAG_PATCH + 1))"          # patch bump
+    "$TAG_MAJOR.$((TAG_MINOR + 1)).0"                   # minor bump
+    "$((TAG_MAJOR + 1)).0.0"                            # major bump
+  )
+
+  OK=0
+  for v in "${VALID_NEXT[@]}"; do
+    [[ "$NEW_VERSION" == "$v" ]] && OK=1 && break
+  done
+
+  if [[ $OK -eq 0 ]]; then
+    echo "ERROR: version skip detected."
+    echo "  Latest tag : $LATEST_TAG"
+    echo "  Requested  : v$NEW_VERSION"
+    echo "  Valid next : ${VALID_NEXT[*]}"
+    echo "Fix the version or delete stale tags before proceeding."
+    exit 1
+  fi
+fi
+
 echo "=== SideCar Version Bump: $OLD_VERSION → $NEW_VERSION ==="
 echo ""
 
