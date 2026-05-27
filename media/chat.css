@@ -1604,6 +1604,65 @@ body {
   cursor: default;
 }
 
+/* Per-row Revert button (appears after a file reaches done status) */
+.edit-plan-revert-btn {
+  margin-left: auto;
+  padding: 1px 7px;
+  font-size: 0.75em;
+  border: 1px solid var(--vscode-button-border, transparent);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--vscode-errorForeground);
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+.edit-plan-revert-btn:hover {
+  opacity: 1;
+  background: var(--vscode-inputValidation-errorBackground, rgba(255, 0, 0, 0.1));
+}
+.edit-plan-revert-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* Card-level bulk Accept / Revert All actions */
+.edit-plan-bulk-actions {
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px 6px;
+  border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
+  margin-top: 4px;
+}
+.edit-plan-bulk-keep,
+.edit-plan-bulk-revert {
+  padding: 3px 12px;
+  font-size: 0.8em;
+  border-radius: 3px;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+.edit-plan-bulk-keep {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+}
+.edit-plan-bulk-keep:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+.edit-plan-bulk-revert {
+  background: transparent;
+  color: var(--vscode-errorForeground);
+  border-color: var(--vscode-errorForeground);
+}
+.edit-plan-bulk-revert:hover {
+  background: var(--vscode-inputValidation-errorBackground, rgba(255, 0, 0, 0.1));
+}
+.edit-plan-bulk-keep:disabled,
+.edit-plan-bulk-revert:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 /* Attach button context menu */
 .attach-menu {
   position: fixed;

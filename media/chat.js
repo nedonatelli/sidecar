@@ -2082,6 +2082,12 @@
   // plans stay visible in the transcript as a historical record but
   // only the current plan receives live status transitions.
   let activeEditPlanCard = null;
+  // op-type per path for the active plan (populated when the card renders,
+  // used to send the correct revert command when the user clicks Revert).
+  const editPlanOps = new Map();
+  // Paths that completed successfully in the active run (populated as
+  // done-status progress updates arrive; cleared when a new plan card renders).
+  const editPlanDonePaths = new Set();
 
   const STATUS_GLYPH = {
     pending: '◯',
@@ -2092,6 +2098,10 @@
   };
 
   function renderEditPlanCard(edits) {
+    editPlanOps.clear();
+    editPlanDonePaths.clear();
+    for (const e of edits) editPlanOps.set(e.path, e.op);
+
     const card = document.createElement('details');
     card.className = 'edit-plan-card';
     card.open = true;
@@ -2188,6 +2198,23 @@
     if (cancelBtn) {
       const isTerminal = update.status === 'done' || update.status === 'failed' || update.status === 'aborted';
       cancelBtn.style.display = isTerminal ? 'none' : '';
+    }
+    // When a file completes successfully, record it and show a per-row Revert button.
+    if (update.status === 'done') {
+      editPlanDonePaths.add(update.path);
+      if (!row.querySelector('.edit-plan-revert-btn')) {
+        const revertBtn = document.createElement('button');
+        revertBtn.className = 'edit-plan-revert-btn';
+        revertBtn.textContent = 'Revert';
+        revertBtn.title = 'Undo changes to this file';
+        const op = editPlanOps.get(update.path) || 'edit';
+        revertBtn.addEventListener('click', () => {
+          vscode.postMessage({ command: 'rejectEditPlanFile', filePath: update.path, op });
+          revertBtn.disabled = true;
+          revertBtn.textContent = 'Reverted';
+        });
+        row.appendChild(revertBtn);
+      }
     }
   }
 
@@ -4496,6 +4523,42 @@
             lastMsg.appendChild(btnRow);
             scrollToBottom();
           }
+        }
+        // Append bulk Accept / Revert All actions to the active edit-plan card.
+        if (activeEditPlanCard && editPlanDonePaths.size > 0) {
+          const actions = document.createElement('div');
+          actions.className = 'edit-plan-bulk-actions';
+
+          const keepBtn = document.createElement('button');
+          keepBtn.className = 'edit-plan-bulk-keep';
+          keepBtn.textContent = 'Keep All';
+          keepBtn.addEventListener('click', () => {
+            actions.remove();
+            activeEditPlanCard = null;
+          });
+
+          const revertAllBtn = document.createElement('button');
+          revertAllBtn.className = 'edit-plan-bulk-revert';
+          revertAllBtn.textContent = 'Revert All';
+          revertAllBtn.addEventListener('click', () => {
+            revertAllBtn.disabled = true;
+            revertAllBtn.textContent = 'Reverting…';
+            for (const p of editPlanDonePaths) {
+              const op = editPlanOps.get(p) || 'edit';
+              vscode.postMessage({ command: 'rejectEditPlanFile', filePath: p, op });
+            }
+            // Disable all per-row revert buttons too
+            for (const btn of activeEditPlanCard.querySelectorAll('.edit-plan-revert-btn')) {
+              btn.disabled = true;
+            }
+            keepBtn.disabled = true;
+            revertAllBtn.textContent = 'Reverted';
+          });
+
+          actions.appendChild(keepBtn);
+          actions.appendChild(revertAllBtn);
+          activeEditPlanCard.appendChild(actions);
+          scrollToBottom();
         }
         break;
       }

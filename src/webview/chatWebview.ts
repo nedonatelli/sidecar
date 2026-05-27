@@ -98,7 +98,8 @@ export interface WebviewMessage {
     | 'startVoice'
     | 'voiceAudio'
     | 'editMessage'
-    | 'cancelEditPlanFile';
+    | 'cancelEditPlanFile'
+    | 'rejectEditPlanFile';
   images?: { mediaType: string; data: string }[];
   text?: string;
   model?: string;
@@ -144,6 +145,8 @@ export interface WebviewMessage {
   msgIndex?: number;
   /** Filesystem paths dropped into the chat webview. */
   paths?: string[];
+  /** Edit plan: op type for revert ('create' | 'edit' | 'delete'). */
+  op?: 'create' | 'edit' | 'delete';
   /** Steer queue: the id of a pending steer for cancel/edit. */
   steerId?: string;
   /** Steer queue: urgency for a new submission. */

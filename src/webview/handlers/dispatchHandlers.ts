@@ -39,7 +39,7 @@ import {
   isCommitRequest,
   isShowDiffRequest,
 } from './chatHandlers.js';
-import { handleRequestFileCompletion } from './fileHandlers.js';
+import { handleRequestFileCompletion, revertEditPlanFile } from './fileHandlers.js';
 import { handleGitHubCommand } from './githubHandlers.js';
 import { loadModels, handleInstallModel } from './modelHandlers.js';
 import {
@@ -206,6 +206,11 @@ export function buildDispatchHandlers(
     cancelEditPlanFile: (msg) => {
       if (!msg.filePath) return;
       state.editCancelFns?.get(msg.filePath)?.();
+    },
+
+    rejectEditPlanFile: async (msg) => {
+      if (!msg.filePath || !msg.op) return;
+      await revertEditPlanFile(msg.filePath, msg.op);
     },
 
     changeModel: async (msg) => {

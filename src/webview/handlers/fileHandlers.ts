@@ -452,6 +452,42 @@ export async function handleAcceptAllChanges(state: ChatState): Promise<void> {
 }
 
 /**
+ * Revert a single file that was written by the edit plan.
+ *
+ * op === 'create' → the file was new; trash it.
+ * op === 'edit' | 'delete' → restore the HEAD version via git checkout.
+ *
+ * `filePath` is the workspace-relative path sent from the webview.
+ */
+export async function revertEditPlanFile(filePath: string, op: 'create' | 'edit' | 'delete'): Promise<void> {
+  const folders = workspace.workspaceFolders;
+  if (!folders || folders.length === 0) return;
+  const rootUri = folders[0].uri;
+  const fileUri = Uri.joinPath(rootUri, filePath);
+  if (!isWithinRoot(fileUri, rootUri)) return;
+
+  if (op === 'create') {
+    try {
+      await workspace.fs.delete(fileUri, { useTrash: true });
+    } catch {
+      // File may already be gone.
+    }
+    return;
+  }
+
+  // Restore HEAD content via git checkout using ShellSession so the
+  // same hardening (alias/function namespace reset) applies as for all
+  // agent-originated shell commands.
+  const cwd = rootUri.fsPath;
+  const session = new ShellSession(cwd);
+  try {
+    await session.execute(`git checkout HEAD -- ${JSON.stringify(filePath)}`, { timeout: 10_000 });
+  } finally {
+    session.dispose();
+  }
+}
+
+/**
  * Gather workspace files for @-mention completion in the chat input.
  * Returns up to 500 relative paths (node_modules and hidden dirs excluded).
  * Results are sent once and cached in the webview for the session.
