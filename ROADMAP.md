@@ -173,7 +173,7 @@
 
 ---
 
-### v0.109.0 — Multi-file Edit Streams
+### v0.111.0 — Multi-file Edit Streams
 
 **Sprint Goal**: *Wide refactors feel coordinated, not sequential. The agent declares what it will touch before touching anything; the user sees all diffs stream in parallel and accepts or steers the whole batch.*
 
@@ -266,7 +266,7 @@ Not promised to any specific release. Full specs in [docs/feature-specs.md](docs
 
 GPU-Native Hot-Swapping · GPU-Aware Load Balancing · Multi-repo cross-talk · Selective Regeneration · Zen Mode Context Filtering · Enterprise & Collaboration · Bitbucket/Atlassian integration · LanceDB HNSW backend (deferred from v0.110) · Domain Profiles (dense-repo context mode for physics/signal-processing) · Scheduled Task Concurrency Safety (Shadow routing + DocumentConcurrencyGate)
 
-*(Promoted to planned: Speculative Decoding → v0.108; Multi-file Edit Streams → v0.109; Symbol-level PKI → v0.110; Skill Sync & Registry → v0.111 → v0.112; Regression Guards → v0.107)*
+*(Promoted to planned: Speculative Decoding → v0.108; Multi-file Edit Streams → v0.109 → v0.111; Symbol-level PKI → v0.110; Skill Sync & Registry → v0.111 → v0.112; Regression Guards → v0.107)*
 
 *(Promoted to shipped: Semantic Time Travel → `git_search_history` tool v1.0; MCP Marketplace → `sidecar.mcp.openMarketplace` command v1.0; Dependency Drift Alerts → `check_dependencies` tool + Problems panel v0.91.0; Model Arena → `sidecar.arena.*` commands v0.90.0; Semantic Agentic Search for Monorepos → `monorepo_packages` tool v0.97.0)*
 
