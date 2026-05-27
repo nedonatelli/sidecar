@@ -13,27 +13,32 @@ vi.mock('../../ollama/hfSafetensorsImport.js', () => ({
   importSafetensorsModel: (opts: unknown) => mockImport(opts),
 }));
 
-// Stub fs.statfsSync so the safetensors-import disk-space preflight in
+// Stub fs.promises.statfs so the safetensors-import disk-space preflight in
 // `runSafetensorsImportFlow` always sees plenty of free space. Without
-// this, a host with less than 2× the test-repo-size free in os.tmpdir()
+// this, a CI runner with less than 2× the test-repo-size free in os.tmpdir()
 // (e.g. ~40 GB for the 20 GB fixture below) aborts early and
 // `importSafetensorsModel` never gets called, producing the misleading
 // "expected toHaveBeenCalledWith but received 0 calls" failure. Other fs
 // functions pass through unchanged so real mkdirSync / writeFileSync
 // continue to work in tests that use the temp staging dir.
+const AMPLE_SPACE = {
+  type: 0,
+  bsize: 4096,
+  blocks: BigInt(1_000_000_000),
+  bfree: BigInt(500_000_000),
+  bavail: BigInt(500_000_000), // ~2 TB free — always passes the 2× preflight
+  files: BigInt(0),
+  ffree: BigInt(0),
+};
 vi.mock('fs', async () => {
   const actual = await vi.importActual<typeof import('fs')>('fs');
   return {
     ...actual,
-    statfsSync: () => ({
-      type: 0,
-      bsize: 4096,
-      blocks: BigInt(1_000_000_000),
-      bfree: BigInt(500_000_000),
-      bavail: BigInt(500_000_000),
-      files: BigInt(0),
-      ffree: BigInt(0),
-    }),
+    statfsSync: () => AMPLE_SPACE,
+    promises: {
+      ...(actual.promises as object),
+      statfs: async () => AMPLE_SPACE,
+    },
   };
 });
 
