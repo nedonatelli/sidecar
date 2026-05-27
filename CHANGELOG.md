@@ -4,6 +4,30 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.111.0] - 2026-05-27
+
+**v0.111.0 — Multi-file Edit Streams.**
+
+### Added
+
+- **`EditPlan` manifest** — before a multi-file write batch fires, the planner agent produces a typed `EditPlan` manifest `{ edits: { path, op, rationale, dependsOn[] }[] }` when the fanout reaches `sidecar.multiFileEdits.minFilesForPlan` (default 3) files. (`src/agent/editPlan.ts`, `src/agent/editPlanner.ts`)
+
+- **DAG scheduler** — `multiFileEdit.ts` topologically sorts `dependsOn` edges and dispatches independent layers in parallel up to `sidecar.multiFileEdits.maxParallel` (default 8). Each edit gets a child `AbortController` linked to the parent signal. Conflict detection merges duplicate edit targets; circular deps are rejected with a single revision request fed back to the model.
+
+- **"Planned edits" card** — collapsible card in the chat UI lists all planned paths and ops before execution begins. Each row shows op badge, path, rationale, dependency references, status indicator, and a per-file cancel button. Progress transitions (`pending → writing → done/failed/aborted`) update rows in place via `editPlanProgress` messages. (`media/chat.js`, `media/chat.css`)
+
+- **Per-file cancel button** — clicking the cancel button in a planned-edits row posts `cancelEditPlanFile` to the extension, which aborts the corresponding child `AbortController` mid-stream without affecting other in-flight files. (`src/webview/handlers/agentCallbacks.ts`, `src/webview/handlers/dispatchHandlers.ts`)
+
+- **Semantic importance-aware compression** — replaces the flat distance-from-end heuristic with a four-tier model: `error` (never compressed), `write` (protected 6 messages, then 1000→200 chars), `read` (compressed aggressively from turn 2, 500→150 chars), `other` (legacy: 2 messages untouched, 1000→200 chars). `isStateEstablishingResult()` marks `run_command`, `npm_install`, and `git_clone` tool results as permanently immune. (`src/agent/loop/compression.ts`)
+
+- **`@no-plan` sentinel** — add `@no-plan` to a prompt to skip the planner pass for that request.
+
+- **`sidecar.multiFileEdits.plannerModel`** — use a smaller/faster model for the structured planning pass; defaults to the main model.
+
+### Stats
+- 6415 total tests (338 test files)
+- 79 built-in tools, 11 skills
+
 ## [0.110.0] - 2026-05-27
 
 ### Added
