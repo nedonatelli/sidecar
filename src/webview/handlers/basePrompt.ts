@@ -131,9 +131,9 @@ export function buildBaseSystemPrompt(p: SystemPromptParams): string {
   if (p.approvalMode === 'plan') {
     prompt +=
       '\n\nPLAN MODE ACTIVE:\n' +
-      'Write a structured implementation plan based on the request and the code context already loaded above. ' +
-      'No file-system tools are available in this planning turn — work from the context you have. ' +
-      'If the request is ambiguous, call `ask_user` to clarify before writing the plan. ' +
+      'Write a structured implementation plan for the requested task. ' +
+      'Only `ask_user` is available — all file-system and execution tools are blocked until the user approves the plan. ' +
+      'If the request is ambiguous, call `ask_user` to clarify first, then write the plan. ' +
       'Do NOT write or edit any files. Your plan will be shown to the user, who can approve, revise, or reject it before any code changes are made.\n\n' +
       'Remember: DO NOT write or edit any files yet. This is a planning-only turn.\n' +
       '\n' +

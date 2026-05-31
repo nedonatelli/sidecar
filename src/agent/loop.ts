@@ -435,8 +435,15 @@ export async function runAgentLoop(
       // reprompt. If the gate fires, continue the loop; otherwise
       // this is a natural termination.
       if (pendingToolUses.length === 0) {
-        const iterTools = state.approvalMode === 'plan' && state.iteration === 1 ? [] : state.tools;
-        if (iterTools.length > 0 && fullText) {
+        // ask_user is the only tool available in plan mode. A text-only
+        // response — on any iteration — means the model has finished
+        // asking questions and is presenting its plan.
+        if (options.approvalMode === 'plan' && fullText) {
+          callbacks.onPlanGenerated?.(fullText);
+          break;
+        }
+
+        if (state.tools.length > 0 && fullText) {
           const looksLikeToolAttempt =
             fullText.includes('<function=') ||
             fullText.includes('<tool_call>') ||
@@ -444,13 +451,6 @@ export async function runAgentLoop(
           if (looksLikeToolAttempt) {
             recordToolFailure(client.getModel());
           }
-        }
-
-        // Plan mode: tools were stripped on iteration 1 so the model
-        // always lands here (no tool calls). Emit the plan and stop.
-        if (options.approvalMode === 'plan' && state.iteration === 1 && fullText) {
-          callbacks.onPlanGenerated?.(fullText);
-          break;
         }
 
         // Empty-response phase: the model produced no tool calls this

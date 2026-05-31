@@ -133,10 +133,12 @@ export async function streamOneTurn(
   let stopReason = 'end_turn';
   let terminated: TurnTermination = 'none';
 
-  // In plan mode, first iteration runs without tools to generate a plan.
-  // The orchestrator owns the plan-return short-circuit; this helper just
-  // gates tools out of the first request.
-  const iterTools = state.approvalMode === 'plan' && state.iteration === 1 ? [] : state.tools;
+  // In plan mode the model writes a plan rather than executing code.
+  // ask_user is allowed so the model can request clarification before
+  // committing to an approach. All file-system and execution tools are
+  // blocked across every plan-mode iteration — the model only gets them
+  // after the user approves the plan and the loop re-runs in normal mode.
+  const iterTools = state.approvalMode === 'plan' ? state.tools.filter((t) => t.name === 'ask_user') : state.tools;
 
   // Augment the system prompt with retrieved episodic context when the
   // store has relevant prior summaries. Falls back gracefully — if
