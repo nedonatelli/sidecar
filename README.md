@@ -114,6 +114,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 | **Doc sync** | Checks JSDoc `@param` staleness and README call-site arity on every save |
 | **MCP** | stdio / HTTP / SSE transports, per-server tool allowlist, `sidecar.noSql.install` for one-click MongoDB + Redis |
 | **Skills 2.0** | Constrained skills: `allowed-tools`, `preferred-model`, `max-iterations`, and `disable-model-invocation` frontmatter fields enforce execution contracts per skill; 🛡 badge in QuickPick for restricted skills |
+| **Skills Registry & Sync** | `/skills` opens a searchable QuickPick with registry-origin tags, tool-allowlist chips, and Stack mode for composing skills. `SideCar: Publish Skill to Registry` commits and pushes a skill to your git registry. `SideCar: Sync Skill Registries` pulls without restart. `hourly`/`daily` autoPull for background sync |
 | **Chat Threads & Branching** | `/branch [name]` forks the current conversation — original preserved, branch continues independently; nested parent/child tree in the Sessions sidebar |
 | **Research Assistant** | Structured project tracking: 8 agent tools (`research_create_project`, `_add_hypothesis`, `_log_experiment`, `_add_observation`, `_update_hypothesis_status`, `_set_project_status`, `_list_projects`, `_export_report`) + sidebar panel + `/research` slash command. Gated by `sidecar.research.enabled` |
 | **Context window bar** | 3 px colour-coded fill bar above the input area — blue → yellow (≥ 60 %) → red (≥ 80 %). Tooltip shows `Context: 12K / 32K tokens (38%)` |

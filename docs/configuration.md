@@ -520,8 +520,6 @@ Built-in facets are embedded in the extension and always available — no disk I
 
 ## Skills Registry & Sync (v0.112+)
 
-> **Preview** — settings are present in the schema but sync infrastructure activates in v0.112.0. See [Roadmap → v0.112.0](https://github.com/nedonatelli/sidecar/blob/main/ROADMAP.md) for details.
-
 Git-native skill distribution. SideCar clones personal and team skill registries on activation; `SkillLoader` picks up every `.agent.md` inside as a loadable skill. Standard git auth (SSH keys, HTTPS tokens) applies.
 
 | Setting | Type | Default | Description |

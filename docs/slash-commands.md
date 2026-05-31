@@ -57,7 +57,8 @@ Type `/` in the chat input to see all available commands. An autocomplete dropdo
 | `/verbose` | Toggle verbose mode |
 | `/prompt` | Show system prompt |
 | `/resume` | Resume a response that was cut off mid-stream |
-| `/skills` | List available skills |
+| `/skills` | Open the Skills Picker — searchable QuickPick with registry tags, tool-allowlist chips, and Stack mode |
+| `/skills stack` | Open the Skills Picker in multi-select (Stack) mode to compose multiple skills for one run |
 | `/releases` | List GitHub releases |
 | `/release` | Show, create, or delete a release |
 | `/move` | Move or rename a file |
