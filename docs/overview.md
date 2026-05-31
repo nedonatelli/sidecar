@@ -80,7 +80,7 @@ SideCar is built as a VS Code extension with the following main components:
 ## Supported Models
 
 ### Local Ollama
-- Default: `qwen3-coder:30b` (or other local models)
+- Default: `gemma4:e4b` (or other local models)
 - Works with any Ollama-compatible model
 - No internet required for operation
 

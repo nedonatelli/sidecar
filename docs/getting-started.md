@@ -19,7 +19,7 @@ ollama --version
 Pull a recommended model:
 
 ```bash
-ollama pull qwen3-coder:30b
+ollama pull gemma4:e4b
 ```
 
 ## Install SideCar
@@ -58,7 +58,7 @@ Use the model dropdown at the top of the chat panel to browse and switch models.
 
 You can also install new models directly from the dropdown — SideCar will pull them from the Ollama registry.
 
-The default model is `qwen3-coder:30b`. For machines with less RAM, try `qwen3-coder:8b` or `qwen2.5-coder:7b`.
+The default model is `gemma4:e4b`. For machines with less RAM, try `gemma4:2b` or `qwen2.5-coder:7b`.
 
 ## Switching backends
 

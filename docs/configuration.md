@@ -106,6 +106,53 @@ Each file in the planned-edits card has a **cancel button** — clicking it abor
 | `sidecar.customModes` | array | `[]` | Custom agent modes with dedicated system prompts and approval behavior. See [Custom modes](agent-mode#custom-modes) |
 | `sidecar.bgMaxConcurrent` | number | `3` | Maximum number of background agents that can run simultaneously (1–10) |
 
+## Model Management
+
+### Editor model
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `sidecar.editorModel` | string | `""` | Secondary model for agent execution turns. When set, planning turns (no prior tool calls) use `sidecar.model`; execution turns (following tool calls) use this model. Leave empty to disable the split. |
+
+Set `sidecar.editorModel` to a cheaper/faster model (e.g. `claude-haiku-4-5`) to reduce cost on long agent runs without sacrificing planning quality.
+
+### Fallback backend
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `sidecar.fallbackBaseUrl` | string | `""` | URL of a fallback backend. SideCar switches here automatically after repeated primary failures. Leave empty to disable. |
+| `sidecar.fallbackApiKey` | string | `""` | API key for the fallback backend. Stored in VS Code SecretStorage. |
+| `sidecar.fallbackModel` | string | `""` | Model to use on the fallback backend. Empty = reuse the primary model name. |
+
+Typical setup: primary = Anthropic, fallback = local Ollama, so API outages don't block work. SideCar switches back to the primary automatically once it recovers.
+
+### Model routing
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `sidecar.modelRouting.enabled` | boolean | `false` | Enable role-based routing. When `false`, every dispatch role uses `sidecar.model`. |
+| `sidecar.modelRouting.rules` | array | `[]` | Ordered routing rules. Each rule has a `when` expression, a `model`, and optional `fallbackModel` plus per-rule budget caps (`sessionBudget`, `dailyBudget`, `hourlyBudget` in USD). |
+| `sidecar.modelRouting.defaultModel` | string | `""` | Model used when no rule matches. Empty falls back to `sidecar.model`. |
+| `sidecar.modelRouting.dryRun` | boolean | `false` | Log routing decisions without applying them — calibrate rules before enabling. |
+| `sidecar.modelRouting.visibleSwaps` | boolean | `true` | Show a toast whenever a routing rule swaps the active model mid-session. |
+
+Rule `when` expressions support role names (`agent-loop`, `chat`, `critic`, `summarize`, `completion`, `planner`), attribute comparisons (`agent-loop.complexity=high`), prompt regex (`chat.prompt~=/proof/i`), and file glob (`agent-loop.files~=src/physics/**`). Budget caps trigger an automatic downgrade to `fallbackModel`.
+
+### Thinking mode
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `sidecar.thinking.mode` | string | `"single"` | Thinking visualization mode for models with extended thinking. Values: `"single"` (default), `"self-debate"` (pros/cons framing), `"tree-of-thought"` (possibility tree), `"red-team"` (adversarial critique). |
+
+### SteerQueue and message limits
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `sidecar.steerQueue.coalesceWindowMs` | number | `2000` | Milliseconds to wait at an iteration boundary before draining pending steers, coalescing rapid follow-ups into one turn. `0` drains immediately. |
+| `sidecar.steerQueue.maxPending` | number | `5` | Maximum queued steers. When full, the oldest nudge is evicted; an all-interrupt queue rejects new submissions with an explicit error. |
+| `sidecar.agentMaxMessages` | number | `25` | Soft ceiling on conversation message count before the agent wraps up. |
+| `sidecar.firstTokenTimeout` | number | `300` | Seconds to wait for the first token from the model. Local models loading from disk may need the full window. Set to `0` to disable. |
+
 ## Context
 
 | Setting | Type | Default | Description |
@@ -204,6 +251,24 @@ Patterns from `.sidecarignore` are merged with default excludes (`.git`, `.sidec
 | `sidecar.autoFixMaxRetries` | number | `3` | Max auto-fix retry attempts |
 
 When enabled, SideCar automatically runs VS Code's language diagnostics after the agent writes or edits a file. If errors are found, they're fed back to the model to self-correct — up to the configured retry limit.
+
+## Adversarial Critic (v0.48+)
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.critic.enabled` | boolean | `false` | Run an adversarial critic LLM call after every `write_file` / `edit_file` and after every failed `run_tests`. Disabled by default because it doubles API spend on edit turns. |
+| `sidecar.critic.model` | string | `""` | Model for the critic call. Empty = reuse `sidecar.model`. Set to a cheaper model (e.g. `claude-haiku-4-5`) to reduce cost. |
+| `sidecar.critic.blockOnHighSeverity` | boolean | `true` | Inject a synthetic user message forcing the agent to address high-severity findings before the turn can finish. When `false`, findings surface as chat annotations only. |
+
+The critic is capped at 2 injections per file per run to prevent unbounded spend on stuck loops.
+
+## Reactive Diagnostics Fix (v0.71+)
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.diagnostics.reactiveFixEnabled` | boolean | `false` | Automatically propose fixes for new VS Code diagnostics as they appear in the Problems panel. |
+| `sidecar.diagnostics.reactiveFixSeverity` | string | `"error"` | Minimum severity to trigger a fix. `"error"` = errors only; `"warning"` = errors and warnings. |
+| `sidecar.diagnostics.reactiveFixDebounceMs` | number | `2000` | Milliseconds to wait after a diagnostic appears before firing, to avoid triggering mid-edit. |
 
 ## Completion gate
 
@@ -351,6 +416,31 @@ Extend a model's native context window by tuning its positional-encoding paramet
 
 All Kickstand settings are preserved across Kickstand auto-restarts.
 
+## Adaptive Paste (v0.72+)
+
+When you paste foreign content into a file, SideCar detects the content type and offers a lightbulb code action to transform it to fit the target language. Detection is heuristic (no LLM call until you confirm). Built-in transforms include JSON → TypeScript type, SQL → ORM query, curl → `fetch()`, CSS → Tailwind, Python → TypeScript, shell → `child_process`, `.env` → Zod schema.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.adaptivePaste.enabled` | boolean | `true` | Enable Adaptive Paste. When disabled, no paste tracking or lightbulb actions are registered. |
+| `sidecar.adaptivePaste.autoDetect` | boolean | `true` | Automatically detect paste events via document change tracking. When `false`, only the explicit `Transform Paste with SideCar` command is available. |
+| `sidecar.adaptivePaste.minPasteLength` | number | `50` | Minimum character count for an insertion to be treated as a paste. Prevents the tracker from firing on short typed snippets. |
+| `sidecar.adaptivePaste.model` | string | `""` | Model override for paste transformations. Empty = use the chat model. |
+
+## Next Edit Suggestions (v0.72+)
+
+After you edit a symbol, SideCar walks the symbol graph to find callers and dependents that may also need updating. Candidates appear as ghost-text badge decorations (①②③) at the relevant lines; cross-file hits show in the status bar. Use `Tab` / `Alt+↓` / `Alt+↑` / `Esc` to accept, navigate, and dismiss.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.nextEdit.enabled` | boolean | `false` | Enable Next Edit Suggestions. |
+| `sidecar.nextEdit.model` | string | `""` | Model override for next-edit scoring. Empty = use the chat model. |
+| `sidecar.nextEdit.debounceMs` | number | `600` | Delay in milliseconds after a document change before the analyser runs. |
+| `sidecar.nextEdit.crossFileEnabled` | boolean | `true` | Include suggestions in files other than the one being edited. |
+| `sidecar.nextEdit.maxHops` | number | `2` | Symbol graph hops to walk. `1` = direct callers only; `2` = also files that import the changed file. |
+| `sidecar.nextEdit.topK` | number | `3` | Maximum suggestions to surface at once (1–9). |
+| `sidecar.nextEdit.autoTriggerOnSave` | boolean | `false` | Also run the analyser on file save, in addition to debounced keystroke triggers. |
+
 ## Shell execution
 
 | Setting | Type | Default | Description |
@@ -418,6 +508,35 @@ Dispatchable specialists — `general-coder`, `test-author`, `security-reviewer`
 
 Built-in facets are embedded in the extension and always available — no disk I/O, no broken-unpack footgun. Disk facets with an `id` matching a built-in override the built-in; duplicate ids across disk sources surface as load errors without aborting the rest of the registry.
 
+## Skills Registry & Sync (v0.112+)
+
+> **Preview** — settings are present in the schema but sync infrastructure activates in v0.112.0. See [Roadmap → v0.112.0](https://github.com/nedonatelli/sidecar/blob/main/ROADMAP.md) for details.
+
+Git-native skill distribution. SideCar clones personal and team skill registries on activation; `SkillLoader` picks up every `.agent.md` inside as a loadable skill. Standard git auth (SSH keys, HTTPS tokens) applies.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.skills.userRegistry` | string | `""` | Git URL or absolute local folder for your personal skill collection. Cloned/pulled into `~/.sidecar/user-skills/` on activation. |
+| `sidecar.skills.teamRegistries` | array | `[]` | Git URLs for team skill collections, each cloned into `~/.sidecar/team-skills/<slug>/`. Skills Picker tags each skill by origin registry. |
+| `sidecar.skills.autoPull` | string | `"on-start"` | When to sync registries. `"on-start"` refreshes on every activation; `"manual"` only when you run `SideCar: Sync Skill Registries`. |
+| `sidecar.skills.offline` | boolean | `false` | Air-gapped mode — no network calls for sync. The loader reads only from what is already cached. |
+| `sidecar.skills.trustedRegistries` | array | `[]` | Registry URLs that skip the first-install trust prompt. Per-skill `allowed-tools` and `disable-model-invocation` guardrails still apply. |
+
+## Auto Mode (v0.73+)
+
+Runs the agent in a loop against a markdown backlog file, processing each unchecked item in order and marking it complete on success. Start with the `SideCar: Start Auto Mode` command; stop with `SideCar: Stop Auto Mode`. Failures are appended to `.sidecar/logs/auto-mode-failures.md`.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.autoMode.backlogPath` | string | `".sidecar/backlog.md"` | Path to the backlog file. Relative to workspace root. Each unchecked `- [ ] task` line is a task. |
+| `sidecar.autoMode.maxTasksPerSession` | number | `10` | Maximum backlog items to attempt in one session. |
+| `sidecar.autoMode.maxRuntimeMinutes` | number | `240` | Wall-clock time limit in minutes. The session stops when reached even if items remain. |
+| `sidecar.autoMode.haltOnFailure` | boolean | `false` | Stop after the first failed task. When `false`, the failure is logged and the next item runs. |
+| `sidecar.autoMode.autoOpenPR` | boolean | `true` | Automatically open a pull request after all tasks complete successfully. |
+| `sidecar.autoMode.interTaskCooldownSeconds` | number | `30` | Seconds to wait between tasks — provides a window to stop the session before the next task begins. |
+
+Each task runs through `runAgentLoopInSandbox` with autonomous approval; shadow-workspace isolation applies when `sidecar.shadowWorkspace.mode` is not `"off"`.
+
 ## Debugging & reasoning
 
 | Setting | Type | Default | Description |
@@ -464,6 +583,61 @@ SideCar uses ONNX embeddings for semantic file search — queries like "authenti
 
 The embedding model (all-MiniLM-L6-v2, 384-dimensional, quantized) loads in the background after the workspace is indexed. Until it's ready, SideCar falls back to keyword-based scoring. Embeddings are cached in `.sidecar/cache/embeddings.bin` and only recomputed when file content changes.
 
+## Web Search
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.webSearch.provider` | string | `"duckduckgo"` | Provider for the `web_search` tool. `"duckduckgo"` — HTML scraping, no key required. `"tavily"` — purpose-built LLM search API. `"brave"` — privacy-focused independent index. Tavily and Brave require `sidecar.webSearch.apiKey`. |
+| `sidecar.webSearch.apiKey` | string | `""` | API key for Tavily or Brave. Not used when provider is `"duckduckgo"`. |
+
+The `web_search` tool blocks queries containing credential-shaped tokens (AWS keys, GitHub tokens, JWTs) before they reach any provider, regardless of this setting.
+
+## Zen Mode (v0.96+)
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.zenMode.enabled` | boolean | `false` | Only inject RAG hits scoring at or above `zenMode.minScore`. Reduces retrieval noise for local models on focused tasks. |
+| `sidecar.zenMode.minScore` | number | `0.35` | Minimum RRF score required for a context hit to be included when Zen Mode is active. |
+
+## Audit Mode settings (v0.60+)
+
+These settings tune the Audit Mode buffer behaviour. See [Agent Mode → Review mode](agent-mode#review-mode--batch-diff-review) for the full Audit Mode flow.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.audit.autoApproveReads` | boolean | `true` | `read_file` and `list_directory` bypass the audit buffer — reads don't mutate state. Set `false` to require explicit review of every read. |
+| `sidecar.audit.bufferGitCommits` | boolean | `true` | Buffer `git_commit` calls alongside file writes so a rejected flush leaves `HEAD` unchanged. Set `false` to let commits land immediately. |
+
+## Ollama Settings
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.ollama.disableThinking` | boolean | `false` | Pass `think: false` with every Ollama request, disabling extended reasoning for models that support it (Qwen3, DeepSeek-R1). Reduces latency at the cost of reasoning depth. |
+| `sidecar.ollama.numCtx` | number | `null` | Override the context window size (`num_ctx`). `null` = use the model's Modelfile default. Set to e.g. `32768` or `65536` to force a specific window. Ollama backend only. |
+
+## Retrieval & Project Knowledge (advanced)
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.retrieval.queryRewrite` | string | `"rule"` | Rewrite the user message before embedding for retrieval. `"off"` = passthrough; `"rule"` = strip preambles, expand camelCase (zero cost); `"llm"` = LLM-reformulated query; `"expand"` = rule + LLM combined. |
+| `sidecar.retrieval.graphExpansion.enabled` | boolean | `true` | After semantic retrieval, walk the symbol graph's `calls` edges outward to surface dependency-coupled symbols. |
+| `sidecar.retrieval.graphExpansion.maxHits` | number | `8` | Cap on symbols added via graph walk per retrieval call. |
+| `sidecar.projectKnowledge.backend` | string | `"flat"` | Vector storage backend. `"flat"` = in-memory `Float32Array` (fast up to ~100k symbols). `"lance"` = LanceDB for persistent out-of-memory storage (requires `@lancedb/lancedb`). |
+| `sidecar.projectKnowledge.maxSymbolsPerFile` | number | `500` | Safety cap on embedded symbols per file. Prevents auto-generated files from monopolising the embedder queue. |
+| `sidecar.merkleIndex.enabled` | boolean | `true` | Enable content-addressed Merkle tree over the symbol index. Prunes candidate files via embedding descent before scoring leaves — significant speedup on large codebases. |
+
+## Outbound Allowlist
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.outboundAllowlist` | array | `[]` | Hostnames permitted for URL fetching in chat. Supports a leading `*.` wildcard (e.g. `*.github.com`). Empty = allow all public URLs (built-in SSRF and private-IP blocking still applies). |
+
+## Verbose Logs
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.verboseLogs` | boolean | `false` | Append per-turn API call metadata (`runId`, `model`, `inputTokens`, `outputTokens`, `stopReason`, `timestamp`) to `.sidecar/logs/api.jsonl` for auditing and cost tracking. |
+
 ## RAG & Agent Memory
 
 SideCar uses **Retrieval-Augmented Generation (RAG)** to inject relevant documentation into the agent's context, and **persistent memory** to track learned patterns across sessions.
@@ -508,6 +682,34 @@ Memory is also recorded during agent runs whenever:
 - A tool is successfully executed (success pattern recorded)
 - New coding conventions are applied
 - Project decisions are made
+
+## Pinned Memory (v0.72+)
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.pinnedMemory.enabled` | boolean | `true` | Enable pinned memory. Pinned entries are always injected into the system prompt with always-include semantics — they survive context compaction and are never mid-chopped. |
+| `sidecar.pinnedMemory.maxPins` | number | `50` | Maximum number of pinned entries. Higher-boost entries are injected first; entries beyond the cap are dropped from injection. |
+| `sidecar.pinnedMemory.maxCharsPerPin` | number | `5000` | Maximum characters per pinned entry. Entries exceeding this are truncated with a marker, not dropped. |
+
+Entries are persisted to `.sidecar/memory/` and keyed by SHA-256 of path + optional heading list, so re-pinning the same content updates in place. Pin and unpin via `/memories` in chat or the Pinned Memory sidebar.
+
+## PR Defaults (v0.99+)
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.pr.create.draftByDefault` | boolean | `true` | Open new PRs as drafts so CI runs without notifying reviewers. |
+| `sidecar.pr.create.baseBranch` | string | `"auto"` | Base branch for new PRs. `"auto"` resolves the remote's default branch via git, falling back to `main`. |
+| `sidecar.pr.create.template` | string | `"auto"` | PR template handling. `"auto"` reads `.github/pull_request_template.md` and fills each section; `"ignore"` writes a fresh Summary + Test Plan body regardless. Any other value is treated as a path to a custom template file. |
+| `sidecar.pr.branchProtection.enabled` | boolean | `true` | Check branch protection rules before `git_push`. If direct pushes are blocked, the push is aborted and the agent is told why. Requires a GitHub token with `repo` scope. |
+| `sidecar.pr.branchProtection.warnEvenIfPassing` | boolean | `false` | Include branch protection rule summary in `git_push` output even when direct pushes are allowed, so the agent is aware of required status checks before submitting the PR. |
+
+## CodeLens, DESIGN.md, and Mermaid
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.codeLens.enabled` | boolean | `true` | Show SideCar code lenses above function/class declarations (Explain, Fix, Add tests, Refactor) and above TODO/FIXME comments (Fix) for TypeScript, JavaScript, Python, Go, and Rust files. |
+| `sidecar.designMd.enabled` | boolean | `true` | Read `DESIGN.md` (or `.sidecar/DESIGN.md`) and inject design tokens into agent context. The compact tokens block is always included; full prose rationale is added only when the active file is a UI file. |
+| `sidecar.enableMermaid` | boolean | `true` | Render fenced ` ```mermaid ` blocks as diagrams in the chat panel. Disable to skip the mermaid.js runtime load and render them as plain code. |
 
 ## Extensibility
 
@@ -615,6 +817,30 @@ The `profile_code` agent tool auto-detects the project ecosystem and runs the ap
 
 **Node.js and Python** require a `script` parameter pointing to the entry file (e.g. `profile_code(ecosystem="python", script="src/main.py")`). Go and Rust use their built-in bench runners and need no script.
 
+## Visual Verification (v0.77+)
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.visualVerify.enabled` | boolean | `false` | Enable the visual verification tool suite: `screenshot_page`, `analyze_screenshot`, `open_in_browser`, `run_playwright_code`. Requires a vision-capable model. |
+| `sidecar.visualVerify.mode` | string | `"warn"` | How the agent treats visual verification failures. `"strict"` — blocking error; `"warn"` — surface but continue; `"advisory"` — informational only. |
+| `sidecar.visualVerify.vlm` | string | `""` | Vision model for `analyze_screenshot`. Empty = auto-detect from the active backend (Claude 3+, GPT-4o, Ollama vision models). |
+| `sidecar.visualVerify.maxAttempts` | number | `3` | Suggested maximum visual-correction attempts. Injected into the system prompt as guidance. |
+| `sidecar.visualVerify.screenshotsDir` | string | `".sidecar/screenshots"` | Directory where `screenshot_page` saves captured PNGs. Relative to workspace root. |
+| `sidecar.visualVerify.allowedDomains` | array | `[]` | Domains permitted for `screenshot_page` even when they resolve to loopback or private-network addresses (e.g. `localhost`). |
+| `sidecar.visualVerify.cheapChecksOnly` | boolean | `false` | Run only heuristic pre-filter checks (blank canvas, edge clipping) and skip the VLM call. Useful on tight local-inference budgets. |
+
+`analyze_screenshot` always runs a fast heuristic pre-filter before calling the VLM. `run_playwright_code` always requires user approval regardless of agent mode.
+
+## Voice Input (v0.98+)
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.voice.enabled` | boolean | `false` | Show the microphone button in the chat input. Click to start recording; click again to stop. Transcribed text is injected into the chat box ready to send or edit. |
+| `sidecar.voice.model` | string | `"Xenova/whisper-tiny"` | Whisper model for speech-to-text. HuggingFace hub IDs (containing `/`) run in-process via ONNX — no API key needed. Plain names like `whisper-1` route to the HTTP transcription API. |
+| `sidecar.voice.transcriptionUrl` | string | `""` | Override URL for the Whisper transcription endpoint. Leave empty to derive from the active backend's base URL. |
+
+Audio is captured directly in the VS Code extension host. Platform paths: Swift/AVFoundation on macOS, `arecord` on Linux, PowerShell + WinMM on Windows. Local models are lazy-loaded and cached for the extension host lifetime.
+
 ## LaTeX Agentic Debugging (v0.94+)
 
 The `latex_compile` agent tool compiles a `.tex` document and returns structured errors and warnings with file and line references. Disabled by default.
@@ -625,6 +851,29 @@ The `latex_compile` agent tool compiles a `.tex` document and returns structured
 | `sidecar.latex.compiler` | string | `"latexmk"` | Compiler to use: `"latexmk"` (handles multi-pass automatically) or `"pdflatex"` |
 
 The tool auto-detects the main `.tex` file in the workspace root; pass `file="path/to/main.tex"` to target a specific document. `latexmk` is probed at each call and falls back to `pdflatex` if not installed.
+
+## Doc-to-Test Synthesis (v0.79+)
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.docTests.enabled` | boolean | `true` | Enable the `extract_constraints`, `synthesize_tests`, and `classify_test_failure` agent tools. |
+| `sidecar.docTests.extractionModel` | string | `""` | Model override for constraint extraction. Empty = use the active model. |
+| `sidecar.docTests.floatTolerance` | number | `1e-9` | Default relative tolerance passed to `pytest.approx()` for numeric example constraints. |
+| `sidecar.docTests.outputDir` | string | `"tests/from_docs"` | Directory where synthesized test files are written, relative to workspace root. |
+| `sidecar.docTests.requireConstraintApproval` | boolean | `true` | Present the constraint manifest for review before calling `synthesize_tests`. When `false`, tests are synthesized immediately after extraction. |
+| `sidecar.docTests.testFramework` | string | `"pytest"` | Test framework to target when synthesizing tests. |
+
+The synthesis loop: `extract_constraints` parses docs into a typed constraint manifest → `synthesize_tests` generates a complete test file from approved constraints → `classify_test_failure` triages failures back to `impl_wrong`, `doc_wrong`, or `extraction_wrong`.
+
+## CI Failure Analysis (v0.99+)
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.ci.analysis.enabled` | boolean | `true` | Enable the `analyze_ci_failure` agent tool and `SideCar: Analyze CI Failure` command palette entry. |
+| `sidecar.ci.analysis.jobFilter` | array | `["*"]` | Glob patterns matched against CI job names. `["*"]` = all failed jobs. Narrow to e.g. `["test", "lint"]` to skip unrelated jobs. |
+| `sidecar.ci.analysis.maxLogBytes` | number | `4000000` | Maximum bytes to download per CI job log. Logs larger than this are tailed. |
+
+Requires a GitHub token with `actions:read` scope configured via `SideCar: Set GitHub Token`.
 
 ## Persistent Executive Function (v0.94+)
 
@@ -660,6 +909,23 @@ When enabled, the agent can call `delegate_to_mcp(server="my-server", task="..."
 | `sidecar.mcpServer.maxConcurrent` | number | `1` | Maximum concurrent agent tasks from inbound calls |
 
 Exposes one tool: `run_agent_task(task, maxIterations?, approvalMode?)`. Other tools (Claude Code, VS Code extensions, CI scripts) can call SideCar's agent loop via HTTP. The server binds to `127.0.0.1` only — never exposed to the network.
+
+## Notebook Mode (v0.82+)
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.notebookMode.enabled` | boolean | `false` | Enable the source-grounded research tool suite: `ingest_source`, `generate_briefing`, `generate_study_guide`, `generate_faq`, `generate_timeline`, `generate_outline`. Each artifact carries per-sentence citations back to the ingested source. |
+| `sidecar.notebookMode.requireCitations` | boolean | `true` | Instruct the agent to re-generate any section that contains uncited claims. |
+| `sidecar.notebookMode.studyAids.enabled` | boolean | `true` | Enable `generate_study_guide` and `generate_faq`. Disable to keep only the core ingest, briefing, timeline, and outline pipeline. |
+
+## Zotero Integration (v0.75+)
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.zotero.userId` | string | `""` | Your Zotero user ID (found at zotero.org/settings/keys). Required for `zotero_search` and `zotero_get_item`. |
+| `sidecar.zotero.apiKey` | string | `""` | Your Zotero API key with read access. Required for `zotero_search` and `zotero_get_item`. |
+| `sidecar.zotero.baseUrl` | string | `"https://api.zotero.org"` | Zotero API base URL. Override for self-hosted Zotero instances. |
+| `sidecar.literature.enabled` | boolean | `false` | Include indexed PDF literature from `.sidecar/literature/` in retrieval context. Use `index_pdf` to add papers first. |
 
 ## Research Assistant (v0.104+)
 

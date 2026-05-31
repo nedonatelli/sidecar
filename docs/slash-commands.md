@@ -12,9 +12,7 @@ Type `/` in the chat input to see all available commands. An autocomplete dropdo
 
 | Command | Description |
 |---------|-------------|
-| `/reset` | Clear conversation history |
 | `/undo` | Revert all AI file changes |
-| `/export` | Export chat as Markdown file |
 | `/model <name>` | Switch model mid-conversation |
 | `/help` | Show available commands |
 | `/batch` | Run multiple tasks |
@@ -74,14 +72,6 @@ The following commands are also available from the **Command Palette** (`Ctrl+Sh
 ---
 
 ## Conversation
-
-### `/reset`
-
-Clears the conversation history and starts a new chat. Equivalent to clicking the "New Chat" button.
-
-### `/export`
-
-Exports the full conversation as a Markdown file. A save dialog lets you choose the location.
 
 ### `/save <name>`
 
