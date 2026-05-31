@@ -7,7 +7,14 @@ export const Uri = {
     const colonIdx = str.indexOf(':');
     const scheme = colonIdx > 0 ? str.slice(0, colonIdx) : 'file';
     const pathPart = colonIdx > 0 ? str.slice(colonIdx + 1) : str;
-    return { fsPath: pathPart, scheme, path: pathPart };
+    // Extract authority (host:port) for http/https URIs — matches VS Code Uri behaviour.
+    let authority = '';
+    if ((scheme === 'https' || scheme === 'http') && pathPart.startsWith('//')) {
+      const noSlashes = pathPart.slice(2);
+      const slashIdx = noSlashes.indexOf('/');
+      authority = slashIdx >= 0 ? noSlashes.slice(0, slashIdx) : noSlashes;
+    }
+    return { fsPath: pathPart, scheme, path: pathPart, authority };
   },
   joinPath: (base: { fsPath: string }, ...segments: string[]) => {
     const joined = [base.fsPath, ...segments].join('/');

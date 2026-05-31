@@ -275,6 +275,29 @@ export function buildDispatchHandlers(
       if (!msg.url) return;
       const parsed = Uri.parse(msg.url);
       if (parsed.scheme !== 'https' && parsed.scheme !== 'http') return;
+      // Restrict to known-safe domains to prevent prompt-injection redirects.
+      const cfg = getConfig();
+      const hostname = parsed.authority.replace(/:\d+$/, '').toLowerCase();
+      const SAFE_DOMAINS = [
+        'github.com',
+        'marketplace.visualstudio.com',
+        'ollama.com',
+        'anthropic.com',
+        'platform.claude.com',
+        'openai.com',
+        'platform.openai.com',
+        'openrouter.ai',
+        'groq.com',
+        'fireworks.ai',
+        'huggingface.co',
+        'zotero.org',
+        'api.zotero.org',
+        'aistudio.google.com',
+      ];
+      const outboundAllowlist: string[] = cfg.outboundAllowlist ?? [];
+      const allAllowed = [...SAFE_DOMAINS, ...outboundAllowlist];
+      const allowed = allAllowed.some((d) => hostname === d || hostname.endsWith('.' + d));
+      if (!allowed) return;
       env.openExternal(parsed);
     },
 
@@ -436,8 +459,14 @@ export function buildDispatchHandlers(
       const { openSkillPicker } = await import('../../commands/skillPicker.js');
       const result = await openSkillPicker(state.skillLoader, { mode: msg.stackMode ? 'stack' : 'replace' });
       if (result) {
-        const text = result.skills.map((s) => `/${s.id}`).join(' ');
-        postMessage({ command: 'injectPrompt', content: text });
+        // Sanitize skill IDs before injecting into chat input — registry-sourced
+        // IDs are validated at load time but we guard again at inject time.
+        const safeIds = result.skills.map((s) => s.id.replace(/[^a-zA-Z0-9_-]/g, ''));
+        const text = safeIds
+          .filter(Boolean)
+          .map((id) => `/${id}`)
+          .join(' ');
+        if (text) postMessage({ command: 'injectPrompt', content: text });
       }
     },
 

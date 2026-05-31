@@ -29,12 +29,20 @@ import type { LoopState } from './state.js';
  * and observe `callbacks.onDone` in a single call.
  */
 export function finalize(state: LoopState, callbacks: AgentCallbacks): ChatMessage[] {
-  callbacks.onToolChainFlush?.();
+  // Guard each callback independently so a throw in one cannot prevent
+  // onDone() from firing and leaving the UI in a permanent spinner state.
+  try {
+    callbacks.onToolChainFlush?.();
+  } catch (e) {
+    state.logger?.error(`onToolChainFlush error: ${e}`);
+  }
 
   if (callbacks.onSuggestNextSteps && state.iteration > 1) {
-    const suggestions = generateNextStepSuggestions(state.messages);
-    if (suggestions.length > 0) {
-      callbacks.onSuggestNextSteps(suggestions);
+    try {
+      const suggestions = generateNextStepSuggestions(state.messages);
+      if (suggestions.length > 0) callbacks.onSuggestNextSteps(suggestions);
+    } catch (e) {
+      state.logger?.error(`onSuggestNextSteps error: ${e}`);
     }
   }
 

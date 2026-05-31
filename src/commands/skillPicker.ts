@@ -127,16 +127,18 @@ export async function openSkillPicker(
   qp.title = opts.mode === 'stack' ? 'Stack Skills (select multiple)' : 'Pick Skill';
 
   const result = await new Promise<SkillPickerResult | null>((resolve) => {
+    let settled = false;
+    const settle = (value: SkillPickerResult | null) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
     qp.onDidAccept(() => {
       const selected = qp.canSelectMany ? [...qp.selectedItems] : qp.activeItems.length > 0 ? [qp.activeItems[0]] : [];
       qp.hide();
-      if (selected.length === 0) {
-        resolve(null);
-      } else {
-        resolve({ skills: selected.map((i) => i.skill), mode: opts.mode ?? 'replace' });
-      }
+      settle(selected.length === 0 ? null : { skills: selected.map((i) => i.skill), mode: opts.mode ?? 'replace' });
     });
-    qp.onDidHide(() => resolve(null));
+    qp.onDidHide(() => settle(null));
     qp.show();
   });
 

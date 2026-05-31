@@ -105,8 +105,17 @@ export async function syncSkillRegistries(opts: SyncOptions): Promise<RegistryRe
       continue;
     }
 
-    // First install from an untrusted registry — prompt the user.
-    if (!cached && !trustedUrls.has(ref.url)) {
+    // Validate URL scheme to prevent git ext:: and other protocol exploits.
+    if (!isAllowedGitUrl(ref.url)) {
+      log(
+        `[SideCar] Skill registry ${ref.label} skipped — URL scheme not allowed (must be https://, http://, ssh://, or git@).`,
+      );
+      continue;
+    }
+
+    // Trust prompt fires on first install AND whenever the URL is not in the
+    // trusted list, regardless of whether a stale cache exists.
+    if (!trustedUrls.has(ref.url)) {
       const ok = await trustPrompt(ref);
       if (!ok) {
         log(`[SideCar] Skill registry ${ref.label} skipped — user declined trust.`);
@@ -174,6 +183,21 @@ export async function collectRegistryRefs(config: SkillSyncConfigSlice, homeDir:
   }
 
   return refs;
+}
+
+/**
+ * Validate a git remote URL against an allowlist of safe schemes.
+ * Blocks ext::, fd::, and other git transport protocols that can execute
+ * arbitrary commands on the local machine.
+ */
+function isAllowedGitUrl(url: string): boolean {
+  return (
+    url.startsWith('https://') ||
+    url.startsWith('http://') ||
+    url.startsWith('ssh://') ||
+    url.startsWith('git@') ||
+    url.startsWith('git://')
+  );
 }
 
 /**

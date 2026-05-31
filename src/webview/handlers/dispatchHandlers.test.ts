@@ -343,10 +343,16 @@ describe('buildDispatchHandlers', () => {
     await expect(invoke(handlers, 'openExternal', {})).resolves.not.toThrow();
   });
 
-  it('openExternal allows https URLs', async () => {
+  it('openExternal allows https URLs on the safe-domain allowlist', async () => {
+    const { env } = await import('vscode');
+    await invoke(handlers, 'openExternal', { url: 'https://github.com/nedonatelli/sidecar' });
+    expect(env.openExternal).toHaveBeenCalledOnce();
+  });
+
+  it('openExternal blocks unknown domains', async () => {
     const { env } = await import('vscode');
     await invoke(handlers, 'openExternal', { url: 'https://example.com' });
-    expect(env.openExternal).toHaveBeenCalledOnce();
+    expect(env.openExternal).not.toHaveBeenCalled();
   });
 
   // ── runCommand ────────────────────────────────────────────────────────────

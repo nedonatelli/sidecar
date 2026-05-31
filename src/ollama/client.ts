@@ -303,18 +303,24 @@ export class SideCarClient {
         console.warn(`[SideCar] Primary backend failed, switching to fallback: ${(err as Error).message}`);
         yield { type: 'warning', message: 'Primary backend unavailable — using fallback.' };
         circuitBreaker.guard(this.getProviderType());
-        for await (const event of this.backend.streamChat(
-          effectiveModel,
-          effectiveSystemPrompt,
-          messages,
-          signal,
-          tools,
-        )) {
-          if (event.type === 'usage') this.chargeLastDecision(spendTracker.record(event.model, event.usage));
-          yield event;
+        try {
+          for await (const event of this.backend.streamChat(
+            effectiveModel,
+            effectiveSystemPrompt,
+            messages,
+            signal,
+            tools,
+          )) {
+            if (event.type === 'usage') this.chargeLastDecision(spendTracker.record(event.model, event.usage));
+            yield event;
+          }
+          circuitBreaker.recordSuccess(this.getProviderType());
+          return;
+        } catch (fallbackErr) {
+          if (fallbackErr instanceof Error && fallbackErr.name === 'AbortError') throw fallbackErr;
+          circuitBreaker.recordFailure(this.getProviderType());
+          throw fallbackErr;
         }
-        circuitBreaker.recordSuccess(this.getProviderType());
-        return;
       }
       throw err;
     }
@@ -392,11 +398,17 @@ export class SideCarClient {
   ): Promise<string> {
     const model = overrideModel && overrideModel.trim().length > 0 ? overrideModel : this.model;
     // Mirror the spend-delta hook from `complete()` so router budget
-    // tracking works for critic dispatches too .
+    // tracking works for critic dispatches too.
     const preSpend = spendTracker.snapshot().totalUsd;
-    const result = await this.backend.complete(model, systemPrompt, messages, maxTokens, signal);
-    this.chargeLastDecision(spendTracker.snapshot().totalUsd - preSpend);
-    return result;
+    try {
+      const result = await this.backend.complete(model, systemPrompt, messages, maxTokens, signal);
+      this.chargeLastDecision(spendTracker.snapshot().totalUsd - preSpend);
+      return result;
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') throw err;
+      circuitBreaker.recordFailure(this.getProviderType());
+      throw err;
+    }
   }
 
   private recordSuccess(): void {

@@ -283,7 +283,7 @@ export class MCPManager {
               const msg = err instanceof Error ? err.message : String(err);
               throw new Error(
                 `MCP tool "${mcpTool.name}" on server "${name}" failed: ${msg}` +
-                  ` (input: ${JSON.stringify(input).slice(0, 200)})`,
+                  ` (input keys: ${Object.keys(input && typeof input === 'object' ? (input as object) : {}).join(', ')})`,
               );
             }
           },

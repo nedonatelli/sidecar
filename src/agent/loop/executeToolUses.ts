@@ -206,10 +206,18 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
  * paid backend.
  */
 async function runSpawnAgent(ctx: ExecutionContext, toolUse: ToolUseContentBlock): Promise<ToolResultContentBlock> {
+  if (typeof toolUse.input.task !== 'string' || !toolUse.input.task) {
+    return {
+      type: 'tool_result',
+      tool_use_id: toolUse.id,
+      content: 'Error: task must be a non-empty string.',
+      is_error: true,
+    };
+  }
   const { state, client, options, callbacks, signal } = ctx;
   const subResult = await spawnSubAgent(
     client,
-    toolUse.input.task as string,
+    toolUse.input.task,
     toolUse.input.context as string | undefined,
     callbacks,
     signal,
@@ -238,9 +246,17 @@ async function runSpawnAgent(ctx: ExecutionContext, toolUse: ToolUseContentBlock
  * point of the tool: shift heavy I/O onto the free backend.
  */
 async function runDelegateTask(ctx: ExecutionContext, toolUse: ToolUseContentBlock): Promise<ToolResultContentBlock> {
+  if (typeof toolUse.input.task !== 'string' || !toolUse.input.task) {
+    return {
+      type: 'tool_result',
+      tool_use_id: toolUse.id,
+      content: 'Error: task must be a non-empty string.',
+      is_error: true,
+    };
+  }
   const { state, options, callbacks, signal } = ctx;
   const workerResult = await runLocalWorker(
-    toolUse.input.task as string,
+    toolUse.input.task,
     toolUse.input.context as string | undefined,
     callbacks,
     signal,

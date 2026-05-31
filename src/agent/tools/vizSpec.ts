@@ -149,6 +149,14 @@ export const vizSpecTools: RegisteredTool[] = [
       },
     },
     executor: async (input: unknown) => {
+      if (
+        !input ||
+        typeof input !== 'object' ||
+        !Array.isArray((input as VizSpec).labels) ||
+        !Array.isArray((input as VizSpec).data)
+      ) {
+        return 'Error: render_viz requires "labels" (string[]) and "data" (number[]) arrays.';
+      }
       const spec = input as VizSpec;
       return renderVizSpec(spec);
     },

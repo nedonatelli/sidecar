@@ -101,6 +101,13 @@ export class ChatViewProvider implements WebviewViewProvider {
     };
     webviewView.webview.html = getChatWebviewHtml(webviewView.webview, this.context.extensionUri);
 
+    // Per-resolve disposables — torn down when this webview instance is disposed.
+    // resolveWebviewView() can be called multiple times (VS Code re-invokes it
+    // when the panel is hidden then revealed). Without a per-resolve set, each
+    // call pushes new listeners into context.subscriptions permanently,
+    // duplicating them on every hide/show cycle.
+    const resolveDisposables: import('vscode').Disposable[] = [];
+
     webviewView.webview.onDidReceiveMessage(
       async (msg: WebviewMessage) => {
         try {
@@ -110,12 +117,13 @@ export class ChatViewProvider implements WebviewViewProvider {
         }
       },
       undefined,
-      this.context.subscriptions,
+      resolveDisposables,
     );
 
     webviewView.onDidDispose(() => {
       this.state.saveHistory();
       this.state.autoSave();
+      resolveDisposables.forEach((d) => d.dispose());
     });
 
     if (this.state.messages.length === 0) this.state.messages = this.state.loadHistory();
@@ -131,7 +139,7 @@ export class ChatViewProvider implements WebviewViewProvider {
     );
     this.pushUiSettings();
 
-    this.context.subscriptions.push(
+    resolveDisposables.push(
       workspace.onDidChangeConfiguration((e) => {
         if (UI_CONFIG_KEYS.some((k) => e.affectsConfiguration(k))) {
           this.pushUiSettings();
@@ -149,7 +157,7 @@ export class ChatViewProvider implements WebviewViewProvider {
       this.postMessage(buildActiveFileMessage(filePath));
     };
     pushActiveFile(window.activeTextEditor);
-    this.context.subscriptions.push(window.onDidChangeActiveTextEditor(pushActiveFile));
+    resolveDisposables.push(window.onDidChangeActiveTextEditor(pushActiveFile));
   }
 
   private pushUiSettings(): void {

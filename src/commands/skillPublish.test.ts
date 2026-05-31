@@ -19,16 +19,19 @@ vi.mock('vscode', () => ({
     activeTextEditor: undefined,
   },
   commands: { executeCommand: mockExecuteCommand },
+  workspace: { workspaceFolders: undefined },
 }));
 
 const mockReadFile = vi.fn();
 const mockWriteFile = vi.fn();
 const mockAccess = vi.fn();
+const mockUnlink = vi.fn().mockResolvedValue(undefined);
 vi.mock('fs', () => ({
   promises: {
     readFile: mockReadFile,
     writeFile: mockWriteFile,
     access: mockAccess,
+    unlink: mockUnlink,
   },
 }));
 
@@ -47,12 +50,19 @@ vi.mock('../github/git.js', () => ({ GitCLI: MockGitCLI }));
 
 // ── Tests ──────────────────────────────────────────────────────────────────
 
+type Config = ReturnType<typeof import('../config/settings.js').getConfig>;
+const DEFAULT_CONFIG: Partial<Config> = { skillsOffline: false, skillsUserRegistry: 'git@github.com:user/skills.git' };
+
 describe('publishSkill', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.resetAllMocks();
+    // vi.resetAllMocks() clears the getConfig factory implementation — restore it.
+    const { getConfig } = await import('../config/settings.js');
+    vi.mocked(getConfig).mockReturnValue(DEFAULT_CONFIG as Config);
     mockAccess.mockResolvedValue(undefined); // files/dirs exist by default
     mockReadFile.mockResolvedValue('---\nname: My Skill\n---\n# content');
     mockWriteFile.mockResolvedValue(undefined);
+    mockUnlink.mockResolvedValue(undefined);
   });
 
   it('returns false and warns when offline mode is active', async () => {
@@ -63,7 +73,11 @@ describe('publishSkill', () => {
     } as unknown as ReturnType<typeof import('../config/settings.js').getConfig>);
     const { publishSkill } = await import('./skillPublish.js');
 
-    const result = await publishSkill({ filePath: '/path/to/skill.md', registryDir: '/reg' });
+    const result = await publishSkill({
+      filePath: '/testhome/.sidecar/skill.md',
+      registryDir: '/reg',
+      homeDir: '/testhome',
+    });
     expect(result).toBe(false);
     expect(mockShowWarningMessage).toHaveBeenCalledWith(expect.stringContaining('offline'));
   });
@@ -76,7 +90,11 @@ describe('publishSkill', () => {
     mockShowWarningMessage.mockResolvedValueOnce(undefined); // user dismissed
     const { publishSkill } = await import('./skillPublish.js');
 
-    const result = await publishSkill({ filePath: '/path/to/skill.md', registryDir: '/reg' });
+    const result = await publishSkill({
+      filePath: '/testhome/.sidecar/skill.md',
+      registryDir: '/reg',
+      homeDir: '/testhome',
+    });
     expect(result).toBe(false);
     expect(mockShowWarningMessage).toHaveBeenCalledWith(expect.stringContaining('userRegistry'), expect.any(String));
   });
@@ -100,8 +118,9 @@ describe('publishSkill', () => {
     const { publishSkill } = await import('./skillPublish.js');
 
     const result = await publishSkill({
-      filePath: '/home/user/my-skill.md',
+      filePath: '/testhome/.sidecar/my-skill.md',
       registryDir: '/reg',
+      homeDir: '/testhome',
       git: git as unknown as import('../github/git.js').GitCLI,
     });
 
@@ -121,8 +140,9 @@ describe('publishSkill', () => {
     const { publishSkill } = await import('./skillPublish.js');
 
     const result = await publishSkill({
-      filePath: '/home/user/existing.md',
+      filePath: '/testhome/.sidecar/existing.md',
       registryDir: '/reg',
+      homeDir: '/testhome',
       git: git as unknown as import('../github/git.js').GitCLI,
     });
 
@@ -140,8 +160,9 @@ describe('publishSkill', () => {
     const { publishSkill } = await import('./skillPublish.js');
 
     const result = await publishSkill({
-      filePath: '/home/user/existing.md',
+      filePath: '/testhome/.sidecar/existing.md',
       registryDir: '/reg',
+      homeDir: '/testhome',
     });
 
     expect(result).toBe(false);
@@ -158,8 +179,9 @@ describe('publishSkill', () => {
     const { publishSkill } = await import('./skillPublish.js');
 
     const result = await publishSkill({
-      filePath: '/home/user/new-skill.md',
+      filePath: '/testhome/.sidecar/new-skill.md',
       registryDir: '/reg',
+      homeDir: '/testhome',
       git: failingGit as unknown as import('../github/git.js').GitCLI,
     });
 

@@ -26,6 +26,8 @@ export interface PublishSkillOptions {
   registryDir?: string;
   /** Override git client (for tests). */
   git?: GitCLI;
+  /** Override home directory (for tests). Defaults to os.homedir(). */
+  homeDir?: string;
 }
 
 /**
@@ -53,7 +55,7 @@ export async function publishSkill(opts: PublishSkillOptions = {}): Promise<bool
     return false;
   }
 
-  const homeDir = os.homedir();
+  const homeDir = opts.homeDir ?? os.homedir();
   const registryDir = opts.registryDir ?? path.join(homeDir, '.sidecar', 'user-skills');
 
   // Verify the registry clone exists
@@ -80,7 +82,26 @@ export async function publishSkill(opts: PublishSkillOptions = {}): Promise<bool
     sourcePath = uris[0].fsPath;
   }
 
-  const fileName = path.basename(sourcePath);
+  // Guard against path traversal: only allow .md files inside known skill directories.
+  const absSource = path.resolve(sourcePath);
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const allowedRoots = [
+    path.join(homeDir, '.claude', 'commands'),
+    path.join(homeDir, '.sidecar'),
+    ...(workspaceRoot
+      ? [path.join(workspaceRoot, '.claude', 'commands'), path.join(workspaceRoot, '.sidecar', 'skills')]
+      : []),
+  ];
+  const inAllowedRoot = allowedRoots.some((r) => absSource.startsWith(r + path.sep) || absSource === r);
+  if (!inAllowedRoot || path.extname(absSource) !== '.md') {
+    void vscode.window.showErrorMessage(
+      'SideCar: Skill publish blocked — file must be a .md file inside a known skills directory ' +
+        '(~/.claude/commands/, ~/.sidecar/, or the workspace .sidecar/skills/).',
+    );
+    return false;
+  }
+
+  const fileName = path.basename(absSource).replace(/[\r\n]/g, '_');
   const destPath = path.join(registryDir, fileName);
 
   // Warn on overwrite
@@ -98,13 +119,19 @@ export async function publishSkill(opts: PublishSkillOptions = {}): Promise<bool
   }
 
   try {
-    const content = await fs.promises.readFile(sourcePath, 'utf-8');
+    const content = await fs.promises.readFile(absSource, 'utf-8');
     await fs.promises.writeFile(destPath, content, 'utf-8');
 
     const git = opts.git ?? new GitCLI(registryDir);
-    await git.stage([destPath]);
-    await git.commit(`Add skill: ${fileName.replace(/\.md$/, '')}`);
-    await git.push();
+    try {
+      await git.stage([destPath]);
+      await git.commit(`Add skill: ${fileName.replace(/\.md$/, '')}`);
+      await git.push();
+    } catch (gitErr) {
+      // Roll back the written file so the registry clone stays clean.
+      await fs.promises.unlink(destPath).catch(() => {});
+      throw gitErr;
+    }
 
     void vscode.window.showInformationMessage(`SideCar: Published "${fileName}" to your skill registry.`);
     return true;
