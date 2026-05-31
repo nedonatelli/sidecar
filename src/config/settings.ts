@@ -648,7 +648,7 @@ function readConfig(): SideCarConfig {
     profilingTopN: clampMin(cfg.get<number>('profiling.topN', 10), 1, 50),
     latexEnabled: cfg.get<boolean>('latex.enabled', false),
     latexCompiler: cfg.get<'latexmk' | 'pdflatex'>('latex.compiler', 'latexmk'),
-    executiveFunctionEnabled: cfg.get<boolean>('executiveFunction.enabled', false),
+    executiveFunctionEnabled: cfg.get<boolean>('executiveFunction.enabled', true),
     /* MCP Task Delegation */
     mcpDelegationEnabled: cfg.get<boolean>('mcpDelegation.enabled', false),
     mcpDelegationAllowedServers: cfg.get<string[]>('mcpDelegation.allowedServers', []),

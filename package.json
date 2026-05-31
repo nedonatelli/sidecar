@@ -2026,8 +2026,8 @@
           },
           "sidecar.executiveFunction.enabled": {
             "type": "boolean",
-            "default": false,
-            "description": "Enable persistent executive function. The agent checkpoints its task state after each iteration so it can resume after a VS Code restart."
+            "default": true,
+            "description": "Checkpoint agent task state after each iteration so runs can resume after a VS Code restart or crash. Near-zero cost: one small JSON write per iteration. Disable if you never want a resume prompt on startup."
           },
           "sidecar.mcpDelegation.enabled": {
             "type": "boolean",

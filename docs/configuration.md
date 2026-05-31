@@ -917,7 +917,7 @@ When enabled, the agent checkpoints its task state to `.sidecar/plans/active.jso
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
-| `sidecar.executiveFunction.enabled` | boolean | `false` | Enable agent task checkpointing and VS Code restart resume |
+| `sidecar.executiveFunction.enabled` | boolean | `true` | Checkpoint agent task state after each iteration so runs can resume after a VS Code restart or crash. Disable to suppress the resume prompt on startup |
 
 Checkpoints older than 24 hours are automatically discarded on the next activation.
 
