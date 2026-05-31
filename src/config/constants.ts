@@ -26,17 +26,17 @@ export const CONTEXT_COMPRESSION_THRESHOLD = 0.7;
 export const DEFAULT_MAX_SYSTEM_CHARS = 80_000;
 
 /**
- * Soft cap on how much context SideCar will pack into a single local-model
- * request. Very large prompts cause extreme first-token latency on consumer
- * hardware regardless of the model's native context window size.
+ * Soft cap on the context window SideCar will request from a local model.
+ * Set to 128 K to match the native window of the default Ollama model
+ * (gemma4:e4b, 128 K). The probed `num_ctx` from Ollama's /api/show is
+ * clamped to this ceiling so models that advertise an impossibly large
+ * context don't allocate a KV cache that OOMs the machine.
  *
- * Must be kept in sync with the num_ctx floor in OllamaBackend.streamChat
- * (currently 32 768). Setting this below that floor causes the budget
- * calculations to use a smaller window than Ollama actually allocates,
- * which makes the verbose context report misleading and under-uses the KV
- * cache we already paid for.
+ * Users on machines with limited VRAM (< 8 GB) who run larger models
+ * (30 B+) should set `sidecar.ollama.numCtx` explicitly to a smaller value
+ * (e.g. 32 768) to avoid latency from a large KV cache allocation.
  */
-export const LOCAL_CONTEXT_CAP = 32_768;
+export const LOCAL_CONTEXT_CAP = 131_072;
 
 /**
  * Plan mode auto-detection thresholds.
@@ -109,13 +109,16 @@ export function lookupDraftModel(mainModel: string): string | undefined {
 
 export const MODEL_CONTEXT_LENGTHS: Record<string, number> = {
   // Anthropic Claude models — 200K context
+  'claude-opus-4-7': 200_000,
   'claude-opus-4-5': 200_000,
   'claude-opus-4-1': 200_000,
   'claude-opus-4': 200_000,
-  'claude-sonnet-4-5': 200_000,
+  'claude-sonnet-4-7': 200_000,
   'claude-sonnet-4-6': 200_000,
+  'claude-sonnet-4-5': 200_000,
   'claude-sonnet-4': 200_000,
   'claude-haiku-4-5': 200_000,
+  'claude-haiku-4-5-20251001': 200_000,
   'claude-3-7-sonnet-latest': 200_000,
   'claude-3-5-sonnet-latest': 200_000,
   'claude-3-5-haiku-latest': 200_000,

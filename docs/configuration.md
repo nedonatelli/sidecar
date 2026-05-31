@@ -168,7 +168,7 @@ Rule `when` expressions support role names (`agent-loop`, `chat`, `critic`, `sum
 | `sidecar.includeActiveFile` | boolean | `true` | Include the currently active file |
 | `sidecar.filePatterns` | array | `["**/*.ts", ...]` | Glob patterns for workspace context (25+ languages) |
 | `sidecar.maxFiles` | number | `10` | Max files to include in workspace context |
-| `sidecar.contextLimit` | number | `0` | Override context token limit for local models (0 = auto-detect with 16K cap). Increase if you have enough VRAM for longer conversations |
+| `sidecar.contextLimit` | number | `0` | Override context token limit for local models. `0` = auto-detect — uses the value Ollama reports, capped at 128K. Set explicitly (e.g. `32768`) to reduce KV-cache pressure on low-VRAM machines |
 | `sidecar.pinnedContext` | array | `[]` | Files or folders always included in context (relative paths) |
 | `sidecar.fetchUrlContext` | boolean | `true` | Auto-fetch web page content when URLs are pasted in chat |
 

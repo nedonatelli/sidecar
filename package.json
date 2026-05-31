@@ -939,7 +939,7 @@
               "sidecar",
               "context"
             ],
-            "markdownDescription": "Override the context token limit for local models. `0` = auto-detect with a 16K default cap. Increase if you have enough VRAM and want longer conversations. Ignored for paid backends — their limits come from the API."
+            "markdownDescription": "Override the context token limit for local models. `0` = auto-detect — uses the value Ollama reports for the model, capped at 128K. Set explicitly (e.g. `32768`) to reduce KV-cache pressure on low-VRAM machines, or raise it beyond 128K for models that support more. Ignored for paid backends — their limits come from the API."
           },
           "sidecar.pinnedContext": {
             "type": "array",

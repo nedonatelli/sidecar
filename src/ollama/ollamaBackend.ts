@@ -327,11 +327,10 @@ export class OllamaBackend implements ApiBackend {
   ): AsyncGenerator<StreamEvent> {
     const { agentTemperature, ollamaNumCtx, ollamaDisableThinking } = getConfig();
     const probedNumCtx = numCtxCache.get(model) ?? null;
-    // Clamp to [32 768, LOCAL_CONTEXT_CAP] when the user hasn't pinned a value.
-    // Without the upper cap, models with a large native context (e.g. Gemma4's 128 K)
-    // cause Ollama to allocate an enormous KV cache that OOMs or stalls past the
-    // first-token timeout on consumer hardware. Users who need a larger window can
-    // set sidecar.ollamaNumCtx explicitly to override.
+    // Use the probed num_ctx, floored at 32 768 (models that report < 32 K still
+    // get a full 32 K window) and capped at LOCAL_CONTEXT_CAP (128 K by default).
+    // Users on low-VRAM machines running large models can reduce the KV-cache
+    // allocation by setting sidecar.ollama.numCtx explicitly (e.g. 32768).
     const numCtx = ollamaNumCtx ?? Math.min(Math.max(probedNumCtx ?? 0, 32_768), LOCAL_CONTEXT_CAP);
     const options: Record<string, unknown> = { temperature: agentTemperature, num_ctx: numCtx };
     if (ollamaDisableThinking) options.think = false;
