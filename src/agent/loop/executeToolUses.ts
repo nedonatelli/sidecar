@@ -87,16 +87,18 @@ export async function executeToolUses(
       // stays aligned with pendingToolUses and downstream consumers
       // (gate recording, token accounting, post-turn policies) can
       // still walk the two in lockstep.
-      const errMsg = outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason);
+      const rawMsg = outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason);
+      // Strip absolute paths and truncate before exposing to the model context.
+      const errMsg = rawMsg.replace(/\/[^\s]+/g, '<path>').slice(0, 200);
       const pending = pendingToolUses[idx];
       toolResults.push({
         type: 'tool_result',
         tool_use_id: pending.id,
-        content: `Internal error: ${errMsg}`,
+        content: `Internal error executing ${pending.name}: ${errMsg}`,
         is_error: true,
       });
-      state.logger?.warn(`Tool ${pending.name} threw: ${errMsg}`);
-      callbacks.onToolResult(pending.name, `Internal error: ${errMsg}`, true, pending.id);
+      state.logger?.warn(`Tool ${pending.name} threw: ${rawMsg}`);
+      callbacks.onToolResult(pending.name, `Internal error executing ${pending.name}: ${errMsg}`, true, pending.id);
     }
   }
   return toolResults;

@@ -38,12 +38,15 @@ export function initCoreServices(context: ExtensionContext): InitializedServices
         await processRegistry.sweepOrphans().catch((err) => {
           console.warn('[SideCar] Process orphan sweep failed:', err);
         });
+        context.subscriptions.push(processRegistry);
 
         await initAuditBufferRecovery();
-        void initShadowSweep();
+        await initShadowSweep().catch((err) => console.warn('[SideCar] Shadow sweep failed:', err));
 
         spendTracker.init(sidecarDir);
-        void spendTracker.restoreFromDisk();
+        await spendTracker
+          .restoreFromDisk()
+          .catch((err) => console.warn('[SideCar] Spend tracker restore failed:', err));
       },
       (err) => console.warn('[SideCar] .sidecar/ init failed:', err),
     );
@@ -100,13 +103,30 @@ export function initCoreServices(context: ExtensionContext): InitializedServices
     }),
   );
 
-  // Schedule background syncs for hourly / daily autoPull
-  const autoPull = getConfig().skillsAutoPull;
-  if (autoPull === 'hourly' || autoPull === 'daily') {
-    const intervalMs = autoPull === 'hourly' ? HOURLY_MS : DAILY_MS;
-    const timer = setInterval(() => void runSkillSync(), intervalMs);
-    context.subscriptions.push({ dispose: () => clearInterval(timer) });
-  }
+  // Schedule background syncs for hourly / daily autoPull.
+  // Restart the timer whenever the setting changes so it takes effect
+  // without a window reload.
+  let syncTimer: ReturnType<typeof setInterval> | null = null;
+  const startSyncTimer = () => {
+    if (syncTimer) clearInterval(syncTimer);
+    syncTimer = null;
+    const ap = getConfig().skillsAutoPull;
+    if (ap === 'hourly' || ap === 'daily') {
+      const ms = ap === 'hourly' ? HOURLY_MS : DAILY_MS;
+      syncTimer = setInterval(() => void runSkillSync(), ms);
+    }
+  };
+  startSyncTimer();
+  context.subscriptions.push({
+    dispose: () => {
+      if (syncTimer) clearInterval(syncTimer);
+    },
+  });
+  context.subscriptions.push(
+    workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('sidecar.skills.autoPull')) startSyncTimer();
+    }),
+  );
 
   setApiAuditDir(sidecarDir);
 

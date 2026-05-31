@@ -343,7 +343,7 @@ export async function deleteFile(input: Record<string, unknown>, context?: ToolE
     context.editTimeline.record(filePath, original, '');
   }
 
-  await workspace.fs.delete(fileUri, { useTrash: false });
+  await workspace.fs.delete(fileUri, { useTrash: true });
   return `File deleted: ${filePath}`;
 }
 

@@ -137,7 +137,11 @@ export async function syncSkillRegistries(opts: SyncOptions): Promise<RegistryRe
       }
       synced.push(ref);
     } catch (err) {
-      log(`[SideCar] Failed to sync ${ref.label}: ${err instanceof Error ? err.message : String(err)}`);
+      // Use console.warn so persistent pull failures surface in the extension
+      // host developer tools rather than being silently swallowed by console.log.
+      const msg = err instanceof Error ? err.message : String(err);
+      log(`[SideCar] Failed to sync ${ref.label}: ${msg}`);
+      console.warn(`[SideCar] Skill registry sync failed for ${ref.label}: ${msg}`);
       // Still include a cached ref even when pull fails — stale skills
       // beat no skills for an offline-ish scenario.
       if (cached) synced.push(ref);

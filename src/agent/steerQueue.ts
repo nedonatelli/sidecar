@@ -228,7 +228,9 @@ export class SteerQueue {
   private notify(): void {
     if (this.listeners.size === 0) return;
     const snapshot = this.peek();
-    for (const listener of this.listeners) {
+    // Snapshot the Set before iterating so listeners that subscribe or
+    // unsubscribe during notification don't cause missed/duplicate calls.
+    for (const listener of [...this.listeners]) {
       try {
         listener(snapshot);
       } catch {

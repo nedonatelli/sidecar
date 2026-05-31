@@ -108,17 +108,22 @@ const STATE_ESTABLISHING_TOOLS = new Set(['git_clone', 'npm_install', 'run_comma
  * bodies (e.g. repeated read_file on the same file) are only compressed once
  * per session. The cache is cleared between agent runs via `clearCompressionCache`.
  *
- * Key: `${length}:${head64}:${tail64}:${maxLen}` — cheap, no crypto needed.
- * Collisions are impossible in practice because a collision would require two
- * strings that share length, first 64 chars, last 64 chars, and maxLen yet
- * differ in the middle — extremely unlikely for tool result content.
+ * Key: `${fnv1a32(content)}:${content.length}:${maxLen}` — full-content hash,
+ * collision probability ~1/4B per pair regardless of shared prefixes/suffixes.
  */
 const compressionCache = new Map<string, string>();
 
+function fnv1a32(s: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = (h * 0x01000193) >>> 0;
+  }
+  return h;
+}
+
 function compressionKey(content: string, maxLen: number): string {
-  const head = content.slice(0, 64);
-  const tail = content.length > 64 ? content.slice(-64) : '';
-  return `${content.length}:${maxLen}:${head}:${tail}`;
+  return `${fnv1a32(content)}:${content.length}:${maxLen}`;
 }
 
 /** Clear the compression cache — called at agent-loop teardown. */
