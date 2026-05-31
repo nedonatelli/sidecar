@@ -118,12 +118,18 @@ export function buildBaseSystemPrompt(p: SystemPromptParams): string {
   ].join('\n');
 
   const example = [
-    '## Example turn',
+    '## Example turns',
+    '',
     'User asks "add a hello function to utils.ts":',
-    '1. `read_file(path="src/utils.ts")` to see current content',
-    '2. `edit_file(path="src/utils.ts", search="<last function or end of file>", replace="<new function>")`',
-    '3. `get_diagnostics(path="src/utils.ts")` to check for errors',
-    '4. If errors, read them and call `edit_file` again to fix.',
+    '1. `read_file(path="src/utils.ts")` — immediately, no asking',
+    '2. `edit_file(path="src/utils.ts", search="<last line>", replace="<last line + new function>")`',
+    '3. `get_diagnostics(path="src/utils.ts")` to verify',
+    '4. If errors → `edit_file` again to fix.',
+    '',
+    'User asks "What does src/helpers.ts do?":',
+    '1. `read_file(path="src/helpers.ts")` — call it immediately, do not guess',
+    '2a. If the file exists → answer from its contents.',
+    '2b. If ENOENT → report the error, then call `search_files(pattern="helpers*")` or `list_directory` to find the right path, read it, and answer.',
   ].join('\n');
 
   // safetyRules is placed last so it's the closest content to the user turn.
