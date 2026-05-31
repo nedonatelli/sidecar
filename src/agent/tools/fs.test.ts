@@ -80,6 +80,16 @@ describe('editFile audit mode', () => {
     expect(result).toContain('edit_file failed');
   });
 
+  it('returns error when search string appears multiple times in buffered content', async () => {
+    const context = { config: { agentMode: 'audit' } as never };
+    await buf.write('src/multi.ts', 'const x = 1;\nconst x = 1;\n', async () => undefined);
+    const result = await editFile({ path: 'src/multi.ts', search: 'const x = 1;', replace: 'const y = 2;' }, context);
+    expect(result).toContain('appears 2 times');
+    expect(result).toContain('NOT modified');
+    // File must be unchanged
+    expect(buf.read('src/multi.ts').content).toBe('const x = 1;\nconst x = 1;\n');
+  });
+
   it('returns error when search and replace are identical (no-op guard)', async () => {
     const context = { config: { agentMode: 'audit' } as never };
     await buf.write('src/noop.ts', 'const x = 1;', async () => undefined);

@@ -97,7 +97,8 @@ export const editFileDef: ToolDefinition = {
     'Use for surgical changes — renaming a function, updating a single line, adding an import. ' +
     'Not for creating a file or doing a full rewrite — use `write_file` for those. ' +
     'Not for multi-location changes in one call — call `edit_file` once per location, each with a unique search string. ' +
-    'The `search` argument must match exactly one location in the file; include enough surrounding context to guarantee uniqueness, otherwise the tool returns an error listing the match count. ' +
+    'The `search` argument must match exactly one location in the file; if it appears multiple times the call returns an error — add more surrounding lines to make it unique. ' +
+    'Match is byte-exact: whitespace, indentation, and trailing spaces must match the file verbatim. When in doubt, call `read_file` first and copy-paste the target text directly into `search`. ' +
     'Example: `edit_file(path="src/utils.ts", search="function greet(name: string)", replace="function greet(name: string, greeting = \'Hello\')")`.',
   input_schema: {
     type: 'object',
@@ -106,7 +107,7 @@ export const editFileDef: ToolDefinition = {
       search: {
         type: 'string',
         description:
-          'Exact text to find in the file. Must be unique — include enough surrounding context to match only one location. Only the first match is replaced; if the search text appears multiple times the call returns an error.',
+          'Exact text to find in the file — whitespace and indentation must match the file byte-for-byte. Must appear exactly once; if it appears multiple times the call returns an error. Include enough surrounding lines to guarantee uniqueness.',
       },
       replace: {
         type: 'string',
@@ -308,6 +309,10 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
     if (!currentText.includes(search)) {
       return `Error: edit_file failed — search string not found in ${filePath}. The file was NOT modified. Call read_file to see the exact current content, then retry with a corrected search string.`;
     }
+    const matchCount = currentText.split(search).length - 1;
+    if (matchCount > 1) {
+      return `Error: edit_file failed — search string appears ${matchCount} times in ${filePath}. The file was NOT modified. Add more surrounding context to your search string to make it unique, then retry.`;
+    }
     const newText = currentText.replace(search, () => replace);
     await buf.write(filePath, newText, (p) => readDiskViaWorkspace(context, p));
     getAuditDecorationProvider()?.refresh();
@@ -319,6 +324,10 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   const text = Buffer.from(bytes).toString('utf-8');
   if (!text.includes(search)) {
     return `Error: edit_file failed — search string not found in ${filePath}. The file was NOT modified. Call read_file to see the exact current content, then retry with a corrected search string.`;
+  }
+  const matchCount = text.split(search).length - 1;
+  if (matchCount > 1) {
+    return `Error: edit_file failed — search string appears ${matchCount} times in ${filePath}. The file was NOT modified. Add more surrounding context to your search string to make it unique, then retry.`;
   }
   const newText = text.replace(search, () => replace);
 
