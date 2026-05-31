@@ -14,7 +14,7 @@ All settings are under the `sidecar.*` prefix. Open VS Code settings (`Cmd+,` / 
 |---------|------|---------|-------------|
 | `sidecar.baseUrl` | string | `http://localhost:11434` | API base URL. Ollama: `http://localhost:11434`, Anthropic: `https://api.anthropic.com`, OpenAI: `https://api.openai.com`, Kickstand: `http://localhost:11435`, OpenAI-compatible: any URL |
 | `sidecar.apiKey` | string | `ollama` | API key. **Stored in VS Code SecretStorage** (see below). Ignored for local Ollama, required for Anthropic, OpenAI, and some OpenAI-compatible servers |
-| `sidecar.model` | string | `qwen3-coder:30b` | Model for chat (e.g., `qwen3-coder`, `claude-sonnet-4-6`, or any model on your server) |
+| `sidecar.model` | string | `gemma4:e4b` | Model for chat (e.g., `gemma4:e4b`, `qwen3-coder:30b`, `claude-sonnet-4-6`, or any model on your server) |
 | `sidecar.provider` | enum | `auto` | Backend provider: `auto`, `ollama`, `anthropic`, `openai`, `kickstand`. Auto-detects from URL |
 | `sidecar.systemPrompt` | string | `""` | Custom system prompt appended to the default |
 
@@ -99,7 +99,7 @@ Each file in the planned-edits card has a **cancel button** — clicking it abor
 | `sidecar.agentMode` | string | `cautious` | Agent mode: `cautious`, `autonomous`, `manual`, `plan`, `review`, or a custom mode name from `sidecar.customModes`. See [Agent Mode → Approval modes](agent-mode#approval-modes) for the behavior of each |
 | `sidecar.agentTemperature` | number | `0.2` | Temperature for agent tool-calling requests. Lower values (0.1–0.3) produce more deterministic tool selection |
 | `sidecar.agentMaxIterations` | number | `25` | Max agent loop iterations |
-| `sidecar.agentMaxTokens` | number | `100000` | Max tokens per agent run |
+| `sidecar.agentMaxTokens` | number | `200000` | Max tokens per agent run |
 | `sidecar.requestTimeout` | number | `120` | Timeout in seconds for each LLM request. Aborts if no tokens arrive within this window. Set to 0 to disable |
 | `sidecar.planMode` | boolean | `false` | Generate a plan for approval before executing tools |
 | `sidecar.toolPermissions` | object | `{}` | Per-tool overrides: `{ "tool_name": "allow" \| "deny" \| "ask" }` |
@@ -290,7 +290,7 @@ Four additional settings that pair with the spending budgets above to drive down
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `sidecar.promptPruning.enabled` | boolean | `true` | Prune prompts before sending to paid backends. Collapses whitespace, head+tail truncates oversized tool results, and dedupes repeated file content. Safe for agent loops — only lossy on tool output, never on user or assistant messages |
-| `sidecar.promptPruning.maxToolResultTokens` | number | `2000` | Maximum token count for any single `tool_result` block sent to a paid backend. Longer results are head+tail truncated with an elision marker. Raise this for frontier models with large context windows; lower it to reduce cost on exploration-heavy tasks. Clamped to `[200, 20000]` |
+| `sidecar.promptPruning.maxToolResultTokens` | number | `4000` | Maximum token count for any single `tool_result` block sent to a paid backend. Longer results are head+tail truncated with an elision marker. Raise this for frontier models with large context windows; lower it to reduce cost on exploration-heavy tasks. Clamped to `[200, 20000]` |
 | `sidecar.delegateTask.enabled` | boolean | `true` | Expose the `delegate_task` tool to paid backends. The orchestrator can offload read-only research to a local Ollama worker and receive a compact summary. No-op on local-only setups |
 | `sidecar.delegateTask.workerModel` | string | `""` | Ollama model used by the `delegate_task` worker. Empty = reuse the chat model. Recommended: a code-tuned model like `qwen3-coder:30b` or `deepseek-coder:33b` |
 | `sidecar.delegateTask.workerBaseUrl` | string | `http://localhost:11434` | Base URL of the Ollama instance the worker connects to. Must be local or reachable — not an Anthropic / OpenAI URL |
@@ -317,11 +317,11 @@ When enabled, a smaller draft model proposes tokens that the main model verifies
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
-| `sidecar.speculativeDecoding.enabled` | boolean | `false` | Enable speculative FIM decoding. Auto-disabled if the backend doesn't support a draft model |
+| `sidecar.speculativeDecoding.enabled` | boolean | `true` | Enable speculative FIM decoding. Auto-disabled if the backend doesn't support a draft model |
 | `sidecar.completionDraftModel` | string | `""` | Draft model (e.g. `qwen2.5-coder:0.5b`). Empty = auto-discover the smallest available model on the active backend |
 | `sidecar.speculativeDecoding.lookahead` | number | `4` | Draft tokens proposed per cycle. Higher = faster on cache hits, more wasted work on misses. Clamped 1–16 |
 | `sidecar.speculativeDecoding.temperature` | number | `0.0` | Draft model temperature (`0` = greedy, fastest) |
-| `sidecar.speculativeDecoding.minAcceptRateToKeepEnabled` | number | `0.5` | If the rolling accept rate drops below this threshold, speculative decoding auto-disables for the session. Range 0–1 |
+| `sidecar.speculativeDecoding.minAcceptRateToKeepEnabled` | number | `0.4` | If the rolling accept rate drops below this threshold, speculative decoding auto-disables for the session. Range 0–1 |
 
 ## Kickstand Advanced Settings (v0.109+)
 
