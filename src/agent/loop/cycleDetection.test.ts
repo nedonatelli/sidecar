@@ -342,6 +342,87 @@ describe('detectCycleAndBail — normalized signature pass', () => {
     expect(cb.texts[0]).toContain('same resource');
   });
 
+  it('fires on non-consecutive repeats of the same resource within the window', () => {
+    // bad → grep → bad → list_dir → bad
+    // The trailing-3 consecutive check never sees 3 matching entries in a row
+    // (interleaved tools break the streak), and the interleaved tools use
+    // distinct normalized sigs so no length-2 cycle forms. The new
+    // frequency-over-window check accumulates 3 occurrences and fires.
+    const state = stubLoopState();
+    const cb = stubCallbacks();
+    const bad = [makeToolUse('read_file', { path: 'bad.ts' })];
+    const g = [makeToolUse('grep', { pattern: 'foo' })];
+    const ls = [makeToolUse('list_directory', { directory: '.' })];
+    expect(detectCycleAndBail(bad, state, cb)).toBe(false); // [bad]
+    expect(detectCycleAndBail(g, state, cb)).toBe(false); // [bad, grep]
+    expect(detectCycleAndBail(bad, state, cb)).toBe(false); // [bad, grep, bad]
+    expect(detectCycleAndBail(ls, state, cb)).toBe(false); // [bad, grep, bad, ls]
+    expect(detectCycleAndBail(bad, state, cb)).toBe(true); // 3× bad.ts → fire
+    expect(cb.texts[0]).toContain('same resource');
+  });
+
+  it('does NOT fire on non-consecutive repeats when secondary args are all unique', () => {
+    // edit_file on the same path with different content — agent is making progress,
+    // not stuck. Use distinct interleaving tools so no length-2 normalized cycle forms.
+    const state = stubLoopState();
+    const cb = stubCallbacks();
+    const other = (n: number) => [makeToolUse('run_command', { command: `step${n}` })];
+    for (let i = 0; i < 3; i++) {
+      const edit = [makeToolUse('edit_file', { path: 'a.ts', search: `v${i}`, replace: `w${i}` })];
+      expect(detectCycleAndBail(edit, state, cb)).toBe(false);
+      if (i < 2) expect(detectCycleAndBail(other(i), state, cb)).toBe(false);
+    }
+    expect(cb.texts).toHaveLength(0);
+  });
+
+  it('stays silent at 2 non-consecutive occurrences (just below the threshold of 3)', () => {
+    const state = stubLoopState();
+    const cb = stubCallbacks();
+    const bad = [makeToolUse('read_file', { path: 'ghost.ts' })];
+    const g = [makeToolUse('grep', { pattern: 'x' })];
+    expect(detectCycleAndBail(bad, state, cb)).toBe(false);
+    expect(detectCycleAndBail(g, state, cb)).toBe(false);
+    expect(detectCycleAndBail(bad, state, cb)).toBe(false); // 2nd occurrence — not enough
+    expect(cb.texts).toHaveLength(0);
+  });
+
+  it('resets the count when old entries are evicted from the 8-slot window', () => {
+    // Load the window with 1 bad call followed by 8 different calls (evicting bad).
+    // Then 2 more bad calls should not fire (only 2 in the current window).
+    const state = stubLoopState();
+    const cb = stubCallbacks();
+    const bad = [makeToolUse('read_file', { path: 'ghost.ts' })];
+    detectCycleAndBail(bad, state, cb); // bad enters window
+    // Fill + overflow the 8-slot window so bad is evicted.
+    for (let i = 0; i < 8; i++) {
+      detectCycleAndBail([makeToolUse('grep', { pattern: `p${i}` })], state, cb);
+    }
+    // bad is gone; add it 2 more times — below threshold.
+    expect(detectCycleAndBail(bad, state, cb)).toBe(false); // 1 in window
+    expect(detectCycleAndBail([makeToolUse('list_directory', { directory: '.' })], state, cb)).toBe(false);
+    expect(detectCycleAndBail(bad, state, cb)).toBe(false); // 2 in window — not enough
+    expect(cb.texts).toHaveLength(0);
+  });
+
+  it('simulates the gemma4 hallucinated-path pattern from production logs', () => {
+    // Model attempts to read a non-existent file, gets ENOENT, does other exploration,
+    // comes back to the same hallucinated path repeatedly. After 3 occurrences the
+    // frequency-over-window check fires even though no 3 calls are consecutive.
+    const state = stubLoopState();
+    const cb = stubCallbacks();
+    const bad = [makeToolUse('read_file', { path: 'src/agent/loop/runAgentLoop.ts' })];
+
+    expect(detectCycleAndBail(bad, state, cb)).toBe(false);
+    expect(detectCycleAndBail([makeToolUse('list_directory', { directory: 'src/agent' })], state, cb)).toBe(false);
+    expect(detectCycleAndBail([makeToolUse('grep', { pattern: 'runAgentLoop' })], state, cb)).toBe(false);
+    expect(detectCycleAndBail(bad, state, cb)).toBe(false); // 2nd attempt
+    expect(detectCycleAndBail([makeToolUse('project_knowledge_search', { query: 'agent loop' })], state, cb)).toBe(
+      false,
+    );
+    expect(detectCycleAndBail(bad, state, cb)).toBe(true); // 3rd attempt → fire
+    expect(cb.texts[0]).toContain('same resource');
+  });
+
   it('does not fire the normalized check when exact check already fired', () => {
     // Exact-identical calls fire the exact check at 4. The normalized check
     // would fire at 3, but the function returns as soon as exact check fires

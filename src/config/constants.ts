@@ -26,6 +26,18 @@ export const CONTEXT_COMPRESSION_THRESHOLD = 0.7;
 export const DEFAULT_MAX_SYSTEM_CHARS = 80_000;
 
 /**
+ * Hard cap on system prompt characters for local Ollama models, regardless
+ * of the model's native context window. Raising LOCAL_CONTEXT_CAP to 128K
+ * would otherwise scale the 40% system-prompt budget to ~204K chars (~51K
+ * tokens) — too much for small models (4B–12B params) to attend through
+ * reliably. At 51K system tokens the model often produces text-only
+ * responses instead of tool calls, causing the agent loop to exit after one
+ * iteration. 52K chars (~13K tokens) matches pre-v0.112 behavior and keeps
+ * injected file/symbol context at a level small models can handle.
+ */
+export const LOCAL_MAX_SYSTEM_CHARS = 52_000;
+
+/**
  * Soft cap on the context window SideCar will request from a local model.
  * Set to 128 K to match the native window of the default Ollama model
  * (gemma4:e4b, 128 K). The probed `num_ctx` from Ollama's /api/show is

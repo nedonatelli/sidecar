@@ -294,7 +294,7 @@ The chat UI itself is vanilla HTML/JS/CSS in `media/chat.js` + `media/chat.css`.
 
 `settings.ts` — reads `workspace.getConfiguration('sidecar')`, manages SecretStorage for API keys, backend profile switching, and provider auto-detection from URL patterns.
 
-`constants.ts` — centralized tunable thresholds: `CONTEXT_COMPRESSION_THRESHOLD` (0.7 — loop triggers compression when estimated token usage exceeds 70% of budget), `LOCAL_CONTEXT_CAP` (32 768 — soft cap on local-model request size), `MODEL_CONTEXT_LENGTHS` (static lookup for cloud models), `PLAN_MODE_THRESHOLDS`, `INPUT_TOKEN_RATIO`.
+`constants.ts` — centralized tunable thresholds: `CONTEXT_COMPRESSION_THRESHOLD` (0.7 — loop triggers compression when estimated token usage exceeds 70% of budget), `LOCAL_CONTEXT_CAP` (131 072 — ceiling on the `num_ctx` window requested from Ollama; probed value is clamped to this so large-context models don't OOM on low-VRAM hardware), `LOCAL_MAX_SYSTEM_CHARS` (52 000 — hard cap on system prompt character budget for local models regardless of context window size; prevents the 40%-of-window formula from injecting 50K+ tokens of context that overwhelm small models), `MODEL_CONTEXT_LENGTHS` (static lookup for cloud models), `PLAN_MODE_THRESHOLDS`, `INPUT_TOKEN_RATIO`.
 
 `tokenEstimation.ts` — lightweight token count estimator (`charsToTokens`, `estimateTokenCount`, `estimateConversationTokens`) that avoids shipping a full tokenizer. Used by `notifications.ts` and `compression.ts` to decide when to compress.
 

@@ -21,7 +21,12 @@ import type { ChatState } from '../chatState.js';
 import type { ChatMessage } from '../../ollama/types.js';
 import { getConfig, estimateCost, resolveMode } from '../../config/settings.js';
 import { parseModelSentinel } from '../../ollama/modelSentinels.js';
-import { DEFAULT_MAX_SYSTEM_CHARS, LOCAL_CONTEXT_CAP, INPUT_TOKEN_RATIO } from '../../config/constants.js';
+import {
+  DEFAULT_MAX_SYSTEM_CHARS,
+  LOCAL_CONTEXT_CAP,
+  LOCAL_MAX_SYSTEM_CHARS,
+  INPUT_TOKEN_RATIO,
+} from '../../config/constants.js';
 import { tokensToChars, estimateTokensFromText } from '../../config/tokenEstimation.js';
 import { surfaceNativeToast } from '../errorSurface.js';
 import { healthStatus } from '../../ollama/healthStatus.js';
@@ -193,7 +198,12 @@ async function buildSystemPromptForRun(
   // Allow the system prompt to occupy up to 40% of the context window during
   // assembly. After injection the actual size is measured and used to set a
   // tighter message-history budget (see effectiveMaxTokens calculation below).
-  const maxSystemChars = contextLength ? Math.floor(tokensToChars(contextLength) * 0.4) : DEFAULT_MAX_SYSTEM_CHARS;
+  // For local models the 40% rule is capped at LOCAL_MAX_SYSTEM_CHARS: with a
+  // 128K context window the uncapped budget is ~204K chars (~51K tokens), which
+  // overwhelms small models and causes them to produce text-only responses
+  // instead of tool calls, making the agent loop exit after one iteration.
+  const rawMaxSystemChars = contextLength ? Math.floor(tokensToChars(contextLength) * 0.4) : DEFAULT_MAX_SYSTEM_CHARS;
+  const maxSystemChars = isLocal ? Math.min(rawMaxSystemChars, LOCAL_MAX_SYSTEM_CHARS) : rawMaxSystemChars;
 
   const { prompt: injectedPrompt, matchedSkill } = await injectSystemContext(
     systemPrompt,

@@ -148,6 +148,39 @@ export function detectCycleAndBail(
         return true;
       }
     }
+
+    // Frequency-over-window check: catch the same sig appearing
+    // MIN_NORMALIZED_REPEATS times anywhere in the CYCLE_WINDOW, even
+    // non-consecutively. The consecutive check above misses patterns like
+    // read_file(bad) → list_dir → read_file(bad) → list_dir → read_file(bad)
+    // where other calls break the trailing-N streak. The same
+    // hasRepeatedSecondary guard applies so agents editing the same file
+    // with genuinely different content are not falsely stopped.
+    const sigGroups = new Map<string, NormalizedEntry[]>();
+    for (const e of state.recentNormalizedCalls) {
+      const arr = sigGroups.get(e.sig) ?? [];
+      arr.push(e);
+      sigGroups.set(e.sig, arr);
+    }
+    for (const [sig, entries] of sigGroups) {
+      if (entries.length < MIN_NORMALIZED_REPEATS) continue;
+      const seen = new Set<string>();
+      const hasRepeatedSecondary = entries.some((e) => {
+        if (seen.has(e.secondaryHash)) return true;
+        seen.add(e.secondaryHash);
+        return false;
+      });
+      if (hasRepeatedSecondary) {
+        state.logger?.warn(
+          `Agent loop normalized cycle detected (${entries.length} non-consecutive repeats in window) — ${sig.slice(0, 100)}`,
+        );
+        callbacks.onText(
+          `\n\n⚠️ Agent stopped: same tool calls on the same resource repeated ` +
+            `${entries.length} times — try a different approach.\n`,
+        );
+        return true;
+      }
+    }
   }
 
   for (let len = 2; len <= MAX_CYCLE_LEN && len * 2 <= state.recentNormalizedCalls.length; len++) {
