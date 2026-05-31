@@ -90,6 +90,12 @@ When an agent task touches 3 or more files, SideCar generates an `EditPlan` mani
 
 Add `@no-plan` anywhere in your prompt to skip the planner for that request.
 
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.multiFileEdits.enabled` | boolean | `true` | Master toggle for multi-file edit streams. When `false`, the agent writes files sequentially without a plan card. |
+| `sidecar.multiFileEdits.planningPass` | boolean | `true` | Run a dedicated Edit Plan LLM turn before executing writes. Adds one extra LLM call but produces the plan card and enables per-file cancel. Set `false` to skip planning and stream writes immediately. |
+| `sidecar.multiFileEdits.reviewGranularity` | string | `"per-file"` | How the Pending Changes panel presents the batch. `"per-file"` = accept/reject each file individually; `"bulk"` = Accept All / Reject All only. |
+
 Each file in the planned-edits card has a **cancel button** — clicking it aborts that file's write mid-stream without affecting other in-flight files. Use **Accept All** or **Reject All** in the card to apply or discard the entire batch atomically.
 
 ## Agent behavior
@@ -358,6 +364,7 @@ Four additional settings that pair with the spending budgets above to drive down
 | `sidecar.promptPruning.maxToolResultTokens` | number | `4000` | Maximum token count for any single `tool_result` block sent to a paid backend. Longer results are head+tail truncated with an elision marker. Raise this for frontier models with large context windows; lower it to reduce cost on exploration-heavy tasks. Clamped to `[200, 20000]` |
 | `sidecar.delegateTask.enabled` | boolean | `true` | Expose the `delegate_task` tool to paid backends. The orchestrator can offload read-only research to a local Ollama worker and receive a compact summary. No-op on local-only setups |
 | `sidecar.delegateTask.workerModel` | string | `""` | Ollama model used by the `delegate_task` worker. Empty = reuse the chat model. Recommended: a code-tuned model like `qwen3-coder:30b` or `deepseek-coder:33b` |
+| `sidecar.delegateTask.maxIterations` | number | `10` | Maximum agent loop iterations for a delegated worker task. |
 | `sidecar.delegateTask.workerBaseUrl` | string | `http://localhost:11434` | Base URL of the Ollama instance the worker connects to. Must be local or reachable — not an Anthropic / OpenAI URL |
 
 **Session spend tracker** is not a setting — it's always on for Anthropic requests when they return usage data. The `$(credit-card) $0.12` status bar item shows up the moment a paid backend incurs cost. Click it for a per-model breakdown. Manage via:
@@ -398,6 +405,7 @@ Extend a model's native context window by tuning its positional-encoding paramet
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
+| `sidecar.kickstand.nCtx` | number | `32768` | Context window size (`n_ctx`) passed to Kickstand when loading a model. Increase for longer conversations; decrease to reduce VRAM usage. Ignored when using the RoPE/YaRN `yarnOrigCtx` override. |
 | `sidecar.kickstand.ropeFreqBase` | number | `0` | RoPE base frequency override. `0` = model default. Example: `500000` for Llama 3.1 128K extension |
 | `sidecar.kickstand.ropeFreqScale` | number | `0` | RoPE frequency scaling factor. `0` = model default. Example: `0.5` for a generic 2× context extension |
 | `sidecar.kickstand.yarnExtFactor` | number | `-1` | YaRN extrapolation factor. `-1` leaves llama.cpp's built-in YaRN default intact |
@@ -462,6 +470,7 @@ Optional sandbox for agent tasks. When enabled, the agent runs in an ephemeral g
 |---------|------|---------|-------------|
 | `sidecar.shadowWorkspace.mode` | enum | `"off"` | `off` disabled; `opt-in` only wraps tasks that explicitly opt in; `always` wraps every agent task |
 | `sidecar.shadowWorkspace.autoCleanup` | boolean | `true` | Remove the shadow worktree + directory after every task. Set `false` to preserve rejected/failed shadows at `.sidecar/shadows/<task-id>/` for post-mortem inspection |
+| `sidecar.shadowWorkspace.sweepStaleOnActivation` | boolean | `true` | On activation, remove shadow worktrees under `.sidecar/shadows/` that have no corresponding agent session (e.g. from a crashed VS Code). Keeps the worktree list clean without requiring manual cleanup. |
 | `sidecar.shadowWorkspace.gateCommand` | string | `"npm run check"` | Shell command to run inside the shadow before the accept/reject prompt opens. **Not yet wired in v0.59 — lands in v0.60.** Override for non-JS projects (e.g. `"cargo check && cargo test"`) |
 
 At task completion, SideCar shows a `showQuickPick` with the diff summary (file count, line count) and an Accept / Reject choice. Accept applies the diff to main as staged changes (so you see them in `git status`). Reject discards the shadow and leaves your main tree untouched. The v0.59 MVP uses an accept-all / reject-all prompt; per-hunk review UI, conflict handling, symlinked build dirs, and `/sandbox <task>` slash command wiring land in v0.60+.
@@ -622,6 +631,9 @@ These settings tune the Audit Mode buffer behaviour. See [Agent Mode → Review 
 | `sidecar.retrieval.queryRewrite` | string | `"rule"` | Rewrite the user message before embedding for retrieval. `"off"` = passthrough; `"rule"` = strip preambles, expand camelCase (zero cost); `"llm"` = LLM-reformulated query; `"expand"` = rule + LLM combined. |
 | `sidecar.retrieval.graphExpansion.enabled` | boolean | `true` | After semantic retrieval, walk the symbol graph's `calls` edges outward to surface dependency-coupled symbols. |
 | `sidecar.retrieval.graphExpansion.maxHits` | number | `8` | Cap on symbols added via graph walk per retrieval call. |
+| `sidecar.projectKnowledge.enabled` | boolean | `true` | Enable the Project Knowledge Index — semantic symbol search via tree-sitter + MiniLM embeddings. Disable to turn off background indexing entirely. |
+| `sidecar.projectKnowledge.graphWalkDepth` | number | `2` | Hops to walk the symbol graph after a vector hit. `1` = direct callers only; `2` = callers of callers. Higher values surface more context at the cost of more tokens. |
+| `sidecar.projectKnowledge.maxGraphHits` | number | `10` | Cap on symbols added via graph walk per `project_knowledge_search` call. Guards against popular symbols drowning results. |
 | `sidecar.projectKnowledge.backend` | string | `"flat"` | Vector storage backend. `"flat"` = in-memory `Float32Array` (fast up to ~100k symbols). `"lance"` = LanceDB for persistent out-of-memory storage (requires `@lancedb/lancedb`). |
 | `sidecar.projectKnowledge.maxSymbolsPerFile` | number | `500` | Safety cap on embedded symbols per file. Prevents auto-generated files from monopolising the embedder queue. |
 | `sidecar.merkleIndex.enabled` | boolean | `true` | Enable content-addressed Merkle tree over the symbol index. Prunes candidate files via embedding descent before scoring leaves — significant speedup on large codebases. |
@@ -792,6 +804,31 @@ Side-by-side streaming comparison of 2–4 models on the same prompt, with a loc
 | `sidecar.arena.defaultModels` | string[] | `[]` | Pre-populated model list — when non-empty, the QuickPick is skipped and these models are used directly. Example: `["llama3.2:3b", "qwen3:8b"]` |
 
 ELO ratings are persisted to `.sidecar/arena/elo.json` (K=32, multi-way pairwise) and accumulate across both chat and agent arena runs.
+
+## Monorepo Support (v0.97+)
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.monorepo.enabled` | boolean | `true` | Enable monorepo package discovery. Auto-detects Nx, Turborepo, pnpm workspaces, Yarn workspaces, and Lerna. When detected, the `monorepo_packages` agent tool lists workspace packages with metadata (name, version, path, scripts, dependencies). |
+
+## Database Integration (v0.76+)
+
+Configure database connections for the `db_query`, `db_execute`, `db_migrate_up`, `db_list_tables`, `db_describe_table`, and `db_list_connections` agent tools.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.databases.profiles` | array | `[]` | List of named database connection profiles. Each entry has `name` (identifier shown to the agent), `type` (`"sqlite"` / `"postgres"` / `"mysql"` / `"duckdb"`), and connection-specific fields (`path` for SQLite/DuckDB; `host`, `port`, `database`, `user`, `password` for Postgres/MySQL). |
+| `sidecar.databases.queryRowLimit` | number | `10000` | Maximum rows returned by `db_query`. Results beyond this limit are truncated with a count of omitted rows. |
+| `sidecar.databases.queryTimeoutMs` | number | `30000` | Hard timeout in milliseconds for every `db_query` call. Prevents runaway queries from blocking the agent. |
+
+**Example profile (SQLite):**
+```json
+"sidecar.databases.profiles": [
+  { "name": "local", "type": "sqlite", "path": "./data/app.db" }
+]
+```
+
+Store passwords using environment variables (`"password": "${DB_PASS}"`) rather than plaintext in `settings.json`.
 
 ## Dependency Drift Alerts (v0.91+)
 
