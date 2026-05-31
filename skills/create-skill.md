@@ -45,6 +45,7 @@ Instructions for the AI agent when this skill is invoked.
    - Structured markdown body with step-by-step instructions
 4. Write the file using `write_file`
 5. Confirm the skill was created and explain how to use it (`/skill-id` in chat)
+6. If the user has `sidecar.skills.userRegistry` configured, ask: "Would you like to publish this skill to your registry so it's available on all your machines?" If yes, run the command `sidecar.skills.publish` with the file path.
 
 ## Naming Convention
 

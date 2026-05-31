@@ -1,6 +1,6 @@
 # SideCar Roadmap
 
-**Current release: v0.111.0** — Multi-file Edit Streams, semantic compression tiers, compression test coverage, documentation pass. See [CHANGELOG](CHANGELOG.md) for full notes.
+**Current release: v0.112.0** — Skill Sync & Registry: Skills Picker UI, git-native user/team registries, publish-to-registry, hourly/daily autoPull, Sync command. See [CHANGELOG](CHANGELOG.md) for full notes.
 
 **Coverage floor**: ≥80/70/80/80 (stmts/branches/funcs/lines) enforced by CI. No PR merges that drop any metric.
 
@@ -12,7 +12,7 @@
 
 | Version | Headline |
 |---|---|
-| v0.112.0 | Skill Sync & Registry — git-native user + team skill registries, cross-machine sync, Skills Picker UI |
+| v0.113.0 | Skill versioning + pinning · *Update available* badge · `sidecar.skills.versions` pin map |
 
 ---
 
@@ -20,6 +20,7 @@
 
 | Version | Headline |
 |---|---|
+| v0.112.0 | Skill Sync & Registry — Skills Picker UI (`/skills` QuickPick, Stack mode, registry tags, tool chips) · `SideCar: Publish Skill to Registry` · `SideCar: Sync Skill Registries` · `hourly`/`daily` autoPull |
 | v0.111.0 | Multi-file Edit Streams — DAG-planned edits card, parallel streaming diff previews, per-file cancel, atomic accept/reject · semantic compression tiers · compression test coverage · docs pass (79 tools, 51 slash commands) |
 | v0.110.0 | Speculative FIM decoding (auto-discovery + Kickstand) · PKI sidebar panel (`sidecar.pki` TreeView) · `projectKnowledge.graphWalkDepth/maxGraphHits` settings · Kickstand real token counts |
 | v0.109.0 | Kickstand backend: FIM inline completions · RoPE/YaRN long-context scaling · grammar-constrained decoding (JSON GBNF for tool calls) · Flash Attention (`sidecar.kickstand.flashAttn`) |
@@ -213,21 +214,21 @@
 
 ---
 
-### v0.112.0 — Skill Sync & Registry
+### v0.112.0 — Skill Sync & Registry ✅ complete
 
 **Sprint Goal**: *Skills follow you across machines and teams. Git-native sync — no hosted registry required.*
 
 **Must Have**:
-- [ ] **`sidecar.skills.userRegistry`** — git URL (or local folder) the user owns; SideCar clones/pulls to `~/.sidecar/user-skills/` on activation. `SkillLoader` picks up every `.agent.md` inside as user-scope skills.
-- [ ] **Publish from "Create Skill" flow** — *Publish to your registry* checkbox writes the new skill into the clone, commits, pushes. Standard git auth (SSH keys, tokens).
-- [ ] **`sidecar.skills.teamRegistries`** — array of git URLs; each cloned into `~/.sidecar/team-skills/<slug>/`; Skills Picker tags hits by origin registry.
-- [ ] **`sidecar.skills.autoPull`** — `on-start | hourly | daily | manual` (default `on-start`); conflicts surface as notifications pointing to the managed directory.
-- [ ] **Skills Picker UI** — searchable panel replacing slash-command-from-memory; tagged by category + registry origin; *Stack* button to add without replacing; shows tool-allowlist chips from Skills 2.0 frontmatter.
+- [x] **`sidecar.skills.userRegistry`** — git URL (or local folder) the user owns; SideCar clones/pulls to `~/.sidecar/user-skills/` on activation. `SkillLoader` picks up every `.agent.md` inside as user-scope skills.
+- [x] **Publish from "Create Skill" flow** — `SideCar: Publish Skill to Registry` command writes the skill into the clone, commits, pushes. `create-skill` built-in prompts to publish after writing. Standard git auth.
+- [x] **`sidecar.skills.teamRegistries`** — array of git URLs; each cloned into `~/.sidecar/team-skills/<slug>/`; Skills Picker tags hits by origin registry.
+- [x] **`sidecar.skills.autoPull`** — `on-start | hourly | daily | manual` (default `on-start`); `hourly`/`daily` add a background timer.
+- [x] **Skills Picker UI** — searchable QuickPick replacing slash-command-from-memory; tagged by registry origin; Stack mode for composing multiple skills; shows tool-allowlist chips and 🛡 badge. `SideCar: Pick Skill` command + `/skills` in chat.
 
 **Should Have**:
-- [ ] **Skill versioning + pinning** — `version: 1.2.0` in frontmatter; `sidecar.skills.versions` pin map; *Update available* badge in picker.
-- [ ] **Trust prompt on first install** — non-configured registries prompt with full frontmatter + source link before installing. `sidecar.skills.trustedRegistries` skips prompt for known-safe sources.
-- [ ] **`sidecar.skills.offline`** — hard-disable all network operations for air-gapped / CI environments.
+- [x] **Trust prompt on first install** — non-configured registries prompt before cloning. `sidecar.skills.trustedRegistries` skips prompt.
+- [x] **`sidecar.skills.offline`** — hard-disable all network operations for air-gapped / CI environments.
+- [ ] **Skill versioning + pinning** — `version: 1.2.0` in frontmatter; *Update available* badge in picker. (deferred to v0.113)
 
 ---
 

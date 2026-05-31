@@ -49,7 +49,7 @@ export interface RegistryRef {
 export interface SkillSyncConfigSlice {
   skillsUserRegistry: string;
   skillsTeamRegistries: string[];
-  skillsAutoPull: 'on-start' | 'manual';
+  skillsAutoPull: 'on-start' | 'hourly' | 'daily' | 'manual';
   skillsTrustedRegistries: string[];
   skillsOffline: boolean;
 }

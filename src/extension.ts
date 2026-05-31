@@ -8,6 +8,8 @@ import { registerBackendCommands } from './commands/backendCommands.js';
 import { registerPrAndReviewCommands } from './commands/prAndReviewCommands.js';
 import { registerSettingsCommands } from './commands/settingsCommands.js';
 import { registerAgentCommands } from './commands/agentCommands.js';
+import { runSkillPickerCommand } from './commands/skillPicker.js';
+import { runSkillPublishCommand } from './commands/skillPublish.js';
 import { registerStatusBar } from './ui/statusBar.js';
 import { registerSidecarParticipant } from './chat/sidecarParticipant.js';
 import { registerLmTools } from './chat/lmTools.js';
@@ -131,6 +133,14 @@ export function activate(context: ExtensionContext) {
   void initMcpServer(context);
   initAuditDecorations(context);
   initMemorySetup(context);
+
+  // Skills Picker + Publish commands
+  context.subscriptions.push(
+    commands.registerCommand('sidecar.skills.pick', () =>
+      runSkillPickerCommand(skillLoader, (text) => chatProvider?.injectPrompt(text)),
+    ),
+    commands.registerCommand('sidecar.skills.publish', () => runSkillPublishCommand(skillLoader)),
+  );
 
   // First-install auto-open. Gated behind a globalState flag so
   // existing users and every subsequent launch skip it. Fires after a

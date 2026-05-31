@@ -2,7 +2,7 @@
   "name": "sidecar-ai",
   "displayName": "SideCar",
   "description": "Autonomous AI agent for coding — run full agent loops with local Ollama, Anthropic Claude, or OpenAI models",
-  "version": "0.111.0",
+  "version": "0.112.0",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -90,7 +90,11 @@
           },
           "sidecar.webSearch.provider": {
             "type": "string",
-            "enum": ["duckduckgo", "tavily", "brave"],
+            "enum": [
+              "duckduckgo",
+              "tavily",
+              "brave"
+            ],
             "enumDescriptions": [
               "DuckDuckGo HTML scraping — no API key required. May be less reliable.",
               "Tavily — purpose-built LLM search API. Requires sidecar.webSearch.apiKey (get a key at tavily.com).",
@@ -98,14 +102,20 @@
             ],
             "default": "duckduckgo",
             "order": 4,
-            "tags": ["sidecar", "backend"],
+            "tags": [
+              "sidecar",
+              "backend"
+            ],
             "description": "Web search provider used by the web_search tool. DuckDuckGo requires no key; Tavily and Brave require sidecar.webSearch.apiKey."
           },
           "sidecar.webSearch.apiKey": {
             "type": "string",
             "default": "",
             "order": 5,
-            "tags": ["sidecar", "backend"],
+            "tags": [
+              "sidecar",
+              "backend"
+            ],
             "description": "API key for the selected web search provider. Required when sidecar.webSearch.provider is 'tavily' or 'brave'. Stored in settings.json — use a key with minimal permissions."
           },
           "sidecar.provider": {
@@ -635,7 +645,9 @@
           },
           "sidecar.arena.defaultModels": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "default": [],
             "description": "Pre-populated model list for the Arena panel. When non-empty, the QuickPick is skipped and these models are used. Example: [\"llama3.2:3b\", \"qwen3:8b\"]."
           },
@@ -808,14 +820,47 @@
             "markdownDescription": "External issue-tracker integrations injected into every agent system prompt as an `## Active Issues` block. Each entry configures one provider.\n\n**Supported types:** `github`, `linear`, `jira`\n\n**Example:**\n```json\n[\n  {\n    \"type\": \"github\",\n    \"token\": \"ghp_...\",\n    \"project\": \"owner/repo\",\n    \"filter\": \"assigned\",\n    \"maxIssues\": 5\n  },\n  {\n    \"type\": \"linear\",\n    \"token\": \"lin_api_...\",\n    \"filter\": \"assigned\",\n    \"maxIssues\": 5\n  },\n  {\n    \"type\": \"jira\",\n    \"token\": \"...\",\n    \"baseUrl\": \"https://yourco.atlassian.net\",\n    \"project\": \"MYPROJ\",\n    \"filter\": \"assigned\",\n    \"maxIssues\": 5\n  }\n]\n```\n\n**token** — GitHub: Personal Access Token (`ghp_...` or fine-grained). Linear: API key from Linear → Settings → API. Jira: Personal Access Token. ⚠️ Avoid committing tokens — use `${env:MY_TOKEN}` substitution or leave blank and set the `SIDECAR_CTX_TOKEN_GITHUB` / `SIDECAR_CTX_TOKEN_LINEAR` / `SIDECAR_CTX_TOKEN_JIRA` environment variable instead.\n\n**filter** — `assigned` (default): only your open issues. `open`: all open issues in the repo/project. `recent`: recently updated.\n\n**maxIssues** — issues injected per provider (default: 5). Keep low to avoid bloating the context.",
             "items": {
               "type": "object",
-              "required": ["type", "filter", "maxIssues"],
+              "required": [
+                "type",
+                "filter",
+                "maxIssues"
+              ],
               "properties": {
-                "type": { "type": "string", "enum": ["github", "linear", "jira"] },
-                "token": { "type": "string", "default": "" },
-                "baseUrl": { "type": "string", "default": "" },
-                "project": { "type": "string", "default": "" },
-                "filter": { "type": "string", "enum": ["assigned", "open", "recent"], "default": "assigned" },
-                "maxIssues": { "type": "number", "default": 5, "minimum": 1, "maximum": 20 }
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "github",
+                    "linear",
+                    "jira"
+                  ]
+                },
+                "token": {
+                  "type": "string",
+                  "default": ""
+                },
+                "baseUrl": {
+                  "type": "string",
+                  "default": ""
+                },
+                "project": {
+                  "type": "string",
+                  "default": ""
+                },
+                "filter": {
+                  "type": "string",
+                  "enum": [
+                    "assigned",
+                    "open",
+                    "recent"
+                  ],
+                  "default": "assigned"
+                },
+                "maxIssues": {
+                  "type": "number",
+                  "default": 5,
+                  "minimum": 1,
+                  "maximum": 20
+                }
               }
             }
           },
@@ -993,6 +1038,8 @@
             "type": "string",
             "enum": [
               "on-start",
+              "hourly",
+              "daily",
               "manual"
             ],
             "default": "on-start",
@@ -1001,7 +1048,7 @@
               "sidecar",
               "skills"
             ],
-            "markdownDescription": "*(Skill Sync — v0.64)* When to pull configured registries. `on-start` refreshes on every activation (cheap for small skill repos). `manual` only syncs when you run the `SideCar: Sync Skill Registries` command."
+            "markdownDescription": "*(Skill Sync — v0.112)* When to pull configured registries. `on-start` refreshes on every activation. `hourly` / `daily` add a background timer that re-syncs without a restart. `manual` only syncs when you run `SideCar: Sync Skill Registries`."
           },
           "sidecar.skills.trustedRegistries": {
             "type": "array",
@@ -1093,8 +1140,12 @@
           },
           "sidecar.ci.analysis.jobFilter": {
             "type": "array",
-            "items": { "type": "string" },
-            "default": ["*"],
+            "items": {
+              "type": "string"
+            },
+            "default": [
+              "*"
+            ],
             "description": "Glob patterns matched against CI job names. Only jobs whose names match at least one pattern are analyzed by `analyze_ci_failure`. Use `[\"*\"]` to analyze all failed jobs, or narrow to e.g. `[\"test\", \"lint\"]`."
           },
           "sidecar.jsDocSync.enabled": {
@@ -1659,7 +1710,9 @@
                 },
                 "onSave": {
                   "type": "array",
-                  "items": { "type": "string" },
+                  "items": {
+                    "type": "string"
+                  },
                   "description": "Run whenever a saved file matches any of these glob patterns. Example: ['src/**/*.ts', 'package.json']"
                 },
                 "prompt": {
@@ -1673,11 +1726,16 @@
                 },
                 "targetPaths": {
                   "type": "array",
-                  "items": { "type": "string" },
+                  "items": {
+                    "type": "string"
+                  },
                   "description": "File paths this task may write. If any are unsaved when the task fires, it runs in a Shadow Workspace for safety."
                 }
               },
-              "required": ["name", "prompt"]
+              "required": [
+                "name",
+                "prompt"
+              ]
             }
           },
           "sidecar.delegateTask.enabled": {
@@ -1960,7 +2018,10 @@
           "sidecar.latex.compiler": {
             "type": "string",
             "default": "latexmk",
-            "enum": ["latexmk", "pdflatex"],
+            "enum": [
+              "latexmk",
+              "pdflatex"
+            ],
             "description": "LaTeX compiler to use. latexmk (default) handles bibliography and multi-pass compilation automatically; pdflatex is simpler but requires manual passes."
           },
           "sidecar.executiveFunction.enabled": {
@@ -1975,7 +2036,9 @@
           },
           "sidecar.mcpDelegation.allowedServers": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "default": [],
             "description": "Allowlist of MCP server names that delegate_to_mcp may target. Empty list allows all connected servers."
           },
@@ -2495,6 +2558,24 @@
         "title": "Browse Skill Marketplace",
         "category": "SideCar",
         "icon": "$(extensions)"
+      },
+      {
+        "command": "sidecar.skills.pick",
+        "title": "Pick Skill",
+        "category": "SideCar",
+        "icon": "$(list-selection)"
+      },
+      {
+        "command": "sidecar.skills.sync",
+        "title": "Sync Skill Registries",
+        "category": "SideCar",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "sidecar.skills.publish",
+        "title": "Publish Skill to Registry",
+        "category": "SideCar",
+        "icon": "$(cloud-upload)"
       },
       {
         "command": "sidecar.mcp.openMarketplace",

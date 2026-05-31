@@ -240,8 +240,8 @@ export interface SideCarConfig {
   skillsUserRegistry: string;
   /** Array of git URLs, each cloned into ~/.sidecar/team-skills/<slug>/. Empty → no team registries. */
   skillsTeamRegistries: string[];
-  /** When to pull configured registries. `on-start` syncs on every activation; `manual` only on explicit command. */
-  skillsAutoPull: 'on-start' | 'manual';
+  /** When to pull configured registries. `on-start` syncs at activation; `hourly`/`daily` add a background schedule; `manual` only on explicit command. */
+  skillsAutoPull: 'on-start' | 'hourly' | 'daily' | 'manual';
   /** Registry URLs that skip the first-install trust prompt. Empty by default; unknown registries always prompt. */
   skillsTrustedRegistries: string[];
   /** Air-gapped mode — when `true`, every registry-sync network call is skipped. Cached skills still load. */
@@ -580,7 +580,7 @@ function readConfig(): SideCarConfig {
     /* Skill Sync & Registry */
     skillsUserRegistry: cfg.get<string>('skills.userRegistry', ''),
     skillsTeamRegistries: cfg.get<string[]>('skills.teamRegistries', []),
-    skillsAutoPull: cfg.get<'on-start' | 'manual'>('skills.autoPull', 'on-start'),
+    skillsAutoPull: cfg.get<'on-start' | 'hourly' | 'daily' | 'manual'>('skills.autoPull', 'on-start'),
     skillsTrustedRegistries: cfg.get<string[]>('skills.trustedRegistries', []),
     skillsOffline: cfg.get<boolean>('skills.offline', false),
     /* Diagnostics & Thinking */

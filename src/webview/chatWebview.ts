@@ -99,8 +99,10 @@ export interface WebviewMessage {
     | 'voiceAudio'
     | 'editMessage'
     | 'cancelEditPlanFile'
-    | 'rejectEditPlanFile';
+    | 'rejectEditPlanFile'
+    | 'openSkillPicker';
   images?: { mediaType: string; data: string }[];
+  stackMode?: boolean;
   text?: string;
   model?: string;
   agentMode?: string;

@@ -1787,9 +1787,9 @@
       input.style.height = 'auto';
       return;
     }
-    if (text.trim() === '/skills') {
-      appendMessage('user', '/skills');
-      vscode.postMessage({ command: 'listSkills' });
+    if (text.trim() === '/skills' || text.trim() === '/skills stack') {
+      const stackMode = text.trim() === '/skills stack';
+      vscode.postMessage({ command: 'openSkillPicker', stackMode });
       input.value = '';
       input.style.height = 'auto';
       return;

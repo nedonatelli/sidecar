@@ -431,6 +431,15 @@ export function buildDispatchHandlers(
     compactContext: () => handleCompactContext(state),
     listSkills: () => handleListSkills(state),
     getSkillsForMenu: () => handleGetSkillsForMenu(state),
+    openSkillPicker: async (msg) => {
+      if (!state.skillLoader) return;
+      const { openSkillPicker } = await import('../../commands/skillPicker.js');
+      const result = await openSkillPicker(state.skillLoader, { mode: msg.stackMode ? 'stack' : 'replace' });
+      if (result) {
+        const text = result.skills.map((s) => `/${s.id}`).join(' ');
+        postMessage({ command: 'injectPrompt', content: text });
+      }
+    },
 
     showSystemPrompt: () =>
       import('./chatHandlers.js').then(({ handleShowSystemPrompt }) => handleShowSystemPrompt(state)),

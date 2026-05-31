@@ -4,6 +4,24 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.112.0] - 2026-05-31
+
+**v0.112.0 — Skill Sync & Registry.**
+
+### Added
+
+- **Skills Picker UI** — `/skills` now opens a searchable QuickPick replacing slash-command-from-memory. Every loaded skill is shown with its registry origin tag (🏠 built-in · 👤 user · 🏢 team registry · 📁 project), tool-allowlist chips from Skills 2.0 frontmatter, preferred model, and a 🛡 badge for constrained skills. Stack mode (`/skills stack`) enables multi-select so multiple skills can be composed for a single run. Available from the Command Palette as `SideCar: Pick Skill`. (`src/commands/skillPicker.ts`)
+
+- **`SideCar: Publish Skill to Registry`** — copies the current skill file into the user registry clone (`~/.sidecar/user-skills/`), commits, and pushes. Pre-fills from the active editor when it looks like a skill file. The built-in `create-skill` skill now prompts to publish after writing a new skill when a registry is configured. (`src/commands/skillPublish.ts`, `skills/create-skill.md`)
+
+- **`SideCar: Sync Skill Registries`** — command palette entry to manually trigger a registry pull without restarting VS Code. Shows progress notification with final skill count. (`src/activation/servicesInit.ts`)
+
+- **`hourly` / `daily` autoPull** — two new values for `sidecar.skills.autoPull`. When set, a background timer re-syncs all configured registries without requiring a restart. `on-start` and `manual` continue to work as before. (`src/config/settings.ts`, `src/agent/skillRegistrySync.ts`)
+
+### Stats
+- 6433 total tests (340 test files)
+- 79 built-in tools, 11 skills
+
 ## [0.111.0] - 2026-05-27
 
 **v0.111.0 — Multi-file Edit Streams.**

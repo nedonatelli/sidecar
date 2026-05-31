@@ -1,5 +1,5 @@
 import * as path from 'path';
-import { window, workspace, ExtensionContext } from 'vscode';
+import { commands, window, workspace, ExtensionContext } from 'vscode';
 import { getConfig } from '../config/settings.js';
 import { SidecarDir } from '../config/sidecarDir.js';
 import { WorkspaceIndex } from '../config/workspaceIndex.js';
@@ -8,6 +8,9 @@ import { SkillLoader } from '../agent/skillLoader.js';
 import { getProcessRegistry } from '../agent/processLifecycle.js';
 import { spendTracker } from '../ollama/spendTracker.js';
 import { setApiAuditDir } from '../agent/apiAuditLog.js';
+
+const HOURLY_MS = 60 * 60 * 1000;
+const DAILY_MS = 24 * HOURLY_MS;
 
 export interface InitializedServices {
   sidecarDir: SidecarDir;
@@ -49,7 +52,8 @@ export function initCoreServices(context: ExtensionContext): InitializedServices
   // Load built-in + user + project skills (background, non-blocking)
   const skillLoader = new SkillLoader();
   skillLoader.setBuiltinPath(path.join(context.extensionPath, 'skills'));
-  void (async () => {
+
+  const runSkillSync = async () => {
     try {
       await skillLoader.initialize();
       const skillCfg = getConfig();
@@ -81,7 +85,28 @@ export function initCoreServices(context: ExtensionContext): InitializedServices
     } catch (err) {
       console.warn('[SideCar] Skill loading failed:', err);
     }
-  })();
+  };
+
+  void runSkillSync();
+
+  // Register manual sync command
+  context.subscriptions.push(
+    commands.registerCommand('sidecar.skills.sync', async () => {
+      await window.withProgress(
+        { location: 15 /* Notification */, title: 'SideCar: Syncing skill registries…', cancellable: false },
+        () => runSkillSync(),
+      );
+      void window.showInformationMessage(`SideCar: Skill registries synced. ${skillLoader.count} skills loaded.`);
+    }),
+  );
+
+  // Schedule background syncs for hourly / daily autoPull
+  const autoPull = getConfig().skillsAutoPull;
+  if (autoPull === 'hourly' || autoPull === 'daily') {
+    const intervalMs = autoPull === 'hourly' ? HOURLY_MS : DAILY_MS;
+    const timer = setInterval(() => void runSkillSync(), intervalMs);
+    context.subscriptions.push({ dispose: () => clearInterval(timer) });
+  }
 
   setApiAuditDir(sidecarDir);
 
