@@ -24,8 +24,12 @@ All notable changes to the SideCar extension will be documented in this file.
 
 - **`sidecar.multiFileEdits.plannerModel`** — use a smaller/faster model for the structured planning pass; defaults to the main model.
 
+- **RAM/VRAM monitor** — `MemoryPressureMonitor` (`src/system/memoryMonitor.ts`) polls `os.freemem` every 30 s and queries NVIDIA/AMD GPU memory via `nvidia-smi` / `rocm-smi`. Classifies each rail as `ok / low / critical` and fires a warning notification (low) or error dialog with a Stop Agent option (critical) after two consecutive pressure readings, with a 5-minute re-notify cooldown. A right-side status bar item shows live RAM% and GPU% (colour-coded red < 1 GiB free, yellow < 2 GiB); clicking it triggers `sidecar.memory.refresh`. Pre-flight checks block or warn before Kickstand model loads and HuggingFace safetensors installs. (`src/system/memoryMonitor.ts`, `src/activation/memorySetup.ts`)
+
+- **Arena RAM/VRAM preflight** — `openArena` and `openArenaAgent` both call `checkMemoryPreflight` before spinning up multiple simultaneous models. Running two or more models multiplies memory pressure, so the same low/critical dialogs that gate model loads now gate arena sessions. (`src/arena/arenaCommands.ts`)
+
 ### Stats
-- 6415 total tests (338 test files)
+- 6415 total tests (341 test files)
 - 79 built-in tools, 11 skills
 
 ## [0.110.0] - 2026-05-27

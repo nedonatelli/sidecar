@@ -101,6 +101,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 | **Inline completions** | Copilot-style autocomplete via Ollama FIM or Anthropic (opt-in via `sidecar.enableInlineCompletions`) |
 | **Inline chat** | `Cmd+I` — edit code in place; lightbulb integration surfaces **Fix / Explain / Refactor** on diagnostics |
 | **Model Arena** | `/arena` opens a side-by-side panel comparing 2–4 models on the same prompt with live ELO ratings; `/arena agent` runs a task through different models via fork dispatch |
+| **RAM/VRAM monitor** | Live status bar item shows free RAM % and GPU % (colour-coded); warns or blocks before Kickstand model loads, HuggingFace installs, and arena sessions when memory is critically low. Click to refresh, or `sidecar.memory.refresh` command |
 | **Selective regeneration** | Select any text in an assistant response → a bar appears to rewrite just that section with optional instruction, in-place |
 | **Background agents** | `/bg <task>` spawns parallel autonomous agents with a status dashboard; toast notification + status bar spinner on completion |
 | **External context providers** | Pull live GitHub Issues, Linear, Jira, or Bitbucket Cloud tickets into every agent system prompt via `sidecar.contextProviders` |
