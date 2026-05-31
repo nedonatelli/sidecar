@@ -160,6 +160,40 @@ describe('detectStubs', () => {
     const stubs = detectStubs('file.ts', code);
     expect(stubs).toHaveLength(2);
   });
+
+  it('detects simulation console.log (gemma4-style placeholder)', () => {
+    const code = 'console.log(`[Retriever] Simulating retrieval for file: ${path}`);';
+    expect(detectStubs('retriever.ts', code)).toHaveLength(1);
+    expect(detectStubs('retriever.ts', code)[0].category).toBe('simulation-stub');
+  });
+
+  it('detects // Simulating comment', () => {
+    const code = '// Simulating embedding generation (placeholder)';
+    expect(detectStubs('embed.ts', code)).toHaveLength(1);
+  });
+
+  it('detects magic-number Array fill (dummy embedding)', () => {
+    const code = 'return Array(768).fill(0.1);';
+    expect(detectStubs('embed.ts', code)).toHaveLength(1);
+    expect(detectStubs('embed.ts', code)[0].category).toBe('dummy-fill');
+  });
+
+  it('detects new Array fill variant', () => {
+    const code = 'const vec = new Array(1536).fill(0);';
+    expect(detectStubs('embed.ts', code)).toHaveLength(1);
+  });
+
+  it('detects // dummy comment', () => {
+    const code = '// dummy implementation for now';
+    expect(detectStubs('util.ts', code)).toHaveLength(1);
+    expect(detectStubs('util.ts', code)[0].category).toBe('placeholder-comment');
+  });
+
+  it('detects REAL IMPLEMENTATION REQUIRED banner', () => {
+    const code = '// --- REAL IMPLEMENTATION REQUIRED ---';
+    expect(detectStubs('svc.ts', code)).toHaveLength(1);
+    expect(detectStubs('svc.ts', code)[0].category).toBe('deferred-implementation');
+  });
 });
 
 describe('buildStubReprompt', () => {

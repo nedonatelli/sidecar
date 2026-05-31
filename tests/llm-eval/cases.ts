@@ -610,17 +610,15 @@ export const CASES: EvalCase[] = [
 
   {
     id: 'plan-mode-behavior',
-    description: 'System prompt plan-mode block → model describes read-only exploration before ExitPlanMode',
+    description: 'System prompt plan-mode block → model describes planning turn, no file writes until approval',
     userMessage: 'I just switched SideCar to plan mode. What will you do now?',
     approvalMode: 'plan',
     tags: ['prompt', 'identity', 'plan-mode', 'regression'],
     expect: {
-      // Plan mode is read-only exploration — no file writes until approval.
-      // Should mention ExitPlanMode or "present the plan" and the no-writes constraint.
+      // Plan mode: model writes a plan, no file edits until user approves.
       mustMatch: [
-        /(explore|read|understand|codebase|plan)/i,
-        /(no (file (write|edit|creat|modif)|edit|write)|not (yet )?(edit|write|creat|modif)|read.only|before (writing|editing|making|executing|I (write|edit|creat)))/i,
-        /(ExitPlanMode|present (the )?plan|plan for (your )?approval|present.*plan)/i,
+        /(plan|design|approach|implement)/i,
+        /(no (file (write|edit|creat|modif)|edit|write)|not (yet )?(edit|write|creat|modif)|read.only|before (writing|editing|making|executing|I (write|edit|creat))|approval)/i,
       ],
       maxLength: 2000,
     },

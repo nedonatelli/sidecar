@@ -26,13 +26,21 @@ const STUB_PATTERNS: Array<[string, RegExp]> = [
   ['todo-comment', /\/\/\s*(?:TODO|FIXME|HACK|XXX)\b[:\s]/i],
   ['todo-comment', /#\s*(?:TODO|FIXME|HACK|XXX)\b[:\s]/i],
 
-  // "implement" / "placeholder" / "stub" comments
-  ['placeholder-comment', /\/\/\s*(?:implement|placeholder|stub|add logic|fill in|your code|goes here)/i],
-  ['placeholder-comment', /#\s*(?:implement|placeholder|stub|add logic|fill in|your code|goes here)/i],
+  // "implement" / "placeholder" / "stub" / "dummy" comments
+  ['placeholder-comment', /\/\/\s*(?:implement|placeholder|stub|add logic|fill in|your code|goes here|dummy)/i],
+  ['placeholder-comment', /#\s*(?:implement|placeholder|stub|add logic|fill in|your code|goes here|dummy)/i],
 
-  // "real implementation" deferral
+  // "real implementation" deferral — also catches "REAL IMPLEMENTATION REQUIRED" banners
   ['deferred-implementation', /(?:real|actual|full|proper)\s+implementation/i],
   ['deferred-implementation', /in\s+a\s+real\s+(?:app|system|project)/i],
+
+  // Simulation / pretend placeholders (e.g. console.log("Simulating retrieval..."))
+  ['simulation-stub', /console\.log\s*\(.*[Ss]imulat/],
+  ['simulation-stub', /\/\/\s*[Ss]imulat(?:ing|ed|ion)/],
+
+  // Magic-number array fills used as dummy embeddings or placeholder data
+  // Array(768).fill(0.1) is never a real implementation — it's always a stub.
+  ['dummy-fill', /(?:new\s+)?Array\s*\(\d+\)\s*\.fill\s*\(/],
 
   // Explicit "not implemented" throws
   ['not-implemented', /throw\s+new\s+Error\s*\(\s*['"`](?:not\s+implemented|todo|implement)/i],
