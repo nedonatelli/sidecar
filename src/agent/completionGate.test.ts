@@ -101,6 +101,42 @@ describe('completionGate — recordToolCall', () => {
     expect(state.lintObserved).toBe(true);
   });
 
+  it('get_diagnostics call satisfies lint requirement', () => {
+    // The primary post-edit tool is get_diagnostics (Rule 6 + tool description
+    // both say "mandatory after every edit"). Without this, a model following
+    // instructions would be reprompted to run eslint even though it already
+    // called get_diagnostics.
+    const state = createGateState();
+    const diag: ToolUseContentBlock = { type: 'tool_use', id: 'id', name: 'get_diagnostics', input: {} };
+    recordToolCall(state, diag, ok());
+    expect(state.lintObserved).toBe(true);
+  });
+
+  it('get_diagnostics error does NOT satisfy lint requirement', () => {
+    const state = createGateState();
+    const diag: ToolUseContentBlock = { type: 'tool_use', id: 'id', name: 'get_diagnostics', input: {} };
+    recordToolCall(state, diag, err());
+    expect(state.lintObserved).toBe(false);
+  });
+
+  it('npm run lint satisfies lint requirement', () => {
+    const state = createGateState();
+    recordToolCall(state, makeRunCommand('npm run lint'), ok());
+    expect(state.lintObserved).toBe(true);
+  });
+
+  it('npm run compile satisfies lint requirement', () => {
+    const state = createGateState();
+    recordToolCall(state, makeRunCommand('npm run compile'), ok());
+    expect(state.lintObserved).toBe(true);
+  });
+
+  it('pnpm run check satisfies lint requirement', () => {
+    const state = createGateState();
+    recordToolCall(state, makeRunCommand('pnpm run check'), ok());
+    expect(state.lintObserved).toBe(true);
+  });
+
   it('detects vitest with a file argument as per-file test run', () => {
     const state = createGateState();
     recordToolCall(state, makeRunCommand('npx vitest run src/foo.test.ts'), ok());

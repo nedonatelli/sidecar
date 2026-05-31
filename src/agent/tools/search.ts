@@ -35,7 +35,8 @@ export const grepDef: ToolDefinition = {
   name: 'grep',
   description:
     'Search file contents for a text pattern (string or regex). Returns matching lines with file paths and line numbers. ' +
-    'Examples: grep "TODO" to find all TODOs, grep "function handleSubmit" to locate a function, grep "import.*express" path="src/" to find express imports under src/.',
+    'Use `^` to anchor to line start, `.*` to match anything between terms. ' +
+    'Examples: `grep "TODO"` finds all TODOs, `grep "^export function"` finds top-level exports, `grep "import.*express" path="src/"` finds express imports under src/, `grep "class.*implements"` finds all class declarations with interfaces.',
   input_schema: {
     type: 'object',
     properties: {

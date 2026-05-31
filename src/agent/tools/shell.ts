@@ -126,7 +126,7 @@ export const runTestsDef: ToolDefinition = {
   name: 'run_tests',
   description:
     'Run the project test suite with auto-detection of the test runner (npm test, pytest, cargo test, go test, gradle test). ' +
-    'Use after fixing a bug or landing a new feature — per the operating rules, every bug fix finishes with `run_tests`. ' +
+    'Per operating rule 6: call `get_diagnostics` first after edits (fast type/lint check), then `run_tests` to verify behaviour. ' +
     'Not for arbitrary shell commands (use `run_command`) or for fetching type errors (use `get_diagnostics`). ' +
     'Prefer this over `run_command "npm test"` so the detection logic handles whichever runner the project uses. ' +
     "Pass `file` to narrow to a single test file when you've already isolated the failure. " +

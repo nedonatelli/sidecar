@@ -72,7 +72,10 @@ function normalizePath(p: string | undefined | null): string | null {
  * filter string with a file path.
  */
 function extractTestFiles(args: string): string[] {
-  const re = /\S+\.(?:test|spec)\.[tj]sx?|\S+_test\.go|\S+_test\.py|tests\/\S+\.py/g;
+  // Matches JS/TS test files (.test.ts, .spec.js, etc.), Go test files
+  // (*_test.go), and both Python conventions: suffix (*_test.py) and
+  // prefix (test_*.py — the standard pytest/unittest discovery pattern).
+  const re = /\S+\.(?:test|spec)\.[tj]sx?|\S+_test\.go|\S+_test\.py|test_\S+\.py|tests\/\S+\.py/g;
   return args.match(re) || [];
 }
 
@@ -104,11 +107,28 @@ export function recordToolCall(state: GateState, tu: ToolUseContentBlock, result
     return;
   }
 
+  // Dedicated diagnostics tool — satisfies the lint requirement. This is
+  // the primary post-edit verification tool (Rule 6 / get_diagnostics
+  // description both say "call after every edit"). Without this case the
+  // gate would reprompt for eslint/tsc even after the model correctly
+  // called get_diagnostics.
+  if (tu.name === 'get_diagnostics') {
+    state.lintObserved = true;
+    return;
+  }
+
   // Raw shell — parse the command string for verification invocations.
   if (tu.name === 'run_command') {
     const cmd = String(tu.input.command ?? '');
 
-    if (/\b(eslint|tsc)\b/.test(cmd)) {
+    // Direct invocations of eslint / tsc, OR common npm/pnpm/yarn script
+    // names that conventionally run lint or type-checking. We can't know
+    // what "npm run lint" actually calls without parsing package.json, but
+    // the naming convention is reliable enough to satisfy the gate.
+    if (
+      /\b(eslint|tsc)\b/.test(cmd) ||
+      /\b(npm|pnpm|yarn|bun)\s+run\s+(lint|check|compile|build|typecheck|type-check)\b/.test(cmd)
+    ) {
       state.lintObserved = true;
     }
 

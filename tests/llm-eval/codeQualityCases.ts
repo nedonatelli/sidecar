@@ -116,7 +116,10 @@ export const CODE_QUALITY_CASES: AgentEvalCase[] = [
               'TODO',
               'FIXME',
               'not implemented',
-              'throw new Error',
+              // 'throw new Error' is intentionally excluded — a constructor
+              // validating arguments (e.g. throw new Error('initial must be ≥ 0'))
+              // is legitimate code, not a stub. The 'not implemented' substring
+              // above catches the actual stub pattern.
               'placeholder',
               'your code here',
             ],
@@ -162,7 +165,8 @@ export const CODE_QUALITY_CASES: AgentEvalCase[] = [
               'not implemented',
               'NotImplementedError',
               'placeholder',
-              'throw new Error',
+              // 'throw new Error' excluded: pop() on an empty stack legitimately
+              // throws. The 'not implemented' substring catches the stub pattern.
             ],
           },
         ],
