@@ -70,6 +70,37 @@ Review mode is designed for multi-file refactors and anything else you'd want to
 - No conflict detection. If you modify a file on disk while a review is pending, Accept will overwrite your edits silently.
 - No in-chat affordance to toggle into review mode for a single turn — change `sidecar.agentMode` or use a custom mode.
 
+## Multi-file Edit Plans (v0.111+)
+
+When an agent task touches 3 or more files (configurable via `sidecar.multiFileEdits.minFilesForPlan`), SideCar runs a **planner pass** before writing anything. The planner produces an `EditPlan` manifest: a typed list of every intended file operation with rationale and dependency edges. Independent files are dispatched in parallel (up to `sidecar.multiFileEdits.maxParallel`, default 8); files with `dependsOn` edges wait for their prerequisites.
+
+### Planned edits card
+
+A collapsible **Planned edits** card appears in chat before any writes begin. Each row shows:
+- Operation badge (`create` / `edit` / `delete`)
+- File path and rationale
+- Dependency references
+- Status indicator (`pending → writing → done / failed / aborted`)
+- Per-file **cancel button**
+
+Clicking a cancel button aborts that file's write mid-stream without affecting other in-flight files. The rest of the batch continues normally.
+
+### Accepting or rejecting the batch
+
+After all files complete, use:
+- **Accept All** — applies every written file atomically
+- **Reject All** — discards all changes, leaving the workspace untouched
+
+### Skipping the planner
+
+Add `@no-plan` anywhere in your prompt to skip the planning pass for that request. The agent writes files directly without the staged manifest.
+
+```
+Rename ErrorCode to StatusCode everywhere. @no-plan
+```
+
+The planner model can be overridden with `sidecar.multiFileEdits.plannerModel` — useful for using a smaller/faster model for planning while keeping the main model for editing.
+
 ## Stub validator
 
 After the agent writes or edits files, SideCar automatically scans the output for placeholder patterns:

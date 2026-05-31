@@ -55,6 +55,22 @@ Output format: bullet list grouped by severity.
 - Content below the frontmatter is the prompt body. Anything goes — plain prose, code examples, JSON templates.
 - Claude Code skill fields (`allowed-tools`, `disable-model-invocation`) are parsed-but-ignored for compatibility.
 
+### `guards:` frontmatter (v0.107+)
+
+Add a `guards:` field to activate built-in regression guards for this skill's runs:
+
+```markdown
+---
+name: Refactor
+description: Refactor code with full quality gates
+guards: lint-clean, tests-pass
+---
+
+Refactor the target module for clarity and performance. ...
+```
+
+`guards:` accepts a comma-separated list of built-in guard names (`lint-clean`, `tests-pass`, `no-new-todos`) or names matching entries in `sidecar.regressionGuards`. Guards activate for the duration of the skill's agent turn and run after file writes. See [Configuration → Regression Guards](configuration#regression-guards-v0107) for the full guard config schema.
+
 ### Trust semantics
 
 When the active workspace isn't trusted, skills from sources 3 + 4 (project-level) are not loaded at all. Trusted workspace + workspace-sourced skill injects with a provenance banner telling the LLM to treat the skill's instructions as untrusted data — same policy as MCP tool output.

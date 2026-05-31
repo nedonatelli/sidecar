@@ -735,6 +735,10 @@ permalink: /
     <span class="tick">.sidecar Directory</span><span class="tick-sep">&middot;</span>
     <span class="tick">MIT License</span><span class="tick-sep">&middot;</span>
     <span class="tick">Zero Subscriptions</span><span class="tick-sep">&middot;</span>
+    <span class="tick">Multi-file Edit Streams</span><span class="tick-sep">&middot;</span>
+    <span class="tick">Regression Guards</span><span class="tick-sep">&middot;</span>
+    <span class="tick">RAM/VRAM Monitor</span><span class="tick-sep">&middot;</span>
+    <span class="tick">Speculative FIM</span><span class="tick-sep">&middot;</span>
     <!-- Duplicate for seamless loop -->
     <span class="tick">Fully Offline</span><span class="tick-sep">&middot;</span>
     <span class="tick">Autonomous Agent Loop</span><span class="tick-sep">&middot;</span>
@@ -753,6 +757,10 @@ permalink: /
     <span class="tick">.sidecar Directory</span><span class="tick-sep">&middot;</span>
     <span class="tick">MIT License</span><span class="tick-sep">&middot;</span>
     <span class="tick">Zero Subscriptions</span><span class="tick-sep">&middot;</span>
+    <span class="tick">Multi-file Edit Streams</span><span class="tick-sep">&middot;</span>
+    <span class="tick">Regression Guards</span><span class="tick-sep">&middot;</span>
+    <span class="tick">RAM/VRAM Monitor</span><span class="tick-sep">&middot;</span>
+    <span class="tick">Speculative FIM</span><span class="tick-sep">&middot;</span>
   </div>
 </div>
 
@@ -764,7 +772,7 @@ permalink: /
   </div>
   <div class="stat-div"></div>
   <div class="stat-item">
-    <span class="stat-num">6043</span>
+    <span class="stat-num">6415</span>
     <span class="stat-label">tests passing</span>
   </div>
   <div class="stat-div"></div>
@@ -844,6 +852,18 @@ permalink: /
       <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="1.5"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg></div>
       <h3>Git Integration</h3>
       <p>Stage, commit, push, branch, and stash through natural language. Commit messages auto-generated.</p>
+    </div>
+
+    <div class="feat-card">
+      <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></div>
+      <h3>Multi-file Edit Streams</h3>
+      <p>For wide refactors, SideCar plans a DAG of edits before touching anything &mdash; shows every file, op, and rationale upfront. Files stream in parallel; cancel any file mid-write without disturbing the rest.</p>
+    </div>
+
+    <div class="feat-card">
+      <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="1.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg></div>
+      <h3>Regression Guards</h3>
+      <p>Shell-command guards wired into the agent loop. Built-in guards (<code>lint-clean</code>, <code>tests-pass</code>, <code>no-new-todos</code>) run after edits and block the turn on failure. Enable per-skill via <code>guards:</code> frontmatter.</p>
     </div>
   </div>
 </section>

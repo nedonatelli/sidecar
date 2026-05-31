@@ -78,6 +78,20 @@ After migration, the setting in `settings.json` will be empty (or back to the de
 
 The fallback API key (`sidecar.fallbackApiKey`) follows the same pattern but does not have a dedicated command — set it via `settings.json` once and it migrates automatically on the next activation.
 
+## Multi-file Edit Planning (v0.111+)
+
+When an agent task touches 3 or more files, SideCar generates an `EditPlan` manifest before writing anything. The plan lists every file, operation (`create` / `edit` / `delete`), rationale, and dependency edges. A collapsible **Planned edits** card appears in chat so you see the full scope before execution begins.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.multiFileEdits.minFilesForPlan` | number | `3` | Minimum number of files in a batch before the planner pass fires. Set to `1` to always plan; `0` to disable planning |
+| `sidecar.multiFileEdits.maxParallel` | number | `8` | Maximum files written in parallel within a DAG layer. Independent files stream simultaneously; files with `dependsOn` edges wait for their prerequisites |
+| `sidecar.multiFileEdits.plannerModel` | string | `""` | Model used for the structured planning pass (empty = use the main chat model). Use a smaller/faster model to reduce planning overhead |
+
+Add `@no-plan` anywhere in your prompt to skip the planner for that request.
+
+Each file in the planned-edits card has a **cancel button** — clicking it aborts that file's write mid-stream without affecting other in-flight files. Use **Accept All** or **Reject All** in the card to apply or discard the entire batch atomically.
+
 ## Agent behavior
 
 | Setting | Type | Default | Description |
@@ -201,6 +215,47 @@ When enabled, SideCar tracks every `write_file` / `edit_file` call against every
 
 This catches the failure mode where the model reports a change as "ready for use" without ever running the checks it claims pass. See [Agent Mode → Safety guardrails](agent-mode#safety-guardrails) for the full mechanism.
 
+## Regression Guards (v0.107+)
+
+Shell-command guards wired into the agent loop via `RegressionGuardHook`. Guards run after relevant tool calls and block the turn with a reprompt when they fail, preventing the agent from declaring a task done while regressions exist.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.regressionGuards` | array | `[]` | List of guard configs. Each has `name`, `command`, `trigger`, `mode`, `scope`, and `maxAttempts` |
+| `sidecar.regressionGuards.mode` | enum | `"strict"` | Global override: `strict` (block on failure), `warn` (log but continue), `off` (disable all guards) |
+
+### Guard config schema
+
+```json
+"sidecar.regressionGuards": [
+  {
+    "name": "lint",
+    "command": "npm run lint",
+    "trigger": "post-write",
+    "mode": "blocking",
+    "scope": ["src/**/*.ts"],
+    "maxAttempts": 5
+  }
+]
+```
+
+- **`trigger`**: `"post-write"` (after any file write), `"post-turn"` (at turn end), or `"pre-completion"` (before the agent declares done)
+- **`mode`**: `"blocking"` (failure halts the turn with a reprompt) or `"advisory"` (logged but non-blocking)
+- **`scope`**: glob array — guard only fires when an edited file matches. Empty = always fires.
+- **`maxAttempts`** (default `5`) — guard retries cap with exponential backoff; after exhaustion the turn terminates with a warning.
+
+### Built-in guards
+
+Three ecosystem-aware guards are available without configuration. Enable them per-skill via `guards:` frontmatter — see [Extending SideCar — Skills](extending-sidecar#skills).
+
+| Guard | Trigger command | Ecosystem |
+|-------|----------------|-----------|
+| `lint-clean` | `npm run lint` / `cargo clippy` / `flake8` | auto-detected |
+| `tests-pass` | `npm test` / `cargo test` / `pytest` | auto-detected |
+| `no-new-todos` | grep for new `TODO`/`FIXME` in edited files | any |
+
+Use `/guards` in chat to list active guards and the built-in catalog.
+
 ## Background doc sync
 
 | Setting | Type | Default | Description |
@@ -255,6 +310,46 @@ The price table is a hardcoded best-effort at list prices for Claude Opus 4.6/4.
 | `sidecar.completionModel` | string | `""` | Model for completions (empty = use chat model) |
 | `sidecar.completionMaxTokens` | number | `256` | Max tokens per completion |
 | `sidecar.completionDebounceMs` | number | `300` | Minimum ms between completion requests |
+
+### Speculative decoding (v0.110+)
+
+When enabled, a smaller draft model proposes tokens that the main model verifies in parallel — delivering main-model quality at draft-model latency.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.speculativeDecoding.enabled` | boolean | `false` | Enable speculative FIM decoding. Auto-disabled if the backend doesn't support a draft model |
+| `sidecar.completionDraftModel` | string | `""` | Draft model (e.g. `qwen2.5-coder:0.5b`). Empty = auto-discover the smallest available model on the active backend |
+| `sidecar.speculativeDecoding.lookahead` | number | `4` | Draft tokens proposed per cycle. Higher = faster on cache hits, more wasted work on misses. Clamped 1–16 |
+| `sidecar.speculativeDecoding.temperature` | number | `0.0` | Draft model temperature (`0` = greedy, fastest) |
+| `sidecar.speculativeDecoding.minAcceptRateToKeepEnabled` | number | `0.5` | If the rolling accept rate drops below this threshold, speculative decoding auto-disables for the session. Range 0–1 |
+
+## Kickstand Advanced Settings (v0.109+)
+
+Settings specific to the [Kickstand](https://github.com/nedonatelli/kickstand) self-hosted backend. Ignored when using Ollama, Anthropic, or other providers.
+
+### RoPE / YaRN long-context scaling
+
+Extend a model's native context window by tuning its positional-encoding parameters at load time.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.kickstand.ropeFreqBase` | number | `0` | RoPE base frequency override. `0` = model default. Example: `500000` for Llama 3.1 128K extension |
+| `sidecar.kickstand.ropeFreqScale` | number | `0` | RoPE frequency scaling factor. `0` = model default. Example: `0.5` for a generic 2× context extension |
+| `sidecar.kickstand.yarnExtFactor` | number | `-1` | YaRN extrapolation factor. `-1` leaves llama.cpp's built-in YaRN default intact |
+| `sidecar.kickstand.yarnOrigCtx` | number | `0` | Original training context length for YaRN scaling. `0` = model default |
+
+**Example — Llama 3.1 with 128K context:**
+```json
+"sidecar.kickstand.ropeFreqBase": 500000
+```
+
+### Flash Attention
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sidecar.kickstand.flashAttn` | boolean | `false` | Enable Flash Attention. 2–4× speedup on long contexts with Metal (macOS) or CUDA. Silently ignored on CPU-only builds |
+
+All Kickstand settings are preserved across Kickstand auto-restarts.
 
 ## Shell execution
 
@@ -468,6 +563,22 @@ Pull live issue-tracker context into every agent system prompt. At the start of 
 ```
 
 The GitHub provider auto-detects `owner/repo` from `git remote get-url origin`. For Linear and Jira supply `apiKey` and optionally `teamId` / `projectKey`.
+
+## RAM/VRAM Monitor (v0.111+)
+
+`MemoryPressureMonitor` polls free RAM every 30 seconds and GPU memory via `nvidia-smi` / `rocm-smi`. A right-side status bar item shows live RAM% and GPU% — colour-coded red when free RAM < 1 GiB, yellow when < 2 GiB. Click it to force a poll, or use the command palette:
+
+- `SideCar: Refresh Memory Status` (`sidecar.memory.refresh`) — force an immediate poll
+
+**Pre-flight checks** run automatically before:
+- Loading a model in Kickstand (`SideCar: Load Model`)
+- Starting a HuggingFace safetensors install
+- Opening an Arena session (`/arena`, `/arena agent`)
+
+At **low** pressure (< 2 GiB free): a warning dialog asks for confirmation before proceeding.  
+At **critical** pressure (< 1 GiB free): the operation is blocked with an error message.
+
+After two consecutive pressure readings at the same level, a notification fires — then suppressed for 5 minutes to avoid spam. No settings are required; the monitor activates automatically at extension startup.
 
 ## Model Arena (v0.90+)
 
