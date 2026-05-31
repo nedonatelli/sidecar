@@ -224,6 +224,46 @@ describe('isSensitiveFile guard', () => {
   });
 });
 
+describe('readFile — file-not-found suggestions', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('returns suggestions when a same-named file exists elsewhere in the workspace', async () => {
+    const { workspace } = await import('vscode');
+    vi.spyOn(workspace.fs, 'readFile').mockRejectedValueOnce(
+      Object.assign(new Error('ENOENT: no such file or directory'), { code: 'FileNotFound' }),
+    );
+    // findFiles finds the real file at a different path; asRelativePath uses the mock default
+    vi.spyOn(workspace, 'findFiles').mockResolvedValueOnce([{ fsPath: '/mock-workspace/src/agent/loop.ts' } as never]);
+
+    const result = await readFile({ path: 'src/agent/loop/runAgentLoop.ts' });
+    expect(result).toContain('File not found');
+    expect(result).toContain('Did you mean');
+    expect(result).toContain('src/agent/loop.ts');
+  });
+
+  it('returns a list_directory hint when no similarly-named file exists', async () => {
+    const { workspace } = await import('vscode');
+    vi.spyOn(workspace.fs, 'readFile').mockRejectedValueOnce(
+      Object.assign(new Error('ENOENT'), { code: 'FileNotFound' }),
+    );
+    vi.spyOn(workspace, 'findFiles').mockResolvedValueOnce([]);
+
+    const result = await readFile({ path: 'src/nonexistent/ghost.ts' });
+    expect(result).toContain('File not found');
+    expect(result).toContain('ghost.ts');
+    expect(result).toContain('list_directory');
+    expect(result).not.toContain('Did you mean');
+  });
+
+  it('re-throws non-ENOENT errors unchanged', async () => {
+    const { workspace } = await import('vscode');
+    const permError = Object.assign(new Error('Permission denied'), { code: 'NoPermissions' });
+    vi.spyOn(workspace.fs, 'readFile').mockRejectedValueOnce(permError);
+
+    await expect(readFile({ path: 'src/locked.ts' })).rejects.toThrow('Permission denied');
+  });
+});
+
 describe('streaming diff via onOutput', () => {
   const DIFF_PREFIX = '\x00diff\x00';
 

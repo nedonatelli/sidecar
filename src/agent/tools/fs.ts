@@ -186,7 +186,24 @@ export async function readFile(input: Record<string, unknown>, context?: ToolExe
   // reads see the shadow's state (including the agent's own in-progress
   // writes) instead of main-tree content.
   const fileUri = Uri.joinPath(resolveRootUri(context), filePath);
-  const bytes = await workspace.fs.readFile(fileUri);
+  let bytes: Uint8Array;
+  try {
+    bytes = await workspace.fs.readFile(fileUri);
+  } catch (err: unknown) {
+    const isNotFound =
+      err instanceof Error && (err.message.includes('ENOENT') || (err as { code?: string }).code === 'FileNotFound');
+    if (!isNotFound) throw err;
+
+    // Suggest similarly-named files so the model can self-correct without
+    // needing a separate list_directory call.
+    const basename = path.posix.basename(filePath);
+    const similar = await workspace.findFiles(`**/${basename}`, '**/node_modules/**', 5);
+    if (similar.length > 0) {
+      const suggestions = similar.map((u) => workspace.asRelativePath(u, false)).join('\n  - ');
+      return `Error: File not found: ${filePath}\nDid you mean one of these?\n  - ${suggestions}\nUse list_directory to explore the directory structure if none match.`;
+    }
+    return `Error: File not found: ${filePath}\nNo file named "${basename}" exists in the workspace. Use list_directory or search_files to find the correct path.`;
+  }
   const text = Buffer.from(bytes).toString('utf-8');
   if (mode === 'compact') return compactSourceFile(text);
   if (mode === 'outline') return outlineSourceFile(text);

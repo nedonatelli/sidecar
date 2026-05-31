@@ -67,6 +67,11 @@ export const workspace = {
   onDidChangeTextDocument: () => ({ dispose: () => {} }),
   onDidSaveTextDocument: () => ({ dispose: () => {} }),
   findFiles: async () => [],
+  asRelativePath: (uriOrPath: { fsPath?: string } | string, _includeWorkspaceFolder?: boolean) => {
+    const p = typeof uriOrPath === 'string' ? uriOrPath : (uriOrPath.fsPath ?? '');
+    const root = '/mock-workspace/';
+    return p.startsWith(root) ? p.slice(root.length) : p;
+  },
   openTextDocument: async (uriOrOpts: unknown) => {
     // Tests that pass `{ content }` expect an untitled-style URI; tests
     // that pass a Uri expect `.uri` to point at that Uri. Keep the shape
