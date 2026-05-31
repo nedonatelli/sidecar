@@ -1,7 +1,8 @@
 ---
 title: Auto Mode
 layout: docs
-nav_order: 15
+nav_order: 3
+nav_section: "Guides"
 ---
 
 # Auto Mode

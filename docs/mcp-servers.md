@@ -1,7 +1,8 @@
 ---
 title: MCP Servers
 layout: docs
-nav_order: 5
+nav_order: 3
+nav_section: "Configuration"
 ---
 
 # MCP Servers

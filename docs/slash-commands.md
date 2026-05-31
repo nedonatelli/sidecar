@@ -1,7 +1,8 @@
 ---
 title: Slash Commands
 layout: docs
-nav_order: 6
+nav_order: 3
+nav_section: "Agent"
 ---
 
 # Slash Commands

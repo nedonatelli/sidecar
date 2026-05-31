@@ -1,7 +1,8 @@
 ---
 title: Inline Chat & Completions
 layout: docs
-nav_order: 10
+nav_order: 5
+nav_section: "Agent"
 ---
 
 # Inline Chat & Completions

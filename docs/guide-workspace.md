@@ -1,7 +1,8 @@
 ---
 title: Setting Up Your Workspace
 layout: docs
-nav_order: 18
+nav_order: 1
+nav_section: "Guides"
 ---
 
 # Setting Up Your Workspace

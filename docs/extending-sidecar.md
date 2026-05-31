@@ -1,3 +1,10 @@
+---
+title: Extending SideCar
+layout: docs
+nav_order: 1
+nav_section: "Extend"
+---
+
 # Extending SideCar
 
 Five extension surfaces — ordered by increasing power and increasing trust requirement:

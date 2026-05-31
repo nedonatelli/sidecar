@@ -1,7 +1,8 @@
 ---
-title: Doc Index, Semantic Search & Agent Memory
+title: RAG & Memory
 layout: docs
-nav_order: 8
+nav_order: 5
+nav_section: "Configuration"
 ---
 
 # Doc Index, Semantic Search & Agent Memory

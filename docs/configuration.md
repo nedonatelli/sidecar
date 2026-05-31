@@ -1,7 +1,8 @@
 ---
 title: Configuration
 layout: docs
-nav_order: 4
+nav_order: 1
+nav_section: "Configuration"
 ---
 
 # Configuration

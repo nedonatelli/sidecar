@@ -1,7 +1,8 @@
 ---
 title: Tools Reference
 layout: docs
-nav_order: 6
+nav_order: 2
+nav_section: "Agent"
 ---
 
 # Tools Reference

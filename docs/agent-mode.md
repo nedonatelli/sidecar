@@ -1,7 +1,8 @@
 ---
 title: Agent Mode
 layout: docs
-nav_order: 3
+nav_order: 1
+nav_section: "Agent"
 ---
 
 # Agent Mode

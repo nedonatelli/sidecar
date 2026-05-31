@@ -1,7 +1,8 @@
 ---
 title: Troubleshooting
 layout: docs
-nav_order: 12
+nav_order: 2
+nav_section: "Help"
 ---
 
 # Troubleshooting

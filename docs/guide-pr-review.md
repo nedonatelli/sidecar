@@ -1,7 +1,8 @@
 ---
 title: PR Review Workflow
 layout: docs
-nav_order: 22
+nav_order: 6
+nav_section: "Guides"
 ---
 
 # PR Review Workflow

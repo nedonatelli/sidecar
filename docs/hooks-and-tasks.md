@@ -1,7 +1,8 @@
 ---
 title: Hooks & Scheduled Tasks
 layout: docs
-nav_order: 9
+nav_order: 4
+nav_section: "Configuration"
 ---
 
 # Hooks, Scheduled Tasks & Custom Tools

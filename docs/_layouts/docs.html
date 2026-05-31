@@ -117,16 +117,20 @@ kbd { font-family: var(--mono); font-size: 11px; background: var(--bg-3); border
 <div class="shell">
 
 <aside class="sidebar">
-  <div class="sidebar-section">
-    <div class="sidebar-label">Documentation</div>
-    {% assign pages_list = site.pages | sort: "nav_order" %}
-    {% for p in pages_list %}
-      {% if p.nav_order and p.title and p.layout == "docs" %}
-        <a href="{{ p.url | relative_url }}" class="sidebar-link{% if page.url == p.url %} active{% endif %}"><span class="dot"></span>{{ p.title }}</a>
-      {% endif %}
-    {% endfor %}
-  </div>
-  <div class="sidebar-divider"></div>
+  {% assign nav_sections = "Get Started,Agent,Configuration,Extend,Guides,Help" | split: "," %}
+  {% assign all_docs = site.pages | where: "layout", "docs" | sort: "nav_order" %}
+  {% for section in nav_sections %}
+    {% assign sec_pages = all_docs | where: "nav_section", section %}
+    {% if sec_pages.size > 0 %}
+      <div class="sidebar-section">
+        <div class="sidebar-label">{{ section }}</div>
+        {% for p in sec_pages %}
+          <a href="{{ p.url | relative_url }}" class="sidebar-link{% if page.url == p.url %} active{% endif %}"><span class="dot"></span>{{ p.title }}</a>
+        {% endfor %}
+      </div>
+      <div class="sidebar-divider"></div>
+    {% endif %}
+  {% endfor %}
   <div class="sidebar-section">
     <div class="sidebar-label">Links</div>
     <a href="https://github.com/nedonatelli/sidecar" class="sidebar-link sidebar-ext">

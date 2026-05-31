@@ -1,7 +1,8 @@
 ---
 title: Team Setup
 layout: docs
-nav_order: 21
+nav_order: 5
+nav_section: "Guides"
 ---
 
 # Team Setup

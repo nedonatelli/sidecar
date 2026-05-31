@@ -1,7 +1,8 @@
 ---
 title: Keyboard Shortcuts
 layout: docs
-nav_order: 16
+nav_order: 4
+nav_section: "Agent"
 ---
 
 # Keyboard Shortcuts

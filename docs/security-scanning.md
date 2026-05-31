@@ -2,6 +2,7 @@
 title: Security Scanning
 layout: docs
 nav_order: 7
+nav_section: "Agent"
 ---
 
 # Security Scanning

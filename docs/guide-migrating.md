@@ -1,7 +1,8 @@
 ---
 title: Migrating from Copilot or Claude Code
 layout: docs
-nav_order: 24
+nav_order: 8
+nav_section: "Guides"
 ---
 
 # Migrating from Copilot or Claude Code

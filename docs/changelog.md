@@ -1,7 +1,8 @@
 ---
 title: Changelog
 layout: docs
-nav_order: 13
+nav_order: 3
+nav_section: "Help"
 ---
 
 # Changelog

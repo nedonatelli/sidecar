@@ -1,7 +1,8 @@
 ---
 title: GitHub Integration
 layout: docs
-nav_order: 11
+nav_order: 6
+nav_section: "Agent"
 ---
 
 # GitHub Integration

@@ -1,7 +1,8 @@
 ---
 title: Reducing API Costs
 layout: docs
-nav_order: 20
+nav_order: 4
+nav_section: "Guides"
 ---
 
 # Reducing API Costs

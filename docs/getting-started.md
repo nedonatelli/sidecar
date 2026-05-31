@@ -1,7 +1,8 @@
 ---
 title: Getting Started
 layout: docs
-nav_order: 2
+nav_order: 1
+nav_section: "Get Started"
 ---
 
 # Getting Started

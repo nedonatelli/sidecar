@@ -1,7 +1,8 @@
 ---
 title: Your First Multi-file Refactor
 layout: docs
-nav_order: 19
+nav_order: 2
+nav_section: "Guides"
 ---
 
 # Your First Multi-file Refactor

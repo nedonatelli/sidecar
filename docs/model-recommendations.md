@@ -1,7 +1,8 @@
 ---
 title: Model Recommendations
 layout: docs
-nav_order: 13
+nav_order: 2
+nav_section: "Get Started"
 ---
 
 # Model Recommendations

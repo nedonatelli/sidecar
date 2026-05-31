@@ -1,7 +1,8 @@
 ---
 title: Debugging Agent Issues
 layout: docs
-nav_order: 23
+nav_order: 7
+nav_section: "Guides"
 ---
 
 # Debugging Agent Issues

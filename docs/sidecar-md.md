@@ -1,7 +1,8 @@
 ---
 title: SIDECAR.md
 layout: docs
-nav_order: 8
+nav_order: 2
+nav_section: "Configuration"
 ---
 
 # SIDECAR.md — Project instructions

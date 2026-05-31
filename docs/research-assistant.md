@@ -1,7 +1,8 @@
 ---
 title: Research Assistant
 layout: docs
-nav_order: 17
+nav_order: 2
+nav_section: "Extend"
 ---
 
 # Research Assistant
