@@ -28,8 +28,18 @@ function readRepoFile(rel: string): string {
   return nodeFs.readFileSync(abs, 'utf-8');
 }
 
-const GATE_SRC = readRepoFile('src/agent/completionGate.ts');
-const GATE_TEST = readRepoFile('src/agent/completionGate.test.ts');
+// Use the pre-polyglot-change snapshot (commit bbb47a5) so the eval
+// fixture is always in the "before" state regardless of what's on disk.
+// Reading from disk would make the case trivially pass after we applied
+// the changes — the model would have nothing to add.
+const GATE_SRC = nodeFs.readFileSync(
+  nodePath.join(import.meta.dirname, '../../', 'tests/llm-eval/fixtures/completionGate.pre-polyglot.ts'),
+  'utf-8',
+);
+const GATE_TEST = nodeFs.readFileSync(
+  nodePath.join(import.meta.dirname, '../../', 'tests/llm-eval/fixtures/completionGate.pre-polyglot.test.ts'),
+  'utf-8',
+);
 
 // ---------------------------------------------------------------------------
 // The eval case.
