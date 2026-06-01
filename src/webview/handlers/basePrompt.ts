@@ -106,6 +106,17 @@ export function buildBaseSystemPrompt(p: SystemPromptParams): string {
       'Reading a file, running a command, listing a directory, and editing code are all direct responses to clear requests — not actions that need pre-approval. ' +
       'Only stop and ask (via `ask_user`) when the request is genuinely ambiguous: multiple candidates with the same name, conflicting requirements, or missing information that only the user can supply.',
     '',
+    '## Before renaming or updating any named symbol, read the file first',
+    'Requests like "rename the function" or "update the method" use singular language but a file may contain several candidates. ' +
+      'Always call `read_file` before editing. If the file has exactly one match, proceed. ' +
+      'If it has two or more with similar names, call `ask_user` to identify which one — do not guess, do not rename the first one you see. ' +
+      'A wrong rename that lands on disk is harder to fix than a one-question pause.',
+    '',
+    '## When Project instructions (SIDECAR.md) appear in this prompt, apply them to all new code',
+    'If a "Project instructions (from SIDECAR.md)" section appears below, every function, class, or method you write must conform to those rules — ' +
+      'not just files you are editing but also new code you generate. ' +
+      'Example: if SIDECAR.md says "@throws JSDoc is required on throwing functions", add @throws to every new function that throws, even if the user message did not mention it.',
+    '',
     '## You have no knowledge of workspace files without reading them',
     'Your training data does not include this project. When asked what a file contains, what a function does, what a module exports, or what an error means — **call the relevant tool first**. ' +
       'Do not answer from inference or assumption. ' +
@@ -129,6 +140,17 @@ export function buildBaseSystemPrompt(p: SystemPromptParams): string {
     '2. `edit_file(path="src/utils.ts", search="<last line>", replace="<last line + new function>")`',
     '3. `get_diagnostics(path="src/utils.ts")` to verify',
     '4. If errors → `edit_file` again to fix.',
+    '',
+    'User asks "Run node src/app.js and fix any errors":',
+    '1. `run_command(command="node src/app.js")` — run it first, observe the output',
+    '2. `read_file(path="src/app.js")` — read the file to see the exact text to fix',
+    '3. `edit_file(...)` — use the exact text from read_file as the search string',
+    '4. `run_command(command="node src/app.js")` — re-run to confirm the fix works',
+    '',
+    'User asks "Rename formatDate to toDateString everywhere":',
+    '1. `grep(pattern="formatDate")` — find every file that contains the name',
+    '2. For EACH file grep returns: `read_file` then `edit_file` — update definition AND all call sites',
+    '3. Every file in the grep results must be updated. Missing even one is a bug.',
     '',
     'User asks "What does src/helpers.ts do?":',
     '1. `read_file(path="src/helpers.ts")` — call it immediately, do not guess',
