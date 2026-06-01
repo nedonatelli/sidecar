@@ -102,7 +102,9 @@ export function detectCycleAndBail(
       state.logger?.warn(
         `Agent loop cycle detected (${MIN_IDENTICAL_REPEATS} identical calls) — ${callSignature.slice(0, 100)}`,
       );
-      callbacks.onText(`\n\n⚠️ Agent stopped: same tool call repeated ${MIN_IDENTICAL_REPEATS} times in a row.\n`);
+      callbacks.onText(
+        `\n\n⚠️ Agent stopped: ${callSignature.slice(0, 80)} repeated ${MIN_IDENTICAL_REPEATS} times in a row.\n`,
+      );
       return true;
     }
   }
@@ -142,7 +144,7 @@ export function detectCycleAndBail(
           `Agent loop normalized cycle detected (${MIN_NORMALIZED_REPEATS} repeats, repeated secondary args) — ${normEntry.sig.slice(0, 100)}`,
         );
         callbacks.onText(
-          `\n\n⚠️ Agent stopped: same tool calls on the same resource repeated ` +
+          `\n\n⚠️ Agent stopped: ${normEntry.sig.slice(0, 80)} repeated ` +
             `${MIN_NORMALIZED_REPEATS} times — try a different approach.\n`,
         );
         return true;

@@ -7,6 +7,7 @@ import type { AgentEvalCase, AgentCaseResult, TrajectoryEvent } from './agentTyp
 import { scoreAgentCase } from './agentScorers.js';
 import { buildBaseSystemPrompt } from '../../src/webview/handlers/basePrompt.js';
 import { getConfig } from '../../src/config/settings.js';
+import { needsColdStart, hasProblematicThinking } from '../../src/config/modelAgentBehavior.js';
 
 // ---------------------------------------------------------------------------
 // Agent-loop eval runner.
@@ -60,7 +61,7 @@ class OllamaAgentBackend implements AgentEvalBackend {
     return 'ollama';
   }
   defaultModel(): string {
-    return process.env.SIDECAR_EVAL_MODEL || 'qwen3-coder:30b';
+    return process.env.SIDECAR_EVAL_MODEL || 'ministral-3:latest';
   }
 }
 
@@ -305,14 +306,21 @@ export async function runAgentCase(
     ...(evalCase.configOverrides ? { config: { ...getConfig(), ...evalCase.configOverrides } } : {}),
   };
 
-  // Prepend setupMessages if provided so the model isn't cold-started.
-  // In production SideCar the model usually has prior tool-use context;
-  // the eval defaults to a single-message cold start which systematically
-  // penalises models that need prior context to enter tool-use mode.
+  // Determine whether this model needs a cold start (no prior context).
+  // Models like gemma4:e4b perform WORSE with setup messages — prior context
+  // switches them from tool-use mode to chat-response mode.
+  const coldStart = needsColdStart(model);
   const initialMessages: ChatMessage[] = [
-    ...(evalCase.setupMessages ?? []),
+    ...(!coldStart && evalCase.setupMessages ? evalCase.setupMessages : []),
     { role: 'user', content: evalCase.userMessage },
   ];
+
+  // Suppress thinking mode for models where it causes stalling or text-only output.
+  if (hasProblematicThinking(model) && options.config) {
+    options.config = { ...options.config, ollamaDisableThinking: true };
+  } else if (hasProblematicThinking(model)) {
+    options.config = { ...getConfig(), ollamaDisableThinking: true };
+  }
 
   let runError: Error | null = null;
   try {

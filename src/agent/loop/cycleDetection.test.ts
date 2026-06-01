@@ -90,7 +90,7 @@ describe('detectCycleAndBail', () => {
       bailed = detectCycleAndBail(call, state, cb);
     }
     expect(bailed).toBe(true);
-    expect(cb.texts[0]).toContain('same resource');
+    expect(cb.texts[0]).toContain('repeated');
   });
 
   it('exact-only check fires at 4 when normalized sigs differ (tool has no recognized resource key)', () => {
@@ -236,7 +236,7 @@ describe('detectCycleAndBail — normalized signature pass', () => {
     expect(detectCycleAndBail(edit1, state, cb)).toBe(false);
     // Third call reuses edit0's content — secondary hash recurs → loop detected.
     expect(detectCycleAndBail(edit0, state, cb)).toBe(true);
-    expect(cb.texts[0]).toContain('same resource');
+    expect(cb.texts[0]).toContain('repeated');
   });
 
   it('does NOT fire when the primary resource changes between calls', () => {
@@ -294,7 +294,7 @@ describe('detectCycleAndBail — normalized signature pass', () => {
     expect(detectCycleAndBail([makeToolUse('run_command', { command: 'npm test', cwd: '/project0' })], state, cb)).toBe(
       true,
     );
-    expect(cb.texts[0]).toContain('same resource');
+    expect(cb.texts[0]).toContain('repeated');
   });
 
   it('uses first non-primary string arg so different values do not collide', () => {
@@ -317,7 +317,7 @@ describe('detectCycleAndBail — normalized signature pass', () => {
       expect(detectCycleAndBail([makeToolUse('list_processes', { filter: 'stuck' })], state, cb)).toBe(false);
     }
     expect(detectCycleAndBail([makeToolUse('list_processes', { filter: 'stuck' })], state, cb)).toBe(true);
-    expect(cb.texts[0]).toContain('same resource');
+    expect(cb.texts[0]).toContain('repeated');
   });
 
   it('does NOT fire when tool-name-only sig has different numeric args each time', () => {
@@ -339,7 +339,7 @@ describe('detectCycleAndBail — normalized signature pass', () => {
       expect(detectCycleAndBail([makeToolUse('list_processes', { limit: 10 })], state, cb)).toBe(false);
     }
     expect(detectCycleAndBail([makeToolUse('list_processes', { limit: 10 })], state, cb)).toBe(true);
-    expect(cb.texts[0]).toContain('same resource');
+    expect(cb.texts[0]).toContain('repeated');
   });
 
   it('fires on non-consecutive repeats of the same resource within the window', () => {
@@ -358,7 +358,7 @@ describe('detectCycleAndBail — normalized signature pass', () => {
     expect(detectCycleAndBail(bad, state, cb)).toBe(false); // [bad, grep, bad]
     expect(detectCycleAndBail(ls, state, cb)).toBe(false); // [bad, grep, bad, ls]
     expect(detectCycleAndBail(bad, state, cb)).toBe(true); // 3× bad.ts → fire
-    expect(cb.texts[0]).toContain('same resource');
+    expect(cb.texts[0]).toContain('repeated');
   });
 
   it('does NOT fire on non-consecutive repeats when secondary args are all unique', () => {
@@ -420,7 +420,7 @@ describe('detectCycleAndBail — normalized signature pass', () => {
       false,
     );
     expect(detectCycleAndBail(bad, state, cb)).toBe(true); // 3rd attempt → fire
-    expect(cb.texts[0]).toContain('same resource');
+    expect(cb.texts[0]).toContain('repeated');
   });
 
   it('does not fire the normalized check when exact check already fired', () => {
@@ -437,6 +437,6 @@ describe('detectCycleAndBail — normalized signature pass', () => {
     const fired = detectCycleAndBail(call, state, cb);
     expect(fired).toBe(true);
     // Normalized fires at 3 — message reflects resource-based detection.
-    expect(cb.texts[0]).toContain('same resource');
+    expect(cb.texts[0]).toContain('repeated');
   });
 });
