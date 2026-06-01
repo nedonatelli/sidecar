@@ -305,7 +305,14 @@ export async function runAgentCase(
     ...(evalCase.configOverrides ? { config: { ...getConfig(), ...evalCase.configOverrides } } : {}),
   };
 
-  const initialMessages: ChatMessage[] = [{ role: 'user', content: evalCase.userMessage }];
+  // Prepend setupMessages if provided so the model isn't cold-started.
+  // In production SideCar the model usually has prior tool-use context;
+  // the eval defaults to a single-message cold start which systematically
+  // penalises models that need prior context to enter tool-use mode.
+  const initialMessages: ChatMessage[] = [
+    ...(evalCase.setupMessages ?? []),
+    { role: 'user', content: evalCase.userMessage },
+  ];
 
   let runError: Error | null = null;
   try {

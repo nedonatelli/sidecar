@@ -72,6 +72,21 @@ export interface AgentEvalCase {
    */
   setupCommands?: string[];
   /**
+   * Prior conversation turns injected before the user message. Use this
+   * to warm-start the model with a prior tool-use example so it doesn't
+   * face a cold-start where it has never used tools in this session.
+   *
+   * In production SideCar the model almost always has prior context —
+   * chat history, visible tool calls, injected file content — which primes
+   * it toward tool use. The eval harness defaults to a single-message
+   * cold start which is unrepresentative and systematically penalises
+   * small models that need prior context to enter tool-use mode.
+   *
+   * Format: alternating user/assistant turns. Tool_use and tool_result
+   * blocks are valid content so you can show a real prior tool call.
+   */
+  setupMessages?: import('../src/ollama/types.js').ChatMessage[];
+  /**
    * Agent loop options. Defaults: approvalMode='autonomous',
    * maxIterations=8 (eval cases should be focused — runaway loops
    * almost always mean the case is wrong or the model regressed).

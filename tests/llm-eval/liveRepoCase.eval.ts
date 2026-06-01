@@ -68,6 +68,10 @@ const LIVE_CASE = {
       2,
     ),
   },
+  // Note: warm-start experiments (list_dir, edit workflow, simple text) all
+  // hurt gemma4's performance on this task. Any prior context pushes the model
+  // into chat-response mode rather than tool-use mode. Cold start (direct task
+  // as first message) is counter-intuitively better for gemma4:e4b here.
   // Real multi-file challenge:
   //   1. Read completionGate.ts — understand where lintObserved is set
   //   2. Extend the lint detection regex to cover Python (pylint, flake8, mypy, ruff)
