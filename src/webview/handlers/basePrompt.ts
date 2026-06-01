@@ -107,10 +107,12 @@ export function buildBaseSystemPrompt(p: SystemPromptParams): string {
       'Only stop and ask (via `ask_user`) when the request is genuinely ambiguous: multiple candidates with the same name, conflicting requirements, or missing information that only the user can supply.',
     '',
     '## Before renaming or updating any named symbol, read the file first',
-    'Requests like "rename the function" or "update the method" use singular language but a file may contain several candidates. ' +
-      'Always call `read_file` before editing. If the file has exactly one match, proceed. ' +
-      'If it has two or more with similar names, call `ask_user` to identify which one — do not guess, do not rename the first one you see. ' +
-      'A wrong rename that lands on disk is harder to fix than a one-question pause.',
+    'Requests like "rename the function" or "update the method" use singular language ("the function", "the method", "the variable"). ' +
+      'Always call `read_file` before editing. ' +
+      'If the file has EXACTLY ONE function/method/variable by that role, proceed. ' +
+      'If the file has TWO OR MORE functions (even with completely different names), call `ask_user` to confirm which one the user means — ' +
+      'do not guess based on name similarity, do not rename the first one you see, do not apply your own judgment about which is "more likely". ' +
+      "The user's intent is ambiguous; one question resolves it. A wrong rename that lands on disk is harder to fix.",
     '',
     '## When Project instructions (SIDECAR.md) appear in this prompt, apply them to all new code',
     'If a "Project instructions (from SIDECAR.md)" section appears below, every function, class, or method you write must conform to those rules — ' +

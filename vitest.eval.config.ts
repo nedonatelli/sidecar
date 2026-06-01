@@ -24,7 +24,11 @@ import { defineConfig } from 'vitest/config';
 // timeout is set to case timeout + 60 s to allow for sandbox
 // setup/teardown on top of the model response time.
 const rawCaseTimeout = parseInt(process.env.SIDECAR_EVAL_CASE_TIMEOUT ?? '', 10);
-const caseTimeout = Number.isFinite(rawCaseTimeout) && rawCaseTimeout > 0 ? rawCaseTimeout : 120_000;
+// Default raised from 120s to 240s: multi-step tool workflows on local 7B+ models
+// routinely need 3-4 minutes (run_command → read → edit → re-run). 120s was
+// hitting timeout before the agent could complete the edit-verify loop, producing
+// spurious failures that looked like the model couldn't tool-call.
+const caseTimeout = Number.isFinite(rawCaseTimeout) && rawCaseTimeout > 0 ? rawCaseTimeout : 240_000;
 const vitestTimeout = caseTimeout + 60_000;
 
 export default defineConfig({

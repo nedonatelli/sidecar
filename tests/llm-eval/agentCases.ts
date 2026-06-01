@@ -800,17 +800,22 @@ export const AGENT_CASES: AgentEvalCase[] = [
     userMessage: 'Rename the function to `handleItems` in `src/utils.ts`.',
     expect: {
       // Core signal: agent must not silently pick one and edit without asking.
-      // Both prose asking ("which function?") and calling ask_user are valid;
-      // blindly renaming one is the failure we want to catch.
       toolsNotCalled: ['edit_file', 'write_file'],
-      // Agent must read the file to discover the ambiguity before doing anything.
+      // Agent must read the file to discover the ambiguity.
       toolsCalled: ['read_file'],
-      // Must surface the ambiguity — name both candidates in the final text.
-      finalTextContains: ['processItems', 'transformItems'],
+      // The purpose-built disambiguation tool must be called — the eval harness
+      // does not wire a clarifyFn so ask_user returns an error, but the call
+      // itself appearing in the trajectory is the signal that the model
+      // correctly identified the ambiguity before editing. Both prose asking
+      // AND calling ask_user are correct; ask_user is now the hard requirement
+      // since the model reliably does it and the finalText after an ask_user
+      // error is generic (doesn't name the candidates).
+      toolsCalled: ['read_file', 'ask_user'],
     },
     softExpect: {
-      // Ideally uses the purpose-built ask_user tool rather than inline prose.
-      toolsCalled: ['ask_user'],
+      // Both candidate names in the response — nice-to-have but hard to assert
+      // after ask_user errors in the harness environment.
+      finalTextContains: ['processItems', 'transformItems'],
     },
   },
 
