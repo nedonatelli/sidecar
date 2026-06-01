@@ -53,7 +53,20 @@ const LIVE_CASE = {
   workspace: {
     'src/agent/completionGate.ts': GATE_SRC,
     'src/agent/completionGate.test.ts': GATE_TEST,
-    'package.json': JSON.stringify({ name: 'sidecar-ai', scripts: { test: 'vitest run' } }, null, 2),
+    // Use a test command that always exits 0 so the completion gate's
+    // 'run tests' requirement can be satisfied in the eval sandbox
+    // (no node_modules available). The gate then advances to fire the
+    // testNotUpdated check and prompt the model to add test cases.
+    'package.json': JSON.stringify(
+      {
+        name: 'sidecar-ai',
+        scripts: {
+          test: 'node -e "console.log(\'Tests passed (sandbox mode)\'); process.exit(0)"',
+        },
+      },
+      null,
+      2,
+    ),
   },
   // Real multi-file challenge:
   //   1. Read completionGate.ts — understand where lintObserved is set
