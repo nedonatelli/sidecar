@@ -385,7 +385,9 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
     // the CURRENT file text in search. Surface the nearest matching region
     // so the model can copy it directly as the search string without a
     // separate read_file round-trip.
-    let hint = 'search must contain the CURRENT file text; replace contains the new text. They cannot be identical.';
+    let hint =
+      'The search field must contain the CURRENT text in the file (what you are replacing). ' +
+      'The replace field contains the NEW text (what you want it to say). They cannot be the same.';
     const currentContent = isAuditModeActive(context)
       ? (getDefaultAuditBuffer().read(filePath).content ?? (await readDiskViaWorkspace(context, filePath)))
       : await readDiskViaWorkspace(context, filePath);
@@ -393,11 +395,12 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
       const nearest = findNearestMatch(currentContent, search);
       if (nearest) {
         hint =
-          'search must contain the CURRENT file text; replace contains the new text. ' +
-          `The file currently contains this region — use it as your search string:\n\`\`\`\n${nearest}\n\`\`\``;
+          'search = CURRENT file text (copy exactly). replace = NEW text (what you want).\n\n' +
+          `COPY THIS INTO YOUR search FIELD — it is what the file currently says:\n\`\`\`\n${nearest}\n\`\`\`\n\n` +
+          'Your replace field should contain the updated version of the above text.';
       }
     }
-    return `Error: edit_file failed — search and replace text are identical; no change would be made. ${hint}`;
+    return `Error: edit_file failed — search and replace text are identical; no change would be made.\n${hint}`;
   }
 
   // If the replacement is a short substring of the search string the edit

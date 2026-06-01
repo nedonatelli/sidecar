@@ -145,7 +145,7 @@ describe('editFile audit mode', () => {
     expect(result).toContain('search and replace text are identical');
     // Should show the actual current region so the model can use it as search
     expect(result).toContain('eslint / tsc'); // the real old text
-    expect(result).toContain('use it as your search string');
+    expect(result).toContain('COPY THIS INTO YOUR search FIELD');
   });
 
   it('returns nearest-match hint when search string is not found in buffered content', async () => {
