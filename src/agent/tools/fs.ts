@@ -96,6 +96,52 @@ function findNearestMatch(fileText: string, search: string): string | null {
 }
 
 /**
+ * Find the region in the file that the model INTENDS to replace, using
+ * the desired new content (replace) to locate the target. Differs from
+ * findNearestMatch in two ways:
+ *
+ *   1. It uses `replace` (what the model wants to write) rather than
+ *      `search` (which is wrong). The model's desired output has keyword
+ *      overlap with the existing target region even when the search
+ *      string doesn't match — e.g. both old and new contain "eslint" and
+ *      "tsc" around the lint-detection if-block.
+ *
+ *   2. It returns ONLY the core window (no surrounding context lines) so
+ *      the result can be passed directly to text.replace() without
+ *      accidentally removing the context lines around the target.
+ *
+ * Returns null when confidence is below 40% so low-signal guesses are
+ * rejected rather than silently corrupting unrelated regions.
+ */
+function findIntentTarget(fileText: string, replace: string): string | null {
+  const searchWords = replace
+    .split(/\W+/)
+    .filter((w) => w.length >= 4)
+    .map((w) => w.toLowerCase());
+  if (searchWords.length === 0) return null;
+
+  const fileLines = fileText.split('\n');
+  const windowSize = Math.max(replace.split('\n').filter(Boolean).length, 1);
+  let bestScore = 0;
+  let bestIdx = -1;
+
+  for (let i = 0; i <= fileLines.length - windowSize; i++) {
+    const window = fileLines
+      .slice(i, i + windowSize)
+      .join('\n')
+      .toLowerCase();
+    const score = searchWords.filter((w) => window.includes(w)).length;
+    if (score > bestScore) {
+      bestScore = score;
+      bestIdx = i;
+    }
+  }
+
+  if (bestIdx < 0 || bestScore < Math.ceil(searchWords.length * 0.4)) return null;
+  return fileLines.slice(bestIdx, bestIdx + windowSize).join('\n');
+}
+
+/**
  * Like findNearestMatch but returns a wider window (up to maxLines).
  * Used for the "file not read this turn" injection where we want to
  * show enough context that the model can see the full code block
@@ -400,6 +446,35 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
           'Your replace field should contain the updated version of the above text.';
       }
     }
+    // Same steer: the model gave us the desired new content — use it to
+    // find the intent target and apply the edit rather than failing.
+    if (currentContent) {
+      const intentTarget = findIntentTarget(currentContent, search);
+      if (intentTarget && currentContent.includes(intentTarget) && intentTarget !== search) {
+        // We're in the early path (before file is read via fileUri), so
+        // re-read or use currentContent directly based on which path we're in.
+        // The identical check fires before audit-mode vs disk branching, so
+        // we use `currentContent` which was read above.
+        const inferredText = currentContent.replace(intentTarget, replace);
+        const patch = computeLineDiff(currentContent, inferredText, filePath);
+        if (context?.onOutput && patch) context.onOutput(DIFF_PREFIX + patch);
+        if (isAuditModeActive(context)) {
+          await getDefaultAuditBuffer().write(filePath, inferredText, (p) => readDiskViaWorkspace(context, p));
+          return (
+            `Applied inferred edit to ${filePath} (buffered for audit review): ` +
+            `found closest matching region for your content.\n` +
+            `Replaced:\n\`\`\`\n${intentTarget}\n\`\`\`\nWith:\n\`\`\`\n${replace}\n\`\`\``
+          );
+        }
+        const fileUri2 = Uri.joinPath(resolveRootUri(context), filePath);
+        await workspace.fs.writeFile(fileUri2, Buffer.from(inferredText, 'utf-8'));
+        return (
+          `Applied inferred edit to ${filePath}: ` +
+          `found closest matching region for your content.\n` +
+          `Replaced:\n\`\`\`\n${intentTarget}\n\`\`\`\nWith:\n\`\`\`\n${replace}\n\`\`\``
+        );
+      }
+    }
     return `Error: edit_file failed — search and replace text are identical; no change would be made.\n${hint}`;
   }
 
@@ -471,6 +546,29 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
       : '';
 
   if (!text.includes(search)) {
+    // Steer the model's intent: the replace content is usually correct even
+    // when the search string isn't. Use the desired new content to locate
+    // the target region and apply the edit directly. This handles the common
+    // small-model failure where the model writes the new text in search instead
+    // of the old text — we infer where it wants to make the change.
+    const intentTarget = findIntentTarget(text, replace);
+    if (intentTarget && text.includes(intentTarget) && intentTarget !== replace) {
+      const inferredText = text.replace(intentTarget, replace);
+      const patch = computeLineDiff(text, inferredText, filePath);
+
+      if (context?.onOutput && patch) context.onOutput(DIFF_PREFIX + patch);
+      if (context?.editTimeline && !context.cwd) context.editTimeline.record(filePath, text, inferredText);
+
+      await workspace.fs.writeFile(fileUri, Buffer.from(inferredText, 'utf-8'));
+      return (
+        `${unreadPrefix}Applied inferred edit to ${filePath}: the search string didn't match exactly, ` +
+        `but I found the closest matching region and replaced it with your content.\n` +
+        `Replaced:\n\`\`\`\n${intentTarget}\n\`\`\`\n` +
+        `With:\n\`\`\`\n${replace}\n\`\`\`` +
+        (partialReplaceWarning ? `\n${partialReplaceWarning}` : '')
+      );
+    }
+
     const nearest = findNearestMatch(text, search);
     const hint = nearest
       ? `\n\nNearest matching region in the file (use this as your search string):\n\`\`\`\n${nearest}\n\`\`\``

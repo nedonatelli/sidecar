@@ -126,10 +126,10 @@ describe('editFile audit mode', () => {
     vi.restoreAllMocks();
   });
 
-  it('returns nearest-match hint in the identical-search-replace error', async () => {
-    // Simulates the most common gemma4 failure: model writes the DESIRED new text
-    // in both search and replace. The error now surfaces the actual region from
-    // the file so the model can copy it as the correct search string.
+  it('applies inferred edit when search=replace (intent inference steers gemma4)', async () => {
+    // Gemma4 writes the DESIRED new text in both search and replace.
+    // Intent inference finds the closest matching region and applies the edit
+    // rather than failing — "steer the model's action rather than fight it."
     const context = { config: { agentMode: 'audit' } as never };
     const fileContent = [
       '// Direct invocations of eslint / tsc, OR common npm/pnpm/yarn script',
@@ -139,13 +139,13 @@ describe('editFile audit mode', () => {
       '}',
     ].join('\n');
     await buf.write('src/gate.ts', fileContent, async () => undefined);
-    // Model writes the new text in BOTH search and replace (identical)
     const newText = '// Direct invocations of various linters (eslint, tsc, pylint, flake8)';
     const result = await editFile({ path: 'src/gate.ts', search: newText, replace: newText }, context);
-    expect(result).toContain('search and replace text are identical');
-    // Should show the actual current region so the model can use it as search
-    expect(result).toContain('eslint / tsc'); // the real old text
-    expect(result).toContain('COPY THIS INTO YOUR search FIELD');
+    // Should succeed by applying the edit, not fail with an error
+    expect(result).toContain('Applied inferred edit');
+    expect(result).toContain('eslint / tsc'); // shows what was replaced
+    // File should now contain the new text
+    expect(buf.read('src/gate.ts').content).toContain('pylint, flake8');
   });
 
   it('returns nearest-match hint when search string is not found in buffered content', async () => {

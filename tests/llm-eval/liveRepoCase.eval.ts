@@ -115,6 +115,42 @@ const LIVE_CASE = {
 } as const;
 
 // ---------------------------------------------------------------------------
+// Plan-mode variant — tests whether gemma4 can produce a comprehensive plan
+// before executing. The hypothesis: giving the model a planning turn first
+// lets it internalize the full task before any tool calls, then the plan
+// in context guides execution.
+// ---------------------------------------------------------------------------
+
+const PLAN_CASE = {
+  id: 'live-repo-polyglot-plan-mode',
+  description: 'Agent plans the polyglot-lint change in plan mode — verifies plan covers all steps',
+  tags: ['live-repo', 'plan-mode', 'gemma4'],
+  workspace: {
+    'src/agent/completionGate.ts': GATE_SRC,
+    'src/agent/completionGate.test.ts': GATE_TEST,
+    'package.json': JSON.stringify(
+      { name: 'sidecar-ai', scripts: { test: 'node -e "process.exit(0)"' } },
+      null,
+      2,
+    ),
+  },
+  approvalMode: 'plan' as const,
+  userMessage: LIVE_CASE.userMessage,
+  maxIterations: 4,
+  // In plan mode the model outputs text only (no tool calls) — we check
+  // the plan text covers the key steps.
+  expect: {
+    toolsCalled: [] as string[],
+    finalTextContains: ['pylint', 'go vet', 'test'],
+  },
+  softExpect: {
+    finalTextContains: [
+      'flake8', 'golangci-lint', 'completionGate.test.ts', 'completionGate.ts',
+    ],
+  },
+} as const;
+
+// ---------------------------------------------------------------------------
 // Runner — mirrors the pattern in agent.eval.ts.
 // ---------------------------------------------------------------------------
 
@@ -123,7 +159,9 @@ const backend = pickAgentBackend();
 // Apply the same SIDECAR_EVAL_CASE filter as agent.eval.ts so this file
 // doesn't run when a different case subset is requested.
 const CASE_FILTER = process.env.SIDECAR_EVAL_CASE?.split(',').map((s) => s.trim());
-const caseMatchesFilter = !CASE_FILTER || CASE_FILTER.some((f) => LIVE_CASE.id.includes(f));
+const caseMatchesFilter =
+  !CASE_FILTER ||
+  CASE_FILTER.some((f) => LIVE_CASE.id.includes(f) || PLAN_CASE.id.includes(f));
 
 describe.skipIf(!backend || !caseMatchesFilter)('llm-eval :: live repo (shadow workspace)', () => {
   const allResults: AgentCaseResult[] = [];
@@ -175,4 +213,24 @@ describe.skipIf(!backend || !caseMatchesFilter)('llm-eval :: live repo (shadow w
       console.log('\n==============================\n');
     }
   });
+
+  // Plan-mode variant: does gemma4 generate a plan that covers all required steps?
+  const planMatchesFilter = !CASE_FILTER || CASE_FILTER.some((f) => PLAN_CASE.id.includes(f));
+  it.skipIf(!planMatchesFilter)(
+    `${PLAN_CASE.id} — ${PLAN_CASE.description}`,
+    async () => {
+      const b = backend!;
+      const result = await runAgentCase(PLAN_CASE as never, b);
+      allResults.push(result);
+
+      console.log('\n=== GEMMA4 PLAN ===\n');
+      console.log(result.finalText);
+      console.log('\n===================\n');
+
+      if (!result.passed) {
+        const report = renderAgentReport(allResults);
+        throw new Error(report);
+      }
+    },
+  );
 });
