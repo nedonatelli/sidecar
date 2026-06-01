@@ -95,6 +95,51 @@ function findNearestMatch(fileText: string, search: string): string | null {
   return fileLines.slice(start, end).join('\n');
 }
 
+/**
+ * Like findNearestMatch but returns a wider window (up to maxLines).
+ * Used for the "file not read this turn" injection where we want to
+ * show enough context that the model can see the full code block
+ * (comment + if statement + body) rather than just the comment line.
+ */
+function findNearestMatchWide(fileText: string, search: string, maxLines = 25): string | null {
+  const searchLines = search
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (searchLines.length === 0) return null;
+
+  const searchWords = search
+    .split(/\W+/)
+    .filter((w) => w.length >= 4)
+    .map((w) => w.toLowerCase());
+  if (searchWords.length === 0) return null;
+
+  const fileLines = fileText.split('\n');
+  const windowSize = Math.max(searchLines.length, 1);
+  let bestScore = 0;
+  let bestIdx = -1;
+
+  for (let i = 0; i <= fileLines.length - windowSize; i++) {
+    const window = fileLines
+      .slice(i, i + windowSize)
+      .join('\n')
+      .toLowerCase();
+    const score = searchWords.filter((w) => window.includes(w)).length;
+    if (score > bestScore) {
+      bestScore = score;
+      bestIdx = i;
+    }
+  }
+
+  if (bestIdx < 0 || bestScore < Math.ceil(searchWords.length * 0.3)) return null;
+
+  // Wide context: enough to show the full surrounding code block
+  const half = Math.floor((maxLines - windowSize) / 2);
+  const start = Math.max(0, bestIdx - half);
+  const end = Math.min(fileLines.length, bestIdx + windowSize + half);
+  return fileLines.slice(start, end).join('\n');
+}
+
 // ---------------------------------------------------------------------------
 // Filesystem tools: read_file / write_file / edit_file / list_directory.
 // All four route through VS Code's workspace.fs (rather than node:fs) so
@@ -413,10 +458,12 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   const unreadPrefix =
     !hasReadFile && context?.filesReadThisTurn !== undefined
       ? (() => {
-          const section = findNearestMatch(text, search + '\n' + replace);
+          // Use the wide matcher so the model sees the full code block
+          // (comment + if statement + body), not just the comment line.
+          const section = findNearestMatchWide(text, search + '\n' + replace, 25);
           return section
-            ? `[You have not read ${filePath} this turn. Current file content near your edit:\n\`\`\`\n${section}\n\`\`\`\nVerify your search string matches exactly.]\n\n`
-            : `[You have not read ${filePath} this turn. Call read_file to see current content.]\n\n`;
+            ? `[You have not read ${filePath} this turn. Current file section near your intended edit:\n\`\`\`\n${section}\n\`\`\`\nUse the exact text from above as your search string — it must match the file byte-for-byte.]\n\n`
+            : `[You have not read ${filePath} this turn. Call read_file first to see the current content before editing.]\n\n`;
         })()
       : '';
 

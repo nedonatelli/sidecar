@@ -109,6 +109,16 @@ export interface LoopState {
   // Stub-validator retry counter. stubCheck.ts is the only writer.
   stubFixRetries: number;
 
+  /**
+   * Files successfully read via read_file during this loop run.
+   * Persists across iterations so that a file read in iteration N is
+   * still "known" in iteration N+1 when the model tries to edit it.
+   * editFile consults this to inject a "you haven't read this file yet"
+   * warning with a relevant file section when the model edits without
+   * having read the file at all in this session.
+   */
+  filesReadThisRun: Set<string>;
+
   // Per-file critic injection counter. criticHook.ts is the only writer.
   criticInjectionsByFile: Map<string, number>;
 
@@ -194,6 +204,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     recentNormalizedCalls: [],
     autoFixRetriesByFile: new Map<string, number>(),
     stubFixRetries: 0,
+    filesReadThisRun: new Set<string>(),
     criticInjectionsByFile: new Map<string, number>(),
     criticInjectionsByTestHash: new Map<string, number>(),
     toolCallCounts: new Map<string, number>(),

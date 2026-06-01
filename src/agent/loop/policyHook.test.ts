@@ -41,6 +41,7 @@ function makeState(logger?: AgentLogger): LoopState {
     recentNormalizedCalls: [],
     autoFixRetriesByFile: new Map(),
     stubFixRetries: 0,
+    filesReadThisRun: new Set<string>(),
     criticInjectionsByFile: new Map(),
     criticInjectionsByTestHash: new Map(),
     toolCallCounts: new Map(),

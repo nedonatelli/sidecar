@@ -46,7 +46,14 @@ export async function executeMultiFilePlan(
   maxParallel: number,
 ): Promise<ToolResultContentBlock[]> {
   const layers = planToLayers(plan);
-  const ctx: ExecutionContext = { state, client, options, callbacks, signal, filesReadThisTurn: new Set<string>() };
+  const ctx: ExecutionContext = {
+    state,
+    client,
+    options,
+    callbacks,
+    signal,
+    filesReadThisTurn: state.filesReadThisRun,
+  };
 
   // Map each path → the FIRST tool_use targeting that path. Subsequent
   // duplicates get a synthetic "merged-by-plan" result and never

@@ -73,10 +73,16 @@ export async function executeToolUses(
   callbacks: AgentCallbacks,
   signal: AbortSignal,
 ): Promise<ToolResultContentBlock[]> {
-  // Shared across all tool calls this iteration so read_file and edit_file
-  // can detect when the model edits a file it hasn't read yet.
-  const filesReadThisTurn = new Set<string>();
-  const ctx: ExecutionContext = { state, client, options, callbacks, signal, filesReadThisTurn };
+  // Use the run-scoped set from LoopState so files read in a previous
+  // iteration are still "known" when the model edits them later.
+  const ctx: ExecutionContext = {
+    state,
+    client,
+    options,
+    callbacks,
+    signal,
+    filesReadThisTurn: state.filesReadThisRun,
+  };
 
   const executionPromises = pendingToolUses.map((toolUse) => executeOne(ctx, toolUse));
 
