@@ -29,9 +29,6 @@ function readRepoFile(rel: string): string {
 }
 
 const GATE_SRC = readRepoFile('src/agent/completionGate.ts');
-// Use the updated test file that includes the \S+ regression guard —
-// when the agent runs tests after editing, this assertion will fail if
-// the model changes \S+ to .* in the Python pattern.
 const GATE_TEST = readRepoFile('src/agent/completionGate.test.ts');
 
 // ---------------------------------------------------------------------------
@@ -39,51 +36,57 @@ const GATE_TEST = readRepoFile('src/agent/completionGate.test.ts');
 // ---------------------------------------------------------------------------
 
 const LIVE_CASE = {
-  id: 'live-repo-rust-test-support',
+  id: 'live-repo-polyglot-lint-detection',
   description:
-    'Agent extends extractTestFiles in real completionGate.ts to recognise Rust integration tests',
-  tags: ['live-repo', 'real-files', 'shadow-workspace'],
+    'Agent extends completionGate lint detection to cover Python and Go linters, with tests',
+  tags: ['live-repo', 'real-files', 'shadow-workspace', 'multi-file'],
   workspace: {
-    // Real SideCar source files — the agent edits these, not toy fixtures.
     'src/agent/completionGate.ts': GATE_SRC,
     'src/agent/completionGate.test.ts': GATE_TEST,
-    // Minimal package.json so the agent can discover the project.
     'package.json': JSON.stringify({ name: 'sidecar-ai', scripts: { test: 'vitest run' } }, null, 2),
   },
+  // Real multi-file challenge:
+  //   1. Read completionGate.ts — understand where lintObserved is set
+  //   2. Extend the lint detection regex to cover Python (pylint, flake8, mypy, ruff)
+  //      and Go (go vet, golangci-lint, staticcheck) tools
+  //   3. Update the comment to document the new tools
+  //   4. Read completionGate.test.ts — understand the test pattern
+  //   5. Add at least two new test cases (one Python, one Go) following the existing style
+  //   6. Do not break any existing behaviour
   userMessage:
-    'Read `src/agent/completionGate.ts` and find the `extractTestFiles` function. ' +
-    'Add `tests/\\S+\\.rs` to its regex so Rust integration test files are matched. ' +
-    'Update the comment above the regex to mention Rust. ' +
-    'Do not change anything else in the file.',
+    'Read `src/agent/completionGate.ts`. The `recordToolCall` function sets `lintObserved=true` ' +
+    'when a `run_command` contains `eslint` or `tsc`. ' +
+    'Extend it to also recognise Python linters (`pylint`, `flake8`, `mypy`, `ruff`, `black`) ' +
+    'and Go linters (`go vet`, `golangci-lint`, `staticcheck`). ' +
+    'Update the comment above the lint-detection block to document the new tools. ' +
+    'Then read `src/agent/completionGate.test.ts` and add at least two new test cases — ' +
+    'one for a Python linter and one for a Go linter — following the existing test style. ' +
+    'Run the tests when you are done to verify nothing is broken.',
+  maxIterations: 12,
   expect: {
     toolsCalled: ['read_file', 'edit_file'],
     trajectoryOrder: [{ before: 'read_file', after: 'edit_file' }],
     files: {
+      // Implementation file must mention at least one Python and one Go tool
       contain: [
-        {
-          path: 'src/agent/completionGate.ts',
-          // Rust .rs files in a tests/ directory
-          substrings: ['.rs'],
-        },
+        { path: 'src/agent/completionGate.ts', substrings: ['pylint', 'go vet'] },
+        // Test file must have new test cases
+        { path: 'src/agent/completionGate.test.ts', substrings: ['pylint', 'go vet'] },
       ],
-      // The existing Python and Go patterns must still be present
       notContain: [
-        {
-          path: 'src/agent/completionGate.ts',
-          substrings: ['TODO', 'FIXME'],
-        },
+        { path: 'src/agent/completionGate.ts', substrings: ['TODO', 'FIXME'] },
+        { path: 'src/agent/completionGate.test.ts', substrings: ['TODO', 'FIXME'] },
       ],
     },
-    softExpect: {
-      files: {
-        matchesRegex: [
-          {
-            path: 'src/agent/completionGate.ts',
-            // Should match `tests/something.rs` or `tests/**/*.rs` pattern
-            patterns: [/tests[/\\][^|)]+\.rs/],
-          },
-        ],
-      },
+  },
+  softExpect: {
+    // Ideal: the agent also ran the tests and they passed
+    toolsCalled: ['run_command'],
+    files: {
+      // More complete coverage
+      contain: [
+        { path: 'src/agent/completionGate.ts', substrings: ['flake8', 'mypy', 'golangci-lint'] },
+      ],
     },
   },
 } as const;

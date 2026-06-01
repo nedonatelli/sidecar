@@ -137,6 +137,48 @@ describe('completionGate — recordToolCall', () => {
     expect(state.lintObserved).toBe(true);
   });
 
+  it('pylint satisfies lint requirement', () => {
+    const state = createGateState();
+    recordToolCall(state, makeRunCommand('pylint src/'), ok());
+    expect(state.lintObserved).toBe(true);
+  });
+
+  it('flake8 satisfies lint requirement', () => {
+    const state = createGateState();
+    recordToolCall(state, makeRunCommand('flake8 src/main.py'), ok());
+    expect(state.lintObserved).toBe(true);
+  });
+
+  it('mypy satisfies lint requirement', () => {
+    const state = createGateState();
+    recordToolCall(state, makeRunCommand('mypy --strict src/'), ok());
+    expect(state.lintObserved).toBe(true);
+  });
+
+  it('ruff satisfies lint requirement', () => {
+    const state = createGateState();
+    recordToolCall(state, makeRunCommand('ruff check .'), ok());
+    expect(state.lintObserved).toBe(true);
+  });
+
+  it('go vet satisfies lint requirement', () => {
+    const state = createGateState();
+    recordToolCall(state, makeRunCommand('go vet ./...'), ok());
+    expect(state.lintObserved).toBe(true);
+  });
+
+  it('golangci-lint satisfies lint requirement', () => {
+    const state = createGateState();
+    recordToolCall(state, makeRunCommand('golangci-lint run'), ok());
+    expect(state.lintObserved).toBe(true);
+  });
+
+  it('staticcheck satisfies lint requirement', () => {
+    const state = createGateState();
+    recordToolCall(state, makeRunCommand('staticcheck ./...'), ok());
+    expect(state.lintObserved).toBe(true);
+  });
+
   // ---------------------------------------------------------------------------
   // extractTestFiles coverage — each pattern in the regex needs a positive
   // test AND a negative test so regressions (e.g. \S+ → .* that starts

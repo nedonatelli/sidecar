@@ -121,12 +121,14 @@ export function recordToolCall(state: GateState, tu: ToolUseContentBlock, result
   if (tu.name === 'run_command') {
     const cmd = String(tu.input.command ?? '');
 
-    // Direct invocations of eslint / tsc, OR common npm/pnpm/yarn script
-    // names that conventionally run lint or type-checking. We can't know
-    // what "npm run lint" actually calls without parsing package.json, but
-    // the naming convention is reliable enough to satisfy the gate.
+    // Direct invocations of JS/TS linters (eslint, tsc), Python linters
+    // (pylint, flake8, mypy, ruff, black), and Go linters (go vet,
+    // golangci-lint, staticcheck), OR common npm/pnpm/yarn script names
+    // that conventionally run lint or type-checking. We can't know what
+    // "npm run lint" actually calls without parsing package.json, but the
+    // naming convention is reliable enough to satisfy the gate.
     if (
-      /\b(eslint|tsc)\b/.test(cmd) ||
+      /\b(eslint|tsc|pylint|flake8|mypy|ruff|black|go\s+vet|golangci-lint|staticcheck)\b/.test(cmd) ||
       /\b(npm|pnpm|yarn|bun)\s+run\s+(lint|check|compile|build|typecheck|type-check)\b/.test(cmd)
     ) {
       state.lintObserved = true;
