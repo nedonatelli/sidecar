@@ -97,6 +97,14 @@ export interface ToolExecutorContext {
    * Test Explorer panel without the user re-running manually.
    */
   testController?: SidecarTestController;
+  /**
+   * Files read via `read_file` during this agent iteration. Populated by
+   * the readFile executor so editFile can detect when the model is editing
+   * a file it hasn't seen yet and proactively inject the relevant section.
+   * Reset at the start of each loop iteration via the LoopState wiring in
+   * executeToolUses.ts. When absent (e.g. unit tests), the check is skipped.
+   */
+  filesReadThisTurn?: Set<string>;
 }
 
 export interface ToolExecutor {

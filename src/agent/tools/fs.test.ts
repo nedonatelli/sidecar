@@ -126,6 +126,28 @@ describe('editFile audit mode', () => {
     vi.restoreAllMocks();
   });
 
+  it('returns nearest-match hint in the identical-search-replace error', async () => {
+    // Simulates the most common gemma4 failure: model writes the DESIRED new text
+    // in both search and replace. The error now surfaces the actual region from
+    // the file so the model can copy it as the correct search string.
+    const context = { config: { agentMode: 'audit' } as never };
+    const fileContent = [
+      '// Direct invocations of eslint / tsc, OR common npm/pnpm/yarn script',
+      '// names that conventionally run lint or type-checking.',
+      'if (/\\b(eslint|tsc)\\b/.test(cmd)) {',
+      '  state.lintObserved = true;',
+      '}',
+    ].join('\n');
+    await buf.write('src/gate.ts', fileContent, async () => undefined);
+    // Model writes the new text in BOTH search and replace (identical)
+    const newText = '// Direct invocations of various linters (eslint, tsc, pylint, flake8)';
+    const result = await editFile({ path: 'src/gate.ts', search: newText, replace: newText }, context);
+    expect(result).toContain('search and replace text are identical');
+    // Should show the actual current region so the model can use it as search
+    expect(result).toContain('eslint / tsc'); // the real old text
+    expect(result).toContain('use it as your search string');
+  });
+
   it('returns nearest-match hint when search string is not found in buffered content', async () => {
     // Simulates the gemma4 failure mode: model writes the NEW text in the
     // search field instead of the OLD text. The hint shows the actual region

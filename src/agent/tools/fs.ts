@@ -268,6 +268,8 @@ export async function readFile(input: Record<string, unknown>, context?: ToolExe
     );
   }
   const text = Buffer.from(bytes).toString('utf-8');
+  // Track this file as read so editFile knows the model has current content.
+  context?.filesReadThisTurn?.add(path.posix.normalize(filePath.split(path.sep).join('/')));
   if (mode === 'compact') return compactSourceFile(text);
   if (mode === 'outline') return outlineSourceFile(text);
   return text;
@@ -334,10 +336,23 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   const replace = input.replace as string;
 
   if (search === replace) {
-    return (
-      `Error: edit_file failed — search and replace text are identical; no change would be made. ` +
-      `Verify your replace argument contains the corrected content, not a copy of the search text.`
-    );
+    // The model wrote the desired new text in both fields instead of putting
+    // the CURRENT file text in search. Surface the nearest matching region
+    // so the model can copy it directly as the search string without a
+    // separate read_file round-trip.
+    let hint = 'search must contain the CURRENT file text; replace contains the new text. They cannot be identical.';
+    const currentContent = isAuditModeActive(context)
+      ? (getDefaultAuditBuffer().read(filePath).content ?? (await readDiskViaWorkspace(context, filePath)))
+      : await readDiskViaWorkspace(context, filePath);
+    if (currentContent) {
+      const nearest = findNearestMatch(currentContent, search);
+      if (nearest) {
+        hint =
+          'search must contain the CURRENT file text; replace contains the new text. ' +
+          `The file currently contains this region — use it as your search string:\n\`\`\`\n${nearest}\n\`\`\``;
+      }
+    }
+    return `Error: edit_file failed — search and replace text are identical; no change would be made. ${hint}`;
   }
 
   // If the replacement is a short substring of the search string the edit
@@ -388,16 +403,33 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   const fileUri = Uri.joinPath(resolveRootUri(context), filePath);
   const bytes = await workspace.fs.readFile(fileUri);
   const text = Buffer.from(bytes).toString('utf-8');
+
+  // If the model is editing a file it hasn't explicitly read this turn,
+  // inject the nearest relevant section so it has current file context.
+  // This structurally closes the gap where models call edit_file without
+  // calling read_file first, leading to wrong search strings.
+  const normalizedPath = path.posix.normalize(filePath.split(path.sep).join('/'));
+  const hasReadFile = context?.filesReadThisTurn?.has(normalizedPath) ?? true;
+  const unreadPrefix =
+    !hasReadFile && context?.filesReadThisTurn !== undefined
+      ? (() => {
+          const section = findNearestMatch(text, search + '\n' + replace);
+          return section
+            ? `[You have not read ${filePath} this turn. Current file content near your edit:\n\`\`\`\n${section}\n\`\`\`\nVerify your search string matches exactly.]\n\n`
+            : `[You have not read ${filePath} this turn. Call read_file to see current content.]\n\n`;
+        })()
+      : '';
+
   if (!text.includes(search)) {
     const nearest = findNearestMatch(text, search);
     const hint = nearest
       ? `\n\nNearest matching region in the file (use this as your search string):\n\`\`\`\n${nearest}\n\`\`\``
       : '\n\nCall read_file to see the exact current content.';
-    return `Error: edit_file failed — search string not found in ${filePath}. The file was NOT modified.${hint}`;
+    return `${unreadPrefix}Error: edit_file failed — search string not found in ${filePath}. The file was NOT modified.${hint}`;
   }
   const matchCount = text.split(search).length - 1;
   if (matchCount > 1) {
-    return `Error: edit_file failed — search string appears ${matchCount} times in ${filePath}. The file was NOT modified. Add more surrounding context to your search string to make it unique, then retry.`;
+    return `${unreadPrefix}Error: edit_file failed — search string appears ${matchCount} times in ${filePath}. The file was NOT modified. Add more surrounding context to your search string to make it unique, then retry.`;
   }
   const newText = text.replace(search, () => replace);
 
@@ -413,7 +445,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   }
 
   await workspace.fs.writeFile(fileUri, Buffer.from(newText, 'utf-8'));
-  return `File edited: ${filePath}${partialReplaceWarning}`;
+  return `${unreadPrefix}File edited: ${filePath}${partialReplaceWarning}`;
 }
 
 export async function deleteFile(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {

@@ -49,6 +49,7 @@ interface ExecutionContext {
   options: AgentOptions;
   callbacks: AgentCallbacks;
   signal: AbortSignal;
+  filesReadThisTurn: Set<string>;
 }
 
 /**
@@ -72,7 +73,10 @@ export async function executeToolUses(
   callbacks: AgentCallbacks,
   signal: AbortSignal,
 ): Promise<ToolResultContentBlock[]> {
-  const ctx: ExecutionContext = { state, client, options, callbacks, signal };
+  // Shared across all tool calls this iteration so read_file and edit_file
+  // can detect when the model edits a file it hasn't read yet.
+  const filesReadThisTurn = new Set<string>();
+  const ctx: ExecutionContext = { state, client, options, callbacks, signal, filesReadThisTurn };
 
   const executionPromises = pendingToolUses.map((toolUse) => executeOne(ctx, toolUse));
 
@@ -172,6 +176,7 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
       editTimeline: options.editTimeline,
       mcpManager: state.mcpManager,
       testController: options.testController,
+      filesReadThisTurn: ctx.filesReadThisTurn,
     },
     inlineEditFn: options.inlineEditFn,
     streamingDiffPreviewFn: options.streamingDiffPreviewFn,
