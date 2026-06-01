@@ -159,6 +159,8 @@ export interface GateFinding {
   file: string;
   missingTest?: string;
   needsLint?: boolean;
+  /** Co-located test file exists on disk but was not edited this turn. */
+  testNotUpdated?: string;
 }
 
 /**
@@ -204,6 +206,13 @@ export async function checkCompletionGate(state: GateState): Promise<GateFinding
       const testFile = await findColocatedTest(file);
       if (testFile && !state.testsRunForFiles.has(testFile)) {
         findings.push({ file, missingTest: testFile });
+      }
+      // If tests ran (the model verified existing behaviour) but the test
+      // file itself was not edited, new functionality may lack coverage.
+      // Complements missingTest: that fires when tests weren't run at all;
+      // this fires when tests ran but weren't updated for new additions.
+      if (testFile && state.testsRunForFiles.has(testFile) && !state.editedFiles.has(testFile)) {
+        findings.push({ file, testNotUpdated: testFile });
       }
     }
 
@@ -254,6 +263,19 @@ export function buildGateInjection(findings: GateFinding[], attempt: number, max
       lines.push(`  - run_tests with file: ${t}`);
     }
     lines.push(`  - run_command with command: npx vitest run ${uniqueTests.join(' ')}`);
+    lines.push('');
+  }
+
+  const testUpdatePairs = findings.filter((f) => f.testNotUpdated);
+  if (testUpdatePairs.length > 0) {
+    lines.push('You edited source files but did not update their test files:');
+    for (const p of testUpdatePairs) {
+      lines.push(`  - ${p.file}  ->  ${p.testNotUpdated}`);
+    }
+    lines.push(
+      'If you added new functions, constants, or behaviour, add test cases for them in the test file. ' +
+        'If your changes are covered by existing tests, run them to confirm — no new test cases needed.',
+    );
     lines.push('');
   }
 

@@ -318,7 +318,24 @@ describe('completionGate — checkCompletionGate', () => {
     expect(findings).toEqual([{ file: 'src/foo.ts', missingTest: 'src/foo.test.ts' }]);
   });
 
-  it('passes when lint ran and the colocated test ran', async () => {
+  it('passes when lint ran and the colocated test ran (and test file was also edited)', async () => {
+    (mockWorkspace.fs.stat as any).mockImplementation(async (uri: { fsPath: string }) => {
+      if (uri.fsPath === '/test/src/foo.test.ts') return { type: 1 };
+      throw new Error('not found');
+    });
+    const state = createGateState();
+    recordToolCall(state, makeEdit('src/foo.ts'), ok());
+    recordToolCall(state, makeEdit('src/foo.test.ts'), ok()); // test file was also updated
+    recordToolCall(state, makeRunCommand('npx eslint src/foo.ts'), ok());
+    recordToolCall(state, makeRunTests('src/foo.test.ts'), ok());
+    const findings = await checkCompletionGate(state);
+    expect(findings).toEqual([]);
+  });
+
+  it('flags testNotUpdated when tests ran but test file was not edited', async () => {
+    // The 'add new linter patterns' scenario: model edits implementation,
+    // runs existing tests (they pass), but never updates the test file.
+    // Gate should prompt: "add coverage for the new functionality."
     (mockWorkspace.fs.stat as any).mockImplementation(async (uri: { fsPath: string }) => {
       if (uri.fsPath === '/test/src/foo.test.ts') return { type: 1 };
       throw new Error('not found');
@@ -326,9 +343,37 @@ describe('completionGate — checkCompletionGate', () => {
     const state = createGateState();
     recordToolCall(state, makeEdit('src/foo.ts'), ok());
     recordToolCall(state, makeRunCommand('npx eslint src/foo.ts'), ok());
+    recordToolCall(state, makeRunTests('src/foo.test.ts'), ok()); // ran but didn't edit
+    const findings = await checkCompletionGate(state);
+    expect(findings).toEqual([{ file: 'src/foo.ts', testNotUpdated: 'src/foo.test.ts' }]);
+  });
+
+  it('does NOT flag testNotUpdated when the test file was also edited', async () => {
+    (mockWorkspace.fs.stat as any).mockImplementation(async (uri: { fsPath: string }) => {
+      if (uri.fsPath === '/test/src/foo.test.ts') return { type: 1 };
+      throw new Error('not found');
+    });
+    const state = createGateState();
+    recordToolCall(state, makeEdit('src/foo.ts'), ok());
+    recordToolCall(state, makeEdit('src/foo.test.ts'), ok()); // updated!
+    recordToolCall(state, makeRunCommand('npx eslint src/foo.ts'), ok());
     recordToolCall(state, makeRunTests('src/foo.test.ts'), ok());
     const findings = await checkCompletionGate(state);
     expect(findings).toEqual([]);
+  });
+
+  it('does NOT flag testNotUpdated when tests were not run (missingTest fires instead)', async () => {
+    (mockWorkspace.fs.stat as any).mockImplementation(async (uri: { fsPath: string }) => {
+      if (uri.fsPath === '/test/src/foo.test.ts') return { type: 1 };
+      throw new Error('not found');
+    });
+    const state = createGateState();
+    recordToolCall(state, makeEdit('src/foo.ts'), ok());
+    recordToolCall(state, makeRunCommand('npx eslint src/foo.ts'), ok());
+    // No run_tests call — missingTest fires, not testNotUpdated
+    const findings = await checkCompletionGate(state);
+    expect(findings.some((f) => f.missingTest)).toBe(true);
+    expect(findings.some((f) => f.testNotUpdated)).toBe(false);
   });
 
   it('passes when projectTestsRan covers all edited files', async () => {
