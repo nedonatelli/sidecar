@@ -48,6 +48,11 @@ const MIN_NORMALIZED_REPEATS = 3;
 // The first matching non-empty string value becomes the normalized key.
 const PRIMARY_RESOURCE_KEYS = ['path', 'file_path', 'directory', 'command', 'query', 'pattern', 'url'] as const;
 
+// Read-only tools: repeated calls on the same resource with any secondary-arg
+// variation (e.g. different line ranges) still indicate a stuck loop. The
+// secondary-hash check is skipped for these tools — sig match alone is enough.
+const READ_ONLY_TOOLS = new Set(['read_file', 'grep', 'list_directory', 'search_files', 'get_diagnostics']);
+
 /**
  * Enforce the per-iteration tool-call burst cap. Returns `true` when
  * the cap was exceeded and the loop should terminate; the caller is
@@ -129,19 +134,23 @@ export function detectCycleAndBail(
   if (state.recentNormalizedCalls.length >= MIN_NORMALIZED_REPEATS) {
     const lastN = state.recentNormalizedCalls.slice(-MIN_NORMALIZED_REPEATS);
     if (lastN.every((e) => e.sig === lastN[0].sig)) {
-      // Same tool+resource repeated MIN_NORMALIZED_REPEATS times. Only bail if
-      // at least one secondary-args fingerprint recurs — all-unique secondary
-      // hashes means the agent is making meaningfully different calls each time
-      // (e.g. editing the same file with different content), not stuck.
+      // For read-only tools (read_file, grep, etc.) skip the secondary-hash
+      // check. Reading the same file with slightly different line ranges is
+      // always a stuck loop — the agent is scanning without making progress.
+      // The secondary-hash check is only needed for write tools where the
+      // agent might legitimately edit the same file with different content.
+      const toolName = normEntry.sig.split(':')[0] ?? '';
+      const isReadOnly = READ_ONLY_TOOLS.has(toolName);
+
       const seen = new Set<string>();
       const hasRepeatedSecondary = lastN.some((e) => {
         if (seen.has(e.secondaryHash)) return true;
         seen.add(e.secondaryHash);
         return false;
       });
-      if (hasRepeatedSecondary) {
+      if (isReadOnly || hasRepeatedSecondary) {
         state.logger?.warn(
-          `Agent loop normalized cycle detected (${MIN_NORMALIZED_REPEATS} repeats, repeated secondary args) — ${normEntry.sig.slice(0, 100)}`,
+          `Agent loop normalized cycle detected (${MIN_NORMALIZED_REPEATS} repeats${isReadOnly ? ', read-only tool' : ', repeated secondary args'}) — ${normEntry.sig.slice(0, 100)}`,
         );
         callbacks.onText(
           `\n\n⚠️ Agent stopped: ${normEntry.sig.slice(0, 80)} repeated ` +
@@ -166,18 +175,20 @@ export function detectCycleAndBail(
     }
     for (const [sig, entries] of sigGroups) {
       if (entries.length < MIN_NORMALIZED_REPEATS) continue;
+      const sigToolName = sig.split(':')[0] ?? '';
+      const sigIsReadOnly = READ_ONLY_TOOLS.has(sigToolName);
       const seen = new Set<string>();
       const hasRepeatedSecondary = entries.some((e) => {
         if (seen.has(e.secondaryHash)) return true;
         seen.add(e.secondaryHash);
         return false;
       });
-      if (hasRepeatedSecondary) {
+      if (sigIsReadOnly || hasRepeatedSecondary) {
         state.logger?.warn(
           `Agent loop normalized cycle detected (${entries.length} non-consecutive repeats in window) — ${sig.slice(0, 100)}`,
         );
         callbacks.onText(
-          `\n\n⚠️ Agent stopped: same tool calls on the same resource repeated ` +
+          `\n\n⚠️ Agent stopped: ${sig.slice(0, 80)} repeated ` +
             `${entries.length} times — try a different approach.\n`,
         );
         return true;
