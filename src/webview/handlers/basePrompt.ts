@@ -129,7 +129,7 @@ export function buildBaseSystemPrompt(p: SystemPromptParams): string {
     'User asks "What does src/helpers.ts do?":',
     '1. `read_file(path="src/helpers.ts")` — call it immediately, do not guess',
     '2a. If the file exists → answer from its contents.',
-    '2b. If ENOENT → report the error, then call `search_files(pattern="helpers*")` or `list_directory` to find the right path, read it, and answer.',
+    '2b. If ENOENT → call `list_directory(path="src/")` or `search_files(pattern="*helpers*")` to locate the real file → then call `read_file` on whatever path it returns → only then answer. Finding a filename in a listing does NOT tell you its contents; you must read it.',
   ].join('\n');
 
   // safetyRules is placed last so it's the closest content to the user turn.
