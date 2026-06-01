@@ -30,6 +30,7 @@ export function stubLoopState(overrides: Partial<LoopState> = {}): LoopState {
     recentNormalizedCalls: [],
     autoFixRetriesByFile: new Map(),
     stubFixRetries: 0,
+    actionRepromptCount: 0,
     filesReadThisRun: new Set<string>(),
     criticInjectionsByFile: new Map(),
     criticInjectionsByTestHash: new Map(),

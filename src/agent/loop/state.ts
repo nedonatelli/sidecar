@@ -110,6 +110,14 @@ export interface LoopState {
   stubFixRetries: number;
 
   /**
+   * How many times the action-request reprompt has fired this run.
+   * Capped at 1 so a model that genuinely can't tool-call doesn't
+   * loop forever — after the first reprompt it gets one more chance,
+   * then the loop exits naturally.
+   */
+  actionRepromptCount: number;
+
+  /**
    * Files successfully read via read_file during this loop run.
    * Persists across iterations so that a file read in iteration N is
    * still "known" in iteration N+1 when the model tries to edit it.
@@ -204,6 +212,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     recentNormalizedCalls: [],
     autoFixRetriesByFile: new Map<string, number>(),
     stubFixRetries: 0,
+    actionRepromptCount: 0,
     filesReadThisRun: new Set<string>(),
     criticInjectionsByFile: new Map<string, number>(),
     criticInjectionsByTestHash: new Map<string, number>(),

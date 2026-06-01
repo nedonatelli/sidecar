@@ -81,9 +81,15 @@ beforeEach(() => {
 });
 
 describe('defaultPolicyHooks list shape', () => {
-  it('returns 4 hooks in a stable order', () => {
+  it('returns 5 hooks in a stable order', () => {
     const hooks = defaultPolicyHooks();
-    expect(hooks.map((h) => h.name)).toEqual(['autoFix', 'stubValidator', 'adversarialCritic', 'completionGate']);
+    expect(hooks.map((h) => h.name)).toEqual([
+      'autoFix',
+      'stubValidator',
+      'adversarialCritic',
+      'actionReprompt',
+      'completionGate',
+    ]);
   });
 
   it('returns a fresh array on each call so the orchestrator can mutate without aliasing', () => {
@@ -176,7 +182,7 @@ describe('adversarialCritic adapter', () => {
 });
 
 describe('completionGate adapter', () => {
-  const hook = defaultPolicyHooks()[3];
+  const hook = defaultPolicyHooks()[4]; // index 4 after actionReprompt was inserted at 3
 
   describe('afterToolResults phase (recording)', () => {
     it('short-circuits when pendingToolUses or toolResults are missing', async () => {

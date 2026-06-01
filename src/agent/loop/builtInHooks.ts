@@ -2,6 +2,7 @@ import { applyAutoFix } from './autoFix.js';
 import { applyStubCheck } from './stubCheck.js';
 import { applyCritic } from './criticHook.js';
 import { recordGateToolUses, maybeInjectCompletionGate } from './gate.js';
+import { maybeInjectActionReprompt } from './actionReprompt.js';
 import type { PolicyHook, HookContext, HookResult } from './policyHook.js';
 import type { LoopState } from './state.js';
 
@@ -76,6 +77,22 @@ const criticHook: PolicyHook = {
 };
 
 /**
+ * Action-request reprompt — fires in onEmptyResponse when the model
+ * produced text only on a turn that looks like an action request
+ * (action verb + file path in user message). Injects one re-prompt
+ * telling the model to use tools instead of describing what to do.
+ * Capped at 1 injection per run so a model that can't tool-call
+ * doesn't loop forever.
+ */
+const actionRepromptHook: PolicyHook = {
+  name: 'actionReprompt',
+  async onEmptyResponse(state: LoopState, ctx: HookContext): Promise<HookResult> {
+    const mutated = maybeInjectActionReprompt(state, ctx.fullText ?? '', ctx.callbacks);
+    return { mutated };
+  },
+};
+
+/**
  * Completion gate hook — implements both `afterToolResults` (feeds
  * gateState with tool call tracking) and `onEmptyResponse` (fires
  * the gate check when the model tried to terminate without
@@ -106,5 +123,8 @@ const completionGateHook: PolicyHook = {
  * (after any earlier injections). This matches v0.53 behavior exactly.
  */
 export function defaultPolicyHooks(): PolicyHook[] {
-  return [autoFixHook, stubCheckHook, criticHook, completionGateHook];
+  // actionRepromptHook runs before completionGate so the model gets
+  // nudged to call tools before the gate demands verification of edits
+  // it hasn't made yet.
+  return [autoFixHook, stubCheckHook, criticHook, actionRepromptHook, completionGateHook];
 }
