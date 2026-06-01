@@ -201,7 +201,10 @@ export function detectCycleAndBail(
     const prev = state.recentNormalizedCalls.slice(-2 * len, -len);
     if (tail.length === prev.length && tail.every((v, i) => v.sig === prev[i].sig)) {
       state.logger?.warn(`Agent loop normalized cycle detected (length ${len}) — ${normEntry.sig.slice(0, 100)}`);
-      callbacks.onText(`\n\n⚠️ Agent stopped: detected repeating pattern of length ${len} on the same resources.\n`);
+      const patternSigs = tail.map((e) => e.sig.slice(0, 40)).join(' → ');
+      callbacks.onText(
+        `\n\n⚠️ Agent stopped: detected repeating pattern of length ${len} — [${patternSigs}]. Try a different approach.\n`,
+      );
       return true;
     }
   }
