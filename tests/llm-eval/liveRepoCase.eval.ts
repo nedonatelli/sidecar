@@ -94,7 +94,12 @@ const LIVE_CASE = {
 
 const backend = pickAgentBackend();
 
-describe.skipIf(!backend)('llm-eval :: live repo (shadow workspace)', () => {
+// Apply the same SIDECAR_EVAL_CASE filter as agent.eval.ts so this file
+// doesn't run when a different case subset is requested.
+const CASE_FILTER = process.env.SIDECAR_EVAL_CASE?.split(',').map((s) => s.trim());
+const caseMatchesFilter = !CASE_FILTER || CASE_FILTER.some((f) => LIVE_CASE.id.includes(f));
+
+describe.skipIf(!backend || !caseMatchesFilter)('llm-eval :: live repo (shadow workspace)', () => {
   const allResults: AgentCaseResult[] = [];
 
   it(`${LIVE_CASE.id} — ${LIVE_CASE.description}`, async () => {
