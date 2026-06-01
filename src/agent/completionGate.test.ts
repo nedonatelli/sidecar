@@ -137,6 +137,46 @@ describe('completionGate — recordToolCall', () => {
     expect(state.lintObserved).toBe(true);
   });
 
+  // ---------------------------------------------------------------------------
+  // extractTestFiles coverage — each pattern in the regex needs a positive
+  // test AND a negative test so regressions (e.g. \S+ → .* that starts
+  // matching filenames with spaces) are caught immediately.
+  // ---------------------------------------------------------------------------
+
+  it('detects pytest with a suffix-style Python test file', () => {
+    const state = createGateState();
+    recordToolCall(state, makeRunCommand('python -m pytest tests/auth_test.py'), ok());
+    expect([...state.testsRunForFiles]).toEqual(['tests/auth_test.py']);
+  });
+
+  it('detects pytest with a prefix-style Python test file', () => {
+    const state = createGateState();
+    recordToolCall(state, makeRunCommand('pytest test_utils.py'), ok());
+    expect([...state.testsRunForFiles]).toEqual(['test_utils.py']);
+  });
+
+  it('does NOT record a space-containing path as a specific test file (\\S+ regression guard)', () => {
+    // Guards against the \S+ → .* regression in extractTestFiles.
+    // With `.*`: extractTestFiles returns ["tests/my test.py"] — a bogus path —
+    //   so testsRunForFiles gets a wrong entry and projectTestsRan stays false.
+    // With correct `\S+`: extractTestFiles returns [] — no match for the
+    //   space-in-name path — so the gate falls back to whole-suite (projectTestsRan=true).
+    const state = createGateState();
+    recordToolCall(state, makeRunCommand('pytest "tests/my test.py"'), ok());
+    // No bogus space-containing path should be recorded as a specific file.
+    expect([...state.testsRunForFiles]).toHaveLength(0);
+    // pytest was detected but no specific file matched → whole-suite assumption.
+    expect(state.projectTestsRan).toBe(true);
+  });
+
+  it('detects a Go test file (normalizePath strips the ./ prefix)', () => {
+    const state = createGateState();
+    recordToolCall(state, makeRunCommand('go test ./internal/auth_test.go'), ok());
+    // normalizePath resolves ./internal/auth_test.go relative to workspace root
+    // and returns the workspace-relative form without the ./ prefix.
+    expect([...state.testsRunForFiles]).toEqual(['internal/auth_test.go']);
+  });
+
   it('detects vitest with a file argument as per-file test run', () => {
     const state = createGateState();
     recordToolCall(state, makeRunCommand('npx vitest run src/foo.test.ts'), ok());
