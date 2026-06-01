@@ -41,6 +41,61 @@ async function readDiskViaWorkspace(
 const DIFF_PREFIX = '\x00diff\x00';
 
 // ---------------------------------------------------------------------------
+// edit_file search-not-found recovery helper
+// ---------------------------------------------------------------------------
+
+/**
+ * When a search string isn't found verbatim, find the file region that most
+ * closely matches it and return it so the model can correct its search string
+ * without a separate read_file round-trip.
+ *
+ * Strategy: split the search into lines, slide a same-height window over the
+ * file, score each window by the number of lines that appear (in any order)
+ * as substrings of that window. Return the top-scoring window plus a few
+ * lines of context on each side, capped to 20 lines total.
+ */
+function findNearestMatch(fileText: string, search: string): string | null {
+  const searchLines = search
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (searchLines.length === 0) return null;
+
+  // Extract significant words (≥4 chars, not common filler) from the search.
+  const searchWords = search
+    .split(/\W+/)
+    .filter((w) => w.length >= 4)
+    .map((w) => w.toLowerCase());
+  if (searchWords.length === 0) return null;
+
+  const fileLines = fileText.split('\n');
+  const windowSize = Math.max(searchLines.length, 1);
+  let bestScore = 0;
+  let bestIdx = -1;
+
+  for (let i = 0; i <= fileLines.length - windowSize; i++) {
+    const window = fileLines
+      .slice(i, i + windowSize)
+      .join('\n')
+      .toLowerCase();
+    // Score by fraction of search words that appear in the window.
+    const score = searchWords.filter((w) => window.includes(w)).length;
+    if (score > bestScore) {
+      bestScore = score;
+      bestIdx = i;
+    }
+  }
+
+  // Require at least 30% of search words to match to avoid showing noise.
+  if (bestIdx < 0 || bestScore < Math.ceil(searchWords.length * 0.3)) return null;
+
+  const contextLines = 3;
+  const start = Math.max(0, bestIdx - contextLines);
+  const end = Math.min(fileLines.length, bestIdx + windowSize + contextLines);
+  return fileLines.slice(start, end).join('\n');
+}
+
+// ---------------------------------------------------------------------------
 // Filesystem tools: read_file / write_file / edit_file / list_directory.
 // All four route through VS Code's workspace.fs (rather than node:fs) so
 // that virtual filesystems, remote workspaces, and the workspace trust
@@ -314,7 +369,11 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
       currentText = diskText;
     }
     if (!currentText.includes(search)) {
-      return `Error: edit_file failed — search string not found in ${filePath}. The file was NOT modified. Call read_file to see the exact current content, then retry with a corrected search string.`;
+      const nearest = findNearestMatch(currentText, search);
+      const hint = nearest
+        ? `\n\nNearest matching region in the file (use this as your search string):\n\`\`\`\n${nearest}\n\`\`\``
+        : '\n\nCall read_file to see the exact current content.';
+      return `Error: edit_file failed — search string not found in ${filePath}. The file was NOT modified.${hint}`;
     }
     const matchCount = currentText.split(search).length - 1;
     if (matchCount > 1) {
@@ -330,7 +389,11 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   const bytes = await workspace.fs.readFile(fileUri);
   const text = Buffer.from(bytes).toString('utf-8');
   if (!text.includes(search)) {
-    return `Error: edit_file failed — search string not found in ${filePath}. The file was NOT modified. Call read_file to see the exact current content, then retry with a corrected search string.`;
+    const nearest = findNearestMatch(text, search);
+    const hint = nearest
+      ? `\n\nNearest matching region in the file (use this as your search string):\n\`\`\`\n${nearest}\n\`\`\``
+      : '\n\nCall read_file to see the exact current content.';
+    return `Error: edit_file failed — search string not found in ${filePath}. The file was NOT modified.${hint}`;
   }
   const matchCount = text.split(search).length - 1;
   if (matchCount > 1) {

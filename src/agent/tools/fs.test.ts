@@ -126,6 +126,32 @@ describe('editFile audit mode', () => {
     vi.restoreAllMocks();
   });
 
+  it('returns nearest-match hint when search string is not found in buffered content', async () => {
+    // Simulates the gemma4 failure mode: model writes the NEW text in the
+    // search field instead of the OLD text. The hint shows the actual region
+    // so the model can correct without a separate read_file round-trip.
+    const context = { config: { agentMode: 'audit' } as never };
+    const fileContent = [
+      '// Direct invocations of eslint / tsc, OR common npm/pnpm/yarn script',
+      '// names that conventionally run lint or type-checking.',
+      'if (/\\b(eslint|tsc)\\b/.test(cmd)) {',
+      '  state.lintObserved = true;',
+      '}',
+    ].join('\n');
+    await buf.write('src/gate.ts', fileContent, async () => undefined);
+    // Model wrote the new comment (what it wants) as the search — wrong.
+    // This is what gemma4 does: puts the desired new text in search instead
+    // of the old text. The replace is different (a valid new string) so the
+    // "identical" guard passes and we land in "search not found".
+    const search = '// Direct invocations of various linters (eslint, tsc, pylint)';
+    const replace = '// Direct invocations of various linters (eslint, tsc, pylint, flake8)';
+    const result = await editFile({ path: 'src/gate.ts', search, replace }, context);
+    // Should surface the actual region, not just "call read_file"
+    expect(result).toContain('search string not found');
+    expect(result).toContain('Nearest matching region');
+    expect(result).toContain('eslint / tsc'); // shows the real text
+  });
+
   it('returns error when disk file is missing and not buffered', async () => {
     const context = { config: { agentMode: 'audit' } as never };
     const { workspace } = await import('vscode');
