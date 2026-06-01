@@ -237,32 +237,43 @@ describe('isSensitiveFile guard', () => {
 describe('readFile — file-not-found suggestions', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it('returns suggestions when a same-named file exists elsewhere in the workspace', async () => {
+  it('throws with suggestions when a same-named file exists elsewhere (is_error:true)', async () => {
+    // Must throw (not return) so executor.ts sets is_error:true on the
+    // tool_result — the eval harness and completion gate both check is_error
+    // to detect file-not-found. The helpful message is still visible to the model.
     const { workspace } = await import('vscode');
-    vi.spyOn(workspace.fs, 'readFile').mockRejectedValueOnce(
+    vi.spyOn(workspace.fs, 'readFile').mockRejectedValue(
       Object.assign(new Error('ENOENT: no such file or directory'), { code: 'FileNotFound' }),
     );
-    // findFiles finds the real file at a different path; asRelativePath uses the mock default
-    vi.spyOn(workspace, 'findFiles').mockResolvedValueOnce([{ fsPath: '/mock-workspace/src/agent/loop.ts' } as never]);
+    vi.spyOn(workspace, 'findFiles').mockResolvedValue([{ fsPath: '/mock-workspace/src/agent/loop.ts' } as never]);
 
-    const result = await readFile({ path: 'src/agent/loop/runAgentLoop.ts' });
-    expect(result).toContain('File not found');
-    expect(result).toContain('Did you mean');
-    expect(result).toContain('src/agent/loop.ts');
+    let err: Error | undefined;
+    try {
+      await readFile({ path: 'src/agent/loop/runAgentLoop.ts' });
+    } catch (e) {
+      err = e as Error;
+    }
+    expect(err).toBeDefined();
+    expect(err!.message).toContain('File not found');
+    expect(err!.message).toContain('Did you mean');
+    expect(err!.message).toContain('src/agent/loop.ts');
   });
 
-  it('returns a list_directory hint when no similarly-named file exists', async () => {
+  it('throws a list_directory hint when no similarly-named file exists', async () => {
     const { workspace } = await import('vscode');
-    vi.spyOn(workspace.fs, 'readFile').mockRejectedValueOnce(
-      Object.assign(new Error('ENOENT'), { code: 'FileNotFound' }),
-    );
-    vi.spyOn(workspace, 'findFiles').mockResolvedValueOnce([]);
+    vi.spyOn(workspace.fs, 'readFile').mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'FileNotFound' }));
+    vi.spyOn(workspace, 'findFiles').mockResolvedValue([]);
 
-    const result = await readFile({ path: 'src/nonexistent/ghost.ts' });
-    expect(result).toContain('File not found');
-    expect(result).toContain('ghost.ts');
-    expect(result).toContain('list_directory');
-    expect(result).not.toContain('Did you mean');
+    let err: Error | undefined;
+    try {
+      await readFile({ path: 'src/nonexistent/ghost.ts' });
+    } catch (e) {
+      err = e as Error;
+    }
+    expect(err).toBeDefined();
+    expect(err!.message).toContain('File not found');
+    expect(err!.message).toContain('ghost.ts');
+    expect(err!.message).toContain('list_directory');
   });
 
   it('re-throws non-ENOENT errors unchanged', async () => {

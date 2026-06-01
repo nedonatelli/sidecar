@@ -201,9 +201,16 @@ export async function readFile(input: Record<string, unknown>, context?: ToolExe
     const similar = await workspace.findFiles(`**/${basename}`, '**/node_modules/**', 5);
     if (similar.length > 0) {
       const suggestions = similar.map((u) => workspace.asRelativePath(u, false)).join('\n  - ');
-      return `Error: File not found: ${filePath}\nDid you mean one of these?\n  - ${suggestions}\nUse list_directory to explore the directory structure if none match.`;
+      // Throw so the executor sets is_error:true on the tool_result — the
+      // eval harness and completion gate both check is_error to detect
+      // file-not-found. The helpful message is still visible to the model.
+      throw new Error(
+        `File not found: ${filePath}\nDid you mean one of these?\n  - ${suggestions}\nUse list_directory to explore the directory structure if none match.`,
+      );
     }
-    return `Error: File not found: ${filePath}\nNo file named "${basename}" exists in the workspace. Use list_directory or search_files to find the correct path.`;
+    throw new Error(
+      `File not found: ${filePath}\nNo file named "${basename}" exists in the workspace. Use list_directory or search_files to find the correct path.`,
+    );
   }
   const text = Buffer.from(bytes).toString('utf-8');
   if (mode === 'compact') return compactSourceFile(text);
