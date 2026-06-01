@@ -136,7 +136,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 3. Click the SideCar icon in the activity bar
 4. Start chatting — SideCar launches Ollama automatically and downloads a starter model
 
-Recommended models: `qwen3-coder:30b` (coding), `gemma4:e4b` (fast + accurate), `ministral-3:latest` (best agentic score at 6 GB)
+**Default model: `ministral-3:latest`** (6 GB, 94% agent eval pass rate — best agentic score of tested local models). Low-RAM alternative: `granite4.1:3b` (2 GB, 81%). Cloud alternative: configure the Anthropic backend for maximum reliability.
 
 ### Anthropic (Claude)
 

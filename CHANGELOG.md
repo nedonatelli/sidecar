@@ -4,6 +4,78 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.112.1] - 2026-06-01
+
+**v0.112.1 — Agent quality & dogfood fixes.**
+
+A session of systematic eval-driven improvements followed by a live dogfooding session that immediately surfaced one more real bug. All changes are observable in the eval harness and in the audit log from actual SideCar use.
+
+### Default model changed
+
+**`ministral-3:latest` is now the default local model** (`gemma4:e4b` was the previous default). Eval pass rates: ministral-3 94% · qwen3.5 69% · gemma4:e4b 68%. ministral-3 is 6 GB, runs on any machine with 8 GB VRAM, and correctly completed the dev-loop dogfood task (reading `cycleDetection.ts` and making a targeted edit) where qwen3.5 edited the wrong function entirely. `granite4.1:3b` (2 GB, 81%) is documented as the low-RAM alternative. `RECOMMENDED_LOCAL_MODEL` exported from `src/config/modelAgentBehavior.ts`.
+
+### Bug fixes
+
+- **`edit_file` search-not-found now includes the nearest matching region** — when the model writes wrong text in the `search` field, the error response now shows the closest matching section of the file so the model can self-correct without a `read_file` round-trip. Two variants: "search not found" and "search = replace (identical)" both surface the relevant region. (`src/agent/tools/fs.ts`)
+
+- **`edit_file` intent inference** — when the search string fails but the `replace` content has high keyword overlap with a file region, the edit is applied automatically using the inferred target region. Handles the common small-model failure where the model writes the desired new text in `search` instead of the old text. (`src/agent/tools/fs.ts`)
+
+- **Cycle detector fires on read-only tool repetition** — `read_file`, `grep`, `list_directory`, `search_files`, and `get_diagnostics` now trigger the cycle bail after 3 repeats on the same resource regardless of secondary-arg variation (e.g. different line ranges). Previously, scanning the same file with incrementing `start_line` / `end_line` parameters bypassed detection because each call produced a unique secondary hash. Discovered in dogfooding: the model read `CLAUDE.md` 20+ times at iterations 5–20 with slightly different line ranges. (`src/agent/loop/cycleDetection.ts`)
+
+- **`read_file` ENOENT now throws** (preserving `is_error:true`) while still returning a helpful "Did you mean…" hint. Previously returned a string, which made ENOENT invisible to the completion gate and eval harness. (`src/agent/tools/fs.ts`)
+
+- **`edit_file` multiple-match now actually errors** — was silently replacing the first occurrence. Now returns an error with the match count. (`src/agent/tools/fs.ts`)
+
+- **`get_diagnostics` and `npm run lint/compile` satisfy the completion gate** — previously only `eslint` and `tsc` literals set `lintObserved`. Python linters (`pylint`, `flake8`, `mypy`, `ruff`, `black`) and Go linters (`go vet`, `golangci-lint`, `staticcheck`) also satisfy the gate now. (`src/agent/completionGate.ts`)
+
+- **Completion gate: `testNotUpdated` finding** — fires when tests ran successfully but the co-located test file was not edited. Prompts the model to add test coverage for new functionality without blocking when existing tests suffice. (`src/agent/completionGate.ts`)
+
+- **Plan mode: `ask_user` now available** — was incorrectly stripping all tools including `ask_user` in plan mode. Also removed references to `ExitPlanMode` and `AskUserQuestion` (Claude Code–specific commands that don't exist in SideCar). (`src/agent/loop/streamTurn.ts`, `src/webview/handlers/basePrompt.ts`)
+
+- **System prompt cap for local models** — `LOCAL_MAX_SYSTEM_CHARS = 52_000` prevents the 40%-of-context-window formula from injecting 50 K+ tokens of workspace context into local-model requests. Previously, after `LOCAL_CONTEXT_CAP` was raised to 128 K, the formula produced 200 K-char budgets that overwhelmed 4 B models and caused single-turn stops. (`src/config/constants.ts`)
+
+- **Cycle detector frequency-over-window check** — catches hallucinated paths attempted non-consecutively across 8 turns (e.g. `read_file(bad) → list_dir → read_file(bad) → list_dir → read_file(bad)`). Previously only consecutive repeats were caught. (`src/agent/loop/cycleDetection.ts`)
+
+- **`extractTestFiles` Python prefix convention** — `test_*.py` (pytest/unittest prefix pattern) is now recognised alongside `*_test.py`. (`src/agent/completionGate.ts`)
+
+- **Stop messages include tool name and resource** — cycle detector stop messages now show which tool and resource was stuck, e.g. `"read_file:CLAUDE.md repeated 4 times"` instead of the generic `"same tool call repeated 4 times in a row"`. (`src/agent/loop/cycleDetection.ts`)
+
+### New capabilities
+
+- **Action-request reprompt** — when the model produces a text-only response on a turn where the user clearly asked for an action (action verb + file path in message), the loop injects one re-prompt before exiting. Addresses the small-model failure where the model describes what it would do instead of doing it. (`src/agent/loop/actionReprompt.ts`)
+
+- **`filesReadThisRun` tracking** — files successfully read via `read_file` are tracked across all iterations of a run. When `edit_file` is called on an unread file, the nearest relevant file section is injected proactively. Persists across iterations (previously reset each iteration, so a file read in iteration N wasn't "known" in iteration N+1). (`src/agent/tools/shared.ts`, `src/agent/loop/state.ts`)
+
+- **Model agent behavior registry** — `src/config/modelAgentBehavior.ts` exports `MODELS_NEEDING_COLD_START` and `MODELS_WITH_PROBLEMATIC_THINKING` with predicate functions. Eval harness automatically skips `setupMessages` for cold-start models (gemma4) and suppresses thinking mode for models where it causes stalling (qwen3:8b/14b/32b). (`src/config/modelAgentBehavior.ts`)
+
+- **Polyglot lint detection** — completion gate now recognises Python and Go lint tools in addition to `eslint`/`tsc`. (`src/agent/completionGate.ts`)
+
+- **Live-repo shadow eval** — `tests/llm-eval/liveRepoCase.eval.ts` runs the agent against actual SideCar source files in a temp-dir shadow workspace, producing a real diff. Used for the dogfood dev-loop test. Supports `setupMessages` warm-start and model-specific cold-start skipping.
+
+### Prompt improvements (17 operating rules + safetyRules additions)
+
+- Rule 5 (read before edit) extended: read test file before implementing; `outline`/`compact` modes mentioned; grep-first for multi-file changes.
+- Rule 7: check if code already satisfies requirement before editing (no-op recognition).
+- Rule 8: minimal edit — leave adjacent code untouched.
+- Rule 9: fix → re-run → repeat until command exits cleanly.
+- Rule 12: complete error handling including real try/catch, no empty catch blocks.
+- safetyRules: "Proceed directly — do not ask permission", "No workspace knowledge without tools", "Before renaming read the file first", "When SIDECAR.md appears apply it to all new code".
+- Example turns: added shell error-recovery pattern and multi-file rename pattern.
+- Stub detector: `Array(N).fill()`, simulation logs, `REAL IMPLEMENTATION REQUIRED` banner, `dummy` comments.
+
+### Eval harness
+
+- `setupMessages` field on `AgentEvalCase` for warm-start priming.
+- Default eval model changed from `qwen3-coder:30b` to `ministral-3:latest`.
+- `SIDECAR_EVAL_CASE` filter now works across all eval files including `liveRepoCase.eval.ts`.
+- `extractTestFiles` Python `test_*.py` prefix added; Go test file normalization documented.
+- `notContain: ['throw new Error']` removed from stub eval cases (false-positive: valid validation code).
+- Case timeout default raised from 120 s to 240 s for local models on multi-step tasks.
+
+### Stats
+- 6483 total tests (341 test files)
+- 79 built-in tools, 11 skills
+
 ## [0.112.0] - 2026-05-31
 
 **v0.112.0 — Skill Sync & Registry.**

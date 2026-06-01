@@ -1,6 +1,6 @@
 # SideCar Roadmap
 
-**Current release: v0.112.0** — Skill Sync & Registry: Skills Picker UI, git-native user/team registries, publish-to-registry, hourly/daily autoPull, Sync command. See [CHANGELOG](CHANGELOG.md) for full notes.
+**Current release: v0.112.1** — Agent quality & dogfood fixes: `ministral-3:latest` as default local model (94% eval pass rate), `edit_file` intent inference and nearest-match hints, cycle detector catches read-only tool loops, action-request reprompt, polyglot lint detection, 17 operating rules, live-repo shadow eval harness. See [CHANGELOG](CHANGELOG.md) for full notes.
 
 **Coverage floor**: ≥80/70/80/80 (stmts/branches/funcs/lines) enforced by CI. No PR merges that drop any metric.
 
@@ -20,6 +20,7 @@
 
 | Version | Headline |
 |---|---|
+| v0.112.1 | Agent quality & dogfood — `ministral-3` default (94% eval), `edit_file` intent inference + nearest-match hints, cycle-detector read-loop fix, action-request reprompt, polyglot gate, 17 prompt rules, live-repo shadow eval |
 | v0.112.0 | Skill Sync & Registry — Skills Picker UI (`/skills` QuickPick, Stack mode, registry tags, tool chips) · `SideCar: Publish Skill to Registry` · `SideCar: Sync Skill Registries` · `hourly`/`daily` autoPull |
 | v0.111.0 | Multi-file Edit Streams — DAG-planned edits card, parallel streaming diff previews, per-file cancel, atomic accept/reject · semantic compression tiers · compression test coverage · docs pass (79 tools, 51 slash commands) |
 | v0.110.0 | Speculative FIM decoding (auto-discovery + Kickstand) · PKI sidebar panel (`sidecar.pki` TreeView) · `projectKnowledge.graphWalkDepth/maxGraphHits` settings · Kickstand real token counts |
