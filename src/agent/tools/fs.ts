@@ -54,6 +54,40 @@ const DIFF_PREFIX = '\x00diff\x00';
  * as substrings of that window. Return the top-scoring window plus a few
  * lines of context on each side, capped to 20 lines total.
  */
+function grepLines(fileText: string, keywords: string[]): { lineNo: number; line: string }[] {
+  const results: { lineNo: number; line: string }[] = [];
+  const lines = fileText.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const lower = lines[i].toLowerCase();
+    if (keywords.some((kw) => lower.includes(kw))) {
+      results.push({ lineNo: i + 1, line: lines[i] });
+    }
+  }
+  return results;
+}
+
+/**
+ * Build grep hints from a search/replace string: extract distinctive
+ * keywords (≥5 chars) and find which lines in the file contain them.
+ * Returns a formatted hint telling the model exactly which lines to read,
+ * so it can get the precise text and construct a correct search string.
+ */
+function buildGrepHint(fileText: string, searchOrReplace: string): string | null {
+  const keywords = searchOrReplace
+    .split(/\W+/)
+    .filter((w) => w.length >= 5)
+    .map((w) => w.toLowerCase())
+    .slice(0, 4); // top 4 most distinctive words
+  if (keywords.length === 0) return null;
+
+  const hits = grepLines(fileText, keywords.slice(0, 2)); // grep with top 2
+  if (hits.length === 0) return null;
+
+  const top = hits.slice(0, 3); // show at most 3 matching lines
+  const lineList = top.map((h) => `  line ${h.lineNo}: ${h.line.trim().slice(0, 80)}`).join('\n');
+  const readCall = `read_file(path="${'<file>'}", start_line=${Math.max(1, top[0].lineNo - 2)}, end_line=${top[0].lineNo + 2})`;
+  return `Grep for [${keywords.slice(0, 2).join(', ')}] found these lines:\n${lineList}\n→ Call \`${readCall}\` to get the exact text, then use it verbatim as your search string.`;
+}
 function findNearestMatch(fileText: string, search: string): string | null {
   const searchLines = search
     .split('\n')
@@ -508,9 +542,12 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
     }
     if (!currentText.includes(search)) {
       const nearest = findNearestMatch(currentText, search);
-      const hint = nearest
-        ? `\n\nNearest matching region in the file (use this as your search string):\n\`\`\`\n${nearest}\n\`\`\``
-        : '\n\nCall read_file to see the exact current content.';
+      const grepHint = buildGrepHint(currentText, search) ?? buildGrepHint(currentText, replace);
+      const hint = grepHint
+        ? `\n\n${grepHint}`
+        : nearest
+          ? `\n\nNearest matching region in the file (use this as your search string):\n\`\`\`\n${nearest}\n\`\`\``
+          : '\n\nCall read_file to see the exact current content.';
       return `Error: edit_file failed — search string not found in ${filePath}. The file was NOT modified.${hint}`;
     }
     const matchCount = currentText.split(search).length - 1;
@@ -536,8 +573,14 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   const unreadPrefix =
     !hasReadFile && context?.filesReadThisTurn !== undefined
       ? (() => {
-          // Use the wide matcher so the model sees the full code block
-          // (comment + if statement + body), not just the comment line.
+          // Grep-first: find the exact line numbers for keywords from the
+          // search/replace content. This seeds the model with "line 42 contains
+          // X" so it can call read_file(start_line=40, end_line=44) to get the
+          // exact text, rather than guessing at the search string.
+          const grepResult = buildGrepHint(text, search + '\n' + replace);
+          if (grepResult) {
+            return `[You have not read ${filePath} this turn. ${grepResult.replace('<file>', filePath)}]\n\n`;
+          }
           const section = findNearestMatchWide(text, search + '\n' + replace, 25);
           return section
             ? `[You have not read ${filePath} this turn. Current file section near your intended edit:\n\`\`\`\n${section}\n\`\`\`\nUse the exact text from above as your search string — it must match the file byte-for-byte.]\n\n`
@@ -569,10 +612,13 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
       );
     }
 
+    const grepHint2 = buildGrepHint(text, search) ?? buildGrepHint(text, replace);
     const nearest = findNearestMatch(text, search);
-    const hint = nearest
-      ? `\n\nNearest matching region in the file (use this as your search string):\n\`\`\`\n${nearest}\n\`\`\``
-      : '\n\nCall read_file to see the exact current content.';
+    const hint = grepHint2
+      ? `\n\n${grepHint2.replace('<file>', filePath)}`
+      : nearest
+        ? `\n\nNearest matching region in the file (use this as your search string):\n\`\`\`\n${nearest}\n\`\`\``
+        : '\n\nCall read_file to see the exact current content.';
     return `${unreadPrefix}Error: edit_file failed — search string not found in ${filePath}. The file was NOT modified.${hint}`;
   }
   const matchCount = text.split(search).length - 1;

@@ -148,10 +148,9 @@ describe('editFile audit mode', () => {
     expect(buf.read('src/gate.ts').content).toContain('pylint, flake8');
   });
 
-  it('returns nearest-match hint when search string is not found in buffered content', async () => {
-    // Simulates the gemma4 failure mode: model writes the NEW text in the
-    // search field instead of the OLD text. The hint shows the actual region
-    // so the model can correct without a separate read_file round-trip.
+  it('returns grep-based line hint when search string is not found in buffered content', async () => {
+    // Grep hint is now preferred over nearest-match: returns exact line numbers
+    // so the model can call read_file(start_line=N) to get the exact text.
     const context = { config: { agentMode: 'audit' } as never };
     const fileContent = [
       '// Direct invocations of eslint / tsc, OR common npm/pnpm/yarn script',
@@ -161,17 +160,13 @@ describe('editFile audit mode', () => {
       '}',
     ].join('\n');
     await buf.write('src/gate.ts', fileContent, async () => undefined);
-    // Model wrote the new comment (what it wants) as the search — wrong.
-    // This is what gemma4 does: puts the desired new text in search instead
-    // of the old text. The replace is different (a valid new string) so the
-    // "identical" guard passes and we land in "search not found".
     const search = '// Direct invocations of various linters (eslint, tsc, pylint)';
     const replace = '// Direct invocations of various linters (eslint, tsc, pylint, flake8)';
     const result = await editFile({ path: 'src/gate.ts', search, replace }, context);
-    // Should surface the actual region, not just "call read_file"
     expect(result).toContain('search string not found');
-    expect(result).toContain('Nearest matching region');
-    expect(result).toContain('eslint / tsc'); // shows the real text
+    // Grep hint shows exact line numbers and read_file suggestion
+    expect(result).toMatch(/line \d+:|Grep for|read_file/);
+    expect(result).toContain('eslint'); // the grep found the real line
   });
 
   it('returns error when disk file is missing and not buffered', async () => {
