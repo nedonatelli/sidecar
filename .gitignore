@@ -23,3 +23,5 @@ grammars/
 # Claude Code
 .claude/
 CLAUDE.md
+.sidecar/plans/
+eval_output.log

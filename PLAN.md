@@ -14,7 +14,9 @@
 ```
 npm run eval:llm
 ```
-Ask SideCar: *"Run the full eval suite and summarise which cases are still failing."*
+Ask SideCar: *"Run `npm run eval:llm` with a 600-second timeout and summarise which cases are still failing."*
+
+> **Note:** The eval suite takes 3-5 minutes. Pass `timeout: 600` in the run_command call or SideCar will hit the 120s default shell timeout before the suite finishes.
 
 Expected: it calls `run_command`, reads the output, and gives you a ranked list of failures.  
 Watch for: does it parse the output correctly? Does it categorise the failures?

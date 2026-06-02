@@ -1,0 +1,42 @@
+
+> sidecar-ai@0.112.1 eval:llm
+> SIDECAR_DISABLE_THINKING=true vitest run --config vitest.eval.config.ts
+
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.5 [39m[90m/Users/nedonatelli/ollama-vscode[39m
+
+ [32m✓[39m tests/llm-eval/agent.eval.ts[2m > [22mllm-eval :: agent loop[2m > [22mread-single-file — Agent reads a known file with read_file when asked about its contents[33m 46858[2mms[22m[39m
+ [32m✓[39m tests/llm-eval/agent.eval.ts[2m > [22mllm-eval :: agent loop[2m > [22mrename-function — Agent renames a function in a single file via edit_file or write_file[33m 7128[2mms[22m[39m
+ [32m✓[39m tests/llm-eval/agent.eval.ts[2m > [22mllm-eval :: agent loop[2m > [22mgrep-for-todo — Agent uses grep/search_files to locate a TODO marker, not blind file reads[33m 2276[2mms[22m[39m
+ [31m×[39m tests/llm-eval/agent.eval.ts[2m > [22mllm-eval :: agent loop[2m > [22mmulti-tool-iteration — Agent issues multiple read_file calls in a single task to compare several files[33m 12224[2mms[22m[39m
+[31m   → Agent case "multi-tool-iteration" regressed:
+  - toolsCalled: expected "read_file" to be called at least once, but it was not
+
+--- trajectory (last 20 events) ---
+TEXT: `
+TEXT:  or
+TEXT:  config
+TEXT:  files
+TEXT: )
+TEXT:  in
+TEXT:  the
+TEXT:  directory
+TEXT: .
+TEXT:  Let
+TEXT:  me
+TEXT:  know
+TEXT:  how
+TEXT:  you
+TEXT: 'd
+TEXT:  like
+TEXT:  to
+TEXT:  proceed
+TEXT: .
+
+--- workspace after ---
+src/a.ts: export const a = 1; export const a2 = 2; export const a3 = 3; 
+src/b.ts: export const b1 = 1; export const b2 = 2; export const b3 = 3; export const b4 = 4; export const b5 = 5; export const b6 = 6; export const b7 = 7; export const b8 = 8; export const b9 = 9; export cons...
+src/c.ts: export const c1 = 1; export const c2 = 2; export const c3 = 3; export const c4 = 4; 
+src/d.ts: export const d = 1; 
+src/e.ts: export const e1 = 1; export const e2 = 2; [39m
+ [32m✓[39m tests/llm-eval/agent.eval.ts[2m > [22mllm-eval :: agent loop[2m > [22mobserve-tool-error-no-fabrication — Agent observes a read_file error on a nonexistent path, does not fabricate contents or write new files[33m 6006[2mms[22m[39m
