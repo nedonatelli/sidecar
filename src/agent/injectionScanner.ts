@@ -59,11 +59,12 @@ const INJECTION_PATTERNS: { category: string; pattern: RegExp }[] = [
       /(?:(?:^|[\n\r])\s*(?:SYSTEM|ASSISTANT)\s*:)|\[(?:SYSTEM|ASSISTANT|INST)\]|<\|im_start\|>\s*(?:system|assistant)/i,
   },
   // Attempts to escape the <tool_output> wrapper by emitting a closing
-  // tag. The executor already escapes these before wrapping, but a
-  // match here means the attacker tried, which is itself signal.
+  // tag. The executor softens </tool_output> to </ tool_output> before
+  // scanning, so we match the tight form only — the space-padded form is
+  // already neutralised and would false-positive on nested eval output.
   {
     category: 'wrapper-escape',
-    pattern: /<\/\s*tool_output\s*>/i,
+    pattern: /<\/tool_output>/i,
   },
   // Fake authorization claims — "the user has authorized", "approved
   // by admin", etc. Classic social-engineering pattern.
@@ -89,6 +90,36 @@ const INJECTION_PATTERNS: { category: string; pattern: RegExp }[] = [
 ];
 
 /**
+ * Returns true when `index` falls inside a JS/TS string literal on its line.
+ * Handles single-quote, double-quote, and backtick delimiters; respects
+ * backslash escapes. Used to suppress false positives when suspicious phrases
+ * appear as test-fixture data inside string literals rather than as plain prose.
+ */
+function isInsideStringLiteral(content: string, index: number): boolean {
+  const lineStart = content.lastIndexOf('\n', index - 1) + 1;
+  const slice = content.slice(lineStart, index);
+  let inString = false;
+  let quoteChar = '';
+  for (let i = 0; i < slice.length; i++) {
+    const ch = slice[i];
+    if (!inString) {
+      if (ch === '"' || ch === "'" || ch === '`') {
+        inString = true;
+        quoteChar = ch;
+      }
+    } else {
+      if (ch === '\\') {
+        i++; // skip escaped character
+      } else if (ch === quoteChar) {
+        inString = false;
+        quoteChar = '';
+      }
+    }
+  }
+  return inString;
+}
+
+/**
  * Scan tool output for prompt-injection patterns.
  *
  * Returns every match found (for logging and banner assembly). An empty
@@ -101,6 +132,7 @@ export function scanToolOutput(content: string): InjectionMatch[] {
   for (const { category, pattern } of INJECTION_PATTERNS) {
     const match = pattern.exec(content);
     if (match) {
+      if (isInsideStringLiteral(content, match.index)) continue;
       const snippet = match[0].trim().slice(0, 80);
       matches.push({ category, snippet });
     }

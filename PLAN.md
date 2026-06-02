@@ -6,6 +6,13 @@
 **Mode:** Autonomous  
 **Time box:** 2 hours
 
+### What changed since the last session (regression targets)
+- `basePrompt.ts` — grep-first tool guidance: model should now use `grep -n`, `jq`, `wc -l`, `head`/`tail`, `xargs`, `diff`, `node -e`, `python3 -c` instead of reading whole files or writing temp scripts
+- `basePrompt.ts` — plan mode clarification: text-only response (no tool call) submits the plan; model should not attempt to call a tool to "exit" plan mode
+- `stubValidator.ts` — new `placeholder-log` patterns: `console.log("[tool] ...")` stubs are now caught and reprompted
+- `cycleDetection.ts` — frequency-over-window: hallucinated-path loops that interleave with other tool calls are now caught at 3 occurrences across the 8-slot window
+- `fs.ts` — ENOENT suggestions: when `read_file` hits a missing path it now suggests similar files instead of returning a bare error
+
 ---
 
 ## Phase 1 — Baseline (30 min)
@@ -14,9 +21,9 @@
 ```
 npm run eval:llm
 ```
-Ask SideCar: *"Run `npm run eval:llm` with a 600-second timeout and summarise which cases are still failing."*
+Ask SideCar: *"Run the eval suite and summarise which cases are still failing. Use this exact command: `SIDECAR_EVAL_CASE_TIMEOUT=600000 npm run eval:llm` and pass `timeout: 600000` on the run_command call itself — the suite takes 3-5 minutes and the default 120s shell timeout will cut it off."*
 
-> **Note:** The eval suite takes 3-5 minutes. Pass `timeout: 600` in the run_command call or SideCar will hit the 120s default shell timeout before the suite finishes.
+> **Note:** `SIDECAR_EVAL_CASE_TIMEOUT=600000` sets the per-case timeout (ms). `timeout: 600000` on the `run_command` tool call sets the shell session timeout. Both are required — without the second one, SideCar's own shell will kill the process at 120s regardless of the env var.
 
 Expected: it calls `run_command`, reads the output, and gives you a ranked list of failures.  
 Watch for: does it parse the output correctly? Does it categorise the failures?
@@ -27,17 +34,17 @@ Watch for: does it parse the output correctly? Does it categorise the failures?
 
 ---
 
-### 1.2 Update CLAUDE.md with today's learnings
-The `constants.ts` section of `CLAUDE.md` still references the old `LOCAL_CONTEXT_CAP` value. Several new constants were added today. Ask SideCar:
+### 1.2 Validate CLI tool guidance
+Test whether the new tool-preference rules actually change behaviour. Ask SideCar:
 
-*"Read CLAUDE.md and src/config/constants.ts. The CLAUDE.md description of constants.ts is stale — update it to match what's actually in the file now."*
+*"Three quick lookups: (1) What's the TypeScript compiler version in package.json? (2) How many test files are in src/? (3) What's the largest source file in src/ by line count?"*
 
-Expected: reads both files, diffs them, produces a targeted edit to the relevant paragraph.  
-Watch for: does it read both files before editing? Does it make surgical edits or rewrite large sections?
+Expected: uses `jq` for (1), `find` or `rg --files` + `wc -l` for (2), `find src/ -name "*.ts" | xargs wc -l | sort -rn | head -5` for (3). Should not call `read_file` for any of these.  
+Watch for: does it reach for shell tools or fall back to reading files? Does it chain commands with `|`?
 
-- [ ] Reads both files before touching anything
-- [ ] Makes minimal, accurate edits
-- [ ] Does not introduce any new stubs or placeholders
+- [ ] Uses `jq` for the package.json lookup (not `read_file`)
+- [ ] Uses `find`/`rg` + `wc` for counts (not `list_directory` + manual counting)
+- [ ] Chains commands with pipes for the largest-file query
 
 ---
 
