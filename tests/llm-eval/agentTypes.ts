@@ -113,6 +113,8 @@ export interface AgentEvalCase {
 export interface AgentExpectations {
   /** Tool names that must appear at least once in the trajectory. */
   toolsCalled?: string[];
+  /** At least one of these tool names must appear in the trajectory (OR semantics). */
+  toolsCalledAny?: string[];
   /** Tool names that must NOT appear in the trajectory (e.g. no write tools for a read-only case). */
   toolsNotCalled?: string[];
   /**

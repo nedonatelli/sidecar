@@ -731,9 +731,10 @@ export const AGENT_CASES: AgentEvalCase[] = [
     },
     userMessage: 'What exact version of TypeScript is this project using?',
     expect: {
-      // Must read package.json — the version is not guessable from the
+      // Must look up package.json — the version is not guessable from the
       // workspace structure alone, so any correct answer requires a tool call.
-      toolsCalled: ['read_file'],
+      // read_file, grep, and run_command (jq/grep) are all valid lookup tools.
+      toolsCalledAny: ['read_file', 'grep', 'run_command'],
       // The exact pinned version must appear in the final text.
       // Using a unique patch version (5.3.2) that differs from common
       // training-data versions (5.0.x, 5.1.x, 5.2.x, 5.4.x) so we can

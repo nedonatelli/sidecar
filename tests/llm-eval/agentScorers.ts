@@ -49,6 +49,16 @@ function collectFailures(expect: AgentExpectations, run: AgentRun, out: string[]
     }
   }
 
+  // --- trajectory: at least one of these tools called (OR semantics) ---
+  if (expect.toolsCalledAny) {
+    const anyMatched = expect.toolsCalledAny.some((name) => hasToolCall(run.trajectory, name));
+    if (!anyMatched) {
+      out.push(
+        `toolsCalledAny: expected at least one of [${expect.toolsCalledAny.join(', ')}] to be called, but none were`,
+      );
+    }
+  }
+
   // --- trajectory: tools NOT called ---
   if (expect.toolsNotCalled) {
     for (const name of expect.toolsNotCalled) {
