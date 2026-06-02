@@ -194,6 +194,29 @@ describe('detectStubs', () => {
     expect(detectStubs('svc.ts', code)).toHaveLength(1);
     expect(detectStubs('svc.ts', code)[0].category).toBe('deferred-implementation');
   });
+
+  it('detects [tool_name] bracket prefix in console.log (placeholder log)', () => {
+    const code = 'console.log("[embedding] called with input");';
+    expect(detectStubs('embed.ts', code)).toHaveLength(1);
+    expect(detectStubs('embed.ts', code)[0].category).toBe('placeholder-log');
+  });
+
+  it('detects "placeholder" keyword in console.log', () => {
+    const code = 'console.log("placeholder executed — replace with real impl");';
+    expect(detectStubs('tool.ts', code)).toHaveLength(1);
+    expect(detectStubs('tool.ts', code)[0].category).toBe('placeholder-log');
+  });
+
+  it('detects [tool_name] bracket prefix in Python print', () => {
+    const code = 'print("[vector_search] stub")';
+    expect(detectStubs('retriever.py', code)).toHaveLength(1);
+    expect(detectStubs('retriever.py', code)[0].category).toBe('placeholder-log');
+  });
+
+  it('does not flag legitimate named log calls without placeholder language', () => {
+    const code = 'console.log("processing complete, saved", count, "items");';
+    expect(detectStubs('util.ts', code)).toHaveLength(0);
+  });
 });
 
 describe('buildStubReprompt', () => {

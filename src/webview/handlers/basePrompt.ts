@@ -96,8 +96,17 @@ export function buildBaseSystemPrompt(p: SystemPromptParams): string {
 
   const toolPreference =
     '## Tool preference\n' +
-    'Prefer purpose-built tools over `run_command`: use `run_tests` for the test suite, `git_*` tools for git operations, and `web_search` for external lookups. ' +
-    'Fall back to `run_command` only when no specific tool covers the task. ' +
+    '**For finding text:** `rg -n` (if installed; respects .gitignore, binary-safe) > `grep -n` > `grep` tool > `read_file`. Never read an entire file to find one line. ' +
+    '**Before reading an unknown file:** `wc -l file` first — under ~200 lines read it fully; over 200 use `grep -n` to jump to the section, `head -n N`/`tail -n N` for edges, or `read_file(mode="outline")` for structure. ' +
+    "**For JSON/YAML/config:** `jq '.key' file.json` for any key lookup, filter, or extraction — never read the whole file to find one value. " +
+    "**For text replacement:** `sed -i 's/old/new/g' file` for simple in-place swaps; `grep -rln \"pat\" src/ | xargs sed -i 's/old/new/g'` for multi-file batch; `edit_file` when you have exact text from a prior grep/read. " +
+    '**For file discovery:** `rg --files` or `find` > `search_files` > `list_directory`. ' +
+    '**For sorting/deduplication:** `sort | uniq` or `sort -rn` on command output — never re-implement frequency counting or dedup in prose. ' +
+    '**For file comparison:** `diff file1 file2` > reading both files into context. ' +
+    '**For file metadata:** `stat file` for size, mtime, permissions — no need to read content for metadata. ' +
+    '**For quick one-off computations:** `node -e "console.log(...)"` or `python3 -c "print(...)"` inline > writing a temp script file. ' +
+    'System tools (rg, grep, sed, jq, find, awk, xargs, diff, sort, stat) are stateless and exact — delegate mechanical work to them so you can focus on reasoning and decisions. ' +
+    'For test running: `run_tests`. For git: `git_*` tools. For lookups: `web_search`. ' +
     'Full tool schemas are available in the tools list.';
 
   const safetyRules = [
@@ -137,22 +146,41 @@ export function buildBaseSystemPrompt(p: SystemPromptParams): string {
   const example = [
     '## Example turns',
     '',
+    '**Default pattern for editing any file:**',
+    '1. `run_command(command="grep -n \\"keyword\\" src/file.ts")` — get the exact line number',
+    '2. `read_file(path="src/file.ts", start_line=N, end_line=M)` — get the exact text at those lines',
+    '3. `edit_file(search=<exact text from step 2>)` — guaranteed match, no guessing',
+    'Never try to construct a search string from memory. grep tells you the line; read_file gives the exact text.',
+    '',
+    '**Before reading an unfamiliar file:**',
+    '`run_command(command="wc -l src/bigmodule.ts")` — if >300 lines, grep to the section or use outline mode instead of reading the whole thing.',
+    '',
+    '**Looking up a value in JSON/config:**',
+    '`run_command(command="jq \'.scripts.build\' package.json")` — instant, no file read needed.',
+    '`run_command(command="jq \'.devDependencies.typescript\' package.json")` — check a dep version directly.',
+    '`run_command(command="jq \'.[\\\"compilerOptions\\\"].strict\' tsconfig.json")` — dig into nested config.',
+    '',
+    '**Quick computation or data transformation:**',
+    '`run_command(command="node -e \\"console.log(Date.now())\\"")` — no temp file needed.',
+    '`run_command(command="python3 -c \\"import json,sys; d=json.load(open(\'a.json\')); print(len(d))\\"")` — inline JSON inspection.',
+    '',
     'User asks "add a hello function to utils.ts":',
-    '1. `read_file(path="src/utils.ts")` — immediately, no asking',
-    '2. `edit_file(path="src/utils.ts", search="<last line>", replace="<last line + new function>")`',
-    '3. `get_diagnostics(path="src/utils.ts")` to verify',
-    '4. If errors → `edit_file` again to fix.',
+    '1. `run_command(command="grep -n \\"export\\" src/utils.ts")` — find the last export line',
+    '2. `read_file(path="src/utils.ts", start_line=N, end_line=N+2)` — get exact surrounding text',
+    '3. `edit_file(search=<exact text>, replace=<text + new function>)`',
+    '4. `get_diagnostics(path="src/utils.ts")` to verify',
     '',
     'User asks "Run node src/app.js and fix any errors":',
     '1. `run_command(command="node src/app.js")` — run it first, observe the output',
-    '2. `read_file(path="src/app.js")` — read the file to see the exact text to fix',
-    '3. `edit_file(...)` — use the exact text from read_file as the search string',
-    '4. `run_command(command="node src/app.js")` — re-run to confirm the fix works',
+    '2. `run_command(command="grep -n \\"toUppercase\\" src/app.js")` — find the exact line with the bug',
+    '3. `read_file(path="src/app.js", start_line=N, end_line=N)` — get exact text to use as search',
+    '4. `edit_file(...)` — use the exact text from step 3',
+    '5. `run_command(command="node src/app.js")` — re-run to confirm',
     '',
     'User asks "Rename formatDate to toDateString everywhere":',
-    '1. `grep(pattern="formatDate")` — find every file that contains the name',
-    '2. For EACH file grep returns: `read_file` then `edit_file` — update definition AND all call sites',
-    '3. Every file in the grep results must be updated. Missing even one is a bug.',
+    '1. `run_command(command="grep -rn \\"formatDate\\" src/")` — find every occurrence with line numbers',
+    '2. For EACH file+line grep returns: `read_file(start_line=N, end_line=N)` then `edit_file`',
+    '3. Every occurrence must be updated. Missing even one is a bug.',
     '',
     'User asks "What does src/helpers.ts do?":',
     '1. `read_file(path="src/helpers.ts")` — call it immediately, do not guess',
@@ -183,6 +211,8 @@ export function buildBaseSystemPrompt(p: SystemPromptParams): string {
       'If the request is ambiguous, call `ask_user` to clarify first, then write the plan. ' +
       'Do NOT write or edit any files. Your plan will be shown to the user, who can approve, revise, or reject it before any code changes are made.\n\n' +
       'Remember: DO NOT write or edit any files yet. This is a planning-only turn.\n' +
+      'To present your plan, output it as plain text — do NOT call any tool at the end. ' +
+      'A text response with no tool calls signals that the plan is ready; the loop exits automatically and the user sees it immediately.\n' +
       '\n' +
       'Format your plan as:\n\n' +
       '## Plan: <brief title>\n\n' +

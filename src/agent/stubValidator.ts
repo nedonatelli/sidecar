@@ -38,6 +38,13 @@ const STUB_PATTERNS: Array<[string, RegExp]> = [
   ['simulation-stub', /console\.log\s*\(.*[Ss]imulat/],
   ['simulation-stub', /\/\/\s*[Ss]imulat(?:ing|ed|ion)/],
 
+  // Placeholder logger calls: console.log("[tool_name] ...") or console.log("...placeholder...")
+  // Models stub out tool bodies this way — a real implementation never logs its own name in brackets.
+  ['placeholder-log', /console\.log\s*\(\s*['"`]\[[\w_\-]+\]/],
+  ['placeholder-log', /console\.log\s*\(.*\bplaceholder\b/i],
+  ['placeholder-log', /print\s*\(\s*f?['"`]\[[\w_\-]+\]/],
+  ['placeholder-log', /print\s*\(.*\bplaceholder\b/i],
+
   // Magic-number array fills used as dummy embeddings or placeholder data
   // Array(768).fill(0.1) is never a real implementation — it's always a stub.
   ['dummy-fill', /(?:new\s+)?Array\s*\(\d+\)\s*\.fill\s*\(/],
