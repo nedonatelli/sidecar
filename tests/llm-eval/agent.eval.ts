@@ -15,6 +15,11 @@ const ALL_CASES = [...AGENT_CASES, ...CODE_QUALITY_CASES, ...GIT_CASES, ...THINK
 // Accepts comma-separated IDs or substrings: SIDECAR_EVAL_CASE=error-recovery,grep-regex
 const CASE_FILTER = process.env.SIDECAR_EVAL_CASE?.split(',').map((s) => s.trim());
 
+// When SIDECAR_EVAL_TAGS is set, only run cases that have ALL specified tags.
+// Accepts comma-separated tags: SIDECAR_EVAL_TAGS=smoke  or  SIDECAR_EVAL_TAGS=regression,edit
+// Use `npm run eval:smoke` for the curated 8-case fast path (~10 min vs ~2 hr full suite).
+const TAG_FILTER = process.env.SIDECAR_EVAL_TAGS?.split(',').map((s) => s.trim());
+
 // ---------------------------------------------------------------------------
 // Agent-loop eval runner.
 //
@@ -60,6 +65,7 @@ describe.skipIf(!backend)('llm-eval :: agent loop', () => {
 
   for (const evalCase of ALL_CASES) {
     if (CASE_FILTER && !CASE_FILTER.some((f) => evalCase.id.includes(f))) continue;
+    if (TAG_FILTER && !TAG_FILTER.every((t) => evalCase.tags.includes(t))) continue;
     it(`${evalCase.id} — ${evalCase.description}`, async () => {
       const b = backend!;
 

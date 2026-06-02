@@ -17,13 +17,13 @@
 
 ## Phase 1 — Baseline (30 min)
 
-### 1.1 Run the full eval suite
+### 1.1 Run the smoke eval suite
 ```
-npm run eval:llm
+npm run eval:smoke
 ```
-Ask SideCar: *"Run the eval suite and summarise which cases are still failing. Use this exact command: `SIDECAR_EVAL_CASE_TIMEOUT=300000 npm run eval:llm` and pass `timeout: 1800` on the run_command call itself — the suite has 56 cases and will take 15-30 minutes; the default 120s shell timeout will kill it early."*
+Ask SideCar: *"Run the smoke eval suite and summarise which cases are still failing. Use this exact command: `SIDECAR_EVAL_CASE_TIMEOUT=180000 npm run eval:smoke` and pass `timeout: 1800` on the run_command call itself — the default 120s shell timeout will kill it early."*
 
-> **Note:** `SIDECAR_EVAL_CASE_TIMEOUT=300000` sets the per-case timeout (milliseconds — 5 min each). `timeout: 1800` on the `run_command` tool call sets the shell session timeout in **seconds** (30 min total). Both are required — without the second one SideCar kills the process at 120s regardless of the env var. Do not pass `timeout` in milliseconds; the shell tool takes seconds.
+> **Note:** `eval:smoke` runs only 8 representative cases (~10 min) vs the 56-case full suite (~2 hr). `SIDECAR_EVAL_CASE_TIMEOUT=180000` sets the per-case timeout (milliseconds — 3 min each). `timeout: 1800` on the `run_command` tool call sets the shell session timeout in **seconds** (30 min). The shell tool takes **seconds**, not milliseconds.
 
 Expected: it calls `run_command`, reads the output, and gives you a ranked list of failures.  
 Watch for: does it parse the output correctly? Does it categorise the failures?

@@ -38,7 +38,7 @@ export const AGENT_CASES: AgentEvalCase[] = [
   {
     id: 'read-single-file',
     description: 'Agent reads a known file with read_file when asked about its contents',
-    tags: ['read', 'trajectory'],
+    tags: ['read', 'trajectory', 'smoke'],
     workspace: {
       'src/greeter.ts':
         '// Says hello to the given name.\n' +
@@ -86,7 +86,7 @@ export const AGENT_CASES: AgentEvalCase[] = [
   {
     id: 'grep-for-todo',
     description: 'Agent uses grep/search_files to locate a TODO marker, not blind file reads',
-    tags: ['search', 'trajectory'],
+    tags: ['search', 'trajectory', 'smoke'],
     workspace: {
       'src/a.ts': 'export const a = 1;\n',
       'src/b.ts': 'export const b = 2;\n',
@@ -174,7 +174,7 @@ export const AGENT_CASES: AgentEvalCase[] = [
   {
     id: 'no-stub-in-write',
     description: 'Agent writes a real factorial implementation without leaving stub markers',
-    tags: ['write', 'stub-validator', 'regression'],
+    tags: ['write', 'stub-validator', 'regression', 'smoke'],
     workspace: {
       // Empty workspace — the file the agent writes is the full target.
       'README.md': '# Task workspace\n\nPlease implement what I ask for.\n',
@@ -225,7 +225,7 @@ export const AGENT_CASES: AgentEvalCase[] = [
   {
     id: 'fix-simple-bug',
     description: 'Agent reads a buggy arithmetic function, identifies the bug, and edits it to a correct form',
-    tags: ['read', 'edit', 'bugfix', 'regression'],
+    tags: ['read', 'edit', 'bugfix', 'regression', 'smoke'],
     workspace: {
       // `add` function subtracts instead. A smart agent that can
       // read the comment ("Adds two numbers") and the body
@@ -327,7 +327,7 @@ export const AGENT_CASES: AgentEvalCase[] = [
   {
     id: 'plan-mode-no-tools',
     description: 'In plan mode the agent produces a plan without calling any tools (first-iteration short-circuit)',
-    tags: ['plan-mode', 'trajectory', 'regression'],
+    tags: ['plan-mode', 'trajectory', 'regression', 'smoke'],
     workspace: {
       'src/auth.ts':
         '// Session-based authentication module.\n' +
@@ -538,7 +538,7 @@ export const AGENT_CASES: AgentEvalCase[] = [
   {
     id: 'error-recovery-to-correct-file',
     description: 'Agent recovers from file-not-found by searching for the right file, then answers from it',
-    tags: ['read', 'error-observation', 'recovery', 'trajectory', 'regression'],
+    tags: ['read', 'error-observation', 'recovery', 'trajectory', 'regression', 'smoke'],
     workspace: {
       // The user will ask about src/helpers.ts, which doesn't exist.
       // src/utils.ts is the real file with known exported content.
@@ -713,7 +713,7 @@ export const AGENT_CASES: AgentEvalCase[] = [
   {
     id: 'version-from-package-json',
     description: 'Agent reads package.json to answer a version question — does not fabricate from training weights',
-    tags: ['read', 'honesty', 'rule13', 'regression'],
+    tags: ['read', 'honesty', 'rule13', 'regression', 'smoke'],
     workspace: {
       'package.json': JSON.stringify(
         {
@@ -886,7 +886,7 @@ export const AGENT_CASES: AgentEvalCase[] = [
   {
     id: 'run-fix-iteration-cycle',
     description: 'Agent runs a failing script, reads the error, fixes the bug, then re-runs to confirm',
-    tags: ['shell', 'iteration', 'trajectory'],
+    tags: ['shell', 'iteration', 'trajectory', 'smoke'],
     workspace: {
       'src/stats.js':
         '// Computes the average of a number array.\n' +
