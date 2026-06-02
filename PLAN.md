@@ -21,9 +21,9 @@
 ```
 npm run eval:llm
 ```
-Ask SideCar: *"Run the eval suite and summarise which cases are still failing. Use this exact command: `SIDECAR_EVAL_CASE_TIMEOUT=600000 npm run eval:llm` and pass `timeout: 600000` on the run_command call itself — the suite takes 3-5 minutes and the default 120s shell timeout will cut it off."*
+Ask SideCar: *"Run the eval suite and summarise which cases are still failing. Use this exact command: `SIDECAR_EVAL_CASE_TIMEOUT=300000 npm run eval:llm` and pass `timeout: 1800` on the run_command call itself — the suite has 56 cases and will take 15-30 minutes; the default 120s shell timeout will kill it early."*
 
-> **Note:** `SIDECAR_EVAL_CASE_TIMEOUT=600000` sets the per-case timeout (ms). `timeout: 600000` on the `run_command` tool call sets the shell session timeout. Both are required — without the second one, SideCar's own shell will kill the process at 120s regardless of the env var.
+> **Note:** `SIDECAR_EVAL_CASE_TIMEOUT=300000` sets the per-case timeout (milliseconds — 5 min each). `timeout: 1800` on the `run_command` tool call sets the shell session timeout in **seconds** (30 min total). Both are required — without the second one SideCar kills the process at 120s regardless of the env var. Do not pass `timeout` in milliseconds; the shell tool takes seconds.
 
 Expected: it calls `run_command`, reads the output, and gives you a ranked list of failures.  
 Watch for: does it parse the output correctly? Does it categorise the failures?
