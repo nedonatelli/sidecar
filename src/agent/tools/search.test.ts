@@ -175,21 +175,33 @@ describe('grep', () => {
     expect(result).toBe('No matches found.');
   });
 
-  it('returns stdout from error object on other grep failures', async () => {
+  it('includes stdout detail and hint on other grep failures', async () => {
     const err = Object.assign(new Error('grep crashed'), { code: 2, stdout: 'partial output' });
     mockExecFile.mockImplementationOnce((_cmd: unknown, _args: unknown, _opts: unknown, cb: (err: Error) => void) => {
       cb(err);
     });
     const result = await grep({ pattern: 'foo' });
-    expect(result).toBe('partial output');
+    expect(result).toContain('partial output');
+    expect(result).toContain('run_command');
   });
 
-  it('returns Grep failed when error has no stdout', async () => {
+  it('returns actionable hint when grep exits with regex error and no stdout/stderr', async () => {
     const err = Object.assign(new Error('grep crashed'), { code: 2 });
     mockExecFile.mockImplementationOnce((_cmd: unknown, _args: unknown, _opts: unknown, cb: (err: Error) => void) => {
       cb(err);
     });
     const result = await grep({ pattern: 'foo' });
-    expect(result).toBe('Grep failed.');
+    expect(result).toContain('Grep failed.');
+    expect(result).toContain('run_command');
+  });
+
+  it('includes stderr detail in grep error message', async () => {
+    const err = Object.assign(new Error('grep crashed'), { code: 2, stderr: 'grep: invalid regex' });
+    mockExecFile.mockImplementationOnce((_cmd: unknown, _args: unknown, _opts: unknown, cb: (err: Error) => void) => {
+      cb(err);
+    });
+    const result = await grep({ pattern: '\\s+' });
+    expect(result).toContain('grep: invalid regex');
+    expect(result).toContain('run_command');
   });
 });

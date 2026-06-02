@@ -89,8 +89,9 @@ export async function grep(input: Record<string, unknown>): Promise<string> {
   const searchPath = (input.path as string) || '.';
   const cwd = getRoot();
   try {
-    // Use execFile with args array to prevent shell injection
-    const args = ['-rn', '--include=*', pattern, searchPath];
+    // -E enables extended regex: +, ?, |, () without backslashes.
+    // Use execFile with args array to prevent shell injection.
+    const args = ['-rn', '-E', '--include=*', pattern, searchPath];
     const { stdout } = await execFileAsync('grep', args, {
       cwd,
       timeout: 15_000,
@@ -104,9 +105,15 @@ export async function grep(input: Record<string, unknown>): Promise<string> {
     if (!capped.trim()) return 'No matches found.';
     return compressGrepOutput(capped);
   } catch (err) {
-    const error = err as { stdout?: string; code?: number };
+    const error = err as { stdout?: string; code?: number; stderr?: string };
     if (error.code === 1) return 'No matches found.';
-    return error.stdout || 'Grep failed.';
+    // Non-zero/non-1 exit typically means a regex syntax error. The grep
+    // tool supports POSIX ERE (-E) — \s, \d, \w are not ERE syntax.
+    // For Perl-style escapes use: run_command("grep -En 'pattern' .") or rg.
+    const detail = error.stderr || error.stdout || '';
+    const hint =
+      'For Perl-style escapes (\\s, \\d, \\w) use run_command("grep -Pn \'pattern\' .") or run_command("rg \'pattern\'") instead.';
+    return detail ? `Grep error: ${detail.trim()}\n${hint}` : `Grep failed. ${hint}`;
   }
 }
 
