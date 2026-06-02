@@ -48,11 +48,11 @@ describe('AuditLog', () => {
   });
 
   it('truncates long results', async () => {
-    const longResult = 'x'.repeat(1000);
+    const longResult = 'x'.repeat(3000);
     await log.recordToolResult('read_file', 'tc_1', longResult, false, 10);
 
     const entries = await log.query();
-    expect(entries[0].result.length).toBeLessThanOrEqual(500);
+    expect(entries[0].result.length).toBeLessThanOrEqual(2000);
   });
 
   it('filters by tool name', async () => {
@@ -137,5 +137,16 @@ describe('AuditLog', () => {
   it('returns empty array when no log file exists', async () => {
     const entries = await log.query();
     expect(entries).toEqual([]);
+  });
+
+  it('records a text turn to trace.jsonl', async () => {
+    await log.recordTextTurn('I will read the file first.', 2);
+
+    const raw = dir._data.get('logs/trace.jsonl');
+    expect(raw).toBeTruthy();
+    const entry = JSON.parse(raw!.trim());
+    expect(entry.text).toBe('I will read the file first.');
+    expect(entry.iteration).toBe(2);
+    expect(entry.sessionId).toBe('s-test');
   });
 });

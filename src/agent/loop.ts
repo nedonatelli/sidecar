@@ -58,6 +58,8 @@ export interface AgentCallbacks {
   }) => void;
   /** Suggest next steps after the agent loop completes. */
   onSuggestNextSteps?: (suggestions: string[]) => void;
+  /** Full assembled text response for the iteration (fires after tool calls are known). */
+  onAssistantText?: (text: string, iteration: number) => void;
   /**
    * Multi-file edit plan produced by the Edit Plan pass (v0.65 chunk
    * 4.3). Fires once per eligible turn, before the plan executes, so
@@ -485,6 +487,7 @@ export async function runAgentLoop(
 
       // Append the assistant message to history.
       pushAssistantMessage(state, fullText, pendingToolUses);
+      if (fullText) callbacks.onAssistantText?.(fullText, state.iteration);
 
       // Dispatch every tool_use. For pure-write turns with fanout
       // ≥ multiFileEditsMinFilesForPlan the dispatcher inserts an

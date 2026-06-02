@@ -28,6 +28,15 @@ export interface AuditEntry {
   model: string;
 }
 
+export interface TextTurnEntry {
+  timestamp: string;
+  sessionId: string;
+  iteration: number;
+  model: string;
+  approvalMode: string;
+  text: string;
+}
+
 export interface AuditFilter {
   /** Filter by tool name */
   tool?: string;
@@ -42,7 +51,8 @@ export interface AuditFilter {
 }
 
 const AUDIT_FILE = 'logs/audit.jsonl';
-const MAX_RESULT_LENGTH = 500;
+const TRACE_FILE = 'logs/trace.jsonl';
+const MAX_RESULT_LENGTH = 2000;
 
 /**
  * Append-only structured audit log for agent tool executions.
@@ -117,6 +127,23 @@ export class AuditLog {
       await this.sidecarDir.appendJsonl(AUDIT_FILE, entry);
     } catch (err) {
       console.warn('Failed to write audit log entry:', err);
+    }
+  }
+
+  /** Record a completed assistant text turn to trace.jsonl. */
+  async recordTextTurn(text: string, iteration: number): Promise<void> {
+    const entry: TextTurnEntry = {
+      timestamp: new Date().toISOString(),
+      sessionId: this.sessionId,
+      iteration,
+      model: this.model,
+      approvalMode: this.approvalMode,
+      text,
+    };
+    try {
+      await this.sidecarDir.appendJsonl(TRACE_FILE, entry);
+    } catch (err) {
+      console.warn('Failed to write trace log entry:', err);
     }
   }
 
