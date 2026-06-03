@@ -787,7 +787,7 @@ export const AGENT_CASES: AgentEvalCase[] = [
 
   {
     id: 'ask-user-ambiguous-rename',
-    description: 'Agent calls ask_user when asked to rename "the function" but the file has two functions',
+    description: 'Agent identifies ambiguity when asked to rename "the function" and names both candidates without editing',
     tags: ['ask_user', 'rule9', 'ambiguity'],
     workspace: {
       'src/utils.ts':
@@ -802,20 +802,8 @@ export const AGENT_CASES: AgentEvalCase[] = [
     expect: {
       // Core signal: agent must not silently pick one and edit without asking.
       toolsNotCalled: ['edit_file', 'write_file'],
-      // Agent must read the file to discover the ambiguity.
-      toolsCalled: ['read_file'],
-      // The purpose-built disambiguation tool must be called — the eval harness
-      // does not wire a clarifyFn so ask_user returns an error, but the call
-      // itself appearing in the trajectory is the signal that the model
-      // correctly identified the ambiguity before editing. Both prose asking
-      // AND calling ask_user are correct; ask_user is now the hard requirement
-      // since the model reliably does it and the finalText after an ask_user
-      // error is generic (doesn't name the candidates).
-      toolsCalled: ['read_file', 'ask_user'],
-    },
-    softExpect: {
-      // Both candidate names in the response — nice-to-have but hard to assert
-      // after ask_user errors in the harness environment.
+      // Both candidate names must appear — via ask_user, prose, or any other
+      // form. The names are specific enough that guessing is unlikely.
       finalTextContains: ['processItems', 'transformItems'],
     },
   },
