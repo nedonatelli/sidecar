@@ -24,6 +24,14 @@ export class ToolRuntime {
   symbolEmbeddings: SymbolEmbeddingIndex | null = null;
 
   /**
+   * @param cwdOverride  Optional working directory for the shell session.
+   *   Production omits this and uses the VS Code workspace root. The eval
+   *   harness passes the sandbox root so run_command stays scoped to the
+   *   temp workspace instead of scanning the whole project tree.
+   */
+  constructor(private readonly cwdOverride?: string) {}
+
+  /**
    * Lazily-constructed persistent shell session. State (cwd, env vars,
    * aliases) survives across tool calls — important so that `cd src/ && ls`
    * followed by `pwd` reports the new cwd.
@@ -32,7 +40,7 @@ export class ToolRuntime {
     if (this.shell && this.shell.isAlive) return this.shell;
     const config = injectedConfig ?? getConfig();
     const maxOutput = (config.shellMaxOutputMB || 10) * 1024 * 1024;
-    this.shell = new ShellSession(getRoot(), undefined, maxOutput, config.sandboxEnabled);
+    this.shell = new ShellSession(this.cwdOverride ?? getRoot(), undefined, maxOutput, config.sandboxEnabled);
     return this.shell;
   }
 

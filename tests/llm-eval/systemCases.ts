@@ -49,7 +49,7 @@ export const SYSTEM_CASES: AgentEvalCase[] = [
     tags: ['gate', 'run-tests', 'system-infra', 'trajectory'],
     workspace: {
       'package.json': JSON.stringify(
-        { name: 'eval-sandbox', scripts: { test: 'node tests/divide.test.js' } },
+        { name: 'eval-sandbox', scripts: { test: 'node src/divide.test.js' } },
         null,
         2,
       ),
@@ -58,8 +58,10 @@ export const SYSTEM_CASES: AgentEvalCase[] = [
         '  return a + b; // BUG: should be a / b\n' +
         '}\n' +
         'module.exports = { divide };\n',
-      'tests/divide.test.js':
-        "const { divide } = require('../src/divide.js');\n" +
+      // Colocated test so the completion gate's findColocatedTest() detects it
+      // and injects a "run tests" requirement rather than just a lint check.
+      'src/divide.test.js':
+        "const { divide } = require('./divide.js');\n" +
         'const result = divide(10, 2);\n' +
         "if (result !== 5) throw new Error(`Expected 5, got ${result}`);\n" +
         "console.log('ok');\n",

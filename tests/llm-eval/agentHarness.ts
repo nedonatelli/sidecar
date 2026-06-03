@@ -252,7 +252,7 @@ export async function runAgentCase(
   const textBuffer: string[] = [];
   let iterationsUsed = 0;
 
-  const toolRuntime = new ToolRuntime();
+  const toolRuntime = new ToolRuntime(sandbox.root);
   const model = modelOverride ?? backend.defaultModel();
   const client = new SideCarClient(model, backend.baseUrl(), backend.apiKey());
   let systemPrompt = buildBaseSystemPrompt({
