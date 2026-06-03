@@ -1,7 +1,12 @@
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/types.js';
 import type { getConfig } from '../../config/settings.js';
 import type { AgentCallbacks, AgentOptions } from '../loop.js';
-import { recordToolCall as recordGateToolCall, checkCompletionGate, buildGateInjection } from '../completionGate.js';
+import {
+  recordToolCall as recordGateToolCall,
+  checkCompletionGate,
+  buildGateInjection,
+  buildNoReadReprompt,
+} from '../completionGate.js';
 import type { LoopState } from './state.js';
 
 // ---------------------------------------------------------------------------
@@ -80,12 +85,23 @@ export async function maybeInjectCompletionGate(
 ): Promise<GateOutcome> {
   const { gateState, logger } = state;
 
-  // Skip on abort / plan-mode / config disable / nothing to verify / cap.
-  const disabled =
-    signal.aborted ||
-    options.approvalMode === 'plan' ||
-    config.completionGateEnabled === false ||
-    gateState.editedFiles.size === 0;
+  if (signal.aborted || options.approvalMode === 'plan') return 'skip';
+
+  // Check: file mentioned in user request but no read tool called yet.
+  // Fires at most once per run to avoid looping on models that can't comply.
+  if (!gateState.noReadRepromptFired && config.completionGateEnabled !== false) {
+    const reprompt = buildNoReadReprompt(state.messages);
+    if (reprompt) {
+      gateState.noReadRepromptFired = true;
+      logger?.info('No-read gate fired — file mentioned but no read tool called');
+      callbacks.onText('\n\n📂 Reading file before answering...\n');
+      state.messages.push({ role: 'user', content: [{ type: 'text' as const, text: reprompt }] });
+      return 'injected';
+    }
+  }
+
+  // Skip on config disable / nothing to verify / cap.
+  const disabled = config.completionGateEnabled === false || gateState.editedFiles.size === 0;
 
   if (disabled) return 'skip';
 

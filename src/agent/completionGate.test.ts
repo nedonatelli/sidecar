@@ -6,6 +6,7 @@ import {
   recordToolCall,
   checkCompletionGate,
   buildGateInjection,
+  buildNoReadReprompt,
   findColocatedTest,
 } from './completionGate.js';
 
@@ -463,5 +464,46 @@ describe('completionGate — buildGateInjection', () => {
     const text = buildGateInjection([{ file: 'src/foo.ts', needsLint: true }], 1, 2);
     expect(text).toContain('Summary of Changes');
     expect(text).toContain('do not claim anything passes');
+  });
+});
+
+describe('completionGate — buildNoReadReprompt', () => {
+  const tool = (name: string) => ({ type: 'tool_use' as const, id: 'x', name, input: {} });
+  const userMsg = (text: string) => ({ role: 'user' as const, content: [{ type: 'text' as const, text }] });
+  const assistantToolMsg = (name: string) => ({
+    role: 'assistant' as const,
+    content: [tool(name)],
+  });
+
+  it('fires when user mentions a file and no read tool was called', () => {
+    const msgs = [userMsg('Read src/greeter.ts and tell me what it does.')];
+    const result = buildNoReadReprompt(msgs);
+    expect(result).not.toBeNull();
+    expect(result).toContain('greeter.ts');
+    expect(result).toContain('read_file');
+  });
+
+  it('returns null when read_file was already called', () => {
+    const msgs = [userMsg('Read src/greeter.ts and tell me what it does.'), assistantToolMsg('read_file')];
+    expect(buildNoReadReprompt(msgs)).toBeNull();
+  });
+
+  it('returns null when grep was called instead of read_file', () => {
+    const msgs = [userMsg('What TypeScript version is in package.json?'), assistantToolMsg('grep')];
+    expect(buildNoReadReprompt(msgs)).toBeNull();
+  });
+
+  it('returns null when run_command was called (model may have used grep/jq)', () => {
+    const msgs = [userMsg('Check the version in package.json'), assistantToolMsg('run_command')];
+    expect(buildNoReadReprompt(msgs)).toBeNull();
+  });
+
+  it('returns null when user message mentions no file extension', () => {
+    const msgs = [userMsg('What is the capital of France?')];
+    expect(buildNoReadReprompt(msgs)).toBeNull();
+  });
+
+  it('returns null when there are no messages', () => {
+    expect(buildNoReadReprompt([])).toBeNull();
   });
 });

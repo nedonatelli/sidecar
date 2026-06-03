@@ -108,7 +108,7 @@ export const AGENT_CASES: AgentEvalCase[] = [
 
   {
     id: 'multi-tool-iteration',
-    description: 'Agent issues multiple read_file calls in a single task to compare several files',
+    description: 'Agent compares multiple files to find the one with the most lines',
     tags: ['read', 'trajectory', 'parallel'],
     workspace: {
       // Line counts crafted so there's an unambiguous "most lines" winner
@@ -127,10 +127,10 @@ export const AGENT_CASES: AgentEvalCase[] = [
     },
     userMessage: 'Look at every .ts file in src/ and tell me which one has the most lines.',
     expect: {
-      // Two acceptable strategies: list + read each, or enumerate via
-      // grep/search_files + read. Both flows must touch read_file at
-      // least once to count lines reliably.
-      toolsCalled: ['read_file'],
+      // Acceptable strategies: read_file each file, wc -l via run_command,
+      // or grep/search_files. The key check is the correct answer, not
+      // which specific tool was used to count lines.
+      toolsCalledAny: ['read_file', 'run_command', 'grep', 'search_files'],
       // The correct answer. We accept the bare filename — the model
       // often writes "src/b.ts" or "b.ts" — so the bare form is
       // sufficient.

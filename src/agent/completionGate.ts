@@ -1,6 +1,6 @@
 import { workspace, Uri } from 'vscode';
 import * as path from 'path';
-import type { ToolUseContentBlock, ToolResultContentBlock } from '../ollama/types.js';
+import type { ToolUseContentBlock, ToolResultContentBlock, ChatMessage } from '../ollama/types.js';
 
 /**
  * Completion gate — a deterministic verification barrier that fires when the
@@ -37,6 +37,8 @@ export interface GateState {
   lintObserved: boolean;
   /** How many times the gate has injected a reminder this turn. Capped to prevent loops. */
   gateInjections: number;
+  /** True once the no-read-on-file-request reprompt has fired (fires at most once). */
+  noReadRepromptFired: boolean;
 }
 
 export function createGateState(): GateState {
@@ -46,6 +48,7 @@ export function createGateState(): GateState {
     projectTestsRan: false,
     lintObserved: false,
     gateInjections: 0,
+    noReadRepromptFired: false,
   };
 }
 
@@ -287,4 +290,68 @@ export function buildGateInjection(findings: GateFinding[], attempt: number, max
   }
 
   return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// No-read-on-file-request gate
+//
+// Fires once when the model responds without calling any file-reading tool
+// despite the user's request mentioning a specific file path. Catches the
+// "filename pattern matching" failure mode where a model infers file contents
+// from the filename alone (e.g. greeter.ts → "exports a Greeter class")
+// instead of reading the actual file.
+// ---------------------------------------------------------------------------
+
+/** File extensions whose presence in a user message signals a file lookup is needed. */
+const FILE_MENTION_RE = /\b[\w./\-]+\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs|json|md|toml|yaml|yml|sh|cs|java|cpp|c|h)\b/gi;
+
+/** Tools that constitute "the model read something". run_command is included
+ *  because `grep -n`, `jq`, `cat`, `head`, `tail` are all valid read paths. */
+const READ_TOOL_NAMES = new Set(['read_file', 'grep', 'search_files', 'list_directory', 'run_command']);
+
+function firstUserText(messages: ChatMessage[]): string {
+  for (const msg of messages) {
+    if (msg.role !== 'user') continue;
+    if (typeof msg.content === 'string') return msg.content;
+    if (Array.isArray(msg.content)) {
+      for (const b of msg.content) {
+        if (typeof b === 'object' && b !== null && 'type' in b && b.type === 'text' && 'text' in b) {
+          return b.text as string;
+        }
+      }
+    }
+  }
+  return '';
+}
+
+function hasAnyReadToolCall(messages: ChatMessage[]): boolean {
+  for (const msg of messages) {
+    if (msg.role !== 'assistant') continue;
+    if (!Array.isArray(msg.content)) continue;
+    for (const b of msg.content) {
+      if (typeof b === 'object' && b !== null && 'type' in b && b.type === 'tool_use' && 'name' in b) {
+        if (READ_TOOL_NAMES.has(b.name as string)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Returns a reprompt string if the user's first message mentions a file path
+ * but the model produced zero file-reading tool calls. Returns null when no
+ * reprompt is needed (either no file was mentioned, or the model already read
+ * something).
+ */
+export function buildNoReadReprompt(messages: ChatMessage[]): string | null {
+  if (hasAnyReadToolCall(messages)) return null;
+  const userText = firstUserText(messages);
+  if (!userText) return null;
+  const fileMatches = userText.match(FILE_MENTION_RE);
+  if (!fileMatches) return null;
+  const firstFile = fileMatches[0];
+  return (
+    `You mentioned \`${firstFile}\` but did not call read_file, grep, or any other file-reading tool before responding. ` +
+    `Call \`read_file(path="${firstFile}")\` now and answer from its actual contents — do not infer from the filename or training data.`
+  );
 }
