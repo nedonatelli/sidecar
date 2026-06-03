@@ -239,9 +239,9 @@ export function buildGateInjection(findings: GateFinding[], attempt: number, max
   lines.push(`[Completion gate — attempt ${attempt} of ${max}]`);
   lines.push('');
   lines.push(
-    'You are about to finish without verifying the changes you just made. Before ' +
-      'declaring completion, run the checks listed below and report their actual output ' +
-      'as tool results. Do not summarize, do not write a "Summary of Changes" message, ' +
+    'You are about to finish without verifying the changes you just made. ' +
+      'Run the checks listed below RIGHT NOW — do not ask the user if they want you to run them, do not say "I will run the tests", just call the tool immediately. ' +
+      'Report the actual tool output. Do not summarize, do not write a "Summary of Changes" message, ' +
       'and do not claim anything passes until you have seen real output. ' +
       'If a check fails, report the failure honestly — do not loop trying to fix it unless the fix is obvious and small.',
   );
