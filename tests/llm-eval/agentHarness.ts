@@ -301,9 +301,10 @@ export async function runAgentCase(
     // Permissive confirmFn for the rare case an irrecoverable-gate
     // or alwaysRequireApproval tool fires under autonomous mode.
     confirmFn: async () => 'Allow',
-    // Merge configOverrides over defaults so cases can opt-in to
-    // features off by default (critic, autoFix) without a full config.
-    ...(evalCase.configOverrides ? { config: { ...getConfig(), ...evalCase.configOverrides } } : {}),
+    // Disable macOS seatbelt for eval runs — the sandbox is already a
+    // controlled temp dir; seatbelt wrapping causes shell init hangs
+    // when the ShellSession CWD is /var/folders (not the VS Code workspace).
+    config: { ...getConfig(), sandboxEnabled: false, ...evalCase.configOverrides },
   };
 
   // Determine whether this model needs a cold start (no prior context).
