@@ -90,7 +90,7 @@ export const TOOL_REGISTRY: RegisteredTool[] = [
   ...(getConfig().monorepoEnabled ? monorepoTools : []),
   ...(getConfig().ciAnalysisEnabled ? ciTools : []),
   ...(getConfig().researchEnabled ? researchTools : []),
-  queryHistoryTool,
+  ...(getConfig().evalHistoryEnabled ? [queryHistoryTool] : []),
   {
     definition: {
       name: 'ask_user',

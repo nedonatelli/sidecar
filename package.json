@@ -2003,6 +2003,11 @@
             "default": false,
             "description": "Enable the profile_code agent tool. Profiles Node.js (--prof), Python (cProfile), Go (go test -bench), and Rust (cargo bench) projects and returns top-N CPU hotspots."
           },
+          "sidecar.evalHistory.enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enable the query_history agent tool. Allows the agent to run read-only SELECT queries against the local eval history database (.sidecar/history.db)."
+          },
           "sidecar.profiling.topN": {
             "type": "number",
             "default": 10,

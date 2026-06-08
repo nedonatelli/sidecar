@@ -24,4 +24,7 @@ grammars/
 .claude/
 CLAUDE.md
 .sidecar/plans/
+.sidecar/history.db
 eval_output.log
+test-errors.log
+test-failures.log
