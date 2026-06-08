@@ -33,6 +33,15 @@ import type { SteerQueue } from './steerQueue.js';
 import type { PendingEditStore } from './pendingEdits.js';
 import type { EditTimelineStore } from './editTimeline.js';
 
+/** Returns a signal that fires when either `a` or `b` fires. */
+function combineSignals(a: AbortSignal, b: AbortSignal): AbortSignal {
+  if (a.aborted || b.aborted) return a.aborted ? a : b;
+  const ctrl = new AbortController();
+  a.addEventListener('abort', () => ctrl.abort(), { once: true });
+  b.addEventListener('abort', () => ctrl.abort(), { once: true });
+  return ctrl.signal;
+}
+
 export interface AgentCallbacks {
   onText: (text: string) => void;
   onThinking?: (thinking: string) => void;
@@ -402,7 +411,9 @@ export async function runAgentLoop(
         );
       } finally {
         signal.removeEventListener('abort', mirrorAbort);
-        currentTurnController = null;
+        // Keep currentTurnController alive through dispatch so a steer
+        // interrupt fired during tool execution can still abort it.
+        // The outer finally (loop exit) handles the final null-out.
       }
 
       if (rawTurn.terminated === 'timeout') {
@@ -489,19 +500,27 @@ export async function runAgentLoop(
       pushAssistantMessage(state, fullText, pendingToolUses);
       if (fullText) callbacks.onAssistantText?.(fullText, state.iteration);
 
+      // Re-check abort between streaming and tool dispatch. The outer
+      // loop only checks at iteration start, so a Stop fired during
+      // streaming would otherwise still execute all queued tools.
+      if (signal.aborted) break;
+
       // Dispatch every tool_use. For pure-write turns with fanout
       // ≥ multiFileEditsMinFilesForPlan the dispatcher inserts an
       // Edit Plan pass first and then walks the
       // resulting DAG with bounded parallelism. Otherwise delegates
       // to the legacy executeToolUses. Either way results are
       // aligned 1:1 with pendingToolUses.
+      // Combine outer + inner signals: dispatch respects both a full
+      // user "Stop" and a steer-interrupt that fired after streaming.
+      const dispatchSignal = combineSignals(signal, turnController.signal);
       const toolResults = await dispatchPendingToolUses(
         state,
         pendingToolUses,
         client,
         options,
         callbacks,
-        signal,
+        dispatchSignal,
         state.config,
       );
 
@@ -567,6 +586,9 @@ export async function runAgentLoop(
       if (err instanceof Error) {
         (err as Error & { partialMessages?: ChatMessage[] }).partialMessages = [...state.messages];
       }
+      // Fire onDone/flush before propagating — without this, the UI
+      // spinner stays active forever when the loop throws.
+      finalize(state, callbacks);
       throw err;
     }
   } finally {

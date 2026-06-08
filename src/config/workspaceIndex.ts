@@ -142,6 +142,9 @@ export class WorkspaceIndex implements Disposable {
    *  Set when `sidecar.projectKnowledge.enabled` is on; null otherwise. */
   private symbolEmbeddings: import('./symbolEmbeddingIndex.js').SymbolEmbeddingIndex | null = null;
 
+  private lastPatterns: string[] = [];
+  private folderChangeListener: import('vscode').Disposable | null = null;
+
   constructor(maxContextChars = 20_000) {
     this.maxContextChars = maxContextChars;
   }
@@ -257,6 +260,15 @@ export class WorkspaceIndex implements Disposable {
   }
 
   async initialize(patterns: string[]): Promise<void> {
+    this.lastPatterns = patterns;
+    if (!this.folderChangeListener) {
+      this.folderChangeListener = workspace.onDidChangeWorkspaceFolders(() => {
+        this.initialize(this.lastPatterns).catch((err) =>
+          console.warn('[SideCar] Workspace re-index after folder change failed:', err),
+        );
+      });
+    }
+
     const folders = workspace.workspaceFolders;
     if (!folders || folders.length === 0) return;
 
@@ -791,6 +803,8 @@ export class WorkspaceIndex implements Disposable {
   }
 
   dispose(): void {
+    this.folderChangeListener?.dispose();
+    this.folderChangeListener = null;
     for (const w of this.watchers) w.dispose();
     this.watchers = [];
     if (this.rebuildTimer) {

@@ -275,6 +275,8 @@ export class SymbolEmbeddingIndex implements Disposable {
         await this.modelLoading;
         return this.pipeline !== null;
       } catch {
+        // Load failed — null it out so flushQueue can restart it.
+        this.modelLoading = null;
         return false;
       }
     }
@@ -406,8 +408,16 @@ export class SymbolEmbeddingIndex implements Disposable {
     this.flushTimer = null;
     if (this.pendingQueue.size === 0) return;
     if (!(await this.ensureModel())) {
-      // Model still loading — try again after the debounce window.
-      this.flushTimer = setTimeout(() => this.flushQueue(), SymbolEmbeddingIndex.FLUSH_DEBOUNCE_MS);
+      // Model not ready — (re)start loading if it isn't already, then retry.
+      if (!this.modelLoading) {
+        this.modelLoading = this.loadModel();
+        this.modelLoading.catch((err) =>
+          console.warn('[SideCar] Symbol embedding model retry failed:', err?.message || err),
+        );
+      }
+      this.flushTimer = setTimeout(() => {
+        this.flushQueue().catch((err) => console.warn('[SideCar] flushQueue retry error:', err?.message || err));
+      }, SymbolEmbeddingIndex.FLUSH_DEBOUNCE_MS);
       return;
     }
 
@@ -444,14 +454,21 @@ export class SymbolEmbeddingIndex implements Disposable {
     // pass, so the cost is proportional to the number of distinct
     // files touched in the batch, not the tree size.
     if (this.merkleDirty && this.merkleTree) {
-      this.merkleTree.rebuild();
-      this.merkleDirty = false;
+      try {
+        this.merkleTree.rebuild();
+        this.merkleDirty = false;
+      } catch (err) {
+        console.warn('[SideCar] merkleTree.rebuild() failed — will retry next flush:', err);
+        // Leave merkleDirty=true so the next batch attempts rebuild again.
+      }
     }
 
     if (this.pendingQueue.size > 0) {
       const delay =
         this.pendingQueue.size >= SymbolEmbeddingIndex.FLUSH_BATCH_SIZE ? 0 : SymbolEmbeddingIndex.FLUSH_DEBOUNCE_MS;
-      this.flushTimer = setTimeout(() => this.flushQueue(), delay);
+      this.flushTimer = setTimeout(() => {
+        this.flushQueue().catch((err) => console.warn('[SideCar] flushQueue error:', err?.message || err));
+      }, delay);
     } else {
       this.lastUpdatedMs = Date.now();
       this.drainedListener?.();
@@ -491,12 +508,15 @@ export class SymbolEmbeddingIndex implements Disposable {
     // Fire-and-forget — the store mutation is in-memory (flat) or
     // async (Lance) but not a cost center either way. Matches the
     // v0.61 sync signature so every existing caller keeps working.
-    void this.store.remove(symbolId).then((removed) => {
-      if (removed) {
-        this.dirty = true;
-        this.schedulePersist();
-      }
-    });
+    this.store
+      .remove(symbolId)
+      .then((removed) => {
+        if (removed) {
+          this.dirty = true;
+          this.schedulePersist();
+        }
+      })
+      .catch((err) => console.warn('[SideCar] removeSymbol store.remove failed:', err?.message || err));
     if (this.merkleTree && this.merkleTree.removeLeaf(symbolId)) {
       this.merkleDirty = true;
     }
@@ -524,7 +544,9 @@ export class SymbolEmbeddingIndex implements Disposable {
         removed += 1;
       }
     }
-    for (const id of toRemove) void this.store.remove(id);
+    Promise.all(toRemove.map((id) => this.store.remove(id))).catch((err) =>
+      console.warn('[SideCar] removeFile store.remove failed:', err?.message || err),
+    );
     // Also drop queued-but-not-yet-indexed symbols from this file.
     for (const [id, input] of this.pendingQueue.entries()) {
       if (input.filePath === filePath) this.pendingQueue.delete(id);
@@ -683,11 +705,7 @@ export class SymbolEmbeddingIndex implements Disposable {
     if (this.persistTimer) clearTimeout(this.persistTimer);
     if (this.flushTimer) clearTimeout(this.flushTimer);
     if (this.dirty) {
-      try {
-        void this.persist();
-      } catch {
-        /* best-effort shutdown cleanup */
-      }
+      this.persist().catch((err) => console.warn('[SideCar] Symbol index persist failed on dispose:', err));
     }
   }
 }

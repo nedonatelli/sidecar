@@ -15,7 +15,7 @@ import { registerSidecarParticipant } from './chat/sidecarParticipant.js';
 import { registerLmTools } from './chat/lmTools.js';
 import { dispose as disposeDiagnostics } from './agent/sidecarDiagnostics.js';
 import { setGrammarsPath } from './parsing/registry.js';
-import { disposeShellSession } from './agent/tools.js';
+import { disposeShellSession, disposeAgentTerminalExecutor } from './agent/tools.js';
 import { initBaseServices } from './activation/baseSetup.js';
 import { initWorkspaceIndex } from './activation/workspaceIndexer.js';
 import { initCoreServices } from './activation/servicesInit.js';
@@ -171,4 +171,5 @@ export function deactivate() {
   chatProvider?.autoSave();
   chatProvider?.abort();
   disposeShellSession();
+  disposeAgentTerminalExecutor();
 }

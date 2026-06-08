@@ -214,6 +214,15 @@ export async function reviewFacetBatch(
       const message = err instanceof Error ? err.message : String(err);
       failed.push({ facetId: entry.facetId, error: message });
       deps.ui.showError(`Facet "${entry.facetId}" failed to apply: ${message}`);
+      // Block any pending facets that overlap with this one — they
+      // touch the same files and would apply against a dirty tree.
+      for (const [candidateId, candidateEntry] of pending) {
+        if (candidateId !== entry.facetId && candidateEntry.overlapsWith.includes(entry.facetId)) {
+          failed.push({ facetId: candidateId, error: `blocked: "${entry.facetId}" failed to apply` });
+          pending.delete(candidateId);
+          deps.ui.showError(`Facet "${candidateId}" blocked: overlaps with failed facet "${entry.facetId}".`);
+        }
+      }
     }
     pending.delete(entry.facetId);
   }

@@ -242,6 +242,30 @@ describe('reviewFacetBatch', () => {
     expect(outcome.applied).toEqual(['coder']);
   });
 
+  it('auto-fails overlapping facets when the first one fails to apply', async () => {
+    // Both facets touch src/a.ts, so they overlap.
+    const applyDiff = vi.fn().mockRejectedValue(new Error('patch does not apply'));
+    const ui = makeFakeUi();
+    // User picks 'a', accepts, apply throws → 'b' should be auto-failed.
+    ui.quickPickSequence = ['a', 'Accept'];
+
+    const outcome = await reviewFacetBatch(makeBatch([makeResult('a', GIT_DIFF), makeResult('b', GIT_DIFF)]), {
+      ui,
+      mainRoot: '/ws',
+      applyDiff,
+    });
+
+    // 'a' failed to apply
+    expect(outcome.failed.find((f) => f.facetId === 'a')).toBeDefined();
+    // 'b' was blocked automatically — must appear in failed, NOT cancelledRemaining
+    const bFailed = outcome.failed.find((f) => f.facetId === 'b');
+    expect(bFailed).toBeDefined();
+    expect(bFailed?.error).toContain('blocked');
+    expect(outcome.cancelledRemaining).not.toContain('b');
+    // Two showError calls: one for 'a' failing, one for 'b' being blocked
+    expect(ui.calls.showError).toHaveLength(2);
+  });
+
   it('applies multiple facets in the user-chosen order', async () => {
     const applyOrder: string[] = [];
     const applyDiff = vi.fn().mockImplementation(async (_root, diff: string) => {

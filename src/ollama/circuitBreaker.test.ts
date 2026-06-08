@@ -48,6 +48,32 @@ describe('CircuitBreaker', () => {
       breaker.recordFailure('openai');
       expect(() => breaker.guard('openai')).toThrow(BackendCircuitOpenError);
     });
+
+    it('guard() error carries the TIERED cooldown (not just the base cooldownMs)', () => {
+      // Use fake timers so we control when the half-open probe fires.
+      vi.useFakeTimers();
+      // Trip 1: openCount = 1, tierCooldown = 1000ms (same as base)
+      for (let i = 0; i < 3; i++) breaker.recordFailure('openai');
+      // Advance past cooldown, probe, fail → Trip 2: openCount = 2, tierCooldown = 2000ms
+      vi.advanceTimersByTime(1001);
+      breaker.allow('openai'); // probe slot
+      breaker.recordFailure('openai'); // probe fails → opens again at doubled cooldown
+
+      // guard() must now throw with cooldownRemainingMs close to 2000ms (tiered),
+      // NOT ~1000ms (base). Before the fix, it used `this.cooldownMs` (1000ms here).
+      let err: BackendCircuitOpenError | null = null;
+      try {
+        breaker.guard('openai');
+      } catch (e) {
+        err = e as BackendCircuitOpenError;
+      }
+      expect(err).toBeInstanceOf(BackendCircuitOpenError);
+      // Tiered value is 2000ms; base is 1000ms.  The remaining time should
+      // exceed 1000ms, proving it's using the doubled tier.
+      expect(err!.cooldownRemainingMs).toBeGreaterThan(1000);
+      expect(err!.cooldownRemainingMs).toBeLessThanOrEqual(2000);
+      vi.useRealTimers();
+    });
   });
 
   describe('half-open', () => {

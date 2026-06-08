@@ -161,9 +161,10 @@ export class FacetRpcBus {
     // rejections we can catch below. Without this, a `throw 'x'` inside
     // a non-async handler escapes before Promise.resolve wraps it.
     const execute = (async () => handler(args, ctx))();
-    const timeout = new Promise<'__rpc_timeout__'>((resolve) =>
-      setTimeout(() => resolve('__rpc_timeout__'), this.timeoutMs),
-    );
+    let timeoutHandle: ReturnType<typeof setTimeout>;
+    const timeout = new Promise<'__rpc_timeout__'>((resolve) => {
+      timeoutHandle = setTimeout(() => resolve('__rpc_timeout__'), this.timeoutMs);
+    });
 
     try {
       const outcome = await Promise.race([execute, timeout]);
@@ -212,6 +213,8 @@ export class FacetRpcBus {
         errorKind: 'handler-threw',
         message: `RPC handler ${receiverFacetId}.${method} threw: ${msg}`,
       };
+    } finally {
+      clearTimeout(timeoutHandle!);
     }
   }
 

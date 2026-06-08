@@ -8,6 +8,8 @@ import { getConfig } from '../../config/settings.js';
 // explicitly via the `tool` parameter.
 const TASK_TOOL_CANDIDATES = ['run_task', 'execute_task', 'task', 'run', 'execute', 'process', 'handle'];
 
+const MCP_DELEGATE_TIMEOUT_MS = 60_000;
+
 /**
  * Resolve the tool name to call on a given MCP server.
  * Returns null if no suitable task tool is found.
@@ -80,7 +82,19 @@ export async function delegateToMcp(input: Record<string, unknown>, context?: To
   if (taskContext) toolInput.context = taskContext;
 
   try {
-    return await mcpManager.callServerTool(server, resolved.toolName, toolInput);
+    let timeoutHandle: ReturnType<typeof setTimeout>;
+    const racePromise = new Promise<never>((_, reject) => {
+      timeoutHandle = setTimeout(
+        () => reject(new Error(`MCP delegation timed out after ${MCP_DELEGATE_TIMEOUT_MS / 1000}s`)),
+        MCP_DELEGATE_TIMEOUT_MS,
+      );
+      context?.signal?.addEventListener('abort', () => reject(new Error('MCP delegation aborted')), { once: true });
+    });
+    try {
+      return await Promise.race([mcpManager.callServerTool(server, resolved.toolName, toolInput), racePromise]);
+    } finally {
+      clearTimeout(timeoutHandle!);
+    }
   } catch (err) {
     return `Delegation to "${server}/${resolved.toolName}" failed: ${err instanceof Error ? err.message : String(err)}`;
   }

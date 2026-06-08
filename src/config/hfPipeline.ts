@@ -48,7 +48,23 @@ const _pipelineCache = new Map<string, Promise<EmbeddingPipeline>>();
 
 export function getSharedPipeline(modelId: string, envOpts: EmbeddingPipelineEnvOpts = {}): Promise<EmbeddingPipeline> {
   if (!_pipelineCache.has(modelId)) {
-    _pipelineCache.set(modelId, loadEmbeddingPipeline(modelId, envOpts));
+    const promise = (_loaderForTests ?? loadEmbeddingPipeline)(modelId, envOpts);
+    _pipelineCache.set(modelId, promise);
+    // Evict on failure so the next caller gets a fresh load attempt.
+    promise.catch(() => _pipelineCache.delete(modelId));
   }
   return _pipelineCache.get(modelId)!;
+}
+
+// ---------------------------------------------------------------------------
+// Test injection — allows unit tests to substitute a controlled loader
+// without going through the real @huggingface/transformers dynamic import.
+// Call with null to restore the default loader.
+// ---------------------------------------------------------------------------
+type PipelineLoader = (modelId: string, envOpts?: EmbeddingPipelineEnvOpts) => Promise<EmbeddingPipeline>;
+let _loaderForTests: PipelineLoader | null = null;
+
+export function setLoaderForTests(loader: PipelineLoader | null): void {
+  _loaderForTests = loader;
+  _pipelineCache.clear();
 }

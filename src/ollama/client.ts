@@ -917,7 +917,11 @@ export class SideCarClient {
         }
       }
     } finally {
-      reader.releaseLock();
+      try {
+        await reader.cancel();
+      } catch {
+        reader.releaseLock();
+      }
     }
   }
 

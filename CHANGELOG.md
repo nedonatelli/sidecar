@@ -4,6 +4,40 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.112.20] - 2026-06-08
+
+**v0.112.20 — Agent loop hardening, shell kill-on-abort, model-load retries.**
+
+### Bug fixes
+
+- **Stop mid-stream no longer executes queued tools** — added an explicit abort check between streaming and tool dispatch in `runAgentLoop`; a Stop fired during streaming no longer runs the queued tool calls. (`src/agent/loop.ts`)
+
+- **Steer interrupts can abort tool dispatch** — `currentTurnController` is kept alive through tool execution so a steer interrupt fired during a tool call can still cancel it; combined outer + steer signals threaded into `dispatchPendingToolUses`. (`src/agent/loop.ts`)
+
+- **UI spinner no longer freezes on loop error** — `finalize()` is called before re-throwing unexpected errors so `onDone` always fires. (`src/agent/loop.ts`)
+
+- **Shell processes killed on timeout/abort** — `ShellSession` now calls `proc.kill()` and nulls `this.proc` immediately on timeout or abort, so the next queued command gets a fresh shell rather than writing to a dying process. (`src/terminal/shellSession.ts`)
+
+- **`disposeAgentTerminalExecutor` wired into deactivate** — the reusable SideCar Agent terminal and its VS Code event subscriptions are released on extension shutdown. (`src/agent/tools/shell.ts`, `src/extension.ts`)
+
+- **Circuit breaker uses graduated backoff** — `checkProvider` uses `tierCooldown(openCount)` instead of a flat `cooldownMs`, so repeated failures get progressively longer cooldowns rather than an identical fixed wait. (`src/ollama/circuitBreaker.ts`)
+
+- **MCP delegation timeout + abort** — `delegateToMcp` now races the server call against a 60 s timeout and the tool's abort signal; previously the call could hang indefinitely. (`src/agent/tools/mcpDelegate.ts`)
+
+- **RPC bus timeout handle cleared** — `FacetRpcBus.call` clears the timeout `setTimeout` handle in a `finally` block to prevent timer leaks on every RPC call. (`src/agent/facets/facetRpcBus.ts`)
+
+- **Facet review blocks overlapping facets on failure** — when a facet fails to apply, pending facets that overlap with it are blocked immediately rather than attempting to apply against a dirty working tree. (`src/agent/facets/facetReview.ts`)
+
+- **Model load failures allow retry** — `EpisodicMemoryStore`, `SidecarMdIndex`, and `SymbolEmbeddingIndex` reset `modelLoading = null` on failure so the next caller triggers a fresh load attempt instead of being permanently stuck. (`src/agent/episodicMemory.ts`, `src/agent/sidecarMdIndex.ts`, `src/config/symbolEmbeddingIndex.ts`)
+
+- **Shared pipeline evicts cache entry on failure** — `getSharedPipeline` deletes the failed promise from the cache so the next call retries instead of getting the same rejected promise. (`src/config/hfPipeline.ts`)
+
+- **Workspace re-indexes on folder change** — `WorkspaceIndex` now subscribes to `onDidChangeWorkspaceFolders` so adding or removing workspace folders triggers a re-index. (`src/config/workspaceIndex.ts`)
+
+- **Fetch stream properly cancelled** — `SideCarClient` uses `reader.cancel()` instead of `reader.releaseLock()` in the finally block for correct TCP teardown on stream completion. (`src/ollama/client.ts`)
+
+- **Abort event listeners use `{ once: true }`** — `autoMode/dispatcher.ts` sleep helper and `mcpDelegate.ts` now pass `{ once: true }` so abort listeners are automatically removed, preventing accumulation over repeated calls.
+
 ## [0.112.19] - 2026-06-08
 
 **v0.112.19 — Security hardening & reliability patch.**

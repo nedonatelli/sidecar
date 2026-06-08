@@ -143,6 +143,7 @@ export class SidecarMdIndex {
         return true;
       } catch (err) {
         console.warn('[SidecarMdIndex] Embedding model failed to load:', err instanceof Error ? err.message : err);
+        this.modelLoading = null; // allow retry on next call
         return false;
       }
     })();

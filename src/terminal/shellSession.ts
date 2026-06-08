@@ -254,6 +254,16 @@ export class ShellSession {
         timedOut = true;
         output += '\n\n⚠️ Command timed out after ' + timeout / 1000 + 's';
         finish(-1);
+        // Kill the shell so its subprocess doesn't keep running.
+        // Null this.proc immediately (before the SIGTERM 'exit' event fires)
+        // so ensureProcess() spawns a fresh shell for the next queued command
+        // rather than sending to the dying process.
+        if (this.proc === proc) this.proc = null;
+        try {
+          proc.kill();
+        } catch {
+          /* process already gone */
+        }
       }, timeout);
 
       // Abort signal handler
@@ -261,6 +271,12 @@ export class ShellSession {
         timedOut = true;
         output += '\n\n⚠️ Command aborted';
         finish(-1);
+        if (this.proc === proc) this.proc = null;
+        try {
+          proc.kill();
+        } catch {
+          /* process already gone */
+        }
       };
       signal?.addEventListener('abort', onAbort, { once: true });
 

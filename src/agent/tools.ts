@@ -57,6 +57,7 @@ import { queryHistoryTool } from './tools/history.js';
 // straight from './tools.js'. Keeping these preserves the public surface.
 export type { ClarifyFn, ToolExecutorContext, RegisteredTool } from './tools/shared.js';
 export { disposeShellSession, setSymbolGraph, setSymbolEmbeddings } from './tools/runtime.js';
+export { disposeAgentTerminalExecutor } from './tools/shell.js';
 export { getDiagnostics } from './tools/diagnostics.js';
 
 const execFileAsync = promisify(execFile);

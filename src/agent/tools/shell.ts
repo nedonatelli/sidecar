@@ -51,6 +51,12 @@ function getAgentTerminalExecutor(): AgentTerminalExecutor {
   return _defaultAgentTerminalExecutor;
 }
 
+/** Call on extension deactivate to release the terminal and its VS Code event subscriptions. */
+export function disposeAgentTerminalExecutor(): void {
+  _defaultAgentTerminalExecutor?.dispose();
+  _defaultAgentTerminalExecutor = null;
+}
+
 /**
  * Build a CompositeShellExecutor for the current tool call, wiring the
  * process-wide terminal executor against the per-context shell session.

@@ -66,6 +66,7 @@ export const workspace = {
   },
   onDidChangeTextDocument: () => ({ dispose: () => {} }),
   onDidSaveTextDocument: () => ({ dispose: () => {} }),
+  onDidChangeWorkspaceFolders: () => ({ dispose: () => {} }),
   findFiles: async () => [],
   asRelativePath: (uriOrPath: { fsPath?: string } | string, _includeWorkspaceFolder?: boolean) => {
     const p = typeof uriOrPath === 'string' ? uriOrPath : (uriOrPath.fsPath ?? '');

@@ -138,7 +138,7 @@ export class CircuitBreaker {
     if (this.allow(provider)) return;
     const entry = this.get(provider);
     const elapsed = Date.now() - entry.openedAt;
-    throw new BackendCircuitOpenError(provider, Math.max(0, this.cooldownMs - elapsed));
+    throw new BackendCircuitOpenError(provider, Math.max(0, this.tierCooldown(entry.openCount) - elapsed));
   }
 
   recordSuccess(provider: ProviderType): void {

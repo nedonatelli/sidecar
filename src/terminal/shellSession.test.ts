@@ -98,6 +98,40 @@ describeUnix('ShellSession', () => {
     expect(result.stdout).toContain('respawned');
   });
 
+  it('unblocks the next command promptly after a timeout (proc.kill regression)', async () => {
+    // Without proc.kill() in the timeout handler, the shell would continue
+    // running `sleep 60` and the next command would be queued behind it,
+    // blocking for ~60 s.  With the fix the shell is killed on timeout and
+    // a fresh shell is spawned for the next execute() call.
+    session = new ShellSession(os.tmpdir());
+    const timedOut = await session.execute('sleep 60', { timeout: 200 });
+    expect(timedOut.timedOut).toBe(true);
+
+    const start = Date.now();
+    const next = await session.execute('echo hello', { timeout: 5000 });
+    const elapsed = Date.now() - start;
+
+    expect(next.stdout).toContain('hello');
+    // If proc.kill() did NOT fire, the next command would have to wait for
+    // sleep 60 to finish naturally (~60 s).  Verify it ran well under that.
+    expect(elapsed).toBeLessThan(5000);
+  });
+
+  it('unblocks the next command promptly after an abort', async () => {
+    session = new ShellSession(os.tmpdir());
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 200);
+    const aborted = await session.execute('sleep 60', { signal: controller.signal });
+    expect(aborted.timedOut).toBe(true);
+
+    const start = Date.now();
+    const next = await session.execute('echo world', { timeout: 5000 });
+    const elapsed = Date.now() - start;
+
+    expect(next.stdout).toContain('world');
+    expect(elapsed).toBeLessThan(5000);
+  });
+
   it('manages background commands', async () => {
     session = new ShellSession(os.tmpdir());
     const id = session.executeBackground('echo bg_output; sleep 0.1');

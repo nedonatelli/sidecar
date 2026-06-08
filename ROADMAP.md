@@ -1,6 +1,6 @@
 # SideCar Roadmap
 
-**Current release: v0.112.19** — Security hardening & reliability patch: MCP results never deduped, post-approval abort check, episodic memory abort race, cycle-detection false-positive fix, audit buffer read/write race, per-batch tool abort, tool budget increment timing, fork result typed abort field, iterative facet DFS, embedding read cap, symbolGraph deserialization guards. See [CHANGELOG](CHANGELOG.md) for full notes.
+**Current release: v0.112.20** — Agent loop hardening & model-load retries: Stop mid-stream no longer executes queued tools, steer interrupts abort tool dispatch, shell processes killed on timeout/abort, circuit breaker graduated backoff, MCP delegation timeout, RPC bus timer leak fix, facet review overlap blocking, model-load failure retries, workspace folder re-index. See [CHANGELOG](CHANGELOG.md) for full notes.
 
 **Coverage floor**: ≥80/70/80/80 (stmts/branches/funcs/lines) enforced by CI. No PR merges that drop any metric.
 

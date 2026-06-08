@@ -142,6 +142,7 @@ export class EpisodicMemoryStore {
         return true;
       } catch (err) {
         console.warn('[EpisodicMemory] Embedding model failed to load:', err instanceof Error ? err.message : err);
+        this.modelLoading = null; // allow retry on next call
         return false;
       }
     })();

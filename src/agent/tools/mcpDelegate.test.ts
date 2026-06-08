@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { delegateToMcp, resolveTaskTool } from './mcpDelegate.js';
 import type { ToolExecutorContext } from './shared.js';
 
@@ -196,6 +196,54 @@ describe('delegateToMcp — successful delegation', () => {
     const ctx = makeContext(mgr);
     const result = await delegateToMcp({ server: 'math-engine', task: 'x' }, ctx);
     expect(result).toContain('server crashed');
+    expect(result).toContain('math-engine/run_task');
+  });
+});
+
+describe('delegateToMcp — timeout and abort', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('returns an error after 60 s when callServerTool never resolves', async () => {
+    vi.useFakeTimers();
+    // callServerTool hangs forever
+    const mgr = {
+      isServerConnected: vi.fn(() => true),
+      getServerNames: vi.fn(() => ['math-engine']),
+      getServerToolNames: vi.fn(() => ['run_task']),
+      callServerTool: vi.fn(() => new Promise(() => {})),
+    };
+    const ctx = makeContext(mgr as never);
+
+    const promise = delegateToMcp({ server: 'math-engine', task: 'compute' }, ctx);
+    // Advance past MCP_DELEGATE_TIMEOUT_MS (60 000 ms)
+    vi.advanceTimersByTime(60_001);
+    const result = await promise;
+
+    expect(result).toContain('timed out');
+    expect(result).toContain('60');
+    expect(result).toContain('math-engine/run_task');
+  });
+
+  it('returns an error immediately when the abort signal fires', async () => {
+    const controller = new AbortController();
+    const mgr = {
+      isServerConnected: vi.fn(() => true),
+      getServerNames: vi.fn(() => ['math-engine']),
+      getServerToolNames: vi.fn(() => ['run_task']),
+      callServerTool: vi.fn(() => new Promise(() => {})),
+    };
+    const ctx: ReturnType<typeof makeContext> = {
+      ...makeContext(mgr as never),
+      signal: controller.signal,
+    };
+
+    const promise = delegateToMcp({ server: 'math-engine', task: 'compute' }, ctx);
+    controller.abort();
+    const result = await promise;
+
+    expect(result).toContain('aborted');
     expect(result).toContain('math-engine/run_task');
   });
 });
