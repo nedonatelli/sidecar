@@ -113,6 +113,7 @@ export function buildDispatchHandlers(
 
   return {
     userMessage: async (msg) => {
+      state.activeFileIncluded = msg.activeFileIncluded ?? false;
       if (msg.images && msg.images.length > 0) {
         handleUserMessageWithImages(state, msg.text || '', msg.images);
         await handleUserMessage(state, '');

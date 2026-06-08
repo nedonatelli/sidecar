@@ -29,6 +29,7 @@ import { enhanceContextWithSmartElements } from '../../agent/context.js';
 import { parseSidecarMd, selectSidecarMdSections } from '../../agent/sidecarMdParser.js';
 import { renderDesignMdContext } from '../../config/designMdLoader.js';
 import { resolveToolTier } from './messageUtils.js';
+import { HistoryDb } from '../../agent/history/historyDb.js';
 
 export type { SystemPromptParams } from './basePrompt.js';
 export { buildBaseSystemPrompt } from './basePrompt.js';
@@ -258,6 +259,23 @@ export async function injectSystemContext(
   sizes['Skills'] = prompt.length - prevLen;
   prevLen = prompt.length;
 
+  // Eval history schema — inject when history.db exists so the model knows
+  // to use query_history() instead of grepping log files for pass rates.
+  // ~100 tokens; gated on file existence so it's a no-op for fresh installs.
+  if (state.sidecarDir?.isReady()) {
+    const dbPath = state.sidecarDir.getPath('history.db');
+    try {
+      const { existsSync } = await import('fs');
+      if (existsSync(dbPath)) {
+        prompt += `\n\n${HistoryDb.schemaBlock()}`;
+      }
+    } catch {
+      // Non-fatal.
+    }
+  }
+  sizes['Eval history'] = prompt.length - prevLen;
+  prevLen = prompt.length;
+
   // Retriever fusion — docs, agent memory, and workspace semantic
   // search all run through a single reciprocal-rank fusion pass so
   // they share one context budget instead of each getting a fixed
@@ -437,9 +455,10 @@ export async function injectSystemContext(
   // cache, which requires a 1024+ token stable prefix.
   const sessionRoot = getWorkspaceRoot();
   if (sessionRoot) {
-    const activeFile = window.activeTextEditor
-      ? path.relative(sessionRoot, window.activeTextEditor.document.uri.fsPath)
-      : undefined;
+    const activeFile =
+      state.activeFileIncluded && window.activeTextEditor
+        ? path.relative(sessionRoot, window.activeTextEditor.document.uri.fsPath)
+        : undefined;
     const platform = os.platform(); // 'win32' | 'darwin' | 'linux' | …
     const shell = platform === 'win32' ? (process.env.COMSPEC ?? 'cmd.exe') : (process.env.SHELL ?? '/bin/bash');
     prompt += `\n\n## Session\n- Project root: ${sessionRoot}`;

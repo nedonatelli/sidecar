@@ -153,6 +153,8 @@ export interface WebviewMessage {
   steerId?: string;
   /** Steer queue: urgency for a new submission. */
   steerUrgency?: 'nudge' | 'interrupt';
+  /** Whether the active editor file was explicitly toggled into context by the user. */
+  activeFileIncluded?: boolean;
   /** Voice input: base64-encoded Float32 PCM at 16 kHz (local path) or empty string (error). */
   pcmBase64?: string;
   /** Voice input: 'audio/pcm-f32le' for local path, raw mime for server fallback path. */

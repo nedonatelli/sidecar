@@ -93,6 +93,7 @@ export class ChatState {
    * new conversation.
    */
   pendingSteerSnapshot: QueuedSteer[] | null = null;
+  activeFileIncluded = false;
   notebookModeActive = false;
   notebookRequireCitations: 'strict' | 'advisory' | 'off' = 'strict';
   private pendingConfirms = new Map<string, (choice: string | undefined) => void>();

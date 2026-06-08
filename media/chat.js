@@ -1864,6 +1864,8 @@
 
     let messageText = text;
     const displayText = text;
+    const activeFileIncluded =
+      currentActiveFile !== null && pendingFiles.some((f) => f.fileName === currentActiveFile.fileName);
 
     if (pendingFiles.length > 0) {
       let prefix = '';
@@ -1886,11 +1888,11 @@
     }
 
     if (pendingImages.length > 0) {
-      vscode.postMessage({ command: 'userMessage', text: messageText, images: pendingImages });
+      vscode.postMessage({ command: 'userMessage', text: messageText, images: pendingImages, activeFileIncluded });
       pendingImages = [];
       updateImagePreview();
     } else {
-      vscode.postMessage({ command: 'userMessage', text: messageText });
+      vscode.postMessage({ command: 'userMessage', text: messageText, activeFileIncluded });
     }
     input.value = '';
     input.style.height = 'auto';
