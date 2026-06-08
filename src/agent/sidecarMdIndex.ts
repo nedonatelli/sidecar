@@ -24,7 +24,7 @@ import { parseSidecarMd } from './sidecarMdParser.js';
 import { FlatVectorStore } from '../config/vectorStore.js';
 import type { SidecarDir } from '../config/sidecarDir.js';
 import type { RetrievalHit } from './retrieval/retriever.js';
-import { MINILM_MODEL_ID as MODEL_ID, type EmbeddingPipeline, loadEmbeddingPipeline } from '../config/hfPipeline.js';
+import { MINILM_MODEL_ID as MODEL_ID, type EmbeddingPipeline, getSharedPipeline } from '../config/hfPipeline.js';
 const DIMENSION = 384;
 const SCHEMA_VERSION = 1;
 const MAX_SECTION_CHARS = 6000;
@@ -139,7 +139,7 @@ export class SidecarMdIndex {
     if (this.modelLoading) return this.modelLoading;
     this.modelLoading = (async () => {
       try {
-        this.pipeline = await loadEmbeddingPipeline(MODEL_ID, { allowLocalModels: false });
+        this.pipeline = await getSharedPipeline(MODEL_ID, { allowLocalModels: false });
         return true;
       } catch (err) {
         console.warn('[SidecarMdIndex] Embedding model failed to load:', err instanceof Error ? err.message : err);
