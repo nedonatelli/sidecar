@@ -4,6 +4,36 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.112.18] - 2026-06-08
+
+**v0.112.18 — Indexing performance, active-file context fix, memory toast cooldown.**
+
+### Bug fixes
+
+- **Active file no longer injected into context without user toggle** — the system prompt previously always included the open editor's path regardless of whether the user had added it via the paperclip. Now gated on `activeFileIncluded`, which is set only when the user explicitly attaches the file. (`src/webview/handlers/systemPrompt.ts`, `media/chat.js`)
+
+- **Completion gate: per-file read check** — `buildNoReadReprompt` now verifies a read tool call exists for each specific mentioned file rather than just any file. Prevents the gate from passing when the model read a different file than the one asked about. (`src/agent/completionGate.ts`)
+
+- **Completion gate: no-shell reprompt for workspace metric queries** — when the model answers a question about e.g. line counts or file sizes with prose instead of running a shell command, the loop re-prompts once. (`src/agent/completionGate.ts`, `src/agent/loop/gate.ts`)
+
+- **Deferred-action reprompt** — detects when the model announces intent in prose ("I will now edit…") without calling tools, and re-prompts up to twice. `MAX_ACTION_REPROMPTS` raised from 1 to 2. (`src/agent/loop/actionReprompt.ts`)
+
+### Performance
+
+- **Shared MiniLM-L6-v2 pipeline across all four embedding consumers** — `EmbeddingIndex`, `SymbolEmbeddingIndex`, `SidecarMdIndex`, and `EpisodicMemoryStore` previously each called `loadEmbeddingPipeline()` independently. They now all share a single cached `Promise` via `getSharedPipeline()`, eliminating up to 3 redundant 1–3 s model-load stalls at startup. (`src/config/hfPipeline.ts`, `src/config/embeddingIndex.ts`, `src/config/symbolEmbeddingIndex.ts`, `src/agent/sidecarMdIndex.ts`, `src/agent/episodicMemory.ts`)
+
+- **4-way concurrent file embedding** — `EmbeddingIndex.flushUpdates()` now runs up to 4 embedding calls in parallel, matching `SymbolEmbeddingIndex`. Large workspaces index significantly faster on first open. (`src/config/embeddingIndex.ts`)
+
+- **Fast-path debounce collapse** — when the embedding queue reaches batch size (20 items), the 500 ms debounce timer is collapsed to 0 ms in both `EmbeddingIndex` and `SymbolEmbeddingIndex`. Bulk startup indexing no longer stalls 500 ms between every 20-item batch. (`src/config/embeddingIndex.ts`, `src/config/symbolEmbeddingIndex.ts`)
+
+### UX
+
+- **Memory toast cooldowns** — background `MemoryPressureMonitor` re-notifies at most once per 30 minutes (was 5 minutes). Pre-flight low-memory warning also suppressed within a 30-minute window once the user has acknowledged it. Critical pressure always blocks immediately. (`src/system/memoryMonitor.ts`)
+
+### New capabilities
+
+- **Eval history database** — eval run results are persisted to `.sidecar/history.db` (SQLite via `better-sqlite3`). The agent can query its own eval history via the `query_history` tool when `sidecar.evalHistory.enabled` is `true`. (`src/agent/history/historyDb.ts`, `src/agent/tools/history.ts`)
+
 ## [0.112.1] - 2026-06-01
 
 **v0.112.1 — Agent quality & dogfood fixes.**

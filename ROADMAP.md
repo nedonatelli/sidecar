@@ -1,6 +1,6 @@
 # SideCar Roadmap
 
-**Current release: v0.112.1** — Agent quality & dogfood fixes: `ministral-3:latest` as default local model (94% eval pass rate), `edit_file` intent inference and nearest-match hints, cycle detector catches read-only tool loops, action-request reprompt, polyglot lint detection, 17 operating rules, live-repo shadow eval harness. See [CHANGELOG](CHANGELOG.md) for full notes.
+**Current release: v0.112.18** — Indexing performance, active-file context fix, memory toast cooldown: shared MiniLM pipeline (eliminates redundant model loads), 4-way concurrent file embedding, fast-path debounce collapse, active file gated on explicit user toggle, 30-min memory warning cooldowns, eval history DB. See [CHANGELOG](CHANGELOG.md) for full notes.
 
 **Coverage floor**: ≥80/70/80/80 (stmts/branches/funcs/lines) enforced by CI. No PR merges that drop any metric.
 
