@@ -37,3 +37,18 @@ export async function loadEmbeddingPipeline(
   if (envOpts.allowRemoteModels !== undefined) env.allowRemoteModels = envOpts.allowRemoteModels;
   return (await createPipeline('feature-extraction', modelId, { dtype: 'q8' })) as unknown as EmbeddingPipeline;
 }
+
+/**
+ * Singleton cache keyed by model ID. All indices that use the same model
+ * (EmbeddingIndex, SymbolEmbeddingIndex, SidecarMdIndex) share the same
+ * loaded pipeline instance instead of each paying the 3-8s cold-start cost.
+ * The first caller's envOpts win; subsequent callers get the cached promise.
+ */
+const _pipelineCache = new Map<string, Promise<EmbeddingPipeline>>();
+
+export function getSharedPipeline(modelId: string, envOpts: EmbeddingPipelineEnvOpts = {}): Promise<EmbeddingPipeline> {
+  if (!_pipelineCache.has(modelId)) {
+    _pipelineCache.set(modelId, loadEmbeddingPipeline(modelId, envOpts));
+  }
+  return _pipelineCache.get(modelId)!;
+}

@@ -18,7 +18,7 @@ import * as crypto from 'crypto';
 import type { SidecarDir } from './sidecarDir.js';
 import { FlatVectorStore, type VectorStore, type FlatStoreMeta } from './vectorStore.js';
 import { hashLeaf, type MerkleTree } from './merkleTree.js';
-import { MINILM_MODEL_ID as MODEL_ID, type EmbeddingPipeline, loadEmbeddingPipeline } from './hfPipeline.js';
+import { MINILM_MODEL_ID as MODEL_ID, type EmbeddingPipeline, getSharedPipeline } from './hfPipeline.js';
 const DIMENSION = 384;
 const SCHEMA_VERSION = 1;
 const META_FILE = 'cache/symbol-embeddings-meta.json';
@@ -260,7 +260,7 @@ export class SymbolEmbeddingIndex implements Disposable {
 
   private async loadModel(): Promise<void> {
     try {
-      this.pipeline = await loadEmbeddingPipeline(MODEL_ID, { allowRemoteModels: true });
+      this.pipeline = await getSharedPipeline(MODEL_ID, { allowRemoteModels: true });
       this.ready = true;
     } catch (err) {
       this.ready = false;
@@ -386,7 +386,13 @@ export class SymbolEmbeddingIndex implements Disposable {
   queueSymbol(input: SymbolEmbedInput): void {
     const id = makeSymbolId(input.filePath, input.qualifiedName);
     this.pendingQueue.set(id, input);
-    if (!this.flushTimer) {
+    if (this.pendingQueue.size >= SymbolEmbeddingIndex.FLUSH_BATCH_SIZE && this.flushTimer) {
+      // Queue already full — collapse the pending debounce to a 0ms tick
+      // so the flush fires on the next event-loop turn instead of waiting
+      // the full 500ms. Keeps one timer in flight; no concurrent flushes.
+      clearTimeout(this.flushTimer);
+      this.flushTimer = setTimeout(() => this.flushQueue(), 0);
+    } else if (!this.flushTimer) {
       this.flushTimer = setTimeout(() => this.flushQueue(), SymbolEmbeddingIndex.FLUSH_DEBOUNCE_MS);
     }
   }
@@ -443,7 +449,9 @@ export class SymbolEmbeddingIndex implements Disposable {
     }
 
     if (this.pendingQueue.size > 0) {
-      this.flushTimer = setTimeout(() => this.flushQueue(), SymbolEmbeddingIndex.FLUSH_DEBOUNCE_MS);
+      const delay =
+        this.pendingQueue.size >= SymbolEmbeddingIndex.FLUSH_BATCH_SIZE ? 0 : SymbolEmbeddingIndex.FLUSH_DEBOUNCE_MS;
+      this.flushTimer = setTimeout(() => this.flushQueue(), delay);
     } else {
       this.lastUpdatedMs = Date.now();
       this.drainedListener?.();

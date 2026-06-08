@@ -16,7 +16,7 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import type { SidecarDir } from './sidecarDir.js';
 import { cosine } from './math.js';
-import { MINILM_MODEL_ID as MODEL_ID, type EmbeddingPipeline, loadEmbeddingPipeline } from './hfPipeline.js';
+import { MINILM_MODEL_ID as MODEL_ID, type EmbeddingPipeline, getSharedPipeline } from './hfPipeline.js';
 const DIMENSION = 384;
 const META_FILE = 'cache/embeddings-meta.json';
 const BIN_FILE = 'cache/embeddings.bin';
@@ -24,6 +24,7 @@ const MAX_INPUT_CHARS = 2048; // ~512 tokens
 const PERSIST_DEBOUNCE_MS = 30_000;
 const UPDATE_DEBOUNCE_MS = 500;
 const BATCH_SIZE = 20;
+const FLUSH_CONCURRENCY = 4;
 
 export interface EmbeddingSearchResult {
   relativePath: string;
@@ -85,7 +86,7 @@ export class EmbeddingIndex implements Disposable {
 
   private async loadModel(): Promise<void> {
     try {
-      this.pipeline = await loadEmbeddingPipeline(MODEL_ID, {
+      this.pipeline = await getSharedPipeline(MODEL_ID, {
         cacheDir: this.sidecarDir?.isReady() ? this.sidecarDir.getPath('cache', 'models') : undefined,
         allowRemoteModels: true,
       });
@@ -135,7 +136,13 @@ export class EmbeddingIndex implements Disposable {
    */
   queueUpdate(relativePath: string, content: string): void {
     this.pendingUpdates.set(relativePath, content);
-    if (!this.updateTimer) {
+    if (this.pendingUpdates.size >= BATCH_SIZE && this.updateTimer) {
+      // Queue already full — collapse the pending debounce to a 0ms tick
+      // so the flush fires on the next event-loop turn instead of waiting
+      // the full 500ms. Keeps one timer in flight; no concurrent flushes.
+      clearTimeout(this.updateTimer);
+      this.updateTimer = setTimeout(() => this.flushUpdates(), 0);
+    } else if (!this.updateTimer) {
       this.updateTimer = setTimeout(() => this.flushUpdates(), UPDATE_DEBOUNCE_MS);
     }
   }
@@ -175,24 +182,33 @@ export class EmbeddingIndex implements Disposable {
       this.pendingUpdates.delete(relPath);
     }
 
-    // Process each file
-    for (const [relPath, content] of batch) {
-      const hash = this.contentHash(content);
-
-      // Skip if already embedded with same hash
-      const existing = this.meta.entries[relPath];
-      if (existing && existing.hash === hash) continue;
-
-      const input = `${relPath}\n${content.slice(0, MAX_INPUT_CHARS)}`;
-      const vector = await this.embed(input);
-      if (!vector) continue;
-
-      this.storeVector(relPath, vector, hash);
+    // Run up to FLUSH_CONCURRENCY embeds in parallel. storeVector is
+    // synchronous (no awaits), so concurrent workers serialize their
+    // mutations on the event loop without clobbering each other's offsets.
+    let cursor = 0;
+    const self = this;
+    async function worker(): Promise<void> {
+      while (true) {
+        const idx = cursor;
+        if (idx >= batch.length) return;
+        cursor += 1;
+        const entry = batch[idx]!;
+        const [relPath, content] = entry;
+        const hash = self.contentHash(content);
+        const existing = self.meta.entries[relPath];
+        if (existing && existing.hash === hash) continue;
+        const input = `${relPath}\n${content.slice(0, MAX_INPUT_CHARS)}`;
+        const vector = await self.embed(input);
+        if (!vector) continue;
+        self.storeVector(relPath, vector, hash);
+      }
     }
+    const workerCount = Math.min(FLUSH_CONCURRENCY, batch.length);
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
 
-    // If there are more pending, schedule another batch
     if (this.pendingUpdates.size > 0) {
-      this.updateTimer = setTimeout(() => this.flushUpdates(), UPDATE_DEBOUNCE_MS);
+      const delay = this.pendingUpdates.size >= BATCH_SIZE ? 0 : UPDATE_DEBOUNCE_MS;
+      this.updateTimer = setTimeout(() => this.flushUpdates(), delay);
     }
   }
 
