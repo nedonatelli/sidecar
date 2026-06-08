@@ -5,7 +5,7 @@ import { executeTool } from '../executor.js';
 import { spawnSubAgent } from '../subagent.js';
 import { runLocalWorker } from '../localWorker.js';
 import type { LoopState } from './state.js';
-import { checkToolBudget } from './toolBudget.js';
+import { checkToolBudget, recordToolUse } from './toolBudget.js';
 
 // ---------------------------------------------------------------------------
 // Parallel tool execution for runAgentLoop.
@@ -75,16 +75,27 @@ export async function executeToolUses(
 ): Promise<ToolResultContentBlock[]> {
   // Use the run-scoped set from LoopState so files read in a previous
   // iteration are still "known" when the model edits them later.
+  // Per-batch abort: if any tool throws, cancel the remaining siblings so
+  // the iteration resolves quickly instead of waiting for slow tools that
+  // are no longer useful (the batch result will include the error anyway).
+  const batchAbort = new AbortController();
+  const batchSignal = AbortSignal.any([signal, batchAbort.signal]);
+
   const ctx: ExecutionContext = {
     state,
     client,
     options,
     callbacks,
-    signal,
+    signal: batchSignal,
     filesReadThisTurn: state.filesReadThisRun,
   };
 
-  const executionPromises = pendingToolUses.map((toolUse) => executeOne(ctx, toolUse));
+  const executionPromises = pendingToolUses.map((toolUse) =>
+    executeOne(ctx, toolUse).catch((err: unknown) => {
+      batchAbort.abort();
+      return Promise.reject(err);
+    }),
+  );
 
   const settled = await Promise.allSettled(executionPromises);
   const toolResults: ToolResultContentBlock[] = [];
@@ -145,11 +156,19 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
   }
 
   if (toolUse.name === 'spawn_agent') {
-    return runSpawnAgent(ctx, toolUse);
+    try {
+      return await runSpawnAgent(ctx, toolUse);
+    } finally {
+      recordToolUse(state, toolUse.name);
+    }
   }
 
   if (toolUse.name === 'delegate_task') {
-    return runDelegateTask(ctx, toolUse);
+    try {
+      return await runDelegateTask(ctx, toolUse);
+    } finally {
+      recordToolUse(state, toolUse.name);
+    }
   }
 
   const result = await executeTool(toolUse, {
@@ -189,6 +208,7 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
     pendingEdits: options.pendingEdits,
     extraTools: options.extraTools,
   });
+  recordToolUse(state, toolUse.name);
   state.logger?.logToolResult(toolUse.name, result.content, result.is_error || false);
 
   // Record tool use in agent memory — both successes and failures

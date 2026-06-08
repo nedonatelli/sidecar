@@ -106,6 +106,16 @@ async function buildEpisodicAddon(client: SideCarClient, state: LoopState): Prom
   return state.episodicMemory.buildContextBlock(queryText).catch(() => undefined);
 }
 
+function abortedPromise(signal: AbortSignal): Promise<undefined> {
+  return new Promise<undefined>((resolve) => {
+    if (signal.aborted) {
+      resolve(undefined);
+      return;
+    }
+    signal.addEventListener('abort', () => resolve(undefined), { once: true });
+  });
+}
+
 /**
  * Stream the next model turn. Handles abort, request timeout, and
  * the full event-type switch (text, thinking, warning, tool_use,
@@ -144,7 +154,7 @@ export async function streamOneTurn(
   // store has relevant prior summaries. Falls back gracefully — if
   // episodic retrieval errors or returns nothing, the original prompt
   // (or override) is used unchanged.
-  const episodicAddon = await buildEpisodicAddon(client, state);
+  const episodicAddon = await Promise.race([buildEpisodicAddon(client, state), abortedPromise(signal)]);
   const effectiveSystemPrompt = episodicAddon
     ? (state.systemPromptOverride ?? client.getSystemPrompt()) + '\n\n' + episodicAddon
     : state.systemPromptOverride;

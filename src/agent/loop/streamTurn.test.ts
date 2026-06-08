@@ -106,6 +106,28 @@ describe('streamOneTurn onStreamFailure capture', () => {
   });
 });
 
+describe('streamOneTurn episodic memory abort race', () => {
+  it('does not hang when buildContextBlock never resolves — abort signal wins the race', async () => {
+    const ac = new AbortController();
+    const state = makeState();
+    // Replace episodic memory: isEmpty=false (enters retrieval path) but
+    // buildContextBlock fires the abort and returns a never-resolving promise.
+    (state.episodicMemory as unknown as Record<string, unknown>) = {
+      isEmpty: () => false,
+      buildContextBlock: () => {
+        ac.abort();
+        return new Promise<string>(() => {});
+      },
+    };
+    const abortError = new Error('aborted');
+    abortError.name = 'AbortError';
+    const client = clientThatThrows([], abortError);
+
+    const result = await streamOneTurn(client, state, ac.signal, makeCallbacks(), 0);
+    expect(result.terminated).toBe('aborted');
+  });
+});
+
 describe('resolveTurnContent text tool call parsing', () => {
   it('parses tool calls from model text when no structured tool_use blocks are present', () => {
     const toolCallText = '<tool_call>\n{"name": "read_file", "arguments": {"path": "src/foo.ts"}}\n</tool_call>';

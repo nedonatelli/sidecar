@@ -202,6 +202,7 @@ describe('dispatchForks — failure isolation', () => {
     expect(aborted.length).toBeGreaterThan(0);
     for (const r of aborted) {
       expect(r.success).toBe(false);
+      expect(r.abortedBeforeStart).toBe(true);
     }
   });
 });

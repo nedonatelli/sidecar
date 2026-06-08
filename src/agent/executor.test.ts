@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { executeTool, type ConfirmFn } from './executor.js';
+import { executeTool, type ConfirmFn, type ExecuteToolOptions } from './executor.js';
 import type { ToolUseContentBlock } from '../ollama/types.js';
 import type { ChangeLog } from './changelog.js';
 
@@ -500,6 +500,34 @@ describe('executeTool', () => {
     it('overlay is a no-op when the pending store is empty', async () => {
       const result = await executeTool(makeToolUse('grep', { pattern: 'x' }), { pendingEdits: store });
       expect(result.content).not.toContain('Pending edits');
+    });
+  });
+
+  describe('abort-after-approval guard (#17)', () => {
+    it('returns "Tool call aborted" when signal fires while the approval dialog was open', async () => {
+      const ac = new AbortController();
+      const executor = vi.fn().mockResolvedValue('should not run');
+      mockedFindTool.mockReturnValue({
+        definition: { name: 'write_file', description: '', input_schema: { type: 'object', properties: {} } },
+        executor,
+        requiresApproval: true,
+      });
+
+      // confirmFn "allows" but fires the abort during the approval wait.
+      const confirmFn: ConfirmFn = vi.fn().mockImplementation(async () => {
+        ac.abort();
+        return 'Allow';
+      });
+
+      const result = await executeTool(makeToolUse('write_file', { path: 'f.ts' }), {
+        approvalMode: 'cautious',
+        confirmFn,
+        executorContext: { signal: ac.signal } as ExecuteToolOptions['executorContext'],
+      });
+
+      expect(result.is_error).toBe(true);
+      expect(result.content).toBe('Tool call aborted.');
+      expect(executor).not.toHaveBeenCalled();
     });
   });
 });

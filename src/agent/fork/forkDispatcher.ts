@@ -51,6 +51,12 @@ export interface ForkResult {
   readonly success: boolean;
   /** Error message when `success === false`. */
   readonly errorMessage?: string;
+  /**
+   * `true` when the fork was cancelled before it could start — the
+   * concurrency cap was full and the abort signal fired first.
+   * Prefer this typed flag over checking `errorMessage` for string equality.
+   */
+  readonly abortedBeforeStart?: boolean;
   /** Assembled text output from this fork's agent loop. */
   readonly output: string;
   /** Total chars consumed by this fork's loop (for spend accounting). */
@@ -221,6 +227,7 @@ export async function dispatchForks(
       label: labels[i],
       success: false,
       errorMessage,
+      abortedBeforeStart,
       output: '',
       charsConsumed: 0,
       sandbox: { mode: 'direct', applied: false, reason: 'apply-failed' },

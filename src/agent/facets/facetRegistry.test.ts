@@ -112,6 +112,13 @@ describe('buildFacetRegistry — cycle detection', () => {
     ];
     expect(() => buildFacetRegistry(facets)).not.toThrow();
   });
+
+  it('handles a 200-facet linear chain without stack overflow — iterative DFS', () => {
+    const facets = Array.from({ length: 200 }, (_, i) =>
+      facet({ id: `f${i}`, dependsOn: i === 0 ? [] : [`f${i - 1}`] }),
+    );
+    expect(() => buildFacetRegistry(facets)).not.toThrow();
+  });
 });
 
 describe('buildFacetRegistry — topological layers', () => {

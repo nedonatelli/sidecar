@@ -29,9 +29,11 @@ const TOOL_BUDGETS: Record<string, number> = {
 const DEFAULT_BUDGET = 20;
 
 /**
- * Check whether a tool call should be allowed. If the tool has exceeded
- * its per-session budget, returns an error message string. Otherwise
- * increments the counter and returns null (allow).
+ * Check whether a tool call should be allowed. Returns an error message
+ * string when the budget is exhausted; returns null when the call is
+ * allowed. Does NOT increment the counter — call `recordToolUse` after
+ * the tool executes so denied, aborted, or pre-approval-gated calls
+ * don't consume budget.
  */
 export function checkToolBudget(state: LoopState, toolName: string): string | null {
   const count = state.toolCallCounts.get(toolName) ?? 0;
@@ -45,6 +47,16 @@ export function checkToolBudget(state: LoopState, toolName: string): string | nu
     );
   }
 
-  state.toolCallCounts.set(toolName, count + 1);
   return null;
+}
+
+/**
+ * Increment the call counter for `toolName`. Call this after the tool
+ * has actually been dispatched (success or error both count — we want to
+ * limit total invocations, not just successful ones, to prevent retry
+ * floods). NOT called for budget-exceeded or pre-execution aborts.
+ */
+export function recordToolUse(state: LoopState, toolName: string): void {
+  const count = state.toolCallCounts.get(toolName) ?? 0;
+  state.toolCallCounts.set(toolName, count + 1);
 }

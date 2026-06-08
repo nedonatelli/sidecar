@@ -349,6 +349,16 @@ export async function executeTool(
     }
   }
 
+  // If the run was aborted while waiting for user approval, bail now.
+  if (executorContext?.signal?.aborted) {
+    return {
+      type: 'tool_result',
+      tool_use_id: toolUse.id,
+      content: 'Tool call aborted.',
+      is_error: true,
+    };
+  }
+
   // Audit log for autonomous executions
   if (!needsApproval && approvalMode === 'autonomous') {
     logger?.warn(`[AUTONOMOUS] ${toolUse.name}(${JSON.stringify(toolUse.input).slice(0, 200)})`);

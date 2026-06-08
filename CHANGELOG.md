@@ -4,6 +4,36 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.112.19] - 2026-06-08
+
+**v0.112.19 — Security hardening & reliability patch.**
+
+### Bug fixes
+
+- **MCP tool results never deduped** — MCP tool definitions now carry `nondeterministicOutput: true`, preventing the prompt pruner from collapsing identical MCP responses. (`src/agent/mcpManager.ts`)
+
+- **Post-approval abort check in executor** — `executeTool` returns an aborted error result immediately after the approval gate if the signal fired while the dialog was open, before any tool executor runs. (`src/agent/executor.ts`)
+
+- **Episodic memory retrieval raced against abort** — `buildContextBlock` is now raced against `abortedPromise(signal)` so a hanging retrieval cannot stall `streamOneTurn`. (`src/agent/loop/streamTurn.ts`)
+
+- **Cycle detection false-positive fix** — the normalized-signature ring buffer now fires only when *all* entries share the same secondary hash (`every`), not when *any* two share one (`some`). Eliminates spurious loop-detection aborts on legitimately distinct edits. (`src/agent/loop/cycleDetection.ts`)
+
+- **Audit buffer read-before-write race** — `AuditBuffer.write()` commits the entry synchronously before awaiting `readDisk`, so concurrent `read()` calls see the write immediately. `AuditFlushError` now surfaces a `rollbackFailed` list when undo writes themselves throw. (`src/agent/audit/auditBuffer.ts`)
+
+- **Per-batch abort on tool failure** — when any tool in a parallel batch throws, a `batchAbortController` fires, marking `batchSignal.aborted` for all siblings so abort-aware executors can short-circuit. (`src/agent/loop/executeToolUses.ts`)
+
+- **Tool budget incremented after execution** — `checkToolBudget` is now check-only; a new `recordToolUse` call increments the counter after the tool completes, not before. Prevents denied or aborted calls from consuming budget. (`src/agent/loop/toolBudget.ts`, `src/agent/loop/executeToolUses.ts`)
+
+- **SSE cleanup logs non-abort errors** — `reader.cancel()` errors that are not `AbortError` are now logged as warnings instead of silently swallowed. (`src/ollama/openAiSseStream.ts`)
+
+- **Fork result typed abort field** — `ForkResult.abortedBeforeStart` is a boolean field rather than a magic string in `errorMessage`. (`src/agent/fork/forkDispatcher.ts`)
+
+- **Facet registry DFS is iterative** — cycle detection and topological sort use an explicit stack instead of recursion, preventing stack overflow on deep dependency chains. (`src/agent/facets/facetRegistry.ts`)
+
+- **EmbeddingIndex concurrent-read cap** — `queuePath` drops calls when 16 reads are already in flight, preventing runaway file-handle accumulation during large workspace indexing bursts. (`src/config/embeddingIndex.ts`)
+
+- **SymbolGraph JSON deserialization guards** — `fromJSON` validates array shapes and skips malformed symbols/edges rather than propagating `undefined` values into the graph. (`src/config/symbolGraph.ts`)
+
 ## [0.112.18] - 2026-06-08
 
 **v0.112.18 — Indexing performance, active-file context fix, memory toast cooldown.**

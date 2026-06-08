@@ -268,7 +268,11 @@ export async function* streamOpenAiSse(
     }
   } finally {
     try {
-      reader.cancel().catch(() => {});
+      await reader.cancel().catch((err: unknown) => {
+        if (err instanceof Error && err.name !== 'AbortError') {
+          console.warn('[SideCar][SSE] reader.cancel() error:', err.message);
+        }
+      });
     } catch {
       reader.releaseLock();
     }

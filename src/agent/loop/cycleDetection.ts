@@ -142,12 +142,7 @@ export function detectCycleAndBail(
       const toolName = normEntry.sig.split(':')[0] ?? '';
       const isReadOnly = READ_ONLY_TOOLS.has(toolName);
 
-      const seen = new Set<string>();
-      const hasRepeatedSecondary = lastN.some((e) => {
-        if (seen.has(e.secondaryHash)) return true;
-        seen.add(e.secondaryHash);
-        return false;
-      });
+      const hasRepeatedSecondary = lastN.every((e) => e.secondaryHash === lastN[0].secondaryHash);
       if (isReadOnly || hasRepeatedSecondary) {
         state.logger?.warn(
           `Agent loop normalized cycle detected (${MIN_NORMALIZED_REPEATS} repeats${isReadOnly ? ', read-only tool' : ', repeated secondary args'}) — ${normEntry.sig.slice(0, 100)}`,

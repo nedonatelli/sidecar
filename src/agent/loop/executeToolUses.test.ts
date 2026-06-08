@@ -28,6 +28,7 @@ vi.mock('../localWorker.js', () => ({
 }));
 vi.mock('./toolBudget.js', () => ({
   checkToolBudget: vi.fn(() => null),
+  recordToolUse: vi.fn(),
 }));
 
 import { executeToolUses } from './executeToolUses.js';
@@ -229,6 +230,36 @@ describe('executeToolUses — parallel execution + error promotion', () => {
     expect(results[1].content).toBe('b');
     // onToolResult fired for the synthetic error
     expect(cb.onToolResult).toHaveBeenCalledWith('a', expect.stringContaining('disk full'), true, 'tu-a');
+  });
+
+  it('aborts batchSignal when one tool throws — sibling executorContext.signal is aborted', async () => {
+    // Tool A rejects immediately, which fires batchAbort.abort() inside executeToolUses.
+    // Tool B captures the signal reference from its executorContext; since batchSignal is
+    // shared by reference, it must read as aborted by the time tool B inspects it.
+    let capturedSignal: AbortSignal | undefined;
+
+    vi.mocked(executeTool)
+      .mockImplementationOnce(() => Promise.reject(new Error('tool A failed')))
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .mockImplementationOnce((_toolUse: unknown, opts: any) => {
+        capturedSignal = opts.executorContext.signal as AbortSignal;
+        // Resolve after a tick so batchAbort.abort() has fired first.
+        return new Promise((resolve) =>
+          setTimeout(() => resolve({ type: 'tool_result', tool_use_id: 'tu-b', content: 'ok', is_error: false }), 10),
+        );
+      });
+
+    await executeToolUses(
+      stubLoopState(),
+      [use('a'), use('b')],
+      {} as SideCarClient,
+      {} as AgentOptions,
+      stubCallbacks(),
+      new AbortController().signal,
+    );
+
+    expect(capturedSignal).toBeDefined();
+    expect(capturedSignal!.aborted).toBe(true);
   });
 });
 

@@ -321,4 +321,53 @@ describe('SymbolGraph', () => {
     expect(ctx).toContain('Subtypes:');
     expect(ctx).toContain('SubClass');
   });
+
+  describe('fromJSON edge validation (#19)', () => {
+    it('returns null when symbols is not an array', () => {
+      const data = { version: 2, buildTime: '', symbols: null, imports: [], calls: [], typeEdges: [], fileHashes: {} };
+      expect(SymbolGraph.fromJSON(data as unknown as import('./symbolGraph.js').SymbolGraphData)).toBeNull();
+    });
+
+    it('returns null when imports is not an array', () => {
+      const data = { version: 2, buildTime: '', symbols: [], imports: null, calls: [], typeEdges: [], fileHashes: {} };
+      expect(SymbolGraph.fromJSON(data as unknown as import('./symbolGraph.js').SymbolGraphData)).toBeNull();
+    });
+
+    it('skips symbols with missing filePath', () => {
+      const data = {
+        version: 2,
+        buildTime: '',
+        fileHashes: {},
+        symbols: [
+          { filePath: 'a.ts', name: 'valid', kind: 'function', line: 1, exported: false },
+          { filePath: null, name: 'broken', kind: 'function', line: 1, exported: false },
+        ],
+        imports: [],
+        calls: [],
+        typeEdges: [],
+      };
+      const g = SymbolGraph.fromJSON(data as unknown as import('./symbolGraph.js').SymbolGraphData);
+      expect(g).not.toBeNull();
+      expect(g!.symbolCount()).toBe(1); // only the valid symbol
+    });
+
+    it('skips call edges with missing callerFile or non-numeric line', () => {
+      const data = {
+        version: 2,
+        buildTime: '',
+        fileHashes: { 'a.ts': '' },
+        symbols: [],
+        imports: [],
+        calls: [
+          { callerFile: 'a.ts', callerName: 'fn', calleeName: 'bar', line: 5 }, // valid
+          { callerFile: null, callerName: 'fn', calleeName: 'bar', line: 5 }, // bad callerFile
+          { callerFile: 'a.ts', callerName: 'fn', calleeName: 'bar', line: 'x' }, // non-numeric line
+        ],
+        typeEdges: [],
+      };
+      const g = SymbolGraph.fromJSON(data as unknown as import('./symbolGraph.js').SymbolGraphData);
+      expect(g).not.toBeNull();
+      expect(g!.getCallsInFile('a.ts')).toHaveLength(1);
+    });
+  });
 });

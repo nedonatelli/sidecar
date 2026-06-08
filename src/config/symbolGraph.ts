@@ -500,12 +500,14 @@ export class SymbolGraph {
   /** Deserialize from persisted format. */
   static fromJSON(data: SymbolGraphData): SymbolGraph | null {
     if (!data || data.version !== GRAPH_VERSION) return null;
+    if (!Array.isArray(data.symbols) || !Array.isArray(data.imports)) return null;
 
     const graph = new SymbolGraph();
 
     // Group symbols by file
     const byFile = new Map<string, SymbolEntry[]>();
     for (const sym of data.symbols) {
+      if (!sym || typeof sym.filePath !== 'string') continue;
       const list = byFile.get(sym.filePath);
       if (list) {
         list.push(sym);
@@ -517,6 +519,7 @@ export class SymbolGraph {
     // Group imports by fromFile
     const importsByFrom = new Map<string, ImportEdge[]>();
     for (const edge of data.imports) {
+      if (!edge || typeof edge.fromFile !== 'string') continue;
       const list = importsByFrom.get(edge.fromFile);
       if (list) {
         list.push(edge);
@@ -528,6 +531,7 @@ export class SymbolGraph {
     // Group calls by callerFile
     const callsByFrom = new Map<string, CallEdge[]>();
     for (const edge of data.calls || []) {
+      if (!edge || typeof edge.callerFile !== 'string' || typeof edge.line !== 'number') continue;
       const list = callsByFrom.get(edge.callerFile);
       if (list) {
         list.push(edge);
@@ -539,6 +543,7 @@ export class SymbolGraph {
     // Group type edges by childFile
     const typeEdgesByFrom = new Map<string, TypeEdge[]>();
     for (const edge of data.typeEdges || []) {
+      if (!edge || typeof edge.childFile !== 'string') continue;
       const list = typeEdgesByFrom.get(edge.childFile);
       if (list) {
         list.push(edge);

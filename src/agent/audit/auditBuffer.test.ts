@@ -236,6 +236,34 @@ describe('AuditBuffer', () => {
         expect(afe.failed[0].error).toContain('perm denied');
       }
     });
+
+    it('AuditFlushError.rollbackFailed lists paths whose rollback itself threw (#11)', async () => {
+      // Use existing.ts (a modify) so rollback calls writeDisk (not deleteDisk).
+      // Write succeeds for existing.ts, fails for new-bad.ts; rollback of
+      // existing.ts also fails — rollbackFailed must contain it.
+      await buf.write('existing.ts', 'modified', readDisk);
+      await buf.write('new-bad.ts', 'bad', readDisk);
+
+      let callCount = 0;
+      const unstableWrite = vi.fn(async (path: string, content: string) => {
+        callCount++;
+        if (callCount === 1) {
+          disk.set(path, content);
+          return;
+        } // existing.ts write succeeds
+        throw new Error('disk full'); // new-bad.ts write + rollback of existing.ts both fail
+      }) as WriteDiskFn & ReturnType<typeof vi.fn>;
+
+      try {
+        await buf.flush(unstableWrite, deleteDisk);
+        expect.fail('should have thrown');
+      } catch (err) {
+        expect(err).toBeInstanceOf(AuditFlushError);
+        const afe = err as AuditFlushError;
+        expect(afe.rollbackFailed).toHaveLength(1);
+        expect(afe.rollbackFailed[0]).toBe('existing.ts');
+      }
+    });
   });
 
   describe('clear', () => {
@@ -399,6 +427,31 @@ describe('AuditBuffer', () => {
   // last-write-wins on same-path updates, and concurrent different-
   // path writes both land without clobbering each other's entries.
   describe('concurrent buffer operations', () => {
+    it('read() sees the entry synchronously even while write() is awaiting readDisk (#10)', async () => {
+      // The fix: write() commits to entries before the readDisk() await.
+      // Without the fix, read() would see "not buffered" during that gap.
+      let resolveRead!: (v: string | undefined) => void;
+      const slowReadDisk: ReadDiskFn = () =>
+        new Promise<string | undefined>((r) => {
+          resolveRead = r;
+        });
+
+      // Start a write that hasn't finished reading disk yet
+      const writePromise = buf.write('new.ts', 'pending-content', slowReadDisk);
+
+      // read() must see the entry NOW (before readDisk resolves)
+      const { content, buffered } = buf.read('new.ts');
+      expect(buffered).toBe(true);
+      expect(content).toBe('pending-content');
+
+      // Let the write finish
+      resolveRead(undefined);
+      await writePromise;
+
+      // Entry is still correct after readDisk resolved (op updated to 'create')
+      expect(buf.read('new.ts').content).toBe('pending-content');
+    });
+
     it('concurrent writes to different paths both land', async () => {
       const a = buf.write('a.ts', 'A', readDisk);
       const b = buf.write('b.ts', 'B', readDisk);

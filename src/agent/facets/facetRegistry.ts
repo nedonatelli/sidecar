@@ -67,34 +67,47 @@ export function buildFacetRegistry(facets: readonly FacetDefinition[]): FacetReg
     }
   }
 
-  // Cycle detection via DFS 3-coloring (same shape as EditPlan cycle check).
+  // Cycle detection via iterative DFS 3-coloring. Iterative (not
+  // recursive) to avoid stack-overflow on deep dependency chains.
   const WHITE = 0;
   const GRAY = 1;
   const BLACK = 2;
   const color = new Map<string, number>();
   for (const f of facets) color.set(f.id, WHITE);
 
-  const stack: string[] = [];
-  function visit(id: string): void {
-    color.set(id, GRAY);
-    stack.push(id);
-    const f = byId.get(id);
-    if (f) {
-      for (const dep of f.dependsOn ?? []) {
+  // Each frame: the node id and an iterator over its deps.
+  // When the iterator is exhausted we mark the node BLACK and pop.
+  type Frame = { id: string; deps: Iterator<string> };
+  const path: string[] = [];
+
+  for (const root of facets) {
+    if (color.get(root.id) !== WHITE) continue;
+    const workStack: Frame[] = [];
+    const push = (id: string) => {
+      color.set(id, GRAY);
+      path.push(id);
+      const deps = (byId.get(id)?.dependsOn ?? []) as string[];
+      workStack.push({ id, deps: deps[Symbol.iterator]() });
+    };
+    push(root.id);
+    while (workStack.length > 0) {
+      const frame = workStack[workStack.length - 1];
+      const next = frame.deps.next();
+      if (next.done) {
+        color.set(frame.id, BLACK);
+        path.pop();
+        workStack.pop();
+      } else {
+        const dep = next.value;
         const c = color.get(dep);
         if (c === GRAY) {
-          const cycleStart = stack.indexOf(dep);
-          const cyclePath = stack.slice(cycleStart).concat(dep).join(' → ');
+          const cycleStart = path.indexOf(dep);
+          const cyclePath = path.slice(cycleStart).concat(dep).join(' → ');
           throw new FacetValidationError(`Facet dependency cycle: ${cyclePath}`, 'cycle', { cycle: cyclePath });
         }
-        if (c === WHITE) visit(dep);
+        if (c === WHITE) push(dep);
       }
     }
-    stack.pop();
-    color.set(id, BLACK);
-  }
-  for (const f of facets) {
-    if (color.get(f.id) === WHITE) visit(f.id);
   }
 
   // Topological layers — same contract as `layerPlan` from v0.65: each

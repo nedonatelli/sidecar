@@ -234,6 +234,7 @@ export class MCPManager {
             name: `mcp_${name}_${mcpTool.name}`,
             description: `[MCP: ${name}] ${mcpTool.description || mcpTool.name}`,
             input_schema: (mcpTool.inputSchema || { type: 'object', properties: {} }) as ToolDefinition['input_schema'],
+            nondeterministicOutput: true,
           },
           executor: async (input: Record<string, unknown>) => {
             try {

@@ -98,6 +98,21 @@ describe('EmbeddingIndex', () => {
     index.dispose();
   });
 
+  it('drops queuePath calls when MAX_CONCURRENT_READS cap is reached', () => {
+    const index = new EmbeddingIndex(null);
+    type EmbeddingIndexInternals = { activeReads: number };
+    type EmbeddingIndexStatics = { MAX_CONCURRENT_READS: number };
+    const cap = (EmbeddingIndex as unknown as EmbeddingIndexStatics).MAX_CONCURRENT_READS;
+    // Artificially fill the active-reads counter to the cap.
+    (index as unknown as EmbeddingIndexInternals).activeReads = cap;
+
+    index.queuePath('src/app.ts', tempDir);
+
+    // activeReads must remain at the cap — the call was dropped, not started.
+    expect((index as unknown as EmbeddingIndexInternals).activeReads).toBe(cap);
+    index.dispose();
+  });
+
   it('removeFile decrements count for known paths', () => {
     // Access internal state to simulate a stored entry
     const index = new EmbeddingIndex(null);

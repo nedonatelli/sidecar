@@ -119,6 +119,11 @@ export class AuditFlushError extends Error {
      * is on disk.
      */
     public readonly rolledBack: string[] = [],
+    /**
+     * Paths whose rollback itself failed. These files may be in an
+     * indeterminate on-disk state — the user should inspect them manually.
+     */
+    public readonly rollbackFailed: string[] = [],
   ) {
     super(message);
     this.name = 'AuditFlushError';
@@ -224,6 +229,17 @@ export class AuditBuffer {
    */
   async write(filePath: string, content: string, readDisk: ReadDiskFn): Promise<void> {
     const existing = this.entries.get(filePath);
+    // Commit the new content to the buffer synchronously BEFORE any await so
+    // that a concurrent read() always sees the latest intended state even
+    // while readDisk() is still in-flight. originalContent may be undefined
+    // temporarily on the first write and is filled in after readDisk resolves.
+    this.entries.set(filePath, {
+      path: filePath,
+      op: existing ? existing.op : 'modify',
+      content,
+      originalContent: existing?.originalContent,
+      timestamp: Date.now(),
+    });
     // originalContent is captured once on first buffer entry for this
     // path, then reused through subsequent edits. Without this, every
     // edit_file pass would overwrite the baseline we flush against.
@@ -388,23 +404,33 @@ export class AuditBuffer {
         failed.push({ path: entry.path, error: err instanceof Error ? err.message : String(err) });
         // Trigger rollback for everything that succeeded before this
         // failure. We don't process further entries once any fails.
-        for (const undo of rollback.reverse()) {
+        const rollbackFailed: string[] = [];
+        const rolledBack: string[] = [];
+        for (const [i, undo] of rollback.reverse().entries()) {
+          const undoPath = applied[applied.length - 1 - i];
           try {
             await undo();
-          } catch {
-            // Best-effort rollback — if the rollback itself fails the
-            // user is already in a partial-state bad spot; log via
-            // AuditFlushError's `applied` list but don't throw here.
+            rolledBack.push(undoPath);
+          } catch (rollbackErr) {
+            // Rollback failure leaves the file in an indeterminate state.
+            // Surface it in AuditFlushError so the UI can warn the user.
+            console.warn(`[AuditBuffer] rollback failed for ${undoPath}:`, rollbackErr);
+            rollbackFailed.push(undoPath);
           }
         }
+        const rollbackNote =
+          rollbackFailed.length > 0
+            ? ` Rollback failed for: ${rollbackFailed.join(', ')} — check these files manually.`
+            : '';
         // applied paths were rolled back — nothing is on disk. Pass them
         // as rolledBack so callers can report the count accurately, and
         // keep applied=[] to mean "paths currently on disk after this throw".
         throw new AuditFlushError(
-          `Audit flush failed on ${entry.path}: ${failed[0].error}. ${applied.length} prior write${applied.length === 1 ? '' : 's'} rolled back.`,
+          `Audit flush failed on ${entry.path}: ${failed[0].error}. ${rolledBack.length} prior write${rolledBack.length === 1 ? '' : 's'} rolled back.${rollbackNote}`,
           [],
           failed,
-          applied,
+          rolledBack,
+          rollbackFailed,
         );
       }
     }

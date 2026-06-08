@@ -60,6 +60,10 @@ export class EmbeddingIndex implements Disposable {
   private updateTimer: ReturnType<typeof setTimeout> | null = null;
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
   private dirty = false;
+  // Cap on concurrent readFile calls triggered by queuePath so a burst of
+  // file-watcher events can't exhaust the OS file-descriptor limit.
+  private activeReads = 0;
+  private static readonly MAX_CONCURRENT_READS = 16;
 
   constructor(sidecarDir: SidecarDir | null) {
     this.sidecarDir = sidecarDir;
@@ -152,12 +156,20 @@ export class EmbeddingIndex implements Disposable {
    * Used by file watchers that only have the path.
    */
   queuePath(relativePath: string, rootPath: string): void {
+    if (this.activeReads >= EmbeddingIndex.MAX_CONCURRENT_READS) {
+      // Drop the read — the file watcher will re-fire on the next save.
+      return;
+    }
+    this.activeReads++;
     const absPath = path.join(rootPath, relativePath);
     fs.promises
       .readFile(absPath, 'utf-8')
       .then((content) => this.queueUpdate(relativePath, content.slice(0, MAX_INPUT_CHARS)))
       .catch(() => {
         // File may have been deleted or be unreadable — skip
+      })
+      .finally(() => {
+        this.activeReads--;
       });
   }
 

@@ -25,6 +25,23 @@
 // separate undefined-check path.
 // ---------------------------------------------------------------------------
 
+/**
+ * Race a promise against an abort signal. When the signal fires,
+ * the returned promise rejects with an AbortError so hanging workers
+ * can unblock instead of stalling the pool indefinitely.
+ */
+export function raceAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise;
+  const abortPromise = new Promise<T>((_, reject) => {
+    if (signal.aborted) {
+      reject(new Error('AbortError'));
+      return;
+    }
+    signal.addEventListener('abort', () => reject(new Error('AbortError')), { once: true });
+  });
+  return Promise.race([promise, abortPromise]);
+}
+
 export interface RunWithCapOptions {
   /**
    * Max tasks in flight at once. Clamped to [1, tasks.length]. Omit
