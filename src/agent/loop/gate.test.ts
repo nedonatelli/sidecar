@@ -20,6 +20,7 @@ vi.mock('../completionGate.js', () => ({
   checkCompletionGate: vi.fn(async () => []),
   buildGateInjection: vi.fn(() => 'Please verify your changes before finishing.'),
   buildNoReadReprompt: vi.fn(() => null), // returns null by default — no reprompt needed
+  buildNoShellReprompt: vi.fn(() => null), // returns null by default — no reprompt needed
 }));
 
 import { recordGateToolUses, maybeInjectCompletionGate } from './gate.js';

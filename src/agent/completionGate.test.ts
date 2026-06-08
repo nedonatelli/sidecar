@@ -7,6 +7,7 @@ import {
   checkCompletionGate,
   buildGateInjection,
   buildNoReadReprompt,
+  buildNoShellReprompt,
   findColocatedTest,
 } from './completionGate.js';
 
@@ -468,11 +469,16 @@ describe('completionGate — buildGateInjection', () => {
 });
 
 describe('completionGate — buildNoReadReprompt', () => {
-  const tool = (name: string) => ({ type: 'tool_use' as const, id: 'x', name, input: {} });
+  const tool = (name: string, input: Record<string, unknown> = {}) => ({
+    type: 'tool_use' as const,
+    id: 'x',
+    name,
+    input,
+  });
   const userMsg = (text: string) => ({ role: 'user' as const, content: [{ type: 'text' as const, text }] });
-  const assistantToolMsg = (name: string) => ({
+  const assistantToolMsg = (name: string, input: Record<string, unknown> = {}) => ({
     role: 'assistant' as const,
-    content: [tool(name)],
+    content: [tool(name, input)],
   });
 
   it('fires when user mentions a file and no read tool was called', () => {
@@ -483,19 +489,31 @@ describe('completionGate — buildNoReadReprompt', () => {
     expect(result).toContain('read_file');
   });
 
-  it('returns null when read_file was already called', () => {
-    const msgs = [userMsg('Read src/greeter.ts and tell me what it does.'), assistantToolMsg('read_file')];
+  it('returns null when read_file was called with the mentioned file path', () => {
+    const msgs = [
+      userMsg('Read src/greeter.ts and tell me what it does.'),
+      assistantToolMsg('read_file', { path: 'src/greeter.ts' }),
+    ];
     expect(buildNoReadReprompt(msgs)).toBeNull();
   });
 
-  it('returns null when grep was called instead of read_file', () => {
-    const msgs = [userMsg('What TypeScript version is in package.json?'), assistantToolMsg('grep')];
+  it('returns null when run_command references the mentioned file', () => {
+    const msgs = [
+      userMsg('What TypeScript version is in package.json?'),
+      assistantToolMsg('run_command', { command: "jq '.devDependencies.typescript' package.json" }),
+    ];
     expect(buildNoReadReprompt(msgs)).toBeNull();
   });
 
-  it('returns null when run_command was called (model may have used grep/jq)', () => {
-    const msgs = [userMsg('Check the version in package.json'), assistantToolMsg('run_command')];
-    expect(buildNoReadReprompt(msgs)).toBeNull();
+  it('fires when run_command was called but for a different file than mentioned', () => {
+    // model ran wc -l for src/ but user asked about package.json — gap 1 fix
+    const msgs = [
+      userMsg('What TypeScript version is in package.json?'),
+      assistantToolMsg('run_command', { command: 'wc -l src/**/*.ts' }),
+    ];
+    const result = buildNoReadReprompt(msgs);
+    expect(result).not.toBeNull();
+    expect(result).toContain('package.json');
   });
 
   it('returns null when user message mentions no file extension', () => {
@@ -505,5 +523,45 @@ describe('completionGate — buildNoReadReprompt', () => {
 
   it('returns null when there are no messages', () => {
     expect(buildNoReadReprompt([])).toBeNull();
+  });
+});
+
+describe('completionGate — buildNoShellReprompt', () => {
+  const userMsg = (text: string) => ({ role: 'user' as const, content: [{ type: 'text' as const, text }] });
+  const runCommandMsg = (command: string) => ({
+    role: 'assistant' as const,
+    content: [{ type: 'tool_use' as const, id: 'x', name: 'run_command', input: { command } }],
+  });
+
+  it('fires when user asks a file count without running a shell command', () => {
+    const msgs = [userMsg('How many test files are in src/?')];
+    const result = buildNoShellReprompt(msgs);
+    expect(result).not.toBeNull();
+    expect(result).toContain('shell command');
+  });
+
+  it('fires when user asks for the largest source file without a shell command', () => {
+    const msgs = [userMsg('What is the largest source file in src/ by line count?')];
+    expect(buildNoShellReprompt(msgs)).not.toBeNull();
+  });
+
+  it('fires when user asks for a version without a shell command', () => {
+    const msgs = [userMsg('What is the version of TypeScript in package.json?')];
+    expect(buildNoShellReprompt(msgs)).not.toBeNull();
+  });
+
+  it('returns null when run_command was already called', () => {
+    const msgs = [userMsg('How many test files are in src/?'), runCommandMsg('find src -name "*.test.ts" | wc -l')];
+    expect(buildNoShellReprompt(msgs)).toBeNull();
+  });
+
+  it('returns null for a general question with no workspace directory reference', () => {
+    const msgs = [userMsg('How many planets are in the solar system?')];
+    expect(buildNoShellReprompt(msgs)).toBeNull();
+  });
+
+  it('returns null for a non-metric question mentioning src/', () => {
+    const msgs = [userMsg('Explain how the agent loop in src/ works.')];
+    expect(buildNoShellReprompt(msgs)).toBeNull();
   });
 });

@@ -1145,5 +1145,9 @@ export const AGENT_CASES: AgentEvalCase[] = [
       // Should confirm success after the final passing run
       finalTextMatchesRegex: [/all.{0,20}(test|pass)|pass(ed|ing)|success/i],
     },
+    // Rule 9 Clarification: After every `run_command` that shows an error (e.g., test failures), 
+    // the agent must fix the error and re-run the command until all tests pass.
+    // This ensures the agent iteratively resolves issues until the task is complete.
+
   },
 ];

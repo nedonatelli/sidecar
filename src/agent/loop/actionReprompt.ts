@@ -24,15 +24,26 @@ import type { LoopState } from './state.js';
 //   the case where the model never started working.
 // ---------------------------------------------------------------------------
 
-const MAX_ACTION_REPROMPTS = 1;
+const MAX_ACTION_REPROMPTS = 2;
 
 /** Action verbs that indicate the user wants something done, not just explained. */
 const ACTION_VERB_RE =
-  /\b(read|edit|fix|run|add|create|rename|update|change|modify|write|delete|move|refactor|implement|extend|remove|replace|convert|migrate)\b/i;
+  /\b(read|edit|fix|run|add|create|rename|update|change|modify|write|delete|move|refactor|implement|extend|remove|replace|convert|migrate|check|find|get|look|search|show|list|fetch|retrieve)\b/i;
 
 /** File path patterns that indicate workspace files are involved. */
 const FILE_PATH_RE =
   /\b\w+\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|cpp|c|rb|sh|yaml|yml|json|toml)\b|(?:src|tests?|lib|pkg|cmd)\/\S+/;
+
+/**
+ * Matches model text that announces intent to act but contains no tool call —
+ * e.g. "I will now attempt to...", "Let me try again", "I'll now read the file".
+ * Also matches permission-asking phrases where the model identified the right
+ * action but stopped to ask for confirmation instead of executing it —
+ * e.g. "Would you like me to implement this?", "Shall I add the example?".
+ * Fires the reprompt even when the user's message isn't an action request.
+ */
+const DEFERRED_ACTION_RE =
+  /\b(I will (?:now|try|attempt|add|update|edit|implement|make|create|apply|write|modify|fix|proceed|run|use|check|read|look|fetch|search|re-\w+)|I'll now|I'm going to|Let me (?:now|try|add|implement|proceed|update|edit|apply|fix|run|use|create|write|check)|Would you like me to|Shall I|Do you want me to|Should I go ahead|Want me to)\b/i;
 
 /**
  * Return the text content of the last real user message (skipping
@@ -66,6 +77,16 @@ export function isActionRequest(text: string): boolean {
 }
 
 /**
+ * Return true when the model's own text announces intent to act but
+ * contains no tool call — e.g. "I will now attempt to read the file".
+ * Used to catch models (e.g. gemma4:e4b) that describe their next
+ * action in prose instead of executing it.
+ */
+export function looksLikeDeferredAction(text: string): boolean {
+  return DEFERRED_ACTION_RE.test(text);
+}
+
+/**
  * Inject a reprompt when the model responded with text but no tool calls
  * on what looks like an action request. Returns true when a reprompt was
  * injected (caller should `continue` the loop).
@@ -76,7 +97,8 @@ export function maybeInjectActionReprompt(state: LoopState, fullText: string, ca
   if (state.tools.length === 0) return false;
 
   const userText = lastUserMessageText(state.messages);
-  if (!isActionRequest(userText)) return false;
+  const triggered = isActionRequest(userText) || looksLikeDeferredAction(fullText);
+  if (!triggered) return false;
 
   state.actionRepromptCount++;
   state.logger?.info(

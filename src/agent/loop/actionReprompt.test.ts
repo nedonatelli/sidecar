@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isActionRequest, maybeInjectActionReprompt } from './actionReprompt.js';
+import { isActionRequest, looksLikeDeferredAction, maybeInjectActionReprompt } from './actionReprompt.js';
 import { stubLoopState, stubCallbacks } from './testHelpers.js';
 
 describe('isActionRequest', () => {
@@ -32,6 +32,54 @@ describe('isActionRequest', () => {
   });
 });
 
+describe('looksLikeDeferredAction', () => {
+  it('matches "I will now attempt to find the TypeScript version"', () => {
+    expect(
+      looksLikeDeferredAction('I will now attempt to find the TypeScript version again by reading package.json'),
+    ).toBe(true);
+  });
+
+  it('matches "I\'ll now read the file"', () => {
+    expect(looksLikeDeferredAction("I'll now read the file to check the exports.")).toBe(true);
+  });
+
+  it('matches "Let me try again"', () => {
+    expect(looksLikeDeferredAction('Let me try again with the correct path.')).toBe(true);
+  });
+
+  it('matches "I will add a comment to clarify Rule 9"', () => {
+    expect(looksLikeDeferredAction('I will add a comment to clarify Rule 9 in the context of the case.')).toBe(true);
+  });
+
+  it('matches "Let me add the comment now"', () => {
+    expect(looksLikeDeferredAction('Let me add the comment now.')).toBe(true);
+  });
+
+  it('matches "I will implement this addition"', () => {
+    expect(looksLikeDeferredAction('I will implement this addition in basePrompt.ts.')).toBe(true);
+  });
+
+  it('matches "Would you like me to implement this?"', () => {
+    expect(looksLikeDeferredAction('Would you like me to implement this addition in basePrompt.ts?')).toBe(true);
+  });
+
+  it('matches "Shall I add the example?"', () => {
+    expect(looksLikeDeferredAction('Shall I add the example to the rules section?')).toBe(true);
+  });
+
+  it('matches "Do you want me to apply this?"', () => {
+    expect(looksLikeDeferredAction('Do you want me to apply this change now?')).toBe(true);
+  });
+
+  it('does not match a plain explanation with no announced intent', () => {
+    expect(looksLikeDeferredAction('The jq command failed because the path was wrong.')).toBe(false);
+  });
+
+  it('does not match a completed action report', () => {
+    expect(looksLikeDeferredAction('The file has been updated successfully.')).toBe(false);
+  });
+});
+
 describe('maybeInjectActionReprompt', () => {
   function makeState(userMessage: string, tools = true) {
     const state = stubLoopState({
@@ -53,13 +101,17 @@ describe('maybeInjectActionReprompt', () => {
     ).toContain('text only');
   });
 
-  it('does not fire twice on the same run', () => {
+  it('fires up to MAX_ACTION_REPROMPTS (2) times on the same run', () => {
     const state = makeState('edit src/foo.ts to add something');
     const cb = stubCallbacks();
-    maybeInjectActionReprompt(state, 'I would...', cb);
-    const result = maybeInjectActionReprompt(state, 'I would still...', cb);
+    // First: user message is an action request
+    expect(maybeInjectActionReprompt(state, 'I would add a function...', cb)).toBe(true);
+    // Second: model again announces deferred intent
+    expect(maybeInjectActionReprompt(state, 'I will now try to edit the file.', cb)).toBe(true);
+    // Third: capped
+    const result = maybeInjectActionReprompt(state, 'I will now try again.', cb);
     expect(result).toBe(false);
-    expect(state.actionRepromptCount).toBe(1);
+    expect(state.actionRepromptCount).toBe(2);
   });
 
   it('does not fire when no tools are available', () => {
@@ -68,7 +120,20 @@ describe('maybeInjectActionReprompt', () => {
     expect(maybeInjectActionReprompt(state, 'I would...', cb)).toBe(false);
   });
 
-  it('does not fire when the user message is a question (not an action request)', () => {
+  it('fires when model text announces deferred intent even if user message is a question', () => {
+    // e.g. gemma4:e4b: user asked "check the TypeScript version", model said
+    // "I will now attempt to find it by reading package.json" but called no tool.
+    const state = makeState('what is the TypeScript version in package.json?');
+    const cb = stubCallbacks();
+    const result = maybeInjectActionReprompt(
+      state,
+      'I will now attempt to find the TypeScript version again by reading the package.json file.',
+      cb,
+    );
+    expect(result).toBe(true);
+  });
+
+  it('does not fire when the user message is a question and model text has no deferred intent', () => {
     const state = makeState('what does the authentication module do?');
     const cb = stubCallbacks();
     expect(maybeInjectActionReprompt(state, 'The auth module handles...', cb)).toBe(false);

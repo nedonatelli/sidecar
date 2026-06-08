@@ -449,7 +449,14 @@ describe('injectSystemContext', () => {
       document: { uri: { fsPath: '/mock-workspace/src/foo.ts' } },
     };
     try {
-      const { prompt: result } = await injectSystemContext('BASE', 200_000, makeState(), makeConfig(), 'hi', false);
+      const { prompt: result } = await injectSystemContext(
+        'BASE',
+        200_000,
+        makeState({ activeFileIncluded: true }),
+        makeConfig(),
+        'hi',
+        false,
+      );
       expect(result).toContain('- Active file: src/foo.ts');
     } finally {
       (window as unknown as { activeTextEditor: unknown }).activeTextEditor = prior;

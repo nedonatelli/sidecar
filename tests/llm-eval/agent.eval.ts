@@ -1,4 +1,6 @@
 import { describe, it } from 'vitest';
+import * as path from 'path';
+import * as fs from 'fs';
 import { AGENT_CASES } from './agentCases.js';
 import { CODE_QUALITY_CASES } from './codeQualityCases.js';
 import { GIT_CASES } from './gitCases.js';
@@ -7,6 +9,30 @@ import { SYSTEM_CASES } from './systemCases.js';
 import { runAgentCase, pickAgentBackend } from './agentHarness.js';
 import { renderAgentReport } from './agentScorers.js';
 import type { AgentCaseResult } from './agentTypes.js';
+import { HistoryDb } from '../../src/agent/history/historyDb.js';
+
+// Write results to .sidecar/history.db when the workspace has one.
+// Silently skips when the path can't be resolved (CI without a workspace).
+function tryWriteResult(result: AgentCaseResult, model: string, tags: string[]): void {
+  try {
+    const dbPath = path.join(process.cwd(), '.sidecar', 'history.db');
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    const db = new HistoryDb(dbPath);
+    db.insertEvalRun({
+      timestamp: Date.now(),
+      model,
+      caseId: result.id,
+      passed: result.passed,
+      durationMs: result.durationMs,
+      iterationsUsed: result.iterationsUsed,
+      failures: result.failures,
+      tags,
+    });
+    db.close();
+  } catch {
+    // Non-fatal — eval results are the primary output; DB write is bonus.
+  }
+}
 
 const ALL_CASES = [...AGENT_CASES, ...CODE_QUALITY_CASES, ...GIT_CASES, ...THINKING_CASES, ...SYSTEM_CASES];
 
@@ -105,6 +131,7 @@ describe.skipIf(!backend)('llm-eval :: agent loop', () => {
       }
 
       allResults.push(result);
+      tryWriteResult(result, b.defaultModel(), evalCase.tags);
 
       // Update the circuit-breaker counter before checking pass/fail so
       // that api-unavailable cases don't pollute the failure output.
@@ -156,12 +183,12 @@ describe.skipIf(!backend)('llm-eval :: agent loop', () => {
   });
 });
 
-describe.skipIf(backend)('llm-eval :: agent loop — no backend available', () => {
-  it('skipped — set SIDECAR_EVAL_BACKEND or run a local Ollama daemon', () => {
-    // Intentionally empty. The skipIf inversion gives users a single
-    // clear message instead of a long list of skips. Default backend
-    // is Ollama, so this only fires when SIDECAR_EVAL_BACKEND is set
-    // explicitly to anthropic/openai and the corresponding API key is
-    // absent.
-  });
-});
+if (!backend) {
+  // No backend available — log once so CI output is clear, then exit.
+  // This replaces the old describe.skipIf block whose "no backend available"
+  // title was consistently misread by models as a test failure.
+  console.warn(
+    '\n[eval:smoke] No backend available — set SIDECAR_EVAL_BACKEND (anthropic/openai/groq) ' +
+      'and the corresponding API key, or start a local Ollama daemon, then re-run.\n',
+  );
+}

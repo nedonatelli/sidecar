@@ -39,6 +39,7 @@ import { mcpDelegateTools } from './tools/mcpDelegate.js';
 import { monorepoTools } from './tools/monorepoPackages.js';
 import { ciTools } from './tools/ci.js';
 import { researchTools } from './tools/research.js';
+import { queryHistoryTool } from './tools/history.js';
 
 // ---------------------------------------------------------------------------
 // tools.ts is the slim composition layer. Each tool category lives under
@@ -89,6 +90,7 @@ export const TOOL_REGISTRY: RegisteredTool[] = [
   ...(getConfig().monorepoEnabled ? monorepoTools : []),
   ...(getConfig().ciAnalysisEnabled ? ciTools : []),
   ...(getConfig().researchEnabled ? researchTools : []),
+  queryHistoryTool,
   {
     definition: {
       name: 'ask_user',
@@ -333,6 +335,7 @@ const READ_TIER_TOOL_NAMES = new Set<string>([
   'ask_user',
   'delegate_task',
   'describe_tool',
+  'query_history',
 ]);
 
 /**

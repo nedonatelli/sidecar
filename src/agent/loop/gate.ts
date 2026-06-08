@@ -6,6 +6,7 @@ import {
   checkCompletionGate,
   buildGateInjection,
   buildNoReadReprompt,
+  buildNoShellReprompt,
 } from '../completionGate.js';
 import type { LoopState } from './state.js';
 
@@ -87,14 +88,27 @@ export async function maybeInjectCompletionGate(
 
   if (signal.aborted || options.approvalMode === 'plan') return 'skip';
 
-  // Check: file mentioned in user request but no read tool called yet.
+  // Check: file mentioned in user request but no read tool called for it yet.
   // Fires at most once per run to avoid looping on models that can't comply.
   if (!gateState.noReadRepromptFired && config.completionGateEnabled !== false) {
     const reprompt = buildNoReadReprompt(state.messages);
     if (reprompt) {
       gateState.noReadRepromptFired = true;
-      logger?.info('No-read gate fired — file mentioned but no read tool called');
+      logger?.info('No-read gate fired — file mentioned but no read tool called for it');
       callbacks.onText('\n\n📂 Reading file before answering...\n');
+      state.messages.push({ role: 'user', content: [{ type: 'text' as const, text: reprompt }] });
+      return 'injected';
+    }
+  }
+
+  // Check: workspace metric query (file count, line count, version, etc.) but
+  // no shell command was run. Fires at most once per run.
+  if (!gateState.noShellRepromptFired && config.completionGateEnabled !== false) {
+    const reprompt = buildNoShellReprompt(state.messages);
+    if (reprompt) {
+      gateState.noShellRepromptFired = true;
+      logger?.info('No-shell gate fired — workspace metric query answered without a shell command');
+      callbacks.onText('\n\n🔍 Running shell command to get live data...\n');
       state.messages.push({ role: 'user', content: [{ type: 'text' as const, text: reprompt }] });
       return 'injected';
     }

@@ -39,6 +39,8 @@ export interface GateState {
   gateInjections: number;
   /** True once the no-read-on-file-request reprompt has fired (fires at most once). */
   noReadRepromptFired: boolean;
+  /** True once the no-shell-on-metric-query reprompt has fired (fires at most once). */
+  noShellRepromptFired: boolean;
 }
 
 export function createGateState(): GateState {
@@ -49,6 +51,7 @@ export function createGateState(): GateState {
     lintObserved: false,
     gateInjections: 0,
     noReadRepromptFired: false,
+    noShellRepromptFired: false,
   };
 }
 
@@ -91,10 +94,15 @@ export function recordToolCall(state: GateState, tu: ToolUseContentBlock, result
   if (result.is_error) return;
 
   // Edit tools — track the path(s) they mutated.
+  // Reset lintObserved so any lint run before this edit doesn't satisfy
+  // the gate for the new change — the model must re-verify after editing.
   if (EDIT_TOOL_NAMES.has(tu.name)) {
     const raw = (tu.input.path ?? tu.input.file_path) as string | undefined;
     const p = normalizePath(raw);
-    if (p) state.editedFiles.add(p);
+    if (p) {
+      state.editedFiles.add(p);
+      state.lintObserved = false;
+    }
     return;
   }
 
@@ -275,11 +283,7 @@ export function buildGateInjection(findings: GateFinding[], attempt: number, max
     for (const p of testUpdatePairs) {
       lines.push(`  - ${p.file}  ->  ${p.testNotUpdated}`);
     }
-    lines.push(
-      'If you added new functions, constants, or behaviour, add test cases for them in the test file. ' +
-        'If your changes are covered by existing tests, run them to confirm — no new test cases needed.',
-    );
-    lines.push('');
+    lines.push('Look at the existing test pattern in the test file and add cases that match it.');
   }
 
   if (attempt >= max) {
@@ -296,18 +300,48 @@ export function buildGateInjection(findings: GateFinding[], attempt: number, max
 // No-read-on-file-request gate
 //
 // Fires once when the model responds without calling any file-reading tool
-// despite the user's request mentioning a specific file path. Catches the
-// "filename pattern matching" failure mode where a model infers file contents
-// from the filename alone (e.g. greeter.ts → "exports a Greeter class")
-// instead of reading the actual file.
+// that references the specific file(s) mentioned in the user's request.
+// Catches the "filename pattern matching" failure mode where a model infers
+// file contents from the filename alone instead of reading the actual file.
+//
+// Gap fixed (v0.112.4): previously used hasAnyReadToolCall() which returned
+// true if the model called *any* read tool at any point — so a run_command
+// for an unrelated file (e.g. `wc -l src/**/*.ts`) would suppress the gate
+// even when package.json was never touched. Now checks per-file: each
+// mentioned file must have had a read tool call whose input references it.
 // ---------------------------------------------------------------------------
 
 /** File extensions whose presence in a user message signals a file lookup is needed. */
 const FILE_MENTION_RE = /\b[\w./\-]+\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs|json|md|toml|yaml|yml|sh|cs|java|cpp|c|h)\b/gi;
 
-/** Tools that constitute "the model read something". run_command is included
- *  because `grep -n`, `jq`, `cat`, `head`, `tail` are all valid read paths. */
+/** Tools that constitute "the model read something for a specific file".
+ *  run_command is included because `grep -n`, `jq`, `cat`, `head`, `tail`
+ *  are all valid read paths — we check if the file name appears in the command. */
 const READ_TOOL_NAMES = new Set(['read_file', 'grep', 'search_files', 'list_directory', 'run_command']);
+
+// ---------------------------------------------------------------------------
+// Workspace-metric query gate
+//
+// Fires once when the user asks a metric question about the workspace
+// (file counts, line counts, dependency versions, etc.) but the model
+// answered without running any shell command. These answers require live
+// tool output — training-data guesses are reliably wrong about the current
+// project state.
+// ---------------------------------------------------------------------------
+
+/**
+ * Metric query words that signal the user wants a live workspace fact,
+ * not a training-data inference.
+ */
+const WORKSPACE_METRIC_RE =
+  /\b(how many|number of|count(ing)?|largest|biggest|longest|line count|lines in|wc\b|version (of|in)|size of)\b/i;
+
+/**
+ * Directory or config-file references that anchor a metric query to the
+ * current workspace rather than a general question.
+ */
+const WORKSPACE_DIR_RE =
+  /\b(src|tests?|lib|pkg|cmd)\b[/\\]|\bpackage\.json\b|\btsconfig\b|\bCargo\.toml\b|\bgo\.mod\b/i;
 
 function firstUserText(messages: ChatMessage[]): string {
   for (const msg of messages) {
@@ -324,13 +358,35 @@ function firstUserText(messages: ChatMessage[]): string {
   return '';
 }
 
-function hasAnyReadToolCall(messages: ChatMessage[]): boolean {
+/**
+ * Returns true if any assistant message contains a read-capable tool call
+ * whose serialised input references `fileName` (case-insensitive).
+ * This is a per-file check — a run_command for an unrelated path does NOT
+ * satisfy this predicate.
+ */
+function hasReadToolCallForFile(messages: ChatMessage[], fileName: string): boolean {
+  const lower = fileName.toLowerCase();
+  for (const msg of messages) {
+    if (msg.role !== 'assistant') continue;
+    if (!Array.isArray(msg.content)) continue;
+    for (const b of msg.content) {
+      if (typeof b !== 'object' || b === null || !('type' in b) || b.type !== 'tool_use') continue;
+      if (!READ_TOOL_NAMES.has((b as { name: string }).name)) continue;
+      const inputStr = JSON.stringify((b as { input?: unknown }).input ?? {}).toLowerCase();
+      if (inputStr.includes(lower)) return true;
+    }
+  }
+  return false;
+}
+
+/** Returns true if any assistant message contains a run_command tool call. */
+function hasRunCommandCall(messages: ChatMessage[]): boolean {
   for (const msg of messages) {
     if (msg.role !== 'assistant') continue;
     if (!Array.isArray(msg.content)) continue;
     for (const b of msg.content) {
       if (typeof b === 'object' && b !== null && 'type' in b && b.type === 'tool_use' && 'name' in b) {
-        if (READ_TOOL_NAMES.has(b.name as string)) return true;
+        if ((b as { name: string }).name === 'run_command') return true;
       }
     }
   }
@@ -338,20 +394,40 @@ function hasAnyReadToolCall(messages: ChatMessage[]): boolean {
 }
 
 /**
- * Returns a reprompt string if the user's first message mentions a file path
- * but the model produced zero file-reading tool calls. Returns null when no
- * reprompt is needed (either no file was mentioned, or the model already read
- * something).
+ * Returns a reprompt string if the user's message mentions a specific file
+ * path but no read tool call referencing that file was made. Checks each
+ * mentioned file independently — a tool call for file A does not satisfy
+ * the requirement for file B. Returns null when no reprompt is needed.
  */
 export function buildNoReadReprompt(messages: ChatMessage[]): string | null {
-  if (hasAnyReadToolCall(messages)) return null;
   const userText = firstUserText(messages);
   if (!userText) return null;
   const fileMatches = userText.match(FILE_MENTION_RE);
   if (!fileMatches) return null;
-  const firstFile = fileMatches[0];
+  for (const file of fileMatches) {
+    if (!hasReadToolCallForFile(messages, file)) {
+      return (
+        `You mentioned \`${file}\` but did not call read_file, grep, or any other file-reading tool before responding. ` +
+        `Call \`read_file(path="${file}")\` now and answer from its actual contents — do not infer from the filename or training data.`
+      );
+    }
+  }
+  return null;
+}
+
+/**
+ * Returns a reprompt string if the user asked a workspace metric question
+ * (file count, line count, version, etc.) but the model answered without
+ * running any shell command. Returns null when no reprompt is needed.
+ */
+export function buildNoShellReprompt(messages: ChatMessage[]): string | null {
+  if (hasRunCommandCall(messages)) return null;
+  const userText = firstUserText(messages);
+  if (!userText) return null;
+  if (!WORKSPACE_METRIC_RE.test(userText) || !WORKSPACE_DIR_RE.test(userText)) return null;
   return (
-    `You mentioned \`${firstFile}\` but did not call read_file, grep, or any other file-reading tool before responding. ` +
-    `Call \`read_file(path="${firstFile}")\` now and answer from its actual contents — do not infer from the filename or training data.`
+    'Your response answered a workspace metric question (file count, line count, version, etc.) ' +
+    'without running a shell command. Your training data does not reflect the current state of this project. ' +
+    'Run the appropriate command (find, wc -l, jq, rg --count, etc.) and answer from the actual output.'
   );
 }

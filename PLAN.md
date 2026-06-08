@@ -101,8 +101,8 @@ The eval currently prints results to stdout but doesn't save them. Ask SideCar:
 By now you've done real work with SideCar. Fill this in:
 
 ### Things that worked well
-- [ ] _SideCar did X without any re-prompting_
-- [ ] _The diff looked exactly right the first time for: ___
+- ✅ SideCar added a clear example for Rule 9 without needing re-prompting.
+- ✅ The diff was correct the first time for the example addition in `basePrompt.ts`.
 
 ### Things that needed a re-prompt
 - [ ] _Had to re-prompt because: ___
