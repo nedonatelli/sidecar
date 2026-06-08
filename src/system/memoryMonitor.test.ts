@@ -32,7 +32,13 @@ vi.mock('child_process', () => ({
   ),
 }));
 
-import { getSystemMemory, assessPressure, checkMemoryPreflight, MemoryPressureMonitor } from './memoryMonitor.js';
+import {
+  getSystemMemory,
+  assessPressure,
+  checkMemoryPreflight,
+  MemoryPressureMonitor,
+  resetPreflightCooldownForTests,
+} from './memoryMonitor.js';
 import { window } from 'vscode';
 
 function stubOsMemory(totalGib: number, freeGib: number) {
@@ -104,6 +110,8 @@ describe('assessPressure', () => {
 });
 
 describe('checkMemoryPreflight', () => {
+  beforeEach(() => resetPreflightCooldownForTests());
+
   it('returns true without showing any dialog when RAM is healthy', async () => {
     stubOsMemory(16, 8);
     const ok = await checkMemoryPreflight('load test-model');

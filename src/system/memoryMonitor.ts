@@ -154,6 +154,15 @@ export function assessPressure(mem: SystemMemory): { ram: MemoryPressure; vram: 
   return { ram, vram };
 }
 
+/** Suppress repeated low-memory pre-flight warnings within this window. */
+const PREFLIGHT_LOW_COOLDOWN_MS = 30 * 60_000; // 30 min
+let preflightLowLastShownAt = 0;
+
+/** Reset the pre-flight cooldown timestamp. For tests only. */
+export function resetPreflightCooldownForTests(): void {
+  preflightLowLastShownAt = 0;
+}
+
 /**
  * Pre-flight check for memory-intensive operations (model load, HF import).
  *
@@ -162,6 +171,10 @@ export function assessPressure(mem: SystemMemory): { ram: MemoryPressure; vram: 
  * the user chose to cancel (low-pressure warning dialog).
  *
  * `label` is inserted into the warning copy: e.g. "load this model into GPU".
+ *
+ * Critical pressure always blocks. Low-pressure warnings are suppressed
+ * within a 30-minute cooldown — once the user has seen and dismissed it,
+ * we trust that choice for the rest of the session window.
  */
 export async function checkMemoryPreflight(label: string): Promise<boolean> {
   let mem: SystemMemory;
@@ -195,6 +208,11 @@ export async function checkMemoryPreflight(label: string): Promise<boolean> {
   }
 
   if (ram === 'low') {
+    const now = Date.now();
+    if (now - preflightLowLastShownAt < PREFLIGHT_LOW_COOLDOWN_MS) {
+      return true; // user already acknowledged recently — don't block them again
+    }
+    preflightLowLastShownAt = now;
     const choice = await window.showWarningMessage(
       `Low memory: only ${freeStr} free RAM. Attempting to ${label} may cause slowdowns or an out-of-memory crash.`,
       'Proceed Anyway',
@@ -223,7 +241,7 @@ export class MemoryPressureMonitor implements Disposable {
   private lastNotifiedAt = 0;
 
   private static readonly POLL_MS = 30_000;
-  private static readonly RENOTIFY_MS = 5 * 60_000;
+  private static readonly RENOTIFY_MS = 30 * 60_000; // 30 min — ambient pressure doesn't need hourly reminders
   private static readonly CONSECUTIVE_BEFORE_ALERT = 2;
 
   start(): void {
