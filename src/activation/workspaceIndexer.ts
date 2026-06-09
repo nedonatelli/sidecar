@@ -131,9 +131,10 @@ export function initWorkspaceIndex(
             // immediately rather than only after the first batch fires.
             if (wasFirstRun) pkiStatus.show();
 
-            for (const file of workspaceIndex.getFiles()) {
-              symbolIndexer.queueUpdate(file.relativePath);
-            }
+            // If symbolIndexer.initialize() already finished, its hash-match
+            // short-circuit would skip every file and leave symbols unembedded.
+            // replaySymbolsToEmbeddingIndex reads cached graph content directly.
+            symbolIndexer.replaySymbolsToEmbeddingIndex();
           })
           .catch((err) => console.warn('[SideCar] Symbol embedding index failed:', err?.message || err));
       }

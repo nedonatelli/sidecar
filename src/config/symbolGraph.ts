@@ -356,6 +356,14 @@ export class SymbolGraph {
     this.fileContents.set(filePath, content);
   }
 
+  getFileContent(filePath: string): string | undefined {
+    return this.fileContents.get(filePath);
+  }
+
+  indexedFilePaths(): Iterable<string> {
+    return this.fileHashes.keys();
+  }
+
   /**
    * Build a context string for a symbol suitable for injection into the LLM prompt.
    * Includes the definition, importers, and dependents.

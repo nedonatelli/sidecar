@@ -4,6 +4,18 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.112.21] - 2026-06-09
+
+**v0.112.21 — PKI indexing fix, refreshed dogfood eval.**
+
+### Bug fixes
+
+- **Project Knowledge Index now indexes symbols on warm restart** — `SymbolIndexer.initialize()` caches file hashes; subsequent `queueUpdate` calls hit the hash-match short-circuit and skip every file, leaving symbols queued but never embedded. Replaced the `queueUpdate` loop in `workspaceIndexer.ts` with a new `replaySymbolsToEmbeddingIndex()` method that reads cached graph content directly, bypassing the hash check. (`src/config/symbolIndexer.ts`, `src/config/symbolGraph.ts`, `src/activation/workspaceIndexer.ts`)
+
+### Eval
+
+- **Refreshed live-repo dogfood eval** — previous case (`live-repo-cycle-detector-messages`) was stale; the task is already done in the codebase. New case (`live-repo-finalize-counted-suggestions`) targets `finalize.ts`: replace boolean `hadErrors`/`wroteFiles` with numeric counters `errorCount`/`filesWritten` so next-step suggestion strings include actual counts. (`tests/llm-eval/liveRepoCase.eval.ts`)
+
 ## [0.112.20] - 2026-06-08
 
 **v0.112.20 — Agent loop hardening, shell kill-on-abort, model-load retries.**

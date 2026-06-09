@@ -315,6 +315,42 @@ export class SymbolIndexer implements Disposable {
     this.scheduleFlush();
   }
 
+  /**
+   * Feed all already-indexed symbols into the embedding queue without
+   * re-reading from disk. Called when PKI is wired after the symbol
+   * graph is already built — `queueUpdate` would hit the hash-match
+   * short-circuit and skip every file, leaving symbols queued but never
+   * embedded. This reads the cached file content straight from the graph
+   * so no filesystem I/O and no hash check.
+   */
+  replaySymbolsToEmbeddingIndex(): void {
+    if (!this.symbolEmbeddings) return;
+    const cap = this.maxSymbolsPerFile;
+    for (const filePath of this.graph.indexedFilePaths()) {
+      const content = this.graph.getFileContent(filePath);
+      if (!content) continue;
+      const symbols = this.graph.getSymbolsInFile(filePath);
+      const limited = symbols.length > cap ? symbols.slice(0, cap) : symbols;
+      const lines = content.split('\n');
+      for (const sym of limited) {
+        const startIdx = Math.max(0, sym.startLine - 1);
+        const endIdx = Math.min(lines.length, sym.endLine);
+        if (endIdx <= startIdx) continue;
+        const body = lines.slice(startIdx, Math.min(endIdx, startIdx + 400)).join('\n');
+        if (!body.trim()) continue;
+        this.symbolEmbeddings.queueSymbol({
+          filePath,
+          qualifiedName: sym.qualifiedName,
+          name: sym.name,
+          kind: sym.type,
+          startLine: sym.startLine,
+          endLine: sym.endLine,
+          body,
+        });
+      }
+    }
+  }
+
   /** Queue a file removal (debounced). */
   queueDelete(relativePath: string): void {
     this.pendingDeletes.add(relativePath);
