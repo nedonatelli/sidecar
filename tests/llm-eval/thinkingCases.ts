@@ -51,7 +51,8 @@ export const THINKING_CASES: AgentEvalCase[] = [
     },
     userMessage:
       'The `displayPrice` function in src/app.ts is returning garbled output like "5USD.00" instead of "USD5.00". ' +
-      'Find the bug and fix it. Do not change src/utils.ts.',
+      'Read src/utils.ts and src/app.ts, identify the argument order mismatch, then fix src/app.ts. ' +
+      'Do not write test files. Do not change src/utils.ts.',
     expect: {
       toolsCalled: ['read_file', 'edit_file'],
       // Must read both files to understand the signature mismatch.

@@ -10,6 +10,7 @@ import { runAgentCase, pickAgentBackend } from './agentHarness.js';
 import { renderAgentReport } from './agentScorers.js';
 import type { AgentCaseResult } from './agentTypes.js';
 import { HistoryDb } from '../../src/agent/history/historyDb.js';
+import { appendFailure, writeHeader, writeSummary } from './evalReporter.js';
 
 // Write results to .sidecar/history.db when the workspace has one.
 // Silently skips when the path can't be resolved (CI without a workspace).
@@ -82,6 +83,7 @@ const backend = pickAgentBackend();
 
 describe.skipIf(!backend)('llm-eval :: agent loop', () => {
   const allResults: AgentCaseResult[] = [];
+  writeHeader('llm-eval :: agent loop');
 
   // Circuit breaker: if this many consecutive cases produce zero model output
   // (empty trajectory + near-timeout duration), the API is likely unavailable.
@@ -172,12 +174,16 @@ describe.skipIf(!backend)('llm-eval :: agent loop', () => {
           const preview = content.length > 200 ? content.slice(0, 200) + '...' : content;
           lines.push(`${p}: ${preview.replace(/\n/g, ' ')}`);
         }
-        throw new Error(lines.join('\n'));
+        const msg = lines.join('\n');
+        appendFailure('agent loop', evalCase.id, msg);
+        throw new Error(msg);
       }
     });
   }
 
   it('summary', () => {
+    const passed = allResults.filter((r) => r.passed).length;
+    writeSummary(passed, allResults.length);
     // eslint-disable-next-line no-console -- intentional report output
     console.log('\n\n' + renderAgentReport(allResults));
   });

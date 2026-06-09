@@ -246,7 +246,7 @@ export function pickBackend(): ModelBackend | null {
 export function pickModel(backend: ModelBackend): string {
   if (process.env.SIDECAR_EVAL_MODEL) return process.env.SIDECAR_EVAL_MODEL;
   if (backend.name === 'anthropic') return 'claude-haiku-4-5-20251001';
-  if (backend.name === 'ollama') return 'llama3.2';
+  if (backend.name === 'ollama') return 'ministral-3:latest';
   // OpenAI-compat backends carry their default in the registry entry.
   const b = BACKENDS[backend.name];
   return b instanceof OpenAICompatEvalBackend ? b.defaultModelId : '';

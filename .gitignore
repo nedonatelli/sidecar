@@ -28,3 +28,4 @@ CLAUDE.md
 eval_output.log
 test-errors.log
 test-failures.log
+eval-failures.md

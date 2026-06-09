@@ -620,11 +620,11 @@ export const AGENT_CASES: AgentEvalCase[] = [
       // The agent must identify the exported ones using a pattern search,
       // not by reading and manually scanning each file.
       'src/a.ts': 'export function alpha(): void {}\nfunction _beta(): void {}\n',
-      'src/b.ts': 'export function gamma(): void {}\nexport const delta = 1;\n',
+      'src/b.ts': 'export function gamma(): void {}\n',
       'src/c.ts': 'function epsilon(): void {}\n',
     },
     userMessage:
-      'Use grep to find all exported functions across src/. ' +
+      'Use grep with a pattern matching "export function" lines to find all exported functions across src/. ' +
       'List only the function names — not constants, not unexported functions.',
     expect: {
       // Must use grep (or search_files) rather than reading each file.
@@ -657,7 +657,7 @@ export const AGENT_CASES: AgentEvalCase[] = [
     },
     userMessage:
       'Find every file in src/ that contains the word "legacy" and replace "legacy" with "modern" in each of them. ' +
-      'Do not touch any file that does not contain "legacy".',
+      'Use grep(pattern="legacy") to find the files. Do not touch any file that does not contain "legacy".',
     expect: {
       // The agent should discover the files via grep (or
       // search_files if it prefers glob), not by blind-reading each
@@ -753,7 +753,7 @@ export const AGENT_CASES: AgentEvalCase[] = [
         'Always add a JSDoc comment above any new exported function. ' +
         'The comment must include a `@param` line for each parameter and a `@returns` line.\n',
       'src/math.ts':
-        '/** Adds two numbers. @param a first operand @param b second operand @returns sum */\n' +
+        '// Math utilities\n\n' +
         'export function add(a: number, b: number): number {\n' +
         '  return a + b;\n' +
         '}\n',
@@ -791,10 +791,10 @@ export const AGENT_CASES: AgentEvalCase[] = [
     tags: ['ask_user', 'rule9', 'ambiguity'],
     workspace: {
       'src/utils.ts':
-        'export function processItems(items: string[]): string[] {\n' +
+        'export function filterItems(items: string[]): string[] {\n' +
         '  return items.filter(Boolean);\n' +
         '}\n\n' +
-        'export function transformItems(items: string[]): string[] {\n' +
+        'export function cleanItems(items: string[]): string[] {\n' +
         '  return items.map(s => s.trim());\n' +
         '}\n',
     },
@@ -804,7 +804,7 @@ export const AGENT_CASES: AgentEvalCase[] = [
       toolsNotCalled: ['edit_file', 'write_file'],
       // Both candidate names must appear — via ask_user, prose, or any other
       // form. The names are specific enough that guessing is unlikely.
-      finalTextContains: ['processItems', 'transformItems'],
+      finalTextContains: ['filterItems', 'cleanItems'],
     },
   },
 

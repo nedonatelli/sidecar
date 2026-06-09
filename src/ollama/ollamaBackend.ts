@@ -377,6 +377,22 @@ export class OllamaBackend implements ApiBackend {
         console.warn(`[SideCar] Model "${model}" does not support tools — disabling tool sending`);
       }
 
+      // Ollama 500: model called a tool that wasn't in the provided list.
+      // Happens in restricted modes (e.g. plan mode) where only a subset of
+      // tools are sent. Yield a synthetic warning instead of crashing the loop
+      // so the model can see the error and recover without the loop throwing.
+      if (response.status === 500) {
+        const toolNotFoundMatch = errorText.match(/"tool '([^']+)' not found"/);
+        if (toolNotFoundMatch) {
+          const toolName = toolNotFoundMatch[1];
+          yield {
+            type: 'text',
+            text: `\n\n⚠️ Tool '${toolName}' is not available in the current mode. Do not call it — use a different approach.`,
+          };
+          return;
+        }
+      }
+
       throw new Error(
         `Ollama request failed: ${response.status} ${response.statusText}${errorText ? ` — ${errorText}` : ''}`,
       );

@@ -1,6 +1,6 @@
 # SideCar Roadmap
 
-**Current release: v0.112.21** — PKI indexing fix: Project Knowledge Index now correctly indexes symbols on warm restart (hash-match short-circuit was preventing `queueUpdate` from re-feeding symbols). Refreshed live-repo dogfood eval. See [CHANGELOG](CHANGELOG.md) for full notes.
+**Current release: v0.112.22** — Ollama 500 plan-mode crash fix (tool-not-found error now yields a synthetic warning instead of crashing the loop), `sidecar.testCurrentModel` command (smoke eval with progress notification + Open Report button), and eval failure reporting to `eval-failures.md`. See [CHANGELOG](CHANGELOG.md) for full notes.
 
 **Coverage floor**: ≥80/70/80/80 (stmts/branches/funcs/lines) enforced by CI. No PR merges that drop any metric.
 

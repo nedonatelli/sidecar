@@ -110,6 +110,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 | **Monorepo Support** | `monorepo_packages` tool auto-detects Nx / Turbo / pnpm workspaces / Yarn / Lerna and lists workspace packages with metadata. Gated by `sidecar.monorepo.enabled` |
 | **macOS Seatbelt sandbox** | `sidecar.sandbox.enabled` wraps agent shell commands with a deny-default SBPL profile — writes restricted to the workspace + `/tmp` + build caches |
 | **Dependency Drift Alerts** | Scans `package.json`, `requirements.txt`, `Cargo.toml`, and `go.mod` for outdated and vulnerable deps — CVE/GHSA IDs from the OSV API surface in the Problems panel; `check_dependencies` agent tool for on-demand reports |
+| **Test Current Model** | `sidecar.testCurrentModel` runs the smoke eval suite against the active model, shows a progress notification, and reports pass/fail counts — **Open Report** button opens structured per-case failure details |
 | **Security scanning** | Secrets, SQL injection, XSS, eval — findings in VS Code Problems panel (`source:sidecar-*`) |
 | **Doc sync** | Checks JSDoc `@param` staleness and README call-site arity on every save |
 | **MCP** | stdio / HTTP / SSE transports, per-server tool allowlist, `sidecar.noSql.install` for one-click MongoDB + Redis |

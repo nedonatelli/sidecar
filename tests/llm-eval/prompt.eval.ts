@@ -4,6 +4,7 @@ import { CASES } from './cases.js';
 import { score, renderReport } from './scorers.js';
 import { pickBackend, pickModel } from './backend.js';
 import type { CaseResult } from './types.js';
+import { appendFailure, writeHeader, writeSummary } from './evalReporter.js';
 
 // ---------------------------------------------------------------------------
 // LLM eval suite — runs the case dataset against a real model backend.
@@ -38,6 +39,7 @@ const SYSTEM_PROMPT_PARAMS = {
 
 describe.skipIf(!backend)(`llm-eval :: base system prompt [${backend?.name ?? 'unknown'}]`, () => {
   const allResults: CaseResult[] = [];
+  writeHeader(`llm-eval :: base system prompt [${backend?.name ?? 'unknown'}]`);
 
   for (const testCase of CASES) {
     if (CASE_FILTER && !CASE_FILTER.some((f) => testCase.id.includes(f))) continue;
@@ -81,7 +83,9 @@ describe.skipIf(!backend)(`llm-eval :: base system prompt [${backend?.name ?? 'u
         lines.push('--- response ---');
         lines.push(response.length > 1500 ? response.slice(0, 1500) + '\n... (truncated)' : response);
         lines.push('--- end response ---');
-        throw new Error(lines.join('\n'));
+        const msg = lines.join('\n');
+        appendFailure(`base system prompt [${backend?.name ?? 'unknown'}]`, testCase.id, msg);
+        throw new Error(msg);
       }
     });
   }
@@ -90,6 +94,8 @@ describe.skipIf(!backend)(`llm-eval :: base system prompt [${backend?.name ?? 'u
   // regardless of pass/fail so the user has a full report even when
   // some cases regressed.
   it('summary', () => {
+    const passed = allResults.filter((r) => r.passed).length;
+    writeSummary(passed, allResults.length);
     // eslint-disable-next-line no-console -- intentional report output
     console.log('\n\n' + renderReport(allResults));
   });

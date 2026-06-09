@@ -4,6 +4,24 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.112.22] - 2026-06-09
+
+**v0.112.22 — Ollama 500 plan-mode crash fix, Test Current Model command, eval infrastructure.**
+
+### Bug fixes
+
+- **Ollama 500 "tool not found" no longer crashes the agent loop** — when Ollama returns HTTP 500 with `{"error":"tool '<name>' not found"}` (happens in plan mode where only `ask_user` is in the tool list and the model tries to call something else), the backend now yields a synthetic warning text event instead of throwing. The agent sees the warning and adapts. (`src/ollama/ollamaBackend.ts`)
+
+### New features
+
+- **Test Current Model command** (`sidecar.testCurrentModel`) — runs the smoke eval suite against the active model in the background, shows a progress notification while running, then reports pass/fail counts. On failure, an **Open Report** button opens `eval-failures.md` in the editor with structured per-case failure details. (`src/commands/testModelCommand.ts`)
+
+### Eval infrastructure
+
+- **Eval failures written to `eval-failures.md`** — all three eval runners (`agent.eval.ts`, `prompt.eval.ts`, `liveRepoCase.eval.ts`) now call a shared `evalReporter.ts` module that writes per-case failure details and suite summaries to `eval-failures.md` at the project root (gitignored). Eliminates the need to copy-paste terminal output to diagnose regressions. (`tests/llm-eval/evalReporter.ts`)
+
+- **Eval fixture and regex fixes** — `grep-regex-pattern`, `search-then-edit-multi-file`, `thinking-cross-file-causality`, `ask-user-ambiguous-rename`, `no-stub-add-function-to-existing-file` workspaces tightened; `rule10-fresh-message` and `rule13-no-invented-url` mustMatch regexes broadened to cover `didn't`/`cannot`/`not aware` response variants. Prompt eval default model corrected from `llama3.2` to `ministral-3:latest`. (`tests/llm-eval/`)
+
 ## [0.112.21] - 2026-06-09
 
 **v0.112.21 — PKI indexing fix, refreshed dogfood eval.**

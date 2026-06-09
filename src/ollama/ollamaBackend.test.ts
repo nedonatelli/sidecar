@@ -6,7 +6,7 @@ import {
   recordToolFailure,
   recordToolSuccess,
 } from './ollamaBackend.js';
-import type { ChatMessage, ToolDefinition } from './types.js';
+import type { ChatMessage, ToolDefinition, StreamEvent } from './types.js';
 
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
@@ -233,6 +233,26 @@ describe('OllamaBackend', () => {
           // consume
         }
       }).rejects.toThrow('Ollama request failed: 400');
+    });
+
+    it('yields a warning text event when Ollama 500s with tool-not-found', async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 500,
+        statusText: 'Internal Server Error',
+        headers: new Headers(),
+        text: async () => '{"error":"tool \'run_command\' not found"}',
+      });
+
+      const events: StreamEvent[] = [];
+      for await (const event of backend.streamChat('test', '', [{ role: 'user', content: 'hi' }])) {
+        events.push(event);
+      }
+
+      expect(events).toHaveLength(1);
+      expect(events[0].type).toBe('text');
+      expect((events[0] as { type: 'text'; text: string }).text).toContain("'run_command'");
+      expect((events[0] as { type: 'text'; text: string }).text).toContain('not available');
     });
 
     it('converts tool_result messages to role:tool', async () => {

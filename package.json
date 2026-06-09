@@ -2,7 +2,7 @@
   "name": "sidecar-ai",
   "displayName": "SideCar",
   "description": "Autonomous AI agent for coding — run full agent loops with local Ollama, Anthropic Claude, or OpenAI models",
-  "version": "0.112.21",
+  "version": "0.112.22",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -2701,6 +2701,12 @@
         "title": "Scan Dependencies for Drift & Vulnerabilities",
         "category": "SideCar",
         "icon": "$(shield)"
+      },
+      {
+        "command": "sidecar.testCurrentModel",
+        "title": "Test Current Model (Smoke Eval)",
+        "category": "SideCar",
+        "icon": "$(beaker)"
       },
       {
         "command": "sidecar.memory.refresh",

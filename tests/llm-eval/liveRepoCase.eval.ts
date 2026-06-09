@@ -17,6 +17,7 @@ import { describe, it } from 'vitest';
 import { runAgentCase, pickAgentBackend } from './agentHarness.js';
 import { renderAgentReport } from './agentScorers.js';
 import type { AgentCaseResult } from './agentTypes.js';
+import { appendFailure, writeHeader, writeSummary } from './evalReporter.js';
 
 // ---------------------------------------------------------------------------
 // The eval case.
@@ -129,6 +130,7 @@ const caseMatchesFilter =
 
 describe.skipIf(!backend || !caseMatchesFilter)('llm-eval :: live repo (finalize counted suggestions)', () => {
   const allResults: AgentCaseResult[] = [];
+  writeHeader('llm-eval :: live repo (finalize counted suggestions)');
 
   it(`${LIVE_CASE.id} — ${LIVE_CASE.description}`, async () => {
     const b = backend!;
@@ -154,7 +156,9 @@ describe.skipIf(!backend || !caseMatchesFilter)('llm-eval :: live repo (finalize
         console.log('\n(Agent made no changes to the file)\n');
       }
 
-      throw new Error(renderAgentReport(allResults));
+      const report = renderAgentReport(allResults);
+      appendFailure('live repo (finalize counted suggestions)', LIVE_CASE.id, report);
+      throw new Error(report);
     }
 
     const before = LIVE_CASE.workspace['src/agent/loop/finalize.ts'];
@@ -187,8 +191,15 @@ describe.skipIf(!backend || !caseMatchesFilter)('llm-eval :: live repo (finalize
       console.log('\n===================\n');
 
       if (!result.passed) {
-        throw new Error(renderAgentReport(allResults));
+        const report = renderAgentReport(allResults);
+        appendFailure('live repo (finalize counted suggestions)', PLAN_CASE.id, report);
+        throw new Error(report);
       }
     },
   );
+
+  it('summary', () => {
+    const passed = allResults.filter((r) => r.passed).length;
+    writeSummary(passed, allResults.length);
+  });
 });
