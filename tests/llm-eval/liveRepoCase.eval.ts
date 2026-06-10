@@ -106,7 +106,7 @@ const PLAN_CASE = {
     'package.json': LIVE_CASE.workspace['package.json'],
   },
   approvalMode: 'plan' as const,
-  userMessage: LIVE_CASE.userMessage,
+  userMessage: LIVE_CASE.userMessage.replace(' Run the tests when done.', ''),
   maxIterations: 4,
   expect: {
     toolsCalled: [] as string[],
@@ -124,11 +124,21 @@ const PLAN_CASE = {
 const backend = pickAgentBackend();
 
 const CASE_FILTER = process.env.SIDECAR_EVAL_CASE?.split(',').map((s) => s.trim());
+const TAG_FILTER = process.env.SIDECAR_EVAL_TAGS?.split(',').map((s) => s.trim());
+
 const caseMatchesFilter =
   !CASE_FILTER ||
   CASE_FILTER.some((f) => LIVE_CASE.id.includes(f) || PLAN_CASE.id.includes(f));
 
-describe.skipIf(!backend || !caseMatchesFilter)('llm-eval :: live repo (finalize counted suggestions)', () => {
+// Skip the whole suite if a tag filter is set and neither case has all required tags.
+const caseMatchesTagFilter =
+  !TAG_FILTER ||
+  TAG_FILTER.every((t) => LIVE_CASE.tags.includes(t)) ||
+  TAG_FILTER.every((t) => PLAN_CASE.tags.includes(t));
+
+describe.skipIf(!backend || !caseMatchesFilter || !caseMatchesTagFilter)(
+  'llm-eval :: live repo (finalize counted suggestions)',
+  () => {
   const allResults: AgentCaseResult[] = [];
   writeHeader('llm-eval :: live repo (finalize counted suggestions)');
 
