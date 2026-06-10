@@ -134,7 +134,7 @@ export function activate(context: ExtensionContext) {
   void initMcpServer(context);
   initAuditDecorations(context);
   initMemorySetup(context);
-  registerTestModelCommand(context);
+  registerTestModelCommand(context, () => chatProvider);
 
   // Skills Picker + Publish commands
   context.subscriptions.push(

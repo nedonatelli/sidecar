@@ -371,7 +371,7 @@ export interface ExtensionMessage {
   /** Voice input: error message when transcription fails. */
   voiceError?: string;
   batchProgress?: {
-    kind: 'facets' | 'forks';
+    kind: 'facets' | 'forks' | 'eval';
     task: string;
     items: readonly { id: string; label: string; status: 'pending' | 'running' | 'done' | 'error' }[];
     doneCount: number;
