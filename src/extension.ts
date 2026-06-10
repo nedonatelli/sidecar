@@ -36,6 +36,7 @@ import { initAgentModDecoration } from './activation/agentModDecorationSetup.js'
 import { initCodeLens } from './activation/codeLensSetup.js';
 import { initMemorySetup } from './activation/memorySetup.js';
 import { registerTestModelCommand } from './commands/testModelCommand.js';
+import { registerEvalView } from './views/evalView.js';
 
 let chatProvider: ChatViewProvider | undefined;
 
@@ -134,7 +135,8 @@ export function activate(context: ExtensionContext) {
   void initMcpServer(context);
   initAuditDecorations(context);
   initMemorySetup(context);
-  registerTestModelCommand(context, () => chatProvider);
+  const evalProvider = registerEvalView(context);
+  registerTestModelCommand(context, () => evalProvider);
 
   // Skills Picker + Publish commands
   context.subscriptions.push(

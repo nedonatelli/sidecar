@@ -2142,6 +2142,12 @@
           "name": "Project Knowledge Index",
           "icon": "$(database)",
           "when": "config.sidecar.projectKnowledge.enabled"
+        },
+        {
+          "id": "sidecar.eval",
+          "name": "Model Eval",
+          "icon": "$(beaker)",
+          "when": "true"
         }
       ]
     },
@@ -2707,6 +2713,12 @@
         "title": "Test Current Model (Smoke Eval)",
         "category": "SideCar",
         "icon": "$(beaker)"
+      },
+      {
+        "command": "sidecar.eval.openReport",
+        "title": "Open Eval Failure Report",
+        "category": "SideCar",
+        "icon": "$(open-preview)"
       },
       {
         "command": "sidecar.memory.refresh",

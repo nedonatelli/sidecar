@@ -3832,7 +3832,7 @@
 
     const { kind, task, items, doneCount, totalCount } = batchProgressState;
     panel.classList.remove('hidden');
-    title.textContent = kind === 'facets' ? 'Facets' : kind === 'eval' ? 'Model Eval' : 'Forks';
+    title.textContent = kind === 'facets' ? 'Facets' : 'Forks';
     countEl.textContent = doneCount < totalCount ? `${doneCount}/${totalCount}` : '';
     taskEl.textContent = task.length > 80 ? task.slice(0, 80) + '…' : task;
 
