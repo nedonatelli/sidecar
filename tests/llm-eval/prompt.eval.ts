@@ -24,6 +24,11 @@ const backend = pickBackend();
 // Accepts comma-separated IDs or substrings: SIDECAR_EVAL_CASE=rule3,plan-mode
 const CASE_FILTER = process.env.SIDECAR_EVAL_CASE?.split(',').map((s) => s.trim());
 
+// When SIDECAR_EVAL_TAGS is set, only run cases that have ALL specified tags.
+// Mirrors agent.eval.ts: SIDECAR_EVAL_TAGS=smoke skips this whole suite since
+// no prompt cases carry the 'smoke' tag.
+const TAG_FILTER = process.env.SIDECAR_EVAL_TAGS?.split(',').map((s) => s.trim());
+
 // Stable fixture — keeps the expected-version regex in the identity
 // case byte-identical across runs. Everything project-specific
 // (baseUrl, model, etc.) comes from env vars at real run time; this
@@ -43,6 +48,7 @@ describe.skipIf(!backend)(`llm-eval :: base system prompt [${backend?.name ?? 'u
 
   for (const testCase of CASES) {
     if (CASE_FILTER && !CASE_FILTER.some((f) => testCase.id.includes(f))) continue;
+    if (TAG_FILTER && !TAG_FILTER.every((t) => testCase.tags.includes(t))) continue;
     it(`${testCase.id} — ${testCase.description}`, async () => {
       // Resolved lazily inside the test so the suite setup can't
       // dereference `backend` before `skipIf` has a chance to run.

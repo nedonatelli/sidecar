@@ -974,6 +974,8 @@ export const AGENT_CASES: AgentEvalCase[] = [
     id: 'rename-function-across-callers',
     description: 'Agent renames a function and updates all call sites across multiple files',
     tags: ['edit', 'multi-file', 'trajectory', 'regression'],
+    // Extra iterations: 3-file rename may need read+edit per file plus verify grep
+    maxIterations: 12,
     workspace: {
       'src/dateUtils.ts':
         'export function formatDate(d: Date): string {\n' +

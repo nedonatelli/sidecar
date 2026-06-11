@@ -105,6 +105,13 @@ export interface ToolExecutorContext {
    * executeToolUses.ts. When absent (e.g. unit tests), the check is skipped.
    */
   filesReadThisTurn?: Set<string>;
+  /**
+   * Workspace index for the current session. When set, `write_file` and
+   * `edit_file` call `invalidateFile` after each successful disk write so
+   * the next `loadFileContent` call gets fresh content rather than the
+   * stale pre-write cache entry.
+   */
+  workspaceIndex?: import('../../config/workspaceIndex.js').WorkspaceIndex;
 }
 
 export interface ToolExecutor {

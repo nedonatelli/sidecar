@@ -34,6 +34,9 @@
   const MAX_TOOL_OUTPUT_CHARS = 8000;
   // Per-tool-id char counts for truncation tracking (cleared when agent finishes)
   const toolOutputChars = new Map();
+  // Full (untruncated) plain-text content per tool key — populated alongside
+  // toolOutputChars so "Show all" can expand in-place without a round-trip.
+  const toolFullOutput = new Map();
   const installText = document.getElementById('install-text');
   const installBar = document.getElementById('install-bar');
   const cancelInstall = document.getElementById('cancel-install');
@@ -4448,6 +4451,7 @@
         finishAssistantMessage();
         setLoading(false);
         toolOutputChars.clear();
+        toolFullOutput.clear();
         userScrolledUp = false;
         // Clear the persistent resume strip — a successful completion
         // (normal or post-resume) means there's nothing to resume.
@@ -4980,6 +4984,12 @@
             const prevChars = toolOutputChars.get(toolKey) || 0;
             const incoming = event.data.content || '';
 
+            // Accumulate full plain-text output for all non-diff chunks so
+            // "Show all" can expand in-place without an extension round-trip.
+            if (!event.data.isDiff) {
+              toolFullOutput.set(toolKey, (toolFullOutput.get(toolKey) || '') + incoming);
+            }
+
             if (prevChars >= MAX_TOOL_OUTPUT_CHARS) {
               // Already truncated — just tally chars for the final badge
               toolOutputChars.set(toolKey, prevChars + incoming.length);
@@ -5124,22 +5134,26 @@
           const matchedBody2 = matchedTool.querySelector('.tool-call-body');
           if (matchedBody2 && matchedBody2.dataset.truncated === 'true' && totalChars > MAX_TOOL_OUTPUT_CHARS) {
             const hidden = totalChars - MAX_TOOL_OUTPUT_CHARS;
+            const fullText = toolFullOutput.get(toolKey) || null;
             const notice = document.createElement('div');
             notice.className = 'tool-truncation-notice';
-            // Store full output so copy button can access it
-            matchedBody2.dataset.fullOutput = '';
             notice.innerHTML =
               '<span>▸ ' +
               hidden.toLocaleString() +
               ' more chars hidden</span>' +
               '<button class="tool-show-more-btn">Show all</button>';
             notice.querySelector('.tool-show-more-btn').addEventListener('click', () => {
-              vscode.postMessage({ command: 'getFullToolOutput', toolKey });
+              if (fullText !== null) {
+                matchedBody2.textContent = fullText;
+                notice.remove();
+              }
             });
             matchedBody2.appendChild(notice);
             toolOutputChars.delete(toolKey);
+            toolFullOutput.delete(toolKey);
           } else {
             toolOutputChars.delete(toolKey);
+            toolFullOutput.delete(toolKey);
           }
         } else {
           // No matching tool call found — show a standalone result block
@@ -5383,6 +5397,11 @@
               actionBtn.textContent = 'Compacting...';
               actionBtn.disabled = true;
               vscode.postMessage({ command: 'compactContext' });
+            } else if (msg.errorActionCommand === 'retry') {
+              const lastUser = [...messagesContainer.querySelectorAll('.message.user')].pop();
+              if (lastUser) {
+                vscode.postMessage({ command: 'userMessage', text: lastUser.textContent || '' });
+              }
             } else if (msg.errorType === 'model' && msg.errorModel) {
               actionBtn.textContent = 'Installing...';
               actionBtn.disabled = true;
@@ -5390,15 +5409,16 @@
             }
           });
           actionsRow.appendChild(actionBtn);
-          if (msg.errorType === 'timeout' || msg.errorType === 'connection') {
+          // Connection errors: primary button opens Settings; also offer Retry so
+          // the user can attempt again after fixing the config without retyping.
+          if (msg.errorType === 'connection') {
             const retryBtn = document.createElement('button');
             retryBtn.className = 'error-action-btn';
             retryBtn.textContent = 'Retry';
             retryBtn.addEventListener('click', () => {
               const lastUser = [...messagesContainer.querySelectorAll('.message.user')].pop();
               if (lastUser) {
-                const lastText = lastUser.textContent || '';
-                vscode.postMessage({ command: 'userMessage', text: lastText });
+                vscode.postMessage({ command: 'userMessage', text: lastUser.textContent || '' });
               }
             });
             actionsRow.appendChild(retryBtn);

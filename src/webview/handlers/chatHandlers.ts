@@ -491,6 +491,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
       modeToolPermissions: resolved.toolPermissions,
       pendingEdits: state.pendingEdits,
       editTimeline: state.editTimeline,
+      workspaceIndex: state.workspaceIndex ?? undefined,
       steerQueue,
       toolTier: resolveToolTier(turnText),
       episodicMemory: state.episodicMemoryStore ?? undefined,

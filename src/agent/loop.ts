@@ -149,6 +149,13 @@ export interface AgentOptions {
    */
   editTimeline?: EditTimelineStore;
   /**
+   * Workspace index instance. When set, `write_file` and `edit_file`
+   * invalidate the per-file content cache immediately after each
+   * successful write so subsequent turns read fresh content rather
+   * than the stale pre-write entry.
+   */
+  workspaceIndex?: import('./tools/shared.js').ToolExecutorContext['workspaceIndex'];
+  /**
    * Override the tool list sent to the model. Used by the local
    * delegate-task worker to hand the model a read-only subset so it
    * can't attempt writes or recursively re-delegate. When unset, the
@@ -430,7 +437,15 @@ export async function runAgentLoop(
         // steer-driven interrupt (outer still live, inner was aborted
         // by the queue listener). On interrupt: continue the loop so
         // the next iteration drains the queued steer and re-streams.
-        if (signal.aborted) break;
+        if (signal.aborted) {
+          // Surface any tool calls that were queued but never executed so the
+          // user knows what the agent was about to do when they stopped it.
+          if (rawTurn.pendingToolUses.length > 0) {
+            const names = rawTurn.pendingToolUses.map((tu) => `\`${tu.name}\``).join(', ');
+            callbacks.onText(`\n⚠️ Stopped — cancelled in-flight: ${names}\n`);
+          }
+          break;
+        }
         if (options.steerQueue && options.steerQueue.size() > 0) {
           state.logger?.info('Turn aborted by steer interrupt — continuing to next iteration');
           continue;

@@ -43,10 +43,26 @@ const CYCLE_WINDOW = 8;
 const MAX_CYCLE_LEN = 4;
 const MIN_IDENTICAL_REPEATS = 4;
 const MIN_NORMALIZED_REPEATS = 3;
+const WRITE_TARGET_WINDOW = 8;
+const WRITE_TARGET_THRESHOLD = 4;
 
 // Keys checked in priority order to extract a tool's primary resource.
 // The first matching non-empty string value becomes the normalized key.
 const PRIMARY_RESOURCE_KEYS = ['path', 'file_path', 'directory', 'command', 'query', 'pattern', 'url'] as const;
+
+// Tools that mutate workspace files. A repeated file target across these
+// tools across multiple iterations is the "same semantic action, different
+// tool or wording" loop the third-pass thrash detector catches.
+const MUTATION_TOOLS = new Set([
+  'write_file',
+  'edit_file',
+  'delete_file',
+  'create_file',
+  'rename_file',
+  'move_file',
+  'apply_edit',
+  'apply_patch',
+]);
 
 // Read-only tools: repeated calls on the same resource with any secondary-arg
 // variation (e.g. different line ranges) still indicate a stuck loop. The
@@ -204,12 +220,64 @@ export function detectCycleAndBail(
     }
   }
 
+  // --- Third pass: write-target frequency ---
+  // Catches "same file, different approach" loops where the agent alternates
+  // tools (write_file → edit_file → run_command sed …) on the same target,
+  // bypassing both exact and normalized signature checks.
+  const iterationTargets = extractWriteTargets(pendingToolUses);
+  state.recentWriteTargets.push(iterationTargets);
+  if (state.recentWriteTargets.length > WRITE_TARGET_WINDOW) {
+    state.recentWriteTargets.shift();
+  }
+
+  if (state.recentWriteTargets.length >= WRITE_TARGET_THRESHOLD) {
+    const fileCounts = new Map<string, number>();
+    for (const targets of state.recentWriteTargets) {
+      for (const f of targets) {
+        fileCounts.set(f, (fileCounts.get(f) ?? 0) + 1);
+      }
+    }
+    for (const [file, count] of fileCounts) {
+      if (count >= WRITE_TARGET_THRESHOLD) {
+        state.logger?.warn(
+          `Agent loop write-target thrash detected: ${file} targeted in ${count}/${state.recentWriteTargets.length} iterations`,
+        );
+        callbacks.onText(
+          `\n\n⚠️ Agent stopped: \`${file.slice(0, 80)}\` has been the write target in ${count} of the last ` +
+            `${state.recentWriteTargets.length} iterations — try a different approach.\n`,
+        );
+        return true;
+      }
+    }
+  }
+
   return false;
 }
 
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Return the file paths targeted by mutation tools in this iteration.
+ * Deduped per iteration so a single `edit_file` + `write_file` on the same
+ * path counts as one hit, not two.
+ */
+function extractWriteTargets(pendingToolUses: ToolUseContentBlock[]): string[] {
+  const seen = new Set<string>();
+  for (const tu of pendingToolUses) {
+    if (!MUTATION_TOOLS.has(tu.name)) continue;
+    const input = tu.input as Record<string, unknown>;
+    for (const key of PRIMARY_RESOURCE_KEYS) {
+      const v = input[key];
+      if (typeof v === 'string' && v) {
+        seen.add(v);
+        break;
+      }
+    }
+  }
+  return Array.from(seen);
+}
 
 function sortedStringify(value: unknown): string {
   if (value === null || typeof value !== 'object') return JSON.stringify(value);

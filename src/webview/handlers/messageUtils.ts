@@ -291,9 +291,15 @@ export function classifyError(message: string): {
     | 'token_limit'
     | 'unknown';
   errorAction?: string;
-  errorActionCommand?: string;
+  errorActionCommand?: 'openSettings' | 'runCommand' | 'reconnect' | 'compactContext' | 'retry';
 } {
   const lower = message.toLowerCase();
+  // BackendConfigError: permanent configuration failure (wrong key, backend not running).
+  // Must be checked before the generic auth/connection patterns since its message embeds
+  // both "configuration error" AND the original error text (which would also match those).
+  if (lower.includes('configuration error')) {
+    return { errorType: 'auth', errorAction: 'Open Settings', errorActionCommand: 'openSettings' };
+  }
   if (
     lower.includes('econnrefused') ||
     lower.includes('enotfound') ||
@@ -306,7 +312,7 @@ export function classifyError(message: string): {
     return { errorType: 'connection', errorAction: 'Check Connection', errorActionCommand: 'openSettings' };
   }
   if (lower.includes('429') || lower.includes('rate limit') || lower.includes('too many requests')) {
-    return { errorType: 'rate_limit', errorAction: 'Wait and Retry' };
+    return { errorType: 'rate_limit', errorAction: 'Wait and Retry', errorActionCommand: 'retry' };
   }
   if (
     lower.includes('content_policy') ||
@@ -343,12 +349,12 @@ export function classifyError(message: string): {
     lower.includes('service unavailable') ||
     lower.includes('overloaded')
   ) {
-    return { errorType: 'server_error', errorAction: 'Retry' };
+    return { errorType: 'server_error', errorAction: 'Retry', errorActionCommand: 'retry' };
   }
   if (lower.includes('timeout') || lower.includes('timed out') || lower.includes('etimedout')) {
-    return { errorType: 'timeout', errorAction: 'Retry' };
+    return { errorType: 'timeout', errorAction: 'Retry', errorActionCommand: 'retry' };
   }
-  return { errorType: 'unknown' };
+  return { errorType: 'unknown', errorAction: 'Retry', errorActionCommand: 'retry' };
 }
 
 /**

@@ -386,7 +386,14 @@ export class ModelRouter {
    * most-expensive-first and relying on budget exhaustion to walk the
    * list naturally.
    */
-  route(signals: RouteSignals): RouteDecision {
+  /**
+   * @param availableModels When provided, rules whose `model` or `fallbackModel`
+   * is not in this set are skipped — same cascade behaviour as budget exhaustion.
+   * Pass the set of currently installed/loaded model names so a mis-configured
+   * rule pointing at a model that is not installed silently cascades to the next
+   * rule rather than attempting a stream call that would fail with "model not found".
+   */
+  route(signals: RouteSignals, availableModels?: ReadonlySet<string>): RouteDecision {
     for (const rule of this.parsed) {
       if (rule.role !== signals.role) continue;
       if (!filterAccepts(rule.filter, signals)) continue;
@@ -395,6 +402,7 @@ export class ModelRouter {
       // common zero-config case short-circuits without state lookups.
       if (this.isRuleOverBudget(rule)) {
         if (rule.fallbackModel) {
+          if (availableModels && !availableModels.has(rule.fallbackModel)) continue;
           const swap = rule.fallbackModel !== this.activeModel;
           this.activeModel = rule.fallbackModel;
           return { model: rule.fallbackModel, matched: rule, swap, downgraded: true };
@@ -403,6 +411,14 @@ export class ModelRouter {
         // the next matching one. Ordered rule lists give the user an
         // implicit downgrade chain without needing explicit fallbacks
         // everywhere.
+        continue;
+      }
+
+      // Availability check: skip rules whose model is not in the installed set.
+      if (availableModels && !availableModels.has(rule.model)) {
+        console.warn(
+          `[SideCar] modelRouter: rule "${rule.when}" maps to "${rule.model}" which is not installed — skipping`,
+        );
         continue;
       }
 

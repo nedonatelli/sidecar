@@ -28,6 +28,7 @@ export function stubLoopState(overrides: Partial<LoopState> = {}): LoopState {
     recentToolCalls: [],
     episodicMemory: new EpisodicMemoryStore(),
     recentNormalizedCalls: [],
+    recentWriteTargets: [],
     autoFixRetriesByFile: new Map(),
     stubFixRetries: 0,
     actionRepromptCount: 0,

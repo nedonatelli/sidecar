@@ -287,6 +287,34 @@ export function compressMessages(messages: ChatMessage[]): number {
 export type CompressionOutcome = 'ok' | 'exhausted';
 
 /**
+ * Replace the generic "Understood" assistant ack that the summarizer injects
+ * after compression with a structured anchor listing files already modified
+ * and warning against repeating failed approaches. This gives the model an
+ * explicit in-context signal after the old turns have been compressed away.
+ */
+function enhancePostCompressionAck(summaryText: string): string {
+  const base = 'I have reviewed the summarized context.';
+
+  const match = summaryText.match(/## Code changes\n([\s\S]*?)(?=\n##|$)/);
+  const changeLines = match
+    ? match[1]
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l.startsWith('-'))
+    : [];
+
+  if (changeLines.length === 0) {
+    return `${base} I will not retry approaches that have already been attempted and failed.`;
+  }
+
+  return (
+    `${base} Files I have already modified in this session:\n` +
+    changeLines.join('\n') +
+    '\n\nI will build on this existing work rather than starting over, and will not retry approaches that have already failed.'
+  );
+}
+
+/**
  * Run pre-turn compression when the agent is near the token budget.
  * Returns `'exhausted'` when compaction couldn't bring us below the
  * hard ceiling, so the orchestrator knows to stop the loop with a
@@ -309,6 +337,17 @@ export async function applyBudgetCompression(client: SideCarClient, state: LoopS
     });
     if (summarized.freedChars > 0) {
       state.messages.splice(0, state.messages.length, ...summarized.messages);
+
+      // Enhance the assistant acknowledgment (messages[1]) with a concrete
+      // list of already-modified files so the model doesn't restart from
+      // scratch or retry approaches that failed before compression.
+      const ackMsg = state.messages[1];
+      if (ackMsg?.role === 'assistant' && typeof ackMsg.content === 'string') {
+        const summaryMsgForAck = state.messages[0];
+        const summaryForAck = typeof summaryMsgForAck?.content === 'string' ? summaryMsgForAck.content : '';
+        state.messages[1] = { ...ackMsg, content: enhancePostCompressionAck(summaryForAck) };
+      }
+
       state.totalChars -= summarized.freedChars;
       state.logger?.info(
         `Conversation summarized: ${summarized.metadata.turnsSummarized}/${summarized.metadata.turnsCount} turns compressed, freed ${summarized.freedChars} chars`,

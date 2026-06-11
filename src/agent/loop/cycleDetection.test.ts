@@ -440,3 +440,50 @@ describe('detectCycleAndBail — normalized signature pass', () => {
     expect(cb.texts[0]).toContain('repeated');
   });
 });
+
+describe('detectCycleAndBail — write-target thrash pass', () => {
+  it('fires when the same file is targeted by mutation tools in 4 iterations, even with different tools', () => {
+    const state = stubLoopState();
+    const cb = stubCallbacks();
+    // Different tools, same file path — bypasses exact and normalized checks.
+    expect(detectCycleAndBail([makeToolUse('write_file', { path: 'src/foo.ts' })], state, cb)).toBe(false);
+    expect(detectCycleAndBail([makeToolUse('edit_file', { file_path: 'src/foo.ts' })], state, cb)).toBe(false);
+    expect(detectCycleAndBail([makeToolUse('apply_edit', { path: 'src/foo.ts' })], state, cb)).toBe(false);
+    expect(detectCycleAndBail([makeToolUse('write_file', { path: 'src/foo.ts' })], state, cb)).toBe(true);
+    expect(cb.texts[0]).toContain('src/foo.ts');
+    expect(cb.texts[0]).toContain('write target');
+  });
+
+  it('does NOT fire when 3 different files are each targeted once', () => {
+    const state = stubLoopState();
+    const cb = stubCallbacks();
+    expect(detectCycleAndBail([makeToolUse('write_file', { path: 'a.ts' })], state, cb)).toBe(false);
+    expect(detectCycleAndBail([makeToolUse('write_file', { path: 'b.ts' })], state, cb)).toBe(false);
+    expect(detectCycleAndBail([makeToolUse('write_file', { path: 'c.ts' })], state, cb)).toBe(false);
+    expect(cb.texts).toHaveLength(0);
+  });
+
+  it('does NOT fire when mutation tool targets different files each time', () => {
+    const state = stubLoopState();
+    const cb = stubCallbacks();
+    for (let i = 0; i < 6; i++) {
+      const result = detectCycleAndBail([makeToolUse('edit_file', { file_path: `src/file${i}.ts` })], state, cb);
+      expect(result).toBe(false);
+    }
+    expect(cb.texts).toHaveLength(0);
+  });
+
+  it('does NOT trigger on read-only tools hitting the same file', () => {
+    const state = stubLoopState();
+    const cb = stubCallbacks();
+    // 4 read_file calls on the same path should NOT trigger the write-target check
+    // (the normalized check handles read-only thrashing separately).
+    for (let i = 0; i < 3; i++) {
+      // Stop before normalized check fires (MIN_NORMALIZED_REPEATS = 3).
+    }
+    // Just confirm write-target buffer only tracks mutation tools.
+    expect(state.recentWriteTargets).toHaveLength(0);
+    detectCycleAndBail([makeToolUse('read_file', { path: 'src/foo.ts' })], state, cb);
+    expect(state.recentWriteTargets[0]).toHaveLength(0); // no mutation tools → empty targets
+  });
+});

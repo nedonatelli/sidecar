@@ -235,11 +235,28 @@ export function scoreAgentCase(evalCase: AgentEvalCase, run: AgentRun): AgentCas
 // --- trajectory helpers ---
 
 function hasToolCall(trajectory: TrajectoryEvent[], name: string): boolean {
-  return trajectory.some((e) => e.type === 'tool_call' && e.name === name);
+  if (trajectory.some((e) => e.type === 'tool_call' && e.name === name)) return true;
+  // run_command(command="grep ...") counts as calling grep, and similarly for rg/sed/git/etc.
+  // Models that reach for the CLI equivalent satisfy the same intent as the dedicated tool.
+  return trajectory.some(
+    (e) =>
+      e.type === 'tool_call' &&
+      e.name === 'run_command' &&
+      typeof (e.input as Record<string, unknown>)?.command === 'string' &&
+      ((e.input as Record<string, unknown>).command as string).includes(name),
+  );
 }
 
 function firstToolCallIndex(trajectory: TrajectoryEvent[], name: string): number {
-  return trajectory.findIndex((e) => e.type === 'tool_call' && e.name === name);
+  const idx = trajectory.findIndex((e) => e.type === 'tool_call' && e.name === name);
+  if (idx !== -1) return idx;
+  return trajectory.findIndex(
+    (e) =>
+      e.type === 'tool_call' &&
+      e.name === 'run_command' &&
+      typeof (e.input as Record<string, unknown>)?.command === 'string' &&
+      ((e.input as Record<string, unknown>).command as string).includes(name),
+  );
 }
 
 function findToolCallWithPartialInput(

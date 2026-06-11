@@ -189,3 +189,38 @@ export class CircuitBreaker {
 
 /** Process-wide singleton used by SideCarClient. */
 export const circuitBreaker = new CircuitBreaker();
+
+/**
+ * Thrown when a request fails due to a permanent configuration error
+ * (wrong API key, connection refused, DNS failure) rather than a
+ * transient backend outage. These errors should NOT trip the circuit
+ * breaker — the user needs to fix their settings, not wait for a cooldown.
+ */
+export class BackendConfigError extends Error {
+  readonly provider: ProviderType;
+
+  constructor(provider: ProviderType, cause: unknown) {
+    const msg = cause instanceof Error ? cause.message : String(cause);
+    super(`[SideCar] ${provider} configuration error: ${msg}. Check your API key and backend URL in Settings.`);
+    this.name = 'BackendConfigError';
+    this.provider = provider;
+  }
+}
+
+/**
+ * Returns true for errors that indicate a permanent configuration
+ * problem — wrong API key, backend not running, bad hostname — where
+ * tripping the circuit breaker would be counterproductive. The caller
+ * should throw a `BackendConfigError` instead of calling `recordFailure`.
+ */
+export function isPermanentError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+  if (msg.includes('401') || msg.includes('unauthorized') || msg.includes('invalid api key')) return true;
+  if (msg.includes('403') || msg.includes('forbidden')) return true;
+  if (msg.includes('econnrefused') || msg.includes('connection refused')) return true;
+  if (msg.includes('enotfound') || msg.includes('getaddrinfo')) return true;
+  const status = (err as { status?: number }).status ?? (err as { statusCode?: number }).statusCode;
+  if (status === 401 || status === 403) return true;
+  return false;
+}

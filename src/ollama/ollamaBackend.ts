@@ -436,7 +436,7 @@ export class OllamaBackend implements ApiBackend {
           // their chain-of-thought in message.thinking rather than <think>
           // tags inside message.content). Emitting these events keeps the
           // per-event stall timer alive while the model reasons.
-          if (chunk.message.thinking) {
+          if (chunk.message?.thinking) {
             yield { type: 'thinking', thinking: chunk.message.thinking };
           }
 
@@ -444,7 +444,7 @@ export class OllamaBackend implements ApiBackend {
           // and intercepting XML-style text tool calls from models that
           // don't use Ollama's native tool_calls field (e.g. qwen3-coder).
           let emittedToolCallThisChunk = false;
-          if (chunk.message.content) {
+          if (chunk.message?.content) {
             for (const ev of parseThinkTags(chunk.message.content, thinkState)) {
               if (ev.type === 'text') {
                 for (const sub of parseTextToolCallsStream(ev.text, textToolState)) {
@@ -461,7 +461,7 @@ export class OllamaBackend implements ApiBackend {
           }
 
           // Emit native tool calls
-          if (chunk.message.tool_calls) {
+          if (chunk.message?.tool_calls) {
             for (const tc of chunk.message.tool_calls) {
               const toolUse: ToolUseContentBlock = {
                 type: 'tool_use',

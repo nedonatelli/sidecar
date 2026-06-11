@@ -155,6 +155,21 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
     };
   }
 
+  // Plan-mode runtime gate: only ask_user is permitted.
+  // Returns an error block so the model sees the rejection and outputs
+  // its plan as prose instead of retrying the tool call.
+  if (state.approvalMode === 'plan' && toolUse.name !== 'ask_user') {
+    const msg =
+      'Plan mode is active. Tool calls are blocked — output your plan as plain text without calling any tools. Only `ask_user` is permitted in plan mode.';
+    callbacks.onToolResult(toolUse.name, msg, true, toolUse.id);
+    return {
+      type: 'tool_result',
+      tool_use_id: toolUse.id,
+      content: msg,
+      is_error: true,
+    };
+  }
+
   if (toolUse.name === 'spawn_agent') {
     try {
       return await runSpawnAgent(ctx, toolUse);
@@ -202,6 +217,7 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
       mcpManager: state.mcpManager,
       testController: options.testController,
       filesReadThisTurn: ctx.filesReadThisTurn,
+      workspaceIndex: options.workspaceIndex,
     },
     inlineEditFn: options.inlineEditFn,
     streamingDiffPreviewFn: options.streamingDiffPreviewFn,

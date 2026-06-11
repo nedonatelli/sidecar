@@ -762,6 +762,19 @@ export class WorkspaceIndex implements Disposable {
   }
 
   /**
+   * Remove a file's cached content so the next `loadFileContent` call
+   * re-reads it from disk. Call this immediately after the agent writes
+   * or edits a file to prevent subsequent turns from seeing stale content.
+   * (The VS Code FileSystemWatcher also invalidates this cache, but fires
+   * asynchronously — without this call the agent can read stale content
+   * between the write and the watcher event.)
+   */
+  invalidateFile(relativePath: string): void {
+    this.fileContentCache.delete(relativePath);
+    this.parsedFiles.delete(relativePath);
+  }
+
+  /**
    * Decay all relevance scores so old accesses fade over time.
    * Call this at the start of each conversation turn.
    * Uses aggressive decay (0.5) so that when the user changes topic,

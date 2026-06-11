@@ -38,12 +38,14 @@ export function parseTextToolCalls(text: string, tools: ToolDefinition[]): ToolU
   const results: ToolUseContentBlock[] = [];
   let idCounter = 0;
 
-  // Single combined regex matches all four patterns in one pass.
+  // Single combined regex matches the first three patterns in one pass.
   // Groups: (1) function=name, (2) function body,
-  //         (3) tool_call body, (4) json code fence body,
-  //         (5) bare JSON object on its own line
+  //         (3) tool_call body, (4) json code fence body.
+  // Bare JSON (pattern 4) is extracted separately with brace-depth
+  // tracking because the lazy [\s\S]*?\} regex terminates at the first
+  // closing brace, chopping off nested argument objects.
   const combined =
-    /<function=(\w+)>([\s\S]*?)<\/function>|<tool_call>\s*([\s\S]*?)\s*<\/tool_call>|```(?:json)?\s*\n?\s*(\{[\s\S]*?\})\s*\n?\s*```|(?:^|\n)(\{"name"\s*:[\s\S]*?\})\s*(?=\n|$)/g;
+    /<function=(\w+)>([\s\S]*?)<\/function>|<tool_call>\s*([\s\S]*?)\s*<\/tool_call>|```(?:json)?\s*\n?\s*(\{[\s\S]*?\})\s*\n?\s*```/g;
 
   // Track which pattern type matched first (for priority: fn > tool_call > json > bare)
   let firstType: 'fn' | 'tc' | 'json' | 'bare' | null = null;
@@ -97,18 +99,40 @@ export function parseTextToolCalls(text: string, tools: ToolDefinition[]): ToolU
         /* skip malformed */
       }
     }
-    // Pattern 4: bare JSON object on its own line — {"name":"...","parameters":{...}}
-    // Some Ollama models emit tool calls this way without any wrapper tags or fences.
-    // Only match when the object's "name" is a known tool to avoid false positives on
-    // legitimate JSON in the response.
-    else if (match[5] !== undefined) {
-      if (firstType === null) firstType = 'bare';
-      if (firstType !== 'bare') continue;
+  }
+
+  // Pattern 4: bare JSON object on its own line — {"name":"...","parameters":{...}}
+  // Some Ollama models emit tool calls this way without any wrapper tags or fences.
+  // Handled separately with brace-depth tracking so nested argument objects
+  // (e.g. {"name":"x","arguments":{"key":"val"}}) are extracted correctly —
+  // a lazy regex terminates at the first } and chops off the inner object.
+  if (firstType === null) {
+    const lineStart = /(?:^|\n)(\{)/g;
+    let lsMatch;
+    while ((lsMatch = lineStart.exec(text)) !== null) {
+      const start = lsMatch.index + lsMatch[0].length - 1; // position of opening {
+      let depth = 0;
+      let end = -1;
+      for (let i = start; i < text.length; i++) {
+        if (text[i] === '{') depth++;
+        else if (text[i] === '}') {
+          depth--;
+          if (depth === 0) {
+            end = i;
+            break;
+          }
+        }
+      }
+      if (end === -1) continue;
+      const candidate = text.slice(start, end + 1);
+      // Must contain "name" key to avoid grabbing every JSON blob.
+      if (!candidate.includes('"name"')) continue;
       try {
-        const parsed = JSON.parse(match[5]);
+        const parsed = JSON.parse(candidate);
         const name = parsed.name;
         const args = parsed.arguments || parsed.parameters || parsed.input || {};
         if (name && typeof name === 'string' && toolNames.has(name)) {
+          firstType = 'bare';
           const input = typeof args === 'string' ? JSON.parse(args) : args;
           results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
         }

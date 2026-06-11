@@ -439,6 +439,7 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
   }
 
   await workspace.fs.writeFile(fileUri, Buffer.from(content, 'utf-8'));
+  context?.workspaceIndex?.invalidateFile(filePath);
 
   if (context?.onOutput) {
     const patch = computeLineDiff(original ?? '', content, filePath);
@@ -603,6 +604,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
       if (context?.editTimeline && !context.cwd) context.editTimeline.record(filePath, text, inferredText);
 
       await workspace.fs.writeFile(fileUri, Buffer.from(inferredText, 'utf-8'));
+      context?.workspaceIndex?.invalidateFile(filePath);
       return (
         `${unreadPrefix}Applied inferred edit to ${filePath}: the search string didn't match exactly, ` +
         `but I found the closest matching region and replaced it with your content.\n` +
@@ -639,6 +641,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   }
 
   await workspace.fs.writeFile(fileUri, Buffer.from(newText, 'utf-8'));
+  context?.workspaceIndex?.invalidateFile(filePath);
   return `${unreadPrefix}File edited: ${filePath}${partialReplaceWarning}`;
 }
 

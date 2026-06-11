@@ -156,7 +156,24 @@ export const runTestsDef: ToolDefinition = {
 };
 
 export async function runCommand(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
-  const command = input.command as string;
+  const command = input.command as string | undefined;
+
+  if (!command && !input.command_id) {
+    return (
+      'Error: run_command requires either `command` (a shell string to execute) or `command_id` ' +
+      '(the ID returned by a previous background call). Neither was provided.\n' +
+      'Example: run_command({command: "ls -la"}) or run_command({command_id: "bg-abc123"})'
+    );
+  }
+  if (command && input.command_id) {
+    return 'Error: `command` and `command_id` are mutually exclusive — provide one, not both.';
+  }
+  if (input.background && !command) {
+    return (
+      'Error: `background: true` requires a `command` string to run.\n' +
+      'Example: run_command({command: "npm install", background: true})'
+    );
+  }
 
   // Command filter check (used by delegate_task worker to restrict to read-only commands)
   if (command && !input.command_id && context?.commandFilter && !context.commandFilter(command)) {
@@ -174,16 +191,21 @@ export async function runCommand(input: Record<string, unknown>, context?: ToolE
     return `${header}\n\nOutput:\n${status.output || '(no output yet)'}`;
   }
 
+  // After the validation guards above, `command` is guaranteed to be a string
+  // for every path that reaches here (command_id and background+no-command both
+  // return early from the guards). Cast once to avoid repetitive `!` assertions.
+  const cmd = command as string;
+
   // Start a background command — always ShellSession (no terminal equivalent)
   if (input.background) {
     const session = resolveShellSession(context);
-    const id = session.executeBackground(command);
+    const id = session.executeBackground(cmd);
     return `Background command started with ID: ${id}\nUse run_command with command_id="${id}" to check on it.`;
   }
 
   const config = context?.config ?? getConfig();
   const timeoutMs = ((input.timeout as number) || config.shellTimeout || 120) * 1000;
-  return executeShell(command, timeoutMs, context);
+  return executeShell(cmd, timeoutMs, context);
 }
 
 export async function runTests(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {

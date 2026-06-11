@@ -108,10 +108,11 @@ describe('classifyError', () => {
     expect(classifyError('connect ETIMEDOUT').errorType).toBe('timeout');
   });
 
-  it('returns unknown for unrecognized errors', () => {
+  it('returns unknown for unrecognized errors with a Retry action', () => {
     const result = classifyError('Something weird happened');
     expect(result.errorType).toBe('unknown');
-    expect(result.errorAction).toBeUndefined();
+    expect(result.errorAction).toBe('Retry');
+    expect(result.errorActionCommand).toBe('retry');
   });
 
   it('is case insensitive', () => {

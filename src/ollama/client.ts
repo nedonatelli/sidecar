@@ -13,7 +13,7 @@ import { isLocalOllama, detectProvider, getConfig } from '../config/settings.js'
 import { MODEL_CONTEXT_LENGTHS } from '../config/constants.js';
 import { RateLimitStore } from './rateLimitState.js';
 import { spendTracker } from './spendTracker.js';
-import { circuitBreaker } from './circuitBreaker.js';
+import { circuitBreaker, isPermanentError, BackendConfigError } from './circuitBreaker.js';
 import { ModelRouter, type RouteSignals, type RouteDecision } from './modelRouter.js';
 import { ModelUsageLog, type ModelUsageEntry } from './modelUsageLog.js';
 export type { ModelUsageEntry } from './modelUsageLog.js';
@@ -85,6 +85,36 @@ export interface PullProgress {
   completed?: number;
 }
 
+/** Returns true when a URL targets a local host (Ollama/Kickstand pattern). */
+function isLocalUrl(url: string): boolean {
+  try {
+    const { hostname } = new URL(url);
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname === '0.0.0.0';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Lightweight reachability probe for local backends. Sends a GET request with
+ * a 2-second timeout — any HTTP response (including 4xx/5xx) counts as
+ * "reachable"; a network error (ECONNREFUSED, ENOTFOUND, timeout) returns false.
+ */
+async function probeFallbackHealth(baseUrl: string, timeoutMs = 2000): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      await fetch(`${baseUrl}/api/tags`, { method: 'GET', signal: controller.signal });
+      return true;
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch {
+    return false;
+  }
+}
+
 export class SideCarClient {
   private model: string;
   private systemPrompt: string;
@@ -126,6 +156,14 @@ export class SideCarClient {
    * reset.
    */
   private preOverrideModel: string | null = null;
+
+  /**
+   * Cache of known-installed model names. Populated as a side-effect of
+   * every `listInstalledModels()` call so routing availability checks can
+   * use it synchronously without a separate async fetch. `undefined` until
+   * the first `listInstalledModels()` call completes.
+   */
+  private _cachedModelNames: Set<string> | undefined = undefined;
 
   private _usageLog = new ModelUsageLog();
   /** Public so tests can reference the same constant instead of hardcoding. */
@@ -298,8 +336,9 @@ export class SideCarClient {
         }
       }
 
+      if (isPermanentError(err)) throw new BackendConfigError(this.getProviderType(), err);
       circuitBreaker.recordFailure(this.getProviderType());
-      if (this.switchToFallback()) {
+      if (await this.switchToFallback()) {
         console.warn(`[SideCar] Primary backend failed, switching to fallback: ${(err as Error).message}`);
         yield { type: 'warning', message: 'Primary backend unavailable — using fallback.' };
         circuitBreaker.guard(this.getProviderType());
@@ -371,8 +410,9 @@ export class SideCarClient {
         }
       }
 
+      if (isPermanentError(err)) throw new BackendConfigError(this.getProviderType(), err);
       circuitBreaker.recordFailure(this.getProviderType());
-      if (this.switchToFallback()) {
+      if (await this.switchToFallback()) {
         console.warn(`[SideCar] Primary backend failed, switching to fallback: ${(err as Error).message}`);
         circuitBreaker.guard(this.getProviderType());
         const result = await this.backend.complete(this.model, this.systemPrompt, messages, maxTokens, signal);
@@ -422,13 +462,25 @@ export class SideCarClient {
   /**
    * Try switching to the fallback backend after consecutive failures.
    * Returns true if switched (caller should retry), false if no fallback available.
+   *
+   * For local fallback URLs (Ollama/Kickstand on localhost) a lightweight
+   * connectivity probe fires first — if the fallback is also unreachable we
+   * skip the switch immediately rather than wasting a full round-trip.
    */
-  private switchToFallback(): boolean {
+  private async switchToFallback(): Promise<boolean> {
     this.consecutiveFailures++;
     if (this.consecutiveFailures < SideCarClient.FALLBACK_THRESHOLD) return false;
 
     const config = getConfig();
     if (!config.fallbackBaseUrl || this.usingFallback) return false;
+
+    if (isLocalUrl(config.fallbackBaseUrl)) {
+      const reachable = await probeFallbackHealth(config.fallbackBaseUrl);
+      if (!reachable) {
+        console.warn(`[SideCar] Fallback backend unreachable (health probe failed): ${config.fallbackBaseUrl}`);
+        return false;
+      }
+    }
 
     // Save primary state and switch
     this.primaryBaseUrl = this.baseUrl;
@@ -527,13 +579,23 @@ export class SideCarClient {
    * the backend call picks up the swapped model), then consult the
    * return value to decide whether to surface a visible-swap toast.
    */
+  /**
+   * Synchronous snapshot of the last-known installed model names, populated
+   * as a side-effect of `listInstalledModels()`. Used by `routeForDispatch`
+   * to skip routing rules whose target model is not currently available.
+   * Returns `undefined` until the first `listInstalledModels()` call completes.
+   */
+  getKnownModelNames(): Set<string> | undefined {
+    return this._cachedModelNames;
+  }
+
   routeForDispatch(signals: RouteSignals): RouteDecision | null {
     // Sentinel-pinned turn takes precedence over the router. Returning
     // null signals callers to use `this.model` directly — which
     // `setTurnOverride` has already set to the target.
     if (this.turnOverride) return null;
     if (!this.router) return null;
-    const decision = this.router.route(signals);
+    const decision = this.router.route(signals, this._cachedModelNames);
     if (decision.model !== this.model) {
       this.model = decision.model;
     }
@@ -748,6 +810,12 @@ export class SideCarClient {
   }
 
   async listInstalledModels(): Promise<InstalledModel[]> {
+    const result = await this._listInstalledModelsInner();
+    this._cachedModelNames = new Set(result.map((m) => m.name));
+    return result;
+  }
+
+  private async _listInstalledModelsInner(): Promise<InstalledModel[]> {
     const provider = this.getProviderType();
 
     if (provider === 'copilot') {

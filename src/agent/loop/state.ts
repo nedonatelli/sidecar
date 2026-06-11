@@ -103,6 +103,12 @@ export interface LoopState {
   // repeated" (stuck loop).
   recentNormalizedCalls: NormalizedEntry[];
 
+  // Per-iteration write-target ring buffer for the third-pass thrash detector.
+  // Each element is the list of file paths targeted by mutation tools in that
+  // iteration. cycleDetection.ts is the only writer; it fires when the same
+  // file appears in more iterations than WRITE_TARGET_THRESHOLD within the window.
+  recentWriteTargets: string[][];
+
   // Per-file auto-fix retry counter. autoFix.ts is the only writer.
   autoFixRetriesByFile: Map<string, number>;
 
@@ -210,6 +216,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     episodicMemory: options.episodicMemory ?? new EpisodicMemoryStore(),
     recentToolCalls: [],
     recentNormalizedCalls: [],
+    recentWriteTargets: [],
     autoFixRetriesByFile: new Map<string, number>(),
     stubFixRetries: 0,
     actionRepromptCount: 0,
