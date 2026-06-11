@@ -41,6 +41,8 @@ export interface GateState {
   noReadRepromptFired: boolean;
   /** True once the no-shell-on-metric-query reprompt has fired (fires at most once). */
   noShellRepromptFired: boolean;
+  /** True once the no-write-on-named-file reprompt has fired (fires at most once). */
+  noFileWriteRepromptFired: boolean;
 }
 
 export function createGateState(): GateState {
@@ -52,6 +54,7 @@ export function createGateState(): GateState {
     gateInjections: 0,
     noReadRepromptFired: false,
     noShellRepromptFired: false,
+    noFileWriteRepromptFired: false,
   };
 }
 
@@ -429,5 +432,66 @@ export function buildNoShellReprompt(messages: ChatMessage[]): string | null {
     'Your response answered a workspace metric question (file count, line count, version, etc.) ' +
     'without running a shell command. Your training data does not reflect the current state of this project. ' +
     'Run the appropriate command (find, wc -l, jq, rg --count, etc.) and answer from the actual output.'
+  );
+}
+
+// ---------------------------------------------------------------------------
+// No-write-on-named-file gate
+//
+// Fires once when the user's message explicitly names a file AND uses
+// write-intent language (add, extend, update, modify, edit, implement,
+// create, fix, change) near that file, but the agent calls done without
+// having written to it. Catches the "finish after the first part" failure
+// mode where a model implements the feature but skips writing the test file
+// (or vice versa) even though the user named both.
+//
+// Conservative by design: only fires when write-intent language is present
+// in the message so read-only requests ("read src/foo.ts and explain…") do
+// not trigger a spurious reprompt.
+// ---------------------------------------------------------------------------
+
+/**
+ * Write-intent verbs that signal the user wants the named file to be
+ * modified (not just read for context).
+ */
+const WRITE_INTENT_RE =
+  /\b(add|extend|update|modify|edit|implement|create|fix|change|write|insert|append|refactor|rename|delete|remove)\b/i;
+
+/**
+ * Returns a reprompt string listing files that were mentioned in the user's
+ * message with write intent but were never written by the agent. Returns
+ * null when no reprompt is needed.
+ */
+export function buildNoFileWriteReprompt(messages: ChatMessage[], editedFiles: Set<string>): string | null {
+  const userText = firstUserText(messages);
+  if (!userText) return null;
+  if (!WRITE_INTENT_RE.test(userText)) return null;
+
+  const mentioned = userText.match(FILE_MENTION_RE);
+  if (!mentioned) return null;
+
+  // Normalise mentioned paths: strip leading backticks/quotes, drop pure
+  // directory tokens (no extension), collapse to basename for matching so
+  // "src/deps/semver.test.ts" matches an editedFiles entry of "semver.test.ts"
+  // regardless of how the sandbox rooted it.
+  const unwritten: string[] = [];
+  for (const raw of mentioned) {
+    const clean = raw.replace(/[`'"]/g, '');
+    // Skip if the agent wrote any path that ends with the same basename.
+    const base = clean.split('/').pop() ?? clean;
+    const wasWritten =
+      editedFiles.has(clean) ||
+      editedFiles.has(base) ||
+      [...editedFiles].some((f) => f.endsWith('/' + base) || f === base);
+    if (!wasWritten) unwritten.push(clean);
+  }
+
+  if (unwritten.length === 0) return null;
+
+  const fileList = unwritten.map((f) => `\`${f}\``).join(', ');
+  return (
+    `Your task mentioned ${fileList} but you finished without writing to ${unwritten.length === 1 ? 'it' : 'any of them'}. ` +
+    `If the task required changes to ${unwritten.length === 1 ? 'that file' : 'those files'}, make them now. ` +
+    `If you already completed everything the task asked for, ignore this and call done again.`
   );
 }

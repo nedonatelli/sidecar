@@ -8,6 +8,7 @@ import {
   buildGateInjection,
   buildNoReadReprompt,
   buildNoShellReprompt,
+  buildNoFileWriteReprompt,
   findColocatedTest,
 } from './completionGate.js';
 
@@ -563,5 +564,53 @@ describe('completionGate — buildNoShellReprompt', () => {
   it('returns null for a non-metric question mentioning src/', () => {
     const msgs = [userMsg('Explain how the agent loop in src/ works.')];
     expect(buildNoShellReprompt(msgs)).toBeNull();
+  });
+});
+
+describe('completionGate — buildNoFileWriteReprompt', () => {
+  const userMsg = (text: string) => ({ role: 'user' as const, content: [{ type: 'text' as const, text }] });
+
+  it('fires when user asks to extend a test file but it was never written', () => {
+    const msgs = [userMsg('Extend `src/deps/semver.test.ts` with a describe block for semverLte.')];
+    const edited = new Set<string>(['src/deps/semver.ts']);
+    expect(buildNoFileWriteReprompt(msgs, edited)).toContain('semver.test.ts');
+  });
+
+  it('returns null when the mentioned file was written', () => {
+    const msgs = [userMsg('Add semverLte to `src/deps/semver.ts` and extend `src/deps/semver.test.ts`.')];
+    const edited = new Set<string>(['src/deps/semver.ts', 'src/deps/semver.test.ts']);
+    expect(buildNoFileWriteReprompt(msgs, edited)).toBeNull();
+  });
+
+  it('returns null when message has no write-intent language', () => {
+    const msgs = [userMsg('Read `src/deps/semver.ts` and explain what semverGt does.')];
+    const edited = new Set<string>();
+    expect(buildNoFileWriteReprompt(msgs, edited)).toBeNull();
+  });
+
+  it('returns null when no file is mentioned', () => {
+    const msgs = [userMsg('Add error handling to the function.')];
+    const edited = new Set<string>();
+    expect(buildNoFileWriteReprompt(msgs, edited)).toBeNull();
+  });
+
+  it('matches by basename when editedFiles uses a different root', () => {
+    const msgs = [userMsg('Update `src/config/tokenEstimation.test.ts` with new tests.')];
+    const edited = new Set<string>(['tokenEstimation.test.ts']);
+    expect(buildNoFileWriteReprompt(msgs, edited)).toBeNull();
+  });
+
+  it('fires for multiple unwritten files and lists them', () => {
+    const msgs = [userMsg('Add semverLte to `src/deps/semver.ts` and tests to `src/deps/semver.test.ts`.')];
+    const edited = new Set<string>();
+    const result = buildNoFileWriteReprompt(msgs, edited);
+    expect(result).toContain('semver.ts');
+    expect(result).toContain('semver.test.ts');
+  });
+
+  it('returns null when editedFiles is empty but there is no write-intent', () => {
+    const msgs = [userMsg('Show me what is in `src/foo.ts`.')];
+    const edited = new Set<string>();
+    expect(buildNoFileWriteReprompt(msgs, edited)).toBeNull();
   });
 });

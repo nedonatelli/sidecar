@@ -7,6 +7,7 @@ import {
   buildGateInjection,
   buildNoReadReprompt,
   buildNoShellReprompt,
+  buildNoFileWriteReprompt,
 } from '../completionGate.js';
 import type { LoopState } from './state.js';
 
@@ -109,6 +110,20 @@ export async function maybeInjectCompletionGate(
       gateState.noShellRepromptFired = true;
       logger?.info('No-shell gate fired — workspace metric query answered without a shell command');
       callbacks.onText('\n\n🔍 Running shell command to get live data...\n');
+      state.messages.push({ role: 'user', content: [{ type: 'text' as const, text: reprompt }] });
+      return 'injected';
+    }
+  }
+
+  // Check: file explicitly named in user request with write intent, but never written to.
+  // Fires at most once per run; uses a gentle "if required, make them now" framing so
+  // the model can skip it when the file genuinely wasn't part of the task.
+  if (!gateState.noFileWriteRepromptFired && config.completionGateEnabled !== false) {
+    const reprompt = buildNoFileWriteReprompt(state.messages, gateState.editedFiles);
+    if (reprompt) {
+      gateState.noFileWriteRepromptFired = true;
+      logger?.info('No-file-write gate fired — named file(s) not written');
+      callbacks.onText('\n\n📝 Checking named files were written...\n');
       state.messages.push({ role: 'user', content: [{ type: 'text' as const, text: reprompt }] });
       return 'injected';
     }
