@@ -141,6 +141,8 @@ export interface AgentExpectations {
     matchesRegex?: Array<{ path: string; patterns: RegExp[] }>;
     /** File's content, after the run, must exactly equal the expected string. */
     equal?: Array<{ path: string; content: string }>;
+    /** File must not have been modified — its post-run content must equal the pre-run content from the workspace fixture. */
+    notModified?: string[];
   };
   /** Assistant final-text predicates (case-insensitive substring). */
   finalTextContains?: string[];

@@ -39,7 +39,12 @@ interface AgentRun {
   iterationsUsed: number;
 }
 
-function collectFailures(expect: AgentExpectations, run: AgentRun, out: string[]): void {
+function collectFailures(
+  expect: AgentExpectations,
+  run: AgentRun,
+  out: string[],
+  workspaceBefore?: WorkspaceFixture,
+): void {
   // --- trajectory: tools called ---
   if (expect.toolsCalled) {
     for (const name of expect.toolsCalled) {
@@ -142,6 +147,15 @@ function collectFailures(expect: AgentExpectations, run: AgentRun, out: string[]
       }
     }
   }
+  if (expect.files?.notModified) {
+    for (const p of expect.files.notModified) {
+      const before = workspaceBefore?.[p];
+      const after = run.workspaceAfter[p];
+      if (before !== undefined && after !== undefined && after !== before) {
+        out.push(`files.notModified: "${p}" was modified by the agent`);
+      }
+    }
+  }
 
   // --- final assistant text ---
   if (expect.finalTextContains) {
@@ -212,10 +226,11 @@ export function scoreAgentCase(evalCase: AgentEvalCase, run: AgentRun): AgentCas
   const softFailures: string[] = [];
   const { expect } = evalCase;
 
-  collectFailures(expect, run, failures);
+  const workspaceBefore = evalCase.workspace as WorkspaceFixture | undefined;
+  collectFailures(expect, run, failures, workspaceBefore);
 
   if (evalCase.softExpect) {
-    collectFailures(evalCase.softExpect, run, softFailures);
+    collectFailures(evalCase.softExpect, run, softFailures, workspaceBefore);
   }
 
   return {
