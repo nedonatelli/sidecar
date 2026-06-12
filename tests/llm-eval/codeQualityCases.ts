@@ -228,8 +228,9 @@ export const CODE_QUALITY_CASES: AgentEvalCase[] = [
     tags: ['edit', 'stub-validator', 'regression'],
     workspace: {
       'src/math.ts':
-        '// Math utilities\n\n' +
-        'export function add(a: number, b: number): number { return a + b; }\n',
+        'export function add(a: number, b: number): number {\n' +
+        '  return a + b;\n' +
+        '}\n',
     },
     userMessage:
       'Add a `multiply(a: number, b: number): number` function to src/math.ts that returns the product of a and b. ' +

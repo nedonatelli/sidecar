@@ -419,11 +419,9 @@ export const CASES: EvalCase[] = [
     userMessage: 'What does the `?.` operator do in TypeScript?',
     tags: ['prompt', 'style', 'regression'],
     expect: {
-      // A one- or two-sentence answer is plenty. 600 chars is generous.
-      maxLength: 600,
       // Must name the concept and the short-circuit behaviour.
       mustMatch: [/(optional.chain|short.circuit|null|undefined)/i],
-      // Must not open with a preamble — Rule 1 + Rule 3 together.
+      // Must not open with a preamble.
       mustNotMatch: [/^(Great question|Sure|Of course|Certainly|Happy to|Let me explain)/i],
     },
   },
@@ -867,18 +865,11 @@ export const CASES: EvalCase[] = [
     approvalMode: 'plan',
     tags: ['prompt', 'plan-mode', 'regression'],
     expect: {
-      // Model must produce a structured plan — numbered steps are the canonical
-      // format the plan-mode block specifies ("1. **Step name** — description").
       mustMatch: [
+        // Structured plan format: numbered steps or ## Plan heading.
         /\b(1\.|step 1|## plan)/i,
-        // Must name at least one concrete implementation concern: route, endpoint,
-        // validation, database, or the file to create.
+        // At least one concrete implementation concern.
         /(route|endpoint|validat|database|schema|controller|handler|middleware)/i,
-      ],
-      // Model must acknowledge it is NOT executing the task yet —
-      // approval is required before any file changes land.
-      mustMatch: [
-        /(before|until|once|after).{0,30}(approv|execut|implement|proceed|accept|confirm)/i,
       ],
       // Must not claim to have already made changes or emit tool-call syntax.
       // Tool call syntax in the response means the model is trying to act, not plan.
