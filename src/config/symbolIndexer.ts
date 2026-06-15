@@ -13,7 +13,7 @@ import type { SymbolEmbeddingIndex } from './symbolEmbeddingIndex.js';
 
 const CACHE_FILE = 'cache/symbol-graph.json';
 const MAX_FILE_SIZE = 100 * 1024; // 100KB
-const MAX_JSON_SIZE = 5 * 1024 * 1024; // 5MB persistence limit
+const MAX_JSON_SIZE = 50 * 1024 * 1024; // 50MB persistence limit
 const CODE_EXTENSIONS = new Set([
   '.ts',
   '.tsx',
