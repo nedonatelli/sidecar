@@ -70,6 +70,7 @@ export const projectKnowledgeSearchDef: ToolDefinition = {
     },
     required: ['query'],
   },
+  nondeterministicOutput: true,
 };
 
 export async function projectKnowledgeSearch(input: Record<string, unknown>): Promise<string> {

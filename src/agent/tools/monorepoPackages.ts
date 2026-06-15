@@ -15,6 +15,7 @@ const definition: ToolDefinition = {
     properties: {},
     required: [],
   },
+  nondeterministicOutput: true,
 };
 
 export const monorepoPackagesTool: RegisteredTool = {

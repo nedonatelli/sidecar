@@ -29,6 +29,7 @@ export const searchFilesDef: ToolDefinition = {
     },
     required: ['pattern'],
   },
+  nondeterministicOutput: true,
 };
 
 export const grepDef: ToolDefinition = {
@@ -45,6 +46,7 @@ export const grepDef: ToolDefinition = {
     },
     required: ['pattern'],
   },
+  nondeterministicOutput: true,
 };
 
 export const findReferencesDef: ToolDefinition = {
@@ -70,6 +72,7 @@ export const findReferencesDef: ToolDefinition = {
     },
     required: ['symbol'],
   },
+  nondeterministicOutput: true,
 };
 
 export async function searchFiles(input: Record<string, unknown>): Promise<string> {

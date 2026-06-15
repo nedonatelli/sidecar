@@ -194,6 +194,7 @@ export const checkPrCiDef: ToolDefinition = {
     properties: {},
     required: [],
   },
+  nondeterministicOutput: true,
 };
 
 export async function checkPrCiTool(_input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {

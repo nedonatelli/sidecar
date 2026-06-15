@@ -58,6 +58,7 @@ export const analyzeCiFailureDef: ToolDefinition = {
     },
     required: [],
   },
+  nondeterministicOutput: true,
 };
 
 export async function analyzeCiFailureTool(
