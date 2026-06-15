@@ -1,4 +1,5 @@
 import { workspace, ExtensionContext } from 'vscode';
+import { getConfig } from '../config/settings.js';
 import { TerminalManager } from '../terminal/manager.js';
 import { ProposedContentProvider } from '../edits/proposedContentProvider.js';
 import { AgentLogger } from '../agent/logger.js';
@@ -48,6 +49,19 @@ export function initBaseServices(context: ExtensionContext, config: SideCarConfi
     },
   );
   context.subscriptions.push(diagnosticSubscriber);
+
+  context.subscriptions.push(
+    workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('sidecar.diagnostics')) {
+        const cfg = getConfig();
+        diagnosticSubscriber.reconfigure({
+          enabled: cfg.diagnosticsReactiveFixEnabled,
+          debounceMs: cfg.diagnosticsReactiveFixDebounceMs,
+          severity: cfg.diagnosticsReactiveFixSeverity,
+        });
+      }
+    }),
+  );
 
   return { terminalManager, proposedContentProvider, agentLogger, mcpManager };
 }

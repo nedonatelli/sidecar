@@ -180,6 +180,8 @@ export const languages = {
   registerInlineCompletionItemProvider: () => ({ dispose: () => {} }),
   createDiagnosticCollection: (name: string) => new MockDiagnosticCollection(name),
   registerCodeLensProvider: () => ({ dispose: () => {} }),
+  registerCodeActionsProvider: () => ({ dispose: () => {} }),
+  onDidChangeDiagnostics: (_listener: unknown) => ({ dispose: () => {} }),
 };
 
 export class Diagnostic {

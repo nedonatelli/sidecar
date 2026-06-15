@@ -38,6 +38,30 @@ export class DiagnosticSubscriber implements Disposable {
   }
 
   /**
+   * Apply a new configuration without recreating the subscriber. If `enabled`
+   * changed, the diagnostic listener is subscribed or unsubscribed accordingly.
+   * Pending debounce timers are cleared so stale callbacks don't fire under the
+   * old severity threshold.
+   */
+  reconfigure(newConfig: DiagnosticSubscriberConfig): void {
+    const wasEnabled = this.config.enabled;
+    this.config = newConfig;
+    this.severityThreshold = newConfig.severity === 'error' ? DiagnosticSeverity.Error : DiagnosticSeverity.Warning;
+
+    for (const timer of this.debounceTimers.values()) clearTimeout(timer);
+    this.debounceTimers.clear();
+
+    if (!wasEnabled && newConfig.enabled) {
+      this.disposable = languages.onDidChangeDiagnostics((event) => {
+        this.handleDiagnosticChange(event.uris);
+      });
+    } else if (wasEnabled && !newConfig.enabled) {
+      this.disposable?.dispose();
+      this.disposable = undefined;
+    }
+  }
+
+  /**
    * Handle a batch of URI diagnostics changes.
    * Filters to URIs with diagnostics at or above the configured severity,
    * then debounces the callback for each URI individually.
