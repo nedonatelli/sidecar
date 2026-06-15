@@ -13,7 +13,18 @@ import { tokensToChars } from '../config/tokenEstimation.js';
  * consecutive calls with identical inputs, or (b) carries user
  * intent that would be damaged by collapsing duplicates.
  */
-const DEDUP_EXEMPT_TOOLS = new Set(['read_file', 'get_diagnostics', 'git_diff', 'git_status']);
+const DEDUP_EXEMPT_TOOLS = new Set([
+  'read_file',
+  'list_directory',
+  'get_diagnostics',
+  'git_diff',
+  'git_status',
+  'git_search_history',
+  'run_command',
+  'run_tests',
+  'web_search',
+  'check_dependencies',
+]);
 
 /**
  * Lossy-but-bounded prompt pruning applied before sending to paid backends.

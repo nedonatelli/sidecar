@@ -319,6 +319,7 @@ export const deleteFileDef: ToolDefinition = {
 
 export const listDirectoryDef: ToolDefinition = {
   name: 'list_directory',
+  nondeterministicOutput: true,
   description:
     'List the files and folders in a directory, one entry per line with type markers. ' +
     'Use when orienting yourself in an unfamiliar project, or when you need to confirm a file exists before reading it. ' +

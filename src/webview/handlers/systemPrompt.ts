@@ -192,7 +192,7 @@ export async function injectSystemContext(
   // rebuilt fresh on every turn — pinned content is never part of message
   // history that compression could elide.
   if (state.pinnedMemoryStore?.isReady()) {
-    const entries = state.pinnedMemoryStore.getEntries();
+    const entries = state.pinnedMemoryStore.getEntries().slice(0, config.pinnedMemoryMaxPins);
     const maxCharsPerPin = config.pinnedMemoryMaxCharsPerPin;
     const pinnedLines: string[] = [];
     for (const entry of entries) {
@@ -235,6 +235,20 @@ export async function injectSystemContext(
     }
   }
   sizes['Team memory'] = prompt.length - prevLen;
+  prevLen = prompt.length;
+
+  // Visual verify guidance — tells the agent how to treat failures and caps attempts.
+  if (config.visualVerifyEnabled) {
+    const modeDesc =
+      config.visualVerifyMode === 'strict'
+        ? 'treat failures as blocking — do not proceed past a failed visual check'
+        : config.visualVerifyMode === 'advisory'
+          ? 'treat failures as advisory — note them but always continue'
+          : 'surface failures as warnings but continue the task';
+    prompt = ensureBoundary(prompt);
+    prompt += `\n\nVisual verification mode: ${modeDesc}. Make at most ${config.visualVerifyMaxAttempts} correction attempt(s) per screenshot check before giving up.`;
+  }
+  sizes['Visual verify guidance'] = prompt.length - prevLen;
   prevLen = prompt.length;
 
   // Skill injection — only in trusted workspaces because .sidecar/skills/
@@ -340,7 +354,7 @@ export async function injectSystemContext(
       const graphExpansion = config.retrievalGraphExpansionEnabled
         ? {
             maxDepth: config.projectKnowledgeGraphWalkDepth,
-            maxGraphHits: config.projectKnowledgeMaxGraphHits,
+            maxGraphHits: config.retrievalGraphExpansionMaxHits,
           }
         : undefined;
       retrievers.push(

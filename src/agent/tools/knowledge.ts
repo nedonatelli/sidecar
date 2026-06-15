@@ -12,6 +12,7 @@ import { getConfig } from '../../config/settings.js';
 
 export const webSearchDef: ToolDefinition = {
   name: 'web_search',
+  nondeterministicOutput: true,
   description:
     'Search the web and return titles, URLs, and snippets. ' +
     'Use to find current documentation, solutions to error messages, library API references, or any information not in the local codebase. ' +

@@ -57,7 +57,6 @@ export interface WebviewMessage {
     | 'initProject'
     | 'bgStart'
     | 'bgStop'
-    | 'bgList'
     | 'forkStart'
     | 'arenaStart'
     | 'arenaAgentStart'
@@ -195,7 +194,6 @@ export interface ExtensionMessage {
     | 'bgStatusUpdate'
     | 'bgOutput'
     | 'bgComplete'
-    | 'bgList'
     | 'resumeAvailable'
     | 'steerQueueUpdate'
     | 'editPlanCard'
@@ -290,16 +288,6 @@ export interface ExtensionMessage {
     error?: string;
     toolCalls: number;
   };
-  bgRuns?: {
-    id: string;
-    task: string;
-    status: string;
-    startedAt: number;
-    completedAt?: number;
-    output: string;
-    error?: string;
-    toolCalls: number;
-  }[];
   bgRunId?: string;
   /**
    * Steer count carried on `resumeAvailable` so the persistent resume

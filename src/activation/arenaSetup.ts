@@ -5,9 +5,11 @@ import { openArena, openArenaAgent } from '../arena/arenaCommands.js';
 import type { SideCarClient } from '../ollama/client.js';
 import type { SidecarDir } from '../config/sidecarDir.js';
 import type { ForkReviewDeps } from '../agent/fork/forkReview.js';
+import type { MCPManager } from '../agent/mcpManager.js';
 import { GitCLI } from '../github/git.js';
 import * as os from 'os';
 import * as fsPromises from 'fs/promises';
+import { getConfig } from '../config/settings.js';
 
 /**
  * Register the two arena commands:
@@ -21,7 +23,11 @@ export function registerArenaCommands(
   context: ExtensionContext,
   createClient: () => SideCarClient,
   sidecarDir: SidecarDir | undefined,
+  mcpManager?: MCPManager,
 ): void {
+  const config = getConfig();
+  if (!config.arenaEnabled) return;
+
   const eloPath = sidecarDir
     ? sidecarDir.getPath('arena', 'elo.json')
     : path.join(os.homedir(), '.sidecar', 'arena', 'elo.json');
@@ -33,7 +39,9 @@ export function registerArenaCommands(
 
   context.subscriptions.push(
     commands.registerCommand('sidecar.arena.open', () => {
-      return openArena({ context, createClient, eloStore });
+      const cfg = getConfig();
+      const defaultModels = cfg.arenaDefaultModels.length >= 2 ? cfg.arenaDefaultModels : undefined;
+      return openArena({ context, createClient, eloStore, preFilledModels: defaultModels });
     }),
 
     commands.registerCommand('sidecar.arena.agent', async (args?: { models?: string[]; task?: string }) => {
@@ -75,7 +83,7 @@ export function registerArenaCommands(
       };
 
       return openArenaAgent(
-        { context, createClient, eloStore, preFilledModels: args?.models, preFilledTask: args?.task },
+        { context, createClient, eloStore, preFilledModels: args?.models, preFilledTask: args?.task, mcpManager },
         silentCallbacks,
         reviewDeps,
       );

@@ -41,7 +41,7 @@ import {
 } from './chatHandlers.js';
 import { handleRequestFileCompletion, revertEditPlanFile } from './fileHandlers.js';
 import { handleGitHubCommand } from './githubHandlers.js';
-import { loadModels, handleInstallModel } from './modelHandlers.js';
+import { handleInstallModel } from './modelHandlers.js';
 import {
   handleExecutePlan,
   handleRevisePlan,
@@ -397,6 +397,7 @@ export function buildDispatchHandlers(
       await runForkDispatchCommand({
         ui: createDefaultForkCommandUi(),
         createClient,
+        agentOptions: { mcpManager: state.mcpManager },
         config: {
           enabled: config.forkEnabled,
           defaultCount: config.forkDefaultCount,
@@ -404,15 +405,15 @@ export function buildDispatchHandlers(
         },
         preFilledTask: task,
         reviewDeps: mainRoot ? { ui: createDefaultForkReviewUi(), mainRoot } : undefined,
-        onBatchProgress: (state) =>
+        onBatchProgress: (batchState) =>
           postMessage({
             command: 'batchProgress',
             batchProgress: {
               kind: 'forks',
-              task: state.task,
-              items: state.items,
-              doneCount: state.done,
-              totalCount: state.total,
+              task: batchState.task,
+              items: batchState.items,
+              doneCount: batchState.done,
+              totalCount: batchState.total,
             },
           }),
       });
@@ -421,7 +422,6 @@ export function buildDispatchHandlers(
     bgStop: (msg) => {
       bgManager.stop(msg.text || '');
     },
-    bgList: () => postMessage({ command: 'bgList', bgRuns: bgManager.list() }),
 
     notebookStart: () => handleNotebookStart(state),
     notebookExit: () => handleNotebookExit(state),
@@ -518,9 +518,5 @@ export function buildDispatchHandlers(
       const { handleStartVoice } = await import('./voiceHandlers.js');
       await handleStartVoice(state.postMessage);
     },
-
-    // loadModels is not a webview command but kept here for discoverability;
-    // it fires from resolveWebviewView, not from the dispatch table.
-    _loadModels: () => loadModels(state),
   };
 }

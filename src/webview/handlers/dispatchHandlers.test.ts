@@ -60,7 +60,6 @@ vi.mock('./infoHandlers.js', () => ({
   handleListMemories: vi.fn(),
   handleSearchMemories: vi.fn(),
   handleToggleVerbose: vi.fn(),
-  handleListSkills: vi.fn(),
   handleGetSkillsForMenu: vi.fn(),
 }));
 
@@ -424,18 +423,11 @@ describe('buildDispatchHandlers', () => {
     );
   });
 
-  // ── bgStop / bgList / bgExpand ────────────────────────────────────────────
+  // ── bgStop ────────────────────────────────────────────
 
   it('bgStop delegates to bgManager.stop', async () => {
     await invoke(handlers, 'bgStop', { text: 'bg-1' });
     expect(deps.bgManager.stop).toHaveBeenCalledWith('bg-1');
-  });
-
-  it('bgList posts bgList with bgManager.list()', async () => {
-    const fakeList = [{ id: 'bg-1', status: 'running' }];
-    vi.mocked(deps.bgManager.list).mockReturnValueOnce(fakeList as unknown as ReturnType<typeof deps.bgManager.list>);
-    await invoke(handlers, 'bgList');
-    expect(postMessage).toHaveBeenCalledWith({ command: 'bgList', bgRuns: fakeList });
   });
 
   // ── Simple delegation handlers ────────────────────────────────────────────
@@ -849,12 +841,6 @@ describe('buildDispatchHandlers', () => {
     const { handleDeleteModel } = await import('./modelHandlers.js');
     await invoke(handlers, 'deleteModel', { model: 'llama3' });
     expect(handleDeleteModel).toHaveBeenCalledWith(state, 'llama3');
-  });
-
-  it('_loadModels calls loadModels', async () => {
-    const { loadModels } = await import('./modelHandlers.js');
-    await invoke(handlers, '_loadModels');
-    expect(loadModels).toHaveBeenCalledWith(state);
   });
 
   it('userMessage /compact calls handleCompactContext', async () => {

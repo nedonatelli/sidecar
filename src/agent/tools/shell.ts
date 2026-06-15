@@ -101,6 +101,7 @@ async function executeShell(command: string, timeoutMs: number, context?: ToolEx
 
 export const runCommandDef: ToolDefinition = {
   name: 'run_command',
+  nondeterministicOutput: true,
   description:
     'Execute a shell command in a persistent shell session. Environment variables, aliases, and working directory changes persist between calls. ' +
     'Examples: "npm test", "git status", "python main.py". ' +
@@ -130,6 +131,7 @@ export const runCommandDef: ToolDefinition = {
 
 export const runTestsDef: ToolDefinition = {
   name: 'run_tests',
+  nondeterministicOutput: true,
   description:
     'Run the project test suite with auto-detection of the test runner (npm test, pytest, cargo test, go test, gradle test). ' +
     'Per operating rule 6: call `get_diagnostics` first after edits (fast type/lint check), then `run_tests` to verify behaviour. ' +

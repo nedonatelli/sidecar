@@ -991,17 +991,6 @@
             ],
             "markdownDescription": "*(Project Knowledge Index — graph walk, v0.110)* Max hops to walk the symbol graph from a direct vector hit. Set to `0` to disable graph expansion (return only direct cosine-similarity hits). `1` surfaces immediate callers; `2` (default) also surfaces their callers. Higher values add more context at the cost of a larger retrieval budget.\n\nHas no effect when `sidecar.retrieval.graphExpansion.enabled` is `false`."
           },
-          "sidecar.projectKnowledge.maxGraphHits": {
-            "type": "number",
-            "default": 10,
-            "minimum": 0,
-            "maximum": 50,
-            "order": 29,
-            "tags": [
-              "sidecar"
-            ],
-            "markdownDescription": "*(Project Knowledge Index — graph walk, v0.110)* Maximum number of additional symbols to surface via graph-walk expansion per retrieval query. Guards against high-fan-out nodes (e.g. shared utilities used everywhere) dominating the context window. `0` disables graph results entirely even when `graphWalkDepth > 0`.\n\nHas no effect when `sidecar.retrieval.graphExpansion.enabled` is `false`."
-          },
           "sidecar.merkleIndex.enabled": {
             "type": "boolean",
             "default": true,
@@ -1564,14 +1553,25 @@
             "description": "Enable Notebook Mode source-grounded research tools: ingest_source, generate_briefing, generate_study_guide, generate_faq, generate_timeline, generate_outline. Each artifact carries per-sentence citations back to the ingested source."
           },
           "sidecar.notebookMode.requireCitations": {
-            "type": "boolean",
-            "default": true,
-            "description": "When true, Notebook Mode artifacts are rejected if they contain uncited claims. The agent is instructed to re-generate any section that lacks source references."
+            "type": "string",
+            "enum": ["strict", "advisory", "off"],
+            "enumDescriptions": [
+              "Artifacts are rejected and re-generated if they contain uncited claims.",
+              "Uncited claims trigger a warning but the artifact is still accepted.",
+              "Citation requirements are not enforced."
+            ],
+            "default": "strict",
+            "description": "How strictly Notebook Mode enforces source citations in generated artifacts."
           },
           "sidecar.notebookMode.studyAids.enabled": {
             "type": "boolean",
             "default": true,
             "description": "Enable the generate_study_guide and generate_faq Notebook Mode tools. Disable to keep only the core ingest + briefing + outline pipeline."
+          },
+          "sidecar.notebookMode.sources.webUrl": {
+            "type": "boolean",
+            "default": true,
+            "description": "Allow Notebook Mode to ingest sources from web URLs via ingest_source."
           },
           "sidecar.zotero.userId": {
             "type": "string",
@@ -1945,14 +1945,6 @@
             "default": true,
             "description": "Enable the Doc-to-Test Synthesis Loop tools (extract_constraints, synthesize_tests, classify_test_failure). When disabled, these tools are hidden from the agent catalog."
           },
-          "sidecar.docTests.testFramework": {
-            "type": "string",
-            "enum": [
-              "pytest"
-            ],
-            "default": "pytest",
-            "description": "Test framework to target when synthesizing tests. Only pytest is supported in v0.79."
-          },
           "sidecar.docTests.outputDir": {
             "type": "string",
             "default": "tests/from_docs",
@@ -2075,6 +2067,69 @@
             "minimum": 1,
             "maximum": 10,
             "description": "Maximum number of agent tasks the MCP server will run concurrently."
+          },
+          "sidecar.workspaceRoots": {
+            "type": "array",
+            "items": { "type": "string" },
+            "default": [],
+            "description": "Additional workspace root paths to include when the agent traverses files. Useful for monorepos where the opened folder is not the repo root."
+          },
+          "sidecar.maxFileSizeBytes": {
+            "type": "number",
+            "default": 102400,
+            "minimum": 10240,
+            "maximum": 10485760,
+            "description": "Maximum file size (in bytes) the agent will read in full. Files larger than this are streamed up to sidecar.streamingReadThreshold bytes."
+          },
+          "sidecar.streamingReadThreshold": {
+            "type": "number",
+            "default": 51200,
+            "minimum": 10240,
+            "maximum": 10485760,
+            "description": "When reading a file larger than sidecar.maxFileSizeBytes, stream up to this many bytes from the start. Acts as a soft cap for large files."
+          },
+          "sidecar.maxTraversalDepth": {
+            "type": "number",
+            "default": 10,
+            "minimum": 1,
+            "maximum": 20,
+            "description": "Maximum directory depth the agent may traverse when listing files."
+          },
+          "sidecar.enableDocumentationRAG": {
+            "type": "boolean",
+            "default": true,
+            "description": "Fetch and inject relevant documentation snippets into the agent context during retrieval. Disable to skip documentation RAG and reduce context noise in code-only workspaces."
+          },
+          "sidecar.ragMaxDocEntries": {
+            "type": "number",
+            "default": 20,
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Maximum number of documentation entries injected by the documentation RAG layer per agent turn."
+          },
+          "sidecar.enableAgentMemory": {
+            "type": "boolean",
+            "default": true,
+            "description": "Enable the agent memory system — persistent per-workspace learning of patterns, conventions, and decisions across sessions."
+          },
+          "sidecar.agentMemoryMaxEntries": {
+            "type": "number",
+            "default": 500,
+            "minimum": 10,
+            "maximum": 2000,
+            "description": "Maximum number of entries the agent memory store may hold. Oldest/least-used entries are evicted when the limit is reached."
+          },
+          "sidecar.enableSemanticSearch": {
+            "type": "boolean",
+            "default": true,
+            "description": "Enable semantic (embedding-based) search as a fallback when keyword search returns no results in the workspace index."
+          },
+          "sidecar.semanticSearchWeight": {
+            "type": "number",
+            "default": 0.6,
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Weight of semantic search scores relative to keyword scores in the hybrid retrieval pipeline (0 = keyword only, 1 = semantic only)."
           }
         }
       }
@@ -2371,6 +2426,18 @@
         "icon": "$(git-branch)"
       },
       {
+        "command": "sidecar.executiveFunction.resume",
+        "title": "Resume Interrupted Task",
+        "category": "SideCar",
+        "icon": "$(debug-continue)"
+      },
+      {
+        "command": "sidecar.executiveFunction.discard",
+        "title": "Discard Saved Task Checkpoint",
+        "category": "SideCar",
+        "icon": "$(trash)"
+      },
+      {
         "command": "sidecar.research.newProject",
         "title": "New Research Project",
         "category": "SideCar",
@@ -2513,6 +2580,12 @@
       {
         "command": "sidecar.generateCommitMessage",
         "title": "Generate Commit Message",
+        "category": "SideCar",
+        "icon": "$(git-commit)"
+      },
+      {
+        "command": "sidecar.scm.suggestCommitMessage",
+        "title": "Suggest Commit Message (SCM Input)",
         "category": "SideCar",
         "icon": "$(git-commit)"
       },
@@ -2907,6 +2980,13 @@
           "when": "editorHasSelection"
         }
       ],
+      "scm/title": [
+        {
+          "command": "sidecar.scm.suggestCommitMessage",
+          "when": "scmProvider == git",
+          "group": "navigation"
+        }
+      ],
       "editor/context": [
         {
           "command": "sidecar.explainSelection",
@@ -2994,6 +3074,21 @@
           "command": "sidecar.research.refresh",
           "when": "view == sidecar.research",
           "group": "navigation@2"
+        },
+        {
+          "command": "sidecar.pki.rebuild",
+          "when": "view == sidecar.pki",
+          "group": "navigation@1"
+        },
+        {
+          "command": "sidecar.pki.search",
+          "when": "view == sidecar.pki",
+          "group": "navigation@2"
+        },
+        {
+          "command": "sidecar.eval.openReport",
+          "when": "view == sidecar.eval",
+          "group": "navigation@1"
         }
       ],
       "view/item/context": [

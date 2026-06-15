@@ -4,7 +4,6 @@ import {
   handleMcpStatus,
   handleListMemories,
   handleSearchMemories,
-  handleListSkills,
   handleGetSkillsForMenu,
   handleToggleVerbose,
 } from './infoHandlers.js';
@@ -986,24 +985,6 @@ describe('handleSearchMemories', () => {
     const content: string = (state.postMessage as ReturnType<typeof vi.fn>).mock.calls[0][0].content;
     expect(content).toContain('...');
     expect(content.length).toBeLessThan(longContent.length + 100);
-  });
-});
-
-describe('handleListSkills', () => {
-  it('posts "no skills" when skillLoader is absent', () => {
-    const state = { skillLoader: undefined, postMessage: vi.fn() };
-    handleListSkills(state as never);
-    expect(state.postMessage).toHaveBeenCalledWith(expect.objectContaining({ content: 'No skills loaded.' }));
-    expect(state.postMessage).toHaveBeenCalledWith({ command: 'done' });
-  });
-
-  it('posts skillLoader.listFormatted() output', () => {
-    const state = {
-      skillLoader: { listFormatted: () => '- skill1\n- skill2' },
-      postMessage: vi.fn(),
-    };
-    handleListSkills(state as never);
-    expect(state.postMessage).toHaveBeenCalledWith(expect.objectContaining({ content: '- skill1\n- skill2' }));
   });
 });
 

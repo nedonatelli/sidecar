@@ -305,12 +305,6 @@ export function handleToggleVerbose(state: ChatState): void {
   state.postMessage({ command: 'done' });
 }
 
-export function handleListSkills(state: ChatState): void {
-  const list = state.skillLoader?.listFormatted() || 'No skills loaded.';
-  state.postMessage({ command: 'assistantMessage', content: list });
-  state.postMessage({ command: 'done' });
-}
-
 export function handleGetSkillsForMenu(state: ChatState): void {
   const skills = state.skillLoader?.getAll() || [];
   const items = skills.map((s) => ({ id: s.id, name: s.name, description: s.description }));

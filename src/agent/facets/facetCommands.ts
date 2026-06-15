@@ -4,7 +4,7 @@ import { dispatchFacets, type FacetDispatchBatchResult, type FacetBatchProgressC
 import { reviewFacetBatch, type FacetReviewDeps, type FacetReviewOutcome } from './facetReview.js';
 import type { FacetDefinition } from './facetLoader.js';
 import type { SideCarClient } from '../../ollama/client.js';
-import type { AgentCallbacks } from '../loop.js';
+import type { AgentCallbacks, AgentOptions } from '../loop.js';
 
 // ---------------------------------------------------------------------------
 // Facet command entry point .
@@ -66,6 +66,8 @@ export interface FacetCommandDeps {
   callbacks?: AgentCallbacks;
   /** Optional progress callback fired before/after each facet runs. */
   onBatchProgress?: FacetBatchProgressCallback;
+  /** Extra options forwarded verbatim to each sub-agent loop (e.g. mcpManager). */
+  agentOptions?: AgentOptions;
   /** Config values from `sidecar.facets.*`. */
   config: FacetCommandConfig;
 }
@@ -165,6 +167,7 @@ export async function runFacetDispatchCommand(deps: FacetCommandDeps): Promise<F
       maxConcurrent: deps.config.maxConcurrent,
       rpcTimeoutMs: deps.config.rpcTimeoutMs,
       onBatchProgress: deps.onBatchProgress,
+      agentOptions: deps.agentOptions,
     });
     summarizeBatch(deps.ui, batch);
     // auto-trigger the aggregated review when the

@@ -3,10 +3,12 @@ import { getConfig } from '../config/settings.js';
 import { clearAll as clearSidecarDiagnostics } from '../agent/sidecarDiagnostics.js';
 import type { SideCarClient } from '../ollama/client.js';
 import type { ChatViewProvider } from '../webview/chatView.js';
+import type { MCPManager } from '../agent/mcpManager.js';
 
 export interface AgentCommandDeps {
   createClient: () => SideCarClient;
   getChatProvider?: () => ChatViewProvider | undefined;
+  mcpManager?: MCPManager;
 }
 
 /**
@@ -74,6 +76,7 @@ export function registerAgentCommands(context: ExtensionContext, extensionId: st
             registryPaths: cfg.facetsRegistry,
           }),
         createClient,
+        agentOptions: deps.mcpManager ? { mcpManager: deps.mcpManager } : undefined,
         config: {
           enabled: cfg.facetsEnabled,
           maxConcurrent: cfg.facetsMaxConcurrent,
@@ -106,6 +109,7 @@ export function registerAgentCommands(context: ExtensionContext, extensionId: st
       await runForkDispatchCommand({
         ui: createDefaultForkCommandUi(),
         createClient,
+        agentOptions: deps.mcpManager ? { mcpManager: deps.mcpManager } : undefined,
         config: {
           enabled: cfg.forkEnabled,
           defaultCount: cfg.forkDefaultCount,

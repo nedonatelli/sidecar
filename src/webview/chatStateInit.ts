@@ -64,7 +64,7 @@ export function initializeChatSubsystems(
   }
 
   if (config.enableAgentMemory && sidecarDir) {
-    state.agentMemory = new AgentMemory(sidecarDir.getPath());
+    state.agentMemory = new AgentMemory(sidecarDir.getPath(), config.agentMemoryMaxEntries);
     state.agentMemory.load().catch((err) => {
       console.warn('Failed to load agent memory:', err);
     });

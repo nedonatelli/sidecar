@@ -79,11 +79,10 @@ export function registerEditorFeatures(
     }),
   );
 
+  const pasteTracker = new AdaptivePasteTracker();
+  context.subscriptions.push(pasteTracker, registerAdaptivePasteCommand(createClient(), pasteTracker));
   if (config.adaptivePasteEnabled) {
-    const pasteTracker = new AdaptivePasteTracker();
     context.subscriptions.push(
-      pasteTracker,
-      registerAdaptivePasteCommand(createClient(), pasteTracker),
       languages.registerCodeActionsProvider({ scheme: 'file' }, new AdaptivePasteCodeActionProvider(pasteTracker), {
         providedCodeActionKinds: AdaptivePasteCodeActionProvider.providedCodeActionKinds,
       }),

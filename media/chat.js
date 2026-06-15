@@ -4767,12 +4767,6 @@
         break;
       }
 
-      case 'bgList': {
-        bgAgentRuns = event.data.bgRuns || [];
-        renderBgAgentPanel();
-        break;
-      }
-
       case 'batchProgress': {
         const bp = event.data.batchProgress;
         if (bp) {

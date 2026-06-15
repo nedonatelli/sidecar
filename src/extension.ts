@@ -123,12 +123,16 @@ export function activate(context: ExtensionContext) {
 
   registerStatusBar(context, { getChatProvider: () => chatProvider });
   context.subscriptions.push(disposeDiagnostics());
-  registerAgentCommands(context, context.extension.id, { createClient, getChatProvider: () => chatProvider });
+  registerAgentCommands(context, context.extension.id, {
+    createClient,
+    getChatProvider: () => chatProvider,
+    mcpManager,
+  });
   registerHandoffCommands(context, { getChatProvider: () => chatProvider });
   registerBackendCommands(context, () => chatProvider!.client);
   registerSidecarParticipant(context, () => chatProvider!.client);
   registerLmTools(context);
-  registerArenaCommands(context, createClient, sidecarDir);
+  registerArenaCommands(context, createClient, sidecarDir, mcpManager);
   registerDepsFeature(context);
   initExecutiveFunctionSetup(context, sidecarDir, () => chatProvider);
   initResearchSetup(context, sidecarDir);

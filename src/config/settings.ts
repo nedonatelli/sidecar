@@ -141,6 +141,8 @@ export interface SideCarConfig {
   forkEnabled: boolean;
   forkDefaultCount: number;
   forkMaxConcurrent: number;
+  arenaEnabled: boolean;
+  arenaDefaultModels: string[];
   kickstandNCtx: number;
   kickstandRopeFreqBase: number;
   kickstandRopeFreqScale: number;
@@ -170,14 +172,11 @@ export interface SideCarConfig {
   maxFileSizeBytes: number;
   streamingReadThreshold: number;
   maxTraversalDepth: number;
-  enableLazyIndexing: boolean;
-  maxIndexedFiles: number;
   /* External context providers (GitHub Issues, Linear, Jira) */
   contextProviders: import('../context/types.js').ContextProviderConfig[];
   /* RAG and documentation retrieval */
   enableDocumentationRAG: boolean;
   ragMaxDocEntries: number;
-  ragUpdateIntervalMinutes: number;
   /* Agent memory and learning */
   enableAgentMemory: boolean;
   agentMemoryMaxEntries: number;
@@ -233,8 +232,6 @@ export interface SideCarConfig {
   projectKnowledgeBackend: 'flat' | 'lance';
   /** Max hops to walk the symbol graph from a direct vector hit (0 = disabled). */
   projectKnowledgeGraphWalkDepth: number;
-  /** Max symbols surfaced via graph-walk per retrieval query. */
-  projectKnowledgeMaxGraphHits: number;
   /* Skill Sync & Registry */
   /** Git URL (or absolute local folder) cloned into ~/.sidecar/user-skills/ at activation. Empty → disabled. */
   skillsUserRegistry: string;
@@ -307,7 +304,6 @@ export interface SideCarConfig {
   notebookModeEnabled: boolean;
   notebookModeRequireCitations: 'strict' | 'advisory' | 'off';
   notebookModeWebUrlEnabled: boolean;
-  notebookModeSlidesEnabled: boolean;
   notebookModeStudyAidsEnabled: boolean;
   /* API call audit log */
   verboseLogs: boolean;
@@ -441,7 +437,7 @@ function readConfig(): SideCarConfig {
     customTools: cfg.get<CustomToolConfig[]>('customTools', []),
     customModes: cfg.get<CustomModeConfig[]>('customModes', []),
     mcpServers: cfg.get<Record<string, MCPServerConfig>>('mcpServers', {}),
-    verboseMode: cfg.get<boolean>('verboseMode', false),
+    verboseMode: cfg.get<boolean>('verboseMode', true),
     expandThinking: cfg.get<boolean>('expandThinking', false),
     enableMermaid: cfg.get<boolean>('enableMermaid', true),
     chatDensity: cfg.get<'compact' | 'normal' | 'comfortable'>('chatDensity', 'normal'),
@@ -465,13 +461,13 @@ function readConfig(): SideCarConfig {
     multiFileEditsPlanningPass: cfg.get<boolean>('multiFileEdits.planningPass', true),
     multiFileEditsMinFilesForPlan: clampMin(cfg.get<number>('multiFileEdits.minFilesForPlan', 3), 2, 50),
     multiFileEditsPlannerModel: cfg.get<string>('multiFileEdits.plannerModel', ''),
-    multiFileEditsReviewGranularity: cfg.get<string>('multiFileEdits.reviewGranularity', 'per-file') as
-      | 'bulk'
-      | 'per-file'
-      | 'per-hunk',
+    multiFileEditsReviewGranularity: cfg.get<'bulk' | 'per-file' | 'per-hunk'>(
+      'multiFileEdits.reviewGranularity',
+      'per-file',
+    ),
     retrievalGraphExpansionEnabled: cfg.get<boolean>('retrieval.graphExpansion.enabled', true),
     retrievalGraphExpansionMaxHits: clampMin(cfg.get<number>('retrieval.graphExpansion.maxHits', 8), 0, 50),
-    retrievalQueryRewrite: cfg.get<string>('retrieval.queryRewrite', 'rule') as 'off' | 'rule' | 'llm' | 'expand',
+    retrievalQueryRewrite: cfg.get<'off' | 'rule' | 'llm' | 'expand'>('retrieval.queryRewrite', 'rule'),
     facetsEnabled: cfg.get<boolean>('facets.enabled', true),
     facetsMaxConcurrent: clampMin(cfg.get<number>('facets.maxConcurrent', 3), 1, 16),
     facetsRpcTimeoutMs: clampMin(cfg.get<number>('facets.rpcTimeoutMs', 30_000), 1_000, 300_000),
@@ -490,6 +486,8 @@ function readConfig(): SideCarConfig {
     forkEnabled: cfg.get<boolean>('fork.enabled', true),
     forkDefaultCount: clampMin(cfg.get<number>('fork.defaultCount', 3), 2, 10),
     forkMaxConcurrent: clampMin(cfg.get<number>('fork.maxConcurrent', 3), 1, 10),
+    arenaEnabled: cfg.get<boolean>('arena.enabled', true),
+    arenaDefaultModels: cfg.get<string[]>('arena.defaultModels', []),
     kickstandNCtx: clampMin(cfg.get<number>('kickstand.nCtx', 32768), 512, 1_000_000),
     kickstandRopeFreqBase: Math.max(cfg.get<number>('kickstand.ropeFreqBase', 0), 0),
     kickstandRopeFreqScale: Math.max(cfg.get<number>('kickstand.ropeFreqScale', 0), 0),
@@ -526,13 +524,10 @@ function readConfig(): SideCarConfig {
     maxFileSizeBytes: clampMin(cfg.get<number>('maxFileSizeBytes'), 10240, 100 * 1024),
     streamingReadThreshold: clampMin(cfg.get<number>('streamingReadThreshold'), 10240, 50 * 1024),
     maxTraversalDepth: clampMin(cfg.get<number>('maxTraversalDepth'), 1, 10),
-    enableLazyIndexing: cfg.get<boolean>('enableLazyIndexing', true),
-    maxIndexedFiles: clampMin(cfg.get<number>('maxIndexedFiles'), 10, 1000),
     /* RAG and documentation retrieval */
     contextProviders: cfg.get<import('../context/types.js').ContextProviderConfig[]>('contextProviders', []),
     enableDocumentationRAG: cfg.get<boolean>('enableDocumentationRAG', true),
     ragMaxDocEntries: clampMin(cfg.get<number>('ragMaxDocEntries'), 1, 20),
-    ragUpdateIntervalMinutes: clampMin(cfg.get<number>('ragUpdateIntervalMinutes'), 5, 360),
     /* Agent memory and learning */
     enableAgentMemory: cfg.get<boolean>('enableAgentMemory', true),
     agentMemoryMaxEntries: clampMin(cfg.get<number>('agentMemoryMaxEntries'), 10, 500),
@@ -577,7 +572,6 @@ function readConfig(): SideCarConfig {
     projectKnowledgeMaxSymbolsPerFile: cfg.get<number>('projectKnowledge.maxSymbolsPerFile', 500),
     projectKnowledgeBackend: cfg.get<'flat' | 'lance'>('projectKnowledge.backend', 'flat'),
     projectKnowledgeGraphWalkDepth: clampMin(cfg.get<number>('projectKnowledge.graphWalkDepth', 2), 0, 4),
-    projectKnowledgeMaxGraphHits: clampMin(cfg.get<number>('projectKnowledge.maxGraphHits', 10), 0, 50),
     merkleIndexEnabled: cfg.get<boolean>('merkleIndex.enabled', true),
     /* Skill Sync & Registry */
     skillsUserRegistry: cfg.get<string>('skills.userRegistry', ''),
@@ -638,7 +632,6 @@ function readConfig(): SideCarConfig {
     notebookModeEnabled: cfg.get<boolean>('notebookMode.enabled', false),
     notebookModeRequireCitations: cfg.get<'strict' | 'advisory' | 'off'>('notebookMode.requireCitations', 'strict'),
     notebookModeWebUrlEnabled: cfg.get<boolean>('notebookMode.sources.webUrl', true),
-    notebookModeSlidesEnabled: cfg.get<boolean>('notebookMode.sources.slides', true),
     notebookModeStudyAidsEnabled: cfg.get<boolean>('notebookMode.studyAids.enabled', true),
     verboseLogs: cfg.get<boolean>('verboseLogs', false),
     /* Dependency Drift */

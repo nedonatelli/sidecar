@@ -29,7 +29,7 @@ describe('parseModelSentinel', () => {
   it('strips @local and resolves to the shipped Ollama default', () => {
     const r = parseModelSentinel('@local run offline');
     expect(r.cleaned).toBe('run offline');
-    expect(r.override).toMatch(/^gemma4|^qwen3-coder|^qwen2\.5-coder|ollama/); // whatever OLLAMA_DEFAULT_MODEL is today
+    expect(r.override).toMatch(/^ministral|^gemma4|^qwen3-coder|^qwen2\.5-coder|ollama/); // whatever OLLAMA_DEFAULT_MODEL is today
   });
 
   it('matches case-insensitively', () => {

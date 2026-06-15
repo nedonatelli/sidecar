@@ -33,7 +33,7 @@ export interface MemoryEntry {
 export class AgentMemory {
   private memories = new Map<string, MemoryEntry>();
   private memoryDir: string;
-  private readonly MAX_MEMORIES = 500;
+  private readonly MAX_MEMORIES: number;
   private readonly MEMORY_FILE = 'agent-memories.json';
   private currentSessionId: string;
   private _saveChain: Promise<void> = Promise.resolve();
@@ -43,8 +43,9 @@ export class AgentMemory {
     return this._saveChain;
   }
 
-  constructor(sidecarDir: string) {
+  constructor(sidecarDir: string, maxMemories = 500) {
     this.memoryDir = path.join(sidecarDir, 'memory');
+    this.MAX_MEMORIES = Math.max(10, maxMemories);
     this.currentSessionId = AgentMemory.generateSessionId();
     // Directory creation deferred to first load/save call (async).
   }

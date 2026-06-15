@@ -41,7 +41,7 @@ export interface BackendProfile {
 /** Shipped default model (Ollama). Also used as a sentinel: when `sidecar.model`
  *  still matches this string, the user hasn't picked a model yet, so `readConfig`
  *  is free to substitute a provider-appropriate default. */
-export const OLLAMA_DEFAULT_MODEL = 'gemma4:e4b';
+export const OLLAMA_DEFAULT_MODEL = 'ministral-3:latest';
 
 /** Default model when the resolved provider is Anthropic and no explicit
  *  model has been set. Haiku is chosen over Sonnet/Opus for cost. */

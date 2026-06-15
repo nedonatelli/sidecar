@@ -4,6 +4,7 @@ import type { EloStore } from './eloStore.js';
 import { ArenaPanel } from './arenaPanel.js';
 import type { ForkReviewDeps } from '../agent/fork/forkReview.js';
 import type { AgentCallbacks } from '../agent/loop.js';
+import type { MCPManager } from '../agent/mcpManager.js';
 import { checkMemoryPreflight } from '../system/memoryMonitor.js';
 
 // ---------------------------------------------------------------------------
@@ -25,6 +26,8 @@ export interface ArenaCommandDeps {
   preFilledModels?: string[];
   /** Pre-filled task for agent mode. */
   preFilledTask?: string;
+  /** Forwarded to sub-agent loops so arena agent forks can use delegate_to_mcp. */
+  mcpManager?: MCPManager;
 }
 
 // ---------------------------------------------------------------------------
@@ -88,6 +91,7 @@ export async function openArenaAgent(
     // Per-fork model overrides: each fork runs with its own model.
     agentOptions: {
       approvalMode: 'autonomous',
+      ...(deps.mcpManager ? { mcpManager: deps.mcpManager } : {}),
     },
     modelOverrides: models,
   });
