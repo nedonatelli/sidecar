@@ -276,6 +276,7 @@ async function runSpawnAgent(ctx: ExecutionContext, toolUse: ToolUseContentBlock
       approvalMode: state.approvalMode,
       maxIterations: Math.min(state.maxIterations, 15),
       depth: options.depth || 0,
+      mcpManager: state.mcpManager,
     },
   );
   state.totalChars += subResult.charsConsumed;
