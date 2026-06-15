@@ -37,6 +37,22 @@ export function truncateIssueBody(text: string): string {
   return text.length > ISSUE_BODY_MAX_CHARS ? text.slice(0, ISSUE_BODY_MAX_CHARS) + '…' : text;
 }
 
+const ENV_VAR_SUFFIX: Record<ContextProviderType, string> = {
+  github: 'GITHUB',
+  linear: 'LINEAR',
+  jira: 'JIRA',
+  bitbucket: 'BITBUCKET',
+};
+
+/**
+ * Resolve the auth token for a context provider.
+ * Falls back to `SIDECAR_CTX_TOKEN_<TYPE>` env var when `config.token` is empty,
+ * so users can avoid putting secrets in settings.json.
+ */
+export function resolveToken(config: ContextProviderConfig): string {
+  return config.token || process.env[`SIDECAR_CTX_TOKEN_${ENV_VAR_SUFFIX[config.type]}`] || '';
+}
+
 export interface ContextProviderResult {
   /** Label shown in the prompt heading, e.g. "GitHub (owner/repo)" */
   providerLabel: string;

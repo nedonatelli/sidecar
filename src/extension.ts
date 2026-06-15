@@ -130,7 +130,7 @@ export function activate(context: ExtensionContext) {
   });
   registerHandoffCommands(context, { getChatProvider: () => chatProvider });
   registerBackendCommands(context, () => chatProvider!.client);
-  registerSidecarParticipant(context, () => chatProvider!.client);
+  registerSidecarParticipant(context, () => chatProvider!.client, mcpManager);
   registerLmTools(context);
   registerArenaCommands(context, createClient, sidecarDir, mcpManager);
   registerDepsFeature(context);

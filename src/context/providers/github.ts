@@ -1,7 +1,7 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import type { ContextProviderConfig, ContextProviderResult, ContextIssue } from '../types.js';
-import { truncateIssueBody } from '../types.js';
+import { truncateIssueBody, resolveToken } from '../types.js';
 import { stripTrailingSlash } from '../../util/url.js';
 
 const execAsync = promisify(exec);
@@ -50,8 +50,13 @@ export async function fetchGitHubIssues(
 
   const providerLabel = `GitHub (${repo})`;
 
-  if (!config.token) {
-    return { providerLabel, issues: [], error: 'No token configured. Set sidecar.contextProviders[].token.' };
+  const token = resolveToken(config);
+  if (!token) {
+    return {
+      providerLabel,
+      issues: [],
+      error: 'No token configured. Set sidecar.contextProviders[].token or SIDECAR_CTX_TOKEN_GITHUB.',
+    };
   }
 
   try {
@@ -65,7 +70,7 @@ export async function fetchGitHubIssues(
     const url = `${baseUrl}/repos/${repo}/issues?${params}`;
     const res = await fetchFn(url, {
       headers: {
-        Authorization: `Bearer ${config.token}`,
+        Authorization: `Bearer ${token}`,
         Accept: 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28',
       },

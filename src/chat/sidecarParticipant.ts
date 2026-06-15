@@ -4,6 +4,7 @@ import { runAgentLoop, type AgentCallbacks } from '../agent/loop.js';
 import { getWorkspaceRoot } from '../config/workspace.js';
 import type { SideCarClient } from '../ollama/client.js';
 import type { ChatMessage } from '../ollama/types.js';
+import type { MCPManager } from '../agent/mcpManager.js';
 
 // ---------------------------------------------------------------------------
 // Slash-command dispatch table
@@ -181,7 +182,11 @@ export function buildHistoryFromChatContext(
  * through `runAgentLoop` with autonomous tool approval so the agent can
  * read files, run commands, edit code, etc. without a confirm dialog.
  */
-export function registerSidecarParticipant(context: vscode.ExtensionContext, getClient: () => SideCarClient): void {
+export function registerSidecarParticipant(
+  context: vscode.ExtensionContext,
+  getClient: () => SideCarClient,
+  mcpManager?: MCPManager,
+): void {
   const handler: vscode.ChatRequestHandler = async (request, chatContext, response, token) => {
     const client = getClient();
     const { userText, systemPrompt } = await resolveRequestContent(request);
@@ -246,6 +251,7 @@ export function registerSidecarParticipant(context: vscode.ExtensionContext, get
       await runAgentLoop(client, messages, callbacks, signal, {
         approvalMode: 'autonomous',
         systemPromptOverride: systemPrompt,
+        mcpManager,
       });
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return;

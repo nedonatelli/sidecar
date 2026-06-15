@@ -572,7 +572,8 @@
               "retrieval"
             ],
             "default": "sections",
-            "markdownDescription": "How SIDECAR.md content is injected into the system prompt.\n\n| Mode | Behavior |\n|---|---|\n| `sections` (default) | Parse H2 boundaries, route sections based on `<!-- @paths: glob -->` sentinels, active editor, and user-mentioned paths. |\n| `retrieval` | Semantic retrieval mode — only `always`-priority sections are injected verbatim; all other sections are scored against the current query via cosine similarity and the top-K most relevant ones surface via the RRF fusion pipeline. Best for large SIDECAR.md files (20+ sections). |\n| `full` | Legacy behavior — dump the entire file and mid-chop on overflow. |\n\nPath-scoped sections declare their globs via an HTML-comment sentinel immediately under the H2 heading:\n\n```markdown\n## Transforms\n<!-- @paths: src/transforms/**, src/dsp/** -->\nFilter kernels go under src/transforms/...\n```"
+            "markdownDescription": "How SIDECAR.md content is injected into the system prompt.\n\n| Mode | Behavior |\n|---|---|\n| `sections` (default) | Parse H2 boundaries, route sections based on `<!-- @paths: glob -->` sentinels, active editor, and user-mentioned paths. |\n| `retrieval` | Semantic retrieval mode — only `always`-priority sections are injected verbatim; all other sections are scored against the current query via cosine similarity and the top-K most relevant ones surface via the RRF fusion pipeline. Best for large SIDECAR.md files (20+ sections). |\n| `full` | Legacy behavior — dump the entire file and mid-chop on overflow. |\n\nPath-scoped sections declare their globs via an HTML-comment sentinel immediately under the H2 heading:\n\n```markdown\n## Transforms\n<!-- @paths: src/transforms/**, src/dsp/** -->\nFilter kernels go under src/transforms/...\n```",
+            "requiresWindowReload": true
           },
           "sidecar.sidecarMd.retrieval.topK": {
             "type": "number",
@@ -641,7 +642,8 @@
           "sidecar.arena.enabled": {
             "type": "boolean",
             "default": true,
-            "description": "Enable Model Arena — side-by-side comparison of 2–4 models on the same prompt, with ELO ratings stored in .sidecar/arena/elo.json."
+            "description": "Enable Model Arena — side-by-side comparison of 2–4 models on the same prompt, with ELO ratings stored in .sidecar/arena/elo.json.",
+            "requiresWindowReload": true
           },
           "sidecar.arena.defaultModels": {
             "type": "array",
@@ -807,7 +809,8 @@
           "sidecar.codeLens.enabled": {
             "type": "boolean",
             "default": true,
-            "description": "Show SideCar code lenses above functions and TODO comments for quick Explain/Fix actions."
+            "description": "Show SideCar code lenses above functions and TODO comments for quick Explain/Fix actions.",
+            "requiresWindowReload": true
           }
         }
       },
@@ -817,7 +820,7 @@
           "sidecar.contextProviders": {
             "type": "array",
             "default": [],
-            "markdownDescription": "External issue-tracker integrations injected into every agent system prompt as an `## Active Issues` block. Each entry configures one provider.\n\n**Supported types:** `github`, `linear`, `jira`\n\n**Example:**\n```json\n[\n  {\n    \"type\": \"github\",\n    \"token\": \"ghp_...\",\n    \"project\": \"owner/repo\",\n    \"filter\": \"assigned\",\n    \"maxIssues\": 5\n  },\n  {\n    \"type\": \"linear\",\n    \"token\": \"lin_api_...\",\n    \"filter\": \"assigned\",\n    \"maxIssues\": 5\n  },\n  {\n    \"type\": \"jira\",\n    \"token\": \"...\",\n    \"baseUrl\": \"https://yourco.atlassian.net\",\n    \"project\": \"MYPROJ\",\n    \"filter\": \"assigned\",\n    \"maxIssues\": 5\n  }\n]\n```\n\n**token** — GitHub: Personal Access Token (`ghp_...` or fine-grained). Linear: API key from Linear → Settings → API. Jira: Personal Access Token. ⚠️ Avoid committing tokens — use `${env:MY_TOKEN}` substitution or leave blank and set the `SIDECAR_CTX_TOKEN_GITHUB` / `SIDECAR_CTX_TOKEN_LINEAR` / `SIDECAR_CTX_TOKEN_JIRA` environment variable instead.\n\n**filter** — `assigned` (default): only your open issues. `open`: all open issues in the repo/project. `recent`: recently updated.\n\n**maxIssues** — issues injected per provider (default: 5). Keep low to avoid bloating the context.",
+            "markdownDescription": "External issue-tracker integrations injected into every agent system prompt as an `## Active Issues` block. Each entry configures one provider.\n\n**Supported types:** `github`, `linear`, `jira`, `bitbucket`\n\n**Example:**\n```json\n[\n  {\n    \"type\": \"github\",\n    \"token\": \"ghp_...\",\n    \"project\": \"owner/repo\",\n    \"filter\": \"assigned\",\n    \"maxIssues\": 5\n  },\n  {\n    \"type\": \"linear\",\n    \"token\": \"lin_api_...\",\n    \"filter\": \"assigned\",\n    \"maxIssues\": 5\n  },\n  {\n    \"type\": \"jira\",\n    \"token\": \"...\",\n    \"baseUrl\": \"https://yourco.atlassian.net\",\n    \"project\": \"MYPROJ\",\n    \"filter\": \"assigned\",\n    \"maxIssues\": 5\n  }\n]\n```\n\n**token** — GitHub: Personal Access Token (`ghp_...` or fine-grained). Linear: API key from Linear → Settings → API. Jira: Personal Access Token. ⚠️ Avoid committing tokens — use `${env:MY_TOKEN}` substitution or leave blank and set the `SIDECAR_CTX_TOKEN_GITHUB` / `SIDECAR_CTX_TOKEN_LINEAR` / `SIDECAR_CTX_TOKEN_JIRA` environment variable instead.\n\n**filter** — `assigned` (default): only your open issues. `open`: all open issues in the repo/project. `recent`: recently updated.\n\n**maxIssues** — issues injected per provider (default: 5). Keep low to avoid bloating the context.",
             "items": {
               "type": "object",
               "required": [
@@ -831,7 +834,8 @@
                   "enum": [
                     "github",
                     "linear",
-                    "jira"
+                    "jira",
+                    "bitbucket"
                   ]
                 },
                 "token": {
@@ -956,7 +960,8 @@
             "tags": [
               "sidecar"
             ],
-            "markdownDescription": "*(Project Knowledge Index, v0.61+)* Symbol-level semantic index. SideCar embeds each function / class / method / interface / type as its own vector (vs. the file-level index's one-vector-per-file) so queries like \"where is auth handled?\" return the specific function rather than the containing file. Uses the existing `@xenova/transformers` MiniLM model — no new downloads, no new dependencies. **Default `true` as of v0.63.** Existing users who set this to `false` explicitly keep their setting; new installs index symbols automatically. First activation re-embeds the workspace (~5–10s on a typical repo); subsequent activations replay the cached index. Disable by setting to `false` if the startup cost bites on very large monorepos (>100k symbols) — the file-level index still works as a fallback."
+            "markdownDescription": "*(Project Knowledge Index, v0.61+)* Symbol-level semantic index. SideCar embeds each function / class / method / interface / type as its own vector (vs. the file-level index's one-vector-per-file) so queries like \"where is auth handled?\" return the specific function rather than the containing file. Uses the existing `@xenova/transformers` MiniLM model — no new downloads, no new dependencies. **Default `true` as of v0.63.** Existing users who set this to `false` explicitly keep their setting; new installs index symbols automatically. First activation re-embeds the workspace (~5–10s on a typical repo); subsequent activations replay the cached index. Disable by setting to `false` if the startup cost bites on very large monorepos (>100k symbols) — the file-level index still works as a fallback.",
+            "requiresWindowReload": true
           },
           "sidecar.projectKnowledge.maxSymbolsPerFile": {
             "type": "number",
@@ -998,7 +1003,8 @@
             "tags": [
               "sidecar"
             ],
-            "markdownDescription": "*(Project Knowledge Index — Merkle layer, v0.62)* Content-addressed hash tree over the symbol embedding index. When on + `sidecar.projectKnowledge.enabled` is also on, every symbol mutation mirrors into a Merkle tree and `project_knowledge_search` prunes candidate files via aggregated-embedding descent *before* scoring leaves — turns an O(total symbols) cosine scan into O(picked files × symbols per file).\n\nDisable only when debugging retrieval regressions: a quality drop against the RAG-eval baseline while this is on isolates the issue to the Merkle layer without losing PKI entirely. The root hash is also exposed (via `getMerkleRoot()` on the index) as a single-value workspace fingerprint for cache validity + cross-machine sync work."
+            "markdownDescription": "*(Project Knowledge Index — Merkle layer, v0.62)* Content-addressed hash tree over the symbol embedding index. When on + `sidecar.projectKnowledge.enabled` is also on, every symbol mutation mirrors into a Merkle tree and `project_knowledge_search` prunes candidate files via aggregated-embedding descent *before* scoring leaves — turns an O(total symbols) cosine scan into O(picked files × symbols per file).\n\nDisable only when debugging retrieval regressions: a quality drop against the RAG-eval baseline while this is on isolates the issue to the Merkle layer without losing PKI entirely. The root hash is also exposed (via `getMerkleRoot()` on the index) as a single-value workspace fingerprint for cache validity + cross-machine sync work.",
+            "requiresWindowReload": true
           },
           "sidecar.skills.userRegistry": {
             "type": "string",
@@ -1100,7 +1106,8 @@
           "sidecar.monorepo.enabled": {
             "type": "boolean",
             "default": true,
-            "description": "Enable monorepo package discovery. When on, SideCar auto-detects Nx, Turborepo, pnpm, yarn-workspaces, and Lerna layouts and exposes a `monorepo_packages` tool so the agent can enumerate packages and scope `project_knowledge_search` to a single package via `pathPrefix`."
+            "description": "Enable monorepo package discovery. When on, SideCar auto-detects Nx, Turborepo, pnpm, yarn-workspaces, and Lerna layouts and exposes a `monorepo_packages` tool so the agent can enumerate packages and scope `project_knowledge_search` to a single package via `pathPrefix`.",
+            "requiresWindowReload": true
           },
           "sidecar.voice.enabled": {
             "type": "boolean",
@@ -1120,7 +1127,8 @@
           "sidecar.ci.analysis.enabled": {
             "type": "boolean",
             "default": true,
-            "description": "Enable the `analyze_ci_failure` agent tool. When enabled, the agent can fetch and parse GitHub Actions logs for the most recent failed run on the current branch, trimming the output down to the relevant failure context."
+            "description": "Enable the `analyze_ci_failure` agent tool. When enabled, the agent can fetch and parse GitHub Actions logs for the most recent failed run on the current branch, trimming the output down to the relevant failure context.",
+            "requiresWindowReload": true
           },
           "sidecar.ci.analysis.maxLogBytes": {
             "type": "number",
@@ -1290,7 +1298,8 @@
           "sidecar.adaptivePaste.enabled": {
             "type": "boolean",
             "default": true,
-            "description": "Enable Adaptive Paste — when you paste foreign content (SQL, JSON, curl, Python, shell, .env) into a file, SideCar offers a lightbulb action to transform it to fit the target language."
+            "description": "Enable Adaptive Paste — when you paste foreign content (SQL, JSON, curl, Python, shell, .env) into a file, SideCar offers a lightbulb action to transform it to fit the target language.",
+            "requiresWindowReload": true
           },
           "sidecar.adaptivePaste.minPasteLength": {
             "type": "number",
@@ -1312,7 +1321,8 @@
           "sidecar.nextEdit.enabled": {
             "type": "boolean",
             "default": false,
-            "description": "Enable Next Edit Suggestions — after you edit a symbol, SideCar analyses the symbol graph and highlights callers/dependents that likely need a follow-on change."
+            "description": "Enable Next Edit Suggestions — after you edit a symbol, SideCar analyses the symbol graph and highlights callers/dependents that likely need a follow-on change.",
+            "requiresWindowReload": true
           },
           "sidecar.nextEdit.debounceMs": {
             "type": "number",
@@ -1550,7 +1560,8 @@
           "sidecar.notebookMode.enabled": {
             "type": "boolean",
             "default": false,
-            "description": "Enable Notebook Mode source-grounded research tools: ingest_source, generate_briefing, generate_study_guide, generate_faq, generate_timeline, generate_outline. Each artifact carries per-sentence citations back to the ingested source."
+            "description": "Enable Notebook Mode source-grounded research tools: ingest_source, generate_briefing, generate_study_guide, generate_faq, generate_timeline, generate_outline. Each artifact carries per-sentence citations back to the ingested source.",
+            "requiresWindowReload": true
           },
           "sidecar.notebookMode.requireCitations": {
             "type": "string",
@@ -1894,7 +1905,8 @@
           "sidecar.visualVerify.enabled": {
             "type": "boolean",
             "default": false,
-            "description": "Enable the screenshot-in-the-loop visual verification tools (screenshot_page, analyze_screenshot, open_in_browser, run_playwright_code). Requires a vision-capable model and playwright-core installed in the extension host."
+            "description": "Enable the screenshot-in-the-loop visual verification tools (screenshot_page, analyze_screenshot, open_in_browser, run_playwright_code). Requires a vision-capable model and playwright-core installed in the extension host.",
+            "requiresWindowReload": true
           },
           "sidecar.visualVerify.vlm": {
             "type": "string",
@@ -1943,7 +1955,8 @@
           "sidecar.docTests.enabled": {
             "type": "boolean",
             "default": true,
-            "description": "Enable the Doc-to-Test Synthesis Loop tools (extract_constraints, synthesize_tests, classify_test_failure). When disabled, these tools are hidden from the agent catalog."
+            "description": "Enable the Doc-to-Test Synthesis Loop tools (extract_constraints, synthesize_tests, classify_test_failure). When disabled, these tools are hidden from the agent catalog.",
+            "requiresWindowReload": true
           },
           "sidecar.docTests.outputDir": {
             "type": "string",
@@ -1973,7 +1986,8 @@
           "sidecar.deps.enabled": {
             "type": "boolean",
             "default": true,
-            "description": "Enable Dependency Drift Alerts — scans package.json, requirements.txt, Cargo.toml, and go.mod for outdated and vulnerable dependencies. Findings appear in the Problems panel and via the check_dependencies agent tool."
+            "description": "Enable Dependency Drift Alerts — scans package.json, requirements.txt, Cargo.toml, and go.mod for outdated and vulnerable dependencies. Findings appear in the Problems panel and via the check_dependencies agent tool.",
+            "requiresWindowReload": true
           },
           "sidecar.deps.checkVulnerabilities": {
             "type": "boolean",
@@ -1983,7 +1997,8 @@
           "sidecar.research.enabled": {
             "type": "boolean",
             "default": false,
-            "description": "Enable the Research Assistant. Provides research_create_project, research_add_hypothesis, research_log_experiment, and research_add_observation agent tools. Projects are stored under .sidecar/research/ and tracked in git."
+            "description": "Enable the Research Assistant. Provides research_create_project, research_add_hypothesis, research_log_experiment, and research_add_observation agent tools. Projects are stored under .sidecar/research/ and tracked in git.",
+            "requiresWindowReload": true
           },
           "sidecar.research.activeProject": {
             "type": "string",
@@ -1993,12 +2008,14 @@
           "sidecar.profiling.enabled": {
             "type": "boolean",
             "default": false,
-            "description": "Enable the profile_code agent tool. Profiles Node.js (--prof), Python (cProfile), Go (go test -bench), and Rust (cargo bench) projects and returns top-N CPU hotspots."
+            "description": "Enable the profile_code agent tool. Profiles Node.js (--prof), Python (cProfile), Go (go test -bench), and Rust (cargo bench) projects and returns top-N CPU hotspots.",
+            "requiresWindowReload": true
           },
           "sidecar.evalHistory.enabled": {
             "type": "boolean",
             "default": false,
-            "description": "Enable the query_history agent tool. Allows the agent to run read-only SELECT queries against the local eval history database (.sidecar/history.db)."
+            "description": "Enable the query_history agent tool. Allows the agent to run read-only SELECT queries against the local eval history database (.sidecar/history.db).",
+            "requiresWindowReload": true
           },
           "sidecar.profiling.topN": {
             "type": "number",
@@ -2010,7 +2027,8 @@
           "sidecar.latex.enabled": {
             "type": "boolean",
             "default": false,
-            "description": "Enable the latex_compile agent tool. Compiles .tex files using latexmk or pdflatex and returns structured errors, warnings, and line references."
+            "description": "Enable the latex_compile agent tool. Compiles .tex files using latexmk or pdflatex and returns structured errors, warnings, and line references.",
+            "requiresWindowReload": true
           },
           "sidecar.latex.compiler": {
             "type": "string",
@@ -2024,12 +2042,14 @@
           "sidecar.executiveFunction.enabled": {
             "type": "boolean",
             "default": true,
-            "description": "Checkpoint agent task state after each iteration so runs can resume after a VS Code restart or crash. Near-zero cost: one small JSON write per iteration. Disable if you never want a resume prompt on startup."
+            "description": "Checkpoint agent task state after each iteration so runs can resume after a VS Code restart or crash. Near-zero cost: one small JSON write per iteration. Disable if you never want a resume prompt on startup.",
+            "requiresWindowReload": true
           },
           "sidecar.mcpDelegation.enabled": {
             "type": "boolean",
             "default": false,
-            "description": "Enable the delegate_to_mcp tool, which lets the SideCar agent delegate sub-tasks to agentic MCP servers."
+            "description": "Enable the delegate_to_mcp tool, which lets the SideCar agent delegate sub-tasks to agentic MCP servers.",
+            "requiresWindowReload": true
           },
           "sidecar.mcpDelegation.allowedServers": {
             "type": "array",
@@ -2042,31 +2062,36 @@
           "sidecar.mcpServer.enabled": {
             "type": "boolean",
             "default": false,
-            "description": "Expose SideCar's agent loop as a local MCP server so external agents can delegate tasks to it."
+            "description": "Expose SideCar's agent loop as a local MCP server so external agents can delegate tasks to it.",
+            "requiresWindowReload": true
           },
           "sidecar.mcpServer.port": {
             "type": "number",
             "default": 3457,
             "minimum": 1024,
             "maximum": 65535,
-            "description": "TCP port the SideCar MCP server listens on (127.0.0.1 only)."
+            "description": "TCP port the SideCar MCP server listens on (127.0.0.1 only).",
+            "requiresWindowReload": true
           },
           "sidecar.mcpServer.requireAuth": {
             "type": "boolean",
             "default": false,
-            "description": "Require a bearer token for requests to the SideCar MCP server."
+            "description": "Require a bearer token for requests to the SideCar MCP server.",
+            "requiresWindowReload": true
           },
           "sidecar.mcpServer.authToken": {
             "type": "string",
             "default": "",
-            "description": "Bearer token clients must supply when sidecar.mcpServer.requireAuth is true."
+            "description": "Bearer token clients must supply when sidecar.mcpServer.requireAuth is true.",
+            "requiresWindowReload": true
           },
           "sidecar.mcpServer.maxConcurrent": {
             "type": "number",
             "default": 1,
             "minimum": 1,
             "maximum": 10,
-            "description": "Maximum number of agent tasks the MCP server will run concurrently."
+            "description": "Maximum number of agent tasks the MCP server will run concurrently.",
+            "requiresWindowReload": true
           },
           "sidecar.workspaceRoots": {
             "type": "array",
@@ -2122,7 +2147,8 @@
           "sidecar.enableSemanticSearch": {
             "type": "boolean",
             "default": true,
-            "description": "Enable semantic (embedding-based) search as a fallback when keyword search returns no results in the workspace index."
+            "description": "Enable semantic (embedding-based) search as a fallback when keyword search returns no results in the workspace index.",
+            "requiresWindowReload": true
           },
           "sidecar.semanticSearchWeight": {
             "type": "number",

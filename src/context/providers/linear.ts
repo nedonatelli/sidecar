@@ -1,5 +1,5 @@
 import type { ContextProviderConfig, ContextProviderResult, ContextIssue } from '../types.js';
-import { truncateIssueBody } from '../types.js';
+import { truncateIssueBody, resolveToken } from '../types.js';
 
 const LINEAR_API = 'https://api.linear.app/graphql';
 
@@ -41,15 +41,20 @@ export async function fetchLinearIssues(
 ): Promise<ContextProviderResult> {
   const providerLabel = 'Linear';
 
-  if (!config.token) {
-    return { providerLabel, issues: [], error: 'No API key configured. Set sidecar.contextProviders[].token.' };
+  const token = resolveToken(config);
+  if (!token) {
+    return {
+      providerLabel,
+      issues: [],
+      error: 'No API key configured. Set sidecar.contextProviders[].token or SIDECAR_CTX_TOKEN_LINEAR.',
+    };
   }
 
   try {
     const res = await fetchFn(LINEAR_API, {
       method: 'POST',
       headers: {
-        Authorization: config.token,
+        Authorization: token,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ query: buildQuery(config.filter, config.maxIssues || 5) }),

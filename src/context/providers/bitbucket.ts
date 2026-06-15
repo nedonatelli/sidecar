@@ -1,5 +1,5 @@
 import type { ContextProviderConfig, ContextProviderResult, ContextIssue } from '../types.js';
-import { truncateIssueBody } from '../types.js';
+import { truncateIssueBody, resolveToken } from '../types.js';
 import { stripTrailingSlash } from '../../util/url.js';
 
 interface BitbucketPR {
@@ -40,11 +40,13 @@ export async function fetchBitbucketPRs(
   const projectSlug = config.project?.trim() ?? '';
   const providerLabel = `Bitbucket (${projectSlug || 'unknown repo'})`;
 
-  if (!config.token) {
+  const token = resolveToken(config);
+  if (!token) {
     return {
       providerLabel,
       issues: [],
-      error: 'No token configured. Set sidecar.contextProviders[].token to "username:app_password" or a Bearer token.',
+      error:
+        'No token configured. Set sidecar.contextProviders[].token to "username:app_password" or a Bearer token, or set SIDECAR_CTX_TOKEN_BITBUCKET.',
     };
   }
 
@@ -65,16 +67,15 @@ export async function fetchBitbucketPRs(
     };
   }
 
-  const stateFilter = config.filter === 'open' || config.filter === 'assigned' ? 'OPEN' : 'OPEN';
   const maxResults = config.maxIssues || 5;
 
-  const params = new URLSearchParams({ state: stateFilter, pagelen: String(maxResults) });
+  const params = new URLSearchParams({ state: 'OPEN', pagelen: String(maxResults) });
   const url = `${baseUrl}/repositories/${projectSlug}/pullrequests?${params}`;
 
   try {
     const res = await fetchFn(url, {
       headers: {
-        Authorization: buildAuthHeader(config.token),
+        Authorization: buildAuthHeader(token),
         Accept: 'application/json',
       },
     });

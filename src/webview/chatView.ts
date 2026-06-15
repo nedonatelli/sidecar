@@ -24,6 +24,7 @@ import type { SkillLoader } from '../agent/skillLoader.js';
 import type { InlineEditProvider } from '../edits/inlineEditProvider.js';
 import type { BackgroundAgentManager } from '../agent/backgroundAgent.js';
 import { getConfig, detectActiveProfile } from '../config/settings.js';
+import { ContextProviderManager } from '../context/contextProviderManager.js';
 import { handleUserMessage } from './handlers/chatHandlers.js';
 import { buildCodeActionPrompt, buildTerminalErrorPrompt } from './codeActions.js';
 import {
@@ -147,6 +148,13 @@ export class ChatViewProvider implements WebviewViewProvider {
         if (e.affectsConfiguration('sidecar.modelRouting')) this.state.refreshModelRouter();
         if (e.affectsConfiguration('sidecar.baseUrl') || e.affectsConfiguration('sidecar.provider')) {
           this.pushActiveBackendProfile();
+        }
+        if (e.affectsConfiguration('sidecar.contextProviders')) {
+          const cfg = getConfig();
+          const root = workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+          this.state.contextProviderManager = cfg.contextProviders?.length
+            ? new ContextProviderManager(cfg.contextProviders, undefined, root)
+            : null;
         }
       }),
     );

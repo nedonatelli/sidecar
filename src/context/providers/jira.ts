@@ -1,5 +1,5 @@
 import type { ContextProviderConfig, ContextProviderResult, ContextIssue } from '../types.js';
-import { truncateIssueBody } from '../types.js';
+import { truncateIssueBody, resolveToken } from '../types.js';
 import { stripTrailingSlash } from '../../util/url.js';
 
 interface JiraIssue {
@@ -43,8 +43,13 @@ export async function fetchJiraIssues(
       error: 'No baseUrl configured. Set sidecar.contextProviders[].baseUrl to your Jira instance URL.',
     };
   }
-  if (!config.token) {
-    return { providerLabel, issues: [], error: 'No token configured. Set sidecar.contextProviders[].token.' };
+  const token = resolveToken(config);
+  if (!token) {
+    return {
+      providerLabel,
+      issues: [],
+      error: 'No token configured. Set sidecar.contextProviders[].token or SIDECAR_CTX_TOKEN_JIRA.',
+    };
   }
 
   try {
@@ -63,7 +68,7 @@ export async function fetchJiraIssues(
     const url = `${base}/rest/api/3/search?${params}`;
     const res = await fetchFn(url, {
       headers: {
-        Authorization: `Bearer ${config.token}`,
+        Authorization: `Bearer ${token}`,
         Accept: 'application/json',
       },
     });
