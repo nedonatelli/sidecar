@@ -83,7 +83,7 @@ export function getFilePatterns(): string[] {
     .getConfiguration('sidecar')
     .get<
       string[]
-    >('filePatterns', ['**/*.ts', '**/*.js', '**/*.py', '**/*.md', '**/*.kt', '**/*.java', '**/*.swift', '**/*.go', '**/*.rs', '**/*.c', '**/*.cpp', '**/*.h', '**/*.rb', '**/*.php', '**/*.cs', '**/*.json', '**/*.yaml', '**/*.yml', '**/*.toml', '**/*.gradle.kts', '**/*.gradle', '**/*.html', '**/*.css', '**/*.scss', '**/*.sh', '**/*.sql']);
+    >('filePatterns', ['**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx', '**/*.vue', '**/*.py', '**/*.md', '**/*.kt', '**/*.kts', '**/*.java', '**/*.swift', '**/*.go', '**/*.rs', '**/*.c', '**/*.cpp', '**/*.cc', '**/*.cxx', '**/*.h', '**/*.hpp', '**/*.hh', '**/*.rb', '**/*.php', '**/*.cs', '**/*.lua', '**/*.scala', '**/*.dart', '**/*.json', '**/*.yaml', '**/*.yml', '**/*.toml', '**/*.gradle.kts', '**/*.gradle', '**/*.html', '**/*.css', '**/*.scss', '**/*.sh', '**/*.bash', '**/*.zsh', '**/*.sql']);
 }
 
 export function getMaxFiles(): number {
