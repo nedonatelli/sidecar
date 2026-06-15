@@ -1421,6 +1421,7 @@
           "sidecar.pinnedMemory.enabled": {
             "type": "boolean",
             "default": true,
+            "requiresWindowReload": true,
             "description": "Enable pinned memory — content you pin via 'Pin to Memory' is always injected into the system prompt regardless of query relevance, and survives context compaction."
           },
           "sidecar.pinnedMemory.maxPins": {
