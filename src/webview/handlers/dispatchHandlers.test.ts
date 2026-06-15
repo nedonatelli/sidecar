@@ -232,13 +232,6 @@ describe('buildDispatchHandlers', () => {
     );
   });
 
-  // ── dismissOnboarding ─────────────────────────────────────────────────────
-
-  it('dismissOnboarding updates globalState', async () => {
-    await invoke(handlers, 'dismissOnboarding');
-    expect(deps.globalState.update).toHaveBeenCalledWith('sidecar.onboardingComplete', true);
-  });
-
   // ── Steer handlers ────────────────────────────────────────────────────────
 
   it('steerEnqueue is a no-op when currentSteerQueue is null', async () => {
@@ -445,19 +438,6 @@ describe('buildDispatchHandlers', () => {
     expect(postMessage).toHaveBeenCalledWith({ command: 'bgList', bgRuns: fakeList });
   });
 
-  it('bgExpand posts bgComplete when run is found', async () => {
-    const fakeRun = { id: 'bg-1', status: 'completed' };
-    vi.mocked(deps.bgManager.get).mockReturnValueOnce(fakeRun as unknown as ReturnType<typeof deps.bgManager.get>);
-    await invoke(handlers, 'bgExpand', { text: 'bg-1' });
-    expect(postMessage).toHaveBeenCalledWith({ command: 'bgComplete', bgRun: fakeRun });
-  });
-
-  it('bgExpand is a no-op when run is not found', async () => {
-    vi.mocked(deps.bgManager.get).mockReturnValueOnce(undefined);
-    await invoke(handlers, 'bgExpand', { text: 'bg-missing' });
-    expect(postMessage).not.toHaveBeenCalled();
-  });
-
   // ── Simple delegation handlers ────────────────────────────────────────────
 
   it('attachFile delegates to handleAttachFile', async () => {
@@ -494,12 +474,6 @@ describe('buildDispatchHandlers', () => {
     const { handleMoveFile } = await import('./chatHandlers.js');
     await invoke(handlers, 'moveFile', { sourcePath: '/a.ts', destPath: '/b.ts' });
     expect(handleMoveFile).toHaveBeenCalledWith(state, '/a.ts', '/b.ts');
-  });
-
-  it('undoChanges delegates to handleUndoChanges', async () => {
-    const { handleUndoChanges } = await import('./chatHandlers.js');
-    await invoke(handlers, 'undoChanges');
-    expect(handleUndoChanges).toHaveBeenCalledWith(state);
   });
 
   it('exportChat delegates to handleExportChat', async () => {
@@ -608,12 +582,6 @@ describe('buildDispatchHandlers', () => {
     const { handleToggleVerbose } = await import('./infoHandlers.js');
     await invoke(handlers, 'toggleVerbose');
     expect(handleToggleVerbose).toHaveBeenCalledWith(state);
-  });
-
-  it('listSkills delegates to handleListSkills', async () => {
-    const { handleListSkills } = await import('./infoHandlers.js');
-    await invoke(handlers, 'listSkills');
-    expect(handleListSkills).toHaveBeenCalledWith(state);
   });
 
   it('getSkillsForMenu delegates to handleGetSkillsForMenu', async () => {
@@ -875,24 +843,6 @@ describe('buildDispatchHandlers', () => {
     const { commands } = await import('vscode');
     await invoke(handlers, 'switchBackend', { profileId: 'anthropic' });
     expect(commands.executeCommand).toHaveBeenCalledWith('sidecar.switchBackend', 'anthropic');
-  });
-
-  it('kickstandLoad with modelId calls handleKickstandLoadModel', async () => {
-    const { handleKickstandLoadModel } = await import('./modelHandlers.js');
-    await invoke(handlers, 'kickstandLoad', { modelId: 'llama3' });
-    expect(handleKickstandLoadModel).toHaveBeenCalledWith(state, 'llama3');
-  });
-
-  it('kickstandLoad without modelId is a no-op', async () => {
-    const { handleKickstandLoadModel } = await import('./modelHandlers.js');
-    await invoke(handlers, 'kickstandLoad', {});
-    expect(handleKickstandLoadModel).not.toHaveBeenCalled();
-  });
-
-  it('kickstandUnload with modelId calls handleKickstandUnloadModel', async () => {
-    const { handleKickstandUnloadModel } = await import('./modelHandlers.js');
-    await invoke(handlers, 'kickstandUnload', { modelId: 'llama3' });
-    expect(handleKickstandUnloadModel).toHaveBeenCalledWith(state, 'llama3');
   });
 
   it('deleteModel with model calls handleDeleteModel', async () => {

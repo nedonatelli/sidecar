@@ -68,7 +68,6 @@ import {
   handleListMemories,
   handleSearchMemories,
   handleToggleVerbose,
-  handleListSkills,
   handleGetSkillsForMenu,
 } from './infoHandlers.js';
 import {
@@ -109,7 +108,7 @@ const ALLOWED_EXTENSION_COMMANDS = new Set([
 export function buildDispatchHandlers(
   deps: HandlerDeps,
 ): Record<string, (msg: WebviewMessage) => void | Promise<void>> {
-  const { state, bgManager, globalState, postMessage, setModel } = deps;
+  const { state, bgManager, postMessage, setModel } = deps;
 
   return {
     userMessage: async (msg) => {
@@ -258,7 +257,6 @@ export function buildDispatchHandlers(
     moveFile: (msg) => handleMoveFile(state, msg.sourcePath || '', msg.destPath || ''),
     github: (msg) => handleGitHubCommand(state, msg),
     newChat: () => state.clearChat(),
-    undoChanges: () => handleUndoChanges(state),
     exportChat: () => handleExportChat(state),
     executePlan: () => handleExecutePlan(state),
     revisePlan: (msg) => handleRevisePlan(state, msg.text || ''),
@@ -267,7 +265,6 @@ export function buildDispatchHandlers(
     loadSession: (msg) => handleLoadSession(state, msg.text || ''),
     deleteSession: (msg) => handleDeleteSession(state, msg.text || ''),
     listSessions: () => handleListSessions(state),
-    branchSession: (msg) => handleBranchSession(state, msg.text),
     insight: () => handleInsight(state),
     spec: (msg) => handleSpec(state, msg.text || ''),
     generateDoc: () => handleGenerateDoc(state),
@@ -308,20 +305,6 @@ export function buildDispatchHandlers(
 
     switchBackend: async (msg) => {
       await commands.executeCommand('sidecar.switchBackend', msg.profileId);
-    },
-
-    kickstandLoad: async (msg) => {
-      if (msg.modelId) {
-        const { handleKickstandLoadModel } = await import('./modelHandlers.js');
-        await handleKickstandLoadModel(state, msg.modelId);
-      }
-    },
-
-    kickstandUnload: async (msg) => {
-      if (msg.modelId) {
-        const { handleKickstandUnloadModel } = await import('./modelHandlers.js');
-        await handleKickstandUnloadModel(state, msg.modelId);
-      }
     },
 
     deleteModel: async (msg) => {
@@ -439,10 +422,6 @@ export function buildDispatchHandlers(
       bgManager.stop(msg.text || '');
     },
     bgList: () => postMessage({ command: 'bgList', bgRuns: bgManager.list() }),
-    bgExpand: (msg) => {
-      const run = bgManager.get(msg.text || '');
-      if (run) postMessage({ command: 'bgComplete', bgRun: run });
-    },
 
     notebookStart: () => handleNotebookStart(state),
     notebookExit: () => handleNotebookExit(state),
@@ -453,7 +432,6 @@ export function buildDispatchHandlers(
     editMessage: (msg) => handleEditMessage(state, msg.index ?? -1, msg.text ?? ''),
     toggleVerbose: () => handleToggleVerbose(state),
     compactContext: () => handleCompactContext(state),
-    listSkills: () => handleListSkills(state),
     getSkillsForMenu: () => handleGetSkillsForMenu(state),
     openSkillPicker: async (msg) => {
       if (!state.skillLoader) return;
@@ -476,10 +454,6 @@ export function buildDispatchHandlers(
     reconnect: () => import('./chatHandlers.js').then(({ handleReconnect }) => handleReconnect(state)),
     refreshModels: () => import('./modelHandlers.js').then(({ loadModels }) => loadModels(state)),
     restartOllama: () => import('./chatHandlers.js').then(({ handleRestartOllama }) => handleRestartOllama(state)),
-
-    dismissOnboarding: () => {
-      globalState.update('sidecar.onboardingComplete', true);
-    },
 
     executeExtensionCommand: async (msg) => {
       const commandId = msg.commandId;
