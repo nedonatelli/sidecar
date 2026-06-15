@@ -237,6 +237,47 @@ describe('syncSkillRegistries', () => {
     expect(git.clone).not.toHaveBeenCalled();
   });
 
+  it.each(['hourly', 'daily'] as const)(
+    'cached registry + autoPull=%s → pull runs (registry included in result)',
+    async (mode) => {
+      const managed = path.join(home, '.sidecar', 'user-skills');
+      fs.mkdirSync(managed, { recursive: true });
+
+      // pull() is called on a new GitCLI(ref.managedDir), not on opts.git,
+      // so we can't intercept it via the injected git. Verify that the
+      // registry is included in the result (not skipped) and no clone ran.
+      const git = { clone: vi.fn(), pull: vi.fn() } as unknown as GitCLI;
+      const refs = await syncSkillRegistries({
+        config: makeConfig({
+          skillsUserRegistry: 'https://github.com/me/skills.git',
+          skillsAutoPull: mode,
+        }),
+        homeDir: home,
+        git,
+      });
+      expect(refs).toHaveLength(1);
+      expect(git.clone).not.toHaveBeenCalled();
+    },
+  );
+
+  it('cached registry + autoPull=manual + forcePull → registry included (explicit sidecar.skills.sync)', async () => {
+    const managed = path.join(home, '.sidecar', 'user-skills');
+    fs.mkdirSync(managed, { recursive: true });
+
+    const git = { clone: vi.fn(), pull: vi.fn() } as unknown as GitCLI;
+    const refs = await syncSkillRegistries({
+      config: makeConfig({
+        skillsUserRegistry: 'https://github.com/me/skills.git',
+        skillsAutoPull: 'manual',
+      }),
+      forcePull: true,
+      homeDir: home,
+      git,
+    });
+    expect(refs).toHaveLength(1);
+    expect(git.clone).not.toHaveBeenCalled();
+  });
+
   it('local-folder refs always sync without touching git', async () => {
     const local = path.join(home, 'project-local-skills');
     fs.mkdirSync(local);

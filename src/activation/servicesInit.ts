@@ -56,7 +56,7 @@ export function initCoreServices(context: ExtensionContext): InitializedServices
   const skillLoader = new SkillLoader();
   skillLoader.setBuiltinPath(path.join(context.extensionPath, 'skills'));
 
-  const runSkillSync = async () => {
+  const runSkillSync = async (forcePull = false) => {
     try {
       await skillLoader.initialize();
       const skillCfg = getConfig();
@@ -69,6 +69,7 @@ export function initCoreServices(context: ExtensionContext): InitializedServices
           skillsTrustedRegistries: skillCfg.skillsTrustedRegistries,
           skillsOffline: skillCfg.skillsOffline,
         },
+        forcePull,
         trustPrompt: async (ref) => {
           const choice = await window.showInformationMessage(
             `SideCar: trust skill registry \`${ref.url}\`? ` +
@@ -97,7 +98,7 @@ export function initCoreServices(context: ExtensionContext): InitializedServices
     commands.registerCommand('sidecar.skills.sync', async () => {
       await window.withProgress(
         { location: 15 /* Notification */, title: 'SideCar: Syncing skill registries…', cancellable: false },
-        () => runSkillSync(),
+        () => runSkillSync(true),
       );
       void window.showInformationMessage(`SideCar: Skill registries synced. ${skillLoader.count} skills loaded.`);
     }),

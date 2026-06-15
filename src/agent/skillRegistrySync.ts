@@ -69,6 +69,12 @@ export interface SyncOptions {
   log?: (line: string) => void;
   /** Git client — injectable for tests. */
   git?: GitCLI;
+  /**
+   * When true, pull cached registries regardless of `skillsAutoPull` mode.
+   * Used by the `sidecar.skills.sync` command so an explicit user action
+   * always fetches updates even in `manual` mode.
+   */
+  forcePull?: boolean;
 }
 
 /**
@@ -128,9 +134,12 @@ export async function syncSkillRegistries(opts: SyncOptions): Promise<RegistryRe
         await fs.promises.mkdir(path.dirname(ref.managedDir), { recursive: true });
         await git.clone(ref.url, ref.managedDir);
         log(`[SideCar] Cloned ${ref.label} into ${ref.managedDir}.`);
-      } else if (opts.config.skillsAutoPull === 'on-start') {
+      } else if (opts.config.skillsAutoPull !== 'manual' || opts.forcePull) {
         // Pull against the existing clone. GitCLI's `pull()` uses its
         // configured cwd, so make a registry-scoped client.
+        // Fires for on-start (every startup), hourly/daily (when the timer
+        // calls runSkillSync), and any autoPull mode when forcePull is set
+        // (the explicit sidecar.skills.sync command).
         const scoped = new GitCLI(ref.managedDir);
         await scoped.pull();
         log(`[SideCar] Pulled ${ref.label}.`);
