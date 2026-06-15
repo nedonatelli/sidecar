@@ -160,22 +160,23 @@ describe('dedupeToolResults', () => {
     expect(second.content).toMatch(/identical to a previous tool_result/);
   });
 
-  it('exempts read_file from dedup (back-reference-after-edit trap)', () => {
+  it('exempts read_file from dedup when caller marks it nondeterministic', () => {
     // Canonical trap: agent reads foo.ts, edits foo.ts, reads foo.ts
-    // again. Pre-p.2b dedup collapsed the second read into a pointer
-    // at the stale FIRST read, silently hiding the agent's own edit.
+    // again. Callers derive the exempt set from nondeterministicOutput on
+    // the tool definition; this test passes it explicitly to mirror that path.
     const messages = buildDuplicateReadsSession(LARGE_FILE_CONTENT, 'read_file');
     const toolNames = buildToolUseIdMap(messages);
-    const { messages: out, saved } = dedupeToolResults(messages, toolNames);
+    const { messages: out, saved } = dedupeToolResults(messages, toolNames, new Set(['read_file']));
 
     expect(saved).toBe(0); // no dedup happened
     const second = (out[5].content as ToolResultContentBlock[])[0];
     expect(second.content).toBe(LARGE_FILE_CONTENT); // full content preserved
   });
 
-  it('falls back to pre-p.2b behavior when no tool-name map is provided', () => {
-    // Back-compat: callers that don't supply a map get the unguarded
-    // legacy behavior (every tool is a dedup candidate).
+  it('dedupes read_file when no exempt set is provided (no tool-name map)', () => {
+    // Without a tool-name map the name lookup returns undefined, so no tool
+    // can be exempt regardless of the dedupExempt set — every result is a
+    // candidate. Same behavior with or without an explicit exempt set.
     const messages = buildDuplicateReadsSession(LARGE_FILE_CONTENT, 'read_file');
     const { saved } = dedupeToolResults(messages);
     expect(saved).toBeGreaterThan(0);
@@ -293,9 +294,13 @@ describe('prunePrompt', () => {
     expect(result.stats.truncatedByTool.grep).toBeGreaterThan(0);
   });
 
-  it('exempts read_file from dedup end-to-end ', () => {
+  it('exempts read_file from dedup end-to-end when dedupExemptTools is supplied', () => {
     const messages = buildDuplicateReadsSession(LARGE_FILE_CONTENT, 'read_file');
-    const result = prunePrompt('', messages, { enabled: true, maxToolResultTokens: 500 });
+    const result = prunePrompt('', messages, {
+      enabled: true,
+      maxToolResultTokens: 500,
+      dedupExemptTools: new Set(['read_file']),
+    });
     // Truncation still fires on both copies.
     expect(result.stats.truncatedBytes).toBeGreaterThan(0);
     // But dedup stays quiet — the "back-reference after edit" trap is closed.

@@ -2,31 +2,6 @@ import type { ChatMessage, ContentBlock, ToolResultContentBlock, ToolUseContentB
 import { tokensToChars } from '../config/tokenEstimation.js';
 
 /**
- * Tools whose output must never be dedup'd with a back-reference
- * (audit finding: the "identical to previous" mark
- * is a trap when a user asks the agent to re-read a file after
- * editing it; the agent gets the *pre-edit* content by reference
- * even though it wrote a newer version). Truncation still applies
- * — size management is legitimate — but the back-reference is not.
- *
- * Add tools here when their output (a) is expected to vary across
- * consecutive calls with identical inputs, or (b) carries user
- * intent that would be damaged by collapsing duplicates.
- */
-const DEDUP_EXEMPT_TOOLS = new Set([
-  'read_file',
-  'list_directory',
-  'get_diagnostics',
-  'git_diff',
-  'git_status',
-  'git_search_history',
-  'run_command',
-  'run_tests',
-  'web_search',
-  'check_dependencies',
-]);
-
-/**
  * Lossy-but-bounded prompt pruning applied before sending to paid backends.
  *
  * Rules — each one documented so a failing agent loop can point at the
@@ -46,9 +21,10 @@ export interface PrunerOptions {
   enabled: boolean;
   maxToolResultTokens: number;
   /**
-   * Tool names whose results must never be dedup'd. Defaults to the built-in
-   * set when omitted. Callers that have access to the tool registry should
-   * derive this from `ToolDefinition.nondeterministicOutput` instead.
+   * Tool names whose results must never be dedup'd. Derived from
+   * `ToolDefinition.nondeterministicOutput` by all production callers.
+   * When omitted, no tools are exempt (safe for non-tool-use paths like
+   * `complete()` which never contain tool results).
    */
   dedupExemptTools?: ReadonlySet<string>;
 }
@@ -218,15 +194,15 @@ export function buildToolUseIdMap(messages: ChatMessage[]): Map<string, string> 
  * short back-reference. This is the biggest win when an agent reads the
  * same file twice in one loop.
  *
- * tools in `DEDUP_EXEMPT_TOOLS` (read_file, git_diff,
- * …) are never dedup'd; their output is expected to vary across
- * consecutive calls. `toolNames` parameter is optional for back-
- * compat — without it, every tool gets the pre-p.2b dedup treatment.
+ * Tools in `dedupExempt` (derived from `nondeterministicOutput` by callers)
+ * are never dedup'd; their output is expected to vary across consecutive
+ * calls. `toolNames` parameter is optional — without it, no name lookup
+ * occurs and every tool is a dedup candidate.
  */
 export function dedupeToolResults(
   messages: ChatMessage[],
   toolNames?: Map<string, string>,
-  dedupExempt: ReadonlySet<string> = DEDUP_EXEMPT_TOOLS,
+  dedupExempt: ReadonlySet<string> = new Set(),
 ): { messages: ChatMessage[]; saved: number } {
   const seen = new Map<string, number>();
   let saved = 0;
