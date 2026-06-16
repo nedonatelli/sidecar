@@ -1157,6 +1157,7 @@ body {
 
 #input-area {
   display: flex;
+  align-items: flex-end;
   padding: 12px;
   border-top: 1px solid var(--vscode-widget-border);
   gap: 8px;
@@ -1733,12 +1734,11 @@ body {
   color: var(--vscode-input-foreground);
   border: 1px solid var(--vscode-widget-border);
   border-radius: 4px;
-  resize: none;
+  resize: vertical;
   font-family: var(--vscode-font-family);
   font-size: var(--vscode-font-size, 14px);
   line-height: 1.4;
-  min-height: 38px;
-  max-height: 120px;
+  min-height: 72px;
 }
 
 #input:focus {

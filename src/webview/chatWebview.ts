@@ -158,6 +158,7 @@ export interface ExtensionMessage {
   command:
     | 'init'
     | 'assistantMessage'
+    | 'finalizeAssistantMessage'
     | 'error'
     | 'done'
     | 'setLoading'

@@ -369,6 +369,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
         content:
           '🎯 **Plan mode auto-enabled** — This looks like a large task. I will generate a structured plan first before execution. You can then approve, revise, or reject the plan.\n\n',
       });
+      state.postMessage({ command: 'finalizeAssistantMessage' });
     }
 
     const { systemPrompt, contextLength, matchedSkill } = await buildSystemPromptForRun(

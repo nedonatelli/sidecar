@@ -1233,10 +1233,17 @@
     acSelectedIndex = -1;
   }
 
+  // Track manual resize so auto-expand doesn't shrink a user-dragged height.
+  let manualInputHeight = 0;
+  input.addEventListener('pointerup', () => {
+    manualInputHeight = input.clientHeight;
+  });
+
   // Auto-resize textarea and update send button label
   input.addEventListener('input', () => {
     input.style.height = 'auto';
-    input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+    const autoH = Math.min(input.scrollHeight, 300);
+    input.style.height = Math.max(autoH, manualInputHeight) + 'px';
     updateAutocomplete();
     updateAtAutocomplete();
     updateSendButton();
@@ -4356,6 +4363,10 @@
           const tokPerSec = elapsed > 0 ? (tokens / elapsed).toFixed(1) : '0';
           streamStats.textContent = tokens + ' tokens \u00b7 ' + tokPerSec + ' tok/s';
         }
+        break;
+
+      case 'finalizeAssistantMessage':
+        finishAssistantMessage();
         break;
 
       case 'agentProgress': {
