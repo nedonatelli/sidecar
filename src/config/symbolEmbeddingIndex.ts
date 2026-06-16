@@ -142,8 +142,8 @@ export class SymbolEmbeddingIndex implements Disposable {
   private pendingQueue = new Map<string, SymbolEmbedInput>();
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private drainedListener?: () => void;
-  private static readonly FLUSH_DEBOUNCE_MS = 500;
-  private static readonly FLUSH_BATCH_SIZE = 20;
+  private static readonly FLUSH_DEBOUNCE_MS = 250;
+  private static readonly FLUSH_BATCH_SIZE = 50;
   /**
    * Max concurrent `indexSymbol` calls within a batch.
    * The embedding pipeline dominates the per-symbol cost (~20–30 ms
@@ -154,6 +154,9 @@ export class SymbolEmbeddingIndex implements Disposable {
    * read and write, so the mutations after each concurrent embed
    * resolve serialize on the event loop atomically. Two concurrent
    * upserts can't clobber each other's offset / vector slot.
+   * Batch size 50 (up from 20) cuts inter-batch round-trips by 60%
+   * on large workspace scans. Debounce 250ms (down from 500ms) gives
+   * faster feedback on incremental file saves.
    */
   private static readonly FLUSH_CONCURRENCY = 4;
 
