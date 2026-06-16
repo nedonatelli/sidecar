@@ -128,6 +128,7 @@ export const pdfTools: RegisteredTool[] = [
         },
         required: ['path'],
       },
+      nondeterministicOutput: true,
     },
     executor: readPdf,
     requiresApproval: false,

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const mockClient = {
   connect: vi.fn().mockResolvedValue(undefined),
@@ -20,9 +20,15 @@ const mockClient = {
   close: vi.fn().mockResolvedValue(undefined),
 };
 
+// Per-instance tracker so tests can inspect client.onclose set by connectServer().
+// Each new Client() call pushes its spread instance here.
+const mockClientInstances: Array<typeof mockClient & { onclose?: () => void }> = [];
+
 vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
   Client: vi.fn().mockImplementation(function () {
-    return { ...mockClient };
+    const inst = { ...mockClient };
+    mockClientInstances.push(inst);
+    return inst;
   }),
 }));
 
@@ -52,6 +58,7 @@ describe('MCPManager', () => {
   beforeEach(() => {
     manager = new MCPManager();
     vi.clearAllMocks();
+    mockClientInstances.length = 0;
     // Restore default mock behavior after clearAllMocks
     mockClient.connect.mockResolvedValue(undefined);
     mockClient.listTools.mockResolvedValue({
@@ -425,5 +432,220 @@ describe('detectInjectionSignals', () => {
     expect(signals).toContain('bracketed-system');
     // Could have additional matches too, but at minimum both above.
     expect(signals.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Lifecycle and reconnection fixes
+// Tests for: reconnect counter persistence, concurrent connect() serialisation,
+// and the client.onclose health-monitoring hook.
+// ---------------------------------------------------------------------------
+
+describe('MCPManager — reconnect counter and health monitoring', () => {
+  let manager: MCPManager;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockClientInstances.length = 0;
+    mockClient.connect.mockResolvedValue(undefined);
+    mockClient.listTools.mockResolvedValue({ tools: [] });
+    mockClient.close.mockResolvedValue(undefined);
+    manager = new MCPManager();
+  });
+
+  afterEach(() => {
+    manager.dispose();
+    vi.useRealTimers();
+  });
+
+  // -------------------------------------------------------------------------
+  // Notification ordering
+  // -------------------------------------------------------------------------
+
+  it('getToolCount() is accurate when status-change listeners fire on success', async () => {
+    mockClient.listTools.mockResolvedValue({
+      tools: [{ name: 'tx', description: 'X', inputSchema: { type: 'object', properties: {} } }],
+    });
+
+    const countsAtNotification: number[] = [];
+    manager.onStatusChange(() => countsAtNotification.push(manager.getToolCount()));
+
+    await manager.connect({ srv: { type: 'http', url: 'http://localhost:9' } });
+
+    // The connected notification must see count = 1, not 0 (regression: rebuild
+    // was called after notifyStatusChange in the original code)
+    expect(countsAtNotification).toContain(1);
+  });
+
+  // -------------------------------------------------------------------------
+  // Reconnect delays: burst (2 s → 5 s → 15 s) then steady-state (60 s)
+  // The counter lives in reconnectAttemptsByServer on the manager, NOT on the
+  // MCPConnection object, so it survives across connection object recreations.
+  // -------------------------------------------------------------------------
+
+  it('reconnect delays follow burst then hold at steady-state', async () => {
+    vi.useFakeTimers();
+    mockClient.connect.mockRejectedValue(new Error('refused'));
+
+    await manager.connect({ srv: { type: 'http', url: 'http://localhost:9' } });
+    expect(mockClient.connect).toHaveBeenCalledTimes(1); // initial attempt
+
+    await vi.advanceTimersByTimeAsync(2_000); // burst[0] = 2 s → attempt 2
+    expect(mockClient.connect).toHaveBeenCalledTimes(2);
+
+    await vi.advanceTimersByTimeAsync(5_000); // burst[1] = 5 s → attempt 3
+    expect(mockClient.connect).toHaveBeenCalledTimes(3);
+
+    await vi.advanceTimersByTimeAsync(15_000); // burst[2] = 15 s → attempt 4
+    expect(mockClient.connect).toHaveBeenCalledTimes(4);
+
+    // Now in steady-state (60 s). If the counter had reset to 0 the next timer
+    // would fire at 2 s — advancing 59.999 s would already show a 5th call.
+    await vi.advanceTimersByTimeAsync(59_999);
+    expect(mockClient.connect).toHaveBeenCalledTimes(4); // not yet
+
+    await vi.advanceTimersByTimeAsync(1); // 60 s elapsed → attempt 5
+    expect(mockClient.connect).toHaveBeenCalledTimes(5);
+  });
+
+  it('successful reconnect resets burst counter to 0', async () => {
+    vi.useFakeTimers();
+    let attempts = 0;
+    mockClient.connect.mockImplementation(() => {
+      attempts++;
+      return attempts === 1 ? Promise.reject(new Error('not ready')) : Promise.resolve();
+    });
+
+    await manager.connect({ srv: { type: 'http', url: 'http://localhost:9' } });
+    // Attempt 1 failed → timer at 2 s
+    await vi.advanceTimersByTimeAsync(2_000); // attempt 2 → succeeds
+    expect(manager.getServerStatus()[0].status).toBe('connected');
+
+    // Simulate unexpected drop — counter should reset
+    mockClientInstances.at(-1)!.onclose?.();
+    expect(manager.getServerStatus()[0].status).toBe('failed');
+
+    // Counter reset → burst restarts at 2 s (not at 5 s where it left off)
+    mockClient.connect.mockResolvedValue(undefined);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(manager.getServerStatus()[0].status).toBe('connected');
+  });
+
+  it('disconnect() resets burst counter so next connect() starts fresh at 2 s', async () => {
+    vi.useFakeTimers();
+    mockClient.connect.mockRejectedValue(new Error('fail'));
+
+    await manager.connect({ srv: { type: 'http', url: 'http://localhost:9' } });
+    await vi.advanceTimersByTimeAsync(2_000); // exhaust burst[0] → counter = 2
+
+    await manager.disconnect(); // clears reconnectAttemptsByServer
+
+    // Reconnect with a failure → success sequence; if counter wasn't reset,
+    // the next timer would be 5 s (burst[1]), not 2 s.
+    mockClient.connect.mockRejectedValueOnce(new Error('fail')).mockResolvedValue(undefined);
+
+    await manager.connect({ srv: { type: 'http', url: 'http://localhost:9' } });
+    // If counter reset: timer fires at 2 s. If not reset: timer fires at 5 s.
+    await vi.advanceTimersByTimeAsync(2_001);
+    expect(manager.getServerStatus()[0].status).toBe('connected');
+  });
+
+  // -------------------------------------------------------------------------
+  // Concurrent connect() serialises — no duplicate connections
+  // -------------------------------------------------------------------------
+
+  it('concurrent connect() calls serialise and produce exactly one connection per server', async () => {
+    let firstResolve!: () => void;
+    mockClient.connect
+      .mockImplementationOnce(() => new Promise<void>((r) => (firstResolve = r)))
+      .mockResolvedValue(undefined);
+
+    const p1 = manager.connect({ srv: { type: 'http', url: 'http://localhost:9' } });
+    const p2 = manager.connect({ srv: { type: 'http', url: 'http://localhost:9' } });
+
+    // _connect() runs via .then() — multiple async hops before mockClient.connect() is
+    // reached. setImmediate fires after all pending microtasks drain, by which point
+    // firstResolve has been assigned by the Promise executor inside mockImplementationOnce.
+    await new Promise<void>((r) => setImmediate(r));
+    firstResolve();
+    await Promise.all([p1, p2]);
+
+    const entries = manager.getServerStatus().filter((s) => s.name === 'srv');
+    expect(entries).toHaveLength(1);
+    expect(entries[0].status).toBe('connected');
+  });
+
+  it('second connect() disconnects the first before reconnecting', async () => {
+    await manager.connect({ srv: { type: 'http', url: 'http://localhost:9' } });
+    const firstClient = mockClientInstances[0];
+
+    await manager.connect({ srv: { type: 'http', url: 'http://localhost:9' } });
+
+    expect(firstClient.close).toHaveBeenCalled();
+    expect(manager.getServerStatus()).toHaveLength(1);
+  });
+
+  // -------------------------------------------------------------------------
+  // client.onclose health monitoring
+  // connectServer() sets client.onclose after a successful connection.
+  // Intentional tears (disconnect, reconnectServer) set conn.status to
+  // 'disconnected' before calling client.close() so the guard skips reconnect.
+  // -------------------------------------------------------------------------
+
+  it('unexpected transport drop triggers reconnect and clears tool cache', async () => {
+    vi.useFakeTimers();
+    mockClient.listTools.mockResolvedValue({
+      tools: [{ name: 't', description: 'd', inputSchema: { type: 'object', properties: {} } }],
+    });
+
+    await manager.connect({ srv: { type: 'http', url: 'http://localhost:9' } });
+    expect(manager.getToolCount()).toBe(1);
+
+    const client = mockClientInstances[0];
+    expect(client.onclose).toBeDefined();
+
+    client.onclose!(); // simulate unexpected drop
+
+    // Status flips and cache clears synchronously
+    expect(manager.getServerStatus()[0].status).toBe('failed');
+    expect(manager.getToolCount()).toBe(0);
+
+    // Reconnect fires after burst[0] = 2 s
+    mockClient.listTools.mockResolvedValue({ tools: [] });
+    await vi.advanceTimersByTimeAsync(2_001);
+    expect(manager.getServerStatus()[0].status).toBe('connected');
+  });
+
+  it('client.onclose does NOT trigger reconnect after disconnect()', async () => {
+    vi.useFakeTimers();
+    await manager.connect({ srv: { type: 'http', url: 'http://localhost:9' } });
+    const client = mockClientInstances[0];
+
+    await manager.disconnect();
+
+    // Simulate SDK firing onclose during close() — our mock doesn't, so fire manually.
+    // Status was set to 'disconnected' before close(), so this must be a no-op.
+    client.onclose?.();
+
+    const countBefore = mockClientInstances.length;
+    await vi.advanceTimersByTimeAsync(65_000); // past any possible timer
+    expect(mockClientInstances.length).toBe(countBefore); // no new Client created
+  });
+
+  it('client.onclose does NOT trigger reconnect after reconnectServer()', async () => {
+    vi.useFakeTimers();
+    await manager.connect({ srv: { type: 'http', url: 'http://localhost:9' } });
+    const oldClient = mockClientInstances[0];
+
+    await manager.reconnectServer('srv');
+    expect(manager.getServerStatus()[0].status).toBe('connected');
+
+    // Simulate SDK firing onclose on the old client during its close() call.
+    // Old conn.status = 'disconnected' so the guard must suppress reconnect.
+    oldClient.onclose?.();
+
+    const countBefore = mockClientInstances.length;
+    await vi.advanceTimersByTimeAsync(65_000);
+    expect(mockClientInstances.length).toBe(countBefore);
   });
 });

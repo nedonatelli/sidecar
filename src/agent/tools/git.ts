@@ -163,6 +163,7 @@ export const gitLogDef: ToolDefinition = {
     },
     required: [],
   },
+  nondeterministicOutput: true,
 };
 
 export async function gitLog(input: Record<string, unknown>): Promise<string> {
@@ -302,6 +303,7 @@ export const gitBranchDef: ToolDefinition = {
     },
     required: [],
   },
+  nondeterministicOutput: true,
 };
 
 export async function gitBranch(input: Record<string, unknown>): Promise<string> {
@@ -348,6 +350,7 @@ export const gitStashDef: ToolDefinition = {
     },
     required: [],
   },
+  nondeterministicOutput: true,
 };
 
 export async function gitStash(input: Record<string, unknown>): Promise<string> {

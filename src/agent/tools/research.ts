@@ -107,6 +107,7 @@ export const researchTools: RegisteredTool[] = [
     requiresApproval: true,
     definition: {
       name: 'research_log_experiment',
+      nondeterministicOutput: true,
       description:
         'Record and run an experiment for a research project. ' +
         'Writes experiments/<id>/manifest.yaml, executes the command, and captures the result. ' +
@@ -138,6 +139,9 @@ export const researchTools: RegisteredTool[] = [
       const gate = gateEnabled();
       if (gate) return gate;
 
+      const projectRecord = await getStore().loadProject(project);
+      if (!projectRecord) return `Project \`${project}\` not found.`;
+
       const manifest: ExperimentManifest = {
         id,
         command,
@@ -148,7 +152,11 @@ export const researchTools: RegisteredTool[] = [
         updatedAt: Date.now(),
       };
 
-      await getStore().logExperiment(project, manifest);
+      try {
+        await getStore().logExperiment(project, manifest);
+      } catch (err) {
+        return `Error initializing experiment: ${err instanceof Error ? err.message : String(err)}`;
+      }
 
       let exitCode: number | undefined;
       let outputTail = '';
@@ -170,7 +178,11 @@ export const researchTools: RegisteredTool[] = [
       manifest.outputTail = outputTail.slice(0, 2000);
       manifest.updatedAt = Date.now();
 
-      await getStore().logExperiment(project, manifest);
+      try {
+        await getStore().logExperiment(project, manifest);
+      } catch {
+        // best-effort update — command already ran, return result regardless
+      }
 
       return [
         `**Experiment \`${id}\`** — ${manifest.status}`,
@@ -211,6 +223,8 @@ export const researchTools: RegisteredTool[] = [
       if (gate) return gate;
 
       try {
+        const projectRecord = await getStore().loadProject(project);
+        if (!projectRecord) return `Project \`${project}\` not found.`;
         const obs = await getStore().addObservation(project, note);
         return [
           `**Observation recorded** in \`${input.project}\`:`,

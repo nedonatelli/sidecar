@@ -317,13 +317,25 @@ export async function injectSystemContext(
   // before the RAG retrieval starts (used again in the workspace block below).
   const toolOverheadChars = isLocal ? 10_000 : 0;
 
-  // Kick off pinned-files disk reads before RAG so they overlap with
-  // vector search. Budget uses the pre-RAG prompt length as a ceiling;
-  // if RAG consumes some of that space we trim the result when appending.
+  // Kick off pinned-files disk reads early so they overlap with
+  // vector search below. Pinned files are user-chosen context and must
+  // always claim their full budget — so they are injected BEFORE RAG,
+  // not after. RAG then gets whatever budget remains.
   const pinnedSectionPromise: Promise<string> =
     getWorkspaceEnabled() && state.workspaceIndex?.isReady()
       ? state.workspaceIndex.getPinnedFilesSection(Math.max(0, maxSystemChars - prompt.length - toolOverheadChars))
       : Promise.resolve('');
+
+  // Inject pinned files before RAG so user-pinned context is never crowded
+  // out by retrieval results. I/O started above overlaps with any async ops.
+  if (getWorkspaceEnabled() && state.workspaceIndex?.isReady()) {
+    const pinnedRaw = await pinnedSectionPromise;
+    if (pinnedRaw) {
+      prompt += `\n\n## Workspace Context${pinnedRaw}`;
+    }
+    sizes['Pinned files'] = prompt.length - prevLen;
+    prevLen = prompt.length;
+  }
 
   const retrievalBudget = maxSystemChars - prompt.length;
   if (text && retrievalBudget > 500) {
@@ -404,30 +416,12 @@ export async function injectSystemContext(
   sizes['RAG context'] = prompt.length - prevLen;
   prevLen = prompt.length;
 
-  // Pinned files + file dependencies + workspace tree. Each carries
-  // information that doesn't fit the per-hit ranking model used by
-  // fusion: pinned files are user-pinned regardless of query relevance,
-  // the dep graph is a whole-graph view of recent activity, and the
-  // tree is navigational metadata. These land under a single
-  // "## Workspace Context" heading for backward-compat, then the tree
-  // is appended last under its own marker so the cache boundary stays
-  // stable.
+  // File dependencies + workspace tree. Pinned files were already injected
+  // above (before RAG) to guarantee they always claim their full budget.
+  // Deps and tree are navigational metadata that fit after RAG without
+  // priority concerns; they use whatever budget RAG left.
   if (getWorkspaceEnabled()) {
-    const contextBudget = Math.max(0, maxSystemChars - prompt.length - toolOverheadChars);
-
     if (state.workspaceIndex?.isReady()) {
-      // Await the pinned section started before RAG. It is usually already
-      // resolved by now; if not, we wait the remaining I/O time only.
-      // Trim to the actual post-RAG budget in the rare case RAG consumed
-      // more space than the conservative pre-RAG estimate left for pinned files.
-      const pinnedRaw = await pinnedSectionPromise;
-      const pinnedSection = pinnedRaw.length <= contextBudget ? pinnedRaw : pinnedRaw.slice(0, contextBudget);
-      if (pinnedSection) {
-        prompt += `\n\n## Workspace Context${pinnedSection}`;
-      }
-      sizes['Pinned files'] = prompt.length - prevLen;
-      prevLen = prompt.length;
-
       const depBudget = Math.max(0, maxSystemChars - prompt.length - toolOverheadChars);
       const depSection = state.workspaceIndex.getFileDependenciesSection(Math.min(2000, depBudget));
       if (depSection) {
@@ -449,6 +443,7 @@ export async function injectSystemContext(
         state.workspaceIndex.updateRelevance(mentionedPaths);
       }
     } else {
+      const contextBudget = Math.max(0, maxSystemChars - prompt.length - toolOverheadChars);
       let context = await getWorkspaceContext(getFilePatterns(), getMaxFiles());
       if (context) {
         context = enhanceContextWithSmartElements(context, text);

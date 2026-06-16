@@ -544,8 +544,13 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     state.metricsCollector.endRun();
     state.abortController = null;
     state.cancelCallbacks = null;
-    state.currentSteerDisposer?.();
-    state.currentSteerDisposer = null;
+    // Call the locally-captured disposer directly. Reading state.currentSteerDisposer
+    // here would race with a session load that already replaced it with a new
+    // session's disposer, causing the new session's listener to be torn down.
+    steerDisposer();
+    if (state.currentSteerDisposer === steerDisposer) {
+      state.currentSteerDisposer = null;
+    }
     state.currentSteerQueue = null;
     state.editCancelFns = null;
     state.postMessage({ command: 'steerQueueUpdate', steerQueue: [], steerEnabled: false });

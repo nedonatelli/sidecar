@@ -155,6 +155,7 @@ export const notebookTools: RegisteredTool[] = [
   {
     definition: {
       name: 'ingest_source',
+      nondeterministicOutput: true,
       description:
         'Index a web URL or local file path as a named research source for Notebook Mode. ' +
         'Web URLs are fetched and stripped of navigation/ads. Local files are read as text. ' +
@@ -210,7 +211,17 @@ export const notebookTools: RegisteredTool[] = [
         if (!title) title = path.basename(absPath, ext);
       }
 
-      const id = input.label ? slugify(String(input.label)) : `src-${sourceRegistry.size + 1}`;
+      let id: string;
+      if (input.label) {
+        id = slugify(String(input.label));
+        if (sourceRegistry.has(id)) {
+          return `Error: source "${id}" is already registered. Choose a different label or omit it to auto-generate.`;
+        }
+      } else {
+        let n = sourceRegistry.size + 1;
+        while (sourceRegistry.has(`src-${n}`)) n++;
+        id = `src-${n}`;
+      }
       const source: NotebookSource = {
         id,
         title,

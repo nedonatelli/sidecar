@@ -120,6 +120,15 @@ describe('researchTools', () => {
     });
 
     it('returns timestamp and file path on success', async () => {
+      vi.mocked(store.loadProject).mockResolvedValueOnce({
+        slug: 'proj',
+        title: 'Proj',
+        question: 'Q?',
+        status: 'active',
+        hypotheses: [],
+        createdAt: 1,
+        updatedAt: 1,
+      });
       vi.mocked(store.addObservation).mockResolvedValueOnce({
         timestamp: 1716566400000,
         note: 'Loss plateaued at epoch 12',
@@ -132,6 +141,16 @@ describe('researchTools', () => {
       expect(result).toContain('Observation recorded');
       expect(result).toContain('Loss plateaued at epoch 12');
       expect(result).toContain('/sidecar/research/proj/observations/');
+    });
+
+    it('returns not-found message when project missing', async () => {
+      vi.mocked(store.loadProject).mockResolvedValueOnce(null);
+      const result = await findTool('research_add_observation').executor({
+        project: 'missing',
+        note: 'some note',
+      });
+      expect(result).toContain('missing');
+      expect(result).toContain('not found');
     });
   });
 

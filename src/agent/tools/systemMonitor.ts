@@ -46,6 +46,7 @@ export const systemMonitorDef: ToolDefinition = {
     },
     required: [],
   },
+  nondeterministicOutput: true,
 };
 
 // ---------------------------------------------------------------------------

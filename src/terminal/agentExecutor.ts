@@ -186,9 +186,11 @@ export class AgentTerminalExecutor implements Disposable {
     this.terminal = window.createTerminal(this.terminalName);
 
     // Poll for shellIntegration — it attaches asynchronously after the
-    // terminal's shell loads VS Code's integration script.
+    // terminal's shell loads VS Code's integration script. The onDidCloseTerminal
+    // listener can null this.terminal between loop iterations, so guard each access.
     const start = Date.now();
     while (Date.now() - start < this.shellIntegrationTimeoutMs) {
+      if (!this.terminal) return null;
       if (this.terminal.shellIntegration) return this.terminal;
       await new Promise((r) => setTimeout(r, 50));
     }

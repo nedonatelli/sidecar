@@ -111,6 +111,7 @@ export const zoteroTools: RegisteredTool[] = [
   {
     definition: {
       name: 'zotero_search',
+      nondeterministicOutput: true,
       description:
         "Search the user's Zotero reference library by keyword. Returns a ranked list of matching items with " +
         'title, authors, year, and an abstract snippet. Use this to find papers on a topic before reading or ' +
@@ -134,6 +135,7 @@ export const zoteroTools: RegisteredTool[] = [
   {
     definition: {
       name: 'zotero_get_item',
+      nondeterministicOutput: true,
       description:
         'Retrieve full bibliographic details for a single Zotero library item by its item key. Returns the ' +
         'title, authors, year, publication, DOI, URL, tags, and full abstract. Use after zotero_search to get ' +

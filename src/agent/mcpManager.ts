@@ -8,7 +8,11 @@ import type { ToolDefinition } from '../ollama/types.js';
 import type { RegisteredTool } from './tools.js';
 
 const DEFAULT_MAX_RESULT_CHARS = 50_000;
-const RECONNECT_DELAYS = [2000, 5000, 15000]; // Exponential backoff
+// Initial burst: 2s → 5s → 15s. After exhausting the burst list, hold at
+// RECONNECT_STEADY_STATE_DELAY rather than giving up — MCP servers are often
+// local dev tools that come back after an extended restart.
+const RECONNECT_DELAYS = [2000, 5000, 15000];
+const RECONNECT_STEADY_STATE_DELAY = 60_000;
 
 // Safe env vars forwarded to stdio MCP child processes. API keys and other
 // credentials stay out — only vars needed to locate binaries and temp dirs.
@@ -110,7 +114,6 @@ interface MCPConnection {
   status: MCPServerStatus;
   error?: string;
   connectedAt?: number;
-  reconnectAttempts: number;
   reconnectTimer?: ReturnType<typeof setTimeout>;
 }
 
@@ -133,6 +136,17 @@ export class MCPManager {
   private toolCache: RegisteredTool[] = [];
   private disposed = false;
   private changeListeners: Array<() => void> = [];
+  // Serialise concurrent connect() calls so rapid settings changes don't
+  // create duplicate connections (each call awaits the previous before
+  // disconnecting and reconnecting from scratch).
+  private connectChain: Promise<void> = Promise.resolve();
+  // Track cumulative reconnect attempts per server name across MCPConnection
+  // object recreations. Each automatic reconnect creates a fresh MCPConnection
+  // with no memory of prior attempts; storing the count here ensures the
+  // burst delays (2s→5s→15s) are applied correctly before settling into the
+  // steady-state 60s interval. Reset to 0 on any successful connection or
+  // explicit reconnect so the burst restarts cleanly after a recovery.
+  private reconnectAttemptsByServer = new Map<string, number>();
 
   /** Subscribe to connection-status changes. Returns an unsubscribe function. */
   onStatusChange(cb: () => void): () => void {
@@ -149,18 +163,29 @@ export class MCPManager {
   /**
    * Connect to all configured MCP servers.
    * Merges settings from VS Code config and .mcp.json project file.
+   *
+   * Calls are serialised via connectChain: if the user changes MCP settings
+   * twice in quick succession, the second call waits for the first to finish
+   * disconnecting + reconnecting before starting its own cycle. Without this,
+   * both calls would race through disconnect() and end up with duplicate
+   * connections for every server.
    */
   async connect(servers: Record<string, MCPServerConfig>): Promise<void> {
-    // Disconnect existing connections first
+    this.connectChain = this.connectChain.then(() => this._connect(servers));
+    return this.connectChain;
+  }
+
+  private async _connect(servers: Record<string, MCPServerConfig>): Promise<void> {
     await this.disconnect();
+    // Explicit full reconnect — reset burst counters so the initial 2s→5s→15s
+    // sequence restarts cleanly rather than jumping straight to the 60s interval.
+    this.reconnectAttemptsByServer.clear();
 
     const connectPromises = Object.entries(servers).map(([name, config]) => this.connectServer(name, config));
 
-    // Connect all servers in parallel — one failure doesn't block others
+    // Connect all servers in parallel — one failure doesn't block others.
+    // rebuildToolCache() is called inside connectServer() before each notifyStatusChange().
     await Promise.allSettled(connectPromises);
-
-    // Rebuild cache
-    this.rebuildToolCache();
   }
 
   /**
@@ -177,7 +202,6 @@ export class MCPManager {
       transportType,
       tools: [],
       status: 'connecting',
-      reconnectAttempts: 0,
     };
     this.connections.push(conn);
 
@@ -293,14 +317,35 @@ export class MCPManager {
 
       conn.status = 'connected';
       conn.connectedAt = Date.now();
-      conn.reconnectAttempts = 0;
+      this.reconnectAttemptsByServer.delete(name);
       console.log(`[SideCar] Connected to MCP server "${name}" (${transportType}) — ${conn.tools.length} tool(s)`);
+
+      // Protocol.onclose is the supported hook for drop detection — Protocol.connect()
+      // takes ownership of the transport and overwrites transport.onclose internally,
+      // so we must set this on the client (Protocol subclass), not the transport.
+      // Guard on conn.status so intentional closes (disconnect, reconnectServer) don't
+      // trigger another reconnect: those paths set status to 'disconnected' before
+      // calling client.close().
+      client.onclose = () => {
+        if (conn.status !== 'connected') return;
+        conn.status = 'failed';
+        conn.error = 'Connection dropped unexpectedly';
+        console.warn(`[SideCar] MCP server "${name}" dropped — scheduling reconnect`);
+        this.rebuildToolCache();
+        this.notifyStatusChange();
+        this.scheduleReconnect(conn);
+      };
+
+      // Rebuild before notifying so listeners reading getToolCount() / getToolDefinitions()
+      // see the updated cache immediately — not the state from the previous connection cycle.
+      this.rebuildToolCache();
       this.notifyStatusChange();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       conn.status = 'failed';
       conn.error = msg;
       console.error(`[SideCar] Failed to connect to MCP server "${name}" (${transportType}):`, msg);
+      this.rebuildToolCache();
       this.notifyStatusChange();
 
       // Schedule reconnection
@@ -371,14 +416,15 @@ export class MCPManager {
   }
 
   /**
-   * Schedule automatic reconnection with exponential backoff.
+   * Schedule automatic reconnection with exponential backoff + steady-state polling.
+   *
+   * Attempt counts are tracked in reconnectAttemptsByServer (keyed by server
+   * name) rather than on the MCPConnection object, because each reconnect
+   * creates a fresh MCPConnection with no memory of prior attempts. Without
+   * this, the burst delays would always restart from 2s on every new conn.
    */
   private scheduleReconnect(conn: MCPConnection): void {
     if (this.disposed) return;
-    if (conn.reconnectAttempts >= RECONNECT_DELAYS.length) {
-      console.warn(`[SideCar] MCP server "${conn.name}" — max reconnect attempts reached`);
-      return;
-    }
 
     // Cancel any in-flight timer so two concurrent failure paths don't both
     // schedule reconnects for the same conn and create a duplicate entry.
@@ -387,16 +433,21 @@ export class MCPManager {
       conn.reconnectTimer = undefined;
     }
 
-    const delay = RECONNECT_DELAYS[conn.reconnectAttempts];
-    conn.reconnectAttempts++;
+    const attempts = this.reconnectAttemptsByServer.get(conn.name) ?? 0;
+    const delay = attempts < RECONNECT_DELAYS.length ? RECONNECT_DELAYS[attempts] : RECONNECT_STEADY_STATE_DELAY;
+    this.reconnectAttemptsByServer.set(conn.name, attempts + 1);
 
-    console.log(`[SideCar] MCP server "${conn.name}" — reconnecting in ${delay}ms (attempt ${conn.reconnectAttempts})`);
+    console.log(
+      `[SideCar] MCP server "${conn.name}" — reconnecting in ${delay / 1000}s` +
+        ` (attempt ${attempts + 1}${attempts >= RECONNECT_DELAYS.length ? ', steady-state' : ''})`,
+    );
 
     conn.reconnectTimer = setTimeout(async () => {
       if (this.disposed) return;
 
       try {
-        // Clean up old connection
+        // Mark before closing so client.onclose doesn't trigger another scheduleReconnect.
+        conn.status = 'disconnected';
         try {
           await conn.client?.close();
         } catch {
@@ -411,7 +462,6 @@ export class MCPManager {
         this.connections = this.connections.filter((c) => c !== conn);
         if (this.connections.some((c) => c.name === conn.name)) return;
         await this.connectServer(conn.name, conn.config);
-        this.rebuildToolCache();
       } catch (err) {
         console.error(`[SideCar] MCP reconnect failed for "${conn.name}":`, err);
       }
@@ -454,15 +504,19 @@ export class MCPManager {
       clearTimeout(conn.reconnectTimer);
       conn.reconnectTimer = undefined;
     }
+    // Mark before closing so client.onclose doesn't fire scheduleReconnect.
+    conn.status = 'disconnected';
     try {
       await conn.client?.close();
     } catch {
       // ignore close errors
     }
     const config = conn.config;
+    // Explicit user-triggered reconnect: reset the burst counter so delays
+    // restart from 2s rather than resuming mid-sequence or at steady-state.
+    this.reconnectAttemptsByServer.delete(name);
     this.connections.splice(idx, 1);
     await this.connectServer(name, config);
-    this.rebuildToolCache();
   }
 
   /** Get detailed status for all servers. */
@@ -509,6 +563,8 @@ export class MCPManager {
   async disconnect(): Promise<void> {
     for (const conn of this.connections) {
       if (conn.reconnectTimer) clearTimeout(conn.reconnectTimer);
+      // Mark before closing so client.onclose doesn't fire scheduleReconnect.
+      conn.status = 'disconnected';
       try {
         await conn.client?.close();
       } catch {
@@ -517,6 +573,7 @@ export class MCPManager {
     }
     this.connections = [];
     this.toolCache = [];
+    this.reconnectAttemptsByServer.clear();
   }
 
   dispose(): void {

@@ -415,9 +415,16 @@ export class SideCarClient {
       if (await this.switchToFallback()) {
         console.warn(`[SideCar] Primary backend failed, switching to fallback: ${(err as Error).message}`);
         circuitBreaker.guard(this.getProviderType());
-        const result = await this.backend.complete(this.model, this.systemPrompt, messages, maxTokens, signal);
-        circuitBreaker.recordSuccess(this.getProviderType());
-        return result;
+        try {
+          const result = await this.backend.complete(this.model, this.systemPrompt, messages, maxTokens, signal);
+          this.chargeLastDecision(spendTracker.snapshot().totalUsd - preSpend);
+          circuitBreaker.recordSuccess(this.getProviderType());
+          return result;
+        } catch (fallbackErr) {
+          if (fallbackErr instanceof Error && fallbackErr.name === 'AbortError') throw fallbackErr;
+          circuitBreaker.recordFailure(this.getProviderType());
+          throw fallbackErr;
+        }
       }
       throw err;
     }
