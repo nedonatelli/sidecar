@@ -118,6 +118,7 @@ interface IndexCache {
 export class WorkspaceIndex implements Disposable {
   private files = new Map<string, FileNode>();
   private treeCache = '';
+  private treeDirty = true;
   private watchers: FileSystemWatcher[] = [];
   private ready = false;
   private maxContextChars: number;
@@ -309,7 +310,7 @@ export class WorkspaceIndex implements Disposable {
             relevanceScore: f.score,
           });
         }
-        this.rebuildTree();
+        this.treeDirty = true;
         this.ready = true;
         restored = true;
         console.log(
@@ -318,46 +319,69 @@ export class WorkspaceIndex implements Disposable {
       }
     }
 
-    // Full scan — either as primary (no cache) or background verification
+    // Set up file watchers now so they're active regardless of whether the
+    // scan below runs synchronously or in the background.
+    this.setupFileWatchers(rootUri, rootPath);
+
+    if (restored) {
+      // Already serving from cache — verify/update in background so activation
+      // is not blocked waiting for the disk scan to finish.
+      void this.runFullScan(patterns, rootPath, startTime, true).catch((err) =>
+        console.warn('[SideCar] Background index verification failed:', err),
+      );
+      return;
+    }
+
+    // Cold start (no cache): must complete the scan before returning so the
+    // index is populated before the first agent turn.
+    await this.runFullScan(patterns, rootPath, startTime, false);
+  }
+
+  /**
+   * Discover all workspace files matching `patterns`, stat them all in parallel
+   * (no serial batching — workspace.fs.stat is non-blocking), and atomically
+   * replace this.files with the fresh result.
+   *
+   * Called synchronously on cold start and as a fire-and-forget background
+   * task on warm start (cache hit). The `isBackground` flag only affects
+   * which log message is emitted on completion.
+   */
+  private async runFullScan(
+    patterns: string[],
+    rootPath: string,
+    startTime: number,
+    isBackground: boolean,
+  ): Promise<void> {
     const scanStart = Date.now();
+
     const allUris: Uri[] = [];
-    const findPromises = patterns.map((pattern) => workspace.findFiles(pattern, EXCLUDE_PATTERN, 500));
-    const foundUris = await Promise.all(findPromises);
-    for (const uris of foundUris) {
-      allUris.push(...uris);
-    }
+    const foundUris = await Promise.all(patterns.map((p) => workspace.findFiles(p, EXCLUDE_PATTERN, 500)));
+    for (const uris of foundUris) allUris.push(...uris);
 
-    // Process files in parallel with batching
+    // Stat all files concurrently — replaces the previous serial batch-of-20 loop.
+    // findFiles caps at 500 results so at most ~500 concurrent stat calls; each
+    // is a lightweight syscall and VS Code's FS layer handles the concurrency.
+    const statResults = await Promise.allSettled(allUris.map((uri) => workspace.fs.stat(uri)));
     const freshFiles = new Map<string, FileNode>();
-    const batchSize = 20;
-    for (let i = 0; i < allUris.length; i += batchSize) {
-      const batch = allUris.slice(i, i + batchSize);
-      const statPromises = batch.map((uri) => workspace.fs.stat(uri));
-      const stats = await Promise.allSettled(statPromises);
-
-      for (let j = 0; j < batch.length; j++) {
-        const stat = stats[j];
-        if (stat.status === 'fulfilled' && stat.value.size <= MAX_FILE_SIZE) {
-          const uri = batch[j];
-          const relativePath = path.relative(rootPath, uri.fsPath);
-          freshFiles.set(relativePath, {
-            relativePath,
-            sizeBytes: stat.value.size,
-            relevanceScore: this.baseScore(relativePath),
-          });
-        }
-      }
+    for (let j = 0; j < allUris.length; j++) {
+      const stat = statResults[j];
+      if (stat.status !== 'fulfilled' || stat.value.size > MAX_FILE_SIZE) continue;
+      const relativePath = path.relative(rootPath, allUris[j].fsPath);
+      freshFiles.set(relativePath, {
+        relativePath,
+        sizeBytes: stat.value.size,
+        relevanceScore: this.baseScore(relativePath),
+      });
     }
 
-    // Replace with fresh data
     this.files = freshFiles;
     this.pinnedFileCache = null;
-    this.rebuildTree();
+    this.treeDirty = true;
     this.ready = true;
 
-    const totalMs = Date.now() - startTime;
     const scanMs = Date.now() - scanStart;
-    if (restored) {
+    const totalMs = Date.now() - startTime;
+    if (isBackground) {
       console.log(
         `[SideCar] Workspace index verified: ${this.files.size} files (scan: ${scanMs}ms, total: ${totalMs}ms)`,
       );
@@ -365,12 +389,14 @@ export class WorkspaceIndex implements Disposable {
       console.log(`[SideCar] Workspace indexed from scratch: ${this.files.size} files in ${totalMs}ms`);
     }
 
-    // Persist the fresh index for next startup
     this.persistIndex();
+  }
 
-    // Watch for file changes across every active root — debounce rebuilds to avoid thrashing.
-    // One watcher per root so paths in all roots are tracked, not just the first.
-    // Dispose any existing watchers first (defensive against re-initialization).
+  /**
+   * Create FileSystemWatchers for all active roots and wire the create/change/delete
+   * handlers. Disposes any existing watchers first (safe to call on re-initialization).
+   */
+  private setupFileWatchers(rootUri: Uri, rootPath: string): void {
     for (const w of this.watchers) w.dispose();
     const watchRoots = this.activeRoots.length > 0 ? this.activeRoots : [{ uri: rootUri, fsPath: rootPath }];
     this.watchers = watchRoots.map((root) => {
@@ -539,12 +565,13 @@ export class WorkspaceIndex implements Disposable {
    * `## Workspace Structure` cache marker.
    */
   getWorkspaceStructureSection(maxChars: number): string {
-    if (!this.treeCache) return '';
-    const full = `\n## Workspace Structure\n\`\`\`\n${this.treeCache}\n\`\`\`\n`;
+    const tree = this.currentTree();
+    if (!tree) return '';
+    const full = `\n## Workspace Structure\n\`\`\`\n${tree}\n\`\`\`\n`;
     if (full.length <= maxChars) return full;
     if (maxChars < 200) return '';
     const remaining = maxChars - 50;
-    return `\n## Workspace Structure\n\`\`\`\n${this.treeCache.slice(0, remaining)}\n...\n\`\`\`\n`;
+    return `\n## Workspace Structure\n\`\`\`\n${tree.slice(0, remaining)}\n...\n\`\`\`\n`;
   }
 
   /**
@@ -675,13 +702,14 @@ export class WorkspaceIndex implements Disposable {
 
     // Append workspace tree at the end if budget remains — it's useful
     // context but less valuable than actual file contents.
-    const tree = `\n## Workspace Structure\n\`\`\`\n${this.treeCache}\n\`\`\`\n`;
+    const treeStr = this.currentTree();
+    const tree = `\n## Workspace Structure\n\`\`\`\n${treeStr}\n\`\`\`\n`;
     if (charCount + tree.length <= budget) {
       parts.push(tree);
     } else if (budget - charCount > 200) {
       // Truncate tree to fit remaining budget
       const remaining = budget - charCount - 50;
-      parts.push(`\n## Workspace Structure\n\`\`\`\n${this.treeCache.slice(0, remaining)}\n...\n\`\`\`\n`);
+      parts.push(`\n## Workspace Structure\n\`\`\`\n${treeStr.slice(0, remaining)}\n...\n\`\`\`\n`);
     }
 
     return parts.join('');
@@ -812,6 +840,11 @@ export class WorkspaceIndex implements Disposable {
 
   /** Get the cached file tree string (built during indexing). */
   getFileTree(): string {
+    return this.currentTree();
+  }
+
+  private currentTree(): string {
+    if (this.treeDirty) this.rebuildTree();
     return this.treeCache;
   }
 
@@ -830,12 +863,12 @@ export class WorkspaceIndex implements Disposable {
     }
   }
 
-  /** Debounce tree rebuilds — coalesce rapid file changes into one rebuild. */
+  /** Mark the tree stale and schedule a debounced persist after file changes. */
   private scheduleRebuild(): void {
+    this.treeDirty = true;
     if (this.rebuildTimer) clearTimeout(this.rebuildTimer);
     this.rebuildTimer = setTimeout(() => {
       this.rebuildTimer = null;
-      this.rebuildTree();
       this.schedulePersist();
     }, 300);
   }
@@ -896,6 +929,7 @@ export class WorkspaceIndex implements Disposable {
   }
 
   private rebuildTree(): void {
+    this.treeDirty = false;
     const sorted = [...this.files.keys()].sort();
     const lines: string[] = [];
 
