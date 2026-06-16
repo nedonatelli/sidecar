@@ -704,8 +704,18 @@ export class SymbolEmbeddingIndex implements Disposable {
   dispose(): void {
     if (this.persistTimer) clearTimeout(this.persistTimer);
     if (this.flushTimer) clearTimeout(this.flushTimer);
-    if (this.dirty) {
-      this.persist().catch((err) => console.warn('[SideCar] Symbol index persist failed on dispose:', err));
+    this.flushTimer = null;
+    if (this.pendingQueue.size > 0) {
+      // Best-effort: embed the queued symbols then persist. The process may
+      // exit before this resolves — replaySymbolsToEmbeddingIndex recovers
+      // any dropped symbols on the next startup.
+      void this.flushQueueForTests()
+        .then(() => {
+          if (this.dirty) return this.persist();
+        })
+        .catch((err) => console.warn('[SideCar] Symbol index flush failed on dispose:', err));
+    } else if (this.dirty) {
+      void this.persist().catch((err) => console.warn('[SideCar] Symbol index persist failed on dispose:', err));
     }
   }
 }

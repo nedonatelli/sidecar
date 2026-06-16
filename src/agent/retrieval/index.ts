@@ -50,7 +50,8 @@ export async function fuseRetrievers(
     active.map(async (r) => {
       try {
         return await r.retrieve(query, perSourceK);
-      } catch {
+      } catch (err) {
+        console.warn(`[SideCar] Retriever "${r.name}" failed:`, err instanceof Error ? err.message : err);
         return [] as RetrievalHit[];
       }
     }),

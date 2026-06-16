@@ -71,6 +71,18 @@ export class ChunkRetriever implements Retriever {
 
   private async syncIndex(): Promise<void> {
     const files = await discoverFiles();
+    const discoveredPaths = new Set(files.map((f) => f.filePath));
+
+    // Prune chunks for files that are no longer on disk or readable.
+    for (const trackedPath of this.fileHashes.keys()) {
+      if (!discoveredPaths.has(trackedPath)) {
+        await this.store.removeWhere((m) => m.filePath === trackedPath);
+        for (const [id, c] of this.chunkCache) {
+          if (c.filePath === trackedPath) this.chunkCache.delete(id);
+        }
+        this.fileHashes.delete(trackedPath);
+      }
+    }
 
     for (const { filePath, content } of files) {
       const hash = md5(content);
