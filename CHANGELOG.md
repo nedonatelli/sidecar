@@ -4,6 +4,10 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.112.23] - 2026-06-15
+
+**v0.112.23 — Deep wiring audit: MCP reconnect resilience, tool correctness, dedup-exempt sweep.**
+
 ### Bug fixes
 
 - **MCPManager reconnect resilience** — four lifecycle bugs fixed: (1) `rebuildToolCache()` now fires before `notifyStatusChange()` on all connect paths so listeners see accurate tool counts; (2) reconnect attempt counter moved from `MCPConnection` (recreated on each attempt) to a `Map<string, number>` on the manager, so burst delays `[2s→5s→15s→60s steady-state]` apply correctly across multiple failures of the same server; (3) concurrent `connect()` calls serialize via a `connectChain` promise to prevent duplicate connections; (4) `client.onclose` hook detects unexpected drops and reschedules reconnect without firing on intentional `disconnect()` or `reconnectServer()` calls. Nine new integration tests cover all paths. (`src/agent/mcpManager.ts`, `src/agent/mcpManager.test.ts`)
