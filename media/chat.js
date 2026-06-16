@@ -3661,6 +3661,12 @@
    * Uses simple string splitting (no regex) as an independent fallback.
    */
   function postProcessMarkdown(root) {
+    // Fast-path: in a correctly-rendered message every ** pair was already converted
+    // to a <strong> element by appendInlineMarkdown, so no text node will contain '**'.
+    // textContent concatenation is O(text chars) but avoids the more expensive
+    // TreeWalker creation + node traversal in the common case.
+    if (!root.textContent.includes('**')) return;
+
     // Collect all text nodes (skip code blocks and pre elements)
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
       acceptNode: (node) => {
