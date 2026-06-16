@@ -2551,23 +2551,38 @@
         while (i < lines.length) {
           if (/^\s*\d+\.\s+/.test(lines[i])) {
             const li = document.createElement('li');
-            // Collect continuation lines (non-empty lines that aren't a new list item)
-            let itemText = lines[i].replace(/^\s*\d+\.\s+/, '');
+            const firstLine = lines[i].replace(/^\s*\d+\.\s+/, '');
             i++;
-            while (
-              i < lines.length &&
-              lines[i].trim() !== '' &&
-              !/^\s*\d+\.\s+/.test(lines[i]) &&
-              !/^\s*[-*]\s+/.test(lines[i]) &&
-              !/^#{1,4}\s+/.test(lines[i])
-            ) {
-              itemText += ' ' + lines[i].trim();
-              i++;
+            // Collect continuation lines including indented sub-items (nested bullets, etc.).
+            // Only stop at a new numbered item at the same level, a heading, or a blank
+            // line not followed by more indented content.
+            const itemLines = [firstLine];
+            while (i < lines.length) {
+              const cur = lines[i];
+              if (/^\s*\d+\.\s+/.test(cur) || /^#{1,4}\s+/.test(cur)) break;
+              if (cur.trim() === '') {
+                // Peek: stop if next non-blank line is a new numbered item or heading.
+                let j = i + 1;
+                while (j < lines.length && lines[j].trim() === '') j++;
+                if (j >= lines.length || /^\s*\d+\.\s+/.test(lines[j]) || /^#{1,4}\s+/.test(lines[j])) break;
+                itemLines.push('');
+                i++;
+              } else {
+                itemLines.push(cur);
+                i++;
+              }
             }
-            appendInlineMarkdown(li, itemText);
+            const itemContent = itemLines.join('\n').trimEnd();
+            // Single-line items use inline rendering to avoid a <p> wrapper.
+            // Multi-line items (e.g. with indented sub-bullets) use block rendering
+            // so nested lists are parsed recursively.
+            if (!itemContent.includes('\n')) {
+              appendInlineMarkdown(li, itemContent);
+            } else {
+              appendBlockMarkdown(li, itemContent);
+            }
             ol.appendChild(li);
           } else if (lines[i].trim() === '' && i + 1 < lines.length && /^\s*\d+\.\s+/.test(lines[i + 1])) {
-            // Skip blank line between numbered list items
             i++;
           } else {
             break;
