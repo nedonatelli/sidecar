@@ -259,6 +259,7 @@ export const citationTools: RegisteredTool[] = [
   {
     definition: {
       name: 'insert_citation',
+      nondeterministicOutput: true,
       description:
         'Format a Zotero library item as a citation in APA, MLA, Chicago, BibTeX, or LaTeX style. ' +
         'Auto-detects style from the target file extension (.bib → BibTeX, .tex → LaTeX, all others → APA). ' +

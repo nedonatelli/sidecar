@@ -389,6 +389,7 @@ export const databaseTools: RegisteredTool[] = [
   {
     definition: {
       name: 'db_list_connections',
+      nondeterministicOutput: true,
       description:
         'List all configured database connections and their current status (connected / not connected). ' +
         "Returns each connection's name, dialect (sqlite/postgres/mysql/duckdb), host/file location, and read-only flag. " +

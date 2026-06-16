@@ -207,6 +207,7 @@ export async function profileCode(input: Record<string, unknown>, context?: Tool
 
 export const profileCodeDef: ToolDefinition = {
   name: 'profile_code',
+  nondeterministicOutput: true,
   description:
     'Profile the project code to identify CPU and memory hotspots. ' +
     'Auto-detects the ecosystem (Node.js/Python/Go/Rust) and runs the appropriate profiler. ' +

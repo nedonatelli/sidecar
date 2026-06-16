@@ -206,6 +206,7 @@ export async function latexCompile(input: Record<string, unknown>, context?: Too
 
 export const latexCompileDef: ToolDefinition = {
   name: 'latex_compile',
+  nondeterministicOutput: true,
   description:
     'Compile a LaTeX document and return structured errors and warnings. ' +
     'Auto-detects the main .tex file in the workspace; use `file` to target a specific file. ' +

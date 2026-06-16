@@ -33,6 +33,7 @@ async function resolveRepo(cwd: string): Promise<{ owner: string; repo: string; 
 
 export const replyPrCommentDef: ToolDefinition = {
   name: 'reply_pr_comment',
+  nondeterministicOutput: true,
   description:
     'Post a reply to a specific inline PR review comment thread on GitHub. ' +
     'Use after reading the code at the referenced location and deciding how to respond. ' +
@@ -84,6 +85,7 @@ export async function replyPrComment(input: Record<string, unknown>, context?: T
 
 export const submitPrReviewDef: ToolDefinition = {
   name: 'submit_pr_review',
+  nondeterministicOutput: true,
   description:
     'Submit a top-level PR review on GitHub — a general summary comment attached to the pull request as a whole, ' +
     'not to a specific line. Use after addressing all inline threads to give the reviewer an overview of what you did. ' +
@@ -135,6 +137,7 @@ export async function submitPrReview(input: Record<string, unknown>, context?: T
 
 export const markPrReadyDef: ToolDefinition = {
   name: 'mark_pr_ready',
+  nondeterministicOutput: true,
   description:
     'Convert the draft pull request for the current branch to ready-for-review on GitHub. ' +
     'Use after the work is complete and all CI checks have passed (or are expected to pass). ' +
@@ -240,6 +243,7 @@ export async function checkPrCiTool(_input: Record<string, unknown>, context?: T
 
 export const createPrReviewDef: ToolDefinition = {
   name: 'create_pr_review',
+  nondeterministicOutput: true,
   description:
     'Submit a GitHub PR review that includes inline file-level comments pointing to specific lines, ' +
     'plus an optional top-level summary body — all in a single API call. ' +

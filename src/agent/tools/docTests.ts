@@ -420,6 +420,7 @@ export const docTestsTools: RegisteredTool[] = [
   {
     definition: {
       name: 'extract_constraints',
+      nondeterministicOutput: true,
       description:
         'Parse a reference document (.md, .tex, .rst, .pdf, or any text file) and extract all verifiable ' +
         'constraints into a structured JSON manifest. Each constraint is typed (mathematical_identity, ' +
@@ -450,6 +451,7 @@ export const docTestsTools: RegisteredTool[] = [
   {
     definition: {
       name: 'synthesize_tests',
+      nondeterministicOutput: true,
       description:
         'Generate a complete pytest test file from a Constraint[] manifest (output of extract_constraints). ' +
         'Filters to approved (approved !== false) and testable constraints. ' +
@@ -485,6 +487,7 @@ export const docTestsTools: RegisteredTool[] = [
   {
     definition: {
       name: 'classify_test_failure',
+      nondeterministicOutput: true,
       description:
         'Classify a failing pytest test back to its root cause: impl_wrong (the code disagrees with the ' +
         "constraint), doc_wrong (the document's claim is inaccurate), or extraction_wrong (the constraint " +

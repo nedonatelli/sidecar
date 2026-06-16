@@ -72,6 +72,7 @@ export function getDeniedSettingKeys(): ReadonlySet<string> {
 
 export const switchBackendDef: ToolDefinition = {
   name: 'switch_backend',
+  nondeterministicOutput: true,
   description:
     'Switch SideCar to a different built-in backend profile. Always requires user approval. ' +
     'Use when the user asks to change the overall backend or provider family ("switch to Claude", "use local Ollama", "go back to Kickstand"). ' +
@@ -115,6 +116,7 @@ export async function switchBackend(input: Record<string, unknown>): Promise<str
 
 export const getSettingDef: ToolDefinition = {
   name: 'get_setting',
+  nondeterministicOutput: true,
   description:
     'Read the current value of a SideCar configuration setting. ' +
     'Use when the user asks "what is my current X" or when you need to check config before suggesting a change. ' +
@@ -160,6 +162,7 @@ export async function getSetting(input: Record<string, unknown>): Promise<string
 
 export const updateSettingDef: ToolDefinition = {
   name: 'update_setting',
+  nondeterministicOutput: true,
   description:
     'Update a SideCar configuration setting at user (global) scope. Always requires user approval — every call surfaces a modal regardless of the active approval mode. ' +
     'Use when the user explicitly asks to change a setting durably ("bump the daily budget to $20", "make the chat compact", "turn off mermaid rendering", "set the shell timeout to 300 seconds"). ' +

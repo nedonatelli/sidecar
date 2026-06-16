@@ -11,6 +11,7 @@ export const queryHistoryTool: RegisteredTool = {
   requiresApproval: false,
   definition: {
     name: 'query_history',
+    nondeterministicOutput: true,
     description:
       'Run a read-only SELECT query against the local eval history database. ' +
       'Tables: eval_runs(id, timestamp, model, case_id, passed, duration_ms, iterations, failures, tags), ' +

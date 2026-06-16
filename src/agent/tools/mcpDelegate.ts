@@ -102,6 +102,7 @@ export async function delegateToMcp(input: Record<string, unknown>, context?: To
 
 export const mcpDelegateDef: ToolDefinition = {
   name: 'delegate_to_mcp',
+  nondeterministicOutput: true,
   description:
     'Delegate a sub-task to a configured MCP server that has its own agent or reasoning loop. ' +
     'The server receives the task description, runs it autonomously, and returns structured results. ' +
