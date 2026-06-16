@@ -3462,6 +3462,7 @@
     hideEmptyState();
     currentAssistantText = '';
     lastRenderedLen = 0;
+    streamBlockSafeEnd = 0;
     if (renderTimer) {
       clearTimeout(renderTimer);
       renderTimer = null;
@@ -3484,62 +3485,64 @@
   let lastRenderedLen = 0; // how much of currentAssistantText has been fully rendered
   let renderTimer = null; // debounce timer for re-renders
   let streamingSpan = null; // the <span> used for in-progress (unfinished) text
+  // Position past the last confirmed complete structural block (code fence or edit block).
+  // findSafeRenderBoundary starts its block regex scans here instead of 0, turning the
+  // O(total-text) rescan per chunk into O(new-text-since-last-block).
+  let streamBlockSafeEnd = 0;
 
   /** Find the end position of all "safe" (fully closed) content in the text.
-   *  Anything after this position may be a partial code block, partial bold, etc. */
+   *  Anything after this position may be a partial code block, partial bold, etc.
+   *
+   *  Uses streamBlockSafeEnd to scan only the new suffix of the text on each call —
+   *  code blocks can't overlap, so any new block must start after the last known
+   *  complete one. This turns the naive O(total-text) rescan into O(new-text). */
   function findSafeRenderBoundary(text) {
-    // Find last completed code block or edit block
-    let safeEnd = 0;
+    let blockSafeEnd = streamBlockSafeEnd;
 
-    // Track code block regions
+    // Scan for new complete code blocks starting from the last known safe position.
     const codeBlockRegex = /```[\w.]*:?[^\n]*\n[\s\S]*?```/g;
+    codeBlockRegex.lastIndex = streamBlockSafeEnd;
     let m;
     while ((m = codeBlockRegex.exec(text)) !== null) {
-      safeEnd = m.index + m[0].length;
+      blockSafeEnd = m.index + m[0].length;
     }
 
-    // Track edit block regions
+    // Scan for new complete edit blocks from the same starting point.
     const editRegex = /<<<SEARCH:[^\n]+\n[\s\S]*?\n===\n[\s\S]*?\n>>>REPLACE/g;
+    editRegex.lastIndex = streamBlockSafeEnd;
     while ((m = editRegex.exec(text)) !== null) {
-      if (m.index + m[0].length > safeEnd) {
-        safeEnd = m.index + m[0].length;
+      if (m.index + m[0].length > blockSafeEnd) {
+        blockSafeEnd = m.index + m[0].length;
       }
     }
 
-    // For text after the last structural block, find the last complete paragraph.
-    // A paragraph is "complete" if followed by a blank line or another block marker.
-    const trailing = text.slice(safeEnd);
+    // Advance the cache — only ever moves forward.
+    streamBlockSafeEnd = blockSafeEnd;
 
-    // Check if we're inside an unclosed code fence
-    const backtickCount = (trailing.match(/```/g) || []).length;
-    if (backtickCount % 2 !== 0) {
-      // Inside an unclosed code block — don't render the trailing part
-      return safeEnd;
+    // For text after the last structural block, check for unclosed fences.
+    const trailing = text.slice(blockSafeEnd);
+
+    // Fast-path: skip regex when the marker isn't present at all.
+    if (trailing.includes('`')) {
+      const backtickCount = (trailing.match(/```/g) || []).length;
+      if (backtickCount % 2 !== 0) return blockSafeEnd;
     }
 
-    // Check if we're inside an unclosed edit block
-    const searchCount = (trailing.match(/<<<SEARCH:/g) || []).length;
-    const replaceCount = (trailing.match(/>>>REPLACE/g) || []).length;
-    if (searchCount > replaceCount) {
-      return safeEnd;
+    if (trailing.includes('<<<SEARCH:')) {
+      const searchCount = (trailing.match(/<<<SEARCH:/g) || []).length;
+      const replaceCount = (trailing.match(/>>>REPLACE/g) || []).length;
+      if (searchCount > replaceCount) return blockSafeEnd;
     }
 
-    // Find the last double-newline boundary in trailing text.
-    // Content before it is "complete paragraphs" safe to render.
+    // Find the last complete paragraph boundary in the trailing text.
     const lastBlankLine = trailing.lastIndexOf('\n\n');
-    if (lastBlankLine !== -1) {
-      return safeEnd + lastBlankLine + 2;
-    }
+    if (lastBlankLine !== -1) return blockSafeEnd + lastBlankLine + 2;
 
-    // If there's a single complete line (ends with \n), render up to
-    // the last newline so we don't render a half-typed line.
+    // If there's a complete line, render up to it rather than a half-typed one.
     const lastNewline = trailing.lastIndexOf('\n');
-    if (lastNewline !== -1) {
-      return safeEnd + lastNewline + 1;
-    }
+    if (lastNewline !== -1) return blockSafeEnd + lastNewline + 1;
 
-    // No safe boundary in trailing text — only render up to the structural blocks
-    return safeEnd;
+    return blockSafeEnd;
   }
 
   function renderStreamingChunk() {
