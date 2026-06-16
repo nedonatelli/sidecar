@@ -151,6 +151,8 @@ v0.89+ live issue-tracker integration. At the start of each agent turn, configur
 
 Source-Grounded Research tool suite, gated by `sidecar.notebookModeEnabled`. Six tools: `ingest_source` (index a URL or local file), `generate_briefing` (multi-section doc), `generate_study_guide` (progressive Q&A), `generate_faq` (top-N cited FAQs), `generate_timeline` (chronological extraction), `generate_outline` (hierarchical topic tree). Sources are held in-memory per session; each artifact carries per-sentence citations back to the source. Wired into `notebookHandlers.ts` for the Notebook Mode chat panel.
 
+Source IDs: label-derived IDs are produced via `slugify(label)`; auto-generated IDs use `src-1`, `src-2`, … skipping any already-taken slots. Duplicate label slugs are rejected with an error — `ingest_source` never silently overwrites an existing source.
+
 ### Shadow Workspaces (`src/agent/shadow/`)
 
 v0.59+ opt-in feature: run agent tasks in an ephemeral git worktree at `.sidecar/shadows/<task-id>/` off the current `HEAD` so writes never touch the user's main tree until an explicit accept.
@@ -251,6 +253,15 @@ v0.94+ task checkpointing. `PlanStore` (`planStore.ts`) reads/writes `PlanCheckp
 ### Bitbucket Cloud Context Provider (`src/context/providers/bitbucket.ts`)
 
 v0.94+ `type: 'bitbucket'` provider. `fetchBitbucketPRs(config, fetchFn?)` — calls `${baseUrl}/repositories/${workspace/repo}/pullrequests?state=OPEN&pagelen=N`. Auth: `buildAuthHeader(token)` sends `Basic base64(user:pass)` when token contains `:`, else `Bearer`. Maps `BitbucketPR` → `ContextIssue`: `id: '#N'`, `title`, `status`, `body` (truncated 400 chars + `'…'`), `url`, `labels` (reviewer `display_name` array), `updatedAt`. Wired via `ContextProviderType = 'bitbucket'` in `types.ts` and `case 'bitbucket':` in `contextProviderManager.ts`.
+
+### MCP Client (`src/agent/mcpManager.ts`)
+
+`MCPManager` owns all outbound connections to configured MCP servers. Key lifecycle behaviors:
+
+- **Notification ordering** — `rebuildToolCache()` fires before `notifyStatusChange()` on every connect/reconnect path so status-change listeners always observe accurate tool counts.
+- **Reconnect counter persistence** — cumulative attempt count is stored in `reconnectAttemptsByServer: Map<string, number>` on the manager (keyed by server name), not on `MCPConnection` objects (which are recreated on each attempt). Burst delays: `[2 s, 5 s, 15 s]` (`RECONNECT_DELAYS`), then `RECONNECT_STEADY_STATE_DELAY = 60 s` — reconnect never gives up permanently.
+- **Concurrent-connect serialization** — `connect()` delegates to `_connect()` via `connectChain = connectChain.then(...)`. Overlapping calls queue rather than race.
+- **Runtime health monitoring** — after a successful `client.connect()`, the manager sets `client.onclose` to detect unexpected drops and fire `scheduleReconnect()`. The hook guards on `conn.status !== 'connected'` so intentional `disconnect()` and `reconnectServer()` calls don't trigger spurious reconnects.
 
 ### Agentic Task Delegation via MCP (`src/agent/tools/mcpDelegate.ts`, `src/mcpServer/agentServer.ts`)
 

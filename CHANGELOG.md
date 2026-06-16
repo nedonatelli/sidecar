@@ -4,6 +4,16 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+### Bug fixes
+
+- **MCPManager reconnect resilience** — four lifecycle bugs fixed: (1) `rebuildToolCache()` now fires before `notifyStatusChange()` on all connect paths so listeners see accurate tool counts; (2) reconnect attempt counter moved from `MCPConnection` (recreated on each attempt) to a `Map<string, number>` on the manager, so burst delays `[2s→5s→15s→60s steady-state]` apply correctly across multiple failures of the same server; (3) concurrent `connect()` calls serialize via a `connectChain` promise to prevent duplicate connections; (4) `client.onclose` hook detects unexpected drops and reschedules reconnect without firing on intentional `disconnect()` or `reconnectServer()` calls. Nine new integration tests cover all paths. (`src/agent/mcpManager.ts`, `src/agent/mcpManager.test.ts`)
+
+- **`nondeterministicOutput` sweep — 21 tools across 14 files** — closes the dedup-exempt gap across all 79 built-in tools. Tools added this pass: `reply_pr_comment`, `submit_pr_review`, `mark_pr_ready`, `create_pr_review` (github.ts); `db_list_connections` (database.ts); `query_history` (history.ts); `latex_compile` (latex.ts); `profile_code` (profiling.ts); `delegate_to_mcp` (mcpDelegate.ts); `switch_backend`, `get_setting`, `update_setting` (settings.ts); `extract_constraints`, `synthesize_tests`, `classify_test_failure` (docTests.ts); `insert_citation` (citation.ts); plus `research_log_experiment`, `ingest_source`, `zotero_search`, `zotero_get_item`, `kickstand_list_loras` from earlier.
+
+- **Research tool project-existence guard** — `research_log_experiment` and `research_add_observation` now call `loadProject()` before writing anything; a phantom slug returns "not found" instead of creating orphan experiment/observation directories. Both `logExperiment()` calls are wrapped in try/catch — the first aborts on init failure, the second is best-effort (command already ran). (`src/agent/tools/research.ts`)
+
+- **Notebook Mode duplicate source label** — `ingest_source` now rejects a label that maps to an already-registered source ID (returns an error instead of silently overwriting); auto-generated `src-N` IDs increment past any taken slots to avoid colliding with label-derived IDs of the form `"src-N"`. (`src/agent/tools/notebook.ts`)
+
 ## [0.112.22] - 2026-06-09
 
 **v0.112.22 — Ollama 500 plan-mode crash fix, Test Current Model command, eval infrastructure.**
