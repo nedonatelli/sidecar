@@ -4,6 +4,93 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.113.9] - 2026-06-17
+
+**v0.113.9 — Catch "I will start by reading…" planning stalls + harden the reviewer against plan-and-quit.**
+
+### Agent
+
+- **Deferred-action reprompt catches planning stalls** — `DEFERRED_ACTION_RE` required the action verb to immediately follow the intent opener ("I will read…"), so "I will **start by** reading the core files", "I'll **first** map out…", and "I'm going to **investigate**…" slipped through and the model ended its turn without acting. The matcher now allows an intervening clause between opener and verb. (`src/agent/loop/actionReprompt.ts`)
+- **Architecture-reviewer prompt forbids plan-and-stop** — the facet now must complete the review in one continuous pass; reading a single file is explicitly "never enough", and the final message must BE the review (strengths/issues/recommendations), not a plan or a promise to continue. (`src/agent/facets/facetLoader.ts`)
+
+## [0.113.8] - 2026-06-17
+
+**v0.113.8 — Close the webview-JS coverage gap that let the suggestion-button bugs ship.**
+
+### Tooling
+
+- **`media/**/*.js` is now linted** — ESLint (flat config) previously scoped to `src/**/*.ts` only, so the webview scripts had no `no-undef`/`no-unused-vars` coverage. That blind spot is exactly how three dead `suggestNextSteps` bugs survived every review. A new config block lints `media/**/*.js` with browser + webview globals and `no-undef: error`; the `lint` script and lint-staged now include `media/`. (`eslint.config.mjs`, `package.json`)
+- **Webview message-dispatcher render test** — `src/webview/chatWebviewMessages.test.ts` loads the real `media/chat.js` into a happy-dom DOM and asserts `suggestNextSteps` renders clickable buttons that post the correct `{ command: 'userMessage', text }` shape — catching the message-contract + render-regression class that lint can't see. Adds `happy-dom` as a devDependency.
+
+### Fixed
+
+- **Clarify card free-text input** — `clarifyAllowCustom` was read but never used, so a clarify prompt with no preset options was a dead end (no way to reply). The card now renders a text input + Send when custom answers are allowed. (`media/chat.js`)
+- **Markdown horizontal-rule detection** — the HR regex used `[\s\1]*`, where `\1` inside a character class is the literal `\x01`, not a backreference — so rules of 4+ separators (`----`) were not recognized. Rewritten as `([-*_])(?:\s*\1){2,}` (surfaced by a `checkJs` pass). (`media/chat.js`)
+- **Image-remove button dataset** — assigned a number to `dataset.imageIndex` instead of a string. (`media/chat.js`)
+
+## [0.113.7] - 2026-06-17
+
+**v0.113.7 — Third and final fix for the dead suggestion-button case.**
+
+### Fixed
+
+- **`suggestNextSteps` appended to an undefined element** — the render case called `chatMessages.appendChild(...)`, but `chatMessages` is defined nowhere in `media/chat.js` (the real container is `messagesContainer`, used everywhere else). The undefined reference threw, so even after the v0.113.6 fixes no buttons appeared. Now appends to `messagesContainer`. With this, the architecture-review offer buttons (and the agent's end-of-turn next-step suggestions) finally render. (`media/chat.js`)
+
+## [0.113.6] - 2026-06-17
+
+**v0.113.6 — Fix the (long-broken) suggestion buttons in the chat webview.**
+
+### Fixed
+
+- **`suggestNextSteps` buttons now render and route** — two pre-existing bugs made the entire next-steps suggestion feature dead: the render case read `message.suggestions` (the listener variable is `msg`, so it threw a ReferenceError and rendered nothing), and the button click posted `{ type: 'userMessage', content }` while dispatch is keyed on `command` and the handler reads `text` — so a click never routed. Now reads `msg.suggestions` and posts `{ command: 'userMessage', text }`. This fixes both the architecture-review offer buttons and the agent's end-of-turn next-step suggestions. (`media/chat.js`)
+
+## [0.113.5] - 2026-06-17
+
+**v0.113.5 — Accept the Architecture Reviewer offer by natural-language reply.**
+
+### Chat
+
+- **Pending architecture-review offer now reads intent, not exact text** — previously only the literal offer-button label launched the facet, so typing "run the architecture reviewer specialist" fell through to a normal inline answer and lost the pending task. While an offer is pending, the next reply is classified as accept (`run it`, `yes`, `go ahead`, the run button) → dispatch the facet; decline (`no`, `answer inline`, the inline button) → answer the original task in the normal loop; anything unrelated drops the offer and is handled normally. (`src/webview/handlers/messageUtils.ts`, `src/webview/handlers/dispatchHandlers.ts`)
+
+## [0.113.4] - 2026-06-17
+
+**v0.113.4 — Auto-offer the Architecture Reviewer for whole-repo review prompts.**
+
+### Chat
+
+- **Whole-repo review prompts now offer the architecture-reviewer facet** — when a chat message asks to review/audit/evaluate the whole codebase or its architecture (and names no specific file or symbol), SideCar offers to run the read-only `architecture-reviewer` specialist instead of answering inline. The offer is a one-click button; declining answers in the normal loop. Single-file review requests still go through the normal loop, backstopped by the no-grounding gate. Detection is `isRepoReviewRequest` in `messageUtils.ts`; the facet streams into chat and opens a markdown review tab, runs inside a cancellable progress notification. (`src/webview/handlers/messageUtils.ts`, `src/webview/handlers/dispatchHandlers.ts`, `src/webview/chatState.ts`)
+- **`runFacetDispatchCommand` gains `preSelectedFacetIds` + `preFilledTask`** — lets a caller dispatch a known specialist without the multi-select picker or task input box. (`src/agent/facets/facetCommands.ts`)
+
+## [0.113.3] - 2026-06-17
+
+**v0.113.3 — Facet dispatch: clear the chat spinner and make runs cancellable.**
+
+### Facets
+
+- **Chat spinner no longer hangs after a facet completes** — the `sidecar.facets.dispatch` callbacks streamed output but never emitted `done`, so after a read-only facet finished, the chat panel's generating indicator spun forever. A single `done` now fires in a `finally` when the command settles. (`src/commands/agentCommands.ts`)
+- **Facet runs are now cancellable** — dispatch runs inside a cancellable progress notification whose cancellation aborts the shared signal threaded into every facet's agent loop. Previously the command passed no signal, so an in-flight facet could not be stopped. (`src/commands/agentCommands.ts`)
+
+## [0.113.2] - 2026-06-17
+
+**v0.113.2 — Surface read-only facet output: markdown review tab + live chat streaming.**
+
+### Facets
+
+- **Read-only facet output is now visible** — the `sidecar.facets.dispatch` command previously ran facets with silent callbacks and routed results through the diff-oriented review panel, so a read-only facet (`architecture-reviewer`, `security-reviewer`) that produces text but no diff surfaced only a "1 succeeded" toast — its review was captured in `output` but displayed nowhere. The command now (1) opens each no-diff facet's review in a markdown editor tab, and (2) streams the facet's live output (text + tool calls) into the chat panel. (`src/commands/agentCommands.ts`)
+
+## [0.113.1] - 2026-06-17
+
+**v0.113.1 — Grounded codebase reviews: a no-grounding completion gate + a read-only architecture-reviewer facet.**
+
+### Agent
+
+- **No-grounding completion gate** — open-ended review/evaluation queries ("review the architecture of this project") previously matched neither the no-read gate (needs a named file) nor the no-shell gate (needs metric keywords + a workspace dir), so the model answered from injected `SIDECAR.md` + file tree + RAG context without reading any code — producing generic, training-data architecture advice that hallucinated absent files and recommended patterns the project already implements. `buildNoGroundingReprompt` now fires once per run when an analysis-verb + workspace-target query is answered with zero grounding tool calls, forcing a code-reading pass before the verdict. (`src/agent/completionGate.ts`, `src/agent/loop/gate.ts`)
+- **"Verify before you recommend" prompt rule** — the base system prompt now instructs the model to search for a pattern before recommending it, and treats recommending something the project already has (or flagging a nonexistent file) as a factual error, not a style note. (`src/webview/handlers/basePrompt.ts`)
+
+### Facets
+
+- **`architecture-reviewer` built-in facet** — a read-only architecture-review specialist (no `write_file`/`edit_file`/`run_command`) with `project_knowledge_search` for semantic + symbol-graph lookup. Its prompt enforces a citation contract: map before judging, evidence (`file:symbol`) per finding, verify-before-recommend, no ungrounded best-practices checklists. Immediately dispatchable via the `sidecar.facets.dispatch` command picker. (`src/agent/facets/facetLoader.ts`)
+
 ## [0.113.0] - 2026-06-17
 
 **v0.113.0 — Senior-review hardening pass: MCP auth fail-closed, centralized logging, secret-redaction egress, and context-aware tool gating.**

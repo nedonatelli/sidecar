@@ -2,7 +2,7 @@
   "name": "sidecar-ai",
   "displayName": "SideCar",
   "description": "Autonomous AI agent for coding — run full agent loops with local Ollama, Anthropic Claude, or OpenAI models",
-  "version": "0.113.0",
+  "version": "0.113.9",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -3274,7 +3274,7 @@
     "eval:parity": "vitest run --config vitest.eval.config.ts tests/llm-eval/embeddingParity.eval.ts",
     "eval:parity:record": "SIDECAR_RECORD_PARITY_BASELINE=1 vitest run --config vitest.eval.config.ts tests/llm-eval/embeddingParity.eval.ts",
     "eval:compare": "SIDECAR_DISABLE_THINKING=true vitest run --config vitest.eval.config.ts tests/llm-eval/modelComparison.eval.ts",
-    "lint": "eslint src/",
+    "lint": "eslint src/ media/",
     "format": "prettier --write 'src/**/*.ts'",
     "format:check": "prettier --check 'src/**/*.ts'",
     "check": "npm run compile && npm run lint && npm run format:check && npm run test",
@@ -3299,6 +3299,7 @@
     "esbuild": "^0.28.0",
     "eslint": "^10.2.1",
     "eslint-config-prettier": "^10.1.8",
+    "happy-dom": "^20.10.5",
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
     "mysql2": "^3.22.2",
@@ -3331,8 +3332,12 @@
       "bash -c 'tsc --noEmit'",
       "bash -c 'vitest run --silent --exclude \"**/shadowWorkspace.test.ts\" --exclude \"**/shadowSweep.test.ts\"'"
     ],
-    "media/**/*.{js,css}": [
+    "media/**/*.css": [
       "prettier --write"
+    ],
+    "media/**/*.js": [
+      "prettier --write",
+      "eslint --max-warnings=0"
     ]
   }
 }
