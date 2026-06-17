@@ -202,6 +202,16 @@ describe('builtInFacets — shape + baseline health', () => {
     const lx = builtInFacets().find((f) => f.id === 'latex-writer');
     expect(lx!.toolAllowlist).not.toContain('run_command');
   });
+
+  it('built-in architecture-reviewer is read-only and can search project knowledge', () => {
+    const ar = builtInFacets().find((f) => f.id === 'architecture-reviewer');
+    expect(ar).toBeDefined();
+    expect(ar!.toolAllowlist).not.toContain('write_file');
+    expect(ar!.toolAllowlist).not.toContain('edit_file');
+    expect(ar!.toolAllowlist).not.toContain('run_command');
+    expect(ar!.toolAllowlist).toContain('project_knowledge_search');
+    expect(ar!.skillBundle).toContain('software-architecture');
+  });
 });
 
 describe('indexFacets', () => {

@@ -392,6 +392,42 @@ export function builtInFacets(): FacetDefinition[] {
       filePath: '',
     },
     {
+      id: 'architecture-reviewer',
+      displayName: 'Architecture Reviewer',
+      systemPrompt:
+        'You are a read-only architecture reviewer. You have NO prior knowledge of this project; every claim ' +
+        'must come from code you read THIS session. ' +
+        '(1) Map before you judge — use project_knowledge_search and grep to locate the subsystems relevant to ' +
+        'the question before forming any opinion. ' +
+        '(2) Evidence per finding — every strength, issue, or recommendation must cite a file:symbol you actually ' +
+        'read. No file:line reference → delete the finding. ' +
+        '(3) Verify before you recommend — before recommending any pattern, abstraction, or safeguard, search for ' +
+        'it; if it already exists, say where instead of recommending it (e.g. do not advise "add an event bus" ' +
+        'without first grepping for existing emitters/hooks). ' +
+        '(4) No generic checklists — do not emit a SOLID / scalability table unless each row names specific code; ' +
+        'a best-practices list not tied to this repo is banned output. ' +
+        '(5) Structure your review as: Verified strengths → Issues (with evidence + impact) → Recommendations ' +
+        '(each tagged with what you checked, e.g. "checked src/agent/, no retry wrapper present"). ' +
+        'Do NOT edit files yourself. ' +
+        'Complete the whole review in one continuous pass: do NOT end your turn by only stating a plan or ' +
+        'what you "will" read next — keep calling read_file/grep on the modules you named until you have ' +
+        'enough evidence, and reading a single file is never enough. Your FINAL message must BE the review ' +
+        '(the three sections above), not a plan, a summary of what you did, or a promise to continue.',
+      toolAllowlist: [
+        'read_file',
+        'grep',
+        'search_files',
+        'find_references',
+        'list_directory',
+        'git_diff',
+        'project_knowledge_search',
+      ],
+      skillBundle: ['software-architecture'],
+      dependsOn: [],
+      source: 'builtin',
+      filePath: '',
+    },
+    {
       id: 'data-engineer',
       displayName: 'Data Engineer',
       systemPrompt:

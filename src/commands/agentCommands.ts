@@ -1,10 +1,11 @@
-import { window, commands, workspace, ExtensionContext } from 'vscode';
+import { window, commands, workspace, ProgressLocation, ExtensionContext } from 'vscode';
 import { logger } from '../system/logger.js';
 import { getConfig } from '../config/settings.js';
 import { clearAll as clearSidecarDiagnostics } from '../agent/sidecarDiagnostics.js';
 import type { SideCarClient } from '../ollama/client.js';
 import type { ChatViewProvider } from '../webview/chatView.js';
 import type { MCPManager } from '../agent/mcpManager.js';
+import type { AgentCallbacks } from '../agent/loop.js';
 
 export interface AgentCommandDeps {
   createClient: () => SideCarClient;
@@ -69,36 +70,81 @@ export function registerAgentCommands(context: ExtensionContext, extensionId: st
       const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath;
       const mainRoot = getWorkspaceMainRoot();
       const provider = deps.getChatProvider?.();
-      await runFacetDispatchCommand({
-        ui: createDefaultFacetCommandUi(),
-        loadRegistry: () =>
-          loadFacetRegistry({
-            workspaceRoot,
-            registryPaths: cfg.facetsRegistry,
-          }),
-        createClient,
-        agentOptions: deps.mcpManager ? { mcpManager: deps.mcpManager } : undefined,
-        config: {
-          enabled: cfg.facetsEnabled,
-          maxConcurrent: cfg.facetsMaxConcurrent,
-          rpcTimeoutMs: cfg.facetsRpcTimeoutMs,
-        },
-        review: mainRoot ? (batch, reviewDeps) => reviewFacetBatchWithPanel(batch, reviewDeps, context) : undefined,
-        reviewDeps: mainRoot ? { ui: createDefaultFacetReviewUi(), mainRoot } : undefined,
-        onBatchProgress: provider
-          ? (state) =>
-              provider.notify({
-                command: 'batchProgress',
-                batchProgress: {
-                  kind: 'facets',
-                  task: state.task,
-                  items: state.items,
-                  doneCount: state.done,
-                  totalCount: state.total,
-                },
-              })
-          : undefined,
-      });
+      // Stream the facet's live output into the chat panel (#2). Read-only
+      // facets (e.g. architecture-reviewer) produce no diff, so without this
+      // their output would be swallowed by the default silent callbacks.
+      const callbacks: AgentCallbacks | undefined = provider
+        ? {
+            onText: (text) => provider.notify({ command: 'assistantMessage', content: text }),
+            onToolCall: (name, _input, id) =>
+              provider.notify({ command: 'toolCall', toolName: name, toolCallId: id, content: name }),
+            onToolResult: (name, result, _isError, id) =>
+              provider.notify({ command: 'toolResult', toolName: name, toolCallId: id, content: result }),
+            onDone: () => undefined,
+          }
+        : undefined;
+      // Run inside a cancellable progress notification so a long-running
+      // facet can be aborted (the loop honors the signal). The chat spinner
+      // is cleared via a single `done` in `finally` — without it a read-only
+      // facet's stream never closes and the panel looks stuck.
+      const controller = new AbortController();
+      let outcome: Awaited<ReturnType<typeof runFacetDispatchCommand>> | undefined;
+      try {
+        outcome = await window.withProgress(
+          { location: ProgressLocation.Notification, title: 'SideCar: dispatching facets…', cancellable: true },
+          async (_progress, token) => {
+            token.onCancellationRequested(() => controller.abort());
+            return runFacetDispatchCommand({
+              ui: createDefaultFacetCommandUi(),
+              loadRegistry: () =>
+                loadFacetRegistry({
+                  workspaceRoot,
+                  registryPaths: cfg.facetsRegistry,
+                }),
+              createClient,
+              callbacks,
+              signal: controller.signal,
+              agentOptions: deps.mcpManager ? { mcpManager: deps.mcpManager } : undefined,
+              config: {
+                enabled: cfg.facetsEnabled,
+                maxConcurrent: cfg.facetsMaxConcurrent,
+                rpcTimeoutMs: cfg.facetsRpcTimeoutMs,
+              },
+              review: mainRoot
+                ? (batch, reviewDeps) => reviewFacetBatchWithPanel(batch, reviewDeps, context)
+                : undefined,
+              reviewDeps: mainRoot ? { ui: createDefaultFacetReviewUi(), mainRoot } : undefined,
+              onBatchProgress: provider
+                ? (state) =>
+                    provider.notify({
+                      command: 'batchProgress',
+                      batchProgress: {
+                        kind: 'facets',
+                        task: state.task,
+                        items: state.items,
+                        doneCount: state.done,
+                        totalCount: state.total,
+                      },
+                    })
+                : undefined,
+            });
+          },
+        );
+      } finally {
+        provider?.notify({ command: 'done' });
+      }
+      // Open each read-only facet's review as a markdown document (#1).
+      // Facets that produced a diff go through the review panel instead;
+      // these no-diff results carry their value entirely in `output`.
+      if (outcome?.mode === 'dispatched') {
+        for (const r of outcome.batch.results) {
+          const hasDiff = !!r.sandbox.pendingDiff && r.sandbox.pendingDiff.length > 0;
+          if (!r.success || hasDiff || !r.output || r.output === '(facet produced no output)') continue;
+          const content = `# ${r.facetId} — review\n\n_Task: ${outcome.task}_\n\n${r.output}\n`;
+          const doc = await workspace.openTextDocument({ content, language: 'markdown' });
+          await window.showTextDocument(doc, { preview: false });
+        }
+      }
     }),
     commands.registerCommand('sidecar.fork.dispatch', async () => {
       const { runForkDispatchCommand, createDefaultForkCommandUi } = await import('../agent/fork/forkCommands.js');
