@@ -71,12 +71,30 @@ describe('looksLikeDeferredAction', () => {
     expect(looksLikeDeferredAction('Do you want me to apply this change now?')).toBe(true);
   });
 
+  it('matches the "I will start by reading the core files" planning stall', () => {
+    expect(looksLikeDeferredAction('I will start by reading the core files in src/agent.')).toBe(true);
+  });
+
+  it('matches "I\'ll first map out the system"', () => {
+    expect(looksLikeDeferredAction("I'll first map out the system before forming judgments.")).toBe(true);
+  });
+
+  it('matches "I\'m going to investigate the core components"', () => {
+    expect(looksLikeDeferredAction('I am going to investigate the core components responsible for scheduling.')).toBe(
+      true,
+    );
+  });
+
   it('does not match a plain explanation with no announced intent', () => {
     expect(looksLikeDeferredAction('The jq command failed because the path was wrong.')).toBe(false);
   });
 
   it('does not match a completed action report', () => {
     expect(looksLikeDeferredAction('The file has been updated successfully.')).toBe(false);
+  });
+
+  it('does not match a recommendation that is not self-intent', () => {
+    expect(looksLikeDeferredAction('I recommend reading the documentation for the retry policy.')).toBe(false);
   });
 });
 
