@@ -1,4 +1,5 @@
 import type { ChatState } from '../chatState.js';
+import { logger } from '../../system/logger.js';
 import type { ChatMessage } from '../../ollama/types.js';
 import type { AgentCallbacks } from '../../agent/loop.js';
 import { getConfig } from '../../config/settings.js';
@@ -173,7 +174,7 @@ export function createAgentCallbacks(
         try {
           state.agentMemory.add(type, category, content, `Session: ${new Date().toISOString()}`);
         } catch (err) {
-          console.warn('Failed to record agent memory:', err);
+          logger.warn('Failed to record agent memory:', err);
         }
       }
     },

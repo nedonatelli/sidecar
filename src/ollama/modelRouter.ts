@@ -24,6 +24,8 @@
  * Every dispatch point tags itself with exactly one role. See the
  * roadmap's "Role taxonomy" section for the canonical list.
  */
+import { logger } from '../system/logger.js';
+
 export type RoutableRole =
   | 'chat'
   | 'agent-loop'
@@ -416,7 +418,7 @@ export class ModelRouter {
 
       // Availability check: skip rules whose model is not in the installed set.
       if (availableModels && !availableModels.has(rule.model)) {
-        console.warn(
+        logger.warn(
           `[SideCar] modelRouter: rule "${rule.when}" maps to "${rule.model}" which is not installed — skipping`,
         );
         continue;
@@ -562,7 +564,7 @@ export function buildRouterFromConfig(config: RouterConfigSlice): ModelRouter | 
   const defaultModel = config.modelRoutingDefaultModel || config.model;
   const allRules = [...config.modelRoutingRules, ...synthesizeLegacyRules(config)];
   return new ModelRouter(allRules, defaultModel, (msg) => {
-    console.warn(`[SideCar modelRouting] ${msg}`);
+    logger.warn(`[SideCar modelRouting] ${msg}`);
   });
 }
 

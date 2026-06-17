@@ -1,4 +1,5 @@
 import { window, workspace, ExtensionContext, StatusBarAlignment } from 'vscode';
+import { logger } from '../system/logger.js';
 import { getFilePatterns } from '../config/workspace.js';
 import { setSymbolGraph, setSymbolEmbeddings } from '../agent/tools.js';
 import type { WorkspaceIndex } from '../config/workspaceIndex.js';
@@ -30,7 +31,7 @@ export function initWorkspaceIndex(
     .initialize(getFilePatterns())
     .then(async () => {
       const count = workspaceIndex.getFileCount();
-      console.log(`[SideCar] Workspace indexed: ${count} files`);
+      logger.info(`[SideCar] Workspace indexed: ${count} files`);
       indexStatus.text = `$(check) SideCar: ${count} files indexed`;
       setTimeout(() => indexStatus.dispose(), 5000);
 
@@ -39,11 +40,11 @@ export function initWorkspaceIndex(
         .initialize(getFilePatterns())
         .then(() => {
           const symCount = symbolIndexer.getGraph().symbolCount();
-          console.log(`[SideCar] Symbol graph built: ${symCount} symbols`);
+          logger.info(`[SideCar] Symbol graph built: ${symCount} symbols`);
           workspaceIndex.setSymbolIndexer(symbolIndexer);
           setSymbolGraph(symbolIndexer.getGraph());
         })
-        .catch((err) => console.warn('[SideCar] Symbol graph build failed:', err));
+        .catch((err) => logger.warn('[SideCar] Symbol graph build failed:', err));
 
       // Build semantic embedding index (background, non-blocking)
       if (config.enableSemanticSearch) {
@@ -54,12 +55,12 @@ export function initWorkspaceIndex(
           .initialize()
           .then(() => {
             workspaceIndex.setEmbeddingIndex(embeddingIndex);
-            console.log(`[SideCar] Embedding index ready: ${embeddingIndex.getCount()} cached vectors`);
+            logger.info(`[SideCar] Embedding index ready: ${embeddingIndex.getCount()} cached vectors`);
             for (const file of workspaceIndex.getFiles()) {
               embeddingIndex.queuePath(file.relativePath, workspace.workspaceFolders![0].uri.fsPath);
             }
           })
-          .catch((err) => console.warn('[SideCar] Embedding index failed:', err.message || err));
+          .catch((err) => logger.warn('[SideCar] Embedding index failed:', err.message || err));
       }
 
       // Project Knowledge Index — symbol-level semantic index
@@ -75,7 +76,7 @@ export function initWorkspaceIndex(
           } catch (err) {
             const { UnsupportedBackendError } = await import('../config/vectorStore.js');
             if (err instanceof UnsupportedBackendError) {
-              console.warn('[SideCar]', err.message);
+              logger.warn('[SideCar]', err.message);
               void window.showWarningMessage(
                 'SideCar: Project Knowledge backend "lance" is not available — install @lancedb/lancedb or switch to "flat".',
               );
@@ -97,12 +98,12 @@ export function initWorkspaceIndex(
               const { MerkleTree } = await import('../config/merkleTree.js');
               const merkleTree = new MerkleTree();
               symbolEmbeddings.setMerkleTree(merkleTree);
-              console.log(
+              logger.info(
                 `[SideCar] Merkle tree wired: rootHash=${symbolEmbeddings.getMerkleRoot().slice(0, 8) || '(empty)'}`,
               );
             }
             const cachedCount = symbolEmbeddings.getCount();
-            console.log(`[SideCar] Symbol embedding index ready: ${cachedCount} cached symbol vectors`);
+            logger.info(`[SideCar] Symbol embedding index ready: ${cachedCount} cached symbol vectors`);
 
             // Show a progress indicator while symbols are being embedded.
             // On a cold start (no cache) this can take 30s–2min for large
@@ -136,11 +137,11 @@ export function initWorkspaceIndex(
             // replaySymbolsToEmbeddingIndex reads cached graph content directly.
             symbolIndexer.replaySymbolsToEmbeddingIndex();
           })
-          .catch((err) => console.warn('[SideCar] Symbol embedding index failed:', err?.message || err));
+          .catch((err) => logger.warn('[SideCar] Symbol embedding index failed:', err?.message || err));
       }
     })
     .catch((err) => {
-      console.error('[SideCar] Workspace indexing failed:', err);
+      logger.error('[SideCar] Workspace indexing failed:', err);
       indexStatus.text = '$(warning) SideCar: Indexing failed';
       setTimeout(() => indexStatus.dispose(), 5000);
     });

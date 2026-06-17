@@ -117,10 +117,38 @@ export const window = {
     // `vi.spyOn(window, 'createTerminal').mockReturnValue(...)`.
     shellIntegration: undefined,
   }),
+  // Default no-op webview panel. Tests that drive a panel (e.g. ArenaPanel)
+  // override this via `vi.spyOn(window, 'createWebviewPanel').mockReturnValue(...)`
+  // with a controllable fake.
+  createWebviewPanel: () => ({
+    webview: {
+      html: '',
+      cspSource: 'vscode-webview://csp',
+      asWebviewUri: (uri: unknown) => uri,
+      onDidReceiveMessage: () => ({ dispose: () => {} }),
+      postMessage: async () => true,
+    },
+    reveal: () => {},
+    dispose: () => {},
+    onDidDispose: () => ({ dispose: () => {} }),
+    onDidChangeViewState: () => ({ dispose: () => {} }),
+  }),
   createOutputChannel: () => ({
     appendLine: () => {},
+    append: () => {},
+    replace: () => {},
+    clear: () => {},
     show: () => {},
+    hide: () => {},
     dispose: () => {},
+    // LogOutputChannel methods (created with { log: true })
+    trace: () => {},
+    debug: () => {},
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+    logLevel: 0,
+    onDidChangeLogLevel: () => ({ dispose: () => {} }),
   }),
   createStatusBarItem: () => ({
     text: '',

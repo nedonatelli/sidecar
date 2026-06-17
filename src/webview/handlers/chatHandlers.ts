@@ -436,10 +436,10 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     // Skills 2.0 — build tool override from the skill's allowedTools list.
     let skillToolOverride: import('../../ollama/types.js').ToolDefinition[] | undefined;
     if (matchedSkill?.allowedTools && matchedSkill.allowedTools.length > 0) {
-      const { TOOL_REGISTRY } = await import('../../agent/tools.js');
-      skillToolOverride = TOOL_REGISTRY.filter((t) => matchedSkill.allowedTools!.includes(t.definition.name)).map(
-        (t) => t.definition,
-      );
+      const { getEnabledBuiltInTools } = await import('../../agent/tools.js');
+      skillToolOverride = getEnabledBuiltInTools()
+        .filter((t) => matchedSkill.allowedTools!.includes(t.definition.name))
+        .map((t) => t.definition);
     }
 
     // Skills 2.0 — activate named built-in guards from the skill's guards list.

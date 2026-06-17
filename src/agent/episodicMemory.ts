@@ -16,6 +16,7 @@
  */
 
 import { FlatVectorStore } from '../config/vectorStore.js';
+import { logger } from '../system/logger.js';
 import type { SidecarDir } from '../config/sidecarDir.js';
 import { MINILM_MODEL_ID as MODEL_ID, type EmbeddingPipeline, getSharedPipeline } from '../config/hfPipeline.js';
 const DIMENSION = 384;
@@ -141,7 +142,7 @@ export class EpisodicMemoryStore {
         this.pipeline = await getSharedPipeline(MODEL_ID, { allowLocalModels: false });
         return true;
       } catch (err) {
-        console.warn('[EpisodicMemory] Embedding model failed to load:', err instanceof Error ? err.message : err);
+        logger.warn('[EpisodicMemory] Embedding model failed to load:', err instanceof Error ? err.message : err);
         this.modelLoading = null; // allow retry on next call
         return false;
       }

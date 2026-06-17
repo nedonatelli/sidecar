@@ -1,4 +1,5 @@
 import { workspace } from 'vscode';
+import { logger } from '../../system/logger.js';
 import { getConfig, type SideCarConfig } from '../../config/settings.js';
 import { checkWorkspaceConfigTrust } from '../../config/workspaceTrust.js';
 import { redactSecrets } from '../securityScanner.js';
@@ -66,7 +67,7 @@ export async function runHook(
     const msg = result.timedOut
       ? `Hook timed out after ${result.exitCode === null ? '15s' : 'inactivity'}`
       : `Hook failed with exit code ${result.exitCode}`;
-    console.warn(`[SideCar] Hook ${phase}:${toolName} failed: ${msg}`);
+    logger.warn(`[SideCar] Hook ${phase}:${toolName} failed: ${msg}`);
     return phase === 'pre' ? msg : undefined;
   }
 

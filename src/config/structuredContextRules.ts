@@ -7,6 +7,7 @@
  */
 
 import { workspace, Uri } from 'vscode';
+import { logger } from '../system/logger.js';
 import { matchGlob } from '../util/glob.js';
 export { matchGlob };
 
@@ -54,7 +55,7 @@ export async function readStructuredContextRules(): Promise<StructuredContextRul
     const parsed = JSON.parse(new TextDecoder().decode(bytes));
 
     if (!Array.isArray(parsed.rules)) {
-      console.warn('[SideCar] Invalid .sidecarrules: "rules" must be an array');
+      logger.warn('[SideCar] Invalid .sidecarrules: "rules" must be an array');
       return { rules: [] };
     }
 

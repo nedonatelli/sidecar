@@ -9,7 +9,7 @@ const definition: ToolDefinition = {
     'List all packages discovered in the monorepo. Returns the detected layout type ' +
     '(nx / turbo / pnpm / yarn / lerna) and each package name with its workspace-relative path. ' +
     'Use the `relativePath` as the `pathPrefix` argument to `project_knowledge_search` to scope ' +
-    'a semantic symbol search to a single package.',
+    'a semantic symbol search to a single package. Takes no arguments. Example: `monorepo_packages()`.',
   input_schema: {
     type: 'object',
     properties: {},

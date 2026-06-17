@@ -1,4 +1,5 @@
 import { isLocalOllama, isKickstand, detectProvider } from '../config/settings.js';
+import { logger } from '../system/logger.js';
 import { SideCarClient } from '../ollama/client.js';
 import type { SideCarConfig } from '../config/settings.js';
 
@@ -17,13 +18,13 @@ export function initWarmup(config: SideCarConfig): void {
       })
         .then((res) => {
           if (res.ok) {
-            console.log(`[SideCar] Pre-warmed model: ${config.model}`);
+            logger.info(`[SideCar] Pre-warmed model: ${config.model}`);
           } else {
-            console.warn(`[SideCar] Pre-warm failed (${res.status}) for ${config.model}`);
+            logger.warn(`[SideCar] Pre-warm failed (${res.status}) for ${config.model}`);
           }
         })
         .catch((err) => {
-          console.warn('[SideCar] Pre-warm skipped — Ollama may not be running:', err.message);
+          logger.warn('[SideCar] Pre-warm skipped — Ollama may not be running:', err.message);
         });
     });
   }
@@ -37,13 +38,13 @@ export function initWarmup(config: SideCarConfig): void {
         .then((models) => {
           if (models.length > 0) {
             const modelNames = models.map((m) => m.name).join(', ');
-            console.log(`[SideCar] Discovered ${models.length} available models: ${modelNames}`);
+            logger.info(`[SideCar] Discovered ${models.length} available models: ${modelNames}`);
           } else {
-            console.log('[SideCar] No models discovered from Ollama or Kickstand');
+            logger.info('[SideCar] No models discovered from Ollama or Kickstand');
           }
         })
         .catch((err) => {
-          console.warn('[SideCar] Model discovery failed:', err.message);
+          logger.warn('[SideCar] Model discovery failed:', err.message);
         });
     });
   }

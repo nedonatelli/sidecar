@@ -651,7 +651,7 @@ function readConfig(): SideCarConfig {
     /* MCP Agent Server */
     mcpServerEnabled: cfg.get<boolean>('mcpServer.enabled', false),
     mcpServerPort: clampMin(cfg.get<number>('mcpServer.port'), 1024, 3457),
-    mcpServerRequireAuth: cfg.get<boolean>('mcpServer.requireAuth', false),
+    mcpServerRequireAuth: cfg.get<boolean>('mcpServer.requireAuth', true),
     mcpServerAuthToken: cfg.get<string>('mcpServer.authToken', '') || null,
     mcpServerMaxConcurrent: clampMin(cfg.get<number>('mcpServer.maxConcurrent'), 1, 1),
     zenModeEnabled: cfg.get<boolean>('zenMode.enabled', false),

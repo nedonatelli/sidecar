@@ -1,4 +1,5 @@
 import { commands, ExtensionContext, workspace } from 'vscode';
+import { logger } from './system/logger.js';
 import * as path from 'path';
 import { ChatViewProvider } from './webview/chatView.js';
 import { registerAutoModeCommands } from './commands/autoModeCommands.js';
@@ -41,7 +42,7 @@ import { registerEvalView } from './views/evalView.js';
 let chatProvider: ChatViewProvider | undefined;
 
 export function activate(context: ExtensionContext) {
-  console.log('SideCar extension activating...');
+  logger.info('SideCar extension activating...');
 
   // Set grammars path for tree-sitter (lazy-loaded on first parse)
   const grammarsPath = path.join(context.extensionPath, 'grammars');
@@ -53,7 +54,7 @@ export function activate(context: ExtensionContext) {
   // Initialize SecretStorage and migrate any plaintext API keys.
   // Fire-and-forget: subsequent getConfig() calls pick up the cached secrets.
   initSecrets(context).catch((err) => {
-    console.warn('[SideCar] Failed to initialize secrets:', err);
+    logger.warn('[SideCar] Failed to initialize secrets:', err);
   });
 
   // Load repo-level policy from .sidecar/policy.json (restrictions-only, non-fatal).
@@ -167,7 +168,7 @@ export function activate(context: ExtensionContext) {
     }, 1500);
   }
 
-  console.log('SideCar extension activated');
+  logger.info('SideCar extension activated');
 
   // Return the public SDK API so third-party extensions can register tools
   // and hooks via `vscode.extensions.getExtension('nedonatelli.sidecar')?.exports`.

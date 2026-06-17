@@ -1,4 +1,5 @@
 import * as path from 'path';
+import { logger } from '../system/logger.js';
 import { commands, window, workspace, ExtensionContext } from 'vscode';
 import { getConfig } from '../config/settings.js';
 import { SidecarDir } from '../config/sidecarDir.js';
@@ -31,24 +32,24 @@ export function initCoreServices(context: ExtensionContext): InitializedServices
     sidecarDir.initialize().then(
       async (ok) => {
         if (!ok) return;
-        console.log('[SideCar] .sidecar/ directory ready');
+        logger.info('[SideCar] .sidecar/ directory ready');
 
         const processRegistry = getProcessRegistry();
         processRegistry.setManifestPath(sidecarDir.getPath('pids.json'));
         await processRegistry.sweepOrphans().catch((err) => {
-          console.warn('[SideCar] Process orphan sweep failed:', err);
+          logger.warn('[SideCar] Process orphan sweep failed:', err);
         });
         context.subscriptions.push(processRegistry);
 
         await initAuditBufferRecovery();
-        await initShadowSweep().catch((err) => console.warn('[SideCar] Shadow sweep failed:', err));
+        await initShadowSweep().catch((err) => logger.warn('[SideCar] Shadow sweep failed:', err));
 
         spendTracker.init(sidecarDir);
         await spendTracker
           .restoreFromDisk()
-          .catch((err) => console.warn('[SideCar] Spend tracker restore failed:', err));
+          .catch((err) => logger.warn('[SideCar] Spend tracker restore failed:', err));
       },
-      (err) => console.warn('[SideCar] .sidecar/ init failed:', err),
+      (err) => logger.warn('[SideCar] .sidecar/ init failed:', err),
     );
   }
 
@@ -81,13 +82,13 @@ export function initCoreServices(context: ExtensionContext): InitializedServices
           );
           return choice === 'Trust this registry';
         },
-        log: (line) => console.log(line),
+        log: (line) => logger.info(line),
       });
       if (refs.length > 0) {
         await skillLoader.loadRegistrySkills(refs);
       }
     } catch (err) {
-      console.warn('[SideCar] Skill loading failed:', err);
+      logger.warn('[SideCar] Skill loading failed:', err);
     }
   };
 
@@ -152,7 +153,7 @@ async function initAuditBufferRecovery(): Promise<void> {
   try {
     recovered = await persistence.load();
   } catch (err) {
-    console.warn('[SideCar] Audit buffer load failed:', err);
+    logger.warn('[SideCar] Audit buffer load failed:', err);
     return;
   }
   if (!recovered || (recovered.entries.length === 0 && recovered.commits.length === 0)) return;
@@ -182,8 +183,8 @@ async function initShadowSweep(): Promise<void> {
     const { sweepStaleShadows, formatSweepResult } = await import('../agent/shadow/shadowSweep.js');
     const result = await sweepStaleShadows(root);
     const summary = formatSweepResult(result);
-    if (summary) console.warn(`[SideCar] ${summary}`);
+    if (summary) logger.warn(`[SideCar] ${summary}`);
   } catch (err) {
-    console.warn('[SideCar] Shadow sweep failed:', err);
+    logger.warn('[SideCar] Shadow sweep failed:', err);
   }
 }

@@ -1,6 +1,7 @@
 import type { ToolDefinition } from '../../ollama/types.js';
 import type { RegisteredTool, ToolExecutorContext } from './shared.js';
 import { getConfig } from '../../config/settings.js';
+import { redactSecrets } from '../securityScanner.js';
 
 // Tool names that signal a server accepts a high-level task description
 // rather than structured function parameters. Checked in order — first
@@ -78,8 +79,12 @@ export async function delegateToMcp(input: Record<string, unknown>, context?: To
   const resolved = resolveTaskTool(server, toolNames, explicitTool);
   if ('error' in resolved) return resolved.error;
 
-  const toolInput: Record<string, unknown> = { task };
-  if (taskContext) toolInput.context = taskContext;
+  // Redact secrets before the payload leaves for a third-party MCP server.
+  // task/context are free-text fields the model may have populated with
+  // content it read (file bodies, command output), so scrub them per the
+  // guarantee documented in SECURITY.md.
+  const toolInput: Record<string, unknown> = { task: redactSecrets(task) };
+  if (taskContext) toolInput.context = redactSecrets(taskContext);
 
   try {
     let timeoutHandle: ReturnType<typeof setTimeout>;
@@ -110,7 +115,8 @@ export const mcpDelegateDef: ToolDefinition = {
     'to a server that is better suited for it than the current model. ' +
     'Specify `server` (the key from sidecar.mcpServers config), `task` (natural language), ' +
     'and optionally `tool` (the server tool to invoke — auto-detected if omitted) ' +
-    'and `context` (extra context to pass alongside the task).',
+    'and `context` (extra context to pass alongside the task). ' +
+    'Example: `delegate_to_mcp(server="math-engine", task="integrate x^2 from 0 to 3")`.',
   input_schema: {
     type: 'object',
     properties: {

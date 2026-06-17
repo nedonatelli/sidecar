@@ -32,7 +32,8 @@ export const researchTools: RegisteredTool[] = [
       description:
         'Create a new research project under `.sidecar/research/<slug>/`. ' +
         'Initialises project.yaml with the title, research question, empty hypotheses list, and status "active". ' +
-        'Returns the project slug for use in subsequent research tool calls.',
+        'Returns the project slug for use in subsequent research tool calls. ' +
+        'Example: `research_create_project(title="FFT speedup", question="Can a radix-4 FFT beat radix-2 here?")`.',
       input_schema: {
         type: 'object',
         properties: {
@@ -71,7 +72,8 @@ export const researchTools: RegisteredTool[] = [
       description:
         'Add a hypothesis to an existing research project. ' +
         'Appends to the hypotheses array in project.yaml with status "open". ' +
-        'Returns the hypothesis ID for linking to experiments.',
+        'Returns the hypothesis ID for linking to experiments. ' +
+        'Example: `research_add_hypothesis(project="fft-speedup", hypothesis="Radix-4 cuts multiplies by 25%")`.',
       input_schema: {
         type: 'object',
         properties: {
@@ -111,7 +113,8 @@ export const researchTools: RegisteredTool[] = [
       description:
         'Record and run an experiment for a research project. ' +
         'Writes experiments/<id>/manifest.yaml, executes the command, and captures the result. ' +
-        'The experiment id should be descriptive, e.g. "exp-2026-05-fft-baseline".',
+        'The experiment id should be descriptive. ' +
+        'Example: `research_log_experiment(project="fft-speedup", id="exp-2026-05-fft-baseline", command="python bench.py")`.',
       input_schema: {
         type: 'object',
         properties: {
@@ -207,7 +210,8 @@ export const researchTools: RegisteredTool[] = [
       description:
         'Append a timestamped observation note to a research project. ' +
         'Saved to observations/<timestamp>.md. ' +
-        'Use for recording insights, anomalies, decisions, or anything worth preserving across sessions.',
+        'Use for recording insights, anomalies, decisions, or anything worth preserving across sessions. ' +
+        'Example: `research_add_observation(project="fft-speedup", note="radix-4 unstable for N<64")`.',
       input_schema: {
         type: 'object',
         properties: {
@@ -245,8 +249,10 @@ export const researchTools: RegisteredTool[] = [
     definition: {
       name: 'research_update_hypothesis_status',
       description:
-        'Update the status of a hypothesis in a research project. ' +
-        'Valid statuses: open, supported, refuted, needs-more-evidence, abandoned.',
+        'Update the status of a hypothesis as evidence accumulates in a research project. ' +
+        'Use after logging experiments or observations that bear on the hypothesis; not for adding a new hypothesis (use research_add_hypothesis). ' +
+        'Valid statuses: open, supported, refuted, needs-more-evidence, abandoned. ' +
+        'Example: `research_update_hypothesis_status(project: "fft-speedup", id: "h1", status: "supported")`.',
       input_schema: {
         type: 'object',
         properties: {
@@ -293,7 +299,9 @@ export const researchTools: RegisteredTool[] = [
       name: 'research_list_projects',
       description:
         'List all research projects and their summary stats. ' +
-        'Returns project slugs, titles, status, hypothesis count, and last updated time.',
+        'Returns project slugs, titles, status, hypothesis count, and last updated time. ' +
+        'Use to discover the slug of an existing project before adding hypotheses or experiments. ' +
+        'Takes no arguments. Example: `research_list_projects()`.',
       input_schema: {
         type: 'object',
         properties: {},
@@ -329,7 +337,10 @@ export const researchTools: RegisteredTool[] = [
     requiresApproval: false,
     definition: {
       name: 'research_set_project_status',
-      description: 'Update the status of a research project. ' + 'Valid statuses: active, paused, complete, abandoned.',
+      description:
+        'Update the lifecycle status of a research project as the work progresses or winds down. ' +
+        'Valid statuses: active, paused, complete, abandoned. ' +
+        'Example: `research_set_project_status(project="fft-speedup", status="complete")`.',
       input_schema: {
         type: 'object',
         properties: {
@@ -375,7 +386,8 @@ export const researchTools: RegisteredTool[] = [
       description:
         'Generate a structured markdown report for a research project. ' +
         'Includes hypothesis outcomes table, experiment results with output tails, and observations timeline. ' +
-        'Writes the report to `.sidecar/research/<slug>/report.md` and returns the full markdown.',
+        'Writes the report to `.sidecar/research/<slug>/report.md` and returns the full markdown. ' +
+        'Example: `research_export_report(project="fft-speedup")`.',
       input_schema: {
         type: 'object',
         properties: {

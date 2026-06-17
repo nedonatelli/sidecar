@@ -11,6 +11,7 @@
  */
 
 import { workspace, window } from 'vscode';
+import { logger } from '../system/logger.js';
 import { getConfig } from '../config/settings.js';
 import { handleInstallModel } from './handlers/modelHandlers.js';
 import type { ChatState } from './chatState.js';
@@ -48,7 +49,7 @@ export async function setModel(
       }
     } catch (err) {
       // Ollama unreachable — fall through; next chat will surface the error.
-      console.warn('setModel: could not verify installed models:', err);
+      logger.warn('setModel: could not verify installed models:', err);
     }
   }
 
@@ -75,9 +76,9 @@ export async function refreshOpenRouterCostsIfActive(baseUrl: string, apiKey: st
     const catalog = await backend.listOpenRouterModels();
     const registered = ingestOpenRouterCatalog(catalog);
     if (registered > 0 && getConfig().verboseMode) {
-      console.log(`[SideCar openrouter] ingested pricing for ${registered} models from the catalog`);
+      logger.info(`[SideCar openrouter] ingested pricing for ${registered} models from the catalog`);
     }
   } catch (err) {
-    console.warn('[SideCar openrouter] failed to refresh cost catalog:', err);
+    logger.warn('[SideCar openrouter] failed to refresh cost catalog:', err);
   }
 }

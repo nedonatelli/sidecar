@@ -1,4 +1,5 @@
 import { workspace, Uri, FileSystemWatcher, RelativePattern, Disposable } from 'vscode';
+import { logger } from '../system/logger.js';
 import * as path from 'path';
 import type { ParsedFile } from '../astContext.js';
 import { getAnalyzer } from '../parsing/registry.js';
@@ -265,7 +266,7 @@ export class WorkspaceIndex implements Disposable {
     if (!this.folderChangeListener) {
       this.folderChangeListener = workspace.onDidChangeWorkspaceFolders(() => {
         this.initialize(this.lastPatterns).catch((err) =>
-          console.warn('[SideCar] Workspace re-index after folder change failed:', err),
+          logger.warn('[SideCar] Workspace re-index after folder change failed:', err),
         );
       });
     }
@@ -292,7 +293,7 @@ export class WorkspaceIndex implements Disposable {
         }
       }
       if (this.customExcludes.size > 0) {
-        console.log(`[SideCar] Loaded ${this.customExcludes.size} patterns from .sidecarignore`);
+        logger.info(`[SideCar] Loaded ${this.customExcludes.size} patterns from .sidecarignore`);
       }
     } catch {
       // .sidecarignore doesn't exist — use defaults only
@@ -313,7 +314,7 @@ export class WorkspaceIndex implements Disposable {
         this.treeDirty = true;
         this.ready = true;
         restored = true;
-        console.log(
+        logger.info(
           `[SideCar] Workspace index restored from cache: ${cache.fileCount} files in ${Date.now() - startTime}ms`,
         );
       }
@@ -327,7 +328,7 @@ export class WorkspaceIndex implements Disposable {
       // Already serving from cache — verify/update in background so activation
       // is not blocked waiting for the disk scan to finish.
       void this.runFullScan(patterns, rootPath, startTime, true).catch((err) =>
-        console.warn('[SideCar] Background index verification failed:', err),
+        logger.warn('[SideCar] Background index verification failed:', err),
       );
       return;
     }
@@ -382,11 +383,11 @@ export class WorkspaceIndex implements Disposable {
     const scanMs = Date.now() - scanStart;
     const totalMs = Date.now() - startTime;
     if (isBackground) {
-      console.log(
+      logger.info(
         `[SideCar] Workspace index verified: ${this.files.size} files (scan: ${scanMs}ms, total: ${totalMs}ms)`,
       );
     } else {
-      console.log(`[SideCar] Workspace indexed from scratch: ${this.files.size} files in ${totalMs}ms`);
+      logger.info(`[SideCar] Workspace indexed from scratch: ${this.files.size} files in ${totalMs}ms`);
     }
 
     this.persistIndex();
@@ -898,7 +899,7 @@ export class WorkspaceIndex implements Disposable {
       })),
     };
     this.sidecarDir.writeJson(INDEX_CACHE_FILE, cache).catch((err) => {
-      console.warn('[SideCar] Failed to persist workspace index:', err);
+      logger.warn('[SideCar] Failed to persist workspace index:', err);
     });
   }
 

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { logger } from '../../system/logger.js';
 import { workspace } from 'vscode';
 import { AuditBuffer, type PersistedBufferSnapshot } from './auditBuffer.js';
 import { createWorkspaceAuditBufferPersistence } from './auditBufferPersistence.js';
@@ -236,7 +237,7 @@ describe('AuditBuffer + persistence integration', () => {
   });
 
   it('swallows persistence.save errors so a mutation still succeeds', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
     try {
       const buf = new AuditBuffer();
       buf.setPersistence({

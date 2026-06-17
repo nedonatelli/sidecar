@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { logger } from '../../system/logger.js';
 
 vi.mock('fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('fs')>();
@@ -79,28 +80,28 @@ describe('loadRepoPolicy', () => {
   });
 
   it('returns null and warns on other read errors', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
     mockReadFile.mockRejectedValue(new Error('EPERM'));
     await expect(loadRepoPolicy('/workspace')).resolves.toBeNull();
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('.sidecar/policy.json'), expect.any(Error));
   });
 
   it('returns null and warns when JSON is invalid', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
     mockReadFile.mockResolvedValue('{ not valid json }');
     await expect(loadRepoPolicy('/workspace')).resolves.toBeNull();
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('not valid JSON'));
   });
 
   it('returns null and warns when version field is missing', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
     mockReadFile.mockResolvedValue(JSON.stringify({ toolPermissions: {} }));
     await expect(loadRepoPolicy('/workspace')).resolves.toBeNull();
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('version'));
   });
 
   it('returns null and warns when version is not 1', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
     mockReadFile.mockResolvedValue(JSON.stringify({ version: 2, toolPermissions: {} }));
     await expect(loadRepoPolicy('/workspace')).resolves.toBeNull();
     expect(warnSpy).toHaveBeenCalled();

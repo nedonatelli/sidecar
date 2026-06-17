@@ -1,4 +1,5 @@
 import type { ChatMessage, ToolDefinition, StreamEvent } from './types.js';
+import { logger } from '../system/logger.js';
 import type { ApiBackend } from './backend.js';
 import { AnthropicBackend } from './anthropicBackend.js';
 import { OllamaBackend } from './ollamaBackend.js';
@@ -330,7 +331,7 @@ export class SideCarClient {
           // error so the circuit breaker sees the failure that
           // actually warrants switching providers. Log the retry
           // failure so users can diagnose.
-          console.warn(
+          logger.warn(
             `[SideCar] Native fallback also failed: ${(retryErr as Error).message}. Falling through to provider fallback.`,
           );
         }
@@ -339,7 +340,7 @@ export class SideCarClient {
       if (isPermanentError(err)) throw new BackendConfigError(this.getProviderType(), err);
       circuitBreaker.recordFailure(this.getProviderType());
       if (await this.switchToFallback()) {
-        console.warn(`[SideCar] Primary backend failed, switching to fallback: ${(err as Error).message}`);
+        logger.warn(`[SideCar] Primary backend failed, switching to fallback: ${(err as Error).message}`);
         yield { type: 'warning', message: 'Primary backend unavailable — using fallback.' };
         circuitBreaker.guard(this.getProviderType());
         try {
@@ -404,7 +405,7 @@ export class SideCarClient {
           return retryResult;
         } catch (retryErr) {
           if (retryErr instanceof Error && retryErr.name === 'AbortError') throw retryErr;
-          console.warn(
+          logger.warn(
             `[SideCar] Native fallback also failed: ${(retryErr as Error).message}. Falling through to provider fallback.`,
           );
         }
@@ -413,7 +414,7 @@ export class SideCarClient {
       if (isPermanentError(err)) throw new BackendConfigError(this.getProviderType(), err);
       circuitBreaker.recordFailure(this.getProviderType());
       if (await this.switchToFallback()) {
-        console.warn(`[SideCar] Primary backend failed, switching to fallback: ${(err as Error).message}`);
+        logger.warn(`[SideCar] Primary backend failed, switching to fallback: ${(err as Error).message}`);
         circuitBreaker.guard(this.getProviderType());
         try {
           const result = await this.backend.complete(this.model, this.systemPrompt, messages, maxTokens, signal);
@@ -484,7 +485,7 @@ export class SideCarClient {
     if (isLocalUrl(config.fallbackBaseUrl)) {
       const reachable = await probeFallbackHealth(config.fallbackBaseUrl);
       if (!reachable) {
-        console.warn(`[SideCar] Fallback backend unreachable (health probe failed): ${config.fallbackBaseUrl}`);
+        logger.warn(`[SideCar] Fallback backend unreachable (health probe failed): ${config.fallbackBaseUrl}`);
         return false;
       }
     }
@@ -500,7 +501,7 @@ export class SideCarClient {
     this.backend = this.createBackend();
     this.usingFallback = true;
     this.consecutiveFailures = 0;
-    console.log(`[SideCar] Switched to fallback backend: ${this.baseUrl}`);
+    logger.info(`[SideCar] Switched to fallback backend: ${this.baseUrl}`);
     return true;
   }
 
@@ -510,7 +511,7 @@ export class SideCarClient {
     this.model = this.primaryModel;
     this.backend = this.createBackend();
     this.usingFallback = false;
-    console.log('[SideCar] Switched back to primary backend');
+    logger.info('[SideCar] Switched back to primary backend');
   }
 
   async completeFIM(
@@ -751,7 +752,7 @@ export class SideCarClient {
     if (!this.isLocalOllama()) {
       const known = MODEL_CONTEXT_LENGTHS[this.model];
       if (known === undefined) {
-        console.warn(
+        logger.warn(
           `[SideCar] Context window for "${this.model}" not in lookup table — compression thresholds may be inaccurate. Add it to MODEL_CONTEXT_LENGTHS in constants.ts.`,
         );
       }

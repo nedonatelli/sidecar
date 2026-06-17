@@ -13,6 +13,7 @@
 // ---------------------------------------------------------------------------
 
 import { window } from 'vscode';
+import { logger } from '../../system/logger.js';
 import type { SideCarClient } from '../../ollama/client.js';
 import type { RouteSignals } from '../../ollama/modelRouter.js';
 import type { ChatMessage } from '../../ollama/types.js';
@@ -58,7 +59,7 @@ export function applyAgentLoopRouting(
     const preDryRunModel = client.getModel();
     const decision = client.routeForDispatch(signals);
     if (decision && decision.matched) {
-      console.info(
+      logger.info(
         `[SideCar modelRouting dryRun] would route ${signals.role} → ${decision.model} ` +
           `(rule: ${decision.matched.when}); staying on ${preDryRunModel}`,
       );

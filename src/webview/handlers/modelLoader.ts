@@ -1,4 +1,5 @@
 import type { ChatState } from '../chatState.js';
+import { logger } from '../../system/logger.js';
 import type { LibraryModelUI } from '../chatWebview.js';
 import { getConfig } from '../../config/settings.js';
 import { isProviderReachable } from '../../config/providerReachability.js';
@@ -77,7 +78,7 @@ export async function loadModels(state: ChatState): Promise<void> {
     const supportsTools = modelSupportsTools(currentModel);
     state.postMessage({ command: 'setCurrentModel', currentModel, supportsTools });
   } catch (err) {
-    console.error('Failed to load models:', err);
+    logger.error('Failed to load models:', err);
     const message = state.client.isLocalOllama()
       ? 'Cannot connect to Ollama. Make sure Ollama is running on localhost:11434.'
       : `Cannot connect to API at ${config.baseUrl}.`;

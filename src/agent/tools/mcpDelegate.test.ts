@@ -191,6 +191,24 @@ describe('delegateToMcp — successful delegation', () => {
     expect('context' in callArg).toBe(false);
   });
 
+  it('redacts secrets in task and context before forwarding to the server', async () => {
+    const mgr = makeMcpManager({ toolNames: ['run_task'], callResult: 'ok' });
+    const ctx = makeContext(mgr);
+    await delegateToMcp(
+      {
+        server: 's',
+        task: 'use key AKIA1234567890ABCDEF to fetch data',
+        context: 'token is ghp_0123456789012345678901234567890123456',
+      },
+      ctx,
+    );
+    const callArg = (mgr.callServerTool.mock.calls[0] as unknown[])[2] as Record<string, string>;
+    expect(callArg.task).not.toContain('AKIA1234567890ABCDEF');
+    expect(callArg.task).toContain('[REDACTED:AWS Access Key]');
+    expect(callArg.context).not.toContain('ghp_0123456789012345678901234567890123456');
+    expect(callArg.context).toContain('[REDACTED:GitHub Token]');
+  });
+
   it('propagates callServerTool errors as a string result', async () => {
     const mgr = makeMcpManager({ toolNames: ['run_task'], callThrows: new Error('server crashed') });
     const ctx = makeContext(mgr);

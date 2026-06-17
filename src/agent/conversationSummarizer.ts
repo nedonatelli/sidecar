@@ -1,4 +1,5 @@
 import type { ChatMessage } from '../ollama/types.js';
+import { logger } from '../system/logger.js';
 import { getContentText, getContentLength } from '../ollama/types.js';
 import type { SideCarClient } from '../ollama/client.js';
 
@@ -231,7 +232,7 @@ export class ConversationSummarizer {
       };
     } catch (error) {
       // If summarization fails, return original messages unchanged
-      console.warn('Conversation summarization failed:', error);
+      logger.warn('Conversation summarization failed:', error);
       return {
         messages,
         freedChars: 0,

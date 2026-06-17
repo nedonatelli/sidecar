@@ -158,8 +158,9 @@ export const notebookTools: RegisteredTool[] = [
       nondeterministicOutput: true,
       description:
         'Index a web URL or local file path as a named research source for Notebook Mode. ' +
-        'Web URLs are fetched and stripped of navigation/ads. Local files are read as text. ' +
-        'Returns the assigned source ID used by the generate_* tools.',
+        'Web URLs are fetched and stripped of navigation/ads; local files are read as text. ' +
+        'Use this first — the generate_* tools synthesize only from sources ingested this way. ' +
+        'Returns the assigned source ID. Example: `ingest_source(source: "https://arxiv.org/abs/1706.03762", label: "attention-paper")`.',
       input_schema: {
         type: 'object',
         properties: {
@@ -242,7 +243,8 @@ export const notebookTools: RegisteredTool[] = [
       description:
         'Generate a multi-section briefing document from indexed research sources. ' +
         'Sections: Executive summary, Key findings, Methodology, Limitations, Open questions. ' +
-        'Writes output to .sidecar/research/<project>/generated/briefing.md.',
+        'Run ingest_source first — this synthesizes only from indexed sources. ' +
+        'Writes output to .sidecar/research/<project>/generated/briefing.md. Example: `generate_briefing()`.',
       input_schema: {
         type: 'object',
         properties: {
@@ -309,7 +311,8 @@ export const notebookTools: RegisteredTool[] = [
       description:
         'Generate progressive Q&A pairs from indexed sources at four depth levels: ' +
         'recall, comprehension, application, synthesis. ' +
-        'Writes output to .sidecar/research/<project>/generated/study_guide.md.',
+        'Run ingest_source first — this synthesizes only from indexed sources. ' +
+        'Writes output to .sidecar/research/<project>/generated/study_guide.md. Example: `generate_study_guide()`.',
       input_schema: {
         type: 'object',
         properties: {
@@ -376,7 +379,8 @@ export const notebookTools: RegisteredTool[] = [
       name: 'generate_faq',
       description:
         'Generate a FAQ document with the top likely-asked questions and cited answers from indexed sources. ' +
-        'Writes output to .sidecar/research/<project>/generated/faq.md.',
+        'Run ingest_source first — this synthesizes only from indexed sources. ' +
+        'Writes output to .sidecar/research/<project>/generated/faq.md. Example: `generate_faq()`.',
       input_schema: {
         type: 'object',
         properties: {
@@ -426,7 +430,8 @@ export const notebookTools: RegisteredTool[] = [
       name: 'generate_timeline',
       description:
         'Extract dated events, milestones, and entities from sources into a chronological timeline. ' +
-        'Writes output to .sidecar/research/<project>/generated/timeline.md.',
+        'Run ingest_source first — this synthesizes only from indexed sources. ' +
+        'Writes output to .sidecar/research/<project>/generated/timeline.md. Example: `generate_timeline()`.',
       input_schema: {
         type: 'object',
         properties: {
@@ -476,7 +481,8 @@ export const notebookTools: RegisteredTool[] = [
       name: 'generate_outline',
       description:
         'Generate a hierarchical topic outline from indexed sources with per-node source attribution. ' +
-        'Writes output to .sidecar/research/<project>/generated/outline.md.',
+        'Run ingest_source first — this synthesizes only from indexed sources. ' +
+        'Writes output to .sidecar/research/<project>/generated/outline.md. Example: `generate_outline()`.',
       input_schema: {
         type: 'object',
         properties: {

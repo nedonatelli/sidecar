@@ -1,4 +1,5 @@
 import type { ChatMessage, ContentBlock, ToolResultContentBlock, ToolUseContentBlock } from '../ollama/types.js';
+import { logger } from '../system/logger.js';
 import { getContentLength } from '../ollama/types.js';
 import { getRegexAnalyzer } from '../parsing/registry.js';
 import { AgentMemory } from './agentMemory.js';
@@ -293,7 +294,7 @@ export function enhanceContextWithSmartElements(context: string, query: string, 
       }
     } catch (error) {
       // If AST parsing fails, keep the original content
-      console.warn(`Failed to parse ${filePath} for smart context enhancement:`, error);
+      logger.warn(`Failed to parse ${filePath} for smart context enhancement:`, error);
     }
 
     // Create enhanced section

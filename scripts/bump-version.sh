@@ -70,12 +70,19 @@ TEST_FILES=$(echo "$TEST_OUTPUT" | grep "Test Files" | grep -o '[0-9]* passed' |
 TEST_TOTAL=$(echo "$TEST_OUTPUT" | grep "Tests" | head -1 | grep -o '[0-9]* passed' | grep -o '[0-9]*' || echo "?")
 TEST_SKIPPED=$(echo "$TEST_OUTPUT" | grep "Tests" | head -1 | grep -o '[0-9]* skipped' | grep -o '[0-9]*' || echo "0")
 
-# Tool count — v0.66 chunk 2 moved definitions out of tools.ts into
-# per-module arrays under src/agent/tools/*.ts, so counting needs to
-# traverse the whole directory. spawn_agent + ask_user are defined
-# separately (not in a per-module array), so add 2.
-TOOL_REGISTRY_COUNT=$(grep -h "{ definition:" src/agent/tools/*.ts 2>/dev/null | wc -l | tr -d ' ')
-TOOL_COUNT=$((TOOL_REGISTRY_COUNT + 2))
+# Tool count — every built-in tool is declared with a line-leading
+# `name: '<snake_case>'` key, either in a per-module array under
+# src/agent/tools/*.ts or inline in tools.ts (ask_user, describe_tool,
+# delegate_task, spawn_agent). Count those keys directly. The old
+# `{ definition:` heuristic missed the separate-const and inline tools
+# and undercounted by ~half (40 vs the real 80). Excludes *.test.ts
+# fixtures, which also contain `name: '...'` literals.
+TOOL_COUNT=$(
+  {
+    find src/agent/tools -name '*.ts' ! -name '*.test.ts' -exec grep -hoE "^[[:space:]]*name: ['\"][a-z_]+['\"]" {} +
+    grep -hoE "^[[:space:]]*name: ['\"][a-z_]+['\"]" src/agent/tools.ts
+  } | wc -l | tr -d ' '
+)
 
 # Skill count
 SKILL_COUNT=$(ls skills/*.md 2>/dev/null | wc -l | tr -d ' ')
@@ -127,8 +134,10 @@ echo "Updating docs/troubleshooting.md..."
 sed -i '' "s/[0-9]* tool definitions add/~$TOOL_COUNT tool definitions add/" docs/troubleshooting.md 2>/dev/null || true
 
 # --- 7. Update README.md tool count ---
+# README uses "**<N> built-in tools**" (no trailing '+'); match the bare
+# number form. The old pattern required a literal '+' and never matched.
 echo "Updating README.md..."
-sed -i '' "s/[0-9]*+ built-in tools/${TOOL_COUNT}+ built-in tools/" README.md 2>/dev/null || true
+sed -i '' "s/[0-9][0-9]* built-in tools/$TOOL_COUNT built-in tools/g" README.md 2>/dev/null || true
 
 # --- 8. Prepend CHANGELOG entry ---
 echo "Updating CHANGELOG.md..."

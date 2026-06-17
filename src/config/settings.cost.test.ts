@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { logger } from '../system/logger.js';
 import {
   estimateCost,
   clampMin,
@@ -32,7 +33,7 @@ describe('estimateCost', () => {
 
   it('returns null for unknown models', () => {
     _resetUnknownModelWarnings();
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
     try {
       expect(estimateCost('llama3', 10000, 5000)).toBeNull();
       expect(estimateCost('totally-made-up-model', 10000, 5000)).toBeNull();
@@ -58,7 +59,7 @@ describe('estimateCost', () => {
 
   it('warns exactly once per unknown model', () => {
     _resetUnknownModelWarnings();
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
     try {
       estimateCost('unknown-model-alpha', 100, 100);
       estimateCost('unknown-model-alpha', 200, 200);
@@ -129,7 +130,7 @@ describe('runtime model cost overlay', () => {
   });
 
   it('clears the warned-unknown flag when a model gets registered', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
     try {
       // Trip the warning once.
       estimateCost('anthropic/claude-sonnet-4.5', 100, 100);

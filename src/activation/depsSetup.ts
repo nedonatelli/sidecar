@@ -1,4 +1,5 @@
 import * as fs from 'fs/promises';
+import { logger } from '../system/logger.js';
 import { commands, workspace, RelativePattern, type ExtensionContext } from 'vscode';
 import { getConfig } from '../config/settings.js';
 import { DriftScanner } from '../deps/driftScanner.js';
@@ -83,6 +84,6 @@ export function registerDepsFeature(context: ExtensionContext): void {
 
   // Initial workspace scan (fire-and-forget, errors are non-fatal)
   void commands.executeCommand('sidecar.deps.scan').then(undefined, (err: unknown) => {
-    console.warn('[SideCar deps] Initial scan failed:', err);
+    logger.warn('[SideCar deps] Initial scan failed:', err);
   });
 }

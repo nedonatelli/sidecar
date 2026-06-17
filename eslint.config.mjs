@@ -34,4 +34,15 @@ export default [
       'quotes': 'off',
     },
   },
+  {
+    // Production code routes diagnostics through the central `logger`
+    // (src/system/logger.ts → "SideCar" output channel), never the dev
+    // console. Tests and the eval/integration harness under src/test/ may use
+    // console freely (they run outside the extension host).
+    files: ['src/**/*.ts'],
+    ignores: ['**/*.test.ts', 'src/test/**/*.ts'],
+    rules: {
+      'no-console': 'error',
+    },
+  },
 ];

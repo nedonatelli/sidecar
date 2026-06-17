@@ -1,4 +1,5 @@
 import type { ApiBackend } from './backend.js';
+import { logger } from '../system/logger.js';
 import type { ChatMessage, ContentBlock, ToolDefinition, ToolUseContentBlock, StreamEvent } from './types.js';
 import { sidecarFetch } from './sidecarFetch.js';
 import {
@@ -168,7 +169,7 @@ export function recordToolFailure(model: string): void {
   const count = (toolSupportFailures.get(model) || 0) + 1;
   toolSupportFailures.set(model, count);
   if (count >= TOOL_FAILURE_THRESHOLD) {
-    console.warn(`[SideCar] Model "${model}" has not used tools after ${count} attempts — disabling tool sending`);
+    logger.warn(`[SideCar] Model "${model}" has not used tools after ${count} attempts — disabling tool sending`);
   }
 }
 
@@ -374,7 +375,7 @@ export class OllamaBackend implements ApiBackend {
       if (response.status === 400 && errorText.includes('does not support tools')) {
         toolCapabilityCache.set(model, false);
         toolSupportFailures.set(model, TOOL_FAILURE_THRESHOLD);
-        console.warn(`[SideCar] Model "${model}" does not support tools — disabling tool sending`);
+        logger.warn(`[SideCar] Model "${model}" does not support tools — disabling tool sending`);
       }
 
       // Ollama 500: model called a tool that wasn't in the provided list.
@@ -428,7 +429,7 @@ export class OllamaBackend implements ApiBackend {
           try {
             chunk = JSON.parse(trimmed) as OllamaChatChunk;
           } catch {
-            console.warn('[SideCar] Ollama: failed to parse NDJSON line:', trimmed.slice(0, 200));
+            logger.warn('[SideCar] Ollama: failed to parse NDJSON line:', trimmed.slice(0, 200));
             continue;
           }
 
@@ -514,7 +515,7 @@ export class OllamaBackend implements ApiBackend {
             };
           }
         } catch {
-          console.warn('[SideCar] Ollama: stream ended with unparsed trailing data:', trailing.slice(0, 200));
+          logger.warn('[SideCar] Ollama: stream ended with unparsed trailing data:', trailing.slice(0, 200));
         }
       }
 
@@ -522,7 +523,7 @@ export class OllamaBackend implements ApiBackend {
       // was dropped or the response was truncated. Surface this explicitly
       // rather than letting the caller treat it as a clean end_turn.
       if (!sawDoneChunk && !signal?.aborted) {
-        console.warn('[SideCar] Ollama: stream closed without a done:true chunk — response may be truncated');
+        logger.warn('[SideCar] Ollama: stream closed without a done:true chunk — response may be truncated');
         yield {
           type: 'warning',
           message: 'Ollama stream closed without a completion signal — the response may be truncated.',

@@ -8,6 +8,7 @@ import {
   StatusBarAlignment,
   ProgressLocation,
 } from 'vscode';
+import { logger } from '../system/logger.js';
 import { getConfig, isLocalOllama, isKickstand, providerDisplayLabel } from '../config/settings.js';
 import { SideCarClient } from '../ollama/client.js';
 import type { ChatViewProvider } from '../webview/chatView.js';
@@ -356,7 +357,7 @@ export function registerPrAndReviewCommands(context: ExtensionContext, deps: PrA
         } else {
           const modelList = models.map((m) => m.name).join(', ');
           window.showInformationMessage(`SideCar: Discovered ${models.length} models: ${modelList}`);
-          console.log(`[SideCar] Discovered models: ${modelList}`);
+          logger.info(`[SideCar] Discovered models: ${modelList}`);
         }
       } catch (error) {
         window.showErrorMessage(

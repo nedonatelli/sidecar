@@ -1,4 +1,5 @@
 import type { StreamEvent, ToolDefinition, ToolUseContentBlock } from './types.js';
+import { logger } from '../system/logger.js';
 import {
   abortableRead,
   parseThinkTags,
@@ -125,7 +126,7 @@ export async function* streamOpenAiSse(
     `${providerLabel} connection closed before stream completed — the server may have crashed or run out of memory.`;
 
   if (!response.body) {
-    console.error(`[SideCar] ${providerLabel} API returned an empty response body`);
+    logger.error(`[SideCar] ${providerLabel} API returned an empty response body`);
     throw new Error(`${providerLabel} API returned an empty response body`);
   }
 
@@ -145,7 +146,7 @@ export async function* streamOpenAiSse(
         try {
           parsedArgs = JSON.parse(tc.arguments || '{}');
         } catch {
-          console.warn(
+          logger.warn(
             `[SideCar] Malformed tool-call arguments for "${tc.name}" — dispatching with empty input: ${tc.arguments?.slice(0, 200)}`,
           );
         }
@@ -211,7 +212,7 @@ export async function* streamOpenAiSse(
             },
           };
           if (logUsageInVerbose && getConfig().verboseMode) {
-            console.log(
+            logger.info(
               `[SideCar ${providerLabel} ${model}] actual usage: ` +
                 `prompt=${(u.prompt_tokens ?? 0).toLocaleString()}t · ` +
                 `completion=${(u.completion_tokens ?? 0).toLocaleString()}t · ` +
@@ -270,7 +271,7 @@ export async function* streamOpenAiSse(
     try {
       await reader.cancel().catch((err: unknown) => {
         if (err instanceof Error && err.name !== 'AbortError') {
-          console.warn('[SideCar][SSE] reader.cancel() error:', err.message);
+          logger.warn('[SideCar][SSE] reader.cancel() error:', err.message);
         }
       });
     } catch {

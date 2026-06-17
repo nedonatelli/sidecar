@@ -1,4 +1,5 @@
 import { workspace, Uri } from 'vscode';
+import { logger } from '../../system/logger.js';
 import type { AuditBufferPersistence, BufferedChange, BufferedCommit } from './auditBuffer.js';
 
 /**
@@ -77,7 +78,7 @@ export function createWorkspaceAuditBufferPersistence(): AuditBufferPersistence 
       };
       const serialized = Buffer.from(JSON.stringify(payload), 'utf-8');
       if (serialized.byteLength > MAX_PERSIST_BYTES) {
-        console.warn(
+        logger.warn(
           `[AuditBuffer persistence] refusing to persist ${serialized.byteLength} bytes (> ${MAX_PERSIST_BYTES} cap).`,
         );
         return;
@@ -116,12 +117,12 @@ export function createWorkspaceAuditBufferPersistence(): AuditBufferPersistence 
             commits: Array.isArray(parsed.commits) ? parsed.commits.filter(isBufferedCommit) : [],
           };
         }
-        console.warn(
+        logger.warn(
           `[AuditBuffer persistence] schema mismatch (persisted v${(parsed as { version: unknown }).version}, expected v${SCHEMA_VERSION}); discarding.`,
         );
         return null;
       } catch (err) {
-        console.warn('[AuditBuffer persistence] failed to parse state file:', err);
+        logger.warn('[AuditBuffer persistence] failed to parse state file:', err);
         return null;
       }
     },

@@ -8,6 +8,7 @@
  */
 
 import { window, commands, workspace } from 'vscode';
+import { logger } from '../system/logger.js';
 import { BackgroundAgentManager } from '../agent/backgroundAgent.js';
 import { SidecarTestController } from '../testing/testController.js';
 import { notifyBgComplete } from '../agent/bgNotifier.js';
@@ -52,42 +53,42 @@ export function initializeChatSubsystems(
   if (config.enableDocumentationRAG) {
     state.documentationIndexer = new DocumentationIndexer();
     state.documentationIndexer.initialize().catch((err) => {
-      console.warn('Failed to initialize documentation indexer:', err);
+      logger.warn('Failed to initialize documentation indexer:', err);
     });
   }
 
   if (config.sidecarMdMode === 'retrieval' && sidecarDir) {
     state.sidecarMdIndex = new SidecarMdIndex(sidecarDir);
     state.sidecarMdIndex.restore().catch((err) => {
-      console.warn('Failed to restore SIDECAR.md index:', err);
+      logger.warn('Failed to restore SIDECAR.md index:', err);
     });
   }
 
   if (config.enableAgentMemory && sidecarDir) {
     state.agentMemory = new AgentMemory(sidecarDir.getPath(), config.agentMemoryMaxEntries);
     state.agentMemory.load().catch((err) => {
-      console.warn('Failed to load agent memory:', err);
+      logger.warn('Failed to load agent memory:', err);
     });
   }
 
   if (sidecarDir) {
     state.episodicMemoryStore = new EpisodicMemoryStore(sidecarDir);
     state.episodicMemoryStore.restore().catch((err) => {
-      console.warn('Failed to restore episodic memory:', err);
+      logger.warn('Failed to restore episodic memory:', err);
     });
   }
 
   if (config.pinnedMemoryEnabled && sidecarDir) {
     state.pinnedMemoryStore = new PinnedMemoryStore(sidecarDir.getPath());
     state.pinnedMemoryStore.load().catch((err) => {
-      console.warn('Failed to load pinned memory:', err);
+      logger.warn('Failed to load pinned memory:', err);
     });
   }
 
   if (sidecarDir) {
     state.teamMemoryStore = new TeamMemoryStore(sidecarDir.getPath());
     state.teamMemoryStore.load().catch((err) => {
-      console.warn('Failed to load team memory:', err);
+      logger.warn('Failed to load team memory:', err);
     });
   }
 

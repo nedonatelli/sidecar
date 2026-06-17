@@ -17,6 +17,7 @@
  * silently overwritten on flush — that's v0.61 work).
  */
 
+import { logger } from '../../system/logger.js';
 export type BufferedOp = 'create' | 'modify' | 'delete';
 
 export interface BufferedChange {
@@ -195,7 +196,7 @@ export class AuditBuffer {
         await this.persistence.save({ entries: this.list(), commits: [...this.commits] });
       }
     } catch (err) {
-      console.warn('[AuditBuffer] persist failed (in-memory state retained):', err);
+      logger.warn('[AuditBuffer] persist failed (in-memory state retained):', err);
     }
   }
 
@@ -414,7 +415,7 @@ export class AuditBuffer {
           } catch (rollbackErr) {
             // Rollback failure leaves the file in an indeterminate state.
             // Surface it in AuditFlushError so the UI can warn the user.
-            console.warn(`[AuditBuffer] rollback failed for ${undoPath}:`, rollbackErr);
+            logger.warn(`[AuditBuffer] rollback failed for ${undoPath}:`, rollbackErr);
             rollbackFailed.push(undoPath);
           }
         }

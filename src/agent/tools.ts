@@ -81,17 +81,23 @@ export const TOOL_REGISTRY: RegisteredTool[] = [
   ...zoteroTools,
   ...citationTools,
   ...databaseTools,
-  ...(getConfig().visualVerifyEnabled ? visionTools : []),
-  ...(getConfig().docTestsEnabled ? docTestsTools : []),
-  ...(getConfig().notebookModeEnabled ? notebookTools : []),
-  ...(getConfig().depsEnabled ? depsTools : []),
-  ...(getConfig().profilingEnabled ? profilingTools : []),
-  ...(getConfig().latexEnabled ? latexTools : []),
-  ...(getConfig().mcpDelegationEnabled ? mcpDelegateTools : []),
-  ...(getConfig().monorepoEnabled ? monorepoTools : []),
-  ...(getConfig().ciAnalysisEnabled ? ciTools : []),
-  ...(getConfig().researchEnabled ? researchTools : []),
-  ...(getConfig().evalHistoryEnabled ? [queryHistoryTool] : []),
+  // Config-gated groups are listed unconditionally here so TOOL_REGISTRY is a
+  // complete, static catalog of every built-in tool that exists. Whether each
+  // group is *advertised to the model* and *callable* is decided dynamically
+  // per request by getEnabledBuiltInTools(cfg) — see GATED_TOOL_GROUPS below.
+  // (Previously these spreads read getConfig() at module-import time, which
+  // froze the gate until a window reload and ignored injected test configs.)
+  ...visionTools,
+  ...docTestsTools,
+  ...notebookTools,
+  ...depsTools,
+  ...profilingTools,
+  ...latexTools,
+  ...mcpDelegateTools,
+  ...monorepoTools,
+  ...ciTools,
+  ...researchTools,
+  queryHistoryTool,
   {
     definition: {
       name: 'ask_user',
@@ -142,7 +148,7 @@ export const TOOL_REGISTRY: RegisteredTool[] = [
     executor: async (input: Record<string, unknown>) => {
       const toolName = input.name as string;
       if (!toolName) return 'Error: name is required.';
-      const found = TOOL_REGISTRY.find((t) => t.definition.name === toolName);
+      const found = getEnabledBuiltInTools().find((t) => t.definition.name === toolName);
       if (!found) return `Unknown tool: "${toolName}". Check the tool catalog for the correct name.`;
       const { name, description, input_schema } = found.definition;
       return [
@@ -169,6 +175,70 @@ export function getDedupExemptToolNames(
   registry: readonly { definition: { name: string; nondeterministicOutput?: boolean } }[] = TOOL_REGISTRY,
 ): ReadonlySet<string> {
   return new Set(registry.filter((t) => t.definition.nondeterministicOutput).map((t) => t.definition.name));
+}
+
+/**
+ * Config-gated built-in tool groups: each maps a set of tool names to the
+ * config predicate that enables them. Resolved dynamically per request so a
+ * toggle (or an injected test config) takes effect without a window reload —
+ * unlike the old import-time spreads in TOOL_REGISTRY.
+ */
+const GATED_TOOL_GROUPS: ReadonlyArray<{ names: ReadonlySet<string>; enabled: (cfg: SideCarConfig) => boolean }> = [
+  { names: namesOf(visionTools), enabled: (c) => c.visualVerifyEnabled },
+  { names: namesOf(docTestsTools), enabled: (c) => c.docTestsEnabled },
+  { names: namesOf(notebookTools), enabled: (c) => c.notebookModeEnabled },
+  { names: namesOf(depsTools), enabled: (c) => c.depsEnabled },
+  { names: namesOf(profilingTools), enabled: (c) => c.profilingEnabled },
+  { names: namesOf(latexTools), enabled: (c) => c.latexEnabled },
+  { names: namesOf(mcpDelegateTools), enabled: (c) => c.mcpDelegationEnabled },
+  { names: namesOf(monorepoTools), enabled: (c) => c.monorepoEnabled },
+  { names: namesOf(ciTools), enabled: (c) => c.ciAnalysisEnabled },
+  { names: namesOf(researchTools), enabled: (c) => c.researchEnabled },
+  { names: new Set([queryHistoryTool.definition.name]), enabled: (c) => c.evalHistoryEnabled },
+];
+
+/**
+ * Relevance gates: always-on tool groups that are only *useful* in a specific
+ * context, so we hide them when that context is absent to keep the catalog
+ * tight for the common case (a local-model coding session shouldn't carry
+ * Kickstand LoRA, database, or Zotero tools it can never use). Unlike
+ * GATED_TOOL_GROUPS these have no user enable-flag — relevance is inferred
+ * from config. All predicates are null-safe so minimal/partial configs (tests)
+ * never throw. Signals are intentionally synchronous (no async git probes), so
+ * GitHub-PR tools are not gated here — they degrade gracefully without a remote.
+ */
+const RELEVANCE_GATED_GROUPS: ReadonlyArray<{ names: ReadonlySet<string>; relevant: (cfg: SideCarConfig) => boolean }> =
+  [
+    { names: namesOf(kickstandTools), relevant: (c) => detectProvider(c.baseUrl, c.provider) === 'kickstand' },
+    { names: namesOf(databaseTools), relevant: (c) => (c.databaseProfiles?.length ?? 0) > 0 },
+    { names: namesOf(zoteroTools), relevant: (c) => !!(c.zoteroUserId && c.zoteroApiKey) },
+  ];
+
+function namesOf(tools: readonly RegisteredTool[]): ReadonlySet<string> {
+  return new Set(tools.map((t) => t.definition.name));
+}
+
+/**
+ * True when a built-in tool is neither suppressed by a disabled config gate
+ * nor hidden by an unmet relevance gate.
+ */
+function isBuiltInToolEnabled(name: string, cfg: SideCarConfig): boolean {
+  for (const group of GATED_TOOL_GROUPS) {
+    if (group.names.has(name) && !group.enabled(cfg)) return false;
+  }
+  for (const group of RELEVANCE_GATED_GROUPS) {
+    if (group.names.has(name) && !group.relevant(cfg)) return false;
+  }
+  return true;
+}
+
+/**
+ * The built-in tools currently active under `cfg` — TOOL_REGISTRY minus any
+ * group whose config gate is off. This is the single source of truth for
+ * "which built-ins are advertised and callable right now".
+ */
+export function getEnabledBuiltInTools(cfg: SideCarConfig = getConfig()): RegisteredTool[] {
+  return TOOL_REGISTRY.filter((t) => isBuiltInToolEnabled(t.definition.name, cfg));
 }
 
 /**
@@ -417,7 +487,7 @@ export function getToolDefinitionsForTier(
 
 export function getToolDefinitions(mcpManager?: MCPManager, injectedConfig?: SideCarConfig): ToolDefinition[] {
   const cfg = injectedConfig ?? getConfig();
-  const builtIn: ToolDefinition[] = [...TOOL_REGISTRY.map((t) => t.definition), SPAWN_AGENT_DEFINITION];
+  const builtIn: ToolDefinition[] = [...getEnabledBuiltInTools(cfg).map((t) => t.definition), SPAWN_AGENT_DEFINITION];
 
   // Only advertise delegate_task when we're paying per token AND the
   // user hasn't opted out. Pointless on local-only setups — both
@@ -433,9 +503,16 @@ export function getToolDefinitions(mcpManager?: MCPManager, injectedConfig?: Sid
   return [...builtIn, ...custom, ...sdk, ...mcp];
 }
 
-export function findTool(name: string, mcpManager?: MCPManager): RegisteredTool | undefined {
+export function findTool(
+  name: string,
+  mcpManager?: MCPManager,
+  cfg: SideCarConfig = getConfig(),
+): RegisteredTool | undefined {
+  // Only resolve a built-in whose config gate is on, so a disabled tool is
+  // not callable even if it somehow appears in a stale catalog — preserves the
+  // pre-dynamic-gating "disabled ⇒ unknown tool" behavior.
   const builtin = TOOL_REGISTRY.find((t) => t.definition.name === name);
-  if (builtin) return builtin;
+  if (builtin) return isBuiltInToolEnabled(name, cfg) ? builtin : undefined;
   const custom = getCustomToolRegistry().find((t) => t.definition.name === name);
   if (custom) return custom;
   const sdk = findSdkTool(name);

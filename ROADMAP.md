@@ -1,6 +1,6 @@
 # SideCar Roadmap
 
-**Current release: v0.112.22** — Ollama 500 plan-mode crash fix (tool-not-found error now yields a synthetic warning instead of crashing the loop), `sidecar.testCurrentModel` command (smoke eval with progress notification + Open Report button), and eval failure reporting to `eval-failures.md`. See [CHANGELOG](CHANGELOG.md) for full notes.
+**Current release: v0.113.0** — Senior-review hardening pass: MCP agent server is fail-closed on auth (defaults to `requireAuth`, auto-generates a session token), centralized logging through a single Output channel (all `console.*` migrated, enforced by a `no-console` lint rule), secret-redaction egress gaps closed (agent memory + MCP delegation), and context-aware tool gating (dynamic config gates + relevance gating for Kickstand/database/Zotero). See [CHANGELOG](CHANGELOG.md) for full notes.
 
 **Coverage floor**: ≥80/70/80/80 (stmts/branches/funcs/lines) enforced by CI. No PR merges that drop any metric.
 

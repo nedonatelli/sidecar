@@ -10,6 +10,7 @@
 // ---------------------------------------------------------------------------
 
 import modelCostsJson from '../modelCosts.json';
+import { logger } from '../../system/logger.js';
 
 type ModelCostEntry = { input: number; output: number };
 
@@ -115,7 +116,7 @@ export function estimateCost(model: string, inputTokens: number, outputTokens: n
   // 3. Unknown — warn once and return null.
   if (!warnedUnknownModels.has(model)) {
     warnedUnknownModels.add(model);
-    console.warn(
+    logger.warn(
       `[SideCar cost] unknown model '${model}' — cost estimate unavailable. ` +
         `Add pricing to src/config/modelCosts.json or register it via an OpenRouter catalog ingest.`,
     );

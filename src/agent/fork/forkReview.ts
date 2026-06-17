@@ -1,10 +1,14 @@
-import { window, workspace, commands, Uri } from 'vscode';
-import * as path from 'path';
-import * as os from 'os';
-import * as fs from 'fs';
-import { GitCLI } from '../../github/git.js';
-import { filesTouchedByDiff } from '../facets/facetReview.js';
+import { window, Uri } from 'vscode';
+import {
+  applyDiffToMain,
+  writeTempDiffFile,
+  filesTouchedByDiff,
+  getWorkspaceMainRoot,
+  createBaseReviewUi,
+} from '../diffReview/shared.js';
 import type { ForkDispatchBatchResult } from './forkDispatcher.js';
+
+export { getWorkspaceMainRoot };
 
 // ---------------------------------------------------------------------------
 // Fork review .
@@ -156,8 +160,8 @@ export async function reviewForkBatch(
     return { winnerIndex: null, appliedOk: false, skippedLabels };
   }
 
-  const applyDiff = deps.applyDiff ?? defaultApplyDiff;
-  const writeTempFile = deps.writeTempFile ?? defaultWriteTempFile;
+  const applyDiff = deps.applyDiff ?? applyDiffToMain;
+  const writeTempFile = deps.writeTempFile ?? ((prefix, content) => writeTempDiffFile('fork', prefix, content));
 
   const items = plan.reviewable.map(reviewableToPickItem);
   const picked = await deps.ui.showQuickPick(
@@ -227,49 +231,16 @@ function reviewableToPickItem(r: ReviewableFork): ForkPickItem {
   };
 }
 
-async function defaultApplyDiff(mainRoot: string, diff: string): Promise<string> {
-  const git = new GitCLI(mainRoot);
-  await git.applyPatch(diff, { check: true });
-  return git.applyPatch(diff, { stage: true });
-}
-
-async function defaultWriteTempFile(prefix: string, content: string): Promise<Uri> {
-  const safe = prefix.replace(/[^a-zA-Z0-9_-]/g, '_');
-  const file = path.join(os.tmpdir(), `sidecar-fork-${safe}-${Date.now()}.diff`);
-  await fs.promises.writeFile(file, content, 'utf-8');
-  return Uri.file(file);
-}
-
 /**
  * Production UI adapter for the review flow. `extension.ts` wires
  * this into the `/fork` command (chunk 6); tests substitute their own.
+ * Extends the shared base adapter with Fork's modal confirm step.
  */
 export function createDefaultForkReviewUi(): ForkReviewUi {
   return {
-    async showQuickPick(items, placeholder) {
-      return window.showQuickPick(items, { placeHolder: placeholder });
-    },
+    ...createBaseReviewUi(),
     async showWarningConfirm(message, confirmLabel) {
       return window.showWarningMessage(message, { modal: true }, confirmLabel);
     },
-    showInfo(message) {
-      void window.showInformationMessage(message);
-    },
-    showError(message) {
-      void window.showErrorMessage(message);
-    },
-    async openDiff(left, right, title) {
-      await commands.executeCommand('vscode.diff', left, right, title, { preview: true });
-    },
   };
-}
-
-/**
- * Resolve the workspace root used as the target of `git apply`. Matches
- * the helper Facets ships (`facetReview.getWorkspaceMainRoot`). Returns
- * undefined when no workspace is open — caller should skip review in
- * that case since there's nowhere to apply to.
- */
-export function getWorkspaceMainRoot(): string | undefined {
-  return workspace.workspaceFolders?.[0]?.uri.fsPath;
 }

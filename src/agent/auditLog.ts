@@ -1,4 +1,5 @@
 import type { SidecarDir } from '../config/sidecarDir.js';
+import { logger } from '../system/logger.js';
 
 /**
  * A single audit log entry recording one tool execution.
@@ -126,7 +127,7 @@ export class AuditLog {
     try {
       await this.sidecarDir.appendJsonl(AUDIT_FILE, entry);
     } catch (err) {
-      console.warn('Failed to write audit log entry:', err);
+      logger.warn('Failed to write audit log entry:', err);
     }
   }
 
@@ -143,7 +144,7 @@ export class AuditLog {
     try {
       await this.sidecarDir.appendJsonl(TRACE_FILE, entry);
     } catch (err) {
-      console.warn('Failed to write trace log entry:', err);
+      logger.warn('Failed to write trace log entry:', err);
     }
   }
 

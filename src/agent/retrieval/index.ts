@@ -1,4 +1,5 @@
 import { Retriever, RetrievalHit } from './retriever';
+import { logger } from '../../system/logger.js';
 import { reciprocalRankFusion } from './fusion';
 export { rewriteQuery } from './queryRewriter';
 export type { QueryRewriteMode, CompleteFn } from './queryRewriter';
@@ -51,7 +52,7 @@ export async function fuseRetrievers(
       try {
         return await r.retrieve(query, perSourceK);
       } catch (err) {
-        console.warn(`[SideCar] Retriever "${r.name}" failed:`, err instanceof Error ? err.message : err);
+        logger.warn(`[SideCar] Retriever "${r.name}" failed:`, err instanceof Error ? err.message : err);
         return [] as RetrievalHit[];
       }
     }),

@@ -35,11 +35,7 @@ import type { EditTimelineStore } from './editTimeline.js';
 
 /** Returns a signal that fires when either `a` or `b` fires. */
 function combineSignals(a: AbortSignal, b: AbortSignal): AbortSignal {
-  if (a.aborted || b.aborted) return a.aborted ? a : b;
-  const ctrl = new AbortController();
-  a.addEventListener('abort', () => ctrl.abort(), { once: true });
-  b.addEventListener('abort', () => ctrl.abort(), { once: true });
-  return ctrl.signal;
+  return AbortSignal.any([a, b]);
 }
 
 export interface AgentCallbacks {
@@ -295,6 +291,12 @@ export async function runAgentLoop(
   // references here are just `state.xxx` — no shadow locals, no
   // sync-around-helper-call dance.
   const state = initLoopState(messages, options);
+
+  // Start from a clean compression cache. The teardown `finally` also clears
+  // it, but clearing here guarantees a fresh slate even if a prior run's
+  // teardown was skipped (e.g. a synchronous throw before its finally ran),
+  // so a stale cached compression can never leak into this run.
+  clearCompressionCache();
 
   // Steer-queue interrupt wiring. When a steer of
   // urgency `interrupt` is enqueued during an active stream, we need

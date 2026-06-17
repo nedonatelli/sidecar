@@ -4,6 +4,7 @@
  */
 
 import type { CodeAnalyzer, CodeElement, ParsedFile } from './types.js';
+import { logger } from '../system/logger.js';
 import { SimpleCodeAnalyzer } from '../astContext.js';
 
 // File extensions the regex parser handles
@@ -87,7 +88,7 @@ export async function getAnalyzer(fileExtension: string): Promise<CodeAnalyzer> 
         treeSitterAnalyzer = await mod.createTreeSitterAnalyzer(extensionGrammarsPath);
       }
     } catch (err) {
-      console.warn('[SideCar] Tree-sitter unavailable, using regex parser:', err);
+      logger.warn('[SideCar] Tree-sitter unavailable, using regex parser:', err);
     }
   }
 

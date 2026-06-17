@@ -1,4 +1,5 @@
 import type { ApiBackend, BackendCapabilities } from './backend.js';
+import { logger } from '../system/logger.js';
 import type { ChatMessage, ContentBlock, ToolDefinition, StreamEvent } from './types.js';
 import { toFunctionTools } from './streamUtils.js';
 import { streamOpenAiSse } from './openAiSseStream.js';
@@ -73,7 +74,7 @@ function logRequestSizeBreakdown(
   const historyTokens = charsToTokens(historyChars);
   const toolsTokens = tools ? approxTokens(JSON.stringify(tools)) : 0;
   const total = systemTokens + historyTokens + toolsTokens;
-  console.log(
+  logger.info(
     `[SideCar openai ${model}] request breakdown ≈ ` +
       `system=${systemTokens.toLocaleString()}t · ` +
       `history=${historyTokens.toLocaleString()}t · ` +
@@ -250,7 +251,7 @@ export class OpenAIBackend implements ApiBackend {
     });
     // observability (see Anthropic backend for rationale).
     const _pruneLog = formatPruneStats(pruned.stats);
-    if (_pruneLog) console.info(`[SideCar] ${_pruneLog}`);
+    if (_pruneLog) logger.info(`[SideCar] ${_pruneLog}`);
     const openaiMessages = toOpenAIMessages(pruned.messages, pruned.systemPrompt);
     const functionTools = tools && tools.length > 0 ? toFunctionTools(tools) : undefined;
 

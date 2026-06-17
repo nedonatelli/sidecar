@@ -1,4 +1,5 @@
 import { window, commands, workspace, ExtensionContext } from 'vscode';
+import { logger } from '../system/logger.js';
 import { getConfig } from '../config/settings.js';
 import { clearAll as clearSidecarDiagnostics } from '../agent/sidecarDiagnostics.js';
 import type { SideCarClient } from '../ollama/client.js';
@@ -54,7 +55,7 @@ export function registerAgentCommands(context: ExtensionContext, extensionId: st
       const summary = formatSweepResult(result);
       if (summary) {
         window.showInformationMessage(`SideCar — ${summary}.`);
-        console.warn(`[SideCar] ${summary}`);
+        logger.warn(`[SideCar] ${summary}`);
       } else {
         window.showInformationMessage('SideCar: no stale shadow worktrees found.');
       }

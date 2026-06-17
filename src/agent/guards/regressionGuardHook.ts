@@ -1,4 +1,5 @@
 import { workspace } from 'vscode';
+import { logger } from '../../system/logger.js';
 import type { PolicyHook, HookContext, HookResult } from '../loop/policyHook.js';
 import type { LoopState } from '../loop/state.js';
 import { ShellSession } from '../../terminal/shellSession.js';
@@ -251,7 +252,7 @@ export async function buildRegressionGuardHooks(): Promise<PolicyHook[]> {
     'SideCar: This workspace defines regression guards that execute shell commands after agent edits. Only trust these from repositories you control.',
   );
   if (trust === 'blocked') {
-    console.log('[SideCar] Workspace regressionGuards blocked by user');
+    logger.info('[SideCar] Workspace regressionGuards blocked by user');
     return [];
   }
 

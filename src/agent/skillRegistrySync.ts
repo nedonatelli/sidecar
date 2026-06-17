@@ -28,6 +28,7 @@
 // ---------------------------------------------------------------------------
 
 import * as fs from 'fs';
+import { logger } from '../system/logger.js';
 import * as path from 'path';
 import * as os from 'os';
 import { GitCLI } from '../github/git.js';
@@ -85,7 +86,7 @@ export interface SyncOptions {
  */
 export async function syncSkillRegistries(opts: SyncOptions): Promise<RegistryRef[]> {
   const home = opts.homeDir ?? os.homedir();
-  const log = opts.log ?? ((line: string) => console.log(line));
+  const log = opts.log ?? ((line: string) => logger.info(line));
   const trustPrompt = opts.trustPrompt ?? (async () => true);
   const git = opts.git ?? new GitCLI(path.join(home, '.sidecar'));
   const trustedUrls = new Set(opts.config.skillsTrustedRegistries);
@@ -150,7 +151,7 @@ export async function syncSkillRegistries(opts: SyncOptions): Promise<RegistryRe
       // host developer tools rather than being silently swallowed by console.log.
       const msg = err instanceof Error ? err.message : String(err);
       log(`[SideCar] Failed to sync ${ref.label}: ${msg}`);
-      console.warn(`[SideCar] Skill registry sync failed for ${ref.label}: ${msg}`);
+      logger.warn(`[SideCar] Skill registry sync failed for ${ref.label}: ${msg}`);
       // Still include a cached ref even when pull fails — stale skills
       // beat no skills for an offline-ish scenario.
       if (cached) synced.push(ref);

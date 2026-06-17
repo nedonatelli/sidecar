@@ -1,4 +1,5 @@
 import * as path from 'path';
+import { logger } from '../system/logger.js';
 import { commands, window, Uri, workspace, ExtensionContext } from 'vscode';
 import { EloStore } from '../arena/eloStore.js';
 import { openArena, openArenaAgent } from '../arena/arenaCommands.js';
@@ -34,7 +35,7 @@ export function registerArenaCommands(
 
   const eloStore = new EloStore(eloPath);
   eloStore.load().catch((err) => {
-    console.warn('[SideCar Arena] Failed to load ELO store:', err);
+    logger.warn('[SideCar Arena] Failed to load ELO store:', err);
   });
 
   context.subscriptions.push(

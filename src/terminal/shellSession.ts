@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'child_process';
+import { logger } from '../system/logger.js';
 import { randomBytes } from 'crypto';
 import * as os from 'os';
 import { MAX_BACKGROUND_COMMANDS } from '../config/constants.js';
@@ -147,7 +148,7 @@ export class ShellSession {
     });
 
     this.proc.on('error', (err) => {
-      console.error('[ShellSession] Process error:', err.message);
+      logger.error('[ShellSession] Process error:', err.message);
       this.proc = null;
     });
 

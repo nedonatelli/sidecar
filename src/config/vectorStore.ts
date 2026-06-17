@@ -18,6 +18,7 @@
  */
 
 import * as fs from 'fs';
+import { logger } from '../system/logger.js';
 import * as path from 'path';
 import type { SidecarDir } from './sidecarDir.js';
 import { cosine } from './math.js';
@@ -316,7 +317,7 @@ export class FlatVectorStore<M> implements VectorStore<M> {
         }
       }
     } catch (err) {
-      console.warn('[FlatVectorStore] persist failed:', err);
+      logger.warn('[FlatVectorStore] persist failed:', err);
     }
   }
 
@@ -332,7 +333,7 @@ export class FlatVectorStore<M> implements VectorStore<M> {
       ]);
       if (!envelope) return;
       if (!this.validateMeta(envelope as FlatStoreMeta<unknown> & Record<string, unknown>)) {
-        console.warn(
+        logger.warn(
           `[FlatVectorStore] persisted meta failed validation (model/dimension changed?) — deleting stale cache and re-indexing`,
         );
         await fs.promises.unlink(this.sidecarDir.getPath(this.metaFile)).catch(() => {});
@@ -342,7 +343,7 @@ export class FlatVectorStore<M> implements VectorStore<M> {
       if (!rawBuffer) return; // binary absent — rebuild
       const expectedBytes = envelope.count * this.dimension * 4;
       if (rawBuffer.byteLength < expectedBytes) {
-        console.warn('[FlatVectorStore] persisted vector file too small — rebuilding');
+        logger.warn('[FlatVectorStore] persisted vector file too small — rebuilding');
         return;
       }
       this.vectors = new Float32Array(
@@ -357,7 +358,7 @@ export class FlatVectorStore<M> implements VectorStore<M> {
         this.entriesById.set(id, { metadata: metadata as M, offset });
       }
     } catch (err) {
-      console.warn('[FlatVectorStore] restore failed:', err);
+      logger.warn('[FlatVectorStore] restore failed:', err);
     }
   }
 
@@ -369,7 +370,7 @@ export class FlatVectorStore<M> implements VectorStore<M> {
       await fs.promises.unlink(binPath).catch(() => {});
       await fs.promises.unlink(metaPath).catch(() => {});
     } catch (err) {
-      console.warn('[FlatVectorStore] clearPersisted failed:', err);
+      logger.warn('[FlatVectorStore] clearPersisted failed:', err);
     }
   }
 
@@ -617,7 +618,7 @@ export class LanceVectorStore<M> implements VectorStore<M> {
         }
       }
     } catch (err) {
-      console.warn('[LanceVectorStore] restore failed:', err);
+      logger.warn('[LanceVectorStore] restore failed:', err);
     }
   }
 
@@ -632,7 +633,7 @@ export class LanceVectorStore<M> implements VectorStore<M> {
         await this.db!.dropTable(this.tableName);
       }
     } catch (err) {
-      console.warn('[LanceVectorStore] clearPersisted failed:', err);
+      logger.warn('[LanceVectorStore] clearPersisted failed:', err);
     }
     this.tbl = null;
     this.metaCache.clear();

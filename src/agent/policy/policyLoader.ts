@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import { logger } from '../../system/logger.js';
 import * as path from 'path';
 
 export type ToolPermLevel = 'allow' | 'ask' | 'deny';
@@ -32,7 +33,7 @@ export async function loadRepoPolicy(workspaceRoot: string): Promise<RepoPolicy 
     raw = await fs.promises.readFile(policyPath, 'utf-8');
   } catch (err: unknown) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-      console.warn('[SideCar] Failed to read .sidecar/policy.json:', err);
+      logger.warn('[SideCar] Failed to read .sidecar/policy.json:', err);
     }
     return null;
   }
@@ -41,12 +42,12 @@ export async function loadRepoPolicy(workspaceRoot: string): Promise<RepoPolicy 
   try {
     parsed = JSON.parse(raw);
   } catch {
-    console.warn('[SideCar] .sidecar/policy.json is not valid JSON — ignored');
+    logger.warn('[SideCar] .sidecar/policy.json is not valid JSON — ignored');
     return null;
   }
 
   if (typeof parsed !== 'object' || parsed === null || (parsed as Record<string, unknown>).version !== 1) {
-    console.warn('[SideCar] .sidecar/policy.json must have "version": 1 — ignored');
+    logger.warn('[SideCar] .sidecar/policy.json must have "version": 1 — ignored');
     return null;
   }
 

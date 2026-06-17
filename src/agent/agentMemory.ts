@@ -1,5 +1,7 @@
 import * as fs from 'fs';
+import { logger } from '../system/logger.js';
 import * as path from 'path';
+import { redactSecrets } from './securityScanner.js';
 
 /**
  * A persistent memory entry tracking patterns, conventions, or decisions
@@ -88,9 +90,9 @@ export class AgentMemory {
           this.memories.set(entry.id, entry);
         }
       }
-      console.log(`[SideCar] Loaded ${this.memories.size} agent memories from persistent storage`);
+      logger.info(`[SideCar] Loaded ${this.memories.size} agent memories from persistent storage`);
     } catch (error) {
-      console.warn('[SideCar] Failed to load agent memories:', error);
+      logger.warn('[SideCar] Failed to load agent memories:', error);
     }
   }
 
@@ -108,7 +110,7 @@ export class AgentMemory {
       await fs.promises.mkdir(this.memoryDir, { recursive: true });
       await fs.promises.writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8');
     } catch (error) {
-      console.warn('[SideCar] Failed to save agent memories:', error);
+      logger.warn('[SideCar] Failed to save agent memories:', error);
     }
   }
 
@@ -137,14 +139,17 @@ export class AgentMemory {
     }
 
     const id = `${type}-${category}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    // Redact secrets before they land on disk. Memory entries derive from tool
+    // inputs/outputs (file contents, command args), so a token read by the
+    // agent could otherwise be persisted to .sidecar/memory/ verbatim.
     const entry: MemoryEntry = {
       id,
       type,
       category,
-      content,
+      content: redactSecrets(content),
       timestamp: Date.now(),
       useCount: 0,
-      context,
+      context: context ? redactSecrets(context) : context,
       sessionId: this.currentSessionId,
     };
 

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { logger } from '../system/logger.js';
 import { SymbolEmbeddingIndex, makeSymbolId, type SymbolEmbedInput } from './symbolEmbeddingIndex.js';
 import { cosine } from './vectorStore.js';
 
@@ -460,7 +461,7 @@ describe('SymbolEmbeddingIndex', () => {
     });
 
     it('survives a per-symbol embed error without dropping the rest of the batch', async () => {
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
       try {
         // Pipeline throws only for the middle input; first + third embed cleanly.
         const pipeline = vi.fn(async (texts: string[]) => {

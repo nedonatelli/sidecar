@@ -1,4 +1,5 @@
 import type { SideCarClient } from '../../ollama/client.js';
+import { logger } from '../../system/logger.js';
 import type { ToolUseContentBlock } from '../../ollama/types.js';
 import { getContentText } from '../../ollama/types.js';
 import type { AgentCallbacks } from '../loop.js';
@@ -224,7 +225,7 @@ export async function streamOneTurn(
           callbacks.onCharsConsumed?.(event.thinking.length);
           const thinkingMode = state.config.thinkingMode;
           thinkingStore.append(state.runId, event.thinking, thinkingMode).catch((err: unknown) => {
-            console.warn('[SideCar] Thinking store append failed:', err instanceof Error ? err.message : err);
+            logger.warn('[SideCar] Thinking store append failed:', err instanceof Error ? err.message : err);
           });
           callbacks.onThinking?.(event.thinking);
           break;

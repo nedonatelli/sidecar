@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { logger } from '../../system/logger.js';
 import {
   createAgentCallbacks,
   STREAM_FLUSH_MS,
@@ -298,7 +299,7 @@ describe('createAgentCallbacks — memory callbacks', () => {
   });
 
   it('onMemory swallows errors from agentMemory.add', () => {
-    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const consoleWarn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
     const addMem = vi.fn().mockImplementation(() => {
       throw new Error('memory full');
     });

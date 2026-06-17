@@ -1,4 +1,5 @@
 import * as path from 'path';
+import { logger } from '../system/logger.js';
 import { window, workspace, commands, languages, ExtensionContext, Disposable } from 'vscode';
 import { getConfig } from '../config/settings.js';
 import { lookupDraftModel } from '../config/constants.js';
@@ -203,7 +204,7 @@ export function registerEditorFeatures(
       'SideCar: This workspace defines scheduled tasks that will run an autonomous agent loop on a timer. Only trust these from repositories you control.',
     );
     if (trust === 'blocked') {
-      console.log('[SideCar] Workspace scheduledTasks blocked by user');
+      logger.info('[SideCar] Workspace scheduledTasks blocked by user');
       return;
     }
     scheduler.start(tasks);

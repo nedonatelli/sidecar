@@ -4,6 +4,45 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.113.0] - 2026-06-17
+
+**v0.113.0 — Senior-review hardening pass: MCP auth fail-closed, centralized logging, secret-redaction egress, and context-aware tool gating.**
+
+### Security
+
+- **MCP agent server is fail-closed on auth** — the server now refuses to start when `requireAuth` is set without an `authToken` (previously the auth check was silently skipped), the request gate rejects on `requireAuth` alone, and `requireAuth` now defaults to `true`. When enabled with no token configured, a per-session token is auto-generated and shown with a "Copy token" action, so it's secure-by-default without setup friction. Bound to `127.0.0.1` only. (`src/mcpServer/agentServer.ts`, `src/activation/mcpServerSetup.ts`)
+- **MCP `run_agent_task` approval-mode mapping** — the advertised `auto`/`suggest`/`manual` names are now explicitly mapped to real `ApprovalMode` values (`autonomous`/`cautious`/`manual`) instead of being cast through to a value that matched no mode and silently fell through to "no approval required".
+- **Secret-redaction egress gaps closed** — `redactSecrets` now runs before agent-memory entries are persisted to `.sidecar/memory/` and before `delegate_to_mcp` forwards task/context to an external MCP server (the latter honoring a guarantee `SECURITY.md` already documented but the code did not implement).
+
+### Reliability
+
+- **Agent-loop abort-signal leak** — `combineSignals` now delegates to `AbortSignal.any`, removing leaked listeners and matching the rest of the loop.
+- **Compression cache** is cleared at loop start (in addition to teardown) so a prior run's cached compressions can never leak into the next run.
+- **Retry / circuit-breaker / fallback** interplay now has integration-test coverage (threshold behavior, switch-to-fallback, both-fail propagation, switch-back-on-recovery, permanent-error bypass).
+
+### Observability
+
+- **Centralized logging** — all ~169 production `console.*` calls now route through a single `LogOutputChannel`-backed logger (`src/system/logger.ts`) surfaced in the "SideCar" Output panel, with a defensive no-op fallback for non-extension-host contexts. A repo-wide `no-console` ESLint rule (tests/eval excepted) prevents regression.
+
+### Tools
+
+- **Dynamic config gating** — built-in tool gating moved out of the module-import-time `TOOL_REGISTRY` const into `getEnabledBuiltInTools(cfg)`, so toggling a gated feature takes effect without a window reload and respects injected test config.
+- **Relevance-based gating** — Kickstand LoRA, database, and Zotero tools are now advertised only when contextually applicable (active provider is Kickstand; ≥1 database profile configured; Zotero credentials set), trimming ~11 irrelevant entries from a typical local-model session's catalog with no capability removed.
+- Brought 15 previously-unscrutinized tool descriptions up to the project's documented "what + when + example" standard.
+
+### Refactor
+
+- Shared diff-review primitives (`applyDiffToMain`, `filesTouchedByDiff`, temp-file + base review UI) extracted to `src/agent/diffReview/shared.ts`, de-duplicating the Fork and Facets review flows and giving the patch-to-main path a single source of truth.
+
+### Tests & docs
+
+- New coverage for `ArenaPanel` (message routing, streaming fan-out, voting), `getChatWebviewHtml` (nonce/CSP consistency), and the previously-untested `check_dependencies` and `query_history` tools.
+- New `docs/tool-inventory.md` — a data-grounded tool-surface inventory and feature-budget recommendation.
+
+### Stats
+- 6607 total tests (349 test files)
+- 80 built-in tools, 11 skills
+
 ## [0.112.23] - 2026-06-15
 
 **v0.112.23 — Deep wiring audit: MCP reconnect resilience, tool correctness, dedup-exempt sweep.**

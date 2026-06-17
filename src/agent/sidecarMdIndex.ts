@@ -21,6 +21,7 @@
  */
 
 import { parseSidecarMd } from './sidecarMdParser.js';
+import { logger } from '../system/logger.js';
 import { FlatVectorStore } from '../config/vectorStore.js';
 import type { SidecarDir } from '../config/sidecarDir.js';
 import type { RetrievalHit } from './retrieval/retriever.js';
@@ -142,7 +143,7 @@ export class SidecarMdIndex {
         this.pipeline = await getSharedPipeline(MODEL_ID, { allowLocalModels: false });
         return true;
       } catch (err) {
-        console.warn('[SidecarMdIndex] Embedding model failed to load:', err instanceof Error ? err.message : err);
+        logger.warn('[SidecarMdIndex] Embedding model failed to load:', err instanceof Error ? err.message : err);
         this.modelLoading = null; // allow retry on next call
         return false;
       }

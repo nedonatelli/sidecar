@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { logger } from '../../system/logger.js';
 import { stubLoopState } from './testHelpers.js';
 import { window } from 'vscode';
 import { applyAgentLoopRouting, applyArchitectEditorSplit } from './routing.js';
@@ -58,7 +59,7 @@ describe('applyAgentLoopRouting', () => {
   });
 
   it('dryRun logs the decision and leaves the active model untouched', () => {
-    const infoLog = vi.spyOn(console, 'info').mockImplementation(() => void 0);
+    const infoLog = vi.spyOn(logger, 'info').mockImplementation(() => void 0);
     const client = new SideCarClient('ollama/qwen3-coder:30b', 'http://localhost:11434', 'ollama');
     client.setRouter(
       new ModelRouter([{ when: 'agent-loop.complexity=high', model: 'claude-opus-4-6' }], 'ollama/qwen3-coder:30b'),
@@ -74,7 +75,7 @@ describe('applyAgentLoopRouting', () => {
   });
 
   it('dryRun resyncs router.activeModel on revert so a later non-dryRun swap still fires its toast', () => {
-    const infoLog = vi.spyOn(console, 'info').mockImplementation(() => void 0);
+    const infoLog = vi.spyOn(logger, 'info').mockImplementation(() => void 0);
     const client = new SideCarClient('ollama/qwen3-coder:30b', 'http://localhost:11434', 'ollama');
     client.setRouter(
       new ModelRouter([{ when: 'agent-loop.complexity=high', model: 'claude-opus-4-6' }], 'ollama/qwen3-coder:30b'),

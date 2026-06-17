@@ -61,8 +61,9 @@ Two entry points use it:
 
 - **`redactSecrets(text)`** — replaces each match with `[REDACTED:<name>]`. Called before:
   - Forwarding tool inputs to custom-tool hook child process environments (`SIDECAR_INPUT` / `SIDECAR_OUTPUT`).
-  - Forwarding tool_result bodies to external MCP servers.
+  - Forwarding `delegate_to_mcp` task/context bodies to external MCP servers.
   - Logging tool call args.
+  - Persisting agent memory entries to `.sidecar/memory/agent-memories.json` (entries derive from tool inputs/outputs).
 - **`scanContent(content, path)` / `scanFile(path)`** — surfaces matches as diagnostics the user sees in the Problems panel.
 
 **Pattern catalog** (v0.62.4):

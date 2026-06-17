@@ -1,4 +1,5 @@
 import { EventEmitter } from 'vscode';
+import { logger } from '../system/logger.js';
 import type { TokenUsage } from './types.js';
 import type { SidecarDir } from '../config/sidecarDir.js';
 
@@ -100,7 +101,7 @@ class SpendTracker {
         }
       }
     } catch (err) {
-      console.warn('[SideCar] Failed to restore spend from disk:', err);
+      logger.warn('[SideCar] Failed to restore spend from disk:', err);
     }
   }
 
@@ -176,7 +177,7 @@ class SpendTracker {
           },
           costUsd: cost,
         })
-        .catch((err: unknown) => console.warn('[SideCar] spend.jsonl append failed:', err));
+        .catch((err: unknown) => logger.warn('[SideCar] spend.jsonl append failed:', err));
     }
 
     return cost;

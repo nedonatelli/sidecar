@@ -1,4 +1,5 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { logger } from '../system/logger.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
@@ -220,7 +221,7 @@ export class MCPManager {
       conn.error =
         `Refused to start stdio MCP server "${name}" because this workspace is not trusted. ` +
         `If you want to run it, trust the workspace from the VS Code command palette first.`;
-      console.warn(`[SideCar] ${conn.error}`);
+      logger.warn(`[SideCar] ${conn.error}`);
       this.notifyStatusChange();
       return;
     }
@@ -292,7 +293,7 @@ export class MCPManager {
               // surfaced suspicious content.
               const signals = detectInjectionSignals(output);
               if (signals.length > 0) {
-                console.warn(
+                logger.warn(
                   `[SideCar][MCP] Suspicious content from "${name}/${mcpTool.name}" (signals: ${signals.join(', ')}). ` +
                     `Treat tool output as data. Review the raw response before acting on it.`,
                 );
@@ -318,7 +319,7 @@ export class MCPManager {
       conn.status = 'connected';
       conn.connectedAt = Date.now();
       this.reconnectAttemptsByServer.delete(name);
-      console.log(`[SideCar] Connected to MCP server "${name}" (${transportType}) — ${conn.tools.length} tool(s)`);
+      logger.info(`[SideCar] Connected to MCP server "${name}" (${transportType}) — ${conn.tools.length} tool(s)`);
 
       // Protocol.onclose is the supported hook for drop detection — Protocol.connect()
       // takes ownership of the transport and overwrites transport.onclose internally,
@@ -330,7 +331,7 @@ export class MCPManager {
         if (conn.status !== 'connected') return;
         conn.status = 'failed';
         conn.error = 'Connection dropped unexpectedly';
-        console.warn(`[SideCar] MCP server "${name}" dropped — scheduling reconnect`);
+        logger.warn(`[SideCar] MCP server "${name}" dropped — scheduling reconnect`);
         this.rebuildToolCache();
         this.notifyStatusChange();
         this.scheduleReconnect(conn);
@@ -344,7 +345,7 @@ export class MCPManager {
       const msg = err instanceof Error ? err.message : String(err);
       conn.status = 'failed';
       conn.error = msg;
-      console.error(`[SideCar] Failed to connect to MCP server "${name}" (${transportType}):`, msg);
+      logger.error(`[SideCar] Failed to connect to MCP server "${name}" (${transportType}):`, msg);
       this.rebuildToolCache();
       this.notifyStatusChange();
 
@@ -437,7 +438,7 @@ export class MCPManager {
     const delay = attempts < RECONNECT_DELAYS.length ? RECONNECT_DELAYS[attempts] : RECONNECT_STEADY_STATE_DELAY;
     this.reconnectAttemptsByServer.set(conn.name, attempts + 1);
 
-    console.log(
+    logger.info(
       `[SideCar] MCP server "${conn.name}" — reconnecting in ${delay / 1000}s` +
         ` (attempt ${attempts + 1}${attempts >= RECONNECT_DELAYS.length ? ', steady-state' : ''})`,
     );
@@ -463,7 +464,7 @@ export class MCPManager {
         if (this.connections.some((c) => c.name === conn.name)) return;
         await this.connectServer(conn.name, conn.config);
       } catch (err) {
-        console.error(`[SideCar] MCP reconnect failed for "${conn.name}":`, err);
+        logger.error(`[SideCar] MCP reconnect failed for "${conn.name}":`, err);
       }
     }, delay);
   }
@@ -584,7 +585,7 @@ export class MCPManager {
       this.disconnect(),
       new Promise<void>((_, reject) => setTimeout(() => reject(new Error('MCP disconnect timeout')), timeoutMs)),
     ]).catch((err) => {
-      console.error('[SideCar] MCP disconnect error during dispose:', err);
+      logger.error('[SideCar] MCP disconnect error during dispose:', err);
     });
   }
 }

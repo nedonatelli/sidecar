@@ -77,7 +77,8 @@ const checkDependenciesDef: ToolDefinition = {
     'Returns a structured report grouped by manifest file. Vulnerable packages are flagged with CVE/GHSA IDs and severity. ' +
     'Use before shipping to catch supply-chain issues, or when the user asks "are my deps up to date?" or "any security issues in dependencies?". ' +
     'Optional `ecosystem` filter narrows to a single package manager (npm | pypi | cargo | go). ' +
-    'Optional `checkVulnerabilities: false` skips the OSV network call for a faster offline check.',
+    'Optional `checkVulnerabilities: false` skips the OSV network call for a faster offline check. ' +
+    'Example: `check_dependencies(ecosystem="npm")`.',
   input_schema: {
     type: 'object',
     properties: {

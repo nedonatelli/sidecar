@@ -11,6 +11,7 @@
  */
 
 import { Disposable } from 'vscode';
+import { logger } from '../system/logger.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
@@ -83,7 +84,7 @@ export class EmbeddingIndex implements Disposable {
     this.modelLoading = this.loadModel();
     // Don't await — let it load in the background
     this.modelLoading.catch((err) => {
-      console.warn('[SideCar] Embedding model failed to load:', err.message || err);
+      logger.warn('[SideCar] Embedding model failed to load:', err.message || err);
       // Extension continues working with keyword scoring only
     });
   }
@@ -95,7 +96,7 @@ export class EmbeddingIndex implements Disposable {
         allowRemoteModels: true,
       });
       this.ready = true;
-      console.log('[SideCar] Embedding model loaded:', MODEL_ID);
+      logger.info('[SideCar] Embedding model loaded:', MODEL_ID);
     } catch (err) {
       this.ready = false;
       throw err;
@@ -297,9 +298,9 @@ export class EmbeddingIndex implements Disposable {
       await fs.promises.writeFile(binPath, buffer);
 
       this.dirty = false;
-      console.log(`[SideCar] Embedding index persisted: ${this.meta.count} vectors`);
+      logger.info(`[SideCar] Embedding index persisted: ${this.meta.count} vectors`);
     } catch (err) {
-      console.warn('[SideCar] Failed to persist embedding index:', err);
+      logger.warn('[SideCar] Failed to persist embedding index:', err);
     }
   }
 
@@ -311,7 +312,7 @@ export class EmbeddingIndex implements Disposable {
       if (!meta) return;
 
       if (meta.version !== 1 || meta.modelId !== MODEL_ID || meta.dimension !== DIMENSION) {
-        console.warn(
+        logger.warn(
           `[SideCar] Embedding cache mismatch (cached: ${meta.modelId}/${meta.dimension}d, current: ${MODEL_ID}/${DIMENSION}d) — deleting stale cache and re-indexing`,
         );
         // Delete stale files so we don't repeatedly load-and-discard them
@@ -337,15 +338,15 @@ export class EmbeddingIndex implements Disposable {
         return; // file absent — rebuild
       }
       if (buffer.byteLength < meta.count * DIMENSION * 4) {
-        console.warn('[SideCar] Embedding binary too small, rebuilding');
+        logger.warn('[SideCar] Embedding binary too small, rebuilding');
         return;
       }
 
       this.vectors = new Float32Array(buffer.buffer as ArrayBuffer, buffer.byteOffset, meta.count * DIMENSION);
       this.meta = meta;
-      console.log(`[SideCar] Embedding cache restored: ${meta.count} vectors`);
+      logger.info(`[SideCar] Embedding cache restored: ${meta.count} vectors`);
     } catch (err) {
-      console.warn('[SideCar] Failed to restore embedding cache:', err);
+      logger.warn('[SideCar] Failed to restore embedding cache:', err);
     }
   }
 

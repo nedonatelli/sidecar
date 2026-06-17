@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { logger } from '../system/logger.js';
 import { SideCarCompletionProvider } from './provider.js';
 import { InlineCompletionTriggerKind, Position, Range } from 'vscode';
 
@@ -187,7 +188,7 @@ describe('SideCarCompletionProvider', () => {
 
   describe('latency telemetry ', () => {
     it('logs per-completion timing with the path label', async () => {
-      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+      const infoSpy = vi.spyOn(logger, 'info').mockImplementation(() => {});
       try {
         const provider = new SideCarCompletionProvider(mockClient() as never, 256, 0);
         const doc = mockDocument('const longEnoughPrefix = true;\n');
@@ -209,7 +210,7 @@ describe('SideCarCompletionProvider', () => {
     });
 
     it('logs failure timing but NOT cancellation timing', async () => {
-      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+      const infoSpy = vi.spyOn(logger, 'info').mockImplementation(() => {});
       try {
         const client = mockClient({
           completeFIM: vi.fn().mockRejectedValue(Object.assign(new Error('boom'), { name: 'NetworkError' })),

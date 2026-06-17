@@ -265,14 +265,58 @@ describe('tools.ts', () => {
 
     it('includes delegate_task when delegateTaskEnabled and provider is anthropic', async () => {
       const settings = await import('../config/settings.js');
-      vi.mocked(settings.detectProvider).mockReturnValueOnce('anthropic');
-      const defs = getToolDefinitions(undefined, {
-        delegateTaskEnabled: true,
-        baseUrl: 'https://api.anthropic.com',
-        provider: 'auto',
-        customTools: [],
-      } as never);
-      expect(defs.some((d) => d.name === DELEGATE_TASK_DEFINITION.name)).toBe(true);
+      // Persistent (not Once): detectProvider is consulted more than once now —
+      // also by the kickstand relevance gate — so a single queued return would
+      // be consumed before the delegate_task check.
+      vi.mocked(settings.detectProvider).mockReturnValue('anthropic');
+      try {
+        const defs = getToolDefinitions(undefined, {
+          delegateTaskEnabled: true,
+          baseUrl: 'https://api.anthropic.com',
+          provider: 'auto',
+          customTools: [],
+        } as never);
+        expect(defs.some((d) => d.name === DELEGATE_TASK_DEFINITION.name)).toBe(true);
+      } finally {
+        vi.mocked(settings.detectProvider).mockReturnValue('ollama');
+      }
+    });
+
+    it('gates a tool group dynamically by injected config (no module reload)', () => {
+      const base = { baseUrl: 'http://localhost:11434', provider: 'auto', customTools: [], delegateTaskEnabled: false };
+      const off = getToolDefinitions(undefined, { ...base, latexEnabled: false } as never);
+      const on = getToolDefinitions(undefined, { ...base, latexEnabled: true } as never);
+      expect(off.some((d) => d.name === 'latex_compile')).toBe(false);
+      expect(on.some((d) => d.name === 'latex_compile')).toBe(true);
+    });
+
+    it('relevance-gates database tools on configured profiles', () => {
+      const base = { baseUrl: 'http://localhost:11434', provider: 'auto', customTools: [], delegateTaskEnabled: false };
+      const none = getToolDefinitions(undefined, { ...base, databaseProfiles: [] } as never);
+      const some = getToolDefinitions(undefined, { ...base, databaseProfiles: [{ id: 'pg' }] } as never);
+      expect(none.some((d) => d.name === 'db_query')).toBe(false);
+      expect(some.some((d) => d.name === 'db_query')).toBe(true);
+    });
+
+    it('relevance-gates zotero tools on configured credentials', () => {
+      const base = { baseUrl: 'http://localhost:11434', provider: 'auto', customTools: [], delegateTaskEnabled: false };
+      const off = getToolDefinitions(undefined, { ...base, zoteroUserId: '', zoteroApiKey: '' } as never);
+      const on = getToolDefinitions(undefined, { ...base, zoteroUserId: '123', zoteroApiKey: 'key' } as never);
+      expect(off.some((d) => d.name === 'zotero_search')).toBe(false);
+      expect(on.some((d) => d.name === 'zotero_search')).toBe(true);
+    });
+
+    it('relevance-gates kickstand tools on the active provider', async () => {
+      const settings = await import('../config/settings.js');
+      const base = { baseUrl: 'http://localhost:11434', provider: 'auto', customTools: [], delegateTaskEnabled: false };
+      // Default mock provider is 'ollama' → kickstand tools hidden.
+      expect(getToolDefinitions(undefined, base as never).some((d) => d.name === 'kickstand_list_loras')).toBe(false);
+      vi.mocked(settings.detectProvider).mockReturnValue('kickstand');
+      try {
+        expect(getToolDefinitions(undefined, base as never).some((d) => d.name === 'kickstand_list_loras')).toBe(true);
+      } finally {
+        vi.mocked(settings.detectProvider).mockReturnValue('ollama');
+      }
     });
   });
 
@@ -296,6 +340,14 @@ describe('tools.ts', () => {
     it('should return undefined for unknown tool without MCP manager', () => {
       const tool = findTool('unknown_tool');
       expect(tool).toBeUndefined();
+    });
+
+    it('does not resolve a built-in whose config gate is off', () => {
+      const base = { baseUrl: 'http://localhost:11434', provider: 'auto', customTools: [] };
+      expect(findTool('latex_compile', undefined, { ...base, latexEnabled: false } as never)).toBeUndefined();
+      expect(findTool('latex_compile', undefined, { ...base, latexEnabled: true } as never)?.definition.name).toBe(
+        'latex_compile',
+      );
     });
 
     it('should find MCP tool when manager provided', () => {

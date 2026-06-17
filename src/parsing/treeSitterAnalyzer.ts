@@ -5,6 +5,7 @@
  */
 
 import * as path from 'path';
+import { logger } from '../system/logger.js';
 import type { CodeAnalyzer, CodeElement, ParsedFile } from './types.js';
 import { createParser, type Parser } from './treeSitterLoader.js';
 
@@ -470,7 +471,7 @@ export async function createTreeSitterAnalyzer(wasmDir: string): Promise<CodeAna
     if (result.status === 'fulfilled') {
       parsers.set(result.value.lang, result.value.parser);
     } else {
-      console.warn(`[SideCar] Failed to load tree-sitter grammar:`, result.reason);
+      logger.warn(`[SideCar] Failed to load tree-sitter grammar:`, result.reason);
     }
   }
 
@@ -478,6 +479,6 @@ export async function createTreeSitterAnalyzer(wasmDir: string): Promise<CodeAna
     throw new Error('No tree-sitter grammars loaded');
   }
 
-  console.log(`[SideCar] Tree-sitter loaded with ${parsers.size} languages: ${[...parsers.keys()].join(', ')}`);
+  logger.info(`[SideCar] Tree-sitter loaded with ${parsers.size} languages: ${[...parsers.keys()].join(', ')}`);
   return new TreeSitterCodeAnalyzer(parsers);
 }

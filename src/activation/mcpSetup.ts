@@ -1,4 +1,5 @@
 import { workspace, ExtensionContext } from 'vscode';
+import { logger } from '../system/logger.js';
 import { getConfig } from '../config/settings.js';
 import { checkWorkspaceConfigTrust } from '../config/workspaceTrust.js';
 import { MCPManager, loadProjectMcpConfig, mergeMcpConfigs } from '../agent/mcpManager.js';
@@ -23,12 +24,12 @@ export function initMcpSetup(context: ExtensionContext, mcpManager: MCPManager):
         'SideCar: This workspace defines MCP server configs that may spawn external processes. Only trust these from repositories you control.',
       );
       if (trust === 'blocked') {
-        console.log('[SideCar] Workspace MCP servers blocked by user');
+        logger.info('[SideCar] Workspace MCP servers blocked by user');
         return;
       }
       await mcpManager.connect(allServers);
     } catch (err) {
-      console.error('[SideCar] Failed to connect MCP servers:', err);
+      logger.error('[SideCar] Failed to connect MCP servers:', err);
     }
   };
 
@@ -40,7 +41,7 @@ export function initMcpSetup(context: ExtensionContext, mcpManager: MCPManager):
   context.subscriptions.push(
     workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('sidecar.mcpServers')) {
-        connectMcp().catch((err) => console.error('[SideCar] Failed to reconnect MCP servers:', err));
+        connectMcp().catch((err) => logger.error('[SideCar] Failed to reconnect MCP servers:', err));
       }
     }),
   );

@@ -20,8 +20,10 @@ import type { ApprovalMode } from '../agent/executor.js';
 //     Runs the SideCar agent loop with the supplied task as the first user
 //     message. Collects all onText output and returns a single batch result.
 //
-// Auth: optional bearer token from caller settings. When `requireAuth` is
-// true, every request must include `Authorization: Bearer <token>`.
+// Auth: bearer token from caller settings. When `requireAuth` is true, every
+// request must include `Authorization: Bearer <token>`. Auth is fail-closed —
+// if `requireAuth` is set but no `authToken` is configured, the server refuses
+// to start rather than silently accepting unauthenticated requests.
 //
 // Concurrency: a simple busy flag rejects concurrent calls — the agent loop
 // is a stateful, workspace-mutating operation and running two in parallel
@@ -31,6 +33,13 @@ import type { ApprovalMode } from '../agent/executor.js';
 // per HTTP request so the MCP initialize/notification handshake can complete
 // within a single client session without reusing consumed transport state.
 // ---------------------------------------------------------------------------
+
+/** Maps the MCP-facing approval names to the loop's real ApprovalMode values. */
+const MCP_APPROVAL_MODE_MAP: Record<string, ApprovalMode> = {
+  auto: 'autonomous',
+  suggest: 'cautious',
+  manual: 'manual',
+};
 
 export interface McpAgentServerOptions {
   port: number;
@@ -138,12 +147,23 @@ export class McpAgentServer {
   async start(): Promise<void> {
     if (this.httpServer) return; // already running
 
+    // Fail closed: refuse to start an "authenticated" server with no token.
+    // Without this guard the auth check below would be skipped entirely,
+    // leaving the server open to any local process despite requireAuth.
+    if (this.options.requireAuth && !this.options.authToken) {
+      throw new Error(
+        'MCP server auth is required but no authToken is set — refusing to start. ' +
+          'Set sidecar.mcpServer.authToken or disable sidecar.mcpServer.requireAuth.',
+      );
+    }
+
     const httpServer = http.createServer(async (req, res) => {
-      // Auth check
-      if (this.options.requireAuth && this.options.authToken) {
+      // Auth check — fail closed. When requireAuth is on, every request must
+      // carry a matching bearer token; a missing server token rejects all.
+      if (this.options.requireAuth) {
         const authHeader = req.headers['authorization'] ?? '';
-        const expected = `Bearer ${this.options.authToken}`;
-        if (authHeader !== expected) {
+        const expected = this.options.authToken ? `Bearer ${this.options.authToken}` : null;
+        if (!expected || authHeader !== expected) {
           res.writeHead(401, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Unauthorized' }));
           return;
@@ -214,9 +234,14 @@ export class McpAgentServer {
     const textParts: string[] = [];
 
     const clampedMaxIterations = Math.min(Math.max(1, maxIterationsInput ?? 20), 40);
-    const resolvedApprovalMode = (
-      ['auto', 'suggest', 'manual'].includes(approvalModeInput ?? '') ? approvalModeInput : 'auto'
-    ) as ApprovalMode;
+    // Map the MCP-facing approval names to real ApprovalMode values. The schema
+    // exposes 'auto'/'suggest'/'manual', but the loop expects
+    // 'autonomous'/'cautious'/'manual'/'plan'/'review'. Casting the raw input
+    // through (the previous behavior) produced an enum value that matched no
+    // real mode and silently fell through to "no approval required". Note: the
+    // MCP server wires no confirmFn, so 'cautious'/'manual' auto-deny any tool
+    // that requires approval — only 'autonomous' executes such tools.
+    const resolvedApprovalMode = MCP_APPROVAL_MODE_MAP[approvalModeInput ?? ''] ?? 'autonomous';
 
     const callbacks: AgentCallbacks = {
       onText: (text) => textParts.push(text),

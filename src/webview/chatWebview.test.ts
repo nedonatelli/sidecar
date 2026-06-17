@@ -35,6 +35,28 @@ describe('getChatWebviewHtml', () => {
     expect(html).toMatch(/nonce="[A-Za-z0-9+/=]+"/);
   });
 
+  it('uses one consistent nonce across the CSP, body, and every script tag', () => {
+    // A mismatch here silently breaks the chat UI: scripts whose nonce does
+    // not match the CSP are blocked, so this invariant is load-bearing.
+    const bodyNonce = html.match(/data-nonce="([^"]+)"/)?.[1];
+    expect(bodyNonce).toBeTruthy();
+    expect(html).toContain(`script-src 'nonce-${bodyNonce}'`);
+    const scriptNonces = [...html.matchAll(/<script nonce="([^"]+)"/g)].map((m) => m[1]);
+    expect(scriptNonces.length).toBeGreaterThan(0);
+    expect(scriptNonces.every((n) => n === bodyNonce)).toBe(true);
+  });
+
+  it('generates a fresh nonce on each render', () => {
+    const a = getChatWebviewHtml(mockWebview, mockExtensionUri).match(/data-nonce="([^"]+)"/)?.[1];
+    const b = getChatWebviewHtml(mockWebview, mockExtensionUri).match(/data-nonce="([^"]+)"/)?.[1];
+    expect(a).toBeTruthy();
+    expect(a).not.toBe(b);
+  });
+
+  it('embeds the built-in backend profiles for the picker', () => {
+    expect(html).toMatch(/window\.__backendProfiles = \[\{"id":/);
+  });
+
   it('does NOT contain inline JavaScript', () => {
     // The script tag should be self-contained (src=...) with no inline body
     expect(html).not.toContain('acquireVsCodeApi');

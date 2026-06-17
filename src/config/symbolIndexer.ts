@@ -4,6 +4,7 @@
  */
 
 import { workspace, Uri, Disposable } from 'vscode';
+import { logger } from '../system/logger.js';
 import * as path from 'path';
 import { SimpleCodeAnalyzer } from '../astContext.js';
 import { getRegexAnalyzer } from '../parsing/registry.js';
@@ -369,12 +370,12 @@ export class SymbolIndexer implements Disposable {
       const data = this.graph.toJSON();
       const json = JSON.stringify(data);
       if (json.length > MAX_JSON_SIZE) {
-        console.warn('[SideCar] Symbol graph too large to persist, skipping');
+        logger.warn('[SideCar] Symbol graph too large to persist, skipping');
         return;
       }
       await this.sidecarDir.writeText(CACHE_FILE, json);
     } catch (err) {
-      console.warn('[SideCar] Failed to persist symbol graph:', err);
+      logger.warn('[SideCar] Failed to persist symbol graph:', err);
     }
   }
 

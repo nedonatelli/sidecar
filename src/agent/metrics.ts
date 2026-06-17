@@ -1,4 +1,5 @@
 import type { Memento } from 'vscode';
+import { logger } from '../system/logger.js';
 import { charsToTokens } from '../config/tokenEstimation.js';
 import type { SidecarDir } from '../config/sidecarDir.js';
 
@@ -92,7 +93,7 @@ export class MetricsCollector {
     if (this.sidecarDir?.isReady()) {
       this.sidecarDir
         .appendJsonl(METRICS_LOG, run)
-        .catch((err: unknown) => console.warn('[SideCar] metrics.jsonl append failed:', err));
+        .catch((err: unknown) => logger.warn('[SideCar] metrics.jsonl append failed:', err));
     }
 
     this.currentRun = null;

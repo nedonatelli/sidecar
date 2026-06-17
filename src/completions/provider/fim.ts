@@ -9,6 +9,7 @@ import {
   CancellationToken,
   workspace,
 } from 'vscode';
+import { logger } from '../../system/logger.js';
 import { SideCarClient } from '../../ollama/client.js';
 import { getConfig } from '../../config/settings.js';
 import { lookupDraftModel } from '../../config/constants.js';
@@ -110,13 +111,13 @@ export class SideCarCompletionProvider implements InlineCompletionItemProvider {
       const minRate = getConfig().speculativeDecoding.minAcceptRateToKeepEnabled;
       if (rate < minRate) {
         this.speculativeDisabled = true;
-        console.warn(
+        logger.warn(
           `[SideCar] Speculative decoding auto-disabled: draft win rate ${(rate * 100).toFixed(0)}% < threshold ${(minRate * 100).toFixed(0)}%`,
         );
       }
     }
 
-    console.info(
+    logger.info(
       `[SideCar] Inline completion: FIM race winner = ${winner} ` +
         `(draft ${this.speculativeDraftWins}/${this.speculativeTotalRaces})`,
     );
@@ -222,13 +223,13 @@ export class SideCarCompletionProvider implements InlineCompletionItemProvider {
       if (!completion) return [];
 
       const elapsed = Date.now() - startedAt;
-      console.info(`[SideCar] Inline completion [${pathLabel}] ${elapsed}ms, ${completion.length} chars`);
+      logger.info(`[SideCar] Inline completion [${pathLabel}] ${elapsed}ms, ${completion.length} chars`);
 
       return [new InlineCompletionItem(completion, new Range(position, position))];
     } catch (err) {
       if (!(err instanceof Error) || err.name !== 'AbortError') {
         const elapsed = Date.now() - startedAt;
-        console.info(
+        logger.info(
           `[SideCar] Inline completion [${pathLabel}] failed after ${elapsed}ms: ${err instanceof Error ? err.message : String(err)}`,
         );
       }

@@ -1,9 +1,14 @@
-import { window, commands, workspace, Uri } from 'vscode';
-import * as path from 'path';
-import * as os from 'os';
-import * as fs from 'fs';
-import { GitCLI } from '../../github/git.js';
+import { Uri } from 'vscode';
+import {
+  applyDiffToMain,
+  writeTempDiffFile,
+  filesTouchedByDiff,
+  getWorkspaceMainRoot,
+  createBaseReviewUi,
+} from '../diffReview/shared.js';
 import type { FacetDispatchBatchResult, FacetDispatchResult } from './facetDispatcher.js';
+
+export { filesTouchedByDiff, getWorkspaceMainRoot };
 
 // ---------------------------------------------------------------------------
 // Facet batch review.
@@ -53,30 +58,6 @@ export interface FacetReviewPlan {
   readonly entries: readonly FacetApplyPlanEntry[];
   /** Facets that returned no pendingDiff (empty-diff, failed run, direct mode). */
   readonly skipped: readonly { facetId: string; reason: string }[];
-}
-
-/**
- * Parse a unified diff and extract every file path the patch modifies.
- * Uses the `diff --git a/<path> b/<path>` header so renames surface both
- * names; we dedupe before returning. Non-git patches (raw `--- /+++`)
- * are handled as a fallback. Returned paths are relative to the repo
- * root — `a/` / `b/` prefixes are stripped.
- */
-export function filesTouchedByDiff(diff: string): string[] {
-  const touched = new Set<string>();
-  const gitHeaderRe = /^diff --git a\/(\S+) b\/(\S+)$/gm;
-  let match: RegExpExecArray | null;
-  while ((match = gitHeaderRe.exec(diff)) !== null) {
-    touched.add(match[1]);
-    touched.add(match[2]);
-  }
-  if (touched.size === 0) {
-    const fallbackRe = /^\+\+\+ (?:b\/)?(\S+)$/gm;
-    while ((match = fallbackRe.exec(diff)) !== null) {
-      if (match[1] !== '/dev/null') touched.add(match[1]);
-    }
-  }
-  return [...touched];
 }
 
 /**
@@ -172,8 +153,8 @@ export async function reviewFacetBatch(
     return { applied: [], rejected: [], failed: [], cancelledRemaining: [] };
   }
 
-  const applyDiff = deps.applyDiff ?? defaultApplyDiff;
-  const writeTempFile = deps.writeTempFile ?? defaultWriteTempFile;
+  const applyDiff = deps.applyDiff ?? applyDiffToMain;
+  const writeTempFile = deps.writeTempFile ?? ((prefix, content) => writeTempDiffFile('facet', prefix, content));
 
   const pending = new Map(plan.entries.map((e) => [e.facetId, e]));
   const applied: string[] = [];
@@ -281,36 +262,6 @@ async function promptFacetAction(
   return choice.action;
 }
 
-async function defaultApplyDiff(mainRoot: string, diff: string): Promise<string> {
-  const git = new GitCLI(mainRoot);
-  await git.applyPatch(diff, { check: true });
-  return git.applyPatch(diff, { stage: true });
-}
-
-async function defaultWriteTempFile(prefix: string, content: string): Promise<Uri> {
-  const safe = prefix.replace(/[^a-zA-Z0-9_-]/g, '_');
-  const file = path.join(os.tmpdir(), `sidecar-facet-${safe}-${Date.now()}.diff`);
-  await fs.promises.writeFile(file, content, 'utf-8');
-  return Uri.file(file);
-}
-
 export function createDefaultFacetReviewUi(): FacetReviewUi {
-  return {
-    async showQuickPick(items, placeholder) {
-      return window.showQuickPick(items, { placeHolder: placeholder });
-    },
-    showInfo(message) {
-      void window.showInformationMessage(message);
-    },
-    showError(message) {
-      void window.showErrorMessage(message);
-    },
-    async openDiff(left, right, title) {
-      await commands.executeCommand('vscode.diff', left, right, title, { preview: true });
-    },
-  };
-}
-
-export function getWorkspaceMainRoot(): string | undefined {
-  return workspace.workspaceFolders?.[0]?.uri.fsPath;
+  return createBaseReviewUi();
 }

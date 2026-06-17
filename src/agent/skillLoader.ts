@@ -1,4 +1,5 @@
 import * as path from 'path';
+import { logger } from '../system/logger.js';
 import * as os from 'os';
 import { workspace, Uri } from 'vscode';
 
@@ -210,7 +211,7 @@ export class SkillLoader {
       for (const s of projectClaude) {
         const existing = this.skills.get(s.id);
         if (existing && (existing.source === 'builtin' || existing.source === 'user')) {
-          console.warn(
+          logger.warn(
             `[SideCar] Workspace skill "/${s.id}" at ${s.filePath} shadows an existing ${existing.source} skill. ` +
               `Make sure you trust this workspace before relying on its skill definitions.`,
           );
@@ -225,7 +226,7 @@ export class SkillLoader {
       for (const s of sidecarSkills) {
         const existing = this.skills.get(s.id);
         if (existing && (existing.source === 'builtin' || existing.source === 'user')) {
-          console.warn(
+          logger.warn(
             `[SideCar] Workspace skill "/${s.id}" at ${s.filePath} shadows an existing ${existing.source} skill. ` +
               `Make sure you trust this workspace before relying on its skill definitions.`,
           );
@@ -237,7 +238,7 @@ export class SkillLoader {
     this.initialized = true;
     const count = this.skills.size;
     if (count > 0) {
-      console.log(
+      logger.info(
         `[SideCar] Loaded ${count} skills from ${userSkills.length} user + ${root ? 'project' : '0 project'} directories`,
       );
     }

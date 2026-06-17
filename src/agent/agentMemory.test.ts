@@ -33,6 +33,27 @@ describe('AgentMemory', () => {
     expect(fs.existsSync(path.join(tempDir, 'memory', 'agent-memories.json'))).toBe(true);
   });
 
+  it('redacts secrets in content and context before persisting', async () => {
+    memory.add(
+      'failure',
+      'tool:read_file',
+      'read_file returned AWS key AKIA1234567890ABCDEF in config',
+      'context with token ghp_0123456789012345678901234567890123456',
+    );
+
+    const entry = memory.queryAll()[0];
+    expect(entry.content).not.toContain('AKIA1234567890ABCDEF');
+    expect(entry.content).toContain('[REDACTED:AWS Access Key]');
+    expect(entry.context).not.toContain('ghp_0123456789012345678901234567890123456');
+    expect(entry.context).toContain('[REDACTED:GitHub Token]');
+
+    // Persisted file must not contain the raw secrets either.
+    await memory.save();
+    const onDisk = fs.readFileSync(path.join(tempDir, 'memory', 'agent-memories.json'), 'utf-8');
+    expect(onDisk).not.toContain('AKIA1234567890ABCDEF');
+    expect(onDisk).not.toContain('ghp_0123456789012345678901234567890123456');
+  });
+
   it('searches memories by category', async () => {
     memory.add('pattern', 'naming', 'Use camelCase for variable names');
     memory.add('convention', 'imports', 'Group imports by type');

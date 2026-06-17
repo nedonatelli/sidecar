@@ -1,4 +1,5 @@
 import { workspace, Uri } from 'vscode';
+import { logger } from '../system/logger.js';
 import * as path from 'path';
 
 /**
@@ -88,13 +89,13 @@ export class DocumentationIndexer {
       try {
         await this.indexFile(fileUri, rootUri);
       } catch (error) {
-        console.warn(`[SideCar] Failed to index documentation file ${fileUri.fsPath}:`, error);
+        logger.warn(`[SideCar] Failed to index documentation file ${fileUri.fsPath}:`, error);
       }
     }
 
     this.ready = true;
     const elapsed = Date.now() - startTime;
-    console.log(`[SideCar] Documentation index built: ${this.entries.size} entries in ${elapsed}ms`);
+    logger.info(`[SideCar] Documentation index built: ${this.entries.size} entries in ${elapsed}ms`);
   }
 
   private async indexFile(fileUri: Uri, rootUri: Uri): Promise<void> {

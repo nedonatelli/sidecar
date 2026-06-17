@@ -1,4 +1,5 @@
 import type { ApiBackend } from './backend.js';
+import { logger } from '../system/logger.js';
 import type {
   ChatMessage,
   ContentBlock,
@@ -208,7 +209,7 @@ export class AnthropicBackend implements ApiBackend {
     // pruner eat my error message?" was impossible. Log via
     // console.info so the SideCar output channel captures it.
     const _pruneLog = formatPruneStats(pruned.stats);
-    if (_pruneLog) console.info(`[SideCar] ${_pruneLog}`);
+    if (_pruneLog) logger.info(`[SideCar] ${_pruneLog}`);
     const maxOutputTokens = Math.min(cfg.agentMaxTokens, maxOutputTokensForModel(model));
     const body: Record<string, unknown> = {
       model,
@@ -412,7 +413,7 @@ export class AnthropicBackend implements ApiBackend {
     // pruner eat my error message?" was impossible. Log via
     // console.info so the SideCar output channel captures it.
     const _pruneLog = formatPruneStats(pruned.stats);
-    if (_pruneLog) console.info(`[SideCar] ${_pruneLog}`);
+    if (_pruneLog) logger.info(`[SideCar] ${_pruneLog}`);
     const body: Record<string, unknown> = {
       model,
       max_tokens: maxTokens,

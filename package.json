@@ -2,7 +2,7 @@
   "name": "sidecar-ai",
   "displayName": "SideCar",
   "description": "Autonomous AI agent for coding — run full agent loops with local Ollama, Anthropic Claude, or OpenAI models",
-  "version": "0.112.23",
+  "version": "0.113.0",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -2093,14 +2093,14 @@
           },
           "sidecar.mcpServer.requireAuth": {
             "type": "boolean",
-            "default": false,
-            "description": "Require a bearer token for requests to the SideCar MCP server.",
+            "default": true,
+            "description": "Require a bearer token for requests to the SideCar MCP server. When left on with no authToken set, SideCar auto-generates a token at startup and shows it to you. Turning this off exposes the agent loop to any local process.",
             "requiresWindowReload": true
           },
           "sidecar.mcpServer.authToken": {
             "type": "string",
             "default": "",
-            "description": "Bearer token clients must supply when sidecar.mcpServer.requireAuth is true.",
+            "description": "Bearer token clients must supply when sidecar.mcpServer.requireAuth is true. Leave empty to have SideCar auto-generate one at startup.",
             "requiresWindowReload": true
           },
           "sidecar.mcpServer.maxConcurrent": {
