@@ -119,13 +119,13 @@ export class SymbolIndexer implements Disposable {
     // Try to restore from cache
     const restored = await this.restore();
 
-    // Discover workspace files
-    const allUris: Uri[] = [];
+    // Discover workspace files — all patterns in parallel
     const excludePattern = `**/{${[...EXCLUDE_DIRS].join(',')}}/**`;
-    for (const pattern of filePatterns) {
-      const uris = await workspace.findFiles(pattern, excludePattern, 1000);
-      allUris.push(...uris);
-    }
+    const foundUris = await Promise.all(
+      filePatterns.map((pattern) => workspace.findFiles(pattern, excludePattern, 1000)),
+    );
+    const allUris: Uri[] = [];
+    for (const uris of foundUris) allUris.push(...uris);
 
     // Filter to code files
     const codeUris = allUris.filter((uri) => {
@@ -133,39 +133,22 @@ export class SymbolIndexer implements Disposable {
       return CODE_EXTENSIONS.has(ext);
     });
 
-    // Process files — skip unchanged ones if we restored from cache
+    // Stat + read + parse all files concurrently. Each callback is
+    // synchronous after its awaits, so graph mutations don't race.
     let parsed = 0;
-    const batchSize = 20;
-    for (let i = 0; i < codeUris.length; i += batchSize) {
-      const batch = codeUris.slice(i, i + batchSize);
-      const results = await Promise.allSettled(
-        batch.map(async (uri) => {
-          const relativePath = path.relative(this.rootPath, uri.fsPath);
-          const stat = await workspace.fs.stat(uri);
-
-          // Fast hash: size + mtime
-          const hash = `${stat.size}:${stat.mtime}`;
-          if (restored && this.graph.getFileHash(relativePath) === hash) {
-            return; // unchanged
-          }
-
-          // Read and parse
-          const bytes = await workspace.fs.readFile(uri);
-          const content = Buffer.from(bytes).toString('utf-8');
-          if (content.length > MAX_FILE_SIZE) return;
-
-          this.indexFile(relativePath, content, hash);
-          parsed++;
-        }),
-      );
-
-      // Log errors but don't abort
-      for (const r of results) {
-        if (r.status === 'rejected') {
-          // skip unreadable files
-        }
-      }
-    }
+    await Promise.allSettled(
+      codeUris.map(async (uri) => {
+        const relativePath = path.relative(this.rootPath, uri.fsPath);
+        const stat = await workspace.fs.stat(uri);
+        const hash = `${stat.size}:${stat.mtime}`;
+        if (restored && this.graph.getFileHash(relativePath) === hash) return;
+        const bytes = await workspace.fs.readFile(uri);
+        const content = Buffer.from(bytes).toString('utf-8');
+        if (content.length > MAX_FILE_SIZE) return;
+        this.indexFile(relativePath, content, hash);
+        parsed++;
+      }),
+    );
 
     // Remove files that no longer exist
     if (restored) {
@@ -372,9 +355,7 @@ export class SymbolIndexer implements Disposable {
         this.graph.removeFile(del);
         this.symbolEmbeddings?.removeFile(del);
       }
-      for (const upd of updates) {
-        await this.updateFile(upd);
-      }
+      await Promise.allSettled(updates.map((upd) => this.updateFile(upd)));
       if (updates.length > 0 || deletes.length > 0) {
         this.schedulePersist();
       }
