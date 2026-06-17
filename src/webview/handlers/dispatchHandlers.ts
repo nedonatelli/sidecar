@@ -8,13 +8,14 @@
  * without a real WebviewView or ExtensionContext.
  */
 
-import { commands, env, Uri } from 'vscode';
+import { commands, env, Uri, window, workspace, ProgressLocation } from 'vscode';
 import { getConfig } from '../../config/settings.js';
 import { computeUnifiedDiff } from '../../agent/diff.js';
 import type { BackgroundAgentManager } from '../../agent/backgroundAgent.js';
 import type { ChatState } from '../chatState.js';
 import type { WebviewMessage, ExtensionMessage } from '../chatWebview.js';
 import type { ExtensionContext } from 'vscode';
+import type { AgentCallbacks } from '../../agent/loop.js';
 import {
   handleUserMessage,
   handleUserMessageWithImages,
@@ -39,6 +40,13 @@ import {
   isCommitRequest,
   isShowDiffRequest,
 } from './chatHandlers.js';
+import {
+  isRepoReviewRequest,
+  isArchReviewAccept,
+  isArchReviewDecline,
+  RUN_ARCH_REVIEW_LABEL,
+  ANSWER_INLINE_LABEL,
+} from './messageUtils.js';
 import { handleRequestFileCompletion, revertEditPlanFile } from './fileHandlers.js';
 import { handleGitHubCommand } from './githubHandlers.js';
 import { handleInstallModel } from './modelHandlers.js';
@@ -101,6 +109,65 @@ const ALLOWED_EXTENSION_COMMANDS = new Set([
 ]);
 
 /**
+ * Dispatch the read-only architecture-reviewer facet for a whole-repo review,
+ * streaming its output into the chat panel and opening the final review as a
+ * markdown tab. Runs inside a cancellable progress notification; the chat
+ * spinner is cleared via `done` in `finally`.
+ */
+async function runArchitectureReview(state: ChatState, task: string): Promise<void> {
+  if (!task.trim()) return;
+  const { runFacetDispatchCommand, createDefaultFacetCommandUi } = await import('../../agent/facets/facetCommands.js');
+  const { loadFacetRegistry } = await import('../../agent/facets/facetDiskLoader.js');
+  const { createClient } = await import('../../ollama/factory.js');
+  const cfg = getConfig();
+  const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const callbacks: AgentCallbacks = {
+    onText: (text) => state.postMessage({ command: 'assistantMessage', content: text }),
+    onToolCall: (name, _input, id) =>
+      state.postMessage({ command: 'toolCall', toolName: name, toolCallId: id, content: name }),
+    onToolResult: (name, result, _isError, id) =>
+      state.postMessage({ command: 'toolResult', toolName: name, toolCallId: id, content: result }),
+    onDone: () => undefined,
+  };
+  const controller = new AbortController();
+  let outcome: Awaited<ReturnType<typeof runFacetDispatchCommand>> | undefined;
+  try {
+    outcome = await window.withProgress(
+      { location: ProgressLocation.Notification, title: 'SideCar: Architecture Reviewer…', cancellable: true },
+      async (_progress, token) => {
+        token.onCancellationRequested(() => controller.abort());
+        return runFacetDispatchCommand({
+          ui: createDefaultFacetCommandUi(),
+          loadRegistry: () => loadFacetRegistry({ workspaceRoot, registryPaths: cfg.facetsRegistry }),
+          createClient,
+          callbacks,
+          signal: controller.signal,
+          agentOptions: state.mcpManager ? { mcpManager: state.mcpManager } : undefined,
+          config: {
+            enabled: cfg.facetsEnabled,
+            maxConcurrent: cfg.facetsMaxConcurrent,
+            rpcTimeoutMs: cfg.facetsRpcTimeoutMs,
+          },
+          preSelectedFacetIds: ['architecture-reviewer'],
+          preFilledTask: task,
+        });
+      },
+    );
+  } finally {
+    state.postMessage({ command: 'done' });
+  }
+  if (outcome?.mode === 'dispatched') {
+    for (const r of outcome.batch.results) {
+      const hasDiff = !!r.sandbox.pendingDiff && r.sandbox.pendingDiff.length > 0;
+      if (!r.success || hasDiff || !r.output || r.output === '(facet produced no output)') continue;
+      const content = `# ${r.facetId} — review\n\n_Task: ${outcome.task}_\n\n${r.output}\n`;
+      const doc = await workspace.openTextDocument({ content, language: 'markdown' });
+      await window.showTextDocument(doc, { preview: false });
+    }
+  }
+}
+
+/**
  * Build the full command→handler dispatch map for the chat webview.
  * Every dependency comes through `HandlerDeps` so handlers can be
  * exercised in unit tests by injecting stubs.
@@ -119,6 +186,25 @@ export function buildDispatchHandlers(
         return;
       }
       const text = msg.text || '';
+
+      // A whole-repo review offer is pending: interpret this reply as
+      // accept/decline by intent (a clicked button sends the label text;
+      // a typed "run it" / "run the architecture reviewer" also accepts).
+      // Anything unrelated drops the offer and is handled normally.
+      if (state.pendingRepoReviewTask) {
+        const task = state.pendingRepoReviewTask;
+        if (isArchReviewAccept(text)) {
+          state.pendingRepoReviewTask = null;
+          await runArchitectureReview(state, task);
+          return;
+        }
+        if (isArchReviewDecline(text)) {
+          state.pendingRepoReviewTask = null;
+          await handleUserMessage(state, task);
+          return;
+        }
+        state.pendingRepoReviewTask = null;
+      }
 
       // /branch [name] — fork current conversation into a new named thread.
       const branchMatch = text.match(/^\/branch(?:\s+(.+))?$/i);
@@ -198,6 +284,22 @@ export function buildDispatchHandlers(
         state.postMessage({ command: 'done' });
         return;
       }
+      // Whole-repo review → offer the grounded architecture-reviewer facet
+      // instead of answering inline (which tends toward ungrounded boilerplate).
+      if (getConfig().facetsEnabled && isRepoReviewRequest(text)) {
+        state.pendingRepoReviewTask = text;
+        state.postMessage({
+          command: 'assistantMessage',
+          content:
+            'This looks like a whole-codebase review. I can run the **Architecture Reviewer** specialist — ' +
+            'a read-only pass that reads the relevant modules and cites `file:symbol` evidence for every point, ' +
+            'rather than answering from memory. Reply **run it** (or click below), or say **answer inline** for a quick take.',
+        });
+        state.postMessage({ command: 'suggestNextSteps', suggestions: [RUN_ARCH_REVIEW_LABEL, ANSWER_INLINE_LABEL] });
+        state.postMessage({ command: 'done' });
+        return;
+      }
+
       await handleUserMessage(state, text);
     },
 

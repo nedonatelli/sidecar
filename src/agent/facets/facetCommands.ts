@@ -66,6 +66,14 @@ export interface FacetCommandDeps {
   callbacks?: AgentCallbacks;
   /** Optional progress callback fired before/after each facet runs. */
   onBatchProgress?: FacetBatchProgressCallback;
+  /**
+   * When set, skip the multi-select picker and dispatch exactly these facet
+   * ids. Used by callers that route to a known specialist (e.g. the chat
+   * "review this repo" → architecture-reviewer flow) instead of prompting.
+   */
+  preSelectedFacetIds?: readonly string[];
+  /** When set, skip the task input box and use this task verbatim. */
+  preFilledTask?: string;
   /** Extra options forwarded verbatim to each sub-agent loop (e.g. mcpManager). */
   agentOptions?: AgentOptions;
   /** Config values from `sidecar.facets.*`. */
@@ -132,20 +140,30 @@ export async function runFacetDispatchCommand(deps: FacetCommandDeps): Promise<F
     return { mode: 'cancelled', reason: 'registry-empty' };
   }
 
-  const picks = await deps.ui.showMultiSelectPick(all.map(facetToPickItem), 'Select one or more facets to dispatch');
-  if (picks === undefined) {
-    return { mode: 'cancelled', reason: 'picker-cancelled' };
+  let facetIds: string[];
+  if (deps.preSelectedFacetIds && deps.preSelectedFacetIds.length > 0) {
+    const known = new Set(all.map((f) => f.id));
+    facetIds = deps.preSelectedFacetIds.filter((id) => known.has(id));
+    if (facetIds.length === 0) {
+      deps.ui.showError(`No matching facet for: ${deps.preSelectedFacetIds.join(', ')}.`);
+      return { mode: 'cancelled', reason: 'no-facets-selected' };
+    }
+  } else {
+    const picks = await deps.ui.showMultiSelectPick(all.map(facetToPickItem), 'Select one or more facets to dispatch');
+    if (picks === undefined) {
+      return { mode: 'cancelled', reason: 'picker-cancelled' };
+    }
+    if (picks.length === 0) {
+      deps.ui.showInfo('No facets selected — nothing to dispatch.');
+      return { mode: 'cancelled', reason: 'no-facets-selected' };
+    }
+    facetIds = picks.map((p) => p.id);
   }
-  if (picks.length === 0) {
-    deps.ui.showInfo('No facets selected — nothing to dispatch.');
-    return { mode: 'cancelled', reason: 'no-facets-selected' };
-  }
-  const facetIds = picks.map((p) => p.id);
 
-  const task = await deps.ui.showInputBox(
-    'Task for the selected facets',
-    'e.g. "Audit the auth middleware for CSRF gaps"',
-  );
+  const task =
+    deps.preFilledTask !== undefined
+      ? deps.preFilledTask
+      : await deps.ui.showInputBox('Task for the selected facets', 'e.g. "Audit the auth middleware for CSRF gaps"');
   if (task === undefined) {
     return { mode: 'cancelled', reason: 'task-cancelled' };
   }

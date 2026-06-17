@@ -164,6 +164,13 @@ export class ChatState {
    */
   pendingQuestion: string | null = null;
 
+  /**
+   * Holds the original task text when a whole-repo review was detected and the
+   * architecture-reviewer facet was offered. Read when the user clicks the
+   * offer (or declines), then cleared.
+   */
+  pendingRepoReviewTask: string | null = null;
+
   constructor(
     readonly context: ExtensionContext,
     readonly terminalManager: TerminalManager,
@@ -412,6 +419,7 @@ export class ChatState {
     this.pendingPartialAssistant = null;
     this.pendingSteerSnapshot = null;
     this.pendingQuestion = null;
+    this.pendingRepoReviewTask = null;
     this.changelog.clear();
     this.editTimeline.clear();
     this.currentSessionId = null;
