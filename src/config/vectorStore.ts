@@ -221,12 +221,15 @@ export class FlatVectorStore<M> implements VectorStore<M> {
   async search(query: Float32Array, k: number, filter?: (metadata: M) => boolean): Promise<VectorSearchHit<M>[]> {
     if (query.length !== this.dimension || this.entriesById.size === 0) return [];
 
+    const dim = this.dimension;
+    const vecs = this.vectors;
     const hits: VectorSearchHit<M>[] = [];
     for (const [id, entry] of this.entriesById.entries()) {
       if (filter && !filter(entry.metadata)) continue;
-      const start = entry.offset * this.dimension;
-      const vec = this.vectors.subarray(start, start + this.dimension);
-      hits.push({ id, metadata: entry.metadata, similarity: cosine(query, vec) });
+      const start = entry.offset * dim;
+      let dot = 0;
+      for (let i = 0; i < dim; i++) dot += query[i] * vecs[start + i];
+      hits.push({ id, metadata: entry.metadata, similarity: dot });
     }
     hits.sort((a, b) => b.similarity - a.similarity);
     return hits.slice(0, k);
@@ -261,23 +264,38 @@ export class FlatVectorStore<M> implements VectorStore<M> {
   async persist(): Promise<void> {
     if (!this.sidecarDir?.isReady()) return;
 
-    // Build compact persisted view — only live entries, re-offset
-    // sequentially so the orphan rows from removes don't waste disk.
+    const liveCount = this.entriesById.size;
+    const hasOrphans = liveCount < this.vectorCount;
     const persistedEntries: Record<string, M & { offset: number }> = {};
-    const liveVectors = new Float32Array(this.entriesById.size * this.dimension);
-    let newOffset = 0;
-    for (const [id, entry] of this.entriesById.entries()) {
-      const oldStart = entry.offset * this.dimension;
-      liveVectors.set(this.vectors.subarray(oldStart, oldStart + this.dimension), newOffset * this.dimension);
-      persistedEntries[id] = { ...entry.metadata, offset: newOffset };
-      newOffset += 1;
+    // Float32Array<ArrayBufferLike> so both `new Float32Array(n)` (ArrayBuffer)
+    // and `subarray()` (ArrayBufferLike) are assignable to this variable.
+    let liveVectors: Float32Array<ArrayBufferLike>;
+
+    if (hasOrphans) {
+      // Compact: copy only live rows and assign sequential offsets so
+      // orphan rows from deletes don't waste disk space.
+      liveVectors = new Float32Array(liveCount * this.dimension);
+      let newOffset = 0;
+      for (const [id, entry] of this.entriesById.entries()) {
+        const oldStart = entry.offset * this.dimension;
+        liveVectors.set(this.vectors.subarray(oldStart, oldStart + this.dimension), newOffset * this.dimension);
+        persistedEntries[id] = { ...entry.metadata, offset: newOffset };
+        newOffset += 1;
+      }
+    } else {
+      // No orphan rows — the packed array is already compact.
+      // Write a subarray view directly; no copy needed.
+      liveVectors = this.vectors.subarray(0, liveCount * this.dimension);
+      for (const [id, entry] of this.entriesById.entries()) {
+        persistedEntries[id] = { ...entry.metadata, offset: entry.offset };
+      }
     }
 
     const envelope: FlatStoreMeta<M> & Record<string, unknown> = {
       ...this.extraMeta,
       version: this.version,
       dimension: this.dimension,
-      count: this.entriesById.size,
+      count: liveCount,
       entries: persistedEntries,
     };
     try {
@@ -285,19 +303,17 @@ export class FlatVectorStore<M> implements VectorStore<M> {
       const binPath = this.sidecarDir.getPath(this.binFile);
       const dir = path.dirname(binPath);
       await fs.promises.mkdir(dir, { recursive: true });
-      const buffer = Buffer.from(liveVectors.buffer, liveVectors.byteOffset, envelope.count * this.dimension * 4);
+      const buffer = Buffer.from(liveVectors.buffer, liveVectors.byteOffset, liveCount * this.dimension * 4);
       await fs.promises.writeFile(binPath, buffer);
-      // Rewrite our in-memory vectors as the compacted form so
-      // subsequent upserts start from a clean offset map.
-      this.vectors = liveVectors;
-      this.vectorCount = this.entriesById.size;
-      for (const [id, newMeta] of Object.entries(persistedEntries)) {
-        // Strip the persisted `offset` field before storing back into
-        // entriesById — metadata must be pure M, not M + implementation detail.
-        // (restore() already does this correctly via destructuring; the
-        // post-persist update was leaking offset into the metadata object.)
-        const { offset: newOffset, ...cleanMeta } = newMeta as M & { offset: number };
-        this.entriesById.set(id, { metadata: cleanMeta as M, offset: newOffset });
+      if (hasOrphans) {
+        // Apply the new compact offsets back to the in-memory store so
+        // subsequent upserts start from a clean offset map.
+        this.vectors = liveVectors as Float32Array<ArrayBuffer>;
+        this.vectorCount = liveCount;
+        for (const [id, newMeta] of Object.entries(persistedEntries)) {
+          const { offset: newOffset, ...cleanMeta } = newMeta as M & { offset: number };
+          this.entriesById.set(id, { metadata: cleanMeta as M, offset: newOffset });
+        }
       }
     } catch (err) {
       console.warn('[FlatVectorStore] persist failed:', err);
@@ -307,29 +323,33 @@ export class FlatVectorStore<M> implements VectorStore<M> {
   async restore(): Promise<void> {
     if (!this.sidecarDir?.isReady()) return;
     try {
-      const envelope = await this.sidecarDir.readJson<FlatStoreMeta<M> & Record<string, unknown>>(this.metaFile);
+      const binPath = this.sidecarDir.getPath(this.binFile);
+      // Read metadata JSON and binary file in parallel — saves one
+      // sequential I/O round-trip on every activation.
+      const [envelope, rawBuffer] = await Promise.all([
+        this.sidecarDir.readJson<FlatStoreMeta<M> & Record<string, unknown>>(this.metaFile),
+        fs.promises.readFile(binPath).catch((): Buffer | null => null),
+      ]);
       if (!envelope) return;
       if (!this.validateMeta(envelope as FlatStoreMeta<unknown> & Record<string, unknown>)) {
         console.warn(
           `[FlatVectorStore] persisted meta failed validation (model/dimension changed?) — deleting stale cache and re-indexing`,
         );
         await fs.promises.unlink(this.sidecarDir.getPath(this.metaFile)).catch(() => {});
-        await fs.promises.unlink(this.sidecarDir.getPath(this.binFile)).catch(() => {});
+        await fs.promises.unlink(binPath).catch(() => {});
         return;
       }
-      const binPath = this.sidecarDir.getPath(this.binFile);
-      let buffer: Buffer;
-      try {
-        buffer = await fs.promises.readFile(binPath);
-      } catch {
-        return; // file absent — rebuild
-      }
+      if (!rawBuffer) return; // binary absent — rebuild
       const expectedBytes = envelope.count * this.dimension * 4;
-      if (buffer.byteLength < expectedBytes) {
+      if (rawBuffer.byteLength < expectedBytes) {
         console.warn('[FlatVectorStore] persisted vector file too small — rebuilding');
         return;
       }
-      this.vectors = new Float32Array(buffer.buffer as ArrayBuffer, buffer.byteOffset, envelope.count * this.dimension);
+      this.vectors = new Float32Array(
+        rawBuffer.buffer as ArrayBuffer,
+        rawBuffer.byteOffset,
+        envelope.count * this.dimension,
+      );
       this.vectorCount = envelope.count;
       this.entriesById.clear();
       for (const [id, entryPlusOffset] of Object.entries(envelope.entries)) {
