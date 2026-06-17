@@ -833,7 +833,7 @@
       const removeBtn = document.createElement('button');
       removeBtn.textContent = '\u00d7';
       removeBtn.className = 'image-remove';
-      removeBtn.dataset.imageIndex = i;
+      removeBtn.dataset.imageIndex = String(i);
       const wrapper = document.createElement('span');
       wrapper.className = 'image-thumb-wrapper';
       wrapper.appendChild(img);
@@ -2483,7 +2483,7 @@
       }
 
       // Horizontal rule: --- or *** or ___ (3+ chars, optional spaces)
-      if (/^\s*([-*_])\s*\1\s*\1[\s\1]*$/.test(line)) {
+      if (/^\s*([-*_])(?:\s*\1){2,}\s*$/.test(line)) {
         parent.appendChild(document.createElement('hr'));
         i++;
         continue;
@@ -2601,7 +2601,7 @@
         !/^\s*[-*]\s+/.test(lines[i]) &&
         !/^\s*\d+\.\s+/.test(lines[i]) &&
         !/^\s*>\s?/.test(lines[i]) &&
-        !/^\s*([-*_])\s*\1\s*\1[\s\1]*$/.test(lines[i])
+        !/^\s*([-*_])(?:\s*\1){2,}\s*$/.test(lines[i])
       ) {
         paraLines.push(lines[i]);
         i++;
@@ -4605,7 +4605,7 @@
       }
 
       case 'suggestNextSteps': {
-        const suggestions = message.suggestions || [];
+        const suggestions = msg.suggestions || [];
         if (suggestions.length > 0) {
           const container = document.createElement('div');
           container.className = 'next-steps';
@@ -4618,11 +4618,11 @@
             btn.className = 'next-step-btn';
             btn.textContent = text;
             btn.addEventListener('click', () => {
-              vscode.postMessage({ type: 'userMessage', content: text });
+              vscode.postMessage({ command: 'userMessage', text });
             });
             container.appendChild(btn);
           }
-          chatMessages.appendChild(container);
+          messagesContainer.appendChild(container);
           scrollToBottom();
         }
         break;
@@ -4941,6 +4941,34 @@
             optionsContainer.appendChild(btn);
           }
           card.appendChild(optionsContainer);
+        }
+
+        // Free-text answer row when custom responses are allowed. Without this
+        // a clarify with no preset options was a dead end (no way to reply).
+        if (allowCustom) {
+          const customRow = document.createElement('div');
+          customRow.className = 'clarify-custom';
+          const input = document.createElement('input');
+          input.type = 'text';
+          input.className = 'clarify-custom-input';
+          input.placeholder = options.length > 0 ? 'Or type your own answer…' : 'Type your answer…';
+          const submit = document.createElement('button');
+          submit.className = 'clarify-custom-submit';
+          submit.textContent = 'Send';
+          const submitCustom = () => {
+            const value = input.value.trim();
+            if (value) sendResponse(value);
+          };
+          submit.addEventListener('click', submitCustom);
+          input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              submitCustom();
+            }
+          });
+          customRow.appendChild(input);
+          customRow.appendChild(submit);
+          card.appendChild(customRow);
         }
 
         messagesContainer.appendChild(card);
