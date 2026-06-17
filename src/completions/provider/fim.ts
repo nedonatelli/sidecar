@@ -12,7 +12,6 @@ import {
 import { SideCarClient } from '../../ollama/client.js';
 import { getConfig } from '../../config/settings.js';
 import { lookupDraftModel } from '../../config/constants.js';
-import { Debouncer } from '../debounce.js';
 import {
   PredictiveContext,
   MIN_PREFIX_LENGTH,
@@ -22,9 +21,11 @@ import {
 } from './shared.js';
 
 export class SideCarCompletionProvider implements InlineCompletionItemProvider {
-  private debouncer = new Debouncer();
   private predictiveContext = new PredictiveContext();
   private editListener;
+  /** Recent completions keyed by (prefix tail + suffix head). Serves undo/redo/revisit instantly. */
+  private readonly completionCache = new Map<string, string>();
+  private static readonly CACHE_MAX = 50;
 
   // Accept-rate tracking for auto-disable when draft model underperforms.
   private speculativeDraftWins = 0;
@@ -128,37 +129,45 @@ export class SideCarCompletionProvider implements InlineCompletionItemProvider {
     context: InlineCompletionContext,
     token: CancellationToken,
   ): Promise<InlineCompletionItem[]> {
-    if (context.triggerKind === InlineCompletionTriggerKind.Invoke) {
-      // Manual invoke — skip debounce
-    } else if (!this.debouncer.shouldTrigger(this.debounceMs)) {
-      return [];
+    // True timer-based debounce: wait debounceMs of silence before hitting the
+    // model. VS Code cancels the token on each cursor move / new keystroke, which
+    // clears the timer — so only the final keystroke in a burst ever fires.
+    if (context.triggerKind !== InlineCompletionTriggerKind.Invoke) {
+      const passed = await new Promise<boolean>((resolve) => {
+        const t = setTimeout(() => resolve(true), this.debounceMs);
+        token.onCancellationRequested(() => {
+          clearTimeout(t);
+          resolve(false);
+        });
+      });
+      if (!passed || token.isCancellationRequested) return [];
     }
 
     const fullPrefix = document.getText(new Range(new Position(0, 0), position));
     const fullSuffix = document.getText(new Range(position, document.lineAt(document.lineCount - 1).range.end));
-
     const prefix = fullPrefix.length > MAX_PREFIX_CHARS ? fullPrefix.slice(-MAX_PREFIX_CHARS) : fullPrefix;
     const suffix = fullSuffix.length > MAX_SUFFIX_CHARS ? fullSuffix.slice(0, MAX_SUFFIX_CHARS) : fullSuffix;
 
-    if (prefix.trim().length < MIN_PREFIX_LENGTH) {
-      return [];
+    if (prefix.trim().length < MIN_PREFIX_LENGTH) return [];
+
+    // Cache hit — serve without a model round-trip. Handles undo/redo/revisit.
+    // Key uses a tail of the prefix + head of the suffix to keep memory bounded.
+    const cacheKey = `${prefix.slice(-500)}|||${suffix.slice(0, 200)}`;
+    const cached = this.completionCache.get(cacheKey);
+    if (cached !== undefined) {
+      return cached ? [new InlineCompletionItem(cached, new Range(position, position))] : [];
     }
 
-    const signal = this.debouncer.getSignal();
-    token.onCancellationRequested(() => this.debouncer.cancel());
-
-    // per-completion latency telemetry
+    const abort = new AbortController();
+    const cancelSub = token.onCancellationRequested(() => abort.abort());
     const startedAt = Date.now();
     let pathLabel = 'unknown';
+    let isRacing = false;
 
     try {
       let completion: string;
 
-      // Role-Based Model Routing . Tag this as the
-      // `completion` role so `sidecar.modelRouting.rules` can point FIM
-      // autocomplete at a different model than the main agent loop.
       this.client.routeForDispatch({ role: 'completion' });
-
       const providerType = this.client.getProviderType();
       const isLocalFim = this.client.isLocalOllama() || providerType === 'kickstand';
 
@@ -171,18 +180,16 @@ export class SideCarCompletionProvider implements InlineCompletionItemProvider {
             : explicitDraft;
 
         if (autoDraft) {
+          isRacing = true;
           pathLabel = `${providerType}-fim-race`;
           completion = await this.raceCompletions(prefix, suffix, autoDraft, token);
         } else {
           pathLabel = `${providerType}-fim`;
-          completion = await this.client.completeFIM(prefix, suffix, undefined, this.maxTokens, signal);
+          completion = await this.client.completeFIM(prefix, suffix, undefined, this.maxTokens, abort.signal);
         }
       } else {
         pathLabel = 'messages-api';
         const recentEditContext = this.predictiveContext.buildRecentEditContext(document.fileName);
-        // stable system preamble for Anthropic prompt caching;
-        // language hint stays in the user message so the system block is
-        // byte-identical across file types.
         const userMessage = this.predictiveContext.buildCompletionUserMessage(
           prefix,
           suffix,
@@ -194,11 +201,24 @@ export class SideCarCompletionProvider implements InlineCompletionItemProvider {
           [{ role: 'user', content: userMessage }],
           undefined,
           this.maxTokens,
-          signal,
+          abort.signal,
         );
       }
 
       completion = PredictiveContext.cleanCompletion(completion, prefix, suffix);
+
+      // Cache single-model results (FIM and messages-api) so undo/redo/revisit
+      // serve instantly without a model round-trip. Racing results are not
+      // cached: the draft model may have won, giving lower-quality output that
+      // shouldn't persist to other positions.
+      if (!isRacing) {
+        if (this.completionCache.size >= SideCarCompletionProvider.CACHE_MAX) {
+          const firstKey = this.completionCache.keys().next().value;
+          if (firstKey !== undefined) this.completionCache.delete(firstKey);
+        }
+        this.completionCache.set(cacheKey, completion);
+      }
+
       if (!completion) return [];
 
       const elapsed = Date.now() - startedAt;
@@ -213,6 +233,8 @@ export class SideCarCompletionProvider implements InlineCompletionItemProvider {
         );
       }
       return [];
+    } finally {
+      cancelSub?.dispose();
     }
   }
 }

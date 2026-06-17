@@ -265,9 +265,14 @@ describe('SideCarCompletionProvider', () => {
       await provider.provideInlineCompletionItems(doc, pos, ctx, makeToken() as never);
     }
 
-    // After auto-disable, the next call should NOT race (only one completeFIM call with undefined model)
+    // After auto-disable, the next call at a NEW position should NOT race (one completeFIM call, no draft)
     const prevCalls = vi.mocked(client.completeFIM).mock.calls.length;
-    await provider.provideInlineCompletionItems(doc, pos, ctx, makeToken() as never);
+    await provider.provideInlineCompletionItems(
+      makeDocument('different prefix to bypass cache') as never,
+      makePosition(5, 20) as never,
+      ctx,
+      makeToken() as never,
+    );
     const newCalls = vi.mocked(client.completeFIM).mock.calls.length - prevCalls;
     // Should be exactly 1 call (no racing), called without a draft model
     expect(newCalls).toBe(1);
