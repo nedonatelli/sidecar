@@ -9,6 +9,7 @@ import {
   buildNoReadReprompt,
   buildNoShellReprompt,
   buildNoFileWriteReprompt,
+  buildNoGroundingReprompt,
   findColocatedTest,
 } from './completionGate.js';
 
@@ -564,6 +565,57 @@ describe('completionGate — buildNoShellReprompt', () => {
   it('returns null for a non-metric question mentioning src/', () => {
     const msgs = [userMsg('Explain how the agent loop in src/ works.')];
     expect(buildNoShellReprompt(msgs)).toBeNull();
+  });
+});
+
+describe('completionGate — buildNoGroundingReprompt', () => {
+  const userMsg = (text: string) => ({ role: 'user' as const, content: [{ type: 'text' as const, text }] });
+  const assistantToolMsg = (name: string, input: Record<string, unknown> = {}) => ({
+    role: 'assistant' as const,
+    content: [{ type: 'tool_use' as const, id: 'x', name, input }],
+  });
+
+  it('fires when user asks to review the architecture and no tool was called', () => {
+    const msgs = [userMsg('Review the design and architecture of this project.')];
+    const result = buildNoGroundingReprompt(msgs);
+    expect(result).not.toBeNull();
+    expect(result).toContain('without reading any of it');
+  });
+
+  it('fires for "evaluate this codebase"', () => {
+    expect(buildNoGroundingReprompt([userMsg('Evaluate this codebase for me.')])).not.toBeNull();
+  });
+
+  it('fires for "audit the structure of the repo"', () => {
+    expect(buildNoGroundingReprompt([userMsg('Audit the structure of the repository.')])).not.toBeNull();
+  });
+
+  it('returns null once a grounding tool (read_file) was called', () => {
+    const msgs = [
+      userMsg('Review the architecture of this project.'),
+      assistantToolMsg('read_file', { path: 'src/agent/loop.ts' }),
+    ];
+    expect(buildNoGroundingReprompt(msgs)).toBeNull();
+  });
+
+  it('returns null once project_knowledge_search was called', () => {
+    const msgs = [
+      userMsg('Assess the design of this codebase.'),
+      assistantToolMsg('project_knowledge_search', { query: 'auth' }),
+    ];
+    expect(buildNoGroundingReprompt(msgs)).toBeNull();
+  });
+
+  it('returns null for an analysis verb with no workspace target', () => {
+    expect(buildNoGroundingReprompt([userMsg('Review my résumé wording.')])).toBeNull();
+  });
+
+  it('returns null for a workspace target with no analysis verb', () => {
+    expect(buildNoGroundingReprompt([userMsg('Explain the architecture of this project.')])).toBeNull();
+  });
+
+  it('returns null when there are no messages', () => {
+    expect(buildNoGroundingReprompt([])).toBeNull();
   });
 });
 

@@ -8,6 +8,7 @@ import {
   buildNoReadReprompt,
   buildNoShellReprompt,
   buildNoFileWriteReprompt,
+  buildNoGroundingReprompt,
 } from '../completionGate.js';
 import type { LoopState } from './state.js';
 
@@ -110,6 +111,19 @@ export async function maybeInjectCompletionGate(
       gateState.noShellRepromptFired = true;
       logger?.info('No-shell gate fired — workspace metric query answered without a shell command');
       callbacks.onText('\n\n🔍 Running shell command to get live data...\n');
+      state.messages.push({ role: 'user', content: [{ type: 'text' as const, text: reprompt }] });
+      return 'injected';
+    }
+  }
+
+  // Check: open-ended review/evaluation of the codebase or design, but no
+  // grounding tool was ever called. Fires at most once per run.
+  if (!gateState.noGroundingRepromptFired && config.completionGateEnabled !== false) {
+    const reprompt = buildNoGroundingReprompt(state.messages);
+    if (reprompt) {
+      gateState.noGroundingRepromptFired = true;
+      logger?.info('No-grounding gate fired — codebase review answered without reading any code');
+      callbacks.onText('\n\n🔎 Reading the code before reviewing it...\n');
       state.messages.push({ role: 'user', content: [{ type: 'text' as const, text: reprompt }] });
       return 'injected';
     }

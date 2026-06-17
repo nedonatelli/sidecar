@@ -43,6 +43,8 @@ export interface GateState {
   noShellRepromptFired: boolean;
   /** True once the no-write-on-named-file reprompt has fired (fires at most once). */
   noFileWriteRepromptFired: boolean;
+  /** True once the no-grounding-on-analysis-query reprompt has fired (fires at most once). */
+  noGroundingRepromptFired: boolean;
 }
 
 export function createGateState(): GateState {
@@ -55,6 +57,7 @@ export function createGateState(): GateState {
     noReadRepromptFired: false,
     noShellRepromptFired: false,
     noFileWriteRepromptFired: false,
+    noGroundingRepromptFired: false,
   };
 }
 
@@ -432,6 +435,71 @@ export function buildNoShellReprompt(messages: ChatMessage[]): string | null {
     'Your response answered a workspace metric question (file count, line count, version, etc.) ' +
     'without running a shell command. Your training data does not reflect the current state of this project. ' +
     'Run the appropriate command (find, wc -l, jq, rg --count, etc.) and answer from the actual output.'
+  );
+}
+
+// ---------------------------------------------------------------------------
+// No-grounding-on-analysis-query gate
+//
+// Fires once when the user asks for an open-ended review/evaluation of the
+// codebase or its design ("review the architecture", "assess this codebase")
+// but the model answered without calling ANY grounding tool — no read_file,
+// grep, search_files, list_directory, project_knowledge_search, or
+// run_command. These questions name no specific file, so the no-read gate
+// never trips; the model is free to answer from injected SIDECAR.md sections
+// + the file tree + RAG context alone. The result is generic, training-data
+// architecture advice that hallucinates absent files and recommends patterns
+// the project already implements. This gate forces at least one look at the
+// actual code before a verdict.
+// ---------------------------------------------------------------------------
+
+/** Analysis verbs that signal the user wants an evaluation of real code. */
+const ANALYSIS_VERB_RE = /\b(review|evaluat(e|ing|ion)|assess|audit|critiqu(e|ing)|analy[sz]e|appraise|inspect)\b/i;
+
+/** Targets that anchor an analysis query to this workspace's code/design. */
+const ANALYSIS_TARGET_RE =
+  /\b(architecture|design|codebase|code\s?base|structure|implementation|module|component|this (project|repo|repository|code|extension)|the (project|repo|repository|codebase|code))\b/i;
+
+/** Tools that constitute "the model actually looked at the code". */
+const GROUNDING_TOOL_NAMES = new Set([
+  'read_file',
+  'grep',
+  'search_files',
+  'list_directory',
+  'run_command',
+  'project_knowledge_search',
+]);
+
+/** Returns true if any assistant message made a grounding tool call. */
+function hasAnyGroundingToolCall(messages: ChatMessage[]): boolean {
+  for (const msg of messages) {
+    if (msg.role !== 'assistant') continue;
+    if (!Array.isArray(msg.content)) continue;
+    for (const b of msg.content) {
+      if (typeof b !== 'object' || b === null || !('type' in b) || b.type !== 'tool_use') continue;
+      if (GROUNDING_TOOL_NAMES.has((b as { name: string }).name)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Returns a reprompt string if the user asked for an open-ended review or
+ * evaluation of the codebase/design but the model answered without calling
+ * any grounding tool. Returns null when no reprompt is needed.
+ */
+export function buildNoGroundingReprompt(messages: ChatMessage[]): string | null {
+  if (hasAnyGroundingToolCall(messages)) return null;
+  const userText = firstUserText(messages);
+  if (!userText) return null;
+  if (!ANALYSIS_VERB_RE.test(userText) || !ANALYSIS_TARGET_RE.test(userText)) return null;
+  return (
+    'You produced a review of this codebase without reading any of it — no read_file, grep, ' +
+    'project_knowledge_search, or other grounding tool was called. Your training data does not ' +
+    'include this project, so every claim about what the code does, lacks, or should add is a guess. ' +
+    'Inspect the relevant modules first (grep for the patterns you intend to comment on, read the files ' +
+    'that own them), then ground each point in what you actually found — cite the file/symbol. ' +
+    'Before recommending any pattern, search for it: do not advise adding something the project already has.'
   );
 }
 
