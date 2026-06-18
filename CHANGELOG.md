@@ -4,6 +4,20 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.114.2] - 2026-06-18
+
+**v0.114.2 — Completes the scaffolding subsystem: structured critic output (V3) + comprehensive multi-facet review (O2).**
+
+### Verify
+
+- **Structured-output JSON schema for the critic (V3)** — an optional `responseFormat` ('json' | JSON-schema) now threads through `ApiBackend.complete`; OllamaBackend enforces it via the native `format` field and both critic calls pass `CRITIC_FINDINGS_SCHEMA`, so weak local models emit valid findings JSON instead of leaning on the tolerant parser. Cloud backends accept-and-ignore (parser stays as fallback). (`src/ollama/backend.ts`, `src/ollama/ollamaBackend.ts`, `src/agent/critic.ts`)
+
+### Orchestrate
+
+- **Comprehensive multi-facet review (O2)** — a "comprehensive / thorough / full" review (or one naming both architecture and security) dispatches the architecture + security reviewers in parallel and merges them into one report via deterministic per-specialist-section concatenation (no LLM merge → no new hallucination surface). (`src/webview/handlers/messageUtils.ts`, `src/agent/facets/facetSynthesis.ts`)
+
+All nine scaffolding-roadmap initiatives (V1/M1/V2/A1/M2/A2/O1/V3/O2) are now shipped. See `docs/scaffolding-roadmap.md`.
+
 ## [0.114.1] - 2026-06-17
 
 ### Fixed
