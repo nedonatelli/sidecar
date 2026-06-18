@@ -1,6 +1,6 @@
 import type { ChatMessage, ToolDefinition, StreamEvent } from './types.js';
 import { logger } from '../system/logger.js';
-import type { ApiBackend } from './backend.js';
+import type { ApiBackend, ResponseFormat } from './backend.js';
 import { AnthropicBackend } from './anthropicBackend.js';
 import { OllamaBackend } from './ollamaBackend.js';
 import { OpenAIBackend } from './openaiBackend.js';
@@ -443,13 +443,14 @@ export class SideCarClient {
     overrideModel?: string,
     maxTokens: number = 1024,
     signal?: AbortSignal,
+    responseFormat?: ResponseFormat,
   ): Promise<string> {
     const model = overrideModel && overrideModel.trim().length > 0 ? overrideModel : this.model;
     // Mirror the spend-delta hook from `complete()` so router budget
     // tracking works for critic dispatches too.
     const preSpend = spendTracker.snapshot().totalUsd;
     try {
-      const result = await this.backend.complete(model, systemPrompt, messages, maxTokens, signal);
+      const result = await this.backend.complete(model, systemPrompt, messages, maxTokens, signal, responseFormat);
       this.chargeLastDecision(spendTracker.snapshot().totalUsd - preSpend);
       return result;
     } catch (err) {

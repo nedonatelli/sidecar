@@ -8,6 +8,7 @@ import type { getConfig } from '../../config/settings.js';
 import {
   CRITIC_SYSTEM_PROMPT,
   ANALYSIS_CRITIC_SYSTEM_PROMPT,
+  CRITIC_FINDINGS_SCHEMA,
   buildEditCriticPrompt,
   buildTestFailureCriticPrompt,
   buildAnalysisCriticPrompt,
@@ -315,6 +316,7 @@ export async function runCriticChecks(opts: RunCriticOptions): Promise<string | 
         modelOverride,
         1024,
         signal,
+        CRITIC_FINDINGS_SCHEMA,
       );
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return null;
@@ -543,6 +545,7 @@ export async function applyAnalysisCritic(
       modelOverride,
       1024,
       signal,
+      CRITIC_FINDINGS_SCHEMA,
     );
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') return;

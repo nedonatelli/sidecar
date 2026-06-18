@@ -37,6 +37,32 @@ export interface CriticFinding {
   evidence: string;
 }
 
+/**
+ * JSON schema for the critic's response (scaffolding roadmap V3). Passed to the
+ * backend as a structured-output constraint so models that support it (Ollama
+ * via `format`) emit valid, well-shaped JSON directly — the tolerant
+ * `parseCriticResponse` stays as the universal fallback for backends that
+ * don't enforce it.
+ */
+export const CRITIC_FINDINGS_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  properties: {
+    findings: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          severity: { type: 'string', enum: ['high', 'low'] },
+          title: { type: 'string' },
+          evidence: { type: 'string' },
+        },
+        required: ['severity', 'title', 'evidence'],
+      },
+    },
+  },
+  required: ['findings'],
+};
+
 /** Result of parsing a raw critic response. */
 export interface CriticParseResult {
   /** Valid, well-shaped findings. */

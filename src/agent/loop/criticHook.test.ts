@@ -17,6 +17,7 @@ vi.mock('../../config/settings.js', () => ({
 vi.mock('../critic.js', () => ({
   CRITIC_SYSTEM_PROMPT: 'critic system prompt',
   ANALYSIS_CRITIC_SYSTEM_PROMPT: 'analysis critic prompt',
+  CRITIC_FINDINGS_SCHEMA: { type: 'object' },
   buildEditCriticPrompt: vi.fn().mockReturnValue('please review this edit'),
   buildTestFailureCriticPrompt: vi.fn().mockReturnValue('please review this failure'),
   buildAnalysisCriticPrompt: vi.fn().mockReturnValue('please fact-check this analysis'),

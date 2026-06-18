@@ -129,6 +129,32 @@ describe('OllamaBackend', () => {
       expect(body.tools[0].type).toBe('function');
       expect(body.tools[0].function.name).toBe('read_file');
     });
+  });
+
+  describe('complete — structured output (V3)', () => {
+    function mockCompleteResponse(content: string) {
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ message: { content } }) });
+    }
+
+    it('sets body.format to a JSON schema when responseFormat is given', async () => {
+      mockCompleteResponse('{"findings":[]}');
+      const schema = { type: 'object', properties: { findings: { type: 'array' } } };
+      await backend.complete('m', 'sys', [{ role: 'user', content: 'hi' }], 1024, undefined, schema);
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.format).toEqual(schema);
+    });
+
+    it("sets body.format to 'json' for the json sentinel", async () => {
+      mockCompleteResponse('{}');
+      await backend.complete('m', 'sys', [{ role: 'user', content: 'hi' }], 1024, undefined, 'json');
+      expect(JSON.parse(mockFetch.mock.calls[0][1].body).format).toBe('json');
+    });
+
+    it('omits format entirely when no responseFormat is given (unchanged behavior)', async () => {
+      mockCompleteResponse('plain text');
+      await backend.complete('m', 'sys', [{ role: 'user', content: 'hi' }], 1024);
+      expect('format' in JSON.parse(mockFetch.mock.calls[0][1].body)).toBe(false);
+    });
 
     it('emits warning and does not send tools for unsupported models', async () => {
       // First call: probe returns no tool support
