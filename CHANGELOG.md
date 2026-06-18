@@ -4,6 +4,12 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.114.1] - 2026-06-17
+
+### Fixed
+
+- **Security-reviewer hallucinated dependency vulnerabilities** — the facet claimed to run `check_dependencies` and reported real package versions as VULNERABLE with invented GHSA ids, but the tool wasn't in its allowlist so it couldn't have run it. Added `check_dependencies` (read-only OSV scan) to the allowlist and hardened the prompt to report only vulnerabilities the scan actually returns. Requires `sidecar.deps.enabled`. (`src/agent/facets/facetLoader.ts`)
+
 ## [0.114.0] - 2026-06-17
 
 **v0.114.0 — Scaffolding subsystem: grounded reviews, capability-adaptive harness, and ablation measurement.**
