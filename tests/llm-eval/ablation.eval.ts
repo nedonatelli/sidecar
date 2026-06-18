@@ -1,0 +1,89 @@
+import { describe, it } from 'vitest';
+import { AGENT_CASES } from './agentCases.js';
+import { CODE_QUALITY_CASES } from './codeQualityCases.js';
+import { runAgentCase, pickAgentBackend } from './agentHarness.js';
+import type { AgentEvalCase } from './agentTypes.js';
+import { summarizeAblation, formatAblationReport, type AblationRun } from '../../src/agent/ablation.js';
+
+// ---------------------------------------------------------------------------
+// Scaffold ablation runner (scaffolding roadmap M2).
+//
+// Runs each selected case with and without a scaffold and reports the
+// scaffold's LIFT (pass-rate delta) and LATENCY cost. For local-first we
+// cannot assume a scaffold helps — a same-model self-check shares the model's
+// blind spots — so M2 is how we prove (or cut) each scaffold on the one model
+// the operator actually runs.
+//
+// Run with: `npm run eval:ablation` (real model — local Ollama by default).
+// Narrow the matrix with the standard filters; ablation is only meaningful on
+// cases that actually exercise the scaffold:
+//   SIDECAR_EVAL_CASE=review-cites-real-paths npm run eval:ablation
+//   SIDECAR_ABLATION_REPS=3 npm run eval:ablation   (more reps → less variance)
+//   SIDECAR_ABLATION_DIMS=completionGate,analysisCritic npm run eval:ablation
+// ---------------------------------------------------------------------------
+
+interface AblationDimension {
+  scaffold: string;
+  /** Config when the scaffold is active. */
+  present: Record<string, unknown>;
+  /** Config when the scaffold is removed. */
+  absent: Record<string, unknown>;
+}
+
+const ALL_DIMENSIONS: AblationDimension[] = [
+  { scaffold: 'completionGate', present: { completionGateEnabled: true }, absent: { completionGateEnabled: false } },
+  // The edit + analysis critics share the criticEnabled flag; default is off,
+  // so "present" measures whether turning it ON lifts pass-rate.
+  { scaffold: 'critic', present: { criticEnabled: true }, absent: { criticEnabled: false } },
+  { scaffold: 'autoFix', present: { autoFixOnFailure: true }, absent: { autoFixOnFailure: false } },
+];
+
+const CASE_FILTER = process.env.SIDECAR_EVAL_CASE?.split(',').map((s) => s.trim());
+const TAG_FILTER = process.env.SIDECAR_EVAL_TAGS?.split(',').map((s) => s.trim());
+const DIM_FILTER = process.env.SIDECAR_ABLATION_DIMS?.split(',').map((s) => s.trim());
+const REPS = Math.max(1, parseInt(process.env.SIDECAR_ABLATION_REPS ?? '1', 10) || 1);
+
+// Default to the smoke set — ablating the full suite × dimensions × arms is
+// hours of real-model time. The operator narrows to scaffold-relevant cases.
+const ALL_CASES = [...AGENT_CASES, ...CODE_QUALITY_CASES];
+const SELECTED_CASES = ALL_CASES.filter((c) => {
+  if (CASE_FILTER) return CASE_FILTER.some((f) => c.id.includes(f));
+  if (TAG_FILTER) return TAG_FILTER.every((t) => c.tags.includes(t));
+  return c.tags.includes('smoke');
+});
+const DIMENSIONS = DIM_FILTER ? ALL_DIMENSIONS.filter((d) => DIM_FILTER.includes(d.scaffold)) : ALL_DIMENSIONS;
+
+const backend = pickAgentBackend();
+
+describe.skipIf(!backend)('llm-eval :: scaffold ablation', () => {
+  const runs: AblationRun[] = [];
+
+  for (const dim of DIMENSIONS) {
+    for (const evalCase of SELECTED_CASES) {
+      for (const arm of [true, false] as const) {
+        const armConfig = arm ? dim.present : dim.absent;
+        for (let rep = 0; rep < REPS; rep++) {
+          it(`${dim.scaffold} ${arm ? 'on' : 'off'} :: ${evalCase.id}${REPS > 1 ? ` #${rep + 1}` : ''}`, async () => {
+            const cased: AgentEvalCase = {
+              ...evalCase,
+              configOverrides: { ...evalCase.configOverrides, ...armConfig } as AgentEvalCase['configOverrides'],
+            };
+            const result = await runAgentCase(cased, backend!);
+            runs.push({
+              scaffold: dim.scaffold,
+              present: arm,
+              caseId: evalCase.id,
+              passed: result.passed,
+              durationMs: result.durationMs,
+            });
+          });
+        }
+      }
+    }
+  }
+
+  it('ablation summary', () => {
+    // eslint-disable-next-line no-console -- intentional report output
+    console.log('\n' + formatAblationReport(summarizeAblation(runs)) + '\n');
+  });
+});

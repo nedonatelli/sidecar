@@ -3269,6 +3269,7 @@
     "eval:llm": "SIDECAR_DISABLE_THINKING=true vitest run --config vitest.eval.config.ts",
     "eval:smoke": "SIDECAR_DISABLE_THINKING=true SIDECAR_EVAL_TAGS=smoke vitest run --config vitest.eval.config.ts tests/llm-eval/agent.eval.ts",
     "eval:agent": "SIDECAR_DISABLE_THINKING=true vitest run --config vitest.eval.config.ts tests/llm-eval/agent.eval.ts",
+    "eval:ablation": "SIDECAR_DISABLE_THINKING=true vitest run --config vitest.eval.config.ts tests/llm-eval/ablation.eval.ts",
     "eval:prompt": "SIDECAR_DISABLE_THINKING=true vitest run --config vitest.eval.config.ts tests/llm-eval/prompt.eval.ts",
     "eval:case": "SIDECAR_DISABLE_THINKING=true vitest run --config vitest.eval.config.ts tests/llm-eval/agent.eval.ts tests/llm-eval/prompt.eval.ts",
     "eval:parity": "vitest run --config vitest.eval.config.ts tests/llm-eval/embeddingParity.eval.ts",
