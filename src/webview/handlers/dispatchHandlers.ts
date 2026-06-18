@@ -41,12 +41,13 @@ import {
   isShowDiffRequest,
 } from './chatHandlers.js';
 import {
-  classifyReviewFacet,
+  classifyReviewFacets,
   isArchReviewAccept,
   isArchReviewDecline,
   runReviewLabel,
   ANSWER_INLINE_LABEL,
 } from './messageUtils.js';
+import { synthesizeFacetReviews } from '../../agent/facets/facetSynthesis.js';
 import { handleRequestFileCompletion, revertEditPlanFile } from './fileHandlers.js';
 import { handleGitHubCommand } from './githubHandlers.js';
 import { handleInstallModel } from './modelHandlers.js';
@@ -109,13 +110,14 @@ const ALLOWED_EXTENSION_COMMANDS = new Set([
 ]);
 
 /**
- * Dispatch the read-only architecture-reviewer facet for a whole-repo review,
- * streaming its output into the chat panel and opening the final review as a
- * markdown tab. Runs inside a cancellable progress notification; the chat
- * spinner is cleared via `done` in `finally`.
+ * Dispatch one or more read-only review specialists for a codebase review (O1
+ * single-facet, O2 comprehensive multi-facet), streaming their output into the
+ * chat panel and opening the synthesized review as a single markdown tab. Runs
+ * inside a cancellable progress notification; the chat spinner is cleared via
+ * `done` in `finally`.
  */
-async function runFacetReview(state: ChatState, facetId: string, displayName: string, task: string): Promise<void> {
-  if (!task.trim()) return;
+async function runFacetReview(state: ChatState, facetIds: string[], displayName: string, task: string): Promise<void> {
+  if (!task.trim() || facetIds.length === 0) return;
   const { runFacetDispatchCommand, createDefaultFacetCommandUi } = await import('../../agent/facets/facetCommands.js');
   const { loadFacetRegistry } = await import('../../agent/facets/facetDiskLoader.js');
   const { createClient } = await import('../../ollama/factory.js');
@@ -148,7 +150,7 @@ async function runFacetReview(state: ChatState, facetId: string, displayName: st
             maxConcurrent: cfg.facetsMaxConcurrent,
             rpcTimeoutMs: cfg.facetsRpcTimeoutMs,
           },
-          preSelectedFacetIds: [facetId],
+          preSelectedFacetIds: facetIds,
           preFilledTask: task,
         });
       },
@@ -156,12 +158,21 @@ async function runFacetReview(state: ChatState, facetId: string, displayName: st
   } finally {
     state.postMessage({ command: 'done' });
   }
+  // Synthesize the read-only reviews into ONE markdown report (O2). For a
+  // single reviewer this is the same single-review doc as before; for a
+  // comprehensive review it's the merged, per-specialist-sectioned report.
   if (outcome?.mode === 'dispatched') {
-    for (const r of outcome.batch.results) {
-      const hasDiff = !!r.sandbox.pendingDiff && r.sandbox.pendingDiff.length > 0;
-      if (!r.success || hasDiff || !r.output || r.output === '(facet produced no output)') continue;
-      const content = `# ${r.facetId} — review\n\n_Task: ${outcome.task}_\n\n${r.output}\n`;
-      const doc = await workspace.openTextDocument({ content, language: 'markdown' });
+    const report = synthesizeFacetReviews(
+      outcome.task,
+      outcome.batch.results.map((r) => ({
+        facetId: r.facetId,
+        output: r.output,
+        success: r.success,
+        hasDiff: !!r.sandbox.pendingDiff && r.sandbox.pendingDiff.length > 0,
+      })),
+    );
+    if (report) {
+      const doc = await workspace.openTextDocument({ content: report, language: 'markdown' });
       await window.showTextDocument(doc, { preview: false });
     }
   }
@@ -192,10 +203,10 @@ export function buildDispatchHandlers(
       // a typed "run it" / "run the security reviewer" also accepts).
       // Anything unrelated drops the offer and is handled normally.
       if (state.pendingFacetReview) {
-        const { facetId, displayName, task } = state.pendingFacetReview;
+        const { facetIds, displayName, task } = state.pendingFacetReview;
         if (isArchReviewAccept(text)) {
           state.pendingFacetReview = null;
-          await runFacetReview(state, facetId, displayName, task);
+          await runFacetReview(state, facetIds, displayName, task);
           return;
         }
         if (isArchReviewDecline(text)) {
@@ -286,15 +297,18 @@ export function buildDispatchHandlers(
       }
       // Codebase review/audit → offer the matching grounded review specialist
       // instead of answering inline (which tends toward ungrounded boilerplate).
-      const reviewFacet = getConfig().facetsEnabled ? classifyReviewFacet(text) : null;
+      const reviewFacet = getConfig().facetsEnabled ? classifyReviewFacets(text) : null;
       if (reviewFacet) {
-        state.pendingFacetReview = { facetId: reviewFacet.facetId, displayName: reviewFacet.displayName, task: text };
+        state.pendingFacetReview = { facetIds: reviewFacet.facetIds, displayName: reviewFacet.displayName, task: text };
+        const plural = reviewFacet.facetIds.length > 1;
         state.postMessage({
           command: 'assistantMessage',
           content:
-            `This looks like a codebase review. I can run the **${reviewFacet.displayName}** specialist — ` +
-            'a read-only pass that reads the relevant modules and cites `file:symbol` evidence for every point, ' +
-            'rather than answering from memory. Reply **run it** (or click below), or say **answer inline** for a quick take.',
+            `This looks like a codebase review. I can run the **${reviewFacet.displayName}** ` +
+            `${plural ? 'specialists' : 'specialist'} — ${plural ? 'read-only passes' : 'a read-only pass'} that ` +
+            'read the relevant modules and cite `file:symbol` evidence for every point, rather than answering from ' +
+            `memory${plural ? ', merged into one report' : ''}. Reply **run it** (or click below), or say ` +
+            '**answer inline** for a quick take.',
         });
         state.postMessage({
           command: 'suggestNextSteps',

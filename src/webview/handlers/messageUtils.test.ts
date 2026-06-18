@@ -5,6 +5,7 @@ import {
   isArchReviewAccept,
   isArchReviewDecline,
   classifyReviewFacet,
+  classifyReviewFacets,
   runReviewLabel,
   RUN_ARCH_REVIEW_LABEL,
   ANSWER_INLINE_LABEL,
@@ -37,6 +38,28 @@ describe('classifyReviewFacet', () => {
     const label = runReviewLabel('Security Reviewer');
     expect(label).toContain('Security Reviewer');
     expect(isArchReviewAccept(label)).toBe(true);
+  });
+});
+
+describe('classifyReviewFacets (O2 multi-facet)', () => {
+  it('dispatches both reviewers for a comprehensive review', () => {
+    const sel = classifyReviewFacets('do a comprehensive review of this codebase');
+    expect(sel?.facetIds).toEqual(['architecture-reviewer', 'security-reviewer']);
+  });
+
+  it('dispatches both when architecture AND security are named', () => {
+    const sel = classifyReviewFacets('review the architecture and security of this repo');
+    expect(sel?.facetIds).toEqual(['architecture-reviewer', 'security-reviewer']);
+  });
+
+  it('falls back to a single specialist for a plain review', () => {
+    expect(classifyReviewFacets('review the architecture of this repo')?.facetIds).toEqual(['architecture-reviewer']);
+    expect(classifyReviewFacets('audit this codebase for security holes')?.facetIds).toEqual(['security-reviewer']);
+  });
+
+  it('returns null for non-review requests', () => {
+    expect(classifyReviewFacets('review src/agent/loop.ts')).toBeNull();
+    expect(classifyReviewFacets('what is the architecture?')).toBeNull();
   });
 });
 

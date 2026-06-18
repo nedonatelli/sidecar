@@ -278,6 +278,31 @@ export function runReviewLabel(displayName: string): string {
   return `▶ Run ${displayName} (grounded, cited)`;
 }
 
+const COMPREHENSIVE_RE = /\b(comprehensive|thorough|full|complete|in[-\s]?depth|end[-\s]?to[-\s]?end|overall)\b/i;
+
+/** One or more review specialists to dispatch for a request (O2 multi-facet). */
+export interface ReviewFacetSelection {
+  facetIds: string[];
+  displayName: string;
+}
+
+/**
+ * Route a review request to one OR MORE specialists (O2). A "comprehensive /
+ * thorough / full" review, or one that explicitly asks for both architecture
+ * and security, dispatches the architecture + security reviewers together
+ * (synthesized into one report). Otherwise it falls back to the single
+ * specialist classifyReviewFacet picks. Returns null for non-review requests.
+ */
+export function classifyReviewFacets(text: string): ReviewFacetSelection | null {
+  const single = classifyReviewFacet(text);
+  if (!single) return null;
+  const bothNamed = /\barchitecture\b/i.test(text) && /\bsecurity\b/i.test(text);
+  if (COMPREHENSIVE_RE.test(text) || bothNamed) {
+    return { facetIds: ['architecture-reviewer', 'security-reviewer'], displayName: 'Architecture + Security review' };
+  }
+  return { facetIds: [single.facetId], displayName: single.displayName };
+}
+
 /**
  * Detect if a user request should automatically trigger plan mode.
  * Large tasks benefit from planning before execution.

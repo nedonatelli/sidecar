@@ -168,7 +168,7 @@ export class ChatState {
    * Holds the matched specialist + original task when a review-specialist offer
    * (O1) is pending. Read when the user accepts/declines the offer, then cleared.
    */
-  pendingFacetReview: { facetId: string; displayName: string; task: string } | null = null;
+  pendingFacetReview: { facetIds: string[]; displayName: string; task: string } | null = null;
 
   constructor(
     readonly context: ExtensionContext,
