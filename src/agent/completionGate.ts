@@ -353,7 +353,7 @@ const WORKSPACE_METRIC_RE =
 const WORKSPACE_DIR_RE =
   /\b(src|tests?|lib|pkg|cmd)\b[/\\]|\bpackage\.json\b|\btsconfig\b|\bCargo\.toml\b|\bgo\.mod\b/i;
 
-function firstUserText(messages: ChatMessage[]): string {
+export function firstUserText(messages: ChatMessage[]): string {
   for (const msg of messages) {
     if (msg.role !== 'user') continue;
     if (typeof msg.content === 'string') return msg.content;
@@ -464,6 +464,11 @@ const ANALYSIS_VERB_RE = /\b(review|evaluat(e|ing|ion)|assess|audit|critiqu(e|in
 const ANALYSIS_TARGET_RE =
   /\b(architecture|design|codebase|code\s?base|structure|implementation|module|component|this (project|repo|repository|code|extension)|the (project|repo|repository|codebase|code))\b/i;
 
+/** True when the message asks for an evaluation/review of real code in this workspace. */
+export function isAnalysisRequest(text: string): boolean {
+  return ANALYSIS_VERB_RE.test(text) && ANALYSIS_TARGET_RE.test(text);
+}
+
 /** Tools that constitute "the model actually looked at the code". */
 const GROUNDING_TOOL_NAMES = new Set([
   'read_file',
@@ -496,7 +501,7 @@ export function buildNoGroundingReprompt(messages: ChatMessage[]): string | null
   if (hasAnyGroundingToolCall(messages)) return null;
   const userText = firstUserText(messages);
   if (!userText) return null;
-  if (!ANALYSIS_VERB_RE.test(userText) || !ANALYSIS_TARGET_RE.test(userText)) return null;
+  if (!isAnalysisRequest(userText)) return null;
   return (
     'You produced a review of this codebase without reading any of it — no read_file, grep, ' +
     'project_knowledge_search, or other grounding tool was called. Your training data does not ' +
@@ -560,7 +565,7 @@ export async function buildUnverifiedClaimReprompt(
 ): Promise<string | null> {
   const userText = firstUserText(messages);
   if (!userText) return null;
-  if (!ANALYSIS_VERB_RE.test(userText) || !ANALYSIS_TARGET_RE.test(userText)) return null;
+  if (!isAnalysisRequest(userText)) return null;
 
   const answer = lastAssistantText(messages);
   if (!answer) return null;

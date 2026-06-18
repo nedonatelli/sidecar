@@ -146,6 +146,10 @@ export interface LoopState {
   // stripped) so cosmetic re-runs of the same failure collapse.
   criticInjectionsByTestHash: Map<string, number>;
 
+  // True once the analysis fact-check critic (V2) has fired this run.
+  // Fires at most once. analysisCriticHook is the only writer.
+  analysisCriticFired: boolean;
+
   // Per-tool call counts for budget enforcement. toolBudget.ts is
   // the only reader; executeToolUses.ts is the only writer.
   toolCallCounts: Map<string, number>;
@@ -223,6 +227,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     filesReadThisRun: new Set<string>(),
     criticInjectionsByFile: new Map<string, number>(),
     criticInjectionsByTestHash: new Map<string, number>(),
+    analysisCriticFired: false,
     toolCallCounts: new Map<string, number>(),
     gateState: createGateState(),
     currentEditPlan: null,

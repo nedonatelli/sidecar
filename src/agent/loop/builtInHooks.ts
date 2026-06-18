@@ -1,6 +1,6 @@
 import { applyAutoFix } from './autoFix.js';
 import { applyStubCheck } from './stubCheck.js';
-import { applyCritic } from './criticHook.js';
+import { applyCritic, applyAnalysisCritic } from './criticHook.js';
 import { recordGateToolUses, maybeInjectCompletionGate } from './gate.js';
 import { maybeInjectActionReprompt } from './actionReprompt.js';
 import type { PolicyHook, HookContext, HookResult } from './policyHook.js';
@@ -113,6 +113,24 @@ const completionGateHook: PolicyHook = {
 };
 
 /**
+ * Adversarial analysis critic (scaffolding roadmap V2). Fires on the final
+ * answer of a read-only analysis/review turn, fact-checking its claims against
+ * the read-evidence the agent gathered. Registered AFTER completionGate so the
+ * cheap deterministic gates (V1 citation check, no-grounding) run first and the
+ * expensive LLM critic only weighs in on otherwise-clean final answers.
+ * Gated behind `criticEnabled` inside applyAnalysisCritic — default off.
+ */
+const analysisCriticHook: PolicyHook = {
+  name: 'analysisCritic',
+  async onEmptyResponse(state: LoopState, ctx: HookContext): Promise<HookResult> {
+    if (ctx.fullText === undefined) return { mutated: false };
+    const before = state.messages.length;
+    await applyAnalysisCritic(state, ctx.client, ctx.config, ctx.fullText, ctx.callbacks, ctx.signal);
+    return { mutated: state.messages.length > before };
+  },
+};
+
+/**
  * Default policy hook list registered by `runAgentLoop`. Exported so
  * the orchestrator can register them into a fresh `HookBus` at the
  * top of each run and so tests can assert the default set is what
@@ -126,5 +144,5 @@ export function defaultPolicyHooks(): PolicyHook[] {
   // actionRepromptHook runs before completionGate so the model gets
   // nudged to call tools before the gate demands verification of edits
   // it hasn't made yet.
-  return [autoFixHook, stubCheckHook, criticHook, actionRepromptHook, completionGateHook];
+  return [autoFixHook, stubCheckHook, criticHook, actionRepromptHook, completionGateHook, analysisCriticHook];
 }

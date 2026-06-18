@@ -46,6 +46,7 @@ function makeState(logger?: AgentLogger): LoopState {
     filesReadThisRun: new Set<string>(),
     criticInjectionsByFile: new Map(),
     criticInjectionsByTestHash: new Map(),
+    analysisCriticFired: false,
     toolCallCounts: new Map(),
     gateState: null as any,
     checkpointFired: false,

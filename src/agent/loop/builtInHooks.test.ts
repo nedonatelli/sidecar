@@ -81,7 +81,7 @@ beforeEach(() => {
 });
 
 describe('defaultPolicyHooks list shape', () => {
-  it('returns 5 hooks in a stable order', () => {
+  it('returns the hooks in a stable order', () => {
     const hooks = defaultPolicyHooks();
     expect(hooks.map((h) => h.name)).toEqual([
       'autoFix',
@@ -89,6 +89,7 @@ describe('defaultPolicyHooks list shape', () => {
       'adversarialCritic',
       'actionReprompt',
       'completionGate',
+      'analysisCritic',
     ]);
   });
 

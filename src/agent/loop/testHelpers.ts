@@ -35,6 +35,7 @@ export function stubLoopState(overrides: Partial<LoopState> = {}): LoopState {
     filesReadThisRun: new Set<string>(),
     criticInjectionsByFile: new Map(),
     criticInjectionsByTestHash: new Map(),
+    analysisCriticFired: false,
     toolCallCounts: new Map(),
     gateState: {} as LoopState['gateState'],
     currentEditPlan: null,
