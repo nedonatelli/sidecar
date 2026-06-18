@@ -218,7 +218,7 @@ export function isRepoReviewRequest(text: string): boolean {
 }
 
 const ARCH_REVIEW_ACCEPT_RE =
-  /\b(run|launch|dispatch|use|yes|yeah|yep|sure|ok|okay|go ahead|go for it|do it|please do|sounds good|the specialist|architecture reviewer)\b/i;
+  /\b(run|launch|dispatch|use|yes|yeah|yep|sure|ok|okay|go ahead|go for it|do it|please do|sounds good|the specialist|reviewer)\b/i;
 const ARCH_REVIEW_DECLINE_RE =
   /\b(no|nope|nah|inline|just (?:answer|tell|summar|do)|don'?t|skip|yourself|never\s?mind|forget it)\b/i;
 
@@ -232,6 +232,50 @@ export function isArchReviewAccept(text: string): boolean {
 export function isArchReviewDecline(text: string): boolean {
   if (!text) return false;
   return ARCH_REVIEW_DECLINE_RE.test(text);
+}
+
+// ---------------------------------------------------------------------------
+// Generalized intent → specialist routing (scaffolding roadmap O1).
+//
+// Extends the architecture-reviewer auto-offer to all read-only review
+// specialists: a security audit routes to security-reviewer, a whole-repo
+// architecture/design review to architecture-reviewer. Writing facets are NOT
+// offered here — they produce diffs that need the review panel, a heavier flow.
+// ---------------------------------------------------------------------------
+
+/** A read-only review specialist the router can offer. */
+export interface ReviewFacetMatch {
+  facetId: string;
+  displayName: string;
+}
+
+const SECURITY_REVIEW_RE =
+  /\b(security|vulnerab\w*|exploit\w*|injection|xss|csrf|ssrf|auth(?:entication|orization)?|secret|credential|sanitiz\w*|owasp|cve|attack surface|threat\s?model)\b/i;
+
+/**
+ * Route a chat message to a read-only review specialist, or null. Security
+ * audits of the codebase → security-reviewer; whole-repo architecture/design
+ * reviews → architecture-reviewer. Single-file/symbol requests don't match
+ * (they fall through to the normal loop). Security is checked first so a
+ * "review this codebase for security holes" prompt picks the right specialist.
+ */
+export function classifyReviewFacet(text: string): ReviewFacetMatch | null {
+  if (!text) return null;
+  if (text.trim().startsWith('/')) return null;
+  if (SPECIFIC_TARGET_RE.test(text)) return null;
+  const codebaseTarget = REPO_SCOPE_RE.test(text) || /\b(codebase|code\s?base|repo|repository|project)\b/i.test(text);
+  if (REPO_REVIEW_VERB_RE.test(text) && SECURITY_REVIEW_RE.test(text) && codebaseTarget) {
+    return { facetId: 'security-reviewer', displayName: 'Security Reviewer' };
+  }
+  if (isRepoReviewRequest(text)) {
+    return { facetId: 'architecture-reviewer', displayName: 'Architecture Reviewer' };
+  }
+  return null;
+}
+
+/** Offer-button label for a given specialist (clicking it accepts via isArchReviewAccept). */
+export function runReviewLabel(displayName: string): string {
+  return `▶ Run ${displayName} (grounded, cited)`;
 }
 
 /**

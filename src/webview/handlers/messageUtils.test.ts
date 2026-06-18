@@ -4,9 +4,41 @@ import {
   isRepoReviewRequest,
   isArchReviewAccept,
   isArchReviewDecline,
+  classifyReviewFacet,
+  runReviewLabel,
   RUN_ARCH_REVIEW_LABEL,
   ANSWER_INLINE_LABEL,
 } from './messageUtils.js';
+
+describe('classifyReviewFacet', () => {
+  it('routes whole-repo architecture/design reviews to architecture-reviewer', () => {
+    expect(classifyReviewFacet('review the design and architecture of this project')?.facetId).toBe(
+      'architecture-reviewer',
+    );
+    expect(classifyReviewFacet('review this codebase')?.facetId).toBe('architecture-reviewer');
+  });
+
+  it('routes security audits of the codebase to security-reviewer', () => {
+    expect(classifyReviewFacet('audit this codebase for security vulnerabilities')?.facetId).toBe('security-reviewer');
+    expect(classifyReviewFacet('review the repo for injection and auth holes')?.facetId).toBe('security-reviewer');
+  });
+
+  it('prefers security over architecture when both could match', () => {
+    expect(classifyReviewFacet('review the security of this codebase')?.facetId).toBe('security-reviewer');
+  });
+
+  it('returns null for single-file or non-review requests', () => {
+    expect(classifyReviewFacet('review src/agent/loop.ts')).toBeNull();
+    expect(classifyReviewFacet('what is the architecture?')).toBeNull();
+    expect(classifyReviewFacet('/review this repo')).toBeNull();
+  });
+
+  it('runReviewLabel builds an accept-matching button label', () => {
+    const label = runReviewLabel('Security Reviewer');
+    expect(label).toContain('Security Reviewer');
+    expect(isArchReviewAccept(label)).toBe(true);
+  });
+});
 
 describe('arch-review offer accept/decline', () => {
   it('accepts natural-language run requests', () => {

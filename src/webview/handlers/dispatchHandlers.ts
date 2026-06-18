@@ -41,10 +41,10 @@ import {
   isShowDiffRequest,
 } from './chatHandlers.js';
 import {
-  isRepoReviewRequest,
+  classifyReviewFacet,
   isArchReviewAccept,
   isArchReviewDecline,
-  RUN_ARCH_REVIEW_LABEL,
+  runReviewLabel,
   ANSWER_INLINE_LABEL,
 } from './messageUtils.js';
 import { handleRequestFileCompletion, revertEditPlanFile } from './fileHandlers.js';
@@ -114,7 +114,7 @@ const ALLOWED_EXTENSION_COMMANDS = new Set([
  * markdown tab. Runs inside a cancellable progress notification; the chat
  * spinner is cleared via `done` in `finally`.
  */
-async function runArchitectureReview(state: ChatState, task: string): Promise<void> {
+async function runFacetReview(state: ChatState, facetId: string, displayName: string, task: string): Promise<void> {
   if (!task.trim()) return;
   const { runFacetDispatchCommand, createDefaultFacetCommandUi } = await import('../../agent/facets/facetCommands.js');
   const { loadFacetRegistry } = await import('../../agent/facets/facetDiskLoader.js');
@@ -133,7 +133,7 @@ async function runArchitectureReview(state: ChatState, task: string): Promise<vo
   let outcome: Awaited<ReturnType<typeof runFacetDispatchCommand>> | undefined;
   try {
     outcome = await window.withProgress(
-      { location: ProgressLocation.Notification, title: 'SideCar: Architecture Reviewer…', cancellable: true },
+      { location: ProgressLocation.Notification, title: `SideCar: ${displayName}…`, cancellable: true },
       async (_progress, token) => {
         token.onCancellationRequested(() => controller.abort());
         return runFacetDispatchCommand({
@@ -148,7 +148,7 @@ async function runArchitectureReview(state: ChatState, task: string): Promise<vo
             maxConcurrent: cfg.facetsMaxConcurrent,
             rpcTimeoutMs: cfg.facetsRpcTimeoutMs,
           },
-          preSelectedFacetIds: ['architecture-reviewer'],
+          preSelectedFacetIds: [facetId],
           preFilledTask: task,
         });
       },
@@ -187,23 +187,23 @@ export function buildDispatchHandlers(
       }
       const text = msg.text || '';
 
-      // A whole-repo review offer is pending: interpret this reply as
+      // A review-specialist offer is pending: interpret this reply as
       // accept/decline by intent (a clicked button sends the label text;
-      // a typed "run it" / "run the architecture reviewer" also accepts).
+      // a typed "run it" / "run the security reviewer" also accepts).
       // Anything unrelated drops the offer and is handled normally.
-      if (state.pendingRepoReviewTask) {
-        const task = state.pendingRepoReviewTask;
+      if (state.pendingFacetReview) {
+        const { facetId, displayName, task } = state.pendingFacetReview;
         if (isArchReviewAccept(text)) {
-          state.pendingRepoReviewTask = null;
-          await runArchitectureReview(state, task);
+          state.pendingFacetReview = null;
+          await runFacetReview(state, facetId, displayName, task);
           return;
         }
         if (isArchReviewDecline(text)) {
-          state.pendingRepoReviewTask = null;
+          state.pendingFacetReview = null;
           await handleUserMessage(state, task);
           return;
         }
-        state.pendingRepoReviewTask = null;
+        state.pendingFacetReview = null;
       }
 
       // /branch [name] — fork current conversation into a new named thread.
@@ -284,18 +284,22 @@ export function buildDispatchHandlers(
         state.postMessage({ command: 'done' });
         return;
       }
-      // Whole-repo review → offer the grounded architecture-reviewer facet
+      // Codebase review/audit → offer the matching grounded review specialist
       // instead of answering inline (which tends toward ungrounded boilerplate).
-      if (getConfig().facetsEnabled && isRepoReviewRequest(text)) {
-        state.pendingRepoReviewTask = text;
+      const reviewFacet = getConfig().facetsEnabled ? classifyReviewFacet(text) : null;
+      if (reviewFacet) {
+        state.pendingFacetReview = { facetId: reviewFacet.facetId, displayName: reviewFacet.displayName, task: text };
         state.postMessage({
           command: 'assistantMessage',
           content:
-            'This looks like a whole-codebase review. I can run the **Architecture Reviewer** specialist — ' +
+            `This looks like a codebase review. I can run the **${reviewFacet.displayName}** specialist — ` +
             'a read-only pass that reads the relevant modules and cites `file:symbol` evidence for every point, ' +
             'rather than answering from memory. Reply **run it** (or click below), or say **answer inline** for a quick take.',
         });
-        state.postMessage({ command: 'suggestNextSteps', suggestions: [RUN_ARCH_REVIEW_LABEL, ANSWER_INLINE_LABEL] });
+        state.postMessage({
+          command: 'suggestNextSteps',
+          suggestions: [runReviewLabel(reviewFacet.displayName), ANSWER_INLINE_LABEL],
+        });
         state.postMessage({ command: 'done' });
         return;
       }
