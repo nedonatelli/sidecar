@@ -557,15 +557,15 @@ export async function applyAnalysisCritic(
   if (parsed.malformed || parsed.explicitlyClean || parsed.findings.length === 0) return;
 
   const { high } = splitBySeverity(parsed.findings);
+  // Analysis critique is ADVISORY — surface it to the user, never block.
+  // Dogfooding showed blocking a read-only review forces the model to "fix" its
+  // review against a possibly-wrong critic (the critic's evidence is often
+  // incomplete), producing incoherent self-contradicting output. Unlike the
+  // edit critic (which blocks bad code from shipping), there's nothing here to
+  // protect by blocking — the user reads both the review and the critique.
   const chatText = formatFindingsForChat(parsed.findings, trigger);
   if (chatText) callbacks.onText(chatText);
-
-  if (config.criticBlockOnHighSeverity && high.length > 0) {
-    _criticStats.blockedTurns += 1;
+  if (high.length > 0) {
     _criticStats.lastBlockedReason = (high[0]?.title ?? '').slice(0, 120);
-    state.messages.push({
-      role: 'user',
-      content: [{ type: 'text' as const, text: buildCriticInjection(high, 1, 1) }],
-    });
   }
 }

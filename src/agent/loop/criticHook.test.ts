@@ -257,7 +257,7 @@ describe('applyAnalysisCritic', () => {
     expect((s as { analysisCriticFired: boolean }).analysisCriticFired).toBe(false);
   });
 
-  it('injects on a high-severity finding and fires at most once', async () => {
+  it('annotates findings without blocking (advisory) and fires at most once', async () => {
     vi.mocked(parseCriticResponse).mockReturnValue({
       malformed: false,
       explicitlyClean: false,
@@ -277,13 +277,16 @@ describe('applyAnalysisCritic', () => {
       callbacks,
       new AbortController().signal,
     );
-    expect((s as { messages: unknown[] }).messages.length).toBe(4); // injection pushed
+    // Advisory: surfaced via onText, NOT injected as a blocking reprompt — even
+    // with criticBlockOnHighSeverity true. The review message count is unchanged.
+    expect((s as { messages: unknown[] }).messages.length).toBe(3);
+    expect(callbacks.onText).toHaveBeenCalledWith('formatted findings');
     expect((s as { analysisCriticFired: boolean }).analysisCriticFired).toBe(true);
 
-    // Second call is a no-op (already fired).
-    const len = (s as { messages: unknown[] }).messages.length;
+    // Second call is a no-op (already fired) — no extra annotation.
+    callbacks.onText.mockClear();
     await applyAnalysisCritic(s, client, config, 'again', callbacks, new AbortController().signal);
-    expect((s as { messages: unknown[] }).messages.length).toBe(len);
+    expect(callbacks.onText).not.toHaveBeenCalled();
   });
 });
 
