@@ -43,8 +43,15 @@ Even through the facet (grounded + structured), a run still fabricated `src/cont
 - **O2. Multi-facet decompose + synthesize** *(L)* — planner decomposes a task into a facet DAG (`dependsOn` + RPC infra already exists); synthesizer merges. "Comprehensive review" = architecture + security + test-coverage facets, one merged report.
 
 ### Tier 4 — MEASURE
-- **M1. Faithfulness + citation-resolution scorers** *(S–M)* — add quality scorers to the eval harness beyond trajectory/file-state. Citation-resolution reuses V1's verifier; faithfulness is an LLM-judge scorer.
-- **M2. Ablation harness** *(M, raised priority)* — run eval cases with/without each scaffold; report pass-rate **and** latency delta. Enforces the eval-lift principle (principle 3). **Especially load-bearing for local-first:** because a same-model self-check shares the model's blind spots, V2-style scaffolds *cannot be assumed to help* — M2 is how we prove (or cut) each one on the single model the user runs.
+- **M1. Faithfulness + citation-resolution scorers** *(S–M, shipped — but see finding below)* — added a deterministic `citationsResolve` scorer (reuses V1's verifier) + the `review-cites-real-paths` case. Faithfulness (LLM-judge) folded into V2.
+- **M2. Ablation harness** *(M, shipped)* — `npm run eval:ablation` runs cases with/without each scaffold; reports pass-rate lift **and** latency delta. Enforces the eval-lift principle (principle 3). Load-bearing for local-first: a same-model self-check shares the model's blind spots, so V2-style scaffolds *cannot be assumed to help*.
+
+#### Finding (M1/M2 follow-up): binary pass/fail is the wrong instrument for verify lift
+Running M2 against V1 produced a hard, instructive negative result. **Cost** measures cleanly (critic ≈ +22s, gate ≈ +8s on a local model). **Lift does not**, because `citationsResolve` is binary-absolute (*every* cited path must resolve): a real review always name-drops at least one conventional non-source path (`dist/`, an inferred module), so it fails 100% in both arms and the lift is uncomputable — even though V1 demonstrably fires (latency proves it) and demonstrably reduces fabrication (observed: a clean grounded review vs. an earlier one that invented `resolveToolOutput`).
+
+The right instrument is a **count/rate**: *unresolved-citation count per run*, compared as means across arms — V1's lift then reads as "fewer fabrications with the gate" (e.g. 2.1 → 0.4 avg). The scorer already computes the unresolved set; the work is exposing the count as a numeric ablation metric instead of collapsing to a boolean. Deferred (it's a project of its own); `citationsResolve` is meanwhile kept as a **soft** expectation so the case isn't a permanent red.
+
+**Standing lesson:** for any verify-layer scaffold, measure a continuous metric (count/rate/score), not binary pass/fail — perfection-or-fail can't see a reduction. Correctness is proven deterministically (gate unit tests); cost is proven by ablation; lift needs a graded metric.
 
 ## Recommended sequence
 
