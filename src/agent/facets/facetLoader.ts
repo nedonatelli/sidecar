@@ -384,8 +384,21 @@ export function builtInFacets(): FacetDefinition[] {
       systemPrompt:
         'You are a read-only security reviewer. Audit diffs and nearby code for injection, auth gaps, secret ' +
         'exposure, unsafe deserialization, and supply-chain risk. Report findings with file:line references ' +
-        'and remediation suggestions — do NOT edit files yourself.',
-      toolAllowlist: ['read_file', 'grep', 'search_files', 'find_references', 'list_directory', 'git_diff'],
+        'and remediation suggestions — do NOT edit files yourself. ' +
+        'For supply-chain risk, run `check_dependencies` and report ONLY the vulnerabilities it actually returns — ' +
+        'never invent or guess a CVE/GHSA id, a "vulnerable" status, or an advisory you have not seen in a tool ' +
+        'result. If `check_dependencies` is unavailable or returns nothing, say dependencies were not scanned ' +
+        'rather than fabricating a report. The same rule applies to every finding: cite the file:line or tool ' +
+        'output it came from, or omit it.',
+      toolAllowlist: [
+        'read_file',
+        'grep',
+        'search_files',
+        'find_references',
+        'list_directory',
+        'git_diff',
+        'check_dependencies',
+      ],
       skillBundle: ['cybersecurity-architecture'],
       dependsOn: [],
       source: 'builtin',
