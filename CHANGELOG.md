@@ -4,6 +4,30 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.114.0] - 2026-06-17
+
+**v0.114.0 — Scaffolding subsystem: grounded reviews, capability-adaptive harness, and ablation measurement.**
+
+A coordinated set of "scaffolding" features (see `docs/scaffolding-roadmap.md`) — the harness machinery that makes weaker local models usable. Most ship gated-off or behavior-neutral; the goal is to verify and tune them via the ablation harness before defaulting on.
+
+### Verify
+
+- **Citation-resolution gate (V1)** — an analysis/review answer that cites a file path which doesn't resolve on disk (NodeNext `.js`→`.ts` aware), or hedges an unverified claim ("cannot verify", "implied usage"), is reprompted to fix it. Fires in the architecture-reviewer facet and normal chat reviews. (`src/agent/completionGate.ts`, `src/agent/citationCheck.ts`)
+- **Adversarial analysis critic (V2)** — generalizes the critic to read-only analysis: fact-checks the answer's claims against the read-evidence the agent gathered, catching a real file mislabeled as something it isn't. Gated behind `sidecar.critic.enabled` (default off). (`src/agent/critic.ts`, `src/agent/loop/criticHook.ts`)
+
+### Adapt
+
+- **Model capability profile (A1)** — consolidates per-model signals (family, size, tool support, context, eval pass rate) into a coarse `weak|medium|strong` tier, defaulting conservative when uncertain. (`src/ollama/modelCapability.ts`)
+- **Capability-driven scaffolding intensity (A2)** — tunes burst cap + reprompt budgets to the active model's tier (strong relaxes for less latency; weak gets more recovery attempts). Gated behind `sidecar.adaptiveScaffolding.enabled` (default off); behavior-neutral otherwise. (`src/agent/scaffoldingProfile.ts`)
+
+### Orchestrate
+
+- **Specialist routing (O1)** — a codebase review/audit prompt is offered the matching read-only specialist: architecture reviews → architecture-reviewer, security audits → security-reviewer. (`src/webview/handlers/messageUtils.ts`)
+
+### Measure
+
+- **Citation-resolution eval scorer (M1)** + **scaffold ablation harness (M2)** — `npm run eval:ablation` measures each scaffold's pass-rate lift and latency cost on the model you run, so a scaffold that's pure tax can be cut. (`tests/llm-eval/`, `src/agent/ablation.ts`)
+
 ## [0.113.9] - 2026-06-17
 
 **v0.113.9 — Catch "I will start by reading…" planning stalls + harden the reviewer against plan-and-quit.**
