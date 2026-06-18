@@ -9,6 +9,7 @@ import {
   buildNoShellReprompt,
   buildNoFileWriteReprompt,
   buildNoGroundingReprompt,
+  buildUnverifiedClaimReprompt,
 } from '../completionGate.js';
 import type { LoopState } from './state.js';
 
@@ -124,6 +125,19 @@ export async function maybeInjectCompletionGate(
       gateState.noGroundingRepromptFired = true;
       logger?.info('No-grounding gate fired — codebase review answered without reading any code');
       callbacks.onText('\n\n🔎 Reading the code before reviewing it...\n');
+      state.messages.push({ role: 'user', content: [{ type: 'text' as const, text: reprompt }] });
+      return 'injected';
+    }
+  }
+
+  // Check: analysis/review answer cites paths that don't resolve, or hedges an
+  // unverified claim. Fires at most once per run. (Scaffolding roadmap V1.)
+  if (!gateState.unverifiedClaimRepromptFired && config.completionGateEnabled !== false) {
+    const reprompt = await buildUnverifiedClaimReprompt(state.messages);
+    if (reprompt) {
+      gateState.unverifiedClaimRepromptFired = true;
+      logger?.info('Unverified-claim gate fired — review cited a nonexistent path or an unverified claim');
+      callbacks.onText('\n\n🧾 Verifying citations before finishing...\n');
       state.messages.push({ role: 'user', content: [{ type: 'text' as const, text: reprompt }] });
       return 'injected';
     }

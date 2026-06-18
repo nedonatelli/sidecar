@@ -10,6 +10,7 @@ import {
   buildNoShellReprompt,
   buildNoFileWriteReprompt,
   buildNoGroundingReprompt,
+  buildUnverifiedClaimReprompt,
   findColocatedTest,
 } from './completionGate.js';
 
@@ -616,6 +617,63 @@ describe('completionGate — buildNoGroundingReprompt', () => {
 
   it('returns null when there are no messages', () => {
     expect(buildNoGroundingReprompt([])).toBeNull();
+  });
+});
+
+describe('completionGate — buildUnverifiedClaimReprompt', () => {
+  const userMsg = (text: string) => ({ role: 'user' as const, content: [{ type: 'text' as const, text }] });
+  const assistantMsg = (text: string) => ({ role: 'assistant' as const, content: [{ type: 'text' as const, text }] });
+  // Fake workspace: only these paths "exist".
+  const realFiles = new Set(['src/agent/context.ts', 'src/agent/loop.ts', 'src/agent/loop/messageBuild.ts']);
+  const fileExists = async (p: string) => realFiles.has(p);
+
+  it('fires when the review cites a path that does not exist', async () => {
+    const msgs = [
+      userMsg('Review the architecture of this project.'),
+      assistantMsg('Context management lives in `src/context/context.ts` and is solid.'),
+    ];
+    const result = await buildUnverifiedClaimReprompt(msgs, fileExists);
+    expect(result).not.toBeNull();
+    expect(result).toContain('src/context/context.ts');
+  });
+
+  it('does not flag a real path', async () => {
+    const msgs = [
+      userMsg('Review the architecture of this project.'),
+      assistantMsg('The loop in `src/agent/loop.ts` is well structured.'),
+    ];
+    expect(await buildUnverifiedClaimReprompt(msgs, fileExists)).toBeNull();
+  });
+
+  it('treats a .js citation as resolved when the .ts sibling exists (NodeNext)', async () => {
+    const msgs = [
+      userMsg('Review the architecture of this project.'),
+      assistantMsg('Message construction is in `src/agent/loop/messageBuild.js`.'),
+    ];
+    expect(await buildUnverifiedClaimReprompt(msgs, fileExists)).toBeNull();
+  });
+
+  it('fires on a hedge phrase even when all paths resolve', async () => {
+    const msgs = [
+      userMsg('Audit the design of this codebase.'),
+      assistantMsg('The loop (`src/agent/loop.ts`) is coupled to context, though I cannot verify the call site.'),
+    ];
+    const result = await buildUnverifiedClaimReprompt(msgs, fileExists);
+    expect(result).not.toBeNull();
+    expect(result).toContain('unverified claim');
+  });
+
+  it('does not fire on a non-analysis request (avoids flagging proposed new files)', async () => {
+    const msgs = [
+      userMsg('Create a new helper at src/utils/clamp.ts.'),
+      assistantMsg('I will add `src/utils/clamp.ts` with the clamp function.'),
+    ];
+    expect(await buildUnverifiedClaimReprompt(msgs, fileExists)).toBeNull();
+  });
+
+  it('returns null when there is no assistant answer yet', async () => {
+    const msgs = [userMsg('Review the architecture of this project.')];
+    expect(await buildUnverifiedClaimReprompt(msgs, fileExists)).toBeNull();
   });
 });
 

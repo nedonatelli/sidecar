@@ -45,6 +45,8 @@ export interface GateState {
   noFileWriteRepromptFired: boolean;
   /** True once the no-grounding-on-analysis-query reprompt has fired (fires at most once). */
   noGroundingRepromptFired: boolean;
+  /** True once the unverified-claim reprompt has fired (fires at most once). */
+  unverifiedClaimRepromptFired: boolean;
 }
 
 export function createGateState(): GateState {
@@ -58,6 +60,7 @@ export function createGateState(): GateState {
     noShellRepromptFired: false,
     noFileWriteRepromptFired: false,
     noGroundingRepromptFired: false,
+    unverifiedClaimRepromptFired: false,
   };
 }
 
@@ -501,6 +504,120 @@ export function buildNoGroundingReprompt(messages: ChatMessage[]): string | null
     'that own them), then ground each point in what you actually found — cite the file/symbol. ' +
     'Before recommending any pattern, search for it: do not advise adding something the project already has.'
   );
+}
+
+// ---------------------------------------------------------------------------
+// Unverified-claim gate (scaffolding roadmap V1)
+//
+// Even a grounded, structured review can ship fabricated citations: a path
+// that doesn't exist (`src/context/context.ts` when the real file is
+// `src/agent/context.ts`), or findings the model itself hedges as unverified
+// ("I cannot verify…", "implied usage…"). This gate runs on an analysis/review
+// answer, extracts the file paths it cites, checks they resolve on disk, and
+// reprompts once when any are fabricated or any hedge phrase admits an
+// unverified claim. Scoped to analysis intent so it never flags a legitimate
+// "create src/new.ts" proposal in a normal coding task.
+// ---------------------------------------------------------------------------
+
+/** Cited path-like tokens: workspace-dir-rooted, or any bare file with a known extension. No globs. */
+const CITED_PATH_RE =
+  /\b(?:src|tests?|lib|pkg|cmd|docs|media|scripts)\/[\w./-]+\.\w{1,5}\b|\b[\w-]+(?:\/[\w-]+)*\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs|json|md|toml|yaml|yml)\b/g;
+
+/** Phrases where the model admits a finding is not actually verified against the code. */
+const HEDGE_RE =
+  /\b(?:I (?:cannot|can(?:'|’)t|could not|couldn(?:'|’)t) verify|without (?:reading|opening|checking)|I (?:did|have) not (?:read|open|verif|check)|implied usage|presumably|I(?:'|’)?m assuming|I assume (?:that )?|appears? to suggest)\b/i;
+
+/** Return the text of the most recent assistant message (the answer being gated). */
+function lastAssistantText(messages: ChatMessage[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role !== 'assistant') continue;
+    if (typeof msg.content === 'string') return msg.content;
+    if (Array.isArray(msg.content)) {
+      return msg.content
+        .filter((b) => typeof b === 'object' && b !== null && 'type' in b && b.type === 'text' && 'text' in b)
+        .map((b) => (b as { text: string }).text)
+        .join('\n');
+    }
+  }
+  return '';
+}
+
+/** NodeNext: a `.js`/`.jsx` import path usually points at a `.ts`/`.tsx` file on disk. */
+function pathVariants(p: string): string[] {
+  const variants = [p];
+  if (p.endsWith('.js')) variants.push(p.slice(0, -3) + '.ts');
+  if (p.endsWith('.jsx')) variants.push(p.slice(0, -4) + '.tsx');
+  if (p.endsWith('.mjs') || p.endsWith('.cjs')) variants.push(p.slice(0, -4) + '.ts');
+  return variants;
+}
+
+/** Default existence check against the active workspace. Injectable for tests. */
+async function defaultFileExists(relPath: string): Promise<boolean> {
+  const root = workspace.workspaceFolders?.[0]?.uri;
+  if (!root) return false;
+  try {
+    await workspace.fs.stat(Uri.joinPath(root, relPath));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Returns a reprompt when an analysis/review answer cites file paths that don't
+ * resolve on disk, or contains hedge phrases admitting an unverified claim.
+ * Returns null when the answer is clean (or the request wasn't an analysis).
+ * `fileExists` is injectable so tests don't touch a real workspace.
+ */
+export async function buildUnverifiedClaimReprompt(
+  messages: ChatMessage[],
+  fileExists: (relPath: string) => Promise<boolean> = defaultFileExists,
+): Promise<string | null> {
+  const userText = firstUserText(messages);
+  if (!userText) return null;
+  if (!ANALYSIS_VERB_RE.test(userText) || !ANALYSIS_TARGET_RE.test(userText)) return null;
+
+  const answer = lastAssistantText(messages);
+  if (!answer) return null;
+
+  const fabricated: string[] = [];
+  const seen = new Set<string>();
+  for (const match of answer.match(CITED_PATH_RE) ?? []) {
+    const rel = normalizePath(match);
+    if (!rel || seen.has(rel)) continue;
+    seen.add(rel);
+    const variants = pathVariants(rel);
+    let resolved = false;
+    for (const v of variants) {
+      if (await fileExists(v)) {
+        resolved = true;
+        break;
+      }
+    }
+    if (!resolved) fabricated.push(rel);
+  }
+
+  const hedged = HEDGE_RE.test(answer);
+  if (fabricated.length === 0 && !hedged) return null;
+
+  const parts: string[] = [];
+  if (fabricated.length > 0) {
+    parts.push(
+      `Your review cites ${fabricated.length === 1 ? 'a path that does not exist' : 'paths that do not exist'} in ` +
+        `this workspace: ${fabricated.map((f) => `\`${f}\``).join(', ')}. A citation must be a file you actually ` +
+        `opened. Locate the correct path (grep / list_directory), read it, and fix or remove the reference — do not ` +
+        `cite a file you have not read.`,
+    );
+  }
+  if (hedged) {
+    parts.push(
+      'Your answer contains an unverified claim (it says something is "implied", "assumed", or that you "cannot ' +
+        'verify" / answered "without reading"). Open the relevant file and confirm the claim, or delete the finding. ' +
+        'Do not present an inference as a finding.',
+    );
+  }
+  return parts.join('\n\n');
 }
 
 // ---------------------------------------------------------------------------
