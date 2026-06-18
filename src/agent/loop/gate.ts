@@ -158,14 +158,15 @@ export async function maybeInjectCompletionGate(
   }
 
   // Skip on config disable / nothing to verify / cap.
+  const maxGateInjections = state.scaffoldingProfile?.maxGateInjections ?? MAX_GATE_INJECTIONS;
   const disabled = config.completionGateEnabled === false || gateState.editedFiles.size === 0;
 
   if (disabled) return 'skip';
 
-  if (gateState.gateInjections >= MAX_GATE_INJECTIONS) {
+  if (gateState.gateInjections >= maxGateInjections) {
     if (gateState.editedFiles.size > 0) {
       logger?.warn(
-        `Completion gate exhausted (${MAX_GATE_INJECTIONS} injections) — allowing termination with unverified edits`,
+        `Completion gate exhausted (${maxGateInjections} injections) — allowing termination with unverified edits`,
       );
     }
     return 'skip';
@@ -175,7 +176,7 @@ export async function maybeInjectCompletionGate(
   if (findings.length === 0) return 'skip';
 
   gateState.gateInjections++;
-  const injection = buildGateInjection(findings, gateState.gateInjections, MAX_GATE_INJECTIONS);
+  const injection = buildGateInjection(findings, gateState.gateInjections, maxGateInjections);
   logger?.info(
     `Completion gate fired (#${gateState.gateInjections}/${MAX_GATE_INJECTIONS}): ${findings.length} unverified edit(s)`,
   );

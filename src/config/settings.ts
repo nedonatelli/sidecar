@@ -152,6 +152,7 @@ export interface SideCarConfig {
   criticEnabled: boolean;
   criticModel: string;
   criticBlockOnHighSeverity: boolean;
+  adaptiveScaffoldingEnabled: boolean;
   fetchUrlContext: boolean;
   fallbackBaseUrl: string;
   fallbackApiKey: string;
@@ -495,6 +496,7 @@ function readConfig(): SideCarConfig {
     kickstandYarnOrigCtx: Math.max(cfg.get<number>('kickstand.yarnOrigCtx', 0), 0),
     kickstandFlashAttn: cfg.get<boolean>('kickstand.flashAttn', false),
     criticEnabled: cfg.get<boolean>('critic.enabled', false),
+    adaptiveScaffoldingEnabled: cfg.get<boolean>('adaptiveScaffolding.enabled', false),
     // Provider-aware default: an empty `critic.model` historically meant
     // "use the main model," which doubled per-iteration cost on paid Anthropic
     // backends. If the main model is Sonnet/Opus and the user hasn't explicitly

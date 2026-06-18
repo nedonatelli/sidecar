@@ -425,6 +425,11 @@
             "default": false,
             "description": "Run an adversarial critic LLM call after every write_file / edit_file and after every failed run_tests. High-severity findings block the agent until addressed; low-severity findings surface as chat annotations only. Doubles API spend on edit turns — off by default."
           },
+          "sidecar.adaptiveScaffolding.enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Tune loop-safety scaffolding to the active model's capability tier (A2). Strong models relax (fewer reprompts, looser burst cap → less latency); weak models get a larger reprompt budget to recover. Behavior-neutral when off. Experimental — values are still being validated via the ablation harness (npm run eval:ablation)."
+          },
           "sidecar.critic.model": {
             "type": "string",
             "default": "",

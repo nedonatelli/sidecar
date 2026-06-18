@@ -32,6 +32,8 @@ import { drainSteerQueueAtBoundary } from './loop/steerDrain.js';
 import type { SteerQueue } from './steerQueue.js';
 import type { PendingEditStore } from './pendingEdits.js';
 import type { EditTimelineStore } from './editTimeline.js';
+import { resolveModelCapability } from '../ollama/modelCapability.js';
+import { resolveScaffoldingProfile } from './scaffoldingProfile.js';
 
 /** Returns a signal that fires when either `a` or `b` fires. */
 function combineSignals(a: AbortSignal, b: AbortSignal): AbortSignal {
@@ -291,6 +293,14 @@ export async function runAgentLoop(
   // references here are just `state.xxx` — no shadow locals, no
   // sync-around-helper-call dance.
   const state = initLoopState(messages, options);
+
+  // Capability-driven scaffolding intensity (A2). Only applied when the user
+  // opts in; otherwise scaffoldingProfile stays undefined and the loop reads
+  // the historical constants (behavior-neutral). Resolved once at loop start
+  // from the active model's tier.
+  if (state.config.adaptiveScaffoldingEnabled) {
+    state.scaffoldingProfile = resolveScaffoldingProfile(resolveModelCapability(client.getModel()).tier);
+  }
 
   // Start from a clean compression cache. The teardown `finally` also clears
   // it, but clearing here guarantees a fresh slate even if a prior run's

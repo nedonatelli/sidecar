@@ -79,15 +79,16 @@ export function exceedsBurstCap(
   state: LoopState,
   callbacks: AgentCallbacks,
 ): boolean {
-  if (pendingToolUses.length <= MAX_TOOL_CALLS_PER_ITERATION) return false;
+  const burstCap = state.scaffoldingProfile?.burstCap ?? MAX_TOOL_CALLS_PER_ITERATION;
+  if (pendingToolUses.length <= burstCap) return false;
 
   state.logger?.warn(
     `Agent loop tool-call burst cap exceeded: ${pendingToolUses.length} tool calls in one iteration ` +
-      `(max ${MAX_TOOL_CALLS_PER_ITERATION}). First call: ${pendingToolUses[0].name}`,
+      `(max ${burstCap}). First call: ${pendingToolUses[0].name}`,
   );
   callbacks.onText(
     `\n\n⚠️ Agent stopped: ${pendingToolUses.length} tool calls in a single turn exceeds the ` +
-      `${MAX_TOOL_CALLS_PER_ITERATION}-call burst cap. Ask again with a narrower scope.\n`,
+      `${burstCap}-call burst cap. Ask again with a narrower scope.\n`,
   );
   return true;
 }

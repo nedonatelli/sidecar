@@ -150,6 +150,11 @@ export interface LoopState {
   // Fires at most once. analysisCriticHook is the only writer.
   analysisCriticFired: boolean;
 
+  // Capability-driven scaffolding intensity (A2). Set at loop start only when
+  // `adaptiveScaffolding.enabled` is on; otherwise undefined and the loop reads
+  // the historical constants. cycleDetection / actionReprompt / gate read it.
+  scaffoldingProfile?: import('../scaffoldingProfile.js').ScaffoldingProfile;
+
   // Per-tool call counts for budget enforcement. toolBudget.ts is
   // the only reader; executeToolUses.ts is the only writer.
   toolCallCounts: Map<string, number>;

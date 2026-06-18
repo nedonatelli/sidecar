@@ -97,7 +97,8 @@ export function looksLikeDeferredAction(text: string): boolean {
  * injected (caller should `continue` the loop).
  */
 export function maybeInjectActionReprompt(state: LoopState, fullText: string, callbacks: AgentCallbacks): boolean {
-  if (state.actionRepromptCount >= MAX_ACTION_REPROMPTS) return false;
+  const maxActionReprompts = state.scaffoldingProfile?.maxActionReprompts ?? MAX_ACTION_REPROMPTS;
+  if (state.actionRepromptCount >= maxActionReprompts) return false;
   if (!fullText) return false;
   if (state.tools.length === 0) return false;
 
@@ -107,7 +108,7 @@ export function maybeInjectActionReprompt(state: LoopState, fullText: string, ca
 
   state.actionRepromptCount++;
   state.logger?.info(
-    `Action-request reprompt fired (#${state.actionRepromptCount}/${MAX_ACTION_REPROMPTS}): ` +
+    `Action-request reprompt fired (#${state.actionRepromptCount}/${maxActionReprompts}): ` +
       `model responded with text only on an action request`,
   );
   callbacks.onText('\n\n⚙️ No tool calls detected — re-prompting to use tools...\n');
