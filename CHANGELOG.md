@@ -4,6 +4,12 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.114.3] - 2026-06-18
+
+### Fixed
+
+- **Analysis critic (V2) was net-negative on a real review** — dogfooding caught it flagging a true, grounded claim as high-severity "unverifiable" and then *blocking*, forcing the model into incoherent self-contradiction. Fixed two ways: (1) severity recalibrated so "unsupported by the (incomplete) evidence" is *low*, not high — only an evidence-*contradicted* claim or a proven-absent path/symbol is high; (2) the analysis critic is now **advisory** (surfaced as an annotation, never a blocking reprompt), unlike the edit critic. (`src/agent/critic.ts`, `src/agent/loop/criticHook.ts`)
+
 ## [0.114.2] - 2026-06-18
 
 **v0.114.2 — Completes the scaffolding subsystem: structured critic output (V3) + comprehensive multi-facet review (O2).**
