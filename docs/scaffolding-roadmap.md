@@ -32,7 +32,7 @@ Even through the facet (grounded + structured), a run still fabricated `src/cont
 ### Tier 1 — VERIFY
 - **V1. Claim & citation resolution gate** *(S–M, START HERE)* — extract cited `path` / `path:symbol` from the final answer, verify they resolve on disk (with NodeNext `.js`→`.ts` handling), and reprompt on fabricated paths + hedge phrases ("cannot verify", "without reading", "implied usage"). A new `completionGate` sub-gate. Deterministically kills 3 of the last run's 4 failures.
 - **V2. Adversarial analysis critic** *(M, SHIPPED gated-off)* — generalize `criticHook` (today: edits only) to fire on read-only analysis output: a focused second pass that fact-checks each claim against the read-evidence the agent gathered. Catches the semantic miss V1's deterministic check can't (a real file mislabeled as something it isn't). **Justified by the narrower-task effect (principle 2), NOT a stronger judge** — it runs on the same one local model, so its lift is bounded and must be ablation-proven by M2 before it's trusted. Only reaches for `criticModel` when a second model genuinely exists. Reuses critic caps + injection.
-- **V3. Structured output for verifiable artifacts** *(M)* — there is currently **zero** schema enforcement; critic findings, review sections, and facet RPC are parsed from free text. Use Ollama `format`/GBNF + Anthropic `tool_use` to force validated schemas, making contracts enforceable instead of prompt-only.
+- **V3. Structured output for verifiable artifacts** *(M, shipped)* — threaded an optional `responseFormat` ('json' | JSON-schema) through `ApiBackend.complete`/`completeWithOverrides`; OllamaBackend enforces it via the native `format` field and the critic passes `CRITIC_FINDINGS_SCHEMA`. Local-first scoped (Ollama enforces; cloud backends accept-and-ignore, tolerant parser stays as fallback). Facet RPC / review-section schemas could follow the same pattern.
 
 ### Tier 2 — ADAPT
 - **A1. Model capability profile** *(M)* — registry mapping model → `{toolCallReliability, instructionFollowing, ctxWindow, knownUnsafe}`, seeded from existing per-model eval data, probe-on-first-use to fill gaps.
@@ -40,7 +40,7 @@ Even through the facet (grounded + structured), a run still fabricated `src/cont
 
 ### Tier 3 — ORCHESTRATE
 - **O1. Generalized intent → specialist router** *(M)* — extend the v0.113 auto-offer beyond `architecture-reviewer` to all facets (review→reviewer, audit→security-reviewer, write tests→test-author …). Makes the facet pattern the default for complex tasks.
-- **O2. Multi-facet decompose + synthesize** *(L)* — planner decomposes a task into a facet DAG (`dependsOn` + RPC infra already exists); synthesizer merges. "Comprehensive review" = architecture + security + test-coverage facets, one merged report.
+- **O2. Multi-facet decompose + synthesize** *(L, shipped — review slice)* — a "comprehensive" review dispatches the architecture + security reviewers together (`classifyReviewFacets` → multiple ids; `dispatchFacets` runs them in parallel) and merges via `synthesizeFacetReviews` — deterministic per-specialist-section concatenation, NOT an LLM merge (no fresh hallucination surface over grounded reviews). General task→facet-DAG decomposition beyond the review slice remains future work.
 
 ### Tier 4 — MEASURE
 - **M1. Faithfulness + citation-resolution scorers** *(S–M, shipped — but see finding below)* — added a deterministic `citationsResolve` scorer (reuses V1's verifier) + the `review-cites-real-paths` case. Faithfulness (LLM-judge) folded into V2.
@@ -58,3 +58,9 @@ The right instrument is a **count/rate**: *unresolved-citation count per run*, c
 `V1 → M1 → V2 → A1 → M2 → A2 → O1 → V3 → O2`
 
 V1 first: smallest, highest-confidence, fixes what we just watched break, and its verifier is reused by M1. M1 second so everything after is measurable. V2 ships gated-off; **M2 moves up to right after A1** so we can ablation-prove V2 (and any model-based scaffold) actually lifts pass-rate on one local model before trusting or defaulting it on. Then the rest of adapt/orchestration.
+
+## Status
+
+**All nine initiatives shipped** (v0.114.x, branch `grounding-review-gate`): V1, M1, V2, A1, M2, A2, O1, V3, O2. V2/A2 ship gated-off (`critic.enabled` / `adaptiveScaffolding.enabled`); the rest are behavior-neutral or additive. Live-model testing validated O1 routing + V1 grounding and caught two real bugs (security-reviewer hallucinated deps; dead suggestion buttons), both fixed.
+
+**Open follow-ups** (none blocking): the count/rate lift metric (M1/M2 finding above — binary pass/fail can't measure verify lift); confirming V2 catches a fabrication on a real model (stochastic); a recurring "I will now…" plan-and-stop stall; general task→facet-DAG decomposition beyond the review slice (O2); structured output for facet RPC / review sections (V3 pattern).
