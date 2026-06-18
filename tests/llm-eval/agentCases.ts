@@ -1155,22 +1155,74 @@ export const AGENT_CASES: AgentEvalCase[] = [
     id: 'review-cites-real-paths',
     description: 'Architecture review grounds itself and cites only files that actually exist (V1/M1)',
     tags: ['review', 'citations', 'grounding'],
+    // Realistic small TS project. The fixture deliberately includes the
+    // conventional files a review naturally reaches for (package.json,
+    // tsconfig.json, README, an entry point, a test) so LEGITIMATE citations
+    // resolve — leaving citationsResolve to fail only on a genuine fabrication
+    // (a path the model invents). A too-small fixture (the original 3-file
+    // version) had no headroom: any review cites conventional paths that aren't
+    // there, so it failed 100% in both arms and could measure nothing.
+    //
+    // Lift caveat: this still only shows V1 lift on runs where the model
+    // ACTUALLY fabricates a path — that's stochastic and model-dependent. A
+    // fabrication-prone (weak) model will show lift; a careful one cites only
+    // real files and passes both arms (correctly — the scaffold wasn't needed).
+    // Use SIDECAR_ABLATION_REPS to sample the rate.
     workspace: {
+      'package.json':
+        '{\n  "name": "demo-agent",\n  "version": "1.0.0",\n  "main": "dist/index.js",\n' +
+        '  "scripts": { "build": "tsc", "test": "vitest run" },\n' +
+        '  "dependencies": { "ollama": "^0.5.0" }\n}\n',
+      'tsconfig.json': '{\n  "compilerOptions": { "module": "nodenext", "strict": true },\n  "include": ["src"]\n}\n',
+      'README.md':
+        '# demo-agent\n\nA tiny agent. Entry point is `src/index.ts`, which wires the\n' +
+        'config, the agent loop, and the tool registry together.\n',
+      'src/index.ts':
+        "// Entry point: build config, start the loop.\n" +
+        "import { getConfig } from './config/settings.js';\n" +
+        "import { runAgentLoop } from './agent/loop.js';\n\n" +
+        'export async function main() {\n  const cfg = getConfig();\n  await runAgentLoop(cfg);\n}\n',
       'src/config/settings.ts':
         '// Reads workspace config and exposes typed accessors.\n' +
-        'export function getConfig() {\n' +
-        "  return { model: 'llama3', backend: 'ollama' };\n" +
-        '}\n',
+        'export interface Config {\n  model: string;\n  backend: string;\n}\n' +
+        "export function getConfig(): Config {\n  return { model: 'llama3', backend: 'ollama' };\n}\n",
       'src/agent/loop.ts':
-        '// The core agent loop: streams a turn, runs tools, repeats.\n' +
-        'export async function runAgentLoop() {\n' +
-        '  /* ... */\n' +
-        '}\n',
+        "// The core agent loop: streams a turn, runs tools, repeats.\n" +
+        "import { TOOL_REGISTRY } from './tools.js';\n" +
+        "import { executeTool } from './executor.js';\n" +
+        "import type { Config } from '../config/settings.js';\n\n" +
+        'export async function runAgentLoop(cfg: Config) {\n' +
+        '  for (const name of Object.keys(TOOL_REGISTRY)) {\n    await executeTool(name, {});\n  }\n}\n',
       'src/agent/tools.ts':
-        '// Registry of built-in tools.\n' + 'export const TOOL_REGISTRY = { read_file: {}, write_file: {} };\n',
+        '// Registry of built-in tools.\n' +
+        'export const TOOL_REGISTRY: Record<string, { description: string }> = {\n' +
+        "  read_file: { description: 'read a file' },\n  write_file: { description: 'write a file' },\n};\n",
+      'src/agent/executor.ts':
+        "// Runs a single tool by name with a permission gate.\n" +
+        "import { TOOL_REGISTRY } from './tools.js';\n" +
+        "import { logger } from '../utils/logger.js';\n\n" +
+        'export async function executeTool(name: string, input: Record<string, unknown>) {\n' +
+        '  if (!TOOL_REGISTRY[name]) throw new Error(`unknown tool: ${name}`);\n' +
+        '  logger.info(`running ${name}`);\n  return { ok: true, input };\n}\n',
+      'src/backends/ollama.ts':
+        "// Minimal Ollama chat backend.\n" +
+        'export async function chat(model: string, prompt: string): Promise<string> {\n' +
+        "  const res = await fetch('http://localhost:11434/api/chat', {\n" +
+        "    method: 'POST',\n    body: JSON.stringify({ model, prompt }),\n  });\n" +
+        '  return (await res.json()).message;\n}\n',
+      'src/utils/logger.ts':
+        '// Tiny leveled logger.\n' +
+        'export const logger = {\n' +
+        '  info: (m: string) => console.log(`[info] ${m}`),\n' +
+        '  warn: (m: string) => console.warn(`[warn] ${m}`),\n};\n',
+      'src/agent/loop.test.ts':
+        "import { describe, it, expect } from 'vitest';\n" +
+        "import { runAgentLoop } from './loop.js';\n\n" +
+        "describe('runAgentLoop', () => {\n  it('runs without throwing', async () => {\n" +
+        "    await expect(runAgentLoop({ model: 'x', backend: 'y' })).resolves.toBeUndefined();\n  });\n});\n",
     },
     userMessage:
-      'Review the design and architecture of this small project. Cite the specific files you reference, ' +
+      'Review the design and architecture of this project. Cite the specific files you reference, ' +
       'and only reference files you have actually read.',
     expect: {
       // Must ground itself — read at least one of the real files (any read path).
@@ -1178,7 +1230,8 @@ export const AGENT_CASES: AgentEvalCase[] = [
       // Read-only review — no edits.
       toolsNotCalled: ['write_file', 'edit_file'],
       // THE M1 CHECK: every path the review cites must exist in the workspace.
-      // A fabricated citation (e.g. `src/context/context.ts`) fails here.
+      // With a realistic fixture, legitimate citations resolve; only a
+      // fabricated path (e.g. `src/middleware/auth.ts`) fails here.
       citationsResolve: true,
     },
   },
