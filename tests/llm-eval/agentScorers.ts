@@ -1,5 +1,6 @@
 import type { AgentEvalCase, AgentCaseResult, AgentExpectations, TrajectoryEvent } from './agentTypes.js';
 import type { WorkspaceFixture } from './workspaceSandbox.js';
+import { extractCitedPaths, pathVariants } from '../../src/agent/citationCheck.js';
 
 // ---------------------------------------------------------------------------
 // Deterministic scorers for the agent-loop eval layer.
@@ -183,6 +184,19 @@ function collectFailures(
     for (const pattern of expect.finalTextNotMatchesRegex) {
       if (pattern.test(run.finalText)) {
         out.push(`finalTextNotMatchesRegex: final text matched ${pattern}`);
+      }
+    }
+  }
+
+  // --- citation resolution (scaffolding roadmap M1) ---
+  // Every file path the answer cites must resolve against the post-run
+  // workspace (with NodeNext .js->.ts fallback). Measures the V1 gate's lift:
+  // a fabricated citation that slips through shows up as a hard failure here.
+  if (expect.citationsResolve) {
+    const fixture = { ...(workspaceBefore ?? {}), ...run.workspaceAfter };
+    for (const cited of extractCitedPaths(run.finalText)) {
+      if (!pathVariants(cited).some((v) => v in fixture)) {
+        out.push(`citationsResolve: cited path "${cited}" does not exist in the workspace`);
       }
     }
   }

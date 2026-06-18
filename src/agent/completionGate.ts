@@ -1,6 +1,7 @@
 import { workspace, Uri } from 'vscode';
 import * as path from 'path';
 import type { ToolUseContentBlock, ToolResultContentBlock, ChatMessage } from '../ollama/types.js';
+import { extractCitedPaths, pathVariants, hasUnverifiedHedge } from './citationCheck.js';
 
 /**
  * Completion gate — a deterministic verification barrier that fires when the
@@ -519,14 +520,6 @@ export function buildNoGroundingReprompt(messages: ChatMessage[]): string | null
 // "create src/new.ts" proposal in a normal coding task.
 // ---------------------------------------------------------------------------
 
-/** Cited path-like tokens: workspace-dir-rooted, or any bare file with a known extension. No globs. */
-const CITED_PATH_RE =
-  /\b(?:src|tests?|lib|pkg|cmd|docs|media|scripts)\/[\w./-]+\.\w{1,5}\b|\b[\w-]+(?:\/[\w-]+)*\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs|json|md|toml|yaml|yml)\b/g;
-
-/** Phrases where the model admits a finding is not actually verified against the code. */
-const HEDGE_RE =
-  /\b(?:I (?:cannot|can(?:'|’)t|could not|couldn(?:'|’)t) verify|without (?:reading|opening|checking)|I (?:did|have) not (?:read|open|verif|check)|implied usage|presumably|I(?:'|’)?m assuming|I assume (?:that )?|appears? to suggest)\b/i;
-
 /** Return the text of the most recent assistant message (the answer being gated). */
 function lastAssistantText(messages: ChatMessage[]): string {
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -541,15 +534,6 @@ function lastAssistantText(messages: ChatMessage[]): string {
     }
   }
   return '';
-}
-
-/** NodeNext: a `.js`/`.jsx` import path usually points at a `.ts`/`.tsx` file on disk. */
-function pathVariants(p: string): string[] {
-  const variants = [p];
-  if (p.endsWith('.js')) variants.push(p.slice(0, -3) + '.ts');
-  if (p.endsWith('.jsx')) variants.push(p.slice(0, -4) + '.tsx');
-  if (p.endsWith('.mjs') || p.endsWith('.cjs')) variants.push(p.slice(0, -4) + '.ts');
-  return variants;
 }
 
 /** Default existence check against the active workspace. Injectable for tests. */
@@ -583,13 +567,12 @@ export async function buildUnverifiedClaimReprompt(
 
   const fabricated: string[] = [];
   const seen = new Set<string>();
-  for (const match of answer.match(CITED_PATH_RE) ?? []) {
-    const rel = normalizePath(match);
+  for (const cited of extractCitedPaths(answer)) {
+    const rel = normalizePath(cited);
     if (!rel || seen.has(rel)) continue;
     seen.add(rel);
-    const variants = pathVariants(rel);
     let resolved = false;
-    for (const v of variants) {
+    for (const v of pathVariants(rel)) {
       if (await fileExists(v)) {
         resolved = true;
         break;
@@ -598,7 +581,7 @@ export async function buildUnverifiedClaimReprompt(
     if (!resolved) fabricated.push(rel);
   }
 
-  const hedged = HEDGE_RE.test(answer);
+  const hedged = hasUnverifiedHedge(answer);
   if (fabricated.length === 0 && !hedged) return null;
 
   const parts: string[] = [];

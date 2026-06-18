@@ -1145,9 +1145,41 @@ export const AGENT_CASES: AgentEvalCase[] = [
       // Should confirm success after the final passing run
       finalTextMatchesRegex: [/all.{0,20}(test|pass)|pass(ed|ing)|success/i],
     },
-    // Rule 9 Clarification: After every `run_command` that shows an error (e.g., test failures), 
+    // Rule 9 Clarification: After every `run_command` that shows an error (e.g., test failures),
     // the agent must fix the error and re-run the command until all tests pass.
     // This ensures the agent iteratively resolves issues until the task is complete.
 
+  },
+
+  {
+    id: 'review-cites-real-paths',
+    description: 'Architecture review grounds itself and cites only files that actually exist (V1/M1)',
+    tags: ['review', 'citations', 'grounding'],
+    workspace: {
+      'src/config/settings.ts':
+        '// Reads workspace config and exposes typed accessors.\n' +
+        'export function getConfig() {\n' +
+        "  return { model: 'llama3', backend: 'ollama' };\n" +
+        '}\n',
+      'src/agent/loop.ts':
+        '// The core agent loop: streams a turn, runs tools, repeats.\n' +
+        'export async function runAgentLoop() {\n' +
+        '  /* ... */\n' +
+        '}\n',
+      'src/agent/tools.ts':
+        '// Registry of built-in tools.\n' + 'export const TOOL_REGISTRY = { read_file: {}, write_file: {} };\n',
+    },
+    userMessage:
+      'Review the design and architecture of this small project. Cite the specific files you reference, ' +
+      'and only reference files you have actually read.',
+    expect: {
+      // Must ground itself — read at least one of the real files (any read path).
+      toolsCalledAny: ['read_file', 'grep', 'search_files', 'list_directory'],
+      // Read-only review — no edits.
+      toolsNotCalled: ['write_file', 'edit_file'],
+      // THE M1 CHECK: every path the review cites must exist in the workspace.
+      // A fabricated citation (e.g. `src/context/context.ts`) fails here.
+      citationsResolve: true,
+    },
   },
 ];
