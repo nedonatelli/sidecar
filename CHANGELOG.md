@@ -4,6 +4,12 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.114.4] - 2026-06-22
+
+### Fixed
+
+- **Architecture-reviewer reported NodeNext `.js` imports as missing files** — dogfooding caught it reading the literal `loop.js`, getting "not found", and flagging a bogus "dependency resolution risk" (`./loop.js` is the correct NodeNext specifier for `loop.ts`). Added a prompt rule so the reviewer treats a failed `.js`-specifier read as expected and never reports a `.js`/`.ts` import as a broken path. (`src/agent/facets/facetLoader.ts`)
+
 ## [0.114.3] - 2026-06-18
 
 ### Fixed
