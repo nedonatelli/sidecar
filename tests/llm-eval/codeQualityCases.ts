@@ -525,4 +525,44 @@ export const CODE_QUALITY_CASES: AgentEvalCase[] = [
       },
     },
   },
+
+  // -------------------------------------------------------------------------
+  // Cross-file cluster — the existing cases are all single-file. A rename that
+  // must propagate to a caller in ANOTHER file is where the edit-side scaffolds
+  // earn their keep: without them a weak model renames the definition and
+  // leaves the caller broken (autofix catches the resulting diagnostic in the
+  // real extension; grep-first behavior finds the caller). Cleanly binary, with
+  // real headroom — good for `eval:ablation` on the autoFix dimension.
+  // -------------------------------------------------------------------------
+  {
+    id: 'rename-propagates-to-cross-file-caller',
+    description: 'Renaming an exported function updates its caller in another file (autofix / cross-file)',
+    tags: ['edit', 'cross-file', 'autofix', 'edit-scaffold'],
+    workspace: {
+      'src/mathUtils.ts':
+        '// Adds two numbers.\nexport function addNumbers(a: number, b: number): number {\n  return a + b;\n}\n',
+      'src/calc.ts':
+        "import { addNumbers } from './mathUtils.js';\n\n" +
+        '// Applies a delta to a running total.\n' +
+        'export function applyDelta(total: number, delta: number): number {\n  return addNumbers(total, delta);\n}\n',
+    },
+    userMessage:
+      'Rename the `addNumbers` function to `sum` in src/mathUtils.ts. Update every reference across the project so ' +
+      'nothing is left calling the old name.',
+    expect: {
+      // Locating the caller (grep/search) or reading it is the grounded path.
+      toolsCalledAny: ['read_file', 'grep', 'search_files'],
+      files: {
+        contain: [
+          { path: 'src/mathUtils.ts', substrings: ['function sum('] },
+          // The caller's import AND call site must both move to the new name.
+          { path: 'src/calc.ts', substrings: ['sum('] },
+        ],
+        notContain: [
+          { path: 'src/mathUtils.ts', substrings: ['addNumbers'] },
+          { path: 'src/calc.ts', substrings: ['addNumbers'] },
+        ],
+      },
+    },
+  },
 ];
