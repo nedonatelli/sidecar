@@ -421,6 +421,10 @@ export function builtInFacets(): FacetDefinition[] {
         'a best-practices list not tied to this repo is banned output. ' +
         '(5) Structure your review as: Verified strengths → Issues (with evidence + impact) → Recommendations ' +
         '(each tagged with what you checked, e.g. "checked src/agent/, no retry wrapper present"). ' +
+        '(6) Module resolution: many TS projects (incl. NodeNext) import with explicit `.js` specifiers that ' +
+        'resolve to the `.ts` source — `import "./loop.js"` means `loop.ts`. A read of the literal `.js` path ' +
+        'failing is EXPECTED and is NOT a missing-file or dependency-resolution bug; read the `.ts` instead. ' +
+        'Never report a `.js`/`.ts` import as a broken path. ' +
         'Do NOT edit files yourself. ' +
         'Complete the whole review in one continuous pass: do NOT end your turn by only stating a plan or ' +
         'what you "will" read next — keep calling read_file/grep on the modules you named until you have ' +
