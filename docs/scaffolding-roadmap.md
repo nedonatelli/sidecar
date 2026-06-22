@@ -53,6 +53,13 @@ The right instrument is a **count/rate**: *unresolved-citation count per run*, c
 
 **Standing lesson:** for any verify-layer scaffold, measure a continuous metric (count/rate/score), not binary pass/fail — perfection-or-fail can't see a reduction. Correctness is proven deterministically (gate unit tests); cost is proven by ablation; lift needs a graded metric.
 
+#### Finding (M2 on the edit critic): the LLM critic is empirically net-NEGATIVE on a local model
+Ablating the critic over the bugfix cluster (binary-clean edit cases, so lift IS measurable here) gave the first hard lift number — and it's negative: **`critic HURTS — lift −17% (100%→83%), latency +66s [n=12/12]`**. Without the critic the model fixed the bugs 100%; with it, 83%. The mechanism is the same false-positive-then-block we saw the analysis critic do live: on an already-correct diff the critic flags a non-issue at high severity, blocks, and the model second-guesses its correct fix into a broken one.
+
+This **empirically validates principle 1** (deterministic verification > model-judges-model): the deterministic scaffolds (V1 citation gate, stub-check, autofix) have no false-positive-then-rewrite path; the same-model LLM critic does, and on a local model it nets out harmful on tasks the model already handles. The critic's *potential* upside (catching a bug the model got wrong) is unmeasured — it needs error-headroom cases — but the downside is now quantified and large.
+
+**Decision:** keep the critic OFF by default (it is — `critic.enabled`), and treat it as a last-resort opt-in, not a default. The reliable verify lever is the deterministic layer. Do not pour more into tuning the critic to be "less harmful"; the data says the architecture (model judging itself) is the limit. (The analysis critic was already made advisory in v0.114.3; the edit critic still blocks — if the critic is ever defaulted on, the edit critic should be reconsidered the same way.)
+
 ## Recommended sequence
 
 `V1 → M1 → V2 → A1 → M2 → A2 → O1 → V3 → O2`
