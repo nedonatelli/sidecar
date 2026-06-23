@@ -4,6 +4,12 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.114.5] - 2026-06-22
+
+### Added
+
+- **Syntax/parse gate** — the completion gate now refuses to finish when an edited file fails to parse. Dogfooding shipped a Python file with a `SyntaxError` (stub-check only catches placeholders; the gate only checked that tests *ran*; a new file with no test and no language server got no verification). On finish, it runs the language's cheap per-file check (`python3 -m py_compile`, `node --check`) on edited files and reprompts with the real error. Deterministic, no false positives, model-agnostic; only spawns a shell when a parse-checkable file was edited; bounded to 2 reprompts; best-effort (a shell hiccup never blocks the loop). TS is omitted (covered by tsc + diagnostics). (`src/agent/loop/syntaxGate.ts`, `src/agent/loop/gate.ts`)
+
 ## [0.114.4] - 2026-06-22
 
 ### Fixed
