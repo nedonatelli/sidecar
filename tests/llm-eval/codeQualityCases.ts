@@ -609,4 +609,41 @@ export const CODE_QUALITY_CASES: AgentEvalCase[] = [
       toolsCalledAny: ['run_command', 'run_tests'],
     },
   },
+
+  {
+    id: 'build-python-calculator-cli',
+    description: 'Builds a runnable Python CLI calculator app from scratch and executes it to confirm it works',
+    tags: ['create', 'from-scratch', 'python', 'cli'],
+    workspace: {
+      'README.md': '# Calculator CLI\n\nAn empty project — build the calculator app here.\n',
+    },
+    userMessage:
+      'Build a command-line calculator app in calculator.py. It takes an operation and two numbers as ' +
+      'command-line arguments — e.g. `python calculator.py add 2 3` prints 5 — supporting add, subtract, ' +
+      'multiply, and divide. Division by zero must print a clear error instead of crashing. Run it on a ' +
+      'couple of examples to confirm it works. Implement it fully — no placeholders.',
+    expect: {
+      toolsCalled: ['write_file'],
+      files: {
+        exist: ['calculator.py'],
+        contain: [{ path: 'calculator.py', substrings: ['add', 'subtract', 'multiply', 'divide'] }],
+        // Must be a real runnable CLI: a __main__ entry + argument handling.
+        matchesRegex: [
+          {
+            path: 'calculator.py',
+            patterns: [/if\s+__name__\s*==\s*['"]__main__['"]/, /argparse|sys\.argv/],
+          },
+        ],
+        notContain: [
+          { path: 'calculator.py', substrings: ['TODO', 'FIXME', 'NotImplementedError', 'not implemented'] },
+        ],
+      },
+    },
+    // The agent should actually run the app on an example to confirm it works
+    // (the prompt asks for it; the completion gate reinforces it). Soft because
+    // execution needs python on the eval host.
+    softExpect: {
+      toolsCalledAny: ['run_command'],
+    },
+  },
 ];
