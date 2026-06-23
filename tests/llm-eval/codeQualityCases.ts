@@ -565,4 +565,48 @@ export const CODE_QUALITY_CASES: AgentEvalCase[] = [
       },
     },
   },
+
+  // -------------------------------------------------------------------------
+  // From-scratch construction cluster — the other cases start from a fixture
+  // and make a localized change. This one builds a small program toward a goal
+  // from an (effectively) empty workspace, exercising the full build loop and
+  // the deterministic keepers end-to-end: stub-check on a complete
+  // implementation, and the completion gate forcing the agent to actually run
+  // the tests it writes rather than declaring success.
+  // -------------------------------------------------------------------------
+  {
+    id: 'build-python-calculator',
+    description: 'Builds a Python calculator + tests from scratch: 4 ops, divide-by-zero guard, no stubs, tests run',
+    tags: ['create', 'from-scratch', 'python', 'stub-validator'],
+    workspace: {
+      'README.md': '# Calculator\n\nAn empty project — build the calculator here.\n',
+    },
+    userMessage:
+      'Build a small Python calculator. Create calculator.py with four fully-implemented functions — ' +
+      'add(a, b), subtract(a, b), multiply(a, b), and divide(a, b) — where divide raises ValueError on ' +
+      'division by zero. Then write test_calculator.py with a test for each operation and one for the ' +
+      'divide-by-zero case, run the tests, and make sure they pass. No placeholders or TODOs.',
+    expect: {
+      toolsCalled: ['write_file'],
+      files: {
+        exist: ['calculator.py', 'test_calculator.py'],
+        contain: [
+          { path: 'calculator.py', substrings: ['def add', 'def subtract', 'def multiply', 'def divide'] },
+          { path: 'test_calculator.py', substrings: ['def test', 'divide'] },
+        ],
+        // The divide-by-zero guard is the one behavioral requirement we can
+        // check statically.
+        matchesRegex: [{ path: 'calculator.py', patterns: [/raise\s+ValueError/] }],
+        notContain: [
+          { path: 'calculator.py', substrings: ['TODO', 'FIXME', 'NotImplementedError', 'not implemented'] },
+        ],
+      },
+    },
+    // Running the tests is forced by the completion gate, but execution depends
+    // on the eval host having python — keep it soft so a missing interpreter
+    // doesn't mask the construction result.
+    softExpect: {
+      toolsCalledAny: ['run_command', 'run_tests'],
+    },
+  },
 ];
