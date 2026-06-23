@@ -4,6 +4,38 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.114.15] - 2026-06-23
+
+### Fixed
+
+- **Cycle detection bailed a gate-driven fix loop (normalized passes)** — with the syntax gate now firing correctly (0.114.14), dogfooding showed the model's fix loop `edit→get_diagnostics→edit→get_diagnostics` on the flagged file tripping the **normalized length-2 pattern** detector and stopping mid-fix. The 0.114.9 gate-fix-target exemption only covered the write-target pass; it now also covers all three normalized passes (consecutive, frequency-over-window, length-N pattern) via `sigTargetsOnlyGateFiles`. The exact-match pass still fires on truly-identical repeated calls, and the exemption is dropped once the gate exhausts its injection budget (`gateState.syntaxGateFixTargets` cleared on cap), so post-gate repetition is thrash again. (`src/agent/loop/cycleDetection.ts`, `src/agent/loop/gate.ts`)
+
+
+## [0.114.14] - 2026-06-23
+
+### Fixed
+
+- **Syntax gate parse-check hung (15s timeout) → silently passed broken code** — the real root cause behind both the earlier false positive (0.114.7) and false negative (0.114.10+): the gate ran `py_compile`/`node --check` through a raw `ShellSession`, which spawns a `--norc --noprofile` shell with a minimal PATH. Bare `python3` then resolved to something that hangs (on macOS, `/usr/bin/python3` triggers a Command Line Tools prompt that never returns), so the check timed out at 15s and the gate read the empty result as "parses cleanly." The agent's `run_tests` never hit this because it routes through the VS Code integrated terminal (login-shell PATH). The gate now runs its parse-check through that **same terminal-first executor** (`runVerificationCommand`), and logs a warning if a check ever times out. (`src/agent/tools/shell.ts`, `src/agent/loop/gate.ts`)
+
+
+## [0.114.13] - 2026-06-23
+
+### Fixed
+
+- **Syntax gate timed out (false negative) when the shared shell was blocked** — the gate reused the agent's persistent shell session for `py_compile`/`node --check`. When that session was blocked by a long-running command the agent had launched (observed: a `python gui.py` Tkinter `mainloop()` from an earlier turn still running), the parse-check queued behind it and hit the 15s timeout, returned no output, and the evidence test saw nothing → the gate wrongly passed a genuinely-broken file. The output-channel log added in 0.114.12 caught it exactly (a 15s gap then "parses cleanly" on a file with a real SyntaxError). The gate now runs the parse-check in a **fresh, isolated shell** that can't be blocked by the agent's work, and logs a warning if a check ever times out. (`src/agent/loop/gate.ts`)
+
+
+## [0.114.12] - 2026-06-23
+
+### Fixed
+
+- **Completion gates anchored on the original prompt, not the current turn** — `firstUserText()` returns the *first* user message in the whole conversation, so in a continuing chat the no-read/no-shell/no-grounding/no-file-write/unverified-claim gates all evaluated the original task. Dogfooding a "change the window title in gui_calculator.py" turn, the no-file-write gate fired for `calculator.py`/`test_calculator.py` (from the original "build a calculator" prompt) — files this turn never mentioned — and the model reasoned about that stale instruction and called `done`. Gates now evaluate the current turn's request (captured at loop init as `gateState.currentUserRequest` via new `lastUserText()`); falls back to `firstUserText` when unset. (`src/agent/completionGate.ts`, `src/agent/loop/gate.ts`, `src/agent/loop/state.ts`)
+
+### Changed
+
+- **Syntax gate hardened against shell-cwd drift + made observable** — the gate now resolves edited files to absolute paths before `py_compile`/`node --check`, so a drifted persistent-shell cwd can't turn the parse-check into a silently-swallowed "No such file." It also logs what it checks / whether it fired / why it skipped to the SideCar output channel, so gate behavior is diagnosable instead of inferred. (`src/agent/loop/gate.ts`)
+
+
 ## [0.114.11] - 2026-06-23
 
 ### Added
