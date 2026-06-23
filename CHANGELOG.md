@@ -4,6 +4,47 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.114.11] - 2026-06-23
+
+### Added
+
+- **`run_command` steers long-running apps to the background on timeout** — dogfooding a GUI build, the model ran `python gui_calculator.py` in the foreground; the Tkinter `mainloop()` never returns, so it blocked the loop for the full timeout (~27s) before continuing. A GUI/server/watcher can't be detected from the command string, but the timeout is the unambiguous signal. A timed-out foreground `run_command` now appends a hint to re-run with `background: true` (and notes the timeout already proves it launched without crashing). Scoped to `run_command` — `run_tests` has no background option. (`src/agent/tools/shell.ts`)
+
+## [0.114.10] - 2026-06-23
+
+### Fixed
+
+- **Syntax gate could miss a real parse error (false negative) when the shell misreported exit 0** — the gate gated on `exitCode === 0` before checking the error output, but the shell session's exit code is unreliable in both directions (it reported nonzero on valid code in 0.114.7, and its sentinel parser defaults to 0 when it can't read the exit marker — which would skip genuinely broken code). The fire decision now rests solely on positive syntax-error evidence (`SyntaxError`/`IndentationError`/`TabError`) in the output, never on the exit code — present iff the code truly fails to parse, so it's both necessary and sufficient. Surfaced dogfooding a Tkinter GUI build: gemma4:e4b shipped a `try` block with no `except`/`finally` and `get_diagnostics` (no Python language server) only flagged an unrelated `eval` warning. (`src/agent/loop/syntaxGate.ts`)
+
+## [0.114.9] - 2026-06-23
+
+### Fixed
+
+- **Cycle detection bailed the model mid-fix on a syntax error it was actively repairing** — dogfooding (gemma4:e4b building a Tkinter GUI) shipped a real `SyntaxError`; the syntax gate correctly demanded a fix, and the model made genuine progress (two *different* edits to the file). But the write-target thrash detector — which deliberately ignores edit content to catch "same file, different tool" loops — counted the initial create + fix edits as thrash (4 mutations of one file) and stopped the loop at the 3rd fix attempt. A file the syntax gate is actively driving fixes on is now exempt from the write-target pass (`gateState.syntaxGateFixTargets`, cleared once the file parses); the gate's own injection cap bounds the fix loop, and the exact-match / repeating-pattern passes still catch a truly-stuck loop. (`src/agent/loop/cycleDetection.ts`, `src/agent/loop/gate.ts`, `src/agent/completionGate.ts`)
+
+## [0.114.8] - 2026-06-23
+
+### Added
+
+- **`run_tests` detects bare Python `unittest` projects** — dogfooding a from-scratch calculator showed `run_tests` returning "Could not detect test runner" for a plain folder with `test_*.py` files but no pytest config or manifest; the model had to fall back to `run_command`. Detection now checks for `test_*.py` / `*_test.py` files and uses `python -m unittest discover` (or `python -m unittest <file>` when narrowing to one file) — stdlib, no dependencies. (`src/agent/tools/shell.ts`)
+
+### Fixed
+
+- **Model running ESLint on Python files** — dogfooding showed the model reaching for `npx eslint calculator.py` after edits (ESLint is JS/TS-only; it errored with a confusing "Oops! Something went wrong!"). `run_command` now detects a language-mismatched ESLint invocation (all file targets non-JS/TS, at least one Python) and returns a redirect to `get_diagnostics` / a Python linter instead of running it — saving a wasted turn on a no-op failure. (`src/agent/tools/shell.ts`)
+
+## [0.114.7] - 2026-06-23
+
+### Fixed
+
+- **Syntax gate false-positived on valid code and corrupted it** — dogfooding (gemma4:e4b building the calculator) showed the gate firing `🧩 Edited code fails to parse` on a `calculator.py` that had just passed all 5 tests *and* diagnostics. The gate treated any nonzero shell exit code as a syntax error, so a flaky/garbled exit (empty error output) on a file that actually parsed got reported as broken — and the weak model "fixed" the non-existent error by deleting `def divide`, introducing a *real* `SyntaxError`, then looped until cycle-detection bailed. The gate now requires **positive evidence** of a parse error (`SyntaxError`/`IndentationError`/`TabError` in the output) before firing; a bare nonzero exit never fires. A deterministic gate that can false-positive is worse than no gate. (`src/agent/loop/syntaxGate.ts`)
+- **No-read gate fired a pointless read+describe cycle on a file the agent just wrote** — when the user names a file with write intent ("create calculator.py") and the agent authors + tests it but never *reads* it, the no-read gate demanded a redundant `read_file`. Writing a file is stronger grounding than reading it. The gate now skips any mentioned file present in `editedFiles`. (`src/agent/completionGate.ts`, `src/agent/loop/gate.ts`)
+
+## [0.114.6] - 2026-06-23
+
+### Fixed
+
+- **Active file silently injected into context without "add"** — `sidecar.includeActiveFile` (default `true`) prepended the entire open file (up to 50K chars) to every chat message regardless of the "add" toggle, while the toggle itself only added a one-line path hint. This contaminated dogfood runs (the open README was always handed to the model for free). The full-content injection now gates on the explicit "add" toggle (`state.activeFileIncluded`); `includeActiveFile` becomes a master kill-switch — the file is included only when you click add, and never when the setting is `false`. (`src/webview/handlers/messageEnricher.ts`)
+
 ## [0.114.5] - 2026-06-22
 
 ### Added
