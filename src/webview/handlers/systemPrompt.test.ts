@@ -568,16 +568,18 @@ describe('enrichAndPruneMessages', () => {
     expect(msgs).toEqual([]);
   });
 
-  it('prepends active-file context when includeActiveFile is enabled', async () => {
-    (window as unknown as { activeTextEditor: unknown }).activeTextEditor = {
-      document: {
-        fileName: '/mock-workspace/src/foo.ts',
-        uri: { fsPath: '/mock-workspace/src/foo.ts' },
-        languageId: 'typescript',
-        getText: () => 'content',
-      },
-      selection: { active: { line: 4 } },
-    };
+  const activeEditorStub = () => ({
+    document: {
+      fileName: '/mock-workspace/src/foo.ts',
+      uri: { fsPath: '/mock-workspace/src/foo.ts' },
+      languageId: 'typescript',
+      getText: () => 'content',
+    },
+    selection: { active: { line: 4 } },
+  });
+
+  it('prepends active-file context when includeActiveFile is enabled AND the file is attached via the add toggle', async () => {
+    (window as unknown as { activeTextEditor: unknown }).activeTextEditor = activeEditorStub();
     const msgs = [{ role: 'user', content: 'please edit this' } as const];
     const enriched: typeof msgs = [...msgs];
     await enrichAndPruneMessages(
@@ -585,12 +587,27 @@ describe('enrichAndPruneMessages', () => {
       makeConfig({ includeActiveFile: true }) as never,
       'SYS',
       8192,
-      makeState() as never,
+      makeState({ activeFileIncluded: true }) as never,
       false,
     );
     expect(typeof enriched[0].content === 'string' && enriched[0].content.includes('[Active file: src/foo.ts')).toBe(
       true,
     );
+  });
+
+  it('does NOT prepend active-file context when the add toggle is off, even if includeActiveFile is enabled', async () => {
+    (window as unknown as { activeTextEditor: unknown }).activeTextEditor = activeEditorStub();
+    const msgs = [{ role: 'user', content: 'please edit this' } as const];
+    const enriched: typeof msgs = [...msgs];
+    await enrichAndPruneMessages(
+      enriched as never,
+      makeConfig({ includeActiveFile: true }) as never,
+      'SYS',
+      8192,
+      makeState({ activeFileIncluded: false }) as never,
+      false,
+    );
+    expect(typeof enriched[0].content === 'string' && enriched[0].content.includes('[Active file:')).toBe(false);
   });
 
   it('calls file + at reference resolvers in order on the last user message', async () => {
