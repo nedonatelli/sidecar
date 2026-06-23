@@ -42,6 +42,22 @@ export function isCheckerUnavailable(exitCode: number, output: string): boolean 
   return /command not found|: not found|No such file or directory|can't open file|cannot find module/i.test(output);
 }
 
+/**
+ * Positive evidence that the output describes a real syntax error. Both
+ * checkers print one of these markers on genuine breakage (py_compile →
+ * SyntaxError / IndentationError / TabError; `node --check` → SyntaxError).
+ *
+ * The gate requires this evidence before reporting a failure — a nonzero exit
+ * code alone is NOT enough. A deterministic gate that false-positives is worse
+ * than no gate: on a weak model an empty/garbled "syntax error" reprompt makes
+ * it "fix" code that already parses, corrupting a working file (observed in
+ * dogfooding — a clean, tested calculator.py was edited into a real
+ * SyntaxError because the gate fired on a nonzero exit with no error text).
+ */
+export function hasSyntaxErrorEvidence(output: string): boolean {
+  return /\b(SyntaxError|IndentationError|TabError)\b/.test(output);
+}
+
 export interface SyntaxFailure {
   file: string;
   output: string;
@@ -62,8 +78,16 @@ export async function runSyntaxGate(
     const cmd = parseCheckCommand(file);
     if (!cmd) continue;
     const { exitCode, output } = await runCmd(cmd);
-    if (exitCode === 0) continue;
+    // The fire decision rests SOLELY on positive syntax-error evidence in the
+    // output — never on the exit code. The shell session's exit code is
+    // unreliable in both directions: it has reported nonzero on a command that
+    // succeeded (→ false positive on valid code) AND its sentinel parser
+    // defaults to 0 when it can't parse the marker (→ would skip genuinely
+    // broken code if we gated on `exitCode === 0`, a false negative). The
+    // SyntaxError/IndentationError/TabError marker is present iff the code
+    // truly fails to parse, so evidence alone is both necessary and sufficient.
     if (isCheckerUnavailable(exitCode, output)) continue;
+    if (!hasSyntaxErrorEvidence(output)) continue;
     failures.push({ file, output: output.trim().slice(0, 800) });
   }
   return failures;

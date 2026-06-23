@@ -527,6 +527,23 @@ describe('completionGate — buildNoReadReprompt', () => {
   it('returns null when there are no messages', () => {
     expect(buildNoReadReprompt([])).toBeNull();
   });
+
+  it('returns null when the agent authored the mentioned file (write implies knowing contents)', () => {
+    // "build calculator.py" — the user names the file with write intent; the
+    // agent creates + tests it but never reads it. A read is redundant.
+    const msgs = [userMsg('Build a small Python calculator. Create calculator.py with four functions.')];
+    expect(buildNoReadReprompt(msgs, new Set(['calculator.py']))).toBeNull();
+  });
+
+  it('matches an authored file by basename when editedFiles holds a longer path', () => {
+    const msgs = [userMsg('Create calculator.py with the four functions.')];
+    expect(buildNoReadReprompt(msgs, new Set(['src/calculator.py']))).toBeNull();
+  });
+
+  it('still fires for a mentioned file the agent did NOT author', () => {
+    const msgs = [userMsg('Read src/greeter.ts and tell me what it does.')];
+    expect(buildNoReadReprompt(msgs, new Set(['calculator.py']))).not.toBeNull();
+  });
 });
 
 describe('completionGate — buildNoShellReprompt', () => {

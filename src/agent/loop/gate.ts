@@ -99,7 +99,7 @@ export async function maybeInjectCompletionGate(
   // Check: file mentioned in user request but no read tool called for it yet.
   // Fires at most once per run to avoid looping on models that can't comply.
   if (!gateState.noReadRepromptFired && config.completionGateEnabled !== false) {
-    const reprompt = buildNoReadReprompt(state.messages);
+    const reprompt = buildNoReadReprompt(state.messages, gateState.editedFiles);
     if (reprompt) {
       gateState.noReadRepromptFired = true;
       logger?.info('No-read gate fired — file mentioned but no read tool called for it');
@@ -179,6 +179,10 @@ export async function maybeInjectCompletionGate(
       });
       if (failures.length > 0) {
         gateState.syntaxGateInjections = (gateState.syntaxGateInjections ?? 0) + 1;
+        // Mark these files as gate-supervised fix targets so the write-target
+        // cycle detector doesn't bail the model mid-fix — iterating on a file
+        // the gate flagged as unparseable is progress, not thrash.
+        gateState.syntaxGateFixTargets = new Set(failures.map((f) => f.file));
         logger?.info(`Syntax gate fired — ${failures.length} edited file(s) fail to parse`);
         callbacks.onText('\n\n🧩 Edited code fails to parse — fixing syntax errors...\n');
         state.messages.push({
@@ -187,6 +191,9 @@ export async function maybeInjectCompletionGate(
         });
         return 'injected';
       }
+      // Files now parse — drop the cycle-detector exemption so later, unrelated
+      // thrash on the same file is no longer immune.
+      gateState.syntaxGateFixTargets?.clear();
     } catch (err) {
       // The gate is best-effort: a shell/runtime hiccup must not block the loop.
       logger?.warn(`Syntax gate skipped: ${err instanceof Error ? err.message : String(err)}`);

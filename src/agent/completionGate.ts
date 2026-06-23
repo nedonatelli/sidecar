@@ -50,6 +50,14 @@ export interface GateState {
   unverifiedClaimRepromptFired: boolean;
   /** How many times the syntax gate has reprompted this run (bounded). Optional for back-compat with test stubs. */
   syntaxGateInjections?: number;
+  /**
+   * Files the syntax gate is actively driving fixes on (the targets of the
+   * most recent parse-failure reprompt). Edits to these are gate-supervised
+   * fix attempts, not autonomous thrash, so the write-target cycle detector
+   * exempts them — the gate's own injection cap bounds the fix loop. Optional
+   * for back-compat with test stubs.
+   */
+  syntaxGateFixTargets?: Set<string>;
 }
 
 export function createGateState(): GateState {
@@ -65,6 +73,7 @@ export function createGateState(): GateState {
     noGroundingRepromptFired: false,
     unverifiedClaimRepromptFired: false,
     syntaxGateInjections: 0,
+    syntaxGateFixTargets: new Set(),
   };
 }
 
@@ -392,6 +401,22 @@ function hasReadToolCallForFile(messages: ChatMessage[], fileName: string): bool
   return false;
 }
 
+/**
+ * True if `fileName` (as mentioned in the user's request) was written/edited
+ * by the agent this session. Matches an editedFiles entry by basename or path
+ * suffix — editedFiles stores the path the write tool used ("calculator.py" or
+ * "src/calculator.py"); the mention may be bare ("calculator.py").
+ */
+function fileWasEdited(fileName: string, editedFiles?: ReadonlySet<string>): boolean {
+  if (!editedFiles || editedFiles.size === 0) return false;
+  const base = fileName.split('/').pop()!.toLowerCase();
+  for (const edited of editedFiles) {
+    const e = edited.toLowerCase();
+    if (e === base || e.endsWith('/' + base) || e === fileName.toLowerCase()) return true;
+  }
+  return false;
+}
+
 /** Returns true if any assistant message contains a run_command tool call. */
 function hasRunCommandCall(messages: ChatMessage[]): boolean {
   for (const msg of messages) {
@@ -412,12 +437,18 @@ function hasRunCommandCall(messages: ChatMessage[]): boolean {
  * mentioned file independently — a tool call for file A does not satisfy
  * the requirement for file B. Returns null when no reprompt is needed.
  */
-export function buildNoReadReprompt(messages: ChatMessage[]): string | null {
+export function buildNoReadReprompt(messages: ChatMessage[], editedFiles?: ReadonlySet<string>): string | null {
   const userText = firstUserText(messages);
   if (!userText) return null;
   const fileMatches = userText.match(FILE_MENTION_RE);
   if (!fileMatches) return null;
   for (const file of fileMatches) {
+    // The agent authored this file this session — writing implies knowing its
+    // contents, so a read is redundant. Skips the "build calculator.py" case
+    // where the user names the file with write intent and the agent creates +
+    // tests it but never reads it. (Dogfooding fired a pointless read+describe
+    // cycle on a freshly-written, already-tested file.)
+    if (fileWasEdited(file, editedFiles)) continue;
     if (!hasReadToolCallForFile(messages, file)) {
       return (
         `You mentioned \`${file}\` but did not call read_file, grep, or any other file-reading tool before responding. ` +
