@@ -454,6 +454,56 @@ describe('detectCycleAndBail — write-target thrash pass', () => {
     expect(cb.texts[0]).toContain('write target');
   });
 
+  it('does NOT fire on a file the syntax gate is actively driving fixes on (gate-supervised, not thrash)', () => {
+    const state = stubLoopState();
+    state.gateState.syntaxGateFixTargets = new Set(['gui_calculator.py']);
+    const cb = stubCallbacks();
+    // create + 3 genuinely different fix edits (distinct search/replace, like
+    // the real case) — exact + normalized passes don't fire; only write-target
+    // would, at the threshold of 4. The file is gate-supervised so it's exempt.
+    expect(
+      detectCycleAndBail([makeToolUse('write_file', { path: 'gui_calculator.py', content: 'v0' })], state, cb),
+    ).toBe(false);
+    for (let i = 1; i <= 3; i++) {
+      const result = detectCycleAndBail(
+        [makeToolUse('edit_file', { path: 'gui_calculator.py', search: `s${i}`, replace: `r${i}` })],
+        state,
+        cb,
+      );
+      expect(result).toBe(false);
+    }
+    expect(cb.texts).toHaveLength(0);
+  });
+
+  it('matches the gate exemption by basename (normalized path vs raw input path)', () => {
+    const state = stubLoopState();
+    state.gateState.syntaxGateFixTargets = new Set(['sub/gui.py']); // gate-normalized
+    const cb = stubCallbacks();
+    // Mirror the real flow (write → read → edit → edit → edit): 4 mutations of
+    // the same file, raw input uses the bare basename. Without the exemption
+    // the write-target pass would fire at the 3rd edit.
+    const calls: ToolUseContentBlock[][] = [
+      [makeToolUse('write_file', { path: 'gui.py', content: 'v0' })],
+      [makeToolUse('read_file', { path: 'gui.py' })],
+      [makeToolUse('edit_file', { path: 'gui.py', search: 's1', replace: 'r1' })],
+      [makeToolUse('edit_file', { path: 'gui.py', search: 's2', replace: 'r2' })],
+      [makeToolUse('edit_file', { path: 'gui.py', search: 's3', replace: 'r3' })],
+    ];
+    for (const c of calls) expect(detectCycleAndBail(c, state, cb)).toBe(false);
+    expect(cb.texts).toHaveLength(0);
+  });
+
+  it('still fires on an unrelated file while another file is gate-exempt', () => {
+    const state = stubLoopState();
+    state.gateState.syntaxGateFixTargets = new Set(['gui_calculator.py']);
+    const cb = stubCallbacks();
+    expect(detectCycleAndBail([makeToolUse('write_file', { path: 'other.ts' })], state, cb)).toBe(false);
+    expect(detectCycleAndBail([makeToolUse('edit_file', { path: 'other.ts' })], state, cb)).toBe(false);
+    expect(detectCycleAndBail([makeToolUse('apply_edit', { path: 'other.ts' })], state, cb)).toBe(false);
+    expect(detectCycleAndBail([makeToolUse('write_file', { path: 'other.ts' })], state, cb)).toBe(true);
+    expect(cb.texts[0]).toContain('other.ts');
+  });
+
   it('does NOT fire when 3 different files are each targeted once', () => {
     const state = stubLoopState();
     const cb = stubCallbacks();

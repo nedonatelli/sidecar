@@ -239,6 +239,11 @@ export function detectCycleAndBail(
       }
     }
     for (const [file, count] of fileCounts) {
+      // A file the syntax gate is actively driving fixes on is exempt:
+      // repeated edits to make unparseable code parse are progress, not
+      // thrash, and the gate's own injection cap bounds that loop. The
+      // exact-match pass still catches a truly-stuck identical-edit loop.
+      if (isSyntaxGateFixTarget(file, state)) continue;
       if (count >= WRITE_TARGET_THRESHOLD) {
         state.logger?.warn(
           `Agent loop write-target thrash detected: ${file} targeted in ${count}/${state.recentWriteTargets.length} iterations`,
@@ -278,6 +283,23 @@ function extractWriteTargets(pendingToolUses: ToolUseContentBlock[]): string[] {
     }
   }
   return Array.from(seen);
+}
+
+/**
+ * True if `target` (a raw write-target path from a tool input) refers to a
+ * file the syntax gate is currently driving fixes on. Matches by basename so
+ * the gate's normalized workspace-relative path ("src/gui.py") matches a raw
+ * relative input ("gui.py") and vice-versa.
+ */
+function isSyntaxGateFixTarget(target: string, state: LoopState): boolean {
+  const fixTargets = state.gateState.syntaxGateFixTargets;
+  if (!fixTargets || fixTargets.size === 0) return false;
+  const base = target.split('/').pop()!.toLowerCase();
+  for (const gated of fixTargets) {
+    if (gated.toLowerCase() === target.toLowerCase()) return true;
+    if (gated.split('/').pop()!.toLowerCase() === base) return true;
+  }
+  return false;
 }
 
 function sortedStringify(value: unknown): string {
