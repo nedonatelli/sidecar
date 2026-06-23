@@ -184,7 +184,8 @@ describe('maybeInjectCompletionGate — injection path', () => {
       gateState: { editedFiles: new Set(['a.ts']), gateInjections: 0 } as unknown as LoopState['gateState'],
     });
     await maybeInjectCompletionGate(state, stubConfig(), {}, new AbortController().signal, stubCallbacks());
-    expect(info).toHaveBeenCalledOnce();
-    expect(info.mock.calls[0][0]).toContain('#1/2');
+    // The injection summary is logged (alongside the syntax gate's own
+    // observability line for the non-checkable a.ts edit).
+    expect(info.mock.calls.some((c) => String(c[0]).includes('#1/2'))).toBe(true);
   });
 });

@@ -4,7 +4,7 @@ import type { ApprovalMode } from '../executor.js';
 import type { AgentLogger } from '../logger.js';
 import type { ChangeLog } from '../changelog.js';
 import type { MCPManager } from '../mcpManager.js';
-import { createGateState } from '../completionGate.js';
+import { createGateState, lastUserText } from '../completionGate.js';
 import { getToolDefinitionsForTier } from '../tools.js';
 import type { AgentOptions } from '../loop.js';
 import type { EditPlan } from '../editPlan.js';
@@ -234,7 +234,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     criticInjectionsByTestHash: new Map<string, number>(),
     analysisCriticFired: false,
     toolCallCounts: new Map<string, number>(),
-    gateState: createGateState(),
+    gateState: createGateState(lastUserText(copiedMessages)),
     currentEditPlan: null,
     checkpointFired: false,
   };

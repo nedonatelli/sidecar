@@ -148,6 +148,29 @@ async function executeShell(
   }
 }
 
+/**
+ * Run a one-shot verification command (the completion/syntax gate's parse
+ * check) through the SAME terminal-first executor the agent's tools use, so it
+ * resolves interpreters via the user's login-shell PATH.
+ *
+ * A raw ShellSession spawns a `--norc --noprofile` / `-f` shell whose minimal
+ * PATH can make a bare `python3` hang (on macOS, `/usr/bin/python3` triggers a
+ * Command Line Tools install prompt and never returns) — which made the syntax
+ * gate's `py_compile` time out at 15s and silently pass a broken file. The
+ * integrated terminal runs the user's login shell with the real PATH, exactly
+ * like `run_tests`. Returns `timedOut` so callers can tell a timeout (which
+ * must NOT be read as "parses cleanly") from a genuine result.
+ */
+export async function runVerificationCommand(
+  command: string,
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<{ exitCode: number; output: string; timedOut: boolean }> {
+  const executor = buildExecutor();
+  const r = await executor.execute(command, { timeout: timeoutMs, signal });
+  return { exitCode: r.exitCode, output: r.stdout, timedOut: r.timedOut };
+}
+
 export const runCommandDef: ToolDefinition = {
   name: 'run_command',
   nondeterministicOutput: true,

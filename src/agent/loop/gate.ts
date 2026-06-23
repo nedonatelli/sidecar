@@ -12,7 +12,9 @@ import {
   buildUnverifiedClaimReprompt,
 } from '../completionGate.js';
 import { runSyntaxGate, buildSyntaxReprompt, hasCheckableFiles } from './syntaxGate.js';
-import { getDefaultToolRuntime } from '../tools/runtime.js';
+import { getRoot } from '../tools/shared.js';
+import { runVerificationCommand } from '../tools/shell.js';
+import * as path from 'path';
 import type { LoopState } from './state.js';
 
 /** Bounded retries for the syntax gate, mirroring MAX_GATE_INJECTIONS. */
@@ -99,7 +101,7 @@ export async function maybeInjectCompletionGate(
   // Check: file mentioned in user request but no read tool called for it yet.
   // Fires at most once per run to avoid looping on models that can't comply.
   if (!gateState.noReadRepromptFired && config.completionGateEnabled !== false) {
-    const reprompt = buildNoReadReprompt(state.messages, gateState.editedFiles);
+    const reprompt = buildNoReadReprompt(state.messages, gateState.editedFiles, gateState.currentUserRequest);
     if (reprompt) {
       gateState.noReadRepromptFired = true;
       logger?.info('No-read gate fired — file mentioned but no read tool called for it');
@@ -112,7 +114,7 @@ export async function maybeInjectCompletionGate(
   // Check: workspace metric query (file count, line count, version, etc.) but
   // no shell command was run. Fires at most once per run.
   if (!gateState.noShellRepromptFired && config.completionGateEnabled !== false) {
-    const reprompt = buildNoShellReprompt(state.messages);
+    const reprompt = buildNoShellReprompt(state.messages, gateState.currentUserRequest);
     if (reprompt) {
       gateState.noShellRepromptFired = true;
       logger?.info('No-shell gate fired — workspace metric query answered without a shell command');
@@ -125,7 +127,7 @@ export async function maybeInjectCompletionGate(
   // Check: open-ended review/evaluation of the codebase or design, but no
   // grounding tool was ever called. Fires at most once per run.
   if (!gateState.noGroundingRepromptFired && config.completionGateEnabled !== false) {
-    const reprompt = buildNoGroundingReprompt(state.messages);
+    const reprompt = buildNoGroundingReprompt(state.messages, gateState.currentUserRequest);
     if (reprompt) {
       gateState.noGroundingRepromptFired = true;
       logger?.info('No-grounding gate fired — codebase review answered without reading any code');
@@ -138,7 +140,7 @@ export async function maybeInjectCompletionGate(
   // Check: analysis/review answer cites paths that don't resolve, or hedges an
   // unverified claim. Fires at most once per run. (Scaffolding roadmap V1.)
   if (!gateState.unverifiedClaimRepromptFired && config.completionGateEnabled !== false) {
-    const reprompt = await buildUnverifiedClaimReprompt(state.messages);
+    const reprompt = await buildUnverifiedClaimReprompt(state.messages, undefined, gateState.currentUserRequest);
     if (reprompt) {
       gateState.unverifiedClaimRepromptFired = true;
       logger?.info('Unverified-claim gate fired — review cited a nonexistent path or an unverified claim');
@@ -152,7 +154,7 @@ export async function maybeInjectCompletionGate(
   // Fires at most once per run; uses a gentle "if required, make them now" framing so
   // the model can skip it when the file genuinely wasn't part of the task.
   if (!gateState.noFileWriteRepromptFired && config.completionGateEnabled !== false) {
-    const reprompt = buildNoFileWriteReprompt(state.messages, gateState.editedFiles);
+    const reprompt = buildNoFileWriteReprompt(state.messages, gateState.editedFiles, gateState.currentUserRequest);
     if (reprompt) {
       gateState.noFileWriteRepromptFired = true;
       logger?.info('No-file-write gate fired — named file(s) not written');
@@ -166,37 +168,59 @@ export async function maybeInjectCompletionGate(
   // language's cheap parse-check (py_compile / node --check) on each edited
   // file. Only spawns a shell when a parse-checkable file was actually edited,
   // so .ts-only / no-edit turns never touch the shell. Bounded.
-  if (
-    config.completionGateEnabled !== false &&
-    (gateState.syntaxGateInjections ?? 0) < MAX_SYNTAX_GATE_INJECTIONS &&
-    hasCheckableFiles([...gateState.editedFiles])
-  ) {
-    try {
-      const session = getDefaultToolRuntime().getShellSession(config);
-      const failures = await runSyntaxGate([...gateState.editedFiles], async (cmd) => {
-        const r = await session.execute(cmd, { timeout: 15_000, signal });
-        return { exitCode: r.exitCode, output: r.stdout };
-      });
-      if (failures.length > 0) {
-        gateState.syntaxGateInjections = (gateState.syntaxGateInjections ?? 0) + 1;
-        // Mark these files as gate-supervised fix targets so the write-target
-        // cycle detector doesn't bail the model mid-fix — iterating on a file
-        // the gate flagged as unparseable is progress, not thrash.
-        gateState.syntaxGateFixTargets = new Set(failures.map((f) => f.file));
-        logger?.info(`Syntax gate fired — ${failures.length} edited file(s) fail to parse`);
-        callbacks.onText('\n\n🧩 Edited code fails to parse — fixing syntax errors...\n');
-        state.messages.push({
-          role: 'user',
-          content: [{ type: 'text' as const, text: buildSyntaxReprompt(failures) }],
-        });
-        return 'injected';
+  const editedList = [...gateState.editedFiles];
+  // Once the syntax gate has spent its injection budget it's no longer driving
+  // fixes, so stop exempting its fix-target files from cycle detection —
+  // further repetition on them is genuine thrash again.
+  if ((gateState.syntaxGateInjections ?? 0) >= MAX_SYNTAX_GATE_INJECTIONS) {
+    gateState.syntaxGateFixTargets?.clear();
+  }
+  if (config.completionGateEnabled !== false && (gateState.syntaxGateInjections ?? 0) < MAX_SYNTAX_GATE_INJECTIONS) {
+    if (!hasCheckableFiles(editedList)) {
+      // Observability: a non-empty edit set with no parse-checkable file (e.g.
+      // only .ts/.md edits) is expected — but log it so a missing-.py case is
+      // visible in the SideCar output channel rather than silent.
+      if (editedList.length > 0) {
+        logger?.info(`Syntax gate: no parse-checkable files among edited [${editedList.join(', ')}]`);
       }
-      // Files now parse — drop the cycle-detector exemption so later, unrelated
-      // thrash on the same file is no longer immune.
-      gateState.syntaxGateFixTargets?.clear();
-    } catch (err) {
-      // The gate is best-effort: a shell/runtime hiccup must not block the loop.
-      logger?.warn(`Syntax gate skipped: ${err instanceof Error ? err.message : String(err)}`);
+    } else {
+      const root = getRoot();
+      try {
+        // Run the parse-check through the agent's terminal-first executor (the
+        // same path run_tests uses), NOT a raw ShellSession. A raw ShellSession
+        // spawns a no-profile shell whose minimal PATH made bare `python3` hang
+        // (macOS CLT prompt) → the check timed out at 15s and the gate silently
+        // passed a broken file. The integrated terminal uses the login-shell PATH.
+        // Resolve to absolute paths so the check is cwd-independent.
+        const toCheck = editedList.map((f) => (root && !path.isAbsolute(f) ? path.join(root, f) : f));
+        logger?.info(`Syntax gate: checking ${toCheck.length} file(s) — ${toCheck.join(', ')}`);
+        const failures = await runSyntaxGate(toCheck, async (cmd) => {
+          const r = await runVerificationCommand(cmd, 15_000, signal);
+          if (r.timedOut) logger?.warn(`Syntax gate: parse-check timed out (15s) — ${cmd}`);
+          return { exitCode: r.exitCode, output: r.output };
+        });
+        if (failures.length > 0) {
+          gateState.syntaxGateInjections = (gateState.syntaxGateInjections ?? 0) + 1;
+          // Mark these files as gate-supervised fix targets so the write-target
+          // cycle detector doesn't bail the model mid-fix — iterating on a file
+          // the gate flagged as unparseable is progress, not thrash.
+          gateState.syntaxGateFixTargets = new Set(failures.map((f) => f.file));
+          logger?.info(`Syntax gate fired — ${failures.length} edited file(s) fail to parse`);
+          callbacks.onText('\n\n🧩 Edited code fails to parse — fixing syntax errors...\n');
+          state.messages.push({
+            role: 'user',
+            content: [{ type: 'text' as const, text: buildSyntaxReprompt(failures) }],
+          });
+          return 'injected';
+        }
+        logger?.info('Syntax gate: all checked files parse cleanly');
+        // Files now parse — drop the cycle-detector exemption so later, unrelated
+        // thrash on the same file is no longer immune.
+        gateState.syntaxGateFixTargets?.clear();
+      } catch (err) {
+        // The gate is best-effort: a shell/runtime hiccup must not block the loop.
+        logger?.warn(`Syntax gate skipped: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
   }
 

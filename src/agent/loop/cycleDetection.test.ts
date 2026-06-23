@@ -493,6 +493,36 @@ describe('detectCycleAndBail — write-target thrash pass', () => {
     expect(cb.texts).toHaveLength(0);
   });
 
+  it('does NOT fire the normalized length-2 pattern on a gate-driven edit→diagnostics fix loop', () => {
+    // The real dogfood case: syntax gate flagged gui.py, model loops
+    // edit→get_diagnostics→edit→get_diagnostics fixing it. That's a length-2
+    // normalized pattern, but it's gate-supervised progress, not thrash.
+    const state = stubLoopState();
+    state.gateState.syntaxGateFixTargets = new Set(['gui_calculator.py']);
+    const cb = stubCallbacks();
+    const seq: ToolUseContentBlock[][] = [
+      [makeToolUse('edit_file', { path: 'gui_calculator.py', search: 's1', replace: 'r1' })],
+      [makeToolUse('get_diagnostics', { path: 'gui_calculator.py' })],
+      [makeToolUse('edit_file', { path: 'gui_calculator.py', search: 's2', replace: 'r2' })],
+      [makeToolUse('get_diagnostics', { path: 'gui_calculator.py' })],
+    ];
+    for (const c of seq) expect(detectCycleAndBail(c, state, cb)).toBe(false);
+    expect(cb.texts).toHaveLength(0);
+  });
+
+  it('the same edit→diagnostics length-2 loop DOES fire when NOT gate-supervised', () => {
+    const state = stubLoopState(); // no syntaxGateFixTargets
+    const cb = stubCallbacks();
+    const seq: ToolUseContentBlock[][] = [
+      [makeToolUse('edit_file', { path: 'gui_calculator.py', search: 's1', replace: 'r1' })],
+      [makeToolUse('get_diagnostics', { path: 'gui_calculator.py' })],
+      [makeToolUse('edit_file', { path: 'gui_calculator.py', search: 's2', replace: 'r2' })],
+      [makeToolUse('get_diagnostics', { path: 'gui_calculator.py' })],
+    ];
+    const results = seq.map((c) => detectCycleAndBail(c, state, cb));
+    expect(results[results.length - 1]).toBe(true); // length-2 pattern fires
+  });
+
   it('still fires on an unrelated file while another file is gate-exempt', () => {
     const state = stubLoopState();
     state.gateState.syntaxGateFixTargets = new Set(['gui_calculator.py']);

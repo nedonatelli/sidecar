@@ -12,6 +12,7 @@ import {
   buildNoGroundingReprompt,
   buildUnverifiedClaimReprompt,
   findColocatedTest,
+  lastUserText,
 } from './completionGate.js';
 
 vi.mock('vscode', () => ({
@@ -528,6 +529,35 @@ describe('completionGate — buildNoReadReprompt', () => {
     expect(buildNoReadReprompt([])).toBeNull();
   });
 
+  it('uses requestText (current turn) over the first message when provided — multi-turn anchoring', () => {
+    // Continuing chat: first message is the original build task; current turn is
+    // a title tweak. The no-read gate must judge the CURRENT request, not the
+    // stale original — otherwise it fires on calculator.py from turn 1.
+    const msgs = [
+      userMsg('Build calculator.py and test_calculator.py.'),
+      assistantToolMsg('read_file', { path: 'gui_calculator.py' }),
+      userMsg('change the window title in gui_calculator.py'),
+    ];
+    // Anchored on the original message → would fire for calculator.py.
+    expect(buildNoReadReprompt(msgs, new Set())).not.toBeNull();
+    // Anchored on the current request → gui_calculator.py was read → no fire.
+    expect(buildNoReadReprompt(msgs, new Set(), 'change the window title in gui_calculator.py')).toBeNull();
+  });
+
+  it('no-file-write gate respects requestText (does not fire on stale original-prompt files)', () => {
+    const msgs = [userMsg('Create calculator.py and write test_calculator.py.')];
+    // Stale anchor: fires for the original files not written this run.
+    expect(buildNoFileWriteReprompt(msgs, new Set(['gui_calculator.py']))).not.toBeNull();
+    // Current-turn anchor mentions only gui_calculator.py, which IS edited → no fire.
+    expect(
+      buildNoFileWriteReprompt(
+        msgs,
+        new Set(['gui_calculator.py']),
+        'write changes to gui_calculator.py to add a button',
+      ),
+    ).toBeNull();
+  });
+
   it('returns null when the agent authored the mentioned file (write implies knowing contents)', () => {
     // "build calculator.py" — the user names the file with write intent; the
     // agent creates + tests it but never reads it. A read is redundant.
@@ -543,6 +573,21 @@ describe('completionGate — buildNoReadReprompt', () => {
   it('still fires for a mentioned file the agent did NOT author', () => {
     const msgs = [userMsg('Read src/greeter.ts and tell me what it does.')];
     expect(buildNoReadReprompt(msgs, new Set(['calculator.py']))).not.toBeNull();
+  });
+});
+
+describe('completionGate — lastUserText', () => {
+  it('returns the most recent user message, not the first', () => {
+    const msgs = [
+      { role: 'user' as const, content: [{ type: 'text' as const, text: 'original task' }] },
+      { role: 'assistant' as const, content: [{ type: 'text' as const, text: 'ok' }] },
+      { role: 'user' as const, content: 'current turn request' },
+    ];
+    expect(lastUserText(msgs)).toBe('current turn request');
+  });
+
+  it('returns empty string when there are no user messages', () => {
+    expect(lastUserText([{ role: 'assistant' as const, content: 'hi' }])).toBe('');
   });
 });
 

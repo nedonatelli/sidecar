@@ -58,10 +58,21 @@ export interface GateState {
    * for back-compat with test stubs.
    */
   syntaxGateFixTargets?: Set<string>;
+  /**
+   * The user request that triggered THIS run, captured at loop init. The
+   * request-based gates (no-read/no-shell/no-grounding/no-file-write/
+   * unverified-claim) evaluate against this, NOT firstUserText(messages) —
+   * in a continuing chat the first message is the original task, so anchoring
+   * on it makes the gates fire on stale, already-satisfied requirements (a
+   * "change the title" turn was judged against the original "build calculator"
+   * prompt). Empty string falls back to firstUserText for back-compat.
+   */
+  currentUserRequest?: string;
 }
 
-export function createGateState(): GateState {
+export function createGateState(currentUserRequest = ''): GateState {
   return {
+    currentUserRequest,
     editedFiles: new Set(),
     testsRunForFiles: new Set(),
     projectTestsRan: false,
@@ -381,6 +392,28 @@ export function firstUserText(messages: ChatMessage[]): string {
 }
 
 /**
+ * The most recent user message text — the request that triggered the current
+ * run. Captured at loop init (before any synthetic gate injection is appended)
+ * so it reflects the user's actual current-turn ask, not the first message of a
+ * long conversation. See GateState.currentUserRequest.
+ */
+export function lastUserText(messages: ChatMessage[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role !== 'user') continue;
+    if (typeof msg.content === 'string') return msg.content;
+    if (Array.isArray(msg.content)) {
+      for (const b of msg.content) {
+        if (typeof b === 'object' && b !== null && 'type' in b && b.type === 'text' && 'text' in b) {
+          return b.text as string;
+        }
+      }
+    }
+  }
+  return '';
+}
+
+/**
  * Returns true if any assistant message contains a read-capable tool call
  * whose serialised input references `fileName` (case-insensitive).
  * This is a per-file check — a run_command for an unrelated path does NOT
@@ -437,8 +470,12 @@ function hasRunCommandCall(messages: ChatMessage[]): boolean {
  * mentioned file independently — a tool call for file A does not satisfy
  * the requirement for file B. Returns null when no reprompt is needed.
  */
-export function buildNoReadReprompt(messages: ChatMessage[], editedFiles?: ReadonlySet<string>): string | null {
-  const userText = firstUserText(messages);
+export function buildNoReadReprompt(
+  messages: ChatMessage[],
+  editedFiles?: ReadonlySet<string>,
+  requestText?: string,
+): string | null {
+  const userText = requestText ?? firstUserText(messages);
   if (!userText) return null;
   const fileMatches = userText.match(FILE_MENTION_RE);
   if (!fileMatches) return null;
@@ -464,9 +501,9 @@ export function buildNoReadReprompt(messages: ChatMessage[], editedFiles?: Reado
  * (file count, line count, version, etc.) but the model answered without
  * running any shell command. Returns null when no reprompt is needed.
  */
-export function buildNoShellReprompt(messages: ChatMessage[]): string | null {
+export function buildNoShellReprompt(messages: ChatMessage[], requestText?: string): string | null {
   if (hasRunCommandCall(messages)) return null;
-  const userText = firstUserText(messages);
+  const userText = requestText ?? firstUserText(messages);
   if (!userText) return null;
   if (!WORKSPACE_METRIC_RE.test(userText) || !WORKSPACE_DIR_RE.test(userText)) return null;
   return (
@@ -531,9 +568,9 @@ function hasAnyGroundingToolCall(messages: ChatMessage[]): boolean {
  * evaluation of the codebase/design but the model answered without calling
  * any grounding tool. Returns null when no reprompt is needed.
  */
-export function buildNoGroundingReprompt(messages: ChatMessage[]): string | null {
+export function buildNoGroundingReprompt(messages: ChatMessage[], requestText?: string): string | null {
   if (hasAnyGroundingToolCall(messages)) return null;
-  const userText = firstUserText(messages);
+  const userText = requestText ?? firstUserText(messages);
   if (!userText) return null;
   if (!isAnalysisRequest(userText)) return null;
   return (
@@ -596,8 +633,9 @@ async function defaultFileExists(relPath: string): Promise<boolean> {
 export async function buildUnverifiedClaimReprompt(
   messages: ChatMessage[],
   fileExists: (relPath: string) => Promise<boolean> = defaultFileExists,
+  requestText?: string,
 ): Promise<string | null> {
-  const userText = firstUserText(messages);
+  const userText = requestText ?? firstUserText(messages);
   if (!userText) return null;
   if (!isAnalysisRequest(userText)) return null;
 
@@ -669,8 +707,12 @@ const WRITE_INTENT_RE =
  * message with write intent but were never written by the agent. Returns
  * null when no reprompt is needed.
  */
-export function buildNoFileWriteReprompt(messages: ChatMessage[], editedFiles: Set<string>): string | null {
-  const userText = firstUserText(messages);
+export function buildNoFileWriteReprompt(
+  messages: ChatMessage[],
+  editedFiles: Set<string>,
+  requestText?: string,
+): string | null {
+  const userText = requestText ?? firstUserText(messages);
   if (!userText) return null;
   if (!WRITE_INTENT_RE.test(userText)) return null;
 

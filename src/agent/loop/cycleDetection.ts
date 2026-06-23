@@ -160,7 +160,7 @@ export function detectCycleAndBail(
       const isReadOnly = READ_ONLY_TOOLS.has(toolName);
 
       const hasRepeatedSecondary = lastN.every((e) => e.secondaryHash === lastN[0].secondaryHash);
-      if (isReadOnly || hasRepeatedSecondary) {
+      if ((isReadOnly || hasRepeatedSecondary) && !sigTargetsOnlyGateFiles(lastN[0].sig, state)) {
         state.logger?.warn(
           `Agent loop normalized cycle detected (${MIN_NORMALIZED_REPEATS} repeats${isReadOnly ? ', read-only tool' : ', repeated secondary args'}) — ${normEntry.sig.slice(0, 100)}`,
         );
@@ -195,7 +195,7 @@ export function detectCycleAndBail(
         seen.add(e.secondaryHash);
         return false;
       });
-      if (sigIsReadOnly || hasRepeatedSecondary) {
+      if ((sigIsReadOnly || hasRepeatedSecondary) && !sigTargetsOnlyGateFiles(sig, state)) {
         state.logger?.warn(
           `Agent loop normalized cycle detected (${entries.length} non-consecutive repeats in window) — ${sig.slice(0, 100)}`,
         );
@@ -211,7 +211,11 @@ export function detectCycleAndBail(
   for (let len = 2; len <= MAX_CYCLE_LEN && len * 2 <= state.recentNormalizedCalls.length; len++) {
     const tail = state.recentNormalizedCalls.slice(-len);
     const prev = state.recentNormalizedCalls.slice(-2 * len, -len);
-    if (tail.length === prev.length && tail.every((v, i) => v.sig === prev[i].sig)) {
+    if (
+      tail.length === prev.length &&
+      tail.every((v, i) => v.sig === prev[i].sig) &&
+      !tail.every((e) => sigTargetsOnlyGateFiles(e.sig, state))
+    ) {
       state.logger?.warn(`Agent loop normalized cycle detected (length ${len}) — ${normEntry.sig.slice(0, 100)}`);
       const patternSigs = tail.map((e) => e.sig.slice(0, 40)).join(' → ');
       callbacks.onText(
@@ -300,6 +304,25 @@ function isSyntaxGateFixTarget(target: string, state: LoopState): boolean {
     if (gated.split('/').pop()!.toLowerCase() === base) return true;
   }
   return false;
+}
+
+/**
+ * True if every tool call in a normalized signature references only files the
+ * syntax gate is actively driving fixes on. Such a signature is gate-supervised
+ * fixing (e.g. `edit_file:gui.py` → `get_diagnostics:gui.py` repeated while the
+ * model fixes a flagged parse error), NOT thrash — the normalized cycle passes
+ * exempt it. The gate's own injection cap (and the exact-match pass, which still
+ * fires on truly identical repeated calls) bound the loop.
+ */
+function sigTargetsOnlyGateFiles(sig: string, state: LoopState): boolean {
+  const fixTargets = state.gateState.syntaxGateFixTargets;
+  if (!fixTargets || fixTargets.size === 0) return false;
+  const parts = sig.split('|');
+  return parts.every((p) => {
+    const idx = p.indexOf(':');
+    const resource = idx === -1 ? '' : p.slice(idx + 1);
+    return resource !== '' && isSyntaxGateFixTarget(resource, state);
+  });
 }
 
 function sortedStringify(value: unknown): string {
