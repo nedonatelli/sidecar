@@ -11,7 +11,12 @@ import {
   buildNoGroundingReprompt,
   buildUnverifiedClaimReprompt,
 } from '../completionGate.js';
+import { runSyntaxGate, buildSyntaxReprompt, hasCheckableFiles } from './syntaxGate.js';
+import { getDefaultToolRuntime } from '../tools/runtime.js';
 import type { LoopState } from './state.js';
+
+/** Bounded retries for the syntax gate, mirroring MAX_GATE_INJECTIONS. */
+const MAX_SYNTAX_GATE_INJECTIONS = 2;
 
 // ---------------------------------------------------------------------------
 // Completion gate — post-turn policy, two entry points.
@@ -154,6 +159,37 @@ export async function maybeInjectCompletionGate(
       callbacks.onText('\n\n📝 Checking named files were written...\n');
       state.messages.push({ role: 'user', content: [{ type: 'text' as const, text: reprompt }] });
       return 'injected';
+    }
+  }
+
+  // Syntax gate: edited code must PARSE before the agent can finish. Runs the
+  // language's cheap parse-check (py_compile / node --check) on each edited
+  // file. Only spawns a shell when a parse-checkable file was actually edited,
+  // so .ts-only / no-edit turns never touch the shell. Bounded.
+  if (
+    config.completionGateEnabled !== false &&
+    (gateState.syntaxGateInjections ?? 0) < MAX_SYNTAX_GATE_INJECTIONS &&
+    hasCheckableFiles([...gateState.editedFiles])
+  ) {
+    try {
+      const session = getDefaultToolRuntime().getShellSession(config);
+      const failures = await runSyntaxGate([...gateState.editedFiles], async (cmd) => {
+        const r = await session.execute(cmd, { timeout: 15_000, signal });
+        return { exitCode: r.exitCode, output: r.stdout };
+      });
+      if (failures.length > 0) {
+        gateState.syntaxGateInjections = (gateState.syntaxGateInjections ?? 0) + 1;
+        logger?.info(`Syntax gate fired — ${failures.length} edited file(s) fail to parse`);
+        callbacks.onText('\n\n🧩 Edited code fails to parse — fixing syntax errors...\n');
+        state.messages.push({
+          role: 'user',
+          content: [{ type: 'text' as const, text: buildSyntaxReprompt(failures) }],
+        });
+        return 'injected';
+      }
+    } catch (err) {
+      // The gate is best-effort: a shell/runtime hiccup must not block the loop.
+      logger?.warn(`Syntax gate skipped: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 

@@ -48,6 +48,8 @@ export interface GateState {
   noGroundingRepromptFired: boolean;
   /** True once the unverified-claim reprompt has fired (fires at most once). */
   unverifiedClaimRepromptFired: boolean;
+  /** How many times the syntax gate has reprompted this run (bounded). Optional for back-compat with test stubs. */
+  syntaxGateInjections?: number;
 }
 
 export function createGateState(): GateState {
@@ -62,6 +64,7 @@ export function createGateState(): GateState {
     noFileWriteRepromptFired: false,
     noGroundingRepromptFired: false,
     unverifiedClaimRepromptFired: false,
+    syntaxGateInjections: 0,
   };
 }
 
