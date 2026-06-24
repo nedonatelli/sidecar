@@ -174,11 +174,13 @@ export async function maybeInjectCompletionGate(
   // bug. Fires at most once; gentle framing so a static-check-sufficient fix
   // can skip it.
   if (!gateState.behavioralVerificationRepromptFired && config.completionGateEnabled !== false) {
-    const ranAnyTest = !!gateState.projectTestsRan || (gateState.testsRunForFiles?.size ?? 0) > 0;
-    const reprompt = buildBehavioralVerificationReprompt(
+    const reprompt = await buildBehavioralVerificationReprompt(
       gateState.currentUserRequest ?? '',
       gateState.editedFiles,
-      ranAnyTest,
+      {
+        testsRunForFiles: gateState.testsRunForFiles,
+        projectTestsRan: gateState.projectTestsRan,
+      },
     );
     if (reprompt) {
       gateState.behavioralVerificationRepromptFired = true;

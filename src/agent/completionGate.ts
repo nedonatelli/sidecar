@@ -760,14 +760,17 @@ export async function buildNoFileWriteReprompt(
 // ---------------------------------------------------------------------------
 // Behavioral-verification gate
 //
-// When the user reports a BUG (symptom language) and the agent edits code to
-// fix it but never runs a test that exercises the behavior, nudge it to write
-// one. Launching/compiling proves the code starts, not that the reported
-// behavior is fixed — the exact gap a functional bug (e.g. "clicking the
-// buttons does nothing") falls through. Deterministic gates can verify
-// structure and execution, not behavior; the only way to close that is an
-// actual behavioral test, which this nudges toward. Soft + bounded: the
-// framing lets the model ignore it when a static check already sufficed.
+// Fires when the agent edits code that has runtime BEHAVIOR but never runs a
+// test exercising it — either fixing a reported bug (symptom language) or
+// building something interactive/behavioral (a GUI, app, server, CLI, …).
+// Launching/compiling proves the code starts, not that it behaves correctly —
+// the gap a functional bug (e.g. "operator buttons don't display", "equals
+// shows Error") falls straight through. Dogfooding: models "verify" a GUI by
+// launching it (which only proves startup) and ship behaviorally-broken code.
+// Deterministic gates verify structure + execution, not behavior; the only
+// thing that closes that is an actual behavioral test, which this nudges
+// toward. Soft + bounded: the framing lets the model skip it when a static
+// check genuinely sufficed (e.g. a type-only fix).
 // ---------------------------------------------------------------------------
 
 /** Symptom phrasing that signals the user is reporting a behavioral bug. */
@@ -775,24 +778,122 @@ const BUG_REPORT_RE =
   /\b(does(n'?t| not) (work|run|update|populate|show|respond|display|change)|not working|nothing happens|does nothing|no longer works?|stopped working|is broken|won'?t \w+|fails? to \w+|crash(es|ing|ed)?|isn'?t \w+ing|doesn'?t do anything|broken)\b/i;
 
 /**
- * Returns a reprompt when the current request reads as a bug report, the agent
- * edited code, but no test was run that could verify the behavioral fix.
- * `ranAnyTest` should be true when a whole-suite or single-file test executed.
+ * Nouns that signal the request produces code with interactive/runtime behavior
+ * worth a behavioral test (vs. structural artifacts like a config file or type
+ * definition, which don't match and so don't trip the gate).
  */
-export function buildBehavioralVerificationReprompt(
+const BEHAVIORAL_BUILD_RE =
+  /\b(gui|app|application|calculator|game|cli|command[- ]line|server|endpoint|route|web ?app|widget|form|dialog|menu|button|window|screen|interactive|chatbot|\bbot\b|api|webhook|parser|validator|simulator|handler)\b/i;
+
+/** Python test-file conventions (pytest/unittest discovery): test_*.py and *_test.py. */
+const PY_TEST_FILE_RE = /(^|\/)(test_[^/]+|[^/]+_test)\.py$/;
+
+/** Escape a string for safe interpolation into a RegExp. */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Default workspace file reader for behavioral coverage. Injectable for tests. */
+async function defaultReadFile(relPath: string): Promise<string | null> {
+  const root = workspace.workspaceFolders?.[0]?.uri;
+  if (!root) return null;
+  try {
+    const bytes = await workspace.fs.readFile(Uri.joinPath(root, relPath));
+    return Buffer.from(bytes).toString('utf8');
+  } catch {
+    return null;
+  }
+}
+
+/** True if `content` references `moduleName` as a whole word (an import or symbol use). */
+function referencesModule(content: string, moduleName: string): boolean {
+  return new RegExp(`\\b${escapeRegExp(moduleName)}\\b`).test(content);
+}
+
+/**
+ * Conventional test-file paths that would exercise `editedFile`. Used when a
+ * whole-suite run fired (no explicit file arg) so we can still confirm a test
+ * for this module actually exists and imports it. Covers the colocated and
+ * top-level `tests/` placements for Python and JS/TS conventions.
+ */
+function candidateTestFiles(editedFile: string): string[] {
+  const ext = path.extname(editedFile);
+  const base = path.basename(editedFile, ext);
+  const slash = editedFile.lastIndexOf('/');
+  const dir = slash === -1 ? '' : editedFile.slice(0, slash);
+  const names = ext === '.py' ? [`test_${base}.py`, `${base}_test.py`] : [`${base}.test${ext}`, `${base}.spec${ext}`];
+  const prefixes = dir ? [`${dir}/`, '', 'tests/', 'test/'] : ['', 'tests/', 'test/'];
+  const out: string[] = [];
+  for (const p of prefixes) for (const n of names) out.push(p + n);
+  return [...new Set(out)];
+}
+
+/**
+ * True if a test that actually exercises `file`'s module ran this turn. The
+ * crux of target-coverage: a `pytest test_calculator.py` run does NOT exercise
+ * an edited `gui_calculator.py`, and launching the program (`python gui.py`,
+ * `python -c "import gui; App()"`) proves startup, not behavior — so neither
+ * satisfies the gate. Only a test FILE that imports/references the edited
+ * module counts. Explicit test runs are checked directly; a whole-suite run is
+ * confirmed against the module's conventional test files on disk.
+ */
+async function behavioralFileExercised(
+  file: string,
+  gateState: { testsRunForFiles: Set<string>; projectTestsRan: boolean },
+  readFile: (p: string) => Promise<string | null>,
+): Promise<boolean> {
+  const moduleName = path.basename(file, path.extname(file));
+  const testFiles = new Set<string>(gateState.testsRunForFiles);
+  if (gateState.projectTestsRan) for (const c of candidateTestFiles(file)) testFiles.add(c);
+  for (const t of testFiles) {
+    const content = await readFile(t);
+    if (content && referencesModule(content, moduleName)) return true;
+  }
+  return false;
+}
+
+/**
+ * Returns a reprompt when the current request involves runtime behavior (a bug
+ * fix OR a build of something interactive/behavioral), the agent edited code,
+ * but no test actually EXERCISED the edited code. Target-aware: running an
+ * unrelated test suite (e.g. `pytest test_calculator.py` after editing
+ * `gui_calculator.py`) or merely launching/constructing the program does not
+ * satisfy the gate — only a test file that imports the edited module does.
+ */
+export async function buildBehavioralVerificationReprompt(
   requestText: string,
   editedFiles: Set<string>,
-  ranAnyTest: boolean,
-): string | null {
+  gateState: { testsRunForFiles: Set<string>; projectTestsRan: boolean },
+  readFile: (p: string) => Promise<string | null> = defaultReadFile,
+): Promise<string | null> {
   if (!requestText) return null;
   if (editedFiles.size === 0) return null; // no code changed → nothing to verify
-  if (ranAnyTest) return null; // a test ran → behavioral verification happened
-  if (!BUG_REPORT_RE.test(requestText)) return null;
+  const isBug = BUG_REPORT_RE.test(requestText);
+  const isBehavioralBuild = BEHAVIORAL_BUILD_RE.test(requestText);
+  if (!isBug && !isBehavioralBuild) return null; // structural/non-behavioral work — skip
+
+  // Only behavioral SOURCE edits obligate a behavioral test — test files and
+  // type-only declarations don't test themselves.
+  const behavioralEdits = [...editedFiles].filter(
+    (f) => SOURCE_FILE_RE.test(f) && !f.endsWith('.d.ts') && !TEST_FILE_RE.test(f) && !PY_TEST_FILE_RE.test(f),
+  );
+  if (behavioralEdits.length === 0) return null;
+
+  const uncovered: string[] = [];
+  for (const file of behavioralEdits) {
+    if (!(await behavioralFileExercised(file, gateState, readFile))) uncovered.push(file);
+  }
+  if (uncovered.length === 0) return null; // every edited behavioral file has a test that exercises it
+
+  const what = isBug ? 'to fix a reported bug' : 'that has runtime behavior';
+  const fileList = uncovered.map((f) => `\`${f}\``).join(', ');
   return (
-    'You edited code to fix a reported bug but ran no test that exercises the behavior. ' +
-    'Launching or compiling proves the code starts, NOT that the bug is fixed. ' +
-    'Write a test that reproduces the reported behavior — call the changed function/handler directly and assert the ' +
-    'result (for UI, instantiate the component and invoke its callbacks headlessly) — then run it and confirm it passes. ' +
-    'If a static check (get_diagnostics) already proves the fix, ignore this and call done.'
+    `You edited code ${what} (${fileList}) but ran no test that exercises ${uncovered.length === 1 ? 'it' : 'them'}. ` +
+    'Launching or compiling proves the code starts, NOT that it works (a GUI can open with dead buttons; ' +
+    'a script can import cleanly and still compute the wrong answer). Running an UNRELATED test suite does not ' +
+    'count — the test must import the file you just edited and drive its behavior. ' +
+    'Write a test that imports the changed module and calls the changed function/handler directly, asserting the result ' +
+    '(for UI, construct the component and invoke its callbacks headlessly, asserting the resulting display/state) — then ' +
+    'run it and confirm it passes. If a static check (get_diagnostics) genuinely proves the change, ignore this and call done.'
   );
 }

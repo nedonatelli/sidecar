@@ -4,6 +4,38 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.114.25] - 2026-06-24
+
+### Changed
+
+- **Behavioral-verification gate is now target-aware — running the wrong test no longer satisfies it** — dogfooding a GUI build: the model edited `gui_calculator.py`, then "verified" by running `pytest test_calculator.py` (which tests `calculator.py`, a file it didn't even touch) and a construct-only `python -c "CalculatorApp(root); print('ok')"` smoke test. The gate saw "edited code + a test ran" and passed it — shipping a GUI with integer-truncating division (`7/2 → 3`) and a display that can't accept a leading `0`/`.`. The gate previously asked "did *a* test run?"; it now asks "did a test run that **exercises the file you edited?**" A verification only counts when a test file **imports the edited module** (`from gui_calculator import …`) — checked against the explicit test files that ran, or, for a whole-suite run, against the module's conventional test files on disk. Launching the program or constructing a component headlessly proves startup, not behavior, and no longer counts. The reprompt now names the uncovered files and explicitly rejects unrelated-suite runs. (`src/agent/completionGate.ts`, `src/agent/loop/gate.ts`)
+
+### Fixed
+
+- **Masked-verification detector now covers inline `python -c` / `node -e` / `ruby -e` smoke tests** — the same GUI run masked its construct check with `python3 -c "…" 2>&1 || true`, which the detector missed (it only matched an interpreter running a `.py` file or a `-m` module). Inline-script verification masked with `|| true` / `2>/dev/null` now gets the advisory too. (`src/agent/tools/shell.ts`)
+
+
+## [0.114.24] - 2026-06-24
+
+### Added
+
+- **Isolate-don't-regenerate nudge — turn full-rewrite thrash into a technique correction** — when a model gets stuck on a fiddly bug it reaches for the wrong tool: it regenerates the *whole file* with `write_file` over and over instead of editing the one broken function. That's doubly destructive — full rewrites lose working parts (dogfooding caught qwen3.5 deleting a calculator's `=` button mid-fix because it regenerated the file and dropped a piece it had already gotten right) and they don't converge (re-emitting 100+ lines to tweak one regex reintroduces variance everywhere). Cycle detection already *catches* this, but bailing says "give up" — the scaffold's job is to lift a limited model past where it'd land on its own. A new post-turn hook fires **first** and *redirects*: when the agent overwrites a whole file (a 2nd+ `write_file` to the same path, or the 1st `write_file` over a file already read this run), it injects a nudge to switch to `edit_file` on the specific broken function and leave the rest untouched. Bounded to 2 nudges per file, after which cycle detection takes over as backstop. `edit_file` itself never triggers it — that's the technique we want. (`src/agent/loop/isolateRewrite.ts`, `src/agent/loop/builtInHooks.ts`, `src/agent/loop/state.ts`)
+
+
+## [0.114.23] - 2026-06-24
+
+### Changed
+
+- **Behavioral-verification gate now also covers behavior-implying builds, not just bug reports** — dogfooding showed models shipping behaviorally-broken builds (e.g. a calculator GUI whose operator buttons don't display) because they "verify" by launching, which only proves startup. The gate previously fired only on bug-report phrasing; it now also fires when the request builds something with runtime behavior (GUI, app, calculator, CLI, server, endpoint, button, handler, parser, …) and the agent edited code but ran no test exercising it. Structural builds (config files, READMEs, type definitions) don't match and don't trip it; any task that actually ran a test is exempt; bounded to one soft nudge. (`src/agent/completionGate.ts`)
+
+
+## [0.114.22] - 2026-06-24
+
+### Added
+
+- **Masked-verification guard** — models "verify" a change by running it but wrap the command in `|| true` / `2>/dev/null`, forcing it to "succeed" and hiding the crash or test failure they're checking for (dogfooding: qwen3.5 "verified" a GUI with `python gui.py || true`, never seeing the launch crash). Two layers: (1) basePrompt rule #20 — never mask the result of a verification command; run it plainly and read the real exit code/output (cleanup like `pkill … || true` is fine). (2) `run_command` now appends an advisory when a command **runs a program for verification AND masks its failure** (`|| true`, `2>/dev/null`, backgrounded launch + masked cleanup) — the command still runs, but the model is told it verified nothing and to re-run plainly. Status-reporting `|| echo` (which keeps a distinct fail signal) and pure cleanup are exempt. (`src/webview/handlers/basePrompt.ts`, `src/agent/tools/shell.ts`)
+
+
 ## [0.114.21] - 2026-06-24
 
 ### Fixed

@@ -744,14 +744,19 @@ describe('completionGate — buildUnverifiedClaimReprompt', () => {
 
 describe('completionGate — buildBehavioralVerificationReprompt', () => {
   const edited = new Set<string>(['gui_calculator.py']);
+  const noTests = { testsRunForFiles: new Set<string>(), projectTestsRan: false };
+  // A test file that DOES exercise gui_calculator (imports the module).
+  const guiTestRan = { testsRunForFiles: new Set<string>(['test_gui_calculator.py']), projectTestsRan: false };
+  const readGuiTest = async (p: string) =>
+    p === 'test_gui_calculator.py' ? 'from gui_calculator import CalculatorApp\n' : null;
 
-  it('fires on a bug report when code was edited but no test ran', () => {
-    const r = buildBehavioralVerificationReprompt('clicking the number buttons does nothing', edited, false);
+  it('fires on a bug report when code was edited but no test ran', async () => {
+    const r = await buildBehavioralVerificationReprompt('clicking the number buttons does nothing', edited, noTests);
     expect(r).not.toBeNull();
     expect(r).toContain('test');
   });
 
-  it('matches varied bug-report phrasings', () => {
+  it('matches varied bug-report phrasings', async () => {
     for (const req of [
       'the calculator is broken',
       "the display doesn't update when I click",
@@ -759,20 +764,79 @@ describe('completionGate — buildBehavioralVerificationReprompt', () => {
       'the equals button fails to compute',
       'nothing happens when I press a key',
     ]) {
-      expect(buildBehavioralVerificationReprompt(req, edited, false)).not.toBeNull();
+      expect(await buildBehavioralVerificationReprompt(req, edited, noTests)).not.toBeNull();
     }
   });
 
-  it('does NOT fire when a test already ran (behavior was verified)', () => {
-    expect(buildBehavioralVerificationReprompt('clicking does nothing', edited, true)).toBeNull();
+  it('does NOT fire when a test that exercises the edited file ran', async () => {
+    expect(
+      await buildBehavioralVerificationReprompt('clicking does nothing', edited, guiTestRan, readGuiTest),
+    ).toBeNull();
   });
 
-  it('does NOT fire when no code was edited', () => {
-    expect(buildBehavioralVerificationReprompt('clicking does nothing', new Set(), false)).toBeNull();
+  it('STILL fires when a test ran but it does not exercise the edited file (wrong-target)', async () => {
+    // Editing gui_calculator.py but running test_calculator.py (imports calculator, not gui_calculator).
+    const wrongTarget = { testsRunForFiles: new Set<string>(['test_calculator.py']), projectTestsRan: false };
+    const readCalcTest = async (p: string) =>
+      p === 'test_calculator.py' ? 'from calculator import add, subtract\n' : null;
+    const r = await buildBehavioralVerificationReprompt('clicking does nothing', edited, wrongTarget, readCalcTest);
+    expect(r).not.toBeNull();
+    expect(r).toContain('gui_calculator.py');
+    expect(r).toContain('UNRELATED');
   });
 
-  it('does NOT fire on a non-bug request (a feature build, not a symptom)', () => {
-    expect(buildBehavioralVerificationReprompt('Build a Tkinter GUI for the calculator', edited, false)).toBeNull();
+  it('counts a whole-suite run when a conventional test file imports the module', async () => {
+    const suite = { testsRunForFiles: new Set<string>(), projectTestsRan: true };
+    expect(await buildBehavioralVerificationReprompt('clicking does nothing', edited, suite, readGuiTest)).toBeNull();
+  });
+
+  it('fires on a whole-suite run when no test for the edited module exists', async () => {
+    const suite = { testsRunForFiles: new Set<string>(), projectTestsRan: true };
+    const r = await buildBehavioralVerificationReprompt('clicking does nothing', edited, suite, async () => null);
+    expect(r).not.toBeNull();
+  });
+
+  it('does NOT fire when no code was edited', async () => {
+    expect(await buildBehavioralVerificationReprompt('clicking does nothing', new Set(), noTests)).toBeNull();
+  });
+
+  it('does NOT fire when only a test file was edited (no behavioral source)', async () => {
+    const onlyTest = new Set<string>(['test_gui_calculator.py']);
+    expect(await buildBehavioralVerificationReprompt('the gui is broken', onlyTest, noTests)).toBeNull();
+  });
+
+  it('fires on a behavior-implying BUILD (not just bug reports) with no test', async () => {
+    for (const req of [
+      'Build a Tkinter GUI for the calculator',
+      'create a command-line calculator app',
+      'add a clear button to the calculator',
+      'implement a /health endpoint on the server',
+      'write a CLI that parses the arguments',
+    ]) {
+      expect(await buildBehavioralVerificationReprompt(req, edited, noTests)).not.toBeNull();
+    }
+  });
+
+  it('does NOT fire on a structural/non-behavioral build', async () => {
+    for (const req of [
+      'create a tsconfig.json with strict mode',
+      'add a LICENSE file',
+      'write a README describing the project',
+      'add a TypeScript interface for the config',
+    ]) {
+      expect(await buildBehavioralVerificationReprompt(req, edited, noTests)).toBeNull();
+    }
+  });
+
+  it('does NOT fire on a behavior-implying build once a test exercises the file', async () => {
+    expect(
+      await buildBehavioralVerificationReprompt(
+        'Build a Tkinter GUI for the calculator',
+        edited,
+        guiTestRan,
+        readGuiTest,
+      ),
+    ).toBeNull();
   });
 });
 

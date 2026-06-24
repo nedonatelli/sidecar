@@ -112,6 +112,13 @@ export interface LoopState {
   // Per-file auto-fix retry counter. autoFix.ts is the only writer.
   autoFixRetriesByFile: Map<string, number>;
 
+  // Per-file count of full-file overwrites (write_file) this run, and the
+  // number of isolate-rewrite nudges already injected per file. isolateRewrite.ts
+  // is the only writer. Used to redirect a stuck model from regenerating whole
+  // files toward targeted edit_file changes *before* cycle detection bails it.
+  fullRewriteCountByFile: Map<string, number>;
+  isolateNudgesByFile: Map<string, number>;
+
   // Stub-validator retry counter. stubCheck.ts is the only writer.
   stubFixRetries: number;
 
@@ -227,6 +234,8 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     recentNormalizedCalls: [],
     recentWriteTargets: [],
     autoFixRetriesByFile: new Map<string, number>(),
+    fullRewriteCountByFile: new Map<string, number>(),
+    isolateNudgesByFile: new Map<string, number>(),
     stubFixRetries: 0,
     actionRepromptCount: 0,
     filesReadThisRun: new Set<string>(),

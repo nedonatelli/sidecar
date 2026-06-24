@@ -1,4 +1,5 @@
 import { applyAutoFix } from './autoFix.js';
+import { applyIsolateRewriteNudge } from './isolateRewrite.js';
 import { applyStubCheck } from './stubCheck.js';
 import { applyCritic, applyAnalysisCritic } from './criticHook.js';
 import { recordGateToolUses, maybeInjectCompletionGate } from './gate.js';
@@ -37,6 +38,23 @@ const autoFixHook: PolicyHook = {
   async afterToolResults(state: LoopState, ctx: HookContext): Promise<HookResult> {
     if (!ctx.pendingToolUses) return { mutated: false };
     const mutated = await applyAutoFix(state, ctx.pendingToolUses, ctx.config, ctx.callbacks);
+    return { mutated };
+  },
+};
+
+/**
+ * Isolate-don't-regenerate nudge. Fires when the model overwrites a whole file
+ * with write_file instead of making a targeted edit_file change — the thrash
+ * pattern that loses working parts and never converges. Redirects toward
+ * targeted edits *before* cycle detection bails the run. Registered right after
+ * auto-fix so a turn with both errors and a full rewrite gets "fix these" plus
+ * "and do it with a targeted edit".
+ */
+const isolateRewriteHook: PolicyHook = {
+  name: 'isolateRewrite',
+  async afterToolResults(state: LoopState, ctx: HookContext): Promise<HookResult> {
+    if (!ctx.pendingToolUses) return { mutated: false };
+    const mutated = applyIsolateRewriteNudge(state, ctx.pendingToolUses, ctx.callbacks);
     return { mutated };
   },
 };
@@ -144,5 +162,13 @@ export function defaultPolicyHooks(): PolicyHook[] {
   // actionRepromptHook runs before completionGate so the model gets
   // nudged to call tools before the gate demands verification of edits
   // it hasn't made yet.
-  return [autoFixHook, stubCheckHook, criticHook, actionRepromptHook, completionGateHook, analysisCriticHook];
+  return [
+    autoFixHook,
+    isolateRewriteHook,
+    stubCheckHook,
+    criticHook,
+    actionRepromptHook,
+    completionGateHook,
+    analysisCriticHook,
+  ];
 }

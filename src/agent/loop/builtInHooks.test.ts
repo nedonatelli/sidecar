@@ -85,6 +85,7 @@ describe('defaultPolicyHooks list shape', () => {
     const hooks = defaultPolicyHooks();
     expect(hooks.map((h) => h.name)).toEqual([
       'autoFix',
+      'isolateRewrite',
       'stubValidator',
       'adversarialCritic',
       'actionReprompt',
@@ -121,7 +122,7 @@ describe('autoFix adapter', () => {
 });
 
 describe('stubValidator adapter', () => {
-  const hook = defaultPolicyHooks()[1];
+  const hook = defaultPolicyHooks()[2];
 
   it('short-circuits when pendingToolUses is missing', async () => {
     const result = await hook.afterToolResults!(stubLoopState(), stubContext({ pendingToolUses: undefined }));
@@ -137,7 +138,7 @@ describe('stubValidator adapter', () => {
 });
 
 describe('adversarialCritic adapter', () => {
-  const hook = defaultPolicyHooks()[2];
+  const hook = defaultPolicyHooks()[3];
 
   it('short-circuits when any of pendingToolUses / toolResults / fullText is missing', async () => {
     // Missing fullText
@@ -183,7 +184,7 @@ describe('adversarialCritic adapter', () => {
 });
 
 describe('completionGate adapter', () => {
-  const hook = defaultPolicyHooks()[4]; // index 4 after actionReprompt was inserted at 3
+  const hook = defaultPolicyHooks()[5]; // autoFix, isolateRewrite, stub, critic, actionReprompt, completionGate
 
   describe('afterToolResults phase (recording)', () => {
     it('short-circuits when pendingToolUses or toolResults are missing', async () => {

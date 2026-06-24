@@ -106,6 +106,33 @@ export function detectLanguageMismatchedLint(command: string): string | null {
   );
 }
 
+// A program execution whose result is meaningful as verification: an
+// interpreter running a file, or a test/build runner.
+const PROGRAM_EXEC_RE =
+  /(^|[\s;&|])(python3?|node|deno|bun|ruby|php)\s+[^\s;&|]+\.\w+|(^|[\s;&|])(pytest|jest|vitest|mocha|go\s+test|cargo\s+(test|run|build)|go\s+run|gradle|mvn)\b|(^|[\s;&|])(npm|pnpm|yarn)\s+(test|run|start)\b|(^|[\s;&|])python3?\s+-m\s+(pytest|unittest|py_compile)\b|(^|[\s;&|])(python3?\s+-c|node\s+-e|ruby\s+-e)\b/i;
+// Masks that suppress failure/output of a command (NOT `|| echo`, which keeps a
+// distinct success/fail signal the model can read).
+const FAILURE_MASK_RE = /\|\|\s*true\b|2>\s*\/dev\/null|&>\s*\/dev\/null|>\s*\/dev\/null\s+2>&1/;
+
+/**
+ * Detect a command that RUNS a program for verification but masks its
+ * failure (`|| true`, `2>/dev/null`, …). Such a command always "succeeds" and
+ * swallows the crash/test-failure the agent is trying to detect — dogfooding
+ * showed a model "verifying" a GUI with `python gui.py || true`, never seeing
+ * the launch crash. Returns an advisory appended to the result (the command
+ * still runs); null when no masked execution is present. `pkill … || true`
+ * style cleanup is exempt — it isn't a program-execution verification.
+ */
+export function detectMaskedVerification(command: string): string | null {
+  if (!PROGRAM_EXEC_RE.test(command) || !FAILURE_MASK_RE.test(command)) return null;
+  return (
+    '\n\n⚠️ This command masks failures (`|| true` / `2>/dev/null`), so it "succeeds" even if the program ' +
+    'crashed or a test failed — it does NOT verify anything. Re-run it plainly (drop the `|| true` and ' +
+    '`2>/dev/null`) and read the real exit code and full output, including any traceback, before treating ' +
+    'the change as working.'
+  );
+}
+
 /**
  * Shared execution helper: run `command` via the composite executor and
  * format the result as a tool-result string.
@@ -285,7 +312,11 @@ export async function runCommand(input: Record<string, unknown>, context?: ToolE
 
   const config = context?.config ?? getConfig();
   const timeoutMs = ((input.timeout as number) || config.shellTimeout || 120) * 1000;
-  return executeShell(cmd, timeoutMs, context, true);
+  const output = await executeShell(cmd, timeoutMs, context, true);
+  // Append an advisory when the command masks the failure of a program it ran
+  // for verification — it "succeeded" but verified nothing.
+  const maskWarning = detectMaskedVerification(cmd);
+  return maskWarning ? output + maskWarning : output;
 }
 
 export async function runTests(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {

@@ -50,7 +50,7 @@ vi.mock('./runtime.js', () => ({
   getDefaultToolRuntime: () => defaultRuntimeSpy,
 }));
 
-import { runCommand, runTests, detectLanguageMismatchedLint } from './shell.js';
+import { runCommand, runTests, detectLanguageMismatchedLint, detectMaskedVerification } from './shell.js';
 import { workspace } from 'vscode';
 
 function makeContext(session: InstanceType<typeof ShellSessionStub>): ToolExecutorContext {
@@ -151,6 +151,54 @@ describe('shell tool runtime resolution', () => {
       (workspace.findFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce([]);
       const out = await runTests({});
       expect(out).toContain('Could not detect test runner');
+    });
+  });
+
+  describe('detectMaskedVerification', () => {
+    it('flags running a script with || true (masked launch — the dogfood case)', () => {
+      const msg = detectMaskedVerification('python gui_calculator.py || true');
+      expect(msg).not.toBeNull();
+      expect(msg).toContain('masks failures');
+    });
+
+    it('flags a test run that suppresses errors with 2>/dev/null', () => {
+      expect(detectMaskedVerification('npm test 2>/dev/null')).not.toBeNull();
+      expect(detectMaskedVerification('python3 -m pytest 2>/dev/null')).not.toBeNull();
+    });
+
+    it('flags a backgrounded launch followed by masked cleanup (launch-and-discard)', () => {
+      expect(detectMaskedVerification('python3 gui.py & sleep 1; pkill -f gui.py || true')).not.toBeNull();
+    });
+
+    it('flags a masked python -c inline smoke test (the iter-7 dogfood gap)', () => {
+      expect(
+        detectMaskedVerification(
+          'python3 -c "from gui_calculator import CalculatorApp; CalculatorApp(None)" 2>&1 || true',
+        ),
+      ).not.toBeNull();
+      expect(detectMaskedVerification('node -e "require(\'./app\')" 2>/dev/null')).not.toBeNull();
+    });
+
+    it('does NOT flag a plain verification run (no mask)', () => {
+      expect(detectMaskedVerification('python gui_calculator.py')).toBeNull();
+      expect(detectMaskedVerification('npm test')).toBeNull();
+      expect(detectMaskedVerification('python3 -m py_compile gui.py')).toBeNull();
+    });
+
+    it('does NOT flag pure cleanup with || true (no program execution to verify)', () => {
+      expect(detectMaskedVerification('pkill -f gui_calculator.py || true')).toBeNull();
+      expect(detectMaskedVerification('rm -f out.tmp 2>/dev/null')).toBeNull();
+    });
+
+    it('does NOT flag a status-reporting `|| echo` idiom (it keeps a fail signal)', () => {
+      expect(detectMaskedVerification('python3 -m py_compile gui.py && echo OK || echo FAILED')).toBeNull();
+    });
+
+    it('runCommand appends the advisory to a masked verification result', async () => {
+      const injected = new ShellSessionStub();
+      const out = await runCommand({ command: 'python gui_calculator.py || true' }, makeContext(injected));
+      expect(out).toContain('masks failures');
+      expect(injected.execute).toHaveBeenCalled(); // the command still runs
     });
   });
 
