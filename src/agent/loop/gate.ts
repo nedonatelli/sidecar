@@ -10,6 +10,7 @@ import {
   buildNoFileWriteReprompt,
   buildNoGroundingReprompt,
   buildUnverifiedClaimReprompt,
+  buildBehavioralVerificationReprompt,
 } from '../completionGate.js';
 import { runSyntaxGate, buildSyntaxReprompt, hasCheckableFiles } from './syntaxGate.js';
 import { getRoot } from '../tools/shared.js';
@@ -154,11 +155,35 @@ export async function maybeInjectCompletionGate(
   // Fires at most once per run; uses a gentle "if required, make them now" framing so
   // the model can skip it when the file genuinely wasn't part of the task.
   if (!gateState.noFileWriteRepromptFired && config.completionGateEnabled !== false) {
-    const reprompt = buildNoFileWriteReprompt(state.messages, gateState.editedFiles, gateState.currentUserRequest);
+    const reprompt = await buildNoFileWriteReprompt(
+      state.messages,
+      gateState.editedFiles,
+      gateState.currentUserRequest,
+    );
     if (reprompt) {
       gateState.noFileWriteRepromptFired = true;
       logger?.info('No-file-write gate fired — named file(s) not written');
       callbacks.onText('\n\n📝 Checking named files were written...\n');
+      state.messages.push({ role: 'user', content: [{ type: 'text' as const, text: reprompt }] });
+      return 'injected';
+    }
+  }
+
+  // Check: user reported a behavioral bug, the agent edited code, but ran no
+  // test that exercises the fix. Launching/compiling can't catch a functional
+  // bug. Fires at most once; gentle framing so a static-check-sufficient fix
+  // can skip it.
+  if (!gateState.behavioralVerificationRepromptFired && config.completionGateEnabled !== false) {
+    const ranAnyTest = !!gateState.projectTestsRan || (gateState.testsRunForFiles?.size ?? 0) > 0;
+    const reprompt = buildBehavioralVerificationReprompt(
+      gateState.currentUserRequest ?? '',
+      gateState.editedFiles,
+      ranAnyTest,
+    );
+    if (reprompt) {
+      gateState.behavioralVerificationRepromptFired = true;
+      logger?.info('Behavioral-verification gate fired — bug fix with no test exercising the behavior');
+      callbacks.onText('\n\n🧪 Writing a test to confirm the fix actually works...\n');
       state.messages.push({ role: 'user', content: [{ type: 'text' as const, text: reprompt }] });
       return 'injected';
     }

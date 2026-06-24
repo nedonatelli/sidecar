@@ -24,6 +24,7 @@ vi.mock('../completionGate.js', () => ({
   buildNoFileWriteReprompt: vi.fn(() => null), // returns null by default — no reprompt needed
   buildNoGroundingReprompt: vi.fn(() => null), // returns null by default — no reprompt needed
   buildUnverifiedClaimReprompt: vi.fn(async () => null), // async; returns null by default
+  buildBehavioralVerificationReprompt: vi.fn(() => null), // returns null by default — no reprompt needed
 }));
 
 import { recordGateToolUses, maybeInjectCompletionGate } from './gate.js';

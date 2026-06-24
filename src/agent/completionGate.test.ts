@@ -11,6 +11,7 @@ import {
   buildNoFileWriteReprompt,
   buildNoGroundingReprompt,
   buildUnverifiedClaimReprompt,
+  buildBehavioralVerificationReprompt,
   findColocatedTest,
   lastUserText,
 } from './completionGate.js';
@@ -544,16 +545,18 @@ describe('completionGate — buildNoReadReprompt', () => {
     expect(buildNoReadReprompt(msgs, new Set(), 'change the window title in gui_calculator.py')).toBeNull();
   });
 
-  it('no-file-write gate respects requestText (does not fire on stale original-prompt files)', () => {
+  it('no-file-write gate respects requestText (does not fire on stale original-prompt files)', async () => {
     const msgs = [userMsg('Create calculator.py and write test_calculator.py.')];
+    const noFile = async () => false; // treat named files as not-yet-created
     // Stale anchor: fires for the original files not written this run.
-    expect(buildNoFileWriteReprompt(msgs, new Set(['gui_calculator.py']))).not.toBeNull();
+    expect(await buildNoFileWriteReprompt(msgs, new Set(['gui_calculator.py']), undefined, noFile)).not.toBeNull();
     // Current-turn anchor mentions only gui_calculator.py, which IS edited → no fire.
     expect(
-      buildNoFileWriteReprompt(
+      await buildNoFileWriteReprompt(
         msgs,
         new Set(['gui_calculator.py']),
         'write changes to gui_calculator.py to add a button',
+        noFile,
       ),
     ).toBeNull();
   });
@@ -739,50 +742,96 @@ describe('completionGate — buildUnverifiedClaimReprompt', () => {
   });
 });
 
+describe('completionGate — buildBehavioralVerificationReprompt', () => {
+  const edited = new Set<string>(['gui_calculator.py']);
+
+  it('fires on a bug report when code was edited but no test ran', () => {
+    const r = buildBehavioralVerificationReprompt('clicking the number buttons does nothing', edited, false);
+    expect(r).not.toBeNull();
+    expect(r).toContain('test');
+  });
+
+  it('matches varied bug-report phrasings', () => {
+    for (const req of [
+      'the calculator is broken',
+      "the display doesn't update when I click",
+      'it stopped working after the change',
+      'the equals button fails to compute',
+      'nothing happens when I press a key',
+    ]) {
+      expect(buildBehavioralVerificationReprompt(req, edited, false)).not.toBeNull();
+    }
+  });
+
+  it('does NOT fire when a test already ran (behavior was verified)', () => {
+    expect(buildBehavioralVerificationReprompt('clicking does nothing', edited, true)).toBeNull();
+  });
+
+  it('does NOT fire when no code was edited', () => {
+    expect(buildBehavioralVerificationReprompt('clicking does nothing', new Set(), false)).toBeNull();
+  });
+
+  it('does NOT fire on a non-bug request (a feature build, not a symptom)', () => {
+    expect(buildBehavioralVerificationReprompt('Build a Tkinter GUI for the calculator', edited, false)).toBeNull();
+  });
+});
+
 describe('completionGate — buildNoFileWriteReprompt', () => {
   const userMsg = (text: string) => ({ role: 'user' as const, content: [{ type: 'text' as const, text }] });
+  // Default: treat named files as NOT existing on disk, so the gate's
+  // create-intent logic is exercised. (The real default checks the workspace.)
+  const noFile = async () => false;
 
-  it('fires when user asks to extend a test file but it was never written', () => {
+  it('fires when user asks to extend a test file but it was never written', async () => {
     const msgs = [userMsg('Extend `src/deps/semver.test.ts` with a describe block for semverLte.')];
     const edited = new Set<string>(['src/deps/semver.ts']);
-    expect(buildNoFileWriteReprompt(msgs, edited)).toContain('semver.test.ts');
+    expect(await buildNoFileWriteReprompt(msgs, edited, undefined, noFile)).toContain('semver.test.ts');
   });
 
-  it('returns null when the mentioned file was written', () => {
+  it('returns null when the mentioned file was written', async () => {
     const msgs = [userMsg('Add semverLte to `src/deps/semver.ts` and extend `src/deps/semver.test.ts`.')];
     const edited = new Set<string>(['src/deps/semver.ts', 'src/deps/semver.test.ts']);
-    expect(buildNoFileWriteReprompt(msgs, edited)).toBeNull();
+    expect(await buildNoFileWriteReprompt(msgs, edited, undefined, noFile)).toBeNull();
   });
 
-  it('returns null when message has no write-intent language', () => {
+  it('returns null when message has no write-intent language', async () => {
     const msgs = [userMsg('Read `src/deps/semver.ts` and explain what semverGt does.')];
     const edited = new Set<string>();
-    expect(buildNoFileWriteReprompt(msgs, edited)).toBeNull();
+    expect(await buildNoFileWriteReprompt(msgs, edited, undefined, noFile)).toBeNull();
   });
 
-  it('returns null when no file is mentioned', () => {
+  it('returns null when no file is mentioned', async () => {
     const msgs = [userMsg('Add error handling to the function.')];
     const edited = new Set<string>();
-    expect(buildNoFileWriteReprompt(msgs, edited)).toBeNull();
+    expect(await buildNoFileWriteReprompt(msgs, edited, undefined, noFile)).toBeNull();
   });
 
-  it('matches by basename when editedFiles uses a different root', () => {
+  it('matches by basename when editedFiles uses a different root', async () => {
     const msgs = [userMsg('Update `src/config/tokenEstimation.test.ts` with new tests.')];
     const edited = new Set<string>(['tokenEstimation.test.ts']);
-    expect(buildNoFileWriteReprompt(msgs, edited)).toBeNull();
+    expect(await buildNoFileWriteReprompt(msgs, edited, undefined, noFile)).toBeNull();
   });
 
-  it('fires for multiple unwritten files and lists them', () => {
+  it('fires for multiple unwritten files and lists them', async () => {
     const msgs = [userMsg('Add semverLte to `src/deps/semver.ts` and tests to `src/deps/semver.test.ts`.')];
     const edited = new Set<string>();
-    const result = buildNoFileWriteReprompt(msgs, edited);
+    const result = await buildNoFileWriteReprompt(msgs, edited, undefined, noFile);
     expect(result).toContain('semver.ts');
     expect(result).toContain('semver.test.ts');
   });
 
-  it('returns null when editedFiles is empty but there is no write-intent', () => {
+  it('returns null when editedFiles is empty but there is no write-intent', async () => {
     const msgs = [userMsg('Show me what is in `src/foo.ts`.')];
     const edited = new Set<string>();
-    expect(buildNoFileWriteReprompt(msgs, edited)).toBeNull();
+    expect(await buildNoFileWriteReprompt(msgs, edited, undefined, noFile)).toBeNull();
+  });
+
+  it('does NOT fire for a named file that already exists on disk (read-only dependency)', async () => {
+    // Dogfood: "Build a GUI… wire to the functions already in calculator.py".
+    // calculator.py exists and is a read dependency, not a missing write target.
+    const msgs = [userMsg('Create `gui_calculator.py` and wire it to the functions already in `calculator.py`.')];
+    const edited = new Set<string>(['gui_calculator.py']);
+    const exists = async (p: string) => p.includes('calculator.py') && !p.includes('gui_');
+    expect(await buildNoFileWriteReprompt(msgs, edited, undefined, exists)).toBeNull();
   });
 });

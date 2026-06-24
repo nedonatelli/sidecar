@@ -58,6 +58,8 @@ export interface GateState {
    * for back-compat with test stubs.
    */
   syntaxGateFixTargets?: Set<string>;
+  /** True once the behavioral-verification reprompt has fired (fires at most once). */
+  behavioralVerificationRepromptFired?: boolean;
   /**
    * The user request that triggered THIS run, captured at loop init. The
    * request-based gates (no-read/no-shell/no-grounding/no-file-write/
@@ -83,6 +85,7 @@ export function createGateState(currentUserRequest = ''): GateState {
     noFileWriteRepromptFired: false,
     noGroundingRepromptFired: false,
     unverifiedClaimRepromptFired: false,
+    behavioralVerificationRepromptFired: false,
     syntaxGateInjections: 0,
     syntaxGateFixTargets: new Set(),
   };
@@ -707,11 +710,12 @@ const WRITE_INTENT_RE =
  * message with write intent but were never written by the agent. Returns
  * null when no reprompt is needed.
  */
-export function buildNoFileWriteReprompt(
+export async function buildNoFileWriteReprompt(
   messages: ChatMessage[],
   editedFiles: Set<string>,
   requestText?: string,
-): string | null {
+  fileExists: (relPath: string) => Promise<boolean> = defaultFileExists,
+): Promise<string | null> {
   const userText = requestText ?? firstUserText(messages);
   if (!userText) return null;
   if (!WRITE_INTENT_RE.test(userText)) return null;
@@ -732,7 +736,15 @@ export function buildNoFileWriteReprompt(
       editedFiles.has(clean) ||
       editedFiles.has(base) ||
       [...editedFiles].some((f) => f.endsWith('/' + base) || f === base);
-    if (!wasWritten) unwritten.push(clean);
+    if (wasWritten) continue;
+    // Skip files that already exist on disk: the gate's job is to catch a named
+    // file the user asked to CREATE that never got created. An existing file is
+    // almost always a read-only dependency referenced by the task ("wire to the
+    // functions already in calculator.py"), not a missing write target.
+    // Dogfooding: a GUI prompt referencing an existing calculator.py wrongly
+    // tripped this nudge.
+    if (await fileExists(clean)) continue;
+    unwritten.push(clean);
   }
 
   if (unwritten.length === 0) return null;
@@ -742,5 +754,45 @@ export function buildNoFileWriteReprompt(
     `Your task mentioned ${fileList} but you finished without writing to ${unwritten.length === 1 ? 'it' : 'any of them'}. ` +
     `If the task required changes to ${unwritten.length === 1 ? 'that file' : 'those files'}, make them now. ` +
     `If you already completed everything the task asked for, ignore this and call done again.`
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Behavioral-verification gate
+//
+// When the user reports a BUG (symptom language) and the agent edits code to
+// fix it but never runs a test that exercises the behavior, nudge it to write
+// one. Launching/compiling proves the code starts, not that the reported
+// behavior is fixed — the exact gap a functional bug (e.g. "clicking the
+// buttons does nothing") falls through. Deterministic gates can verify
+// structure and execution, not behavior; the only way to close that is an
+// actual behavioral test, which this nudges toward. Soft + bounded: the
+// framing lets the model ignore it when a static check already sufficed.
+// ---------------------------------------------------------------------------
+
+/** Symptom phrasing that signals the user is reporting a behavioral bug. */
+const BUG_REPORT_RE =
+  /\b(does(n'?t| not) (work|run|update|populate|show|respond|display|change)|not working|nothing happens|does nothing|no longer works?|stopped working|is broken|won'?t \w+|fails? to \w+|crash(es|ing|ed)?|isn'?t \w+ing|doesn'?t do anything|broken)\b/i;
+
+/**
+ * Returns a reprompt when the current request reads as a bug report, the agent
+ * edited code, but no test was run that could verify the behavioral fix.
+ * `ranAnyTest` should be true when a whole-suite or single-file test executed.
+ */
+export function buildBehavioralVerificationReprompt(
+  requestText: string,
+  editedFiles: Set<string>,
+  ranAnyTest: boolean,
+): string | null {
+  if (!requestText) return null;
+  if (editedFiles.size === 0) return null; // no code changed → nothing to verify
+  if (ranAnyTest) return null; // a test ran → behavioral verification happened
+  if (!BUG_REPORT_RE.test(requestText)) return null;
+  return (
+    'You edited code to fix a reported bug but ran no test that exercises the behavior. ' +
+    'Launching or compiling proves the code starts, NOT that the bug is fixed. ' +
+    'Write a test that reproduces the reported behavior — call the changed function/handler directly and assert the ' +
+    'result (for UI, instantiate the component and invoke its callbacks headlessly) — then run it and confirm it passes. ' +
+    'If a static check (get_diagnostics) already proves the fix, ignore this and call done.'
   );
 }

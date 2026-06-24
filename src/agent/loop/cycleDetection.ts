@@ -44,7 +44,15 @@ const MAX_CYCLE_LEN = 4;
 const MIN_IDENTICAL_REPEATS = 4;
 const MIN_NORMALIZED_REPEATS = 3;
 const WRITE_TARGET_WINDOW = 8;
-const WRITE_TARGET_THRESHOLD = 4;
+// Pure runaway backstop. The content-AWARE passes (consecutive/frequency at
+// MIN_NORMALIZED_REPEATS, which only fire on REPEATED content) catch a model
+// genuinely stuck re-applying the same change. write-target is content-blind,
+// so it must stay lenient — a model legitimately iterating on a fix rewrites
+// the same file several times with DIFFERENT content (progress, not thrash).
+// 6-of-8 means "almost every recent step mutated this one file" — real
+// thrash — while leaving room for fix→verify→fix→verify loops. (Was 4, which
+// bailed productive iteration; dogfooding repeatedly tripped it mid-fix.)
+const WRITE_TARGET_THRESHOLD = 6;
 
 // Keys checked in priority order to extract a tool's primary resource.
 // The first matching non-empty string value becomes the normalized key.
@@ -211,11 +219,20 @@ export function detectCycleAndBail(
   for (let len = 2; len <= MAX_CYCLE_LEN && len * 2 <= state.recentNormalizedCalls.length; len++) {
     const tail = state.recentNormalizedCalls.slice(-len);
     const prev = state.recentNormalizedCalls.slice(-2 * len, -len);
-    if (
-      tail.length === prev.length &&
-      tail.every((v, i) => v.sig === prev[i].sig) &&
-      !tail.every((e) => sigTargetsOnlyGateFiles(e.sig, state))
-    ) {
+    if (tail.length !== prev.length) continue;
+    const sigsMatch = tail.every((v, i) => v.sig === prev[i].sig);
+    if (!sigsMatch) continue;
+    // Content-aware: an A→B→A→B pattern is only a STUCK loop when the cycle
+    // repeats with the SAME content (or is all read-only scanning). A model
+    // legitimately iterating — edit→verify→edit→verify with DIFFERENT edits each
+    // round — produces the same sig pattern but different content, and is making
+    // progress, not looping. Mirror the consecutive/frequency passes, which
+    // already gate on secondaryHash. (Dogfooding: an edit→diagnostics fix loop
+    // with distinct edits tripped this content-blind check.)
+    const contentRepeats = tail.every((v, i) => v.secondaryHash === prev[i].secondaryHash);
+    const allReadOnly = tail.every((e) => READ_ONLY_TOOLS.has(e.sig.split(':')[0] ?? ''));
+    const gateExempt = tail.every((e) => sigTargetsOnlyGateFiles(e.sig, state));
+    if ((contentRepeats || allReadOnly) && !gateExempt) {
       state.logger?.warn(`Agent loop normalized cycle detected (length ${len}) — ${normEntry.sig.slice(0, 100)}`);
       const patternSigs = tail.map((e) => e.sig.slice(0, 40)).join(' → ');
       callbacks.onText(
@@ -243,11 +260,11 @@ export function detectCycleAndBail(
       }
     }
     for (const [file, count] of fileCounts) {
-      // A file the syntax gate is actively driving fixes on is exempt:
-      // repeated edits to make unparseable code parse are progress, not
-      // thrash, and the gate's own injection cap bounds that loop. The
-      // exact-match pass still catches a truly-stuck identical-edit loop.
-      if (isSyntaxGateFixTarget(file, state)) continue;
+      // A file under active harness-driven fixing (syntax gate or auto-fix) is
+      // exempt: repeated edits to fix a flagged error are progress, not thrash,
+      // and the driving mechanism's own budget bounds that loop. The exact-match
+      // pass still catches a truly-stuck identical-edit loop.
+      if (isUnderActiveFix(file, state)) continue;
       if (count >= WRITE_TARGET_THRESHOLD) {
         state.logger?.warn(
           `Agent loop write-target thrash detected: ${file} targeted in ${count}/${state.recentWriteTargets.length} iterations`,
@@ -295,33 +312,58 @@ function extractWriteTargets(pendingToolUses: ToolUseContentBlock[]): string[] {
  * the gate's normalized workspace-relative path ("src/gui.py") matches a raw
  * relative input ("gui.py") and vice-versa.
  */
+function basenameMatch(target: string, candidate: string): boolean {
+  if (candidate.toLowerCase() === target.toLowerCase()) return true;
+  return candidate.split('/').pop()!.toLowerCase() === target.split('/').pop()!.toLowerCase();
+}
+
 function isSyntaxGateFixTarget(target: string, state: LoopState): boolean {
   const fixTargets = state.gateState.syntaxGateFixTargets;
   if (!fixTargets || fixTargets.size === 0) return false;
-  const base = target.split('/').pop()!.toLowerCase();
-  for (const gated of fixTargets) {
-    if (gated.toLowerCase() === target.toLowerCase()) return true;
-    if (gated.split('/').pop()!.toLowerCase() === base) return true;
-  }
+  for (const gated of fixTargets) if (basenameMatch(target, gated)) return true;
   return false;
 }
 
 /**
- * True if every tool call in a normalized signature references only files the
- * syntax gate is actively driving fixes on. Such a signature is gate-supervised
- * fixing (e.g. `edit_file:gui.py` → `get_diagnostics:gui.py` repeated while the
- * model fixes a flagged parse error), NOT thrash — the normalized cycle passes
- * exempt it. The gate's own injection cap (and the exact-match pass, which still
+ * True if `target` is a file the auto-fix hook is actively driving fixes on —
+ * it has reprompted at least once (retries > 0) and hasn't exhausted its
+ * per-file budget yet (retries < autoFixMaxRetries). Auto-fix bounds its own
+ * loop, so cycle detection must not bail it earlier: dogfooding showed auto-fix
+ * (budget 5) reprompting `gui.py` while the normalized cycle check bailed at 3
+ * repeats. Once auto-fix gives up (retries >= cap), the exemption ends and
+ * further repetition is thrash again.
+ */
+function isActiveAutoFixTarget(target: string, state: LoopState): boolean {
+  const map = state.autoFixRetriesByFile;
+  if (!map || map.size === 0) return false;
+  const cap = state.config?.autoFixMaxRetries ?? 3;
+  for (const [file, retries] of map) {
+    if (retries > 0 && retries < cap && basenameMatch(target, file)) return true;
+  }
+  return false;
+}
+
+/** A file is exempt from the thrash/cycle passes while a harness mechanism (the
+ * syntax gate or auto-fix) is actively driving bounded fixes on it. */
+function isUnderActiveFix(target: string, state: LoopState): boolean {
+  return isSyntaxGateFixTarget(target, state) || isActiveAutoFixTarget(target, state);
+}
+
+/**
+ * True if every tool call in a normalized signature references only files under
+ * active harness-driven fixing (syntax gate or auto-fix). Such a signature is
+ * supervised fixing (e.g. `edit_file:gui.py` → `get_diagnostics:gui.py` repeated
+ * while fixing a flagged error), NOT thrash — the normalized cycle passes exempt
+ * it. The driving mechanism's own budget (and the exact-match pass, which still
  * fires on truly identical repeated calls) bound the loop.
  */
 function sigTargetsOnlyGateFiles(sig: string, state: LoopState): boolean {
-  const fixTargets = state.gateState.syntaxGateFixTargets;
-  if (!fixTargets || fixTargets.size === 0) return false;
   const parts = sig.split('|');
+  if (parts.length === 0) return false;
   return parts.every((p) => {
     const idx = p.indexOf(':');
     const resource = idx === -1 ? '' : p.slice(idx + 1);
-    return resource !== '' && isSyntaxGateFixTarget(resource, state);
+    return resource !== '' && isUnderActiveFix(resource, state);
   });
 }
 

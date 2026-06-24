@@ -254,19 +254,31 @@ describe('detectCycleAndBail — normalized signature pass', () => {
     }
   });
 
-  it('fires on a normalized length-2 cycle with varying secondary args', () => {
-    // Turn A: read_file(a.ts) with some content args
-    // Turn B: edit_file(a.ts) with different content each round
-    // After A,B,A,B the normalized cycle (length 2) should fire.
+  it('fires on a normalized length-2 cycle when the cycle REPEATS the same content (truly stuck)', () => {
+    // read(a.ts) → edit(a.ts, SAME edit) repeated = a stuck loop, not progress.
+    const state = stubLoopState();
+    const cb = stubCallbacks();
+    const A = () => [makeToolUse('read_file', { path: 'a.ts' })];
+    const B = () => [makeToolUse('edit_file', { path: 'a.ts', search: 'x', replace: 'y' })];
+    expect(detectCycleAndBail(A(), state, cb)).toBe(false); // [A]
+    expect(detectCycleAndBail(B(), state, cb)).toBe(false); // [A,B]
+    expect(detectCycleAndBail(A(), state, cb)).toBe(false); // [A,B,A]
+    expect(detectCycleAndBail(B(), state, cb)).toBe(true); // [A,B,A,B] same content → loop
+    expect(cb.texts[0]).toContain('length 2');
+  });
+
+  it('does NOT fire a length-2 cycle when each round has DIFFERENT content (iterating, not stuck)', () => {
+    // read → edit → read → edit, with a DIFFERENT edit each round, is a model
+    // making progress on a fix — content-aware, so it must not be bailed.
     const state = stubLoopState();
     const cb = stubCallbacks();
     const makeA = (i: number) => [makeToolUse('read_file', { path: 'a.ts', startLine: i })];
     const makeB = (i: number) => [makeToolUse('edit_file', { path: 'a.ts', search: `v${i}`, replace: `w${i}` })];
-    expect(detectCycleAndBail(makeA(0), state, cb)).toBe(false); // [A]
-    expect(detectCycleAndBail(makeB(0), state, cb)).toBe(false); // [A,B]
-    expect(detectCycleAndBail(makeA(1), state, cb)).toBe(false); // [A,B,A]
-    expect(detectCycleAndBail(makeB(1), state, cb)).toBe(true); // [A,B,A,B] — norm length-2
-    expect(cb.texts[0]).toContain('length 2');
+    expect(detectCycleAndBail(makeA(0), state, cb)).toBe(false);
+    expect(detectCycleAndBail(makeB(0), state, cb)).toBe(false);
+    expect(detectCycleAndBail(makeA(1), state, cb)).toBe(false);
+    expect(detectCycleAndBail(makeB(1), state, cb)).toBe(false); // different content → not a loop
+    expect(cb.texts).toHaveLength(0);
   });
 
   it('does NOT fire when same command runs with a different cwd each time', () => {
@@ -442,14 +454,23 @@ describe('detectCycleAndBail — normalized signature pass', () => {
 });
 
 describe('detectCycleAndBail — write-target thrash pass', () => {
-  it('fires when the same file is targeted by mutation tools in 4 iterations, even with different tools', () => {
+  it('fires as a runaway backstop when one file is mutated 6 times in the window', () => {
     const state = stubLoopState();
     const cb = stubCallbacks();
-    // Different tools, same file path — bypasses exact and normalized checks.
-    expect(detectCycleAndBail([makeToolUse('write_file', { path: 'src/foo.ts' })], state, cb)).toBe(false);
-    expect(detectCycleAndBail([makeToolUse('edit_file', { file_path: 'src/foo.ts' })], state, cb)).toBe(false);
-    expect(detectCycleAndBail([makeToolUse('apply_edit', { path: 'src/foo.ts' })], state, cb)).toBe(false);
-    expect(detectCycleAndBail([makeToolUse('write_file', { path: 'src/foo.ts' })], state, cb)).toBe(true);
+    // Distinct tools + content each time (not a same-content loop) — only the
+    // content-blind write-target backstop catches this, and only at 6 (the
+    // raised threshold that leaves room for fix→verify iteration).
+    const muts = [
+      makeToolUse('write_file', { path: 'src/foo.ts', content: 'v1' }),
+      makeToolUse('edit_file', { file_path: 'src/foo.ts', search: 'a' }),
+      makeToolUse('apply_edit', { path: 'src/foo.ts', patch: 'p1' }),
+      makeToolUse('write_file', { path: 'src/foo.ts', content: 'v2' }),
+      makeToolUse('edit_file', { file_path: 'src/foo.ts', search: 'b' }),
+    ];
+    for (const m of muts) expect(detectCycleAndBail([m], state, cb)).toBe(false); // 5 — under threshold
+    expect(detectCycleAndBail([makeToolUse('write_file', { path: 'src/foo.ts', content: 'v3' })], state, cb)).toBe(
+      true,
+    ); // 6 → backstop
     expect(cb.texts[0]).toContain('src/foo.ts');
     expect(cb.texts[0]).toContain('write target');
   });
@@ -510,27 +531,51 @@ describe('detectCycleAndBail — write-target thrash pass', () => {
     expect(cb.texts).toHaveLength(0);
   });
 
-  it('the same edit→diagnostics length-2 loop DOES fire when NOT gate-supervised', () => {
+  it('content is the differentiator: a SAME-content edit→diagnostics loop fires (no gate)', () => {
+    // With different edits each round this is iteration (allowed). With the SAME
+    // edit repeated it's a stuck loop → fires, regardless of gate supervision.
     const state = stubLoopState(); // no syntaxGateFixTargets
     const cb = stubCallbacks();
     const seq: ToolUseContentBlock[][] = [
-      [makeToolUse('edit_file', { path: 'gui_calculator.py', search: 's1', replace: 'r1' })],
+      [makeToolUse('edit_file', { path: 'gui_calculator.py', search: 's', replace: 'r' })],
       [makeToolUse('get_diagnostics', { path: 'gui_calculator.py' })],
-      [makeToolUse('edit_file', { path: 'gui_calculator.py', search: 's2', replace: 'r2' })],
+      [makeToolUse('edit_file', { path: 'gui_calculator.py', search: 's', replace: 'r' })],
       [makeToolUse('get_diagnostics', { path: 'gui_calculator.py' })],
     ];
     const results = seq.map((c) => detectCycleAndBail(c, state, cb));
-    expect(results[results.length - 1]).toBe(true); // length-2 pattern fires
+    expect(results[results.length - 1]).toBe(true); // same-content cycle → fires
   });
 
-  it('still fires on an unrelated file while another file is gate-exempt', () => {
-    const state = stubLoopState();
-    state.gateState.syntaxGateFixTargets = new Set(['gui_calculator.py']);
+  it('does NOT fire on a file under active auto-fix even when the loop WOULD otherwise fire', () => {
+    // Same edit repeated would trip the consecutive check at 3 — but auto-fix is
+    // actively driving the fix (2 of 5 used), so it's exempt until the budget runs out.
+    const state = stubLoopState({ config: { autoFixMaxRetries: 5 } as never });
+    state.autoFixRetriesByFile.set('gui_calculator.py', 2); // active
     const cb = stubCallbacks();
-    expect(detectCycleAndBail([makeToolUse('write_file', { path: 'other.ts' })], state, cb)).toBe(false);
-    expect(detectCycleAndBail([makeToolUse('edit_file', { path: 'other.ts' })], state, cb)).toBe(false);
-    expect(detectCycleAndBail([makeToolUse('apply_edit', { path: 'other.ts' })], state, cb)).toBe(false);
-    expect(detectCycleAndBail([makeToolUse('write_file', { path: 'other.ts' })], state, cb)).toBe(true);
+    const w = () => [makeToolUse('edit_file', { path: 'gui_calculator.py', search: 'x', replace: 'y' })];
+    for (let i = 0; i < 3; i++) expect(detectCycleAndBail(w(), state, cb)).toBe(false);
+    expect(cb.texts).toHaveLength(0);
+  });
+
+  it('resumes firing once auto-fix has exhausted its retry budget', () => {
+    const state = stubLoopState({ config: { autoFixMaxRetries: 3 } as never });
+    state.autoFixRetriesByFile.set('gui_calculator.py', 3); // at cap → not exempt
+    const cb = stubCallbacks();
+    // Same edit repeated = a genuine stuck loop; with the exemption gone it's caught.
+    const w = () => [makeToolUse('edit_file', { path: 'gui_calculator.py', search: 'x', replace: 'y' })];
+    expect(detectCycleAndBail(w(), state, cb)).toBe(false);
+    expect(detectCycleAndBail(w(), state, cb)).toBe(false);
+    expect(detectCycleAndBail(w(), state, cb)).toBe(true); // 3rd identical → consecutive check fires
+  });
+
+  it('still fires on a non-exempt file while another file is gate-exempt', () => {
+    const state = stubLoopState();
+    state.gateState.syntaxGateFixTargets = new Set(['gui_calculator.py']); // gui exempt
+    const cb = stubCallbacks();
+    const w = () => [makeToolUse('edit_file', { path: 'other.ts', search: 'x', replace: 'y' })];
+    expect(detectCycleAndBail(w(), state, cb)).toBe(false);
+    expect(detectCycleAndBail(w(), state, cb)).toBe(false);
+    expect(detectCycleAndBail(w(), state, cb)).toBe(true); // other.ts not exempt → fires at 3
     expect(cb.texts[0]).toContain('other.ts');
   });
 
