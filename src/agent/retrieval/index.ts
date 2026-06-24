@@ -66,8 +66,46 @@ export async function fuseRetrievers(
  * this wrapper just prepends a shared header and inserts a blank line
  * between hits so the model can see the boundaries.
  */
-export function renderFusedContext(hits: RetrievalHit[], header = '## Retrieved Context'): string {
+export function renderFusedContext(
+  hits: RetrievalHit[],
+  header = '## Retrieved Context',
+  mode: 'full' | 'reference' = 'full',
+): string {
   if (hits.length === 0) return '';
-  const body = hits.map((h) => h.content).join('\n\n');
-  return `${header}\n\n${body}`;
+  if (mode === 'full') {
+    const body = hits.map((h) => h.content).join('\n\n');
+    return `${header}\n\n${body}`;
+  }
+  // Reference mode — for agentic/editing tasks. A full file BODY frozen in the
+  // system prompt goes stale the moment the agent edits that file (the system
+  // prompt is built once per turn and reused for every loop iteration), which
+  // anchors the model to outdated content and drives repeated full rewrites.
+  // So workspace-code hits (those with a filePath) collapse to path references
+  // the agent reads with read_file (always current). Non-code hits (docs,
+  // memory — no filePath) keep their content; they aren't edited, so no staleness.
+  const refsByPath = new Map<string, Set<string>>();
+  const nonCode: string[] = [];
+  for (const h of hits) {
+    if (h.filePath) {
+      const titles = refsByPath.get(h.filePath) ?? new Set<string>();
+      if (h.title) titles.add(h.title);
+      refsByPath.set(h.filePath, titles);
+    } else {
+      nonCode.push(h.content);
+    }
+  }
+  const sections: string[] = [];
+  if (refsByPath.size > 0) {
+    const lines = [
+      '## Relevant files (read with read_file for current contents — the agent edits these, so do not treat any cached snippet as current)',
+    ];
+    for (const [filePath, titles] of refsByPath) {
+      lines.push(`- \`${filePath}\`${titles.size > 0 ? ` — ${[...titles].join(', ')}` : ''}`);
+    }
+    sections.push(lines.join('\n'));
+  }
+  if (nonCode.length > 0) {
+    sections.push(`${header}\n\n${nonCode.join('\n\n')}`);
+  }
+  return sections.join('\n\n');
 }

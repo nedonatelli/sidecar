@@ -1,11 +1,61 @@
 import { describe, it, expect } from 'vitest';
 import { reciprocalRankFusion } from './fusion';
 import { RetrievalHit } from './retriever';
-import { fuseRetrievers } from './index';
+import { fuseRetrievers, renderFusedContext } from './index';
 
 function hit(id: string, source: string, score = 0): RetrievalHit {
   return { id, source, score, content: `[${source}] ${id}` };
 }
+
+describe('renderFusedContext', () => {
+  const codeHit = (filePath: string, title: string, body: string): RetrievalHit => ({
+    id: `pki:${filePath}`,
+    score: 1,
+    source: 'pki',
+    content: body,
+    filePath,
+    title,
+  });
+  const docHit = (id: string, body: string): RetrievalHit => ({ id, score: 1, source: 'doc', content: body });
+
+  it('full mode injects every hit body verbatim', () => {
+    const out = renderFusedContext([codeHit('calc.py', 'add', 'def add(): ...full body...')], '## Ctx', 'full');
+    expect(out).toContain('def add(): ...full body...');
+  });
+
+  it('reference mode collapses workspace-code hits to path references (no body)', () => {
+    const out = renderFusedContext(
+      [
+        codeHit('gui_calculator.py', 'CalculatorApp', 'class CalculatorApp:\n    ...the stale body...'),
+        codeHit('gui_calculator.py', 'on_click', 'def on_click(self): ...'),
+      ],
+      '## Ctx',
+      'reference',
+    );
+    expect(out).not.toContain('stale body');
+    expect(out).not.toContain('def on_click(self): ...');
+    expect(out).toContain('`gui_calculator.py`');
+    expect(out).toContain('CalculatorApp');
+    expect(out).toContain('on_click'); // titles aggregated per file
+    expect(out).toContain('read_file');
+  });
+
+  it('reference mode keeps non-code (doc/memory) hit content — those are not edited', () => {
+    const out = renderFusedContext([docHit('doc:readme', 'Project overview text')], '## Ctx', 'reference');
+    expect(out).toContain('Project overview text');
+  });
+
+  it('reference mode mixes code references and doc content', () => {
+    const out = renderFusedContext(
+      [codeHit('a.ts', 'foo', 'function foo(){STALE}'), docHit('doc:x', 'doc body')],
+      '## Ctx',
+      'reference',
+    );
+    expect(out).not.toContain('STALE');
+    expect(out).toContain('`a.ts`');
+    expect(out).toContain('doc body');
+  });
+});
 
 describe('reciprocalRankFusion', () => {
   it('ranks a hit shared across two lists above a top-1 hit from a single list', () => {
