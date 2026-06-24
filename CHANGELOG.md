@@ -4,6 +4,59 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.114.21] - 2026-06-24
+
+### Fixed
+
+- **Stale file content frozen in the system prompt drove repeated full rewrites** — the system prompt is built once per turn (`client.updateSystemPrompt`) and reused for every agent-loop iteration. Its task-driven retrieval block injected the *full body* of relevant workspace files via `renderFusedContext`. On an editing task, the moment the agent edits that file the injected body goes stale — but the model keeps seeing the pre-edit version in its (frozen) system prompt every iteration, while its own edits live only in message history and `write_file` returns just a confirmation. So the model re-"fixes" the stale snapshot again and again (observed: qwen3.5 rewriting `gui_calculator.py` 6–9× per run). Now, for **agentic/editing** tasks, retrieved workspace-code hits render as **path references** ("read with read_file for current contents"), not frozen bodies; **read-tier** tasks (which don't edit) keep full bodies for answer-from-context richness. Non-code hits (docs, memory) keep content in both modes. (`src/agent/retrieval/index.ts`, `src/webview/handlers/systemPrompt.ts`)
+
+
+## [0.114.20] - 2026-06-24
+
+### Fixed
+
+- **Behavioral-verification prompt rule (0.114.19) contaminated tool-call formatting** — rule #19 included inline Python function-call examples (`app.on_click("7")`, `CalculatorApp(tk.Tk())`). On 0.114.19, qwen3.5 — which emitted clean structured tool calls on 0.114.18 — began malforming them as `read_file(path="calculator.py")` (the whole `name(args)` string landing in the tool-name field → "no such tool" → error → flailing → cycle bail). Reworded rule #19 to describe the headless-test approach in prose with no literal `func(arg)` syntax for the model to mimic; the guidance (launching ≠ behaving; write a behavioral test; reproduce-then-fix for bugs) is unchanged. (`src/webview/handlers/basePrompt.ts`)
+
+
+## [0.114.19] - 2026-06-24
+
+### Added
+
+- **Behavioral-verification scaffold** — closes the gap where a model "verifies" a fix by *launching* the app (proves it starts) instead of *exercising* the behavior (proves it works). Dogfooding: qwen3.5 "fixed" a calculator GUI whose number buttons did nothing, launched it (window opened), declared done — but clicking still crashed (`AttributeError`), because launching never exercises a click. Two layers:
+  - **Prompt rule (basePrompt #19):** "Launching/running an app proves it STARTS, not that it WORKS. To verify a behavior change, write a test that calls the changed function/handler directly and asserts the result; for UI you can't click, instantiate the component and invoke its callbacks headlessly. When fixing a reported bug, first write a test that reproduces the symptom." (`src/webview/handlers/basePrompt.ts`)
+  - **Deterministic gate:** when the current request reads as a bug report (symptom language) and the agent edited code but ran no test that exercises it, a bounded one-time nudge fires to write a behavioral test. Soft framing so a static-check-sufficient fix can skip it. (`src/agent/completionGate.ts`, `src/agent/loop/gate.ts`)
+
+### Changed
+
+- **Cycle detection now distinguishes "iterating" from "stuck."** Repeated dogfooding showed the content-blind passes bailing productive fix loops (a model rewriting a file several times with *different* content to fix a bug). Now: the normalized length-N pattern pass is **content-aware** — an A→B→A→B pattern only bails when the cycle repeats the *same* content (a true loop) or is all read-only scanning; genuinely different rounds are progress. And the write-target backstop threshold is raised 4→6 (it's content-blind, so it must stay lenient — the content-aware consecutive/frequency passes already catch same-content loops at 3). The exact-match pass (4 identical calls), `maxIterations`, and the gate/auto-fix exemptions remain the infinite-loop backstops. (`src/agent/loop/cycleDetection.ts`)
+
+
+## [0.114.18] - 2026-06-24
+
+### Fixed
+
+- **Auto-fix loop bailed by cycle detection before its own budget ran out** — with `sidecar.autoFixOnFailure` on, auto-fix reprompts a file up to `autoFixMaxRetries` times (e.g. 5) to fix diagnostics errors; dogfooding showed the normalized cycle check bailing that loop at 3 repeats (`Agent stopped: write_file:gui_calculator.py repeated 3 times` while auto-fix was at attempt 2/5). Files under active auto-fix (in `autoFixRetriesByFile`, retries below the cap) are now exempt from the write-target and normalized cycle passes — the same exemption the syntax gate already gets. The exact-match pass still catches truly-identical repeats, and the exemption ends once auto-fix exhausts its budget. (`src/agent/loop/cycleDetection.ts`)
+- **No-file-write gate nagged about an existing read-only dependency** — a GUI prompt ("wire to the functions already in `calculator.py`") tripped the gate because `calculator.py` was mentioned with the task's "Create" intent but not written this turn. The gate now skips any named file that already exists on disk — its job is to catch a file the user asked to *create* that never got created, not an existing dependency. (`src/agent/completionGate.ts`)
+
+### Removed
+
+- **Comment-only hedge stub patterns** (`future-deferral` = `// would need…`, `deferred-implementation` = `// in a real app…` / `// the full implementation…`, and the bare `// simulating` comment). Like the `for-now-hedge` removed in 0.114.17, these match common LEGITIMATE explanatory comments and a comment-only check can't tell them from a stub — and a stub-check false positive is destructive (spirals the model into rewrites until cycle detection bails). The `console.log("Simulating…")` *code* pattern and all hard signals (TODO/FIXME, NotImplementedError, placeholder/stub/dummy, empty bodies, dummy fills, context-aware `pass`-in-`def`) are kept; genuine stubs are still caught by those plus the completion gate's test run. (`src/agent/stubValidator.ts`)
+
+
+## [0.114.17] - 2026-06-23
+
+### Removed
+
+- **`for-now-hedge` stub pattern** — `# for now` / `// for now` is one of the most common LEGITIMATE explanatory comments in real code ("for now, display the current value", "for now, cap at 100"); a comment-only heuristic can't distinguish it from a real stub. Dogfooding qwen3.5 building a GUI: its **fully-implemented** equals handler had a correct `# For now, just display current value (no-op for equals)` + `pass` in the `else` branch, which tripped the stub check → reprompt → full-file rewrite spiral → cycle-detection bail. Removed the pattern; real stubs are still caught by the stronger signals (TODO/FIXME, NotImplementedError, placeholder/stub/dummy, empty bodies, dummy fills) plus the completion gate's test run. (`src/agent/stubValidator.ts`)
+
+
+## [0.114.16] - 2026-06-23
+
+### Fixed
+
+- **Stub validator false-positived on a legitimate `pass`** — the `pass-body` pattern (`/^\s*pass\s*$/`) matched a bare `pass` on any line, so a legitimate `except ...: pass` (or control-flow / empty-exception-class `pass`) was flagged as a placeholder. Dogfooding with qwen3.5 building a GUI: its first (valid, complete) `gui_calculator.py` had an `except: pass`, the stub check reprompted, and the model spiraled into full-file rewrites until the write-target thrash detector bailed it. The check is now context-aware — `pass` is only a stub when it's the sole body of a function definition (`def`), not after `except`/`if`/`for`/`while`/`try`/`with` or in an empty exception class. (`src/agent/stubValidator.ts`)
+
+
 ## [0.114.15] - 2026-06-23
 
 ### Fixed
