@@ -30,13 +30,17 @@ const STUB_PATTERNS: Array<[string, RegExp]> = [
   ['placeholder-comment', /\/\/\s*(?:implement|placeholder|stub|add logic|fill in|your code|goes here|dummy)/i],
   ['placeholder-comment', /#\s*(?:implement|placeholder|stub|add logic|fill in|your code|goes here|dummy)/i],
 
-  // "real implementation" deferral — also catches "REAL IMPLEMENTATION REQUIRED" banners
-  ['deferred-implementation', /(?:real|actual|full|proper)\s+implementation/i],
-  ['deferred-implementation', /in\s+a\s+real\s+(?:app|system|project)/i],
+  // (Removed comment-only hedge heuristics: "real/proper/full implementation",
+  // "in a real app", and the bare "// simulating" comment. Each matches common
+  // LEGITIMATE explanatory comments — "the full implementation lives in X", "in
+  // a real app you'd cache this", a Monte-Carlo "# simulating N trials" note —
+  // and a comment-only check can't tell them from a stub. Same destructive
+  // false-positive class as the removed "for now" / "would need" hedges: a stub
+  // FP spirals the model into rewrites until cycle detection bails.)
 
-  // Simulation / pretend placeholders (e.g. console.log("Simulating retrieval..."))
+  // Simulation logger call — a CODE pattern (not a comment), a strong stub signal:
+  // a real implementation doesn't log "Simulating ...".
   ['simulation-stub', /console\.log\s*\(.*[Ss]imulat/],
-  ['simulation-stub', /\/\/\s*[Ss]imulat(?:ing|ed|ion)/],
 
   // Placeholder logger calls: console.log("[tool_name] ...") or console.log("...placeholder...")
   // Models stub out tool bodies this way — a real implementation never logs its own name in brackets.
@@ -56,12 +60,16 @@ const STUB_PATTERNS: Array<[string, RegExp]> = [
   // Dummy return values with comment indicating placeholder
   ['dummy-return', /return\s+(?:null|undefined|0|''|""|false)\s*;\s*\/\/\s*(?:placeholder|temp|dummy|stub|todo)/i],
 
-  // "for now" / "for the time being" hedging
-  ['for-now-hedge', /\/\/\s*for\s+now\b/i],
-  ['for-now-hedge', /#\s*for\s+now\b/i],
+  // (Removed: "for now" hedging. `# for now` / `// for now` is one of the most
+  // common LEGITIMATE explanatory comments in real code ("for now, display the
+  // current value", "for now, cap at 100") — a comment-only heuristic can't tell
+  // it from a real stub. Dogfooding: a strong model's correct `# For now, just
+  // display current value (no-op)` triggered a false stub reprompt that spiraled
+  // into full-file rewrites until cycle detection bailed. Real stubs are caught
+  // by the stronger signals above + the completion gate's test run.)
 
-  // "would be" / "would need" / "would require" future tense deferral
-  ['future-deferral', /\/\/\s*(?:this\s+)?would\s+(?:be|need|require)\b/i],
+  // (Removed "would be/need/require" future-deferral: "this would need a more
+  // robust approach" is a common legitimate limitation note, not a stub marker.)
 
   // Ellipsis or "..." as code body
   ['ellipsis-body', /^\s*\.{3}\s*$/],
@@ -96,15 +104,32 @@ export function detectStubs(file: string, content: string): StubMatch[] {
   const matches: StubMatch[] = [];
   const lines = content.split('\n');
 
+  // The previous non-blank line, used for context-sensitive checks (currently
+  // pass-body: a bare `pass` is only a stub when it's a function body, not when
+  // it's a legitimate no-op in an except/if/loop block or an empty class).
+  let prevMeaningful = '';
+  const isFunctionHeader = (l: string) => /^\s*(?:async\s+)?def\b.*:\s*$/.test(l);
+
   for (const line of lines) {
-    // Skip blank lines
+    // Skip blank lines (don't update prevMeaningful — we want the last code line)
     if (!line.trim()) continue;
 
     // Skip false positives
-    if (FALSE_POSITIVE_PATTERNS.some((fp) => fp.test(line))) continue;
+    if (FALSE_POSITIVE_PATTERNS.some((fp) => fp.test(line))) {
+      prevMeaningful = line;
+      continue;
+    }
 
     for (const [category, pattern] of STUB_PATTERNS) {
       if (pattern.test(line)) {
+        // pass-body is a stub ONLY when `pass` is the sole body of a function
+        // definition. A bare `pass` after except:/if:/for:/while:/try:/with:/
+        // else: — or a custom exception class — is legitimate code, not a
+        // placeholder. (Dogfooding: a strong model's `except: pass` triggered a
+        // false stub reprompt that spiraled into a write-target thrash bail.)
+        if (category === 'pass-body' && !isFunctionHeader(prevMeaningful)) {
+          break;
+        }
         matches.push({
           file,
           match: line.trim(),
@@ -113,6 +138,7 @@ export function detectStubs(file: string, content: string): StubMatch[] {
         break; // one match per line is enough
       }
     }
+    prevMeaningful = line;
   }
 
   // Multi-line empty typed body: catches non-void methods whose body spans two
