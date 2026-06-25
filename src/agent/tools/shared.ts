@@ -112,6 +112,15 @@ export interface ToolExecutorContext {
    * stale pre-write cache entry.
    */
   workspaceIndex?: import('../../config/workspaceIndex.js').WorkspaceIndex;
+  /**
+   * Per-path set of content hashes written this run. When set, `write_file`
+   * records each distinct write and soft-blocks a byte-identical re-write — a
+   * no-op on disk and the signature of a model thrashing in a circle (write A →
+   * write B → write A …). Threaded from `LoopState.writeHistoryByFile` so the
+   * history persists across iterations. Absent in unit tests / non-loop calls,
+   * where the check is simply skipped.
+   */
+  writeHistoryByFile?: Map<string, Set<string>>;
 }
 
 export interface ToolExecutor {

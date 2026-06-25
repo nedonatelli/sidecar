@@ -4,6 +4,13 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.114.26] - 2026-06-24
+
+### Added
+
+- **Circular-rewrite block — stop a stuck model going in circles instead of killing the run** — dogfooding a GUI build with qwen3.5: the model regenerated the whole file (v1 6.5KB → v2 4.2KB, *dropping working code*), read it, then rewrote a byte-identical prior version — and the normalized cycle detector bailed the entire run, leaving a broken, incomplete GUI. Advisory nudges ("use edit_file") didn't move the model, so this intervention is mechanical: (1) `write_file` now soft-blocks a re-write whose content is **byte-identical to a version already written to that path this run** — a no-op on disk and the signature of A→B→A thrash — returning "nothing changed, use edit_file or verify" instead of a false success; (2) cycle detection no longer counts these blocked circular writes, so the run **continues** (the model gets another shot at a targeted edit or a test) rather than dying. Bounded to 2 blocks per file; once spent, the circular write is left in and cycle detection bails the genuinely-stuck loop. Identical content is never progress, so this can't reject a real change. (`src/agent/tools/fs.ts`, `src/agent/loop/circularRewrite.ts`, `src/agent/loop.ts`, `src/agent/loop/state.ts`, `src/agent/tools/shared.ts`)
+
+
 ## [0.114.25] - 2026-06-24
 
 ### Changed

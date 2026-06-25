@@ -119,6 +119,15 @@ export interface LoopState {
   fullRewriteCountByFile: Map<string, number>;
   isolateNudgesByFile: Map<string, number>;
 
+  // Per-path set of content hashes written this run. The write_file executor
+  // records every distinct write and soft-blocks a byte-identical re-write (a
+  // no-op on disk and the signature of A→B→A circular thrash). cycleDetection
+  // reads this to skip blocked circular writes so the run continues — bounded by
+  // circularRewriteBlocksByFile so a model that keeps emitting identical writes
+  // still bails eventually.
+  writeHistoryByFile: Map<string, Set<string>>;
+  circularRewriteBlocksByFile: Map<string, number>;
+
   // Stub-validator retry counter. stubCheck.ts is the only writer.
   stubFixRetries: number;
 
@@ -236,6 +245,8 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     autoFixRetriesByFile: new Map<string, number>(),
     fullRewriteCountByFile: new Map<string, number>(),
     isolateNudgesByFile: new Map<string, number>(),
+    writeHistoryByFile: new Map<string, Set<string>>(),
+    circularRewriteBlocksByFile: new Map<string, number>(),
     stubFixRetries: 0,
     actionRepromptCount: 0,
     filesReadThisRun: new Set<string>(),

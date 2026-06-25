@@ -43,6 +43,8 @@ function makeState(logger?: AgentLogger): LoopState {
     autoFixRetriesByFile: new Map(),
     fullRewriteCountByFile: new Map(),
     isolateNudgesByFile: new Map(),
+    writeHistoryByFile: new Map(),
+    circularRewriteBlocksByFile: new Map(),
     stubFixRetries: 0,
     actionRepromptCount: 0,
     filesReadThisRun: new Set<string>(),

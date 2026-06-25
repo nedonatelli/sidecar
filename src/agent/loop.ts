@@ -15,6 +15,7 @@ import { initLoopState } from './loop/state.js';
 import { streamOneTurn, resolveTurnContent } from './loop/streamTurn.js';
 import { applyAgentLoopRouting, applyArchitectEditorSplit } from './loop/routing.js';
 import { exceedsBurstCap, detectCycleAndBail } from './loop/cycleDetection.js';
+import { excludeBlockedCircularRewrites } from './loop/circularRewrite.js';
 import {
   pushAssistantMessage,
   pushToolResultsMessage,
@@ -521,7 +522,14 @@ export async function runAgentLoop(
       // `true` when the loop should terminate and is responsible for
       // its own user-visible onText notification.
       if (exceedsBurstCap(pendingToolUses, state, callbacks)) break;
-      if (detectCycleAndBail(pendingToolUses, state, callbacks)) break;
+      // Remove blocked circular rewrites (content byte-identical to a prior
+      // write this run) from what cycle detection counts — the write_file
+      // executor soft-blocks them, so they shouldn't bail the whole run.
+      // Dispatch still sees the full list so the blocked write returns its
+      // soft-block result. Bounded per file; once the budget is spent the
+      // circular write is left in and cycle detection bails the stuck loop.
+      const forCycleDetection = excludeBlockedCircularRewrites(pendingToolUses, state, callbacks);
+      if (forCycleDetection.length > 0 && detectCycleAndBail(forCycleDetection, state, callbacks)) break;
 
       // Append the assistant message to history.
       pushAssistantMessage(state, fullText, pendingToolUses);

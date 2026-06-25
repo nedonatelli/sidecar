@@ -1,5 +1,6 @@
 import { workspace, Uri } from 'vscode';
 import * as path from 'path';
+import * as crypto from 'crypto';
 import type { ToolDefinition } from '../../ollama/types.js';
 import {
   validateFilePath,
@@ -411,6 +412,29 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
     return `Error: "${filePath}" appears to contain secrets or credentials. The agent is not permitted to write to this file.`;
   }
   const content = input.content as string;
+
+  // Block a byte-identical re-write. Writing content this run already wrote to
+  // this path is a no-op on disk AND the signature of a model thrashing in a
+  // circle (write A → write B → write A …) — dogfooding caught qwen3.5 doing
+  // exactly this, regenerating a prior version until cycle detection killed the
+  // run. Returning a soft-block instead of silently "succeeding" tells the model
+  // nothing changed and points it at edit_file; cycleDetection skips blocked
+  // circular writes so the run continues rather than bailing. Identical content
+  // is never progress, so this can never reject a legitimate change.
+  if (context?.writeHistoryByFile) {
+    const hash = crypto.createHash('sha256').update(content).digest('hex');
+    const prior = context.writeHistoryByFile.get(filePath);
+    if (prior?.has(hash)) {
+      return (
+        `No change written — the content is byte-identical to a version you already wrote to \`${filePath}\` ` +
+        `this session, so the file is unchanged. Stop rewriting the whole file: if you need to change something, ` +
+        `use edit_file to modify ONLY the specific lines. If you believe it is already correct, verify it instead — ` +
+        `write a test that imports this module and asserts its behavior, then run it.`
+      );
+    }
+    if (prior) prior.add(hash);
+    else context.writeHistoryByFile.set(filePath, new Set([hash]));
+  }
 
   // Audit Mode: divert the write to the in-memory buffer instead of
   // touching disk. The agent sees a normal success response and keeps

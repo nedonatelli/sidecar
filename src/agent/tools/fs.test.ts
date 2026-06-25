@@ -328,6 +328,65 @@ describe('readFile — file-not-found suggestions', () => {
   });
 });
 
+describe('writeFile circular-rewrite block', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('records the first write and soft-blocks a byte-identical re-write to the same path', async () => {
+    const { workspace } = await import('vscode');
+    vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined as never);
+    vi.spyOn(workspace.fs, 'createDirectory').mockResolvedValue(undefined as never);
+
+    const writeHistoryByFile = new Map<string, Set<string>>();
+    const context = { writeHistoryByFile };
+    const content = 'import tkinter as tk\nclass App: ...\n';
+
+    const first = await writeFile({ path: 'gui.py', content }, context);
+    expect(first).toBe('File written: gui.py');
+    expect(writeHistoryByFile.get('gui.py')?.size).toBe(1);
+
+    const second = await writeFile({ path: 'gui.py', content }, context); // identical
+    expect(second).toContain('No change written');
+    expect(second).toContain('edit_file');
+    expect(workspace.fs.writeFile).toHaveBeenCalledTimes(1); // the no-op never hit disk
+  });
+
+  it('allows a write with different content to the same path (real progress)', async () => {
+    const { workspace } = await import('vscode');
+    vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined as never);
+    vi.spyOn(workspace.fs, 'createDirectory').mockResolvedValue(undefined as never);
+
+    const writeHistoryByFile = new Map<string, Set<string>>();
+    const context = { writeHistoryByFile };
+    await writeFile({ path: 'gui.py', content: 'v1' }, context);
+    const second = await writeFile({ path: 'gui.py', content: 'v2' }, context);
+    expect(second).toBe('File written: gui.py');
+    expect(writeHistoryByFile.get('gui.py')?.size).toBe(2);
+  });
+
+  it('blocks a re-write of a non-current prior version (A -> B -> A circular)', async () => {
+    const { workspace } = await import('vscode');
+    vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined as never);
+    vi.spyOn(workspace.fs, 'createDirectory').mockResolvedValue(undefined as never);
+
+    const writeHistoryByFile = new Map<string, Set<string>>();
+    const context = { writeHistoryByFile };
+    await writeFile({ path: 'gui.py', content: 'A' }, context);
+    await writeFile({ path: 'gui.py', content: 'B' }, context);
+    const back = await writeFile({ path: 'gui.py', content: 'A' }, context); // circular back to A
+    expect(back).toContain('No change written');
+  });
+
+  it('does nothing special when no writeHistoryByFile is provided (non-loop calls)', async () => {
+    const { workspace } = await import('vscode');
+    vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined as never);
+    vi.spyOn(workspace.fs, 'createDirectory').mockResolvedValue(undefined as never);
+    const a = await writeFile({ path: 'gui.py', content: 'same' }, {});
+    const b = await writeFile({ path: 'gui.py', content: 'same' }, {});
+    expect(a).toBe('File written: gui.py');
+    expect(b).toBe('File written: gui.py');
+  });
+});
+
 describe('streaming diff via onOutput', () => {
   const DIFF_PREFIX = '\x00diff\x00';
 

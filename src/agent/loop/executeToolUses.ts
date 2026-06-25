@@ -218,6 +218,7 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
       testController: options.testController,
       filesReadThisTurn: ctx.filesReadThisTurn,
       workspaceIndex: options.workspaceIndex,
+      writeHistoryByFile: state.writeHistoryByFile,
     },
     inlineEditFn: options.inlineEditFn,
     streamingDiffPreviewFn: options.streamingDiffPreviewFn,
