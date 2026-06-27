@@ -387,6 +387,92 @@ describe('writeFile circular-rewrite block', () => {
   });
 });
 
+describe('writeFile enforce-edit-over-rewrite block', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  async function mockedWrite(input: Record<string, unknown>, context: Record<string, unknown>) {
+    const { workspace } = await import('vscode');
+    vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined as never);
+    vi.spyOn(workspace.fs, 'createDirectory').mockResolvedValue(undefined as never);
+    return writeFile(input, context);
+  }
+
+  it('soft-blocks a full write_file once the file has been edited via edit_file', async () => {
+    const filesEditedViaEditTool = new Set<string>(['gui_calculator.py']);
+    const r = await mockedWrite({ path: 'gui_calculator.py', content: 'whole new file' }, { filesEditedViaEditTool });
+    expect(r).toContain('was NOT applied');
+    expect(r).toContain('edit_file');
+  });
+
+  it('matches the edited file by basename (relative vs absolute path)', async () => {
+    const filesEditedViaEditTool = new Set<string>(['/abs/proj/gui_calculator.py']);
+    const r = await mockedWrite({ path: 'gui_calculator.py', content: 'x' }, { filesEditedViaEditTool });
+    expect(r).toContain('was NOT applied');
+  });
+
+  it('allows write_file to a file that has NOT been edited (e.g. a fresh create)', async () => {
+    const filesEditedViaEditTool = new Set<string>(['other.py']);
+    const r = await mockedWrite({ path: 'gui_calculator.py', content: 'x' }, { filesEditedViaEditTool });
+    expect(r).toBe('File written: gui_calculator.py');
+  });
+
+  it('is skipped entirely when no filesEditedViaEditTool is provided', async () => {
+    const r = await mockedWrite({ path: 'gui_calculator.py', content: 'x' }, {});
+    expect(r).toBe('File written: gui_calculator.py');
+  });
+});
+
+describe('writeFile verify-before-rewrite block', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  async function mockedWrite(input: Record<string, unknown>, context: Record<string, unknown>) {
+    const { workspace } = await import('vscode');
+    vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined as never);
+    vi.spyOn(workspace.fs, 'createDirectory').mockResolvedValue(undefined as never);
+    return writeFile(input, context);
+  }
+
+  it('allows the create + 2 rewrites, then soft-blocks the 4th unverified rewrite', async () => {
+    const writesSinceVerifyByFile = new Map<string, number>();
+    const ctx = { writesSinceVerifyByFile };
+    for (let i = 0; i < 3; i++) {
+      const r = await mockedWrite({ path: 'gui.py', content: `v${i}` }, ctx);
+      expect(r).toBe('File written: gui.py');
+    }
+    const blocked = await mockedWrite({ path: 'gui.py', content: 'v3' }, ctx);
+    expect(blocked).toContain('was NOT applied');
+    expect(blocked).toContain('get_diagnostics');
+  });
+
+  it('keeps blocking further unverified rewrites until the counter is reset', async () => {
+    const writesSinceVerifyByFile = new Map<string, number>([['gui.py', 3]]); // already at threshold
+    const ctx = { writesSinceVerifyByFile };
+    expect(await mockedWrite({ path: 'gui.py', content: 'x' }, ctx)).toContain('was NOT applied');
+    expect(await mockedWrite({ path: 'gui.py', content: 'y' }, ctx)).toContain('was NOT applied');
+  });
+
+  it('resumes writing after the counter is reset to 0 (verification happened)', async () => {
+    const writesSinceVerifyByFile = new Map<string, number>([['gui.py', 5]]);
+    const ctx = { writesSinceVerifyByFile };
+    writesSinceVerifyByFile.set('gui.py', 0); // simulate a verification reset
+    expect(await mockedWrite({ path: 'gui.py', content: 'fixed' }, ctx)).toBe('File written: gui.py');
+  });
+
+  it('tracks the counter per file (rewriting A does not block B)', async () => {
+    const writesSinceVerifyByFile = new Map<string, number>();
+    const ctx = { writesSinceVerifyByFile };
+    for (let i = 0; i < 4; i++) await mockedWrite({ path: 'a.py', content: `a${i}` }, ctx);
+    // b.py is untouched, so its first write is fine.
+    expect(await mockedWrite({ path: 'b.py', content: 'b0' }, ctx)).toBe('File written: b.py');
+  });
+
+  it('is skipped when no writesSinceVerifyByFile is provided (non-loop calls)', async () => {
+    for (let i = 0; i < 5; i++) {
+      expect(await mockedWrite({ path: 'gui.py', content: `v${i}` }, {})).toBe('File written: gui.py');
+    }
+  });
+});
+
 describe('streaming diff via onOutput', () => {
   const DIFF_PREFIX = '\x00diff\x00';
 

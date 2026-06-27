@@ -166,9 +166,13 @@ export function detectCycleAndBail(
       // agent might legitimately edit the same file with different content.
       const toolName = normEntry.sig.split(':')[0] ?? '';
       const isReadOnly = READ_ONLY_TOOLS.has(toolName);
+      // Re-reading a file you're actively editing is an edit→verify loop, never a
+      // stuck scan — exempt it entirely (even identical read args, since the file
+      // content changed underneath between reads).
+      const editVerifyExempt = isReadOnly && sigTargetsRecentlyMutatedFile(lastN[0].sig, state);
 
       const hasRepeatedSecondary = lastN.every((e) => e.secondaryHash === lastN[0].secondaryHash);
-      if ((isReadOnly || hasRepeatedSecondary) && !sigTargetsOnlyGateFiles(lastN[0].sig, state)) {
+      if (!editVerifyExempt && (isReadOnly || hasRepeatedSecondary) && !sigTargetsOnlyGateFiles(lastN[0].sig, state)) {
         state.logger?.warn(
           `Agent loop normalized cycle detected (${MIN_NORMALIZED_REPEATS} repeats${isReadOnly ? ', read-only tool' : ', repeated secondary args'}) — ${normEntry.sig.slice(0, 100)}`,
         );
@@ -197,13 +201,14 @@ export function detectCycleAndBail(
       if (entries.length < MIN_NORMALIZED_REPEATS) continue;
       const sigToolName = sig.split(':')[0] ?? '';
       const sigIsReadOnly = READ_ONLY_TOOLS.has(sigToolName);
+      const editVerifyExempt = sigIsReadOnly && sigTargetsRecentlyMutatedFile(sig, state);
       const seen = new Set<string>();
       const hasRepeatedSecondary = entries.some((e) => {
         if (seen.has(e.secondaryHash)) return true;
         seen.add(e.secondaryHash);
         return false;
       });
-      if ((sigIsReadOnly || hasRepeatedSecondary) && !sigTargetsOnlyGateFiles(sig, state)) {
+      if (!editVerifyExempt && (sigIsReadOnly || hasRepeatedSecondary) && !sigTargetsOnlyGateFiles(sig, state)) {
         state.logger?.warn(
           `Agent loop normalized cycle detected (${entries.length} non-consecutive repeats in window) — ${sig.slice(0, 100)}`,
         );
@@ -232,7 +237,10 @@ export function detectCycleAndBail(
     const contentRepeats = tail.every((v, i) => v.secondaryHash === prev[i].secondaryHash);
     const allReadOnly = tail.every((e) => READ_ONLY_TOOLS.has(e.sig.split(':')[0] ?? ''));
     const gateExempt = tail.every((e) => sigTargetsOnlyGateFiles(e.sig, state));
-    if ((contentRepeats || allReadOnly) && !gateExempt) {
+    // Exempt an all-read pattern when any read targets a file being actively
+    // edited — it's verifying edits between writes, not scanning in circles.
+    const editVerifyExempt = allReadOnly && tail.some((e) => sigTargetsRecentlyMutatedFile(e.sig, state));
+    if ((contentRepeats || allReadOnly) && !gateExempt && !editVerifyExempt) {
       state.logger?.warn(`Agent loop normalized cycle detected (length ${len}) — ${normEntry.sig.slice(0, 100)}`);
       const patternSigs = tail.map((e) => e.sig.slice(0, 40)).join(' → ');
       callbacks.onText(
@@ -365,6 +373,35 @@ function sigTargetsOnlyGateFiles(sig: string, state: LoopState): boolean {
     const resource = idx === -1 ? '' : p.slice(idx + 1);
     return resource !== '' && isUnderActiveFix(resource, state);
   });
+}
+
+/**
+ * True if a read-only signature targets a file that was mutated (write/edit)
+ * within the recent window. Re-reading a file you're actively editing is an
+ * edit→verify loop, NOT a stuck scan — especially under retrieval reference-mode
+ * (v0.92), where the system prompt holds path references, not file bodies, so
+ * the model MUST read_file to see the current contents after each edit.
+ * Dogfooding: a write→read→write→read fix loop on `gui_calculator.py` tripped
+ * the read-only cycle bail mid-fix, killing the run with a half-written file.
+ * Bounded by WRITE_TARGET_WINDOW — once edits age out, pure re-reads bail again.
+ */
+function sigTargetsRecentlyMutatedFile(sig: string, state: LoopState): boolean {
+  const resources = sig
+    .split('|')
+    .map((p) => {
+      const i = p.indexOf(':');
+      return i === -1 ? '' : p.slice(i + 1);
+    })
+    .filter(Boolean);
+  if (resources.length === 0) return false;
+  for (const targets of state.recentWriteTargets) {
+    for (const t of targets) {
+      for (const r of resources) {
+        if (basenameMatch(r, t)) return true;
+      }
+    }
+  }
+  return false;
 }
 
 function sortedStringify(value: unknown): string {

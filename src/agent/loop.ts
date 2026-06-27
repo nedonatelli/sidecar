@@ -15,7 +15,11 @@ import { initLoopState } from './loop/state.js';
 import { streamOneTurn, resolveTurnContent } from './loop/streamTurn.js';
 import { applyAgentLoopRouting, applyArchitectEditorSplit } from './loop/routing.js';
 import { exceedsBurstCap, detectCycleAndBail } from './loop/cycleDetection.js';
-import { excludeBlockedCircularRewrites } from './loop/circularRewrite.js';
+import {
+  excludeBlockedCircularRewrites,
+  resetVerifyCountersForVerifications,
+  recordSuccessfulEdits,
+} from './loop/circularRewrite.js';
 import {
   pushAssistantMessage,
   pushToolResultsMessage,
@@ -558,6 +562,15 @@ export async function runAgentLoop(
         dispatchSignal,
         state.config,
       );
+
+      // Reset the verify-before-rewrite counter for any file this turn actually
+      // verified (get_diagnostics / a run or test referencing it), so a model
+      // that checks its work between rewrites is never soft-blocked.
+      resetVerifyCountersForVerifications(pendingToolUses, state);
+
+      // Record files successfully edited via edit_file so write_file blocks a
+      // full rewrite that would clobber those targeted fixes.
+      recordSuccessfulEdits(pendingToolUses, toolResults, state);
 
       // Emit structured audit record per tool call.
       if (state.logger) {

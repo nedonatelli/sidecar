@@ -402,6 +402,23 @@ export async function readFile(input: Record<string, unknown>, context?: ToolExe
   return text;
 }
 
+/**
+ * Consecutive write_file calls allowed to a single path with no intervening
+ * verification before the next one is soft-blocked. Create + two rewrites, then
+ * the model must run/diagnose the file before rewriting a 4th time.
+ */
+const MAX_UNVERIFIED_REWRITES = 3;
+
+/** True if `filePath` matches an entry in `set` exactly or by basename. */
+function pathInSetByBasename(filePath: string, set: Set<string>): boolean {
+  if (set.has(filePath)) return true;
+  const base = filePath.split('/').pop()!.toLowerCase();
+  for (const p of set) {
+    if (p.split('/').pop()!.toLowerCase() === base) return true;
+  }
+  return false;
+}
+
 export async function writeFile(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   const filePath = input.path as string;
   const pathError = validateFilePath(filePath);
@@ -413,27 +430,62 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
   }
   const content = input.content as string;
 
-  // Block a byte-identical re-write. Writing content this run already wrote to
-  // this path is a no-op on disk AND the signature of a model thrashing in a
-  // circle (write A → write B → write A …) — dogfooding caught qwen3.5 doing
-  // exactly this, regenerating a prior version until cycle detection killed the
-  // run. Returning a soft-block instead of silently "succeeding" tells the model
-  // nothing changed and points it at edit_file; cycleDetection skips blocked
-  // circular writes so the run continues rather than bailing. Identical content
-  // is never progress, so this can never reject a legitimate change.
-  if (context?.writeHistoryByFile) {
-    const hash = crypto.createHash('sha256').update(content).digest('hex');
-    const prior = context.writeHistoryByFile.get(filePath);
-    if (prior?.has(hash)) {
+  // --- Rewrite-thrash guards (per-run state threaded via context) ---
+
+  // 0. Enforce edit-over-rewrite. Once the model is making targeted edits to a
+  // file, a full write_file would clobber them — regenerating the whole file
+  // re-introduces the bug the edit just fixed (dogfooding caught exactly that
+  // write→edit→write→edit loop on a recurring syntax error). Force edit_file.
+  if (context?.filesEditedViaEditTool && pathInSetByBasename(filePath, context.filesEditedViaEditTool)) {
+    return (
+      `write_file to \`${filePath}\` was NOT applied. You've been making targeted edits to this file, and a full ` +
+      `rewrite would clobber them — regenerating the whole file keeps re-introducing the bug you just fixed with ` +
+      `edit_file. Make this change with edit_file instead: put the exact current lines in \`search\` and the new ` +
+      `lines in \`replace\`. To replace a whole section, pass that entire block as \`search\` and the new block as ` +
+      `\`replace\`. Read the file first if you're unsure of the current text.`
+    );
+  }
+
+  const writeHistory = context?.writeHistoryByFile;
+  const contentHash = writeHistory ? crypto.createHash('sha256').update(content).digest('hex') : undefined;
+
+  // 1. Circular rewrite: content byte-identical to a version already written to
+  // this path this run — a no-op on disk and the signature of A→B→A thrash.
+  // Returning a soft-block instead of a false "success" tells the model nothing
+  // changed and points it at edit_file; cycleDetection skips blocked circular
+  // writes so the run continues. Identical content is never progress.
+  if (writeHistory && contentHash !== undefined && writeHistory.get(filePath)?.has(contentHash)) {
+    return (
+      `No change written — the content is byte-identical to a version you already wrote to \`${filePath}\` ` +
+      `this session, so the file is unchanged. Stop rewriting the whole file: if you need to change something, ` +
+      `use edit_file to modify ONLY the specific lines. If you believe it is already correct, verify it instead — ` +
+      `write a test that imports this module and asserts its behavior, then run it.`
+    );
+  }
+
+  // 2. Verify-before-rewrite: too many consecutive rewrites of this file with no
+  // verification in between. Rewriting blind never surfaces bugs — dogfooding
+  // caught qwen3.5 rewriting a GUI 7× without ever running it, converging on a
+  // NameError one execution would have caught. Force the feedback step.
+  if (context?.writesSinceVerifyByFile) {
+    const n = (context.writesSinceVerifyByFile.get(filePath) ?? 0) + 1;
+    context.writesSinceVerifyByFile.set(filePath, n);
+    if (n > MAX_UNVERIFIED_REWRITES) {
       return (
-        `No change written — the content is byte-identical to a version you already wrote to \`${filePath}\` ` +
-        `this session, so the file is unchanged. Stop rewriting the whole file: if you need to change something, ` +
-        `use edit_file to modify ONLY the specific lines. If you believe it is already correct, verify it instead — ` +
-        `write a test that imports this module and asserts its behavior, then run it.`
+        `This write was NOT applied. You've rewritten \`${filePath}\` ${n} times without running or checking it ` +
+        `once — rewriting blind doesn't surface bugs (a NameError, a wrong result, a dead button only appear when ` +
+        `the code RUNS). Verify the current file before rewriting again: call get_diagnostics, or run it / a test ` +
+        `that imports it. Then fix exactly what the output reports with edit_file — change only the broken lines, ` +
+        `do not regenerate the whole file.`
       );
     }
-    if (prior) prior.add(hash);
-    else context.writeHistoryByFile.set(filePath, new Set([hash]));
+  }
+
+  // Committing to write — record the content hash for circular detection.
+  if (writeHistory && contentHash !== undefined) {
+    const set = writeHistory.get(filePath);
+    if (set) set.add(contentHash);
+    else writeHistory.set(filePath, new Set([contentHash]));
   }
 
   // Audit Mode: divert the write to the in-memory buffer instead of

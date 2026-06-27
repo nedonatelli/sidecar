@@ -34,6 +34,8 @@ export function stubLoopState(overrides: Partial<LoopState> = {}): LoopState {
     isolateNudgesByFile: new Map(),
     writeHistoryByFile: new Map(),
     circularRewriteBlocksByFile: new Map(),
+    writesSinceVerifyByFile: new Map(),
+    filesEditedViaEditTool: new Set(),
     stubFixRetries: 0,
     actionRepromptCount: 0,
     filesReadThisRun: new Set<string>(),

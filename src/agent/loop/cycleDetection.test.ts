@@ -281,6 +281,30 @@ describe('detectCycleAndBail — normalized signature pass', () => {
     expect(cb.texts).toHaveLength(0);
   });
 
+  it('does NOT bail re-reads of a file being actively edited (read→verify after a write)', () => {
+    // Dogfood regression: with retrieval reference-mode the model MUST re-read a
+    // file to see current contents after editing it. write → read → read → read
+    // of the same file is an edit-verify loop, not a stuck scan.
+    const state = stubLoopState();
+    const cb = stubCallbacks();
+    expect(detectCycleAndBail([makeToolUse('write_file', { path: 'gui.py', content: 'v1' })], state, cb)).toBe(false);
+    // identical full reads (same args) — would trip hasRepeatedSecondary, but the
+    // file is being actively edited so it's exempt.
+    for (let i = 0; i < 3; i++) {
+      expect(detectCycleAndBail([makeToolUse('read_file', { path: 'gui.py' })], state, cb)).toBe(false);
+    }
+    expect(cb.texts).toHaveLength(0);
+  });
+
+  it('STILL bails 3 reads of a file that is never edited (genuine scan loop)', () => {
+    const state = stubLoopState();
+    const cb = stubCallbacks();
+    expect(detectCycleAndBail([makeToolUse('read_file', { path: 'a.ts' })], state, cb)).toBe(false);
+    expect(detectCycleAndBail([makeToolUse('read_file', { path: 'a.ts' })], state, cb)).toBe(false);
+    expect(detectCycleAndBail([makeToolUse('read_file', { path: 'a.ts' })], state, cb)).toBe(true);
+    expect(cb.texts[0]).toContain('repeated');
+  });
+
   it('does NOT fire when same command runs with a different cwd each time', () => {
     // Running npm test in 3 different directories is legitimate, not a loop.
     const state = stubLoopState();

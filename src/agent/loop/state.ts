@@ -128,6 +128,21 @@ export interface LoopState {
   writeHistoryByFile: Map<string, Set<string>>;
   circularRewriteBlocksByFile: Map<string, number>;
 
+  // Per-path count of consecutive write_file calls with NO intervening
+  // verification of that file (get_diagnostics, or a run/test referencing it).
+  // The write_file executor increments + soft-blocks once it exceeds the
+  // threshold; verifications reset the counter. Forces the feedback step a
+  // stuck model skips — dogfooding caught qwen3.5 rewriting a GUI 7× without
+  // ever running it, shipping a NameError one execution would have surfaced.
+  writesSinceVerifyByFile: Map<string, number>;
+
+  // Files the agent has successfully modified via edit_file this run. Once a
+  // file is here, a full write_file to it is soft-blocked (the executor forces
+  // continued targeted edits) — regenerating the whole file clobbers the edits,
+  // and dogfooding caught write_file repeatedly re-introducing a syntax bug that
+  // edit_file had just fixed. circularRewrite.ts records; fs.ts writeFile reads.
+  filesEditedViaEditTool: Set<string>;
+
   // Stub-validator retry counter. stubCheck.ts is the only writer.
   stubFixRetries: number;
 
@@ -247,6 +262,8 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     isolateNudgesByFile: new Map<string, number>(),
     writeHistoryByFile: new Map<string, Set<string>>(),
     circularRewriteBlocksByFile: new Map<string, number>(),
+    writesSinceVerifyByFile: new Map<string, number>(),
+    filesEditedViaEditTool: new Set<string>(),
     stubFixRetries: 0,
     actionRepromptCount: 0,
     filesReadThisRun: new Set<string>(),

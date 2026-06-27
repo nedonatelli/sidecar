@@ -51,6 +51,12 @@ const MAX_SYNTAX_GATE_INJECTIONS = 2;
 
 const MAX_GATE_INJECTIONS = 2;
 
+/** Bounded re-fire for the behavioral-verification gate. Two attempts: one to
+ * prompt a real test, one more if the first was hollow (mock that never imports
+ * the module). After that the loop proceeds so a model that can't comply isn't
+ * stuck. */
+const MAX_BEHAVIORAL_VERIFICATION_INJECTIONS = 2;
+
 /**
  * Feed every tool use + result pair into the gate state so it can
  * track which files were edited and which verification commands
@@ -169,11 +175,15 @@ export async function maybeInjectCompletionGate(
     }
   }
 
-  // Check: user reported a behavioral bug, the agent edited code, but ran no
-  // test that exercises the fix. Launching/compiling can't catch a functional
-  // bug. Fires at most once; gentle framing so a static-check-sufficient fix
-  // can skip it.
-  if (!gateState.behavioralVerificationRepromptFired && config.completionGateEnabled !== false) {
+  // Check: the agent edited behavioral code but ran no test that actually
+  // exercises it — including a HOLLOW test that never imports the module under
+  // test (it asserts against an inline mock). Launching/compiling can't catch a
+  // functional bug. Bounded re-fire so a model that games it with a hollow test
+  // gets told once more; gentle framing so a static-check-sufficient fix skips it.
+  if (
+    (gateState.behavioralVerificationInjections ?? 0) < MAX_BEHAVIORAL_VERIFICATION_INJECTIONS &&
+    config.completionGateEnabled !== false
+  ) {
     const reprompt = await buildBehavioralVerificationReprompt(
       gateState.currentUserRequest ?? '',
       gateState.editedFiles,
@@ -183,8 +193,8 @@ export async function maybeInjectCompletionGate(
       },
     );
     if (reprompt) {
-      gateState.behavioralVerificationRepromptFired = true;
-      logger?.info('Behavioral-verification gate fired — bug fix with no test exercising the behavior');
+      gateState.behavioralVerificationInjections = (gateState.behavioralVerificationInjections ?? 0) + 1;
+      logger?.info('Behavioral-verification gate fired — no test that actually exercises the edited behavior');
       callbacks.onText('\n\n🧪 Writing a test to confirm the fix actually works...\n');
       state.messages.push({ role: 'user', content: [{ type: 'text' as const, text: reprompt }] });
       return 'injected';
@@ -272,7 +282,7 @@ export async function maybeInjectCompletionGate(
   gateState.gateInjections++;
   const injection = buildGateInjection(findings, gateState.gateInjections, maxGateInjections);
   logger?.info(
-    `Completion gate fired (#${gateState.gateInjections}/${MAX_GATE_INJECTIONS}): ${findings.length} unverified edit(s)`,
+    `Completion gate fired (#${gateState.gateInjections}/${maxGateInjections}): ${findings.length} unverified edit(s)`,
   );
   callbacks.onText('\n\n🔒 Verifying changes before completion...\n');
   state.messages.push({

@@ -1,13 +1,20 @@
 import { describe, it, expect } from 'vitest';
 import * as crypto from 'crypto';
-import { excludeBlockedCircularRewrites } from './circularRewrite.js';
+import {
+  excludeBlockedCircularRewrites,
+  resetVerifyCountersForVerifications,
+  recordSuccessfulEdits,
+} from './circularRewrite.js';
 import { stubLoopState, stubCallbacks } from './testHelpers.js';
-import type { ToolUseContentBlock } from '../../ollama/types.js';
+import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/types.js';
 
 const hash = (s: string) => crypto.createHash('sha256').update(s).digest('hex');
 
 function write(path: string, content: string): ToolUseContentBlock {
   return { type: 'tool_use', id: `tu-${path}-${content.length}`, name: 'write_file', input: { path, content } };
+}
+function tool(name: string, input: Record<string, unknown>): ToolUseContentBlock {
+  return { type: 'tool_use', id: `tu-${name}`, name, input };
 }
 
 describe('excludeBlockedCircularRewrites', () => {
@@ -78,5 +85,97 @@ describe('excludeBlockedCircularRewrites', () => {
     excludeBlockedCircularRewrites([write('a.py', 'A')], state, cb);
     expect(state.circularRewriteBlocksByFile.get('a.py')).toBe(1);
     expect(state.circularRewriteBlocksByFile.has('b.py')).toBe(false);
+  });
+});
+
+describe('resetVerifyCountersForVerifications', () => {
+  it('clears every counter when get_diagnostics ran (it checks all edited files)', () => {
+    const state = stubLoopState();
+    state.writesSinceVerifyByFile.set('gui.py', 4);
+    state.writesSinceVerifyByFile.set('app.py', 2);
+    resetVerifyCountersForVerifications([tool('get_diagnostics', {})], state);
+    expect(state.writesSinceVerifyByFile.size).toBe(0);
+  });
+
+  it('resets a file whose module name appears in a run_command', () => {
+    const state = stubLoopState();
+    state.writesSinceVerifyByFile.set('gui_calculator.py', 4);
+    resetVerifyCountersForVerifications(
+      [tool('run_command', { command: 'python3 -c "import gui_calculator"' })],
+      state,
+    );
+    expect(state.writesSinceVerifyByFile.get('gui_calculator.py')).toBe(0);
+  });
+
+  it('resets a file referenced by a run_tests file arg', () => {
+    const state = stubLoopState();
+    state.writesSinceVerifyByFile.set('gui_calculator.py', 4);
+    resetVerifyCountersForVerifications([tool('run_tests', { file: 'test_gui_calculator.py' })], state);
+    expect(state.writesSinceVerifyByFile.get('gui_calculator.py')).toBe(0);
+  });
+
+  it('does NOT reset a file an unrelated test run never touched (target-coverage)', () => {
+    const state = stubLoopState();
+    state.writesSinceVerifyByFile.set('gui_calculator.py', 4);
+    resetVerifyCountersForVerifications([tool('run_command', { command: 'pytest test_calculator.py' })], state);
+    expect(state.writesSinceVerifyByFile.get('gui_calculator.py')).toBe(4);
+  });
+
+  it('is a no-op when there are no counters', () => {
+    const state = stubLoopState();
+    expect(() => resetVerifyCountersForVerifications([tool('get_diagnostics', {})], state)).not.toThrow();
+  });
+});
+
+describe('recordSuccessfulEdits', () => {
+  const okResult = (text = 'File edited: x'): ToolResultContentBlock => ({
+    type: 'tool_result',
+    tool_use_id: 'id',
+    content: text,
+  });
+  const errResult = (text = 'boom'): ToolResultContentBlock => ({
+    type: 'tool_result',
+    tool_use_id: 'id',
+    content: text,
+    is_error: true,
+  });
+
+  it('records a file successfully edited via edit_file', () => {
+    const state = stubLoopState();
+    recordSuccessfulEdits([tool('edit_file', { path: 'gui.py', search: 'a', replace: 'b' })], [okResult()], state);
+    expect(state.filesEditedViaEditTool.has('gui.py')).toBe(true);
+  });
+
+  it('does NOT record a failed edit (is_error result)', () => {
+    const state = stubLoopState();
+    recordSuccessfulEdits([tool('edit_file', { path: 'gui.py' })], [errResult()], state);
+    expect(state.filesEditedViaEditTool.size).toBe(0);
+  });
+
+  it('does NOT record an edit whose result is a soft "Error:" string (search-not-found)', () => {
+    const state = stubLoopState();
+    const soft = okResult('Error: edit_file failed — search string not found in gui.py.');
+    recordSuccessfulEdits([tool('edit_file', { path: 'gui.py' })], [soft], state);
+    expect(state.filesEditedViaEditTool.size).toBe(0);
+  });
+
+  it('records an inferred-edit success', () => {
+    const state = stubLoopState();
+    recordSuccessfulEdits(
+      [tool('edit_file', { path: 'gui.py' })],
+      [okResult('Applied inferred edit to gui.py: …')],
+      state,
+    );
+    expect(state.filesEditedViaEditTool.has('gui.py')).toBe(true);
+  });
+
+  it('ignores write_file and other tools', () => {
+    const state = stubLoopState();
+    recordSuccessfulEdits(
+      [tool('write_file', { path: 'gui.py', content: 'x' })],
+      [okResult('File written: gui.py')],
+      state,
+    );
+    expect(state.filesEditedViaEditTool.size).toBe(0);
   });
 });

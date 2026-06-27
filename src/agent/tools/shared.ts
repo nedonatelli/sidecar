@@ -121,6 +121,23 @@ export interface ToolExecutorContext {
    * where the check is simply skipped.
    */
   writeHistoryByFile?: Map<string, Set<string>>;
+  /**
+   * Per-path count of consecutive `write_file` calls with no intervening
+   * verification of that file. `write_file` increments it and soft-blocks once
+   * it exceeds the threshold (forcing the model to run/diagnose before rewriting
+   * yet again); the loop resets a file's count when a verification exercises it.
+   * Threaded from `LoopState.writesSinceVerifyByFile`; absent in unit tests /
+   * non-loop calls, where the guard is skipped.
+   */
+  writesSinceVerifyByFile?: Map<string, number>;
+  /**
+   * Files the agent has successfully edited via `edit_file` this run. When set
+   * and a path is present, `write_file` soft-blocks a full rewrite of that file
+   * and tells the model to keep using `edit_file` — a regeneration would clobber
+   * the targeted fixes. Threaded from `LoopState.filesEditedViaEditTool`; absent
+   * in non-loop calls, where the guard is skipped.
+   */
+  filesEditedViaEditTool?: Set<string>;
 }
 
 export interface ToolExecutor {

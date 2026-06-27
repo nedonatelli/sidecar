@@ -4,6 +4,42 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.114.31] - 2026-06-26
+
+### Added
+
+- **Enforce edit-over-rewrite — a full rewrite can't clobber a file you're editing** — dogfooding a GUI fix on 0.114.30: the model fixed a recurring syntax bug (bare operators in tuples, `(-, "3")`) with `edit_file`, then the next `write_file` regenerated the whole file with the bug back — fix → regenerate-bug → fix, until it bailed at iter 36 with a still-broken file. Now, once the agent has **successfully edited a file via `edit_file` this run**, a full `write_file` to that path is soft-blocked: *"this write was NOT applied — you've been making targeted edits; a rewrite would clobber them. Use edit_file: put the current lines in `search`, the new lines in `replace`."* The first create and any pre-edit rewrites are still allowed (only files actually touched by `edit_file` are protected); failed edits (search-not-found) don't arm the block, so a legitimate fallback isn't trapped; and the existing write-target thrash detector still bails a model that ignores the steer. Layers on top of the circular-rewrite block (identical content) and verify-before-rewrite (blind rewriting). (`src/agent/tools/fs.ts`, `src/agent/loop/circularRewrite.ts`, `src/agent/loop.ts`, `src/agent/loop/state.ts`, `src/agent/tools/shared.ts`)
+
+
+## [0.114.30] - 2026-06-24
+
+### Fixed
+
+- **Read-cycle detection bailed a model re-reading a file it was actively editing** — dogfooding a fix run: the model did write → read → compile → read → write → read on `gui_calculator.py` (an edit-verify loop), and the read-only cycle detector bailed at the 3rd read — killing the run with a half-written file that had a `try:` block missing its `except`. Re-reading is exactly what retrieval reference-mode (v0.92) *requires* — the system prompt holds path references, not file bodies, so the model must `read_file` to see current contents after each edit. The read-only cycle passes (consecutive, frequency, length-N) now **exempt a read whose target file was mutated within the recent window** (`recentWriteTargets`), so an edit→verify loop isn't mistaken for a stuck scan. Pure scanning (3 reads of a file never edited) still bails; the exemption ages out with the write-target window. (`src/agent/loop/cycleDetection.ts`)
+
+
+## [0.114.29] - 2026-06-24
+
+### Changed
+
+- **Behavioral gate now rejects hollow tests — a test must import the module it claims to test** — dogfooding a fix-the-broken-GUI run: the behavioral gate (correctly) pushed the model to write a test, and the model "satisfied" it with `test_gui_calculator.py` that **never imports `gui_calculator`** — it defined an inline `MockCalculatorApp` and asserted against the mock, so the real `7+3 → 73` bug sailed straight through. The gate was one-shot, so it never re-checked. Now: (1) the gate is a **bounded re-fire** (2 attempts) instead of one-shot; (2) it detects a *hollow test* — a conventionally-named test file the model wrote or ran (`test_<module>.py`, `<module>.test.ts`, …) whose content never references the module under test — and re-fires with a specific message: *"`test_gui_calculator.py` never imports the module under test — it asserts against a mock; import the real module (`from gui_calculator import …`), call it, and assert the real result."* A genuine test that imports the module still satisfies the gate on the first pass. (`src/agent/completionGate.ts`, `src/agent/loop/gate.ts`)
+
+
+## [0.114.28] - 2026-06-24
+
+### Added
+
+- **Verify-before-rewrite — force the feedback step a stuck model skips** — dogfooding a GUI build with local qwen3.5: the model rewrote `gui_calculator.py` 7 times in a row and **never once ran it, tested it, or called get_diagnostics**, converging on a version with a `NameError` that a single execution would have surfaced. Rewriting blind never reveals runtime bugs. `write_file` now tracks consecutive rewrites of a file with no intervening verification; after 3 (create + 2 rewrites) it **soft-blocks** the next rewrite — *"this write was NOT applied; you've rewritten X N times without running it — call get_diagnostics, or run it / a test that imports it, then fix what it reports with edit_file."* The counter resets the moment a verification exercises that file: `get_diagnostics` (checks every edited file) clears all counters, and a `run_command`/`run_tests` referencing the file's path or module name clears that file's — running an unrelated suite does not (mirrors the behavioral gate's target-coverage). A model that checks its work between rewrites is never blocked; only blind-rewrite thrash is. On the dogfood run it fires at the 4th write — forcing diagnostics, surfacing the `NameError` — instead of 7 blind rewrites into a thrash-bail. (`src/agent/tools/fs.ts`, `src/agent/loop/circularRewrite.ts`, `src/agent/loop.ts`, `src/agent/loop/state.ts`, `src/agent/tools/shared.ts`)
+
+
+## [0.114.27] - 2026-06-24
+
+### Fixed
+
+- **Completion gate's lint demand was JS/TS-centric — it told the model to run `npx eslint` on Python files** — dogfooding a Python module build: the gate fired "unverified edits" because no lint ran, and its injection said `run_command: npx eslint calculator.py test_calculator.py`. ESLint can't lint Python, so the model (sensibly) wouldn't run it — instead it flailed (`pytest`, `ls`, `which python3`) until the gate exhausted its injections and the loop terminated with "unverified edits", even though tests passed and the code was clean. The lint injection now **leads with `get_diagnostics`** — the language-agnostic post-edit check that already satisfies the gate for every language — and only suggests `npx eslint` for files it can actually lint (`.ts/.tsx/.js/.jsx/.mjs/.cjs`). Python/Go/Rust edits get the `get_diagnostics` call alone. (`src/agent/completionGate.ts`)
+- **Completion-gate log denominator ignored the adaptive cap** — with adaptive scaffolding on (cap 3), the log read `Completion gate fired (#3/2)` because the denominator hardcoded the static `MAX_GATE_INJECTIONS`. It now uses the effective `maxGateInjections`. (`src/agent/loop/gate.ts`)
+
+
 ## [0.114.26] - 2026-06-24
 
 ### Added

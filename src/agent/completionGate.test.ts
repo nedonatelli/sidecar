@@ -431,10 +431,18 @@ describe('completionGate — checkCompletionGate', () => {
 });
 
 describe('completionGate — buildGateInjection', () => {
-  it('includes a lint command section when needsLint findings exist', () => {
+  it('includes a static-check section leading with get_diagnostics when needsLint findings exist', () => {
     const text = buildGateInjection([{ file: 'src/foo.ts', needsLint: true }], 1, 2);
-    expect(text).toContain('Lint has not run this turn');
+    expect(text).toContain('static check');
+    expect(text).toContain('get_diagnostics');
+    // src/foo.ts is JS/TS, so the eslint suggestion still appears.
     expect(text).toContain('npx eslint src/foo.ts');
+  });
+
+  it('does NOT suggest eslint for Python files — only get_diagnostics (the dogfood fix)', () => {
+    const text = buildGateInjection([{ file: 'calculator.py', needsLint: true }], 1, 2);
+    expect(text).toContain('get_diagnostics');
+    expect(text).not.toContain('eslint');
   });
 
   it('includes a test command section when missingTest findings exist', () => {
@@ -837,6 +845,28 @@ describe('completionGate — buildBehavioralVerificationReprompt', () => {
         readGuiTest,
       ),
     ).toBeNull();
+  });
+
+  // --- Hollow-test detection (dogfood: model wrote test_gui_calculator.py that
+  //     never imported gui_calculator and tested an inline mock instead). ---
+  it('fires with the hollow-test message when the test never imports the module', async () => {
+    // The model wrote AND ran test_gui_calculator.py, but it tests a mock.
+    const editedWithTest = new Set<string>(['gui_calculator.py', 'test_gui_calculator.py']);
+    const ran = { testsRunForFiles: new Set<string>(['test_gui_calculator.py']), projectTestsRan: false };
+    const readHollow = async (p: string) =>
+      p === 'test_gui_calculator.py' ? 'import pytest\nclass MockCalculatorApp: ...\n' : null;
+    const r = await buildBehavioralVerificationReprompt('the gui is broken', editedWithTest, ran, readHollow);
+    expect(r).not.toBeNull();
+    expect(r).toContain('never imports the module under test');
+    expect(r).toContain('test_gui_calculator.py');
+    expect(r).toContain('from gui_calculator import');
+  });
+
+  it('does NOT flag a hollow test when the test genuinely imports the module', async () => {
+    const editedWithTest = new Set<string>(['gui_calculator.py', 'test_gui_calculator.py']);
+    const ran = { testsRunForFiles: new Set<string>(['test_gui_calculator.py']), projectTestsRan: false };
+    const r = await buildBehavioralVerificationReprompt('the gui is broken', editedWithTest, ran, readGuiTest);
+    expect(r).toBeNull();
   });
 });
 

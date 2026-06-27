@@ -58,8 +58,10 @@ export interface GateState {
    * for back-compat with test stubs.
    */
   syntaxGateFixTargets?: Set<string>;
-  /** True once the behavioral-verification reprompt has fired (fires at most once). */
-  behavioralVerificationRepromptFired?: boolean;
+  /** How many times the behavioral-verification reprompt has fired this run (bounded).
+   * A counter rather than a one-shot flag so the gate can re-fire when the model
+   * "satisfies" it with a hollow test that never imports the module under test. */
+  behavioralVerificationInjections?: number;
   /**
    * The user request that triggered THIS run, captured at loop init. The
    * request-based gates (no-read/no-shell/no-grounding/no-file-write/
@@ -85,7 +87,7 @@ export function createGateState(currentUserRequest = ''): GateState {
     noFileWriteRepromptFired: false,
     noGroundingRepromptFired: false,
     unverifiedClaimRepromptFired: false,
-    behavioralVerificationRepromptFired: false,
+    behavioralVerificationInjections: 0,
     syntaxGateInjections: 0,
     syntaxGateFixTargets: new Set(),
   };
@@ -293,8 +295,17 @@ export function buildGateInjection(findings: GateFinding[], attempt: number, max
 
   const lintFiles = [...new Set(findings.filter((f) => f.needsLint).map((f) => f.file))];
   if (lintFiles.length > 0) {
-    lines.push('Lint has not run this turn. Run:');
-    lines.push(`  run_command with command: npx eslint ${lintFiles.join(' ')}`);
+    // Lead with get_diagnostics — the language-agnostic post-edit check that
+    // satisfies this requirement for every language. Only suggest eslint for
+    // files it can actually lint (JS/TS); telling the model to run `npx eslint
+    // calculator.py` is wrong and dogfooding showed it flailing on that advice
+    // until the gate exhausted. Python/Go/Rust get the diagnostics call only.
+    lines.push('You have not run a static check on your edits this turn. Call:');
+    lines.push('  get_diagnostics   (checks every edited file — works for all languages)');
+    const jstsFiles = lintFiles.filter((f) => /\.(ts|tsx|js|jsx|mjs|cjs)$/.test(f));
+    if (jstsFiles.length > 0) {
+      lines.push(`Or, for the JS/TS files specifically: run_command with command: npx eslint ${jstsFiles.join(' ')}`);
+    }
     lines.push('');
   }
 
@@ -852,6 +863,38 @@ async function behavioralFileExercised(
   return false;
 }
 
+/** True if `candidate` is (or shares a basename with) one of `file`'s conventional test files. */
+function isTestFileFor(candidate: string, file: string): boolean {
+  const wanted = new Set(candidateTestFiles(file).map((c) => c.split('/').pop()!));
+  return wanted.has(candidate.split('/').pop()!);
+}
+
+/**
+ * Detect a HOLLOW test for `file`: a conventionally-named test file the model
+ * wrote or ran that never imports/references the module under test (so it
+ * exercises a mock/stub, not the real code). Dogfooding: the model "satisfied"
+ * the behavioral gate with `test_gui_calculator.py` that defined an inline
+ * MockCalculatorApp and never imported `gui_calculator` — the real `7+3 → 73`
+ * bug sailed through. Returns the hollow test's path, or null if none.
+ */
+async function findHollowTest(
+  file: string,
+  editedFiles: Set<string>,
+  gateState: { testsRunForFiles: Set<string> },
+  readFile: (p: string) => Promise<string | null>,
+): Promise<string | null> {
+  const moduleName = path.basename(file, path.extname(file));
+  const present = new Set<string>();
+  for (const f of [...editedFiles, ...gateState.testsRunForFiles]) {
+    if (isTestFileFor(f, file)) present.add(f);
+  }
+  for (const t of present) {
+    const content = await readFile(t);
+    if (content !== null && content !== '' && !referencesModule(content, moduleName)) return t;
+  }
+  return null;
+}
+
 /**
  * Returns a reprompt when the current request involves runtime behavior (a bug
  * fix OR a build of something interactive/behavioral), the agent edited code,
@@ -880,20 +923,41 @@ export async function buildBehavioralVerificationReprompt(
   if (behavioralEdits.length === 0) return null;
 
   const uncovered: string[] = [];
+  const hollow: { file: string; testFile: string }[] = [];
   for (const file of behavioralEdits) {
-    if (!(await behavioralFileExercised(file, gateState, readFile))) uncovered.push(file);
+    if (await behavioralFileExercised(file, gateState, readFile)) continue;
+    const hollowTest = await findHollowTest(file, editedFiles, gateState, readFile);
+    if (hollowTest) hollow.push({ file, testFile: hollowTest });
+    else uncovered.push(file);
   }
-  if (uncovered.length === 0) return null; // every edited behavioral file has a test that exercises it
+  if (uncovered.length === 0 && hollow.length === 0) return null; // every edited behavioral file is genuinely tested
 
   const what = isBug ? 'to fix a reported bug' : 'that has runtime behavior';
-  const fileList = uncovered.map((f) => `\`${f}\``).join(', ');
-  return (
-    `You edited code ${what} (${fileList}) but ran no test that exercises ${uncovered.length === 1 ? 'it' : 'them'}. ` +
-    'Launching or compiling proves the code starts, NOT that it works (a GUI can open with dead buttons; ' +
-    'a script can import cleanly and still compute the wrong answer). Running an UNRELATED test suite does not ' +
-    'count — the test must import the file you just edited and drive its behavior. ' +
-    'Write a test that imports the changed module and calls the changed function/handler directly, asserting the result ' +
-    '(for UI, construct the component and invoke its callbacks headlessly, asserting the resulting display/state) — then ' +
-    'run it and confirm it passes. If a static check (get_diagnostics) genuinely proves the change, ignore this and call done.'
-  );
+  const parts: string[] = [];
+
+  if (hollow.length > 0) {
+    const list = hollow.map((h) => `\`${h.testFile}\` (meant to test \`${h.file}\`)`).join(', ');
+    const importHint = hollow.map((h) => `from ${path.basename(h.file, path.extname(h.file))} import …`).join(' / ');
+    parts.push(
+      `Your test does not test the real code: ${list} never imports the module under test — it defines its own ` +
+        `mock/stub and asserts against that, so the actual behavior is unverified. A bug like "7+3 shows 73" only ` +
+        `surfaces when the test drives the ACTUAL code. Rewrite it to import the real module (\`${importHint}\`), ` +
+        `construct/call it, invoke its functions or callbacks, and assert the real result — then run it and read the output.`,
+    );
+  }
+
+  if (uncovered.length > 0) {
+    const fileList = uncovered.map((f) => `\`${f}\``).join(', ');
+    parts.push(
+      `You edited code ${what} (${fileList}) but ran no test that exercises ${uncovered.length === 1 ? 'it' : 'them'}. ` +
+        'Launching or compiling proves the code starts, NOT that it works (a GUI can open with dead buttons; ' +
+        'a script can import cleanly and still compute the wrong answer). Running an UNRELATED test suite does not ' +
+        'count — the test must import the file you just edited and drive its behavior. ' +
+        'Write a test that imports the changed module and calls the changed function/handler directly, asserting the result ' +
+        '(for UI, construct the component and invoke its callbacks headlessly, asserting the resulting display/state) — then ' +
+        'run it and confirm it passes. If a static check (get_diagnostics) genuinely proves the change, ignore this and call done.',
+    );
+  }
+
+  return parts.join('\n\n');
 }

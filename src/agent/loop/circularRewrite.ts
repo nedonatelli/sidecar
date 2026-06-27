@@ -1,5 +1,5 @@
 import * as crypto from 'crypto';
-import type { ToolUseContentBlock } from '../../ollama/types.js';
+import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/types.js';
 import type { AgentCallbacks } from '../loop.js';
 import type { LoopState } from './state.js';
 
@@ -82,4 +82,73 @@ export function excludeBlockedCircularRewrites(
     // excluded from `kept` → cycle detection never sees it
   }
   return kept;
+}
+
+/**
+ * Record files the agent SUCCESSFULLY edited via edit_file this turn into
+ * `state.filesEditedViaEditTool`. Once a file is there, write_file soft-blocks a
+ * full rewrite of it (forcing continued targeted edits) — dogfooding caught the
+ * model fixing a syntax bug with edit_file, then regenerating the whole file
+ * with write_file and re-introducing it. Failed edits (search-not-found, which
+ * editFile returns as an "Error:" string with is_error unset) are skipped so a
+ * legitimate fallback isn't blocked.
+ */
+export function recordSuccessfulEdits(
+  pendingToolUses: ToolUseContentBlock[],
+  toolResults: ToolResultContentBlock[],
+  state: LoopState,
+): void {
+  for (let i = 0; i < pendingToolUses.length; i++) {
+    const tu = pendingToolUses[i];
+    if (tu.name !== 'edit_file') continue;
+    const res = toolResults[i];
+    if (!res || res.is_error) continue;
+    const text = typeof res.content === 'string' ? res.content : '';
+    if (text.startsWith('Error:')) continue;
+    const input = tu.input as Record<string, unknown>;
+    const p = (input.path ?? input.file_path) as string | undefined;
+    if (p) state.filesEditedViaEditTool.add(p);
+  }
+}
+
+/** Filename → module name (basename without extension), lowercased. */
+function moduleNameOf(filePath: string): string {
+  const base = filePath.split('/').pop() ?? filePath;
+  const dot = base.lastIndexOf('.');
+  return (dot === -1 ? base : base.slice(0, dot)).toLowerCase();
+}
+
+/**
+ * Reset the verify-before-rewrite counters for files this turn's tool calls
+ * actually verified. `get_diagnostics` checks every edited file, so it clears
+ * all counters. A `run_command` / `run_tests` whose command references a tracked
+ * file's path or module name verified that file specifically. A whole-suite run
+ * with no reference resets nothing — matching the behavioral gate's
+ * target-coverage rule (running unrelated tests isn't verifying this file).
+ *
+ * Called once per turn after tool execution. The write_file executor does the
+ * incrementing + soft-blocking; this is the only thing that resets, so a model
+ * that verifies between rewrites is never blocked.
+ */
+export function resetVerifyCountersForVerifications(pendingToolUses: ToolUseContentBlock[], state: LoopState): void {
+  if (state.writesSinceVerifyByFile.size === 0) return;
+
+  for (const tu of pendingToolUses) {
+    if (tu.name === 'get_diagnostics') {
+      state.writesSinceVerifyByFile.clear();
+      return;
+    }
+  }
+
+  for (const tu of pendingToolUses) {
+    if (tu.name !== 'run_command' && tu.name !== 'run_tests') continue;
+    const input = tu.input as Record<string, unknown>;
+    const ref = `${String(input.command ?? '')} ${String(input.file ?? '')}`.toLowerCase();
+    if (!ref.trim()) continue;
+    for (const file of [...state.writesSinceVerifyByFile.keys()]) {
+      if (ref.includes(file.toLowerCase()) || ref.includes(moduleNameOf(file))) {
+        state.writesSinceVerifyByFile.set(file, 0);
+      }
+    }
+  }
 }
