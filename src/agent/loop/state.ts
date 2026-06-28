@@ -136,12 +136,34 @@ export interface LoopState {
   // ever running it, shipping a NameError one execution would have surfaced.
   writesSinceVerifyByFile: Map<string, number>;
 
+  // Per-file count of times the loop deferred a write-thrash cycle bail to give
+  // the verify-before-rewrite executor block a chance to push the model to run
+  // get_diagnostics / a test first. Bounded so a model that ignores the push
+  // still bails. circularRewrite.ts is the only writer.
+  forceVerifyBeforeBailByFile: Map<string, number>;
+
   // Files the agent has successfully modified via edit_file this run. Once a
   // file is here, a full write_file to it is soft-blocked (the executor forces
   // continued targeted edits) — regenerating the whole file clobbers the edits,
   // and dogfooding caught write_file repeatedly re-introducing a syntax bug that
   // edit_file had just fixed. circularRewrite.ts records; fs.ts writeFile reads.
   filesEditedViaEditTool: Set<string>;
+
+  // Most recent failing verification output (test failure / traceback /
+  // diagnostics error), ANSI-stripped and truncated. Surfaced inline when the
+  // model loops on a blocked rewrite so it sees WHAT to fix. circularRewrite.ts
+  // is the only writer.
+  lastFailureOutput?: string;
+
+  // Files for which the loop has already injected the escalation reprompt after
+  // an enforce-edit-blocked rewrite (bounds the escalation to once per file).
+  escalatedRewriteByFile: Set<string>;
+
+  // Per-file count of enforce-edit-blocked write_file calls. After enough blocks
+  // (the model was escalated to edit_file and ignored it), the loop RELEASES the
+  // enforce-edit lock for that file so a rewrite-oriented model can rewrite
+  // instead of being trapped into a bail. circularRewrite.ts is the only writer.
+  enforceEditBlocksByFile: Map<string, number>;
 
   // Stub-validator retry counter. stubCheck.ts is the only writer.
   stubFixRetries: number;
@@ -263,7 +285,10 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     writeHistoryByFile: new Map<string, Set<string>>(),
     circularRewriteBlocksByFile: new Map<string, number>(),
     writesSinceVerifyByFile: new Map<string, number>(),
+    forceVerifyBeforeBailByFile: new Map<string, number>(),
     filesEditedViaEditTool: new Set<string>(),
+    escalatedRewriteByFile: new Set<string>(),
+    enforceEditBlocksByFile: new Map<string, number>(),
     stubFixRetries: 0,
     actionRepromptCount: 0,
     filesReadThisRun: new Set<string>(),

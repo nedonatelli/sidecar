@@ -356,15 +356,33 @@ export async function runTests(input: Record<string, unknown>, context?: ToolExe
       }
     }
 
-    // Python stdlib fallback: no pytest/manifest config, but bare unittest-style
-    // test files exist (test_*.py / *_test.py). Common for small scripts and
-    // from-scratch builds. `python -m unittest discover` needs no dependencies.
-    // When narrowing to a single file, drop `discover` (it doesn't take a path)
-    // and let the file get appended below → `python -m unittest <file>`.
+    // Python fallback: no pytest/manifest config, but test files exist
+    // (test_*.py / *_test.py). Common for small scripts and from-scratch builds.
+    // Prefer pytest when it's installed — it collects BOTH pytest-style plain
+    // test classes AND unittest TestCase subclasses, whereas `python -m unittest`
+    // collects ONLY TestCase subclasses. Dogfooding: a model wrote a pytest-style
+    // `class TestX:` (no TestCase base); `python -m unittest` ran 0 tests, so the
+    // behavioral gate's "passing test" requirement could never be satisfied via
+    // run_tests. Fall back to unittest only when pytest isn't available (the
+    // no-dependency path), so envs without pytest still work.
     if (!command) {
       const pyTests = await workspace.findFiles('**/{test_*,*_test}.py', '**/node_modules/**', 1);
       if (pyTests.length > 0) {
-        command = file ? 'python -m unittest' : 'python -m unittest discover';
+        let pytestAvailable = false;
+        try {
+          const probe = await buildExecutor(context).execute('python3 -m pytest --version', {
+            timeout: 10_000,
+            signal: context?.signal,
+          });
+          pytestAvailable = probe.exitCode === 0;
+        } catch {
+          /* treat as unavailable → unittest fallback */
+        }
+        if (pytestAvailable) {
+          command = 'python3 -m pytest';
+        } else {
+          command = file ? 'python -m unittest' : 'python -m unittest discover';
+        }
       }
     }
 

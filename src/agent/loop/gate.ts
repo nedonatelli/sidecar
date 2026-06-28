@@ -189,8 +189,11 @@ export async function maybeInjectCompletionGate(
       gateState.editedFiles,
       {
         testsRunForFiles: gateState.testsRunForFiles,
-        projectTestsRan: gateState.projectTestsRan,
+        passingTestFiles: gateState.passingTestFiles,
+        projectTestsPassed: gateState.projectTestsPassed,
       },
+      undefined,
+      state.lastFailureOutput,
     );
     if (reprompt) {
       gateState.behavioralVerificationInjections = (gateState.behavioralVerificationInjections ?? 0) + 1;

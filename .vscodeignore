@@ -5,6 +5,34 @@ out/**
 node_modules/**
 !node_modules/web-tree-sitter/**
 !node_modules/@lancedb/**
+# Local embedding runtime (@huggingface/transformers) — externalized from the
+# esbuild bundle and dynamic-imported at runtime, so it MUST ship in the .vsix.
+# Without it, PKI symbol/file embeddings fail to load ("Cannot find package
+# '@huggingface/transformers'") and silently fall back to the file-level index.
+# vsce negations take precedence, so we re-include ONLY what the Node build
+# (dist/transformers.node.mjs) actually loads — not the 379 MB full tree.
+!node_modules/@huggingface/transformers/package.json
+!node_modules/@huggingface/transformers/dist/**
+!node_modules/@huggingface/transformers/node_modules/@huggingface/**
+!node_modules/@huggingface/transformers/node_modules/onnxruntime-common/**
+!node_modules/@huggingface/transformers/node_modules/flatbuffers/**
+# onnxruntime-node: JS loader + ONLY the build host's native binary (darwin).
+# NOTE: this makes the .vsix darwin-specific — rebuild per-platform if distributing.
+# Skips onnxruntime-web (browser/WASM, not imported by the node build) and the
+# linux/win32 prebuilt binaries.
+!node_modules/@huggingface/transformers/node_modules/onnxruntime-node/package.json
+!node_modules/@huggingface/transformers/node_modules/onnxruntime-node/dist/**
+!node_modules/@huggingface/transformers/node_modules/onnxruntime-node/lib/**
+!node_modules/@huggingface/transformers/node_modules/onnxruntime-node/script/**
+!node_modules/@huggingface/transformers/node_modules/onnxruntime-node/bin/napi-v6/darwin/**
+# top-level tokenizers (imported by the node build).
+!node_modules/@huggingface/tokenizers/**
+# sharp — statically imported by transformers.node.mjs (even for text), so it must
+# load. Ship sharp + its host-only native binaries (@img, already darwin-arm64) + deps.
+!node_modules/@huggingface/transformers/node_modules/sharp/**
+!node_modules/@img/**
+!node_modules/detect-libc/**
+!node_modules/semver/**
 .gitignore
 tsconfig.json
 **/*.ts

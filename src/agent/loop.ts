@@ -19,6 +19,11 @@ import {
   excludeBlockedCircularRewrites,
   resetVerifyCountersForVerifications,
   recordSuccessfulEdits,
+  shouldDeferBailForBlockedWrite,
+  clearTrackingForDeletedFiles,
+  captureLastFailureOutput,
+  maybeEscalateBlockedRewrite,
+  maybeReleaseEnforceLock,
 } from './loop/circularRewrite.js';
 import {
   pushAssistantMessage,
@@ -533,7 +538,18 @@ export async function runAgentLoop(
       // soft-block result. Bounded per file; once the budget is spent the
       // circular write is left in and cycle detection bails the stuck loop.
       const forCycleDetection = excludeBlockedCircularRewrites(pendingToolUses, state, callbacks);
-      if (forCycleDetection.length > 0 && detectCycleAndBail(forCycleDetection, state, callbacks)) break;
+      // If a pending write will be soft-blocked by the executor (verify-before-
+      // rewrite or enforce-edit), defer the cycle bail this turn so dispatch runs
+      // and the block + escalation reach the model instead of the run dying with
+      // zero feedback. Bounded per file.
+      const deferForBlockedWrite = shouldDeferBailForBlockedWrite(pendingToolUses, state, callbacks);
+      if (
+        !deferForBlockedWrite &&
+        forCycleDetection.length > 0 &&
+        detectCycleAndBail(forCycleDetection, state, callbacks)
+      ) {
+        break;
+      }
 
       // Append the assistant message to history.
       pushAssistantMessage(state, fullText, pendingToolUses);
@@ -571,6 +587,22 @@ export async function runAgentLoop(
       // Record files successfully edited via edit_file so write_file blocks a
       // full rewrite that would clobber those targeted fixes.
       recordSuccessfulEdits(pendingToolUses, toolResults, state);
+
+      // A deleted file is a clean slate — clear its rewrite-thrash tracking so a
+      // delete-then-recreate (the natural "start this file over" move) isn't
+      // blocked by the enforce-edit lock left over from before the delete.
+      clearTrackingForDeletedFiles(pendingToolUses, toolResults, state);
+
+      // Capture the latest failing verification output, then — if the model just
+      // looped on an enforce-blocked rewrite — escalate with a strong "edit, don't
+      // rewrite" reprompt that surfaces that failure inline so it sees what to fix.
+      captureLastFailureOutput(pendingToolUses, toolResults, state);
+      maybeEscalateBlockedRewrite(pendingToolUses, toolResults, state, callbacks);
+
+      // If the model keeps trying to rewrite an enforce-locked file and ignores
+      // the escalation, release the lock after a few blocks so a rewrite-oriented
+      // model can rewrite instead of being trapped into a bail.
+      maybeReleaseEnforceLock(pendingToolUses, toolResults, state, callbacks);
 
       // Emit structured audit record per tool call.
       if (state.logger) {

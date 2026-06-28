@@ -407,7 +407,7 @@ export async function readFile(input: Record<string, unknown>, context?: ToolExe
  * verification before the next one is soft-blocked. Create + two rewrites, then
  * the model must run/diagnose the file before rewriting a 4th time.
  */
-const MAX_UNVERIFIED_REWRITES = 3;
+export const MAX_UNVERIFIED_REWRITES = 3;
 
 /** True if `filePath` matches an entry in `set` exactly or by basename. */
 function pathInSetByBasename(filePath: string, set: Set<string>): boolean {

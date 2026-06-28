@@ -12,6 +12,7 @@ import {
   buildNoGroundingReprompt,
   buildUnverifiedClaimReprompt,
   buildBehavioralVerificationReprompt,
+  classifyTestResult,
   findColocatedTest,
   lastUserText,
 } from './completionGate.js';
@@ -752,9 +753,17 @@ describe('completionGate — buildUnverifiedClaimReprompt', () => {
 
 describe('completionGate — buildBehavioralVerificationReprompt', () => {
   const edited = new Set<string>(['gui_calculator.py']);
-  const noTests = { testsRunForFiles: new Set<string>(), projectTestsRan: false };
-  // A test file that DOES exercise gui_calculator (imports the module).
-  const guiTestRan = { testsRunForFiles: new Set<string>(['test_gui_calculator.py']), projectTestsRan: false };
+  const noTests = {
+    testsRunForFiles: new Set<string>(),
+    passingTestFiles: new Set<string>(),
+    projectTestsPassed: false,
+  };
+  // A PASSING test file that exercises gui_calculator (imports the module).
+  const guiTestRan = {
+    testsRunForFiles: new Set<string>(['test_gui_calculator.py']),
+    passingTestFiles: new Set<string>(['test_gui_calculator.py']),
+    projectTestsPassed: false,
+  };
   const readGuiTest = async (p: string) =>
     p === 'test_gui_calculator.py' ? 'from gui_calculator import CalculatorApp\n' : null;
 
@@ -784,7 +793,11 @@ describe('completionGate — buildBehavioralVerificationReprompt', () => {
 
   it('STILL fires when a test ran but it does not exercise the edited file (wrong-target)', async () => {
     // Editing gui_calculator.py but running test_calculator.py (imports calculator, not gui_calculator).
-    const wrongTarget = { testsRunForFiles: new Set<string>(['test_calculator.py']), projectTestsRan: false };
+    const wrongTarget = {
+      testsRunForFiles: new Set<string>(['test_calculator.py']),
+      passingTestFiles: new Set<string>(['test_calculator.py']),
+      projectTestsPassed: false,
+    };
     const readCalcTest = async (p: string) =>
       p === 'test_calculator.py' ? 'from calculator import add, subtract\n' : null;
     const r = await buildBehavioralVerificationReprompt('clicking does nothing', edited, wrongTarget, readCalcTest);
@@ -794,12 +807,20 @@ describe('completionGate — buildBehavioralVerificationReprompt', () => {
   });
 
   it('counts a whole-suite run when a conventional test file imports the module', async () => {
-    const suite = { testsRunForFiles: new Set<string>(), projectTestsRan: true };
+    const suite = {
+      testsRunForFiles: new Set<string>(),
+      passingTestFiles: new Set<string>(),
+      projectTestsPassed: true,
+    };
     expect(await buildBehavioralVerificationReprompt('clicking does nothing', edited, suite, readGuiTest)).toBeNull();
   });
 
   it('fires on a whole-suite run when no test for the edited module exists', async () => {
-    const suite = { testsRunForFiles: new Set<string>(), projectTestsRan: true };
+    const suite = {
+      testsRunForFiles: new Set<string>(),
+      passingTestFiles: new Set<string>(),
+      projectTestsPassed: true,
+    };
     const r = await buildBehavioralVerificationReprompt('clicking does nothing', edited, suite, async () => null);
     expect(r).not.toBeNull();
   });
@@ -852,7 +873,11 @@ describe('completionGate — buildBehavioralVerificationReprompt', () => {
   it('fires with the hollow-test message when the test never imports the module', async () => {
     // The model wrote AND ran test_gui_calculator.py, but it tests a mock.
     const editedWithTest = new Set<string>(['gui_calculator.py', 'test_gui_calculator.py']);
-    const ran = { testsRunForFiles: new Set<string>(['test_gui_calculator.py']), projectTestsRan: false };
+    const ran = {
+      testsRunForFiles: new Set<string>(['test_gui_calculator.py']),
+      passingTestFiles: new Set<string>(['test_gui_calculator.py']),
+      projectTestsPassed: false,
+    };
     const readHollow = async (p: string) =>
       p === 'test_gui_calculator.py' ? 'import pytest\nclass MockCalculatorApp: ...\n' : null;
     const r = await buildBehavioralVerificationReprompt('the gui is broken', editedWithTest, ran, readHollow);
@@ -864,9 +889,96 @@ describe('completionGate — buildBehavioralVerificationReprompt', () => {
 
   it('does NOT flag a hollow test when the test genuinely imports the module', async () => {
     const editedWithTest = new Set<string>(['gui_calculator.py', 'test_gui_calculator.py']);
-    const ran = { testsRunForFiles: new Set<string>(['test_gui_calculator.py']), projectTestsRan: false };
+    const ran = {
+      testsRunForFiles: new Set<string>(['test_gui_calculator.py']),
+      passingTestFiles: new Set<string>(['test_gui_calculator.py']),
+      projectTestsPassed: false,
+    };
     const r = await buildBehavioralVerificationReprompt('the gui is broken', editedWithTest, ran, readGuiTest);
     expect(r).toBeNull();
+  });
+
+  // --- A test that RAN but didn't PASS must not satisfy the gate (dogfood:
+  //     qwen3.5's run collected 0 tests yet "verified" a broken GUI). ---
+  it('STILL fires when the test ran but collected 0 tests (not in passingTestFiles)', async () => {
+    const ranButEmpty = {
+      testsRunForFiles: new Set<string>(['test_gui_calculator.py']), // it ran…
+      passingTestFiles: new Set<string>(), // …but passed nothing
+      projectTestsPassed: false,
+    };
+    const r = await buildBehavioralVerificationReprompt(
+      'the gui is broken',
+      edited,
+      ranButEmpty,
+      readGuiTest,
+      'Ran 0 tests — NO TESTS RAN',
+    );
+    expect(r).not.toBeNull();
+    expect(r).toContain('PASSES');
+    expect(r).toContain('NO TESTS RAN'); // failure context surfaced inline
+  });
+});
+
+describe('completionGate — classifyTestResult', () => {
+  it('classifies a passing pytest run', () => {
+    expect(classifyTestResult('===== 5 passed in 0.05s =====\n(exit code: 0)')).toBe('pass');
+  });
+  it('classifies ANSI-colored pytest output as pass (run_tests emits color on a TTY)', () => {
+    // The escape \x1b[1m ends in `m` right before the digit — without stripping,
+    // the \b in \b\d+ passed\b fails and a real pass reads as "unknown".
+    const colored =
+      'test_calculator.py .....\n========= \x1b[32m\x1b[1m5 passed\x1b[0m\x1b[32m in 0.10s\x1b[0m =========';
+    expect(classifyTestResult(colored)).toBe('pass');
+  });
+  it('classifies ANSI-colored failures correctly', () => {
+    expect(classifyTestResult('\x1b[31m\x1b[1m1 failed\x1b[0m, 4 passed')).toBe('fail');
+  });
+  it('classifies a 0-collected run as empty (the dogfood case)', () => {
+    expect(classifyTestResult('Ran 0 tests in 0.000s\n\nNO TESTS RAN\n(exit code: 5)')).toBe('empty');
+    expect(classifyTestResult('collected 0 items')).toBe('empty');
+  });
+  it('classifies a failing run', () => {
+    expect(classifyTestResult('1 failed, 2 passed\n(exit code: 1)')).toBe('fail');
+    expect(classifyTestResult('Traceback (most recent call last):\n  NameError')).toBe('fail');
+  });
+  it('treats a non-zero exit as failure and zero exit as pass', () => {
+    expect(classifyTestResult('something\n(exit code: 2)')).toBe('fail');
+    expect(classifyTestResult('done\n(exit code: 0)')).toBe('pass');
+  });
+});
+
+describe('completionGate — recordToolCall test outcomes', () => {
+  const runTests = (file: string): ToolUseContentBlock => ({
+    type: 'tool_use',
+    id: 'id',
+    name: 'run_tests',
+    input: { file },
+  });
+  const res = (content: string): ToolResultContentBlock => ({ type: 'tool_result', tool_use_id: 'id', content });
+
+  beforeEach(() => {
+    (vscode.workspace as any).workspaceFolders = [{ uri: { fsPath: '/test' } }];
+  });
+
+  it('records a passing test run in BOTH testsRunForFiles and passingTestFiles', () => {
+    const state = createGateState();
+    recordToolCall(state, runTests('test_gui.py'), res('1 passed in 0.05s\n(exit code: 0)'));
+    expect(state.testsRunForFiles.has('test_gui.py')).toBe(true);
+    expect(state.passingTestFiles.has('test_gui.py')).toBe(true);
+  });
+
+  it('records a 0-collected run as ran-but-NOT-passing', () => {
+    const state = createGateState();
+    recordToolCall(state, runTests('test_gui.py'), res('Ran 0 tests\nNO TESTS RAN\n(exit code: 5)'));
+    expect(state.testsRunForFiles.has('test_gui.py')).toBe(true);
+    expect(state.passingTestFiles.has('test_gui.py')).toBe(false);
+  });
+
+  it('records a failing run as ran-but-NOT-passing', () => {
+    const state = createGateState();
+    recordToolCall(state, runTests('test_gui.py'), res('1 failed\n(exit code: 1)'));
+    expect(state.testsRunForFiles.has('test_gui.py')).toBe(true);
+    expect(state.passingTestFiles.has('test_gui.py')).toBe(false);
   });
 });
 

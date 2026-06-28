@@ -4,6 +4,11 @@ import {
   excludeBlockedCircularRewrites,
   resetVerifyCountersForVerifications,
   recordSuccessfulEdits,
+  shouldDeferBailForBlockedWrite,
+  clearTrackingForDeletedFiles,
+  captureLastFailureOutput,
+  maybeEscalateBlockedRewrite,
+  maybeReleaseEnforceLock,
 } from './circularRewrite.js';
 import { stubLoopState, stubCallbacks } from './testHelpers.js';
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/types.js';
@@ -127,6 +132,161 @@ describe('resetVerifyCountersForVerifications', () => {
   });
 });
 
+describe('shouldDeferBailForBlockedWrite', () => {
+  it('defers a bail when a pending write would be verify-blocked (rewritten ≥3× unverified)', () => {
+    const state = stubLoopState();
+    state.writesSinceVerifyByFile.set('gui.py', 3); // executor will block the 4th write
+    const cb = stubCallbacks();
+    expect(shouldDeferBailForBlockedWrite([write('gui.py', 'v4')], state, cb)).toBe(true);
+    expect(state.forceVerifyBeforeBailByFile.get('gui.py')).toBe(1);
+  });
+
+  it('defers a bail when a pending write targets an enforce-edit-locked file', () => {
+    const state = stubLoopState();
+    state.filesEditedViaEditTool.add('gui.py'); // any write_file to it will be enforce-blocked
+    const cb = stubCallbacks();
+    expect(shouldDeferBailForBlockedWrite([write('gui.py', 'whole new file')], state, cb)).toBe(true);
+    expect(cb.texts.join('')).toContain('edit_file');
+  });
+
+  it('does NOT defer when the write would not be blocked', () => {
+    const state = stubLoopState();
+    state.writesSinceVerifyByFile.set('gui.py', 2); // under threshold, not edited
+    const cb = stubCallbacks();
+    expect(shouldDeferBailForBlockedWrite([write('gui.py', 'v3')], state, cb)).toBe(false);
+  });
+
+  it('stops deferring after the per-file budget is spent so the run can bail', () => {
+    const state = stubLoopState();
+    state.filesEditedViaEditTool.add('gui.py');
+    const cb = stubCallbacks();
+    expect(shouldDeferBailForBlockedWrite([write('gui.py', 'a')], state, cb)).toBe(true); // 1
+    expect(shouldDeferBailForBlockedWrite([write('gui.py', 'b')], state, cb)).toBe(true); // 2
+    expect(shouldDeferBailForBlockedWrite([write('gui.py', 'c')], state, cb)).toBe(false); // budget spent
+  });
+
+  it('ignores non-write tools', () => {
+    const state = stubLoopState();
+    state.filesEditedViaEditTool.add('gui.py');
+    const cb = stubCallbacks();
+    expect(shouldDeferBailForBlockedWrite([tool('read_file', { path: 'gui.py' })], state, cb)).toBe(false);
+  });
+});
+
+describe('captureLastFailureOutput', () => {
+  const result = (content: string): ToolResultContentBlock => ({ type: 'tool_result', tool_use_id: 'id', content });
+
+  it('captures a failing test run output (traceback)', () => {
+    const state = stubLoopState();
+    captureLastFailureOutput(
+      [tool('run_tests', { file: 'test_gui.py' })],
+      [result('Traceback (most recent call last):\n  TclError: cannot use geometry manager grid')],
+      state,
+    );
+    expect(state.lastFailureOutput).toContain('cannot use geometry manager');
+  });
+
+  it('strips ANSI codes and the tool_output wrapper', () => {
+    const state = stubLoopState();
+    captureLastFailureOutput(
+      [tool('run_command', { command: 'pytest' })],
+      [result('<tool_output tool="run_command">\n\x1b[1m1 failed\x1b[0m AssertionError</tool_output>')],
+      state,
+    );
+    expect(state.lastFailureOutput).not.toContain('\x1b');
+    expect(state.lastFailureOutput).not.toContain('tool_output');
+    expect(state.lastFailureOutput).toContain('AssertionError');
+  });
+
+  it('does NOT capture passing output (no failure markers)', () => {
+    const state = stubLoopState();
+    captureLastFailureOutput([tool('run_tests', { file: 't.py' })], [result('5 passed in 0.05s')], state);
+    expect(state.lastFailureOutput).toBeUndefined();
+  });
+});
+
+describe('maybeEscalateBlockedRewrite', () => {
+  const blocked = (): ToolResultContentBlock => ({
+    type: 'tool_result',
+    tool_use_id: 'id',
+    content: 'write_file to `gui.py` was NOT applied. You have been making targeted edits…',
+  });
+  const applied = (): ToolResultContentBlock => ({
+    type: 'tool_result',
+    tool_use_id: 'id',
+    content: 'File written: gui.py',
+  });
+
+  it('injects one escalation reprompt with the failing output when a write was enforce-blocked', () => {
+    const state = stubLoopState();
+    state.lastFailureOutput = 'TclError: cannot use geometry manager grid inside .';
+    const cb = stubCallbacks();
+    const fired = maybeEscalateBlockedRewrite([write('gui.py', 'x')], [blocked()], state, cb);
+    expect(fired).toBe(true);
+    expect(state.messages).toHaveLength(1);
+    const text = (state.messages[0].content as { text: string }[])[0].text;
+    expect(text).toContain('STOP calling write_file');
+    expect(text).toContain('cannot use geometry manager');
+    expect(text).toContain('edit_file');
+  });
+
+  it('only escalates once per file', () => {
+    const state = stubLoopState();
+    const cb = stubCallbacks();
+    expect(maybeEscalateBlockedRewrite([write('gui.py', 'x')], [blocked()], state, cb)).toBe(true);
+    expect(maybeEscalateBlockedRewrite([write('gui.py', 'y')], [blocked()], state, cb)).toBe(false);
+    expect(state.messages).toHaveLength(1);
+  });
+
+  it('does NOT escalate on an applied write', () => {
+    const state = stubLoopState();
+    const cb = stubCallbacks();
+    expect(maybeEscalateBlockedRewrite([write('gui.py', 'x')], [applied()], state, cb)).toBe(false);
+  });
+});
+
+describe('maybeReleaseEnforceLock', () => {
+  const blocked = (): ToolResultContentBlock => ({
+    type: 'tool_result',
+    tool_use_id: 'id',
+    content: 'write_file to `gui.py` was NOT applied. You have been making targeted edits…',
+  });
+  const applied = (): ToolResultContentBlock => ({
+    type: 'tool_result',
+    tool_use_id: 'id',
+    content: 'File written: gui.py',
+  });
+
+  it('releases the enforce-edit lock after MAX_ENFORCE_EDIT_BLOCKS blocked rewrites', () => {
+    const state = stubLoopState();
+    state.filesEditedViaEditTool.add('gui.py');
+    const cb = stubCallbacks();
+    maybeReleaseEnforceLock([write('gui.py', 'a')], [blocked()], state, cb); // 1
+    maybeReleaseEnforceLock([write('gui.py', 'b')], [blocked()], state, cb); // 2
+    expect(state.filesEditedViaEditTool.has('gui.py')).toBe(true); // still locked at 2
+    maybeReleaseEnforceLock([write('gui.py', 'c')], [blocked()], state, cb); // 3 → release
+    expect(state.filesEditedViaEditTool.has('gui.py')).toBe(false); // released
+    expect(cb.texts.join('')).toContain('rewrite');
+  });
+
+  it('does NOT count an applied write toward the block budget', () => {
+    const state = stubLoopState();
+    state.filesEditedViaEditTool.add('gui.py');
+    const cb = stubCallbacks();
+    for (let i = 0; i < 5; i++) maybeReleaseEnforceLock([write('gui.py', `v${i}`)], [applied()], state, cb);
+    expect(state.filesEditedViaEditTool.has('gui.py')).toBe(true); // never released
+    expect(state.enforceEditBlocksByFile.get('gui.py') ?? 0).toBe(0);
+  });
+
+  it('matches the locked file by basename', () => {
+    const state = stubLoopState();
+    state.filesEditedViaEditTool.add('/abs/proj/gui.py');
+    const cb = stubCallbacks();
+    for (let i = 0; i < 3; i++) maybeReleaseEnforceLock([write('gui.py', `v${i}`)], [blocked()], state, cb);
+    expect([...state.filesEditedViaEditTool]).not.toContain('/abs/proj/gui.py'); // released by basename
+  });
+});
+
 describe('recordSuccessfulEdits', () => {
   const okResult = (text = 'File edited: x'): ToolResultContentBlock => ({
     type: 'tool_result',
@@ -159,6 +319,23 @@ describe('recordSuccessfulEdits', () => {
     expect(state.filesEditedViaEditTool.size).toBe(0);
   });
 
+  it('does NOT record a failed edit whose Error is behind an "[You have not read…]" prefix (Bug 1)', () => {
+    const state = stubLoopState();
+    // editFile prepends unreadPrefix, so the result does NOT start with "Error:".
+    const prefixed = okResult(
+      '[You have not read gui.py this turn. …]\n\nError: edit_file failed — search string not found in gui.py. The file was NOT modified.',
+    );
+    recordSuccessfulEdits([tool('edit_file', { path: 'gui.py' })], [prefixed], state);
+    expect(state.filesEditedViaEditTool.size).toBe(0);
+  });
+
+  it('DOES record a real edit whose "File edited:" success is behind an unread prefix', () => {
+    const state = stubLoopState();
+    const prefixed = okResult('[You have not read gui.py this turn. …]\n\nFile edited: gui.py');
+    recordSuccessfulEdits([tool('edit_file', { path: 'gui.py' })], [prefixed], state);
+    expect(state.filesEditedViaEditTool.has('gui.py')).toBe(true);
+  });
+
   it('records an inferred-edit success', () => {
     const state = stubLoopState();
     recordSuccessfulEdits(
@@ -167,6 +344,37 @@ describe('recordSuccessfulEdits', () => {
       state,
     );
     expect(state.filesEditedViaEditTool.has('gui.py')).toBe(true);
+  });
+
+  it('clears all per-file tracking on a successful delete_file (delete-to-restart escape)', () => {
+    const state = stubLoopState();
+    state.filesEditedViaEditTool.add('test_gui.py');
+    state.writeHistoryByFile.set('test_gui.py', new Set([hash('A')]));
+    state.writesSinceVerifyByFile.set('test_gui.py', 3);
+    state.circularRewriteBlocksByFile.set('test_gui.py', 2);
+    state.forceVerifyBeforeBailByFile.set('test_gui.py', 1);
+    // an unrelated file's tracking must survive
+    state.filesEditedViaEditTool.add('gui.py');
+
+    clearTrackingForDeletedFiles(
+      [tool('delete_file', { path: 'test_gui.py' })],
+      [okResult('File deleted: test_gui.py')],
+      state,
+    );
+
+    expect(state.filesEditedViaEditTool.has('test_gui.py')).toBe(false);
+    expect(state.writeHistoryByFile.has('test_gui.py')).toBe(false);
+    expect(state.writesSinceVerifyByFile.has('test_gui.py')).toBe(false);
+    expect(state.circularRewriteBlocksByFile.has('test_gui.py')).toBe(false);
+    expect(state.forceVerifyBeforeBailByFile.has('test_gui.py')).toBe(false);
+    expect(state.filesEditedViaEditTool.has('gui.py')).toBe(true); // unrelated file untouched
+  });
+
+  it('does NOT clear tracking on a failed delete_file', () => {
+    const state = stubLoopState();
+    state.filesEditedViaEditTool.add('test_gui.py');
+    clearTrackingForDeletedFiles([tool('delete_file', { path: 'test_gui.py' })], [errResult()], state);
+    expect(state.filesEditedViaEditTool.has('test_gui.py')).toBe(true);
   });
 
   it('ignores write_file and other tools', () => {

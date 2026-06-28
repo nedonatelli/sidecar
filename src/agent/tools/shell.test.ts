@@ -132,19 +132,38 @@ describe('shell tool runtime resolution', () => {
       expect(defaultRuntimeSpy.getShellSession).toHaveBeenCalledTimes(1);
     });
 
-    it('falls back to `python -m unittest discover` when only bare unittest files exist', async () => {
+    it('prefers pytest when the pytest probe succeeds (collects pytest-style AND unittest tests)', async () => {
       (workspace.findFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce([{ fsPath: '/mock/test_calc.py' }]);
-      const injected = new ShellSessionStub();
-      await runTests({}, makeContext(injected));
-      expect(injected.execute).toHaveBeenCalledTimes(1);
-      expect(injected.execute.mock.calls[0][0]).toBe('python -m unittest discover');
+      const injected = new ShellSessionStub(); // execute → exitCode 0 by default → probe "succeeds"
+      await runTests({ file: 'test_calc.py' }, makeContext(injected));
+      // call 0 = the `pytest --version` probe, call 1 = the actual run
+      expect(injected.execute.mock.calls[0][0]).toBe('python3 -m pytest --version');
+      expect(injected.execute.mock.calls[1][0]).toBe("python3 -m pytest 'test_calc.py'");
     });
 
-    it('drops `discover` and targets the file when narrowing to one unittest file', async () => {
+    it('falls back to `python -m unittest` when pytest is NOT available', async () => {
       (workspace.findFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce([{ fsPath: '/mock/test_calc.py' }]);
       const injected = new ShellSessionStub();
+      // Probe (pytest --version) reports pytest missing → exitCode 1; the run keeps default.
+      injected.execute = vi.fn(async (cmd: string) =>
+        cmd.includes('pytest --version')
+          ? { stdout: 'No module named pytest', exitCode: 1, timedOut: false }
+          : { stdout: 'ok', exitCode: 0, timedOut: false },
+      );
       await runTests({ file: 'test_calc.py' }, makeContext(injected));
-      expect(injected.execute.mock.calls[0][0]).toBe("python -m unittest 'test_calc.py'");
+      expect(injected.execute.mock.calls[1][0]).toBe("python -m unittest 'test_calc.py'");
+    });
+
+    it('uses `unittest discover` (no file) when pytest is unavailable and no file is given', async () => {
+      (workspace.findFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce([{ fsPath: '/mock/test_calc.py' }]);
+      const injected = new ShellSessionStub();
+      injected.execute = vi.fn(async (cmd: string) =>
+        cmd.includes('pytest --version')
+          ? { stdout: '', exitCode: 1, timedOut: false }
+          : { stdout: 'ok', exitCode: 0, timedOut: false },
+      );
+      await runTests({}, makeContext(injected));
+      expect(injected.execute.mock.calls[1][0]).toBe('python -m unittest discover');
     });
 
     it('still reports "could not detect" when no manifest and no Python test files exist', async () => {

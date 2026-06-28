@@ -34,6 +34,13 @@ export interface GateState {
   testsRunForFiles: Set<string>;
   /** True if the whole test suite ran (e.g. `npm test`, `vitest` with no file). */
   projectTestsRan: boolean;
+  /** Test files whose run actually PASSED (collected >0 tests, no failures). A
+   * run that reported "no tests ran" / 0 collected / failures is in
+   * testsRunForFiles but NOT here, so the behavioral gate isn't satisfied by a
+   * test that verified nothing. */
+  passingTestFiles: Set<string>;
+  /** True if a whole-suite run PASSED. */
+  projectTestsPassed: boolean;
   /** True if any eslint / tsc invocation was observed this turn. */
   lintObserved: boolean;
   /** How many times the gate has injected a reminder this turn. Capped to prevent loops. */
@@ -80,6 +87,8 @@ export function createGateState(currentUserRequest = ''): GateState {
     editedFiles: new Set(),
     testsRunForFiles: new Set(),
     projectTestsRan: false,
+    passingTestFiles: new Set(),
+    projectTestsPassed: false,
     lintObserved: false,
     gateInjections: 0,
     noReadRepromptFired: false,
@@ -124,12 +133,39 @@ function extractTestFiles(args: string): string[] {
 }
 
 /**
+ * Classify a test run's output. `empty` = the runner collected/ran zero tests
+ * (pytest exit 5, "no tests ran", "Ran 0 tests") — it verified NOTHING and must
+ * not satisfy the behavioral gate (dogfooding: qwen3.5 mangled its test file so
+ * pytest collected 0 tests, and the empty run "passed" the gate, completing a
+ * broken GUI). `fail` = ≥1 test failed / errored / non-zero exit. `pass` = tests
+ * ran and all passed. `unknown` = unrecognized format (treated as not-passing).
+ */
+export function classifyTestResult(rawContent: string): 'pass' | 'fail' | 'empty' | 'unknown' {
+  // Strip ANSI color/escape codes first. `run_tests` runs pytest on a TTY, so
+  // its output is colored: "…\x1b[1m5 passed\x1b[0m…". The escape ends in `m`
+  // (a word char) directly before the digit, which kills the `\b` in
+  // `\b\d+ passed\b` — so an unstripped pass reads as 'unknown' and the
+  // behavioral gate fires on a genuinely passing run.
+  const content = rawContent.replace(/\x1b\[[0-9;]*m|\x1b\][0-9;]*;[^\x07]*\x07/g, '');
+  const exitMatch = content.match(/exit code:\s*(\d+)/i);
+  const exit = exitMatch ? parseInt(exitMatch[1], 10) : undefined;
+  if (/no tests ran|ran 0 tests|collected 0 item|\b0 tests? (ran|passed|collected)/i.test(content) || exit === 5) {
+    return 'empty';
+  }
+  if (/\b\d+ failed\b|\bFAILED\b|\bAssertionError\b|Traceback \(most recent/i.test(content)) return 'fail';
+  if (exit !== undefined && exit !== 0) return 'fail';
+  if (/\b\d+ passed\b|^OK\b|\bOK\s*$|\ball tests passed\b/im.test(content) || exit === 0) return 'pass';
+  return 'unknown';
+}
+
+/**
  * Record a completed tool call into the gate state. Call after the tool
  * has actually executed — errored tool results are ignored so a failed
  * eslint run doesn't falsely satisfy the lint requirement.
  */
 export function recordToolCall(state: GateState, tu: ToolUseContentBlock, result: ToolResultContentBlock): void {
   if (result.is_error) return;
+  const resultText = typeof result.content === 'string' ? result.content : '';
 
   // Edit tools — track the path(s) they mutated.
   // Reset lintObserved so any lint run before this edit doesn't satisfy
@@ -146,12 +182,17 @@ export function recordToolCall(state: GateState, tu: ToolUseContentBlock, result
 
   // Dedicated test tool.
   if (tu.name === 'run_tests') {
+    const passed = classifyTestResult(resultText) === 'pass';
     const file = tu.input.file as string | undefined;
     if (file) {
       const p = normalizePath(file);
-      if (p) state.testsRunForFiles.add(p);
+      if (p) {
+        state.testsRunForFiles.add(p);
+        if (passed) state.passingTestFiles.add(p);
+      }
     } else {
       state.projectTestsRan = true;
+      if (passed) state.projectTestsPassed = true;
     }
     return;
   }
@@ -185,21 +226,27 @@ export function recordToolCall(state: GateState, tu: ToolUseContentBlock, result
 
     const testMatch = cmd.match(/\b(vitest|jest|pytest|mocha|go\s+test)\b([^|;&]*)/);
     if (testMatch) {
+      const passed = classifyTestResult(resultText) === 'pass';
       const args = testMatch[2] || '';
       const files = extractTestFiles(args);
       if (files.length > 0) {
         for (const f of files) {
           const p = normalizePath(f);
-          if (p) state.testsRunForFiles.add(p);
+          if (p) {
+            state.testsRunForFiles.add(p);
+            if (passed) state.passingTestFiles.add(p);
+          }
         }
       } else {
         state.projectTestsRan = true;
+        if (passed) state.projectTestsPassed = true;
       }
     }
 
     // `npm test` / `yarn test` / `pnpm test` — whole-suite invocation.
     if (/\b(npm|yarn|pnpm|bun)\s+(run\s+)?test\b/.test(cmd)) {
       state.projectTestsRan = true;
+      if (classifyTestResult(resultText) === 'pass') state.projectTestsPassed = true;
     }
   }
 }
@@ -840,22 +887,23 @@ function candidateTestFiles(editedFile: string): string[] {
 }
 
 /**
- * True if a test that actually exercises `file`'s module ran this turn. The
- * crux of target-coverage: a `pytest test_calculator.py` run does NOT exercise
- * an edited `gui_calculator.py`, and launching the program (`python gui.py`,
- * `python -c "import gui; App()"`) proves startup, not behavior — so neither
- * satisfies the gate. Only a test FILE that imports/references the edited
- * module counts. Explicit test runs are checked directly; a whole-suite run is
- * confirmed against the module's conventional test files on disk.
+ * True if a test that actually exercises `file`'s module ran AND PASSED this
+ * turn. Three things must hold: the test imports the edited module (target
+ * coverage — `pytest test_calculator.py` does not exercise `gui_calculator.py`),
+ * launching the program proves startup not behavior, and the run must have
+ * PASSED — a run that collected 0 tests or failed verified nothing (it's in
+ * testsRunForFiles but not passingTestFiles). Explicit passing runs are checked
+ * directly; a passing whole-suite run is confirmed against the module's
+ * conventional test files on disk.
  */
 async function behavioralFileExercised(
   file: string,
-  gateState: { testsRunForFiles: Set<string>; projectTestsRan: boolean },
+  gateState: { passingTestFiles: Set<string>; projectTestsPassed: boolean },
   readFile: (p: string) => Promise<string | null>,
 ): Promise<boolean> {
   const moduleName = path.basename(file, path.extname(file));
-  const testFiles = new Set<string>(gateState.testsRunForFiles);
-  if (gateState.projectTestsRan) for (const c of candidateTestFiles(file)) testFiles.add(c);
+  const testFiles = new Set<string>(gateState.passingTestFiles);
+  if (gateState.projectTestsPassed) for (const c of candidateTestFiles(file)) testFiles.add(c);
   for (const t of testFiles) {
     const content = await readFile(t);
     if (content && referencesModule(content, moduleName)) return true;
@@ -906,8 +954,9 @@ async function findHollowTest(
 export async function buildBehavioralVerificationReprompt(
   requestText: string,
   editedFiles: Set<string>,
-  gateState: { testsRunForFiles: Set<string>; projectTestsRan: boolean },
+  gateState: { testsRunForFiles: Set<string>; passingTestFiles: Set<string>; projectTestsPassed: boolean },
   readFile: (p: string) => Promise<string | null> = defaultReadFile,
+  failureContext?: string,
 ): Promise<string | null> {
   if (!requestText) return null;
   if (editedFiles.size === 0) return null; // no code changed → nothing to verify
@@ -948,14 +997,17 @@ export async function buildBehavioralVerificationReprompt(
 
   if (uncovered.length > 0) {
     const fileList = uncovered.map((f) => `\`${f}\``).join(', ');
+    const failure = failureContext
+      ? `\n\nYour most recent test/diagnostic output (a run that collects 0 tests or fails verifies NOTHING — fix what this shows):\n\`\`\`\n${failureContext}\n\`\`\``
+      : '';
     parts.push(
-      `You edited code ${what} (${fileList}) but ran no test that exercises ${uncovered.length === 1 ? 'it' : 'them'}. ` +
+      `You edited code ${what} (${fileList}) but no test that PASSES exercises ${uncovered.length === 1 ? 'it' : 'them'}. ` +
         'Launching or compiling proves the code starts, NOT that it works (a GUI can open with dead buttons; ' +
-        'a script can import cleanly and still compute the wrong answer). Running an UNRELATED test suite does not ' +
-        'count — the test must import the file you just edited and drive its behavior. ' +
+        'a script can import cleanly and still compute the wrong answer). A test that ran but FAILED, or that collected ' +
+        '0 tests ("no tests ran"), or an UNRELATED suite, does NOT count. ' +
         'Write a test that imports the changed module and calls the changed function/handler directly, asserting the result ' +
-        '(for UI, construct the component and invoke its callbacks headlessly, asserting the resulting display/state) — then ' +
-        'run it and confirm it passes. If a static check (get_diagnostics) genuinely proves the change, ignore this and call done.',
+        '(for UI, construct the component and invoke its callbacks headlessly, asserting the resulting display/state), then ' +
+        `run it and confirm it actually passes.${failure}`,
     );
   }
 
