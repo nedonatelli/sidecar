@@ -4289,6 +4289,10 @@
 
     switch (command) {
       case 'init':
+        // Clear first so re-sending init (the webviewReady handshake, or a
+        // hide/show re-resolve) REPLACES the history instead of appending a
+        // duplicate copy.
+        messagesContainer.innerHTML = '';
         if (event.data.messages) {
           for (const msg of event.data.messages) {
             const text =
@@ -5613,4 +5617,11 @@
       regenSubmitBtn.textContent = 'Regenerate';
     }, 800);
   }
+
+  // Tell the extension the webview is live and listening. The extension posts the
+  // chat-history `init` in resolveWebviewView, which on a window reload races the
+  // webview load and gets dropped — so the restored conversation never rendered
+  // (looked like the chat didn't persist). The extension (re)sends init in
+  // response to this, after the message listener above is registered.
+  vscode.postMessage({ command: 'webviewReady' });
 })();

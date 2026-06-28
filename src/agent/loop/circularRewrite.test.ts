@@ -278,12 +278,21 @@ describe('maybeReleaseEnforceLock', () => {
     expect(state.enforceEditBlocksByFile.get('gui.py') ?? 0).toBe(0);
   });
 
-  it('matches the locked file by basename', () => {
+  it('matches the locked file by path suffix (relative vs absolute)', () => {
     const state = stubLoopState();
     state.filesEditedViaEditTool.add('/abs/proj/gui.py');
     const cb = stubCallbacks();
     for (let i = 0; i < 3; i++) maybeReleaseEnforceLock([write('gui.py', `v${i}`)], [blocked()], state, cb);
-    expect([...state.filesEditedViaEditTool]).not.toContain('/abs/proj/gui.py'); // released by basename
+    expect([...state.filesEditedViaEditTool]).not.toContain('/abs/proj/gui.py'); // released by suffix
+  });
+
+  it('does NOT release a same-basename file in a different dir', () => {
+    const state = stubLoopState();
+    state.filesEditedViaEditTool.add('src/util.py');
+    const cb = stubCallbacks();
+    // Blocked writes target test/util.py — must not release the lock on src/util.py.
+    for (let i = 0; i < 4; i++) maybeReleaseEnforceLock([write('test/util.py', `v${i}`)], [blocked()], state, cb);
+    expect(state.filesEditedViaEditTool.has('src/util.py')).toBe(true);
   });
 });
 
@@ -368,6 +377,32 @@ describe('recordSuccessfulEdits', () => {
     expect(state.circularRewriteBlocksByFile.has('test_gui.py')).toBe(false);
     expect(state.forceVerifyBeforeBailByFile.has('test_gui.py')).toBe(false);
     expect(state.filesEditedViaEditTool.has('gui.py')).toBe(true); // unrelated file untouched
+  });
+
+  it('also purges enforceEditBlocksByFile and escalatedRewriteByFile (delete-to-restart fresh slate)', () => {
+    const state = stubLoopState();
+    state.enforceEditBlocksByFile.set('test_gui.py', 2);
+    state.escalatedRewriteByFile.add('test_gui.py');
+    clearTrackingForDeletedFiles(
+      [tool('delete_file', { path: 'test_gui.py' })],
+      [okResult('File deleted: test_gui.py')],
+      state,
+    );
+    expect(state.enforceEditBlocksByFile.has('test_gui.py')).toBe(false);
+    expect(state.escalatedRewriteByFile.has('test_gui.py')).toBe(false);
+  });
+
+  it('does NOT cross-clear a same-basename file in a different dir', () => {
+    const state = stubLoopState();
+    state.filesEditedViaEditTool.add('src/util.py');
+    state.filesEditedViaEditTool.add('test/util.py');
+    clearTrackingForDeletedFiles(
+      [tool('delete_file', { path: 'test/util.py' })],
+      [okResult('File deleted: test/util.py')],
+      state,
+    );
+    expect(state.filesEditedViaEditTool.has('src/util.py')).toBe(true); // untouched
+    expect(state.filesEditedViaEditTool.has('test/util.py')).toBe(false);
   });
 
   it('does NOT clear tracking on a failed delete_file', () => {

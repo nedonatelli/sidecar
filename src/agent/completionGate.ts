@@ -141,20 +141,32 @@ function extractTestFiles(args: string): string[] {
  * ran and all passed. `unknown` = unrecognized format (treated as not-passing).
  */
 export function classifyTestResult(rawContent: string): 'pass' | 'fail' | 'empty' | 'unknown' {
-  // Strip ANSI color/escape codes first. `run_tests` runs pytest on a TTY, so
-  // its output is colored: "…\x1b[1m5 passed\x1b[0m…". The escape ends in `m`
-  // (a word char) directly before the digit, which kills the `\b` in
-  // `\b\d+ passed\b` — so an unstripped pass reads as 'unknown' and the
-  // behavioral gate fires on a genuinely passing run.
-  const content = rawContent.replace(/\x1b\[[0-9;]*m|\x1b\][0-9;]*;[^\x07]*\x07/g, '');
+  // Strip ANSI first. `run_tests` runs on a TTY, so output is colored AND can
+  // contain cursor/erase codes (\x1b[K). An escape ending in a word char right
+  // before a count ("\x1b[1m5 passed", "\x1b[K5 passed") kills the `\b` in
+  // `\b\d+ passed\b`, so an unstripped pass reads as 'unknown' and the gate fires
+  // on a genuinely passing run. Match any CSI sequence (ends in a letter) + OSC.
+  const content = rawContent.replace(/\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '');
   const exitMatch = content.match(/exit code:\s*(\d+)/i);
   const exit = exitMatch ? parseInt(exitMatch[1], 10) : undefined;
+  // Zero tests collected/ran — verified nothing.
   if (/no tests ran|ran 0 tests|collected 0 item|\b0 tests? (ran|passed|collected)/i.test(content) || exit === 5) {
     return 'empty';
   }
-  if (/\b\d+ failed\b|\bFAILED\b|\bAssertionError\b|Traceback \(most recent/i.test(content)) return 'fail';
-  if (exit !== undefined && exit !== 0) return 'fail';
-  if (/\b\d+ passed\b|^OK\b|\bOK\s*$|\ball tests passed\b/im.test(content) || exit === 0) return 'pass';
+  // Failure: a NON-ZERO failed/error count ("5 passed, 0 failed" is a PASS — the
+  // old `\b\d+ failed\b` matched "0 failed" and misread a pass as fail), a runner
+  // failure word (pytest FAILED, go FAIL), an assertion/traceback, or non-zero exit.
+  if (
+    /\b[1-9]\d*\s+(failed|errors?)\b/i.test(content) ||
+    /\bFAILED\b|\bFAIL\b|\bAssertionError\b|Traceback \(most recent/.test(content) ||
+    (exit !== undefined && exit !== 0)
+  ) {
+    return 'fail';
+  }
+  // Pass: pytest/jest/vitest "N passed", mocha "N passing", unittest "OK", or exit 0.
+  if (/\b[1-9]\d*\s+passed\b|\b[1-9]\d*\s+passing\b|(^|\s)OK\b|\ball tests passed\b/im.test(content) || exit === 0) {
+    return 'pass';
+  }
   return 'unknown';
 }
 
@@ -864,8 +876,18 @@ async function defaultReadFile(relPath: string): Promise<string | null> {
 }
 
 /** True if `content` references `moduleName` as a whole word (an import or symbol use). */
+/**
+ * True if `content` IMPORTS `moduleName` — the module name must appear on a line
+ * with `import` / `from` / `require`, not merely anywhere in the file. A bare
+ * word match let a hollow test "reference" the module in a comment/docstring
+ * (`# uses gui_calculator`) and pass as if it tested the real code. Covers
+ * Python (`from gui_calculator import …`, `import gui_calculator`), JS/TS
+ * (`from './gui_calculator'`, `require('./gui_calculator')`, `import … from
+ * "gui_calculator"`), and dynamic (`import_module('gui_calculator')`).
+ */
 function referencesModule(content: string, moduleName: string): boolean {
-  return new RegExp(`\\b${escapeRegExp(moduleName)}\\b`).test(content);
+  const m = escapeRegExp(moduleName);
+  return new RegExp(`^.*\\b(?:import|from|require)\\b.*\\b${m}\\b`, 'm').test(content);
 }
 
 /**

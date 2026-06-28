@@ -409,12 +409,14 @@ export async function readFile(input: Record<string, unknown>, context?: ToolExe
  */
 export const MAX_UNVERIFIED_REWRITES = 3;
 
-/** True if `filePath` matches an entry in `set` exactly or by basename. */
+/** True if `filePath` matches an entry in `set` exactly or as a `/`-boundary
+ * path suffix (handles relative vs absolute). NOT a bare-basename match, so
+ * `src/util.py` doesn't collide with `test/util.py`. */
 function pathInSetByBasename(filePath: string, set: Set<string>): boolean {
-  if (set.has(filePath)) return true;
-  const base = filePath.split('/').pop()!.toLowerCase();
+  const f = filePath.toLowerCase();
   for (const p of set) {
-    if (p.split('/').pop()!.toLowerCase() === base) return true;
+    const q = p.toLowerCase();
+    if (q === f || q.endsWith('/' + f) || f.endsWith('/' + q)) return true;
   }
   return false;
 }

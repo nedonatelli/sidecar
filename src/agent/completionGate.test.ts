@@ -900,6 +900,21 @@ describe('completionGate — buildBehavioralVerificationReprompt', () => {
 
   // --- A test that RAN but didn't PASS must not satisfy the gate (dogfood:
   //     qwen3.5's run collected 0 tests yet "verified" a broken GUI). ---
+  it('a comment-only mention of the module does NOT count as importing it (hollow stays hollow)', async () => {
+    const editedWithTest = new Set<string>(['gui_calculator.py', 'test_gui_calculator.py']);
+    const ran = {
+      testsRunForFiles: new Set<string>(['test_gui_calculator.py']),
+      passingTestFiles: new Set<string>(['test_gui_calculator.py']),
+      projectTestsPassed: false,
+    };
+    // Mentions the module in a comment but never imports it — a mock test.
+    const readMentionOnly = async (p: string) =>
+      p === 'test_gui_calculator.py' ? '# exercises gui_calculator behavior\nclass MockApp: ...\n' : null;
+    const r = await buildBehavioralVerificationReprompt('the gui is broken', editedWithTest, ran, readMentionOnly);
+    expect(r).not.toBeNull();
+    expect(r).toContain('never imports the module under test');
+  });
+
   it('STILL fires when the test ran but collected 0 tests (not in passingTestFiles)', async () => {
     const ranButEmpty = {
       testsRunForFiles: new Set<string>(['test_gui_calculator.py']), // it ran…
@@ -940,6 +955,21 @@ describe('completionGate — classifyTestResult', () => {
   it('classifies a failing run', () => {
     expect(classifyTestResult('1 failed, 2 passed\n(exit code: 1)')).toBe('fail');
     expect(classifyTestResult('Traceback (most recent call last):\n  NameError')).toBe('fail');
+  });
+  it('treats "0 failed" as a PASS, not a fail', () => {
+    expect(classifyTestResult('===== 5 passed, 0 failed in 0.1s =====')).toBe('pass');
+    expect(classifyTestResult('5 passed, 0 failed, 0 skipped\n(exit code: 0)')).toBe('pass');
+  });
+  it('classifies mocha "N passing" as pass', () => {
+    expect(classifyTestResult('  5 passing (20ms)')).toBe('pass');
+  });
+  it('classifies go-test FAIL and pytest collection errors as fail', () => {
+    expect(classifyTestResult('--- FAIL: TestX\nFAIL\nexit status 1')).toBe('fail');
+    expect(classifyTestResult('1 error in 0.05s\n(exit code: 2)')).toBe('fail');
+  });
+  it('strips erase-line ANSI codes (\\x1b[K) before matching', () => {
+    expect(classifyTestResult('test_x.py \x1b[32m\x1b[1m5 passed\x1b[0m\x1b[K in 0.1s')).toBe('pass');
+    expect(classifyTestResult('\x1b[K5 passed')).toBe('pass');
   });
   it('treats a non-zero exit as failure and zero exit as pass', () => {
     expect(classifyTestResult('something\n(exit code: 2)')).toBe('fail');

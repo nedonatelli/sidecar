@@ -111,6 +111,14 @@ export class ChatViewProvider implements WebviewViewProvider {
 
     webviewView.webview.onDidReceiveMessage(
       async (msg: WebviewMessage) => {
+        // The webview signals when its message listener is live. Re-send the
+        // initial state then, so the chat-history init can't be dropped by the
+        // resolve-time post racing webview load on reload (which lost the
+        // conversation). init is idempotent (the webview clears before rebuild).
+        if (msg.command === 'webviewReady') {
+          this.pushInitialState();
+          return;
+        }
         try {
           await this.dispatch(msg);
         } catch (err: unknown) {
@@ -127,18 +135,9 @@ export class ChatViewProvider implements WebviewViewProvider {
       resolveDisposables.forEach((d) => d.dispose());
     });
 
-    if (this.state.messages.length === 0) this.state.messages = this.state.loadHistory();
-    if (this.state.messages.length > 0) this.postMessage({ command: 'init', messages: this.state.messages });
-
-    loadModels(this.state);
-    const initConfig = getConfig();
-    this.postMessage(
-      buildAgentModeMessage({
-        agentMode: initConfig.agentMode,
-        customModes: initConfig.customModes.map((m) => ({ name: m.name, description: m.description })),
-      }),
-    );
-    this.pushUiSettings();
+    // Eager push for the common (non-reload) case; also re-sent on webviewReady
+    // so a reload, where this resolve-time post races webview load, still renders.
+    this.pushInitialState();
 
     resolveDisposables.push(
       workspace.onDidChangeConfiguration((e) => {
@@ -175,6 +174,31 @@ export class ChatViewProvider implements WebviewViewProvider {
   private async dispatch(msg: WebviewMessage): Promise<void> {
     const handler = this.handlers[msg.command];
     if (handler) await handler(msg);
+  }
+
+  /**
+   * Send the webview its initial state: restored chat history (from
+   * workspaceState when the in-memory messages are empty, i.e. after a reload),
+   * model list, agent mode, and UI settings. Called eagerly in
+   * resolveWebviewView and again on `webviewReady` so the history `init` reaches
+   * the webview after its message listener is registered — without the
+   * handshake, the resolve-time post races webview load on reload and the
+   * restored conversation never renders. `init` is idempotent (the webview
+   * clears before rebuilding), so the double-send can't duplicate messages.
+   */
+  private pushInitialState(): void {
+    if (this.state.messages.length === 0) this.state.messages = this.state.loadHistory();
+    if (this.state.messages.length > 0) this.postMessage({ command: 'init', messages: this.state.messages });
+
+    loadModels(this.state);
+    const initConfig = getConfig();
+    this.postMessage(
+      buildAgentModeMessage({
+        agentMode: initConfig.agentMode,
+        customModes: initConfig.customModes.map((m) => ({ name: m.name, description: m.description })),
+      }),
+    );
+    this.pushUiSettings();
   }
 
   public clearChat(): void {

@@ -6,6 +6,7 @@ import * as crypto from 'crypto';
 
 export interface WebviewMessage {
   command:
+    | 'webviewReady'
     | 'userMessage'
     | 'abort'
     | 'changeModel'

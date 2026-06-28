@@ -4,6 +4,25 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.114.42] - 2026-06-27
+
+### Fixed
+
+- **Chat history didn't survive a window reload — the restore `init` raced the webview load and was dropped.** On reload the extension restores the conversation from `workspaceState` into `state.messages` and posts an `init` to the webview in `resolveWebviewView` — but it fired that post synchronously, before the webview's `chat.js` had registered its `message` listener, so the message (and the restored history) was lost and the chat looked empty. There was no handshake to recover. Now the webview posts `webviewReady` once its listener is live, and the extension (re)sends the initial state (history `init` + model list + agent mode + UI settings) in response. The `init` handler also clears the message container before rebuilding, so the now-possible double-send (eager + ready, or a hide/show re-resolve) replaces the history instead of appending a duplicate. (`media/chat.js`, `src/webview/chatView.ts`, `src/webview/chatWebview.ts`)
+
+## [0.114.41] - 2026-06-27
+
+### Fixed
+
+Adversarial review of the v0.114.32–40 scaffold stack surfaced four real bugs:
+
+- **`classifyTestResult` misread several passing runs as fail/unknown, firing the behavioral gate on a passing test.** (1) `\b\d+ failed\b` matched "0 failed", so `5 passed, 0 failed` classified as **fail**; now only a non-zero `failed`/`error` count counts. (2) Mocha's `N passing` wasn't recognized as a pass. (3) The ANSI strip only removed codes ending in `m`, so erase-line/cursor codes (`\x1b[K`) adjacent to a count broke the `\b\d+ passed\b` boundary → a pass read as `unknown`; it now strips any CSI sequence + OSC. Also recognizes go-test `FAIL` and pytest collection `error`s. (`src/agent/completionGate.ts`)
+- **Hollow-test detection was defeated by a comment.** `referencesModule` was a bare word search, so a mock test that merely mentioned the module in a comment (`# uses gui_calculator`) counted as "imports the module" and passed the behavioral gate. It now requires the name on an `import` / `from` / `require` line. (`src/agent/completionGate.ts`)
+- **`delete_file` left the enforce-edit block counter + escalation flag poisoned.** `clearTrackingForDeletedFiles` purged five per-file maps but not `enforceEditBlocksByFile`/`escalatedRewriteByFile`, so a delete-to-restart recreated the file with the enforce lock releasing after one block instead of three (and the escalation never re-firing). Both are now purged. (`src/agent/loop/circularRewrite.ts`)
+- **Same-basename files in different dirs shared locks/budgets.** The enforce-edit / release / defer / delete-clear matchers compared by bare basename, so editing `src/util.py` would enforce-block a write to `test/util.py` and activity on one could release the other's lock. They now match by exact path or `/`-boundary suffix (still handling relative-vs-absolute) — `src/util.py` and `test/util.py` no longer collide. (`src/agent/loop/circularRewrite.ts`, `src/agent/tools/fs.ts`)
+
+Known-and-accepted (not fixed): the deferral window omits ≤2 iterations from the cycle-detection ring buffers (bounded by maxIterations); `lastFailureOutput` is global so an escalation could surface an unrelated file's failure (advisory text only); a `pytest -k`-filtered green run can satisfy behavioral coverage by disk-presence (mirrors whole-suite `npm test` semantics).
+
 ## [0.114.40] - 2026-06-27
 
 ### Fixed

@@ -125,10 +125,22 @@ export function recordSuccessfulEdits(
 }
 
 /** True if any entry of `set` shares `filePath`'s basename. */
+/**
+ * Path-suffix match: exact, or one path is a `/`-boundary suffix of the other
+ * (handles the model using a relative path one place and an absolute/longer path
+ * another). Crucially NOT a bare-basename match — `src/util.py` and
+ * `test/util.py` do NOT match, so two same-named files in different dirs don't
+ * share locks/budgets or release each other.
+ */
+function pathsMatch(a: string, b: string): boolean {
+  const x = a.toLowerCase();
+  const y = b.toLowerCase();
+  return x === y || x.endsWith('/' + y) || y.endsWith('/' + x);
+}
+
 function setHasByBasename(set: Set<string>, filePath: string): boolean {
-  const base = filePath.split('/').pop()!.toLowerCase();
   for (const k of set) {
-    if (k.split('/').pop()!.toLowerCase() === base) return true;
+    if (pathsMatch(k, filePath)) return true;
   }
   return false;
 }
@@ -252,9 +264,8 @@ function purgeByBasename(
   coll: { keys(): IterableIterator<string>; delete(k: string): boolean },
   filePath: string,
 ): void {
-  const base = filePath.split('/').pop()!.toLowerCase();
   for (const k of [...coll.keys()]) {
-    if (k.split('/').pop()!.toLowerCase() === base) coll.delete(k);
+    if (pathsMatch(k, filePath)) coll.delete(k);
   }
 }
 
@@ -286,6 +297,12 @@ export function clearTrackingForDeletedFiles(
     purgeByBasename(state.writesSinceVerifyByFile, p);
     purgeByBasename(state.circularRewriteBlocksByFile, p);
     purgeByBasename(state.forceVerifyBeforeBailByFile, p);
+    // Also reset the enforce-edit block counter + the one-shot escalation flag,
+    // else a delete-to-restart leaves them poisoned: the recreated file's lock
+    // would release after one block instead of three, and the escalation reprompt
+    // would never re-fire.
+    purgeByBasename(state.enforceEditBlocksByFile, p);
+    purgeByBasename(state.escalatedRewriteByFile, p);
   }
 }
 

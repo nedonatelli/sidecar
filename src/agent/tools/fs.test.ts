@@ -416,6 +416,12 @@ describe('writeFile enforce-edit-over-rewrite block', () => {
     expect(r).toBe('File written: gui_calculator.py');
   });
 
+  it('does NOT block a same-basename file in a different dir (suffix match, not basename)', async () => {
+    const filesEditedViaEditTool = new Set<string>(['src/util.py']);
+    const r = await mockedWrite({ path: 'test/util.py', content: 'x' }, { filesEditedViaEditTool });
+    expect(r).toBe('File written: test/util.py'); // src/util.py lock must not trap test/util.py
+  });
+
   it('is skipped entirely when no filesEditedViaEditTool is provided', async () => {
     const r = await mockedWrite({ path: 'gui_calculator.py', content: 'x' }, {});
     expect(r).toBe('File written: gui_calculator.py');
