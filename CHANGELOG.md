@@ -4,6 +4,12 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.114.43] - 2026-06-28
+
+### Fixed
+
+- **Restored conversations looked like messages were lost — the `init` renderer made empty bubbles for tool plumbing and dropped tool-heavy turns.** The chat IS saved correctly (verified: `runAgentLoop`→`finalize` returns the full `state.messages`, `postLoopProcessing` persists it, `serializeContent` keeps every non-image block; the save round-trip is unit-tested). But on restore, `init` called `appendMessage(role, text)` for _every_ message, so `tool_result` entries (role `user`, no text) and tool-use-only assistant turns rendered as empty bubbles, and tool cards were gone — a tool-heavy conversation came back looking broken/missing. `init` now skips messages with no displayable text while **preserving the real `state.messages` index** on each rendered bubble (`dataset.msgIndex = i`) and advancing the live counter past the restored range, so regenerate/edit still target the correct message after a reload. (Faithful tool-card reconstruction on restore is a separate, larger enhancement — the user/assistant transcript + code blocks now render cleanly.) (`media/chat.js`)
+
 ## [0.114.42] - 2026-06-27
 
 ### Fixed

@@ -4294,16 +4294,31 @@
         // duplicate copy.
         messagesContainer.innerHTML = '';
         if (event.data.messages) {
-          for (const msg of event.data.messages) {
+          event.data.messages.forEach((msg, i) => {
+            const c = msg.content;
             const text =
-              typeof msg.content === 'string'
-                ? msg.content
-                : msg.content
-                    .filter((b) => b.type === 'text')
-                    .map((b) => b.text)
-                    .join('\n');
-            appendMessage(msg.role, text);
-          }
+              typeof c === 'string'
+                ? c
+                : Array.isArray(c)
+                  ? c
+                      .filter((b) => b && b.type === 'text')
+                      .map((b) => b.text)
+                      .join('\n')
+                  : '';
+            // Skip the agent's plumbing messages — tool_result entries (role
+            // "user", no text) and tool_use-only assistant turns. Rendering them
+            // produced empty bubbles that made a restored tool-heavy conversation
+            // look broken / like messages were lost.
+            if (!text.trim()) return;
+            const div = appendMessage(msg.role, text);
+            // Keep the rendered bubble's index aligned with state.messages so
+            // regenerate/edit (which index directly into state.messages) still
+            // target the right message after skipping plumbing entries.
+            div.dataset.msgIndex = String(i);
+          });
+          // Continue the live counter past the restored range so the next new
+          // message gets the correct state.messages index.
+          messageCounter = event.data.messages.length;
         }
         // After restoring history (or when none exists), show the empty
         // state if the chat is still blank. This is the first-paint path.
