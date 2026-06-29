@@ -4,6 +4,7 @@ dist/
 *.vsix
 sidecar-ai-*.vsix
 .vscode-test/
+.vscode/settings.json
 .DS_Store
 docs/market-notes.md
 coverage/

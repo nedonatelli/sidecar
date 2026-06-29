@@ -79,7 +79,8 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 - **Feels first-party** — status bar health indicator, native error toasts, lightbulb code actions, Problems panel integration, file decorations, activity-bar badge, and a `SideCar:` command palette category.
 - **Hybrid cost-aware** — Anthropic prompt caching + 90%-reduction prompt pruner + `delegate_task` to a local Ollama worker + session spend tracker + daily/weekly budgets + architect/editor model split (`sidecar.editorModel`) that auto-routes execution turns to a faster/cheaper model.
 - **Security from the ground up** — OS keychain key storage, secrets detection, vuln scanning, path traversal protection, workspace hook warnings, macOS Seatbelt sandbox for agent shell commands.
-- **Extensible** — MCP (stdio / HTTP / SSE), custom skills via markdown, 8 built-in skills, NoSQL quick-install for MongoDB + Redis.
+- **Built for local models** — a capability-adaptive scaffolding harness (grounded review + citation gates, tiered reprompt budgets, write/rewrite-thrash defenses) that makes weaker local models reliable, with an ablation harness (`npm run eval:ablation`) to keep only the scaffolds that earn their latency.
+- **Extensible** — MCP (stdio / HTTP / SSE), custom skills via markdown, 11 built-in skills, NoSQL quick-install for MongoDB + Redis.
 - **Production-grade safety** — review mode, audit mode (atomic flush), shadow workspaces, completion gate, cycle detection, stub validator, regression guards.
 
 ## Features
@@ -95,7 +96,8 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 | **Project Knowledge Index** | Semantic search over every function/class in your workspace via tree-sitter + MiniLM embeddings; chunk-level retrieval for prose docs |
 | **Active file context bar** | Pill above the chat input — one click includes or excludes the currently open file from agent context |
 | **Adversarial Critic** | Second LLM call after every edit that finds bugs, regressions, and security issues — blocks the turn on high-severity findings |
-| **Completion gate** | Blocks the agent from declaring done until lint and colocated tests for edited files have actually run |
+| **Completion gate** | Blocks the agent from declaring done until lint and colocated tests for edited files have actually run — gates run via the agent's real execution path and key on output evidence, not exit codes |
+| **Local-model scaffolding harness** | Capability-adaptive machinery that makes weaker local models usable: grounded review + citation-resolution gates, model-tier-tuned reprompt/burst budgets, read-only specialist routing, and write/rewrite-thrash defenses. `npm run eval:ablation` measures each scaffold's pass-rate lift vs. latency so pure-tax scaffolds get cut |
 | **SIDECAR.md** | Path-scoped project instructions — sections inject only when the active file matches their `@paths` glob; per-directory files cascade root-to-leaf; falls back to `AGENTS.md` / `CLAUDE.md` / `.cursorrules` when no SIDECAR.md is present |
 | **DESIGN.md** | Always-injected architecture / style guide — place `.sidecar/DESIGN.md` (or `DESIGN.md`) to keep domain knowledge in every system prompt without SIDECAR.md boilerplate |
 | **Inline completions** | Copilot-style autocomplete via Ollama FIM or Anthropic (opt-in via `sidecar.enableInlineCompletions`) |
@@ -120,7 +122,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 | **Research Assistant** | Structured project tracking: 8 agent tools (`research_create_project`, `_add_hypothesis`, `_log_experiment`, `_add_observation`, `_update_hypothesis_status`, `_set_project_status`, `_list_projects`, `_export_report`) + sidebar panel + `/research` slash command. Gated by `sidecar.research.enabled` |
 | **Context window bar** | 3 px colour-coded fill bar above the input area — blue → yellow (≥ 60 %) → red (≥ 80 %). Tooltip shows `Context: 12K / 32K tokens (38%)` |
 | **Message editing** | Click ✎ on any user message to edit and resend — subsequent messages fade out as a truncation preview, then history is rewound and the agent re-runs with the edited text |
-| **Skills** | 8 built-in skills (review-code, debug, refactor, write-tests, break-this, explain-code, create-skill, mcp-builder) + custom markdown skills |
+| **Skills** | 11 built-in skills (review-code, debug, refactor, write-tests, break-this, explain-code, create-skill, mcp-builder, tdd-red-green-refactor, typed-service-contracts, agent-dx-cli-scale) + custom markdown skills |
 | **Slash commands** | `/model`, `/fork`, `/branch`, `/compact`, `/notebook`, `/bg`, `/pr`, `/review`, `/ci`, `/memories`, `/commit`, `/doc`, `/spec`, `/revise`, and 25+ more with autocomplete |
 
 ## Requirements
