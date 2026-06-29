@@ -405,7 +405,7 @@ No API key prompt for IAM, but Bedrock also supports a single **Bedrock API key*
 
 ### Models
 
-Use a Bedrock **model ID** or **inference-profile ID**, e.g.:
+The model dropdown is populated **live** by querying the Bedrock control plane (`ListInferenceProfiles` + `ListFoundationModels` on `bedrock.<region>.amazonaws.com`), filtered to Anthropic/Claude models — both cross-region inference profiles (`us.anthropic.…`, required for newer Claude) and on-demand foundation models. If the query is denied (e.g. a Bedrock API key scoped only to `InvokeModel`, or missing `bedrock:ListFoundationModels` permission), it falls back to a static list; you can always type any model / inference-profile id directly, e.g.:
 
 | Model | ID |
 |-------|----|
@@ -413,7 +413,7 @@ Use a Bedrock **model ID** or **inference-profile ID**, e.g.:
 | Claude 3.5 Sonnet v2 | `anthropic.claude-3-5-sonnet-20241022-v2:0` |
 | Claude 3.5 Haiku | `anthropic.claude-3-5-haiku-20241022-v1:0` |
 
-Make sure the model is **enabled in your Bedrock account** for the chosen region (Bedrock console → Model access), or requests return an access error.
+Make sure the model is **enabled in your Bedrock account** for the chosen region (Bedrock console → Model access), or requests return an access error. Only Anthropic/Claude models are listed, since the backend speaks the Anthropic payload.
 
 > Prompt caching (`cache_control`) is not sent on the Bedrock path yet — Bedrock gates it per-account — so you won't see the ~90% cache discount that the direct Anthropic backend gives.
 

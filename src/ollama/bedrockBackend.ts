@@ -200,4 +200,75 @@ export class BedrockBackend implements ApiBackend {
     }
     return data.content.find((b) => b.type === 'text')?.text ?? '';
   }
+
+  /**
+   * List Claude (Anthropic) models invocable on this account + region, by
+   * querying the Bedrock **control plane** (`bedrock.<region>.amazonaws.com`,
+   * distinct from the runtime host): cross-region inference profiles
+   * (`us.anthropic.…` — required for newer Claude) plus on-demand foundation
+   * models (older Claude, invocable by base id). Only Anthropic models are
+   * returned because this backend speaks the Anthropic payload.
+   *
+   * Returns `[]` when the control plane is unreachable or the credentials lack
+   * `bedrock:ListFoundationModels` / `ListInferenceProfiles` (a Bedrock API key
+   * scoped only to InvokeModel will hit this) — the caller falls back to a
+   * static list. GovCloud works unchanged (the host is region-derived).
+   */
+  async listAnthropicModels(signal?: AbortSignal): Promise<string[]> {
+    const ids = new Set<string>();
+
+    const profiles = (await this.controlGet('/inference-profiles', signal).catch(() => null)) as {
+      inferenceProfileSummaries?: { inferenceProfileId?: string }[];
+    } | null;
+    for (const p of profiles?.inferenceProfileSummaries ?? []) {
+      if (typeof p.inferenceProfileId === 'string' && /anthropic/i.test(p.inferenceProfileId)) {
+        ids.add(p.inferenceProfileId);
+      }
+    }
+
+    const fm = (await this.controlGet('/foundation-models', signal).catch(() => null)) as {
+      modelSummaries?: { modelId?: string; providerName?: string; inferenceTypesSupported?: string[]; outputModalities?: string[] }[];
+    } | null;
+    for (const m of fm?.modelSummaries ?? []) {
+      if (
+        m.providerName === 'Anthropic' &&
+        typeof m.modelId === 'string' &&
+        (m.inferenceTypesSupported ?? []).includes('ON_DEMAND') &&
+        (m.outputModalities ?? []).includes('TEXT')
+      ) {
+        ids.add(m.modelId);
+      }
+    }
+
+    return [...ids].sort();
+  }
+
+  /** Signed/bearer GET against the Bedrock control-plane endpoint. */
+  private async controlGet(rawPath: string, signal?: AbortSignal): Promise<unknown> {
+    const origin = `https://bedrock.${this.region}.amazonaws.com`;
+    const bearer = this.bearer();
+    let url: string;
+    let headers: Record<string, string>;
+    if (bearer) {
+      url = `${origin}${canonicalizePath(rawPath)}`;
+      headers = { Authorization: `Bearer ${bearer}` };
+    } else {
+      const signed = signRequest({
+        method: 'GET',
+        origin,
+        rawPath,
+        region: this.region,
+        service: 'bedrock',
+        headers: {},
+        body: '',
+        credentials: this.credentials(),
+        date: new Date(),
+      });
+      url = signed.url;
+      headers = signed.headers;
+    }
+    const res = await sidecarFetch(url, { method: 'GET', headers, signal }, { label: 'bedrock' });
+    if (!res.ok) throw new Error(`Bedrock control plane ${res.status}`);
+    return res.json();
+  }
 }

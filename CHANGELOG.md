@@ -4,6 +4,12 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.114.54] - 2026-06-29
+
+### Added
+
+- **Live Bedrock model discovery.** The model picker now queries the Bedrock control plane — `ListInferenceProfiles` + `ListFoundationModels` on `bedrock.<region>.amazonaws.com` (distinct from the runtime host) — and lists the Anthropic/Claude models actually available to your account in that region: cross-region inference profiles (`us.anthropic.…`) plus on-demand foundation models. Uses the same auth as invocation (Bedrock API key bearer token or SigV4). Falls back to the static list when the call is denied (e.g. an InvokeModel-only API key without `bedrock:ListFoundationModels`). GovCloud works unchanged (region-derived host). Non-Anthropic models are filtered out since the backend speaks the Anthropic payload. (`src/ollama/bedrockBackend.ts`, `client.ts`)
+
 ## [0.114.53] - 2026-06-29
 
 ### Fixed

@@ -905,9 +905,15 @@ export class SideCarClient {
     }
 
     if (provider === 'bedrock') {
-      // No network probe — Bedrock has no cheap catalog endpoint and the
-      // runtime host doesn't answer /api/tags or /v1/models. Return a static
-      // list so the picker works; users can type any other model id.
+      // Prefer a live query of the Bedrock control plane (ListInferenceProfiles
+      // + ListFoundationModels, Anthropic-only). Falls back to a static list
+      // when the call fails — e.g. a Bedrock API key scoped only to InvokeModel,
+      // or no list permission. The runtime host has no /api/tags or /v1/models,
+      // so we never probe baseUrl here.
+      if (this.backend instanceof BedrockBackend) {
+        const live = await this.backend.listAnthropicModels().catch(() => [] as string[]);
+        if (live.length > 0) return live.map((id) => ({ name: id, model: id, size: 0 }));
+      }
       return BEDROCK_FALLBACK_MODELS.map((id) => ({ name: id, model: id, size: 0 }));
     }
 
