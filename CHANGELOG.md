@@ -4,6 +4,12 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.114.55] - 2026-06-29
+
+### Fixed
+
+- **Dropped legacy Claude 3 Opus from the Bedrock static fallback list.** When the live model query is denied (an InvokeModel-only Bedrock API key), the static fallback offered `anthropic.claude-3-opus-20240229-v1:0`, which Bedrock now blocks for accounts that haven't used it in 30 days (`404 … Model is marked … Legacy`). Removed it; the fallback now lists only current Sonnet 4 / Opus 4 / 3.7 Sonnet / 3.5 Sonnet v2 / 3.5 Haiku. The Bedrock backend was **verified working end-to-end against a live account** in the process (auth + endpoint + payload all confirmed by a genuine Bedrock API response). (`src/ollama/client.ts`)
+
 ## [0.114.54] - 2026-06-29
 
 ### Added
