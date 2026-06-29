@@ -132,6 +132,21 @@ describe('SideCarClient', () => {
     });
   });
 
+  describe('listInstalledModels (Bedrock)', () => {
+    it('returns a static model list with no network call', async () => {
+      mockFetch.mockRejectedValue(new Error('no network in test'));
+      const client = new SideCarClient(
+        'us.anthropic.claude-sonnet-4-20250514-v1:0',
+        'https://bedrock-runtime.us-east-1.amazonaws.com',
+      );
+      const models = await client.listInstalledModels();
+      expect(models.length).toBeGreaterThan(0);
+      expect(models.some((m) => m.name.includes('claude'))).toBe(true);
+      // The Bedrock host has no /api/tags or /v1/models — the list must not fetch.
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+  });
+
   describe('updateModel', () => {
     it('changes the model used in requests', async () => {
       const client = new SideCarClient('test-model');

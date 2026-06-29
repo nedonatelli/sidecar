@@ -1,6 +1,6 @@
 # SideCar Roadmap
 
-**Current release: v0.114.52** — Scaffolding subsystem + reliability hardening. v0.114 built the "harness" that makes weaker local models usable, structured as Verify / Adapt / Orchestrate / Measure (see [`docs/scaffolding-roadmap.md`](docs/scaffolding-roadmap.md)): grounded review + citation-resolution gates, capability-adaptive scaffolding intensity, read-only specialist routing, and an ablation harness (`npm run eval:ablation`) that measures each scaffold's pass-rate lift vs. latency cost so pure-tax scaffolds get cut. Hardened across the .6–.47 band: deterministic completion gates (run via the agent's real execution path, keyed on **output evidence not exit codes**, anchored on the current turn), write/rewrite-thrash defenses, target-aware verification, PKI symbol index now embeds the **whole workspace** (replay-race + cached-graph-content fixes), transformers packaging fix, and a logging-observability pass (outcome logs + warn-on-surprising-zero + debug tracing across the previously-dark subsystems). See [CHANGELOG](CHANGELOG.md) for full notes.
+**Current release: v0.114.53** — Scaffolding subsystem + reliability hardening. v0.114 built the "harness" that makes weaker local models usable, structured as Verify / Adapt / Orchestrate / Measure (see [`docs/scaffolding-roadmap.md`](docs/scaffolding-roadmap.md)): grounded review + citation-resolution gates, capability-adaptive scaffolding intensity, read-only specialist routing, and an ablation harness (`npm run eval:ablation`) that measures each scaffold's pass-rate lift vs. latency cost so pure-tax scaffolds get cut. Hardened across the .6–.47 band: deterministic completion gates (run via the agent's real execution path, keyed on **output evidence not exit codes**, anchored on the current turn), write/rewrite-thrash defenses, target-aware verification, PKI symbol index now embeds the **whole workspace** (replay-race + cached-graph-content fixes), transformers packaging fix, and a logging-observability pass (outcome logs + warn-on-surprising-zero + debug tracing across the previously-dark subsystems). See [CHANGELOG](CHANGELOG.md) for full notes.
 
 **Coverage**: CI ratchet floor **70/63/67/71** (stmts/branches/funcs/lines) in `vitest.config.ts`, with VS Code lifecycle + non-behavioral code excluded from the denominator. Per-new-file policy is ≥80%; no PR may drop a metric below the floor.
 
@@ -22,6 +22,7 @@ Candidate pool is the source-verified [Verified Backlog](#verified-backlog--comp
 
 | Version | Headline |
 |---|---|
+| v0.114.53 | Fix: Bedrock backend-switch "Cannot connect" error — model picker now uses a static Bedrock model list instead of probing the (non-existent) catalog endpoint |
 | v0.114.52 | Bedrock region picker — `SideCar: Bedrock: Set Region` command + inline region prompt when switching to the Bedrock profile (no settings.json edit) |
 | v0.114.51 | Bedrock now accepts a **Bedrock API key** (bearer token) in addition to SigV4/IAM — uses the SideCar-stored key or `AWS_BEARER_TOKEN_BEDROCK` |
 | v0.114.50 | What's-New prompt now reaches existing users on a feature-debut update (globalState-based fresh-install heuristic) |

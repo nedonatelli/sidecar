@@ -57,6 +57,19 @@ const ANTHROPIC_FALLBACK_MODELS = [
   'claude-3-opus-latest',
 ];
 
+// Bedrock has no cheap model-list endpoint (ListFoundationModels needs a
+// separate signed call), so the picker shows a static set of common Claude
+// model / cross-region inference-profile IDs. Users can type any other Bedrock
+// model id into the model input. GovCloud uses the same ids under its partition.
+const BEDROCK_FALLBACK_MODELS = [
+  'us.anthropic.claude-sonnet-4-20250514-v1:0',
+  'us.anthropic.claude-opus-4-20250514-v1:0',
+  'us.anthropic.claude-3-7-sonnet-20250219-v1:0',
+  'anthropic.claude-3-5-sonnet-20241022-v2:0',
+  'anthropic.claude-3-5-haiku-20241022-v1:0',
+  'anthropic.claude-3-opus-20240229-v1:0',
+];
+
 export interface InstalledModel {
   name: string;
   model: string;
@@ -889,6 +902,13 @@ export class SideCarClient {
       } catch {
         return [];
       }
+    }
+
+    if (provider === 'bedrock') {
+      // No network probe — Bedrock has no cheap catalog endpoint and the
+      // runtime host doesn't answer /api/tags or /v1/models. Return a static
+      // list so the picker works; users can type any other model id.
+      return BEDROCK_FALLBACK_MODELS.map((id) => ({ name: id, model: id, size: 0 }));
     }
 
     if (provider === 'openai' || provider === 'openrouter' || provider === 'groq' || provider === 'fireworks') {

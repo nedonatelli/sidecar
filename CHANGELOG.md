@@ -4,6 +4,12 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.114.53] - 2026-06-29
+
+### Fixed
+
+- **"Cannot connect to API at https://bedrock-runtime.<region>.amazonaws.com" when switching to Bedrock.** On backend switch, the chat loads the model list via `listInstalledModels()`, which had no `bedrock` branch — so it fell through to the default Ollama path and tried to `GET /api/tags` against the Bedrock runtime host, which has no such endpoint, and surfaced a connection error. Added a `bedrock` branch that returns a static list of common Claude model / inference-profile IDs with **no network call** (Bedrock has no cheap catalog endpoint; users can type any other id). This was a model-picker failure only — the actual chat request already routes to the region-derived endpoint, independent of `baseUrl`. (`src/ollama/client.ts`)
+
 ## [0.114.52] - 2026-06-29
 
 ### Added
