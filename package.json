@@ -3355,6 +3355,9 @@
     "media/**/*.js": [
       "prettier --write",
       "eslint --max-warnings=0"
+    ],
+    "**/*.{md,json}": [
+      "prettier --write"
     ]
   }
 }

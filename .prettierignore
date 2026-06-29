@@ -1,0 +1,20 @@
+# Generated / vendored / build output
+dist/
+out/
+coverage/
+grammars/
+node_modules/
+
+# Append-only — prettier'ing 500KB+ on every release makes noisy whole-file diffs
+CHANGELOG.md
+docs/changelog.md
+
+# Hand-tuned HTML the formatter would mangle
+docs/index.html
+docs/_layouts/
+
+# Jekyll Liquid templates ({% %}) that prettier's HTML printer breaks
+*.liquid
+
+# Vendored Fabric skill patterns (not authored here)
+skills/fabric/
