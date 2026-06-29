@@ -4,7 +4,15 @@ import { promptBedrockRegion, AWS_REGION_RE } from './settingsCommands.js';
 
 describe('AWS_REGION_RE', () => {
   it('accepts standard and multi-segment regions (GovCloud, China)', () => {
-    for (const r of ['us-east-1', 'us-west-2', 'eu-central-1', 'ap-southeast-2', 'us-gov-west-1', 'us-gov-east-1', 'cn-north-1']) {
+    for (const r of [
+      'us-east-1',
+      'us-west-2',
+      'eu-central-1',
+      'ap-southeast-2',
+      'us-gov-west-1',
+      'us-gov-east-1',
+      'cn-north-1',
+    ]) {
       expect(AWS_REGION_RE.test(r), r).toBe(true);
     }
   });

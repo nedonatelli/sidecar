@@ -6,10 +6,14 @@ function strHeader(name: string, value: string): Buffer {
   const valBuf = Buffer.from(value, 'utf8');
   const out = Buffer.alloc(1 + nameBuf.length + 1 + 2 + valBuf.length);
   let o = 0;
-  out.writeUInt8(nameBuf.length, o); o += 1;
-  nameBuf.copy(out, o); o += nameBuf.length;
-  out.writeUInt8(7, o); o += 1; // string type
-  out.writeUInt16BE(valBuf.length, o); o += 2;
+  out.writeUInt8(nameBuf.length, o);
+  o += 1;
+  nameBuf.copy(out, o);
+  o += nameBuf.length;
+  out.writeUInt8(7, o);
+  o += 1; // string type
+  out.writeUInt16BE(valBuf.length, o);
+  o += 2;
   valBuf.copy(out, o);
   return out;
 }
@@ -74,7 +78,10 @@ function readerFrom(chunks: Buffer[]): {
 
 describe('streamBedrockChunks', () => {
   it('unwraps base64 bytes and yields the inner model events', async () => {
-    const { reader, read } = readerFrom([chunkFrame({ type: 'message_start' }), chunkFrame({ type: 'content_block_delta' })]);
+    const { reader, read } = readerFrom([
+      chunkFrame({ type: 'message_start' }),
+      chunkFrame({ type: 'content_block_delta' }),
+    ]);
     const out: unknown[] = [];
     for await (const ev of streamBedrockChunks(reader, read)) out.push(ev);
     expect(out).toEqual([{ type: 'message_start' }, { type: 'content_block_delta' }]);

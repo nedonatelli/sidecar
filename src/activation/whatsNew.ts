@@ -56,7 +56,10 @@ export function extractVersionSection(changelog: string, version: string): strin
       break;
     }
   }
-  return lines.slice(start + 1, end).join('\n').trim();
+  return lines
+    .slice(start + 1, end)
+    .join('\n')
+    .trim();
 }
 
 function escapeHtml(s: string): string {

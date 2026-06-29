@@ -49,11 +49,9 @@ export function initWhatsNew(context: ExtensionContext): void {
     void context.globalState.update(LAST_SEEN_KEY, currentVersion);
   }
   if (shouldPromptWhatsNew({ currentVersion, lastSeen, hadPriorState, enabled })) {
-    void window
-      .showInformationMessage(`SideCar updated to v${currentVersion}.`, "See what's new")
-      .then((choice) => {
-        if (choice === "See what's new") open();
-      });
+    void window.showInformationMessage(`SideCar updated to v${currentVersion}.`, "See what's new").then((choice) => {
+      if (choice === "See what's new") open();
+    });
   }
 }
 

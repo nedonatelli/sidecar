@@ -167,7 +167,9 @@ export class SemanticRetriever implements Retriever {
         filePath: file.relativePath,
       });
     }
-    logger.debug(`[retrieval] file path${kv({ ranked: ranked.length, hits: hits.length, top: top[0]?.score?.toFixed(3) })}`);
+    logger.debug(
+      `[retrieval] file path${kv({ ranked: ranked.length, hits: hits.length, top: top[0]?.score?.toFixed(3) })}`,
+    );
     return hits;
   }
 }

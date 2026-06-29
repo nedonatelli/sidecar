@@ -136,7 +136,11 @@ describe('SideCarClient', () => {
     // apiKey makes the backend use bearer auth, so the control-plane query skips
     // SigV4/credential resolution and just hits our mocked fetch.
     const bedrockClient = () =>
-      new SideCarClient('us.anthropic.claude-sonnet-4-20250514-v1:0', 'https://bedrock-runtime.us-east-1.amazonaws.com', 'BEDROCK-KEY');
+      new SideCarClient(
+        'us.anthropic.claude-sonnet-4-20250514-v1:0',
+        'https://bedrock-runtime.us-east-1.amazonaws.com',
+        'BEDROCK-KEY',
+      );
 
     it('queries the control plane and returns the live Anthropic model list, filtering out non-Anthropic', async () => {
       mockFetch.mockImplementation(async (url: string) => {
@@ -156,8 +160,18 @@ describe('SideCarClient', () => {
             ok: true,
             json: async () => ({
               modelSummaries: [
-                { modelId: 'anthropic.claude-3-5-haiku-20241022-v1:0', providerName: 'Anthropic', inferenceTypesSupported: ['ON_DEMAND'], outputModalities: ['TEXT'] },
-                { modelId: 'meta.llama3-70b-instruct-v1:0', providerName: 'Meta', inferenceTypesSupported: ['ON_DEMAND'], outputModalities: ['TEXT'] },
+                {
+                  modelId: 'anthropic.claude-3-5-haiku-20241022-v1:0',
+                  providerName: 'Anthropic',
+                  inferenceTypesSupported: ['ON_DEMAND'],
+                  outputModalities: ['TEXT'],
+                },
+                {
+                  modelId: 'meta.llama3-70b-instruct-v1:0',
+                  providerName: 'Meta',
+                  inferenceTypesSupported: ['ON_DEMAND'],
+                  outputModalities: ['TEXT'],
+                },
               ],
             }),
           };

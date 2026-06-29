@@ -189,7 +189,16 @@ export class SideCarClient {
   // providers (update() keeps old values when new ones are absent),
   // leaking one provider's remaining-token counts into another's view.
   private rateLimitsByProvider = new Map<
-    'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks' | 'gemini' | 'copilot' | 'bedrock',
+    | 'ollama'
+    | 'anthropic'
+    | 'openai'
+    | 'kickstand'
+    | 'openrouter'
+    | 'groq'
+    | 'fireworks'
+    | 'gemini'
+    | 'copilot'
+    | 'bedrock',
     RateLimitStore
   >();
 

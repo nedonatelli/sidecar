@@ -40,10 +40,7 @@ function encodeSegment(segment: string): string {
  *  used both in the SigV4 signature and the request URL, so bearer-auth requests
  *  can reuse it to build an identically-encoded URL. */
 export function canonicalizePath(rawPath: string): string {
-  return rawPath
-    .split('/')
-    .map(encodeSegment)
-    .join('/');
+  return rawPath.split('/').map(encodeSegment).join('/');
 }
 
 function sha256Hex(data: string): string {

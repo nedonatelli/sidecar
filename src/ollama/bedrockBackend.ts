@@ -146,7 +146,9 @@ export class BedrockBackend implements ApiBackend {
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
-      throw new Error(`Bedrock request failed: ${response.status} ${response.statusText}${errorText ? ` — ${errorText}` : ''}`);
+      throw new Error(
+        `Bedrock request failed: ${response.status} ${response.statusText}${errorText ? ` — ${errorText}` : ''}`,
+      );
     }
     if (!response.body) throw new Error('Bedrock returned an empty response body');
 
@@ -186,7 +188,9 @@ export class BedrockBackend implements ApiBackend {
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
-      throw new Error(`Bedrock request failed: ${response.status} ${response.statusText}${errorText ? ` — ${errorText}` : ''}`);
+      throw new Error(
+        `Bedrock request failed: ${response.status} ${response.statusText}${errorText ? ` — ${errorText}` : ''}`,
+      );
     }
 
     const data = (await response.json()) as AnthropicResponse;
@@ -227,7 +231,12 @@ export class BedrockBackend implements ApiBackend {
     }
 
     const fm = (await this.controlGet('/foundation-models', signal).catch(() => null)) as {
-      modelSummaries?: { modelId?: string; providerName?: string; inferenceTypesSupported?: string[]; outputModalities?: string[] }[];
+      modelSummaries?: {
+        modelId?: string;
+        providerName?: string;
+        inferenceTypesSupported?: string[];
+        outputModalities?: string[];
+      }[];
     } | null;
     for (const m of fm?.modelSummaries ?? []) {
       if (

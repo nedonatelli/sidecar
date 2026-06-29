@@ -290,7 +290,17 @@ export function detectProvider(
     | 'gemini'
     | 'copilot'
     | 'bedrock',
-): 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks' | 'gemini' | 'copilot' | 'bedrock' {
+):
+  | 'ollama'
+  | 'anthropic'
+  | 'openai'
+  | 'kickstand'
+  | 'openrouter'
+  | 'groq'
+  | 'fireworks'
+  | 'gemini'
+  | 'copilot'
+  | 'bedrock' {
   if (provider !== 'auto') return provider;
   if (isLocalOllama(baseUrl)) return 'ollama';
   if (isAnthropic(baseUrl)) return 'anthropic';

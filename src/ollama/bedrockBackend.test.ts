@@ -11,10 +11,14 @@ function chunkFrame(innerEvent: object): Buffer {
     const v = Buffer.from(value);
     const out = Buffer.alloc(1 + n.length + 1 + 2 + v.length);
     let o = 0;
-    out.writeUInt8(n.length, o); o += 1;
-    n.copy(out, o); o += n.length;
-    out.writeUInt8(7, o); o += 1;
-    out.writeUInt16BE(v.length, o); o += 2;
+    out.writeUInt8(n.length, o);
+    o += 1;
+    n.copy(out, o);
+    o += n.length;
+    out.writeUInt8(7, o);
+    o += 1;
+    out.writeUInt16BE(v.length, o);
+    o += 2;
     v.copy(out, o);
     return out;
   }
@@ -49,7 +53,10 @@ describe('BedrockBackend', () => {
     let captured: { url: string; init: RequestInit } | null = null;
     vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
       captured = { url, init };
-      return new Response(JSON.stringify({ content: [{ type: 'text', text: 'pong' }], usage: { input_tokens: 5, output_tokens: 1 } }), { status: 200 });
+      return new Response(
+        JSON.stringify({ content: [{ type: 'text', text: 'pong' }], usage: { input_tokens: 5, output_tokens: 1 } }),
+        { status: 200 },
+      );
     });
 
     const backend = new BedrockBackend('us-west-2', { credentials: CREDS });

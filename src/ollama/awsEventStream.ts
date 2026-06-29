@@ -79,9 +79,7 @@ export async function* streamBedrockChunks(
       const text = decoder.decode(payload);
       const obj = text ? (JSON.parse(text) as Record<string, unknown>) : {};
       if (headers[':message-type'] === 'exception' || headers[':exception-type']) {
-        throw new Error(
-          `Bedrock ${headers[':exception-type'] ?? 'exception'}: ${(obj.message as string) ?? text}`,
-        );
+        throw new Error(`Bedrock ${headers[':exception-type'] ?? 'exception'}: ${(obj.message as string) ?? text}`);
       }
       if (typeof obj.bytes === 'string') {
         yield JSON.parse(Buffer.from(obj.bytes, 'base64').toString('utf8'));
