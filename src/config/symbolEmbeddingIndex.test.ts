@@ -3,6 +3,15 @@ import { logger } from '../system/logger.js';
 import { SymbolEmbeddingIndex, makeSymbolId, type SymbolEmbedInput } from './symbolEmbeddingIndex.js';
 import { cosine } from './vectorStore.js';
 
+// Stub the shared HF pipeline so `initialize()` (which always kicks off
+// loadModel) never loads the real 23 MB ONNX model. Existing tests use
+// `setPipelineForTests` and never touch getSharedPipeline, so this is inert
+// for them; only the initialize() tests below exercise this path.
+vi.mock('./hfPipeline.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./hfPipeline.js')>();
+  return { ...actual, getSharedPipeline: vi.fn().mockResolvedValue(async () => ({ data: new Float32Array(384) })) };
+});
+
 /**
  * Tests exercise the storage + similarity primitive against a
  * deterministic fake pipeline. The real `@xenova/transformers`
@@ -586,6 +595,40 @@ describe('SymbolEmbeddingIndex', () => {
       // No symbols queued — flush is a no-op
       await index.flushQueueForTests();
       expect(drained).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('initialize() restore logging', () => {
+    function fakeStore(opts: { size: number; bytes: number }) {
+      return {
+        restore: vi.fn().mockResolvedValue(undefined),
+        size: () => opts.size,
+        getDiskBytes: vi.fn().mockResolvedValue(opts.bytes),
+      } as never;
+    }
+
+    it('warns when the on-disk cache has bytes but restore yields no vectors', async () => {
+      const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+      const idx = new SymbolEmbeddingIndex(null, fakeStore({ size: 0, bytes: 4096 }));
+
+      await idx.initialize();
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy.mock.calls[0][0]).toContain('restore yielded no vectors');
+      expect(warnSpy.mock.calls[0][0]).toContain('bytes=4096');
+      vi.restoreAllMocks();
+    });
+
+    it('logs an info line (no warn) when vectors restore normally', async () => {
+      const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+      const infoSpy = vi.spyOn(logger, 'info').mockImplementation(() => {});
+      const idx = new SymbolEmbeddingIndex(null, fakeStore({ size: 4230, bytes: 65536 }));
+
+      await idx.initialize();
+
+      expect(warnSpy).not.toHaveBeenCalled();
+      expect(infoSpy.mock.calls.some((c) => String(c[0]).includes('restored from cache vectors=4230'))).toBe(true);
+      vi.restoreAllMocks();
     });
   });
 });

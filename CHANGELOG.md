@@ -4,6 +4,16 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.114.47] - 2026-06-28
+
+### Added
+
+- **Observability pass so the supporting subsystems are debuggable from logs, not filesystem forensics.** Debugging the PKI under-indexing this cycle relied on `.bin`/`.json` mtimes and the one PKI log line that turned out to be lying. This makes the indexing/retrieval path and the previously-dark subsystems self-explanatory in the "SideCar" output channel, on three rules:
+  - **Log outcomes, not intentions.** PKI replay now logs the real counts (`[PKI] replay complete queued=4230 filesRead=… filesSkipped=… graphSymbols=5307`) and **warns** when it queues nothing despite a non-empty graph. Embedding drains/persists log `indexed`/`bytes`. The retriever logs which path served a query (symbol-level vs file-level fallback) with hit counts + top score at debug. (`src/config/symbolIndexer.ts`, `src/config/symbolEmbeddingIndex.ts`, `src/agent/retrieval/semanticRetriever.ts`, `src/activation/workspaceIndexer.ts`)
+  - **Surface surprising zeros.** `SymbolEmbeddingIndex.initialize` now **warns** when the on-disk cache has bytes but restore yields no vectors — the persist/restore round-trip failure that otherwise looks like "the index keeps resetting to 0 on reload."
+  - **Light up the dark subsystems at debug/trace** (previously 0 logger calls each, so verbosity couldn't be turned up): MCP tool dispatch (`callServerTool`), Shadow Workspace create/apply/dispose (keyed by shadow id), Facets per-layer + per-facet outcomes (id, ok, ms), and Deps scan summaries (manifests/outdated/vulnerable). (`src/agent/mcpManager.ts`, `src/agent/shadow/shadowWorkspace.ts`, `src/agent/facets/facetDispatcher.ts`, `src/deps/driftScanner.ts`)
+- **Shared log convention.** New `kv(fields)` formatter in `src/system/logger.ts` renders a greppable ` key=value` suffix (quoting whitespace, omitting `undefined`) so outcome logs are consistent and `grep "queued="`-able, plus a short per-activation `SESSION_ID` for correlating the two output channels. An activation banner logs `[SideCar] activating session=… version=…`. (`src/system/logger.ts`, `src/activation/baseSetup.ts`)
+
 ## [0.114.46] - 2026-06-28
 
 ### Fixed

@@ -15,6 +15,14 @@ import type { SymbolEmbeddingIndex } from './symbolEmbeddingIndex.js';
 const CACHE_FILE = 'cache/symbol-graph.json';
 const MAX_FILE_SIZE = 100 * 1024; // 100KB
 const MAX_JSON_SIZE = 50 * 1024 * 1024; // 50MB persistence limit
+
+/** Outcome of `replaySymbolsToEmbeddingIndex` — used to log real numbers (and
+ *  warn on a surprising zero) rather than the graph's symbol count. */
+export interface ReplayResult {
+  queued: number;
+  filesRead: number;
+  filesSkipped: number;
+}
 const CODE_EXTENSIONS = new Set([
   '.ts',
   '.tsx',
@@ -313,12 +321,14 @@ export class SymbolIndexer implements Disposable {
    * content is missing we read the file from disk so the embedding store gets
    * rebuilt across reloads, not just for files edited this session.
    */
-  async replaySymbolsToEmbeddingIndex(): Promise<number> {
+  async replaySymbolsToEmbeddingIndex(): Promise<ReplayResult> {
     const embeddings = this.symbolEmbeddings;
-    if (!embeddings) return 0;
+    if (!embeddings) return { queued: 0, filesRead: 0, filesSkipped: 0 };
     const cap = this.maxSymbolsPerFile;
     const rootUri = workspace.workspaceFolders?.[0]?.uri;
     let queued = 0;
+    let filesRead = 0;
+    let filesSkipped = 0;
     await Promise.allSettled(
       Array.from(this.graph.indexedFilePaths()).map(async (filePath) => {
         let content = this.graph.getFileContent(filePath);
@@ -326,12 +336,20 @@ export class SymbolIndexer implements Disposable {
           try {
             const bytes = await workspace.fs.readFile(Uri.joinPath(rootUri, filePath));
             content = Buffer.from(bytes).toString('utf-8');
-            if (content.length > MAX_FILE_SIZE) return;
+            if (content.length > MAX_FILE_SIZE) {
+              filesSkipped++;
+              return;
+            }
           } catch {
+            filesSkipped++;
             return;
           }
         }
-        if (!content) return;
+        if (!content) {
+          filesSkipped++;
+          return;
+        }
+        filesRead++;
         const symbols = this.graph.getSymbolsInFile(filePath);
         const limited = symbols.length > cap ? symbols.slice(0, cap) : symbols;
         const lines = content.split('\n');
@@ -354,7 +372,7 @@ export class SymbolIndexer implements Disposable {
         }
       }),
     );
-    return queued;
+    return { queued, filesRead, filesSkipped };
   }
 
   /** Queue a file removal (debounced). */

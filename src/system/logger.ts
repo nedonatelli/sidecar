@@ -44,6 +44,28 @@ function chan(): LogOutputChannel {
   return channel;
 }
 
+// Short per-activation id. VS Code already splits log files per window, so this
+// is for correlating the two channels (SideCar / SideCar Agent) and async
+// operations within one window — not cross-window disambiguation.
+export const SESSION_ID = crypto.randomUUID().slice(0, 6);
+
+/**
+ * Format a record of fields into a greppable ` key=value` suffix for log lines.
+ * Strings with spaces are quoted; everything else is rendered bare. Use to keep
+ * structured outcome logs consistent across subsystems:
+ *   logger.info(`[PKI] replay complete${kv({ queued, skipped })}`)
+ *   → "[PKI] replay complete queued=4230 skipped=12"
+ */
+export function kv(fields: Record<string, string | number | boolean | null | undefined>): string {
+  let out = '';
+  for (const [k, v] of Object.entries(fields)) {
+    if (v === undefined) continue;
+    const s = v === null ? 'null' : String(v);
+    out += ` ${k}=${/\s/.test(s) ? JSON.stringify(s) : s}`;
+  }
+  return out;
+}
+
 export const logger = {
   trace(message: string, ...args: unknown[]): void {
     chan().trace(message, ...args);

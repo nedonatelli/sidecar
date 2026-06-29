@@ -2,6 +2,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import type { DepEcosystem, DepResult, ManifestScanResult, ParsedDep } from './types.js';
 import { stripRange, semverGt } from './semver.js';
+import { logger, kv } from '../system/logger.js';
 import { parsePackageJson } from './parsers/packageJson.js';
 import { parseRequirements } from './parsers/requirements.js';
 import { parseCargoToml } from './parsers/cargoToml.js';
@@ -147,6 +148,15 @@ export class DriftScanner {
       results.push({ manifestPath, ecosystem, deps: depResults });
     }
 
+    const allDeps = results.flatMap((r) => r.deps);
+    logger.debug(
+      `[deps] scan complete${kv({
+        manifests: results.length,
+        deps: allDeps.length,
+        outdated: allDeps.filter((d) => d.isOutdated).length,
+        vulnerable: allDeps.filter((d) => d.vulnerabilities.length > 0).length,
+      })}`,
+    );
     return results;
   }
 

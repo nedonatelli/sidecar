@@ -1,5 +1,5 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { logger } from '../system/logger.js';
+import { logger, kv } from '../system/logger.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
@@ -558,7 +558,15 @@ export class MCPManager {
           `Available: ${this.getServerToolNames(serverName).join(', ') || '(none)'}`,
       );
     }
-    return tool.executor(input);
+    logger.debug(`[MCP] dispatch${kv({ server: serverName, tool: toolName })}`);
+    try {
+      const result = await tool.executor(input);
+      logger.debug(`[MCP] dispatch ok${kv({ server: serverName, tool: toolName, chars: result.length })}`);
+      return result;
+    } catch (err) {
+      logger.warn(`[MCP] dispatch failed${kv({ server: serverName, tool: toolName })}:`, err);
+      throw err;
+    }
   }
 
   async disconnect(): Promise<void> {

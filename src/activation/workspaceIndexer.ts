@@ -1,5 +1,5 @@
 import { window, workspace, ExtensionContext, StatusBarAlignment } from 'vscode';
-import { logger } from '../system/logger.js';
+import { logger, kv } from '../system/logger.js';
 import { getFilePatterns } from '../config/workspace.js';
 import { setSymbolGraph, setSymbolEmbeddings } from '../agent/tools.js';
 import type { WorkspaceIndex } from '../config/workspaceIndex.js';
@@ -142,10 +142,19 @@ export function initWorkspaceIndex(
             // short-circuit means indexSymbol won't fire for cached/unchanged
             // files, so this replay is the only thing that queues them.
             await symbolGraphReady;
-            const replayQueued = await symbolIndexer.replaySymbolsToEmbeddingIndex();
-            logger.info(
-              `[SideCar] PKI replay queued ${replayQueued} symbols (graph has ${symbolIndexer.getGraph().symbolCount()})`,
-            );
+            const replay = await symbolIndexer.replaySymbolsToEmbeddingIndex();
+            const graphSymbols = symbolIndexer.getGraph().symbolCount();
+            const replayFields = kv({
+              queued: replay.queued,
+              filesRead: replay.filesRead,
+              filesSkipped: replay.filesSkipped,
+              graphSymbols,
+            });
+            if (replay.queued === 0 && graphSymbols > 0) {
+              logger.warn(`[PKI] replay queued nothing despite a non-empty graph${replayFields}`);
+            } else {
+              logger.info(`[PKI] replay complete${replayFields}`);
+            }
           })
           .catch((err) => logger.warn('[SideCar] Symbol embedding index failed:', err?.message || err));
       }

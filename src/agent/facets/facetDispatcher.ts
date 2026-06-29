@@ -6,6 +6,7 @@ import type { FacetDefinition } from './facetLoader.js';
 import type { FacetRegistry } from './facetRegistry.js';
 import { FacetRpcBus, generateRpcTools, type RpcHandler, type RpcWireTraceEntry } from './facetRpcBus.js';
 import { runForEachWithCap } from '../parallelDispatch.js';
+import { logger, kv } from '../../system/logger.js';
 
 // ---------------------------------------------------------------------------
 // Facet dispatcher.
@@ -357,6 +358,8 @@ export async function dispatchFacets(
   };
   if (options.onBatchProgress) emitProgress();
 
+  logger.debug(`[facets] dispatch start${kv({ facets: resolved.length, layers: layersFiltered.length })}`);
+
   const resultsById = new Map<string, FacetDispatchResult>();
   for (const layer of layersFiltered) {
     if (options.signal.aborted) break;
@@ -376,6 +379,9 @@ export async function dispatchFacets(
           progressItems.set(facet.id, { id: facet.id, label: facet.displayName, status: r.success ? 'done' : 'error' });
           doneCount++;
           emitProgress();
+          logger.debug(
+            `[facets] facet done${kv({ id: facet.id, ok: r.success, ms: Date.now() - facetStartMs, chars: r.charsConsumed })}`,
+          );
         } catch (err) {
           // dispatchFacet has its own try/catch that converts errors to
           // { success: false } results, so this branch is defensive. If it

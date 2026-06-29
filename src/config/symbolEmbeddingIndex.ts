@@ -14,7 +14,7 @@
  */
 
 import { Disposable } from 'vscode';
-import { logger } from '../system/logger.js';
+import { logger, kv } from '../system/logger.js';
 import * as crypto from 'crypto';
 import type { SidecarDir } from './sidecarDir.js';
 import { FlatVectorStore, type VectorStore, type FlatStoreMeta } from './vectorStore.js';
@@ -210,6 +210,17 @@ export class SymbolEmbeddingIndex implements Disposable {
    */
   async initialize(): Promise<void> {
     await this.store.restore();
+    const restored = this.getCount();
+    const bytes = await this.getDiskBytes();
+    if (restored === 0 && bytes > 0) {
+      // The on-disk cache has data but nothing came back — a schema-version
+      // bump or a corrupt/half-written file. Surfaces the persist/restore
+      // round-trip failures that otherwise look like "the index keeps
+      // resetting to 0 on reload".
+      logger.warn(`[PKI] restore yielded no vectors despite on-disk cache${kv({ bytes })}`);
+    } else {
+      logger.info(`[PKI] restored from cache${kv({ vectors: restored, bytes })}`);
+    }
     this.modelLoading = this.loadModel();
     this.modelLoading.catch((err) => {
       logger.warn('[SideCar] Symbol embedding model failed to load:', err?.message || err);
@@ -485,6 +496,7 @@ export class SymbolEmbeddingIndex implements Disposable {
       }, delay);
     } else {
       this.lastUpdatedMs = Date.now();
+      logger.debug(`[PKI] embed drain complete${kv({ indexed: this.getCount() })}`);
       for (const cb of this.drainedListeners) cb();
     }
   }
@@ -713,6 +725,7 @@ export class SymbolEmbeddingIndex implements Disposable {
     if (!this.dirty) return;
     await this.store.persist();
     this.dirty = false;
+    logger.debug(`[PKI] persisted${kv({ symbols: this.getCount(), bytes: await this.getDiskBytes() })}`);
   }
 
   dispose(): void {
