@@ -4,6 +4,12 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.114.56] - 2026-06-29
+
+### Fixed
+
+- **Stop now interrupts context building, not just the agent loop.** The "Building context…" phase (model context-length probe, retrieval fusion, the query-rewrite LLM call, and external context-provider fetches) ran with no abort signal, so clicking Stop during it did nothing until the whole phase finished and the agent loop finally observed the abort. The run's `AbortController.signal` is now threaded through `buildSystemPromptForRun` → `injectSystemContext`, with `throwIfAborted()` checks at each step boundary and the signal bound into the query-rewrite `complete()` call so an in-flight rewrite is cancelled too. The thrown `AbortError` is already handled by `handleUserMessage` as a clean stop. (`src/webview/handlers/chatHandlers.ts`, `systemPrompt.ts`)
+
 ## [0.114.55] - 2026-06-29
 
 ### Fixed

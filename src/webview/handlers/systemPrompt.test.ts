@@ -141,6 +141,16 @@ describe('injectSystemContext', () => {
     (workspace as unknown as { isTrusted: boolean }).isTrusted = true;
   });
 
+  it('bails with AbortError when the signal is already aborted (Stop during context building)', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    let err: unknown;
+    await injectSystemContext('BASE', 200_000, makeState(), makeConfig(), 'hi', false, controller.signal).catch(
+      (e) => (err = e),
+    );
+    expect((err as Error | undefined)?.name).toBe('AbortError');
+  });
+
   it('adds an Untrusted Workspace warning and skips SIDECAR.md when the workspace is untrusted', async () => {
     (workspace as unknown as { isTrusted: boolean }).isTrusted = false;
     const state = makeState({ loadSidecarMd: vi.fn().mockResolvedValue('should-not-appear') });
