@@ -27,7 +27,8 @@ export interface BackendProfile {
     | 'groq'
     | 'fireworks'
     | 'gemini'
-    | 'copilot';
+    | 'copilot'
+    | 'bedrock';
   /** API base URL to bake into sidecar.baseUrl. */
   baseUrl: string;
   /** Default model to select when switching to this profile. */
@@ -114,6 +115,16 @@ export const BUILT_IN_BACKEND_PROFILES: readonly BackendProfile[] = [
     secretKey: null,
     description:
       'Self-hosted Kickstand LLM client backend — manage, load, and run GGUF and MLX models locally with GPU acceleration. No API key required; SideCar reads the auto-generated token automatically.',
+  },
+  {
+    id: 'bedrock',
+    name: 'AWS Bedrock',
+    provider: 'bedrock',
+    baseUrl: 'https://bedrock-runtime.us-east-1.amazonaws.com',
+    defaultModel: 'us.anthropic.claude-sonnet-4-20250514-v1:0',
+    secretKey: null,
+    description:
+      'AWS Bedrock for Claude models. No API key — uses your AWS credential chain (AWS_ACCESS_KEY_ID / ~/.aws/credentials). Set sidecar.bedrock.region and use a Bedrock model or inference-profile ID.',
   },
   {
     id: 'gemini',
@@ -277,8 +288,9 @@ export function detectProvider(
     | 'groq'
     | 'fireworks'
     | 'gemini'
-    | 'copilot',
-): 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks' | 'gemini' | 'copilot' {
+    | 'copilot'
+    | 'bedrock',
+): 'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks' | 'gemini' | 'copilot' | 'bedrock' {
   if (provider !== 'auto') return provider;
   if (isLocalOllama(baseUrl)) return 'ollama';
   if (isAnthropic(baseUrl)) return 'anthropic';
@@ -287,6 +299,7 @@ export function detectProvider(
   if (isGroq(baseUrl)) return 'groq';
   if (isFireworks(baseUrl)) return 'fireworks';
   if (isGemini(baseUrl)) return 'gemini';
+  if (/bedrock-runtime\.[a-z0-9-]+\.amazonaws\.com/i.test(baseUrl)) return 'bedrock';
   return 'openai';
 }
 
@@ -307,6 +320,8 @@ export function providerDisplayLabel(provider: ReturnType<typeof detectProvider>
       return 'Groq';
     case 'fireworks':
       return 'Fireworks';
+    case 'bedrock':
+      return 'AWS Bedrock';
     case 'gemini':
       return 'Gemini';
     case 'copilot':

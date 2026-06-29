@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-SideCar is a VS Code extension that turns local and cloud LLMs into a full agentic coding assistant. It supports Ollama, Anthropic, OpenAI-compatible servers, Kickstand, OpenRouter, Groq, and Fireworks as backends. The extension provides an agent loop with 80 built-in tools (file ops, shell, git, web search, vision, database, doc-to-test synthesis, PDF/Zotero, MCP, Notebook Mode research, dependency drift, code profiling, LaTeX compilation, CI failure analysis, research assistant, monorepo analysis), inline completions, code review, and a chat UI.
+SideCar is a VS Code extension that turns local and cloud LLMs into a full agentic coding assistant. It supports Ollama, Anthropic, AWS Bedrock, OpenAI-compatible servers, Kickstand, OpenRouter, Groq, Fireworks, Gemini, and GitHub Copilot as backends. The extension provides an agent loop with 80 built-in tools (file ops, shell, git, web search, vision, database, doc-to-test synthesis, PDF/Zotero, MCP, Notebook Mode research, dependency drift, code profiling, LaTeX compilation, CI failure analysis, research assistant, monorepo analysis), inline completions, code review, and a chat UI.
 
 ## Architecture diagrams (start here when onboarding)
 
@@ -58,12 +58,15 @@ All LLM communication goes through the `ApiBackend` interface (`backend.ts`):
 ApiBackend (interface)
 ├── OllamaBackend      — /api/chat, /api/generate (FIM)
 ├── AnthropicBackend   — /v1/messages with prompt caching
+├── BedrockBackend     — AWS Bedrock invoke (native Anthropic payload, SigV4 + event-stream)
 ├── OpenAIBackend      — /v1/chat/completions (generic OpenAI-compat)
 ├── KickstandBackend   — /v1/chat/completions + /api/v1/models/* management
 ├── OpenRouterBackend  — OpenAI-compat + catalog + referrer headers
 ├── GroqBackend        — OpenAI-compat
 └── FireworksBackend   — OpenAI-compat
 ```
+
+`BedrockBackend` reuses the Anthropic message/tool mapping and the shared `anthropicStreamTranslate.ts` (also used by `AnthropicBackend`); Bedrock-specific concerns are isolated in `awsSigV4.ts` (request signing, no AWS SDK), `awsEventStream.ts` (AWS event-stream frame decoding), and `awsCredentials.ts` (env / `~/.aws/credentials` resolution). Auth is the AWS credential chain, not an API key.
 
 `SideCarClient` (`client.ts`) wraps the active backend with retry (`retry.ts`), circuit breaker (`circuitBreaker.ts`), rate limiting (`rateLimitState.ts`), fallback backend switching, and model discovery across Ollama + Kickstand.
 

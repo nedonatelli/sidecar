@@ -2,7 +2,7 @@
   "name": "sidecar-ai",
   "displayName": "SideCar",
   "description": "Autonomous AI agent for coding — run full agent loops with local Ollama, Anthropic Claude, or OpenAI models",
-  "version": "0.114.48",
+  "version": "0.114.49",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -130,7 +130,8 @@
               "fireworks",
               "gemini",
               "kickstand",
-              "copilot"
+              "copilot",
+              "bedrock"
             ],
             "enumDescriptions": [
               "Detect from the base URL: localhost:11434 → Ollama, anthropic.com → Anthropic, openrouter.ai → OpenRouter, groq.com → Groq, fireworks.ai → Fireworks, generativelanguage.googleapis.com → Gemini, localhost:11435 → Kickstand, anything else → OpenAI-compatible.",
@@ -142,7 +143,8 @@
               "Fireworks (https://api.fireworks.ai/inference/v1). Hosts open-weight models like DeepSeek V3, Qwen 2.5 Coder, Llama 3.3, Mixtral at OpenAI-compatible pricing. Requires an API key from fireworks.ai.",
               "Google Gemini (https://generativelanguage.googleapis.com/openai). Gemini 2.0 Flash, Pro, and Ultra via the OpenAI-compatible endpoint. Requires an API key from aistudio.google.com/apikey.",
               "Kickstand self-hosted LLM server (http://localhost:11435). Reads its bearer token automatically from `~/.config/kickstand/token`. No API key prompt shown.",
-              "GitHub Copilot via `vscode.lm`. Uses your existing GitHub Copilot subscription — no separate API key required. Requires the GitHub Copilot extension to be installed and signed in."
+              "GitHub Copilot via `vscode.lm`. Uses your existing GitHub Copilot subscription — no separate API key required. Requires the GitHub Copilot extension to be installed and signed in.",
+              "AWS Bedrock for Claude models (bedrock-runtime.<region>.amazonaws.com). No API key — uses the AWS credential chain (env vars or ~/.aws/credentials). Set `sidecar.bedrock.region` and use a Bedrock model / inference-profile ID."
             ],
             "default": "auto",
             "order": 3,
@@ -151,6 +153,16 @@
               "backend"
             ],
             "markdownDescription": "Which backend adapter to use when talking to the LLM. Leave as `auto` unless you're running an OpenAI-compatible server at a non-standard URL that the auto-detector can't recognize."
+          },
+          "sidecar.bedrock.region": {
+            "type": "string",
+            "default": "us-east-1",
+            "order": 4,
+            "tags": [
+              "sidecar",
+              "backend"
+            ],
+            "markdownDescription": "AWS region for the Bedrock backend (e.g. `us-east-1`, `us-west-2`, `eu-central-1`). The Bedrock Runtime endpoint is derived as `bedrock-runtime.<region>.amazonaws.com`. Credentials come from the standard AWS chain (env vars or `~/.aws/credentials`); no API key prompt is shown."
           },
           "sidecar.fallbackBaseUrl": {
             "type": "string",

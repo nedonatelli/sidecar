@@ -46,13 +46,16 @@ export async function isProviderReachable(
     | 'groq'
     | 'fireworks'
     | 'gemini'
-    | 'copilot',
+    | 'copilot'
+    | 'bedrock',
   config?: SideCarConfig,
 ): Promise<boolean> {
   // Copilot uses vscode.lm — reachability is determined by whether the extension
   // is installed and the user is signed in, which is not checkable via HTTP.
+  // Bedrock requires SigV4 signing on every call (no cheap unauthenticated
+  // probe), so likewise defer reachability to the first model request.
   // Always return true and let the first model request surface any real error.
-  if (providerType === 'copilot') return true;
+  if (providerType === 'copilot' || providerType === 'bedrock') return true;
 
   const cfg = config || getConfig();
   try {

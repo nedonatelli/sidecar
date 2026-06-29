@@ -120,11 +120,12 @@ describe('package.json contributes.configuration — 13-category layout', () => 
     // + wiring audit 3: -2 dead projectKnowledge.maxGraphHits (shadowed by retrieval.graphExpansion.maxHits),
     //                      notebookMode.sources.slides (feature not implemented).
     // + v0.114.48 whatsNew.enabled (+1: "What's New on update" auto-prompt toggle).
+    // + v0.114.49 bedrock.region (+1: AWS Bedrock backend region).
     // Adding a setting requires bumping this + adding it to one of
     // the sections.
     const cfg = loadConfiguration();
     const totalKeys = cfg.reduce((sum, s) => sum + Object.keys(s.properties).length, 0);
-    expect(totalKeys).toBe(222);
+    expect(totalKeys).toBe(223);
   });
 
   it('no setting key is duplicated across sections', () => {

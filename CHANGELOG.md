@@ -4,6 +4,12 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.114.49] - 2026-06-29
+
+### Added
+
+- **AWS Bedrock backend for Claude models.** Bedrock accepts the native Anthropic Messages payload, so this reuses SideCar's Anthropic message/tool mapping, output-token clamp, and a newly-extracted shared stream-event translator — the only Bedrock-specific parts are **SigV4 request signing** and the **AWS event-stream** response framing, both hand-rolled (no AWS SDK dependency) and unit-tested: the signer reproduces AWS's published `get-vanilla` vector exactly, and the event-stream decoder is verified against hand-built frames (including split-across-reads reassembly and exception frames). Auth uses the standard AWS credential chain (env vars → `~/.aws/credentials`), not an API key — so the profile's `secretKey` is null like Kickstand. Select via `sidecar.provider: "bedrock"` + `sidecar.bedrock.region` (default `us-east-1`), with a model or inference-profile ID (e.g. `us.anthropic.claude-sonnet-4-20250514-v1:0`). Prompt caching is intentionally not sent yet (Bedrock gates `cache_control` per-account). New: `src/ollama/bedrockBackend.ts`, `awsSigV4.ts`, `awsEventStream.ts`, `awsCredentials.ts`, `anthropicStreamTranslate.ts`; threaded through the provider unions, `detectProvider`, the backend profiles, and the settings schema. The Anthropic backend was refactored to share the stream-event translator (its 30 tests still pass). See [docs/backends.md](docs/backends.md#aws-bedrock).
+
 ## [0.114.48] - 2026-06-29
 
 ### Fixed

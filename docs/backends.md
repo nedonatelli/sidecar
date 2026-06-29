@@ -374,6 +374,45 @@ Kickstand supports capabilities not available in standard Ollama or vLLM setups.
 
 ---
 
+## AWS Bedrock
+
+Run Claude models through AWS Bedrock. Bedrock accepts the native Anthropic Messages format, so tool use, thinking, and streaming all work the same as the direct Anthropic backend — the difference is auth (AWS SigV4) and that the model lives in the URL.
+
+### Credentials
+
+No API key prompt. SideCar uses the standard AWS credential chain, in order:
+
+1. Environment: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN` (for temporary creds).
+2. The shared credentials file `~/.aws/credentials` for the active profile (`AWS_PROFILE`, default `default`).
+
+> SSO / role-assumption / IMDS are not resolved natively — export static keys (e.g. via `aws sso login` + `aws configure export-credentials`, or your own tooling) into the environment.
+
+### Configuration
+
+```json
+"sidecar.provider": "bedrock",
+"sidecar.bedrock.region": "us-east-1",
+"sidecar.model": "us.anthropic.claude-sonnet-4-20250514-v1:0"
+```
+
+The Bedrock Runtime endpoint is derived as `bedrock-runtime.<region>.amazonaws.com`. The `⚙ gear → AWS Bedrock` profile sets `provider`, a default region, and a default model for you.
+
+### Models
+
+Use a Bedrock **model ID** or **inference-profile ID**, e.g.:
+
+| Model | ID |
+|-------|----|
+| Claude Sonnet 4 (cross-region profile) | `us.anthropic.claude-sonnet-4-20250514-v1:0` |
+| Claude 3.5 Sonnet v2 | `anthropic.claude-3-5-sonnet-20241022-v2:0` |
+| Claude 3.5 Haiku | `anthropic.claude-3-5-haiku-20241022-v1:0` |
+
+Make sure the model is **enabled in your Bedrock account** for the chosen region (Bedrock console → Model access), or requests return an access error.
+
+> Prompt caching (`cache_control`) is not sent on the Bedrock path yet — Bedrock gates it per-account — so you won't see the ~90% cache discount that the direct Anthropic backend gives.
+
+---
+
 ## Google Gemini
 
 SideCar uses Google's OpenAI-compatible endpoint at `generativelanguage.googleapis.com`. The standard OpenAI SSE stream parser handles all Gemini responses — no special protocol handling is required.

@@ -75,7 +75,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 ### What sets SideCar apart
 
 - **True agentic autonomy** — reads code, edits files, runs tests, and iterates until the task is done across cautious / autonomous / manual / plan / review / audit modes.
-- **No vendor lock-in** — Ollama, Anthropic, OpenAI-compatible (LM Studio, vLLM, OpenRouter), Kickstand, or GGUF directly from HuggingFace.
+- **No vendor lock-in** — Ollama, Anthropic, AWS Bedrock, OpenAI-compatible (LM Studio, vLLM, OpenRouter), Kickstand, or GGUF directly from HuggingFace.
 - **Feels first-party** — status bar health indicator, native error toasts, lightbulb code actions, Problems panel integration, file decorations, activity-bar badge, and a `SideCar:` command palette category.
 - **Hybrid cost-aware** — Anthropic prompt caching + 90%-reduction prompt pruner + `delegate_task` to a local Ollama worker + session spend tracker + daily/weekly budgets + architect/editor model split (`sidecar.editorModel`) that auto-routes execution turns to a faster/cheaper model.
 - **Security from the ground up** — OS keychain key storage, secrets detection, vuln scanning, path traversal protection, workspace hook warnings, macOS Seatbelt sandbox for agent shell commands.

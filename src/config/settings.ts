@@ -69,7 +69,9 @@ export interface SideCarConfig {
     | 'groq'
     | 'fireworks'
     | 'gemini'
-    | 'copilot';
+    | 'copilot'
+    | 'bedrock';
+  bedrockRegion: string;
   systemPrompt: string;
   baseUrl: string;
   apiKey: string;
@@ -393,6 +395,7 @@ function readConfig(): SideCarConfig {
     | 'fireworks'
     | 'gemini'
     | 'copilot'
+    | 'bedrock'
   >('provider', 'auto');
   const rawBaseUrl = cfg.get<string>('baseUrl', 'http://localhost:11434') || 'http://localhost:11434';
   // Provider-aware default: if the user switched provider to Anthropic but left
@@ -408,6 +411,7 @@ function readConfig(): SideCarConfig {
     webSearchProvider: cfg.get<'duckduckgo' | 'tavily' | 'brave'>('webSearch.provider', 'duckduckgo'),
     webSearchApiKey: cfg.get<string>('webSearch.apiKey', ''),
     provider: rawProvider,
+    bedrockRegion: cfg.get<string>('bedrock.region', 'us-east-1') || 'us-east-1',
     systemPrompt: cfg.get<string>('systemPrompt', ''),
     baseUrl: rawBaseUrl,
     apiKey: getCachedApiKey() ?? cfg.get<string>('apiKey', 'ollama'),

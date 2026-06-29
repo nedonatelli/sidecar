@@ -10,6 +10,7 @@ import { GroqBackend } from './groqBackend.js';
 import { FireworksBackend } from './fireworksBackend.js';
 import { GeminiBackend } from './geminiBackend.js';
 import { CopilotBackend } from './copilotBackend.js';
+import { BedrockBackend } from './bedrockBackend.js';
 import { isLocalOllama, detectProvider, getConfig } from '../config/settings.js';
 import { MODEL_CONTEXT_LENGTHS } from '../config/constants.js';
 import { RateLimitStore } from './rateLimitState.js';
@@ -176,7 +177,7 @@ export class SideCarClient {
   // providers (update() keeps old values when new ones are absent),
   // leaking one provider's remaining-token counts into another's view.
   private rateLimitsByProvider = new Map<
-    'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks' | 'gemini' | 'copilot',
+    'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks' | 'gemini' | 'copilot' | 'bedrock',
     RateLimitStore
   >();
 
@@ -226,6 +227,8 @@ export class SideCarClient {
         return new GeminiBackend(this.baseUrl, this.apiKey, this.rateLimitsFor('gemini'));
       case 'copilot':
         return new CopilotBackend();
+      case 'bedrock':
+        return new BedrockBackend(getConfig().bedrockRegion, undefined, this.rateLimitsFor('bedrock'));
       case 'openai':
         return new OpenAIBackend(this.baseUrl, this.apiKey, this.rateLimitsFor('openai'));
     }
@@ -241,7 +244,8 @@ export class SideCarClient {
       | 'groq'
       | 'fireworks'
       | 'gemini'
-      | 'copilot',
+      | 'copilot'
+      | 'bedrock',
   ): RateLimitStore {
     let store = this.rateLimitsByProvider.get(provider);
     if (!store) {
@@ -814,7 +818,8 @@ export class SideCarClient {
     | 'groq'
     | 'fireworks'
     | 'gemini'
-    | 'copilot' {
+    | 'copilot'
+    | 'bedrock' {
     return detectProvider(this.baseUrl, getConfig().provider);
   }
 

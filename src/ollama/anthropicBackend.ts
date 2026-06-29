@@ -4,7 +4,6 @@ import type {
   ChatMessage,
   ContentBlock,
   ToolDefinition,
-  ToolUseContentBlock,
   AnthropicResponse,
   AnthropicStreamEvent,
   StreamEvent,
@@ -14,6 +13,7 @@ import { abortableRead } from './streamUtils.js';
 import { RateLimitStore } from './rateLimitState.js';
 import { parseAnthropicRateLimitHeaders } from './rateLimitHeaders.js';
 import { sidecarFetch } from './sidecarFetch.js';
+import { translateAnthropicStream } from './anthropicStreamTranslate.js';
 import { spendTracker } from './spendTracker.js';
 import { prunePrompt, formatPruneStats } from './promptPruner.js';
 import { charsToTokens } from '../config/tokenEstimation.js';
@@ -53,7 +53,7 @@ const ANTHROPIC_MAX_OUTPUT_TOKENS: Record<string, number> = {
   'claude-3-haiku': 4_096,
 };
 
-function maxOutputTokensForModel(model: string): number {
+export function maxOutputTokensForModel(model: string): number {
   const lower = model.toLowerCase();
   const match = Object.keys(ANTHROPIC_MAX_OUTPUT_TOKENS)
     .sort((a, b) => b.length - a.length)
@@ -61,7 +61,7 @@ function maxOutputTokensForModel(model: string): number {
   return match ? ANTHROPIC_MAX_OUTPUT_TOKENS[match] : 64_000;
 }
 
-function supportsTemperature(model: string): boolean {
+export function supportsTemperature(model: string): boolean {
   const lower = model.toLowerCase();
   return TEMPERATURE_SUPPORTED_PREFIXES.some((prefix) => lower.startsWith(prefix));
 }
@@ -268,132 +268,39 @@ export class AnthropicBackend implements ApiBackend {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
 
-    let currentToolUse: { id: string; name: string; inputJson: string } | null = null;
-    let currentThinking = false;
-    let accInputTokens = 0;
-    let accOutputTokens = 0;
-    let accCacheCreate = 0;
-    let accCacheRead = 0;
-
-    try {
-      let buffer = '';
-      while (true) {
-        const { done, value } = await abortableRead(reader, signal);
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          const data = line.slice(6).trim();
-          if (!data) continue;
-
-          let event: AnthropicStreamEvent;
-          try {
-            event = JSON.parse(data) as AnthropicStreamEvent;
-          } catch {
-            continue;
-          }
-
-          switch (event.type) {
-            case 'message_start':
-              if (event.message?.usage) {
-                accInputTokens += event.message.usage.input_tokens ?? 0;
-                accOutputTokens += event.message.usage.output_tokens ?? 0;
-                accCacheCreate += event.message.usage.cache_creation_input_tokens ?? 0;
-                accCacheRead += event.message.usage.cache_read_input_tokens ?? 0;
-              }
-              break;
-
-            case 'content_block_start':
-              if (event.content_block?.type === 'tool_use') {
-                currentToolUse = {
-                  id: event.content_block.id || '',
-                  name: event.content_block.name || '',
-                  inputJson: '',
-                };
-              } else if (event.content_block?.type === 'thinking') {
-                currentThinking = true;
-              }
-              break;
-
-            case 'content_block_delta':
-              if (!event.delta) break;
-              if (event.delta.type === 'text_delta' && event.delta.text) {
-                yield { type: 'text', text: event.delta.text };
-              } else if (event.delta.type === 'thinking_delta' && event.delta.thinking && currentThinking) {
-                yield { type: 'thinking', thinking: event.delta.thinking };
-              } else if (event.delta.type === 'input_json_delta' && event.delta.partial_json && currentToolUse) {
-                currentToolUse.inputJson += event.delta.partial_json;
-              }
-              break;
-
-            case 'content_block_stop':
-              currentThinking = false;
-              if (currentToolUse) {
-                let input: Record<string, unknown> = {};
-                let malformedRaw: string | undefined;
-                try {
-                  input = JSON.parse(currentToolUse.inputJson || '{}');
-                } catch {
-                  // Malformed JSON — surface the raw text to the executor
-                  // so it can return a descriptive error instead of
-                  // silently calling the tool with `{}`.
-                  malformedRaw = currentToolUse.inputJson;
-                }
-                const toolUse: ToolUseContentBlock = {
-                  type: 'tool_use',
-                  id: currentToolUse.id,
-                  name: currentToolUse.name,
-                  input,
-                  ...(malformedRaw !== undefined ? { _malformedInputRaw: malformedRaw } : {}),
-                };
-                yield { type: 'tool_use', toolUse };
-                currentToolUse = null;
-              }
-              break;
-
-            case 'message_delta':
-              if (event.usage) {
-                // message_delta.usage.output_tokens is the cumulative total
-                // for the message, not an incremental delta — set, not add.
-                accOutputTokens = event.usage.output_tokens ?? accOutputTokens;
-              }
-              if (event.delta?.stop_reason) {
-                yield { type: 'stop', stopReason: event.delta.stop_reason };
-              }
-              break;
-
-            case 'message_stop':
-              yield {
-                type: 'usage',
-                model,
-                usage: {
-                  inputTokens: accInputTokens,
-                  outputTokens: accOutputTokens,
-                  cacheCreationInputTokens: accCacheCreate,
-                  cacheReadInputTokens: accCacheRead,
-                },
-              };
-              break;
-
-            case 'error':
-              if (event.error) {
-                throw new Error(event.error.message);
-              }
-              break;
+    // Parse the SSE byte stream into raw Anthropic events; the shared
+    // translator turns those into SideCar StreamEvents. Bedrock reuses the
+    // same translator over its (base64-unwrapped) event-stream frames.
+    async function* parseSse(): AsyncGenerator<AnthropicStreamEvent> {
+      try {
+        let buffer = '';
+        while (true) {
+          const { done, value } = await abortableRead(reader, signal);
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const data = line.slice(6).trim();
+            if (!data) continue;
+            try {
+              yield JSON.parse(data) as AnthropicStreamEvent;
+            } catch {
+              continue;
+            }
           }
         }
-      }
-    } finally {
-      try {
-        reader.cancel().catch(() => {});
-      } catch {
-        reader.releaseLock();
+      } finally {
+        try {
+          reader.cancel().catch(() => {});
+        } catch {
+          reader.releaseLock();
+        }
       }
     }
+
+    yield* translateAnthropicStream(parseSse(), model);
   }
 
   async complete(
