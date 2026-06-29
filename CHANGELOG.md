@@ -4,6 +4,12 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.114.52] - 2026-06-29
+
+### Added
+
+- **Bedrock region picker — no settings.json edit needed.** A new `SideCar: Bedrock: Set Region` command opens a QuickPick of common Bedrock regions (plus a validated custom entry) and writes `sidecar.bedrock.region`. Switching to the Bedrock profile via `sidecar.switchBackend` (the ⚙ gear in chat) now prompts for the region inline, so the whole Bedrock setup — provider, model, key, region — is doable from the chat window. The reusable `promptBedrockRegion()` is unit-tested. (`src/commands/settingsCommands.ts`)
+
 ## [0.114.51] - 2026-06-29
 
 ### Added

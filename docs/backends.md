@@ -395,7 +395,13 @@ No API key prompt. SideCar uses the standard AWS credential chain, in order:
 "sidecar.model": "us.anthropic.claude-sonnet-4-20250514-v1:0"
 ```
 
-The Bedrock Runtime endpoint is derived as `bedrock-runtime.<region>.amazonaws.com`. The `⚙ gear → AWS Bedrock` profile sets `provider`, a default region, and a default model for you.
+The Bedrock Runtime endpoint is derived as `bedrock-runtime.<region>.amazonaws.com`. Switching to the **AWS Bedrock** profile from the ⚙ gear in chat sets `provider` + a default model and then prompts you to pick the region — or run **SideCar: Bedrock: Set Region** any time. So the whole setup (provider, model, key, region) is doable without editing `settings.json`.
+
+**AWS GovCloud** is supported: choose `us-gov-west-1` / `us-gov-east-1` in the region picker (or type any region in the custom entry). The endpoint resolves to `bedrock-runtime.us-gov-west-1.amazonaws.com`, and SigV4/bearer auth and the Anthropic payload are identical to commercial regions — just make sure your Bedrock model access and credentials are in the GovCloud partition.
+
+### Auth
+
+No API key prompt for IAM, but Bedrock also supports a single **Bedrock API key** (bearer token). SideCar uses, in order: a stored key (`SideCar: Set / Refresh API Key`) or `AWS_BEARER_TOKEN_BEDROCK` → `Authorization: Bearer`; otherwise SigV4 with IAM credentials.
 
 ### Models
 

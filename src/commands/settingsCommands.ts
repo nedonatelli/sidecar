@@ -15,6 +15,63 @@ import { registerNoSqlMcpCommands } from './noSqlMcpCommands.js';
 import type { ChatViewProvider } from '../webview/chatView.js';
 import type { SkillLoader } from '../agent/skillLoader.js';
 
+/** Common AWS regions where Bedrock + Claude models are available. */
+const BEDROCK_REGIONS: { region: string; label: string }[] = [
+  { region: 'us-east-1', label: 'us-east-1 — N. Virginia' },
+  { region: 'us-east-2', label: 'us-east-2 — Ohio' },
+  { region: 'us-west-2', label: 'us-west-2 — Oregon' },
+  { region: 'eu-central-1', label: 'eu-central-1 — Frankfurt' },
+  { region: 'eu-west-1', label: 'eu-west-1 — Ireland' },
+  { region: 'eu-west-3', label: 'eu-west-3 — Paris' },
+  { region: 'ap-northeast-1', label: 'ap-northeast-1 — Tokyo' },
+  { region: 'ap-southeast-1', label: 'ap-southeast-1 — Singapore' },
+  { region: 'ap-southeast-2', label: 'ap-southeast-2 — Sydney' },
+  { region: 'ap-south-1', label: 'ap-south-1 — Mumbai' },
+  { region: 'us-gov-west-1', label: 'us-gov-west-1 — AWS GovCloud (US-West)' },
+  { region: 'us-gov-east-1', label: 'us-gov-east-1 — AWS GovCloud (US-East)' },
+];
+
+// AWS region ids: 2-letter group, one or more hyphenated word segments
+// (covers GovCloud `us-gov-west-1` and China `cn-north-1`), then a number.
+export const AWS_REGION_RE = /^[a-z]{2}(-[a-z]+)+-\d+$/;
+
+/**
+ * Prompt for the AWS Bedrock region (QuickPick of common regions + a custom
+ * entry) and persist it to `sidecar.bedrock.region`. Returns the chosen region,
+ * or undefined if cancelled. Shared by the standalone command and the
+ * Bedrock profile-switch flow.
+ */
+export async function promptBedrockRegion(): Promise<string | undefined> {
+  const current = getConfig().bedrockRegion;
+  const CUSTOM = '__custom__';
+  const items = BEDROCK_REGIONS.map((r) => ({
+    label: r.label,
+    description: r.region === current ? '(current)' : undefined,
+    region: r.region,
+  }));
+  items.push({ label: 'Custom…', description: 'Enter another AWS region', region: CUSTOM });
+
+  const pick = await window.showQuickPick(items, { title: 'Bedrock region', placeHolder: `Current: ${current}` });
+  if (!pick) return undefined;
+
+  let region = pick.region;
+  if (region === CUSTOM) {
+    const typed = await window.showInputBox({
+      title: 'Bedrock region',
+      prompt: 'AWS region id (e.g. us-east-1)',
+      value: current,
+      validateInput: (v) =>
+        AWS_REGION_RE.test(v.trim()) ? undefined : 'Expected an AWS region like us-east-1 or us-gov-west-1',
+    });
+    if (!typed) return undefined;
+    region = typed.trim();
+  }
+
+  await workspace.getConfiguration('sidecar').update('bedrock.region', region, true);
+  window.showInformationMessage(`SideCar: Bedrock region set to ${region}.`);
+  return region;
+}
+
 export interface SettingsCommandDeps {
   getChatProvider: () => ChatViewProvider | undefined;
   getSkillLoader: () => SkillLoader | undefined;
@@ -125,6 +182,7 @@ export function registerSettingsCommands(context: ExtensionContext, deps: Settin
       await setHuggingFaceToken(trimmed);
       window.showInformationMessage('HuggingFace token saved to SecretStorage.');
     }),
+    commands.registerCommand('sidecar.bedrock.setRegion', () => promptBedrockRegion()),
     commands.registerCommand('sidecar.switchBackend', async (profileId?: unknown) => {
       const { BUILT_IN_BACKEND_PROFILES, applyBackendProfile } = await import('../config/settings.js');
       const requestedId = typeof profileId === 'string' ? profileId : undefined;
@@ -158,6 +216,12 @@ export function registerSettingsCommands(context: ExtensionContext, deps: Settin
         void window.withProgress({ location: { viewId: 'sidecar.chatView' }, title: 'Starting Ollama...' }, () =>
           ensureOllamaRunning(profile!.baseUrl),
         );
+      }
+
+      // Bedrock's region isn't part of the profile — offer to pick it right
+      // after switching so the whole flow stays in the chat.
+      if (profile.provider === 'bedrock') {
+        await promptBedrockRegion();
       }
 
       const chatProvider = getChatProvider();
