@@ -37,7 +37,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 | Test Explorer integration | **Yes** | No | No | No |
 | CodeLens Explain/Add tests/Refactor/Fix on functions & TODOs | **Yes** | Partial | No | No |
 | Native lightbulb code actions | **Yes** | Partial | No | No |
-| Built-in skills (8) | **Yes** | Yes | No | No |
+| Built-in skills (11) | **Yes** | Yes | No | No |
 | Tree-sitter AST parsing | **Yes** | Yes | No | No |
 | Codebase indexing | **Yes** | Yes | No | No |
 | Spending budgets | **Yes** | No | No | No |
@@ -46,6 +46,21 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 | Getting-started walkthrough | **Yes** | No | No | No |
 | Conversation steering (type while processing) | **Yes** | No | No | No |
 | Free & open-source | Yes | Yes | Yes | Yes |
+
+### vs. Cline (closest open-source agent)
+
+SideCar and [Cline](https://cline.bot) are the two closest free, open-source, agentic VS Code coding agents. Much of the surface is **parity** — both run local models fully offline, support MCP, ship a project rules file (`SIDECAR.md` ↔ `.clinerules`) and built-in skills, do browser automation, track per-task cost, and reach Anthropic / OpenAI / AWS Bedrock and many other providers. The honest differences (verified June 2026):
+
+**Where SideCar differs**
+
+- **Inline completions** — SideCar has Copilot-style FIM autocomplete; Cline is agent-only (its own users typically run Copilot alongside it for completions).
+- **Local-model scaffolding harness** — capability-adaptive gates and reprompt budgets (Verify / Adapt / Orchestrate / Measure) that make *weaker* local models usable, with an ablation harness to keep only the scaffolds that earn their latency. Cline assumes a capable model.
+- **Parallelism & write-isolation infra** — shadow workspaces (ephemeral git worktree), audit mode (in-memory write buffer), fork & parallel solve (N attempts, pick-the-winner), typed sub-agent facets, and the model arena. Cline's model is single-track Plan/Act with per-action approval.
+
+**Where Cline is ahead**
+
+- **Reach** — runs in VS Code, JetBrains, Cursor, Windsurf, Zed, and Neovim, plus a CLI and SDK; SideCar is VS Code-only.
+- **Providers & ecosystem** — 30+ providers (vs SideCar's ~10), a far larger community, an MCP marketplace, a plugin/skill marketplace, and an optional managed pay-as-you-go provider.
 
 ### vs. Pro Tools
 
