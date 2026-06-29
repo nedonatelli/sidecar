@@ -228,7 +228,11 @@ export class SideCarClient {
       case 'copilot':
         return new CopilotBackend();
       case 'bedrock':
-        return new BedrockBackend(getConfig().bedrockRegion, undefined, this.rateLimitsFor('bedrock'));
+        return new BedrockBackend(
+          getConfig().bedrockRegion,
+          { bearerToken: this.apiKey },
+          this.rateLimitsFor('bedrock'),
+        );
       case 'openai':
         return new OpenAIBackend(this.baseUrl, this.apiKey, this.rateLimitsFor('openai'));
     }

@@ -52,7 +52,7 @@ describe('BedrockBackend', () => {
       return new Response(JSON.stringify({ content: [{ type: 'text', text: 'pong' }], usage: { input_tokens: 5, output_tokens: 1 } }), { status: 200 });
     });
 
-    const backend = new BedrockBackend('us-west-2', CREDS);
+    const backend = new BedrockBackend('us-west-2', { credentials: CREDS });
     const text = await backend.complete('anthropic.claude-3-5-sonnet-20241022-v2:0', 'sys', messages, 64);
 
     expect(text).toBe('pong');
@@ -66,6 +66,34 @@ describe('BedrockBackend', () => {
     expect(body.system).toBe('sys');
   });
 
+  it('uses Bearer auth (a Bedrock API key) instead of SigV4 when a token is set, encoding the model path', async () => {
+    let captured: { url: string; init: RequestInit } | null = null;
+    vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+      captured = { url, init };
+      return new Response(JSON.stringify({ content: [{ type: 'text', text: 'ok' }] }), { status: 200 });
+    });
+
+    const backend = new BedrockBackend('us-east-1', { bearerToken: 'BEDROCK-API-KEY-123' });
+    await backend.complete('us.anthropic.claude-sonnet-4-20250514-v1:0', 'sys', messages, 32);
+
+    const headers = captured!.init.headers as Record<string, string>;
+    expect(headers.Authorization).toBe('Bearer BEDROCK-API-KEY-123');
+    expect(headers.Authorization).not.toMatch(/AWS4-HMAC-SHA256/);
+    // model id colon is percent-encoded in the URL, same as the signed path
+    expect(captured!.url).toContain('/model/us.anthropic.claude-sonnet-4-20250514-v1%3A0/invoke');
+  });
+
+  it('placeholder apiKey "ollama" is ignored (falls through to SigV4)', async () => {
+    let captured: { init: RequestInit } | null = null;
+    vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
+      captured = { init };
+      return new Response(JSON.stringify({ content: [{ type: 'text', text: 'ok' }] }), { status: 200 });
+    });
+    const backend = new BedrockBackend('us-east-1', { bearerToken: 'ollama', credentials: CREDS });
+    await backend.complete('m', 'sys', messages, 16);
+    expect((captured!.init.headers as Record<string, string>).Authorization).toMatch(/^AWS4-HMAC-SHA256 /);
+  });
+
   it('streamChat() decodes event-stream frames into StreamEvents', async () => {
     vi.stubGlobal('fetch', async () =>
       streamResponse([
@@ -75,7 +103,7 @@ describe('BedrockBackend', () => {
       ]),
     );
 
-    const backend = new BedrockBackend('us-east-1', CREDS);
+    const backend = new BedrockBackend('us-east-1', { credentials: CREDS });
     const events = [];
     for await (const ev of backend.streamChat('us.anthropic.claude-sonnet-4-20250514-v1:0', 'sys', messages)) {
       events.push(ev);

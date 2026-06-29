@@ -10,7 +10,7 @@ import { prunePrompt, formatPruneStats } from './promptPruner.js';
 import { charsToTokens } from '../config/tokenEstimation.js';
 import { maxOutputTokensForModel, supportsTemperature } from './anthropicBackend.js';
 import { translateAnthropicStream } from './anthropicStreamTranslate.js';
-import { signRequest, type AwsCredentials } from './awsSigV4.js';
+import { signRequest, canonicalizePath, type AwsCredentials } from './awsSigV4.js';
 import { resolveAwsCredentials } from './awsCredentials.js';
 import { streamBedrockChunks } from './awsEventStream.js';
 
@@ -22,21 +22,26 @@ import { streamBedrockChunks } from './awsEventStream.js';
  * only Bedrock-specific parts are SigV4 request signing and the AWS event-stream
  * response framing.
  *
- * Auth uses the standard AWS credential resolution (env vars, then
- * `~/.aws/credentials`), not a SideCar API key — so the provider profile's
- * `secretKey` is null, like Kickstand. Model IDs are Bedrock model / inference-
- * profile IDs, e.g. `anthropic.claude-3-5-sonnet-20241022-v2:0` or
- * `us.anthropic.claude-sonnet-4-20250514-v1:0`.
+ * Auth has two paths: a **Bedrock API key** (bearer token) — from the SideCar-
+ * stored key or `AWS_BEARER_TOKEN_BEDROCK` — takes precedence and sends
+ * `Authorization: Bearer <key>`; otherwise it falls back to **SigV4 signing**
+ * with IAM credentials (env vars, then `~/.aws/credentials`). Model IDs are
+ * Bedrock model / inference-profile IDs, e.g. `anthropic.claude-3-5-sonnet-
+ * 20241022-v2:0` or `us.anthropic.claude-sonnet-4-20250514-v1:0`.
  *
  * Prompt caching (`cache_control`) is intentionally NOT sent here — Bedrock
  * gates it per-account and rejects unknown fields, so v1 sends plain blocks.
  */
 export class BedrockBackend implements ApiBackend {
+  private rateLimits: RateLimitStore;
+
   constructor(
     private region: string,
-    private credentialsOverride?: AwsCredentials,
-    private rateLimits: RateLimitStore = new RateLimitStore(),
-  ) {}
+    private auth: { bearerToken?: string; credentials?: AwsCredentials } = {},
+    rateLimits?: RateLimitStore,
+  ) {
+    this.rateLimits = rateLimits ?? new RateLimitStore();
+  }
 
   getRateLimits(): RateLimitStore {
     return this.rateLimits;
@@ -46,12 +51,24 @@ export class BedrockBackend implements ApiBackend {
     return `https://bedrock-runtime.${this.region}.amazonaws.com`;
   }
 
+  /**
+   * A Bedrock API key (bearer token) — from the SideCar-stored key (passed in as
+   * `bearerToken`) or the AWS-standard `AWS_BEARER_TOKEN_BEDROCK` env var. When
+   * present, auth is `Authorization: Bearer <key>` and SigV4 is skipped. `'ollama'`
+   * is SideCar's no-key placeholder default and is ignored.
+   */
+  private bearer(): string | undefined {
+    const t = this.auth.bearerToken;
+    if (t && t !== 'ollama') return t;
+    return process.env.AWS_BEARER_TOKEN_BEDROCK || undefined;
+  }
+
   private credentials(): AwsCredentials {
-    const creds = this.credentialsOverride ?? resolveAwsCredentials();
+    const creds = this.auth.credentials ?? resolveAwsCredentials();
     if (!creds) {
       throw new Error(
-        'AWS credentials not found for Bedrock. Set AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY ' +
-          '(and AWS_SESSION_TOKEN if using temporary creds), or configure ~/.aws/credentials, then reload the window.',
+        'No Bedrock credentials. Either set a Bedrock API key (SideCar: Set / Refresh API Key, or AWS_BEARER_TOKEN_BEDROCK), ' +
+          'or provide IAM credentials (AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY, or ~/.aws/credentials), then reload the window.',
       );
     }
     return creds;
@@ -66,7 +83,15 @@ export class BedrockBackend implements ApiBackend {
     });
   }
 
-  private signedFetch(rawPath: string, bodyStr: string, signal: AbortSignal | undefined, estimatedTokens: number) {
+  /** POST to Bedrock with bearer-token auth if available, else SigV4 signing. */
+  private authedFetch(rawPath: string, bodyStr: string, signal: AbortSignal | undefined, estimatedTokens: number) {
+    const fetchOpts = { rateLimits: this.rateLimits, estimatedTokens, label: 'bedrock' };
+    const bearer = this.bearer();
+    if (bearer) {
+      const url = `${this.origin}${canonicalizePath(rawPath)}`;
+      const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${bearer}` };
+      return sidecarFetch(url, { method: 'POST', headers, body: bodyStr, signal }, fetchOpts);
+    }
     const signed = signRequest({
       method: 'POST',
       origin: this.origin,
@@ -78,11 +103,7 @@ export class BedrockBackend implements ApiBackend {
       credentials: this.credentials(),
       date: new Date(),
     });
-    return sidecarFetch(
-      signed.url,
-      { method: 'POST', headers: signed.headers, body: bodyStr, signal },
-      { rateLimits: this.rateLimits, estimatedTokens, label: 'bedrock' },
-    );
+    return sidecarFetch(signed.url, { method: 'POST', headers: signed.headers, body: bodyStr, signal }, fetchOpts);
   }
 
   async *streamChat(
@@ -116,7 +137,7 @@ export class BedrockBackend implements ApiBackend {
     if (cleanTools) body.tools = cleanTools;
 
     const bodyStr = JSON.stringify(body);
-    const response = await this.signedFetch(
+    const response = await this.authedFetch(
       `/model/${model}/invoke-with-response-stream`,
       bodyStr,
       signal,
@@ -156,7 +177,7 @@ export class BedrockBackend implements ApiBackend {
     if (pruned.systemPrompt) body.system = pruned.systemPrompt;
 
     const bodyStr = JSON.stringify(body);
-    const response = await this.signedFetch(
+    const response = await this.authedFetch(
       `/model/${model}/invoke`,
       bodyStr,
       signal,

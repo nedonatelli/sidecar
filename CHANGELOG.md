@@ -4,6 +4,12 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.114.51] - 2026-06-29
+
+### Added
+
+- **Bedrock API key (bearer-token) auth.** AWS's Bedrock API keys authenticate with `Authorization: Bearer <key>` rather than SigV4. The Bedrock backend now uses a bearer token when one is available — the SideCar-stored API key (`sidecar.apiKey`, threaded through as `bearerToken`) or the AWS-standard `AWS_BEARER_TOKEN_BEDROCK` env var — and only falls back to SigV4/IAM signing when there's no token. The placeholder `'ollama'` default is ignored. Constructor now takes an `{ bearerToken?, credentials? }` auth object; `canonicalizePath` is exported so the bearer URL is encoded identically to the signed one. (`src/ollama/bedrockBackend.ts`, `awsSigV4.ts`, `client.ts`)
+
 ## [0.114.50] - 2026-06-29
 
 ### Fixed

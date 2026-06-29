@@ -36,7 +36,10 @@ function encodeSegment(segment: string): string {
   return encodeURIComponent(segment).replace(/[!*'()]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
 }
 
-function canonicalizePath(rawPath: string): string {
+/** RFC 3986 encode each path segment (preserving slashes) — the canonical form
+ *  used both in the SigV4 signature and the request URL, so bearer-auth requests
+ *  can reuse it to build an identically-encoded URL. */
+export function canonicalizePath(rawPath: string): string {
   return rawPath
     .split('/')
     .map(encodeSegment)
