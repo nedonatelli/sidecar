@@ -4,6 +4,28 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.114.46] - 2026-06-28
+
+### Fixed
+
+- **Symbol index (PKI) still embedded only a handful of symbols after the 0.114.45 race fix — the replay reads file content the cached graph doesn't keep.** `replaySymbolsToEmbeddingIndex` builds each symbol's embed body from `graph.getFileContent(filePath)`, but `SymbolGraph.toJSON` serializes "no file contents" and the in-memory `fileContents` map is only populated when a file is **freshly parsed** this session. On a warm reload the graph is restored from `symbol-graph.json`, so `indexedFilePaths()` (backed by the persisted `fileHashes`) yields every file but `getFileContent` returns `undefined` for all of them — and `if (!content) continue` skipped the lot. Net effect: only the 1–2 files actually edited that session embedded (dogfooding: 14 of 5,306), confirmed in the live logs as `Symbol embedding index ready: 14 cached symbol vectors`. The replay now reads the file from disk (bounded-parallel via `Promise.allSettled`, mirroring the indexer's normal read) whenever the cached graph has no content, so the store rebuilds across reloads, not just for files touched this session. Verified live: the same workspace went from 14 to 4,230 embedded symbols. (`src/config/symbolIndexer.ts`)
+- **The Project Knowledge Index sidebar showed `0 symbols / never / 0 B` even when the index was fully populated — two subscribers fought over one callback slot.** `SymbolEmbeddingIndex.setOnDrained` was a single-slot setter (`this.drainedListener = cb`), but both the status-bar progress updater and the PKI sidebar's `setIndex` register a drained listener. The sidebar registered first, then the status bar overwrote it, so when embedding finished only the status bar refreshed and the tree view's `onDidChangeTreeData` never fired — leaving it frozen on its initial pre-embed render while the on-disk store held thousands of vectors. `setOnDrained` now appends listeners and fires all of them on drain. (`src/config/symbolEmbeddingIndex.ts`)
+- **The PKI replay log reported the graph symbol count, not how many symbols it actually queued — masking the under-queueing bug above.** `PKI replay queued symbols from 5306 graph symbols` logged `graph.symbolCount()` regardless of how many were really queued, so dogfooding read "5306" while only 14 embedded. `replaySymbolsToEmbeddingIndex` now returns the real queued count and the log reads `PKI replay queued N symbols (graph has M)`. (`src/config/symbolIndexer.ts`, `src/activation/workspaceIndexer.ts`)
+
+## [0.114.45] - 2026-06-28
+
+### Fixed
+
+- **Symbol index (PKI) embedded only a handful of symbols — the replay raced the graph build.** Root cause of "I've never seen a successful symbol index run": in `workspaceIndexer`, `symbolIndexer.initialize()` (parse files → build the symbol graph, slow) is started but NOT awaited, in parallel with `symbolEmbeddings.initialize()` (restore the small cache + kick off the model load, fast). When the embeddings init resolves first, its callback calls `replaySymbolsToEmbeddingIndex()` — which iterates `graph.indexedFilePaths()` to queue every symbol for embedding. But the graph is still building, so it queues only the few files parsed so far (dogfooding: ~13 of thousands), and the rest are never queued, because on a cached graph the hash-match short-circuit means `indexSymbol` never fires for unchanged files. The replay now `await`s the graph-build promise first, so it queues the full graph. Combined with 0.114.40 (packaging) and 0.114.44 (stable model cache), the PKI now actually indexes the whole workspace. (`src/activation/workspaceIndexer.ts`)
+
+
+## [0.114.44] - 2026-06-28
+
+### Fixed
+
+- **Symbol embedding index (PKI) downloaded the model to a volatile, version-scoped cache and never logged success.** The file-level `EmbeddingIndex` loads the MiniLM model with `cacheDir: .sidecar/cache/models` (stable, workspace-local, writable), but `SymbolEmbeddingIndex.loadModel` passed **no cacheDir** — so it fell to the transformers default, the packaged extension's `node_modules/@huggingface/transformers/.cache`, which is wiped on every `.vsix` version bump (forcing a ~23 MB re-download each install) and, combined with the missing package before 0.114.40, meant the PKI model load kept hitting the "retry failed" loop and never completed a run. It now caches to the same `.sidecar/cache/models` as the file index (so the download persists across versions and both share one cached model) and logs `Symbol embedding model loaded: <id>` on success. With this + the 0.114.40 packaging fix, a reload should produce a real symbol-index run: watch the status bar (`SideCar: Indexing symbols…` → `SideCar PKI: N symbols`) and the output channel. (`src/config/symbolEmbeddingIndex.ts`)
+
+
 ## [0.114.43] - 2026-06-28
 
 ### Fixed

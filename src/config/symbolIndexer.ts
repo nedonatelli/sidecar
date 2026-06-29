@@ -300,39 +300,61 @@ export class SymbolIndexer implements Disposable {
   }
 
   /**
-   * Feed all already-indexed symbols into the embedding queue without
-   * re-reading from disk. Called when PKI is wired after the symbol
-   * graph is already built — `queueUpdate` would hit the hash-match
-   * short-circuit and skip every file, leaving symbols queued but never
-   * embedded. This reads the cached file content straight from the graph
-   * so no filesystem I/O and no hash check.
+   * Feed all already-indexed symbols into the embedding queue. Called when
+   * PKI is wired after the symbol graph is already built — `queueUpdate`
+   * would hit the hash-match short-circuit and skip every file, leaving
+   * symbols queued but never embedded.
+   *
+   * The graph's in-memory `fileContents` map is only populated when a file
+   * is freshly parsed this session. On a warm reload the graph is restored
+   * from `symbol-graph.json` — which persists symbols + hashes but NOT file
+   * contents (see SymbolGraph.toJSON) — so `getFileContent` is empty for
+   * every unchanged file and the replay would queue nothing. When the cached
+   * content is missing we read the file from disk so the embedding store gets
+   * rebuilt across reloads, not just for files edited this session.
    */
-  replaySymbolsToEmbeddingIndex(): void {
-    if (!this.symbolEmbeddings) return;
+  async replaySymbolsToEmbeddingIndex(): Promise<number> {
+    const embeddings = this.symbolEmbeddings;
+    if (!embeddings) return 0;
     const cap = this.maxSymbolsPerFile;
-    for (const filePath of this.graph.indexedFilePaths()) {
-      const content = this.graph.getFileContent(filePath);
-      if (!content) continue;
-      const symbols = this.graph.getSymbolsInFile(filePath);
-      const limited = symbols.length > cap ? symbols.slice(0, cap) : symbols;
-      const lines = content.split('\n');
-      for (const sym of limited) {
-        const startIdx = Math.max(0, sym.startLine - 1);
-        const endIdx = Math.min(lines.length, sym.endLine);
-        if (endIdx <= startIdx) continue;
-        const body = lines.slice(startIdx, Math.min(endIdx, startIdx + 400)).join('\n');
-        if (!body.trim()) continue;
-        this.symbolEmbeddings.queueSymbol({
-          filePath,
-          qualifiedName: sym.qualifiedName,
-          name: sym.name,
-          kind: sym.type,
-          startLine: sym.startLine,
-          endLine: sym.endLine,
-          body,
-        });
-      }
-    }
+    const rootUri = workspace.workspaceFolders?.[0]?.uri;
+    let queued = 0;
+    await Promise.allSettled(
+      Array.from(this.graph.indexedFilePaths()).map(async (filePath) => {
+        let content = this.graph.getFileContent(filePath);
+        if (!content && rootUri) {
+          try {
+            const bytes = await workspace.fs.readFile(Uri.joinPath(rootUri, filePath));
+            content = Buffer.from(bytes).toString('utf-8');
+            if (content.length > MAX_FILE_SIZE) return;
+          } catch {
+            return;
+          }
+        }
+        if (!content) return;
+        const symbols = this.graph.getSymbolsInFile(filePath);
+        const limited = symbols.length > cap ? symbols.slice(0, cap) : symbols;
+        const lines = content.split('\n');
+        for (const sym of limited) {
+          const startIdx = Math.max(0, sym.startLine - 1);
+          const endIdx = Math.min(lines.length, sym.endLine);
+          if (endIdx <= startIdx) continue;
+          const body = lines.slice(startIdx, Math.min(endIdx, startIdx + 400)).join('\n');
+          if (!body.trim()) continue;
+          embeddings.queueSymbol({
+            filePath,
+            qualifiedName: sym.qualifiedName,
+            name: sym.name,
+            kind: sym.type,
+            startLine: sym.startLine,
+            endLine: sym.endLine,
+            body,
+          });
+          queued++;
+        }
+      }),
+    );
+    return queued;
   }
 
   /** Queue a file removal (debounced). */

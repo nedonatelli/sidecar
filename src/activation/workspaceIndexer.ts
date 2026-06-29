@@ -35,8 +35,12 @@ export function initWorkspaceIndex(
       indexStatus.text = `$(check) SideCar: ${count} files indexed`;
       setTimeout(() => indexStatus.dispose(), 5000);
 
-      // Build symbol graph after workspace index is ready
-      symbolIndexer
+      // Build symbol graph after workspace index is ready. Captured so the PKI
+      // replay below can await it — replaySymbolsToEmbeddingIndex reads
+      // graph.indexedFilePaths(), so running it before the graph finishes
+      // building queues only the few symbols parsed so far (dogfooding: a large
+      // repo embedded ~13 of thousands because the replay raced the graph build).
+      const symbolGraphReady = symbolIndexer
         .initialize(getFilePatterns())
         .then(() => {
           const symCount = symbolIndexer.getGraph().symbolCount();
@@ -132,10 +136,16 @@ export function initWorkspaceIndex(
             // immediately rather than only after the first batch fires.
             if (wasFirstRun) pkiStatus.show();
 
-            // If symbolIndexer.initialize() already finished, its hash-match
-            // short-circuit would skip every file and leave symbols unembedded.
-            // replaySymbolsToEmbeddingIndex reads cached graph content directly.
-            symbolIndexer.replaySymbolsToEmbeddingIndex();
+            // Wait for the symbol graph to FINISH building before replaying it
+            // into the embedding queue — otherwise indexedFilePaths() is partial
+            // and most symbols never get queued. The graph's hash-match
+            // short-circuit means indexSymbol won't fire for cached/unchanged
+            // files, so this replay is the only thing that queues them.
+            await symbolGraphReady;
+            const replayQueued = await symbolIndexer.replaySymbolsToEmbeddingIndex();
+            logger.info(
+              `[SideCar] PKI replay queued ${replayQueued} symbols (graph has ${symbolIndexer.getGraph().symbolCount()})`,
+            );
           })
           .catch((err) => logger.warn('[SideCar] Symbol embedding index failed:', err?.message || err));
       }

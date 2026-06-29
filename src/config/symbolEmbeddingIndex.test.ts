@@ -567,7 +567,7 @@ describe('SymbolEmbeddingIndex', () => {
       expect(drained).toHaveBeenCalledTimes(2);
     });
 
-    it('setOnDrained replaces a previous listener', async () => {
+    it('setOnDrained fires every registered listener (status bar + PKI sidebar both subscribe)', async () => {
       const first = vi.fn();
       const second = vi.fn();
       index.setOnDrained(first);
@@ -576,7 +576,7 @@ describe('SymbolEmbeddingIndex', () => {
       index.queueSymbol(makeInput({ qualifiedName: 'q' }));
       await index.flushQueueForTests();
 
-      expect(first).not.toHaveBeenCalled();
+      expect(first).toHaveBeenCalledOnce();
       expect(second).toHaveBeenCalledOnce();
     });
 

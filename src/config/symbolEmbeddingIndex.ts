@@ -112,6 +112,7 @@ export class SymbolEmbeddingIndex implements Disposable {
    * without touching this class's public API.
    */
   private store: VectorStore<SymbolMetadata>;
+  private readonly sidecarDir: SidecarDir | null;
 
   /**
    * Optional Merkle tree wired in v0.62 d.2. When set, every
@@ -142,7 +143,7 @@ export class SymbolEmbeddingIndex implements Disposable {
    */
   private pendingQueue = new Map<string, SymbolEmbedInput>();
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
-  private drainedListener?: () => void;
+  private drainedListeners: Array<() => void> = [];
   private static readonly FLUSH_DEBOUNCE_MS = 250;
   private static readonly FLUSH_BATCH_SIZE = 50;
   /**
@@ -169,6 +170,11 @@ export class SymbolEmbeddingIndex implements Disposable {
    * is required when upgrading past c.2.
    */
   constructor(sidecarDir: SidecarDir | null, store?: VectorStore<SymbolMetadata>) {
+    // Kept so loadModel can cache the ONNX model in the stable, workspace-local
+    // `.sidecar/cache/models` (same as the file-level EmbeddingIndex) rather than
+    // the transformers default — the packaged extension's per-version `.cache`,
+    // which is volatile (re-downloaded on every .vsix version) and inconsistent.
+    this.sidecarDir = sidecarDir;
     this.store =
       store ??
       new FlatVectorStore<SymbolMetadata>(sidecarDir, {
@@ -264,8 +270,12 @@ export class SymbolEmbeddingIndex implements Disposable {
 
   private async loadModel(): Promise<void> {
     try {
-      this.pipeline = await getSharedPipeline(MODEL_ID, { allowRemoteModels: true });
+      this.pipeline = await getSharedPipeline(MODEL_ID, {
+        cacheDir: this.sidecarDir?.isReady() ? this.sidecarDir.getPath('cache', 'models') : undefined,
+        allowRemoteModels: true,
+      });
       this.ready = true;
+      logger.info('[SideCar] Symbol embedding model loaded:', MODEL_ID);
     } catch (err) {
       this.ready = false;
       throw err;
@@ -475,7 +485,7 @@ export class SymbolEmbeddingIndex implements Disposable {
       }, delay);
     } else {
       this.lastUpdatedMs = Date.now();
-      this.drainedListener?.();
+      for (const cb of this.drainedListeners) cb();
     }
   }
 
@@ -645,11 +655,11 @@ export class SymbolEmbeddingIndex implements Disposable {
    * Register a callback that fires each time the pending queue transitions
    * from non-empty to empty (i.e. all queued symbols have been embedded).
    * Useful for progress UX — callers check `getCount()` inside the callback
-   * to read the final count. Only one listener is supported; a second call
-   * replaces the first.
+   * to read the final count. Multiple listeners are supported; each call
+   * appends (the status-bar updater and the PKI sidebar both subscribe).
    */
   setOnDrained(cb: () => void): void {
-    this.drainedListener = cb;
+    this.drainedListeners.push(cb);
   }
 
   /** Look up one symbol's metadata by ID. */
