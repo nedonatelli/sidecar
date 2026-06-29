@@ -2,7 +2,7 @@ import { window, commands, workspace, ViewColumn, type ExtensionContext, type We
 import * as fs from 'fs';
 import * as path from 'path';
 import { logger } from '../system/logger.js';
-import { extractVersionSection, buildWhatsNewHtml } from './whatsNew.js';
+import { extractVersionSection, buildWhatsNewHtml, shouldPromptWhatsNew } from './whatsNew.js';
 
 const LAST_SEEN_KEY = 'sidecar.lastSeenVersion';
 
@@ -36,19 +36,24 @@ export function initWhatsNew(context: ExtensionContext): void {
 
   context.subscriptions.push(commands.registerCommand('sidecar.whatsNew', open));
 
-  // Auto-prompt only on a real version change, never on first install (so a
-  // fresh user gets the getting-started walkthrough, not a changelog popup).
+  // Auto-prompt on a version change for an existing user, never on a truly
+  // fresh install (they get the getting-started walkthrough instead). "Existing"
+  // = a recorded version OR any other SideCar globalState — the latter catches
+  // users updating in from a build that predates this feature. Capture prior
+  // state BEFORE writing our own key so it doesn't count itself.
   const lastSeen = context.globalState.get<string>(LAST_SEEN_KEY);
+  const hadPriorState = context.globalState.keys().some((k) => k !== LAST_SEEN_KEY);
+  const enabled = workspace.getConfiguration('sidecar').get<boolean>('whatsNew.enabled', true);
+
   if (currentVersion && lastSeen !== currentVersion) {
     void context.globalState.update(LAST_SEEN_KEY, currentVersion);
-    const autoPrompt = workspace.getConfiguration('sidecar').get<boolean>('whatsNew.enabled', true);
-    if (lastSeen !== undefined && autoPrompt) {
-      void window
-        .showInformationMessage(`SideCar updated to v${currentVersion}.`, "See what's new")
-        .then((choice) => {
-          if (choice === "See what's new") open();
-        });
-    }
+  }
+  if (shouldPromptWhatsNew({ currentVersion, lastSeen, hadPriorState, enabled })) {
+    void window
+      .showInformationMessage(`SideCar updated to v${currentVersion}.`, "See what's new")
+      .then((choice) => {
+        if (choice === "See what's new") open();
+      });
   }
 }
 

@@ -1,5 +1,32 @@
 import { describe, it, expect } from 'vitest';
-import { extractVersionSection, changelogMarkdownToHtml, buildWhatsNewHtml } from './whatsNew.js';
+import { extractVersionSection, changelogMarkdownToHtml, buildWhatsNewHtml, shouldPromptWhatsNew } from './whatsNew.js';
+
+describe('shouldPromptWhatsNew', () => {
+  const base = { currentVersion: '0.114.49', lastSeen: '0.114.47', hadPriorState: true, enabled: true };
+
+  it('prompts an existing user on a version change (lastSeen recorded)', () => {
+    expect(shouldPromptWhatsNew(base)).toBe(true);
+  });
+
+  it('prompts an existing user updating in from a pre-feature build (no lastSeen, but prior state)', () => {
+    // The 0.114.47 -> 0.114.49 case: feature never ran before, so lastSeen is
+    // undefined, but the user has other SideCar globalState.
+    expect(shouldPromptWhatsNew({ ...base, lastSeen: undefined, hadPriorState: true })).toBe(true);
+  });
+
+  it('stays silent for a truly fresh install (no lastSeen, no prior state)', () => {
+    expect(shouldPromptWhatsNew({ ...base, lastSeen: undefined, hadPriorState: false })).toBe(false);
+  });
+
+  it('stays silent when the user already saw this version', () => {
+    expect(shouldPromptWhatsNew({ ...base, lastSeen: '0.114.49' })).toBe(false);
+  });
+
+  it('stays silent when disabled or version is missing', () => {
+    expect(shouldPromptWhatsNew({ ...base, enabled: false })).toBe(false);
+    expect(shouldPromptWhatsNew({ ...base, currentVersion: '' })).toBe(false);
+  });
+});
 
 const SAMPLE = `# Changelog
 

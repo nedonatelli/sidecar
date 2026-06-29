@@ -3,6 +3,34 @@
 // wiring (globalState, notification, webview) lives in whatsNewSetup.ts.
 
 /**
+ * Decide whether to auto-show the "What's New" toast on activation. Pure so the
+ * (slightly fiddly) first-install logic is unit-tested without VS Code.
+ *
+ * Rules:
+ * - Off when disabled, when there's no current version, or when the user has
+ *   already seen this exact version.
+ * - On only for an **existing** user: one who has either recorded a version
+ *   before (`lastSeen` defined) OR has other SideCar state in globalState
+ *   (`hadPriorState` — they ran a build from before this feature existed).
+ * - A truly fresh install has neither, and gets the getting-started walkthrough
+ *   instead of a changelog popup.
+ *
+ * The `hadPriorState` arm is what lets an existing user see the notes the first
+ * time they update into a What's-New-bearing build, instead of being silently
+ * treated like a brand-new install.
+ */
+export function shouldPromptWhatsNew(opts: {
+  currentVersion: string;
+  lastSeen: string | undefined;
+  hadPriorState: boolean;
+  enabled: boolean;
+}): boolean {
+  if (!opts.enabled || !opts.currentVersion) return false;
+  if (opts.lastSeen === opts.currentVersion) return false;
+  return opts.lastSeen !== undefined || opts.hadPriorState;
+}
+
+/**
  * Extract the changelog body for a single version. Matches a `## [<version>]`
  * heading (the Keep-a-Changelog format used by CHANGELOG.md) and returns
  * everything up to the next `## [` heading, trimmed. Returns null when the

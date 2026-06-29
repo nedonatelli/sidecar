@@ -4,6 +4,12 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.114.50] - 2026-06-29
+
+### Fixed
+
+- **"What's New" auto-prompt now reaches existing users on a feature-debut update.** The prompt suppresses itself on a fresh install (so new users get the getting-started walkthrough, not a changelog popup) by checking for a recorded `lastSeenVersion`. But that key only began existing in 0.114.48, so a user updating *into* the first What's-New-bearing build had `lastSeen === undefined` — indistinguishable from a fresh install — and saw nothing. The decision now also treats "any other SideCar `globalState` exists" as an existing user (`hadPriorState`), so updaters from a pre-feature build get the prompt while genuinely-fresh installs still don't. Logic extracted to a pure, unit-tested `shouldPromptWhatsNew()`. (`src/activation/whatsNew.ts`, `whatsNewSetup.ts`)
+
 ## [0.114.49] - 2026-06-29
 
 ### Added
