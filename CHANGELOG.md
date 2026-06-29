@@ -4,6 +4,20 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.114.48] - 2026-06-29
+
+### Fixed
+
+- **Built-in skills never shipped to installed users — `.vscodeignore` excluded the entire `skills/` tree.** During a dead-code-sweep (`7a15d38`), `skills/**` was added to `.vscodeignore` alongside `src/**`/`tests/**`/`scripts/**`, but `skills/` is **runtime data**: `servicesInit.ts` points `skillLoader.setBuiltinPath` at `<extensionPath>/skills`, and there's no embedded fallback. Result: the packaged `.vsix` contained **zero** skill files, so installed users got none of the 11 built-in skills (they only loaded when running from source). `.vscodeignore` now excludes only `skills/fabric/**` — the 11 active skills ship; the 74 dormant Fabric patterns (imported via `scripts/import-fabric-patterns.ts` but never wired into the non-recursive loader) stay out of the package. (`.vscodeignore`)
+
+### Added
+
+- **"What's New on update" — release notes surface in-editor after a version bump.** Previously a user updating from one version to the next got no in-product signal about new features (only the marketplace CHANGELOG tab). On activation, SideCar compares the running version against a stored `globalState` value; on a real bump (never on first install) it shows a one-time `SideCar updated to vX` notification with a **See what's new** button that opens a webview rendering that version's CHANGELOG section. Also adds the **`SideCar: What's New`** command (always available) and the `sidecar.whatsNew.enabled` toggle (default on) for the auto-prompt. The changelog extraction + minimal Markdown→HTML renderer are pure + unit-tested (HTML-escaped, so changelog text can't inject markup). (`src/activation/whatsNew.ts`, `src/activation/whatsNewSetup.ts`, `src/extension.ts`)
+
+### Documentation
+
+- **Docs catch-up to v0.114** after the whole v0.114 band shipped with only the CHANGELOG updated. README + landing page + ROADMAP brought current; ROADMAP also gained a source-verified competitive-gap backlog and a corrected coverage floor (the doc claimed `80/70/80/80` in four places but CI enforces `70/63/67/71`). A 5-cluster audit of the `docs/` tree (verified against source) fixed factual errors — default model `gemma4:e4b` → `ministral-3:latest` (×5 docs), `agentMaxTokens` `100000` → `200000`, the phantom `sidecar.planMode` setting (removed from 3 docs), audit-log truncation `500` → `2000` chars — and refreshed the architecture docs (post-turn hooks `4` → `7` with correct ordering, `loop.ts` line count, dual tree-sitter→regex path, agent modes `4` → `6`) and observability docs (new structured-logging / Output-channel section). Walkthroughs updated for the default model + `audit` mode. `.gitignore` now ignores `.vscode/settings.json` and drops the contradictory (no-op) `CLAUDE.md` entry.
+
 ## [0.114.47] - 2026-06-28
 
 ### Added

@@ -1,6 +1,6 @@
 # Tool-Surface Inventory & Feature-Budget Recommendation
 
-> Decision-framing doc for the agent tool surface (review item #9). Data current as of v0.112.x.
+> Decision-framing doc for the agent tool surface (review item #9). Data current as of v0.114.x.
 > Keep the table in sync when tools are added/removed.
 
 ## TL;DR

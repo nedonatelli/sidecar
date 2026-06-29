@@ -56,8 +56,12 @@ Smart context is enabled by default with no additional configuration. It applies
 
 The workspace context budget is controlled by `sidecar.maxFiles` and the internal context cap. For local models, tool definitions reserve ~10K chars of the budget to prevent oversized prompts.
 
+## How it parses (dual path)
+
+Smart context uses a **two-tier** strategy. When the tree-sitter WASM grammars are available, it parses a real AST (`src/parsing/`, lazy-loaded). If tree-sitter can't load — unsupported host, missing WASM — it falls back transparently to the always-available regex analyzer (`SimpleCodeAnalyzer` in `src/astContext.ts`), so symbol extraction degrades gracefully rather than failing. The limitations below describe the regex fallback.
+
 ## Limitations
 
-- **Regex-based parsing**: The parser uses pattern matching, not a full AST. It may miss edge cases like deeply nested arrow functions, decorated Python methods, or complex Go interface implementations.
-- **No semantic search**: File relevance is based on keyword matching against file paths and content, not embedding-based similarity. Semantic search is planned for a future release.
-- **Single-file scope**: Extraction operates within individual files. Cross-file reference tracking (e.g., finding all callers of a function) is not yet supported.
+- **Regex-based parsing (fallback path)**: The regex analyzer uses pattern matching, not a full AST. It may miss edge cases like deeply nested arrow functions, decorated Python methods, or complex Go interface implementations. The tree-sitter path handles these when its grammars are loaded.
+- **Smart-context relevance is keyword-based**: The legacy file-relevance pass uses keyword matching, not embeddings. Embedding-based semantic search now ships separately as the [Project Knowledge Index](rag-and-memory.md) (symbol-level, MiniLM) — see that doc for the semantic path.
+- **Cross-file references**: The symbol graph resolves cross-file callers/callees (and the PKI graph-walk expands from a hit to its callers). Tree-sitter extraction itself is per-file; the graph layer stitches files together.

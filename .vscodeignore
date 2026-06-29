@@ -47,7 +47,7 @@ docs/**
 examples/**
 tests/**
 scripts/**
-skills/**
+skills/fabric/**
 vitest.config.ts
 vitest.*.config.ts
 eslint.config.mjs

@@ -15,7 +15,7 @@ All settings are under the `sidecar.*` prefix. Open VS Code settings (`Cmd+,` / 
 |---------|------|---------|-------------|
 | `sidecar.baseUrl` | string | `http://localhost:11434` | API base URL. Ollama: `http://localhost:11434`, Anthropic: `https://api.anthropic.com`, OpenAI: `https://api.openai.com`, Kickstand: `http://localhost:11435`, OpenAI-compatible: any URL |
 | `sidecar.apiKey` | string | `ollama` | API key. **Stored in VS Code SecretStorage** (see below). Ignored for local Ollama, required for Anthropic, OpenAI, and some OpenAI-compatible servers |
-| `sidecar.model` | string | `gemma4:e4b` | Model for chat (e.g., `gemma4:e4b`, `qwen3-coder:30b`, `claude-sonnet-4-6`, or any model on your server) |
+| `sidecar.model` | string | `ministral-3:latest` | Model for chat (e.g., `ministral-3:latest`, `qwen3-coder:30b`, `claude-sonnet-4-6`, or any model on your server) |
 | `sidecar.provider` | enum | `auto` | Backend provider: `auto`, `ollama`, `anthropic`, `openai`, `kickstand`. Auto-detects from URL |
 | `sidecar.systemPrompt` | string | `""` | Custom system prompt appended to the default |
 
@@ -108,7 +108,6 @@ Each file in the planned-edits card has a **cancel button** — clicking it abor
 | `sidecar.agentMaxIterations` | number | `25` | Max agent loop iterations |
 | `sidecar.agentMaxTokens` | number | `200000` | Max tokens per agent run |
 | `sidecar.requestTimeout` | number | `120` | Timeout in seconds for each LLM request. Aborts if no tokens arrive within this window. Set to 0 to disable |
-| `sidecar.planMode` | boolean | `false` | Generate a plan for approval before executing tools |
 | `sidecar.toolPermissions` | object | `{}` | Per-tool overrides: `{ "tool_name": "allow" \| "deny" \| "ask" }` |
 | `sidecar.customModes` | array | `[]` | Custom agent modes with dedicated system prompts and approval behavior. See [Custom modes](agent-mode#custom-modes) |
 | `sidecar.bgMaxConcurrent` | number | `3` | Maximum number of background agents that can run simultaneously (1–10) |

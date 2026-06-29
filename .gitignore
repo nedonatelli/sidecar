@@ -23,7 +23,6 @@ grammars/
 
 # Claude Code
 .claude/
-CLAUDE.md
 .sidecar/plans/
 .sidecar/history.db
 eval_output.log

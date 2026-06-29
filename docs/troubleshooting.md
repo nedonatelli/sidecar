@@ -132,7 +132,7 @@ Adjust the timeout via `sidecar.requestTimeout` (default: 120 seconds). Set to `
 
 - Click the **Stop button** (red button that replaces Send during processing)
 - **Cycle detection** — SideCar automatically halts if the agent repeats the same tool call with identical arguments
-- Check `sidecar.agentMaxIterations` (default: 25) and `sidecar.agentMaxTokens` (default: 100,000)
+- Check `sidecar.agentMaxIterations` (default: 25) and `sidecar.agentMaxTokens` (default: 200,000)
 - Lower these values if the agent runs too long on your hardware
 
 ## Inline completions not working

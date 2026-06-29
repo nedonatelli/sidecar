@@ -19,6 +19,7 @@ Press `⌘⇧I` (Mac) or `Ctrl+Shift+I` (Windows/Linux) to toggle the SideCar ch
 | `manual` | Asks before every tool |
 | `plan` | Generates a plan for approval first, then executes |
 | `review` | Queues file edits for your review — nothing hits disk |
+| `audit` | Runs autonomously but buffers writes in memory for review on flush |
 
 ### Quick tips for effective chatting:
 

@@ -7,10 +7,10 @@ SideCar works with several backends. Choose the one that best fits your workflow
 Install [Ollama](https://ollama.com), then pull a code-tuned model:
 
 ```bash
-ollama pull qwen3-coder:30b
+ollama pull ministral-3:latest
 ```
 
-SideCar auto-detects `http://localhost:11434` — no API key needed. Everything stays on your machine.
+`ministral-3:latest` is SideCar's default — 6 GB, runs on any machine with 8 GB VRAM, and scores highest of the tested local models on agent tasks. SideCar auto-detects `http://localhost:11434` — no API key needed. Everything stays on your machine.
 
 ### Anthropic / OpenAI (frontier models)
 

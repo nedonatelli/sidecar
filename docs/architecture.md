@@ -31,7 +31,7 @@ The prose below fills in the pieces the diagrams don't cover (component responsi
 - Manages chat state and history
 
 ### 3. Agent Loop System
-- `runAgentLoop` — thin 255-line orchestrator in [`src/agent/loop.ts`](../src/agent/loop.ts) that reads top-to-bottom as one iteration's pseudo-code
+- `runAgentLoop` — orchestrator in [`src/agent/loop.ts`](../src/agent/loop.ts) (~686 lines) that reads top-to-bottom as one iteration's pseudo-code
 - [`src/agent/loop/`](../src/agent/loop/) — 14 focused helpers, each taking a single `LoopState` container:
   - `state.ts` bundles all run state into one object
   - `compression.ts` handles pre-turn + post-tool context compression
@@ -39,10 +39,10 @@ The prose below fills in the pieces the diagrams don't cover (component responsi
   - `cycleDetection.ts` implements the burst cap + cycle detection
   - `messageBuild.ts` pushes assistant + tool-result messages and accounts tokens
   - `executeToolUses.ts` dispatches tool calls in parallel (spawn_agent, delegate_task, normal)
-  - `gate.ts`, `autoFix.ts`, `stubCheck.ts`, `criticHook.ts` are the four post-turn policies
+  - `autoFix.ts`, `isolateRewrite.ts`, `stubCheck.ts`, `criticHook.ts`, `actionReprompt.ts`, `gate.ts` back the post-turn policies (the critic file also provides the analysis-critic)
   - `policyHook.ts` — `PolicyHook` interface + `HookBus` registration class. Orchestrator calls `hookBus.runAfter()` / `hookBus.runEmptyResponse()` instead of calling policies directly; `AgentOptions.extraPolicyHooks` lets callers register additional hooks
-  - `builtInHooks.ts` — `defaultPolicyHooks()` wraps the four policies as `PolicyHook` adapters so they register into the bus
-  - `postTurnPolicies.ts` still exists but is now only used by legacy callers (the orchestrator routes through the bus)
+  - `builtInHooks.ts` — `defaultPolicyHooks()` wraps the **seven** built-in policies as `PolicyHook` adapters, registered in order: autoFix → isolateRewrite → stubCheck → critic → actionReprompt → completionGate → analysisCritic
+  - `postTurnPolicies.ts` — the post-turn policy application pipeline (still active; the bus invokes it)
   - `notifications.ts` emits iteration telemetry + checkpoint prompts
   - `finalize.ts` runs the post-loop teardown + next-step suggestions
   - `textParsing.ts` parses model text output for tool-call patterns and strips repeated content

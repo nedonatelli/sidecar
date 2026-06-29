@@ -36,6 +36,7 @@ import { initAuditDecorations } from './activation/auditDecorationsSetup.js';
 import { initAgentModDecoration } from './activation/agentModDecorationSetup.js';
 import { initCodeLens } from './activation/codeLensSetup.js';
 import { initMemorySetup } from './activation/memorySetup.js';
+import { initWhatsNew } from './activation/whatsNewSetup.js';
 import { registerTestModelCommand } from './commands/testModelCommand.js';
 import { registerEvalView } from './views/evalView.js';
 
@@ -140,6 +141,7 @@ export function activate(context: ExtensionContext) {
   void initMcpServer(context);
   initAuditDecorations(context);
   initMemorySetup(context);
+  initWhatsNew(context);
   const evalProvider = registerEvalView(context);
   registerTestModelCommand(context, () => evalProvider);
 
