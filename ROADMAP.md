@@ -1,8 +1,8 @@
 # SideCar Roadmap
 
-**Current release: v0.113.0** — Senior-review hardening pass: MCP agent server is fail-closed on auth (defaults to `requireAuth`, auto-generates a session token), centralized logging through a single Output channel (all `console.*` migrated, enforced by a `no-console` lint rule), secret-redaction egress gaps closed (agent memory + MCP delegation), and context-aware tool gating (dynamic config gates + relevance gating for Kickstand/database/Zotero). See [CHANGELOG](CHANGELOG.md) for full notes.
+**Current release: v0.114.47** — Scaffolding subsystem + reliability hardening. v0.114 built the "harness" that makes weaker local models usable, structured as Verify / Adapt / Orchestrate / Measure (see [`docs/scaffolding-roadmap.md`](docs/scaffolding-roadmap.md)): grounded review + citation-resolution gates, capability-adaptive scaffolding intensity, read-only specialist routing, and an ablation harness (`npm run eval:ablation`) that measures each scaffold's pass-rate lift vs. latency cost so pure-tax scaffolds get cut. Hardened across the .6–.47 band: deterministic completion gates (run via the agent's real execution path, keyed on **output evidence not exit codes**, anchored on the current turn), write/rewrite-thrash defenses, target-aware verification, PKI symbol index now embeds the **whole workspace** (replay-race + cached-graph-content fixes), transformers packaging fix, and a logging-observability pass (outcome logs + warn-on-surprising-zero + debug tracing across the previously-dark subsystems). See [CHANGELOG](CHANGELOG.md) for full notes.
 
-**Coverage floor**: ≥80/70/80/80 (stmts/branches/funcs/lines) enforced by CI. No PR merges that drop any metric.
+**Coverage**: CI ratchet floor **70/63/67/71** (stmts/branches/funcs/lines) in `vitest.config.ts`, with VS Code lifecycle + non-behavioral code excluded from the denominator. Per-new-file policy is ≥80%; no PR may drop a metric below the floor.
 
 ---
 
@@ -10,9 +10,11 @@
 
 ### Planned
 
-| Version | Headline |
+Candidate pool is the source-verified [Verified Backlog](#verified-backlog--competitive-gap-analysis-june-2026) below; top cluster by leverage is MCP hardening.
+
+| Version | Headline (candidate, not committed) |
 |---|---|
-| v0.113.0 | Skill versioning + pinning · *Update available* badge · `sidecar.skills.versions` pin map |
+| v0.115 | MCP hardening — lazy tool-schema loading + per-server `alwaysLoad` (cut MCP context on small models) · MCP mutation discipline (preflight read → verify round-trip → draft-on-mismatch) |
 
 ---
 
@@ -20,6 +22,11 @@
 
 | Version | Headline |
 |---|---|
+| v0.114.41–47 | Reliability hardening — PKI symbol index embeds the **whole workspace** (replay-race + cached-graph-content + drained-listener fixes) · chat-history-survives-reload · transformers packaging · logging-observability pass (outcome logs · warn-on-surprising-zero · dark-subsystem debug tracing) |
+| v0.114.18–40 | Scaffolding harness hardening — write/rewrite-thrash defenses · target-aware verification · verify-quality gates · rewrite-thrash recovery |
+| v0.114.6–17 | Deterministic gate hardening — gates run via the agent's real execution path · key on output evidence not exit codes · anchor on the current turn · exempt gate-driven fixing from cycle passes |
+| v0.114.0 | Scaffolding subsystem — grounded review + citation-resolution gates (Verify) · model capability profiles + capability-adaptive intensity (Adapt) · read-only specialist routing (Orchestrate) · ablation harness `npm run eval:ablation` (Measure) |
+| v0.113.0 | Senior-review hardening — MCP agent server fail-closed on auth · centralized logging (single Output channel · `no-console` lint) · secret-redaction egress gaps closed (agent memory + MCP delegation) · context-aware tool gating |
 | v0.112.1 | Agent quality & dogfood — `ministral-3` default (94% eval), `edit_file` intent inference + nearest-match hints, cycle-detector read-loop fix, action-request reprompt, polyglot gate, 17 prompt rules, live-repo shadow eval |
 | v0.112.0 | Skill Sync & Registry — Skills Picker UI (`/skills` QuickPick, Stack mode, registry tags, tool chips) · `SideCar: Publish Skill to Registry` · `SideCar: Sync Skill Registries` · `hourly`/`daily` autoPull |
 | v0.111.0 | Multi-file Edit Streams — DAG-planned edits card, parallel streaming diff previews, per-file cancel, atomic accept/reject · semantic compression tiers · compression test coverage · docs pass (79 tools, 51 slash commands) |
@@ -262,6 +269,36 @@
 
 ---
 
+### Verified Backlog — Competitive Gap Analysis (June 2026)
+
+Mined from external agentic-coding references (OpenCode, *101 Claude Code Tips*, Ollama/MCP material) and **verified against source** — every item below was confirmed a real gap by reading the code. (The same pass found 9 candidate features *already shipped* — foreign-config fallback, `/init`, tracked `PLAN.md`, `format`-constrained decode, `.env` read-deny, out-of-workspace guard, `@` file picker, `/branch` session fork, per-model tool-capability flags — so they are deliberately omitted.)
+
+**MCP hardening** *(highest leverage)*
+- [ ] **Lazy MCP tool-schema loading + per-server `alwaysLoad`** — today all MCP tool schemas inject upfront at connect (`mcpManager.ts:242`, `tools.ts:502`); names-only-until-called would cut ~47% MCP context. Critical on small local models.
+- [ ] **MCP mutation discipline** — preflight read → post-write field round-trip verify → leave-in-draft on mismatch. Currently fire-and-trust; the verify-before-rewrite path (`circularRewrite.ts`) is `write_file`-only, MCP exempt. Extends the v0.114 gate-hardening ("evidence not exit codes") to MCP.
+
+**Skill-system maturity**
+- [ ] **Multi-phase skills with idempotent resume** — named phases declaring inputs/outputs; re-run skips completed phases (`skillLoader.ts` is single-pass). Fine-grained recovery for slow/crash-prone local runs.
+- [ ] **Per-skill self-updating "Lessons Learned"** — skill revises an in-file lessons section after each run; mistakes become rules.
+- [ ] **Skill output-schema contract + negative "Rules" section** — mandated output format for deterministic, reviewable skill outputs.
+
+**Ollama observability** *(local-first moat, small/self-contained)*
+- [ ] **Native response-metadata surfacing** — consume `load_duration`/`eval_count`/`eval_duration` for real tokens/sec + cold-start detection (dropped today at `ollamaBackend.ts:207`); feed status bar + arena.
+- [ ] **GPU-residency / silent-CPU-fallback detection** — `nvidia-smi` or Ollama `/api/ps` to warn when a model spills out of VRAM mid-session (KV-cache growth); size-vs-VRAM math misses this.
+
+**Reliability / UX**
+- [ ] **Prompt-cache hygiene** — suspend (or warn on) format-on-save / background linters touching the agent's read-set mid-run; SideCar is uniquely exposed running in-editor + Anthropic caching.
+- [ ] **Batch clarify-Q&A** — `ask_user` is single-question round-trips today; add batch-emit + review-all + submit-together to front-load scope decisions.
+
+**Smaller / partial** (base already exists; scope is the delta)
+- [ ] Permission **command-prefix globs + per-agent overrides** (allow/ask/deny + `.sidecar/policy.json` already exist; tool-names-only today)
+- [ ] **Proactive LSP-diagnostics push** (`get_diagnostics` pull-tool exists; `DiagnosticSubscriber` reactive path is a stub)
+- [ ] Per-model **reasoning/thinking capability flag** (`supportsTools` already tracked)
+- [ ] **Global user-level guidance file** (`~/.config/sidecar/SIDECAR.md`) merged under project + per-dir
+- [ ] **Markdown-authored slash commands** unified with skills (skills already are committable md w/ `preferred-model`; core `/commands` hardcoded)
+
+---
+
 ### Unscheduled / Vision Shelf
 
 Not promised to any specific release. Full specs in [docs/feature-specs.md](docs/feature-specs.md).
@@ -286,44 +323,52 @@ GPU-Native Hot-Swapping · GPU-Aware Load Balancing · Multi-repo cross-talk · 
 | `extension.ts` | ✅ 135 lines (v0.81) |
 | `chatView.ts` | ✅ decomposed v0.88 — `codeActions.ts` + `chatViewLifecycle.ts` extracted with tests |
 
+*Reviewed through v0.114: no new god-modules emerged; the `loop/` submodule split and `activation/` + `webview/handlers/` extractions hold.*
+
 ### Theme 2 — Test-surface hardening
 
 | Track | Status |
 |---|---|
 | Host-dependent bugs (kickstand token × 2, `fs.statfsSync`) | ✅ v0.58 |
-| CI coverage ratchet 80/70/80/80 | ✅ v0.67, maintained through v0.82 |
+| CI coverage ratchet (70/63/67/71 floor, per-PR) | ✅ v0.67, maintained through v0.114 |
 | Eval harness: retriever / cost / summarizer fixtures | ✅ v0.62 |
 | Eval harness: auto-fix + critic paths | ✅ v0.71 |
 | Eval harness: Ollama backend + v0.82 cases | ✅ v0.82 |
 | Shared test-helper module (`stubLoopState()`, `stubCallbacks()`) | ✅ v0.88 — `src/agent/loop/testHelpers.ts`; 16 loop test files migrated |
 | Subsystem unit tests (scheduler · eventHooks · inlineChatProvider) | ✅ v0.97.0 |
+| Webview-JS lint + happy-dom tests (`media/**/*.js`) | ✅ v0.113.8 — closed the untyped/unlinted/untested webview-script blind spot |
+| Scaffold ablation eval harness (`npm run eval:ablation`) | ✅ v0.114.0 — measures each scaffold's pass-rate lift vs latency |
+| Logging-observability tests (`kv()`/`SESSION_ID`, warn-on-surprising-zero) | ✅ v0.114.47 |
 
 ### Theme 3 — Boilerplate reduction
 
 | Track | Status |
 |---|---|
 | `ollama/types.ts` split into domain files | ✅ v0.69 |
+| Parallel-dispatch primitive (`runWithCap`/`runForEachWithCap`) | ✅ v0.67 — consolidated 2 duplicate worker-pools into `parallelDispatch.ts` |
 | Tool `catch` block consolidation (`formatToolError`) | ✅ v0.82 |
 | Shell execution unification | ✅ v0.92 — `CompositeShellExecutor` consolidates terminal + ShellSession routing |
 | Backend abstraction maturity (`sidecarFetch`) | ✅ v0.97.0 (unified in v0.64) |
 | Handler registry pattern (webview/handlers typed dispatch) | ✅ v0.97.0 (mature since v0.88) |
+| Centralized logging — single Output channel + `no-console` lint | ✅ v0.113 — all `console.*` migrated |
+| Structured log convention (`kv()` formatter + `SESSION_ID`) | ✅ v0.114.47 |
 
 ---
 
 ## Coverage Plan
 
-**Current (v0.82.0)**: 80/70/80/80 floor maintained. RAG-eval ratchet active since v0.62: `meanPrecisionAtK ≥ 0.45`, `meanRecallAtK ≥ 0.95`, `meanF1AtK ≥ 0.55`, `meanReciprocalRank ≥ 0.90`.
+**Enforced floor (v0.114)**: CI ratchet at `statements 70 / branches 63 / functions 67 / lines 71` (`COVERAGE_THRESHOLDS` in `vitest.config.ts`). VS Code lifecycle files (`extension.ts`, `chatView.ts`, `activation/`, `ui/`, `views/`, `commands/`) and non-behavioral code (`types.ts`, `constants.ts`, mocks, `chatWebview.ts`) are excluded from the denominator so the metric reflects test-worthy logic, not file-count accounting. RAG-eval ratchet active since v0.62: `meanPrecisionAtK ≥ 0.45`, `meanRecallAtK ≥ 0.95`, `meanF1AtK ≥ 0.55`, `meanReciprocalRank ≥ 0.90`.
 
-**Target**: ≥80/70/80/80 (stmts/branches/funcs/lines) sustained into v1.0. Branch coverage carries a lower floor because error paths and concurrent races are legitimately harder to exercise.
+**Policy**: every new source file lands with ≥80% coverage; the ratchet floor guards already-covered code against regression. Branch coverage carries the lowest floor because error paths and concurrent races are legitimately harder to exercise. Most recent reported measured full run was **80.0 / 70.99 / 81.4 / 81.25** — above floor on all four.
 
 | Release | Status | Focus |
 |---|---|---|
-| v0.80 | ✅ | Security fixes + shared test helpers |
-| v0.81 | ✅ | Arch integrity + perf fixes |
-| v0.82 | ✅ | NotebookLM + compression paths |
 | v0.88 | ✅ | `chatView.ts` decomposition + sustained floor (80.32/71.32/80.89/81.66) |
+| v0.97 | ✅ | Subsystem unit tests (scheduler · eventHooks · inlineChatProvider) |
+| v0.113 | ✅ | Webview-JS lint + happy-dom coverage — closed the `media/*.js` blind spot |
+| v0.114 | ✅ | Scaffold ablation harness (`npm run eval:ablation`) · gate-hardening dogfood tests · logging-observability tests |
 
-**Enforcement**: CI `--coverage.thresholds.stmts=80 --branches=70 --funcs=80 --lines=80`. Every new file lands with ≥80%; per-PR diff check blocks merges that add uncovered code. Error-path and concurrent-race branches are the remaining gap — every new test suite deliberately targets those.
+**Enforcement**: CI runs `vitest run --coverage` against `COVERAGE_THRESHOLDS`; any PR that drops a metric below the floor fails. Error-path and concurrent-race branches are the remaining gap — every new test suite deliberately targets those.
 
 ---
 
