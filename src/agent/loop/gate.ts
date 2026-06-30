@@ -18,6 +18,7 @@ import { runVerificationCommand } from '../tools/shell.js';
 import { getDefaultToolRuntime } from '../tools/runtime.js';
 import type { SymbolGraph, ImpactedItem } from '../../config/symbolGraph.js';
 import { findNumericalKernels, uncontractedKernels, type NumericalKernel } from '../numericalContracts.js';
+import { checkShapeConsistency, type ShapeIssue } from '../shapePropagation.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { LoopState } from './state.js';
@@ -111,11 +112,18 @@ function buildImpactGateReprompt(impact: SymbolImpact[]): string {
 // quantity-typed functions) that declare no shape/dtype/unit contract. Source is
 // read fresh from disk so a contract the agent just added is seen.
 
-function gatherUncontractedKernels(
+/** Combined §5 findings for the edited files: kernels with no contract, plus
+ *  provable shape-contract conflicts. */
+interface NumericalFindings {
+  bare: NumericalKernel[];
+  conflicts: ShapeIssue[];
+}
+
+function gatherNumericalFindings(
   graph: SymbolGraph,
   editedFiles: ReadonlySet<string>,
   root: string,
-): NumericalKernel[] {
+): NumericalFindings {
   const relativize = (f: string): string => (root && path.isAbsolute(f) ? path.relative(root, f) : f);
   const editedRel = new Set<string>();
   for (const f of editedFiles) editedRel.add(relativize(f));
@@ -126,33 +134,55 @@ function gatherUncontractedKernels(
       return graph.getFileContent(f);
     }
   };
-  return uncontractedKernels(findNumericalKernels(graph, readSource, { fileFilter: (f) => editedRel.has(f) }));
+  const inScope = { fileFilter: (f: string) => editedRel.has(f) };
+  return {
+    bare: uncontractedKernels(findNumericalKernels(graph, readSource, inScope)),
+    conflicts: checkShapeConsistency(graph, readSource, inScope),
+  };
 }
 
-function kernelLines(bare: readonly NumericalKernel[]): string[] {
+function findingsEmpty(f: NumericalFindings): boolean {
+  return f.bare.length === 0 && f.conflicts.length === 0;
+}
+
+function bareLines(bare: readonly NumericalKernel[]): string[] {
   return bare
     .slice(0, IMPACT_ADVISORY_MAX_SYMBOLS)
     .map((k) => `   • ${k.name} (${k.file}:${k.startLine}) — ${k.roles.join('/')} typed as a bare array`);
 }
 
-function buildNumericalAdvisory(bare: readonly NumericalKernel[]): string {
-  return (
-    '\n\n📐 Numerical contracts (advisory) — edited kernels with no shape/dtype/unit contract:\n' +
-    kernelLines(bare).join('\n') +
-    '\n   Add a shaped type, a shape/dtype assertion, or a docstring shape spec; or call `check_numerical_contracts`.\n'
-  );
+function conflictLines(conflicts: readonly ShapeIssue[]): string[] {
+  return conflicts
+    .slice(0, IMPACT_ADVISORY_MAX_SYMBOLS)
+    .map((i) => `   • ${i.kernel} (${i.file}:${i.line}) [${i.kind}] — ${i.detail}`);
 }
 
-function buildNumericalGateReprompt(bare: readonly NumericalKernel[]): string {
-  return [
-    'Before finishing: you edited numerical kernel(s) whose array contracts are unstated:',
-    '',
-    ...kernelLines(bare),
-    '',
-    'Give each a shape/dtype contract — a shaped type annotation (e.g. `npt.NDArray[np.float64]` or nptyping ' +
-      '`Shape[...]`), an `assert arr.shape == …` / dtype check, or a docstring shape spec — so the array invariants ' +
-      'are verifiable, then finish.',
-  ].join('\n');
+function buildNumericalAdvisory(f: NumericalFindings): string {
+  const parts: string[] = ['\n\n📐 Numerical contracts (advisory):'];
+  if (f.conflicts.length > 0) {
+    parts.push('  Shape-contract conflicts (likely bugs):', ...conflictLines(f.conflicts));
+  }
+  if (f.bare.length > 0) {
+    parts.push('  Kernels with no shape/dtype/unit contract:', ...bareLines(f.bare));
+  }
+  parts.push('  Call `check_shape_consistency` / `check_numerical_contracts` for detail.\n');
+  return parts.join('\n');
+}
+
+function buildNumericalGateReprompt(f: NumericalFindings): string {
+  const parts: string[] = ['Before finishing, resolve these numerical-contract issues in your edits:', ''];
+  if (f.conflicts.length > 0) {
+    parts.push('Shape-contract conflicts — the stated shapes disagree (fix the annotation, assertion, or callee):');
+    parts.push(...conflictLines(f.conflicts), '');
+  }
+  if (f.bare.length > 0) {
+    parts.push(
+      'Numerical kernels with no contract — give each a shaped type, a `assert arr.shape == …` / dtype check, or a docstring shape spec:',
+    );
+    parts.push(...bareLines(f.bare), '');
+  }
+  parts.push('Then finish.');
+  return parts.join('\n');
 }
 
 /** Bounded retries for the syntax gate, mirroring MAX_GATE_INJECTIONS. */
@@ -468,22 +498,26 @@ export async function maybeInjectCompletionGate(
       const graph = getDefaultToolRuntime().symbolGraph;
       if (graph && graph.fileCount() > 0) {
         try {
-          const bare = gatherUncontractedKernels(graph, gateState.editedFiles, getRoot());
-          if (bare.length > 0) {
+          const findings = gatherNumericalFindings(graph, gateState.editedFiles, getRoot());
+          if (!findingsEmpty(findings)) {
             if (needBlock) {
               gateState.numericalContractGateInjections = 1;
               gateState.numericalContractAdvisoryFired = true; // the block carries the same info
-              logger?.info(`Numerical-contract gate fired — ${bare.length} edited kernel(s) lack a contract`);
-              callbacks.onText('\n\n📐 Adding shape/dtype contracts before completion...\n');
+              logger?.info(
+                `Numerical-contract gate fired — ${findings.conflicts.length} shape conflict(s), ${findings.bare.length} uncontracted kernel(s)`,
+              );
+              callbacks.onText('\n\n📐 Resolving numerical-contract issues before completion...\n');
               state.messages.push({
                 role: 'user',
-                content: [{ type: 'text' as const, text: buildNumericalGateReprompt(bare) }],
+                content: [{ type: 'text' as const, text: buildNumericalGateReprompt(findings) }],
               });
               return 'injected';
             }
             gateState.numericalContractAdvisoryFired = true;
-            logger?.info(`Numerical-contract advisory surfaced — ${bare.length} uncontracted kernel(s)`);
-            callbacks.onText(buildNumericalAdvisory(bare));
+            logger?.info(
+              `Numerical-contract advisory surfaced — ${findings.conflicts.length} conflict(s), ${findings.bare.length} uncontracted`,
+            );
+            callbacks.onText(buildNumericalAdvisory(findings));
           }
         } catch (err) {
           logger?.warn(`Numerical-contract gate skipped: ${err instanceof Error ? err.message : String(err)}`);

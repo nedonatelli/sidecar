@@ -373,7 +373,45 @@ describe('maybeInjectCompletionGate — numerical-contract gate', () => {
       stubCallbacks(),
     );
     expect(out).toBe('injected');
-    expect(state.messages.some((m) => JSON.stringify(m.content).includes('array contracts are unstated'))).toBe(true);
+    expect(state.messages.some((m) => JSON.stringify(m.content).includes('numerical-contract issues'))).toBe(true);
+  });
+
+  it('blocks on a shape-contract conflict even when contracts are present', async () => {
+    const g = new SymbolGraph();
+    const sym = (name: string, s: number, e: number) => ({
+      name,
+      qualifiedName: name,
+      type: 'function' as const,
+      filePath: 'geo.py',
+      startLine: s,
+      endLine: e,
+      exported: true,
+    });
+    g.addFile(
+      'geo.py',
+      [sym('f', 0, 2)],
+      [],
+      'h1',
+      [],
+      [],
+      [{ userFile: 'geo.py', userName: 'f', typeName: 'NDArray', role: 'param', line: 1 }],
+    );
+    // annotation says (N, 3); the assertion says (N, 4) — a provable dim conflict.
+    g.setFileContent(
+      'geo.py',
+      ['def f(a: NDArray[Shape["N, 3"]]) -> None:', '    assert a.shape == (N, 4)', '    return None'].join('\n'),
+    );
+    setSymbolGraph(g);
+    const state = stubLoopState({ gateState: gs() });
+    const out = await maybeInjectCompletionGate(
+      state,
+      stubConfig({ numericalContractGateEnabled: true }),
+      {},
+      signal,
+      stubCallbacks(),
+    );
+    expect(out).toBe('injected');
+    expect(state.messages.some((m) => JSON.stringify(m.content).includes('Shape-contract conflicts'))).toBe(true);
   });
 
   it('does not block when the setting is off (advisory only → skip)', async () => {
