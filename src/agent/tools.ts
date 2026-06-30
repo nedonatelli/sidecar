@@ -22,6 +22,7 @@ import { knowledgeTools } from './tools/knowledge.js';
 import { systemMonitorTools } from './tools/systemMonitor.js';
 import { projectKnowledgeTools } from './tools/projectKnowledge.js';
 import { impactTools } from './tools/impact.js';
+import { numericalContractsTools } from './tools/numericalContracts.js';
 import { settingsTools } from './tools/settings.js';
 import { kickstandTools } from './tools/kickstand.js';
 import { githubTools } from './tools/github.js';
@@ -75,6 +76,7 @@ export const TOOL_REGISTRY: RegisteredTool[] = [
   ...systemMonitorTools,
   ...projectKnowledgeTools,
   ...impactTools,
+  ...numericalContractsTools,
   ...settingsTools,
   ...kickstandTools,
   ...githubTools,

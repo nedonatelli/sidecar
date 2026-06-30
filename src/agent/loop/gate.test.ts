@@ -306,3 +306,124 @@ describe('maybeInjectCompletionGate — change-impact gate', () => {
     expect(out).toBe('skip');
   });
 });
+
+describe('maybeInjectCompletionGate — numerical-contract gate', () => {
+  const signal = new AbortController().signal;
+  afterEach(() => setSymbolGraph(null));
+
+  const SRC = [
+    'def orient(p: np.ndarray) -> np.ndarray:',
+    '    return p[::-1]',
+    '',
+    'def checked(p: np.ndarray) -> np.ndarray:',
+    '    assert p.shape == (3,)',
+    '    return p',
+  ].join('\n');
+
+  function pyGraph(src = SRC): SymbolGraph {
+    const g = new SymbolGraph();
+    const sym = (name: string, s: number, e: number) => ({
+      name,
+      qualifiedName: name,
+      type: 'function' as const,
+      filePath: 'geo.py',
+      startLine: s,
+      endLine: e,
+      exported: true,
+    });
+    const use = (name: string, role: 'param' | 'return') => ({
+      userFile: 'geo.py',
+      userName: name,
+      typeName: 'ndarray',
+      role,
+      line: 1,
+    });
+    g.addFile(
+      'geo.py',
+      [sym('orient', 0, 1), sym('checked', 3, 5)],
+      [],
+      'h1',
+      [],
+      [],
+      [use('orient', 'param'), use('orient', 'return'), use('checked', 'param')],
+    );
+    g.setFileContent('geo.py', src);
+    return g;
+  }
+
+  function gs(overrides: Record<string, unknown> = {}) {
+    // syntaxGateInjections: 2 disables the real parse-check shell for the .py
+    // edited file (it would otherwise spawn py_compile and time out in tests).
+    return {
+      editedFiles: new Set(['geo.py']),
+      gateInjections: 0,
+      syntaxGateInjections: 2,
+      ...overrides,
+    } as unknown as LoopState['gateState'];
+  }
+
+  it('blocks once when enabled and an edited kernel lacks a contract', async () => {
+    setSymbolGraph(pyGraph());
+    const state = stubLoopState({ gateState: gs() });
+    const out = await maybeInjectCompletionGate(
+      state,
+      stubConfig({ numericalContractGateEnabled: true }),
+      {},
+      signal,
+      stubCallbacks(),
+    );
+    expect(out).toBe('injected');
+    expect(state.messages.some((m) => JSON.stringify(m.content).includes('array contracts are unstated'))).toBe(true);
+  });
+
+  it('does not block when the setting is off (advisory only → skip)', async () => {
+    setSymbolGraph(pyGraph());
+    const state = stubLoopState({ gateState: gs() });
+    const out = await maybeInjectCompletionGate(
+      state,
+      stubConfig({ numericalContractGateEnabled: false }),
+      {},
+      signal,
+      stubCallbacks(),
+    );
+    expect(out).toBe('skip');
+  });
+
+  it('does not fire when every edited kernel already has a contract', async () => {
+    // Only `checked` has a contract; drop `orient` so nothing is uncontracted.
+    const g = new SymbolGraph();
+    g.addFile(
+      'geo.py',
+      [
+        {
+          name: 'checked',
+          qualifiedName: 'checked',
+          type: 'function',
+          filePath: 'geo.py',
+          startLine: 0,
+          endLine: 2,
+          exported: true,
+        },
+      ],
+      [],
+      'h1',
+      [],
+      [],
+      [{ userFile: 'geo.py', userName: 'checked', typeName: 'ndarray', role: 'param', line: 1 }],
+    );
+    g.setFileContent(
+      'geo.py',
+      ['def checked(p: np.ndarray):', '    assert p.shape == (3,)', '    return p'].join('\n'),
+    );
+    setSymbolGraph(g);
+    const state = stubLoopState({ gateState: gs() });
+    const out = await maybeInjectCompletionGate(
+      state,
+      stubConfig({ numericalContractGateEnabled: true }),
+      {},
+      signal,
+      stubCallbacks(),
+    );
+    expect(out).toBe('skip');
+  });
+});

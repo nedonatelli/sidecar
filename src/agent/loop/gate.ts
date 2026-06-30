@@ -17,6 +17,8 @@ import { getRoot } from '../tools/shared.js';
 import { runVerificationCommand } from '../tools/shell.js';
 import { getDefaultToolRuntime } from '../tools/runtime.js';
 import type { SymbolGraph, ImpactedItem } from '../../config/symbolGraph.js';
+import { findNumericalKernels, uncontractedKernels, type NumericalKernel } from '../numericalContracts.js';
+import * as fs from 'fs';
 import * as path from 'path';
 import type { LoopState } from './state.js';
 
@@ -101,6 +103,55 @@ function buildImpactGateReprompt(impact: SymbolImpact[]): string {
     '',
     'Run the project tests — or a test that exercises these call sites / type users — to confirm the change ' +
       'does not break them. If they are genuinely unaffected, run the tests anyway to prove it, then finish.',
+  ].join('\n');
+}
+
+// --- Numerical-contract gate (§5 vertical) ---------------------------------
+// Uses the code graph's type-flow edges to find edited numerical kernels (array/
+// quantity-typed functions) that declare no shape/dtype/unit contract. Source is
+// read fresh from disk so a contract the agent just added is seen.
+
+function gatherUncontractedKernels(
+  graph: SymbolGraph,
+  editedFiles: ReadonlySet<string>,
+  root: string,
+): NumericalKernel[] {
+  const relativize = (f: string): string => (root && path.isAbsolute(f) ? path.relative(root, f) : f);
+  const editedRel = new Set<string>();
+  for (const f of editedFiles) editedRel.add(relativize(f));
+  const readSource = (f: string): string | undefined => {
+    try {
+      return fs.readFileSync(root && !path.isAbsolute(f) ? path.join(root, f) : f, 'utf-8');
+    } catch {
+      return graph.getFileContent(f);
+    }
+  };
+  return uncontractedKernels(findNumericalKernels(graph, readSource, { fileFilter: (f) => editedRel.has(f) }));
+}
+
+function kernelLines(bare: readonly NumericalKernel[]): string[] {
+  return bare
+    .slice(0, IMPACT_ADVISORY_MAX_SYMBOLS)
+    .map((k) => `   • ${k.name} (${k.file}:${k.startLine}) — ${k.roles.join('/')} typed as a bare array`);
+}
+
+function buildNumericalAdvisory(bare: readonly NumericalKernel[]): string {
+  return (
+    '\n\n📐 Numerical contracts (advisory) — edited kernels with no shape/dtype/unit contract:\n' +
+    kernelLines(bare).join('\n') +
+    '\n   Add a shaped type, a shape/dtype assertion, or a docstring shape spec; or call `check_numerical_contracts`.\n'
+  );
+}
+
+function buildNumericalGateReprompt(bare: readonly NumericalKernel[]): string {
+  return [
+    'Before finishing: you edited numerical kernel(s) whose array contracts are unstated:',
+    '',
+    ...kernelLines(bare),
+    '',
+    'Give each a shape/dtype contract — a shaped type annotation (e.g. `npt.NDArray[np.float64]` or nptyping ' +
+      '`Shape[...]`), an `assert arr.shape == …` / dtype check, or a docstring shape spec — so the array invariants ' +
+      'are verifiable, then finish.',
   ].join('\n');
 }
 
@@ -400,6 +451,43 @@ export async function maybeInjectCompletionGate(
         }
       } catch (err) {
         logger?.warn(`Change-impact advisory skipped: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  }
+
+  // Numerical-contract gate + advisory (§5 vertical). Self-scoping: only fires
+  // when edited files contain numerical kernels lacking a contract, so
+  // non-scientific edits are unaffected. Advisory always; opt-in hard block via
+  // `sidecar.numericalContracts.gate`. Unlike the impact gate this does not
+  // depend on tests — an unstated array contract is a gap regardless.
+  {
+    const needBlock =
+      config.numericalContractGateEnabled === true && (gateState.numericalContractGateInjections ?? 0) < 1;
+    const needAdvisory = !gateState.numericalContractAdvisoryFired;
+    if (gateState.editedFiles.size > 0 && (needBlock || needAdvisory)) {
+      const graph = getDefaultToolRuntime().symbolGraph;
+      if (graph && graph.fileCount() > 0) {
+        try {
+          const bare = gatherUncontractedKernels(graph, gateState.editedFiles, getRoot());
+          if (bare.length > 0) {
+            if (needBlock) {
+              gateState.numericalContractGateInjections = 1;
+              gateState.numericalContractAdvisoryFired = true; // the block carries the same info
+              logger?.info(`Numerical-contract gate fired — ${bare.length} edited kernel(s) lack a contract`);
+              callbacks.onText('\n\n📐 Adding shape/dtype contracts before completion...\n');
+              state.messages.push({
+                role: 'user',
+                content: [{ type: 'text' as const, text: buildNumericalGateReprompt(bare) }],
+              });
+              return 'injected';
+            }
+            gateState.numericalContractAdvisoryFired = true;
+            logger?.info(`Numerical-contract advisory surfaced — ${bare.length} uncontracted kernel(s)`);
+            callbacks.onText(buildNumericalAdvisory(bare));
+          }
+        } catch (err) {
+          logger?.warn(`Numerical-contract gate skipped: ${err instanceof Error ? err.message : String(err)}`);
+        }
       }
     }
   }

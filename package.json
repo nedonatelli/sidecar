@@ -2051,6 +2051,11 @@
             "default": false,
             "markdownDescription": "Block completion when the agent edits an exported symbol that has unverified cross-file dependents. Uses the symbol graph's import-resolved change-impact analysis (the same data behind the `analyze_impact` tool) to require the agent verify downstream callers/type-users still hold before finishing. Off by default: the impact summary is always shown as a non-blocking advisory regardless of this setting; turning it on promotes that advisory to a one-time hard block when the edited symbols weren't covered by a passing test."
           },
+          "sidecar.numericalContracts.gate": {
+            "type": "boolean",
+            "default": false,
+            "markdownDescription": "Block completion when the agent edits a numerical kernel (a function with array/tensor/quantity-typed parameters or returns, e.g. `np.ndarray`) that lacks a shape/dtype/unit contract — a shaped type annotation, a `assert arr.shape == …` / dtype check, or a docstring shape spec. Uses the code graph's type-flow edges (the same data behind the `check_numerical_contracts` tool). Off by default: an advisory listing uncontracted kernels always shows when numerical code is edited; turning this on promotes it to a one-time hard block so a green test suite can't pass over a bare, unconstrained array contract."
+          },
           "sidecar.evalHistory.enabled": {
             "type": "boolean",
             "default": false,

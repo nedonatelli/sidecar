@@ -77,6 +77,12 @@ export interface GateState {
    * run (bounded to 1). Only fires when `sidecar.codeGraph.impactGate` is on and
    * edited exported symbols have unverified resolved dependents. Optional. */
   impactGateInjections?: number;
+  /** True once the (non-blocking) numerical-contract advisory has fired. */
+  numericalContractAdvisoryFired?: boolean;
+  /** How many times the opt-in numerical-contract gate has blocked this run
+   * (bounded to 1). Fires when `sidecar.numericalContracts.gate` is on and an
+   * edited numerical kernel lacks a shape/dtype/unit contract. Optional. */
+  numericalContractGateInjections?: number;
   /**
    * The user request that triggered THIS run, captured at loop init. The
    * request-based gates (no-read/no-shell/no-grounding/no-file-write/

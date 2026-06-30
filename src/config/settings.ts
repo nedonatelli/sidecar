@@ -321,6 +321,8 @@ export interface SideCarConfig {
   profilingTopN: number;
   /* Code-graph change-impact gate (opt-in hard block) */
   impactGateEnabled: boolean;
+  /* Numerical-contract gate (opt-in hard block; §5 vertical) */
+  numericalContractGateEnabled: boolean;
   /* Eval history DB */
   evalHistoryEnabled: boolean;
   /* LaTeX Agentic Debugging */
@@ -650,6 +652,7 @@ function readConfig(): SideCarConfig {
     profilingEnabled: cfg.get<boolean>('profiling.enabled', false),
     profilingTopN: clampMin(cfg.get<number>('profiling.topN', 10), 1, 50),
     impactGateEnabled: cfg.get<boolean>('codeGraph.impactGate', false),
+    numericalContractGateEnabled: cfg.get<boolean>('numericalContracts.gate', false),
     evalHistoryEnabled: cfg.get<boolean>('evalHistory.enabled', false),
     latexEnabled: cfg.get<boolean>('latex.enabled', false),
     latexCompiler: cfg.get<'latexmk' | 'pdflatex'>('latex.compiler', 'latexmk'),
