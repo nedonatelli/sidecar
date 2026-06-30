@@ -4,6 +4,21 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.115.0] - 2026-06-29
+
+Consequence-aware code graph + a numerical-correctness vertical built on top of it. The symbol graph went from "where is X?" to "what depends on X?", with AST-exact extraction for TypeScript and Python, and its type-flow edges now power shape/dtype contract checking for scientific code — verified end-to-end in a live VS Code host.
+
+### Added
+
+- **Change-impact analysis (consequence layer).** The symbol graph gained `getCallees` (closing the one-directional call graph), type-use edges (return/param/variable type references), and an import-resolved `impactOf` query. New `analyze_impact` agent tool answers "what depends on this symbol?" — transitive callers, type-users, subtypes, and importers — resolved to the changed symbol's defining file so same-named symbols elsewhere don't contaminate the result. Opt-in `sidecar.codeGraph.impactGate` promotes the always-on advisory to a one-time hard block when edited exported symbols have unverified cross-file dependents. (`src/config/symbolGraph.ts`, `src/agent/tools/impact.ts`, `src/agent/loop/gate.ts`)
+- **AST-exact edge extraction (tree-sitter).** Call/type edges were regex-derived (matching `name(` in strings/comments, attributing by line range). They're now extracted from the tree-sitter AST for TS/TSX/JS and Python: calls attributed to the innermost enclosing symbol, member calls (`this.mint`, `obj.method`) resolved to the bare name, type annotations with role (param/return/variable), and class heritage. Non-AST languages delegate to the regex analyzer, so edge coverage never regresses. The indexer now uses tree-sitter when a grammar is available. (`src/parsing/treeSitterAnalyzer.ts`, `src/config/symbolIndexer.ts`)
+- **Numerical-correctness contracts (§5 vertical).** `check_numerical_contracts` agent tool locates numerical kernels via the graph's type-flow edges (functions touching `np.ndarray` / `NDArray` / tensors / quantities) and flags those lacking a shape/dtype/unit contract — a shaped type, a `assert arr.shape == …` / dtype check, or a docstring shape spec. Opt-in `sidecar.numericalContracts.gate` blocks completion on uncontracted edited kernels. Turns "tests pass" into "the array contracts are stated." (`src/agent/numericalContracts.ts`, `src/agent/tools/numericalContracts.ts`)
+- **Shape-contract propagation.** `check_shape_consistency` parses shape specs (jaxtyping / nptyping / numpy.typing / assert tuples) into a canonical model and reports only provable conflicts (rank, conflicting literal dims, dtype — symbolic dims are wildcards) across three rungs: intra-kernel (annotation vs assertion on the same param), tail-call (`def f(): return g(...)` return-shape match), and cross-call dataflow (`u = make(x); use(u)` — shapes tracked through local variables and call boundaries, conservatively). Folded into the numerical gate's advisory + block. (`src/agent/shapeSpec.ts`, `src/agent/shapePropagation.ts`, `src/agent/tools/shapeConsistency.ts`)
+
+### Fixed
+
+- **Symbol-graph file content was silently discarded.** `SymbolGraph.addFile()` clears `fileContents` (via `removeFile`), but the indexer stored content *before* `addFile`, so `getFileContent()` always returned undefined and reference search / source readers fell back to disk needlessly. Content is now stored after `addFile`; a regression test pins the ordering. (`src/config/symbolIndexer.ts`)
+
 ## [0.114.56] - 2026-06-29
 
 ### Fixed
