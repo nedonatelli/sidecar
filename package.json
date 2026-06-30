@@ -3331,6 +3331,8 @@
     "eval:parity:record": "SIDECAR_RECORD_PARITY_BASELINE=1 vitest run --config vitest.eval.config.ts tests/llm-eval/embeddingParity.eval.ts",
     "eval:compare": "SIDECAR_DISABLE_THINKING=true vitest run --config vitest.eval.config.ts tests/llm-eval/modelComparison.eval.ts",
     "bench:bfcl": "SIDECAR_DISABLE_THINKING=true vitest run --config vitest.eval.config.ts bench/bfcl/run.eval.ts",
+    "bench:swe:predict": "SIDECAR_DISABLE_THINKING=true vitest run --config vitest.eval.config.ts tests/llm-eval/swe.eval.ts",
+    "bench:swe:ablate": "vitest run --config vitest.eval.config.ts bench/swe/ablate.eval.ts",
     "compile:bench": "tsc -p tsconfig.bench.json",
     "lint": "eslint src/ media/",
     "format": "prettier --write 'src/**/*.ts'",
