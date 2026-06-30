@@ -150,6 +150,27 @@ describe('tools.ts', () => {
       expect(TOOL_REGISTRY.length).toBeGreaterThan(0);
     });
 
+    it('ships exactly 83 distinct built-in tools (the published count)', () => {
+      // The headline "83 built-in tools" in README + docs is this number:
+      // every registry tool, plus the two definitions getToolDefinitions
+      // appends outside the registry — spawn_agent (always advertised) and
+      // delegate_task (cloud + opt-in). Pinned so the docs can't silently
+      // drift from the code again. Bump this AND the docs together when a
+      // tool is added/removed (see docs/tools-reference.md, index.html,
+      // model-recommendations.md, guide-cost-optimization.md, CLAUDE.md).
+      const builtInNames = new Set([
+        ...TOOL_REGISTRY.map((t) => t.definition.name),
+        SPAWN_AGENT_DEFINITION.name,
+        DELEGATE_TASK_DEFINITION.name,
+      ]);
+      expect(builtInNames.size).toBe(83);
+    });
+
+    it('every registry tool name is unique', () => {
+      const names = TOOL_REGISTRY.map((t) => t.definition.name);
+      expect(new Set(names).size).toBe(names.length);
+    });
+
     it('should have read_file tool', () => {
       const readFileTool = TOOL_REGISTRY.find((t) => t.definition.name === 'read_file');
       expect(readFileTool).toBeDefined();

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-SideCar is a VS Code extension that turns local and cloud LLMs into a full agentic coding assistant. It supports Ollama, Anthropic, AWS Bedrock, OpenAI-compatible servers, Kickstand, OpenRouter, Groq, Fireworks, Gemini, and GitHub Copilot as backends. The extension provides an agent loop with 80 built-in tools (file ops, shell, git, web search, vision, database, doc-to-test synthesis, PDF/Zotero, MCP, Notebook Mode research, dependency drift, code profiling, LaTeX compilation, CI failure analysis, research assistant, monorepo analysis), inline completions, code review, and a chat UI.
+SideCar is a VS Code extension that turns local and cloud LLMs into a full agentic coding assistant. It supports Ollama, Anthropic, AWS Bedrock, OpenAI-compatible servers, Kickstand, OpenRouter, Groq, Fireworks, Gemini, and GitHub Copilot as backends. The extension provides an agent loop with 83 built-in tools (file ops, shell, git, web search, change-impact analysis, numerical-contract checking, vision, database, doc-to-test synthesis, PDF/Zotero, MCP, Notebook Mode research, dependency drift, code profiling, LaTeX compilation, CI failure analysis, research assistant, monorepo analysis), inline completions, code review, and a chat UI.
 
 ## Architecture diagrams (start here when onboarding)
 
@@ -233,6 +233,7 @@ Config: `sidecar.sidecarMd.{mode, alwaysIncludeHeadings, lowPriorityHeadings, ma
 ### Code Profiling (`src/agent/tools/profiling.ts`)
 
 v0.93+ `profile_code` agent tool. Auto-detects ecosystem from workspace manifests (`package.json` → node, `requirements.txt`/`pyproject.toml` → python, `Cargo.toml` → rust, `go.mod` → go). Builds and runs the appropriate profiler command via `getDefaultToolRuntime().getShellSession()`. Parses structured output for each ecosystem:
+
 - **Python**: `python -m cProfile -s cumulative` — parses `ncalls/tottime/cumtime` table.
 - **Go**: `go test -bench=. -run=^$ -benchmem` — ranks by `ns/op` descending.
 - **Rust**: `cargo bench` — ranks by `ns/iter` descending.
@@ -243,6 +244,7 @@ Returns ranked hotspot markdown + raw `<details>` block. Gated by `sidecar.profi
 ### LaTeX Agentic Debugging (`src/agent/tools/latex.ts`)
 
 v0.94+ `latex_compile` agent tool. Compiles a `.tex` document and returns structured errors and warnings with file and line references. `parseLatexOutput(output, mainFile)` is a pure function that handles:
+
 - Classic pdflatex `! Error message` / `l.NNN context` two-line format
 - Inline `file:line: message` format (latexmk / pdflatex with `-file-line-error`)
 - LaTeX/Package/Overfull/Underfull warning lines with embedded line-number extraction
@@ -277,7 +279,7 @@ v0.95+ two-direction MCP delegation.
 ### Terminal Execution (`src/terminal/`)
 
 - `shellSession.ts` — long-lived `child_process.spawn`-based shell with per-command alias/function namespace reset. Fallback path for agent commands when shell integration isn't available.
-- `agentExecutor.ts` — v0.59+ `AgentTerminalExecutor` routes agent `run_command` / `run_tests` through VS Code's `terminal.shellIntegration.executeCommand` API in a reusable *SideCar Agent* terminal. Listens to `onDidEndTerminalShellExecution` for exit codes. Returns `null` when shellIntegration is unavailable — caller falls back to `ShellSession`.
+- `agentExecutor.ts` — v0.59+ `AgentTerminalExecutor` routes agent `run_command` / `run_tests` through VS Code's `terminal.shellIntegration.executeCommand` API in a reusable _SideCar Agent_ terminal. Listens to `onDidEndTerminalShellExecution` for exit codes. Returns `null` when shellIntegration is unavailable — caller falls back to `ShellSession`.
 - `shellExecutor.ts` — v0.92 `CompositeShellExecutor` + `IShellExecutor` interface. Consolidates the terminal→ShellSession routing that `shell.ts` previously duplicated in `runCommand` and `runTests`. Foreground commands try `AgentTerminalExecutor` first; background commands always use `ShellSession`. `AgentTerminalExecutor` is only instantiated when `terminalExecution.enabled` is true.
 - `manager.ts` — user-facing terminal manager for `handleRunCommand` (chat "run this command" prompts). Distinct from the agent-facing path above.
 - `errorWatcher.ts` — subscribes to `onDidStartTerminalShellExecution` / `onDidEndTerminalShellExecution` to surface user-run command failures to the agent.
@@ -321,18 +323,21 @@ The chat UI itself is vanilla HTML/JS/CSS in `media/chat.js` + `media/chat.css`.
 v0.61+ opt-in semantic layer. Symbol-granularity sibling of the file-level `EmbeddingIndex` — same `@huggingface/transformers` MiniLM-L6-v2 model + 384-dim space (note: package renamed from `@xenova/transformers` to `@huggingface/transformers` in v0.83). `SymbolIndexer.setSymbolEmbeddings(index, maxSymbolsPerFile?)` wires the embedder so every parsed file feeds each extracted symbol's body into a debounced `queueSymbol` batch drain (500 ms window, 20/batch). Queried via the `project_knowledge_search` agent tool in [`src/agent/tools/projectKnowledge.ts`](src/agent/tools/projectKnowledge.ts); tool runs cosine over the flat vector store, then calls `enrichWithGraphWalk(directHits, graph, { maxDepth, maxGraphHits })` to walk `SymbolGraph.getCallers` edges outward from each hit — so a query like "where is auth handled?" returns `requireAuth` plus every route that wraps it, tagged with `vector: 0.823` or `graph: called-by (1 hop from requireAuth)`. Gated behind `sidecar.projectKnowledge.enabled` (default-on since v0.63).
 
 **v0.62 additions**:
+
 - **Vector backend abstraction** ([`src/config/vectorStore.ts`](src/config/vectorStore.ts)) — storage extracted into a `VectorStore<M>` interface with a `FlatVectorStore<M>` implementation. `sidecar.projectKnowledge.backend: 'flat' | 'lance'` reserves the Lance name for a future release. `FlatVectorStore` is also reused by `EpisodicMemoryStore` for session-scoped conversation context retrieval.
 - **`SemanticRetriever` migration** (`src/agent/retrieval/semanticRetriever.ts`) — prefers symbol-level hits from `SymbolEmbeddingIndex` when PKI is wired + ready + non-empty; falls back to file-level `rankFiles` when not.
 - **Merkle layer** ([`src/config/merkleTree.ts`](src/config/merkleTree.ts)) — content-addressed tree with SHA-256 leaf hashes + mean-pooled aggregated embeddings at file nodes. `SymbolEmbeddingIndex.setMerkleTree(tree)` replays persisted entries; `search` uses `descend(queryVec, k)` to pick candidate subtrees before scoring leaves. Gated by `sidecar.merkleIndex.enabled` (default `true`).
 - **RAG-eval** ([`src/test/retrieval-eval/`](src/test/retrieval-eval/)) — golden-case fixture + harness + metrics (precision@K, recall@K, F1@K, MRR). CI ratchet in `baseline.test.ts` gates retrieval quality against floor thresholds. LLM-judged `Faithfulness` + `AnswerRelevancy` layer under `tests/llm-eval/retrieval.eval.ts` runs with `npm run eval:llm`.
 
 **v0.84 additions**:
+
 - **Query rewriting** (`src/agent/retrieval/queryRewriter.ts`) — `rewriteQuery(text, mode, completeFn)` expands the user's retrieval query before it hits the vector store. Four modes: `'off'` (passthrough), `'rule'` (keyword extraction + camelCase split), `'llm'` (LLM-generated alternative phrasings), `'expand'` (rule + LLM combined). Controlled by `sidecar.retrievalQueryRewrite`. Called in `systemPrompt.ts` before the retriever fusion step.
 - **Chunk-level prose retrieval** — prose documents (README, markdown files) are now chunked and indexed at the paragraph level rather than file level, enabling the retriever to return the specific section relevant to the query rather than the whole file.
 
 ### HuggingFace Model Import (`src/ollama/huggingface.ts` + `hfSafetensorsImport.ts`)
 
 Two install paths:
+
 1. **GGUF repos** → `ollama pull hf.co/org/repo:file` (native Ollama)
 2. **Safetensors repos** → download shards + `ollama create -q` (local conversion)
 
