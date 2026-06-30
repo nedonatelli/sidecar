@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { SymbolGraph, type SymbolEntry } from '../config/symbolGraph.js';
-import { extractKernelShapes, checkShapeConsistency } from './shapePropagation.js';
+import { extractKernelShapes, checkShapeConsistency, type SourceReader } from './shapePropagation.js';
 
 describe('extractKernelShapes', () => {
   it('parses param annotations, return annotation, asserts, and tail calls', () => {
@@ -90,5 +90,96 @@ describe('checkShapeConsistency — Rung B (tail-call returns)', () => {
     const read2 = (f: string) =>
       f === 'a.py' ? fSrc : f === 'b.py' ? gSrc : f === 'c.py' ? 'def rotate(): pass' : undefined;
     expect(checkShapeConsistency(g, read2).filter((i) => i.kind === 'tail-call')).toEqual([]);
+  });
+});
+
+describe('checkShapeConsistency — Rung C (cross-call dataflow)', () => {
+  // make -> rank-2; use expects rank-1.
+  const MAKE = 'def make(x: np.ndarray) -> NDArray[Shape["N, 3"]]:\n    return x';
+  const USE = 'def use(p: NDArray[Shape["3"]]) -> None:\n    return None';
+
+  function buildGraph(callerSrc: string, callerLines: [number, number]): { graph: SymbolGraph; read: SourceReader } {
+    // Lay make/use/caller out in one file with known line ranges.
+    const FILE = [MAKE, '', USE, '', callerSrc].join('\n');
+    const g = new SymbolGraph();
+    g.addFile(
+      'm.py',
+      [fn('make', 'm.py', 0, 1), fn('use', 'm.py', 3, 4), fn('caller', 'm.py', callerLines[0], callerLines[1])],
+      [],
+      'h1',
+    );
+    g.setFileContent('m.py', FILE);
+    return { graph: g, read: (f) => (f === 'm.py' ? FILE : undefined) };
+  }
+  const dataflow = (g: SymbolGraph, read: SourceReader) =>
+    checkShapeConsistency(g, read).filter((i) => i.kind === 'dataflow');
+
+  it('flags a call arg whose (call-derived) shape conflicts with the callee param', () => {
+    const { graph, read } = buildGraph('def caller(x: np.ndarray) -> None:\n    u = make(x)\n    use(u)', [6, 8]);
+    const issues = dataflow(graph, read);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toMatchObject({ kernel: 'caller', conflict: { kind: 'rank' } });
+    expect(issues[0].detail).toContain('argument `u` to `use(...)`');
+  });
+
+  it('flags a shaped parameter passed directly to an incompatible callee', () => {
+    const { graph, read } = buildGraph('def caller(a: NDArray[Shape["N, 3"]]) -> None:\n    use(a)', [6, 7]);
+    expect(dataflow(graph, read)).toHaveLength(1);
+  });
+
+  it('does not flag when the shapes are compatible', () => {
+    const { graph, read } = buildGraph('def caller(a: NDArray[Shape["3"]]) -> None:\n    use(a)', [6, 7]);
+    expect(dataflow(graph, read)).toEqual([]);
+  });
+
+  it('skips a variable that is reassigned (ambiguous binding)', () => {
+    const { graph, read } = buildGraph(
+      'def caller(x: np.ndarray) -> None:\n    u = make(x)\n    u = other(x)\n    use(u)',
+      [6, 9],
+    );
+    expect(dataflow(graph, read)).toEqual([]);
+  });
+
+  it('skips keyword-argument calls', () => {
+    const { graph, read } = buildGraph('def caller(a: NDArray[Shape["N, 3"]]) -> None:\n    use(p=a)', [6, 7]);
+    expect(dataflow(graph, read)).toEqual([]);
+  });
+
+  it('skips nested-call arguments (unknown shape)', () => {
+    const { graph, read } = buildGraph('def caller(x: np.ndarray) -> None:\n    use(make(x))', [6, 7]);
+    expect(dataflow(graph, read)).toEqual([]);
+  });
+
+  it('skips method callees (leading self shifts positions)', () => {
+    // `use` redefined as a method-like callee: resolveCallee finds a method, which Rung C ignores.
+    const FILE = [
+      MAKE,
+      '',
+      'class C:',
+      '    def use(self, p: NDArray[Shape["3"]]) -> None:',
+      '        return None',
+    ].join('\n');
+    const g = new SymbolGraph();
+    g.addFile(
+      'm.py',
+      [
+        fn('make', 'm.py', 0, 1),
+        {
+          name: 'use',
+          qualifiedName: 'use',
+          type: 'method',
+          filePath: 'm.py',
+          startLine: 3,
+          endLine: 4,
+          exported: true,
+        },
+        fn('caller', 'm.py', 6, 7),
+      ],
+      [],
+      'h1',
+    );
+    const full = FILE + '\ndef caller(a: NDArray[Shape["N, 3"]]) -> None:\n    use(a)';
+    g.setFileContent('m.py', full);
+    expect(checkShapeConsistency(g, () => full).filter((i) => i.kind === 'dataflow')).toEqual([]);
   });
 });

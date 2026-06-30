@@ -17,18 +17,30 @@ export interface ShapeIssue {
   kernel: string;
   file: string;
   line: number; // 1-based
-  kind: 'intra-kernel' | 'tail-call';
+  kind: 'intra-kernel' | 'tail-call' | 'dataflow';
   conflict: ShapeConflict;
   detail: string;
 }
 
 export type SourceReader = (file: string) => string | undefined;
 
+interface CallSite {
+  callee: string;
+  args: Array<string | null>; // positional bare-identifier names; null = non-identifier
+  hasKwargs: boolean;
+}
+
 interface KernelShapes {
-  params: Map<string, ShapeSpec>; // param name → annotated shape
+  params: Map<string, ShapeSpec>; // shaped params only (Rung A/B)
+  paramOrder: Array<{ name: string; spec: ShapeSpec | null }>; // all params, positional (Rung C)
+  hasVarargs: boolean; // *args/**kwargs present → positional matching unsafe
   returnSpec: ShapeSpec | null;
   assertShapes: Map<string, ShapeSpec>; // var name → asserted shape/dtype
   tailReturnCallees: string[]; // `return g(...)` callee names
+  /** Single-assignment `var = callee(...)` → callee name. A var assigned more
+   *  than once (or from a non-call) maps to null and is not trusted. */
+  callAssignments: Map<string, string | null>;
+  callSites: CallSite[];
 }
 
 /** Index of the `)` matching the `(` at `open`. Returns -1 if unbalanced. */
@@ -95,9 +107,11 @@ function returnAnnotation(afterParen: string): string | null {
 /** Parse a function's source slice into the shape statements it makes. */
 export function extractKernelShapes(source: string): KernelShapes {
   const params = new Map<string, ShapeSpec>();
+  const paramOrder: Array<{ name: string; spec: ShapeSpec | null }> = [];
   const assertShapes = new Map<string, ShapeSpec>();
   const tailReturnCallees: string[] = [];
   let returnSpec: ShapeSpec | null = null;
+  let hasVarargs = false;
 
   const defMatch = source.match(/\bdef\s+\w+\s*\(/);
   if (defMatch) {
@@ -105,14 +119,25 @@ export function extractKernelShapes(source: string): KernelShapes {
     const close = matchingParen(source, open);
     if (close > open) {
       for (const raw of splitTopLevel(source.slice(open + 1, close))) {
+        const trimmed = raw.trim();
+        if (!trimmed) continue;
+        if (trimmed.startsWith('*')) {
+          hasVarargs = true;
+          continue;
+        }
         const colon = topLevelColon(raw);
-        if (colon < 0) continue;
-        const name = raw.slice(0, colon).trim().replace(/^\*+/, '');
-        let anno = raw.slice(colon + 1);
-        const eq = topLevelEquals(anno);
-        if (eq >= 0) anno = anno.slice(0, eq);
-        const spec = parseTypeShape(anno.trim());
-        if (spec && name) params.set(name, spec);
+        const name = (colon < 0 ? trimmed : raw.slice(0, colon).trim()).replace(/\s*=.*$/, '');
+        let spec: ShapeSpec | null = null;
+        if (colon >= 0) {
+          let anno = raw.slice(colon + 1);
+          const eq = topLevelEquals(anno);
+          if (eq >= 0) anno = anno.slice(0, eq);
+          spec = parseTypeShape(anno.trim());
+        }
+        if (name) {
+          paramOrder.push({ name, spec });
+          if (spec) params.set(name, spec);
+        }
       }
       const ret = returnAnnotation(source.slice(close + 1));
       if (ret) returnSpec = parseTypeShape(ret);
@@ -137,7 +162,64 @@ export function extractKernelShapes(source: string): KernelShapes {
   const tailReturn = /\breturn\s+(\w+)\s*\(/g;
   while ((m = tailReturn.exec(source)) !== null) tailReturnCallees.push(m[1]);
 
-  return { params, returnSpec, assertShapes, tailReturnCallees };
+  return {
+    params,
+    paramOrder,
+    hasVarargs,
+    returnSpec,
+    assertShapes,
+    tailReturnCallees,
+    callAssignments: extractCallAssignments(source),
+    callSites: extractCallSites(source),
+  };
+}
+
+/**
+ * `var = callee(...)` single assignments → callee name. A var assigned more than
+ * once, or whose RHS is not a direct call, maps to null (untrusted) so dataflow
+ * can't follow an ambiguous binding.
+ */
+function extractCallAssignments(source: string): Map<string, string | null> {
+  const rhsByVar = new Map<string, string[]>();
+  for (const line of source.split('\n')) {
+    // LHS = RHS, optional annotation; exclude ==, <=, >=, !=.
+    const m = line.match(/^\s*(\w+)\s*(?::\s*[^=\n]+?)?=(?!=)\s*(.*)$/);
+    if (!m) continue;
+    const list = rhsByVar.get(m[1]);
+    if (list) list.push(m[2].trim());
+    else rhsByVar.set(m[1], [m[2].trim()]);
+  }
+  const out = new Map<string, string | null>();
+  for (const [v, rhsList] of rhsByVar) {
+    if (rhsList.length !== 1) {
+      out.set(v, null); // reassigned → ambiguous
+      continue;
+    }
+    const call = rhsList[0].match(/^(\w+)\s*\(/);
+    out.set(v, call ? call[1] : null);
+  }
+  return out;
+}
+
+/** Function calls with no nested parens in their argument list: callee name +
+ *  positional args (bare identifiers, else null) + a keyword-arg flag. */
+function extractCallSites(source: string): CallSite[] {
+  const sites: CallSite[] = [];
+  const callRe = /(\w+)\s*\(([^()]*)\)/g;
+  let m: RegExpExecArray | null;
+  while ((m = callRe.exec(source)) !== null) {
+    // Skip the `def name(...)` declaration itself.
+    if (/\bdef\s+$/.test(source.slice(Math.max(0, m.index - 5), m.index))) continue;
+    const argParts = m[2].trim() ? splitTopLevel(m[2]) : [];
+    let hasKwargs = false;
+    const args = argParts.map((a) => {
+      const t = a.trim();
+      if (topLevelIndexOf(t, '=') >= 0 && !t.includes('==')) hasKwargs = true;
+      return /^[A-Za-z_]\w*$/.test(t) ? t : null;
+    });
+    sites.push({ callee: m[1], args, hasKwargs });
+  }
+  return sites;
 }
 
 function topLevelColon(s: string): number {
@@ -236,6 +318,45 @@ export function checkShapeConsistency(
               kind: 'tail-call',
               conflict,
               detail: `returns \`${callee}(...)\` but their return shapes disagree — ${conflict.detail}`,
+            });
+          }
+        }
+      }
+
+      // Rung C — cross-call dataflow. Build a var→shape environment from shaped
+      // params + single-assignment `var = callee(...)` results, then check each
+      // call's positional bare-identifier args against the callee's param shape.
+      const env = new Map<string, ShapeSpec>();
+      for (const [name, spec] of ks.params) env.set(name, spec);
+      for (const [v, callee] of ks.callAssignments) {
+        if (!callee) continue; // ambiguous binding
+        const target = resolveCallee(graph, file, callee);
+        if (!target || target.type !== 'function') continue;
+        const tks = shapesOf(target.filePath, target);
+        if (tks?.returnSpec) env.set(v, tks.returnSpec);
+      }
+      for (const cs of ks.callSites) {
+        if (cs.hasKwargs) continue; // keyword args break positional matching
+        const target = resolveCallee(graph, file, cs.callee);
+        // Free functions only — methods carry a leading `self`, shifting positions.
+        if (!target || target.type !== 'function') continue;
+        const tks = shapesOf(target.filePath, target);
+        if (!tks || tks.hasVarargs) continue;
+        for (let i = 0; i < cs.args.length; i++) {
+          const argName = cs.args[i];
+          if (!argName) continue;
+          const argShape = env.get(argName);
+          const paramSpec = tks.paramOrder[i]?.spec;
+          if (!argShape || !paramSpec) continue;
+          const conflict = shapeConflict(argShape, paramSpec);
+          if (conflict) {
+            issues.push({
+              kernel: sym.name,
+              file,
+              line: sym.startLine + 1,
+              kind: 'dataflow',
+              conflict,
+              detail: `argument \`${argName}\` to \`${cs.callee}(...)\` (position ${i}) — ${conflict.detail}`,
             });
           }
         }
