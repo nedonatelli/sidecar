@@ -7,7 +7,7 @@ import { workspace, Uri, Disposable } from 'vscode';
 import { logger } from '../system/logger.js';
 import * as path from 'path';
 import { SimpleCodeAnalyzer } from '../astContext.js';
-import { getRegexAnalyzer } from '../parsing/registry.js';
+import { getAnalyzer } from '../parsing/registry.js';
 import {
   SymbolGraph,
   type SymbolEntry,
@@ -161,7 +161,7 @@ export class SymbolIndexer implements Disposable {
         const bytes = await workspace.fs.readFile(uri);
         const content = Buffer.from(bytes).toString('utf-8');
         if (content.length > MAX_FILE_SIZE) return;
-        this.indexFile(relativePath, content, hash);
+        await this.indexFile(relativePath, content, hash);
         parsed++;
       }),
     );
@@ -182,9 +182,12 @@ export class SymbolIndexer implements Disposable {
     }
   }
 
-  /** Parse a single file and add its symbols/imports to the graph. */
-  private indexFile(relativePath: string, content: string, hash: string): void {
-    const analyzer = getRegexAnalyzer();
+  /** Parse a single file and add its symbols/imports to the graph. Uses
+   *  tree-sitter when a grammar is available for the extension (AST-accurate
+   *  call/type edges for TS/JS), falling back to the regex analyzer otherwise. */
+  private async indexFile(relativePath: string, content: string, hash: string): Promise<void> {
+    const ext = path.extname(relativePath).slice(1).toLowerCase();
+    const analyzer = await getAnalyzer(ext);
     const parsed = analyzer.parseFileContent(relativePath, content);
 
     const symbols: SymbolEntry[] = [];
@@ -298,7 +301,7 @@ export class SymbolIndexer implements Disposable {
       const content = Buffer.from(bytes).toString('utf-8');
       if (content.length > MAX_FILE_SIZE) return;
 
-      this.indexFile(relativePath, content, hash);
+      await this.indexFile(relativePath, content, hash);
       this.schedulePersist();
     } catch {
       // File unreadable — remove from graph
