@@ -31,8 +31,29 @@ describe('parseTextToolCalls', () => {
       expect(parseTextToolCalls('<function=bogus_tool><parameter=x>y</parameter></function>', tools)).toEqual([]);
     });
 
-    it('returns [] when the JSON body is malformed', () => {
+    it('returns [] when the JSON body is malformed with no salvageable name', () => {
       expect(parseTextToolCalls('<tool_call>{bad json}</tool_call>', tools)).toEqual([]);
+    });
+  });
+
+  describe('malformed-but-salvageable (A5 — no silent drop)', () => {
+    it('emits a _malformedInputRaw marker for a tool_call with a known name', () => {
+      // Valid name, broken args (trailing comma + unquoted) — would have been dropped.
+      const raw = '{"name":"read_file","arguments":{path: "a.ts",}}';
+      const result = parseTextToolCalls(`<tool_call>${raw}</tool_call>`, tools);
+      expect(result).toHaveLength(1);
+      expect(result[0]).toMatchObject({ name: 'read_file', input: {}, _malformedInputRaw: raw });
+    });
+
+    it('emits a marker for a malformed bare-JSON tool call', () => {
+      const raw = '{"name":"grep", "arguments":{"pattern": unquoted}}';
+      const result = parseTextToolCalls(raw, tools);
+      expect(result).toHaveLength(1);
+      expect(result[0]).toMatchObject({ name: 'grep', _malformedInputRaw: expect.stringContaining('grep') });
+    });
+
+    it('still drops a malformed call whose name is not a known tool', () => {
+      expect(parseTextToolCalls('<tool_call>{"name":"bogus","arguments":{x:}}</tool_call>', tools)).toEqual([]);
     });
   });
 

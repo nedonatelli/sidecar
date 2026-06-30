@@ -33,6 +33,12 @@ import type { ChatMessage, ToolDefinition, ToolUseContentBlock } from '../../oll
  * patterns within a single turn usually indicates a confused model,
  * and mixing them in our parser would double-dispatch the same call.
  */
+/** Salvage a known tool name from a malformed tool-call blob, or null. */
+function salvageToolName(raw: string, toolNames: Set<string>): string | null {
+  const m = raw.match(/"(?:name|function)"\s*:\s*"(\w+)"/);
+  return m && toolNames.has(m[1]) ? m[1] : null;
+}
+
 export function parseTextToolCalls(text: string, tools: ToolDefinition[]): ToolUseContentBlock[] {
   const toolNames = new Set(tools.map((t) => t.name));
   const results: ToolUseContentBlock[] = [];
@@ -80,7 +86,18 @@ export function parseTextToolCalls(text: string, tools: ToolDefinition[]): ToolU
           results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
         }
       } catch {
-        /* skip malformed */
+        // Malformed JSON: don't silently drop — emit a marker so the
+        // constrained-repair layer can recover it (A5).
+        const name = salvageToolName(match[3], toolNames);
+        if (name) {
+          results.push({
+            type: 'tool_use',
+            id: `text_tc_${idCounter++}`,
+            name,
+            input: {},
+            _malformedInputRaw: match[3],
+          });
+        }
       }
     }
     // Pattern 3: ```json\n{...}\n```
@@ -96,7 +113,16 @@ export function parseTextToolCalls(text: string, tools: ToolDefinition[]): ToolU
           results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
         }
       } catch {
-        /* skip malformed */
+        const name = salvageToolName(match[4], toolNames);
+        if (name) {
+          results.push({
+            type: 'tool_use',
+            id: `text_tc_${idCounter++}`,
+            name,
+            input: {},
+            _malformedInputRaw: match[4],
+          });
+        }
       }
     }
   }
@@ -137,7 +163,17 @@ export function parseTextToolCalls(text: string, tools: ToolDefinition[]): ToolU
           results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
         }
       } catch {
-        /* skip malformed */
+        const name = salvageToolName(candidate, toolNames);
+        if (name) {
+          firstType = 'bare';
+          results.push({
+            type: 'tool_use',
+            id: `text_tc_${idCounter++}`,
+            name,
+            input: {},
+            _malformedInputRaw: candidate,
+          });
+        }
       }
     }
   }

@@ -36,6 +36,7 @@ import { defaultPolicyHooks } from './loop/builtInHooks.js';
 import { buildRegressionGuardHooks } from './guards/regressionGuardHook.js';
 import { getSdkHooks } from '../sdk/registry.js';
 import { dispatchPendingToolUses } from './loop/dispatchToolUses.js';
+import { repairMalformedToolUses } from './loop/toolCallRepair.js';
 import { notifyIterationStart, maybeEmitProgressSummary, shouldStopAtCheckpoint } from './loop/notifications.js';
 import { finalize } from './loop/finalize.js';
 import { drainSteerQueueAtBoundary } from './loop/steerDrain.js';
@@ -477,6 +478,26 @@ export async function runAgentLoop(
 
       const resolved = resolveTurnContent(rawTurn, state, callbacks);
       const { fullText, pendingToolUses } = resolved;
+
+      // Phase 1: constrained-decoding repair of malformed tool calls — at the
+      // action boundary, before dispatch. Heuristic JSON repair first, then a
+      // schema-constrained regeneration. Recovers calls that would otherwise
+      // error/drop, instead of burning a whole retry turn.
+      if (pendingToolUses.some((tu) => tu._malformedInputRaw !== undefined)) {
+        try {
+          const fixed = await repairMalformedToolUses(pendingToolUses, {
+            client,
+            model: state.modelOverride,
+            signal,
+            schemaFor: (name) =>
+              state.tools.find((t) => t.name === name)?.input_schema as Record<string, unknown> | undefined,
+            logger: state.logger,
+          });
+          if (fixed > 0) callbacks.onText?.(`\n\n🔧 Repaired ${fixed} malformed tool call${fixed === 1 ? '' : 's'}.\n`);
+        } catch (err) {
+          if (err instanceof Error && err.name === 'AbortError') throw err;
+        }
+      }
 
       // No tools this turn — handle the empty-response branch. Runs
       // the text-tool-attempt heuristic (to record a tool failure on
