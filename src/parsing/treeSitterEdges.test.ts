@@ -73,4 +73,42 @@ describe.skipIf(!hasGrammars)('treeSitterAnalyzer — AST edge extraction', () =
     // regex analyzer (which supports JVM calls) — so no edge-coverage regression.
     expect(calls.find((c) => c.calleeName === 'doThing')).toBeTruthy();
   });
+
+  // --- Python AST edges (Stage 4) ---
+  const PY = [
+    'class Service(Base, Mixin):',
+    '    def handle(self, cfg: AuthConfig) -> SessionToken:',
+    '        u: UserRecord = lookup(cfg)',
+    '        return self.mint(u)',
+    '',
+    'def route(r: ReqCtx) -> None:',
+    '    helper.process(r)',
+    '    do_thing()',
+    '    # commentCall() must not be captured',
+  ].join('\n');
+
+  it('extracts Python calls attributed to the enclosing def (incl. attribute calls)', () => {
+    const calls = analyzer.parseFileContent('svc.py', PY).calls ?? [];
+    const byCallee = (n: string) => calls.find((c) => c.calleeName === n);
+    expect(byCallee('lookup')).toMatchObject({ callerName: 'handle' });
+    expect(byCallee('mint')).toMatchObject({ callerName: 'handle' }); // self.mint → mint
+    expect(byCallee('process')).toMatchObject({ callerName: 'route' }); // helper.process → process
+    expect(byCallee('do_thing')).toMatchObject({ callerName: 'route' });
+    expect(calls.map((c) => c.calleeName)).not.toContain('commentCall');
+  });
+
+  it('extracts Python type hints with roles', () => {
+    const uses = analyzer.parseFileContent('svc.py', PY).typeUses ?? [];
+    const byType = (t: string) => uses.find((u) => u.typeName === t);
+    expect(byType('AuthConfig')).toMatchObject({ userName: 'handle', role: 'param' });
+    expect(byType('SessionToken')).toMatchObject({ userName: 'handle', role: 'return' });
+    expect(byType('UserRecord')).toMatchObject({ userName: 'handle', role: 'variable' });
+    expect(byType('ReqCtx')).toMatchObject({ userName: 'route', role: 'param' });
+  });
+
+  it('extracts Python base classes as extends relations', () => {
+    const rels = analyzer.parseFileContent('svc.py', PY).typeRelations ?? [];
+    expect(rels).toContainEqual({ childName: 'Service', parentName: 'Base', kind: 'extends' });
+    expect(rels).toContainEqual({ childName: 'Service', parentName: 'Mixin', kind: 'extends' });
+  });
 });

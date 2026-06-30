@@ -10,10 +10,11 @@ import type { CodeAnalyzer, CodeElement, ParsedFile } from './types.js';
 import { SimpleCodeAnalyzer, type ParsedCall, type ParsedTypeRelation, type ParsedTypeUse } from '../astContext.js';
 import { createParser, type Parser } from './treeSitterLoader.js';
 
-// Languages whose call/type edges are extracted from the AST below. Everything
+// Languages whose call/type edges are extracted from the AST below (TS-family
+// node types). Python has its own extractor (different node types). Everything
 // else delegates edge extraction to the regex analyzer (SimpleCodeAnalyzer) so
 // switching the indexer to tree-sitter never regresses edge coverage.
-const AST_EDGE_LANGUAGES = new Set(['typescript', 'tsx', 'javascript']);
+const TS_EDGE_LANGUAGES = new Set(['typescript', 'tsx', 'javascript']);
 
 // Map file extensions to tree-sitter language names
 const EXT_TO_LANGUAGE: Record<string, string> = {
@@ -350,6 +351,103 @@ function extractTsEdges(root: AnyNode): ExtractedEdges {
   return { calls, typeRelations, typeUses };
 }
 
+// --- Python AST edge extraction --------------------------------------------
+// Python node types differ from TS (call vs call_expression, attribute vs
+// member_expression, `type` wrapper, superclasses argument_list), so it gets
+// its own walk. Closes the gap where the regex analyzer extracted NO Python
+// call/type edges at all.
+
+function findChildOfType(node: AnyNode, type: string): AnyNode | null {
+  for (let i = 0; i < node.childCount; i++) {
+    const c = node.child(i);
+    if (c?.type === type) return c;
+  }
+  return null;
+}
+
+/** Collect `identifier` names anywhere under a node (used for Python `type`
+ *  wrappers and base-class lists). */
+function collectIdentifiers(node: AnyNode, out: string[]): void {
+  if (node.type === 'identifier') out.push(node.text);
+  for (let i = 0; i < node.childCount; i++) {
+    const c = node.child(i);
+    if (c) collectIdentifiers(c, out);
+  }
+}
+
+function pyScopeName(node: AnyNode): string | null {
+  if (node.type === 'function_definition' || node.type === 'class_definition') {
+    const n = node.childForFieldName('name');
+    return n ? n.text : null;
+  }
+  return null;
+}
+
+/** Callee name for a Python `call`: bare identifier, or the attribute of an
+ *  attribute access (`self.mint` → `mint`, `helper.process` → `process`). */
+function pyCalleeName(callNode: AnyNode): string | null {
+  const fn = callNode.childForFieldName('function');
+  if (!fn) return null;
+  if (fn.type === 'identifier') return fn.text;
+  if (fn.type === 'attribute') {
+    const attr = fn.childForFieldName('attribute') ?? fn.child(fn.childCount - 1);
+    return attr && attr.type === 'identifier' ? attr.text : null;
+  }
+  return null;
+}
+
+function extractPyEdges(root: AnyNode): ExtractedEdges {
+  const calls: ParsedCall[] = [];
+  const typeRelations: ParsedTypeRelation[] = [];
+  const typeUses: ParsedTypeUse[] = [];
+  const scope: string[] = [];
+  const current = (): string => scope[scope.length - 1] ?? '<module>';
+
+  const addTypes = (typeNode: AnyNode, role: ParsedTypeUse['role'], line: number): void => {
+    const names: string[] = [];
+    collectIdentifiers(typeNode, names);
+    for (const t of names) typeUses.push({ userName: current(), typeName: t, role, line });
+  };
+
+  const walk = (node: AnyNode): void => {
+    const name = pyScopeName(node);
+    if (name) scope.push(name);
+
+    const line = node.startPosition.row + 1;
+    if (node.type === 'call') {
+      const callee = pyCalleeName(node);
+      if (callee) calls.push({ callerName: current(), calleeName: callee, line });
+    } else if (node.type === 'typed_parameter' || node.type === 'typed_default_parameter') {
+      const t = node.childForFieldName('type') ?? findChildOfType(node, 'type');
+      if (t) addTypes(t, 'param', line);
+    } else if (node.type === 'assignment') {
+      const t = node.childForFieldName('type'); // annotated assignment `x: T = ...`
+      if (t) addTypes(t, 'variable', line);
+    } else if (node.type === 'function_definition') {
+      const rt = node.childForFieldName('return_type');
+      if (rt) addTypes(rt, 'return', line);
+    } else if (node.type === 'class_definition') {
+      const className = node.childForFieldName('name')?.text;
+      const supers = node.childForFieldName('superclasses');
+      if (className && supers) {
+        const bases: string[] = [];
+        collectIdentifiers(supers, bases);
+        for (const b of bases) typeRelations.push({ childName: className, parentName: b, kind: 'extends' });
+      }
+    }
+
+    for (let i = 0; i < node.childCount; i++) {
+      const c = node.child(i);
+      if (c) walk(c);
+    }
+
+    if (name) scope.pop();
+  };
+
+  walk(root);
+  return { calls, typeRelations, typeUses };
+}
+
 function hasPublicModifier(node: AnyNode): boolean {
   for (let i = 0; i < node.childCount; i++) {
     const child = node.child(i);
@@ -519,16 +617,21 @@ class TreeSitterCodeAnalyzer implements CodeAnalyzer {
 
     visit();
 
-    // Edges: AST-accurate for TS/JS; regex fallback for every other language so
-    // switching the indexer to tree-sitter never loses edge coverage.
+    // Edges: AST-accurate for TS/JS + Python; regex fallback for every other
+    // language so switching the indexer to tree-sitter never loses edge coverage.
     let calls: ParsedCall[] | undefined;
     let typeRelations: ParsedTypeRelation[] | undefined;
     let typeUses: ParsedTypeUse[] | undefined;
-    if (AST_EDGE_LANGUAGES.has(langName)) {
-      const edges = extractTsEdges(tree.rootNode as unknown as AnyNode);
-      calls = edges.calls.length > 0 ? edges.calls : undefined;
-      typeRelations = edges.typeRelations.length > 0 ? edges.typeRelations : undefined;
-      typeUses = edges.typeUses.length > 0 ? edges.typeUses : undefined;
+    const astEdges =
+      langName === 'python'
+        ? extractPyEdges(tree.rootNode as unknown as AnyNode)
+        : TS_EDGE_LANGUAGES.has(langName)
+          ? extractTsEdges(tree.rootNode as unknown as AnyNode)
+          : null;
+    if (astEdges) {
+      calls = astEdges.calls.length > 0 ? astEdges.calls : undefined;
+      typeRelations = astEdges.typeRelations.length > 0 ? astEdges.typeRelations : undefined;
+      typeUses = astEdges.typeUses.length > 0 ? astEdges.typeUses : undefined;
     } else {
       const regex = SimpleCodeAnalyzer.parseFileContent(filePath, content);
       calls = regex.calls;
