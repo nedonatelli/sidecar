@@ -97,12 +97,31 @@ valid official-format predictions. So the driver works on a non-Docker machine
 (Ollama + git is enough). **Scoring** (resolve% → lift) still requires Docker +
 the `swebench` package and has not been run.
 
-> **Set a generous iteration budget.** The smoke run used `SIDECAR_SWE_MAX_ITERS=8`
-> and produced empty patches on both arms — a small local model spends that many
-> iterations just _locating_ the file in a large repo and never reaches an edit.
-> Real runs want **30–40+** (`SIDECAR_SWE_MAX_ITERS`). Expect many empty patches
-> regardless: a bare small model resolves little of SWE-bench Verified absolutely
-> — the headline is the on/off **lift**, not the raw rate.
+> **Set a generous iteration budget.** A small local model spends many
+> iterations just _locating_ the file in a large repo. Default is 30; real runs
+> want **30–40+** (`SIDECAR_SWE_MAX_ITERS`). Expect empty/wrong patches often: a
+> bare small model resolves little of Verified absolutely — the headline is the
+> on/off **lift**, not the raw rate.
+
+### Worked example (n=1, scored host-locally without Docker)
+
+`pallets__flask-5014` ("require a non-empty Blueprint name"), gemma4:e4b @ Q4_K_M,
+30 iterations, scored by hand in a venv (the scorer discriminates: the gold patch
+resolves 60/60, base fails the FAIL_TO_PASS):
+
+| Arm          | What gemma did                                     | Test result         | Verdict         |
+| ------------ | -------------------------------------------------- | ------------------- | --------------- |
+| scaffold-off | **deleted** `super().__init__()` (destructive)     | 57 failed, 3 passed | ❌ unresolved   |
+| scaffold-on  | `if not name: raise ValueError(...)` (correct fix) | 60 passed           | ✅ **resolved** |
+
+Same model, same task — only the harness differs. Without it gemma broke the repo;
+with it (critic fired, then ran the tests) it landed the correct fix. **Lift on
+this task: 0 → 100%.** One task is an illustration, not a statistic — but it shows
+the whole pipeline (drive on/off → patch → score → verdict) works end-to-end on
+real data, no Docker, and that the scaffolding produces a measurable difference.
+Two harness fixes were required to get here: pointing the agent's fs tools at the
+clone via `mountWorkspaceRoot` (the mock's `read_file` otherwise returns a 63-byte
+stub), and a keyword retrieval block so the agent starts oriented.
 
 ## Files
 
