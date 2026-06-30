@@ -139,6 +139,32 @@ describe('applyCritic', () => {
     expect((state as { messages: unknown[] }).messages).toHaveLength(0);
   });
 
+  it('D2 — skips the LLM critic for a weak-tier primary (deterministic gate covers it)', async () => {
+    const info = vi.fn();
+    const state = {
+      messages: [],
+      changelog: undefined,
+      logger: { info },
+      criticInjectionsByFile: new Map(),
+      criticInjectionsByTestHash: new Map(),
+      scaffoldingProfile: { tier: 'weak', runLlmCritic: false },
+    } as never;
+    const callbacks = { onText: vi.fn(), onToolCall: vi.fn(), onToolResult: vi.fn(), onDone: vi.fn() };
+    // An edit that WOULD trigger the critic if not skipped.
+    await applyCritic(
+      state,
+      {} as never,
+      { criticEnabled: true } as never,
+      [{ type: 'tool_use', id: '1', name: 'write_file', input: { path: 'a.ts' } }] as never,
+      [{ type: 'tool_result', tool_use_id: '1', content: 'ok' }] as never,
+      'text',
+      callbacks,
+      new AbortController().signal,
+    );
+    expect(info).toHaveBeenCalledWith(expect.stringContaining('Critic skipped'));
+    expect((state as { messages: unknown[] }).messages).toHaveLength(0);
+  });
+
   it('runs the critic and pushes no injection when runCriticChecks returns null', async () => {
     const state = {
       messages: [],

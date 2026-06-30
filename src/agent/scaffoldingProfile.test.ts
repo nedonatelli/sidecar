@@ -19,4 +19,23 @@ describe('resolveScaffoldingProfile', () => {
     expect(p.maxGateInjections).toBeGreaterThan(DEFAULT_SCAFFOLDING_PROFILE.maxGateInjections);
     expect(p.burstCap).toBe(DEFAULT_SCAFFOLDING_PROFILE.burstCap);
   });
+
+  it('carries its tier and the tier-awareness knobs (D2/C4)', () => {
+    expect(resolveScaffoldingProfile('weak').tier).toBe('weak');
+    expect(resolveScaffoldingProfile('strong').tier).toBe('strong');
+
+    // D2 — weak primary skips the LLM critic; medium/strong keep it.
+    expect(resolveScaffoldingProfile('weak').runLlmCritic).toBe(false);
+    expect(resolveScaffoldingProfile('medium').runLlmCritic).toBe(true);
+    expect(resolveScaffoldingProfile('strong').runLlmCritic).toBe(true);
+
+    // C4 — weak compacts earlier, strong later; medium == historical 0.7.
+    expect(resolveScaffoldingProfile('weak').compressionThreshold).toBeLessThan(
+      resolveScaffoldingProfile('medium').compressionThreshold,
+    );
+    expect(resolveScaffoldingProfile('strong').compressionThreshold).toBeGreaterThan(
+      resolveScaffoldingProfile('medium').compressionThreshold,
+    );
+    expect(DEFAULT_SCAFFOLDING_PROFILE.compressionThreshold).toBe(0.7);
+  });
 });

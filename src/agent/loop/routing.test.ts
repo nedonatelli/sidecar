@@ -58,6 +58,27 @@ describe('applyAgentLoopRouting', () => {
     expect(showInfo).not.toHaveBeenCalled();
   });
 
+  it('escalates on verifier-failure pushback (E2 — retryCount from gate injections)', () => {
+    const client = new SideCarClient('ollama/qwen3-coder:30b', 'http://localhost:11434', 'ollama');
+    client.setRouter(
+      new ModelRouter([{ when: 'agent-loop.retryCount>=2', model: 'claude-opus-4-6' }], 'ollama/qwen3-coder:30b'),
+    );
+    // Two completion-gate injections so far = verification rejected twice.
+    const state = stubLoopState({ gateState: { gateInjections: 2 } as never });
+    applyAgentLoopRouting(client, state, { modelRoutingVisibleSwaps: false, modelRoutingDryRun: false });
+    expect(client.getModel()).toBe('claude-opus-4-6');
+  });
+
+  it('does not escalate before the verifier-failure threshold', () => {
+    const client = new SideCarClient('ollama/qwen3-coder:30b', 'http://localhost:11434', 'ollama');
+    client.setRouter(
+      new ModelRouter([{ when: 'agent-loop.retryCount>=2', model: 'claude-opus-4-6' }], 'ollama/qwen3-coder:30b'),
+    );
+    const state = stubLoopState({ gateState: { gateInjections: 1 } as never });
+    applyAgentLoopRouting(client, state, { modelRoutingVisibleSwaps: false, modelRoutingDryRun: false });
+    expect(client.getModel()).toBe('ollama/qwen3-coder:30b');
+  });
+
   it('dryRun logs the decision and leaves the active model untouched', () => {
     const infoLog = vi.spyOn(logger, 'info').mockImplementation(() => void 0);
     const client = new SideCarClient('ollama/qwen3-coder:30b', 'http://localhost:11434', 'ollama');

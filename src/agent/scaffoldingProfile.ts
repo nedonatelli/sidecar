@@ -22,30 +22,63 @@ import type { CapabilityTier } from '../ollama/modelCapability.js';
 // ---------------------------------------------------------------------------
 
 export interface ScaffoldingProfile {
+  /** The capability tier this profile was resolved from — lets consumers
+   *  branch on weak/medium/strong directly. */
+  tier: CapabilityTier;
   /** Max tool calls in one turn before the burst cap breaks the loop. */
   burstCap: number;
   /** Max action/stall reprompts before giving up nudging the model. */
   maxActionReprompts: number;
   /** Max completion-gate injections before allowing termination. */
   maxGateInjections: number;
+  /**
+   * D2 — whether to run the second-LLM adversarial critic. A small primary
+   * makes an equally-small critic ≈ noise (and doubles cost), so weak tier
+   * relies on the deterministic gate/lint/test instead.
+   */
+  runLlmCritic: boolean;
+  /**
+   * C4 — fraction of the token budget at which context compaction fires.
+   * Weak models have less effective context and stall sooner, so they compact
+   * earlier; strong models hold more before paying the summarization cost.
+   * Medium == the historical CONTEXT_COMPRESSION_THRESHOLD (behavior-neutral).
+   */
+  compressionThreshold: number;
 }
 
 /**
  * Medium tier mirrors the historical hardcoded constants
  * (MAX_TOOL_CALLS_PER_ITERATION=12, MAX_ACTION_REPROMPTS=2,
- * MAX_GATE_INJECTIONS=2). It's the default whenever adaptive scaffolding is
- * off, so the feature ships behavior-neutral.
+ * MAX_GATE_INJECTIONS=2, critic on, compaction at 0.7). It's the default
+ * whenever adaptive scaffolding is off, so the feature ships behavior-neutral.
  */
 export const DEFAULT_SCAFFOLDING_PROFILE: ScaffoldingProfile = {
+  tier: 'medium',
   burstCap: 12,
   maxActionReprompts: 2,
   maxGateInjections: 2,
+  runLlmCritic: true,
+  compressionThreshold: 0.7,
 };
 
 const PROFILES: Record<CapabilityTier, ScaffoldingProfile> = {
-  strong: { burstCap: 16, maxActionReprompts: 1, maxGateInjections: 1 },
+  strong: {
+    tier: 'strong',
+    burstCap: 16,
+    maxActionReprompts: 1,
+    maxGateInjections: 1,
+    runLlmCritic: true,
+    compressionThreshold: 0.75,
+  },
   medium: { ...DEFAULT_SCAFFOLDING_PROFILE },
-  weak: { burstCap: 12, maxActionReprompts: 3, maxGateInjections: 3 },
+  weak: {
+    tier: 'weak',
+    burstCap: 12,
+    maxActionReprompts: 3,
+    maxGateInjections: 3,
+    runLlmCritic: false,
+    compressionThreshold: 0.6,
+  },
 };
 
 export function resolveScaffoldingProfile(tier: CapabilityTier): ScaffoldingProfile {

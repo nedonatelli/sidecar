@@ -326,7 +326,12 @@ export async function applyBudgetCompression(client: SideCarClient, state: LoopS
   // script-type-aware char-based estimation when we don't have it yet.
   let estimatedTokens = state.lastActualInputTokens ?? estimateTokensFromState(state.totalChars, state.messages);
 
-  if (estimatedTokens > state.maxTokens * CONTEXT_COMPRESSION_THRESHOLD) {
+  // C4 — weak models stall/lose-the-thread sooner, so they compact earlier;
+  // strong models hold more before paying the summarization cost. Medium ==
+  // the historical threshold, so behavior is unchanged when adaptive scaffolding
+  // is off (profile undefined).
+  const compressionThreshold = state.scaffoldingProfile?.compressionThreshold ?? CONTEXT_COMPRESSION_THRESHOLD;
+  if (estimatedTokens > state.maxTokens * compressionThreshold) {
     // 1. Summarize old turns.
     const summarizer = new ConversationSummarizer(client);
     const summarized = await summarizer.summarize(state.messages, {
@@ -394,7 +399,8 @@ export async function applyBudgetCompression(client: SideCarClient, state: LoopS
  */
 export function maybeCompressPostTool(state: LoopState): void {
   const postToolTokens = estimateTokensFromState(state.totalChars, state.messages);
-  if (postToolTokens > state.maxTokens * CONTEXT_COMPRESSION_THRESHOLD) {
+  const compressionThreshold = state.scaffoldingProfile?.compressionThreshold ?? CONTEXT_COMPRESSION_THRESHOLD;
+  if (postToolTokens > state.maxTokens * compressionThreshold) {
     const compressed = compressMessages(state.messages);
     if (compressed) {
       state.totalChars -= compressed;

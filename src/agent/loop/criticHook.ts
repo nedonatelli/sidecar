@@ -440,6 +440,14 @@ export async function applyCritic(
 ): Promise<void> {
   if (!config.criticEnabled || signal.aborted) return;
 
+  // D2 — a second-LLM critic over a weak primary is ≈ noise and doubles cost;
+  // the deterministic completion gate (lint/test/syntax) covers the semantic
+  // catch. Only suppresses when adaptive scaffolding has resolved a tier.
+  if (state.scaffoldingProfile && !state.scaffoldingProfile.runLlmCritic) {
+    state.logger?.info('Critic skipped — weak-tier primary relies on deterministic gate/lint/test (D2)');
+    return;
+  }
+
   const injection = await runCriticChecks({
     client,
     config,
