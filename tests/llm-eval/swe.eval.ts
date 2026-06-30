@@ -49,12 +49,31 @@ function git(args: string[], cwd?: string): string {
   return execFileSync('git', args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 }).toString();
 }
 
-/** Clone the repo at base_commit into a fresh temp dir; return the path. */
-function checkoutRepo(task: SweTask): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `swe-${task.instance_id}-`));
-  git(['clone', '--quiet', `https://github.com/${task.repo}.git`, dir]);
-  git(['checkout', '--quiet', task.base_commit], dir);
+// One full clone per repo, reused across tasks/arms (the deterministic slice is
+// big-repo-heavy, so re-cloning per task would dominate the run). Each use does
+// a pristine `reset --hard <base> && clean -fdx`, so no agent edits leak between
+// tasks or arms. Cleaned up after the run.
+const repoClones = new Map<string, string>();
+
+/** Get the repo checked out cleanly at base_commit (cached clone, hard-reset). */
+function prepareRepo(task: SweTask): string {
+  let dir = repoClones.get(task.repo);
+  if (!dir) {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), `swe-repo-${task.repo.replace(/[/\\]/g, '_')}-`));
+    git(['clone', '--quiet', `https://github.com/${task.repo}.git`, dir]);
+    repoClones.set(task.repo, dir);
+  }
+  // Pristine checkout at this task's base: discard any prior arm/task edits.
+  git(['reset', '--hard', '--quiet', task.base_commit], dir);
+  git(['clean', '-fdxq'], dir);
+  const head = git(['rev-parse', 'HEAD'], dir).trim();
+  if (head !== task.base_commit) throw new Error(`checkout mismatch for ${task.instance_id}: ${head} != ${task.base_commit}`);
   return dir;
+}
+
+function cleanupRepoClones(): void {
+  for (const dir of repoClones.values()) fs.rmSync(dir, { recursive: true, force: true });
+  repoClones.clear();
 }
 
 /** Everything the agent changed, as a unified diff against base_commit. */
@@ -113,7 +132,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
   let dir: string | null = null;
   let restoreMock: (() => void) | null = null;
   try {
-    dir = checkoutRepo(task);
+    dir = prepareRepo(task);
     // Point the vscode mock's fs/workspaceFolders/findFiles at the clone — without
     // this the agent's read_file hits the stub mock ("mock file content", 63b) and
     // loops until cycle detection bails. This is the same hook installSandbox uses.
@@ -173,7 +192,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     patch = ''; // clone/agent failure = unresolved, not a lost run
   } finally {
     if (restoreMock) restoreMock();
-    if (dir) fs.rmSync(dir, { recursive: true, force: true });
+    // Don't delete the clone — it's cached and reset per task. cleanupRepoClones() at the end.
   }
   return { instance_id: task.instance_id, arm, model_patch: patch, durationMs: Date.now() - start };
 }
@@ -196,21 +215,25 @@ describe('SWE-bench Verified — prediction generation', () => {
       console.info(`[swe] ${MODEL}: ${tasks.length} tasks × ${ARMS.length} arms`);
 
       const predictions: SwePrediction[] = [];
-      for (const task of tasks) {
-        for (const arm of ARMS) {
-          const p = await solve(task, arm);
-          predictions.push(p);
-          // eslint-disable-next-line no-console
-          console.info(`[swe]   ${task.instance_id} ${arm}: ${p.model_patch ? `${p.model_patch.length}b patch` : 'EMPTY'} (${Math.round(p.durationMs / 1000)}s)`);
+      const metaPath = path.join(OUT, 'predictions.meta.jsonl');
+      fs.writeFileSync(metaPath, ''); // truncate; we append per prediction so a crash mid-run keeps progress
+      try {
+        for (const task of tasks) {
+          for (const arm of ARMS) {
+            const p = await solve(task, arm);
+            predictions.push(p);
+            fs.appendFileSync(metaPath, JSON.stringify(p) + '\n');
+            // eslint-disable-next-line no-console
+            console.info(`[swe]   ${task.instance_id} ${arm}: ${p.model_patch ? `${p.model_patch.length}b patch` : 'EMPTY'} (${Math.round(p.durationMs / 1000)}s)`);
+          }
         }
+      } finally {
+        cleanupRepoClones();
       }
 
       for (const arm of ARMS) {
         fs.writeFileSync(path.join(OUT, `preds.${arm}.jsonl`), toPredictionsJsonl(predictions, MODEL, arm));
       }
-      // Richer sidecar file (with durations) for the ablate step — the official
-      // JSONL strips everything but instance_id/model/patch.
-      fs.writeFileSync(path.join(OUT, 'predictions.meta.jsonl'), predictions.map((p) => JSON.stringify(p)).join('\n') + '\n');
       // eslint-disable-next-line no-console
       console.info(`[swe] wrote predictions to ${OUT}/preds.{scaffold-on,scaffold-off}.jsonl (+ predictions.meta.jsonl)`);
       expect(predictions).toHaveLength(tasks.length * ARMS.length);
