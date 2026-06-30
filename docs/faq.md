@@ -2,7 +2,7 @@
 title: FAQ
 layout: docs
 nav_order: 1
-nav_section: "Help"
+nav_section: 'Help'
 ---
 
 # FAQ
@@ -41,17 +41,17 @@ The extension targets the desktop API surface. Some capabilities (native file sy
 
 ### Which model should I start with?
 
-For Ollama: `ministral-3:latest` (the default) is a good starting point. On machines with less RAM, try `gemma4:2b` or `qwen2.5-coder:7b`. For agent tasks that require reliable tool use, `qwen3-coder` variants perform well. For the Anthropic API: `claude-sonnet-4-6` is the recommended default.
+For Ollama: `gemma4:e4b` (the default, ~10 GB VRAM) is the most-tested starting point. On lighter hardware, try `ministral-3:latest` (6 GB), `gemma4:2b`, or `qwen2.5-coder:7b`. For agent tasks that require reliable tool use, `qwen3-coder` variants perform well. For the Anthropic API: `claude-sonnet-4-6` is the recommended default.
 
 ### How do I connect to OpenRouter, Groq, or Fireworks?
 
 All three are OpenAI-compatible. Set `sidecar.baseUrl` to the provider's endpoint, paste your API key via `SideCar: Set / Refresh API Key`, and set `sidecar.model` to the model name.
 
-| Provider | Base URL |
-|----------|----------|
-| OpenRouter | `https://openrouter.ai/api` |
-| Groq | `https://api.groq.com/openai` |
-| Fireworks | `https://api.fireworks.ai/inference` |
+| Provider   | Base URL                             |
+| ---------- | ------------------------------------ |
+| OpenRouter | `https://openrouter.ai/api`          |
+| Groq       | `https://api.groq.com/openai`        |
+| Fireworks  | `https://api.fireworks.ai/inference` |
 
 SideCar auto-detects these as OpenAI-compatible. If detection is wrong, set `"sidecar.provider": "openai"` explicitly. See [getting started](getting-started#using-openai-compatible-servers) for the full provider table.
 
@@ -99,12 +99,12 @@ Three approaches:
 
 ### What is the difference between cautious, autonomous, review, and manual modes?
 
-| Mode | File reads | File writes | Destructive ops (shell, git) |
-|------|------------|-------------|------------------------------|
-| Cautious (default) | Auto | Diff preview — you confirm | Confirm |
-| Autonomous | Auto | Auto | Confirm |
-| Manual | Confirm | Confirm | Confirm |
-| Review | Auto | Buffered — nothing hits disk | Confirm |
+| Mode               | File reads | File writes                  | Destructive ops (shell, git) |
+| ------------------ | ---------- | ---------------------------- | ---------------------------- |
+| Cautious (default) | Auto       | Diff preview — you confirm   | Confirm                      |
+| Autonomous         | Auto       | Auto                         | Confirm                      |
+| Manual             | Confirm    | Confirm                      | Confirm                      |
+| Review             | Auto       | Buffered — nothing hits disk | Confirm                      |
 
 **Cautious** is the recommended default. **Autonomous** is for trusted batch tasks. **Review** is for large multi-file refactors where you want to audit everything before anything is written. **Manual** is for high-stakes work where you want visibility into every operation. See [agent mode — approval modes](agent-mode#approval-modes).
 

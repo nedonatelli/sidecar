@@ -136,7 +136,7 @@ These are all capable paid agents now — Copilot, Cursor, and Claude Code each 
 3. Click the SideCar icon in the activity bar
 4. Start chatting — SideCar launches Ollama automatically and downloads a starter model
 
-**Default model: `ministral-3:latest`** (6 GB, 94% agent eval pass rate — best agentic score of tested local models). Low-RAM alternative: `granite4.1:3b` (2 GB, 81%). Cloud alternative: configure the Anthropic backend for maximum reliability.
+**Default model: `gemma4:e4b`** (9 GB, ~10 GB VRAM — the most-dogfooded local model, with the strongest prompt-following of those tested and a cold-start the harness handles automatically). Lighter alternative: `ministral-3:latest` (6 GB, 8 GB VRAM, highest agent eval at 98%). Low-RAM: `granite4.1:3b` (2 GB, 81%). Cloud: configure the Anthropic backend for maximum reliability.
 
 ### Anthropic (Claude)
 

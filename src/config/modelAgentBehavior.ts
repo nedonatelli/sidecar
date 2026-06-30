@@ -10,18 +10,21 @@
  */
 
 /**
- * The recommended default local model based on eval results (2026-06-01).
+ * The recommended default local model — the model SideCar has been dogfooded on
+ * most heavily, so its agent behavior (cold-start, edit_file quirks, prompt
+ * following) is the best-understood and most-hardened-against of any local model.
  *
- * ministral-3:latest — 6 GB, 94% agent eval pass rate (best local agent score).
- * Passes multi-file, multi-step tasks reliably; used ministral-3 to produce a
- * correct fix to SideCar's own cycle-detector stop messages in the dev-loop test.
+ * gemma4:e4b — 9 GB, 80% overall eval (72% agent / 94% prompt). Strongest
+ * prompt-following of the tested local models; needs a context reset before
+ * agentic tasks, which the harness handles automatically (see
+ * MODELS_NEEDING_COLD_START). Min ~10 GB VRAM.
  *
  * Alternatives by use-case:
- *   granite4.1:3b  — 2 GB, 81% (best size/performance ratio, low-RAM machines)
- *   qwen3.5:latest — 6.6 GB, 69% (decent but less reliable on complex tasks)
- *   gemma4:e4b     — 9.6 GB, 68% (needs cold-start, see MODELS_NEEDING_COLD_START)
+ *   ministral-3:latest — 6 GB, 84% overall (highest agent score, 98%); the
+ *     lighter pick when 10 GB VRAM isn't available or pure tool-use matters most
+ *   granite4.1:3b      — 2 GB, 81% (best size/performance ratio, low-RAM machines)
  */
-export const RECOMMENDED_LOCAL_MODEL = 'ministral-3:latest';
+export const RECOMMENDED_LOCAL_MODEL = 'gemma4:e4b';
 
 /**
  * Models (or model prefixes) that perform worse when given prior conversation context.

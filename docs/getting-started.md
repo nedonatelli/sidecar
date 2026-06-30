@@ -2,7 +2,7 @@
 title: Getting Started
 layout: docs
 nav_order: 1
-nav_section: "Get Started"
+nav_section: 'Get Started'
 ---
 
 # Getting Started
@@ -17,10 +17,10 @@ Download and install [Ollama](https://ollama.com) for your platform. After insta
 ollama --version
 ```
 
-Pull a recommended model:
+Pull the recommended model (SideCar's default):
 
 ```bash
-ollama pull ministral-3:latest
+ollama pull gemma4:e4b
 ```
 
 ## Install SideCar
@@ -59,7 +59,7 @@ Use the model dropdown at the top of the chat panel to browse and switch models.
 
 You can also install new models directly from the dropdown — SideCar will pull them from the Ollama registry.
 
-The default model is `ministral-3:latest`. For machines with less RAM, try `gemma4:2b` or `qwen2.5-coder:7b`.
+The default model is `gemma4:e4b` (~10 GB VRAM). For lighter hardware, try `ministral-3:latest` (6 GB), `gemma4:2b`, or `qwen2.5-coder:7b`.
 
 ## Switching backends
 
@@ -108,16 +108,16 @@ SideCar auto-detects the provider from the URL. If auto-detection gets it wrong,
 
 ### Provider examples
 
-| Server | Base URL | Notes |
-|--------|----------|-------|
-| LM Studio | `http://localhost:1234` | Auto-detected as OpenAI |
-| vLLM | `http://localhost:8000` | Auto-detected as OpenAI |
-| llama.cpp | `http://localhost:8080` | Auto-detected as OpenAI |
-| OpenRouter | `https://openrouter.ai/api` | Set API key, access 400+ models |
-| text-generation-webui | `http://localhost:5000` | Enable OpenAI extension in the UI |
-| Kickstand | `http://localhost:11435` | Auto-detected as Kickstand; token read from `~/.config/kickstand/token` |
-| Ollama | `http://localhost:11434` | Auto-detected as Ollama (native API) |
-| Anthropic | `https://api.anthropic.com` | Auto-detected as Anthropic |
+| Server                | Base URL                    | Notes                                                                   |
+| --------------------- | --------------------------- | ----------------------------------------------------------------------- |
+| LM Studio             | `http://localhost:1234`     | Auto-detected as OpenAI                                                 |
+| vLLM                  | `http://localhost:8000`     | Auto-detected as OpenAI                                                 |
+| llama.cpp             | `http://localhost:8080`     | Auto-detected as OpenAI                                                 |
+| OpenRouter            | `https://openrouter.ai/api` | Set API key, access 400+ models                                         |
+| text-generation-webui | `http://localhost:5000`     | Enable OpenAI extension in the UI                                       |
+| Kickstand             | `http://localhost:11435`    | Auto-detected as Kickstand; token read from `~/.config/kickstand/token` |
+| Ollama                | `http://localhost:11434`    | Auto-detected as Ollama (native API)                                    |
+| Anthropic             | `https://api.anthropic.com` | Auto-detected as Anthropic                                              |
 
 ### Tool support
 
@@ -125,10 +125,10 @@ Most OpenAI-compatible models support function calling (tool use), which enables
 
 ## Keyboard shortcuts
 
-| Shortcut | Action |
-|----------|--------|
-| `Cmd+Shift+I` / `Ctrl+Shift+I` | Toggle SideCar chat panel |
-| `Cmd+I` / `Ctrl+I` | Inline chat (edit code in place) |
-| `Cmd+L` / `Ctrl+L` | Clear chat |
-| `Cmd+Shift+U` / `Ctrl+Shift+U` | Undo all AI changes |
-| `Cmd+Shift+E` / `Ctrl+Shift+E` | Export chat as Markdown |
+| Shortcut                       | Action                           |
+| ------------------------------ | -------------------------------- |
+| `Cmd+Shift+I` / `Ctrl+Shift+I` | Toggle SideCar chat panel        |
+| `Cmd+I` / `Ctrl+I`             | Inline chat (edit code in place) |
+| `Cmd+L` / `Ctrl+L`             | Clear chat                       |
+| `Cmd+Shift+U` / `Ctrl+Shift+U` | Undo all AI changes              |
+| `Cmd+Shift+E` / `Ctrl+Shift+E` | Export chat as Markdown          |

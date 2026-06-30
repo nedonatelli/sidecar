@@ -7,16 +7,16 @@ SideCar works with several backends. Choose the one that best fits your workflow
 Install [Ollama](https://ollama.com), then pull a code-tuned model:
 
 ```bash
-ollama pull ministral-3:latest
+ollama pull gemma4:e4b
 ```
 
-`ministral-3:latest` is SideCar's default — 6 GB, runs on any machine with 8 GB VRAM, and scores highest of the tested local models on agent tasks. SideCar auto-detects `http://localhost:11434` — no API key needed. Everything stays on your machine.
+`gemma4:e4b` is SideCar's default — the most-dogfooded local model, with the strongest prompt-following of those tested (~10 GB VRAM). On lighter hardware, `ministral-3:latest` (6 GB, 8 GB VRAM) is the alternative. SideCar auto-detects `http://localhost:11434` — no API key needed. Everything stays on your machine.
 
 ### Anthropic / OpenAI (frontier models)
 
 Open `Switch Backend` below to pick a profile, then `Set API Key` to paste your key. Keys are stored in VS Code's SecretStorage, never in `settings.json`.
 
-### Kickstand *(coming soon)*
+### Kickstand _(coming soon)_
 
 Kickstand is not yet officially released. The backend adapter ships today for anyone running a local dev build on `localhost:11435` — select it from the backend picker and the token is read from `~/.config/kickstand/token` automatically. Watch for the first-party Kickstand release announcement.
 
