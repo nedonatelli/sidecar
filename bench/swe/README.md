@@ -88,9 +88,21 @@ Expect a small local model to land in low single-to-low-double digits absolute �
 The portable core (loader, sampling, official-format prediction emission, arm
 config, ablation math, report) is built and unit-tested. The live
 prediction-generation driver lives in `tests/llm-eval/swe.eval.ts` (it needs the
-agent loop, so it sits with the other src-importing eval drivers). A full scored
-run requires Docker + the `swebench` package and is a multi-hour job — it has
-not yet been executed end-to-end.
+agent loop, so it sits with the other src-importing eval drivers).
+
+**Prediction generation is validated end-to-end on real data** — a 1-task
+smoke run (`astropy__astropy-7166`, gemma4:e4b, both arms) cloned the repo at the
+base commit, ran the loop under each arm's config, captured the diff, and wrote
+valid official-format predictions. So the driver works on a non-Docker machine
+(Ollama + git is enough). **Scoring** (resolve% → lift) still requires Docker +
+the `swebench` package and has not been run.
+
+> **Set a generous iteration budget.** The smoke run used `SIDECAR_SWE_MAX_ITERS=8`
+> and produced empty patches on both arms — a small local model spends that many
+> iterations just _locating_ the file in a large repo and never reaches an edit.
+> Real runs want **30–40+** (`SIDECAR_SWE_MAX_ITERS`). Expect many empty patches
+> regardless: a bare small model resolves little of SWE-bench Verified absolutely
+> — the headline is the on/off **lift**, not the raw rate.
 
 ## Files
 

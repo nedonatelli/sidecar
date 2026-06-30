@@ -37,7 +37,10 @@ const N = parseInt(process.env.SIDECAR_SWE_N ?? '5', 10);
 const MODEL = process.env.SIDECAR_SWE_MODEL || 'gemma4:e4b';
 const OUT = process.env.SIDECAR_SWE_OUT || path.join(os.tmpdir(), 'sidecar-swe');
 const REPOS = (process.env.SIDECAR_SWE_REPOS || '').split(',').map((s) => s.trim()).filter(Boolean);
-const MAX_ITERS = parseInt(process.env.SIDECAR_SWE_MAX_ITERS ?? '20', 10);
+// SWE-bench tasks need a generous budget — a small local model spends many
+// iterations just locating the file in a large repo. The fixture-eval default
+// of 8 is far too few; default to 30 here. (Smoke run at 8 → empty patches.)
+const MAX_ITERS = parseInt(process.env.SIDECAR_SWE_MAX_ITERS ?? '30', 10);
 const PER_TASK_MS = parseInt(process.env.SIDECAR_SWE_TASK_TIMEOUT ?? '600000', 10);
 const ARMS: ArmName[] = ['scaffold-off', 'scaffold-on'];
 
