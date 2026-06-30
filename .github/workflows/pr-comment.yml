@@ -4,6 +4,11 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
 jobs:
   test-and-comment:
     runs-on: ubuntu-latest
@@ -33,13 +38,13 @@ jobs:
         continue-on-error: true
 
       - name: Post results comment
-        # Cosmetic only — never let a comment-posting failure (e.g. BOT_PAT
-        # missing issues/pull_requests write) fail the check. The real gate is
-        # the "Fail if any check failed" step below, keyed on the actual outcomes.
+        # Cosmetic only — never let a comment-posting failure (e.g. a token
+        # permission hiccup) fail the check. The real gate is the "Fail if any
+        # check failed" step below, keyed on the actual step outcomes.
         continue-on-error: true
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.BOT_PAT }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
 
