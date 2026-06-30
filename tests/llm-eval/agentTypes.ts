@@ -85,7 +85,7 @@ export interface AgentEvalCase {
    * Format: alternating user/assistant turns. Tool_use and tool_result
    * blocks are valid content so you can show a real prior tool call.
    */
-  setupMessages?: import('../src/ollama/types.js').ChatMessage[];
+  setupMessages?: import('../../src/ollama/types.js').ChatMessage[];
   /**
    * Agent loop options. Defaults: approvalMode='autonomous',
    * maxIterations=8 (eval cases should be focused — runaway loops
@@ -186,6 +186,13 @@ export interface AgentExpectations {
    * without failing on the presence check.
    */
   trajectoryHasThinking?: boolean;
+  /**
+   * When `true`, every file path cited in the final answer must resolve
+   * against the post-run workspace (NodeNext `.js`->`.ts` fallback applied).
+   * Measures the V1 unverified-claim gate's lift on review/analysis cases —
+   * a fabricated citation that slips the gate fails here. (Roadmap M1.)
+   */
+  citationsResolve?: boolean;
 }
 
 /**

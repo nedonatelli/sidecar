@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   buildEditCriticPrompt,
   buildTestFailureCriticPrompt,
+  buildAnalysisCriticPrompt,
   parseCriticResponse,
   splitBySeverity,
   formatFindingsForChat,
@@ -10,6 +11,31 @@ import {
   type CriticFinding,
   type CriticTrigger,
 } from './critic.js';
+
+describe('buildAnalysisCriticPrompt', () => {
+  it('includes the evidence and the analysis, tagged and fenced', () => {
+    const prompt = buildAnalysisCriticPrompt({
+      kind: 'analysis',
+      answer: 'scheduler.ts is the core agent loop.',
+      evidence: '### read_file(src/agent/scheduler.ts)\nclass Scheduler { recordRun() {} }',
+    });
+    expect(prompt).toContain('<evidence>');
+    expect(prompt).toContain('class Scheduler');
+    expect(prompt).toContain('<analysis>');
+    expect(prompt).toContain('scheduler.ts is the core agent loop');
+    expect(prompt).toContain('Judge only against the evidence');
+  });
+
+  it('truncates an enormous evidence block', () => {
+    const prompt = buildAnalysisCriticPrompt({
+      kind: 'analysis',
+      answer: 'ok',
+      evidence: 'x'.repeat(20000),
+    });
+    expect(prompt).toContain('truncated');
+    expect(prompt.length).toBeLessThan(12000);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // System prompt

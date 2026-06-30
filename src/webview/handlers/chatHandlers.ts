@@ -156,6 +156,7 @@ async function buildSystemPromptForRun(
   text: string,
   effectiveApprovalMode: ApprovalMode,
   resolvedSystemPrompt: string | undefined,
+  signal?: AbortSignal,
 ): Promise<{
   systemPrompt: string;
   contextLength: number | null;
@@ -185,8 +186,10 @@ async function buildSystemPromptForRun(
     systemPrompt = notebookSystemPromptPrefix(getNotebookRequireCitations(state)) + systemPrompt;
   }
 
+  signal?.throwIfAborted();
   state.postMessage({ command: 'typingStatus', content: 'Building context...' });
   const rawContextLength = await state.client.getModelContextLength();
+  signal?.throwIfAborted();
   const userContextLimit = getContextLimit();
   let contextLength: number | null;
   if (userContextLimit > 0) {
@@ -212,6 +215,7 @@ async function buildSystemPromptForRun(
     config,
     text,
     isLocal,
+    signal,
   );
   return { systemPrompt: injectedPrompt, contextLength, matchedSkill };
 }
@@ -378,6 +382,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
       turnText,
       effectiveApprovalMode,
       resolved.systemPrompt,
+      state.abortController.signal,
     );
     state.client.updateSystemPrompt(systemPrompt);
 

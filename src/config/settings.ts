@@ -69,7 +69,9 @@ export interface SideCarConfig {
     | 'groq'
     | 'fireworks'
     | 'gemini'
-    | 'copilot';
+    | 'copilot'
+    | 'bedrock';
+  bedrockRegion: string;
   systemPrompt: string;
   baseUrl: string;
   apiKey: string;
@@ -152,6 +154,7 @@ export interface SideCarConfig {
   criticEnabled: boolean;
   criticModel: string;
   criticBlockOnHighSeverity: boolean;
+  adaptiveScaffoldingEnabled: boolean;
   fetchUrlContext: boolean;
   fallbackBaseUrl: string;
   fallbackApiKey: string;
@@ -392,6 +395,7 @@ function readConfig(): SideCarConfig {
     | 'fireworks'
     | 'gemini'
     | 'copilot'
+    | 'bedrock'
   >('provider', 'auto');
   const rawBaseUrl = cfg.get<string>('baseUrl', 'http://localhost:11434') || 'http://localhost:11434';
   // Provider-aware default: if the user switched provider to Anthropic but left
@@ -407,6 +411,7 @@ function readConfig(): SideCarConfig {
     webSearchProvider: cfg.get<'duckduckgo' | 'tavily' | 'brave'>('webSearch.provider', 'duckduckgo'),
     webSearchApiKey: cfg.get<string>('webSearch.apiKey', ''),
     provider: rawProvider,
+    bedrockRegion: cfg.get<string>('bedrock.region', 'us-east-1') || 'us-east-1',
     systemPrompt: cfg.get<string>('systemPrompt', ''),
     baseUrl: rawBaseUrl,
     apiKey: getCachedApiKey() ?? cfg.get<string>('apiKey', 'ollama'),
@@ -495,6 +500,7 @@ function readConfig(): SideCarConfig {
     kickstandYarnOrigCtx: Math.max(cfg.get<number>('kickstand.yarnOrigCtx', 0), 0),
     kickstandFlashAttn: cfg.get<boolean>('kickstand.flashAttn', false),
     criticEnabled: cfg.get<boolean>('critic.enabled', false),
+    adaptiveScaffoldingEnabled: cfg.get<boolean>('adaptiveScaffolding.enabled', false),
     // Provider-aware default: an empty `critic.model` historically meant
     // "use the main model," which doubled per-iteration cost on paid Anthropic
     // backends. If the main model is Sonnet/Opus and the user hasn't explicitly

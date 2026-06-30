@@ -15,7 +15,8 @@ SideCar works with local Ollama models, Kickstand, Anthropic, OpenAI, OpenRouter
 
 | Use case | Recommended model | Why |
 |----------|-------------------|-----|
-| Best all-around local | `gemma4:e4b` | 80% overall eval score (74/92); 9 GB, runs on consumer hardware; strong prompt following (94%) and extended thinking support |
+| Best all-around local (default) | `ministral-3:latest` | 94% eval pass rate; highest agent score (98%) of tested local models; 6 GB, runs on any machine with 8 GB VRAM |
+| Low-RAM local | `granite4.1:3b` | 81% eval; 2 GB — the lightweight alternative when 8 GB VRAM isn't available |
 | Best cloud | `claude-haiku-4-5-20251001` | 96% overall (88/92); highest score of all tested models; fast, cheap, 200K context |
 | Best budget cloud | `claude-haiku-4-5-20251001` | Significantly cheaper than Sonnet/Opus at near-identical scores for agentic tasks; SideCar prompt caching cuts input costs ~90% on cache hits |
 | Best for large codebases | `claude-haiku-4-5-20251001` or `deepseek-v4-pro` | 200K context (Haiku) or 1M context (DeepSeek v4 Pro via Fireworks) — both handle full-repo indexing without truncation |
@@ -29,7 +30,9 @@ SideCar's local context cap is **32,768 tokens** (`LOCAL_CONTEXT_CAP`). Very lar
 
 | Model | Size | Min VRAM | Tool Use | Context | Best For |
 |-------|------|----------|----------|---------|----------|
-| `gemma4:e4b` | 9 GB | 10 GB | Native | 128K (capped at 32K) | Best all-around local; strong prompt following; extended thinking; default SideCar model |
+| `ministral-3:latest` | 6 GB | 8 GB | Native | 128K (capped at 32K) | **Default SideCar model**; highest agent eval (98%) of local models; best all-around |
+| `granite4.1:3b` | 2 GB | 4 GB | Native | 128K (capped at 32K) | Low-RAM alternative to the default; 81% eval |
+| `gemma4:e4b` | 9 GB | 10 GB | Native | 128K (capped at 32K) | Strong prompt following; extended thinking support |
 | `gemma4:2b` | ~3 GB | 4 GB | Native | 128K (capped at 32K) | Low-RAM machines; fast turnaround; good for simple edits and Q&A |
 | `qwen3-coder:30b` | ~18 GB | 20 GB | Native | 32K | Highest code quality among local models; speculative decoding supported (draft: `qwen2.5-coder:0.5b`) |
 | `qwen3-coder:8b` | ~5 GB | 6 GB | Native | 32K | Solid mid-range coding model; speculative decoding supported |
@@ -64,7 +67,7 @@ Cloud models are accessed via their respective APIs. SideCar stores API keys in 
 
 ## Tool Use Compatibility
 
-SideCar's full agentic capabilities — file editing, shell commands, git operations, web search, and all 79 built-in tools — require function calling (tool use). Models without it fall back to chat-only mode automatically.
+SideCar's full agentic capabilities — file editing, shell commands, git operations, web search, and all 80 built-in tools — require function calling (tool use). Models without it fall back to chat-only mode automatically.
 
 ### Reliable tool use (native function calling)
 

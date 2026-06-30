@@ -1,6 +1,7 @@
 import { workspace, Uri } from 'vscode';
 import * as path from 'path';
 import type { ToolUseContentBlock, ToolResultContentBlock, ChatMessage } from '../ollama/types.js';
+import { extractCitedPaths, pathVariants, hasUnverifiedHedge } from './citationCheck.js';
 
 /**
  * Completion gate — a deterministic verification barrier that fires when the
@@ -33,6 +34,13 @@ export interface GateState {
   testsRunForFiles: Set<string>;
   /** True if the whole test suite ran (e.g. `npm test`, `vitest` with no file). */
   projectTestsRan: boolean;
+  /** Test files whose run actually PASSED (collected >0 tests, no failures). A
+   * run that reported "no tests ran" / 0 collected / failures is in
+   * testsRunForFiles but NOT here, so the behavioral gate isn't satisfied by a
+   * test that verified nothing. */
+  passingTestFiles: Set<string>;
+  /** True if a whole-suite run PASSED. */
+  projectTestsPassed: boolean;
   /** True if any eslint / tsc invocation was observed this turn. */
   lintObserved: boolean;
   /** How many times the gate has injected a reminder this turn. Capped to prevent loops. */
@@ -43,18 +51,54 @@ export interface GateState {
   noShellRepromptFired: boolean;
   /** True once the no-write-on-named-file reprompt has fired (fires at most once). */
   noFileWriteRepromptFired: boolean;
+  /** True once the no-grounding-on-analysis-query reprompt has fired (fires at most once). */
+  noGroundingRepromptFired: boolean;
+  /** True once the unverified-claim reprompt has fired (fires at most once). */
+  unverifiedClaimRepromptFired: boolean;
+  /** How many times the syntax gate has reprompted this run (bounded). Optional for back-compat with test stubs. */
+  syntaxGateInjections?: number;
+  /**
+   * Files the syntax gate is actively driving fixes on (the targets of the
+   * most recent parse-failure reprompt). Edits to these are gate-supervised
+   * fix attempts, not autonomous thrash, so the write-target cycle detector
+   * exempts them — the gate's own injection cap bounds the fix loop. Optional
+   * for back-compat with test stubs.
+   */
+  syntaxGateFixTargets?: Set<string>;
+  /** How many times the behavioral-verification reprompt has fired this run (bounded).
+   * A counter rather than a one-shot flag so the gate can re-fire when the model
+   * "satisfies" it with a hollow test that never imports the module under test. */
+  behavioralVerificationInjections?: number;
+  /**
+   * The user request that triggered THIS run, captured at loop init. The
+   * request-based gates (no-read/no-shell/no-grounding/no-file-write/
+   * unverified-claim) evaluate against this, NOT firstUserText(messages) —
+   * in a continuing chat the first message is the original task, so anchoring
+   * on it makes the gates fire on stale, already-satisfied requirements (a
+   * "change the title" turn was judged against the original "build calculator"
+   * prompt). Empty string falls back to firstUserText for back-compat.
+   */
+  currentUserRequest?: string;
 }
 
-export function createGateState(): GateState {
+export function createGateState(currentUserRequest = ''): GateState {
   return {
+    currentUserRequest,
     editedFiles: new Set(),
     testsRunForFiles: new Set(),
     projectTestsRan: false,
+    passingTestFiles: new Set(),
+    projectTestsPassed: false,
     lintObserved: false,
     gateInjections: 0,
     noReadRepromptFired: false,
     noShellRepromptFired: false,
     noFileWriteRepromptFired: false,
+    noGroundingRepromptFired: false,
+    unverifiedClaimRepromptFired: false,
+    behavioralVerificationInjections: 0,
+    syntaxGateInjections: 0,
+    syntaxGateFixTargets: new Set(),
   };
 }
 
@@ -89,12 +133,51 @@ function extractTestFiles(args: string): string[] {
 }
 
 /**
+ * Classify a test run's output. `empty` = the runner collected/ran zero tests
+ * (pytest exit 5, "no tests ran", "Ran 0 tests") — it verified NOTHING and must
+ * not satisfy the behavioral gate (dogfooding: qwen3.5 mangled its test file so
+ * pytest collected 0 tests, and the empty run "passed" the gate, completing a
+ * broken GUI). `fail` = ≥1 test failed / errored / non-zero exit. `pass` = tests
+ * ran and all passed. `unknown` = unrecognized format (treated as not-passing).
+ */
+export function classifyTestResult(rawContent: string): 'pass' | 'fail' | 'empty' | 'unknown' {
+  // Strip ANSI first. `run_tests` runs on a TTY, so output is colored AND can
+  // contain cursor/erase codes (\x1b[K). An escape ending in a word char right
+  // before a count ("\x1b[1m5 passed", "\x1b[K5 passed") kills the `\b` in
+  // `\b\d+ passed\b`, so an unstripped pass reads as 'unknown' and the gate fires
+  // on a genuinely passing run. Match any CSI sequence (ends in a letter) + OSC.
+  const content = rawContent.replace(/\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '');
+  const exitMatch = content.match(/exit code:\s*(\d+)/i);
+  const exit = exitMatch ? parseInt(exitMatch[1], 10) : undefined;
+  // Zero tests collected/ran — verified nothing.
+  if (/no tests ran|ran 0 tests|collected 0 item|\b0 tests? (ran|passed|collected)/i.test(content) || exit === 5) {
+    return 'empty';
+  }
+  // Failure: a NON-ZERO failed/error count ("5 passed, 0 failed" is a PASS — the
+  // old `\b\d+ failed\b` matched "0 failed" and misread a pass as fail), a runner
+  // failure word (pytest FAILED, go FAIL), an assertion/traceback, or non-zero exit.
+  if (
+    /\b[1-9]\d*\s+(failed|errors?)\b/i.test(content) ||
+    /\bFAILED\b|\bFAIL\b|\bAssertionError\b|Traceback \(most recent/.test(content) ||
+    (exit !== undefined && exit !== 0)
+  ) {
+    return 'fail';
+  }
+  // Pass: pytest/jest/vitest "N passed", mocha "N passing", unittest "OK", or exit 0.
+  if (/\b[1-9]\d*\s+passed\b|\b[1-9]\d*\s+passing\b|(^|\s)OK\b|\ball tests passed\b/im.test(content) || exit === 0) {
+    return 'pass';
+  }
+  return 'unknown';
+}
+
+/**
  * Record a completed tool call into the gate state. Call after the tool
  * has actually executed — errored tool results are ignored so a failed
  * eslint run doesn't falsely satisfy the lint requirement.
  */
 export function recordToolCall(state: GateState, tu: ToolUseContentBlock, result: ToolResultContentBlock): void {
   if (result.is_error) return;
+  const resultText = typeof result.content === 'string' ? result.content : '';
 
   // Edit tools — track the path(s) they mutated.
   // Reset lintObserved so any lint run before this edit doesn't satisfy
@@ -111,12 +194,17 @@ export function recordToolCall(state: GateState, tu: ToolUseContentBlock, result
 
   // Dedicated test tool.
   if (tu.name === 'run_tests') {
+    const passed = classifyTestResult(resultText) === 'pass';
     const file = tu.input.file as string | undefined;
     if (file) {
       const p = normalizePath(file);
-      if (p) state.testsRunForFiles.add(p);
+      if (p) {
+        state.testsRunForFiles.add(p);
+        if (passed) state.passingTestFiles.add(p);
+      }
     } else {
       state.projectTestsRan = true;
+      if (passed) state.projectTestsPassed = true;
     }
     return;
   }
@@ -150,21 +238,27 @@ export function recordToolCall(state: GateState, tu: ToolUseContentBlock, result
 
     const testMatch = cmd.match(/\b(vitest|jest|pytest|mocha|go\s+test)\b([^|;&]*)/);
     if (testMatch) {
+      const passed = classifyTestResult(resultText) === 'pass';
       const args = testMatch[2] || '';
       const files = extractTestFiles(args);
       if (files.length > 0) {
         for (const f of files) {
           const p = normalizePath(f);
-          if (p) state.testsRunForFiles.add(p);
+          if (p) {
+            state.testsRunForFiles.add(p);
+            if (passed) state.passingTestFiles.add(p);
+          }
         }
       } else {
         state.projectTestsRan = true;
+        if (passed) state.projectTestsPassed = true;
       }
     }
 
     // `npm test` / `yarn test` / `pnpm test` — whole-suite invocation.
     if (/\b(npm|yarn|pnpm|bun)\s+(run\s+)?test\b/.test(cmd)) {
       state.projectTestsRan = true;
+      if (classifyTestResult(resultText) === 'pass') state.projectTestsPassed = true;
     }
   }
 }
@@ -260,8 +354,17 @@ export function buildGateInjection(findings: GateFinding[], attempt: number, max
 
   const lintFiles = [...new Set(findings.filter((f) => f.needsLint).map((f) => f.file))];
   if (lintFiles.length > 0) {
-    lines.push('Lint has not run this turn. Run:');
-    lines.push(`  run_command with command: npx eslint ${lintFiles.join(' ')}`);
+    // Lead with get_diagnostics — the language-agnostic post-edit check that
+    // satisfies this requirement for every language. Only suggest eslint for
+    // files it can actually lint (JS/TS); telling the model to run `npx eslint
+    // calculator.py` is wrong and dogfooding showed it flailing on that advice
+    // until the gate exhausted. Python/Go/Rust get the diagnostics call only.
+    lines.push('You have not run a static check on your edits this turn. Call:');
+    lines.push('  get_diagnostics   (checks every edited file — works for all languages)');
+    const jstsFiles = lintFiles.filter((f) => /\.(ts|tsx|js|jsx|mjs|cjs)$/.test(f));
+    if (jstsFiles.length > 0) {
+      lines.push(`Or, for the JS/TS files specifically: run_command with command: npx eslint ${jstsFiles.join(' ')}`);
+    }
     lines.push('');
   }
 
@@ -346,8 +449,30 @@ const WORKSPACE_METRIC_RE =
 const WORKSPACE_DIR_RE =
   /\b(src|tests?|lib|pkg|cmd)\b[/\\]|\bpackage\.json\b|\btsconfig\b|\bCargo\.toml\b|\bgo\.mod\b/i;
 
-function firstUserText(messages: ChatMessage[]): string {
+export function firstUserText(messages: ChatMessage[]): string {
   for (const msg of messages) {
+    if (msg.role !== 'user') continue;
+    if (typeof msg.content === 'string') return msg.content;
+    if (Array.isArray(msg.content)) {
+      for (const b of msg.content) {
+        if (typeof b === 'object' && b !== null && 'type' in b && b.type === 'text' && 'text' in b) {
+          return b.text as string;
+        }
+      }
+    }
+  }
+  return '';
+}
+
+/**
+ * The most recent user message text — the request that triggered the current
+ * run. Captured at loop init (before any synthetic gate injection is appended)
+ * so it reflects the user's actual current-turn ask, not the first message of a
+ * long conversation. See GateState.currentUserRequest.
+ */
+export function lastUserText(messages: ChatMessage[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
     if (msg.role !== 'user') continue;
     if (typeof msg.content === 'string') return msg.content;
     if (Array.isArray(msg.content)) {
@@ -382,6 +507,22 @@ function hasReadToolCallForFile(messages: ChatMessage[], fileName: string): bool
   return false;
 }
 
+/**
+ * True if `fileName` (as mentioned in the user's request) was written/edited
+ * by the agent this session. Matches an editedFiles entry by basename or path
+ * suffix — editedFiles stores the path the write tool used ("calculator.py" or
+ * "src/calculator.py"); the mention may be bare ("calculator.py").
+ */
+function fileWasEdited(fileName: string, editedFiles?: ReadonlySet<string>): boolean {
+  if (!editedFiles || editedFiles.size === 0) return false;
+  const base = fileName.split('/').pop()!.toLowerCase();
+  for (const edited of editedFiles) {
+    const e = edited.toLowerCase();
+    if (e === base || e.endsWith('/' + base) || e === fileName.toLowerCase()) return true;
+  }
+  return false;
+}
+
 /** Returns true if any assistant message contains a run_command tool call. */
 function hasRunCommandCall(messages: ChatMessage[]): boolean {
   for (const msg of messages) {
@@ -402,12 +543,22 @@ function hasRunCommandCall(messages: ChatMessage[]): boolean {
  * mentioned file independently — a tool call for file A does not satisfy
  * the requirement for file B. Returns null when no reprompt is needed.
  */
-export function buildNoReadReprompt(messages: ChatMessage[]): string | null {
-  const userText = firstUserText(messages);
+export function buildNoReadReprompt(
+  messages: ChatMessage[],
+  editedFiles?: ReadonlySet<string>,
+  requestText?: string,
+): string | null {
+  const userText = requestText ?? firstUserText(messages);
   if (!userText) return null;
   const fileMatches = userText.match(FILE_MENTION_RE);
   if (!fileMatches) return null;
   for (const file of fileMatches) {
+    // The agent authored this file this session — writing implies knowing its
+    // contents, so a read is redundant. Skips the "build calculator.py" case
+    // where the user names the file with write intent and the agent creates +
+    // tests it but never reads it. (Dogfooding fired a pointless read+describe
+    // cycle on a freshly-written, already-tested file.)
+    if (fileWasEdited(file, editedFiles)) continue;
     if (!hasReadToolCallForFile(messages, file)) {
       return (
         `You mentioned \`${file}\` but did not call read_file, grep, or any other file-reading tool before responding. ` +
@@ -423,9 +574,9 @@ export function buildNoReadReprompt(messages: ChatMessage[]): string | null {
  * (file count, line count, version, etc.) but the model answered without
  * running any shell command. Returns null when no reprompt is needed.
  */
-export function buildNoShellReprompt(messages: ChatMessage[]): string | null {
+export function buildNoShellReprompt(messages: ChatMessage[], requestText?: string): string | null {
   if (hasRunCommandCall(messages)) return null;
-  const userText = firstUserText(messages);
+  const userText = requestText ?? firstUserText(messages);
   if (!userText) return null;
   if (!WORKSPACE_METRIC_RE.test(userText) || !WORKSPACE_DIR_RE.test(userText)) return null;
   return (
@@ -433,6 +584,173 @@ export function buildNoShellReprompt(messages: ChatMessage[]): string | null {
     'without running a shell command. Your training data does not reflect the current state of this project. ' +
     'Run the appropriate command (find, wc -l, jq, rg --count, etc.) and answer from the actual output.'
   );
+}
+
+// ---------------------------------------------------------------------------
+// No-grounding-on-analysis-query gate
+//
+// Fires once when the user asks for an open-ended review/evaluation of the
+// codebase or its design ("review the architecture", "assess this codebase")
+// but the model answered without calling ANY grounding tool — no read_file,
+// grep, search_files, list_directory, project_knowledge_search, or
+// run_command. These questions name no specific file, so the no-read gate
+// never trips; the model is free to answer from injected SIDECAR.md sections
+// + the file tree + RAG context alone. The result is generic, training-data
+// architecture advice that hallucinates absent files and recommends patterns
+// the project already implements. This gate forces at least one look at the
+// actual code before a verdict.
+// ---------------------------------------------------------------------------
+
+/** Analysis verbs that signal the user wants an evaluation of real code. */
+const ANALYSIS_VERB_RE = /\b(review|evaluat(e|ing|ion)|assess|audit|critiqu(e|ing)|analy[sz]e|appraise|inspect)\b/i;
+
+/** Targets that anchor an analysis query to this workspace's code/design. */
+const ANALYSIS_TARGET_RE =
+  /\b(architecture|design|codebase|code\s?base|structure|implementation|module|component|this (project|repo|repository|code|extension)|the (project|repo|repository|codebase|code))\b/i;
+
+/** True when the message asks for an evaluation/review of real code in this workspace. */
+export function isAnalysisRequest(text: string): boolean {
+  return ANALYSIS_VERB_RE.test(text) && ANALYSIS_TARGET_RE.test(text);
+}
+
+/** Tools that constitute "the model actually looked at the code". */
+const GROUNDING_TOOL_NAMES = new Set([
+  'read_file',
+  'grep',
+  'search_files',
+  'list_directory',
+  'run_command',
+  'project_knowledge_search',
+]);
+
+/** Returns true if any assistant message made a grounding tool call. */
+function hasAnyGroundingToolCall(messages: ChatMessage[]): boolean {
+  for (const msg of messages) {
+    if (msg.role !== 'assistant') continue;
+    if (!Array.isArray(msg.content)) continue;
+    for (const b of msg.content) {
+      if (typeof b !== 'object' || b === null || !('type' in b) || b.type !== 'tool_use') continue;
+      if (GROUNDING_TOOL_NAMES.has((b as { name: string }).name)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Returns a reprompt string if the user asked for an open-ended review or
+ * evaluation of the codebase/design but the model answered without calling
+ * any grounding tool. Returns null when no reprompt is needed.
+ */
+export function buildNoGroundingReprompt(messages: ChatMessage[], requestText?: string): string | null {
+  if (hasAnyGroundingToolCall(messages)) return null;
+  const userText = requestText ?? firstUserText(messages);
+  if (!userText) return null;
+  if (!isAnalysisRequest(userText)) return null;
+  return (
+    'You produced a review of this codebase without reading any of it — no read_file, grep, ' +
+    'project_knowledge_search, or other grounding tool was called. Your training data does not ' +
+    'include this project, so every claim about what the code does, lacks, or should add is a guess. ' +
+    'Inspect the relevant modules first (grep for the patterns you intend to comment on, read the files ' +
+    'that own them), then ground each point in what you actually found — cite the file/symbol. ' +
+    'Before recommending any pattern, search for it: do not advise adding something the project already has.'
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Unverified-claim gate (scaffolding roadmap V1)
+//
+// Even a grounded, structured review can ship fabricated citations: a path
+// that doesn't exist (`src/context/context.ts` when the real file is
+// `src/agent/context.ts`), or findings the model itself hedges as unverified
+// ("I cannot verify…", "implied usage…"). This gate runs on an analysis/review
+// answer, extracts the file paths it cites, checks they resolve on disk, and
+// reprompts once when any are fabricated or any hedge phrase admits an
+// unverified claim. Scoped to analysis intent so it never flags a legitimate
+// "create src/new.ts" proposal in a normal coding task.
+// ---------------------------------------------------------------------------
+
+/** Return the text of the most recent assistant message (the answer being gated). */
+function lastAssistantText(messages: ChatMessage[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role !== 'assistant') continue;
+    if (typeof msg.content === 'string') return msg.content;
+    if (Array.isArray(msg.content)) {
+      return msg.content
+        .filter((b) => typeof b === 'object' && b !== null && 'type' in b && b.type === 'text' && 'text' in b)
+        .map((b) => (b as { text: string }).text)
+        .join('\n');
+    }
+  }
+  return '';
+}
+
+/** Default existence check against the active workspace. Injectable for tests. */
+async function defaultFileExists(relPath: string): Promise<boolean> {
+  const root = workspace.workspaceFolders?.[0]?.uri;
+  if (!root) return false;
+  try {
+    await workspace.fs.stat(Uri.joinPath(root, relPath));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Returns a reprompt when an analysis/review answer cites file paths that don't
+ * resolve on disk, or contains hedge phrases admitting an unverified claim.
+ * Returns null when the answer is clean (or the request wasn't an analysis).
+ * `fileExists` is injectable so tests don't touch a real workspace.
+ */
+export async function buildUnverifiedClaimReprompt(
+  messages: ChatMessage[],
+  fileExists: (relPath: string) => Promise<boolean> = defaultFileExists,
+  requestText?: string,
+): Promise<string | null> {
+  const userText = requestText ?? firstUserText(messages);
+  if (!userText) return null;
+  if (!isAnalysisRequest(userText)) return null;
+
+  const answer = lastAssistantText(messages);
+  if (!answer) return null;
+
+  const fabricated: string[] = [];
+  const seen = new Set<string>();
+  for (const cited of extractCitedPaths(answer)) {
+    const rel = normalizePath(cited);
+    if (!rel || seen.has(rel)) continue;
+    seen.add(rel);
+    let resolved = false;
+    for (const v of pathVariants(rel)) {
+      if (await fileExists(v)) {
+        resolved = true;
+        break;
+      }
+    }
+    if (!resolved) fabricated.push(rel);
+  }
+
+  const hedged = hasUnverifiedHedge(answer);
+  if (fabricated.length === 0 && !hedged) return null;
+
+  const parts: string[] = [];
+  if (fabricated.length > 0) {
+    parts.push(
+      `Your review cites ${fabricated.length === 1 ? 'a path that does not exist' : 'paths that do not exist'} in ` +
+        `this workspace: ${fabricated.map((f) => `\`${f}\``).join(', ')}. A citation must be a file you actually ` +
+        `opened. Locate the correct path (grep / list_directory), read it, and fix or remove the reference — do not ` +
+        `cite a file you have not read.`,
+    );
+  }
+  if (hedged) {
+    parts.push(
+      'Your answer contains an unverified claim (it says something is "implied", "assumed", or that you "cannot ' +
+        'verify" / answered "without reading"). Open the relevant file and confirm the claim, or delete the finding. ' +
+        'Do not present an inference as a finding.',
+    );
+  }
+  return parts.join('\n\n');
 }
 
 // ---------------------------------------------------------------------------
@@ -462,8 +780,13 @@ const WRITE_INTENT_RE =
  * message with write intent but were never written by the agent. Returns
  * null when no reprompt is needed.
  */
-export function buildNoFileWriteReprompt(messages: ChatMessage[], editedFiles: Set<string>): string | null {
-  const userText = firstUserText(messages);
+export async function buildNoFileWriteReprompt(
+  messages: ChatMessage[],
+  editedFiles: Set<string>,
+  requestText?: string,
+  fileExists: (relPath: string) => Promise<boolean> = defaultFileExists,
+): Promise<string | null> {
+  const userText = requestText ?? firstUserText(messages);
   if (!userText) return null;
   if (!WRITE_INTENT_RE.test(userText)) return null;
 
@@ -483,7 +806,15 @@ export function buildNoFileWriteReprompt(messages: ChatMessage[], editedFiles: S
       editedFiles.has(clean) ||
       editedFiles.has(base) ||
       [...editedFiles].some((f) => f.endsWith('/' + base) || f === base);
-    if (!wasWritten) unwritten.push(clean);
+    if (wasWritten) continue;
+    // Skip files that already exist on disk: the gate's job is to catch a named
+    // file the user asked to CREATE that never got created. An existing file is
+    // almost always a read-only dependency referenced by the task ("wire to the
+    // functions already in calculator.py"), not a missing write target.
+    // Dogfooding: a GUI prompt referencing an existing calculator.py wrongly
+    // tripped this nudge.
+    if (await fileExists(clean)) continue;
+    unwritten.push(clean);
   }
 
   if (unwritten.length === 0) return null;
@@ -494,4 +825,213 @@ export function buildNoFileWriteReprompt(messages: ChatMessage[], editedFiles: S
     `If the task required changes to ${unwritten.length === 1 ? 'that file' : 'those files'}, make them now. ` +
     `If you already completed everything the task asked for, ignore this and call done again.`
   );
+}
+
+// ---------------------------------------------------------------------------
+// Behavioral-verification gate
+//
+// Fires when the agent edits code that has runtime BEHAVIOR but never runs a
+// test exercising it — either fixing a reported bug (symptom language) or
+// building something interactive/behavioral (a GUI, app, server, CLI, …).
+// Launching/compiling proves the code starts, not that it behaves correctly —
+// the gap a functional bug (e.g. "operator buttons don't display", "equals
+// shows Error") falls straight through. Dogfooding: models "verify" a GUI by
+// launching it (which only proves startup) and ship behaviorally-broken code.
+// Deterministic gates verify structure + execution, not behavior; the only
+// thing that closes that is an actual behavioral test, which this nudges
+// toward. Soft + bounded: the framing lets the model skip it when a static
+// check genuinely sufficed (e.g. a type-only fix).
+// ---------------------------------------------------------------------------
+
+/** Symptom phrasing that signals the user is reporting a behavioral bug. */
+const BUG_REPORT_RE =
+  /\b(does(n'?t| not) (work|run|update|populate|show|respond|display|change)|not working|nothing happens|does nothing|no longer works?|stopped working|is broken|won'?t \w+|fails? to \w+|crash(es|ing|ed)?|isn'?t \w+ing|doesn'?t do anything|broken)\b/i;
+
+/**
+ * Nouns that signal the request produces code with interactive/runtime behavior
+ * worth a behavioral test (vs. structural artifacts like a config file or type
+ * definition, which don't match and so don't trip the gate).
+ */
+const BEHAVIORAL_BUILD_RE =
+  /\b(gui|app|application|calculator|game|cli|command[- ]line|server|endpoint|route|web ?app|widget|form|dialog|menu|button|window|screen|interactive|chatbot|\bbot\b|api|webhook|parser|validator|simulator|handler)\b/i;
+
+/** Python test-file conventions (pytest/unittest discovery): test_*.py and *_test.py. */
+const PY_TEST_FILE_RE = /(^|\/)(test_[^/]+|[^/]+_test)\.py$/;
+
+/** Escape a string for safe interpolation into a RegExp. */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Default workspace file reader for behavioral coverage. Injectable for tests. */
+async function defaultReadFile(relPath: string): Promise<string | null> {
+  const root = workspace.workspaceFolders?.[0]?.uri;
+  if (!root) return null;
+  try {
+    const bytes = await workspace.fs.readFile(Uri.joinPath(root, relPath));
+    return Buffer.from(bytes).toString('utf8');
+  } catch {
+    return null;
+  }
+}
+
+/** True if `content` references `moduleName` as a whole word (an import or symbol use). */
+/**
+ * True if `content` IMPORTS `moduleName` — the module name must appear on a line
+ * with `import` / `from` / `require`, not merely anywhere in the file. A bare
+ * word match let a hollow test "reference" the module in a comment/docstring
+ * (`# uses gui_calculator`) and pass as if it tested the real code. Covers
+ * Python (`from gui_calculator import …`, `import gui_calculator`), JS/TS
+ * (`from './gui_calculator'`, `require('./gui_calculator')`, `import … from
+ * "gui_calculator"`), and dynamic (`import_module('gui_calculator')`).
+ */
+function referencesModule(content: string, moduleName: string): boolean {
+  const m = escapeRegExp(moduleName);
+  return new RegExp(`^.*\\b(?:import|from|require)\\b.*\\b${m}\\b`, 'm').test(content);
+}
+
+/**
+ * Conventional test-file paths that would exercise `editedFile`. Used when a
+ * whole-suite run fired (no explicit file arg) so we can still confirm a test
+ * for this module actually exists and imports it. Covers the colocated and
+ * top-level `tests/` placements for Python and JS/TS conventions.
+ */
+function candidateTestFiles(editedFile: string): string[] {
+  const ext = path.extname(editedFile);
+  const base = path.basename(editedFile, ext);
+  const slash = editedFile.lastIndexOf('/');
+  const dir = slash === -1 ? '' : editedFile.slice(0, slash);
+  const names = ext === '.py' ? [`test_${base}.py`, `${base}_test.py`] : [`${base}.test${ext}`, `${base}.spec${ext}`];
+  const prefixes = dir ? [`${dir}/`, '', 'tests/', 'test/'] : ['', 'tests/', 'test/'];
+  const out: string[] = [];
+  for (const p of prefixes) for (const n of names) out.push(p + n);
+  return [...new Set(out)];
+}
+
+/**
+ * True if a test that actually exercises `file`'s module ran AND PASSED this
+ * turn. Three things must hold: the test imports the edited module (target
+ * coverage — `pytest test_calculator.py` does not exercise `gui_calculator.py`),
+ * launching the program proves startup not behavior, and the run must have
+ * PASSED — a run that collected 0 tests or failed verified nothing (it's in
+ * testsRunForFiles but not passingTestFiles). Explicit passing runs are checked
+ * directly; a passing whole-suite run is confirmed against the module's
+ * conventional test files on disk.
+ */
+async function behavioralFileExercised(
+  file: string,
+  gateState: { passingTestFiles: Set<string>; projectTestsPassed: boolean },
+  readFile: (p: string) => Promise<string | null>,
+): Promise<boolean> {
+  const moduleName = path.basename(file, path.extname(file));
+  const testFiles = new Set<string>(gateState.passingTestFiles);
+  if (gateState.projectTestsPassed) for (const c of candidateTestFiles(file)) testFiles.add(c);
+  for (const t of testFiles) {
+    const content = await readFile(t);
+    if (content && referencesModule(content, moduleName)) return true;
+  }
+  return false;
+}
+
+/** True if `candidate` is (or shares a basename with) one of `file`'s conventional test files. */
+function isTestFileFor(candidate: string, file: string): boolean {
+  const wanted = new Set(candidateTestFiles(file).map((c) => c.split('/').pop()!));
+  return wanted.has(candidate.split('/').pop()!);
+}
+
+/**
+ * Detect a HOLLOW test for `file`: a conventionally-named test file the model
+ * wrote or ran that never imports/references the module under test (so it
+ * exercises a mock/stub, not the real code). Dogfooding: the model "satisfied"
+ * the behavioral gate with `test_gui_calculator.py` that defined an inline
+ * MockCalculatorApp and never imported `gui_calculator` — the real `7+3 → 73`
+ * bug sailed through. Returns the hollow test's path, or null if none.
+ */
+async function findHollowTest(
+  file: string,
+  editedFiles: Set<string>,
+  gateState: { testsRunForFiles: Set<string> },
+  readFile: (p: string) => Promise<string | null>,
+): Promise<string | null> {
+  const moduleName = path.basename(file, path.extname(file));
+  const present = new Set<string>();
+  for (const f of [...editedFiles, ...gateState.testsRunForFiles]) {
+    if (isTestFileFor(f, file)) present.add(f);
+  }
+  for (const t of present) {
+    const content = await readFile(t);
+    if (content !== null && content !== '' && !referencesModule(content, moduleName)) return t;
+  }
+  return null;
+}
+
+/**
+ * Returns a reprompt when the current request involves runtime behavior (a bug
+ * fix OR a build of something interactive/behavioral), the agent edited code,
+ * but no test actually EXERCISED the edited code. Target-aware: running an
+ * unrelated test suite (e.g. `pytest test_calculator.py` after editing
+ * `gui_calculator.py`) or merely launching/constructing the program does not
+ * satisfy the gate — only a test file that imports the edited module does.
+ */
+export async function buildBehavioralVerificationReprompt(
+  requestText: string,
+  editedFiles: Set<string>,
+  gateState: { testsRunForFiles: Set<string>; passingTestFiles: Set<string>; projectTestsPassed: boolean },
+  readFile: (p: string) => Promise<string | null> = defaultReadFile,
+  failureContext?: string,
+): Promise<string | null> {
+  if (!requestText) return null;
+  if (editedFiles.size === 0) return null; // no code changed → nothing to verify
+  const isBug = BUG_REPORT_RE.test(requestText);
+  const isBehavioralBuild = BEHAVIORAL_BUILD_RE.test(requestText);
+  if (!isBug && !isBehavioralBuild) return null; // structural/non-behavioral work — skip
+
+  // Only behavioral SOURCE edits obligate a behavioral test — test files and
+  // type-only declarations don't test themselves.
+  const behavioralEdits = [...editedFiles].filter(
+    (f) => SOURCE_FILE_RE.test(f) && !f.endsWith('.d.ts') && !TEST_FILE_RE.test(f) && !PY_TEST_FILE_RE.test(f),
+  );
+  if (behavioralEdits.length === 0) return null;
+
+  const uncovered: string[] = [];
+  const hollow: { file: string; testFile: string }[] = [];
+  for (const file of behavioralEdits) {
+    if (await behavioralFileExercised(file, gateState, readFile)) continue;
+    const hollowTest = await findHollowTest(file, editedFiles, gateState, readFile);
+    if (hollowTest) hollow.push({ file, testFile: hollowTest });
+    else uncovered.push(file);
+  }
+  if (uncovered.length === 0 && hollow.length === 0) return null; // every edited behavioral file is genuinely tested
+
+  const what = isBug ? 'to fix a reported bug' : 'that has runtime behavior';
+  const parts: string[] = [];
+
+  if (hollow.length > 0) {
+    const list = hollow.map((h) => `\`${h.testFile}\` (meant to test \`${h.file}\`)`).join(', ');
+    const importHint = hollow.map((h) => `from ${path.basename(h.file, path.extname(h.file))} import …`).join(' / ');
+    parts.push(
+      `Your test does not test the real code: ${list} never imports the module under test — it defines its own ` +
+        `mock/stub and asserts against that, so the actual behavior is unverified. A bug like "7+3 shows 73" only ` +
+        `surfaces when the test drives the ACTUAL code. Rewrite it to import the real module (\`${importHint}\`), ` +
+        `construct/call it, invoke its functions or callbacks, and assert the real result — then run it and read the output.`,
+    );
+  }
+
+  if (uncovered.length > 0) {
+    const fileList = uncovered.map((f) => `\`${f}\``).join(', ');
+    const failure = failureContext
+      ? `\n\nYour most recent test/diagnostic output (a run that collects 0 tests or fails verifies NOTHING — fix what this shows):\n\`\`\`\n${failureContext}\n\`\`\``
+      : '';
+    parts.push(
+      `You edited code ${what} (${fileList}) but no test that PASSES exercises ${uncovered.length === 1 ? 'it' : 'them'}. ` +
+        'Launching or compiling proves the code starts, NOT that it works (a GUI can open with dead buttons; ' +
+        'a script can import cleanly and still compute the wrong answer). A test that ran but FAILED, or that collected ' +
+        '0 tests ("no tests ran"), or an UNRELATED suite, does NOT count. ' +
+        'Write a test that imports the changed module and calls the changed function/handler directly, asserting the result ' +
+        '(for UI, construct the component and invoke its callbacks headlessly, asserting the resulting display/state), then ' +
+        `run it and confirm it actually passes.${failure}`,
+    );
+  }
+
+  return parts.join('\n\n');
 }

@@ -16,38 +16,29 @@ SideCar will always be free, tips not required but appreciated.
 
 ## Why SideCar?
 
-Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins**. SideCar is a **full agentic coding assistant** — closer to Claude Code or Cursor than to a chatbot, but free, open-source, and model-agnostic.
+Agent mode, tool use, and MCP are table stakes in 2026 — Copilot, Cursor, Claude Code, Cline, and Continue all have them. What still sets SideCar apart is the combination underneath: **genuinely free and fully local-first** (runs offline on Ollama, no required cloud), a **scaffolding harness that makes weaker local models usable**, deep **native VS Code integration**, and a **safety/parallelism stack** (shadow workspaces, audit mode, fork & parallel solve, facets) — without a subscription.
 
-### vs. Local Extensions
+### vs. open-source agents
 
-| Capability | SideCar | Continue | Llama Coder | Twinny |
-|---|---|---|---|---|
-| Autonomous agent loop | **Yes** | Yes | Partial | No |
-| File read/write/edit tools | **Yes** | Yes | Yes | No |
-| Run commands & tests | **Yes** (persistent shell) | Yes | Yes | No |
-| Web search | **Yes** (DuckDuckGo / Tavily / Brave) | Yes | Yes | No |
-| Security & secrets scanning | **Yes** (Problems panel) | Partial | No | No |
-| MCP server support | **Yes** | Yes | No | No |
-| Git integration (commit, PR, releases) | **Yes** | Partial | No | No |
-| Diff preview & undo/rollback | **Yes** | Yes | No | No |
-| Plan mode | **Yes** | Yes | No | No |
-| Review mode (accept/discard per file) | **Yes** | Partial | No | No |
-| Pending-change file decorations | **Yes** | No | No | No |
-| Activity-bar review badge | **Yes** | No | No | No |
-| Test Explorer integration | **Yes** | No | No | No |
-| CodeLens Explain/Add tests/Refactor/Fix on functions & TODOs | **Yes** | Partial | No | No |
-| Native lightbulb code actions | **Yes** | Partial | No | No |
-| Built-in skills (8) | **Yes** | Yes | No | No |
-| Tree-sitter AST parsing | **Yes** | Yes | No | No |
-| Codebase indexing | **Yes** | Yes | No | No |
-| Spending budgets | **Yes** | No | No | No |
-| Session spend tracker (status bar) | **Yes** | No | No | No |
-| Hybrid cost-aware delegation | **Partial** | No | No | No |
-| Getting-started walkthrough | **Yes** | No | No | No |
-| Conversation steering (type while processing) | **Yes** | No | No | No |
-| Free & open-source | Yes | Yes | Yes | Yes |
+The free, open-source, agentic field is where SideCar's closest competitors live: **[Cline](https://cline.bot)**, **[Kilo Code](https://kilo.ai)** (the Cline/Roo hybrid most Roo users moved to after [Roo Code shut down in May 2026](https://github.com/RooCodeInc/Roo-Code)), and **[Continue](https://continue.dev)** (now a full agent, not just autocomplete). All of them — and SideCar — run local models offline, support MCP, and ship a project rules file. Agent mode is no longer a differentiator; these are the honest differences (verified June 2026):
 
-### vs. Pro Tools
+**Where SideCar is different**
+
+- **Inline completions** — SideCar has Copilot-style FIM autocomplete built in; Cline and Kilo are agent-only (their users run a separate completion tool). Continue has its own completions too.
+- **Local-model scaffolding harness** — capability-adaptive gates and reprompt budgets (Verify / Adapt / Orchestrate / Measure) plus an ablation harness (`npm run eval:ablation`) to make *weaker* local models usable. The others assume a capable model; none has an equivalent.
+- **Parallelism & write-isolation infra** — shadow workspaces (ephemeral git worktree), audit mode (in-memory write buffer), fork & parallel solve (N attempts, pick-the-winner), typed sub-agent facets, and a local model arena with ELO.
+- **Deep VS Code integration** — Problems-panel security/diagnostics, Test Explorer agent runs, CodeLens actions, file decorations, and an activity-bar review badge.
+
+**Where they're ahead**
+
+- **Reach** — Cline and Kilo run across multiple editors (JetBrains, Zed, Cursor, …) plus CLI/SDK; SideCar is VS Code-only.
+- **Ecosystem & maturity** — much larger communities, MCP/plugin marketplaces, and (Cline/Kilo) an optional managed pay-as-you-go provider.
+
+> **Different form factor:** [Aider](https://aider.chat) and [Goose](https://github.com/block/goose) are strong open-source agents too, but they're **terminal/CLI** tools (Aider is git-native; Goose is CLI + desktop), not VS Code extensions — a different workflow rather than a head-to-head. Pure-autocomplete extensions like Twinny do single-line completion only; SideCar does that plus the full agent. (Llama Coder, the old Ollama-autocomplete option, appears unmaintained as of 2026.)
+
+### vs. proprietary tools
+
+These are all capable paid agents now — Copilot, Cursor, and Claude Code each ship agent mode and MCP. The comparison is no longer "agentic or not"; it's **local-first, IDE-native, and free** vs. cloud-tied and subscription-based.
 
 | Capability | SideCar | Copilot | Cursor | Claude Code |
 |---|---|---|---|---|
@@ -67,20 +58,25 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 | Inline diff streaming in chat | **Yes** | No | No | No |
 | Status bar health indicator | **Yes** | Partial | No | No |
 | Getting-started walkthrough | **Yes** | Yes | No | No |
-| Native modal approval for destructive tools | **Yes** | No | No | Partial |
+| Native modal approval for destructive tools | **Yes** | Partial | Partial | Partial |
 | Conversation steering (type while processing) | **Yes** | No | Yes | Yes |
 | Works in your existing VS Code | **Yes** | Yes | No (fork) | Yes (extension + CLI) |
-| Monthly subscription | **Free** | $10-39/mo | from $20/mo | Usage-based / from $20/mo |
+| MCP support | **Yes** (client + server) | Yes | Yes | Yes |
+| Monthly subscription | **Free** | Free tier; $10–39/mo | from $20/mo | Usage-based / from $20/mo |
+
+> Cursor is a standalone VS Code fork; **Windsurf** — the other major AI IDE — was rebranded to **Devin Desktop** by Cognition in 2026. Both are paid editors you switch *into*; SideCar (like Copilot, Cline, and Continue) runs inside the VS Code you already use.
 
 ### What sets SideCar apart
 
-- **True agentic autonomy** — reads code, edits files, runs tests, and iterates until the task is done across cautious / autonomous / manual / plan / review / audit modes.
-- **No vendor lock-in** — Ollama, Anthropic, OpenAI-compatible (LM Studio, vLLM, OpenRouter), Kickstand, or GGUF directly from HuggingFace.
-- **Feels first-party** — status bar health indicator, native error toasts, lightbulb code actions, Problems panel integration, file decorations, activity-bar badge, and a `SideCar:` command palette category.
+- **Free & fully local-first** — runs entirely offline on local Ollama models with no API key, no required cloud, and no subscription. Plug in Anthropic / OpenAI / AWS Bedrock / etc. only when you *want* a frontier model.
+- **Built for weaker local models** — a capability-adaptive scaffolding harness (grounded review + citation gates, tiered reprompt budgets, write/rewrite-thrash defenses) with an ablation harness (`npm run eval:ablation`) to keep only the scaffolds that earn their latency. This is the differentiator most agents lack — they assume a capable model.
+- **Parallelism & write-isolation** — shadow workspaces (ephemeral git worktree), audit mode (atomic in-memory flush), fork & parallel solve (N attempts, pick the winner), typed sub-agent facets, and a local model arena with ELO.
+- **Feels first-party** — status bar health indicator, native error toasts, lightbulb code actions, Problems-panel integration, file decorations, activity-bar badge, Test Explorer agent runs, and a `SideCar:` command palette category.
+- **No vendor lock-in** — Ollama, Anthropic, AWS Bedrock, OpenAI-compatible (LM Studio, vLLM, OpenRouter), Kickstand, Groq, Fireworks, Gemini, Copilot, or GGUF directly from HuggingFace.
 - **Hybrid cost-aware** — Anthropic prompt caching + 90%-reduction prompt pruner + `delegate_task` to a local Ollama worker + session spend tracker + daily/weekly budgets + architect/editor model split (`sidecar.editorModel`) that auto-routes execution turns to a faster/cheaper model.
-- **Security from the ground up** — OS keychain key storage, secrets detection, vuln scanning, path traversal protection, workspace hook warnings, macOS Seatbelt sandbox for agent shell commands.
-- **Extensible** — MCP (stdio / HTTP / SSE), custom skills via markdown, 8 built-in skills, NoSQL quick-install for MongoDB + Redis.
-- **Production-grade safety** — review mode, audit mode (atomic flush), shadow workspaces, completion gate, cycle detection, stub validator, regression guards.
+- **Security from the ground up** — OS keychain key storage, secrets detection, vuln scanning, path-traversal protection, workspace hook warnings, macOS Seatbelt sandbox for agent shell commands.
+- **Agentic across six modes** — cautious / autonomous / manual / plan / review / audit, with Copilot-style inline completions and MCP (client **and** server) on top.
+- **Extensible** — MCP (stdio / HTTP / SSE), custom skills via markdown, 11 built-in skills, NoSQL quick-install for MongoDB + Redis.
 
 ## Features
 
@@ -95,7 +91,8 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 | **Project Knowledge Index** | Semantic search over every function/class in your workspace via tree-sitter + MiniLM embeddings; chunk-level retrieval for prose docs |
 | **Active file context bar** | Pill above the chat input — one click includes or excludes the currently open file from agent context |
 | **Adversarial Critic** | Second LLM call after every edit that finds bugs, regressions, and security issues — blocks the turn on high-severity findings |
-| **Completion gate** | Blocks the agent from declaring done until lint and colocated tests for edited files have actually run |
+| **Completion gate** | Blocks the agent from declaring done until lint and colocated tests for edited files have actually run — gates run via the agent's real execution path and key on output evidence, not exit codes |
+| **Local-model scaffolding harness** | Capability-adaptive machinery that makes weaker local models usable: grounded review + citation-resolution gates, model-tier-tuned reprompt/burst budgets, read-only specialist routing, and write/rewrite-thrash defenses. `npm run eval:ablation` measures each scaffold's pass-rate lift vs. latency so pure-tax scaffolds get cut |
 | **SIDECAR.md** | Path-scoped project instructions — sections inject only when the active file matches their `@paths` glob; per-directory files cascade root-to-leaf; falls back to `AGENTS.md` / `CLAUDE.md` / `.cursorrules` when no SIDECAR.md is present |
 | **DESIGN.md** | Always-injected architecture / style guide — place `.sidecar/DESIGN.md` (or `DESIGN.md`) to keep domain knowledge in every system prompt without SIDECAR.md boilerplate |
 | **Inline completions** | Copilot-style autocomplete via Ollama FIM or Anthropic (opt-in via `sidecar.enableInlineCompletions`) |
@@ -120,7 +117,7 @@ Most local AI extensions for VS Code are **chat wrappers or autocomplete plugins
 | **Research Assistant** | Structured project tracking: 8 agent tools (`research_create_project`, `_add_hypothesis`, `_log_experiment`, `_add_observation`, `_update_hypothesis_status`, `_set_project_status`, `_list_projects`, `_export_report`) + sidebar panel + `/research` slash command. Gated by `sidecar.research.enabled` |
 | **Context window bar** | 3 px colour-coded fill bar above the input area — blue → yellow (≥ 60 %) → red (≥ 80 %). Tooltip shows `Context: 12K / 32K tokens (38%)` |
 | **Message editing** | Click ✎ on any user message to edit and resend — subsequent messages fade out as a truncation preview, then history is rewound and the agent re-runs with the edited text |
-| **Skills** | 8 built-in skills (review-code, debug, refactor, write-tests, break-this, explain-code, create-skill, mcp-builder) + custom markdown skills |
+| **Skills** | 11 built-in skills (review-code, debug, refactor, write-tests, break-this, explain-code, create-skill, mcp-builder, tdd-red-green-refactor, typed-service-contracts, agent-dx-cli-scale) + custom markdown skills |
 | **Slash commands** | `/model`, `/fork`, `/branch`, `/compact`, `/notebook`, `/bg`, `/pr`, `/review`, `/ci`, `/memories`, `/commit`, `/doc`, `/spec`, `/revise`, and 25+ more with autocomplete |
 
 ## Requirements

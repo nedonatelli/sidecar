@@ -8,6 +8,8 @@ nav_order: 20
 
 Detailed specifications for every entry in the SideCar release plan. Each entry describes the problem, the mechanism, integration points, and the configuration surface. Organized thematically.
 
+> **Note:** This is a thematic spec archive, not a live backlog — many items below have since **shipped** (e.g. Fork & Parallel Solve, Typed Sub-Agent Facets, Skills 2.0, Skill Sync & Registry, the Project Knowledge Index, and the Merkle layer). The [ROADMAP Shipped table](../ROADMAP.md#shipped) is the source of truth for what's released; treat a spec here as design intent that may already be live.
+
 → [Back to ROADMAP](../ROADMAP.md)
 
 ### Context & Intelligence

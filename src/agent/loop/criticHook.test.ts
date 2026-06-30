@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { workspace } from 'vscode';
 import {
   applyCritic,
+  applyAnalysisCritic,
+  gatherReadEvidence,
   runCriticChecks,
   normalizeTestOutput,
   hashTestOutput,
@@ -14,11 +16,14 @@ vi.mock('../../config/settings.js', () => ({
 }));
 vi.mock('../critic.js', () => ({
   CRITIC_SYSTEM_PROMPT: 'critic system prompt',
+  ANALYSIS_CRITIC_SYSTEM_PROMPT: 'analysis critic prompt',
+  CRITIC_FINDINGS_SCHEMA: { type: 'object' },
   buildEditCriticPrompt: vi.fn().mockReturnValue('please review this edit'),
   buildTestFailureCriticPrompt: vi.fn().mockReturnValue('please review this failure'),
+  buildAnalysisCriticPrompt: vi.fn().mockReturnValue('please fact-check this analysis'),
   parseCriticResponse: vi.fn().mockReturnValue({ malformed: false, explicitlyClean: false, findings: [] }),
   splitBySeverity: vi.fn().mockReturnValue({ high: [], low: [] }),
-  formatFindingsForChat: vi.fn().mockReturnValue(''),
+  formatFindingsForChat: vi.fn().mockReturnValue('formatted findings'),
   buildCriticInjection: vi.fn().mockReturnValue('CRITIC: found issues'),
 }));
 
@@ -149,6 +154,139 @@ describe('applyCritic', () => {
     // Empty tool uses → runCriticChecks returns null → no injection
     await applyCritic(state, client, config, [], [], 'agent text', callbacks, new AbortController().signal);
     expect((state as { messages: unknown[] }).messages).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// gatherReadEvidence + applyAnalysisCritic (V2)
+// ---------------------------------------------------------------------------
+
+function reviewMsgs(extra: unknown[] = []) {
+  return [
+    { role: 'user', content: [{ type: 'text', text: 'Review the architecture of this project.' }] },
+    { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'read_file', input: { path: 'src/loop.ts' } }] },
+    {
+      role: 'user',
+      content: [{ type: 'tool_result', tool_use_id: 't1', content: 'export function runAgentLoop() {}' }],
+    },
+    ...extra,
+  ] as never[];
+}
+
+describe('gatherReadEvidence', () => {
+  it('assembles labeled excerpts from read tool results', () => {
+    const evidence = gatherReadEvidence(reviewMsgs());
+    expect(evidence).toContain('read_file(src/loop.ts)');
+    expect(evidence).toContain('export function runAgentLoop');
+  });
+
+  it('skips errored tool results', () => {
+    const msgs = [
+      { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'read_file', input: { path: 'x.ts' } }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ENOENT', is_error: true }] },
+    ] as never[];
+    expect(gatherReadEvidence(msgs)).toBe('');
+  });
+
+  it('returns empty when no read tools were called', () => {
+    const msgs = [
+      { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'write_file', input: { path: 'x.ts' } }] },
+    ] as never[];
+    expect(gatherReadEvidence(msgs)).toBe('');
+  });
+});
+
+describe('applyAnalysisCritic', () => {
+  const callbacks = { onText: vi.fn(), onToolCall: vi.fn(), onToolResult: vi.fn(), onDone: vi.fn() };
+  const client = {
+    routeForDispatch: vi.fn().mockReturnValue(null),
+    completeWithOverrides: vi.fn().mockResolvedValue('{"findings":[]}'),
+  } as never;
+  function state(messages: never[]) {
+    return { messages, logger: undefined, analysisCriticFired: false } as never;
+  }
+  beforeEach(() => {
+    vi.mocked(parseCriticResponse).mockReturnValue({ malformed: false, explicitlyClean: false, findings: [] });
+    callbacks.onText.mockClear();
+  });
+
+  it('is a no-op when criticEnabled is false', async () => {
+    const s = state(reviewMsgs());
+    await applyAnalysisCritic(
+      s,
+      client,
+      { criticEnabled: false } as never,
+      'The loop is solid.',
+      callbacks,
+      new AbortController().signal,
+    );
+    expect((s as { messages: unknown[] }).messages.length).toBe(3);
+  });
+
+  it('is a no-op when the request is not an analysis', async () => {
+    const msgs = [
+      { role: 'user', content: [{ type: 'text', text: 'Add a function to src/a.ts' }] },
+      { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'read_file', input: { path: 'src/a.ts' } }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'code' }] },
+    ] as never[];
+    const s = state(msgs);
+    await applyAnalysisCritic(
+      s,
+      client,
+      { criticEnabled: true } as never,
+      'done',
+      callbacks,
+      new AbortController().signal,
+    );
+    expect((s as { analysisCriticFired: boolean }).analysisCriticFired).toBe(false);
+  });
+
+  it('is a no-op when there is no read evidence', async () => {
+    const msgs = [
+      { role: 'user', content: [{ type: 'text', text: 'Review the architecture of this project.' }] },
+    ] as never[];
+    const s = state(msgs);
+    await applyAnalysisCritic(
+      s,
+      client,
+      { criticEnabled: true } as never,
+      'A review.',
+      callbacks,
+      new AbortController().signal,
+    );
+    expect((s as { analysisCriticFired: boolean }).analysisCriticFired).toBe(false);
+  });
+
+  it('annotates findings without blocking (advisory) and fires at most once', async () => {
+    vi.mocked(parseCriticResponse).mockReturnValue({
+      malformed: false,
+      explicitlyClean: false,
+      findings: [{ severity: 'high', title: 'mislabeled', evidence: 'loop.ts is the loop, not a scheduler' }],
+    });
+    vi.mocked(splitBySeverity).mockReturnValue({
+      high: [{ severity: 'high', title: 'mislabeled', evidence: 'x' }],
+      low: [],
+    });
+    const s = state(reviewMsgs());
+    const config = { criticEnabled: true, criticBlockOnHighSeverity: true } as never;
+    await applyAnalysisCritic(
+      s,
+      client,
+      config,
+      'scheduler.ts is the core loop.',
+      callbacks,
+      new AbortController().signal,
+    );
+    // Advisory: surfaced via onText, NOT injected as a blocking reprompt — even
+    // with criticBlockOnHighSeverity true. The review message count is unchanged.
+    expect((s as { messages: unknown[] }).messages.length).toBe(3);
+    expect(callbacks.onText).toHaveBeenCalledWith('formatted findings');
+    expect((s as { analysisCriticFired: boolean }).analysisCriticFired).toBe(true);
+
+    // Second call is a no-op (already fired) — no extra annotation.
+    callbacks.onText.mockClear();
+    await applyAnalysisCritic(s, client, config, 'again', callbacks, new AbortController().signal);
+    expect(callbacks.onText).not.toHaveBeenCalled();
   });
 });
 

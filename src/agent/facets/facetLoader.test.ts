@@ -190,17 +190,29 @@ describe('builtInFacets — shape + baseline health', () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it('built-in security-reviewer does not allow write_file or edit_file (matches spec)', () => {
+  it('built-in security-reviewer is read-only but can scan dependencies', () => {
     const sr = builtInFacets().find((f) => f.id === 'security-reviewer');
     expect(sr).toBeDefined();
     expect(sr!.toolAllowlist).not.toContain('write_file');
     expect(sr!.toolAllowlist).not.toContain('edit_file');
     expect(sr!.toolAllowlist).not.toContain('run_command');
+    // It must be able to actually scan deps rather than hallucinate a report.
+    expect(sr!.toolAllowlist).toContain('check_dependencies');
   });
 
   it('built-in latex-writer does not allow run_command (doc tools only)', () => {
     const lx = builtInFacets().find((f) => f.id === 'latex-writer');
     expect(lx!.toolAllowlist).not.toContain('run_command');
+  });
+
+  it('built-in architecture-reviewer is read-only and can search project knowledge', () => {
+    const ar = builtInFacets().find((f) => f.id === 'architecture-reviewer');
+    expect(ar).toBeDefined();
+    expect(ar!.toolAllowlist).not.toContain('write_file');
+    expect(ar!.toolAllowlist).not.toContain('edit_file');
+    expect(ar!.toolAllowlist).not.toContain('run_command');
+    expect(ar!.toolAllowlist).toContain('project_knowledge_search');
+    expect(ar!.skillBundle).toContain('software-architecture');
   });
 });
 

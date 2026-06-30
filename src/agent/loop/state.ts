@@ -4,7 +4,7 @@ import type { ApprovalMode } from '../executor.js';
 import type { AgentLogger } from '../logger.js';
 import type { ChangeLog } from '../changelog.js';
 import type { MCPManager } from '../mcpManager.js';
-import { createGateState } from '../completionGate.js';
+import { createGateState, lastUserText } from '../completionGate.js';
 import { getToolDefinitionsForTier } from '../tools.js';
 import type { AgentOptions } from '../loop.js';
 import type { EditPlan } from '../editPlan.js';
@@ -112,6 +112,59 @@ export interface LoopState {
   // Per-file auto-fix retry counter. autoFix.ts is the only writer.
   autoFixRetriesByFile: Map<string, number>;
 
+  // Per-file count of full-file overwrites (write_file) this run, and the
+  // number of isolate-rewrite nudges already injected per file. isolateRewrite.ts
+  // is the only writer. Used to redirect a stuck model from regenerating whole
+  // files toward targeted edit_file changes *before* cycle detection bails it.
+  fullRewriteCountByFile: Map<string, number>;
+  isolateNudgesByFile: Map<string, number>;
+
+  // Per-path set of content hashes written this run. The write_file executor
+  // records every distinct write and soft-blocks a byte-identical re-write (a
+  // no-op on disk and the signature of A→B→A circular thrash). cycleDetection
+  // reads this to skip blocked circular writes so the run continues — bounded by
+  // circularRewriteBlocksByFile so a model that keeps emitting identical writes
+  // still bails eventually.
+  writeHistoryByFile: Map<string, Set<string>>;
+  circularRewriteBlocksByFile: Map<string, number>;
+
+  // Per-path count of consecutive write_file calls with NO intervening
+  // verification of that file (get_diagnostics, or a run/test referencing it).
+  // The write_file executor increments + soft-blocks once it exceeds the
+  // threshold; verifications reset the counter. Forces the feedback step a
+  // stuck model skips — dogfooding caught qwen3.5 rewriting a GUI 7× without
+  // ever running it, shipping a NameError one execution would have surfaced.
+  writesSinceVerifyByFile: Map<string, number>;
+
+  // Per-file count of times the loop deferred a write-thrash cycle bail to give
+  // the verify-before-rewrite executor block a chance to push the model to run
+  // get_diagnostics / a test first. Bounded so a model that ignores the push
+  // still bails. circularRewrite.ts is the only writer.
+  forceVerifyBeforeBailByFile: Map<string, number>;
+
+  // Files the agent has successfully modified via edit_file this run. Once a
+  // file is here, a full write_file to it is soft-blocked (the executor forces
+  // continued targeted edits) — regenerating the whole file clobbers the edits,
+  // and dogfooding caught write_file repeatedly re-introducing a syntax bug that
+  // edit_file had just fixed. circularRewrite.ts records; fs.ts writeFile reads.
+  filesEditedViaEditTool: Set<string>;
+
+  // Most recent failing verification output (test failure / traceback /
+  // diagnostics error), ANSI-stripped and truncated. Surfaced inline when the
+  // model loops on a blocked rewrite so it sees WHAT to fix. circularRewrite.ts
+  // is the only writer.
+  lastFailureOutput?: string;
+
+  // Files for which the loop has already injected the escalation reprompt after
+  // an enforce-edit-blocked rewrite (bounds the escalation to once per file).
+  escalatedRewriteByFile: Set<string>;
+
+  // Per-file count of enforce-edit-blocked write_file calls. After enough blocks
+  // (the model was escalated to edit_file and ignored it), the loop RELEASES the
+  // enforce-edit lock for that file so a rewrite-oriented model can rewrite
+  // instead of being trapped into a bail. circularRewrite.ts is the only writer.
+  enforceEditBlocksByFile: Map<string, number>;
+
   // Stub-validator retry counter. stubCheck.ts is the only writer.
   stubFixRetries: number;
 
@@ -145,6 +198,15 @@ export interface LoopState {
   // writer. Keyed by a normalized hash (timestamps + memory addresses
   // stripped) so cosmetic re-runs of the same failure collapse.
   criticInjectionsByTestHash: Map<string, number>;
+
+  // True once the analysis fact-check critic (V2) has fired this run.
+  // Fires at most once. analysisCriticHook is the only writer.
+  analysisCriticFired: boolean;
+
+  // Capability-driven scaffolding intensity (A2). Set at loop start only when
+  // `adaptiveScaffolding.enabled` is on; otherwise undefined and the loop reads
+  // the historical constants. cycleDetection / actionReprompt / gate read it.
+  scaffoldingProfile?: import('../scaffoldingProfile.js').ScaffoldingProfile;
 
   // Per-tool call counts for budget enforcement. toolBudget.ts is
   // the only reader; executeToolUses.ts is the only writer.
@@ -218,13 +280,23 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     recentNormalizedCalls: [],
     recentWriteTargets: [],
     autoFixRetriesByFile: new Map<string, number>(),
+    fullRewriteCountByFile: new Map<string, number>(),
+    isolateNudgesByFile: new Map<string, number>(),
+    writeHistoryByFile: new Map<string, Set<string>>(),
+    circularRewriteBlocksByFile: new Map<string, number>(),
+    writesSinceVerifyByFile: new Map<string, number>(),
+    forceVerifyBeforeBailByFile: new Map<string, number>(),
+    filesEditedViaEditTool: new Set<string>(),
+    escalatedRewriteByFile: new Set<string>(),
+    enforceEditBlocksByFile: new Map<string, number>(),
     stubFixRetries: 0,
     actionRepromptCount: 0,
     filesReadThisRun: new Set<string>(),
     criticInjectionsByFile: new Map<string, number>(),
     criticInjectionsByTestHash: new Map<string, number>(),
+    analysisCriticFired: false,
     toolCallCounts: new Map<string, number>(),
-    gateState: createGateState(),
+    gateState: createGateState(lastUserText(copiedMessages)),
     currentEditPlan: null,
     checkpointFired: false,
   };

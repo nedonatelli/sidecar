@@ -16,6 +16,16 @@ import { streamOneTurn, resolveTurnContent } from './loop/streamTurn.js';
 import { applyAgentLoopRouting, applyArchitectEditorSplit } from './loop/routing.js';
 import { exceedsBurstCap, detectCycleAndBail } from './loop/cycleDetection.js';
 import {
+  excludeBlockedCircularRewrites,
+  resetVerifyCountersForVerifications,
+  recordSuccessfulEdits,
+  shouldDeferBailForBlockedWrite,
+  clearTrackingForDeletedFiles,
+  captureLastFailureOutput,
+  maybeEscalateBlockedRewrite,
+  maybeReleaseEnforceLock,
+} from './loop/circularRewrite.js';
+import {
   pushAssistantMessage,
   pushToolResultsMessage,
   accountToolTokens,
@@ -32,6 +42,8 @@ import { drainSteerQueueAtBoundary } from './loop/steerDrain.js';
 import type { SteerQueue } from './steerQueue.js';
 import type { PendingEditStore } from './pendingEdits.js';
 import type { EditTimelineStore } from './editTimeline.js';
+import { resolveModelCapability } from '../ollama/modelCapability.js';
+import { resolveScaffoldingProfile } from './scaffoldingProfile.js';
 
 /** Returns a signal that fires when either `a` or `b` fires. */
 function combineSignals(a: AbortSignal, b: AbortSignal): AbortSignal {
@@ -292,6 +304,14 @@ export async function runAgentLoop(
   // sync-around-helper-call dance.
   const state = initLoopState(messages, options);
 
+  // Capability-driven scaffolding intensity (A2). Only applied when the user
+  // opts in; otherwise scaffoldingProfile stays undefined and the loop reads
+  // the historical constants (behavior-neutral). Resolved once at loop start
+  // from the active model's tier.
+  if (state.config.adaptiveScaffoldingEnabled) {
+    state.scaffoldingProfile = resolveScaffoldingProfile(resolveModelCapability(client.getModel()).tier);
+  }
+
   // Start from a clean compression cache. The teardown `finally` also clears
   // it, but clearing here guarantees a fresh slate even if a prior run's
   // teardown was skipped (e.g. a synchronous throw before its finally ran),
@@ -511,7 +531,25 @@ export async function runAgentLoop(
       // `true` when the loop should terminate and is responsible for
       // its own user-visible onText notification.
       if (exceedsBurstCap(pendingToolUses, state, callbacks)) break;
-      if (detectCycleAndBail(pendingToolUses, state, callbacks)) break;
+      // Remove blocked circular rewrites (content byte-identical to a prior
+      // write this run) from what cycle detection counts — the write_file
+      // executor soft-blocks them, so they shouldn't bail the whole run.
+      // Dispatch still sees the full list so the blocked write returns its
+      // soft-block result. Bounded per file; once the budget is spent the
+      // circular write is left in and cycle detection bails the stuck loop.
+      const forCycleDetection = excludeBlockedCircularRewrites(pendingToolUses, state, callbacks);
+      // If a pending write will be soft-blocked by the executor (verify-before-
+      // rewrite or enforce-edit), defer the cycle bail this turn so dispatch runs
+      // and the block + escalation reach the model instead of the run dying with
+      // zero feedback. Bounded per file.
+      const deferForBlockedWrite = shouldDeferBailForBlockedWrite(pendingToolUses, state, callbacks);
+      if (
+        !deferForBlockedWrite &&
+        forCycleDetection.length > 0 &&
+        detectCycleAndBail(forCycleDetection, state, callbacks)
+      ) {
+        break;
+      }
 
       // Append the assistant message to history.
       pushAssistantMessage(state, fullText, pendingToolUses);
@@ -540,6 +578,31 @@ export async function runAgentLoop(
         dispatchSignal,
         state.config,
       );
+
+      // Reset the verify-before-rewrite counter for any file this turn actually
+      // verified (get_diagnostics / a run or test referencing it), so a model
+      // that checks its work between rewrites is never soft-blocked.
+      resetVerifyCountersForVerifications(pendingToolUses, state);
+
+      // Record files successfully edited via edit_file so write_file blocks a
+      // full rewrite that would clobber those targeted fixes.
+      recordSuccessfulEdits(pendingToolUses, toolResults, state);
+
+      // A deleted file is a clean slate — clear its rewrite-thrash tracking so a
+      // delete-then-recreate (the natural "start this file over" move) isn't
+      // blocked by the enforce-edit lock left over from before the delete.
+      clearTrackingForDeletedFiles(pendingToolUses, toolResults, state);
+
+      // Capture the latest failing verification output, then — if the model just
+      // looped on an enforce-blocked rewrite — escalate with a strong "edit, don't
+      // rewrite" reprompt that surfaces that failure inline so it sees what to fix.
+      captureLastFailureOutput(pendingToolUses, toolResults, state);
+      maybeEscalateBlockedRewrite(pendingToolUses, toolResults, state, callbacks);
+
+      // If the model keeps trying to rewrite an enforce-locked file and ignores
+      // the escalation, release the lock after a few blocks so a rewrite-oriented
+      // model can rewrite instead of being trapped into a bail.
+      maybeReleaseEnforceLock(pendingToolUses, toolResults, state, callbacks);
 
       // Emit structured audit record per tool call.
       if (state.logger) {

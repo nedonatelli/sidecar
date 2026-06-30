@@ -525,4 +525,125 @@ export const CODE_QUALITY_CASES: AgentEvalCase[] = [
       },
     },
   },
+
+  // -------------------------------------------------------------------------
+  // Cross-file cluster — the existing cases are all single-file. A rename that
+  // must propagate to a caller in ANOTHER file is where the edit-side scaffolds
+  // earn their keep: without them a weak model renames the definition and
+  // leaves the caller broken (autofix catches the resulting diagnostic in the
+  // real extension; grep-first behavior finds the caller). Cleanly binary, with
+  // real headroom — good for `eval:ablation` on the autoFix dimension.
+  // -------------------------------------------------------------------------
+  {
+    id: 'rename-propagates-to-cross-file-caller',
+    description: 'Renaming an exported function updates its caller in another file (autofix / cross-file)',
+    tags: ['edit', 'cross-file', 'autofix', 'edit-scaffold'],
+    workspace: {
+      'src/mathUtils.ts':
+        '// Adds two numbers.\nexport function addNumbers(a: number, b: number): number {\n  return a + b;\n}\n',
+      'src/calc.ts':
+        "import { addNumbers } from './mathUtils.js';\n\n" +
+        '// Applies a delta to a running total.\n' +
+        'export function applyDelta(total: number, delta: number): number {\n  return addNumbers(total, delta);\n}\n',
+    },
+    userMessage:
+      'Rename the `addNumbers` function to `sum` in src/mathUtils.ts. Update every reference across the project so ' +
+      'nothing is left calling the old name.',
+    expect: {
+      // Locating the caller (grep/search) or reading it is the grounded path.
+      toolsCalledAny: ['read_file', 'grep', 'search_files'],
+      files: {
+        contain: [
+          { path: 'src/mathUtils.ts', substrings: ['function sum('] },
+          // The caller's import AND call site must both move to the new name.
+          { path: 'src/calc.ts', substrings: ['sum('] },
+        ],
+        notContain: [
+          { path: 'src/mathUtils.ts', substrings: ['addNumbers'] },
+          { path: 'src/calc.ts', substrings: ['addNumbers'] },
+        ],
+      },
+    },
+  },
+
+  // -------------------------------------------------------------------------
+  // From-scratch construction cluster — the other cases start from a fixture
+  // and make a localized change. This one builds a small program toward a goal
+  // from an (effectively) empty workspace, exercising the full build loop and
+  // the deterministic keepers end-to-end: stub-check on a complete
+  // implementation, and the completion gate forcing the agent to actually run
+  // the tests it writes rather than declaring success.
+  // -------------------------------------------------------------------------
+  {
+    id: 'build-python-calculator',
+    description: 'Builds a Python calculator + tests from scratch: 4 ops, divide-by-zero guard, no stubs, tests run',
+    tags: ['create', 'from-scratch', 'python', 'stub-validator'],
+    workspace: {
+      'README.md': '# Calculator\n\nAn empty project — build the calculator here.\n',
+    },
+    userMessage:
+      'Build a small Python calculator. Create calculator.py with four fully-implemented functions — ' +
+      'add(a, b), subtract(a, b), multiply(a, b), and divide(a, b) — where divide raises ValueError on ' +
+      'division by zero. Then write test_calculator.py with a test for each operation and one for the ' +
+      'divide-by-zero case, run the tests, and make sure they pass. No placeholders or TODOs.',
+    expect: {
+      toolsCalled: ['write_file'],
+      files: {
+        exist: ['calculator.py', 'test_calculator.py'],
+        contain: [
+          { path: 'calculator.py', substrings: ['def add', 'def subtract', 'def multiply', 'def divide'] },
+          { path: 'test_calculator.py', substrings: ['def test', 'divide'] },
+        ],
+        // The divide-by-zero guard is the one behavioral requirement we can
+        // check statically.
+        matchesRegex: [{ path: 'calculator.py', patterns: [/raise\s+ValueError/] }],
+        notContain: [
+          { path: 'calculator.py', substrings: ['TODO', 'FIXME', 'NotImplementedError', 'not implemented'] },
+        ],
+      },
+    },
+    // Running the tests is forced by the completion gate, but execution depends
+    // on the eval host having python — keep it soft so a missing interpreter
+    // doesn't mask the construction result.
+    softExpect: {
+      toolsCalledAny: ['run_command', 'run_tests'],
+    },
+  },
+
+  {
+    id: 'build-python-calculator-cli',
+    description: 'Builds a runnable Python CLI calculator app from scratch and executes it to confirm it works',
+    tags: ['create', 'from-scratch', 'python', 'cli'],
+    workspace: {
+      'README.md': '# Calculator CLI\n\nAn empty project — build the calculator app here.\n',
+    },
+    userMessage:
+      'Build a command-line calculator app in calculator.py. It takes an operation and two numbers as ' +
+      'command-line arguments — e.g. `python calculator.py add 2 3` prints 5 — supporting add, subtract, ' +
+      'multiply, and divide. Division by zero must print a clear error instead of crashing. Run it on a ' +
+      'couple of examples to confirm it works. Implement it fully — no placeholders.',
+    expect: {
+      toolsCalled: ['write_file'],
+      files: {
+        exist: ['calculator.py'],
+        contain: [{ path: 'calculator.py', substrings: ['add', 'subtract', 'multiply', 'divide'] }],
+        // Must be a real runnable CLI: a __main__ entry + argument handling.
+        matchesRegex: [
+          {
+            path: 'calculator.py',
+            patterns: [/if\s+__name__\s*==\s*['"]__main__['"]/, /argparse|sys\.argv/],
+          },
+        ],
+        notContain: [
+          { path: 'calculator.py', substrings: ['TODO', 'FIXME', 'NotImplementedError', 'not implemented'] },
+        ],
+      },
+    },
+    // The agent should actually run the app on an example to confirm it works
+    // (the prompt asks for it; the completion gate reinforces it). Soft because
+    // execution needs python on the eval host.
+    softExpect: {
+      toolsCalledAny: ['run_command'],
+    },
+  },
 ];

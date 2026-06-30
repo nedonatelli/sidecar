@@ -223,6 +223,57 @@ describe('runFacetDispatchCommand — dispatch', () => {
     expect(info).toMatch(/1 failed/);
   });
 
+  it('skips the picker + input box when preSelectedFacetIds + preFilledTask are set', async () => {
+    const ui = makeFakeUi();
+    const batch: FacetDispatchBatchResult = {
+      results: [
+        {
+          facetId: 'architecture-reviewer',
+          output: 'the review',
+          success: true,
+          charsConsumed: 0,
+          sandbox: { mode: 'shadow', applied: false },
+          durationMs: 0,
+        },
+      ],
+      rpcWireTrace: [],
+    };
+    const dispatch = vi.fn().mockResolvedValue(batch);
+    const outcome = await runFacetDispatchCommand({
+      ui,
+      loadRegistry: async () => makeRegistryOutcome(),
+      createClient: () => stubClient(),
+      config: makeConfig(),
+      preSelectedFacetIds: ['architecture-reviewer'],
+      preFilledTask: 'Review the architecture of this project.',
+      dispatch: dispatch as unknown as typeof import('./facetDispatcher.js').dispatchFacets,
+    });
+
+    expect(outcome.mode).toBe('dispatched');
+    expect(ui.calls.showMultiSelectPick).toHaveLength(0);
+    expect(ui.calls.showInputBox).toHaveLength(0);
+    const callArgs = dispatch.mock.calls[0];
+    expect(callArgs[2]).toEqual(['architecture-reviewer']);
+    expect(callArgs[4]).toMatchObject({ task: 'Review the architecture of this project.' });
+  });
+
+  it('rejects preSelectedFacetIds that match no known facet', async () => {
+    const ui = makeFakeUi();
+    const dispatch = vi.fn();
+    const outcome = await runFacetDispatchCommand({
+      ui,
+      loadRegistry: async () => makeRegistryOutcome(),
+      createClient: () => stubClient(),
+      config: makeConfig(),
+      preSelectedFacetIds: ['no-such-facet'],
+      preFilledTask: 'task',
+      dispatch: dispatch as unknown as typeof import('./facetDispatcher.js').dispatchFacets,
+    });
+    expect(outcome.mode).toBe('cancelled');
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(ui.calls.showError).toHaveLength(1);
+  });
+
   it('surfaces loader errors via showError before prompting', async () => {
     const ui = makeFakeUi();
     ui.showMultiSelectPick = async () => undefined;

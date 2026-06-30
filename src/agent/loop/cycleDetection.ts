@@ -44,7 +44,15 @@ const MAX_CYCLE_LEN = 4;
 const MIN_IDENTICAL_REPEATS = 4;
 const MIN_NORMALIZED_REPEATS = 3;
 const WRITE_TARGET_WINDOW = 8;
-const WRITE_TARGET_THRESHOLD = 4;
+// Pure runaway backstop. The content-AWARE passes (consecutive/frequency at
+// MIN_NORMALIZED_REPEATS, which only fire on REPEATED content) catch a model
+// genuinely stuck re-applying the same change. write-target is content-blind,
+// so it must stay lenient — a model legitimately iterating on a fix rewrites
+// the same file several times with DIFFERENT content (progress, not thrash).
+// 6-of-8 means "almost every recent step mutated this one file" — real
+// thrash — while leaving room for fix→verify→fix→verify loops. (Was 4, which
+// bailed productive iteration; dogfooding repeatedly tripped it mid-fix.)
+const WRITE_TARGET_THRESHOLD = 6;
 
 // Keys checked in priority order to extract a tool's primary resource.
 // The first matching non-empty string value becomes the normalized key.
@@ -79,15 +87,16 @@ export function exceedsBurstCap(
   state: LoopState,
   callbacks: AgentCallbacks,
 ): boolean {
-  if (pendingToolUses.length <= MAX_TOOL_CALLS_PER_ITERATION) return false;
+  const burstCap = state.scaffoldingProfile?.burstCap ?? MAX_TOOL_CALLS_PER_ITERATION;
+  if (pendingToolUses.length <= burstCap) return false;
 
   state.logger?.warn(
     `Agent loop tool-call burst cap exceeded: ${pendingToolUses.length} tool calls in one iteration ` +
-      `(max ${MAX_TOOL_CALLS_PER_ITERATION}). First call: ${pendingToolUses[0].name}`,
+      `(max ${burstCap}). First call: ${pendingToolUses[0].name}`,
   );
   callbacks.onText(
     `\n\n⚠️ Agent stopped: ${pendingToolUses.length} tool calls in a single turn exceeds the ` +
-      `${MAX_TOOL_CALLS_PER_ITERATION}-call burst cap. Ask again with a narrower scope.\n`,
+      `${burstCap}-call burst cap. Ask again with a narrower scope.\n`,
   );
   return true;
 }
@@ -157,9 +166,13 @@ export function detectCycleAndBail(
       // agent might legitimately edit the same file with different content.
       const toolName = normEntry.sig.split(':')[0] ?? '';
       const isReadOnly = READ_ONLY_TOOLS.has(toolName);
+      // Re-reading a file you're actively editing is an edit→verify loop, never a
+      // stuck scan — exempt it entirely (even identical read args, since the file
+      // content changed underneath between reads).
+      const editVerifyExempt = isReadOnly && sigTargetsRecentlyMutatedFile(lastN[0].sig, state);
 
       const hasRepeatedSecondary = lastN.every((e) => e.secondaryHash === lastN[0].secondaryHash);
-      if (isReadOnly || hasRepeatedSecondary) {
+      if (!editVerifyExempt && (isReadOnly || hasRepeatedSecondary) && !sigTargetsOnlyGateFiles(lastN[0].sig, state)) {
         state.logger?.warn(
           `Agent loop normalized cycle detected (${MIN_NORMALIZED_REPEATS} repeats${isReadOnly ? ', read-only tool' : ', repeated secondary args'}) — ${normEntry.sig.slice(0, 100)}`,
         );
@@ -188,13 +201,14 @@ export function detectCycleAndBail(
       if (entries.length < MIN_NORMALIZED_REPEATS) continue;
       const sigToolName = sig.split(':')[0] ?? '';
       const sigIsReadOnly = READ_ONLY_TOOLS.has(sigToolName);
+      const editVerifyExempt = sigIsReadOnly && sigTargetsRecentlyMutatedFile(sig, state);
       const seen = new Set<string>();
       const hasRepeatedSecondary = entries.some((e) => {
         if (seen.has(e.secondaryHash)) return true;
         seen.add(e.secondaryHash);
         return false;
       });
-      if (sigIsReadOnly || hasRepeatedSecondary) {
+      if (!editVerifyExempt && (sigIsReadOnly || hasRepeatedSecondary) && !sigTargetsOnlyGateFiles(sig, state)) {
         state.logger?.warn(
           `Agent loop normalized cycle detected (${entries.length} non-consecutive repeats in window) — ${sig.slice(0, 100)}`,
         );
@@ -210,7 +224,23 @@ export function detectCycleAndBail(
   for (let len = 2; len <= MAX_CYCLE_LEN && len * 2 <= state.recentNormalizedCalls.length; len++) {
     const tail = state.recentNormalizedCalls.slice(-len);
     const prev = state.recentNormalizedCalls.slice(-2 * len, -len);
-    if (tail.length === prev.length && tail.every((v, i) => v.sig === prev[i].sig)) {
+    if (tail.length !== prev.length) continue;
+    const sigsMatch = tail.every((v, i) => v.sig === prev[i].sig);
+    if (!sigsMatch) continue;
+    // Content-aware: an A→B→A→B pattern is only a STUCK loop when the cycle
+    // repeats with the SAME content (or is all read-only scanning). A model
+    // legitimately iterating — edit→verify→edit→verify with DIFFERENT edits each
+    // round — produces the same sig pattern but different content, and is making
+    // progress, not looping. Mirror the consecutive/frequency passes, which
+    // already gate on secondaryHash. (Dogfooding: an edit→diagnostics fix loop
+    // with distinct edits tripped this content-blind check.)
+    const contentRepeats = tail.every((v, i) => v.secondaryHash === prev[i].secondaryHash);
+    const allReadOnly = tail.every((e) => READ_ONLY_TOOLS.has(e.sig.split(':')[0] ?? ''));
+    const gateExempt = tail.every((e) => sigTargetsOnlyGateFiles(e.sig, state));
+    // Exempt an all-read pattern when any read targets a file being actively
+    // edited — it's verifying edits between writes, not scanning in circles.
+    const editVerifyExempt = allReadOnly && tail.some((e) => sigTargetsRecentlyMutatedFile(e.sig, state));
+    if ((contentRepeats || allReadOnly) && !gateExempt && !editVerifyExempt) {
       state.logger?.warn(`Agent loop normalized cycle detected (length ${len}) — ${normEntry.sig.slice(0, 100)}`);
       const patternSigs = tail.map((e) => e.sig.slice(0, 40)).join(' → ');
       callbacks.onText(
@@ -238,6 +268,11 @@ export function detectCycleAndBail(
       }
     }
     for (const [file, count] of fileCounts) {
+      // A file under active harness-driven fixing (syntax gate or auto-fix) is
+      // exempt: repeated edits to fix a flagged error are progress, not thrash,
+      // and the driving mechanism's own budget bounds that loop. The exact-match
+      // pass still catches a truly-stuck identical-edit loop.
+      if (isUnderActiveFix(file, state)) continue;
       if (count >= WRITE_TARGET_THRESHOLD) {
         state.logger?.warn(
           `Agent loop write-target thrash detected: ${file} targeted in ${count}/${state.recentWriteTargets.length} iterations`,
@@ -277,6 +312,96 @@ function extractWriteTargets(pendingToolUses: ToolUseContentBlock[]): string[] {
     }
   }
   return Array.from(seen);
+}
+
+/**
+ * True if `target` (a raw write-target path from a tool input) refers to a
+ * file the syntax gate is currently driving fixes on. Matches by basename so
+ * the gate's normalized workspace-relative path ("src/gui.py") matches a raw
+ * relative input ("gui.py") and vice-versa.
+ */
+function basenameMatch(target: string, candidate: string): boolean {
+  if (candidate.toLowerCase() === target.toLowerCase()) return true;
+  return candidate.split('/').pop()!.toLowerCase() === target.split('/').pop()!.toLowerCase();
+}
+
+function isSyntaxGateFixTarget(target: string, state: LoopState): boolean {
+  const fixTargets = state.gateState.syntaxGateFixTargets;
+  if (!fixTargets || fixTargets.size === 0) return false;
+  for (const gated of fixTargets) if (basenameMatch(target, gated)) return true;
+  return false;
+}
+
+/**
+ * True if `target` is a file the auto-fix hook is actively driving fixes on —
+ * it has reprompted at least once (retries > 0) and hasn't exhausted its
+ * per-file budget yet (retries < autoFixMaxRetries). Auto-fix bounds its own
+ * loop, so cycle detection must not bail it earlier: dogfooding showed auto-fix
+ * (budget 5) reprompting `gui.py` while the normalized cycle check bailed at 3
+ * repeats. Once auto-fix gives up (retries >= cap), the exemption ends and
+ * further repetition is thrash again.
+ */
+function isActiveAutoFixTarget(target: string, state: LoopState): boolean {
+  const map = state.autoFixRetriesByFile;
+  if (!map || map.size === 0) return false;
+  const cap = state.config?.autoFixMaxRetries ?? 3;
+  for (const [file, retries] of map) {
+    if (retries > 0 && retries < cap && basenameMatch(target, file)) return true;
+  }
+  return false;
+}
+
+/** A file is exempt from the thrash/cycle passes while a harness mechanism (the
+ * syntax gate or auto-fix) is actively driving bounded fixes on it. */
+function isUnderActiveFix(target: string, state: LoopState): boolean {
+  return isSyntaxGateFixTarget(target, state) || isActiveAutoFixTarget(target, state);
+}
+
+/**
+ * True if every tool call in a normalized signature references only files under
+ * active harness-driven fixing (syntax gate or auto-fix). Such a signature is
+ * supervised fixing (e.g. `edit_file:gui.py` → `get_diagnostics:gui.py` repeated
+ * while fixing a flagged error), NOT thrash — the normalized cycle passes exempt
+ * it. The driving mechanism's own budget (and the exact-match pass, which still
+ * fires on truly identical repeated calls) bound the loop.
+ */
+function sigTargetsOnlyGateFiles(sig: string, state: LoopState): boolean {
+  const parts = sig.split('|');
+  if (parts.length === 0) return false;
+  return parts.every((p) => {
+    const idx = p.indexOf(':');
+    const resource = idx === -1 ? '' : p.slice(idx + 1);
+    return resource !== '' && isUnderActiveFix(resource, state);
+  });
+}
+
+/**
+ * True if a read-only signature targets a file that was mutated (write/edit)
+ * within the recent window. Re-reading a file you're actively editing is an
+ * edit→verify loop, NOT a stuck scan — especially under retrieval reference-mode
+ * (v0.92), where the system prompt holds path references, not file bodies, so
+ * the model MUST read_file to see the current contents after each edit.
+ * Dogfooding: a write→read→write→read fix loop on `gui_calculator.py` tripped
+ * the read-only cycle bail mid-fix, killing the run with a half-written file.
+ * Bounded by WRITE_TARGET_WINDOW — once edits age out, pure re-reads bail again.
+ */
+function sigTargetsRecentlyMutatedFile(sig: string, state: LoopState): boolean {
+  const resources = sig
+    .split('|')
+    .map((p) => {
+      const i = p.indexOf(':');
+      return i === -1 ? '' : p.slice(i + 1);
+    })
+    .filter(Boolean);
+  if (resources.length === 0) return false;
+  for (const targets of state.recentWriteTargets) {
+    for (const t of targets) {
+      for (const r of resources) {
+        if (basenameMatch(r, t)) return true;
+      }
+    }
+  }
+  return false;
 }
 
 function sortedStringify(value: unknown): string {

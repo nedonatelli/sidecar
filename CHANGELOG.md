@@ -4,6 +4,509 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.114.56] - 2026-06-29
+
+### Fixed
+
+- **Stop now interrupts context building, not just the agent loop.** The "Building context…" phase (model context-length probe, retrieval fusion, the query-rewrite LLM call, and external context-provider fetches) ran with no abort signal, so clicking Stop during it did nothing until the whole phase finished and the agent loop finally observed the abort. The run's `AbortController.signal` is now threaded through `buildSystemPromptForRun` → `injectSystemContext`, with `throwIfAborted()` checks at each step boundary and the signal bound into the query-rewrite `complete()` call so an in-flight rewrite is cancelled too. The thrown `AbortError` is already handled by `handleUserMessage` as a clean stop. (`src/webview/handlers/chatHandlers.ts`, `systemPrompt.ts`)
+
+## [0.114.55] - 2026-06-29
+
+### Fixed
+
+- **Dropped legacy Claude 3 Opus from the Bedrock static fallback list.** When the live model query is denied (an InvokeModel-only Bedrock API key), the static fallback offered `anthropic.claude-3-opus-20240229-v1:0`, which Bedrock now blocks for accounts that haven't used it in 30 days (`404 … Model is marked … Legacy`). Removed it; the fallback now lists only current Sonnet 4 / Opus 4 / 3.7 Sonnet / 3.5 Sonnet v2 / 3.5 Haiku. The Bedrock backend was **verified working end-to-end against a live account** in the process (auth + endpoint + payload all confirmed by a genuine Bedrock API response). (`src/ollama/client.ts`)
+
+## [0.114.54] - 2026-06-29
+
+### Added
+
+- **Live Bedrock model discovery.** The model picker now queries the Bedrock control plane — `ListInferenceProfiles` + `ListFoundationModels` on `bedrock.<region>.amazonaws.com` (distinct from the runtime host) — and lists the Anthropic/Claude models actually available to your account in that region: cross-region inference profiles (`us.anthropic.…`) plus on-demand foundation models. Uses the same auth as invocation (Bedrock API key bearer token or SigV4). Falls back to the static list when the call is denied (e.g. an InvokeModel-only API key without `bedrock:ListFoundationModels`). GovCloud works unchanged (region-derived host). Non-Anthropic models are filtered out since the backend speaks the Anthropic payload. (`src/ollama/bedrockBackend.ts`, `client.ts`)
+
+## [0.114.53] - 2026-06-29
+
+### Fixed
+
+- **"Cannot connect to API at https://bedrock-runtime.<region>.amazonaws.com" when switching to Bedrock.** On backend switch, the chat loads the model list via `listInstalledModels()`, which had no `bedrock` branch — so it fell through to the default Ollama path and tried to `GET /api/tags` against the Bedrock runtime host, which has no such endpoint, and surfaced a connection error. Added a `bedrock` branch that returns a static list of common Claude model / inference-profile IDs with **no network call** (Bedrock has no cheap catalog endpoint; users can type any other id). This was a model-picker failure only — the actual chat request already routes to the region-derived endpoint, independent of `baseUrl`. (`src/ollama/client.ts`)
+
+## [0.114.52] - 2026-06-29
+
+### Added
+
+- **Bedrock region picker — no settings.json edit needed.** A new `SideCar: Bedrock: Set Region` command opens a QuickPick of common Bedrock regions (plus a validated custom entry) and writes `sidecar.bedrock.region`. Switching to the Bedrock profile via `sidecar.switchBackend` (the ⚙ gear in chat) now prompts for the region inline, so the whole Bedrock setup — provider, model, key, region — is doable from the chat window. The reusable `promptBedrockRegion()` is unit-tested. (`src/commands/settingsCommands.ts`)
+
+## [0.114.51] - 2026-06-29
+
+### Added
+
+- **Bedrock API key (bearer-token) auth.** AWS's Bedrock API keys authenticate with `Authorization: Bearer <key>` rather than SigV4. The Bedrock backend now uses a bearer token when one is available — the SideCar-stored API key (`sidecar.apiKey`, threaded through as `bearerToken`) or the AWS-standard `AWS_BEARER_TOKEN_BEDROCK` env var — and only falls back to SigV4/IAM signing when there's no token. The placeholder `'ollama'` default is ignored. Constructor now takes an `{ bearerToken?, credentials? }` auth object; `canonicalizePath` is exported so the bearer URL is encoded identically to the signed one. (`src/ollama/bedrockBackend.ts`, `awsSigV4.ts`, `client.ts`)
+
+## [0.114.50] - 2026-06-29
+
+### Fixed
+
+- **"What's New" auto-prompt now reaches existing users on a feature-debut update.** The prompt suppresses itself on a fresh install (so new users get the getting-started walkthrough, not a changelog popup) by checking for a recorded `lastSeenVersion`. But that key only began existing in 0.114.48, so a user updating *into* the first What's-New-bearing build had `lastSeen === undefined` — indistinguishable from a fresh install — and saw nothing. The decision now also treats "any other SideCar `globalState` exists" as an existing user (`hadPriorState`), so updaters from a pre-feature build get the prompt while genuinely-fresh installs still don't. Logic extracted to a pure, unit-tested `shouldPromptWhatsNew()`. (`src/activation/whatsNew.ts`, `whatsNewSetup.ts`)
+
+## [0.114.49] - 2026-06-29
+
+### Added
+
+- **AWS Bedrock backend for Claude models.** Bedrock accepts the native Anthropic Messages payload, so this reuses SideCar's Anthropic message/tool mapping, output-token clamp, and a newly-extracted shared stream-event translator — the only Bedrock-specific parts are **SigV4 request signing** and the **AWS event-stream** response framing, both hand-rolled (no AWS SDK dependency) and unit-tested: the signer reproduces AWS's published `get-vanilla` vector exactly, and the event-stream decoder is verified against hand-built frames (including split-across-reads reassembly and exception frames). Auth uses the standard AWS credential chain (env vars → `~/.aws/credentials`), not an API key — so the profile's `secretKey` is null like Kickstand. Select via `sidecar.provider: "bedrock"` + `sidecar.bedrock.region` (default `us-east-1`), with a model or inference-profile ID (e.g. `us.anthropic.claude-sonnet-4-20250514-v1:0`). Prompt caching is intentionally not sent yet (Bedrock gates `cache_control` per-account). New: `src/ollama/bedrockBackend.ts`, `awsSigV4.ts`, `awsEventStream.ts`, `awsCredentials.ts`, `anthropicStreamTranslate.ts`; threaded through the provider unions, `detectProvider`, the backend profiles, and the settings schema. The Anthropic backend was refactored to share the stream-event translator (its 30 tests still pass). See [docs/backends.md](docs/backends.md#aws-bedrock).
+
+## [0.114.48] - 2026-06-29
+
+### Fixed
+
+- **Built-in skills never shipped to installed users — `.vscodeignore` excluded the entire `skills/` tree.** During a dead-code-sweep (`7a15d38`), `skills/**` was added to `.vscodeignore` alongside `src/**`/`tests/**`/`scripts/**`, but `skills/` is **runtime data**: `servicesInit.ts` points `skillLoader.setBuiltinPath` at `<extensionPath>/skills`, and there's no embedded fallback. Result: the packaged `.vsix` contained **zero** skill files, so installed users got none of the 11 built-in skills (they only loaded when running from source). `.vscodeignore` now excludes only `skills/fabric/**` — the 11 active skills ship; the 74 dormant Fabric patterns (imported via `scripts/import-fabric-patterns.ts` but never wired into the non-recursive loader) stay out of the package. (`.vscodeignore`)
+
+### Added
+
+- **"What's New on update" — release notes surface in-editor after a version bump.** Previously a user updating from one version to the next got no in-product signal about new features (only the marketplace CHANGELOG tab). On activation, SideCar compares the running version against a stored `globalState` value; on a real bump (never on first install) it shows a one-time `SideCar updated to vX` notification with a **See what's new** button that opens a webview rendering that version's CHANGELOG section. Also adds the **`SideCar: What's New`** command (always available) and the `sidecar.whatsNew.enabled` toggle (default on) for the auto-prompt. The changelog extraction + minimal Markdown→HTML renderer are pure + unit-tested (HTML-escaped, so changelog text can't inject markup). (`src/activation/whatsNew.ts`, `src/activation/whatsNewSetup.ts`, `src/extension.ts`)
+
+### Documentation
+
+- **Docs catch-up to v0.114** after the whole v0.114 band shipped with only the CHANGELOG updated. README + landing page + ROADMAP brought current; ROADMAP also gained a source-verified competitive-gap backlog and a corrected coverage floor (the doc claimed `80/70/80/80` in four places but CI enforces `70/63/67/71`). A 5-cluster audit of the `docs/` tree (verified against source) fixed factual errors — default model `gemma4:e4b` → `ministral-3:latest` (×5 docs), `agentMaxTokens` `100000` → `200000`, the phantom `sidecar.planMode` setting (removed from 3 docs), audit-log truncation `500` → `2000` chars — and refreshed the architecture docs (post-turn hooks `4` → `7` with correct ordering, `loop.ts` line count, dual tree-sitter→regex path, agent modes `4` → `6`) and observability docs (new structured-logging / Output-channel section). Walkthroughs updated for the default model + `audit` mode. `.gitignore` now ignores `.vscode/settings.json` and drops the contradictory (no-op) `CLAUDE.md` entry.
+
+## [0.114.47] - 2026-06-28
+
+### Added
+
+- **Observability pass so the supporting subsystems are debuggable from logs, not filesystem forensics.** Debugging the PKI under-indexing this cycle relied on `.bin`/`.json` mtimes and the one PKI log line that turned out to be lying. This makes the indexing/retrieval path and the previously-dark subsystems self-explanatory in the "SideCar" output channel, on three rules:
+  - **Log outcomes, not intentions.** PKI replay now logs the real counts (`[PKI] replay complete queued=4230 filesRead=… filesSkipped=… graphSymbols=5307`) and **warns** when it queues nothing despite a non-empty graph. Embedding drains/persists log `indexed`/`bytes`. The retriever logs which path served a query (symbol-level vs file-level fallback) with hit counts + top score at debug. (`src/config/symbolIndexer.ts`, `src/config/symbolEmbeddingIndex.ts`, `src/agent/retrieval/semanticRetriever.ts`, `src/activation/workspaceIndexer.ts`)
+  - **Surface surprising zeros.** `SymbolEmbeddingIndex.initialize` now **warns** when the on-disk cache has bytes but restore yields no vectors — the persist/restore round-trip failure that otherwise looks like "the index keeps resetting to 0 on reload."
+  - **Light up the dark subsystems at debug/trace** (previously 0 logger calls each, so verbosity couldn't be turned up): MCP tool dispatch (`callServerTool`), Shadow Workspace create/apply/dispose (keyed by shadow id), Facets per-layer + per-facet outcomes (id, ok, ms), and Deps scan summaries (manifests/outdated/vulnerable). (`src/agent/mcpManager.ts`, `src/agent/shadow/shadowWorkspace.ts`, `src/agent/facets/facetDispatcher.ts`, `src/deps/driftScanner.ts`)
+- **Shared log convention.** New `kv(fields)` formatter in `src/system/logger.ts` renders a greppable ` key=value` suffix (quoting whitespace, omitting `undefined`) so outcome logs are consistent and `grep "queued="`-able, plus a short per-activation `SESSION_ID` for correlating the two output channels. An activation banner logs `[SideCar] activating session=… version=…`. (`src/system/logger.ts`, `src/activation/baseSetup.ts`)
+
+## [0.114.46] - 2026-06-28
+
+### Fixed
+
+- **Symbol index (PKI) still embedded only a handful of symbols after the 0.114.45 race fix — the replay reads file content the cached graph doesn't keep.** `replaySymbolsToEmbeddingIndex` builds each symbol's embed body from `graph.getFileContent(filePath)`, but `SymbolGraph.toJSON` serializes "no file contents" and the in-memory `fileContents` map is only populated when a file is **freshly parsed** this session. On a warm reload the graph is restored from `symbol-graph.json`, so `indexedFilePaths()` (backed by the persisted `fileHashes`) yields every file but `getFileContent` returns `undefined` for all of them — and `if (!content) continue` skipped the lot. Net effect: only the 1–2 files actually edited that session embedded (dogfooding: 14 of 5,306), confirmed in the live logs as `Symbol embedding index ready: 14 cached symbol vectors`. The replay now reads the file from disk (bounded-parallel via `Promise.allSettled`, mirroring the indexer's normal read) whenever the cached graph has no content, so the store rebuilds across reloads, not just for files touched this session. Verified live: the same workspace went from 14 to 4,230 embedded symbols. (`src/config/symbolIndexer.ts`)
+- **The Project Knowledge Index sidebar showed `0 symbols / never / 0 B` even when the index was fully populated — two subscribers fought over one callback slot.** `SymbolEmbeddingIndex.setOnDrained` was a single-slot setter (`this.drainedListener = cb`), but both the status-bar progress updater and the PKI sidebar's `setIndex` register a drained listener. The sidebar registered first, then the status bar overwrote it, so when embedding finished only the status bar refreshed and the tree view's `onDidChangeTreeData` never fired — leaving it frozen on its initial pre-embed render while the on-disk store held thousands of vectors. `setOnDrained` now appends listeners and fires all of them on drain. (`src/config/symbolEmbeddingIndex.ts`)
+- **The PKI replay log reported the graph symbol count, not how many symbols it actually queued — masking the under-queueing bug above.** `PKI replay queued symbols from 5306 graph symbols` logged `graph.symbolCount()` regardless of how many were really queued, so dogfooding read "5306" while only 14 embedded. `replaySymbolsToEmbeddingIndex` now returns the real queued count and the log reads `PKI replay queued N symbols (graph has M)`. (`src/config/symbolIndexer.ts`, `src/activation/workspaceIndexer.ts`)
+
+## [0.114.45] - 2026-06-28
+
+### Fixed
+
+- **Symbol index (PKI) embedded only a handful of symbols — the replay raced the graph build.** Root cause of "I've never seen a successful symbol index run": in `workspaceIndexer`, `symbolIndexer.initialize()` (parse files → build the symbol graph, slow) is started but NOT awaited, in parallel with `symbolEmbeddings.initialize()` (restore the small cache + kick off the model load, fast). When the embeddings init resolves first, its callback calls `replaySymbolsToEmbeddingIndex()` — which iterates `graph.indexedFilePaths()` to queue every symbol for embedding. But the graph is still building, so it queues only the few files parsed so far (dogfooding: ~13 of thousands), and the rest are never queued, because on a cached graph the hash-match short-circuit means `indexSymbol` never fires for unchanged files. The replay now `await`s the graph-build promise first, so it queues the full graph. Combined with 0.114.40 (packaging) and 0.114.44 (stable model cache), the PKI now actually indexes the whole workspace. (`src/activation/workspaceIndexer.ts`)
+
+
+## [0.114.44] - 2026-06-28
+
+### Fixed
+
+- **Symbol embedding index (PKI) downloaded the model to a volatile, version-scoped cache and never logged success.** The file-level `EmbeddingIndex` loads the MiniLM model with `cacheDir: .sidecar/cache/models` (stable, workspace-local, writable), but `SymbolEmbeddingIndex.loadModel` passed **no cacheDir** — so it fell to the transformers default, the packaged extension's `node_modules/@huggingface/transformers/.cache`, which is wiped on every `.vsix` version bump (forcing a ~23 MB re-download each install) and, combined with the missing package before 0.114.40, meant the PKI model load kept hitting the "retry failed" loop and never completed a run. It now caches to the same `.sidecar/cache/models` as the file index (so the download persists across versions and both share one cached model) and logs `Symbol embedding model loaded: <id>` on success. With this + the 0.114.40 packaging fix, a reload should produce a real symbol-index run: watch the status bar (`SideCar: Indexing symbols…` → `SideCar PKI: N symbols`) and the output channel. (`src/config/symbolEmbeddingIndex.ts`)
+
+
+## [0.114.43] - 2026-06-28
+
+### Fixed
+
+- **Restored conversations looked like messages were lost — the `init` renderer made empty bubbles for tool plumbing and dropped tool-heavy turns.** The chat IS saved correctly (verified: `runAgentLoop`→`finalize` returns the full `state.messages`, `postLoopProcessing` persists it, `serializeContent` keeps every non-image block; the save round-trip is unit-tested). But on restore, `init` called `appendMessage(role, text)` for _every_ message, so `tool_result` entries (role `user`, no text) and tool-use-only assistant turns rendered as empty bubbles, and tool cards were gone — a tool-heavy conversation came back looking broken/missing. `init` now skips messages with no displayable text while **preserving the real `state.messages` index** on each rendered bubble (`dataset.msgIndex = i`) and advancing the live counter past the restored range, so regenerate/edit still target the correct message after a reload. (Faithful tool-card reconstruction on restore is a separate, larger enhancement — the user/assistant transcript + code blocks now render cleanly.) (`media/chat.js`)
+
+## [0.114.42] - 2026-06-27
+
+### Fixed
+
+- **Chat history didn't survive a window reload — the restore `init` raced the webview load and was dropped.** On reload the extension restores the conversation from `workspaceState` into `state.messages` and posts an `init` to the webview in `resolveWebviewView` — but it fired that post synchronously, before the webview's `chat.js` had registered its `message` listener, so the message (and the restored history) was lost and the chat looked empty. There was no handshake to recover. Now the webview posts `webviewReady` once its listener is live, and the extension (re)sends the initial state (history `init` + model list + agent mode + UI settings) in response. The `init` handler also clears the message container before rebuilding, so the now-possible double-send (eager + ready, or a hide/show re-resolve) replaces the history instead of appending a duplicate. (`media/chat.js`, `src/webview/chatView.ts`, `src/webview/chatWebview.ts`)
+
+## [0.114.41] - 2026-06-27
+
+### Fixed
+
+Adversarial review of the v0.114.32–40 scaffold stack surfaced four real bugs:
+
+- **`classifyTestResult` misread several passing runs as fail/unknown, firing the behavioral gate on a passing test.** (1) `\b\d+ failed\b` matched "0 failed", so `5 passed, 0 failed` classified as **fail**; now only a non-zero `failed`/`error` count counts. (2) Mocha's `N passing` wasn't recognized as a pass. (3) The ANSI strip only removed codes ending in `m`, so erase-line/cursor codes (`\x1b[K`) adjacent to a count broke the `\b\d+ passed\b` boundary → a pass read as `unknown`; it now strips any CSI sequence + OSC. Also recognizes go-test `FAIL` and pytest collection `error`s. (`src/agent/completionGate.ts`)
+- **Hollow-test detection was defeated by a comment.** `referencesModule` was a bare word search, so a mock test that merely mentioned the module in a comment (`# uses gui_calculator`) counted as "imports the module" and passed the behavioral gate. It now requires the name on an `import` / `from` / `require` line. (`src/agent/completionGate.ts`)
+- **`delete_file` left the enforce-edit block counter + escalation flag poisoned.** `clearTrackingForDeletedFiles` purged five per-file maps but not `enforceEditBlocksByFile`/`escalatedRewriteByFile`, so a delete-to-restart recreated the file with the enforce lock releasing after one block instead of three (and the escalation never re-firing). Both are now purged. (`src/agent/loop/circularRewrite.ts`)
+- **Same-basename files in different dirs shared locks/budgets.** The enforce-edit / release / defer / delete-clear matchers compared by bare basename, so editing `src/util.py` would enforce-block a write to `test/util.py` and activity on one could release the other's lock. They now match by exact path or `/`-boundary suffix (still handling relative-vs-absolute) — `src/util.py` and `test/util.py` no longer collide. (`src/agent/loop/circularRewrite.ts`, `src/agent/tools/fs.ts`)
+
+Known-and-accepted (not fixed): the deferral window omits ≤2 iterations from the cycle-detection ring buffers (bounded by maxIterations); `lastFailureOutput` is global so an escalation could surface an unrelated file's failure (advisory text only); a `pytest -k`-filtered green run can satisfy behavioral coverage by disk-presence (mirrors whole-suite `npm test` semantics).
+
+## [0.114.40] - 2026-06-27
+
+### Fixed
+
+- **`@huggingface/transformers` was missing from the packaged `.vsix` — local embeddings (PKI) silently failed** — runtime warning: _"Symbol embedding model retry failed: Cannot find package '@huggingface/transformers' imported from …/dist/extension.js"_. The package is externalized from the esbuild bundle and dynamic-imported at runtime, but `.vscodeignore` excluded all `node_modules/**` except `web-tree-sitter` and `@lancedb` — so it never shipped, and PKI symbol/file embeddings silently fell back to the file-level index on every install. Now the package ships, trimmed to the minimum the Node build (`dist/transformers.node.mjs`) actually loads: dropped onnxruntime-web (130 MB browser/WASM backend — the node build imports only onnxruntime-node) and the other-platform onnxruntime-node prebuilt binaries (linux/win32, ~176 MB); kept onnxruntime-node (darwin), onnxruntime-common, tokenizers, jinja, and sharp (statically imported even for text) with its host-only native binary. The `.vsix` grew ~20 MB (≈64 MB total) vs. the ≈379 MB full tree, and a real embedding was verified to load from the packaged set. **The `.vsix` is now darwin-specific** (ships only the host's native binaries) — rebuild per-platform with `vsce package --target` if distributing beyond macOS. (`​.vscodeignore`)
+
+## [0.114.39] - 2026-06-27
+
+### Added
+
+- **Enforce-edit release valve — stop trapping a rewrite-oriented model into a bail** — dogfooding (qwen3.5, GUI build): the model made one `edit_file`, then its strategy was to rewrite the whole file. enforce-edit (0.114.31) blocked every subsequent `write_file`, the deferral kept the run alive, the escalation pushed `edit_file` — and the model **ignored all of it and kept rewriting**, until it bailed with a partial GUI and no test. No clobber was prevented; the lock just trapped a model that wanted to rewrite and wouldn't edit. Now, after `MAX_ENFORCE_EDIT_BLOCKS` (3) enforce-blocked rewrites of a file (the model has been blocked AND escalated and still won't switch), the loop **releases the lock** so the rewrite goes through — better than a trap-bail. The circular-rewrite and verify-before-rewrite guards still bound the released writes, and a later edit that re-arms the lock releases again (we've learned the model won't edit that file). Keeps enforce-edit's clobber-protection for the common case (a model that edits-then-accidentally-rewrites) while removing the trap for the rewrite-oriented one. (`src/agent/loop/circularRewrite.ts`, `src/agent/loop.ts`, `src/agent/loop/state.ts`)
+
+## [0.114.38] - 2026-06-27
+
+### Fixed
+
+- **`classifyTestResult` now strips ANSI color codes — a passing `run_tests` is no longer misread as "unknown", spuriously firing the behavioral gate** — dogfooding (module build): the model wrote a correct calculator + a valid pytest suite, `run_tests` reported **5 passed**, yet the behavioral gate fired _twice_. `run_tests` runs pytest on a TTY, so the output is colored — `…\x1b[1m5 passed\x1b[0m…` — and the escape `\x1b[1m` ends in `m` (a word char) right before the digit, killing the `\b` in `/\b\d+ passed\b/`. So the pass classified as `unknown` → `projectTestsPassed` never set → the gate (0.114.36) fired on a genuinely passing run. (The earlier success run only slipped through because its `pytest | head` wasn't a TTY, so pytest disabled color.) The classifier now strips ANSI escapes before matching. Without this, 0.114.36's passing-test requirement misfires on essentially every colored `run_tests`. (`src/agent/completionGate.ts`)
+
+## [0.114.37] - 2026-06-27
+
+### Fixed
+
+- **`run_tests` auto-detection now prefers pytest over unittest for Python (collects pytest-style test classes)** — dogfooding surfaced this right after qwen3.5 finally built a working GUI: in a bare directory (no `pytest.ini`/`pyproject.toml`), `run_tests` fell back to `python -m unittest`, which collects ONLY `unittest.TestCase` subclasses. The model wrote a pytest-style `class TestCalculatorGUI:` (plain class), so every `run_tests` call returned `Ran 0 tests` even though `pytest` found and passed 13 — meaning the behavioral gate's new "passing test" requirement (0.114.36) could never be satisfied through `run_tests` alone. The Python fallback now probes `python3 -m pytest --version` and, when pytest is installed, runs `python3 -m pytest` (which collects BOTH pytest-style and unittest tests); it falls back to `python -m unittest` only when pytest is absent, preserving the no-dependency path. (`src/agent/tools/shell.ts`)
+
+## [0.114.36] - 2026-06-27
+
+### Changed
+
+- **Behavioral gate now requires a test that actually RAN and PASSED — a 0-collected or failing run no longer counts as verification** — dogfooding (qwen3.5): the model mangled its test file so `pytest` collected **zero** tests (`Ran 0 tests … NO TESTS RAN`, exit 5), and that empty run satisfied the behavioral gate, completing a run with a still-broken GUI (`pack`/`grid` crash) and a test that `NameError`s — neither ever executed. The gate counted "a test ran," not "a test verified something." Now `recordToolCall` classifies each test run (`classifyTestResult`: pass / fail / empty / unknown via output markers + exit code) and only a **passing** run (≥1 test, no failures) adds the file to the new `passingTestFiles` / `projectTestsPassed` sets that `behavioralFileExercised` checks. A run that collected 0 tests, failed, or is an unrelated suite leaves the behavioral gate unsatisfied → it fires, and (using the failure output captured in 0.114.35) surfaces the actual `NO TESTS RAN` / failure inline so the model knows the test isn't real yet. The main completion gate's "did a test run" semantics are unchanged. (`src/agent/completionGate.ts`, `src/agent/loop/gate.ts`)
+
+## [0.114.35] - 2026-06-26
+
+### Added
+
+- **Escalate when the model loops on a blocked rewrite — surface the failing error inline** — dogfooding showed enforce-edit correctly preserving a fix (it blocked a clobbering rewrite), but the model then looped read→write→read→write retrying the _same_ blocked write instead of switching to `edit_file`, until cycle detection bailed — never acting on the test failure it had already seen. Two additions: (1) the cycle-bail deferral now also fires for **enforce-edit-blocked** writes (not just verify-blocked ones), so a model looping on a blocked rewrite gets room to course-correct instead of dying (renamed `shouldDeferBailForVerify` → `shouldDeferBailForBlockedWrite`); (2) when a `write_file` is enforce-blocked, the loop injects one escalation reprompt per file that **surfaces the most recent failing test/runtime output inline** (ANSI-stripped) and pushes hard toward a targeted `edit_file` — so the model sees exactly what to fix rather than regenerating blindly. Bounded: deferral 2×/file, escalation 1×/file. (`src/agent/loop/circularRewrite.ts`, `src/agent/loop.ts`, `src/agent/loop/state.ts`)
+
+## [0.114.34] - 2026-06-26
+
+### Fixed
+
+- **A FAILED edit_file could arm the enforce-edit lock and deadlock the recovery write_file** — pre-dogfood review caught this: `recordSuccessfulEdits` decided an edit succeeded by the ABSENCE of a leading `"Error:"`, but when the model edits a file it hasn't read this turn (the exact weak-model failure the surrounding code targets), `edit_file` prepends a `"[You have not read X this turn…]"` notice that pushes `"Error:"` off the front of a search-not-found failure. The failed edit was then recorded → the file got enforce-edit-locked → the natural recovery `write_file` was blocked → `edit_file`↔`write_file` deadlock on a file that was never actually edited. Both `recordSuccessfulEdits` and `clearTrackingForDeletedFiles` now detect outcomes by POSITIVE success markers (`File edited:` / `Applied inferred edit` / `File deleted:`) instead of the absence of an error, which also fixes the same latent miss for protected-path refusals. (`src/agent/loop/circularRewrite.ts`)
+
+## [0.114.33] - 2026-06-26
+
+### Fixed
+
+- **`delete_file` now clears a file's rewrite-thrash tracking — enforce-edit no longer traps a delete-to-restart** — dogfooding confirmed enforce-edit (0.114.31) correctly blocking `write_file` rewrites of an edited test, but exposed a trap: the model `delete_file`'d the file to rewrite a mangled test helper from scratch, and the recreate-`write_file` was **still blocked** because the path stayed in the edit-lock after deletion — leaving the model unable to recreate the file, so it bailed. A deleted file is a clean slate (nothing left to clobber), so a successful `delete_file` now purges that path from the enforce-edit lock, write-history, verify counter, and the circular/force-verify budgets. The delete-then-recreate move — the natural "start this file over" recovery — works again. (`src/agent/loop/circularRewrite.ts`, `src/agent/loop.ts`)
+
+## [0.114.32] - 2026-06-26
+
+### Added
+
+- **Force verification before bailing a write-thrash run** — dogfooding a pure-write-thrash GUI build (the model rewrote `gui_calculator.py` six times, never once editing, verifying, or testing): the run died at iter 8 on a normalized cycle bail — but verify-before-rewrite (0.114.28) _would_ have soft-blocked that 4th unverified write and told the model to run `get_diagnostics`, except cycle detection runs **before** dispatch, so the run died before the block ever reached the model. It got zero error feedback the entire run. Now, when a pending `write_file` would be verify-blocked by the executor (the file's been rewritten ≥3× with no intervening verification), the loop **defers the cycle bail for that turn** so dispatch runs and the "run get_diagnostics / a test first" block actually fires. Bounded per file (2 deferrals) so a model that keeps ignoring the push still bails. Gives a pure-regeneration model its only shot at the feedback that could break the loop. (`src/agent/loop/circularRewrite.ts`, `src/agent/loop.ts`, `src/agent/loop/state.ts`, `src/agent/tools/fs.ts`)
+
+## [0.114.31] - 2026-06-26
+
+### Added
+
+- **Enforce edit-over-rewrite — a full rewrite can't clobber a file you're editing** — dogfooding a GUI fix on 0.114.30: the model fixed a recurring syntax bug (bare operators in tuples, `(-, "3")`) with `edit_file`, then the next `write_file` regenerated the whole file with the bug back — fix → regenerate-bug → fix, until it bailed at iter 36 with a still-broken file. Now, once the agent has **successfully edited a file via `edit_file` this run**, a full `write_file` to that path is soft-blocked: _"this write was NOT applied — you've been making targeted edits; a rewrite would clobber them. Use edit_file: put the current lines in `search`, the new lines in `replace`."_ The first create and any pre-edit rewrites are still allowed (only files actually touched by `edit_file` are protected); failed edits (search-not-found) don't arm the block, so a legitimate fallback isn't trapped; and the existing write-target thrash detector still bails a model that ignores the steer. Layers on top of the circular-rewrite block (identical content) and verify-before-rewrite (blind rewriting). (`src/agent/tools/fs.ts`, `src/agent/loop/circularRewrite.ts`, `src/agent/loop.ts`, `src/agent/loop/state.ts`, `src/agent/tools/shared.ts`)
+
+## [0.114.30] - 2026-06-24
+
+### Fixed
+
+- **Read-cycle detection bailed a model re-reading a file it was actively editing** — dogfooding a fix run: the model did write → read → compile → read → write → read on `gui_calculator.py` (an edit-verify loop), and the read-only cycle detector bailed at the 3rd read — killing the run with a half-written file that had a `try:` block missing its `except`. Re-reading is exactly what retrieval reference-mode (v0.92) _requires_ — the system prompt holds path references, not file bodies, so the model must `read_file` to see current contents after each edit. The read-only cycle passes (consecutive, frequency, length-N) now **exempt a read whose target file was mutated within the recent window** (`recentWriteTargets`), so an edit→verify loop isn't mistaken for a stuck scan. Pure scanning (3 reads of a file never edited) still bails; the exemption ages out with the write-target window. (`src/agent/loop/cycleDetection.ts`)
+
+## [0.114.29] - 2026-06-24
+
+### Changed
+
+- **Behavioral gate now rejects hollow tests — a test must import the module it claims to test** — dogfooding a fix-the-broken-GUI run: the behavioral gate (correctly) pushed the model to write a test, and the model "satisfied" it with `test_gui_calculator.py` that **never imports `gui_calculator`** — it defined an inline `MockCalculatorApp` and asserted against the mock, so the real `7+3 → 73` bug sailed straight through. The gate was one-shot, so it never re-checked. Now: (1) the gate is a **bounded re-fire** (2 attempts) instead of one-shot; (2) it detects a _hollow test_ — a conventionally-named test file the model wrote or ran (`test_<module>.py`, `<module>.test.ts`, …) whose content never references the module under test — and re-fires with a specific message: _"`test_gui_calculator.py` never imports the module under test — it asserts against a mock; import the real module (`from gui_calculator import …`), call it, and assert the real result."_ A genuine test that imports the module still satisfies the gate on the first pass. (`src/agent/completionGate.ts`, `src/agent/loop/gate.ts`)
+
+## [0.114.28] - 2026-06-24
+
+### Added
+
+- **Verify-before-rewrite — force the feedback step a stuck model skips** — dogfooding a GUI build with local qwen3.5: the model rewrote `gui_calculator.py` 7 times in a row and **never once ran it, tested it, or called get_diagnostics**, converging on a version with a `NameError` that a single execution would have surfaced. Rewriting blind never reveals runtime bugs. `write_file` now tracks consecutive rewrites of a file with no intervening verification; after 3 (create + 2 rewrites) it **soft-blocks** the next rewrite — _"this write was NOT applied; you've rewritten X N times without running it — call get_diagnostics, or run it / a test that imports it, then fix what it reports with edit_file."_ The counter resets the moment a verification exercises that file: `get_diagnostics` (checks every edited file) clears all counters, and a `run_command`/`run_tests` referencing the file's path or module name clears that file's — running an unrelated suite does not (mirrors the behavioral gate's target-coverage). A model that checks its work between rewrites is never blocked; only blind-rewrite thrash is. On the dogfood run it fires at the 4th write — forcing diagnostics, surfacing the `NameError` — instead of 7 blind rewrites into a thrash-bail. (`src/agent/tools/fs.ts`, `src/agent/loop/circularRewrite.ts`, `src/agent/loop.ts`, `src/agent/loop/state.ts`, `src/agent/tools/shared.ts`)
+
+## [0.114.27] - 2026-06-24
+
+### Fixed
+
+- **Completion gate's lint demand was JS/TS-centric — it told the model to run `npx eslint` on Python files** — dogfooding a Python module build: the gate fired "unverified edits" because no lint ran, and its injection said `run_command: npx eslint calculator.py test_calculator.py`. ESLint can't lint Python, so the model (sensibly) wouldn't run it — instead it flailed (`pytest`, `ls`, `which python3`) until the gate exhausted its injections and the loop terminated with "unverified edits", even though tests passed and the code was clean. The lint injection now **leads with `get_diagnostics`** — the language-agnostic post-edit check that already satisfies the gate for every language — and only suggests `npx eslint` for files it can actually lint (`.ts/.tsx/.js/.jsx/.mjs/.cjs`). Python/Go/Rust edits get the `get_diagnostics` call alone. (`src/agent/completionGate.ts`)
+- **Completion-gate log denominator ignored the adaptive cap** — with adaptive scaffolding on (cap 3), the log read `Completion gate fired (#3/2)` because the denominator hardcoded the static `MAX_GATE_INJECTIONS`. It now uses the effective `maxGateInjections`. (`src/agent/loop/gate.ts`)
+
+## [0.114.26] - 2026-06-24
+
+### Added
+
+- **Circular-rewrite block — stop a stuck model going in circles instead of killing the run** — dogfooding a GUI build with qwen3.5: the model regenerated the whole file (v1 6.5KB → v2 4.2KB, _dropping working code_), read it, then rewrote a byte-identical prior version — and the normalized cycle detector bailed the entire run, leaving a broken, incomplete GUI. Advisory nudges ("use edit_file") didn't move the model, so this intervention is mechanical: (1) `write_file` now soft-blocks a re-write whose content is **byte-identical to a version already written to that path this run** — a no-op on disk and the signature of A→B→A thrash — returning "nothing changed, use edit_file or verify" instead of a false success; (2) cycle detection no longer counts these blocked circular writes, so the run **continues** (the model gets another shot at a targeted edit or a test) rather than dying. Bounded to 2 blocks per file; once spent, the circular write is left in and cycle detection bails the genuinely-stuck loop. Identical content is never progress, so this can't reject a real change. (`src/agent/tools/fs.ts`, `src/agent/loop/circularRewrite.ts`, `src/agent/loop.ts`, `src/agent/loop/state.ts`, `src/agent/tools/shared.ts`)
+
+## [0.114.25] - 2026-06-24
+
+### Changed
+
+- **Behavioral-verification gate is now target-aware — running the wrong test no longer satisfies it** — dogfooding a GUI build: the model edited `gui_calculator.py`, then "verified" by running `pytest test_calculator.py` (which tests `calculator.py`, a file it didn't even touch) and a construct-only `python -c "CalculatorApp(root); print('ok')"` smoke test. The gate saw "edited code + a test ran" and passed it — shipping a GUI with integer-truncating division (`7/2 → 3`) and a display that can't accept a leading `0`/`.`. The gate previously asked "did _a_ test run?"; it now asks "did a test run that **exercises the file you edited?**" A verification only counts when a test file **imports the edited module** (`from gui_calculator import …`) — checked against the explicit test files that ran, or, for a whole-suite run, against the module's conventional test files on disk. Launching the program or constructing a component headlessly proves startup, not behavior, and no longer counts. The reprompt now names the uncovered files and explicitly rejects unrelated-suite runs. (`src/agent/completionGate.ts`, `src/agent/loop/gate.ts`)
+
+### Fixed
+
+- **Masked-verification detector now covers inline `python -c` / `node -e` / `ruby -e` smoke tests** — the same GUI run masked its construct check with `python3 -c "…" 2>&1 || true`, which the detector missed (it only matched an interpreter running a `.py` file or a `-m` module). Inline-script verification masked with `|| true` / `2>/dev/null` now gets the advisory too. (`src/agent/tools/shell.ts`)
+
+## [0.114.24] - 2026-06-24
+
+### Added
+
+- **Isolate-don't-regenerate nudge — turn full-rewrite thrash into a technique correction** — when a model gets stuck on a fiddly bug it reaches for the wrong tool: it regenerates the _whole file_ with `write_file` over and over instead of editing the one broken function. That's doubly destructive — full rewrites lose working parts (dogfooding caught qwen3.5 deleting a calculator's `=` button mid-fix because it regenerated the file and dropped a piece it had already gotten right) and they don't converge (re-emitting 100+ lines to tweak one regex reintroduces variance everywhere). Cycle detection already _catches_ this, but bailing says "give up" — the scaffold's job is to lift a limited model past where it'd land on its own. A new post-turn hook fires **first** and _redirects_: when the agent overwrites a whole file (a 2nd+ `write_file` to the same path, or the 1st `write_file` over a file already read this run), it injects a nudge to switch to `edit_file` on the specific broken function and leave the rest untouched. Bounded to 2 nudges per file, after which cycle detection takes over as backstop. `edit_file` itself never triggers it — that's the technique we want. (`src/agent/loop/isolateRewrite.ts`, `src/agent/loop/builtInHooks.ts`, `src/agent/loop/state.ts`)
+
+## [0.114.23] - 2026-06-24
+
+### Changed
+
+- **Behavioral-verification gate now also covers behavior-implying builds, not just bug reports** — dogfooding showed models shipping behaviorally-broken builds (e.g. a calculator GUI whose operator buttons don't display) because they "verify" by launching, which only proves startup. The gate previously fired only on bug-report phrasing; it now also fires when the request builds something with runtime behavior (GUI, app, calculator, CLI, server, endpoint, button, handler, parser, …) and the agent edited code but ran no test exercising it. Structural builds (config files, READMEs, type definitions) don't match and don't trip it; any task that actually ran a test is exempt; bounded to one soft nudge. (`src/agent/completionGate.ts`)
+
+## [0.114.22] - 2026-06-24
+
+### Added
+
+- **Masked-verification guard** — models "verify" a change by running it but wrap the command in `|| true` / `2>/dev/null`, forcing it to "succeed" and hiding the crash or test failure they're checking for (dogfooding: qwen3.5 "verified" a GUI with `python gui.py || true`, never seeing the launch crash). Two layers: (1) basePrompt rule #20 — never mask the result of a verification command; run it plainly and read the real exit code/output (cleanup like `pkill … || true` is fine). (2) `run_command` now appends an advisory when a command **runs a program for verification AND masks its failure** (`|| true`, `2>/dev/null`, backgrounded launch + masked cleanup) — the command still runs, but the model is told it verified nothing and to re-run plainly. Status-reporting `|| echo` (which keeps a distinct fail signal) and pure cleanup are exempt. (`src/webview/handlers/basePrompt.ts`, `src/agent/tools/shell.ts`)
+
+## [0.114.21] - 2026-06-24
+
+### Fixed
+
+- **Stale file content frozen in the system prompt drove repeated full rewrites** — the system prompt is built once per turn (`client.updateSystemPrompt`) and reused for every agent-loop iteration. Its task-driven retrieval block injected the _full body_ of relevant workspace files via `renderFusedContext`. On an editing task, the moment the agent edits that file the injected body goes stale — but the model keeps seeing the pre-edit version in its (frozen) system prompt every iteration, while its own edits live only in message history and `write_file` returns just a confirmation. So the model re-"fixes" the stale snapshot again and again (observed: qwen3.5 rewriting `gui_calculator.py` 6–9× per run). Now, for **agentic/editing** tasks, retrieved workspace-code hits render as **path references** ("read with read_file for current contents"), not frozen bodies; **read-tier** tasks (which don't edit) keep full bodies for answer-from-context richness. Non-code hits (docs, memory) keep content in both modes. (`src/agent/retrieval/index.ts`, `src/webview/handlers/systemPrompt.ts`)
+
+## [0.114.20] - 2026-06-24
+
+### Fixed
+
+- **Behavioral-verification prompt rule (0.114.19) contaminated tool-call formatting** — rule #19 included inline Python function-call examples (`app.on_click("7")`, `CalculatorApp(tk.Tk())`). On 0.114.19, qwen3.5 — which emitted clean structured tool calls on 0.114.18 — began malforming them as `read_file(path="calculator.py")` (the whole `name(args)` string landing in the tool-name field → "no such tool" → error → flailing → cycle bail). Reworded rule #19 to describe the headless-test approach in prose with no literal `func(arg)` syntax for the model to mimic; the guidance (launching ≠ behaving; write a behavioral test; reproduce-then-fix for bugs) is unchanged. (`src/webview/handlers/basePrompt.ts`)
+
+## [0.114.19] - 2026-06-24
+
+### Added
+
+- **Behavioral-verification scaffold** — closes the gap where a model "verifies" a fix by _launching_ the app (proves it starts) instead of _exercising_ the behavior (proves it works). Dogfooding: qwen3.5 "fixed" a calculator GUI whose number buttons did nothing, launched it (window opened), declared done — but clicking still crashed (`AttributeError`), because launching never exercises a click. Two layers:
+  - **Prompt rule (basePrompt #19):** "Launching/running an app proves it STARTS, not that it WORKS. To verify a behavior change, write a test that calls the changed function/handler directly and asserts the result; for UI you can't click, instantiate the component and invoke its callbacks headlessly. When fixing a reported bug, first write a test that reproduces the symptom." (`src/webview/handlers/basePrompt.ts`)
+  - **Deterministic gate:** when the current request reads as a bug report (symptom language) and the agent edited code but ran no test that exercises it, a bounded one-time nudge fires to write a behavioral test. Soft framing so a static-check-sufficient fix can skip it. (`src/agent/completionGate.ts`, `src/agent/loop/gate.ts`)
+
+### Changed
+
+- **Cycle detection now distinguishes "iterating" from "stuck."** Repeated dogfooding showed the content-blind passes bailing productive fix loops (a model rewriting a file several times with _different_ content to fix a bug). Now: the normalized length-N pattern pass is **content-aware** — an A→B→A→B pattern only bails when the cycle repeats the _same_ content (a true loop) or is all read-only scanning; genuinely different rounds are progress. And the write-target backstop threshold is raised 4→6 (it's content-blind, so it must stay lenient — the content-aware consecutive/frequency passes already catch same-content loops at 3). The exact-match pass (4 identical calls), `maxIterations`, and the gate/auto-fix exemptions remain the infinite-loop backstops. (`src/agent/loop/cycleDetection.ts`)
+
+## [0.114.18] - 2026-06-24
+
+### Fixed
+
+- **Auto-fix loop bailed by cycle detection before its own budget ran out** — with `sidecar.autoFixOnFailure` on, auto-fix reprompts a file up to `autoFixMaxRetries` times (e.g. 5) to fix diagnostics errors; dogfooding showed the normalized cycle check bailing that loop at 3 repeats (`Agent stopped: write_file:gui_calculator.py repeated 3 times` while auto-fix was at attempt 2/5). Files under active auto-fix (in `autoFixRetriesByFile`, retries below the cap) are now exempt from the write-target and normalized cycle passes — the same exemption the syntax gate already gets. The exact-match pass still catches truly-identical repeats, and the exemption ends once auto-fix exhausts its budget. (`src/agent/loop/cycleDetection.ts`)
+- **No-file-write gate nagged about an existing read-only dependency** — a GUI prompt ("wire to the functions already in `calculator.py`") tripped the gate because `calculator.py` was mentioned with the task's "Create" intent but not written this turn. The gate now skips any named file that already exists on disk — its job is to catch a file the user asked to _create_ that never got created, not an existing dependency. (`src/agent/completionGate.ts`)
+
+### Removed
+
+- **Comment-only hedge stub patterns** (`future-deferral` = `// would need…`, `deferred-implementation` = `// in a real app…` / `// the full implementation…`, and the bare `// simulating` comment). Like the `for-now-hedge` removed in 0.114.17, these match common LEGITIMATE explanatory comments and a comment-only check can't tell them from a stub — and a stub-check false positive is destructive (spirals the model into rewrites until cycle detection bails). The `console.log("Simulating…")` _code_ pattern and all hard signals (TODO/FIXME, NotImplementedError, placeholder/stub/dummy, empty bodies, dummy fills, context-aware `pass`-in-`def`) are kept; genuine stubs are still caught by those plus the completion gate's test run. (`src/agent/stubValidator.ts`)
+
+## [0.114.17] - 2026-06-23
+
+### Removed
+
+- **`for-now-hedge` stub pattern** — `# for now` / `// for now` is one of the most common LEGITIMATE explanatory comments in real code ("for now, display the current value", "for now, cap at 100"); a comment-only heuristic can't distinguish it from a real stub. Dogfooding qwen3.5 building a GUI: its **fully-implemented** equals handler had a correct `# For now, just display current value (no-op for equals)` + `pass` in the `else` branch, which tripped the stub check → reprompt → full-file rewrite spiral → cycle-detection bail. Removed the pattern; real stubs are still caught by the stronger signals (TODO/FIXME, NotImplementedError, placeholder/stub/dummy, empty bodies, dummy fills) plus the completion gate's test run. (`src/agent/stubValidator.ts`)
+
+## [0.114.16] - 2026-06-23
+
+### Fixed
+
+- **Stub validator false-positived on a legitimate `pass`** — the `pass-body` pattern (`/^\s*pass\s*$/`) matched a bare `pass` on any line, so a legitimate `except ...: pass` (or control-flow / empty-exception-class `pass`) was flagged as a placeholder. Dogfooding with qwen3.5 building a GUI: its first (valid, complete) `gui_calculator.py` had an `except: pass`, the stub check reprompted, and the model spiraled into full-file rewrites until the write-target thrash detector bailed it. The check is now context-aware — `pass` is only a stub when it's the sole body of a function definition (`def`), not after `except`/`if`/`for`/`while`/`try`/`with` or in an empty exception class. (`src/agent/stubValidator.ts`)
+
+## [0.114.15] - 2026-06-23
+
+### Fixed
+
+- **Cycle detection bailed a gate-driven fix loop (normalized passes)** — with the syntax gate now firing correctly (0.114.14), dogfooding showed the model's fix loop `edit→get_diagnostics→edit→get_diagnostics` on the flagged file tripping the **normalized length-2 pattern** detector and stopping mid-fix. The 0.114.9 gate-fix-target exemption only covered the write-target pass; it now also covers all three normalized passes (consecutive, frequency-over-window, length-N pattern) via `sigTargetsOnlyGateFiles`. The exact-match pass still fires on truly-identical repeated calls, and the exemption is dropped once the gate exhausts its injection budget (`gateState.syntaxGateFixTargets` cleared on cap), so post-gate repetition is thrash again. (`src/agent/loop/cycleDetection.ts`, `src/agent/loop/gate.ts`)
+
+## [0.114.14] - 2026-06-23
+
+### Fixed
+
+- **Syntax gate parse-check hung (15s timeout) → silently passed broken code** — the real root cause behind both the earlier false positive (0.114.7) and false negative (0.114.10+): the gate ran `py_compile`/`node --check` through a raw `ShellSession`, which spawns a `--norc --noprofile` shell with a minimal PATH. Bare `python3` then resolved to something that hangs (on macOS, `/usr/bin/python3` triggers a Command Line Tools prompt that never returns), so the check timed out at 15s and the gate read the empty result as "parses cleanly." The agent's `run_tests` never hit this because it routes through the VS Code integrated terminal (login-shell PATH). The gate now runs its parse-check through that **same terminal-first executor** (`runVerificationCommand`), and logs a warning if a check ever times out. (`src/agent/tools/shell.ts`, `src/agent/loop/gate.ts`)
+
+## [0.114.13] - 2026-06-23
+
+### Fixed
+
+- **Syntax gate timed out (false negative) when the shared shell was blocked** — the gate reused the agent's persistent shell session for `py_compile`/`node --check`. When that session was blocked by a long-running command the agent had launched (observed: a `python gui.py` Tkinter `mainloop()` from an earlier turn still running), the parse-check queued behind it and hit the 15s timeout, returned no output, and the evidence test saw nothing → the gate wrongly passed a genuinely-broken file. The output-channel log added in 0.114.12 caught it exactly (a 15s gap then "parses cleanly" on a file with a real SyntaxError). The gate now runs the parse-check in a **fresh, isolated shell** that can't be blocked by the agent's work, and logs a warning if a check ever times out. (`src/agent/loop/gate.ts`)
+
+## [0.114.12] - 2026-06-23
+
+### Fixed
+
+- **Completion gates anchored on the original prompt, not the current turn** — `firstUserText()` returns the _first_ user message in the whole conversation, so in a continuing chat the no-read/no-shell/no-grounding/no-file-write/unverified-claim gates all evaluated the original task. Dogfooding a "change the window title in gui_calculator.py" turn, the no-file-write gate fired for `calculator.py`/`test_calculator.py` (from the original "build a calculator" prompt) — files this turn never mentioned — and the model reasoned about that stale instruction and called `done`. Gates now evaluate the current turn's request (captured at loop init as `gateState.currentUserRequest` via new `lastUserText()`); falls back to `firstUserText` when unset. (`src/agent/completionGate.ts`, `src/agent/loop/gate.ts`, `src/agent/loop/state.ts`)
+
+### Changed
+
+- **Syntax gate hardened against shell-cwd drift + made observable** — the gate now resolves edited files to absolute paths before `py_compile`/`node --check`, so a drifted persistent-shell cwd can't turn the parse-check into a silently-swallowed "No such file." It also logs what it checks / whether it fired / why it skipped to the SideCar output channel, so gate behavior is diagnosable instead of inferred. (`src/agent/loop/gate.ts`)
+
+## [0.114.11] - 2026-06-23
+
+### Added
+
+- **`run_command` steers long-running apps to the background on timeout** — dogfooding a GUI build, the model ran `python gui_calculator.py` in the foreground; the Tkinter `mainloop()` never returns, so it blocked the loop for the full timeout (~27s) before continuing. A GUI/server/watcher can't be detected from the command string, but the timeout is the unambiguous signal. A timed-out foreground `run_command` now appends a hint to re-run with `background: true` (and notes the timeout already proves it launched without crashing). Scoped to `run_command` — `run_tests` has no background option. (`src/agent/tools/shell.ts`)
+
+## [0.114.10] - 2026-06-23
+
+### Fixed
+
+- **Syntax gate could miss a real parse error (false negative) when the shell misreported exit 0** — the gate gated on `exitCode === 0` before checking the error output, but the shell session's exit code is unreliable in both directions (it reported nonzero on valid code in 0.114.7, and its sentinel parser defaults to 0 when it can't read the exit marker — which would skip genuinely broken code). The fire decision now rests solely on positive syntax-error evidence (`SyntaxError`/`IndentationError`/`TabError`) in the output, never on the exit code — present iff the code truly fails to parse, so it's both necessary and sufficient. Surfaced dogfooding a Tkinter GUI build: gemma4:e4b shipped a `try` block with no `except`/`finally` and `get_diagnostics` (no Python language server) only flagged an unrelated `eval` warning. (`src/agent/loop/syntaxGate.ts`)
+
+## [0.114.9] - 2026-06-23
+
+### Fixed
+
+- **Cycle detection bailed the model mid-fix on a syntax error it was actively repairing** — dogfooding (gemma4:e4b building a Tkinter GUI) shipped a real `SyntaxError`; the syntax gate correctly demanded a fix, and the model made genuine progress (two _different_ edits to the file). But the write-target thrash detector — which deliberately ignores edit content to catch "same file, different tool" loops — counted the initial create + fix edits as thrash (4 mutations of one file) and stopped the loop at the 3rd fix attempt. A file the syntax gate is actively driving fixes on is now exempt from the write-target pass (`gateState.syntaxGateFixTargets`, cleared once the file parses); the gate's own injection cap bounds the fix loop, and the exact-match / repeating-pattern passes still catch a truly-stuck loop. (`src/agent/loop/cycleDetection.ts`, `src/agent/loop/gate.ts`, `src/agent/completionGate.ts`)
+
+## [0.114.8] - 2026-06-23
+
+### Added
+
+- **`run_tests` detects bare Python `unittest` projects** — dogfooding a from-scratch calculator showed `run_tests` returning "Could not detect test runner" for a plain folder with `test_*.py` files but no pytest config or manifest; the model had to fall back to `run_command`. Detection now checks for `test_*.py` / `*_test.py` files and uses `python -m unittest discover` (or `python -m unittest <file>` when narrowing to one file) — stdlib, no dependencies. (`src/agent/tools/shell.ts`)
+
+### Fixed
+
+- **Model running ESLint on Python files** — dogfooding showed the model reaching for `npx eslint calculator.py` after edits (ESLint is JS/TS-only; it errored with a confusing "Oops! Something went wrong!"). `run_command` now detects a language-mismatched ESLint invocation (all file targets non-JS/TS, at least one Python) and returns a redirect to `get_diagnostics` / a Python linter instead of running it — saving a wasted turn on a no-op failure. (`src/agent/tools/shell.ts`)
+
+## [0.114.7] - 2026-06-23
+
+### Fixed
+
+- **Syntax gate false-positived on valid code and corrupted it** — dogfooding (gemma4:e4b building the calculator) showed the gate firing `🧩 Edited code fails to parse` on a `calculator.py` that had just passed all 5 tests _and_ diagnostics. The gate treated any nonzero shell exit code as a syntax error, so a flaky/garbled exit (empty error output) on a file that actually parsed got reported as broken — and the weak model "fixed" the non-existent error by deleting `def divide`, introducing a _real_ `SyntaxError`, then looped until cycle-detection bailed. The gate now requires **positive evidence** of a parse error (`SyntaxError`/`IndentationError`/`TabError` in the output) before firing; a bare nonzero exit never fires. A deterministic gate that can false-positive is worse than no gate. (`src/agent/loop/syntaxGate.ts`)
+- **No-read gate fired a pointless read+describe cycle on a file the agent just wrote** — when the user names a file with write intent ("create calculator.py") and the agent authors + tests it but never _reads_ it, the no-read gate demanded a redundant `read_file`. Writing a file is stronger grounding than reading it. The gate now skips any mentioned file present in `editedFiles`. (`src/agent/completionGate.ts`, `src/agent/loop/gate.ts`)
+
+## [0.114.6] - 2026-06-23
+
+### Fixed
+
+- **Active file silently injected into context without "add"** — `sidecar.includeActiveFile` (default `true`) prepended the entire open file (up to 50K chars) to every chat message regardless of the "add" toggle, while the toggle itself only added a one-line path hint. This contaminated dogfood runs (the open README was always handed to the model for free). The full-content injection now gates on the explicit "add" toggle (`state.activeFileIncluded`); `includeActiveFile` becomes a master kill-switch — the file is included only when you click add, and never when the setting is `false`. (`src/webview/handlers/messageEnricher.ts`)
+
+## [0.114.5] - 2026-06-22
+
+### Added
+
+- **Syntax/parse gate** — the completion gate now refuses to finish when an edited file fails to parse. Dogfooding shipped a Python file with a `SyntaxError` (stub-check only catches placeholders; the gate only checked that tests _ran_; a new file with no test and no language server got no verification). On finish, it runs the language's cheap per-file check (`python3 -m py_compile`, `node --check`) on edited files and reprompts with the real error. Deterministic, no false positives, model-agnostic; only spawns a shell when a parse-checkable file was edited; bounded to 2 reprompts; best-effort (a shell hiccup never blocks the loop). TS is omitted (covered by tsc + diagnostics). (`src/agent/loop/syntaxGate.ts`, `src/agent/loop/gate.ts`)
+
+## [0.114.4] - 2026-06-22
+
+### Fixed
+
+- **Architecture-reviewer reported NodeNext `.js` imports as missing files** — dogfooding caught it reading the literal `loop.js`, getting "not found", and flagging a bogus "dependency resolution risk" (`./loop.js` is the correct NodeNext specifier for `loop.ts`). Added a prompt rule so the reviewer treats a failed `.js`-specifier read as expected and never reports a `.js`/`.ts` import as a broken path. (`src/agent/facets/facetLoader.ts`)
+
+## [0.114.3] - 2026-06-18
+
+### Fixed
+
+- **Analysis critic (V2) was net-negative on a real review** — dogfooding caught it flagging a true, grounded claim as high-severity "unverifiable" and then _blocking_, forcing the model into incoherent self-contradiction. Fixed two ways: (1) severity recalibrated so "unsupported by the (incomplete) evidence" is _low_, not high — only an evidence-_contradicted_ claim or a proven-absent path/symbol is high; (2) the analysis critic is now **advisory** (surfaced as an annotation, never a blocking reprompt), unlike the edit critic. (`src/agent/critic.ts`, `src/agent/loop/criticHook.ts`)
+
+## [0.114.2] - 2026-06-18
+
+**v0.114.2 — Completes the scaffolding subsystem: structured critic output (V3) + comprehensive multi-facet review (O2).**
+
+### Verify
+
+- **Structured-output JSON schema for the critic (V3)** — an optional `responseFormat` ('json' | JSON-schema) now threads through `ApiBackend.complete`; OllamaBackend enforces it via the native `format` field and both critic calls pass `CRITIC_FINDINGS_SCHEMA`, so weak local models emit valid findings JSON instead of leaning on the tolerant parser. Cloud backends accept-and-ignore (parser stays as fallback). (`src/ollama/backend.ts`, `src/ollama/ollamaBackend.ts`, `src/agent/critic.ts`)
+
+### Orchestrate
+
+- **Comprehensive multi-facet review (O2)** — a "comprehensive / thorough / full" review (or one naming both architecture and security) dispatches the architecture + security reviewers in parallel and merges them into one report via deterministic per-specialist-section concatenation (no LLM merge → no new hallucination surface). (`src/webview/handlers/messageUtils.ts`, `src/agent/facets/facetSynthesis.ts`)
+
+All nine scaffolding-roadmap initiatives (V1/M1/V2/A1/M2/A2/O1/V3/O2) are now shipped. See `docs/scaffolding-roadmap.md`.
+
+## [0.114.1] - 2026-06-17
+
+### Fixed
+
+- **Security-reviewer hallucinated dependency vulnerabilities** — the facet claimed to run `check_dependencies` and reported real package versions as VULNERABLE with invented GHSA ids, but the tool wasn't in its allowlist so it couldn't have run it. Added `check_dependencies` (read-only OSV scan) to the allowlist and hardened the prompt to report only vulnerabilities the scan actually returns. Requires `sidecar.deps.enabled`. (`src/agent/facets/facetLoader.ts`)
+
+## [0.114.0] - 2026-06-17
+
+**v0.114.0 — Scaffolding subsystem: grounded reviews, capability-adaptive harness, and ablation measurement.**
+
+A coordinated set of "scaffolding" features (see `docs/scaffolding-roadmap.md`) — the harness machinery that makes weaker local models usable. Most ship gated-off or behavior-neutral; the goal is to verify and tune them via the ablation harness before defaulting on.
+
+### Verify
+
+- **Citation-resolution gate (V1)** — an analysis/review answer that cites a file path which doesn't resolve on disk (NodeNext `.js`→`.ts` aware), or hedges an unverified claim ("cannot verify", "implied usage"), is reprompted to fix it. Fires in the architecture-reviewer facet and normal chat reviews. (`src/agent/completionGate.ts`, `src/agent/citationCheck.ts`)
+- **Adversarial analysis critic (V2)** — generalizes the critic to read-only analysis: fact-checks the answer's claims against the read-evidence the agent gathered, catching a real file mislabeled as something it isn't. Gated behind `sidecar.critic.enabled` (default off). (`src/agent/critic.ts`, `src/agent/loop/criticHook.ts`)
+
+### Adapt
+
+- **Model capability profile (A1)** — consolidates per-model signals (family, size, tool support, context, eval pass rate) into a coarse `weak|medium|strong` tier, defaulting conservative when uncertain. (`src/ollama/modelCapability.ts`)
+- **Capability-driven scaffolding intensity (A2)** — tunes burst cap + reprompt budgets to the active model's tier (strong relaxes for less latency; weak gets more recovery attempts). Gated behind `sidecar.adaptiveScaffolding.enabled` (default off); behavior-neutral otherwise. (`src/agent/scaffoldingProfile.ts`)
+
+### Orchestrate
+
+- **Specialist routing (O1)** — a codebase review/audit prompt is offered the matching read-only specialist: architecture reviews → architecture-reviewer, security audits → security-reviewer. (`src/webview/handlers/messageUtils.ts`)
+
+### Measure
+
+- **Citation-resolution eval scorer (M1)** + **scaffold ablation harness (M2)** — `npm run eval:ablation` measures each scaffold's pass-rate lift and latency cost on the model you run, so a scaffold that's pure tax can be cut. (`tests/llm-eval/`, `src/agent/ablation.ts`)
+
+## [0.113.9] - 2026-06-17
+
+**v0.113.9 — Catch "I will start by reading…" planning stalls + harden the reviewer against plan-and-quit.**
+
+### Agent
+
+- **Deferred-action reprompt catches planning stalls** — `DEFERRED_ACTION_RE` required the action verb to immediately follow the intent opener ("I will read…"), so "I will **start by** reading the core files", "I'll **first** map out…", and "I'm going to **investigate**…" slipped through and the model ended its turn without acting. The matcher now allows an intervening clause between opener and verb. (`src/agent/loop/actionReprompt.ts`)
+- **Architecture-reviewer prompt forbids plan-and-stop** — the facet now must complete the review in one continuous pass; reading a single file is explicitly "never enough", and the final message must BE the review (strengths/issues/recommendations), not a plan or a promise to continue. (`src/agent/facets/facetLoader.ts`)
+
+## [0.113.8] - 2026-06-17
+
+**v0.113.8 — Close the webview-JS coverage gap that let the suggestion-button bugs ship.**
+
+### Tooling
+
+- **`media/**/_.js`is now linted** — ESLint (flat config) previously scoped to`src/\*\*/_.ts`only, so the webview scripts had no`no-undef`/`no-unused-vars`coverage. That blind spot is exactly how three dead`suggestNextSteps`bugs survived every review. A new config block lints`media/\*_/_.js`with browser + webview globals and`no-undef: error`; the `lint`script and lint-staged now include`media/`. (`eslint.config.mjs`, `package.json`)
+- **Webview message-dispatcher render test** — `src/webview/chatWebviewMessages.test.ts` loads the real `media/chat.js` into a happy-dom DOM and asserts `suggestNextSteps` renders clickable buttons that post the correct `{ command: 'userMessage', text }` shape — catching the message-contract + render-regression class that lint can't see. Adds `happy-dom` as a devDependency.
+
+### Fixed
+
+- **Clarify card free-text input** — `clarifyAllowCustom` was read but never used, so a clarify prompt with no preset options was a dead end (no way to reply). The card now renders a text input + Send when custom answers are allowed. (`media/chat.js`)
+- **Markdown horizontal-rule detection** — the HR regex used `[\s\1]*`, where `\1` inside a character class is the literal `\x01`, not a backreference — so rules of 4+ separators (`----`) were not recognized. Rewritten as `([-*_])(?:\s*\1){2,}` (surfaced by a `checkJs` pass). (`media/chat.js`)
+- **Image-remove button dataset** — assigned a number to `dataset.imageIndex` instead of a string. (`media/chat.js`)
+
+## [0.113.7] - 2026-06-17
+
+**v0.113.7 — Third and final fix for the dead suggestion-button case.**
+
+### Fixed
+
+- **`suggestNextSteps` appended to an undefined element** — the render case called `chatMessages.appendChild(...)`, but `chatMessages` is defined nowhere in `media/chat.js` (the real container is `messagesContainer`, used everywhere else). The undefined reference threw, so even after the v0.113.6 fixes no buttons appeared. Now appends to `messagesContainer`. With this, the architecture-review offer buttons (and the agent's end-of-turn next-step suggestions) finally render. (`media/chat.js`)
+
+## [0.113.6] - 2026-06-17
+
+**v0.113.6 — Fix the (long-broken) suggestion buttons in the chat webview.**
+
+### Fixed
+
+- **`suggestNextSteps` buttons now render and route** — two pre-existing bugs made the entire next-steps suggestion feature dead: the render case read `message.suggestions` (the listener variable is `msg`, so it threw a ReferenceError and rendered nothing), and the button click posted `{ type: 'userMessage', content }` while dispatch is keyed on `command` and the handler reads `text` — so a click never routed. Now reads `msg.suggestions` and posts `{ command: 'userMessage', text }`. This fixes both the architecture-review offer buttons and the agent's end-of-turn next-step suggestions. (`media/chat.js`)
+
+## [0.113.5] - 2026-06-17
+
+**v0.113.5 — Accept the Architecture Reviewer offer by natural-language reply.**
+
+### Chat
+
+- **Pending architecture-review offer now reads intent, not exact text** — previously only the literal offer-button label launched the facet, so typing "run the architecture reviewer specialist" fell through to a normal inline answer and lost the pending task. While an offer is pending, the next reply is classified as accept (`run it`, `yes`, `go ahead`, the run button) → dispatch the facet; decline (`no`, `answer inline`, the inline button) → answer the original task in the normal loop; anything unrelated drops the offer and is handled normally. (`src/webview/handlers/messageUtils.ts`, `src/webview/handlers/dispatchHandlers.ts`)
+
+## [0.113.4] - 2026-06-17
+
+**v0.113.4 — Auto-offer the Architecture Reviewer for whole-repo review prompts.**
+
+### Chat
+
+- **Whole-repo review prompts now offer the architecture-reviewer facet** — when a chat message asks to review/audit/evaluate the whole codebase or its architecture (and names no specific file or symbol), SideCar offers to run the read-only `architecture-reviewer` specialist instead of answering inline. The offer is a one-click button; declining answers in the normal loop. Single-file review requests still go through the normal loop, backstopped by the no-grounding gate. Detection is `isRepoReviewRequest` in `messageUtils.ts`; the facet streams into chat and opens a markdown review tab, runs inside a cancellable progress notification. (`src/webview/handlers/messageUtils.ts`, `src/webview/handlers/dispatchHandlers.ts`, `src/webview/chatState.ts`)
+- **`runFacetDispatchCommand` gains `preSelectedFacetIds` + `preFilledTask`** — lets a caller dispatch a known specialist without the multi-select picker or task input box. (`src/agent/facets/facetCommands.ts`)
+
+## [0.113.3] - 2026-06-17
+
+**v0.113.3 — Facet dispatch: clear the chat spinner and make runs cancellable.**
+
+### Facets
+
+- **Chat spinner no longer hangs after a facet completes** — the `sidecar.facets.dispatch` callbacks streamed output but never emitted `done`, so after a read-only facet finished, the chat panel's generating indicator spun forever. A single `done` now fires in a `finally` when the command settles. (`src/commands/agentCommands.ts`)
+- **Facet runs are now cancellable** — dispatch runs inside a cancellable progress notification whose cancellation aborts the shared signal threaded into every facet's agent loop. Previously the command passed no signal, so an in-flight facet could not be stopped. (`src/commands/agentCommands.ts`)
+
+## [0.113.2] - 2026-06-17
+
+**v0.113.2 — Surface read-only facet output: markdown review tab + live chat streaming.**
+
+### Facets
+
+- **Read-only facet output is now visible** — the `sidecar.facets.dispatch` command previously ran facets with silent callbacks and routed results through the diff-oriented review panel, so a read-only facet (`architecture-reviewer`, `security-reviewer`) that produces text but no diff surfaced only a "1 succeeded" toast — its review was captured in `output` but displayed nowhere. The command now (1) opens each no-diff facet's review in a markdown editor tab, and (2) streams the facet's live output (text + tool calls) into the chat panel. (`src/commands/agentCommands.ts`)
+
+## [0.113.1] - 2026-06-17
+
+**v0.113.1 — Grounded codebase reviews: a no-grounding completion gate + a read-only architecture-reviewer facet.**
+
+### Agent
+
+- **No-grounding completion gate** — open-ended review/evaluation queries ("review the architecture of this project") previously matched neither the no-read gate (needs a named file) nor the no-shell gate (needs metric keywords + a workspace dir), so the model answered from injected `SIDECAR.md` + file tree + RAG context without reading any code — producing generic, training-data architecture advice that hallucinated absent files and recommended patterns the project already implements. `buildNoGroundingReprompt` now fires once per run when an analysis-verb + workspace-target query is answered with zero grounding tool calls, forcing a code-reading pass before the verdict. (`src/agent/completionGate.ts`, `src/agent/loop/gate.ts`)
+- **"Verify before you recommend" prompt rule** — the base system prompt now instructs the model to search for a pattern before recommending it, and treats recommending something the project already has (or flagging a nonexistent file) as a factual error, not a style note. (`src/webview/handlers/basePrompt.ts`)
+
+### Facets
+
+- **`architecture-reviewer` built-in facet** — a read-only architecture-review specialist (no `write_file`/`edit_file`/`run_command`) with `project_knowledge_search` for semantic + symbol-graph lookup. Its prompt enforces a citation contract: map before judging, evidence (`file:symbol`) per finding, verify-before-recommend, no ungrounded best-practices checklists. Immediately dispatchable via the `sidecar.facets.dispatch` command picker. (`src/agent/facets/facetLoader.ts`)
+
 ## [0.113.0] - 2026-06-17
 
 **v0.113.0 — Senior-review hardening pass: MCP auth fail-closed, centralized logging, secret-redaction egress, and context-aware tool gating.**
@@ -40,6 +543,7 @@ All notable changes to the SideCar extension will be documented in this file.
 - New `docs/tool-inventory.md` — a data-grounded tool-surface inventory and feature-budget recommendation.
 
 ### Stats
+
 - 6607 total tests (349 test files)
 - 80 built-in tools, 11 skills
 
@@ -133,7 +637,7 @@ All notable changes to the SideCar extension will be documented in this file.
 
 - **Episodic memory retrieval raced against abort** — `buildContextBlock` is now raced against `abortedPromise(signal)` so a hanging retrieval cannot stall `streamOneTurn`. (`src/agent/loop/streamTurn.ts`)
 
-- **Cycle detection false-positive fix** — the normalized-signature ring buffer now fires only when *all* entries share the same secondary hash (`every`), not when *any* two share one (`some`). Eliminates spurious loop-detection aborts on legitimately distinct edits. (`src/agent/loop/cycleDetection.ts`)
+- **Cycle detection false-positive fix** — the normalized-signature ring buffer now fires only when _all_ entries share the same secondary hash (`every`), not when _any_ two share one (`some`). Eliminates spurious loop-detection aborts on legitimately distinct edits. (`src/agent/loop/cycleDetection.ts`)
 
 - **Audit buffer read-before-write race** — `AuditBuffer.write()` commits the entry synchronously before awaiting `readDisk`, so concurrent `read()` calls see the write immediately. `AuditFlushError` now surfaces a `rollbackFailed` list when undo writes themselves throw. (`src/agent/audit/auditBuffer.ts`)
 
@@ -250,6 +754,7 @@ A session of systematic eval-driven improvements followed by a live dogfooding s
 - Case timeout default raised from 120 s to 240 s for local models on multi-step tasks.
 
 ### Stats
+
 - 6483 total tests (341 test files)
 - 79 built-in tools, 11 skills
 
@@ -268,6 +773,7 @@ A session of systematic eval-driven improvements followed by a live dogfooding s
 - **`hourly` / `daily` autoPull** — two new values for `sidecar.skills.autoPull`. When set, a background timer re-syncs all configured registries without requiring a restart. `on-start` and `manual` continue to work as before. (`src/config/settings.ts`, `src/agent/skillRegistrySync.ts`)
 
 ### Stats
+
 - 6433 total tests (340 test files)
 - 79 built-in tools, 11 skills
 
@@ -296,15 +802,18 @@ A session of systematic eval-driven improvements followed by a live dogfooding s
 - **Arena RAM/VRAM preflight** — `openArena` and `openArenaAgent` both call `checkMemoryPreflight` before spinning up multiple simultaneous models. Running two or more models multiplies memory pressure, so the same low/critical dialogs that gate model loads now gate arena sessions. (`src/arena/arenaCommands.ts`)
 
 ### Stats
+
 - 6415 total tests (341 test files)
 - 79 built-in tools, 11 skills
 
 ## [0.110.0] - 2026-05-27
 
 ### Added
+
 - Speculative FIM decoding, PKI sidebar panel, graph-walk depth settings, Kickstand real token counts
 
 ### Stats
+
 - 6043 total tests (315 test files)
 - 79 built-in tools, 11 skills
 
@@ -336,12 +845,14 @@ A session of systematic eval-driven improvements followed by a live dogfooding s
   - `no-new-todos` — `git diff`-based check that fails if the working-tree diff introduces new TODO/FIXME/HACK/XXX comments, fires at `pre-completion`
 
 - **Per-skill guard registration** — Skills can activate named built-in guards via the `guards:` frontmatter field (inline comma list or YAML block list). Guards are resolved and registered as `extraPolicyHooks` when the skill's agent run starts; they deactivate when the run ends. Example:
+
   ```markdown
   ---
   name: Careful Refactor
   guards: lint-clean, tests-pass
   ---
   ```
+
   (`src/agent/skillLoader.ts`, `src/webview/handlers/chatHandlers.ts`)
 
 - **`/guards` slash command** — type `/guards` in chat to see active guards from `sidecar.regressionGuards`, the current mode, and the full built-in guard catalog with descriptions. (`src/webview/handlers/agentHandlers.ts`, `src/webview/handlers/dispatchHandlers.ts`, `media/chat.js`)
@@ -677,7 +1188,7 @@ A session of systematic eval-driven improvements followed by a live dogfooding s
   - **Go** — runs `go test -bench=. -run=^$ -benchmem ./...` and ranks benchmarks by `ns/op` descending.
   - **Rust** — runs `cargo bench` and ranks entries by `ns/iter` descending.
   - **Node.js** — runs `node --prof <script>` + `node --prof-process` and extracts the bottom-up heavy-profile section.
-  Returns structured markdown with ranked hotspots plus a collapsible `<details>` block containing the raw profiler output. Ecosystem can be forced with `ecosystem=node|python|go|rust`; `top_n` overrides the per-call default.
+    Returns structured markdown with ranked hotspots plus a collapsible `<details>` block containing the raw profiler output. Ecosystem can be forced with `ecosystem=node|python|go|rust`; `top_n` overrides the per-call default.
 
 - **`sidecar.profiling.enabled`** (default `false`) — gates the `profile_code` agent tool.
 
@@ -707,7 +1218,7 @@ A session of systematic eval-driven improvements followed by a live dogfooding s
 
 - Corrected stale built-in tool count (61 → 62) in `docs/agent-mode.md` and `CLAUDE.md`.
 - Added `check_dependencies` to the agent tools table in `docs/agent-mode.md`.
-- Removed all "Kickstand *(coming soon)*" qualifiers from `docs/getting-started.md` — Kickstand is fully shipped.
+- Removed all "Kickstand _(coming soon)_" qualifiers from `docs/getting-started.md` — Kickstand is fully shipped.
 - Completed full v0.91.0 documentation pass: updated `CHANGELOG.md`, `ROADMAP.md`, `README.md`, `docs/index.html`, `docs/slash-commands.md`, `docs/configuration.md`, and `docs/security-scanning.md` to reflect Dependency Drift Alerts and Model Arena.
 
 ## [0.91.0] - 2026-05-16
@@ -886,15 +1397,15 @@ A session of systematic eval-driven improvements followed by a live dogfooding s
 
 - **GLM-style thinking field** — models like GLM-4 emit chain-of-thought in `message.thinking` (a native Ollama field) rather than inline `<think>` tags. The Ollama backend was silently dropping these, producing empty agent trajectories. Now reads `message.thinking` and emits it as a `thinking` content block.
 
-- **`edit_file` search-not-found error message** — the old error gave no recovery hint; models would report success after a search-not-found response instead of retrying. New message: *"edit_file failed — search string not found in `<file>`. The file was NOT modified. Call `read_file` to see the exact current content, then retry with a corrected search string."*
+- **`edit_file` search-not-found error message** — the old error gave no recovery hint; models would report success after a search-not-found response instead of retrying. New message: _"edit_file failed — search string not found in `<file>`. The file was NOT modified. Call `read_file` to see the exact current content, then retry with a corrected search string."_
 
 - **`edit_file` no-op guard** — when `search === replace`, the call now returns an error instead of silently succeeding with no change. Prevents the failure mode where a model copies the search text verbatim into the replace field.
 
-- **`edit_file` partial-replace warning** — when the replacement text is a verbatim substring of the search text and less than half its length, the success response now appends: *"Warning: replace text (N chars) is a substring of search text (M chars) — call read_file to verify the result is correct before continuing."* This surfaces the failure mode where a model puts only a fragment (e.g. `"string"`) instead of the full corrected line, causing the file to be silently truncated.
+- **`edit_file` partial-replace warning** — when the replacement text is a verbatim substring of the search text and less than half its length, the success response now appends: _"Warning: replace text (N chars) is a substring of search text (M chars) — call read_file to verify the result is correct before continuing."_ This surfaces the failure mode where a model puts only a fragment (e.g. `"string"`) instead of the full corrected line, causing the file to be silently truncated.
 
-- **Autonomous mode scope guard** — the AUTONOMOUS MODE block in the base system prompt now includes: *"Complete only what the user asked for — do not add unrequested steps such as git commits, pushes, or deploys unless explicitly instructed."* Without this, some models interpreted autonomous approval as license to add commit steps and hallucinate non-existent tools.
+- **Autonomous mode scope guard** — the AUTONOMOUS MODE block in the base system prompt now includes: _"Complete only what the user asked for — do not add unrequested steps such as git commits, pushes, or deploys unless explicitly instructed."_ Without this, some models interpreted autonomous approval as license to add commit steps and hallucinate non-existent tools.
 
-- **`get_diagnostics` authority note** — removed the implicit `npx eslint` escape-hatch from the tool description. The old text implied falling back to `run_command("npx eslint")` was appropriate; this produced repeated ESLint-not-found errors in the eval sandbox (and in any project without a root eslint config). Updated to: *"The result is authoritative — 'No diagnostics' means the change is clean."*
+- **`get_diagnostics` authority note** — removed the implicit `npx eslint` escape-hatch from the tool description. The old text implied falling back to `run_command("npx eslint")` was appropriate; this produced repeated ESLint-not-found errors in the eval sandbox (and in any project without a root eslint config). Updated to: _"The result is authoritative — 'No diagnostics' means the change is clean."_
 
 - **System-prompt budget boundary off-by-one** — `ensureBoundary` ran after the remaining-budget calculation, so the ~180-char boundary marker silently reduced the user system-prompt allocation. Moved before the budget check.
 
@@ -972,7 +1483,7 @@ A session of systematic eval-driven improvements followed by a live dogfooding s
 **Security / correctness (audit sprint):**
 
 - **`git_search_history` shell injection** — `gitSearchHistory` was built using string interpolation into `execAsync`; switched to `execFileAsync` with an args array so LLM-controlled query values and path scopes are never interpreted by the shell.
-- **Anthropic output-token double-counting** — `message_delta` handler was *adding* `event.usage.output_tokens` to the accumulator instead of *setting* it; the field carries a cumulative total, not an incremental delta. Fixes inflated token counts on long responses.
+- **Anthropic output-token double-counting** — `message_delta` handler was _adding_ `event.usage.output_tokens` to the accumulator instead of _setting_ it; the field carries a cumulative total, not an incremental delta. Fixes inflated token counts on long responses.
 - **Anthropic cache boundary marker** — `markerIndex <= 0` condition skipped the first message even when it should have been cacheable; corrected to `< 0`.
 - **Anthropic temperature always applied** — temperature was only injected when `tools && tools.length > 0`; it should be injected whenever the model supports it (tools presence is irrelevant).
 - **OpenAI o1/o3/o4 temperature rejection** — o-series models reject requests containing a `temperature` field with HTTP 400; `supportsTemperature(model)` guard added (`!/^o\d/i.test(model)`) so temperature is omitted for these models.
@@ -1020,7 +1531,7 @@ A session of systematic eval-driven improvements followed by a live dogfooding s
 - **`FlatVectorStore` post-persist metadata corruption** — `persist()` was writing the storage-internal `offset` field into the metadata object stored in `entriesById`, so subsequent reads of `M`-typed metadata would find a spurious `offset` key mixed in.
 - **`BackgroundAgentManager.onOutput` crash** — a disposed webview throws when the extension posts to it; that exception propagated into `runAgentLoop`'s catch block and marked a still-executing run as `'failed'`.
 - **`multiFileEdit` layer index mis-alignment** — after filtering `null` tasks returned by `buildLayerTask`, the index used to look up the corresponding `PlannedEdit` was off; edits on plan-invented paths silently attributed errors to the wrong file.
-- **`compression.ts` thinking-block truncation overflow** — suffix was appended *after* slicing to `maxThinkingChars`, producing a string that exceeded the cap by `suffix.length` characters.
+- **`compression.ts` thinking-block truncation overflow** — suffix was appended _after_ slicing to `maxThinkingChars`, producing a string that exceeded the cap by `suffix.length` characters.
 - **`conversationSummarizer` missed turn boundaries** — `splitIntoTurns` checked `typeof msg.content === 'string'` to detect user turns, missing messages with `ContentBlock[]` content (e.g. image attachments); those turns were merged into the preceding assistant turn for summarization.
 - **`postgresProvider` FK references wrong column** — the foreign-key metadata query selected `kcu.column_name` (local column) for both the local and referenced sides; the fix adds `ccu.column_name AS referenced_column` to the SELECT and uses it in the `fkMap`.
 - **`vizSpec` bar chart crash on empty data** — `Math.max(...[])` returns `-Infinity` when the filtered numeric array is empty; chart bar heights became `NaN`. Guard added: fall back to `1` when no numeric values are present.
@@ -1091,7 +1602,7 @@ A session of systematic eval-driven improvements followed by a live dogfooding s
 ### Fixed
 
 - **Backend checkmark never updated** — `setActiveBackendProfile` messages sent by the extension were never handled in `chat.js`; checkmark now updates correctly after switching profiles
-- **`formatToolError` consolidation** — 24 identical `catch (err) { return \`Failed: ${err}\` }` blocks across 6 tool files replaced with `formatToolError(err)` helper in `tools/shared.ts`
+- **`formatToolError` consolidation** — 24 identical `catch (err) { return \`Failed: ${err}\` }`blocks across 6 tool files replaced with`formatToolError(err)`helper in`tools/shared.ts`
 
 ### Removed
 
@@ -1110,16 +1621,16 @@ A session of systematic eval-driven improvements followed by a live dogfooding s
 
 **Conversational shortcuts** — natural phrases route directly to actions without going through the agent loop:
 
-| Phrase (examples) | Action |
-|---|---|
-| `yes`, `sure`, `go ahead`, `proceed`, `approved` | Execute pending plan |
-| `no`, `cancel`, `scratch that`, `never mind` | Reject pending plan, clear state |
-| Any other message while a plan is pending | Revise plan with that text as feedback |
-| `undo`, `revert`, `revert that`, `rollback` | Undo agent file changes |
-| `commit it`, `commit the changes`, `lgtm` | Generate commit message |
-| `what changed`, `show diff`, `diff` | Replay change summary panel |
+| Phrase (examples)                                              | Action                                                             |
+| -------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `yes`, `sure`, `go ahead`, `proceed`, `approved`               | Execute pending plan                                               |
+| `no`, `cancel`, `scratch that`, `never mind`                   | Reject pending plan, clear state                                   |
+| Any other message while a plan is pending                      | Revise plan with that text as feedback                             |
+| `undo`, `revert`, `revert that`, `rollback`                    | Undo agent file changes                                            |
+| `commit it`, `commit the changes`, `lgtm`                      | Generate commit message                                            |
+| `what changed`, `show diff`, `diff`                            | Replay change summary panel                                        |
 | `I don't know`, `your call`, `up to you`, `whatever you think` | Inject "use best judgment and proceed" when agent asked a question |
-| `2`, `option 3`, `#1` | Select item from agent's last numbered list |
+| `2`, `option 3`, `#1`                                          | Select item from agent's last numbered list                        |
 
 - **List detection skips plan-mode auto-trigger** — a user message that already contains a bulleted or numbered list (≥ 2 items) is treated as a pre-written plan; plan mode is not auto-enabled
 - **Commit message template overhauled** — system prompt and user prompt fully rewritten: covers every valid conventional-commit type (`feat|fix|refactor|perf|docs|test|chore|ci|style|build`), requires one bullet per logical change naming functions/files/flags, adds "Why:" clause guidance for non-obvious changes, `BREAKING CHANGE:` paragraph rule, and a concrete example. Token limit raised 512 → 1024
@@ -1247,7 +1758,7 @@ The agent can now connect to SQL databases and query them directly — no shell 
 
 ### Fixed
 
-- **LRU cache eviction in `LimitedCache`** (`src/agent/memoryManager.ts`) — `get()` now promotes the accessed entry to MRU position so the cache evicts the *least*-recently-used entry instead of the *oldest-inserted* entry.
+- **LRU cache eviction in `LimitedCache`** (`src/agent/memoryManager.ts`) — `get()` now promotes the accessed entry to MRU position so the cache evicts the _least_-recently-used entry instead of the _oldest-inserted_ entry.
 
 ### Changed
 
@@ -1312,6 +1823,7 @@ Third-party VS Code extensions can now register custom agent tools and policy ho
 **v0.69.4 — Cloud model context lengths.** `getModelContextLength()` now returns accurate context limits for 60+ popular cloud models (Anthropic Claude, OpenAI GPT-4/o1/o3, Groq, Gemini, Mistral, DeepSeek, Fireworks) via a built-in lookup table, enabling proper context management without conservative fallback defaults.
 
 ### Added
+
 - **Well-known model context lengths** — new `MODEL_CONTEXT_LENGTHS` lookup in `constants.ts` with accurate token limits for Claude (200K), GPT-4o (128K), o1/o3 (200K), Gemini 1.5 (1-2M), and many more.
 
 ---
@@ -1410,6 +1922,7 @@ Both backends were empty `OpenAIBackend` subclasses with zero test coverage. Add
 - [`src/ollama/fireworksBackend.test.ts`](src/ollama/fireworksBackend.test.ts) — 11 tests
 
 ### Stats
+
 - **3686 total tests** (+196 from v0.68.0), 204 test files
 - **33 built-in tools** (+4: `reply_pr_comment`, `submit_pr_review`, `mark_pr_ready`, `check_pr_ci`)
 - **4 new VS Code commands**, **4 new slash commands** (`/review-comments`, `/pr-respond`, `/pr-ready`, `/pr-ci`)
@@ -1436,6 +1949,7 @@ Pre-v0.68, `prSummary.ts` and `reviewer.ts` each held a private copy of "try `gi
 **New in `src/github/api.ts`:** `GitHubAPI.parseRepo(url)` (handles HTTPS + SSH), `createPR(owner, repo, params)`.
 
 **New config (+3):**
+
 - `sidecar.pr.create.draftByDefault` — `true` (open as draft) / `false` (ready for review)
 - `sidecar.pr.create.baseBranch` — `auto` (resolve from remote HEAD) or an explicit branch name
 - `sidecar.pr.create.template` — `auto` (read `.github/pull_request_template.md`), `ignore`, or an explicit path
@@ -1475,6 +1989,7 @@ Before generating a PR, SideCar now fetches the target branch's protection rules
 - `applyPatch` — stdin write/end, `--check`, `--index`, throw on failure
 
 ### Stats
+
 - **3490 total tests** (+123 from v0.67.1), 194 test files
 - **29 built-in tools**, 8 skills — unchanged
 - **3 new config keys** (`sidecar.pr.create.*`)
@@ -1496,11 +2011,12 @@ All three gate on `context.client?.getBackendCapabilities()?.loraAdapters` being
 
 - `src/agent/tools.ts` registers the new `kickstandTools` array alongside the existing per-module registries (fsTools, searchTools, shellTools, diagnosticsTools, gitTools, knowledgeTools, systemMonitorTools, projectKnowledgeTools, settingsTools) — follows the v0.66 chunk 2 per-module composition pattern.
 - Tool count bumps to **29** across `README.md` tool registry table, `docs/agent-mode.md` built-in tools table, and `docs/index.html` landing stats. The bump script's tool-count traversal (fixed earlier in v0.67.0) correctly picks up the new per-module entries without manual intervention.
-- `docs/agent-mode.md` adds a "Kickstand LoRA tools *(new in v0.67.1)*" section explaining the role-shaping use case, scale semantics, and the distinction between this tool-level approval gate vs. `update_setting`'s mandatory-always gate.
+- `docs/agent-mode.md` adds a "Kickstand LoRA tools _(new in v0.67.1)_" section explaining the role-shaping use case, scale semantics, and the distinction between this tool-level approval gate vs. `update_setting`'s mandatory-always gate.
 
 ### Tests
 
 21 new cases in `src/agent/tools/kickstand.test.ts` covering:
+
 - Capability gate: both missing-client and present-client-missing-capability return the typed "not supported" message
 - Input validation: missing `model_id` / `path` / `adapter_id` return error strings
 - Happy paths: all three tools forward inputs correctly and surface the capability's summary string
@@ -1509,6 +2025,7 @@ All three gate on `context.client?.getBackendCapabilities()?.loraAdapters` being
 - Registry wiring: three tools registered in expected order, `list` read-only, `attach`/`detach` require approval, none set `alwaysRequireApproval`
 
 ### Stats
+
 - **3367 total tests** (+21 from v0.67.0), 189 test files
 - **29 built-in tools** (+3 from v0.67.0), 8 skills
 - tsc + lint clean; no breaking changes
@@ -1562,6 +2079,7 @@ Also fixed a timing flake in `forkDispatcher.test.ts` elapsedMs assertion (bumpe
 v0.67's original refactor beat included "folds deferred Anthropic Batch API for non-interactive workloads as the batching substrate for parallel-fork dispatch." Dropped during chunk 3 planning after an honest audit: the Batches API handles standalone Messages requests asynchronously over ~1 hour processing time with no streaming, which doesn't compose with Fork's multi-turn streaming agent loop. Stays deferred in the Unscheduled section with documented future callers (eval harness, multi-file-edit planner, embedding regeneration).
 
 ### Stats
+
 - 3346 total tests (188 test files)
 - 26 built-in tools, 8 skills
 
@@ -1623,7 +2141,7 @@ Tests: 3037 passing (unchanged from v0.65.0). No behavior, no config, no breakin
 
 ## [0.65.0] - 2026-04-18
 
-**v0.65.0 — Loop ergonomics.** Large release focused on making the agent loop feel *live* rather than batch-mode: users can now steer a run mid-stream, multi-file refactors plan before they write, retrieval walks the call graph, and stream failures surface a persistent recovery path. The release also lifts five subsystems from <60% coverage to ≥90% and ships two major roadmap entries (Suggestion Mode, Dense-Repository Context Mode) for future work.
+**v0.65.0 — Loop ergonomics.** Large release focused on making the agent loop feel _live_ rather than batch-mode: users can now steer a run mid-stream, multi-file refactors plan before they write, retrieval walks the call graph, and stream failures surface a persistent recovery path. The release also lifts five subsystems from <60% coverage to ≥90% and ships two major roadmap entries (Suggestion Mode, Dense-Repository Context Mode) for future work.
 
 **Headline features**: Steer Queue + interrupt UI (chunk 3), Multi-File Edit Streams with DAG scheduling (chunk 4), graph-expanded retrieval with adaptive depth (chunk 5.5), persistent Resume affordance (chunk 7). **Quality**: chatHandlers.ts 18% → 38%; scheduler/eventHooks/lintFix/localWorker/inlineChatProvider all to 90%+; 156 new tests added across the release (2780 baseline → 3037 final).
 
@@ -1815,7 +2333,7 @@ The `lifecycle.listLoadable()` hook and the generic capability record are exactl
 
 ### Added — prompt pruner
 
-- **Grep-aware truncation** ([`src/ollama/promptPruner.ts`](src/ollama/promptPruner.ts)). First entry in a new per-tool truncation dispatch (`TRUNCATION_DISPATCH`). Head+tail truncation (the default) elided the middle matches of large grep results, leaving only the first and last 40% of matches — which are usually the *least* interesting (boilerplate imports + trailing tests). The new `truncateGrepResult` strategy keeps whole lines from the head and drops the tail entirely, preserving grep's natural file-sorted-then-line-sorted ordering and producing a contiguous window of matches. Elision marker now also suggests narrowing the query — actionable guidance the generic head+tail marker couldn't give. New exports: `truncateGrepResult` (the strategy), `truncateForTool` (the dispatch). `truncateAllToolResults` uses `truncateForTool` instead of calling `truncateToolResult` directly. +10 tests on the grep-aware path, dispatch behavior, dispatch fallthrough for other tools / legacy callers, and end-to-end integration through `truncateAllToolResults`.
+- **Grep-aware truncation** ([`src/ollama/promptPruner.ts`](src/ollama/promptPruner.ts)). First entry in a new per-tool truncation dispatch (`TRUNCATION_DISPATCH`). Head+tail truncation (the default) elided the middle matches of large grep results, leaving only the first and last 40% of matches — which are usually the _least_ interesting (boilerplate imports + trailing tests). The new `truncateGrepResult` strategy keeps whole lines from the head and drops the tail entirely, preserving grep's natural file-sorted-then-line-sorted ordering and producing a contiguous window of matches. Elision marker now also suggests narrowing the query — actionable guidance the generic head+tail marker couldn't give. New exports: `truncateGrepResult` (the strategy), `truncateForTool` (the dispatch). `truncateAllToolResults` uses `truncateForTool` instead of calling `truncateToolResult` directly. +10 tests on the grep-aware path, dispatch behavior, dispatch fallthrough for other tools / legacy callers, and end-to-end integration through `truncateAllToolResults`.
 
 ### Not changed (deliberate)
 
@@ -1913,7 +2431,7 @@ The `lifecycle.listLoadable()` hook and the generic capability record are exactl
 - **Critic — provider-aware default model** (p.1a). Pre-patch, an empty `sidecar.critic.model` setting fell back to the main model, doubling per-iteration token cost on paid Anthropic backends. Post-patch: when the main model is a more expensive Anthropic model (Sonnet/Opus), the critic auto-substitutes Haiku unless the user explicitly sets `critic.model`. Ollama / OpenAI / etc. keep the legacy "empty → main model" behavior because we don't have a provider-specific cheap model to substitute safely. +4 tests.
 - **Critic — session stats in the spend view** (p.1b). New `getCriticStats()` / `resetCriticStats()` in [`criticHook.ts`](src/agent/loop/criticHook.ts) track `blockedTurns`, `totalCalls`, and `lastBlockedReason` for the session. Surfaced in `SideCar: Show Session Spend` so users can see "my turn was blocked N times for reason X" at a glance. Previously users had to grep the agent output channel. Reset ties to the spend tracker's reset. +4 tests.
 - **Prompt pruner — PruneStats observability** (p.2a). `PruneStats` used to be computed and silently discarded by both backends, making "did the pruner eat my error message?" unanswerable post-mortem. Now logged via `console.info` (captured by the SideCar output channel) whenever the pruner actually changed something. New `formatPruneStats(stats)` helper formats a one-line summary with a per-tool breakdown so the "which tool's output was truncated" question has a direct answer. `PruneStats` gains a `truncatedByTool: Record<string, number>` field.
-- **Prompt pruner — `read_file` + `git_diff` + `get_diagnostics` + `git_status` dedup exemption** (p.2b). Closes the "back-reference after edit" trap: agent reads foo.ts, edits foo.ts, reads foo.ts again — pre-patch the second read would be collapsed into a pointer at the stale *first* read, hiding the agent's own edit. Tools whose output is expected to vary across consecutive calls (listed in a new `DEDUP_EXEMPT_TOOLS` set) now bypass dedup entirely. Truncation still applies — size management is legitimate for any tool. New `buildToolUseIdMap()` helper threads tool names from `tool_use` blocks to `tool_result` blocks so dedup can consult them. Back-compatible: callers that don't pass the map get the pre-patch behavior. +6 tests on the exemption / back-compat / fixture shape; +4 on new helpers.
+- **Prompt pruner — `read_file` + `git_diff` + `get_diagnostics` + `git_status` dedup exemption** (p.2b). Closes the "back-reference after edit" trap: agent reads foo.ts, edits foo.ts, reads foo.ts again — pre-patch the second read would be collapsed into a pointer at the stale _first_ read, hiding the agent's own edit. Tools whose output is expected to vary across consecutive calls (listed in a new `DEDUP_EXEMPT_TOOLS` set) now bypass dedup entirely. Truncation still applies — size management is legitimate for any tool. New `buildToolUseIdMap()` helper threads tool names from `tool_use` blocks to `tool_result` blocks so dedup can consult them. Back-compatible: callers that don't pass the map get the pre-patch behavior. +6 tests on the exemption / back-compat / fixture shape; +4 on new helpers.
 - **Shadow workspaces — stale worktree sweep on activation** (p.3a). Closes the "VS Code crashed mid-shadow leaves silent git corruption" failure mode. New [`sweepStaleShadows(mainRoot)`](src/agent/shadow/shadowSweep.ts) walks `git worktree list` + `.sidecar/shadows/` on disk and reconciles two orphan classes: (a) registered-but-missing worktrees (git metadata points at a deleted dir) → `git worktree remove --force`; (b) directory-without-worktree-metadata → `fs.rmSync` recursive. Never touches worktrees outside `.sidecar/shadows/`. Symlink-aware (macOS `/private` rewrite handled). Runs fire-and-forget after `.sidecar/` init. Gated by new `sidecar.shadowWorkspace.sweepStaleOnActivation` setting (default `true`). +10 real-git tests (tmp-repo fixtures; excluded from lint-staged pre-commit same as `shadowWorkspace.test.ts`).
 - **Shadow workspaces — manual sweep palette command** (p.3b). `SideCar: Shadow Workspaces: Sweep Stale Worktrees` runs `sweepStaleShadows` on demand for users who disabled the activation sweep or are debugging unexplained git state. +3 `formatSweepResult` unit tests.
 - **PKI — parallel batch drain** (p.4). `SymbolEmbeddingIndex.flushQueue` used to await each `indexSymbol` serially — 500k symbols × ~20–30ms per embed = ~3.5 hours wall-clock to fully index a massive workspace. Now uses a 4-way worker loop, cutting the same workload to ~50 minutes. Safety is preserved because `FlatVectorStore.upsert` is atomic within a single call (no `await` inside its body), so concurrent embeds' upserts serialize on the event loop without clobbering offset slots. New `FLUSH_CONCURRENCY = 4` constant. +2 tests: one measures peak concurrency via a slow-pipeline instrumentation, one proves 50 concurrent upserts all land with distinct offsets.
@@ -1939,7 +2457,7 @@ The `lifecycle.listLoadable()` hook and the generic capability record are exactl
 - **Merkle-Addressed Semantic Fingerprint** (v0.62 d.1–d.3, new release feature).
   - **d.1 — Tree primitive**. New [`MerkleTree`](src/config/merkleTree.ts) class: content-addressed hash tree over symbol leaves with aggregated embeddings at interior nodes. Structure is 3-level (leaves → file-nodes → root). Hash is SHA-256 over canonical `filePath|qualifiedName|kind|startLine-endLine|body` (ROADMAP called for blake3 default / sha256 fallback — we ship the fallback now, same backend-abstraction pattern as `VectorStore`). Dirty-tracking via `addLeaf` / `removeLeaf` / `removeFile` marks affected files; `rebuild()` only recomputes dirty file-nodes. Order-independent aggregation: child hashes sorted before hashing so same leaves in different orders → same root. Cross-file leaf moves correctly dirty both old and new files. `descend(queryVec, k)` scores every file-node's aggregated vector and returns the top-k files' leaf IDs. Pure data structure — no disk I/O. +27 tests.
   - **d.2 — Keystroke-live updates**. Wires `MerkleTree` into `SymbolEmbeddingIndex` so every index mutation mirrors into the tree. New `setMerkleTree(tree)` attaches a tree and replays every persisted entry. New `SymbolMetadata.merkleHash` field persisted alongside the body MD5 so replay doesn't need the body. Re-embed short-circuit now compares both body hash AND merkle hash — move-without-body-change (line range shifted) skips the embed but still flips the fingerprint. Vector reused from the store in that case (saves ~20ms per cosmetic move). `flushQueue` fires `tree.rebuild()` once per batch drain — O(files touched), not O(N symbols). New `VectorStore.getVector(id)` for secondary-index replay. New `getMerkleRoot()` accessor surfaces the workspace fingerprint. +6 tests.
-  - **d.3 — Query-time descent integration**. `SymbolEmbeddingIndex.search` now walks the tree's file-level aggregated vectors to pick candidate subtrees *before* scoring leaves — turns the O(total symbols) cosine scan into O(picked files × avg symbols per file). Candidate count is `max(10, topK × 3)`. Empty-tree fall-through (`getFileNodeCount() === 0`) skips descent so a fresh cache doesn't drop every hit. Extension activation wires a `MerkleTree` when PKI + `sidecar.merkleIndex.enabled` (default `true`) are both on. New [`merkleParity.test.ts`](src/test/retrieval-eval/merkleParity.test.ts) re-runs every golden case with descent active and asserts the aggregate stays at-or-above the same ratchet floors as the non-Merkle baseline — current parity result is identical to the no-descent baseline, expected given the 8-file fixture has fewer files than the descent candidate count. +14 tests.
+  - **d.3 — Query-time descent integration**. `SymbolEmbeddingIndex.search` now walks the tree's file-level aggregated vectors to pick candidate subtrees _before_ scoring leaves — turns the O(total symbols) cosine scan into O(picked files × avg symbols per file). Candidate count is `max(10, topK × 3)`. Empty-tree fall-through (`getFileNodeCount() === 0`) skips descent so a fresh cache doesn't drop every hit. Extension activation wires a `MerkleTree` when PKI + `sidecar.merkleIndex.enabled` (default `true`) are both on. New [`merkleParity.test.ts`](src/test/retrieval-eval/merkleParity.test.ts) re-runs every golden case with descent active and asserts the aggregate stays at-or-above the same ratchet floors as the non-Merkle baseline — current parity result is identical to the no-descent baseline, expected given the 8-file fixture has fewer files than the descent candidate count. +14 tests.
 
 ### Changed
 
@@ -1956,7 +2474,7 @@ The `lifecycle.listLoadable()` hook and the generic capability record are exactl
 
 ## [0.61.0] - 2026-04-16
 
-**v0.61 — Retrieval core.** Third entry on the Release-Plan-driven v0.59+ cadence. Two distinct feature arcs land: (1) **Audit Mode Phase 2** — finishes the v0.60 MVP with per-file accept/reject, conflict detection against mid-review disk edits, buffer persistence across extension reloads, and git-commit buffering; (2) **Project Knowledge Index (PKI)** — symbol-level semantic search with graph-walk retrieval enrichment, so queries like "where is auth handled?" surface the specific `requireAuth` function *and* every route handler that wraps it (even when the route code never says "auth"). The PKI feature arc ships behind `sidecar.projectKnowledge.enabled` (default `false`) as an opt-in preview — flips to default-on in v0.62 once RAG-eval confirms the symbol index doesn't regress retrieval quality on existing test cases. The v0.60 refactor carryover (unified hook + approval surface) is **deferred to v0.62+** pending a design that fits all three current surfaces (Audit Buffer / Pending Changes / Regression Guards) without churn. Tests: 2158 passing (+83 net for the release); tsc + eslint clean.
+**v0.61 — Retrieval core.** Third entry on the Release-Plan-driven v0.59+ cadence. Two distinct feature arcs land: (1) **Audit Mode Phase 2** — finishes the v0.60 MVP with per-file accept/reject, conflict detection against mid-review disk edits, buffer persistence across extension reloads, and git-commit buffering; (2) **Project Knowledge Index (PKI)** — symbol-level semantic search with graph-walk retrieval enrichment, so queries like "where is auth handled?" surface the specific `requireAuth` function _and_ every route handler that wraps it (even when the route code never says "auth"). The PKI feature arc ships behind `sidecar.projectKnowledge.enabled` (default `false`) as an opt-in preview — flips to default-on in v0.62 once RAG-eval confirms the symbol index doesn't regress retrieval quality on existing test cases. The v0.60 refactor carryover (unified hook + approval surface) is **deferred to v0.62+** pending a design that fits all three current surfaces (Audit Buffer / Pending Changes / Regression Guards) without churn. Tests: 2158 passing (+83 net for the release); tsc + eslint clean.
 
 ### Added
 
@@ -1964,7 +2482,7 @@ The `lifecycle.listLoadable()` hook and the generic capability record are exactl
   - **`SymbolEmbeddingIndex` primitive** (b.1, [src/config/symbolEmbeddingIndex.ts](src/config/symbolEmbeddingIndex.ts)) — `indexSymbol({ filePath, qualifiedName, name, kind, startLine, endLine, body })` embeds the body (prefixed with `qualifiedName (kind)` for structural context) and stores it keyed by `filePath::qualifiedName`. Content-hash short-circuit: re-indexing the same body is a cheap no-op, so a file save that doesn't touch a function skips its re-embed. `search(query, topK, { kindFilter?, pathPrefix? })` returns structured `SymbolSearchResult[]`. `removeSymbol` + `removeFile` for the indexing pipeline. Persists to `.sidecar/cache/symbol-embeddings.{bin,meta.json}`.
   - **Indexing pipeline wiring** (b.2) — `SymbolIndexer.setSymbolEmbeddings(index, maxSymbolsPerFile?)` attaches the embedder. Every file the graph parses feeds each extracted symbol's body into a debounced `queueSymbol` + `flushQueue` batch drain (500 ms window, 20 per batch) so a whole-workspace scan doesn't serialize on one embed at a time. Rename/delete flows drop the file from the embedder too. Per-symbol embed errors log a warning but don't abort the batch.
   - **`project_knowledge_search` tool** (b.3, [src/agent/tools/projectKnowledge.ts](src/agent/tools/projectKnowledge.ts)) — new agent tool with `query` / `maxHits` / `kindFilter` / `pathPrefix` params. Returns one line per hit as `filePath:startLine-endLine\tkind\tqualifiedName\t(vector: 0.NNN)` — a shape `read_file` can consume directly. Graceful degradation: "not enabled" / "warming up" / "no matches" responses with fallback suggestions.
-  - **Graph-walk retrieval enrichment** (b.4) — results now walk the `SymbolGraph`'s `calls` edges outward from each direct vector hit via new `enrichWithGraphWalk(directHits, graph, { maxDepth, maxGraphHits })` helper. BFS per starting hit, global budget cap on added symbols, dedup across frontier starts, decayed scoring (`directScore * 0.5^hops`). Tool params `graphWalkDepth` (default 1, clamped [0, 3]) and `maxGraphHits` (default 10, clamped [0, 50]); `graphWalkDepth: 0` opts out. Response header distinguishes "Found N symbols" from "Found N direct + M graph-reached symbols"; relationship column shows either `vector: 0.823` or `graph: called-by (1 hop from requireAuth)` so the model sees *why* each result surfaced.
+  - **Graph-walk retrieval enrichment** (b.4) — results now walk the `SymbolGraph`'s `calls` edges outward from each direct vector hit via new `enrichWithGraphWalk(directHits, graph, { maxDepth, maxGraphHits })` helper. BFS per starting hit, global budget cap on added symbols, dedup across frontier starts, decayed scoring (`directScore * 0.5^hops`). Tool params `graphWalkDepth` (default 1, clamped [0, 3]) and `maxGraphHits` (default 10, clamped [0, 50]); `graphWalkDepth: 0` opts out. Response header distinguishes "Found N symbols" from "Found N direct + M graph-reached symbols"; relationship column shows either `vector: 0.823` or `graph: called-by (1 hop from requireAuth)` so the model sees _why_ each result surfaced.
   - **Settings**: `sidecar.projectKnowledge.enabled` (default `false`; opt-in preview), `sidecar.projectKnowledge.maxSymbolsPerFile` (default 500).
   - **Total**: +46 tests across the primitive, indexing wiring, tool, and graph-walk helper.
 - **Audit Mode — per-file accept/reject** (v0.61 step a.1). Review picker now loops after per-file actions so the user walks the buffer one file at a time. After the diff opens, a follow-up picker asks `Accept This File` / `Reject This File` / `Back to Review`. New `acceptFileAuditBuffer(deps, path)` + `rejectFileAuditBuffer(deps, path)` exports. Refactor: extracted `flushBufferPaths(deps, paths?)` shared by bulk and per-file accept. +7 tests.
@@ -2006,11 +2524,11 @@ The `lifecycle.listLoadable()` hook and the generic capability record are exactl
 
 ## [0.59.0] - 2026-04-16
 
-**v0.59 — Sandbox primitives.** First release of the Release-Plan-driven v0.59+ roadmap. Ships two new foundational capabilities that later releases build on: agent commands now render live in a dedicated *SideCar Agent* terminal via VS Code's shell-integration API instead of hidden `child_process.spawn` calls (transparency + SSH / Dev Container / WSL / Codespaces correctness), and the new opt-in Shadow Workspace feature runs agent tasks in an ephemeral git worktree at `.sidecar/shadows/<task-id>/` so writes never touch the user's main tree until an explicit accept. Also closes audit findings cycle-2 #13 + #15, a latent output-stomp bug in `ShellSession.checkSentinel`, and establishes a CI coverage ratchet that prevents regressions. Tests: 1984 passing (+40 net for the release); tsc + eslint clean.
+**v0.59 — Sandbox primitives.** First release of the Release-Plan-driven v0.59+ roadmap. Ships two new foundational capabilities that later releases build on: agent commands now render live in a dedicated _SideCar Agent_ terminal via VS Code's shell-integration API instead of hidden `child_process.spawn` calls (transparency + SSH / Dev Container / WSL / Codespaces correctness), and the new opt-in Shadow Workspace feature runs agent tasks in an ephemeral git worktree at `.sidecar/shadows/<task-id>/` so writes never touch the user's main tree until an explicit accept. Also closes audit findings cycle-2 #13 + #15, a latent output-stomp bug in `ShellSession.checkSentinel`, and establishes a CI coverage ratchet that prevents regressions. Tests: 1984 passing (+40 net for the release); tsc + eslint clean.
 
 ### Added
 
-- **Terminal-integrated agent command execution** (v0.59 step c). New `AgentTerminalExecutor` in [`terminal/agentExecutor.ts`](src/terminal/agentExecutor.ts) runs agent `run_command` / `run_tests` dispatches through VS Code's shell-integration API (`terminal.shellIntegration.executeCommand` + `onDidEndTerminalShellExecution`) in a reusable *SideCar Agent* terminal. User now sees every agent-initiated command execute live instead of in a hidden `child_process.spawn`. Benefits: transparency (user can't be surprised by side effects), SSH/Dev Container/WSL/Codespaces correctness (shell integration inherits VS Code's remote shell session where `child_process` escapes to the host), structured exit-code capture via the end event, and terminal-panel scrollback for the full output long after the tool call returned. `ShellSession` remains the fallback — if `shellIntegration` isn't available (bare shell without the init script, older VS Code, or user-disabled via `sidecar.terminalExecution.enabled`), the dispatcher falls through to the existing `child_process`-based path. Timeout + abort-signal handling both best-effort-SIGINT the terminal via `^C`. +9 tests. New settings: `sidecar.terminalExecution.{enabled,terminalName,fallbackToChildProcess,shellIntegrationTimeoutMs}`.
+- **Terminal-integrated agent command execution** (v0.59 step c). New `AgentTerminalExecutor` in [`terminal/agentExecutor.ts`](src/terminal/agentExecutor.ts) runs agent `run_command` / `run_tests` dispatches through VS Code's shell-integration API (`terminal.shellIntegration.executeCommand` + `onDidEndTerminalShellExecution`) in a reusable _SideCar Agent_ terminal. User now sees every agent-initiated command execute live instead of in a hidden `child_process.spawn`. Benefits: transparency (user can't be surprised by side effects), SSH/Dev Container/WSL/Codespaces correctness (shell integration inherits VS Code's remote shell session where `child_process` escapes to the host), structured exit-code capture via the end event, and terminal-panel scrollback for the full output long after the tool call returned. `ShellSession` remains the fallback — if `shellIntegration` isn't available (bare shell without the init script, older VS Code, or user-disabled via `sidecar.terminalExecution.enabled`), the dispatcher falls through to the existing `child_process`-based path. Timeout + abort-signal handling both best-effort-SIGINT the terminal via `^C`. +9 tests. New settings: `sidecar.terminalExecution.{enabled,terminalName,fallbackToChildProcess,shellIntegrationTimeoutMs}`.
 - **Shadow Workspace primitive** (v0.59 step d.1). New `ShadowWorkspace` class in [`agent/shadow/shadowWorkspace.ts`](src/agent/shadow/shadowWorkspace.ts) creates an ephemeral git worktree at `.sidecar/shadows/<task-id>/` off the current HEAD for running agent tasks without touching the user's main working tree. Storage-efficient: `git worktree add` shares the main repo's object database (tens of MB typically, not a full repo clone). Captures a unified diff (tracked edits + untracked new files) via `GitCLI.diffAgainstHead()` and applies it back to main with `git apply --index` on accept; teardown removes the worktree + directory with `git worktree remove --force`. Extends `GitCLI` with new primitives: `worktreeAdd`, `worktreeRemove`, `worktreeList`, `getHeadSha`, `diffAgainstHead`, `applyPatch`. +14 tests (real `execFileSync` against tmp-repo fixtures since git worktree semantics can't be faithfully mocked).
 - **cwd pinning through `ToolExecutorContext`** (v0.59 step d.2). Added a `cwd?: string` field to `ToolExecutorContext` and two new helpers in [`agent/tools/shared.ts`](src/agent/tools/shared.ts): `resolveRoot(context)` and `resolveRootUri(context)` prefer `context.cwd` when set, falling back to `workspace.workspaceFolders[0]` otherwise. Threaded through every `fs.ts` tool executor (`read_file` · `write_file` · `edit_file` · `list_directory`) so each one resolves relative paths via the helper instead of calling `getRoot()` / `getRootUri()` directly. Lets ShadowWorkspace route every file operation into the shadow worktree without modifying any tool's internal logic. +8 tests.
 - **Sandbox wrapper + end-to-end Shadow Workspace integration** (v0.59 step d.3). New [`agent/shadow/sandbox.ts`](src/agent/shadow/sandbox.ts) exposes `runAgentLoopInSandbox()`, a drop-in replacement for `runAgentLoop` that — per the new `sidecar.shadowWorkspace.mode` setting (`off` | `opt-in` | `always`, default `off`) — creates a `ShadowWorkspace`, runs the agent loop with `cwdOverride` set to the shadow path, prompts the user via `showQuickPick` at the end, and applies the diff to main on accept / discards on reject. `AgentOptions.cwdOverride` threads through `executeToolUses.ts` into every per-tool `ToolExecutorContext.cwd`, so fs-tool writes land in the shadow transparently. New settings: `sidecar.shadowWorkspace.{mode,autoCleanup,gateCommand}`. `autoCleanup: false` preserves the shadow directory at `.sidecar/shadows/<task-id>/` for post-mortem inspection. +10 tests covering six dispatch paths.
@@ -2033,6 +2551,7 @@ The `lifecycle.listLoadable()` hook and the generic capability record are exactl
 ### Deferred to v0.60
 
 Explicitly scoped out of v0.59 MVP (tracked in the Planned Features section of ROADMAP):
+
 - `/sandbox <task>` slash command — for v0.59 users set `shadowWorkspaceMode: always` or invoke `runAgentLoopInSandbox` directly.
 - Gate-command integration — setting exists (`sidecar.shadowWorkspace.gateCommand`, default `npm run check`), runner doesn't consult it yet.
 - Per-hunk Shadow Review UI — v0.59 uses accept-all / reject-all via `showQuickPick`.
@@ -2261,23 +2780,23 @@ Architectural + testing release. No user-facing feature changes — every change
 
 ### Refactor — `runAgentLoop` decomposition
 
-Closes cycle-2 ai-engineering HIGH finding: *"runAgentLoop is the next god-function decomposition target. 700+ lines owning streaming, compression, cycle detection, memory writes, tool execution, checkpoints, cost tracking, abort handling."*
+Closes cycle-2 ai-engineering HIGH finding: _"runAgentLoop is the next god-function decomposition target. 700+ lines owning streaming, compression, cycle detection, memory writes, tool execution, checkpoints, cost tracking, abort handling."_
 
 Same extraction pattern as the already-successful `tools.ts` split (v0.48.0) and `handleUserMessage` decomposition (v0.46.0): single-responsibility helpers, a `LoopState` container object threaded through every call, re-exports preserved on the public module so existing import sites don't need a coordinated rewrite.
 
 **loop.ts size progression** (9 commits, each left the tree green):
 
-| Phase | Commit | `loop.ts` lines | Delta |
-|---|---|---:|---:|
-| pre-refactor | — | 1,216 | — |
-| phase 1: state + compression | `2cf6ead` | 876 | −340 |
-| phase 2: stream + cycle + message + text | `997cc44` | 835 | −41 |
-| phase 3a: stubCheck | `de159c8` | 765 | −70 |
-| phase 3b: criticHook | `99e4248` | 652 | −113 |
-| phase 3c: gate | `ba4b17a` | 629 | −23 |
-| phase 3d: autoFix | `e9a4e4a` | 591 | −38 |
-| phase 3e: executeToolUses | `bf9f530` | 417 | −174 |
-| phase 4: finalize + composer + notifications + orchestrator swap | `9452333` | **255** | −162 |
+| Phase                                                            | Commit    | `loop.ts` lines | Delta |
+| ---------------------------------------------------------------- | --------- | --------------: | ----: |
+| pre-refactor                                                     | —         |           1,216 |     — |
+| phase 1: state + compression                                     | `2cf6ead` |             876 |  −340 |
+| phase 2: stream + cycle + message + text                         | `997cc44` |             835 |   −41 |
+| phase 3a: stubCheck                                              | `de159c8` |             765 |   −70 |
+| phase 3b: criticHook                                             | `99e4248` |             652 |  −113 |
+| phase 3c: gate                                                   | `ba4b17a` |             629 |   −23 |
+| phase 3d: autoFix                                                | `e9a4e4a` |             591 |   −38 |
+| phase 3e: executeToolUses                                        | `bf9f530` |             417 |  −174 |
+| phase 4: finalize + composer + notifications + orchestrator swap | `9452333` |         **255** |  −162 |
 
 **79% reduction in loop.ts.** The resulting orchestrator reads top-to-bottom as pseudo-code for one iteration: abort check → compression → notifications → checkpoint → stream turn → empty-response gate → cycle checks → assistant message → tool execution → tool-result accounting → post-turn policies → plan-mode return → (next iteration).
 
@@ -2304,7 +2823,7 @@ Re-exports preserved on `loop.ts`: `compressMessages`, `parseTextToolCalls`, `st
 
 ### Added — agent-loop LLM eval harness expansion
 
-Closes cycle-2 ai-engineering HIGH finding: *"No evaluation harness for LLM behavior."* v0.49.1 shipped the agent-loop layer with 3 starter cases; v0.50.0 extends it to 11 cases covering every reachable code path plus a `workspace.findFiles` sandbox fix.
+Closes cycle-2 ai-engineering HIGH finding: _"No evaluation harness for LLM behavior."_ v0.49.1 shipped the agent-loop layer with 3 starter cases; v0.50.0 extends it to 11 cases covering every reachable code path plus a `workspace.findFiles` sandbox fix.
 
 **New agent eval cases** (all pass against local Ollama `qwen3-coder:30b` in ~90s total):
 
@@ -2323,19 +2842,19 @@ Closes cycle-2 ai-engineering HIGH finding: *"No evaluation harness for LLM beha
 
 **Coverage by policy/path** (✅ = exercised end-to-end in at least one case):
 
-| Path | Coverage |
-|---|---|
-| `streamOneTurn` happy path | ✅ every case |
-| `executeToolUses` normal dispatch | ✅ every tool-using case |
-| `recordGateToolUses` | ✅ every edit case |
-| `maybeInjectCompletionGate` | ✅ search-then-edit-multi-file (bonus discovery) |
-| `accountToolTokens` | ✅ every case |
-| `applyStubCheck` | ✅ no-stub-in-write (indirect) |
-| Plan-mode short-circuit | ✅ plan-mode-no-tools |
-| `finalize` / next-step suggestions | ✅ every case |
-| `applyAutoFix` | ❌ needs `languages.getDiagnostics` mock (deferred) |
-| `applyCritic` | ❌ disabled by default (deferred) |
-| Burst cap / cycle detection / sub-agent / compression exhaustion | ❌ hard to trigger reliably |
+| Path                                                             | Coverage                                            |
+| ---------------------------------------------------------------- | --------------------------------------------------- |
+| `streamOneTurn` happy path                                       | ✅ every case                                       |
+| `executeToolUses` normal dispatch                                | ✅ every tool-using case                            |
+| `recordGateToolUses`                                             | ✅ every edit case                                  |
+| `maybeInjectCompletionGate`                                      | ✅ search-then-edit-multi-file (bonus discovery)    |
+| `accountToolTokens`                                              | ✅ every case                                       |
+| `applyStubCheck`                                                 | ✅ no-stub-in-write (indirect)                      |
+| Plan-mode short-circuit                                          | ✅ plan-mode-no-tools                               |
+| `finalize` / next-step suggestions                               | ✅ every case                                       |
+| `applyAutoFix`                                                   | ❌ needs `languages.getDiagnostics` mock (deferred) |
+| `applyCritic`                                                    | ❌ disabled by default (deferred)                   |
+| Burst cap / cycle detection / sub-agent / compression exhaustion | ❌ hard to trigger reliably                         |
 
 ### Engineering discipline
 
@@ -2363,7 +2882,7 @@ Patch release. No behavior changes for the shipping agent flow — cosmetic, doc
   - `agent.eval.ts` — vitest runner, mirrors `prompt.eval.ts`. Skips cleanly via `describe.skipIf` when no backend is available.
   - Architectural finding: `runAgentLoop` does NOT require `ChatState`. All the UI plumbing (`PendingEditStore`, `SkillLoader`, `AgentMemory`, `WorkspaceIndex`) lives on `ChatState` and is optional for headless execution. The agent core takes `(client, messages, callbacks, signal, options)` — clean separation. This finding unblocks future headless automation and makes subsequent refactors of the loop itself safer.
   - Run via `npm run eval:llm` — same entry point as the prompt layer. End-to-end verification: all 3 agent cases pass against local Ollama (qwen3-coder:30b) in ~32s. Main unit suite (1798 tests) unchanged.
-  - Closes the cycle-2 ai-engineering HIGH finding: *"No evaluation harness for LLM behavior."*
+  - Closes the cycle-2 ai-engineering HIGH finding: _"No evaluation harness for LLM behavior."_
 
 ## [0.49.0] - 2026-04-14
 
@@ -2390,7 +2909,7 @@ Cost-control and user-experience pass plus a cycle-2 audit burn-down. Headline i
 
 ### Fixed — security
 
-- **Terminal-error prompt-injection gap** (cycle-2 LLM surface HIGH) — `diagnoseTerminalError` was synthesizing a user message containing raw captured stderr inside a markdown code block, bypassing the tool-output injection scanner entirely (which only runs on tool *results*, not synthesized user messages). A hostile Makefile or npm script emitting stderr like `[SYSTEM] Ignore previous instructions` landed verbatim as trusted user input. New [`wrapUntrustedTerminalOutput`](src/agent/injectionScanner.ts) helper runs the same 6-pattern `scanToolOutput` on captured output and wraps it in an explicit `<terminal_output source="stderr" trust="untrusted">` envelope with a SIDECAR SECURITY NOTICE banner prepended when patterns match. 5 new regression tests.
+- **Terminal-error prompt-injection gap** (cycle-2 LLM surface HIGH) — `diagnoseTerminalError` was synthesizing a user message containing raw captured stderr inside a markdown code block, bypassing the tool-output injection scanner entirely (which only runs on tool _results_, not synthesized user messages). A hostile Makefile or npm script emitting stderr like `[SYSTEM] Ignore previous instructions` landed verbatim as trusted user input. New [`wrapUntrustedTerminalOutput`](src/agent/injectionScanner.ts) helper runs the same 6-pattern `scanToolOutput` on captured output and wraps it in an explicit `<terminal_output source="stderr" trust="untrusted">` envelope with a SIDECAR SECURITY NOTICE banner prepended when patterns match. 5 new regression tests.
 - **Skill description DOM-clobber** (cycle-2 security MEDIUM) — [chat.js attach menu](media/chat.js) was building `item.innerHTML = '<strong>/' + skill.id + '</strong>' + skill.description`, which let user-authored skill frontmatter (potentially hostile in cloned repos) smuggle markup past CSP via DOM-level attribute injection. Replaced with `createElement` + `textContent` like the rest of the webview already does.
 - **Shell output ANSI strip on the streaming path** (cycle-2 security MEDIUM) — `ShellSession.executeInternal` already stripped the final `output` buffer but passed streaming chunks raw to `onOutput`, where they flowed into the webview's `textContent +=` and displayed as garbage `^[[31m` sequences, bloating the tool-call detail pane. The wrapper now applies `stripAnsi` to each chunk at source, so one place gives one guarantee.
 - **`switchBackend` runtime type guard** (cycle-2 UX LOW) — [`sidecar.switchBackend`](src/extension.ts) command type-narrows `profileId` via `typeof profileId === 'string'` before the `BUILT_IN_BACKEND_PROFILES.find(...)` lookup. A stray non-string from a markdown-hover link or a foreign postMessage no longer silently drops through to the picker.
@@ -2513,6 +3032,7 @@ Large native-feel pass plus cost-control and hybrid-delegation work for paid bac
 - **`/init` overwrite of SIDECAR.md no longer leaves stale editor content.** Now routes through `WorkspaceEdit.replace` against the full document range + `doc.save()` so VS Code's in-memory document stays in sync with disk.
 
 ### Stats
+
 - 1630 total tests (107 test files, 171 new since v0.46.0)
 - 23 built-in tools (22 core + conditional `delegate_task` on paid backends), 8 skills
 - 14 new native VS Code integration surfaces
@@ -2548,22 +3068,26 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 - **Cycle detection loosened for length-1 patterns.** Requires 4 consecutive identical tool calls to trip, up from 2, so agents can legitimately re-run a tool to verify after edits or retry tests after fixes without getting cut off. Length 2..4 cycle detection is unchanged (two full cycles still bails out, since A,B,A,B is a much clearer loop signal).
 
 ### Stats
+
 - 1459 total tests (97 test files, 194 new since v0.45.0)
 - 22 built-in tools, 8 skills
 
 ## [0.45.0] - 2026-04-11
 
 ### Added
+
 - **Terminal error interception** — SideCar watches the integrated terminal via `onDidStartTerminalShellExecution` / `onDidEndTerminalShellExecution`. On a non-zero exit it captures the command line, exit code, working directory, and ANSI-stripped tail of the output, then offers a **Diagnose in chat** notification that synthesizes a prompt and runs the agent against the failure. Dedupes identical commands within a 30s cooldown, skips SideCar's own terminal, and silently no-ops when shell integration isn't available. Toggle with `sidecar.terminalErrorInterception` (default on).
 - **Reasoning timeline** — agent reasoning is now segmented into discrete steps. Each thinking block closes out when a tool call starts, so consecutive reasoning/tool-call cycles render as separate numbered segments (purple pills for reasoning, blue for tools) with per-step duration badges.
 - **Customizable chat UI themes** — three new live-updating settings: `sidecar.chatDensity` (compact/normal/comfortable), `sidecar.chatFontSize` (10–22), and `sidecar.chatAccentColor`. Applied as CSS custom properties via a new `uiSettings` message and re-pushed when settings change — no reload required. Accent color values pass through an allowlist validator (hex, `rgb(a)`, `hsl(a)`, small named-color set) so settings strings can't smuggle other CSS properties.
 - **Message list virtualization** — long chat sessions (200+ messages) now detach the inner DOM of offscreen text messages via two `IntersectionObserver` instances, preserving pixel height via inline style. Messages rehydrate from stored raw markdown when scrolled back into view. Rich widgets (audit cards, diffs, mermaid diagrams, confirmation panels) stay fully mounted.
 
 ### Fixed
+
 - **Streaming tool-call interception** — qwen3-coder and other models that emit `<function=name><parameter=...>...</parameter></function>` or `<tool_call>{...}</tool_call>` in plain text no longer leak the raw XML into the chat bubble. A new streaming parser in `streamUtils.ts` normalizes these at the Ollama and OpenAI backend boundaries, emitting structured `tool_use` events instead of `text`. Handles chunk-boundary partial markers, unknown tool names (fall through as text), and unclosed blocks (recovered at stream end). Applies to both `OllamaBackend` and `OpenAIBackend` streams.
 - **Incremental markdown finish** — `finishAssistantMessage` no longer wipes the DOM and re-parses the entire message. It now appends only the slice streaming didn't render, preserving code blocks, lists, and headings built during streaming. Removes an O(N) re-parse on every assistant message finish.
 
 ### Stats
+
 - 1265 total tests (90 test files, 17 new)
 - 22 built-in tools, 8 skills
 
@@ -2572,15 +3096,18 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 ## [0.44.0] - 2026-04-11
 
 ### Added
+
 - **Custom agent modes** — define your own modes via `sidecar.customModes` with dedicated system prompts, approval behavior (autonomous/cautious/manual), and per-tool permissions. Custom modes appear in the dropdown alongside the built-in modes.
 - **Background agent orchestration** — `/bg <task>` spawns autonomous agents that run independently with their own client and message history. Up to 3 concurrent (configurable via `sidecar.bgMaxConcurrent`), with a collapsible dashboard panel showing status, live output, and stop controls. Completion summaries posted to the main chat.
 - **`SideCar: Set API Key (SecretStorage)` command** — interactive password prompt for setting API keys in VS Code SecretStorage. Plaintext values from settings.json auto-migrate on activation.
 - **Self-knowledge prompt rule** — system prompt now includes Rule 0 telling the model to answer identity questions (version, name, project root) directly from the prompt instead of reading package.json.
 
 ### Security
+
 - **API keys moved to SecretStorage** — `sidecar.apiKey` and `sidecar.fallbackApiKey` are now stored in VS Code's SecretStorage (OS keychain). Plaintext values are migrated automatically on first activation. Settings sync no longer pushes keys to other devices.
 
 ### Fixed
+
 - **5 architecture audit items** — `executeTool` refactored from 10 positional params to an `ExecuteToolOptions` object; MCP tool errors now include server name + tool name + input context; error classifier expanded with `rate_limit` (429), `server_error` (5xx, overloaded), `content_policy`, and `token_limit` types; pre-hook failures now block tool execution (return error tool_result); custom tool registry cached with JSON snapshot key.
 - **Cycle detection** — expanded window from 4 to 8, now detects repeating patterns of length 1–4 (catches A,A,A,A and A,B,C,A,B,C, not just A,B,A,B).
 - **File content cache invalidation** — file watcher now evicts cached content on change/delete events instead of waiting for the 5-min TTL.
@@ -2592,27 +3119,32 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 - **Stopped tracking `.sidecar/memory/agent-memories.json`** — runtime LRU state was polluting every commit with thousands of unrelated diff lines.
 
 ### Stats
+
 - 1234 total tests (89 test files)
 - 22 built-in tools, 8 skills
 
 ## [0.43.0] - 2026-04-11
 
 ### Added
+
 - **Conversation steering** — chat input stays enabled during agent processing. Send a new message to redirect the agent mid-run, or press Escape to abort. The Send button dynamically switches to "Stop" when the input is empty.
 - **`/init` refinements** — confirmation dialog before overwriting existing SIDECAR.md; improved system prompt for higher-quality output (unique value prop, architecture patterns, 120-line cap); entry-point priority sampling with directory diversity; reads CLAUDE.md, AGENTS.md, and copilot-instructions.md if they exist.
 - **Model list search** — search/filter input at the top of the model picker panel, auto-focused on open.
 
 ### Fixed
+
 - **UX/UI audit** (6 items) — touch targets enlarged (scroll-to-bottom 36px, header buttons 32px min, image remove 24px); spacing normalized to 8pt grid; minimum font size raised from 10px to 11px; panel overlays use relative positioning instead of hardcoded `top: 42px`; close buttons got padding and hover backgrounds.
 - **Prompt engineering audit** (7 items) — summarization truncation increased to 200/300 chars with word-boundary-aware `smartTruncate()`; context sections labeled with `## Project Documentation / Agent Memory / Workspace Context` headers; `spawn_agent` description enriched with good/bad examples; `run_command` clarifies `command`/`command_id` mutual exclusivity; inline examples added to `search_files`, `grep`, `run_command`; `enum` constraints on `git_branch` and `git_stash` action params; sub-agent recursion capped at MAX_AGENT_DEPTH=3.
 
 ### Stats
+
 - 1234 total tests (89 test files)
 - 22 built-in tools, 8 skills
 
 ## [0.42.0] - 2026-04-10
 
 ### Added
+
 - **Semantic search** — ONNX embedding index using all-MiniLM-L6-v2 (384-dim, ~23MB). File content is embedded and searched by cosine similarity, blended with heuristic scores. Queries like "authentication logic" now find `src/auth/jwt.ts` even without keyword matches.
 - **Stub validator** — post-generation scanner detects placeholder patterns (TODO, "real implementation", "for now", pass-only bodies) in agent-written code and auto-reprompts the model to finish the implementation.
 - **Streaming diff preview** — file writes in cautious mode open VS Code's diff editor with dual accept/reject UI: notification in the editor + confirmation card in chat. First click wins.
@@ -2621,21 +3153,25 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 - **VS Code integration test infrastructure** — `@vscode/test-electron` + `@vscode/test-cli` with 32 integration tests running inside a real VS Code instance.
 
 ### Fixed
+
 - **Message persistence** — `serializeContent()` replaces `getContentText()` for session saves, preserving tool_use, tool_result, and thinking blocks. Messages no longer drop when switching chats.
 - **Recency bias** — topic-change detection resets workspace file scores when keyword overlap < 15%; agent memory session cap at 2; conversation summarizer keeps 2 recent turns (was 4); pending question threshold tightened to 8 words.
 - **Plan mode UI** — accept/reject/revise buttons now attach directly to the streamed assistant message instead of creating a duplicate plan block.
 
 ### Changed
+
 - `handleUserMessage` decomposed into `buildBaseSystemPrompt()`, `injectSystemContext()`, `enrichAndPruneMessages()`, `postLoopProcessing()` for maintainability.
 - System prompt adds anti-stub rule and topic-focus rule for better model output quality.
 
 ### Stats
+
 - 1227 unit tests + 32 integration tests (88 test files, coverage 62.1%)
 - 22 built-in tools, 8 skills
 
 ## [0.41.0] - 2026-04-10
 
 ### Added
+
 - **Agent action audit log** — every tool execution recorded as structured JSONL in `.sidecar/logs/audit.jsonl` with timestamp, tool name, input, result (500 char), duration, iteration, session, model, and approval mode
 - **`/audit` command** — browse audit log with filters: `/audit errors`, `/audit tool:grep`, `/audit last:20`, `/audit since:2026-04-01`, `/audit clear`
 - **"Why?" button on tool calls** — hover any completed tool card to see a "Why?" button; click for on-demand model explanation of the tool decision (2-3 sentences)
@@ -2653,6 +3189,7 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 - `AgentMemory.queryAll()` — return all stored memories for analytics/export
 
 ### Changed
+
 - `MCPServerConfig` extended with `type`, `url`, `headers`, `tools`, and `maxResultChars` fields
 - MCP connection startup now merges configs from VS Code settings and `.mcp.json` in parallel
 - MCP `Client` version bumped from `0.4.0` to `0.40.0`
@@ -2661,6 +3198,7 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 ## [0.40.0] - 2026-04-10
 
 ### Added
+
 - **Symbol graph: call site tracking** — indexes which functions call which, with caller file, name, and line number. New `getCallers()`, `getCallsInFile()` query methods
 - **Symbol graph: type relationships** — tracks `extends`/`implements` edges for classes and interfaces. New `getSubtypes()`, `getSupertypes()`, `getTypeEdgesInFile()` query methods
 - **Symbol context enrichment** — `getSymbolContext()` now includes "Called by", "Extends/implements", and "Subtypes" sections for LLM prompt injection
@@ -2672,6 +3210,7 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 - **Agent memory: co-occurrence scoring** — `getToolCooccurrences()` and `suggestNextTools()` recommend likely next tools based on past chain history
 
 ### Fixed
+
 - Agent memory `recordUse()` now called automatically when `search()` returns results — use counts reflect real retrieval
 - Agent memory eviction no longer uses unused `_minUseCount` variable
 - Mermaid diagram rendering error (`window.mermaid.initialize is not a function`) caused by ESM-bundled mermaid exporting API under `.default`
@@ -2679,12 +3218,14 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 - Anti-preamble prompt rule promoted to CRITICAL block for stronger model compliance
 
 ### Changed
+
 - Symbol graph persistence format bumped to version 2 (includes calls and type edges)
 - System prompt anti-repetition instructions moved above numbered rules for higher model attention
 
 ## [0.39.0] - 2026-04-10
 
 ### Added
+
 - **`ask_user` clarification tool**: LLM can present users with selectable options or custom text input when it needs more context. New `clarify` webview card with option buttons and free-text input
 - **Pending question tracking**: when the assistant asks a question in prose, the next short user reply is automatically contextualized as a response
 - **Kickstand rebrand**: LLMManager renamed to Kickstand across all source, config, and docs. Provider `kickstand`, CLI `kick`, token path `~/.config/kickstand/token`
@@ -2692,6 +3233,7 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 - **Version bump automation**: `npm run bump 0.X.0 "summary"` auto-updates package.json, CHANGELOG, ROADMAP, README, docs, and landing page stats
 
 ### Security
+
 - Path traversal validation on `@file:` and `@folder:` references
 - Default `confirmFn` changed from auto-approve to deny
 - Workspace trust warnings for tool permissions and MCP server configs
@@ -2701,6 +3243,7 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 - CSP `connect-src` tightened to specific Ollama/Kickstand ports
 
 ### Performance
+
 - Provider reachability timeout 5s → 1.5s
 - Streaming text batched at 50ms intervals (~60% fewer postMessage calls)
 - `scrollToBottom` throttled to `requestAnimationFrame`
@@ -2709,27 +3252,32 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 - Token estimation standardized to `CHARS_PER_TOKEN = 4` (was inconsistent 3.5 vs 4)
 
 ### Fixed
+
 - Mermaid diagrams: sanitizer now allows `<style>` tags, `securityLevel` set to `loose`, added error logging
 - Provider reachability missing `kickstand` case
 - Install-time tool check was using empty runtime data instead of static list
 
 ### Refactored
+
 - Extracted `workspaceTrust.ts`, `providerReachability.ts`, `constants.ts` — eliminated 3 duplicated patterns
 - Path validation and display name helpers extracted
 
 ### Stats
+
 - 879 total tests (66 test files)
 - 22 built-in tools, 7 skills
 
 ## [0.38.0] - 2026-04-09
 
 ### Added
+
 - **Retrieval-Augmented Generation (RAG)**: automatic discovery and keyword-based indexing of README, docs/, wiki/ folders. Relevant documentation sections injected into system prompt for every message. Configurable max entries per query and auto-refresh interval
 - **Large file & monorepo handling**: streaming file reader with head+tail summary mode for files >50KB threshold. Lazy indexing for slow/large directories with progress tracking. Depth-limited traversal to prevent context bloat. Multi-root workspace support via `sidecar.workspaceRoots` setting. Configurable file size and traversal depth limits
 - **Agent memory (persistent learning)**: JSON-based memory storage in `.sidecar/memory/agent-memories.json`. Tracks patterns (successful tool uses), decisions, and conventions with use-count/relevance scoring. Per-message search and context injection. Automatic recording during agent runs. LRU eviction when limit is reached (default 500 entries)
 - **Configuration**: 8 new settings: `enableDocumentationRAG`, `ragMaxDocEntries`, `ragUpdateIntervalMinutes`, `enableAgentMemory`, `agentMemoryMaxEntries`, `fileSizeThreshold`, `maxTraversalDepth`, `workspaceRoots`
 
 ### Tests
+
 - **Comprehensive executor tests**: expanded test coverage for tools.ts executor implementations with 115 focused tests covering file I/O, error handling, and tool execution flows. Coverage improved from 26.34% to 64.58%
 - **RAG & memory tests**: 21 new tests for DocumentationIndexer and AgentMemory with persistence validation
 - 871 total tests (up from 848)
@@ -2737,6 +3285,7 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 ## [0.37.0] - 2026-04-09
 
 ### Added
+
 - **Streaming diff preview**: live diff editor for file changes in cautious mode with session-based Accept/Reject flow via inline confirmation cards
 - **Plan mode**: `/plan` command toggles plan-first execution. Agent generates a structured plan (numbered steps, risks, scope) before touching files. Execute, Revise, or Reject buttons on plan output
 - **Context compaction button**: `/compact` command and ✂ header button to manually trigger conversation summarization and free tokens on demand
@@ -2749,16 +3298,19 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 - **`/revise` command**: inline plan revision via chat input instead of `window.prompt()` dialog
 
 ### Changed
+
 - **Attach button**: changed from single-action file picker to context menu with file attach + skills browser
 - **Plan revision UX**: Revise button focuses chat input with `/revise ` prefix instead of `window.prompt()`
 - **README**: updated competitive comparison with two tables (vs. Local Extensions, vs. Pro Tools) reflecting all v0.36.0+ features
 
 ### Tests
+
 - 506 total tests (maintained)
 
 ## [0.36.0] - 2026-04-09
 
 ### Added
+
 - **Tree-sitter AST parsing**: proper syntax-aware code analysis for TypeScript, TSX, JavaScript, Python, Rust, and Go via `web-tree-sitter` WASM runtime. Replaces regex-based parsing with accurate scope analysis, nested structure support, and syntax-aware element extraction. Falls back to regex parser if WASM loading fails
 - **Built-in web search**: `web_search` tool lets the agent search the internet via DuckDuckGo (no API key needed). Returns up to 8 results with titles, URLs, and snippets. Checks internet connectivity on first use with clear offline warning
 - **CodeAnalyzer abstraction**: new `CodeAnalyzer` interface with registry that dispatches to tree-sitter or regex analyzer per language. Consumers (`workspaceIndex`, `symbolIndexer`, `context`) use the registry transparently
@@ -2766,40 +3318,47 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 - **Anthropic output capacity**: `max_tokens` raised from 4096 to 8192, unlocking full Claude output capacity
 
 ### Fixed
+
 - **OpenAI tool call ID collision**: replaced `Date.now()` with monotonic counter to prevent ID collisions when multiple tool calls flush in the same millisecond
 - **edit_file search description**: now specifies uniqueness requirement and first-match-only behavior to prevent silent wrong-location edits
 
 ### Tests
+
 - 506 total tests (maintained)
 
 ## [0.35.0] - 2026-04-09
 
 ### Security
+
 - **readFile path traversal fix**: `read_file` tool now validates paths with `validateFilePath()`, blocking `../` traversal and absolute paths. Previously only `write_file` and `edit_file` had this protection
 - **Sensitive file blocklist**: files matching `.env`, `.pem`, `.key`, `credentials.json`, `secrets.yaml`, and 12 other patterns are blocked from being read into LLM context
 - **Workspace hook warning**: hooks defined in workspace-level `.vscode/settings.json` now trigger a one-time trust prompt before executing, protecting against supply-chain attacks via malicious repositories
 - **Prompt injection sandbox**: SIDECAR.md, user system prompts, and skill content are now wrapped with a boundary instruction stating they cannot override core safety rules or tool approval requirements
 
 ### Fixed
+
 - **Local model tool reliability**: system prompt for local models now includes a 4-step few-shot example (read → edit → diagnostics → fix), significantly improving tool call reliability for Ollama users
 - **MCPManager process leak**: MCP manager now added to `context.subscriptions` so child processes are properly cleaned up on extension deactivate
 - **Conversation summary API rejection**: summary insertion now includes an assistant acknowledgment message after the summary, preventing consecutive user messages that Anthropic API rejects
 - **Sub-agent system prompt corruption**: sub-agents now save and restore the parent's system prompt in a `finally` block, with a dedicated sub-agent role instruction
 - **Concurrent agent message race**: aborting a previous agent run now bumps `chatGeneration`, so the stale run's post-loop merge is discarded instead of corrupting `state.messages`
-- **Mermaid diagram rendering hang**: diagrams no longer render twice (dedup guard), mermaid.js preloads when ```` ```mermaid ```` fence opens, detached containers skip rendering
+- **Mermaid diagram rendering hang**: diagrams no longer render twice (dedup guard), mermaid.js preloads when ` ```mermaid ` fence opens, detached containers skip rendering
 
 ### Accessibility
+
 - **Keyboard navigation**: global `:focus-visible` outline style for all interactive elements
 - **Model picker button**: changed from `<span>` to semantic `<button>` with `aria-haspopup`, `aria-expanded`, and `aria-label`
 - **ARIA roles**: model panel and sessions panel (`role="dialog"`), messages container (`role="log"` with `aria-live="polite"`), slash autocomplete (`role="listbox"`), agent mode select (`aria-label`)
 - **Light theme support**: hardcoded `rgba(255,255,255,0.1)` hover states and edit block colors replaced with VS Code theme variables (`--vscode-toolbar-hoverBackground`, `--vscode-diffEditor-*`)
 
 ### Tests
+
 - 506 total tests (maintained)
 
 ## [0.34.0] - 2026-04-09
 
 ### Added
+
 - **Spending budgets**: new `sidecar.dailyBudget` and `sidecar.weeklyBudget` settings (USD). Agent runs are blocked when the limit is reached, with a warning at 80% usage. Completes the cost tracking & budgets roadmap item
 - **Per-run cost tracking**: each agent run now records its estimated cost in metrics history. `/usage` dashboard shows per-run cost column and a new Budget Status section with spent/limit/remaining
 - **Kickstand provider support**: `kickstand` added as an explicit provider option alongside ollama/anthropic/openai
@@ -2807,6 +3366,7 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 - **Streaming diff preview types**: added `StreamingDiffPreviewFn`, `EditBlock`, and `ProposedContentProvider` type infrastructure for upcoming streaming diff feature
 
 ### Fixed
+
 - **Token compaction not triggering**: agent loop `totalChars` was initialized to 0 instead of summing existing conversation history, so the 70% compression threshold never fired for accumulated context
 - **Pruned messages re-added**: after `pruneHistory` reduced the message array, the post-loop merge used the pruned length to slice `state.messages`, re-adding the very messages that pruning had removed
 - **Model discovery hardcoded ports**: `discoverAllAvailableModels()` now accepts configurable URLs for both Ollama and Kickstand instead of hardcoding `localhost:11434` and `localhost:11435`
@@ -2814,14 +3374,17 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 - **TypeScript type errors**: added missing imports for `EditBlock`, `ProposedContentProvider` in executor.ts and `StreamingDiffPreviewFn` in loop.ts — zero type errors now
 
 ### Changed
+
 - **`vsce` packaging**: `package` script now uses `npx @vscode/vsce package` instead of bare `vsce`
 
 ### Tests
+
 - 506 total tests (up from 465)
 
 ## [0.33.0] - 2026-04-09
 
 ### Documentation
+
 - **Roadmap cleanup**: marked 7 previously-completed features as COMPLETED with version numbers (Context pinning v0.27.0, Web page context v0.21.0, Onboarding walkthrough v0.22.0, Auto-fix on failure v0.20.0, and 3 others as PARTIALLY COMPLETED)
 - **Expanded roadmap**: added 8 new planned feature categories:
   - Tool Discovery & Management: tool registries, versioning, dynamic loading
@@ -2834,17 +3397,20 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
   - Enterprise & Team: configuration sharing, privacy guarantees
 
 ### Tests
+
 - 465 total tests (maintained)
 
 ## [0.32.0] - 2026-04-08
 
 ### Added
+
 - **`display_diagram` tool**: agent can extract and display diagrams from markdown files, preserving the original diagram type (mermaid, graphviz, plantuml, dot)
 - **`sidecar.contextLimit` setting**: user-configurable context token limit for local models (0 = auto-detect with 16K default cap). Increase if you have enough VRAM for longer conversations
 - **Adaptive context pruning**: conversation history is now compressed even within a single turn when over budget — the latest turn's tool results and text are progressively truncated instead of blowing past the context window
 - **Ollama `num_ctx` detection**: reads the actual runtime `num_ctx` from Ollama's model parameters instead of only trusting the model's advertised (often inflated) context length
 
 ### Fixed
+
 - **Context overflow on small models**: local model context cap raised from 8K to 16K tokens; pruning budget floor now scales with context window instead of fixed 20K char minimum that prevented pruning on small models
 - **Token warning undercounting**: context overflow warning now includes the system prompt in its estimate, not just conversation history
 - **SVG XSS hardening**: mermaid diagram output is now sanitized (script tags, event handlers, style tags stripped) before innerHTML injection
@@ -2853,40 +3419,48 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 - **Co-author trailer**: commits now tag the SideCarAI-Bot GitHub account (`274544454+SideCarAI-Bot@users.noreply.github.com`) so SideCar appears as a contributor
 
 ### Changed
+
 - **`agentMaxIterations` default**: increased from 25 to 50 to support longer agentic sessions
 
 ### Tests
+
 - 465 total tests (up from 464)
 - New test: `pruneHistory` compresses latest turn when over budget after dropping old turns
 
 ## [0.31.0] - 2026-04-08
 
 ### Added
+
 - **Mermaid diagram rendering**: models can now generate diagrams in markdown mermaid code blocks. Chat displays diagrams natively with syntax highlighting, diagram source collapsible view, and copy-to-clipboard for SVG output. Lazy-loads mermaid.js on first diagram to minimize bundle size impact
 - **Diagram block styling**: dedicated CSS for diagram containers with theme-aware background, border, and padding. Header shows "Diagram" label with Copy SVG button
 
 ### Tests
+
 - 464 total tests (maintained)
 
 ## [0.30.1] - 2026-04-08
 
 ### Added
+
 - **Configurable message ceiling**: new `sidecar.agentMaxMessages` setting (default 25, range 5-100) lets users tune message limit before agent wraps up. Agent loop now tracks and reports remaining message capacity each iteration
 - **Backend fallback unit tests**: 2 new tests verifying consecutive failure counting and counter reset behavior
 - **Dual-stage context compression**: conversation summarization + semantic tool result extraction for extended agent loops (30+ iterations vs 18-20 previously)
 
 ### Fixed
+
 - **Model action button memory leak**: model list buttons now use event delegation instead of per-button listeners capturing model objects
 - **Image upload preview button leak**: image remove buttons now use event delegation instead of capturing loop variable in closure
 - **GitHub Pages styling**: corrected Jekyll CSS path from absolute to relative so `relative_url` filter properly applies `/sidecar` baseurl
 - **Marketplace messaging**: clarified that SideCar is an autonomous AI agent, not just a chat client — updated README tagline and package.json description
 
 ### Tests
+
 - 464 total tests (up from 462)
 
 ## [0.30.0] - 2026-04-08
 
 ### Added
+
 - **Kickstand backend support**: connect to Kickstand inference server on `http://localhost:11435` with automatic token loading from `~/.config/kickstand/token`. Full streaming, tool use, and fallback support
 - **Claude Code skill compatibility**: load and use existing Claude Code skills directly — no format conversion needed. Scans `~/.claude/commands/`, `<workspace>/.claude/commands/`, and `.sidecar/skills/` for markdown skill files. Trigger via `/skill-name` slash command or automatic keyword matching. New `/skills` command lists all loaded skills
 - **Backend fallback**: configure a secondary provider via `sidecar.fallbackBaseUrl`, `sidecar.fallbackApiKey`, `sidecar.fallbackModel`. After 2 consecutive failures on the primary, SideCar auto-switches to fallback with a warning. Switches back on success
@@ -2894,21 +3468,25 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 - **Redesigned landing page**: new standalone landing page with terminal mockup, feature comparison table, stat strip, and quickstart guide
 
 ### Fixed
+
 - **Code block button memory leak**: Run/Save/Copy buttons now use event delegation with `data-action` attributes instead of per-button listeners that captured code in closures
 - **Repetitive model responses**: added anti-repetition rules to system prompts ("NEVER repeat information", "no lists unless asked", "only add new info after tool calls")
 - **Marketplace publish blocking releases**: publish step now uses `continue-on-error` so re-runs can create the GitHub Release even if the VSIX was already published
 
 ### Performance
+
 - **parseThinkTags**: index tracking instead of string slicing — eliminates intermediate string allocations
 - **parseTextToolCalls**: consolidated 3 sequential regex passes into single combined regex with priority tracking
 - **OpenAI backend stream tests**: 6 new tests for SSE parsing, malformed JSON, partial chunks, think tags, error responses
 
 ### Tests
+
 - 403 total tests
 
 ## [0.29.0] - 2026-04-08
 
 ### Added
+
 - **`.sidecar/` project directory**: persistent project storage for cache, logs, sessions, plans, memory, and scratchpad. Auto-generates `.gitignore` for ephemeral subdirs. `SIDECAR.md` is now loaded from `.sidecar/SIDECAR.md` first with fallback to root
 - **Agent loop cycle detection**: tracks the last 4 tool call signatures and halts if the model repeats the same call consecutively — prevents infinite loops
 - **`sidecar.agentTemperature` setting**: task-specific temperature (default 0.2) applied when tools are present. Lower values produce more deterministic tool selection across all three backends
@@ -2919,6 +3497,7 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 - **Support & Contact section**: email (sidecarai.vscode@gmail.com) and links in README and package.json
 
 ### Fixed
+
 - **Typing indicator persists after response**: `showTypingIndicator()` now removes any existing indicator before creating a new one; `setLoading: false` sent in `finally` block as safety net
 - **Resource leaks on extension deactivate**: dispose `sidecarMdWatcher` file watchers, abort running agent loops, clear pending confirmations, shell session SIGTERM → SIGKILL with 3s timeout
 - **Inconsistent error messages**: all three backends now prefix errors with service name (Ollama/OpenAI/Anthropic) and use consistent `request failed: {status} {statusText}` format
@@ -2927,12 +3506,14 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 - **Dead code**: removed unused `SmartWorkspaceIndex` stub and its imports
 
 ### Changed
+
 - **System prompts restructured**: numbered rules for clearer instruction following; positive instructions ("Read files before editing") instead of negative; multi-step task guidance for cloud models
 - **Context injection reordered**: pinned files and relevant content come before the workspace tree — high-value context gets priority in limited context windows. Tree is appended last and truncated if budget is tight
 - **Race condition fix**: abort previous agent run BEFORE pushing new user message to prevent concurrent reads/writes on the messages array
 - **Config validation**: `clampMin()` helper validates all numeric settings; empty model/URL fall back to defaults
 
 ### Performance
+
 - **`parseFileContent` language branching**: detect language once, test only relevant regex patterns per line — O(L×P) → O(L×1)
 - **Partial sort in `getRelevantContext`**: filter relevant files first, sort only those instead of full O(n log n) sort
 - **Pre-built pinned file Set**: O(1) lookups instead of O(p×f) filter per pinned path
@@ -2943,27 +3524,32 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 - **Workspace excludes**: added `coverage/`, `build/`, `.turbo`, `.cache` to prevent generated files in context
 
 ### Tests
+
 - 397 total tests (370 → 397)
 - New: streamUtils (parseThinkTags, toFunctionTools), config validation (clampMin), agent loop (timeout, normal completion, empty response), pruneHistory aliasing regression, Ollama backend stream errors (malformed JSON, partial chunks, cross-chunk think tags, empty body, unclosed think tags)
 
 ## [0.28.1] - 2026-04-07
 
 ### Fixed
+
 - **User message dropped by history pruning**: `pruneHistory()` returns the same array reference when short-circuiting (≤2 messages), so the subsequent `chatMessages.length = 0; chatMessages.push(...prunedMessages)` cleared both arrays — silently dropping the user's message. The model received only a system prompt with no question, returning empty content. Fixed by copying the pruned array before clearing
 - **Workspace context exceeding model capacity**: the workspace index injected up to 20K chars of file content into the system prompt regardless of the model's context window, causing local models to return empty responses or extreme latency. Added a context cap for local models (8K tokens) and tool overhead reservation (10K chars) to keep total prompt size manageable
 - **No request timeout**: agent loop requests had no timeout — if the model hung (loading, oversized prompt, connection stall), SideCar would wait forever. Added per-request timeout using `Promise.race` on each stream event, defaulting to 120 seconds
 
 ### Added
+
 - **`sidecar.requestTimeout` setting**: configurable timeout in seconds for each LLM request (default: 120). If no tokens arrive within this window, the request is aborted with a user-friendly message. Set to 0 to disable
 - **`abortableRead` stream helper**: races `reader.read()` against the abort signal so stream body reading can be cancelled — `fetch` only controls the initial request, not ongoing body reads
 
 ### Changed
+
 - **Local model context cap**: local models now cap at 8K tokens for context budget calculations instead of trusting the model's advertised context length (e.g. qwen3-coder reports 262K but Ollama's actual `num_ctx` is much smaller)
 - **Workspace context budget enforcement**: indexed and glob-based workspace context is now truncated to the remaining system prompt budget, preventing it from exceeding `maxSystemChars`
 
 ## [0.28.0] - 2026-04-07
 
 ### Added
+
 - **OpenAI-compatible API backend**: works with any server exposing `/v1/chat/completions` — LM Studio, vLLM, llama.cpp, text-generation-webui, OpenRouter, and more. SSE streaming, incremental tool call accumulation, `<think>` tag parsing, and `/v1/models` listing. Set `sidecar.baseUrl` to your server and SideCar auto-detects the protocol
 - **`sidecar.provider` setting**: explicit provider selection (`auto`, `ollama`, `anthropic`, `openai`) when auto-detection doesn't match your setup
 - **Context pinning**: `@pin:path` syntax in chat and `sidecar.pinnedContext` array setting to always include specific files or folders in context regardless of relevance scoring. Supports folder pinning (includes all files under the prefix)
@@ -2977,11 +3563,13 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 - **Troubleshooting docs**: "Slow model loading" section with macOS Launch Agent setup instructions for pre-warming models at startup
 
 ### Changed
+
 - **Three-way backend dispatch**: `SideCarClient.createBackend()` now uses `detectProvider()` with Ollama, Anthropic, and OpenAI backends instead of a binary Ollama/Anthropic check. Non-Ollama, non-Anthropic URLs now default to OpenAI-compatible instead of Anthropic
 - **Reachability checks**: both `chatHandlers` and `modelHandlers` use provider-aware endpoint checks (`/api/tags` for Ollama, base URL for Anthropic, `/v1/models` for OpenAI)
 - **Model listing**: `listInstalledModels()` uses `GET /v1/models` for OpenAI backends; `listLibraryModels()` skips Ollama library suggestions for non-Ollama providers
 
 ### Tests
+
 - 370 total tests (287 → 370)
 - New test files: metrics, logger, debounce, parser, apply, git, workspace
 - Updated: settings (provider, isAnthropic, detectProvider), workspaceIndex (pinning)
@@ -2990,12 +3578,14 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 ## [0.27.0] - 2026-04-07
 
 ### Added
+
 - **Model pre-warm**: on activation, SideCar sends an empty request to Ollama to load the configured model into memory, eliminating the cold-start delay on the first chat message
 - **Typing status line**: the typing indicator now shows a descriptive status below the bouncing dots — "Connecting to model...", "Reasoning...", "Generating response...", "Running tool: Read File...", "Agent step 2/10...", etc.
 - **Version and links in system prompt**: SideCar now tells the model its own version, GitHub repo URL, and documentation URL so it can answer user questions about itself
 - **Roadmap additions**: large file & monorepo handling, agent action audit log, extension/plugin API, agent run debugger/replay
 
 ### Fixed
+
 - **Scroll truncation**: added `min-height: 0` to the messages container to fix a flexbox bug where the scrollbar was cut off when scrolling up
 - **Streaming renderer stale state**: `startAssistantMessage` now resets `lastRenderedLen`, `renderTimer`, and `streamingSpan` to prevent stale state from a previous message or error breaking the next render
 - **Invalid HTML in streaming span**: changed the streaming container from `<span>` to `<div>` — block elements (`<h3>`, `<p>`, `<ol>`) inside inline elements caused browser rendering quirks
@@ -3004,6 +3594,7 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 - **Silent render failures**: `finishAssistantMessage` is now wrapped in try-catch with a plaintext fallback so rendering errors don't silently lose message content
 
 ### Changed
+
 - **Assistant message CSS**: `.message.assistant` now uses `white-space: normal` instead of inheriting `pre-wrap` from `.message`, since the markdown renderer handles line breaks via DOM elements. Block elements inside messages get explicit `white-space: normal` and `display: block`
 - **Explicit inline markdown styles**: added CSS rules for `.message strong`, `.message em`, `.message del` to ensure bold, italic, and strikethrough render visibly regardless of inherited styles
 - **Docs site redesign**: new custom CSS theme matching the SideCar logo gradient palette (coral → peach → sky blue → steel blue), animated hero section with floating logo, feature card grid, and themed tables/code blocks/nav
@@ -3011,10 +3602,12 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 ## [0.26.0] - 2026-04-07
 
 ### Fixed
+
 - **Parallel tool call matching**: tool calls executed in parallel (e.g., multiple file reads) now correctly match results to their originating call via unique IDs. Previously a singleton `active-tool` element caused race conditions — results updated the wrong tool or created duplicate entries
 - **Markdown rendering during streaming**: pending (in-progress) text now renders with full markdown (bold, lists, headings) instead of raw `textContent`. Numbered and bullet lists separated by blank lines are now parsed as a single list with multi-line item support
 
 ### Performance
+
 - **Incremental DOM rendering**: streaming no longer clears `innerHTML` on every 80ms tick. Only the new slice of safe content is appended, reducing render cost from O(total_content) to O(new_chunk)
 - **Message history memory bounds**: in-memory history capped at 200 messages / 2MB. Prevents unbounded memory growth in long agent sessions
 - **Search result limits**: `grep` and `search_files` results bumped from 50 to 200, so the agent discovers more context in large codebases
@@ -3028,6 +3621,7 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 ## [0.25.0] - 2026-04-07
 
 ### Added
+
 - **Persistent shell session**: `run_command` and `run_tests` now use a long-lived shell process. Environment variables, working directory, and shell state persist between commands — just like a real terminal. Supports configurable timeouts (`sidecar.shellTimeout`, default 120s), background commands (`background: true` + `command_id` to check later), and up to 10MB output (`sidecar.shellMaxOutputMB`)
 - **Streaming tool output**: shell command output streams to the UI in real-time as it arrives, instead of waiting for the command to finish. The active tool call card auto-opens and shows live output
 - **Between-turn context pruning**: conversation history is now automatically compressed before each agent turn. Older turns get progressively heavier compression (tool results truncated, thinking blocks stripped, text summarized). Prevents local models from choking on accumulated context from prior turns
@@ -3036,6 +3630,7 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 - **Compact system prompt for local models**: local Ollama models get a ~60% shorter system prompt, saving precious context window for conversation and tool results
 
 ### Fixed
+
 - **`getRootUri()` null crash**: now throws a clear error when no workspace folder is open instead of crashing with a null reference
 - **`Promise.all` tool execution crash**: one tool failure no longer aborts all parallel tool executions. Uses `Promise.allSettled` and converts rejected promises into error tool results
 - **Grep command injection**: user-provided search patterns were interpolated into a shell string. Now uses `execFile` with an args array to prevent shell metacharacter injection
@@ -3045,6 +3640,7 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 - **Within-loop compression too conservative**: old `compressMessages()` used a flat 100-char truncation. Now uses distance-based tiers (1000 chars for recent, 200 chars for old) and drops old thinking blocks
 
 ### Changed
+
 - `run_command` tool description updated to document persistent session, timeout, and background parameters
 - `ToolExecutor` interface now accepts optional `ToolExecutorContext` for streaming callbacks and abort signals
 - Agent loop `onToolOutput` callback added to `AgentCallbacks` for streaming tool output to the UI
@@ -3052,9 +3648,11 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 ## [0.24.2] - 2026-04-07
 
 ### Added
+
 - **LimitedCache utility**: TTL-based cache with size limits for workspace and AST caches, replacing unbounded `Map` instances that could grow without limit
 
 ### Fixed
+
 - **Block markdown infinite loop**: lines with `\r\n` endings caused `appendBlockMarkdown` to loop forever — heading regex failed (JS `.` doesn't match `\r`) but the line was still excluded from paragraph collection, so `i` never advanced. Fixed by normalizing `\r\n` → `\n` before parsing and adding a fallback that always advances the line index
 - **Unbounded cache growth in workspace index**: file content and parsed AST caches used plain `Map` with no eviction — replaced with `LimitedCache` (100 entries, 5-minute TTL)
 - **Unbounded cache in SmartWorkspaceIndex**: parsed file cache had no size or TTL limits — replaced with `LimitedCache` (50 entries, 5-minute TTL)
@@ -3062,21 +3660,25 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 ## [0.24.0] - 2026-04-07
 
 ### Added
+
 - **Block-level markdown rendering**: assistant messages now render headings (`#`–`####`), bullet lists, numbered lists, blockquotes, and horizontal rules. Previously only inline markdown (bold, italic, code, links) was supported
 - **Smart context selection**: AST-based code element extraction for JS/TS files in workspace context. Parses functions, classes, imports, and exports, scores them by query relevance, and includes targeted code snippets instead of whole files
 
 ### Fixed
+
 - **Autonomous mode ignored pending confirmations**: switching to autonomous mode while the agent was blocked on a confirmation prompt left it stuck. Now auto-resolves all pending confirmations and dismisses the UI cards
 - **Agent mode setting not persisted before next message**: `agentMode` config update was fire-and-forget (not awaited), so the next `getConfig()` call could read the stale value
 - **Duplicate file parsing in workspace index**: JS/TS files were parsed twice per context request — the first pass was dead code from an earlier stub. Removed the duplicate
 - **Redundant string split in extractRelevantContent**: `content.split('\n')` was called inside a loop for every element instead of once. Hoisted above the loop
 
 ### Changed
+
 - **`expandThinking` setting description**: clarified wording from "expanded by default" to "expanded instead of collapsed" to avoid implying the setting is enabled by default
 
 ## [0.23.0] - 2026-04-06
 
 ### Added
+
 - **`<think>` tag parsing**: Ollama reasoning models (qwen3, deepseek-r1) now route `<think>...</think>` content to collapsible "Reasoning" blocks instead of showing raw tags
 - **Verbose mode** (`sidecar.verboseMode`): shows system prompt, per-iteration summaries, and tool selection context during agent runs
 - **`/verbose` slash command**: toggle verbose mode from the chat
@@ -3084,6 +3686,7 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 - **Expand thinking setting** (`sidecar.expandThinking`): show reasoning blocks expanded by default instead of collapsed
 
 ### Fixed
+
 - **Agent used tools on every message**: system prompt told the model to always use tools. Now only uses tools when the user asks for an action — questions get direct text responses
 - **Lost messages on concurrent runs**: if user sent a message while the agent was running, it was overwritten. Now merges messages and aborts the previous run
 - **Token budget exceeded by 30-50%**: tool call names, inputs, and results weren't counted. Now included in budget tracking
@@ -3097,17 +3700,20 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 ## [0.22.2] - 2026-04-06
 
 ### Fixed
+
 - **CI publish workflow**: added missing build step before marketplace publish
 
 ## [0.22.1] - 2026-04-06
 
 ### Fixed
+
 - **Repeated content in model output**: automatically strips verbatim blocks (100+ chars) that the model echoes from earlier assistant messages in the conversation history
 - **Per-message delete**: hover-visible delete button on each message for manual cleanup of stuck or unwanted messages
 
 ## [0.22.0] - 2026-04-06
 
 ### Added
+
 - **Multi-file change summary**: after an agent run, a collapsible panel lists all modified files with inline unified diffs, per-file Revert buttons, and an Accept All button
 - **Line-based diff engine**: new `src/agent/diff.ts` computes unified diffs (LCS algorithm) with no external dependencies, truncates at 500 lines
 - **GitHub Pages documentation site**: comprehensive docs at `docs/` with 12 pages covering getting started, agent mode, configuration, MCP servers, slash commands, security scanning, SIDECAR.md, hooks, inline chat, GitHub integration, and troubleshooting
@@ -3115,25 +3721,30 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 - **GitHub repo homepage**: repo description and homepage URL point to the marketplace listing
 
 ### Changed
+
 - **Package name**: `sidecar` renamed to `sidecar-ai` to avoid VS Code Marketplace naming conflict (display name remains "SideCar")
 - **Auto-publish workflow**: GitHub Actions workflow publishes to the marketplace on version tags (`v*`)
 
 ## [0.21.0] - 2026-04-06
 
 ### Added
-- **Inline markdown rendering**: assistant messages now render **bold**, *italic*, ~~strikethrough~~, `inline code`, and [links](url) instead of showing raw markdown syntax
+
+- **Inline markdown rendering**: assistant messages now render **bold**, _italic_, ~~strikethrough~~, `inline code`, and [links](url) instead of showing raw markdown syntax
 - **Competitive comparison in README**: "Why SideCar?" section with feature comparison table vs Continue, Llama Coder, Twinny, and Copilot
 
 ### Fixed
+
 - **Raw markdown in chat**: `**bold**` and other inline markdown was displayed as literal text instead of rendered formatting
 
 ### Security
+
 - **XSS-safe markdown renderer**: uses DOM node construction (`createElement` + `textContent`) instead of `innerHTML` — no injection vectors
 - **Link URL validation**: only `https://` and `http://` links are rendered as clickable; `javascript:`, `data:`, and other dangerous URIs are displayed as plain text
 
 ## [0.20.0] - 2026-04-06
 
 ### Added
+
 - **Chat-only model support**: models like gemma2, llama2, and mistral that don't support function calling now work gracefully in chat-only mode
 - **Tool support detection**: models are automatically classified as "Full Features" (tool-capable) or "Chat-Only" in the model dropdown
 - **Model categorization UI**: model list organized into two sections with dedicated headers and tooltips explaining capabilities
@@ -3142,28 +3753,33 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 - **Code block webview rendering**: code blocks are shown in the webview for chat-only models (with Save/Run buttons) while tool-enabled models silently create files
 
 ### Changed
+
 - **Tool support status**: OpenAI backend always supports tools; Ollama backend filters unsupported models (gemma, gemma2, llama2, mistral, neural-chat, starling-lm)
 - **Stream event handling**: agent loop now handles warning events from streaming backends
 
 ## [0.19.1] - 2026-04-06
 
 ### Fixed
+
 - **Webview crash on `/commit` command**: resolved crash when receiving `/commit` or error messages in the webview
 
 ## [0.19.0] - 2026-04-06
 
 ### Added
+
 - **Conversation history panel**: browse, load, and delete saved conversations from a visual panel. Click the hamburger button or type `/sessions` to open. Conversations auto-save after each assistant response, on new chat, and when VS Code closes
 - **Git toolset**: 8 dedicated agent tools (`git_status`, `git_stage`, `git_commit`, `git_log`, `git_push`, `git_pull`, `git_branch`, `git_stash`) backed by a unified `GitCLI` class — replaces ad-hoc `run_command` usage for git operations
 - **`/commit` slash command**: generates a commit message from the current diff, stages all changes, and commits — all from the chat input
 - **SideCar co-author attribution**: commits made by SideCar automatically include a `Co-Authored-By: SideCar` trailer
 
 ### Fixed
+
 - **Abort button**: properly interrupts streaming and batch operations. Extension now sends `done`/`setLoading` on abort so the webview finalizes partial responses and cleans up progress indicators
 - **Batch abort handling**: `runBatch` wrapped in try/catch to handle `AbortError` gracefully instead of throwing uncaught
 - **Duplicate `updateConnection`** method removed from `SideCarClient`
 
 ### Changed
+
 - **`get_git_diff` renamed to `git_diff`** for consistency with the new git tool family
 - **Git tools consolidated**: agent tools and slash command handlers now share the `GitCLI` class — no more duplicate implementations
 - **Auto-save sessions**: conversations persist automatically to global state. Named from the first user message. Updated in place on subsequent saves
@@ -3171,6 +3787,7 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 ## [0.17.0] - 2026-04-05
 
 ### Added
+
 - **Automated test generation**: `/test` command generates tests for the active file or selection. Auto-detects framework (Vitest, Jest, pytest, Go test, JUnit) and creates a properly named test file via code block
 - **Lint-fix integration**: `/lint` command auto-detects the project's linter (ESLint, Ruff, golangci-lint) from config files and runs it. Optionally pass a custom command: `/lint npx eslint --fix .`
 - **Dependency analysis**: `/deps` command analyzes project dependencies — shows counts, lists, checks for unused packages (Node.js), outdated versions, with Python and Go support
@@ -3179,6 +3796,7 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 ## [0.16.0] - 2026-04-05
 
 ### Added
+
 - **Diff preview before apply**: in cautious mode, `write_file` and `edit_file` open VS Code's built-in diff editor showing proposed changes before writing to disk. User accepts or rejects via inline confirmation card
 - **Token usage & cost dashboard**: `/usage` command shows cumulative token consumption, estimated Anthropic API cost, per-run history, and tool usage breakdown
 - **Context window visualization**: `/context` command shows what's in the context window — system prompt, SIDECAR.md, workspace files, conversation history — with token counts per section and a visual usage bar
@@ -3186,6 +3804,7 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 ## [0.15.0] - 2026-04-05
 
 ### Added
+
 - **Security scanning**: automatic secrets detection and vulnerability scanning on files written/edited by the agent. Detects AWS keys, GitHub tokens, API keys, private keys, JWTs, connection strings, and more. Flags SQL injection, command injection, XSS (innerHTML), eval usage, and insecure HTTP URLs
 - **Diagnostics integration**: `get_diagnostics` tool now includes security scan results alongside compiler errors and warnings
 - **Pre-commit secrets gate**: `/scan` slash command and `sidecar.scanStaged` command scan staged git files for secrets before committing. Reads the staged version via `git show` and reports findings in a markdown panel
@@ -3194,6 +3813,7 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 ## [0.14.0] - 2026-04-05
 
 ### Added
+
 - **Prompt caching (Anthropic API)**: stable system prompt prefix (base + SIDECAR.md + user config) marked with `cache_control: { type: 'ephemeral' }` for server-side caching — ~90% input token cost reduction on cache hits
 - **Local SIDECAR.md cache**: file content cached in memory with `FileSystemWatcher` invalidation, eliminates redundant reads per message
 - **Inline confirmation cards**: tool approvals, file overwrites, command execution, and undo confirmations now render as styled cards in the chat UI instead of system modal pop-ups
@@ -3201,6 +3821,7 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 ## [0.13.0] - 2026-04-05
 
 ### Added
+
 - **Slash command autocomplete**: dropdown appears as you type `/` in the chat input, with command descriptions, arrow key navigation, Tab/Enter to select, Escape to dismiss
 - **Keyboard shortcuts**: `Cmd+L` / `Ctrl+L` to clear chat, `Cmd+Shift+U` / `Ctrl+Shift+U` to undo changes, `Cmd+Shift+E` / `Ctrl+Shift+E` to export chat
 - **Conversation-aware workspace index**: agent file access (read_file, write_file, edit_file) is tracked and used to boost relevance scores — files the agent touches rank higher in subsequent context. Write access boosts more than read. Relevance decays over time so stale accesses fade
@@ -3208,6 +3829,7 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 ## [0.12.0] - 2026-04-05
 
 ### Added
+
 - **Stop button**: Send button toggles to red Stop button during processing to abort the agent loop
 - **Activity bar**: animated progress bar below header showing SideCar is actively working
 - **Tool execution animation**: pulsing indicator on tool calls while they're running
@@ -3215,12 +3837,14 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 - **42 new handler tests**: chatHandlers, githubHandlers, sessionHandlers (170 total)
 
 ### Changed
+
 - **Settings cleanup**: removed all 18 deprecated individual settings getters, migrated all callers to `getConfig()`
 - Stale `[message with images]` entries filtered from persisted history
 
 ## [0.11.0] - 2026-04-05
 
 ### Added
+
 - **Slash commands**: `/reset`, `/undo`, `/export`, `/model <name>`, `/help` in chat input
 - **Agent progress indicators**: step count, elapsed time, and token usage shown during agent runs
 - **Actionable error cards**: classified errors (connection, auth, model, timeout) with retry and settings buttons
@@ -3232,12 +3856,14 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 - **70 new tests**: executor, MCP manager, workspace index, chatHandlers, githubHandlers, sessionHandlers (170 total)
 
 ### Changed
+
 - **Sticky scroll**: auto-scroll stops when user scrolls up, floating scroll-to-bottom button appears
 - **Incremental streaming**: only re-renders full DOM when code blocks change; plain text updates the trailing span
 - **Agent progress pulse**: progress bar and tool calls animate to show SideCar is alive during intensive tasks
 - **Settings migration**: all callers migrated from 18 deprecated individual getters to consolidated `getConfig()`, deprecated functions removed from `settings.ts`
 
 ### Fixed
+
 - Messages with image content showing `[message with images]` placeholder instead of actual text
 - Stale `[message with images]` entries in persisted history from pre-v0.11.0 sessions filtered on load
 - Removed `@rolldown/binding-darwin-arm64` from production dependencies (platform-specific dev dep)
@@ -3245,12 +3871,14 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 ## [0.10.0] - 2026-04-05
 
 ### Added
+
 - **Dual API backend**: local Ollama models now use native `/api/chat` endpoint with NDJSON streaming and native tool calls; Anthropic API uses `/v1/messages` — backend selected automatically based on URL
 - **Text tool call fallback**: models that output tool calls as text (`<function=...>`, `<tool_call>`, JSON fences) are parsed and executed automatically
 - **Retry with backoff**: API calls retry on 429/5xx with exponential backoff and Retry-After header support
 - **Code quality infrastructure**: Vitest (87+ tests), ESLint, Prettier, husky pre-commit hooks, GitHub Actions CI
 
 ### Changed
+
 - **Unified file attachment**: paperclip button now handles both files and images (camera button removed)
 - **ChatViewProvider refactored**: split from 1,099-line god class into thin dispatcher (210 lines) + 5 handler modules + ChatState
 - **Webview JS extracted**: inline script moved from chatWebview.ts (1,120 lines) to external media/chat.js (163-line template remains)
@@ -3259,6 +3887,7 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 - **isLocalOllama**: shared helper replaces 3 inline URL checks
 
 ### Fixed
+
 - Stale `pendingPlan` state not cleared on new chat
 - Hidden file input (`<input type="file">`) rendering visibly due to missing CSS rule
 - 6 pre-existing lint warnings (unused imports, let vs const)
@@ -3266,6 +3895,7 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 ## [0.9.0] - 2026-04-05
 
 ### Added
+
 - **@ references**: `@file:path`, `@folder:path`, `@symbol:name` syntax in chat messages for precise context inclusion
 - **Status bar integration**: shows current model and provider (Ollama/Anthropic), click to toggle chat panel, updates on model/config changes
 - **Documentation generation**: `/doc` command generates JSDoc/docstrings for active file or selection
@@ -3274,6 +3904,7 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 ## [0.8.0] - 2026-04-05
 
 ### Added
+
 - **Spec-driven development**: `/spec` command generates structured requirements (EARS notation), design, and dependency-sequenced tasks. Specs saved to `.sidecar/specs/`
 - **Event-based hooks**: trigger shell commands on file save, create, or delete events via `sidecar.eventHooks` setting
 - **Git commit message generation**: `sidecar.generateCommitMessage` command generates conventional commit messages from staged/unstaged changes
@@ -3282,6 +3913,7 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 ## [0.7.0] - 2026-04-05
 
 ### Added
+
 - **Plan Mode**: generate a plan for review before executing tools (`sidecar.planMode` setting)
 - **Danger Mode UX**: autonomous mode shows "Danger Mode" badge, autonomous tool calls audit-logged
 - **Batch Processing**: `/batch` command for running multiple tasks sequentially or in parallel (`--parallel`)
@@ -3295,6 +3927,7 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 ## [0.6.0] - 2026-04-05
 
 ### Added
+
 - **Per-tool permissions**: allow, deny, or force-ask per tool via `sidecar.toolPermissions`
 - **Pre/post execution hooks**: run shell commands before/after tool execution via `sidecar.hooks`. Passes tool name, input, and output as env vars
 - **Scheduled tasks**: recurring agent runs on interval via `sidecar.scheduledTasks`. Runs autonomously with output channel logging
@@ -3302,6 +3935,7 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 ## [0.5.0] - 2026-04-05
 
 ### Added
+
 - **MCP (Model Context Protocol) client**: connect to any MCP server for external tools
 - `sidecar.mcpServers` setting for configuring MCP server connections (stdio transport)
 - MCP tools appear transparently alongside built-in tools in the agent loop
@@ -3312,6 +3946,7 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 ## [0.4.0] - 2026-04-05
 
 ### Added
+
 - **Inline chat** (Cmd+I / Ctrl+I): edit code in place or insert at cursor
 - **Enhanced completions**: better FIM prompts, next-edit prediction from recent edits, configurable debounce
 - **Extended thinking**: collapsible "Reasoning" blocks from models that support thinking
@@ -3322,12 +3957,14 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 - `sidecar.completionDebounceMs` setting
 
 ### Changed
+
 - Completion provider tracks recent edits for next-edit prediction context
 - Prefix/suffix limits (8K/2K) for completions to avoid context overflow
 
 ## [0.3.0] - 2026-04-04
 
 ### Added
+
 - **Agent mode settings**: cautious, autonomous, manual approval modes
 - **Safety guardrails**: configurable max iterations (default 25) and token budget (default 100K)
 - **Agent mode indicator** in webview header (color-coded badge)
@@ -3340,6 +3977,7 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 ## [0.2.0] - 2026-04-04
 
 ### Added
+
 - **Tool use foundation**: structured tool calls via Anthropic Messages API
 - **Agent loop**: autonomous multi-step execution (read, edit, test, fix)
 - 7 built-in tools: read_file, write_file, edit_file, search_files, grep, run_command, list_directory
@@ -3348,6 +3986,7 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 - **Collapsible tool calls** in chat UI with expandable details
 
 ### Changed
+
 - Client streaming overhauled: yields StreamEvent (text + tool_use + stop) instead of raw strings
 - Replaced regex-based action detection with proper tool use
 - System prompt simplified (tools are self-describing)
@@ -3355,6 +3994,7 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 ## [0.1.0] - 2026-04-04
 
 ### Added
+
 - **Anthropic Messages API**: switched from Ollama /api/chat to /v1/messages for dual-provider support
 - **Dual backend**: works with local Ollama or Anthropic API (Claude)
 - New settings: sidecar.baseUrl, sidecar.apiKey
@@ -3375,13 +4015,15 @@ Closed out all remaining cycle-1 audit items from the original v0.34.0 review �
 - Context window warning for small models
 
 ### Changed
-- Renamed all IDs from ollama.* to sidecar.*
+
+- Renamed all IDs from ollama._ to sidecar._
 - Default model changed to qwen3-coder:30b
 - Workspace context moved to system field for better model compliance
 
 ## [0.0.1] - 2026-04-03
 
 ### Added
+
 - Interactive AI chat sidebar with streaming responses from Ollama
 - Model selection, switching, and on-demand installation
 - Workspace context injection

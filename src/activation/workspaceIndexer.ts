@@ -1,5 +1,5 @@
 import { window, workspace, ExtensionContext, StatusBarAlignment } from 'vscode';
-import { logger } from '../system/logger.js';
+import { logger, kv } from '../system/logger.js';
 import { getFilePatterns } from '../config/workspace.js';
 import { setSymbolGraph, setSymbolEmbeddings } from '../agent/tools.js';
 import type { WorkspaceIndex } from '../config/workspaceIndex.js';
@@ -35,8 +35,12 @@ export function initWorkspaceIndex(
       indexStatus.text = `$(check) SideCar: ${count} files indexed`;
       setTimeout(() => indexStatus.dispose(), 5000);
 
-      // Build symbol graph after workspace index is ready
-      symbolIndexer
+      // Build symbol graph after workspace index is ready. Captured so the PKI
+      // replay below can await it — replaySymbolsToEmbeddingIndex reads
+      // graph.indexedFilePaths(), so running it before the graph finishes
+      // building queues only the few symbols parsed so far (dogfooding: a large
+      // repo embedded ~13 of thousands because the replay raced the graph build).
+      const symbolGraphReady = symbolIndexer
         .initialize(getFilePatterns())
         .then(() => {
           const symCount = symbolIndexer.getGraph().symbolCount();
@@ -132,10 +136,25 @@ export function initWorkspaceIndex(
             // immediately rather than only after the first batch fires.
             if (wasFirstRun) pkiStatus.show();
 
-            // If symbolIndexer.initialize() already finished, its hash-match
-            // short-circuit would skip every file and leave symbols unembedded.
-            // replaySymbolsToEmbeddingIndex reads cached graph content directly.
-            symbolIndexer.replaySymbolsToEmbeddingIndex();
+            // Wait for the symbol graph to FINISH building before replaying it
+            // into the embedding queue — otherwise indexedFilePaths() is partial
+            // and most symbols never get queued. The graph's hash-match
+            // short-circuit means indexSymbol won't fire for cached/unchanged
+            // files, so this replay is the only thing that queues them.
+            await symbolGraphReady;
+            const replay = await symbolIndexer.replaySymbolsToEmbeddingIndex();
+            const graphSymbols = symbolIndexer.getGraph().symbolCount();
+            const replayFields = kv({
+              queued: replay.queued,
+              filesRead: replay.filesRead,
+              filesSkipped: replay.filesSkipped,
+              graphSymbols,
+            });
+            if (replay.queued === 0 && graphSymbols > 0) {
+              logger.warn(`[PKI] replay queued nothing despite a non-empty graph${replayFields}`);
+            } else {
+              logger.info(`[PKI] replay complete${replayFields}`);
+            }
           })
           .catch((err) => logger.warn('[SideCar] Symbol embedding index failed:', err?.message || err));
       }

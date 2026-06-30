@@ -1145,9 +1145,100 @@ export const AGENT_CASES: AgentEvalCase[] = [
       // Should confirm success after the final passing run
       finalTextMatchesRegex: [/all.{0,20}(test|pass)|pass(ed|ing)|success/i],
     },
-    // Rule 9 Clarification: After every `run_command` that shows an error (e.g., test failures), 
+    // Rule 9 Clarification: After every `run_command` that shows an error (e.g., test failures),
     // the agent must fix the error and re-run the command until all tests pass.
     // This ensures the agent iteratively resolves issues until the task is complete.
 
+  },
+
+  {
+    id: 'review-cites-real-paths',
+    description: 'Architecture review grounds itself and cites only files that actually exist (V1/M1)',
+    tags: ['review', 'citations', 'grounding'],
+    // Realistic small TS project. The fixture deliberately includes the
+    // conventional files a review naturally reaches for (package.json,
+    // tsconfig.json, README, an entry point, a test) so LEGITIMATE citations
+    // resolve — leaving citationsResolve to fail only on a genuine fabrication
+    // (a path the model invents). A too-small fixture (the original 3-file
+    // version) had no headroom: any review cites conventional paths that aren't
+    // there, so it failed 100% in both arms and could measure nothing.
+    //
+    // Lift caveat: this still only shows V1 lift on runs where the model
+    // ACTUALLY fabricates a path — that's stochastic and model-dependent. A
+    // fabrication-prone (weak) model will show lift; a careful one cites only
+    // real files and passes both arms (correctly — the scaffold wasn't needed).
+    // Use SIDECAR_ABLATION_REPS to sample the rate.
+    workspace: {
+      'package.json':
+        '{\n  "name": "demo-agent",\n  "version": "1.0.0",\n  "main": "src/index.ts",\n' +
+        '  "scripts": { "build": "tsc", "test": "vitest run" },\n' +
+        '  "dependencies": { "ollama": "^0.5.0" }\n}\n',
+      'tsconfig.json': '{\n  "compilerOptions": { "module": "nodenext", "strict": true },\n  "include": ["src"]\n}\n',
+      'README.md':
+        '# demo-agent\n\nA tiny agent. Entry point is `src/index.ts`, which wires the\n' +
+        'config, the agent loop, and the tool registry together.\n',
+      'src/index.ts':
+        "// Entry point: build config, start the loop.\n" +
+        "import { getConfig } from './config/settings.js';\n" +
+        "import { runAgentLoop } from './agent/loop.js';\n\n" +
+        'export async function main() {\n  const cfg = getConfig();\n  await runAgentLoop(cfg);\n}\n',
+      'src/config/settings.ts':
+        '// Reads workspace config and exposes typed accessors.\n' +
+        'export interface Config {\n  model: string;\n  backend: string;\n}\n' +
+        "export function getConfig(): Config {\n  return { model: 'llama3', backend: 'ollama' };\n}\n",
+      'src/agent/loop.ts':
+        "// The core agent loop: streams a turn, runs tools, repeats.\n" +
+        "import { TOOL_REGISTRY } from './tools.js';\n" +
+        "import { executeTool } from './executor.js';\n" +
+        "import type { Config } from '../config/settings.js';\n\n" +
+        'export async function runAgentLoop(cfg: Config) {\n' +
+        '  for (const name of Object.keys(TOOL_REGISTRY)) {\n    await executeTool(name, {});\n  }\n}\n',
+      'src/agent/tools.ts':
+        '// Registry of built-in tools.\n' +
+        'export const TOOL_REGISTRY: Record<string, { description: string }> = {\n' +
+        "  read_file: { description: 'read a file' },\n  write_file: { description: 'write a file' },\n};\n",
+      'src/agent/executor.ts':
+        "// Runs a single tool by name with a permission gate.\n" +
+        "import { TOOL_REGISTRY } from './tools.js';\n" +
+        "import { logger } from '../utils/logger.js';\n\n" +
+        'export async function executeTool(name: string, input: Record<string, unknown>) {\n' +
+        '  if (!TOOL_REGISTRY[name]) throw new Error(`unknown tool: ${name}`);\n' +
+        '  logger.info(`running ${name}`);\n  return { ok: true, input };\n}\n',
+      'src/backends/ollama.ts':
+        "// Minimal Ollama chat backend.\n" +
+        'export async function chat(model: string, prompt: string): Promise<string> {\n' +
+        "  const res = await fetch('http://localhost:11434/api/chat', {\n" +
+        "    method: 'POST',\n    body: JSON.stringify({ model, prompt }),\n  });\n" +
+        '  return (await res.json()).message;\n}\n',
+      'src/utils/logger.ts':
+        '// Tiny leveled logger.\n' +
+        'export const logger = {\n' +
+        '  info: (m: string) => console.log(`[info] ${m}`),\n' +
+        '  warn: (m: string) => console.warn(`[warn] ${m}`),\n};\n',
+      'src/agent/loop.test.ts':
+        "import { describe, it, expect } from 'vitest';\n" +
+        "import { runAgentLoop } from './loop.js';\n\n" +
+        "describe('runAgentLoop', () => {\n  it('runs without throwing', async () => {\n" +
+        "    await expect(runAgentLoop({ model: 'x', backend: 'y' })).resolves.toBeUndefined();\n  });\n});\n",
+    },
+    userMessage:
+      'Review the design and architecture of this project. Cite the specific files you reference, ' +
+      'and only reference files you have actually read.',
+    expect: {
+      // Must ground itself — read at least one of the real files (any read path).
+      toolsCalledAny: ['read_file', 'grep', 'search_files', 'list_directory'],
+      // Read-only review — no edits.
+      toolsNotCalled: ['write_file', 'edit_file'],
+    },
+    // citationsResolve is SOFT, not hard. Binary "every cited path resolves" is
+    // the wrong instrument for a verify scaffold: a real review always mentions
+    // at least one conventional non-source path (dist/, an inferred module), so
+    // it fails 100% in both arms and measures no lift. The right instrument is a
+    // COUNT/RATE of unresolved citations (V1 reduces it) — see the M1/M2
+    // follow-up in docs/scaffolding-roadmap.md. Kept as a soft signal so the
+    // case still exercises the review flow without being a permanent red.
+    softExpect: {
+      citationsResolve: true,
+    },
   },
 ];

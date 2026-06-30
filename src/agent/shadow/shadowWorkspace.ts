@@ -2,6 +2,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { randomBytes } from 'crypto';
 import { GitCLI } from '../../github/git.js';
+import { logger, kv } from '../../system/logger.js';
 
 /**
  * A `ShadowWorkspace` is an ephemeral git worktree at
@@ -73,6 +74,7 @@ export class ShadowWorkspace {
     await fs.promises.mkdir(path.dirname(this.path), { recursive: true });
     this.baseSha = await this.mainGit.getHeadSha();
     await this.mainGit.worktreeAdd(this.path, this.baseSha);
+    logger.info(`[shadow] created${kv({ id: this.id, base: this.baseSha.slice(0, 8) })}`);
   }
 
   /**
@@ -99,11 +101,16 @@ export class ShadowWorkspace {
   async applyToMain(): Promise<string> {
     this.ensureActive();
     const patch = await this.diff();
-    if (!patch) return 'No changes to apply.';
+    if (!patch) {
+      logger.info(`[shadow] applyToMain: no changes${kv({ id: this.id })}`);
+      return 'No changes to apply.';
+    }
     // Dry-run first so a partial apply doesn't leave main in a half-
     // patched state if the end of the patch conflicts with something.
     await this.mainGit.applyPatch(patch, { check: true });
-    return this.mainGit.applyPatch(patch, { stage: true });
+    const result = this.mainGit.applyPatch(patch, { stage: true });
+    logger.info(`[shadow] applied to main${kv({ id: this.id, patchBytes: patch.length })}`);
+    return result;
   }
 
   /**
@@ -114,6 +121,7 @@ export class ShadowWorkspace {
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
+    logger.debug(`[shadow] disposed${kv({ id: this.id })}`);
     try {
       await this.mainGit.worktreeRemove(this.path, true);
     } catch {

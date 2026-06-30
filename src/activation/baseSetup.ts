@@ -6,6 +6,7 @@ import { AgentLogger } from '../agent/logger.js';
 import { MCPManager } from '../agent/mcpManager.js';
 import { DiagnosticSubscriber } from '../agent/diagnosticSubscriber.js';
 import { getProcessRegistry } from '../agent/processLifecycle.js';
+import { logger, SESSION_ID, kv } from '../system/logger.js';
 import type { SideCarConfig } from '../config/settings.js';
 
 export interface BaseServices {
@@ -22,6 +23,8 @@ export interface BaseServices {
  * Extracted from extension.ts to keep the entry point lean.
  */
 export function initBaseServices(context: ExtensionContext, config: SideCarConfig): BaseServices {
+  logger.info(`[SideCar] activating${kv({ session: SESSION_ID, version: context.extension?.packageJSON?.version })}`);
+
   const terminalManager = new TerminalManager();
   context.subscriptions.push(terminalManager);
 

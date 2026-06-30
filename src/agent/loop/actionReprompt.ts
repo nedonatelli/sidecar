@@ -42,8 +42,13 @@ const FILE_PATH_RE =
  * e.g. "Would you like me to implement this?", "Shall I add the example?".
  * Fires the reprompt even when the user's message isn't an action request.
  */
+// An intent-opener ("I will", "Let me", …) followed within the same clause by
+// an action/exploration verb. The intervening `[^.!?\n]{0,40}?` is the fix for
+// planning stalls like "I will start by reading the core files" or "I'll first
+// map out the system", where a word ("start by", "first") sits between the
+// opener and the verb — the old glued-together pattern missed those entirely.
 const DEFERRED_ACTION_RE =
-  /\b(I will (?:now|try|attempt|add|update|edit|implement|make|create|apply|write|modify|fix|proceed|run|use|check|read|look|fetch|search|re-\w+)|I'll now|I'm going to|Let me (?:now|try|add|implement|proceed|update|edit|apply|fix|run|use|create|write|check)|Would you like me to|Shall I|Do you want me to|Should I go ahead|Want me to)\b/i;
+  /\b(?:I will|I'll|I am going to|I'm going to|I plan to|I intend to|I need to|Let me|Let's|Next,?\s+I(?:'ll| will)?|First,?\s+I(?:'ll| will)?)\b[^.!?\n]{0,40}?\b(?:read|examine|investigate|analy[sz]e|inspect|review|map|explore|look|check|start|begin|proceed|continue|search|fetch|open|trace|study|dig|gather|edit|implement|write|create|refactor|build|run|add|update|fix|modify|delete|move|attempt|try)\b|\b(?:Would you like me to|Shall I|Do you want me to|Should I go ahead|Want me to)\b/i;
 
 /**
  * Return the text content of the last real user message (skipping
@@ -92,7 +97,8 @@ export function looksLikeDeferredAction(text: string): boolean {
  * injected (caller should `continue` the loop).
  */
 export function maybeInjectActionReprompt(state: LoopState, fullText: string, callbacks: AgentCallbacks): boolean {
-  if (state.actionRepromptCount >= MAX_ACTION_REPROMPTS) return false;
+  const maxActionReprompts = state.scaffoldingProfile?.maxActionReprompts ?? MAX_ACTION_REPROMPTS;
+  if (state.actionRepromptCount >= maxActionReprompts) return false;
   if (!fullText) return false;
   if (state.tools.length === 0) return false;
 
@@ -102,7 +108,7 @@ export function maybeInjectActionReprompt(state: LoopState, fullText: string, ca
 
   state.actionRepromptCount++;
   state.logger?.info(
-    `Action-request reprompt fired (#${state.actionRepromptCount}/${MAX_ACTION_REPROMPTS}): ` +
+    `Action-request reprompt fired (#${state.actionRepromptCount}/${maxActionReprompts}): ` +
       `model responded with text only on an action request`,
   );
   callbacks.onText('\n\n⚙️ No tool calls detected — re-prompting to use tools...\n');

@@ -26,7 +26,7 @@ In `review` mode, any file the agent proposes to change gets a **P** badge in th
 
 ### Advanced features
 
-- **Slash commands** — `/init`, `/help`, `/doc`, `/spec`, `/insight`, `/scan`, `/usage`, `/context`, `/test`, `/lint`, `/deps`, `/scaffold`, `/commit`, `/verbose`, `/prompt`, `/audit`, `/insights`, `/mcp`, `/bg`, `/move`, `/clone`, `/skills`, `/releases`, `/release`
+- **Slash commands** — `/init`, `/help`, `/fork`, `/arena`, `/branch`, `/notebook`, `/review`, `/pr`, `/ci`, `/compact`, `/guards`, `/doc`, `/spec`, `/scan`, `/usage`, `/context`, `/deps`, `/scaffold`, `/commit`, `/mcp`, `/bg`, `/skills`, and 25+ more — type `/` to see them all
 - **Background agents** — `/bg <task>` to run tasks in parallel
 - **MCP integration** — connect external tools via Model Context Protocol
 - **Custom skills** — create your own AI capabilities with markdown files

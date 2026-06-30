@@ -51,7 +51,12 @@ export async function enrichAndPruneMessages(
       let enriched =
         typeof chatMessages[lastUserIdx].content === 'string' ? (chatMessages[lastUserIdx].content as string) : '';
 
-      if (config.includeActiveFile) {
+      // The active file is injected only when the user explicitly attached it
+      // via the "add" toggle (state.activeFileIncluded). config.includeActiveFile
+      // is the master kill-switch: when false, the file is never injected even if
+      // toggled. This keeps the toggle the single source of truth — not clicking
+      // "add" means the open file stays out of context.
+      if (config.includeActiveFile && state.activeFileIncluded) {
         const activeCtx = getActiveFileContext();
         if (activeCtx) {
           enriched = activeCtx + enriched;

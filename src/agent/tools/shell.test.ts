@@ -8,7 +8,7 @@ import type { ToolExecutorContext } from './shared.js';
 
 const { defaultRuntimeSpy, ShellSessionStub } = vi.hoisted(() => {
   class Stub {
-    execute = vi.fn(async () => ({ stdout: 'ok', exitCode: 0, timedOut: false }));
+    execute = vi.fn(async (_cmd: string, _opts?: unknown) => ({ stdout: 'ok', exitCode: 0, timedOut: false }));
     executeBackground = vi.fn(() => 'bg-1');
     checkBackground = vi.fn(() => ({ done: true, exitCode: 0, output: 'done' }));
     dispose = vi.fn();
@@ -33,6 +33,7 @@ vi.mock('vscode', () => ({
       readFile: vi.fn().mockRejectedValue(new Error('no package.json')),
       stat: vi.fn().mockRejectedValue(new Error('not found')),
     },
+    findFiles: vi.fn().mockResolvedValue([]),
   },
   Uri: {
     joinPath: (base: { fsPath: string }, ...segs: string[]) => ({
@@ -49,7 +50,8 @@ vi.mock('./runtime.js', () => ({
   getDefaultToolRuntime: () => defaultRuntimeSpy,
 }));
 
-import { runCommand, runTests } from './shell.js';
+import { runCommand, runTests, detectLanguageMismatchedLint, detectMaskedVerification } from './shell.js';
+import { workspace } from 'vscode';
 
 function makeContext(session: InstanceType<typeof ShellSessionStub>): ToolExecutorContext {
   return {
@@ -78,6 +80,25 @@ describe('shell tool runtime resolution', () => {
     it('falls back to the default runtime when no context is provided', async () => {
       await runCommand({ command: 'echo hi' });
       expect(defaultRuntimeSpy.getShellSession).toHaveBeenCalledTimes(1);
+    });
+
+    it('surfaces a background=true hint when a foreground command times out', async () => {
+      const injected = new ShellSessionStub();
+      injected.execute = vi.fn(async (_cmd: string, _opts?: unknown) => ({
+        stdout: 'partial output',
+        exitCode: 0,
+        timedOut: true,
+      }));
+      const out = await runCommand({ command: 'python gui_calculator.py' }, makeContext(injected));
+      expect(out).toContain('did not exit');
+      expect(out).toContain('background: true');
+      expect(out).toContain('partial output');
+    });
+
+    it('does NOT add the timeout hint when the command exits normally', async () => {
+      const injected = new ShellSessionStub();
+      const out = await runCommand({ command: 'ls' }, makeContext(injected));
+      expect(out).not.toContain('did not exit');
     });
 
     it('routes background command starts through the per-call runtime', async () => {
@@ -109,6 +130,123 @@ describe('shell tool runtime resolution', () => {
     it('falls back to the default runtime when no context is provided', async () => {
       await runTests({ command: 'npm test' });
       expect(defaultRuntimeSpy.getShellSession).toHaveBeenCalledTimes(1);
+    });
+
+    it('prefers pytest when the pytest probe succeeds (collects pytest-style AND unittest tests)', async () => {
+      (workspace.findFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce([{ fsPath: '/mock/test_calc.py' }]);
+      const injected = new ShellSessionStub(); // execute → exitCode 0 by default → probe "succeeds"
+      await runTests({ file: 'test_calc.py' }, makeContext(injected));
+      // call 0 = the `pytest --version` probe, call 1 = the actual run
+      expect(injected.execute.mock.calls[0][0]).toBe('python3 -m pytest --version');
+      expect(injected.execute.mock.calls[1][0]).toBe("python3 -m pytest 'test_calc.py'");
+    });
+
+    it('falls back to `python -m unittest` when pytest is NOT available', async () => {
+      (workspace.findFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce([{ fsPath: '/mock/test_calc.py' }]);
+      const injected = new ShellSessionStub();
+      // Probe (pytest --version) reports pytest missing → exitCode 1; the run keeps default.
+      injected.execute = vi.fn(async (cmd: string) =>
+        cmd.includes('pytest --version')
+          ? { stdout: 'No module named pytest', exitCode: 1, timedOut: false }
+          : { stdout: 'ok', exitCode: 0, timedOut: false },
+      );
+      await runTests({ file: 'test_calc.py' }, makeContext(injected));
+      expect(injected.execute.mock.calls[1][0]).toBe("python -m unittest 'test_calc.py'");
+    });
+
+    it('uses `unittest discover` (no file) when pytest is unavailable and no file is given', async () => {
+      (workspace.findFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce([{ fsPath: '/mock/test_calc.py' }]);
+      const injected = new ShellSessionStub();
+      injected.execute = vi.fn(async (cmd: string) =>
+        cmd.includes('pytest --version')
+          ? { stdout: '', exitCode: 1, timedOut: false }
+          : { stdout: 'ok', exitCode: 0, timedOut: false },
+      );
+      await runTests({}, makeContext(injected));
+      expect(injected.execute.mock.calls[1][0]).toBe('python -m unittest discover');
+    });
+
+    it('still reports "could not detect" when no manifest and no Python test files exist', async () => {
+      (workspace.findFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce([]);
+      const out = await runTests({});
+      expect(out).toContain('Could not detect test runner');
+    });
+  });
+
+  describe('detectMaskedVerification', () => {
+    it('flags running a script with || true (masked launch — the dogfood case)', () => {
+      const msg = detectMaskedVerification('python gui_calculator.py || true');
+      expect(msg).not.toBeNull();
+      expect(msg).toContain('masks failures');
+    });
+
+    it('flags a test run that suppresses errors with 2>/dev/null', () => {
+      expect(detectMaskedVerification('npm test 2>/dev/null')).not.toBeNull();
+      expect(detectMaskedVerification('python3 -m pytest 2>/dev/null')).not.toBeNull();
+    });
+
+    it('flags a backgrounded launch followed by masked cleanup (launch-and-discard)', () => {
+      expect(detectMaskedVerification('python3 gui.py & sleep 1; pkill -f gui.py || true')).not.toBeNull();
+    });
+
+    it('flags a masked python -c inline smoke test (the iter-7 dogfood gap)', () => {
+      expect(
+        detectMaskedVerification(
+          'python3 -c "from gui_calculator import CalculatorApp; CalculatorApp(None)" 2>&1 || true',
+        ),
+      ).not.toBeNull();
+      expect(detectMaskedVerification('node -e "require(\'./app\')" 2>/dev/null')).not.toBeNull();
+    });
+
+    it('does NOT flag a plain verification run (no mask)', () => {
+      expect(detectMaskedVerification('python gui_calculator.py')).toBeNull();
+      expect(detectMaskedVerification('npm test')).toBeNull();
+      expect(detectMaskedVerification('python3 -m py_compile gui.py')).toBeNull();
+    });
+
+    it('does NOT flag pure cleanup with || true (no program execution to verify)', () => {
+      expect(detectMaskedVerification('pkill -f gui_calculator.py || true')).toBeNull();
+      expect(detectMaskedVerification('rm -f out.tmp 2>/dev/null')).toBeNull();
+    });
+
+    it('does NOT flag a status-reporting `|| echo` idiom (it keeps a fail signal)', () => {
+      expect(detectMaskedVerification('python3 -m py_compile gui.py && echo OK || echo FAILED')).toBeNull();
+    });
+
+    it('runCommand appends the advisory to a masked verification result', async () => {
+      const injected = new ShellSessionStub();
+      const out = await runCommand({ command: 'python gui_calculator.py || true' }, makeContext(injected));
+      expect(out).toContain('masks failures');
+      expect(injected.execute).toHaveBeenCalled(); // the command still runs
+    });
+  });
+
+  describe('detectLanguageMismatchedLint', () => {
+    it('redirects eslint run against only Python files', () => {
+      const msg = detectLanguageMismatchedLint('npx eslint calculator.py test_calc.py');
+      expect(msg).not.toBeNull();
+      expect(msg).toContain('get_diagnostics');
+    });
+
+    it('leaves a real JS/TS eslint run alone', () => {
+      expect(detectLanguageMismatchedLint('npx eslint src/foo.ts')).toBeNull();
+      expect(detectLanguageMismatchedLint('eslint a.py b.js')).toBeNull(); // has a JS target
+    });
+
+    it('leaves config-driven / directory eslint runs alone (no file targets)', () => {
+      expect(detectLanguageMismatchedLint('npx eslint .')).toBeNull();
+      expect(detectLanguageMismatchedLint('eslint --fix')).toBeNull();
+    });
+
+    it('ignores non-eslint commands', () => {
+      expect(detectLanguageMismatchedLint('python -m unittest test_calc.py')).toBeNull();
+    });
+
+    it('runCommand returns the redirect without executing eslint on Python', async () => {
+      const injected = new ShellSessionStub();
+      const out = await runCommand({ command: 'npx eslint calculator.py' }, makeContext(injected));
+      expect(out).toContain('ESLint only lints');
+      expect(injected.execute).not.toHaveBeenCalled();
     });
   });
 

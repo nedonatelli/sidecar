@@ -31,6 +31,10 @@ Control how much autonomy SideCar has via the agent mode dropdown in the chat he
 | **Autonomous** | Auto-approve | Auto-approve | Confirm |
 | **Manual** | Confirm | Confirm | Confirm |
 | **Review** | Auto-approve | Buffered — see below | Confirm |
+| **Plan** | Auto-approve (read-only) | Blocked until you approve a plan | Blocked |
+| **Audit** | Auto-approve | Buffered in-memory (autonomous), reviewed on flush | Buffered |
+
+All six are valid values for `sidecar.agentMode`. **Plan** runs a read-only planning phase first (see [Plan mode](#plan-mode) below); **Audit** is a lighter-weight alternative to Review that buffers file writes in memory and runs autonomously until you flush/review.
 
 - **Cautious** is recommended for most use. File reads happen automatically; writes and edits open a **VS Code diff editor** showing the proposed changes. Accept/Reject buttons appear both as a VS Code notification (in the editor) and as a chat card — click whichever is more convenient.
 - **Autonomous** lets SideCar work without interruption. Use for trusted tasks where you'll review changes after.
@@ -120,7 +124,7 @@ If placeholders are detected, SideCar reprompts the model to replace them with c
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `sidecar.agentMaxIterations` | `25` | Max loop iterations before auto-stop |
-| `sidecar.agentMaxTokens` | `100000` | Max total tokens before auto-stop |
+| `sidecar.agentMaxTokens` | `200000` | Max total tokens before auto-stop |
 | `sidecar.agentTemperature` | `0.2` | Temperature for tool-calling requests (lower = more deterministic) |
 | `sidecar.requestTimeout` | `120` | Timeout per LLM request in seconds (0 to disable) |
 
@@ -387,7 +391,7 @@ See [Extending SideCar — Facets](extending-sidecar#facets) for the schema and 
 
 ## Plan mode
 
-Enable `sidecar.planMode` to have SideCar generate a plan before executing any tools. You review and approve the plan, then SideCar executes it. Useful for complex tasks where you want to validate the approach first.
+Set `sidecar.agentMode` to `plan` to have SideCar generate a plan before executing any tools. You review and approve the plan, then SideCar executes it. Useful for complex tasks where you want to validate the approach first.
 
 ## Thinking / reasoning
 

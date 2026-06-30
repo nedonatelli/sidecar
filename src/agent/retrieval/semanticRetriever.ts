@@ -1,4 +1,5 @@
 import { WorkspaceIndex } from '../../config/workspaceIndex';
+import { logger, kv } from '../../system/logger';
 import { Retriever, RetrievalHit } from './retriever';
 import { enrichWithGraphWalk, type GraphWalkOptions, type EnrichedHit } from './graphExpansion';
 import type { SymbolSearchResult } from '../../config/symbolEmbeddingIndex';
@@ -73,7 +74,16 @@ export class SemanticRetriever implements Retriever {
    */
   private async retrieveViaSymbolIndex(query: string, k: number): Promise<RetrievalHit[] | null> {
     const symEmb = this.index.getSymbolEmbeddings();
-    if (!symEmb || !symEmb.isReady() || symEmb.getCount() === 0) return null;
+    if (!symEmb || !symEmb.isReady() || symEmb.getCount() === 0) {
+      logger.debug(
+        `[retrieval] symbol path unavailable → file-level fallback${kv({
+          wired: !!symEmb,
+          ready: symEmb?.isReady() ?? false,
+          count: symEmb?.getCount() ?? 0,
+        })}`,
+      );
+      return null;
+    }
 
     const directResults: SymbolSearchResult[] = await symEmb.search(query, k);
 
@@ -126,6 +136,14 @@ export class SemanticRetriever implements Retriever {
         filePath: r.filePath,
       });
     }
+    logger.debug(
+      `[retrieval] symbol path${kv({
+        direct: directResults.length,
+        expanded: expanded.length,
+        hits: hits.length,
+        top: directResults[0]?.similarity?.toFixed(3),
+      })}`,
+    );
     return hits;
   }
 
@@ -149,6 +167,9 @@ export class SemanticRetriever implements Retriever {
         filePath: file.relativePath,
       });
     }
+    logger.debug(
+      `[retrieval] file path${kv({ ranked: ranked.length, hits: hits.length, top: top[0]?.score?.toFixed(3) })}`,
+    );
     return hits;
   }
 }

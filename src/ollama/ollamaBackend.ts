@@ -1,4 +1,4 @@
-import type { ApiBackend } from './backend.js';
+import type { ApiBackend, ResponseFormat } from './backend.js';
 import { logger } from '../system/logger.js';
 import type { ChatMessage, ContentBlock, ToolDefinition, ToolUseContentBlock, StreamEvent } from './types.js';
 import { sidecarFetch } from './sidecarFetch.js';
@@ -555,12 +555,18 @@ export class OllamaBackend implements ApiBackend {
     messages: ChatMessage[],
     _maxTokens: number = 256,
     signal?: AbortSignal,
+    responseFormat?: ResponseFormat,
   ): Promise<string> {
     const body: Record<string, unknown> = {
       model,
       messages: toOllamaMessages(messages, systemPrompt),
       stream: false,
     };
+    // V3: Ollama enforces structured output via the `format` field — 'json'
+    // for any valid JSON, or a JSON-schema object to constrain the shape.
+    if (responseFormat !== undefined) {
+      body.format = responseFormat;
+    }
 
     const response = await sidecarFetch(
       this.chatUrl,

@@ -1,6 +1,16 @@
 import type { ChatMessage, ToolDefinition, StreamEvent } from './types.js';
 
 /**
+ * Structured-output request for `complete` (scaffolding roadmap V3). `'json'`
+ * asks for any valid JSON; a JSON-schema object constrains the shape. Backends
+ * that can't enforce it (cloud APIs, for now) ignore it and the caller falls
+ * back to a tolerant parser. Ollama enforces it natively via its `format` field
+ * — which is exactly where it matters, since weak local models emit the most
+ * malformed JSON.
+ */
+export type ResponseFormat = 'json' | Record<string, unknown>;
+
+/**
  * Abstraction over different LLM API backends.
  * Implementations handle protocol differences (Anthropic Messages API vs Ollama native).
  */
@@ -19,6 +29,7 @@ export interface ApiBackend {
     messages: ChatMessage[],
     maxTokens: number,
     signal?: AbortSignal,
+    responseFormat?: ResponseFormat,
   ): Promise<string>;
 
   /**

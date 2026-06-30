@@ -8,13 +8,14 @@
  * without a real WebviewView or ExtensionContext.
  */
 
-import { commands, env, Uri } from 'vscode';
+import { commands, env, Uri, window, workspace, ProgressLocation } from 'vscode';
 import { getConfig } from '../../config/settings.js';
 import { computeUnifiedDiff } from '../../agent/diff.js';
 import type { BackgroundAgentManager } from '../../agent/backgroundAgent.js';
 import type { ChatState } from '../chatState.js';
 import type { WebviewMessage, ExtensionMessage } from '../chatWebview.js';
 import type { ExtensionContext } from 'vscode';
+import type { AgentCallbacks } from '../../agent/loop.js';
 import {
   handleUserMessage,
   handleUserMessageWithImages,
@@ -39,6 +40,14 @@ import {
   isCommitRequest,
   isShowDiffRequest,
 } from './chatHandlers.js';
+import {
+  classifyReviewFacets,
+  isArchReviewAccept,
+  isArchReviewDecline,
+  runReviewLabel,
+  ANSWER_INLINE_LABEL,
+} from './messageUtils.js';
+import { synthesizeFacetReviews } from '../../agent/facets/facetSynthesis.js';
 import { handleRequestFileCompletion, revertEditPlanFile } from './fileHandlers.js';
 import { handleGitHubCommand } from './githubHandlers.js';
 import { handleInstallModel } from './modelHandlers.js';
@@ -101,6 +110,75 @@ const ALLOWED_EXTENSION_COMMANDS = new Set([
 ]);
 
 /**
+ * Dispatch one or more read-only review specialists for a codebase review (O1
+ * single-facet, O2 comprehensive multi-facet), streaming their output into the
+ * chat panel and opening the synthesized review as a single markdown tab. Runs
+ * inside a cancellable progress notification; the chat spinner is cleared via
+ * `done` in `finally`.
+ */
+async function runFacetReview(state: ChatState, facetIds: string[], displayName: string, task: string): Promise<void> {
+  if (!task.trim() || facetIds.length === 0) return;
+  const { runFacetDispatchCommand, createDefaultFacetCommandUi } = await import('../../agent/facets/facetCommands.js');
+  const { loadFacetRegistry } = await import('../../agent/facets/facetDiskLoader.js');
+  const { createClient } = await import('../../ollama/factory.js');
+  const cfg = getConfig();
+  const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const callbacks: AgentCallbacks = {
+    onText: (text) => state.postMessage({ command: 'assistantMessage', content: text }),
+    onToolCall: (name, _input, id) =>
+      state.postMessage({ command: 'toolCall', toolName: name, toolCallId: id, content: name }),
+    onToolResult: (name, result, _isError, id) =>
+      state.postMessage({ command: 'toolResult', toolName: name, toolCallId: id, content: result }),
+    onDone: () => undefined,
+  };
+  const controller = new AbortController();
+  let outcome: Awaited<ReturnType<typeof runFacetDispatchCommand>> | undefined;
+  try {
+    outcome = await window.withProgress(
+      { location: ProgressLocation.Notification, title: `SideCar: ${displayName}…`, cancellable: true },
+      async (_progress, token) => {
+        token.onCancellationRequested(() => controller.abort());
+        return runFacetDispatchCommand({
+          ui: createDefaultFacetCommandUi(),
+          loadRegistry: () => loadFacetRegistry({ workspaceRoot, registryPaths: cfg.facetsRegistry }),
+          createClient,
+          callbacks,
+          signal: controller.signal,
+          agentOptions: state.mcpManager ? { mcpManager: state.mcpManager } : undefined,
+          config: {
+            enabled: cfg.facetsEnabled,
+            maxConcurrent: cfg.facetsMaxConcurrent,
+            rpcTimeoutMs: cfg.facetsRpcTimeoutMs,
+          },
+          preSelectedFacetIds: facetIds,
+          preFilledTask: task,
+        });
+      },
+    );
+  } finally {
+    state.postMessage({ command: 'done' });
+  }
+  // Synthesize the read-only reviews into ONE markdown report (O2). For a
+  // single reviewer this is the same single-review doc as before; for a
+  // comprehensive review it's the merged, per-specialist-sectioned report.
+  if (outcome?.mode === 'dispatched') {
+    const report = synthesizeFacetReviews(
+      outcome.task,
+      outcome.batch.results.map((r) => ({
+        facetId: r.facetId,
+        output: r.output,
+        success: r.success,
+        hasDiff: !!r.sandbox.pendingDiff && r.sandbox.pendingDiff.length > 0,
+      })),
+    );
+    if (report) {
+      const doc = await workspace.openTextDocument({ content: report, language: 'markdown' });
+      await window.showTextDocument(doc, { preview: false });
+    }
+  }
+}
+
+/**
  * Build the full command→handler dispatch map for the chat webview.
  * Every dependency comes through `HandlerDeps` so handlers can be
  * exercised in unit tests by injecting stubs.
@@ -119,6 +197,25 @@ export function buildDispatchHandlers(
         return;
       }
       const text = msg.text || '';
+
+      // A review-specialist offer is pending: interpret this reply as
+      // accept/decline by intent (a clicked button sends the label text;
+      // a typed "run it" / "run the security reviewer" also accepts).
+      // Anything unrelated drops the offer and is handled normally.
+      if (state.pendingFacetReview) {
+        const { facetIds, displayName, task } = state.pendingFacetReview;
+        if (isArchReviewAccept(text)) {
+          state.pendingFacetReview = null;
+          await runFacetReview(state, facetIds, displayName, task);
+          return;
+        }
+        if (isArchReviewDecline(text)) {
+          state.pendingFacetReview = null;
+          await handleUserMessage(state, task);
+          return;
+        }
+        state.pendingFacetReview = null;
+      }
 
       // /branch [name] — fork current conversation into a new named thread.
       const branchMatch = text.match(/^\/branch(?:\s+(.+))?$/i);
@@ -198,6 +295,29 @@ export function buildDispatchHandlers(
         state.postMessage({ command: 'done' });
         return;
       }
+      // Codebase review/audit → offer the matching grounded review specialist
+      // instead of answering inline (which tends toward ungrounded boilerplate).
+      const reviewFacet = getConfig().facetsEnabled ? classifyReviewFacets(text) : null;
+      if (reviewFacet) {
+        state.pendingFacetReview = { facetIds: reviewFacet.facetIds, displayName: reviewFacet.displayName, task: text };
+        const plural = reviewFacet.facetIds.length > 1;
+        state.postMessage({
+          command: 'assistantMessage',
+          content:
+            `This looks like a codebase review. I can run the **${reviewFacet.displayName}** ` +
+            `${plural ? 'specialists' : 'specialist'} — ${plural ? 'read-only passes' : 'a read-only pass'} that ` +
+            'read the relevant modules and cite `file:symbol` evidence for every point, rather than answering from ' +
+            `memory${plural ? ', merged into one report' : ''}. Reply **run it** (or click below), or say ` +
+            '**answer inline** for a quick take.',
+        });
+        state.postMessage({
+          command: 'suggestNextSteps',
+          suggestions: [runReviewLabel(reviewFacet.displayName), ANSWER_INLINE_LABEL],
+        });
+        state.postMessage({ command: 'done' });
+        return;
+      }
+
       await handleUserMessage(state, text);
     },
 

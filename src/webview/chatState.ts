@@ -164,6 +164,12 @@ export class ChatState {
    */
   pendingQuestion: string | null = null;
 
+  /**
+   * Holds the matched specialist + original task when a review-specialist offer
+   * (O1) is pending. Read when the user accepts/declines the offer, then cleared.
+   */
+  pendingFacetReview: { facetIds: string[]; displayName: string; task: string } | null = null;
+
   constructor(
     readonly context: ExtensionContext,
     readonly terminalManager: TerminalManager,
@@ -412,6 +418,7 @@ export class ChatState {
     this.pendingPartialAssistant = null;
     this.pendingSteerSnapshot = null;
     this.pendingQuestion = null;
+    this.pendingFacetReview = null;
     this.changelog.clear();
     this.editTimeline.clear();
     this.currentSessionId = null;

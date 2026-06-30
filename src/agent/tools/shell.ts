@@ -79,11 +79,70 @@ function buildExecutor(context?: ToolExecutorContext): CompositeShellExecutor {
   });
 }
 
+const JS_TS_EXT = /\.(jsx?|mjs|cjs|tsx?|mts|cts|vue)$/i;
+const PY_EXT = /\.pyi?$/i;
+
+/**
+ * Catch a language-mismatched lint invocation before it runs: ESLint is a
+ * JS/TS-only linter, but a model building a Python project will reach for it
+ * out of habit (observed in dogfooding — `npx eslint calculator.py` errored
+ * with a confusing "Oops! Something went wrong!"). When every explicit file
+ * target is non-JS/TS and at least one is Python, redirect rather than run —
+ * the confusing failure wastes a turn and teaches the model nothing.
+ *
+ * Returns a redirect message, or null when the command should run normally.
+ */
+export function detectLanguageMismatchedLint(command: string): string | null {
+  if (!/(^|\s|\/)(eslint)\b/i.test(command)) return null;
+  const fileTargets = command.split(/\s+/).filter((tok) => /\.[a-z]+$/i.test(tok) && !tok.startsWith('-'));
+  if (fileTargets.length === 0) return null; // linting a dir/config-driven run — leave it alone
+  if (fileTargets.some((f) => JS_TS_EXT.test(f))) return null; // has real JS/TS targets
+  if (!fileTargets.some((f) => PY_EXT.test(f))) return null; // not the Python case
+  return (
+    'ESLint only lints JavaScript/TypeScript — it cannot check Python files. ' +
+    'For static checks on edited code, call `get_diagnostics`. ' +
+    'Edited Python is already parse-checked automatically before you finish. ' +
+    'If you want Python linting specifically, run a Python linter via run_command (e.g. `ruff check .`, `python -m pyflakes <file>`), not ESLint.'
+  );
+}
+
+// A program execution whose result is meaningful as verification: an
+// interpreter running a file, or a test/build runner.
+const PROGRAM_EXEC_RE =
+  /(^|[\s;&|])(python3?|node|deno|bun|ruby|php)\s+[^\s;&|]+\.\w+|(^|[\s;&|])(pytest|jest|vitest|mocha|go\s+test|cargo\s+(test|run|build)|go\s+run|gradle|mvn)\b|(^|[\s;&|])(npm|pnpm|yarn)\s+(test|run|start)\b|(^|[\s;&|])python3?\s+-m\s+(pytest|unittest|py_compile)\b|(^|[\s;&|])(python3?\s+-c|node\s+-e|ruby\s+-e)\b/i;
+// Masks that suppress failure/output of a command (NOT `|| echo`, which keeps a
+// distinct success/fail signal the model can read).
+const FAILURE_MASK_RE = /\|\|\s*true\b|2>\s*\/dev\/null|&>\s*\/dev\/null|>\s*\/dev\/null\s+2>&1/;
+
+/**
+ * Detect a command that RUNS a program for verification but masks its
+ * failure (`|| true`, `2>/dev/null`, …). Such a command always "succeeds" and
+ * swallows the crash/test-failure the agent is trying to detect — dogfooding
+ * showed a model "verifying" a GUI with `python gui.py || true`, never seeing
+ * the launch crash. Returns an advisory appended to the result (the command
+ * still runs); null when no masked execution is present. `pkill … || true`
+ * style cleanup is exempt — it isn't a program-execution verification.
+ */
+export function detectMaskedVerification(command: string): string | null {
+  if (!PROGRAM_EXEC_RE.test(command) || !FAILURE_MASK_RE.test(command)) return null;
+  return (
+    '\n\n⚠️ This command masks failures (`|| true` / `2>/dev/null`), so it "succeeds" even if the program ' +
+    'crashed or a test failed — it does NOT verify anything. Re-run it plainly (drop the `|| true` and ' +
+    '`2>/dev/null`) and read the real exit code and full output, including any traceback, before treating ' +
+    'the change as working.'
+  );
+}
+
 /**
  * Shared execution helper: run `command` via the composite executor and
  * format the result as a tool-result string.
  */
-async function executeShell(command: string, timeoutMs: number, context?: ToolExecutorContext): Promise<string> {
+async function executeShell(
+  command: string,
+  timeoutMs: number,
+  context?: ToolExecutorContext,
+  suggestBackgroundOnTimeout = false,
+): Promise<string> {
   const executor = buildExecutor(context);
   try {
     const result = await executor.execute(command, {
@@ -91,12 +150,52 @@ async function executeShell(command: string, timeoutMs: number, context?: ToolEx
       onOutput: context?.onOutput,
       signal: context?.signal,
     });
+    // A timeout on a foreground command almost always means the process doesn't
+    // exit on its own — a GUI app (tkinter mainloop), a dev server, a file
+    // watcher. We can't tell that from the command string ahead of time, but
+    // the timeout is the unambiguous signal. Steer the model to re-run it in
+    // the background so it doesn't burn another full timeout blocking the loop.
+    // Only for run_command — run_tests has no background option, and a hung
+    // test suite isn't a backgroundable app.
+    if (result.timedOut && suggestBackgroundOnTimeout) {
+      const secs = Math.round(timeoutMs / 1000);
+      return (
+        result.stdout.trim() +
+        `\n\n⏱ Command did not exit within ${secs}s. If this is a long-running process ` +
+        `(GUI app, dev server, file watcher) it won't return on its own — re-run it with ` +
+        `\`background: true\` to launch it without blocking, then check output with \`command_id\`. ` +
+        `If you only needed to confirm it starts, this timeout already shows it launched without crashing.`
+      ).trim();
+    }
     const status = result.exitCode !== 0 ? `\n(exit code: ${result.exitCode})` : '';
     return result.stdout.trim() + status || '(no output)';
   } catch (err) {
     const error = err as { message?: string };
     return `Command failed:\n${error.message || 'Unknown error'}`;
   }
+}
+
+/**
+ * Run a one-shot verification command (the completion/syntax gate's parse
+ * check) through the SAME terminal-first executor the agent's tools use, so it
+ * resolves interpreters via the user's login-shell PATH.
+ *
+ * A raw ShellSession spawns a `--norc --noprofile` / `-f` shell whose minimal
+ * PATH can make a bare `python3` hang (on macOS, `/usr/bin/python3` triggers a
+ * Command Line Tools install prompt and never returns) — which made the syntax
+ * gate's `py_compile` time out at 15s and silently pass a broken file. The
+ * integrated terminal runs the user's login shell with the real PATH, exactly
+ * like `run_tests`. Returns `timedOut` so callers can tell a timeout (which
+ * must NOT be read as "parses cleanly") from a genuine result.
+ */
+export async function runVerificationCommand(
+  command: string,
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<{ exitCode: number; output: string; timedOut: boolean }> {
+  const executor = buildExecutor();
+  const r = await executor.execute(command, { timeout: timeoutMs, signal });
+  return { exitCode: r.exitCode, output: r.stdout, timedOut: r.timedOut };
 }
 
 export const runCommandDef: ToolDefinition = {
@@ -182,6 +281,12 @@ export async function runCommand(input: Record<string, unknown>, context?: ToolE
     return `Command rejected: "${command}" is not in the allowed list for this context. Only read-only commands (grep, cat, find, ls, etc.) are permitted.`;
   }
 
+  // Steer away from language-mismatched lint commands (e.g. ESLint on .py files).
+  if (command) {
+    const mismatch = detectLanguageMismatchedLint(command);
+    if (mismatch) return mismatch;
+  }
+
   // Check on a background command
   if (input.command_id) {
     const session = resolveShellSession(context);
@@ -207,7 +312,11 @@ export async function runCommand(input: Record<string, unknown>, context?: ToolE
 
   const config = context?.config ?? getConfig();
   const timeoutMs = ((input.timeout as number) || config.shellTimeout || 120) * 1000;
-  return executeShell(cmd, timeoutMs, context);
+  const output = await executeShell(cmd, timeoutMs, context, true);
+  // Append an advisory when the command masks the failure of a program it ran
+  // for verification — it "succeeded" but verified nothing.
+  const maskWarning = detectMaskedVerification(cmd);
+  return maskWarning ? output + maskWarning : output;
 }
 
 export async function runTests(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
@@ -243,6 +352,36 @@ export async function runTests(input: Record<string, unknown>, context?: ToolExe
           break;
         } catch {
           /* not found */
+        }
+      }
+    }
+
+    // Python fallback: no pytest/manifest config, but test files exist
+    // (test_*.py / *_test.py). Common for small scripts and from-scratch builds.
+    // Prefer pytest when it's installed — it collects BOTH pytest-style plain
+    // test classes AND unittest TestCase subclasses, whereas `python -m unittest`
+    // collects ONLY TestCase subclasses. Dogfooding: a model wrote a pytest-style
+    // `class TestX:` (no TestCase base); `python -m unittest` ran 0 tests, so the
+    // behavioral gate's "passing test" requirement could never be satisfied via
+    // run_tests. Fall back to unittest only when pytest isn't available (the
+    // no-dependency path), so envs without pytest still work.
+    if (!command) {
+      const pyTests = await workspace.findFiles('**/{test_*,*_test}.py', '**/node_modules/**', 1);
+      if (pyTests.length > 0) {
+        let pytestAvailable = false;
+        try {
+          const probe = await buildExecutor(context).execute('python3 -m pytest --version', {
+            timeout: 10_000,
+            signal: context?.signal,
+          });
+          pytestAvailable = probe.exitCode === 0;
+        } catch {
+          /* treat as unavailable → unittest fallback */
+        }
+        if (pytestAvailable) {
+          command = 'python3 -m pytest';
+        } else {
+          command = file ? 'python -m unittest' : 'python -m unittest discover';
         }
       }
     }

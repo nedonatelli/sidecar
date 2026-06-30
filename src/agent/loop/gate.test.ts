@@ -22,6 +22,9 @@ vi.mock('../completionGate.js', () => ({
   buildNoReadReprompt: vi.fn(() => null), // returns null by default — no reprompt needed
   buildNoShellReprompt: vi.fn(() => null), // returns null by default — no reprompt needed
   buildNoFileWriteReprompt: vi.fn(() => null), // returns null by default — no reprompt needed
+  buildNoGroundingReprompt: vi.fn(() => null), // returns null by default — no reprompt needed
+  buildUnverifiedClaimReprompt: vi.fn(async () => null), // async; returns null by default
+  buildBehavioralVerificationReprompt: vi.fn(() => null), // returns null by default — no reprompt needed
 }));
 
 import { recordGateToolUses, maybeInjectCompletionGate } from './gate.js';
@@ -182,7 +185,8 @@ describe('maybeInjectCompletionGate — injection path', () => {
       gateState: { editedFiles: new Set(['a.ts']), gateInjections: 0 } as unknown as LoopState['gateState'],
     });
     await maybeInjectCompletionGate(state, stubConfig(), {}, new AbortController().signal, stubCallbacks());
-    expect(info).toHaveBeenCalledOnce();
-    expect(info.mock.calls[0][0]).toContain('#1/2');
+    // The injection summary is logged (alongside the syntax gate's own
+    // observability line for the non-checkable a.ts edit).
+    expect(info.mock.calls.some((c) => String(c[0]).includes('#1/2'))).toBe(true);
   });
 });

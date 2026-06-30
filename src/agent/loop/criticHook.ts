@@ -1,14 +1,17 @@
 import { workspace, Uri } from 'vscode';
 import type { SideCarClient } from '../../ollama/client.js';
-import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/types.js';
+import type { ToolUseContentBlock, ToolResultContentBlock, ChatMessage } from '../../ollama/types.js';
 import type { AgentCallbacks } from '../loop.js';
 import type { AgentLogger } from '../logger.js';
 import type { ChangeLog } from '../changelog.js';
 import type { getConfig } from '../../config/settings.js';
 import {
   CRITIC_SYSTEM_PROMPT,
+  ANALYSIS_CRITIC_SYSTEM_PROMPT,
+  CRITIC_FINDINGS_SCHEMA,
   buildEditCriticPrompt,
   buildTestFailureCriticPrompt,
+  buildAnalysisCriticPrompt,
   parseCriticResponse,
   splitBySeverity,
   formatFindingsForChat,
@@ -16,8 +19,22 @@ import {
   type CriticTrigger,
   type CriticFinding,
 } from '../critic.js';
+import { isAnalysisRequest, firstUserText } from '../completionGate.js';
 import { computeUnifiedDiff } from '../diff.js';
 import type { LoopState } from './state.js';
+
+/** Read-capable tools whose results form the evidence an analysis is judged against. */
+const READ_TOOL_NAMES = new Set([
+  'read_file',
+  'grep',
+  'search_files',
+  'list_directory',
+  'project_knowledge_search',
+  'find_references',
+]);
+
+/** Cap on a single read-result excerpt folded into the evidence block. */
+const MAX_EVIDENCE_PER_RESULT = 4000;
 
 // ---------------------------------------------------------------------------
 // Adversarial critic — post-turn policy hook.
@@ -278,7 +295,11 @@ export async function runCriticChecks(opts: RunCriticOptions): Promise<string | 
     let raw: string;
     try {
       const userPrompt =
-        trigger.kind === 'edit' ? buildEditCriticPrompt(trigger) : buildTestFailureCriticPrompt(trigger);
+        trigger.kind === 'edit'
+          ? buildEditCriticPrompt(trigger)
+          : trigger.kind === 'test_failure'
+            ? buildTestFailureCriticPrompt(trigger)
+            : buildAnalysisCriticPrompt(trigger);
       _criticStats.totalCalls += 1;
 
       // Role-Based Model Routing . When a router is
@@ -295,6 +316,7 @@ export async function runCriticChecks(opts: RunCriticOptions): Promise<string | 
         modelOverride,
         1024,
         signal,
+        CRITIC_FINDINGS_SCHEMA,
       );
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return null;
@@ -439,5 +461,111 @@ export async function applyCritic(
       role: 'user',
       content: [{ type: 'text' as const, text: injection }],
     });
+  }
+}
+
+/**
+ * Assemble the evidence the agent actually gathered this run: the content of
+ * every read/grep/search/PKI tool result, each tagged with the path/query it
+ * came from. This is the ground truth the analysis critic judges claims
+ * against. Returns an empty string when no read evidence exists.
+ */
+export function gatherReadEvidence(messages: ChatMessage[]): string {
+  // Map tool_use id -> a label from its input (path/query/pattern).
+  const labelById = new Map<string, string>();
+  for (const msg of messages) {
+    if (msg.role !== 'assistant' || !Array.isArray(msg.content)) continue;
+    for (const b of msg.content) {
+      if (typeof b !== 'object' || b === null || !('type' in b) || b.type !== 'tool_use') continue;
+      const tu = b as { id: string; name: string; input?: Record<string, unknown> };
+      if (!READ_TOOL_NAMES.has(tu.name)) continue;
+      const input = tu.input ?? {};
+      const label = (input.path ?? input.pattern ?? input.query ?? input.file_path ?? tu.name) as string;
+      labelById.set(tu.id, `${tu.name}(${label})`);
+    }
+  }
+  if (labelById.size === 0) return '';
+
+  const blocks: string[] = [];
+  for (const msg of messages) {
+    if (msg.role !== 'user' || !Array.isArray(msg.content)) continue;
+    for (const b of msg.content) {
+      if (typeof b !== 'object' || b === null || !('type' in b) || b.type !== 'tool_result') continue;
+      const tr = b as { tool_use_id: string; content: string; is_error?: boolean };
+      const label = labelById.get(tr.tool_use_id);
+      if (!label || tr.is_error || typeof tr.content !== 'string') continue;
+      const excerpt =
+        tr.content.length > MAX_EVIDENCE_PER_RESULT
+          ? tr.content.slice(0, MAX_EVIDENCE_PER_RESULT) + '\n[... truncated ...]'
+          : tr.content;
+      blocks.push(`### ${label}\n${excerpt}`);
+    }
+  }
+  return blocks.join('\n\n');
+}
+
+/**
+ * V2 — adversarial analysis critic. Fires once per run on the final answer of
+ * an analysis/review turn (no tool calls this turn), fact-checking the answer's
+ * claims against the read-evidence the agent gathered. Catches the semantic
+ * failures V1's deterministic citation check cannot — a real file mislabeled
+ * as something it isn't, a claim contradicted by the code it cites.
+ *
+ * Gated behind `criticEnabled` (default off), so it ships dark. Like the edit
+ * critic it is opportunistic: any error is logged and swallowed.
+ */
+export async function applyAnalysisCritic(
+  state: LoopState,
+  client: SideCarClient,
+  config: ReturnType<typeof getConfig>,
+  fullText: string,
+  callbacks: AgentCallbacks,
+  signal: AbortSignal,
+): Promise<void> {
+  if (!config.criticEnabled || signal.aborted) return;
+  if (state.analysisCriticFired) return;
+  const answer = fullText.trim();
+  if (!answer) return;
+  if (!isAnalysisRequest(firstUserText(state.messages))) return;
+
+  const evidence = gatherReadEvidence(state.messages);
+  if (!evidence) return;
+
+  state.analysisCriticFired = true;
+  const trigger: CriticTrigger = { kind: 'analysis', answer, evidence };
+
+  let raw: string;
+  try {
+    _criticStats.totalCalls += 1;
+    const decision = client.routeForDispatch({ role: 'critic' });
+    const modelOverride = decision ? undefined : config.criticModel || undefined;
+    raw = await client.completeWithOverrides(
+      ANALYSIS_CRITIC_SYSTEM_PROMPT,
+      [{ role: 'user', content: buildAnalysisCriticPrompt(trigger) }],
+      modelOverride,
+      1024,
+      signal,
+      CRITIC_FINDINGS_SCHEMA,
+    );
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') return;
+    state.logger?.warn(`Analysis critic call failed: ${err instanceof Error ? err.message : String(err)}`);
+    return;
+  }
+
+  const parsed = parseCriticResponse(raw);
+  if (parsed.malformed || parsed.explicitlyClean || parsed.findings.length === 0) return;
+
+  const { high } = splitBySeverity(parsed.findings);
+  // Analysis critique is ADVISORY — surface it to the user, never block.
+  // Dogfooding showed blocking a read-only review forces the model to "fix" its
+  // review against a possibly-wrong critic (the critic's evidence is often
+  // incomplete), producing incoherent self-contradicting output. Unlike the
+  // edit critic (which blocks bad code from shipping), there's nothing here to
+  // protect by blocking — the user reads both the review and the critique.
+  const chatText = formatFindingsForChat(parsed.findings, trigger);
+  if (chatText) callbacks.onText(chatText);
+  if (high.length > 0) {
+    _criticStats.lastBlockedReason = (high[0]?.title ?? '').slice(0, 120);
   }
 }

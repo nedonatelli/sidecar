@@ -31,7 +31,8 @@ export type ProviderType =
   | 'groq'
   | 'fireworks'
   | 'gemini'
-  | 'copilot';
+  | 'copilot'
+  | 'bedrock';
 
 export type CircuitState = 'closed' | 'open' | 'half-open';
 

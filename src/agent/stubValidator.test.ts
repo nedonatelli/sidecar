@@ -36,16 +36,13 @@ describe('detectStubs', () => {
     }
   });
 
-  it('detects "real implementation" deferrals', () => {
-    const stubs = detectStubs('file.ts', '// In a real implementation, this would check the database');
-    expect(stubs).toHaveLength(1);
-    expect(stubs[0].category).toBe('deferred-implementation');
-  });
-
-  it('detects "actual implementation" deferrals', () => {
-    const stubs = detectStubs('file.ts', '// The actual implementation would handle edge cases');
-    expect(stubs).toHaveLength(1);
-    expect(stubs[0].category).toBe('deferred-implementation');
+  it('does NOT flag comment-only "implementation" / "in a real app" hedges', () => {
+    // Comment-only hedges removed — they match common legitimate explanatory
+    // comments ("the full implementation lives in X", "in a real app you'd
+    // cache this") and a comment-only check can't tell them from a stub.
+    expect(detectStubs('file.ts', '// In a real implementation, this would check the database')).toHaveLength(0);
+    expect(detectStubs('file.ts', '// The actual implementation lives in service.ts')).toHaveLength(0);
+    expect(detectStubs('file.ts', '// in a real app you would cache this')).toHaveLength(0);
   });
 
   it('detects NotImplementedError throws', () => {
@@ -73,16 +70,15 @@ describe('detectStubs', () => {
     expect(stubs[0].category).toBe('placeholder-comment');
   });
 
-  it('detects "for now" hedging', () => {
-    const stubs = detectStubs('file.ts', '// for now, just return empty');
-    expect(stubs).toHaveLength(1);
-    expect(stubs[0].category).toBe('for-now-hedge');
+  it('does NOT flag a legitimate "for now" explanatory comment', () => {
+    // "for now" is pervasive in real code as a current-state explanation; a
+    // comment-only heuristic false-positives on it (dogfooding: a correct
+    // `# For now, just display current value (no-op)` spiraled a strong model).
+    expect(detectStubs('file.py', '# For now, display the current value (no-op)\n    pass')).toHaveLength(0);
   });
 
-  it('detects "would be" future deferral', () => {
-    const stubs = detectStubs('file.ts', '// this would need a more sophisticated approach');
-    expect(stubs).toHaveLength(1);
-    expect(stubs[0].category).toBe('future-deferral');
+  it('does NOT flag "would need" limitation notes (removed future-deferral hedge)', () => {
+    expect(detectStubs('file.ts', '// this would need a more sophisticated approach')).toHaveLength(0);
   });
 
   it('detects ellipsis-only body', () => {
@@ -91,10 +87,20 @@ describe('detectStubs', () => {
     expect(stubs[0].category).toBe('ellipsis-body');
   });
 
-  it('detects Python pass-only body', () => {
-    const stubs = detectStubs('file.py', '    pass');
+  it('detects Python pass-only body when it is a function body', () => {
+    const stubs = detectStubs('file.py', 'def do_work():\n    pass');
     expect(stubs).toHaveLength(1);
     expect(stubs[0].category).toBe('pass-body');
+  });
+
+  it('does NOT flag a legitimate `pass` in an except block', () => {
+    const code = 'try:\n    value = int(x)\nexcept ValueError:\n    pass  # ignore bad input';
+    expect(detectStubs('file.py', code)).toHaveLength(0);
+  });
+
+  it('does NOT flag `pass` in a control-flow block or empty exception class', () => {
+    expect(detectStubs('a.py', 'for x in items:\n    pass')).toHaveLength(0);
+    expect(detectStubs('b.py', 'class MyError(Exception):\n    pass')).toHaveLength(0);
   });
 
   it('detects inline empty typed body', () => {
@@ -145,8 +151,8 @@ describe('detectStubs', () => {
   });
 
   it('reports one match per line even with multiple patterns', () => {
-    // "for now" and "placeholder" both match, but should only get one
-    const stubs = detectStubs('file.ts', '// for now, placeholder logic');
+    // "implement" and "placeholder" both match, but should only get one
+    const stubs = detectStubs('file.ts', '// implement placeholder logic here');
     expect(stubs).toHaveLength(1);
   });
 
@@ -167,9 +173,11 @@ describe('detectStubs', () => {
     expect(detectStubs('retriever.ts', code)[0].category).toBe('simulation-stub');
   });
 
-  it('detects // Simulating comment', () => {
-    const code = '// Simulating embedding generation (placeholder)';
-    expect(detectStubs('embed.ts', code)).toHaveLength(1);
+  it('does NOT flag a bare "// Simulating" comment (kept only the console.log code pattern)', () => {
+    // The comment-only `// simulating` variant was removed — legitimate
+    // simulation code uses it ("// simulating N Monte-Carlo trials"). The
+    // strong signal is the CODE pattern (console.log("Simulating ...")) above.
+    expect(detectStubs('embed.ts', '// Simulating embedding generation here')).toHaveLength(0);
   });
 
   it('detects magic-number Array fill (dummy embedding)', () => {
@@ -189,10 +197,12 @@ describe('detectStubs', () => {
     expect(detectStubs('util.ts', code)[0].category).toBe('placeholder-comment');
   });
 
-  it('detects REAL IMPLEMENTATION REQUIRED banner', () => {
-    const code = '// --- REAL IMPLEMENTATION REQUIRED ---';
-    expect(detectStubs('svc.ts', code)).toHaveLength(1);
-    expect(detectStubs('svc.ts', code)[0].category).toBe('deferred-implementation');
+  it('no longer flags a "REAL IMPLEMENTATION" comment banner (deferred-implementation hedge removed)', () => {
+    // Trade-off of dropping the comment-only hedge class: an explicit
+    // "REAL IMPLEMENTATION REQUIRED" banner is no longer caught. It's rare, and
+    // a genuinely-stubbed body still trips the hard signals (TODO, pass-in-def,
+    // NotImplementedError, empty body) + the completion gate's test run.
+    expect(detectStubs('svc.ts', '// --- REAL IMPLEMENTATION REQUIRED ---')).toHaveLength(0);
   });
 
   it('detects [tool_name] bracket prefix in console.log (placeholder log)', () => {

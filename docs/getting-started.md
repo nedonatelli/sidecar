@@ -20,7 +20,7 @@ ollama --version
 Pull a recommended model:
 
 ```bash
-ollama pull gemma4:e4b
+ollama pull ministral-3:latest
 ```
 
 ## Install SideCar
@@ -59,7 +59,7 @@ Use the model dropdown at the top of the chat panel to browse and switch models.
 
 You can also install new models directly from the dropdown — SideCar will pull them from the Ollama registry.
 
-The default model is `gemma4:e4b`. For machines with less RAM, try `gemma4:2b` or `qwen2.5-coder:7b`.
+The default model is `ministral-3:latest`. For machines with less RAM, try `gemma4:2b` or `qwen2.5-coder:7b`.
 
 ## Switching backends
 

@@ -19,7 +19,7 @@ Every tool execution is recorded as a structured entry in `.sidecar/logs/audit.j
 | `tool` | Tool name |
 | `toolCallId` | Unique call ID from the model |
 | `input` | Tool input parameters |
-| `result` | Truncated result (first 500 chars) |
+| `result` | Truncated result (first 2000 chars) |
 | `isError` | Whether the call errored |
 | `durationMs` | Execution time in milliseconds |
 | `iteration` | Agent loop iteration number |
@@ -127,6 +127,17 @@ Top patterns from agent memory, ranked by use count. Shows conventions and decis
 | `/usage` | Token usage and cost dashboard |
 | `/context` | Visualize context window breakdown |
 | `/insight` | Activity analytics (tool call frequency, error rates) |
+
+## Diagnostic logging (Output channels)
+
+Beyond the structured stores above, SideCar writes human-readable diagnostics to two VS Code **Output** channels (View → Output, then pick the channel). VS Code persists these to disk per window, so they survive a reload for post-hoc debugging:
+
+- **SideCar** — process-wide diagnostics: activation, backends, MCP, indexing/PKI, retrieval. Each run is correlated by a short `session=<id>` stamped at activation.
+- **SideCar Agent** — per-run agent-loop tracing: iterations, tool calls + results (secret-redacted, truncated), and a `runId` for correlation.
+
+Both are `LogOutputChannel`s, so the verbosity is controlled by **Developer: Set Log Level…** (trace/debug/info/warn/error) — turn it to **Debug** to see per-query retrieval paths, MCP dispatch, embedding drains, and the other subsystem traces that are silent at the default Info level.
+
+Logs follow a greppable convention: outcome lines carry structured `key=value` fields (e.g. `[PKI] replay complete queued=4230 filesRead=821 graphSymbols=5307`), and a **surprising zero is logged as a warning** (e.g. a non-empty symbol graph that embeds nothing), so a failed run is loud rather than silent.
 
 ## Data sources
 

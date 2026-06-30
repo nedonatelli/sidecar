@@ -4,6 +4,7 @@ dist/
 *.vsix
 sidecar-ai-*.vsix
 .vscode-test/
+.vscode/settings.json
 .DS_Store
 docs/market-notes.md
 coverage/
@@ -22,7 +23,6 @@ grammars/
 
 # Claude Code
 .claude/
-CLAUDE.md
 .sidecar/plans/
 .sidecar/history.db
 eval_output.log

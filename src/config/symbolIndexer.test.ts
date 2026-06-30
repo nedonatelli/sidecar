@@ -128,6 +128,87 @@ describe('SymbolIndexer', () => {
       vi.restoreAllMocks();
     });
 
+    it('replaySymbolsToEmbeddingIndex reads file content from disk when the restored graph has none', async () => {
+      // Simulates a warm reload: the graph is restored from symbol-graph.json,
+      // which persists symbols + hashes but NOT file contents. addFile() sets
+      // both without content, so getFileContent() is empty — the replay must
+      // fall back to reading the file from disk or it queues nothing.
+      const body = ['export function requireAuth(req) {', '  return verifyToken(req);', '}', ''].join('\n');
+      vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(body) as never);
+
+      const indexer = new SymbolIndexer(null);
+      const graph = indexer.getGraph();
+      graph.addFile(
+        'src/auth.ts',
+        [
+          {
+            name: 'requireAuth',
+            qualifiedName: 'requireAuth',
+            type: 'function',
+            filePath: 'src/auth.ts',
+            startLine: 1,
+            endLine: 3,
+            exported: true,
+          },
+        ],
+        [],
+        'size:mtime',
+      );
+      expect(graph.getFileContent('src/auth.ts')).toBeUndefined();
+
+      const queueSymbolSpy = vi.fn();
+      indexer.setSymbolEmbeddings({ queueSymbol: queueSymbolSpy, removeFile: vi.fn() } as never);
+
+      const result = await indexer.replaySymbolsToEmbeddingIndex();
+
+      expect(result.queued).toBe(1);
+      expect(result.filesRead).toBe(1);
+      expect(result.filesSkipped).toBe(0);
+      expect(workspace.fs.readFile).toHaveBeenCalled();
+      expect(queueSymbolSpy).toHaveBeenCalledTimes(1);
+      const queuedSymbol = queueSymbolSpy.mock.calls[0][0] as { filePath: string; body: string };
+      expect(queuedSymbol.filePath).toBe('src/auth.ts');
+      expect(queuedSymbol.body).toContain('requireAuth');
+
+      vi.restoreAllMocks();
+    });
+
+    it('replaySymbolsToEmbeddingIndex counts files skipped when content is absent and unreadable', async () => {
+      // Restored-graph file with no cached content AND a failing disk read —
+      // the case that produces the warn-on-surprising-zero in workspaceIndexer.
+      vi.spyOn(workspace.fs, 'readFile').mockRejectedValue(new Error('ENOENT') as never);
+
+      const indexer = new SymbolIndexer(null);
+      indexer.getGraph().addFile(
+        'src/gone.ts',
+        [
+          {
+            name: 'orphan',
+            qualifiedName: 'orphan',
+            type: 'function',
+            filePath: 'src/gone.ts',
+            startLine: 1,
+            endLine: 3,
+            exported: true,
+          },
+        ],
+        [],
+        'size:mtime',
+      );
+
+      const queueSymbolSpy = vi.fn();
+      indexer.setSymbolEmbeddings({ queueSymbol: queueSymbolSpy, removeFile: vi.fn() } as never);
+
+      const result = await indexer.replaySymbolsToEmbeddingIndex();
+
+      expect(result.queued).toBe(0);
+      expect(result.filesRead).toBe(0);
+      expect(result.filesSkipped).toBe(1);
+      expect(queueSymbolSpy).not.toHaveBeenCalled();
+
+      vi.restoreAllMocks();
+    });
+
     it('removeFileFromGraph drops the file from both graph and embedder', () => {
       const removeFileSpy = vi.fn();
       const indexer = new SymbolIndexer(null);

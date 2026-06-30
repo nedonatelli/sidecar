@@ -42,7 +42,7 @@ flowchart TD
     PushAsst --> Exec[executeToolUses<br/>spawn_agent / delegate_task /<br/>normal dispatch in parallel]
     Exec --> Account[accountToolTokens +<br/>pushToolResultsMessage]
     Account --> PostCompress[maybeCompressPostTool]
-    PostCompress --> AfterHook[hookBus.runAfter<br/>auto-fix → stub → critic →<br/>completion-gate tracking]
+    PostCompress --> AfterHook[hookBus.runAfter<br/>autoFix → isolateRewrite → stub →<br/>critic → actionReprompt → gate → analysisCritic]
     AfterHook --> PlanMode{approvalMode=plan<br/>&& iter=1?}
     PlanMode -- yes --> PlanEmit[emit plan for approval] --> Finalize
     PlanMode -- no --> Loop
@@ -69,7 +69,7 @@ The orchestrator in [`loop.ts`](../src/agent/loop.ts) calls into focused helpers
 | [`messageBuild.ts`](../src/agent/loop/messageBuild.ts) | `pushAssistantMessage` + `pushToolResultsMessage` + `accountToolTokens` — single source of truth for message-array mutation |
 | [`executeToolUses.ts`](../src/agent/loop/executeToolUses.ts) | Parallel tool dispatch; special-cases `spawn_agent` + `delegate_task`; threads `cwdOverride` into every `ToolExecutorContext` |
 | [`policyHook.ts`](../src/agent/loop/policyHook.ts) | `HookBus` + `PolicyHook` interface. Hooks fire via `runAfter` (post-tool) and `runEmptyResponse` (no tool calls this turn) |
-| [`builtInHooks.ts`](../src/agent/loop/builtInHooks.ts) | `defaultPolicyHooks()` wraps the four built-ins as `PolicyHook` adapters |
+| [`builtInHooks.ts`](../src/agent/loop/builtInHooks.ts) | `defaultPolicyHooks()` wraps the seven built-ins as `PolicyHook` adapters (autoFix · isolateRewrite · stubCheck · critic · actionReprompt · completionGate · analysisCritic) |
 | [`criticHook.ts`](../src/agent/loop/criticHook.ts) | Adversarial critic — spawns a second LLM call to review the agent's edits; can push a synthetic user message demanding more work |
 | [`gate.ts`](../src/agent/loop/gate.ts) | Completion gate — refuses to let the agent end the turn without running lint/tests when it claims to be done |
 | [`stubCheck.ts`](../src/agent/loop/stubCheck.ts) | Post-tool validator that rejects placeholder code (`TODO`, `// implement me`, …) |
@@ -80,7 +80,7 @@ The orchestrator in [`loop.ts`](../src/agent/loop.ts) calls into focused helpers
 
 The `HookBus` runs hooks in registration order:
 
-1. **Built-ins** (auto-fix → stub validator → critic → completion-gate tracking) — registered first via `defaultPolicyHooks()`.
+1. **Built-ins** (autoFix → isolateRewrite → stubCheck → critic → actionReprompt → completionGate → analysisCritic) — registered first via `defaultPolicyHooks()`. `isolateRewrite`/`actionReprompt` nudge a stuck model to verify its work; `analysisCritic` fact-checks read-only analysis answers.
 2. **Regression guards** — loaded from `sidecar.regressionGuards` config, gated behind `checkWorkspaceConfigTrust`.
 3. **User extras** — `options.extraPolicyHooks` registered last. These see every mutation earlier hooks made to `state.messages`.
 

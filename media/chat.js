@@ -833,7 +833,7 @@
       const removeBtn = document.createElement('button');
       removeBtn.textContent = '\u00d7';
       removeBtn.className = 'image-remove';
-      removeBtn.dataset.imageIndex = i;
+      removeBtn.dataset.imageIndex = String(i);
       const wrapper = document.createElement('span');
       wrapper.className = 'image-thumb-wrapper';
       wrapper.appendChild(img);
@@ -2483,7 +2483,7 @@
       }
 
       // Horizontal rule: --- or *** or ___ (3+ chars, optional spaces)
-      if (/^\s*([-*_])\s*\1\s*\1[\s\1]*$/.test(line)) {
+      if (/^\s*([-*_])(?:\s*\1){2,}\s*$/.test(line)) {
         parent.appendChild(document.createElement('hr'));
         i++;
         continue;
@@ -2601,7 +2601,7 @@
         !/^\s*[-*]\s+/.test(lines[i]) &&
         !/^\s*\d+\.\s+/.test(lines[i]) &&
         !/^\s*>\s?/.test(lines[i]) &&
-        !/^\s*([-*_])\s*\1\s*\1[\s\1]*$/.test(lines[i])
+        !/^\s*([-*_])(?:\s*\1){2,}\s*$/.test(lines[i])
       ) {
         paraLines.push(lines[i]);
         i++;
@@ -4289,17 +4289,36 @@
 
     switch (command) {
       case 'init':
+        // Clear first so re-sending init (the webviewReady handshake, or a
+        // hide/show re-resolve) REPLACES the history instead of appending a
+        // duplicate copy.
+        messagesContainer.innerHTML = '';
         if (event.data.messages) {
-          for (const msg of event.data.messages) {
+          event.data.messages.forEach((msg, i) => {
+            const c = msg.content;
             const text =
-              typeof msg.content === 'string'
-                ? msg.content
-                : msg.content
-                    .filter((b) => b.type === 'text')
-                    .map((b) => b.text)
-                    .join('\n');
-            appendMessage(msg.role, text);
-          }
+              typeof c === 'string'
+                ? c
+                : Array.isArray(c)
+                  ? c
+                      .filter((b) => b && b.type === 'text')
+                      .map((b) => b.text)
+                      .join('\n')
+                  : '';
+            // Skip the agent's plumbing messages — tool_result entries (role
+            // "user", no text) and tool_use-only assistant turns. Rendering them
+            // produced empty bubbles that made a restored tool-heavy conversation
+            // look broken / like messages were lost.
+            if (!text.trim()) return;
+            const div = appendMessage(msg.role, text);
+            // Keep the rendered bubble's index aligned with state.messages so
+            // regenerate/edit (which index directly into state.messages) still
+            // target the right message after skipping plumbing entries.
+            div.dataset.msgIndex = String(i);
+          });
+          // Continue the live counter past the restored range so the next new
+          // message gets the correct state.messages index.
+          messageCounter = event.data.messages.length;
         }
         // After restoring history (or when none exists), show the empty
         // state if the chat is still blank. This is the first-paint path.
@@ -4605,7 +4624,7 @@
       }
 
       case 'suggestNextSteps': {
-        const suggestions = message.suggestions || [];
+        const suggestions = msg.suggestions || [];
         if (suggestions.length > 0) {
           const container = document.createElement('div');
           container.className = 'next-steps';
@@ -4618,11 +4637,11 @@
             btn.className = 'next-step-btn';
             btn.textContent = text;
             btn.addEventListener('click', () => {
-              vscode.postMessage({ type: 'userMessage', content: text });
+              vscode.postMessage({ command: 'userMessage', text });
             });
             container.appendChild(btn);
           }
-          chatMessages.appendChild(container);
+          messagesContainer.appendChild(container);
           scrollToBottom();
         }
         break;
@@ -4941,6 +4960,34 @@
             optionsContainer.appendChild(btn);
           }
           card.appendChild(optionsContainer);
+        }
+
+        // Free-text answer row when custom responses are allowed. Without this
+        // a clarify with no preset options was a dead end (no way to reply).
+        if (allowCustom) {
+          const customRow = document.createElement('div');
+          customRow.className = 'clarify-custom';
+          const input = document.createElement('input');
+          input.type = 'text';
+          input.className = 'clarify-custom-input';
+          input.placeholder = options.length > 0 ? 'Or type your own answer…' : 'Type your answer…';
+          const submit = document.createElement('button');
+          submit.className = 'clarify-custom-submit';
+          submit.textContent = 'Send';
+          const submitCustom = () => {
+            const value = input.value.trim();
+            if (value) sendResponse(value);
+          };
+          submit.addEventListener('click', submitCustom);
+          input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              submitCustom();
+            }
+          });
+          customRow.appendChild(input);
+          customRow.appendChild(submit);
+          card.appendChild(customRow);
         }
 
         messagesContainer.appendChild(card);
@@ -5585,4 +5632,11 @@
       regenSubmitBtn.textContent = 'Regenerate';
     }, 800);
   }
+
+  // Tell the extension the webview is live and listening. The extension posts the
+  // chat-history `init` in resolveWebviewView, which on a window reload races the
+  // webview load and gets dropped — so the restored conversation never rendered
+  // (looked like the chat didn't persist). The extension (re)sends init in
+  // response to this, after the message listener above is registered.
+  vscode.postMessage({ command: 'webviewReady' });
 })();

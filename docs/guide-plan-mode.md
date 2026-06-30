@@ -13,7 +13,7 @@ Plan Mode inserts a review checkpoint between the moment you submit a task and t
 
 ## What Plan Mode does
 
-When `sidecar.agentMode` is `plan` (or `sidecar.planMode` is `true`), the agent loop runs in two distinct phases:
+When `sidecar.agentMode` is `plan`, the agent loop runs in two distinct phases:
 
 **Phase 1 — exploration and planning.** The agent gets read-only tool access: it can read files, search, grep, check diagnostics, and walk the symbol graph. It cannot write or edit anything. It uses this read pass to understand the codebase, identify relevant patterns, and design an approach. When it's ready, it formats the plan and hands it back to you.
 
@@ -82,15 +82,7 @@ This is the artifact you review before approving.
 }
 ```
 
-Or equivalently, using the boolean toggle:
-
-```json
-{
-  "sidecar.planMode": true
-}
-```
-
-Both set the same underlying mode. `agentMode: "plan"` persists across sessions; `planMode: true` is a convenience alias that maps to the same behavior.
+`agentMode: "plan"` persists across sessions.
 
 ### Option 2 — the mode dropdown
 

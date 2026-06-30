@@ -2,7 +2,7 @@
   "name": "sidecar-ai",
   "displayName": "SideCar",
   "description": "Autonomous AI agent for coding — run full agent loops with local Ollama, Anthropic Claude, or OpenAI models",
-  "version": "0.113.0",
+  "version": "0.114.56",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -130,7 +130,8 @@
               "fireworks",
               "gemini",
               "kickstand",
-              "copilot"
+              "copilot",
+              "bedrock"
             ],
             "enumDescriptions": [
               "Detect from the base URL: localhost:11434 → Ollama, anthropic.com → Anthropic, openrouter.ai → OpenRouter, groq.com → Groq, fireworks.ai → Fireworks, generativelanguage.googleapis.com → Gemini, localhost:11435 → Kickstand, anything else → OpenAI-compatible.",
@@ -142,7 +143,8 @@
               "Fireworks (https://api.fireworks.ai/inference/v1). Hosts open-weight models like DeepSeek V3, Qwen 2.5 Coder, Llama 3.3, Mixtral at OpenAI-compatible pricing. Requires an API key from fireworks.ai.",
               "Google Gemini (https://generativelanguage.googleapis.com/openai). Gemini 2.0 Flash, Pro, and Ultra via the OpenAI-compatible endpoint. Requires an API key from aistudio.google.com/apikey.",
               "Kickstand self-hosted LLM server (http://localhost:11435). Reads its bearer token automatically from `~/.config/kickstand/token`. No API key prompt shown.",
-              "GitHub Copilot via `vscode.lm`. Uses your existing GitHub Copilot subscription — no separate API key required. Requires the GitHub Copilot extension to be installed and signed in."
+              "GitHub Copilot via `vscode.lm`. Uses your existing GitHub Copilot subscription — no separate API key required. Requires the GitHub Copilot extension to be installed and signed in.",
+              "AWS Bedrock for Claude models (bedrock-runtime.<region>.amazonaws.com). No API key — uses the AWS credential chain (env vars or ~/.aws/credentials). Set `sidecar.bedrock.region` and use a Bedrock model / inference-profile ID."
             ],
             "default": "auto",
             "order": 3,
@@ -151,6 +153,16 @@
               "backend"
             ],
             "markdownDescription": "Which backend adapter to use when talking to the LLM. Leave as `auto` unless you're running an OpenAI-compatible server at a non-standard URL that the auto-detector can't recognize."
+          },
+          "sidecar.bedrock.region": {
+            "type": "string",
+            "default": "us-east-1",
+            "order": 4,
+            "tags": [
+              "sidecar",
+              "backend"
+            ],
+            "markdownDescription": "AWS region for the Bedrock backend (e.g. `us-east-1`, `us-west-2`, `eu-central-1`). The Bedrock Runtime endpoint is derived as `bedrock-runtime.<region>.amazonaws.com`. Credentials come from the standard AWS chain (env vars or `~/.aws/credentials`); no API key prompt is shown."
           },
           "sidecar.fallbackBaseUrl": {
             "type": "string",
@@ -424,6 +436,11 @@
             "type": "boolean",
             "default": false,
             "description": "Run an adversarial critic LLM call after every write_file / edit_file and after every failed run_tests. High-severity findings block the agent until addressed; low-severity findings surface as chat annotations only. Doubles API spend on edit turns — off by default."
+          },
+          "sidecar.adaptiveScaffolding.enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Tune loop-safety scaffolding to the active model's capability tier (A2). Strong models relax (fewer reprompts, looser burst cap → less latency); weak models get a larger reprompt budget to recover. Behavior-neutral when off. Experimental — values are still being validated via the ablation harness (npm run eval:ablation)."
           },
           "sidecar.critic.model": {
             "type": "string",
@@ -881,7 +898,7 @@
           "sidecar.includeActiveFile": {
             "type": "boolean",
             "default": true,
-            "description": "Include the currently active file in chat context"
+            "description": "Allow attaching the active file to chat context via the \"add\" toggle. The file is only included when you click add — set this to false to disable the feature entirely."
           },
           "sidecar.filePatterns": {
             "type": "array",
@@ -2063,6 +2080,11 @@
             "description": "Checkpoint agent task state after each iteration so runs can resume after a VS Code restart or crash. Near-zero cost: one small JSON write per iteration. Disable if you never want a resume prompt on startup.",
             "requiresWindowReload": true
           },
+          "sidecar.whatsNew.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Show a one-time notification with release notes after SideCar updates to a new version. The 'SideCar: What's New' command always works regardless of this setting."
+          },
           "sidecar.mcpDelegation.enabled": {
             "type": "boolean",
             "default": false,
@@ -2470,6 +2492,18 @@
         "title": "Branch Session",
         "category": "SideCar",
         "icon": "$(git-branch)"
+      },
+      {
+        "command": "sidecar.whatsNew",
+        "title": "What's New",
+        "category": "SideCar",
+        "icon": "$(megaphone)"
+      },
+      {
+        "command": "sidecar.bedrock.setRegion",
+        "title": "Bedrock: Set Region",
+        "category": "SideCar",
+        "icon": "$(globe)"
       },
       {
         "command": "sidecar.executiveFunction.resume",
@@ -3269,12 +3303,13 @@
     "eval:llm": "SIDECAR_DISABLE_THINKING=true vitest run --config vitest.eval.config.ts",
     "eval:smoke": "SIDECAR_DISABLE_THINKING=true SIDECAR_EVAL_TAGS=smoke vitest run --config vitest.eval.config.ts tests/llm-eval/agent.eval.ts",
     "eval:agent": "SIDECAR_DISABLE_THINKING=true vitest run --config vitest.eval.config.ts tests/llm-eval/agent.eval.ts",
+    "eval:ablation": "SIDECAR_DISABLE_THINKING=true vitest run --config vitest.eval.config.ts tests/llm-eval/ablation.eval.ts",
     "eval:prompt": "SIDECAR_DISABLE_THINKING=true vitest run --config vitest.eval.config.ts tests/llm-eval/prompt.eval.ts",
     "eval:case": "SIDECAR_DISABLE_THINKING=true vitest run --config vitest.eval.config.ts tests/llm-eval/agent.eval.ts tests/llm-eval/prompt.eval.ts",
     "eval:parity": "vitest run --config vitest.eval.config.ts tests/llm-eval/embeddingParity.eval.ts",
     "eval:parity:record": "SIDECAR_RECORD_PARITY_BASELINE=1 vitest run --config vitest.eval.config.ts tests/llm-eval/embeddingParity.eval.ts",
     "eval:compare": "SIDECAR_DISABLE_THINKING=true vitest run --config vitest.eval.config.ts tests/llm-eval/modelComparison.eval.ts",
-    "lint": "eslint src/",
+    "lint": "eslint src/ media/",
     "format": "prettier --write 'src/**/*.ts'",
     "format:check": "prettier --check 'src/**/*.ts'",
     "check": "npm run compile && npm run lint && npm run format:check && npm run test",
@@ -3299,6 +3334,7 @@
     "esbuild": "^0.28.0",
     "eslint": "^10.2.1",
     "eslint-config-prettier": "^10.1.8",
+    "happy-dom": "^20.10.5",
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
     "mysql2": "^3.22.2",
@@ -3331,7 +3367,14 @@
       "bash -c 'tsc --noEmit'",
       "bash -c 'vitest run --silent --exclude \"**/shadowWorkspace.test.ts\" --exclude \"**/shadowSweep.test.ts\"'"
     ],
-    "media/**/*.{js,css}": [
+    "media/**/*.css": [
+      "prettier --write"
+    ],
+    "media/**/*.js": [
+      "prettier --write",
+      "eslint --max-warnings=0"
+    ],
+    "**/*.{md,json}": [
       "prettier --write"
     ]
   }

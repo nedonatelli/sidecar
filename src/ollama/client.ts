@@ -1,6 +1,6 @@
 import type { ChatMessage, ToolDefinition, StreamEvent } from './types.js';
 import { logger } from '../system/logger.js';
-import type { ApiBackend } from './backend.js';
+import type { ApiBackend, ResponseFormat } from './backend.js';
 import { AnthropicBackend } from './anthropicBackend.js';
 import { OllamaBackend } from './ollamaBackend.js';
 import { OpenAIBackend } from './openaiBackend.js';
@@ -10,6 +10,7 @@ import { GroqBackend } from './groqBackend.js';
 import { FireworksBackend } from './fireworksBackend.js';
 import { GeminiBackend } from './geminiBackend.js';
 import { CopilotBackend } from './copilotBackend.js';
+import { BedrockBackend } from './bedrockBackend.js';
 import { isLocalOllama, detectProvider, getConfig } from '../config/settings.js';
 import { MODEL_CONTEXT_LENGTHS } from '../config/constants.js';
 import { RateLimitStore } from './rateLimitState.js';
@@ -54,6 +55,18 @@ const ANTHROPIC_FALLBACK_MODELS = [
   'claude-3-5-sonnet-latest',
   'claude-3-5-haiku-latest',
   'claude-3-opus-latest',
+];
+
+// Bedrock has no cheap model-list endpoint (ListFoundationModels needs a
+// separate signed call), so the picker shows a static set of common Claude
+// model / cross-region inference-profile IDs. Users can type any other Bedrock
+// model id into the model input. GovCloud uses the same ids under its partition.
+const BEDROCK_FALLBACK_MODELS = [
+  'us.anthropic.claude-sonnet-4-20250514-v1:0',
+  'us.anthropic.claude-opus-4-20250514-v1:0',
+  'us.anthropic.claude-3-7-sonnet-20250219-v1:0',
+  'anthropic.claude-3-5-sonnet-20241022-v2:0',
+  'anthropic.claude-3-5-haiku-20241022-v1:0',
 ];
 
 export interface InstalledModel {
@@ -176,7 +189,16 @@ export class SideCarClient {
   // providers (update() keeps old values when new ones are absent),
   // leaking one provider's remaining-token counts into another's view.
   private rateLimitsByProvider = new Map<
-    'ollama' | 'anthropic' | 'openai' | 'kickstand' | 'openrouter' | 'groq' | 'fireworks' | 'gemini' | 'copilot',
+    | 'ollama'
+    | 'anthropic'
+    | 'openai'
+    | 'kickstand'
+    | 'openrouter'
+    | 'groq'
+    | 'fireworks'
+    | 'gemini'
+    | 'copilot'
+    | 'bedrock',
     RateLimitStore
   >();
 
@@ -226,6 +248,12 @@ export class SideCarClient {
         return new GeminiBackend(this.baseUrl, this.apiKey, this.rateLimitsFor('gemini'));
       case 'copilot':
         return new CopilotBackend();
+      case 'bedrock':
+        return new BedrockBackend(
+          getConfig().bedrockRegion,
+          { bearerToken: this.apiKey },
+          this.rateLimitsFor('bedrock'),
+        );
       case 'openai':
         return new OpenAIBackend(this.baseUrl, this.apiKey, this.rateLimitsFor('openai'));
     }
@@ -241,7 +269,8 @@ export class SideCarClient {
       | 'groq'
       | 'fireworks'
       | 'gemini'
-      | 'copilot',
+      | 'copilot'
+      | 'bedrock',
   ): RateLimitStore {
     let store = this.rateLimitsByProvider.get(provider);
     if (!store) {
@@ -443,13 +472,14 @@ export class SideCarClient {
     overrideModel?: string,
     maxTokens: number = 1024,
     signal?: AbortSignal,
+    responseFormat?: ResponseFormat,
   ): Promise<string> {
     const model = overrideModel && overrideModel.trim().length > 0 ? overrideModel : this.model;
     // Mirror the spend-delta hook from `complete()` so router budget
     // tracking works for critic dispatches too.
     const preSpend = spendTracker.snapshot().totalUsd;
     try {
-      const result = await this.backend.complete(model, systemPrompt, messages, maxTokens, signal);
+      const result = await this.backend.complete(model, systemPrompt, messages, maxTokens, signal, responseFormat);
       this.chargeLastDecision(spendTracker.snapshot().totalUsd - preSpend);
       return result;
     } catch (err) {
@@ -813,7 +843,8 @@ export class SideCarClient {
     | 'groq'
     | 'fireworks'
     | 'gemini'
-    | 'copilot' {
+    | 'copilot'
+    | 'bedrock' {
     return detectProvider(this.baseUrl, getConfig().provider);
   }
 
@@ -879,6 +910,19 @@ export class SideCarClient {
       } catch {
         return [];
       }
+    }
+
+    if (provider === 'bedrock') {
+      // Prefer a live query of the Bedrock control plane (ListInferenceProfiles
+      // + ListFoundationModels, Anthropic-only). Falls back to a static list
+      // when the call fails — e.g. a Bedrock API key scoped only to InvokeModel,
+      // or no list permission. The runtime host has no /api/tags or /v1/models,
+      // so we never probe baseUrl here.
+      if (this.backend instanceof BedrockBackend) {
+        const live = await this.backend.listAnthropicModels().catch(() => [] as string[]);
+        if (live.length > 0) return live.map((id) => ({ name: id, model: id, size: 0 }));
+      }
+      return BEDROCK_FALLBACK_MODELS.map((id) => ({ name: id, model: id, size: 0 }));
     }
 
     if (provider === 'openai' || provider === 'openrouter' || provider === 'groq' || provider === 'fireworks') {

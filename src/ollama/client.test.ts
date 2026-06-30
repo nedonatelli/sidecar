@@ -132,6 +132,68 @@ describe('SideCarClient', () => {
     });
   });
 
+  describe('listInstalledModels (Bedrock)', () => {
+    // apiKey makes the backend use bearer auth, so the control-plane query skips
+    // SigV4/credential resolution and just hits our mocked fetch.
+    const bedrockClient = () =>
+      new SideCarClient(
+        'us.anthropic.claude-sonnet-4-20250514-v1:0',
+        'https://bedrock-runtime.us-east-1.amazonaws.com',
+        'BEDROCK-KEY',
+      );
+
+    it('queries the control plane and returns the live Anthropic model list, filtering out non-Anthropic', async () => {
+      mockFetch.mockImplementation(async (url: string) => {
+        if (url.includes('/inference-profiles')) {
+          return {
+            ok: true,
+            json: async () => ({
+              inferenceProfileSummaries: [
+                { inferenceProfileId: 'us.anthropic.claude-sonnet-4-20250514-v1:0' },
+                { inferenceProfileId: 'us.amazon.nova-pro-v1:0' }, // not Anthropic
+              ],
+            }),
+          };
+        }
+        if (url.includes('/foundation-models')) {
+          return {
+            ok: true,
+            json: async () => ({
+              modelSummaries: [
+                {
+                  modelId: 'anthropic.claude-3-5-haiku-20241022-v1:0',
+                  providerName: 'Anthropic',
+                  inferenceTypesSupported: ['ON_DEMAND'],
+                  outputModalities: ['TEXT'],
+                },
+                {
+                  modelId: 'meta.llama3-70b-instruct-v1:0',
+                  providerName: 'Meta',
+                  inferenceTypesSupported: ['ON_DEMAND'],
+                  outputModalities: ['TEXT'],
+                },
+              ],
+            }),
+          };
+        }
+        return { ok: false, status: 404, json: async () => ({}) };
+      });
+
+      const names = (await bedrockClient().listInstalledModels()).map((m) => m.name);
+      expect(names).toContain('us.anthropic.claude-sonnet-4-20250514-v1:0');
+      expect(names).toContain('anthropic.claude-3-5-haiku-20241022-v1:0');
+      expect(names).not.toContain('us.amazon.nova-pro-v1:0');
+      expect(names).not.toContain('meta.llama3-70b-instruct-v1:0');
+    });
+
+    it('falls back to a static list when the control plane denies the request', async () => {
+      mockFetch.mockResolvedValue({ ok: false, status: 403, json: async () => ({}) });
+      const models = await bedrockClient().listInstalledModels();
+      expect(models.length).toBeGreaterThan(0);
+      expect(models.some((m) => m.name.includes('claude'))).toBe(true);
+    });
+  });
+
   describe('updateModel', () => {
     it('changes the model used in requests', async () => {
       const client = new SideCarClient('test-model');
