@@ -1,0 +1,12 @@
+{
+  // Type-checks the bench/ benchmark tooling, which lives outside the
+  // extension's src/ rootDir and is never bundled into the .vsix. Run via
+  // `npm run compile:bench` (and in lint-staged for staged bench files).
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "./bench",
+    "noEmit": true
+  },
+  "include": ["bench/**/*"],
+  "exclude": ["node_modules"]
+}
