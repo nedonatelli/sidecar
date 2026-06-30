@@ -869,6 +869,12 @@ permalink: /
       <h3>Regression Guards</h3>
       <p>Shell-command guards wired into the agent loop. Built-in guards (<code>lint-clean</code>, <code>tests-pass</code>, <code>no-new-todos</code>) run after edits and block the turn on failure. Enable per-skill via <code>guards:</code> frontmatter.</p>
     </div>
+
+    <div class="feat-card">
+      <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="1.5"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><circle cx="18" cy="6" r="3"/><path d="M9 6h6M6 9v6a3 3 0 0 0 3 3h6"/></svg></div>
+      <h3>Change-Impact Analysis</h3>
+      <p>A consequence-aware code graph (AST-exact call/type-flow edges for TS + Python). <code>analyze_impact</code> answers "what depends on this symbol?" &mdash; import-resolved callers, type-users, subtypes, importers &mdash; and an opt-in gate blocks finishing with unverified cross-file dependents. For scientific Python, <code>check_numerical_contracts</code> + <code>check_shape_consistency</code> flag array kernels missing a shape/dtype contract and propagate shape specs to catch provable conflicts.</p>
+    </div>
   </div>
 </section>
 
