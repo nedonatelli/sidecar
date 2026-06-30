@@ -77,9 +77,9 @@ Phased rollout (detail in [`bench/README.md`](../../bench/README.md)):
   diff handed to the SWE-bench test harness as the scorer, executed twice
   (harness on / off).
 - **Phase 3 — Terminal-Bench** (shell/command loop) and, if the conversational
-  - policy-following dimension becomes relevant, **StableToolBench** (many
-    unfamiliar APIs → the MCP story). **τ-bench / τ²-bench are deferred**: their
-    retail/airline domains are the weakest fit for a coding agent.
+  and policy-following dimension becomes relevant, **StableToolBench** (many
+  unfamiliar APIs → the MCP story). **τ-bench / τ²-bench are deferred**: their
+  retail/airline domains are the weakest fit for a coding agent.
 
 Every reported number must carry a **reproducibility envelope**: model +
 **quantization** (Ollama defaults to ~Q4_K_M, which moves scores by points),
