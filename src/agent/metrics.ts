@@ -2,6 +2,7 @@ import type { Memento } from 'vscode';
 import { logger } from '../system/logger.js';
 import { charsToTokens } from '../config/tokenEstimation.js';
 import type { SidecarDir } from '../config/sidecarDir.js';
+import type { FailureBucket } from './failureTaxonomy.js';
 
 const METRICS_LOG = 'logs/metrics.jsonl';
 
@@ -20,6 +21,13 @@ export interface AgentRunMetrics {
   errors: string[];
   /** Estimated cost in USD for this run (null for local models). */
   costUsd: number | null;
+  // --- F2 diagnostic signals (scaffolding roadmap Phase 0) ---
+  /** Tool calls whose first-attempt arguments failed to parse (pre-repair). */
+  malformedToolCalls?: number;
+  /** Of the malformed calls, how many constrained-decoding repair recovered. */
+  repairedToolCalls?: number;
+  /** F1 failure bucket, or null/undefined when the run succeeded. */
+  failureBucket?: FailureBucket | null;
 }
 
 const STORAGE_KEY = 'sidecar.metrics';
@@ -76,6 +84,18 @@ export class MetricsCollector {
 
   recordError(err: string): void {
     this.currentRun?.errors?.push(err);
+  }
+
+  /** F2 — record a turn's malformed tool calls and how many repair recovered. */
+  recordMalformedToolCalls(malformed: number, repaired: number): void {
+    if (!this.currentRun || malformed <= 0) return;
+    this.currentRun.malformedToolCalls = (this.currentRun.malformedToolCalls ?? 0) + malformed;
+    this.currentRun.repairedToolCalls = (this.currentRun.repairedToolCalls ?? 0) + repaired;
+  }
+
+  /** F1 — record the run's outcome: a failure bucket, or null for success. */
+  recordOutcome(bucket: FailureBucket | null): void {
+    if (this.currentRun) this.currentRun.failureBucket = bucket;
   }
 
   endRun(): void {
@@ -185,6 +205,19 @@ export class MetricsCollector {
     errorCount: number;
     totalCostUsd: number;
     byTool: Record<string, { count: number; errors: number }>;
+    // --- F2 diagnostics ---
+    /** Fraction of tool calls whose first-attempt args parsed (the Phase 1 lever). */
+    schemaValidityRate: number;
+    /** Fraction of malformed calls that constrained-decoding repair recovered. */
+    repairRate: number;
+    /** Fraction of tool calls that executed without an error result. */
+    executableCallRate: number;
+    latencyP50Ms: number;
+    latencyP95Ms: number;
+    /** Cost (USD) per successful run; 0 when no priced successful runs. */
+    costPerSuccessfulRun: number;
+    /** Distribution of F1 failure buckets across failed runs. */
+    failureBuckets: Record<string, number>;
   } | null> {
     const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
     let runs: AgentRunMetrics[] = [];
@@ -213,22 +246,67 @@ export class MetricsCollector {
     }
 
     const byTool: Record<string, { count: number; errors: number }> = {};
+    const failureBuckets: Record<string, number> = {};
+    const latencies: number[] = [];
     let iterations = 0;
     let toolCallCount = 0;
+    let toolErrorCount = 0;
     let errorCount = 0;
     let totalCostUsd = 0;
+    let malformedTotal = 0;
+    let repairedTotal = 0;
+    let successfulRuns = 0;
+    let successfulCost = 0;
     for (const run of runs) {
       iterations += run.iterations;
       errorCount += run.errors?.length ?? 0;
       if (run.costUsd) totalCostUsd += run.costUsd;
+      malformedTotal += run.malformedToolCalls ?? 0;
+      repairedTotal += run.repairedToolCalls ?? 0;
+      const failed = run.failureBucket !== null && run.failureBucket !== undefined;
+      if (failed) failureBuckets[run.failureBucket as string] = (failureBuckets[run.failureBucket as string] ?? 0) + 1;
+      else {
+        successfulRuns++;
+        if (run.costUsd) successfulCost += run.costUsd;
+      }
       for (const tc of run.toolCalls ?? []) {
         toolCallCount++;
+        latencies.push(tc.durationMs);
         const t = (byTool[tc.name] ??= { count: 0, errors: 0 });
         t.count++;
-        if (tc.isError) t.errors++;
+        if (tc.isError) {
+          t.errors++;
+          toolErrorCount++;
+        }
       }
     }
 
-    return { runs: runs.length, iterations, toolCallCount, errorCount, totalCostUsd, byTool };
+    return {
+      runs: runs.length,
+      iterations,
+      toolCallCount,
+      errorCount,
+      totalCostUsd,
+      byTool,
+      schemaValidityRate: toolCallCount > 0 ? (toolCallCount - malformedTotal) / toolCallCount : 1,
+      repairRate: malformedTotal > 0 ? repairedTotal / malformedTotal : 1,
+      executableCallRate: toolCallCount > 0 ? (toolCallCount - toolErrorCount) / toolCallCount : 1,
+      latencyP50Ms: percentile(latencies, 50),
+      latencyP95Ms: percentile(latencies, 95),
+      costPerSuccessfulRun: successfulRuns > 0 ? successfulCost / successfulRuns : 0,
+      failureBuckets,
+    };
   }
+}
+
+/** Linear-interpolation percentile over an unsorted sample; 0 when empty. */
+function percentile(samples: number[], p: number): number {
+  if (samples.length === 0) return 0;
+  const sorted = [...samples].sort((a, b) => a - b);
+  if (sorted.length === 1) return sorted[0];
+  const rank = (p / 100) * (sorted.length - 1);
+  const lo = Math.floor(rank);
+  const hi = Math.ceil(rank);
+  if (lo === hi) return sorted[lo];
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (rank - lo);
 }

@@ -113,6 +113,9 @@ export function createAgentCallbacks(
       state.metricsCollector.recordToolEnd(name, isError);
       state.auditLog?.recordToolResult(name, id, result, isError, durationMs);
     },
+    onMalformedToolCalls: (malformed, repaired) => {
+      state.metricsCollector.recordMalformedToolCalls(malformed, repaired);
+    },
     onAssistantText: (text, iteration) => {
       void state.auditLog?.recordTextTurn(text, iteration);
     },

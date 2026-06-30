@@ -126,6 +126,12 @@ export interface AgentCallbacks {
    * propagates, so listeners shouldn't throw from this handler.
    */
   onStreamFailure?: (partial: string, error: Error) => void;
+  /**
+   * F2 — fired after the constrained-decoding repair pass on a turn's tool
+   * calls: how many arrived malformed and how many repair recovered. Feeds the
+   * schema-validity + repair-rate diagnostics.
+   */
+  onMalformedToolCalls?: (malformed: number, repaired: number) => void;
   onDone: () => void;
 }
 
@@ -483,7 +489,8 @@ export async function runAgentLoop(
       // action boundary, before dispatch. Heuristic JSON repair first, then a
       // schema-constrained regeneration. Recovers calls that would otherwise
       // error/drop, instead of burning a whole retry turn.
-      if (pendingToolUses.some((tu) => tu._malformedInputRaw !== undefined)) {
+      const malformedCount = pendingToolUses.filter((tu) => tu._malformedInputRaw !== undefined).length;
+      if (malformedCount > 0) {
         try {
           const fixed = await repairMalformedToolUses(pendingToolUses, {
             client,
@@ -493,6 +500,7 @@ export async function runAgentLoop(
               state.tools.find((t) => t.name === name)?.input_schema as Record<string, unknown> | undefined,
             logger: state.logger,
           });
+          callbacks.onMalformedToolCalls?.(malformedCount, fixed); // F2 — schema-validity + repair rate
           if (fixed > 0) callbacks.onText?.(`\n\n🔧 Repaired ${fixed} malformed tool call${fixed === 1 ? '' : 's'}.\n`);
         } catch (err) {
           if (err instanceof Error && err.name === 'AbortError') throw err;
