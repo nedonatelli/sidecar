@@ -72,6 +72,9 @@ export interface SideCarConfig {
     | 'copilot'
     | 'bedrock';
   bedrockRegion: string;
+  /** Use the Bedrock FIPS endpoint (bedrock-runtime-fips.*) — required for some
+   *  connections, e.g. AWS GovCloud (us-gov-east-1 / us-gov-west-1). */
+  bedrockFips: boolean;
   systemPrompt: string;
   baseUrl: string;
   apiKey: string;
@@ -416,6 +419,7 @@ function readConfig(): SideCarConfig {
     webSearchApiKey: cfg.get<string>('webSearch.apiKey', ''),
     provider: rawProvider,
     bedrockRegion: cfg.get<string>('bedrock.region', 'us-east-1') || 'us-east-1',
+    bedrockFips: cfg.get<boolean>('bedrock.fips', false),
     systemPrompt: cfg.get<string>('systemPrompt', ''),
     baseUrl: rawBaseUrl,
     apiKey: getCachedApiKey() ?? cfg.get<string>('apiKey', 'ollama'),

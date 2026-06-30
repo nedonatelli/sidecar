@@ -18,6 +18,8 @@ Consequence-aware code graph + a numerical-correctness vertical built on top of 
 ### Fixed
 
 - **Symbol-graph file content was silently discarded.** `SymbolGraph.addFile()` clears `fileContents` (via `removeFile`), but the indexer stored content *before* `addFile`, so `getFileContent()` always returned undefined and reference search / source readers fell back to disk needlessly. Content is now stored after `addFile`; a regression test pins the ordering. (`src/config/symbolIndexer.ts`)
+- **Bedrock base URL now follows the chosen region.** `SideCar: Bedrock: Set Region` updated `sidecar.bedrock.region` but left `sidecar.baseUrl` pinned at `bedrock-runtime.us-east-1.amazonaws.com`, so selecting another server (e.g. GovCloud `us-gov-east-1`) left the displayed/used base URL wrong. The region flow now derives and writes the correct host (`bedrockRuntimeOrigin(region, fips)`). (`src/commands/settingsCommands.ts`, `src/ollama/bedrockBackend.ts`)
+- **Bedrock FIPS endpoint support** (`sidecar.bedrock.fips`). Some connections — notably AWS GovCloud — require the FIPS host `bedrock-runtime-fips.<region>.amazonaws.com` (and `bedrock-fips.<region>` for the control plane). The region picker offers it (defaulted first for `us-gov-*` regions), the runtime + model-discovery hosts honor it, and the base URL syncs accordingly. (`src/ollama/bedrockBackend.ts`, `src/ollama/client.ts`, `src/config/settings.ts`)
 
 ## [0.114.56] - 2026-06-29
 

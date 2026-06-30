@@ -36,7 +36,8 @@
     "mistral",
     "gemma",
     "codellama",
-    "copilot"
+    "copilot",
+    "cline"
   ],
   "activationEvents": [
     "onStartupFinished"
@@ -163,6 +164,16 @@
               "backend"
             ],
             "markdownDescription": "AWS region for the Bedrock backend (e.g. `us-east-1`, `us-west-2`, `eu-central-1`). The Bedrock Runtime endpoint is derived as `bedrock-runtime.<region>.amazonaws.com`. Credentials come from the standard AWS chain (env vars or `~/.aws/credentials`); no API key prompt is shown."
+          },
+          "sidecar.bedrock.fips": {
+            "type": "boolean",
+            "default": false,
+            "order": 5,
+            "tags": [
+              "sidecar",
+              "backend"
+            ],
+            "markdownDescription": "Use the Bedrock **FIPS** endpoint — `bedrock-runtime-fips.<region>.amazonaws.com` instead of the standard host. Required for some connections, notably **AWS GovCloud** (`us-gov-east-1` / `us-gov-west-1`). The `SideCar: Bedrock: Set Region` command offers this automatically for GovCloud regions and keeps `sidecar.baseUrl` in sync."
           },
           "sidecar.fallbackBaseUrl": {
             "type": "string",

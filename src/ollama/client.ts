@@ -253,6 +253,7 @@ export class SideCarClient {
           getConfig().bedrockRegion,
           { bearerToken: this.apiKey },
           this.rateLimitsFor('bedrock'),
+          getConfig().bedrockFips,
         );
       case 'openai':
         return new OpenAIBackend(this.baseUrl, this.apiKey, this.rateLimitsFor('openai'));
