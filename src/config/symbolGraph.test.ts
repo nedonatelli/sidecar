@@ -182,6 +182,18 @@ describe('SymbolGraph', () => {
     expect(ctx).toContain('src/b.ts');
   });
 
+  it('addFile clears prior fileContents — content must be set AFTER addFile', () => {
+    const graph = new SymbolGraph();
+    // Wrong order: set then add → addFile's removeFile wipes the content.
+    graph.setFileContent('src/a.ts', 'export const x = 1;');
+    graph.addFile('src/a.ts', [sym('x', 'src/a.ts')], [], 'h1');
+    expect(graph.getFileContent('src/a.ts')).toBeUndefined();
+
+    // Correct order: add then set → content survives.
+    graph.setFileContent('src/a.ts', 'export const x = 1;');
+    expect(graph.getFileContent('src/a.ts')).toBe('export const x = 1;');
+  });
+
   it('getFileGraphContext shows dependencies', () => {
     const graph = new SymbolGraph();
     graph.addFile('src/a.ts', [], [], 'h1');

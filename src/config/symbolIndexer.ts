@@ -246,9 +246,11 @@ export class SymbolIndexer implements Disposable {
       line: u.line,
     }));
 
-    // Store content for reference searching
-    this.graph.setFileContent(relativePath, content);
+    // addFile() clears any prior fileContents for this path (via removeFile),
+    // so the content MUST be stored after it — otherwise getFileContent is
+    // wiped and reference search / source readers fall back to disk needlessly.
     this.graph.addFile(relativePath, symbols, imports, hash, calls, typeEdges, typeUses);
+    this.graph.setFileContent(relativePath, content);
 
     // PKI b.2: feed each symbol's body into the embedding queue so
     // semantic search can rank at symbol granularity. Skipped when
