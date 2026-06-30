@@ -31,13 +31,78 @@ export interface ParsedTypeRelation {
   kind: 'extends' | 'implements';
 }
 
+/** A use of a named type in a signature/variable (return, param, or variable annotation). */
+export interface ParsedTypeUse {
+  userName: string; // enclosing symbol that references the type, or '<module>'
+  typeName: string;
+  role: 'return' | 'param' | 'variable';
+  line: number; // 1-based
+}
+
 export interface ParsedFile {
   filePath: string;
   elements: CodeElement[];
   content: string;
   calls?: ParsedCall[];
   typeRelations?: ParsedTypeRelation[];
+  typeUses?: ParsedTypeUse[];
 }
+
+// `: Type` annotations (params, fields, variables). Capitalized head only, so
+// primitives (string, number, boolean, void, any, …) are skipped by construction.
+const TYPE_ANNOT_PATTERN = /:\s*([A-Z][\w$.]*)/g;
+// `Foo<Bar>` generic arguments — capture the capitalized argument head.
+const GENERIC_ARG_PATTERN = /<\s*([A-Z][\w$.]*)/g;
+// Common built-in/library PascalCase types that are never workspace symbols.
+// Skipping them keeps the persisted edge set lean (the impact query would
+// filter them anyway, since no workspace symbol is defined by these names).
+const BUILTIN_TYPE_NAMES = new Set([
+  'Promise',
+  'Array',
+  'Map',
+  'Set',
+  'WeakMap',
+  'WeakSet',
+  'Record',
+  'Partial',
+  'Required',
+  'Readonly',
+  'Pick',
+  'Omit',
+  'Exclude',
+  'Extract',
+  'ReturnType',
+  'Parameters',
+  'Awaited',
+  'Object',
+  'Function',
+  'Date',
+  'RegExp',
+  'Error',
+  'Symbol',
+  'BigInt',
+  'String',
+  'Number',
+  'Boolean',
+  'Iterable',
+  'Iterator',
+  'Generator',
+  'AsyncGenerator',
+  'Uint8Array',
+  'ArrayBuffer',
+  // Python typing
+  'List',
+  'Dict',
+  'Tuple',
+  'Optional',
+  'Union',
+  'Any',
+  'Callable',
+  'Sequence',
+  'Mapping',
+  'Type',
+  'Final',
+]);
 
 /**
  * Simple code element extractor for common languages
@@ -236,6 +301,7 @@ export class SimpleCodeAnalyzer {
     // Track call sites and type relations for the symbol graph
     const calls: ParsedCall[] = [];
     const typeRelations: ParsedTypeRelation[] = [];
+    const typeUses: ParsedTypeUse[] = [];
     // Regex for function calls: identifier followed by ( — excludes keywords/declarations
     const CALL_PATTERN = /\b([a-zA-Z_$][\w$]*)\s*\(/g;
     const SKIP_CALL_NAMES = new Set([
@@ -780,12 +846,61 @@ export class SimpleCodeAnalyzer {
       }
     }
 
+    // --- Type-use extraction (TS + Python explicit annotations) ---
+    // Attribute each referenced type to its enclosing symbol. Liberal capture
+    // is safe: the impact query only surfaces types that are defined symbols,
+    // so built-in captures (Promise, List, …) never reach a report unless the
+    // workspace actually defines a symbol by that name. Stage 2 (tree-sitter)
+    // replaces this with binding-accurate extraction behind the same edges.
+    const isTs = ext === '.ts' || ext === '.tsx';
+    if (isTs || lang === 'py') {
+      const pushTypeUse = (typeName: string, role: ParsedTypeUse['role'], lineIdx: number): void => {
+        // Strip generic/namespace qualifiers to the head name.
+        const head = typeName.split(/[<.[]/, 1)[0];
+        if (!head || !/^[A-Z]/.test(head) || BUILTIN_TYPE_NAMES.has(head)) return;
+        typeUses.push({ userName: findScope(lineIdx), typeName: head, role, line: lineIdx + 1 });
+      };
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const trimmed = line.trim();
+        if (
+          trimmed.startsWith('import ') ||
+          trimmed.startsWith('//') ||
+          trimmed.startsWith('*') ||
+          trimmed.startsWith('#')
+        )
+          continue;
+
+        // Return type: `): Foo` (TS) or `-> Foo` (Python).
+        const ret = line.match(/\)\s*:\s*([A-Za-z_$][\w$.<[\]]*)/) || line.match(/->\s*([A-Za-z_$][\w$.<[\]]*)/);
+        if (ret) pushTypeUse(ret[1], 'return', i);
+
+        // Variable declaration with a type annotation.
+        const isVarDecl = /^\s*(?:export\s+)?(?:const|let|var|readonly)\s/.test(line);
+
+        // Every `: Type` annotation on the line (params, fields, variables).
+        TYPE_ANNOT_PATTERN.lastIndex = 0;
+        let m: RegExpExecArray | null;
+        while ((m = TYPE_ANNOT_PATTERN.exec(line)) !== null) {
+          // Skip the `):` return form already captured above.
+          if (m.index > 0 && line[m.index - 1] === ')') continue;
+          pushTypeUse(m[1], isVarDecl ? 'variable' : 'param', i);
+        }
+        // Generic type arguments: `Foo<Bar, Baz>`.
+        GENERIC_ARG_PATTERN.lastIndex = 0;
+        while ((m = GENERIC_ARG_PATTERN.exec(line)) !== null) {
+          pushTypeUse(m[1], 'param', i);
+        }
+      }
+    }
+
     return {
       filePath,
       elements,
       content,
       calls: calls.length > 0 ? calls : undefined,
       typeRelations: typeRelations.length > 0 ? typeRelations : undefined,
+      typeUses: typeUses.length > 0 ? typeUses : undefined,
     };
   }
 

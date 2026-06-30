@@ -8,7 +8,14 @@ import { logger } from '../system/logger.js';
 import * as path from 'path';
 import { SimpleCodeAnalyzer } from '../astContext.js';
 import { getRegexAnalyzer } from '../parsing/registry.js';
-import { SymbolGraph, type SymbolEntry, type ImportEdge, type CallEdge, type TypeEdge } from './symbolGraph.js';
+import {
+  SymbolGraph,
+  type SymbolEntry,
+  type ImportEdge,
+  type CallEdge,
+  type TypeEdge,
+  type TypeUseEdge,
+} from './symbolGraph.js';
 import type { SidecarDir } from './sidecarDir.js';
 import type { SymbolEmbeddingIndex } from './symbolEmbeddingIndex.js';
 
@@ -228,10 +235,17 @@ export class SymbolIndexer implements Disposable {
       parentName: r.parentName,
       kind: r.kind,
     }));
+    const typeUses: TypeUseEdge[] = (parsed.typeUses || []).map((u) => ({
+      userFile: relativePath,
+      userName: u.userName,
+      typeName: u.typeName,
+      role: u.role,
+      line: u.line,
+    }));
 
     // Store content for reference searching
     this.graph.setFileContent(relativePath, content);
-    this.graph.addFile(relativePath, symbols, imports, hash, calls, typeEdges);
+    this.graph.addFile(relativePath, symbols, imports, hash, calls, typeEdges, typeUses);
 
     // PKI b.2: feed each symbol's body into the embedding queue so
     // semantic search can rank at symbol granularity. Skipped when

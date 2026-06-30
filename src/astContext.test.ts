@@ -309,4 +309,50 @@ abstract class BaseService {}
     const order = parsed.elements.find((e) => e.name === 'OrderService');
     expect(order?.exported).toBe(true);
   });
+
+  describe('type-use extraction', () => {
+    it('extracts TS param, return, and variable type annotations attributed to the enclosing symbol', () => {
+      const content = [
+        'function handleRequest(cfg: AuthConfig): SessionToken {',
+        '  const user: UserRecord = lookup(cfg);',
+        '  return mint(user);',
+        '}',
+      ].join('\n');
+      const parsed = SimpleCodeAnalyzer.parseFileContent('src/route.ts', content);
+      const uses = parsed.typeUses ?? [];
+      const byType = (t: string) => uses.find((u) => u.typeName === t);
+
+      expect(byType('AuthConfig')).toMatchObject({ userName: 'handleRequest', role: 'param' });
+      expect(byType('SessionToken')).toMatchObject({ userName: 'handleRequest', role: 'return' });
+      expect(byType('UserRecord')).toMatchObject({ userName: 'handleRequest', role: 'variable' });
+    });
+
+    it('captures generic type arguments and skips built-in/primitive types', () => {
+      const content = [
+        'function load(): Promise<UserRecord> {',
+        '  let count: number = 0;',
+        '  return fetchAll();',
+        '}',
+      ].join('\n');
+      const parsed = SimpleCodeAnalyzer.parseFileContent('src/load.ts', content);
+      const names = (parsed.typeUses ?? []).map((u) => u.typeName);
+      expect(names).toContain('UserRecord'); // generic argument
+      expect(names).not.toContain('Promise'); // built-in
+      expect(names).not.toContain('number'); // primitive (lowercase)
+    });
+
+    it('extracts Python type hints (params + return)', () => {
+      const content = ['def handle(cfg: AuthConfig) -> SessionToken:', '    return mint(cfg)'].join('\n');
+      const parsed = SimpleCodeAnalyzer.parseFileContent('route.py', content);
+      const names = (parsed.typeUses ?? []).map((u) => u.typeName);
+      expect(names).toContain('AuthConfig');
+      expect(names).toContain('SessionToken');
+    });
+
+    it('does not extract type uses for plain JS (no annotations)', () => {
+      const content = 'function f(a, b) { return a + b; }';
+      const parsed = SimpleCodeAnalyzer.parseFileContent('plain.js', content);
+      expect(parsed.typeUses).toBeUndefined();
+    });
+  });
 });

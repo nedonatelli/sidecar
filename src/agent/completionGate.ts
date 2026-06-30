@@ -69,6 +69,10 @@ export interface GateState {
    * A counter rather than a one-shot flag so the gate can re-fire when the model
    * "satisfies" it with a hollow test that never imports the module under test. */
   behavioralVerificationInjections?: number;
+  /** True once the (non-blocking) change-impact advisory has been surfaced this
+   * run. The advisory lists downstream dependents of edited exported symbols; it
+   * fires at most once and never blocks completion. Optional for back-compat. */
+  impactAdvisoryFired?: boolean;
   /**
    * The user request that triggered THIS run, captured at loop init. The
    * request-based gates (no-read/no-shell/no-grounding/no-file-write/

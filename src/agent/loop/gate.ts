@@ -15,8 +15,61 @@ import {
 import { runSyntaxGate, buildSyntaxReprompt, hasCheckableFiles } from './syntaxGate.js';
 import { getRoot } from '../tools/shared.js';
 import { runVerificationCommand } from '../tools/shell.js';
+import { getDefaultToolRuntime } from '../tools/runtime.js';
+import type { SymbolGraph, ImpactedItem } from '../../config/symbolGraph.js';
 import * as path from 'path';
 import type { LoopState } from './state.js';
+
+const IMPACT_REASON_NOUNS: Record<ImpactedItem['reason'], [string, string]> = {
+  calls: ['caller', 'callers'],
+  'type-use': ['type user', 'type users'],
+  subtype: ['subtype', 'subtypes'],
+  imports: ['importer', 'importers'],
+};
+const IMPACT_ADVISORY_MAX_SYMBOLS = 8;
+
+/**
+ * Build a one-line-per-symbol, non-blocking advisory listing downstream
+ * dependents of the exported symbols in the edited files. Returns null when
+ * nothing exported was touched or nothing external depends on it. Name-based
+ * (Stage 1), so it's framed as "review", never as proof of breakage.
+ */
+export function buildImpactAdvisory(graph: SymbolGraph, editedFiles: ReadonlySet<string>, root: string): string | null {
+  const relativize = (f: string): string => (root && path.isAbsolute(f) ? path.relative(root, f) : f);
+  const editedRel = new Set<string>();
+  for (const f of editedFiles) editedRel.add(relativize(f));
+
+  const lines: string[] = [];
+  for (const rel of editedRel) {
+    for (const sym of graph.getSymbolsInFile(rel)) {
+      if (!sym.exported) continue;
+      // Only cross-file dependents matter for an advisory — same-file usage is
+      // already in front of the agent.
+      const external = graph.impactOf([sym.name], { maxDepth: 1 }).filter((i) => !editedRel.has(relativize(i.file)));
+      if (external.length === 0) continue;
+
+      const counts = new Map<ImpactedItem['reason'], number>();
+      for (const item of external) counts.set(item.reason, (counts.get(item.reason) ?? 0) + 1);
+      const parts: string[] = [];
+      for (const reason of ['calls', 'type-use', 'subtype', 'imports'] as ImpactedItem['reason'][]) {
+        const n = counts.get(reason);
+        if (!n) continue;
+        const [one, many] = IMPACT_REASON_NOUNS[reason];
+        parts.push(`${n} ${n === 1 ? one : many}`);
+      }
+      lines.push(`   • ${sym.name} — ${parts.join(', ')}`);
+      if (lines.length >= IMPACT_ADVISORY_MAX_SYMBOLS) break;
+    }
+    if (lines.length >= IMPACT_ADVISORY_MAX_SYMBOLS) break;
+  }
+
+  if (lines.length === 0) return null;
+  return (
+    '\n\n🌐 Change-impact (advisory) — edited exported symbols have downstream dependents:\n' +
+    lines.join('\n') +
+    '\n   Verify these still hold; call `analyze_impact` for specifics. (Name-based — review, not proof.)\n'
+  );
+}
 
 /** Bounded retries for the syntax gate, mirroring MAX_GATE_INJECTIONS. */
 const MAX_SYNTAX_GATE_INJECTIONS = 2;
@@ -260,6 +313,27 @@ export async function maybeInjectCompletionGate(
       } catch (err) {
         // The gate is best-effort: a shell/runtime hiccup must not block the loop.
         logger?.warn(`Syntax gate skipped: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  }
+
+  // Non-blocking change-impact advisory: once per run, surface the downstream
+  // dependents of the exported symbols the agent edited. Purely informational —
+  // it never injects a message or blocks completion, so an imprecise (name-based)
+  // result can't derail the loop. Stage 2 (binding-accurate extraction) is what
+  // promotes this to a real blocking verifier.
+  if (!gateState.impactAdvisoryFired && gateState.editedFiles.size > 0) {
+    gateState.impactAdvisoryFired = true;
+    const graph = getDefaultToolRuntime().symbolGraph;
+    if (graph && graph.fileCount() > 0) {
+      try {
+        const advisory = buildImpactAdvisory(graph, gateState.editedFiles, getRoot());
+        if (advisory) {
+          logger?.info('Change-impact advisory surfaced for edited exported symbols');
+          callbacks.onText(advisory);
+        }
+      } catch (err) {
+        logger?.warn(`Change-impact advisory skipped: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
   }
