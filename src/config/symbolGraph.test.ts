@@ -470,6 +470,71 @@ describe('SymbolGraph', () => {
       expect(report.find((i) => i.reason === 'imports' && i.name === 'src/route.ts')).toBeTruthy();
     });
 
+    it('impactOf resolves edges against the defining file (disambiguates same-named symbols)', () => {
+      const graph = new SymbolGraph();
+      // Two different `handleError`, in a.ts and b.ts.
+      graph.addFile('src/a.ts', [sym('handleError', 'src/a.ts', { exported: true })], [], 'h1');
+      graph.addFile('src/b.ts', [sym('handleError', 'src/b.ts', { exported: true })], [], 'h2');
+      // routeA imports handleError from a.ts and calls it; routeB from b.ts.
+      graph.addFile(
+        'src/routeA.ts',
+        [sym('routeA', 'src/routeA.ts')],
+        [{ fromFile: 'src/routeA.ts', toFile: 'src/a', importedNames: ['handleError'] }],
+        'h3',
+        [{ callerFile: 'src/routeA.ts', callerName: 'routeA', calleeName: 'handleError', line: 2 }],
+      );
+      graph.addFile(
+        'src/routeB.ts',
+        [sym('routeB', 'src/routeB.ts')],
+        [{ fromFile: 'src/routeB.ts', toFile: 'src/b', importedNames: ['handleError'] }],
+        'h4',
+        [{ callerFile: 'src/routeB.ts', callerName: 'routeB', calleeName: 'handleError', line: 2 }],
+      );
+
+      // Name-only: over-approximates — both routes surface.
+      const nameOnly = graph.impactOf(['handleError']).filter((i) => i.reason === 'calls');
+      expect(nameOnly.map((i) => i.name).sort()).toEqual(['routeA', 'routeB']);
+      expect(nameOnly.every((i) => i.resolved === false)).toBe(true);
+
+      // Resolved to a.ts: only routeA (which imports from a.ts) surfaces.
+      const resolved = graph.impactOf([{ name: 'handleError', file: 'src/a.ts' }]).filter((i) => i.reason === 'calls');
+      expect(resolved.map((i) => i.name)).toEqual(['routeA']);
+      expect(resolved[0].resolved).toBe(true);
+    });
+
+    it('impactOf resolves type-users and importers to the defining file', () => {
+      const graph = new SymbolGraph();
+      graph.addFile('src/a.ts', [sym('Cfg', 'src/a.ts', { type: 'interface', exported: true })], [], 'h1');
+      graph.addFile('src/b.ts', [sym('Cfg', 'src/b.ts', { type: 'interface', exported: true })], [], 'h2');
+      // userA imports Cfg from a.ts and types a param with it.
+      graph.addFile(
+        'src/userA.ts',
+        [sym('userA', 'src/userA.ts')],
+        [{ fromFile: 'src/userA.ts', toFile: 'src/a', importedNames: ['Cfg'] }],
+        'h3',
+        [],
+        [],
+        [{ userFile: 'src/userA.ts', userName: 'userA', typeName: 'Cfg', role: 'param', line: 1 }],
+      );
+      // userB types with the OTHER Cfg (from b.ts).
+      graph.addFile(
+        'src/userB.ts',
+        [sym('userB', 'src/userB.ts')],
+        [{ fromFile: 'src/userB.ts', toFile: 'src/b', importedNames: ['Cfg'] }],
+        'h4',
+        [],
+        [],
+        [{ userFile: 'src/userB.ts', userName: 'userB', typeName: 'Cfg', role: 'param', line: 1 }],
+      );
+
+      const report = graph.impactOf([{ name: 'Cfg', file: 'src/a.ts' }]);
+      expect(report.find((i) => i.reason === 'type-use' && i.name === 'userA')).toBeTruthy();
+      expect(report.find((i) => i.reason === 'type-use' && i.name === 'userB')).toBeFalsy();
+      // Importer is resolved too: userA imports Cfg, surfaces; userB imports the other.
+      expect(report.find((i) => i.reason === 'imports' && i.name === 'src/userA.ts')).toBeTruthy();
+      expect(report.find((i) => i.reason === 'imports' && i.name === 'src/userB.ts')).toBeFalsy();
+    });
+
     it('impactOf ignores <module> seeds and empty input', () => {
       const graph = new SymbolGraph();
       graph.addFile('src/a.ts', [sym('a', 'src/a.ts')], [], 'h1');

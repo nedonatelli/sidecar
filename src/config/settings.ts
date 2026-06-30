@@ -319,6 +319,8 @@ export interface SideCarConfig {
   /* Code Profiling */
   profilingEnabled: boolean;
   profilingTopN: number;
+  /* Code-graph change-impact gate (opt-in hard block) */
+  impactGateEnabled: boolean;
   /* Eval history DB */
   evalHistoryEnabled: boolean;
   /* LaTeX Agentic Debugging */
@@ -647,6 +649,7 @@ function readConfig(): SideCarConfig {
     researchActiveProject: cfg.get<string>('research.activeProject', ''),
     profilingEnabled: cfg.get<boolean>('profiling.enabled', false),
     profilingTopN: clampMin(cfg.get<number>('profiling.topN', 10), 1, 50),
+    impactGateEnabled: cfg.get<boolean>('codeGraph.impactGate', false),
     evalHistoryEnabled: cfg.get<boolean>('evalHistory.enabled', false),
     latexEnabled: cfg.get<boolean>('latex.enabled', false),
     latexCompiler: cfg.get<'latexmk' | 'pdflatex'>('latex.compiler', 'latexmk'),

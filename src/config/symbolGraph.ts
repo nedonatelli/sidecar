@@ -62,6 +62,23 @@ export interface ImpactedItem {
   detail: string;
   /** Hop distance from the changed symbol (1 = direct). */
   hops: number;
+  /**
+   * True when the edge was import-resolved to the changed symbol's defining
+   * file (binding-accurate), false when matched on name alone. Callers that
+   * block (vs. advise) should require `resolved` so name collisions never gate.
+   */
+  resolved: boolean;
+}
+
+/**
+ * A changed symbol for impact analysis. When `file` is given, edges are
+ * resolved against the import graph so only references that actually bind to
+ * THIS definition surface — eliminating same-name collisions across files.
+ * Omit `file` for name-only (Stage 1) over-approximation.
+ */
+export interface ImpactSeed {
+  name: string;
+  file?: string;
 }
 
 export interface SymbolReference {
@@ -364,26 +381,58 @@ export class SymbolGraph {
   }
 
   /**
+   * Does `file` import `name` from `defFile`? Import edges resolve to
+   * extensionless module paths (resolveImportPath) while symbol files carry an
+   * extension, so we match `defFile` both ways. A `*` (namespace) or `default`
+   * binding counts as importing every name.
+   */
+  private fileImportsSymbol(file: string, name: string, defFile: string): boolean {
+    const edges = this.importsByFile.get(file);
+    if (!edges || edges.length === 0) return false;
+    const defKeys = new Set([defFile, defFile.replace(/\.[^./]+$/, '')]);
+    for (const e of edges) {
+      if (!defKeys.has(e.toFile)) continue;
+      if (e.importedNames.includes(name) || e.importedNames.includes('*') || e.importedNames.includes('default')) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Whether an edge located in `edgeFile` that references `name` binds to the
+   * definition in `defFile`. With no `defFile` it's name-only (always true,
+   * Stage 1). Otherwise it binds iff the edge is in the defining file itself or
+   * the edge's file imports `name` from the defining file.
+   */
+  private edgeBindsTo(edgeFile: string, name: string, defFile?: string): boolean {
+    if (defFile === undefined) return true;
+    if (edgeFile === defFile) return true;
+    return this.fileImportsSymbol(edgeFile, name, defFile);
+  }
+
+  /**
    * Change-impact analysis: given the symbols a change touches, return the
    * symbols/files potentially affected — direct + transitive callers (up to
    * `maxDepth` hops), symbols that use a changed symbol as a type, declared
-   * subtypes, and files that import a changed symbol's defining file.
+   * subtypes, and files that import the changed symbol.
    *
-   * Name-based (Stage 1): edges are matched by symbol name, so impact is an
-   * over-approximation across same-named symbols. The query already filters
-   * type-uses to names that are defined symbols, so spurious built-in type
-   * captures (Promise, Array, …) never surface unless the workspace actually
-   * defines a symbol by that name. Callers should treat the result as
-   * advisory until binding-accurate extraction lands (Stage 2).
+   * Pass {@link ImpactSeed}s with a `file` to get binding-accurate results:
+   * each edge is resolved against the import graph, so a change to `foo` in
+   * `a.ts` never reports dependents of an unrelated `foo` in `b.ts`. Bare
+   * strings (or seeds without `file`) fall back to name-only matching — an
+   * over-approximation flagged with `resolved: false` on every item.
    */
-  impactOf(changedSymbols: readonly string[], opts?: { maxDepth?: number; limit?: number }): ImpactedItem[] {
+  impactOf(changed: ReadonlyArray<string | ImpactSeed>, opts?: { maxDepth?: number; limit?: number }): ImpactedItem[] {
     const maxDepth = Math.max(1, opts?.maxDepth ?? 2);
     const limit = Math.max(1, opts?.limit ?? 200);
-    const seeds = new Set(changedSymbols.filter((s) => s && s !== '<module>'));
-    if (seeds.size === 0) return [];
+    const seeds: ImpactSeed[] = changed
+      .map((c) => (typeof c === 'string' ? { name: c } : c))
+      .filter((s) => s.name && s.name !== '<module>');
+    if (seeds.length === 0) return [];
 
     const items: ImpactedItem[] = [];
-    const seen = new Set<string>(); // dedupe key: reason|file|name
+    const seen = new Set<string>(); // dedupe key: reason|file|name|line
     const push = (item: ImpactedItem): void => {
       const key = `${item.reason}|${item.file}|${item.name}|${item.line ?? ''}`;
       if (seen.has(key)) return;
@@ -391,68 +440,95 @@ export class SymbolGraph {
       items.push(item);
     };
 
-    // Transitive caller walk (BFS). A signature change can ripple up the call
-    // chain, so we follow callers-of-callers up to maxDepth.
-    let frontier = new Set(seeds);
-    const visitedCallers = new Set(seeds);
-    for (let hop = 1; hop <= maxDepth && frontier.size > 0; hop++) {
-      const next = new Set<string>();
-      for (const name of frontier) {
-        for (const edge of this.getCallers(name)) {
+    // Transitive caller walk (BFS), carrying each symbol's defining file so
+    // resolution holds at every hop: a caller of `foo@a.ts` must itself bind to
+    // `a.ts`, and its own callers then resolve against the caller's file.
+    const visited = new Set<string>(); // key: name|file
+    let frontier: ImpactSeed[] = [];
+    for (const s of seeds) {
+      const key = `${s.name}|${s.file ?? ''}`;
+      if (!visited.has(key)) {
+        visited.add(key);
+        frontier.push(s);
+      }
+    }
+    for (let hop = 1; hop <= maxDepth && frontier.length > 0; hop++) {
+      const next: ImpactSeed[] = [];
+      for (const cur of frontier) {
+        for (const edge of this.getCallers(cur.name)) {
+          if (!this.edgeBindsTo(edge.callerFile, cur.name, cur.file)) continue;
           push({
             name: edge.callerName,
             file: edge.callerFile,
             line: edge.line,
             reason: 'calls',
-            detail: `calls ${name}`,
+            detail: `calls ${cur.name}`,
             hops: hop,
+            resolved: cur.file !== undefined,
           });
-          if (!visitedCallers.has(edge.callerName) && edge.callerName !== '<module>') {
-            visitedCallers.add(edge.callerName);
-            next.add(edge.callerName);
+          if (edge.callerName !== '<module>') {
+            // Keep a name-only walk name-only; only carry file context forward
+            // when the seed opted into resolution, so the next hop resolves the
+            // caller's own callers against the caller's file.
+            const nextFile = cur.file !== undefined ? edge.callerFile : undefined;
+            const k = `${edge.callerName}|${nextFile ?? ''}`;
+            if (!visited.has(k)) {
+              visited.add(k);
+              next.push({ name: edge.callerName, file: nextFile });
+            }
           }
         }
       }
       frontier = next;
     }
 
-    // Direct type users + subtypes + file dependents (1 hop — not walked transitively).
-    for (const name of seeds) {
-      for (const edge of this.getTypeUsers(name)) {
+    // Direct type users + subtypes + importers (1 hop — not walked transitively).
+    for (const s of seeds) {
+      const resolved = s.file !== undefined;
+      for (const edge of this.getTypeUsers(s.name)) {
+        if (!this.edgeBindsTo(edge.userFile, s.name, s.file)) continue;
         push({
           name: edge.userName,
           file: edge.userFile,
           line: edge.line,
           reason: 'type-use',
-          detail: `${edge.role} typed ${name}`,
+          detail: `${edge.role} typed ${s.name}`,
           hops: 1,
+          resolved,
         });
       }
-      for (const edge of this.getSubtypes(name)) {
+      for (const edge of this.getSubtypes(s.name)) {
+        if (!this.edgeBindsTo(edge.childFile, s.name, s.file)) continue;
         push({
           name: edge.childName,
           file: edge.childFile,
           reason: 'subtype',
-          detail: `${edge.kind} ${name}`,
+          detail: `${edge.kind} ${s.name}`,
           hops: 1,
+          resolved,
         });
       }
-      for (const def of this.lookupSymbol(name)) {
-        if (!def.exported) continue; // only exported symbols affect importers
-        // Import edges resolve to extensionless module paths (resolveImportPath),
-        // while symbol files carry an extension — query both so file-level impact
-        // matches regardless of how the import target was stored.
-        const fileKeys = new Set([def.filePath, def.filePath.replace(/\.[^./]+$/, '')]);
-        for (const key of fileKeys) {
-          for (const dependent of this.getDependents(key)) {
-            push({
-              name: dependent,
-              file: dependent,
-              reason: 'imports',
-              detail: `imports ${def.filePath}`,
-              hops: 1,
-            });
-          }
+      // Importers: files that import the changed symbol's defining file. In
+      // resolved mode we additionally require the dependent to import THIS name.
+      const defFiles = s.file
+        ? [s.file]
+        : this.lookupSymbol(s.name)
+            .filter((d) => d.exported)
+            .map((d) => d.filePath);
+      for (const defFile of defFiles) {
+        const depKeys = new Set([defFile, defFile.replace(/\.[^./]+$/, '')]);
+        const dependents = new Set<string>();
+        for (const k of depKeys) for (const d of this.getDependents(k)) dependents.add(d);
+        for (const dependent of dependents) {
+          if (resolved && !this.fileImportsSymbol(dependent, s.name, defFile)) continue;
+          push({
+            name: dependent,
+            file: dependent,
+            reason: 'imports',
+            detail: `imports ${s.name}`,
+            hops: 1,
+            resolved,
+          });
         }
       }
     }

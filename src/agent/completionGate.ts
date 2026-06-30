@@ -73,6 +73,10 @@ export interface GateState {
    * run. The advisory lists downstream dependents of edited exported symbols; it
    * fires at most once and never blocks completion. Optional for back-compat. */
   impactAdvisoryFired?: boolean;
+  /** How many times the opt-in change-impact gate has blocked completion this
+   * run (bounded to 1). Only fires when `sidecar.codeGraph.impactGate` is on and
+   * edited exported symbols have unverified resolved dependents. Optional. */
+  impactGateInjections?: number;
   /**
    * The user request that triggered THIS run, captured at loop init. The
    * request-based gates (no-read/no-shell/no-grounding/no-file-write/

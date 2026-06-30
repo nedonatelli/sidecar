@@ -2046,6 +2046,11 @@
             "description": "Enable the profile_code agent tool. Profiles Node.js (--prof), Python (cProfile), Go (go test -bench), and Rust (cargo bench) projects and returns top-N CPU hotspots.",
             "requiresWindowReload": true
           },
+          "sidecar.codeGraph.impactGate": {
+            "type": "boolean",
+            "default": false,
+            "markdownDescription": "Block completion when the agent edits an exported symbol that has unverified cross-file dependents. Uses the symbol graph's import-resolved change-impact analysis (the same data behind the `analyze_impact` tool) to require the agent verify downstream callers/type-users still hold before finishing. Off by default: the impact summary is always shown as a non-blocking advisory regardless of this setting; turning it on promotes that advisory to a one-time hard block when the edited symbols weren't covered by a passing test."
+          },
           "sidecar.evalHistory.enabled": {
             "type": "boolean",
             "default": false,

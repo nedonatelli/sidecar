@@ -86,6 +86,64 @@ describe('analyze_impact tool', () => {
     expect(out).toContain('provide `symbols`');
   });
 
+  it('disambiguates same-named symbols by resolving to the defining file', async () => {
+    const g = new SymbolGraph();
+    g.addFile(
+      'src/a.ts',
+      [
+        {
+          name: 'log',
+          qualifiedName: 'log',
+          type: 'function',
+          filePath: 'src/a.ts',
+          startLine: 0,
+          endLine: 2,
+          exported: true,
+        },
+      ],
+      [],
+      'h1',
+    );
+    g.addFile(
+      'src/b.ts',
+      [
+        {
+          name: 'log',
+          qualifiedName: 'log',
+          type: 'function',
+          filePath: 'src/b.ts',
+          startLine: 0,
+          endLine: 2,
+          exported: true,
+        },
+      ],
+      [],
+      'h2',
+    );
+    g.addFile(
+      'src/usesA.ts',
+      [
+        {
+          name: 'usesA',
+          qualifiedName: 'usesA',
+          type: 'function',
+          filePath: 'src/usesA.ts',
+          startLine: 0,
+          endLine: 3,
+          exported: false,
+        },
+      ],
+      [{ fromFile: 'src/usesA.ts', toFile: 'src/a', importedNames: ['log'] }],
+      'h3',
+      [{ callerFile: 'src/usesA.ts', callerName: 'usesA', calleeName: 'log', line: 1 }],
+    );
+    setSymbolGraph(g);
+
+    // file=src/a.ts resolves to a.ts's log only — usesA surfaces.
+    const out = await analyzeImpact({ file: 'src/a.ts' });
+    expect(out).toContain('usesA');
+  });
+
   it('reports graph-unavailable when no graph is wired', async () => {
     setSymbolGraph(null);
     const out = await analyzeImpact({ symbols: ['requireAuth'] });

@@ -28,47 +28,80 @@ const IMPACT_REASON_NOUNS: Record<ImpactedItem['reason'], [string, string]> = {
 };
 const IMPACT_ADVISORY_MAX_SYMBOLS = 8;
 
+/** One edited exported symbol and its resolved cross-file dependents. */
+interface SymbolImpact {
+  symbol: string;
+  items: ImpactedItem[];
+}
+
 /**
- * Build a one-line-per-symbol, non-blocking advisory listing downstream
- * dependents of the exported symbols in the edited files. Returns null when
- * nothing exported was touched or nothing external depends on it. Name-based
- * (Stage 1), so it's framed as "review", never as proof of breakage.
+ * For each exported symbol in the edited files, the import-resolved dependents
+ * that live OUTSIDE the edited files. Resolving against each symbol's own file
+ * means a same-named symbol elsewhere never inflates the result. Shared by the
+ * advisory (counts) and the gate (block decision + reprompt).
  */
-export function buildImpactAdvisory(graph: SymbolGraph, editedFiles: ReadonlySet<string>, root: string): string | null {
+function gatherImpact(graph: SymbolGraph, editedFiles: ReadonlySet<string>, root: string): SymbolImpact[] {
   const relativize = (f: string): string => (root && path.isAbsolute(f) ? path.relative(root, f) : f);
   const editedRel = new Set<string>();
   for (const f of editedFiles) editedRel.add(relativize(f));
 
-  const lines: string[] = [];
+  const out: SymbolImpact[] = [];
   for (const rel of editedRel) {
     for (const sym of graph.getSymbolsInFile(rel)) {
       if (!sym.exported) continue;
-      // Only cross-file dependents matter for an advisory — same-file usage is
-      // already in front of the agent.
-      const external = graph.impactOf([sym.name], { maxDepth: 1 }).filter((i) => !editedRel.has(relativize(i.file)));
-      if (external.length === 0) continue;
-
-      const counts = new Map<ImpactedItem['reason'], number>();
-      for (const item of external) counts.set(item.reason, (counts.get(item.reason) ?? 0) + 1);
-      const parts: string[] = [];
-      for (const reason of ['calls', 'type-use', 'subtype', 'imports'] as ImpactedItem['reason'][]) {
-        const n = counts.get(reason);
-        if (!n) continue;
-        const [one, many] = IMPACT_REASON_NOUNS[reason];
-        parts.push(`${n} ${n === 1 ? one : many}`);
-      }
-      lines.push(`   • ${sym.name} — ${parts.join(', ')}`);
-      if (lines.length >= IMPACT_ADVISORY_MAX_SYMBOLS) break;
+      const external = graph
+        .impactOf([{ name: sym.name, file: rel }], { maxDepth: 1 })
+        .filter((i) => !editedRel.has(relativize(i.file)));
+      if (external.length > 0) out.push({ symbol: sym.name, items: external });
     }
-    if (lines.length >= IMPACT_ADVISORY_MAX_SYMBOLS) break;
   }
+  return out;
+}
 
-  if (lines.length === 0) return null;
+function countParts(items: ImpactedItem[]): string {
+  const counts = new Map<ImpactedItem['reason'], number>();
+  for (const item of items) counts.set(item.reason, (counts.get(item.reason) ?? 0) + 1);
+  const parts: string[] = [];
+  for (const reason of ['calls', 'type-use', 'subtype', 'imports'] as ImpactedItem['reason'][]) {
+    const n = counts.get(reason);
+    if (!n) continue;
+    const [one, many] = IMPACT_REASON_NOUNS[reason];
+    parts.push(`${n} ${n === 1 ? one : many}`);
+  }
+  return parts.join(', ');
+}
+
+/**
+ * Build a one-line-per-symbol, non-blocking advisory listing downstream
+ * dependents of the exported symbols in the edited files. Returns null when
+ * nothing exported was touched or nothing external depends on it.
+ */
+export function buildImpactAdvisory(graph: SymbolGraph, editedFiles: ReadonlySet<string>, root: string): string | null {
+  const impact = gatherImpact(graph, editedFiles, root);
+  if (impact.length === 0) return null;
+  const lines = impact.slice(0, IMPACT_ADVISORY_MAX_SYMBOLS).map((si) => `   • ${si.symbol} — ${countParts(si.items)}`);
   return (
     '\n\n🌐 Change-impact (advisory) — edited exported symbols have downstream dependents:\n' +
     lines.join('\n') +
-    '\n   Verify these still hold; call `analyze_impact` for specifics. (Name-based — review, not proof.)\n'
+    '\n   Verify these still hold; call `analyze_impact` for specifics.\n'
   );
+}
+
+/** Blocking-gate reprompt: name the unverified dependents and demand the agent
+ *  run a test that covers them before finishing. */
+function buildImpactGateReprompt(impact: SymbolImpact[]): string {
+  const lines = impact.slice(0, IMPACT_ADVISORY_MAX_SYMBOLS).map((si) => {
+    const examples = si.items.slice(0, 5).map((i) => (i.line ? `${i.file}:${i.line}` : i.file));
+    return `   • ${si.symbol} — ${countParts(si.items)} (e.g. ${examples.join(', ')})`;
+  });
+  return [
+    'Before finishing: you changed exported symbol(s) that have cross-file dependents you have not verified:',
+    '',
+    ...lines,
+    '',
+    'Run the project tests — or a test that exercises these call sites / type users — to confirm the change ' +
+      'does not break them. If they are genuinely unaffected, run the tests anyway to prove it, then finish.',
+  ].join('\n');
 }
 
 /** Bounded retries for the syntax gate, mirroring MAX_GATE_INJECTIONS. */
@@ -317,11 +350,44 @@ export async function maybeInjectCompletionGate(
     }
   }
 
+  // Opt-in change-impact gate (hard block, bounded to once per run). Promotes
+  // the advisory to a block when the edited exported symbols have import-resolved
+  // cross-file dependents AND no test passed this run to cover them. Gated by
+  // `sidecar.codeGraph.impactGate` (default off) because impact is resolved but
+  // not yet AST-exact — opting in trades a stricter gate for occasional
+  // over-blocking. When it fires it supersedes the advisory for this turn.
+  if (config.impactGateEnabled && (gateState.impactGateInjections ?? 0) < 1 && gateState.editedFiles.size > 0) {
+    const verifiedThisRun = gateState.projectTestsPassed || gateState.passingTestFiles.size > 0;
+    if (!verifiedThisRun) {
+      const graph = getDefaultToolRuntime().symbolGraph;
+      if (graph && graph.fileCount() > 0) {
+        try {
+          const impact = gatherImpact(graph, gateState.editedFiles, getRoot());
+          // Only block on resolved (import-bound) impact, never name-only.
+          if (impact.some((si) => si.items.some((i) => i.resolved))) {
+            gateState.impactGateInjections = 1;
+            gateState.impactAdvisoryFired = true; // the block carries the same info
+            logger?.info(
+              `Change-impact gate fired — ${impact.length} edited exported symbol(s) with unverified dependents`,
+            );
+            callbacks.onText('\n\n🌐 Verifying downstream dependents before completion...\n');
+            state.messages.push({
+              role: 'user',
+              content: [{ type: 'text' as const, text: buildImpactGateReprompt(impact) }],
+            });
+            return 'injected';
+          }
+        } catch (err) {
+          logger?.warn(`Change-impact gate skipped: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+    }
+  }
+
   // Non-blocking change-impact advisory: once per run, surface the downstream
   // dependents of the exported symbols the agent edited. Purely informational —
-  // it never injects a message or blocks completion, so an imprecise (name-based)
-  // result can't derail the loop. Stage 2 (binding-accurate extraction) is what
-  // promotes this to a real blocking verifier.
+  // it never injects a message or blocks completion, so even when the gate is
+  // off the agent still sees what depends on its edits.
   if (!gateState.impactAdvisoryFired && gateState.editedFiles.size > 0) {
     gateState.impactAdvisoryFired = true;
     const graph = getDefaultToolRuntime().symbolGraph;

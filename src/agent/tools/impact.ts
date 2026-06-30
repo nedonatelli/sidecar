@@ -1,6 +1,6 @@
 import type { ToolDefinition } from '../../ollama/types.js';
 import type { RegisteredTool } from './shared.js';
-import type { ImpactedItem } from '../../config/symbolGraph.js';
+import type { ImpactedItem, ImpactSeed } from '../../config/symbolGraph.js';
 import { getDefaultToolRuntime } from './runtime.js';
 
 /**
@@ -9,9 +9,10 @@ import { getDefaultToolRuntime } from './runtime.js';
  * potentially affected: transitive callers, symbols that use a changed symbol
  * as a type, declared subtypes, and importers of the defining file.
  *
- * Stage 1 is name-based (the graph's extraction is regex, not binding-accurate),
- * so the report is an over-approximation and is surfaced as ADVISORY — "review
- * these before finishing," not "this is broken." It's the consequence layer the
+ * Edges are import-resolved to the changed symbol's defining file, so a
+ * same-named symbol elsewhere doesn't contaminate the report. It stays advisory
+ * — extraction is regex-based and dynamic dispatch isn't captured — so it's
+ * "review these," not a proof of breakage. It's the consequence layer the
  * Project Knowledge Index can't provide: PKI answers "where is X?", this answers
  * "what depends on X?".
  */
@@ -33,7 +34,7 @@ export const analyzeImpactDef: ToolDefinition = {
     'Use BEFORE or AFTER editing an exported function/type/class to find what might break downstream. ' +
     'Complements `project_knowledge_search` ("where is X?") by answering "what depends on X?". ' +
     'Pass `symbols` (names) or `file` (relative path — analyzes every symbol it defines). ' +
-    'Advisory and name-based: treat results as "review these", not a proof of breakage. ' +
+    'Import-resolved (same-named symbols elsewhere are excluded) but advisory: treat results as "review these", not a proof of breakage. ' +
     'Example: `analyze_impact(symbols=["requireAuth"])` or `analyze_impact(file="src/auth.ts")`.',
   input_schema: {
     type: 'object',
@@ -65,32 +66,42 @@ export async function analyzeImpact(input: Record<string, unknown>): Promise<str
     );
   }
 
-  const changed = new Set<string>();
-  if (Array.isArray(input.symbols)) {
-    for (const s of input.symbols) if (typeof s === 'string' && s.trim()) changed.add(s.trim());
-  }
+  // Build {name, file} seeds so impactOf resolves edges against the import
+  // graph (binding-accurate) instead of matching on name alone.
+  const seeds: ImpactSeed[] = [];
   const file = typeof input.file === 'string' && input.file.trim() ? input.file.trim() : undefined;
   let scopeLabel: string;
   if (file) {
     const syms = graph.getSymbolsInFile(file);
-    for (const s of syms) changed.add(s.name);
-    if (syms.length === 0 && changed.size === 0) {
+    if (syms.length === 0) {
       return `No indexed symbols found in "${file}". Check the relative path, or pass \`symbols\` explicitly.`;
     }
-    scopeLabel = changed.size > 0 ? `${file} (${changed.size} symbol${changed.size === 1 ? '' : 's'})` : file;
-  } else if (changed.size > 0) {
-    scopeLabel = [...changed].join(', ');
+    for (const s of syms) seeds.push({ name: s.name, file });
+    scopeLabel = `${file} (${syms.length} symbol${syms.length === 1 ? '' : 's'})`;
+  } else if (Array.isArray(input.symbols)) {
+    const names = input.symbols
+      .filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
+      .map((s) => s.trim());
+    if (names.length === 0) return 'Error: provide `symbols` (a list of names) or `file` (a relative path).';
+    for (const name of names) {
+      // Resolve each name to its defining file(s) so collisions don't inflate
+      // the report; fall back to a name-only seed when the symbol is unknown.
+      const defs = graph.lookupSymbol(name);
+      if (defs.length === 0) seeds.push({ name });
+      else for (const def of defs) seeds.push({ name, file: def.filePath });
+    }
+    scopeLabel = names.join(', ');
   } else {
     return 'Error: provide `symbols` (a list of names) or `file` (a relative path).';
   }
 
   const maxDepth = typeof input.maxDepth === 'number' ? Math.max(1, Math.min(3, Math.floor(input.maxDepth))) : 2;
 
-  const report = graph.impactOf([...changed], { maxDepth });
+  const report = graph.impactOf(seeds, { maxDepth });
   if (report.length === 0) {
     return (
       `No downstream impact found for ${scopeLabel} — no callers, type users, subtypes, or importers in the index. ` +
-      'Note: only exported symbols surface importers, and analysis is name-based, so dynamic dispatch is not captured.'
+      'Note: only exported symbols surface importers, and dynamic dispatch is not captured.'
     );
   }
 
