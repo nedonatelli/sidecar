@@ -33,6 +33,10 @@ const QUANT = process.env.SIDECAR_BFCL_QUANT || 'unknown (Ollama default ≈ Q4_
 const CONTEXT_TOKENS = 32_768;
 const TEMPERATURE = 0;
 const TIMEOUT_MS = parseInt(process.env.SIDECAR_EVAL_CASE_TIMEOUT ?? '', 10) || 120_000;
+// The whole N-case sweep runs inside ONE vitest test, so its timeout must cover
+// the full batch, not a single case. Default 30 min; override with
+// SIDECAR_BFCL_TIMEOUT for very large runs.
+const BENCH_TIMEOUT_MS = parseInt(process.env.SIDECAR_BFCL_TIMEOUT ?? '', 10) || 1_800_000;
 
 function makeBackend(): BfclBackend {
   const opts: BackendOptions = {
@@ -73,37 +77,41 @@ function loadCases(): { cases: BfclCase[]; dataset: string } {
 describe('BFCL AST subset', () => {
   const backend = makeBackend();
 
-  it.skipIf(!backend.available())(`scores ${MODEL} on ${BACKEND}`, async () => {
-    const { cases, dataset } = loadCases();
-    // eslint-disable-next-line no-console
-    console.info(`[bfcl] ${MODEL} via ${BACKEND}: ${cases.length} cases`);
+  it.skipIf(!backend.available())(
+    `scores ${MODEL} on ${BACKEND}`,
+    async () => {
+      const { cases, dataset } = loadCases();
+      // eslint-disable-next-line no-console
+      console.info(`[bfcl] ${MODEL} via ${BACKEND}: ${cases.length} cases`);
 
-    const report = await runBfcl(cases, backend.callModel, {
-      onCase: (o) => {
-        // eslint-disable-next-line no-console
-        console.info(`[bfcl]   ${o.pass ? 'PASS' : 'FAIL'} ${o.id}${o.pass ? '' : ` — ${o.reason}`}`);
-      },
-    });
+      const report = await runBfcl(cases, backend.callModel, {
+        onCase: (o) => {
+          // eslint-disable-next-line no-console
+          console.info(`[bfcl]   ${o.pass ? 'PASS' : 'FAIL'} ${o.id}${o.pass ? '' : ` — ${o.reason}`}`);
+        },
+      });
 
-    const env: RunEnvelope = {
-      model: MODEL,
-      quantization: QUANT,
-      backend: BACKEND,
-      contextTokens: CONTEXT_TOKENS,
-      dataset,
-      caseCount: cases.length,
-      temperature: TEMPERATURE,
-      perCaseTimeoutMs: TIMEOUT_MS,
-    };
-    const md = formatReport(report, env);
-    // eslint-disable-next-line no-console
-    console.info(`\n${md}\n`);
+      const env: RunEnvelope = {
+        model: MODEL,
+        quantization: QUANT,
+        backend: BACKEND,
+        contextTokens: CONTEXT_TOKENS,
+        dataset,
+        caseCount: cases.length,
+        temperature: TEMPERATURE,
+        perCaseTimeoutMs: TIMEOUT_MS,
+      };
+      const md = formatReport(report, env);
+      // eslint-disable-next-line no-console
+      console.info(`\n${md}\n`);
 
-    const out = process.env.SIDECAR_BFCL_OUT;
-    if (out) fs.writeFileSync(out, md);
+      const out = process.env.SIDECAR_BFCL_OUT;
+      if (out) fs.writeFileSync(out, md);
 
-    // The benchmark reports a score; it does not gate. Assert only that the run
-    // produced a result for every case (no silently-dropped cases).
-    expect(report.total).toBe(cases.length);
-  });
+      // The benchmark reports a score; it does not gate. Assert only that the run
+      // produced a result for every case (no silently-dropped cases).
+      expect(report.total).toBe(cases.length);
+    },
+    BENCH_TIMEOUT_MS,
+  );
 });

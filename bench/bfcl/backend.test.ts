@@ -1,11 +1,36 @@
 import { describe, it, expect } from 'vitest';
-import { ollamaBackend, _normalizeOpenAiStyleForTest as normalize } from './backend.js';
+import { ollamaBackend, normalizeSchema, _normalizeOpenAiStyleForTest as normalize } from './backend.js';
 import type { BfclFunctionSchema } from './types.js';
 
 const fn: BfclFunctionSchema = {
   name: 'get_weather',
   parameters: { type: 'object', properties: { city: { type: 'string' } }, required: ['city'] },
 };
+
+describe('normalizeSchema (BFCL types → JSON Schema)', () => {
+  it('maps dict/float/tuple and recurses into nested properties + items', () => {
+    const out = normalizeSchema({
+      type: 'dict',
+      properties: {
+        amount: { type: 'float' },
+        tags: { type: 'array', items: { type: 'string' } },
+        coords: { type: 'tuple', items: { type: 'integer' } },
+      },
+    }) as Record<string, unknown>;
+    expect(out.type).toBe('object');
+    const props = out.properties as Record<string, { type?: string; items?: { type: string } }>;
+    expect(props.amount.type).toBe('number');
+    expect(props.tags.type).toBe('array');
+    expect(props.coords.type).toBe('array');
+    expect(props.coords.items!.type).toBe('integer');
+  });
+
+  it('drops an unknown/any type rather than emitting it', () => {
+    const out = normalizeSchema({ type: 'any', description: 'whatever' }) as Record<string, unknown>;
+    expect('type' in out).toBe(false);
+    expect(out.description).toBe('whatever');
+  });
+});
 
 describe('normalizeOpenAiStyle', () => {
   it('handles object-typed arguments', () => {

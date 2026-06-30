@@ -20,17 +20,50 @@ const SYSTEM_PROMPT =
   'You are a function-calling assistant. If a provided function answers the request, call it with ' +
   'the correct arguments. If none of the functions apply, answer briefly in plain text and do not call any function.';
 
+// BFCL's schemas use a Python-flavored type vocabulary (`dict`, `float`,
+// `tuple`, `integer`, `any`) that is NOT valid JSON Schema. Sending it raw can
+// make a model refuse or mis-call, unfairly tanking the score — so we normalize
+// to JSON Schema types on the wire. The AST checker still scores against the
+// original BFCL ground truth, so this only affects what the model is shown.
+const TYPE_MAP: Record<string, string> = {
+  dict: 'object',
+  float: 'number',
+  integer: 'integer',
+  tuple: 'array',
+  array: 'array',
+  string: 'string',
+  boolean: 'boolean',
+  number: 'number',
+  object: 'object',
+};
+
+export function normalizeSchema(schema: unknown): unknown {
+  if (Array.isArray(schema)) return schema.map(normalizeSchema);
+  if (typeof schema !== 'object' || schema === null) return schema;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(schema as Record<string, unknown>)) {
+    if (k === 'type' && typeof v === 'string') {
+      const mapped = TYPE_MAP[v.toLowerCase()];
+      // 'any' (and any unknown type) → drop the constraint rather than emit junk.
+      if (mapped) out[k] = mapped;
+    } else {
+      out[k] = normalizeSchema(v);
+    }
+  }
+  return out;
+}
+
 /** Convert a BFCL function schema to the OpenAI/Ollama `tools` wire shape. */
 function toOpenAiTool(fn: BfclFunctionSchema): unknown {
   return {
     type: 'function',
-    function: { name: fn.name, description: fn.description ?? '', parameters: fn.parameters },
+    function: { name: fn.name, description: fn.description ?? '', parameters: normalizeSchema(fn.parameters) },
   };
 }
 
 /** Convert a BFCL function schema to the Anthropic `tools` wire shape. */
 function toAnthropicTool(fn: BfclFunctionSchema): unknown {
-  return { name: fn.name, description: fn.description ?? '', input_schema: fn.parameters };
+  return { name: fn.name, description: fn.description ?? '', input_schema: normalizeSchema(fn.parameters) };
 }
 
 export interface BfclBackend {
