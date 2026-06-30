@@ -357,7 +357,13 @@ export interface ExtensionMessage {
   batchProgress?: {
     kind: 'facets' | 'forks';
     task: string;
-    items: readonly { id: string; label: string; status: 'pending' | 'running' | 'done' | 'error' }[];
+    items: readonly {
+      id: string;
+      label: string;
+      status: 'pending' | 'running' | 'done' | 'error';
+      /** Facet's preferred model, rendered as a badge in the dispatch graphic. */
+      model?: string;
+    }[];
     doneCount: number;
     totalCount: number;
   };

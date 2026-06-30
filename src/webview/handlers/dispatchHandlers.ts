@@ -152,6 +152,19 @@ async function runFacetReview(state: ChatState, facetIds: string[], displayName:
           },
           preSelectedFacetIds: facetIds,
           preFilledTask: task,
+          // Render the live facet-dispatch graphic (chip panel) instead of the
+          // old inline ASCII status lines.
+          onBatchProgress: (bp) =>
+            state.postMessage({
+              command: 'batchProgress',
+              batchProgress: {
+                kind: 'facets',
+                task: bp.task,
+                items: bp.items,
+                doneCount: bp.done,
+                totalCount: bp.total,
+              },
+            }),
         });
       },
     );

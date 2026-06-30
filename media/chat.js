@@ -3871,13 +3871,32 @@
     taskEl.textContent = task.length > 80 ? task.slice(0, 80) + '…' : task;
 
     list.innerHTML = '';
+    list.classList.toggle('facets', kind === 'facets');
     for (const item of items) {
       const el = document.createElement('span');
       el.className = `batch-progress-item bp-${item.status}`;
-      const dot =
-        item.status === 'running' ? '● ' : item.status === 'done' ? '✓ ' : item.status === 'error' ? '✕ ' : '○ ';
-      el.textContent = dot + item.label;
-      el.title = `${item.id} — ${item.status}`;
+
+      const icon = document.createElement('span');
+      icon.className = 'bp-icon';
+      icon.textContent =
+        item.status === 'running' ? '●' : item.status === 'done' ? '✓' : item.status === 'error' ? '✕' : '○';
+      el.appendChild(icon);
+
+      const label = document.createElement('span');
+      label.className = 'bp-label';
+      label.textContent = item.label;
+      el.appendChild(label);
+
+      // Facets carry a preferred model — show it as a compact badge so the
+      // graphic reads as "which specialist runs on which model".
+      if (item.model) {
+        const badge = document.createElement('span');
+        badge.className = 'bp-model';
+        badge.textContent = String(item.model).split('/').pop();
+        el.appendChild(badge);
+      }
+
+      el.title = `${item.id} — ${item.status}${item.model ? ' · ' + item.model : ''}`;
       list.appendChild(el);
     }
   }
