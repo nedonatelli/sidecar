@@ -94,8 +94,10 @@ agent loop, so it sits with the other src-importing eval drivers).
 smoke run (`astropy__astropy-7166`, gemma4:e4b, both arms) cloned the repo at the
 base commit, ran the loop under each arm's config, captured the diff, and wrote
 valid official-format predictions. So the driver works on a non-Docker machine
-(Ollama + git is enough). **Scoring** (resolve% → lift) still requires Docker +
-the `swebench` package and has not been run.
+(Ollama + git is enough). **Scoring** a single light pure-Python task can also be
+done host-locally by hand (see the worked example below); scoring the **full
+Verified set reproducibly** requires Docker + the `swebench` package — that part
+has not been run.
 
 > **Set a generous iteration budget.** A small local model spends many
 > iterations just _locating_ the file in a large repo. Default is 30; real runs
