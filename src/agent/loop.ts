@@ -132,6 +132,12 @@ export interface AgentCallbacks {
    * schema-validity + repair-rate diagnostics.
    */
   onMalformedToolCalls?: (malformed: number, repaired: number) => void;
+  /**
+   * F1 — fired once when the run terminates, with the classified failure
+   * bucket (or `null` for a clean success). Feeds the per-model failure
+   * distribution that steers where scaffolding effort goes.
+   */
+  onOutcome?: (bucket: import('./failureTaxonomy.js').FailureBucket | null) => void;
   onDone: () => void;
 }
 
@@ -370,6 +376,7 @@ export async function runAgentLoop(
       state.iteration++;
       if (signal.aborted) {
         state.logger?.logAborted();
+        state.termination = 'aborted';
         break;
       }
 
@@ -384,8 +391,12 @@ export async function runAgentLoop(
       // Pre-turn budget compression. Returns 'exhausted' when
       // compaction couldn't bring us below the hard ceiling.
       const compressionOutcome = await applyBudgetCompression(client, state);
-      if (signal.aborted) break;
+      if (signal.aborted) {
+        state.termination = 'aborted';
+        break;
+      }
       if (compressionOutcome === 'exhausted') {
+        state.termination = 'out-of-resources';
         const estimatedTokens =
           state.lastActualInputTokens ?? estimateTokensFromState(state.totalChars, state.messages);
         state.logger?.warn(
@@ -399,7 +410,10 @@ export async function runAgentLoop(
 
       notifyIterationStart(state, state.config, callbacks);
       maybeEmitProgressSummary(state, callbacks);
-      if (await shouldStopAtCheckpoint(state, callbacks)) break;
+      if (await shouldStopAtCheckpoint(state, callbacks)) {
+        state.termination = 'aborted';
+        break;
+      }
 
       // Architect / Editor model split. No-op when sidecar.editorModel is
       // blank (the default). When set, planning turns use sidecar.model and
@@ -459,6 +473,7 @@ export async function runAgentLoop(
           `You can increase sidecar.firstTokenTimeout (first token) or sidecar.requestTimeout (between tokens) in settings.`;
         state.logger?.warn(msg);
         callbacks.onText(`\n\n⚠️ ${msg}\n`);
+        state.termination = 'out-of-resources';
         break;
       }
       if (rawTurn.terminated === 'aborted') {
@@ -473,12 +488,14 @@ export async function runAgentLoop(
             const names = rawTurn.pendingToolUses.map((tu) => `\`${tu.name}\``).join(', ');
             callbacks.onText(`\n⚠️ Stopped — cancelled in-flight: ${names}\n`);
           }
+          state.termination = 'aborted';
           break;
         }
         if (options.steerQueue && options.steerQueue.size() > 0) {
           state.logger?.info('Turn aborted by steer interrupt — continuing to next iteration');
           continue;
         }
+        state.termination = 'aborted';
         break;
       }
 
@@ -501,9 +518,11 @@ export async function runAgentLoop(
             logger: state.logger,
           });
           callbacks.onMalformedToolCalls?.(malformedCount, fixed); // F2 — schema-validity + repair rate
+          state.unrepairedMalformedCalls += malformedCount - fixed; // F1 — syntactic-failure signal
           if (fixed > 0) callbacks.onText?.(`\n\n🔧 Repaired ${fixed} malformed tool call${fixed === 1 ? '' : 's'}.\n`);
         } catch (err) {
           if (err instanceof Error && err.name === 'AbortError') throw err;
+          state.unrepairedMalformedCalls += malformedCount; // repair threw — none recovered
         }
       }
 
@@ -519,6 +538,7 @@ export async function runAgentLoop(
         // asking questions and is presenting its plan.
         if (options.approvalMode === 'plan' && fullText) {
           callbacks.onPlanGenerated?.(fullText);
+          state.termination = 'natural';
           break;
         }
 
@@ -550,6 +570,12 @@ export async function runAgentLoop(
         const emptyMutated = await hookBus.runEmptyResponse(state, emptyCtx);
         if (emptyMutated) continue;
 
+        // Nothing more to do and no hook kept the loop alive — the model
+        // declared itself done. Mark natural completion; the completion gate
+        // (a runEmptyResponse hook) would have mutated above if it still had
+        // budget, so reaching here means verification is as complete as the
+        // gate could make it.
+        state.termination = 'natural';
         break;
       }
 
@@ -559,7 +585,10 @@ export async function runAgentLoop(
       // Per-iteration burst cap + cycle detection. Each returns
       // `true` when the loop should terminate and is responsible for
       // its own user-visible onText notification.
-      if (exceedsBurstCap(pendingToolUses, state, callbacks)) break;
+      if (exceedsBurstCap(pendingToolUses, state, callbacks)) {
+        state.termination = 'stuck';
+        break;
+      }
       // Remove blocked circular rewrites (content byte-identical to a prior
       // write this run) from what cycle detection counts — the write_file
       // executor soft-blocks them, so they shouldn't bail the whole run.
@@ -577,6 +606,7 @@ export async function runAgentLoop(
         forCycleDetection.length > 0 &&
         detectCycleAndBail(forCycleDetection, state, callbacks)
       ) {
+        state.termination = 'stuck';
         break;
       }
 
@@ -587,7 +617,10 @@ export async function runAgentLoop(
       // Re-check abort between streaming and tool dispatch. The outer
       // loop only checks at iteration start, so a Stop fired during
       // streaming would otherwise still execute all queued tools.
-      if (signal.aborted) break;
+      if (signal.aborted) {
+        state.termination = 'aborted';
+        break;
+      }
 
       // Dispatch every tool_use. For pure-write turns with fanout
       // ≥ multiFileEditsMinFilesForPlan the dispatcher inserts an
@@ -681,6 +714,10 @@ export async function runAgentLoop(
 
       // Continue the loop — model will respond to tool results.
     }
+    // Fell out of the while via the iteration-cap condition (every break that
+    // reached here set its own reason; an unset reason means the counter ran
+    // out). F1 classifies this as a `timeout` bucket.
+    state.termination ??= 'max-iterations';
   } catch (err) {
     if (err instanceof PolicyEnforcementError) {
       const msg =

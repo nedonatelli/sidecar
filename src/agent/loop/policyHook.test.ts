@@ -32,6 +32,7 @@ function makeState(logger?: AgentLogger): LoopState {
     messages: [],
     iteration: 0,
     totalChars: 0,
+    unrepairedMalformedCalls: 0,
     episodicMemory: {
       query: vi.fn().mockResolvedValue([]),
       add: vi.fn(),

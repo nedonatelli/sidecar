@@ -1,6 +1,10 @@
 import type { ChatMessage } from '../../ollama/types.js';
 import type { AgentCallbacks } from '../loop.js';
 import type { LoopState } from './state.js';
+import { classifyFailureBucket, type RunFailureSignals } from '../failureTaxonomy.js';
+
+/** Gate injection cap mirrored from gate.ts — used to detect an exhausted gate. */
+const MAX_GATE_INJECTIONS = 2;
 
 // ---------------------------------------------------------------------------
 // Post-loop teardown for runAgentLoop.
@@ -46,9 +50,57 @@ export function finalize(state: LoopState, callbacks: AgentCallbacks): ChatMessa
     }
   }
 
+  // F1 — classify the run into a failure bucket (or null for success) from
+  // the signals the loop accumulated, and report it before onDone so the
+  // metrics collector can stamp the in-progress run.
+  try {
+    callbacks.onOutcome?.(classifyFailureBucket(buildRunFailureSignals(state)));
+  } catch (e) {
+    state.logger?.error(`onOutcome error: ${e}`);
+  }
+
   state.logger?.logDone(state.iteration);
   callbacks.onDone();
   return state.messages;
+}
+
+/**
+ * Derive the F1 classification signals from a completed run's LoopState.
+ *
+ * `termination` is the explicit exit reason the loop recorded; when it's
+ * undefined the while-loop condition fell through, which means the iteration
+ * cap was reached. Tool-call counts come from the final message history so we
+ * don't have to thread counters through every dispatch path; gate exhaustion
+ * is inferred from the gate having spent its full injection budget while
+ * edited files were still outstanding.
+ */
+export function buildRunFailureSignals(state: LoopState): RunFailureSignals {
+  let toolCalls = 0;
+  let toolErrors = 0;
+  for (const msg of state.messages) {
+    if (typeof msg.content === 'string' || !Array.isArray(msg.content)) continue;
+    for (const block of msg.content) {
+      if (block.type === 'tool_use') toolCalls++;
+      if (block.type === 'tool_result' && block.is_error) toolErrors++;
+    }
+  }
+
+  const maxGateInjections = state.scaffoldingProfile?.maxGateInjections ?? MAX_GATE_INJECTIONS;
+  const gateInjections = state.gateState?.gateInjections ?? 0;
+  const editedFiles = state.gateState?.editedFiles?.size ?? 0;
+  const gateExhausted = gateInjections >= maxGateInjections && editedFiles > 0;
+
+  return {
+    completedNaturally: state.termination === 'natural',
+    aborted: state.termination === 'aborted',
+    // Both the iteration cap and resource exhaustion (token budget / request
+    // timeout) are "ran out of room before finishing" → the timeout bucket.
+    hitMaxIterations: state.termination === 'max-iterations' || state.termination === 'out-of-resources',
+    unrepairedMalformedCalls: state.unrepairedMalformedCalls,
+    toolCalls,
+    toolErrors,
+    gateExhausted,
+  };
 }
 
 /**

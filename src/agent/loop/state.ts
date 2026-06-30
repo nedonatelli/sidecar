@@ -75,6 +75,21 @@ export interface LoopState {
   messages: ChatMessage[];
   iteration: number;
   totalChars: number;
+
+  // F1 failure taxonomy. `termination` is set at each loop-exit point so
+  // finalize() can classify the run into a failure bucket. `undefined` means
+  // the loop exited via a thrown exception (finalize is called from the catch
+  // path before rethrow). `unrepairedMalformedCalls` accumulates tool calls
+  // whose arguments never parsed even after constrained-decoding repair.
+  // finalize.ts reads both.
+  //
+  //   natural          — model declared done (or plan presented)
+  //   aborted          — user Stop / checkpoint decline
+  //   out-of-resources — token budget or request timeout
+  //   max-iterations   — the iteration cap was reached
+  //   stuck            — burst cap / repeated-action cycle bail
+  termination?: 'natural' | 'aborted' | 'out-of-resources' | 'max-iterations' | 'stuck';
+  unrepairedMalformedCalls: number;
   /**
    * Actual input+output token count from the most recent API usage event.
    * When present, compression checks prefer this over the char-based estimate
@@ -272,6 +287,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     messages: copiedMessages,
     iteration: 0,
     totalChars,
+    unrepairedMalformedCalls: 0,
     systemPromptOverride: options.systemPromptOverride,
     modelOverride: options.modelOverride,
 
