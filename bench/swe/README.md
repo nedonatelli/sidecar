@@ -105,22 +105,32 @@ has not been run.
 > bare small model resolves little of Verified absolutely — the headline is the
 > on/off **lift**, not the raw rate.
 
-### Worked example (n=1, scored host-locally without Docker)
+### Worked example (pass@5, scored host-locally without Docker)
 
 `pallets__flask-5014` ("require a non-empty Blueprint name"), gemma4:e4b @ Q4_K_M,
-30 iterations, scored by hand in a venv (the scorer discriminates: the gold patch
-resolves 60/60, base fails the FAIL_TO_PASS):
+30 iterations, **5 runs per arm**, each scored by hand in a venv (the scorer
+discriminates: the gold patch resolves 60/60, base fails the FAIL_TO_PASS):
 
-| Arm          | What gemma did                                     | Test result         | Verdict         |
-| ------------ | -------------------------------------------------- | ------------------- | --------------- |
-| scaffold-off | **deleted** `super().__init__()` (destructive)     | 57 failed, 3 passed | ❌ unresolved   |
-| scaffold-on  | `if not name: raise ValueError(...)` (correct fix) | 60 passed           | ✅ **resolved** |
+| Arm                        | resolved  |
+| -------------------------- | --------- |
+| scaffold-off (bare loop)   | **4 / 5** |
+| scaffold-on (full harness) | **1 / 5** |
 
-Same model, same task — only the harness differs. Without it gemma broke the repo;
-with it (critic fired, then ran the tests) it landed the correct fix. **Lift on
-this task: 0 → 100%.** One task is an illustration, not a statistic — but it shows
-the whole pipeline (drive on/off → patch → score → verdict) works end-to-end on
-real data, no Docker, and that the scaffolding produces a measurable difference.
+**On this task the harness is net-negative.** The bare loop reliably makes the
+clean 3-line fix; the scaffolded arm — critic pushing more edits, gate demanding
+tests — over-engineers, writes a large patch, and breaks itself (IndentationError,
+test churn). Individual runs flip wildly (in one earlier sample off _deleted_
+`super().__init__()` and on landed the correct fix — the exact opposite), which is
+the whole point: **at one run per arm the verdict is dominated by nondeterminism,
+not by the scaffolding.** Only pass@k reveals the real picture.
+
+The honest reading: **scaffolding value is task-difficulty-dependent** — it rescues
+_hard_ tasks where the bare loop bails (in the N=20 slice, scaffold-on produced
+patches on tasks scaffold-off gave up on) and can _over-engineer easy_ ones like
+this. A headline lift number needs a difficulty-spanning task set × pass@k, not one
+easy task. What this example _does_ prove: the whole pipeline (drive on/off → patch
+→ host-score → verdict) works end-to-end on real data with no Docker.
+
 Two harness fixes were required to get here: pointing the agent's fs tools at the
 clone via `mountWorkspaceRoot` (the mock's `read_file` otherwise returns a 63-byte
 stub), and a keyword retrieval block so the agent starts oriented.
