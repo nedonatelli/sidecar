@@ -15,43 +15,15 @@
 
 import type { BfclFunctionSchema, ParsedCall } from './types.js';
 import type { CallModel } from './runner.js';
+import { normalizeSchema } from './schemaUtil.js';
+import { buildToolCallSchema, CONSTRAINED_SYSTEM_PROMPT, parseConstrainedContent } from './constrainedSchema.js';
+
+// Re-export so existing importers (and tests) keep resolving normalizeSchema here.
+export { normalizeSchema } from './schemaUtil.js';
 
 const SYSTEM_PROMPT =
   'You are a function-calling assistant. If a provided function answers the request, call it with ' +
   'the correct arguments. If none of the functions apply, answer briefly in plain text and do not call any function.';
-
-// BFCL's schemas use a Python-flavored type vocabulary (`dict`, `float`,
-// `tuple`, `integer`, `any`) that is NOT valid JSON Schema. Sending it raw can
-// make a model refuse or mis-call, unfairly tanking the score — so we normalize
-// to JSON Schema types on the wire. The AST checker still scores against the
-// original BFCL ground truth, so this only affects what the model is shown.
-const TYPE_MAP: Record<string, string> = {
-  dict: 'object',
-  float: 'number',
-  integer: 'integer',
-  tuple: 'array',
-  array: 'array',
-  string: 'string',
-  boolean: 'boolean',
-  number: 'number',
-  object: 'object',
-};
-
-export function normalizeSchema(schema: unknown): unknown {
-  if (Array.isArray(schema)) return schema.map(normalizeSchema);
-  if (typeof schema !== 'object' || schema === null) return schema;
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(schema as Record<string, unknown>)) {
-    if (k === 'type' && typeof v === 'string') {
-      const mapped = TYPE_MAP[v.toLowerCase()];
-      // 'any' (and any unknown type) → drop the constraint rather than emit junk.
-      if (mapped) out[k] = mapped;
-    } else {
-      out[k] = normalizeSchema(v);
-    }
-  }
-  return out;
-}
 
 /** Convert a BFCL function schema to the OpenAI/Ollama `tools` wire shape. */
 function toOpenAiTool(fn: BfclFunctionSchema): unknown {
@@ -81,6 +53,13 @@ export interface BackendOptions {
   /** Per-call timeout. */
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
+  /**
+   * Phase 1: constrain generation to a JSON schema (Ollama `format`) so a
+   * malformed call is unsamplable, instead of relying on native tool-calling +
+   * post-hoc repair. Ollama only. The BFCL on/off comparison of this flag is the
+   * Phase-1 evidence.
+   */
+  constrained?: boolean;
 }
 
 function withTimeout(timeoutMs: number, signal?: AbortSignal): AbortSignal {
@@ -110,24 +89,40 @@ export function ollamaBackend(opts: BackendOptions): BfclBackend {
     // connection error rather than silently skipping (you invoked the benchmark).
     available: () => true,
     callModel: async (question, functions) => {
+      // Constrained path: no native tools; the reply is grammar-forced to a JSON
+      // object matching the union tool-call schema, parsed from message.content.
+      const body = opts.constrained
+        ? {
+            model: opts.model,
+            stream: false,
+            options: { temperature, num_ctx: opts.contextTokens ?? 32_768 },
+            format: buildToolCallSchema(functions),
+            messages: [
+              { role: 'system', content: CONSTRAINED_SYSTEM_PROMPT },
+              { role: 'user', content: question },
+            ],
+          }
+        : {
+            model: opts.model,
+            stream: false,
+            options: { temperature, num_ctx: opts.contextTokens ?? 32_768 },
+            tools: functions.map(toOpenAiTool),
+            messages: [
+              { role: 'system', content: SYSTEM_PROMPT },
+              { role: 'user', content: question },
+            ],
+          };
       const res = await doFetch(`${host}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: withTimeout(opts.timeoutMs ?? 120_000),
-        body: JSON.stringify({
-          model: opts.model,
-          stream: false,
-          options: { temperature, num_ctx: opts.contextTokens ?? 32_768 },
-          tools: functions.map(toOpenAiTool),
-          messages: [
-            { role: 'system', content: SYSTEM_PROMPT },
-            { role: 'user', content: question },
-          ],
-        }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error(`Ollama ${res.status}: ${(await res.text().catch(() => '')).slice(0, 300)}`);
-      const data = (await res.json()) as { message?: { tool_calls?: OllamaToolCall[] } };
-      return normalizeOpenAiStyle(data.message?.tool_calls ?? []);
+      const data = (await res.json()) as { message?: { tool_calls?: OllamaToolCall[]; content?: string } };
+      return opts.constrained
+        ? parseConstrainedContent(data.message?.content ?? '')
+        : normalizeOpenAiStyle(data.message?.tool_calls ?? []);
     },
   };
 }

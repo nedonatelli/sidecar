@@ -37,6 +37,9 @@ const TIMEOUT_MS = parseInt(process.env.SIDECAR_EVAL_CASE_TIMEOUT ?? '', 10) || 
 // the full batch, not a single case. Default 30 min; override with
 // SIDECAR_BFCL_TIMEOUT for very large runs.
 const BENCH_TIMEOUT_MS = parseInt(process.env.SIDECAR_BFCL_TIMEOUT ?? '', 10) || 1_800_000;
+// Phase 1: SIDECAR_BFCL_CONSTRAINED=1 forces schema-constrained decoding (Ollama
+// `format`). Run on vs off to measure the schema-validity + accuracy delta.
+const CONSTRAINED = process.env.SIDECAR_BFCL_CONSTRAINED === '1';
 
 function makeBackend(): BfclBackend {
   const opts: BackendOptions = {
@@ -44,6 +47,7 @@ function makeBackend(): BfclBackend {
     temperature: TEMPERATURE,
     contextTokens: CONTEXT_TOKENS,
     timeoutMs: TIMEOUT_MS,
+    constrained: CONSTRAINED,
   };
   switch (BACKEND) {
     case 'anthropic':
@@ -82,7 +86,7 @@ describe('BFCL AST subset', () => {
     async () => {
       const { cases, dataset } = loadCases();
       // eslint-disable-next-line no-console
-      console.info(`[bfcl] ${MODEL} via ${BACKEND}: ${cases.length} cases`);
+      console.info(`[bfcl] ${MODEL} via ${BACKEND}${CONSTRAINED ? ' [constrained]' : ''}: ${cases.length} cases`);
 
       const report = await runBfcl(cases, backend.callModel, {
         onCase: (o) => {
@@ -92,7 +96,7 @@ describe('BFCL AST subset', () => {
       });
 
       const env: RunEnvelope = {
-        model: MODEL,
+        model: CONSTRAINED ? `${MODEL} [schema-constrained]` : MODEL,
         quantization: QUANT,
         backend: BACKEND,
         contextTokens: CONTEXT_TOKENS,
