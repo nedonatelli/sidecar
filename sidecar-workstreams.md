@@ -18,28 +18,29 @@ until something in Active ships.
 
 Legend: ✅ shipped · 🔵 in flight · 🟡 partial · ⬜ not started · ⏸ deferred · ❗ needed now
 
-| Workstream                                      | Layer            | Status                                                                  | Measuring stick      |
-| ----------------------------------------------- | ---------------- | ----------------------------------------------------------------------- | -------------------- |
-| Failure taxonomy + diagnostic metrics (F1/F2)   | Measurement      | ✅                                                                      | `metrics.jsonl`      |
-| BFCL — model-level tool-use                     | Measurement      | ✅ ran (local models 83–86%)                                            | BFCL AST subset      |
-| SWE-bench ablation harness — system-level       | Measurement      | ✅ built + first no-Docker verdict                                      | resolve@k            |
-| pass@k / variance discipline                    | Measurement      | ✅ first result (see Results log)                                       | resolve@k spread     |
-| **Pareto-safe scaffolding (keep-best ratchet)** | **Verification** | ❗ **harm found — Active**                                              | **harm rate → 0**    |
-| Run provenance (seed / temp / model+quant)      | Measurement      | ❗ needed now                                                           | —                    |
-| Constrained-decoding _repair_                   | Reliability      | ✅                                                                      | schema-validity      |
-| Schema-constrained tool calls (Phase 1)         | Reliability      | 🟡 core built; **latency tax found** (see Results) → likely repair-only | BFCL on/off          |
-| Tier-aware verification (D2/C4/E2)              | Verification     | ✅                                                                      | —                    |
-| Mutation testing (verify-the-verifier)          | Verification     | ⬜                                                                      | mutation score       |
-| Numerical contract _checking_                   | The vertical     | ✅ (v0.115)                                                             | contract coverage    |
-| Property-based + analytic-bound gate            | The vertical     | ⬜                                                                      | catches seeded bug   |
-| Shape/dtype/unit constrained _decoding_         | The vertical     | ⬜ frontier                                                             | —                    |
-| On-demand capability DB (§2.2–2.5)              | Architecture     | ⏸                                                                       | recall@k, q          |
-| Prompt-transform hook (§2.6)                    | Architecture     | ⏸                                                                       | CPS delta            |
-| Code graph — query interface / expansion        | Cross-cutting    | 🟡 impact graph shipped                                                 | SWE-bench delta      |
-| Injection hardening                             | Cross-cutting    | ⏸                                                                       | AgentDojo            |
-| Orchestrator-strength routing                   | Cross-cutting    | ⏸                                                                       | —                    |
-| Gate → trajectory flywheel (LoRA, Ph 6)         | Model adapt      | ⏸                                                                       | —                    |
-| Literature-doc citation verification            | Docs             | ❗ open                                                                 | IDs resolve on arXiv |
+| Workstream                                      | Layer            | Status                                                                  | Measuring stick           |
+| ----------------------------------------------- | ---------------- | ----------------------------------------------------------------------- | ------------------------- |
+| Failure taxonomy + diagnostic metrics (F1/F2)   | Measurement      | ✅                                                                      | `metrics.jsonl`           |
+| BFCL — model-level tool-use                     | Measurement      | ✅ ran (local models 83–86%)                                            | BFCL AST subset           |
+| SWE-bench ablation harness — system-level       | Measurement      | ✅ built + first no-Docker verdict                                      | resolve@k                 |
+| pass@k / variance discipline                    | Measurement      | ✅ first result (see Results log)                                       | resolve@k spread          |
+| **Pareto-safe scaffolding (keep-best ratchet)** | **Verification** | ❗ **over-engineering confirmed — Active**                              | **over-engineering rate** |
+| **Fix under-powered measurement instrument**    | **Measurement**  | ❗ **Active #1** (n=5×1 task can't detect effects)                      | n≥20–30/arm, IID          |
+| Run provenance (seed / temp / model+quant)      | Measurement      | ❗ needed now (part of ↑)                                               | —                         |
+| Constrained-decoding _repair_                   | Reliability      | ✅                                                                      | schema-validity           |
+| Schema-constrained tool calls (Phase 1)         | Reliability      | 🟡 core built; **latency tax found** (see Results) → likely repair-only | BFCL on/off               |
+| Tier-aware verification (D2/C4/E2)              | Verification     | ✅                                                                      | —                         |
+| Mutation testing (verify-the-verifier)          | Verification     | ⬜                                                                      | mutation score            |
+| Numerical contract _checking_                   | The vertical     | ✅ (v0.115)                                                             | contract coverage         |
+| Property-based + analytic-bound gate            | The vertical     | ⬜                                                                      | catches seeded bug        |
+| Shape/dtype/unit constrained _decoding_         | The vertical     | ⬜ frontier                                                             | —                         |
+| On-demand capability DB (§2.2–2.5)              | Architecture     | ⏸                                                                       | recall@k, q               |
+| Prompt-transform hook (§2.6)                    | Architecture     | ⏸                                                                       | CPS delta                 |
+| Code graph — query interface / expansion        | Cross-cutting    | 🟡 impact graph shipped                                                 | SWE-bench delta           |
+| Injection hardening                             | Cross-cutting    | ⏸                                                                       | AgentDojo                 |
+| Orchestrator-strength routing                   | Cross-cutting    | ⏸                                                                       | —                         |
+| Gate → trajectory flywheel (LoRA, Ph 6)         | Model adapt      | ⏸                                                                       | —                         |
+| Literature-doc citation verification            | Docs             | ❗ open                                                                 | IDs resolve on arXiv      |
 
 ---
 
