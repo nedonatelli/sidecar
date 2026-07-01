@@ -48,15 +48,17 @@ Legend: ✅ shipped · 🔵 in flight · 🟡 partial · ⬜ not started · ⏸ 
 Mirrors strategy §6, with **do-no-harm promoted to the front** (a harmful scaffold undermines the
 thesis more than a missing lever does). Each produces a citable number.
 
-0. **Pareto-safe scaffolding (keep-best ratchet)** — pass@5 showed the harness turning _passing_
-   runs into _failing_ ones (flask off 4/5, on 1/5): forced test-writing + unrevertable critic edits
-   push a weak model to do more, and more = more breakage. Fix: gate every scaffold-driven change on
+0. **Pareto-safe scaffolding (keep-best ratchet)** — the completion gate demonstrably **over-engineers**
+   (gate-only reliably emits ~32KB test-churn patches where bare stays ~450b; stable behavioral signal).
+   Whether that lowers resolve is unprovable at current n (see Results — resolve is noise-dominated), so the
+   fix is justified by mechanism + behavior, not a resolve delta. Fix: gate every scaffold-driven change on
    **non-regression** — snapshot → apply → re-verify → keep only if the signal is ≥ before, else revert
-   (the keep-best decision moves into the harness, per §2.1). Machinery exists (shadow/audit/edit-
-   timeline); the discipline doesn't. **Metric: harm rate = P(scaffold-on fails | scaffold-off succeeds)
-   → 0**, measured with the pass@k ablation; a scaffold with positive harm rate doesn't ship.
-1. **Finish benchmarking + variance** — pass@k harness (done for flask); generalize to a
-   difficulty-spanning task set; add run provenance. → first defensible lift number.
+   (keep-best moves into the harness, per §2.1); makes over-engineering _safe_. **Signal to optimize: patch
+   minimality / over-engineering rate** (measurable at small n), not resolve harm rate (isn't).
+1. **Fix the measurement instrument FIRST (it's under-powered).** One task × pass@5 can't detect a real
+   effect — a single arm swings 20↔80% between runs. Need: n≥20–30 per arm across several tasks, IID checks
+   (back-to-back runs may share GPU/session state), run provenance (seed/temp). Until the instrument is
+   trustworthy, **no resolve-level lift/harm claim is defensible** — lean on behavioral signals meanwhile.
 2. **Phase 1 — schema-constrained tool calls** — core built for BFCL; run BFCL on/off
    (schema-validity → ~100%, accuracy up-or-flat, watch the alignment tax), then port to
    the agent loop if the delta justifies it.
@@ -115,6 +117,15 @@ _Append findings as they land — the running record of what we actually measure
   sample. Confirms the difficulty-dependence decision above and the need for pass@k + a hard-task set.
 - **N=20 scoped slice (partial, unscored):** scaffold-on produced a patch on 4/9 tasks vs off's 2/9, with
   2 rescues and 0 reverse — _patch-applicability_ leans toward scaffolding even where _resolve_ is noisy.
+- **⚠️ Decomposition pass@5 (flask-5014) — the instrument is under-powered.** All four arms (bare / gate-only /
+  critic-only / all) resolved **1/5**; bare was **4/5** in the prior pass@5 and **1/5** here — the same arm's
+  resolve rate swings 20↔80% between two pass@5 runs. **At n=5×1-task, no arm comparison is meaningful**; the
+  earlier "scaffolding harms (off 4/5, on 1/5)" was partly a lucky draw. Detecting a real resolve effect needs
+  n≥20–30 per arm across several tasks (why the field runs the full 500-task set). **Stable signal is behavioral,
+  not resolve-level:** gate-only + all reliably emit ~32KB over-engineered patches (test churn); critic-only +
+  bare stay ~450b. So the completion gate demonstrably over-engineers — the do-no-harm fix (keep-best ratchet)
+  is justified by mechanism + this behavioral signal, NOT by an (unmeasurable-at-this-n) resolve delta. Also:
+  run 1 resolved more than runs 2–5 across arms → back-to-back runs may not be IID (GPU/session state).
 - **BFCL native vs schema-constrained (gemma4:e4b, Q4_K_M):** native = **87% macro** (100 cases). Constrained
   (Ollama `format`, union tool schema) **timed out at 30 min** having done ~56 cases vs native's fast 100 —
   the Phase-1 cost is **latency, not accuracy** (partial constrained cases passed at a comparable rate).
