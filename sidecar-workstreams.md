@@ -118,6 +118,13 @@ _Append findings as they land — the running record of what we actually measure
   sample. Confirms the difficulty-dependence decision above and the need for pass@k + a hard-task set.
 - **N=20 scoped slice (partial, unscored):** scaffold-on produced a patch on 4/9 tasks vs off's 2/9, with
   2 rescues and 0 reverse — _patch-applicability_ leans toward scaffolding even where _resolve_ is noisy.
+- **SWE-bench campaign launched (the real thesis test).** Base = **qwen2.5-coder:7b** (qwen3-coder:8b doesn't
+  exist; 7b is the true ≤8B coder). Smoke: focused 668b edits, real file reads, **no over-engineering under the
+  gate** (unlike gemma) — a much cleaner base. Methodology corrected: **50 tasks × 1 sample/arm** (SWE-bench Lite
+  deterministic stride-50, proportionally representative) — per-task noise averages into a stable _rate_, not the
+  1-task pass@k that drowned. Predictions (both arms) generating locally, crash-resilient; scoring → official
+  Docker harness (off-machine). Provenance manifest written (gap: seed/temp not yet threaded). Honest ceiling: a
+  7B won't _equal_ frontier (~50–70%); the win is the **lift + local/zero-cost**, single-to-low-double digits absolute.
 - **⚠️ Decomposition pass@5 (flask-5014) — the instrument is under-powered.** All four arms (bare / gate-only /
   critic-only / all) resolved **1/5**; bare was **4/5** in the prior pass@5 and **1/5** here — the same arm's
   resolve rate swings 20↔80% between two pass@5 runs. **At n=5×1-task, no arm comparison is meaningful**; the
