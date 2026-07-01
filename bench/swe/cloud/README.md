@@ -25,13 +25,20 @@ A5000 / A6000) is plenty for a 7B model and costs roughly **$0.30–0.80/hr**; a
 50-task Lite campaign (predict + score) is a few hours ≈ **a few dollars**.
 Configure **≥150 GB disk** — swebench images are large.
 
+**Vast.ai** — the chosen provider. Cheapest GPU marketplace. **Key gotcha:** a
+Vast instance is itself a container, and the swebench scorer needs to run Docker
+(it builds/runs a per-task image). So either rent a **Docker-in-Docker /
+privileged-enabled** instance (some templates support it) for the scoring step,
+**or** split it: prediction-gen on the Vast GPU box, scoring via **Modal**
+(`--modal true`, serverless — no Docker-in-Docker headache). Pick a
+high-reliability host; configure ≥150 GB disk.
+
 Alternatives:
 
-- **Vast.ai** — cheaper GPU marketplace, also Docker-native; more variable.
+- **RunPod** — GPU pod, template-deploy in ~1 min, one box does predict + score.
+- **Modal** — native `--modal true` scoring backend, serverless (no Docker box);
+  pair with any GPU for the prediction step.
 - **Lambda Cloud** — clean GPU VMs; Docker-in-Docker for swebench can need extra setup.
-- **Modal** — the swebench harness has a native Modal backend (`--modal true`) that
-  runs scoring serverlessly (no Docker box), but you'd still need a GPU for the
-  prediction step. Good if you want to split predict (GPU) from score (Modal).
 
 Big clouds (AWS/GCP/Azure GPU VMs) work but are more setup + cost for the same job.
 
