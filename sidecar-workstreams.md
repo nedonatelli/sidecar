@@ -18,28 +18,28 @@ until something in Active ships.
 
 Legend: ✅ shipped · 🔵 in flight · 🟡 partial · ⬜ not started · ⏸ deferred · ❗ needed now
 
-| Workstream                                      | Layer            | Status                                                   | Measuring stick      |
-| ----------------------------------------------- | ---------------- | -------------------------------------------------------- | -------------------- |
-| Failure taxonomy + diagnostic metrics (F1/F2)   | Measurement      | ✅                                                       | `metrics.jsonl`      |
-| BFCL — model-level tool-use                     | Measurement      | ✅ ran (local models 83–86%)                             | BFCL AST subset      |
-| SWE-bench ablation harness — system-level       | Measurement      | ✅ built + first no-Docker verdict                       | resolve@k            |
-| pass@k / variance discipline                    | Measurement      | ✅ first result (see Results log)                        | resolve@k spread     |
-| **Pareto-safe scaffolding (keep-best ratchet)** | **Verification** | ❗ **harm found — Active**                               | **harm rate → 0**    |
-| Run provenance (seed / temp / model+quant)      | Measurement      | ❗ needed now                                            | —                    |
-| Constrained-decoding _repair_                   | Reliability      | ✅                                                       | schema-validity      |
-| Schema-constrained tool calls (Phase 1)         | Reliability      | 🟡 BFCL core built; experiment + agent-loop port pending | BFCL on/off          |
-| Tier-aware verification (D2/C4/E2)              | Verification     | ✅                                                       | —                    |
-| Mutation testing (verify-the-verifier)          | Verification     | ⬜                                                       | mutation score       |
-| Numerical contract _checking_                   | The vertical     | ✅ (v0.115)                                              | contract coverage    |
-| Property-based + analytic-bound gate            | The vertical     | ⬜                                                       | catches seeded bug   |
-| Shape/dtype/unit constrained _decoding_         | The vertical     | ⬜ frontier                                              | —                    |
-| On-demand capability DB (§2.2–2.5)              | Architecture     | ⏸                                                        | recall@k, q          |
-| Prompt-transform hook (§2.6)                    | Architecture     | ⏸                                                        | CPS delta            |
-| Code graph — query interface / expansion        | Cross-cutting    | 🟡 impact graph shipped                                  | SWE-bench delta      |
-| Injection hardening                             | Cross-cutting    | ⏸                                                        | AgentDojo            |
-| Orchestrator-strength routing                   | Cross-cutting    | ⏸                                                        | —                    |
-| Gate → trajectory flywheel (LoRA, Ph 6)         | Model adapt      | ⏸                                                        | —                    |
-| Literature-doc citation verification            | Docs             | ❗ open                                                  | IDs resolve on arXiv |
+| Workstream                                      | Layer            | Status                                                                  | Measuring stick      |
+| ----------------------------------------------- | ---------------- | ----------------------------------------------------------------------- | -------------------- |
+| Failure taxonomy + diagnostic metrics (F1/F2)   | Measurement      | ✅                                                                      | `metrics.jsonl`      |
+| BFCL — model-level tool-use                     | Measurement      | ✅ ran (local models 83–86%)                                            | BFCL AST subset      |
+| SWE-bench ablation harness — system-level       | Measurement      | ✅ built + first no-Docker verdict                                      | resolve@k            |
+| pass@k / variance discipline                    | Measurement      | ✅ first result (see Results log)                                       | resolve@k spread     |
+| **Pareto-safe scaffolding (keep-best ratchet)** | **Verification** | ❗ **harm found — Active**                                              | **harm rate → 0**    |
+| Run provenance (seed / temp / model+quant)      | Measurement      | ❗ needed now                                                           | —                    |
+| Constrained-decoding _repair_                   | Reliability      | ✅                                                                      | schema-validity      |
+| Schema-constrained tool calls (Phase 1)         | Reliability      | 🟡 core built; **latency tax found** (see Results) → likely repair-only | BFCL on/off          |
+| Tier-aware verification (D2/C4/E2)              | Verification     | ✅                                                                      | —                    |
+| Mutation testing (verify-the-verifier)          | Verification     | ⬜                                                                      | mutation score       |
+| Numerical contract _checking_                   | The vertical     | ✅ (v0.115)                                                             | contract coverage    |
+| Property-based + analytic-bound gate            | The vertical     | ⬜                                                                      | catches seeded bug   |
+| Shape/dtype/unit constrained _decoding_         | The vertical     | ⬜ frontier                                                             | —                    |
+| On-demand capability DB (§2.2–2.5)              | Architecture     | ⏸                                                                       | recall@k, q          |
+| Prompt-transform hook (§2.6)                    | Architecture     | ⏸                                                                       | CPS delta            |
+| Code graph — query interface / expansion        | Cross-cutting    | 🟡 impact graph shipped                                                 | SWE-bench delta      |
+| Injection hardening                             | Cross-cutting    | ⏸                                                                       | AgentDojo            |
+| Orchestrator-strength routing                   | Cross-cutting    | ⏸                                                                       | —                    |
+| Gate → trajectory flywheel (LoRA, Ph 6)         | Model adapt      | ⏸                                                                       | —                    |
+| Literature-doc citation verification            | Docs             | ❗ open                                                                 | IDs resolve on arXiv |
 
 ---
 
@@ -115,3 +115,10 @@ _Append findings as they land — the running record of what we actually measure
   sample. Confirms the difficulty-dependence decision above and the need for pass@k + a hard-task set.
 - **N=20 scoped slice (partial, unscored):** scaffold-on produced a patch on 4/9 tasks vs off's 2/9, with
   2 rescues and 0 reverse — _patch-applicability_ leans toward scaffolding even where _resolve_ is noisy.
+- **BFCL native vs schema-constrained (gemma4:e4b, Q4_K_M):** native = **87% macro** (100 cases). Constrained
+  (Ollama `format`, union tool schema) **timed out at 30 min** having done ~56 cases vs native's fast 100 —
+  the Phase-1 cost is **latency, not accuracy** (partial constrained cases passed at a comparable rate).
+  Grammar-mask construction over a big `oneOf` schema is expensive for local inference (the §2.5 round-trip
+  cost). Implication: constrained decoding is likely best kept as **repair-only** (where we already use it),
+  not the default path — pending a clean small-sample accuracy read. Confirms the "constrain at the action
+  boundary only" instinct extends to "and only when the latency is affordable."
