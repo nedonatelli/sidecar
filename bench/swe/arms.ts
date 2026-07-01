@@ -44,13 +44,34 @@ const SCAFFOLD_OFF: ArmOverrides = {
   regressionGuards: [],
 };
 
+// Decomposition arms: exactly one verification scaffold on, everything else off.
+// Used to localize which scaffold drives a resolve delta (do-no-harm probe).
+const GATE_ONLY: ArmOverrides = { ...SCAFFOLD_OFF, completionGateEnabled: true };
+const CRITIC_ONLY: ArmOverrides = { ...SCAFFOLD_OFF, criticEnabled: true };
+
 export function armConfigOverrides(arm: ArmName): ArmOverrides {
-  return arm === 'scaffold-on' ? { ...SCAFFOLD_ON } : { ...SCAFFOLD_OFF };
+  switch (arm) {
+    case 'scaffold-on':
+      return { ...SCAFFOLD_ON };
+    case 'gate-only':
+      return { ...GATE_ONLY };
+    case 'critic-only':
+      return { ...CRITIC_ONLY };
+    default:
+      return { ...SCAFFOLD_OFF };
+  }
 }
 
 /** Human-readable list of what each arm toggles, for the report header. */
 export function armDescription(arm: ArmName): string {
-  return arm === 'scaffold-on'
-    ? 'critic + completion gate + auto-fix + impact/numerical gates + adaptive intensity'
-    : 'bare loop (verification scaffolds off; deterministic control still on)';
+  switch (arm) {
+    case 'scaffold-on':
+      return 'critic + completion gate + auto-fix + impact/numerical gates + adaptive intensity';
+    case 'gate-only':
+      return 'completion gate only (all other verification scaffolds off)';
+    case 'critic-only':
+      return 'adversarial critic only (all other verification scaffolds off)';
+    default:
+      return 'bare loop (verification scaffolds off; deterministic control still on)';
+  }
 }

@@ -43,7 +43,12 @@ const REPOS = (process.env.SIDECAR_SWE_REPOS || '').split(',').map((s) => s.trim
 // of 8 is far too few; default to 30 here. (Smoke run at 8 → empty patches.)
 const MAX_ITERS = parseInt(process.env.SIDECAR_SWE_MAX_ITERS ?? '30', 10);
 const PER_TASK_MS = parseInt(process.env.SIDECAR_SWE_TASK_TIMEOUT ?? '600000', 10);
-const ARMS: ArmName[] = ['scaffold-off', 'scaffold-on'];
+// Arms to run this pass. Default is the core on/off ablation; SIDECAR_SWE_ARMS
+// (comma-separated) selects a decomposed set, e.g. "scaffold-off,gate-only,critic-only,scaffold-on".
+const ARMS: ArmName[] = (process.env.SIDECAR_SWE_ARMS || 'scaffold-off,scaffold-on')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean) as ArmName[];
 
 function git(args: string[], cwd?: string): string {
   return execFileSync('git', args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 }).toString();

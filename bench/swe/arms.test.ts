@@ -19,6 +19,20 @@ describe('armConfigOverrides', () => {
     expect(off.regressionGuards).toEqual([]);
   });
 
+  it('gate-only enables the completion gate and nothing else', () => {
+    const g = armConfigOverrides('gate-only');
+    expect(g.completionGateEnabled).toBe(true);
+    expect(g.criticEnabled).toBe(false);
+    expect(g.autoFixOnFailure).toBe(false);
+  });
+
+  it('critic-only enables the critic and nothing else', () => {
+    const c = armConfigOverrides('critic-only');
+    expect(c.criticEnabled).toBe(true);
+    expect(c.completionGateEnabled).toBe(false);
+    expect(c.autoFixOnFailure).toBe(false);
+  });
+
   it('returns a fresh object each call (no shared mutable state)', () => {
     const a = armConfigOverrides('scaffold-on');
     a.criticEnabled = false;

@@ -33,8 +33,12 @@ export interface SweTask {
   version?: string;
 }
 
-/** The two ablation arms: full harness vs bare loop. */
-export type ArmName = 'scaffold-on' | 'scaffold-off';
+/**
+ * Ablation arms. The core two are `scaffold-on` (full harness) vs `scaffold-off`
+ * (bare loop). `gate-only` / `critic-only` decompose the harness to localize
+ * *which* scaffold helps or harms (the do-no-harm investigation).
+ */
+export type ArmName = 'scaffold-on' | 'scaffold-off' | 'gate-only' | 'critic-only';
 
 /** A generated prediction for one task on one arm. */
 export interface SwePrediction {
