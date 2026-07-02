@@ -8,6 +8,7 @@
 // ---------------------------------------------------------------------------
 
 import type { BfclReport } from './types.js';
+import { summarizeFailures, classifyBfclFailure, failureAxis } from './failureClassifier.js';
 
 export interface RunEnvelope {
   model: string;
@@ -52,11 +53,41 @@ export function formatReport(report: BfclReport, env: RunEnvelope): string {
   );
 
   if (report.failures.length > 0) {
+    // Failure taxonomy (Phase 0 instrumentation): split failures into the
+    // SELECTION axis (wrong/hallucinated/missing function — fixed by per-turn
+    // tool subsetting) vs the ARGUMENT axis (wrong value / missing param —
+    // fixed by constrained decoding) vs STRUCTURE. This distribution is the
+    // number that decides which lever earns the ROI.
+    const dist = summarizeFailures(report.failures.map((f) => f.reason));
+    lines.push('');
+    lines.push('## Failure taxonomy');
+    lines.push('');
+    lines.push('| Axis | Count | Share | Lever |');
+    lines.push('| --- | --- | --- | --- |');
+    const levers: Record<string, string> = {
+      selection: 'per-turn tool subsetting',
+      argument: 'constrained decoding',
+      structure: 'prompt / format shaping',
+    };
+    for (const axis of ['selection', 'argument', 'structure'] as const) {
+      const n = dist.byAxis[axis];
+      lines.push(`| **${axis}** | ${n} | ${pct(n / dist.total)} | ${levers[axis]} |`);
+    }
+    lines.push('');
+    lines.push(
+      'By type: ' +
+        Object.entries(dist.byType)
+          .sort((a, b) => b[1] - a[1])
+          .map(([t, n]) => `${t}=${n}`)
+          .join(', '),
+    );
+
     lines.push('');
     lines.push('## Failures');
     lines.push('');
     for (const f of report.failures) {
-      lines.push(`- \`${f.id}\` (${f.category}): ${f.reason}`);
+      const type = classifyBfclFailure(f.reason);
+      lines.push(`- \`${f.id}\` (${f.category}) [${failureAxis(type)}/${type}]: ${f.reason}`);
     }
   }
   return lines.join('\n');
