@@ -28,6 +28,9 @@ vi.mock('vscode', () => ({
   },
   Uri: {
     file: vi.fn((p: string) => ({ fsPath: p })),
+    joinPath: vi.fn((base: { fsPath: string }, ...segments: string[]) => ({
+      fsPath: [base.fsPath, ...segments].join('/'),
+    })),
   },
 }));
 
@@ -504,6 +507,10 @@ describe('completionGate — buildGateInjection', () => {
     expect(text).toContain('get_diagnostics');
     // src/foo.ts is JS/TS, so the eslint suggestion still appears.
     expect(text).toContain('npx eslint src/foo.ts');
+    // Exclusivity: no missingTest/testNotUpdated findings here — kills the
+    // `.length >= 0` mutants that would render these sections unconditionally.
+    expect(text).not.toContain('Tests for the files you edited have not run');
+    expect(text).not.toContain('did not update their test files');
   });
 
   it('does NOT suggest eslint for Python files — only get_diagnostics (the dogfood fix)', () => {
@@ -517,6 +524,26 @@ describe('completionGate — buildGateInjection', () => {
     expect(text).toContain('Tests for the files you edited have not run');
     expect(text).toContain('run_tests with file: src/foo.test.ts');
     expect(text).toContain('npx vitest run src/foo.test.ts');
+    // Exclusivity: no needsLint/testNotUpdated findings here.
+    expect(text).not.toContain('static check');
+    expect(text).not.toContain('did not update their test files');
+  });
+
+  it('includes a test-update section ONLY when testNotUpdated findings exist', () => {
+    const text = buildGateInjection([{ file: 'src/foo.ts', testNotUpdated: 'src/foo.test.ts' }], 1, 2);
+    expect(text).toContain('did not update their test files');
+    expect(text).toContain('src/foo.ts  ->  src/foo.test.ts');
+    expect(text).not.toContain('static check');
+    expect(text).not.toContain('Tests for the files you edited have not run');
+  });
+
+  it('an empty findings array renders none of the three optional sections', () => {
+    const text = buildGateInjection([], 1, 2);
+    expect(text).not.toContain('static check');
+    expect(text).not.toContain('Tests for the files you edited have not run');
+    expect(text).not.toContain('did not update their test files');
+    // The directive header still renders regardless.
+    expect(text).toContain('Completion gate');
   });
 
   it('deduplicates lint files across findings', () => {
@@ -1158,6 +1185,84 @@ describe('completionGate — buildUnverifiedClaimReprompt', () => {
     const msgs = [userMsg('Review the architecture of this project.')];
     expect(await buildUnverifiedClaimReprompt(msgs, fileExists)).toBeNull();
   });
+
+  it('returns null for an explicitly empty requestText (distinct from "no messages")', async () => {
+    const msgs = [assistantMsg('The loop (`src/agent/loop.ts`) is well structured.')];
+    expect(await buildUnverifiedClaimReprompt(msgs, fileExists, '')).toBeNull();
+  });
+
+  it('deduplicates a citation repeated twice — flagged once, not per-occurrence', async () => {
+    const msgs = [
+      userMsg('Review the architecture of this project.'),
+      assistantMsg('`src/context/context.ts` handles this, and `src/context/context.ts` is used throughout.'),
+    ];
+    const result = await buildUnverifiedClaimReprompt(msgs, fileExists);
+    expect(result).not.toBeNull();
+    // Cited once in the reprompt body despite two occurrences in the answer.
+    expect((result!.match(/context\/context\.ts/g) || []).length).toBe(1);
+  });
+
+  it('singular wording for exactly one fabricated path', async () => {
+    const msgs = [
+      userMsg('Review the architecture of this project.'),
+      assistantMsg('Handled in `src/context/context.ts`.'),
+    ];
+    const result = await buildUnverifiedClaimReprompt(msgs, fileExists);
+    expect(result).toContain('a path that does not exist');
+    expect(result).not.toContain('paths that do not exist');
+  });
+
+  it('plural wording for two or more fabricated paths', async () => {
+    const msgs = [
+      userMsg('Review the architecture of this project.'),
+      assistantMsg('See `src/context/context.ts` and `src/context/other.ts`.'),
+    ];
+    const result = await buildUnverifiedClaimReprompt(msgs, fileExists);
+    expect(result).toContain('paths that do not exist');
+    expect(result).not.toContain('a path that does not exist');
+  });
+
+  // Mutation-hardening for lastAssistantText's guard chain (same technique as
+  // lastUserText/firstUserText — same-shape-but-benign tests can't distinguish
+  // "guard correctly skipped" from "nothing to match anyway").
+  it('a trailing user message with array-text content must NOT satisfy the assistant-only check', async () => {
+    const msgs = [
+      userMsg('Review the architecture of this project.'),
+      assistantMsg('Handled in `src/context/context.ts`.'),
+      { role: 'user' as const, content: [{ type: 'text' as const, text: 'thanks' }] },
+    ];
+    // If the assistant-only guard were bypassed, the trailing user text would
+    // be scanned instead — it cites nothing, so the reprompt would wrongly
+    // return null. Confirms the real (fabricated) answer is still used.
+    expect(await buildUnverifiedClaimReprompt(msgs, fileExists)).not.toBeNull();
+  });
+
+  it('a non-text block with a coincidental `.text` property must NOT be returned', async () => {
+    const msgs = [
+      userMsg('Review the architecture of this project.'),
+      {
+        role: 'assistant' as const,
+        content: [
+          { type: 'tool_result' as const, tool_use_id: 'x', content: 'y', text: 'src/context/context.ts' } as any,
+          { type: 'text' as const, text: 'Handled in `src/agent/loop.ts`, which is real.' },
+        ],
+      },
+    ];
+    // If the type==='text' guard were bypassed, the coincidental `.text` field
+    // (a fabricated citation) would be scanned instead of the real, clean answer.
+    expect(await buildUnverifiedClaimReprompt(msgs, fileExists)).toBeNull();
+  });
+
+  it('array-content assistant message with STRING content still concatenates via join (no crash)', async () => {
+    // lastAssistantText on array content returns filter().map().join('\n') —
+    // an array with ZERO text blocks joins to '' (falsy), which must be
+    // treated the same as "no answer yet".
+    const msgs = [
+      userMsg('Review the architecture of this project.'),
+      { role: 'assistant' as const, content: [{ type: 'tool_use' as const, id: 'x', name: 'read_file', input: {} }] },
+    ];
+    expect(await buildUnverifiedClaimReprompt(msgs, fileExists)).toBeNull();
+  });
 });
 
 describe('completionGate — buildBehavioralVerificationReprompt', () => {
@@ -1180,6 +1285,10 @@ describe('completionGate — buildBehavioralVerificationReprompt', () => {
     const r = await buildBehavioralVerificationReprompt('clicking the number buttons does nothing', edited, noTests);
     expect(r).not.toBeNull();
     expect(r).toContain('test');
+    // Exclusivity: no hollow test exists here (nothing ran at all), so the
+    // hollow-specific wording must be ABSENT — kills the `hollow.length >= 0`
+    // mutant that would render this section even when hollow.length is 0.
+    expect(r).not.toContain('never imports the module under test');
   });
 
   it('matches varied bug-report phrasings', async () => {
@@ -1277,6 +1386,23 @@ describe('completionGate — buildBehavioralVerificationReprompt', () => {
     ).toBeNull();
   });
 
+  // Mutation-hardening for candidateTestFiles: every test above edits a BARE
+  // filename (no directory), so `dir` is always '' and the `slash !== -1`
+  // dir-prefixed-candidate branch is never exercised. This proves it works
+  // for a nested file, via the whole-suite conventional-test-file path.
+  it('finds a dir-prefixed conventional test file for a nested source path', async () => {
+    const nestedEdited = new Set<string>(['src/calc.py']);
+    const suite = {
+      testsRunForFiles: new Set<string>(),
+      passingTestFiles: new Set<string>(),
+      projectTestsPassed: true,
+    };
+    // Only the dir-prefixed candidate ("src/test_calc.py") has content —
+    // proves candidateTestFiles actually generated and checked it.
+    const readNested = async (p: string) => (p === 'src/test_calc.py' ? 'from calc import add\n' : null);
+    expect(await buildBehavioralVerificationReprompt('the calc is broken', nestedEdited, suite, readNested)).toBeNull();
+  });
+
   // --- Hollow-test detection (dogfood: model wrote test_gui_calculator.py that
   //     never imported gui_calculator and tested an inline mock instead). ---
   it('fires with the hollow-test message when the test never imports the module', async () => {
@@ -1294,6 +1420,10 @@ describe('completionGate — buildBehavioralVerificationReprompt', () => {
     expect(r).toContain('never imports the module under test');
     expect(r).toContain('test_gui_calculator.py');
     expect(r).toContain('from gui_calculator import');
+    // Exclusivity: gui_calculator.py was found via the hollow path, not pushed
+    // to `uncovered` — kills the `uncovered.length >= 0` mutant that would
+    // render the uncovered-files section even when uncovered.length is 0.
+    expect(r).not.toContain('You edited code');
   });
 
   it('does NOT flag a hollow test when the test genuinely imports the module', async () => {
@@ -1340,6 +1470,36 @@ describe('completionGate — buildBehavioralVerificationReprompt', () => {
     expect(r).not.toBeNull();
     expect(r).toContain('PASSES');
     expect(r).toContain('NO TESTS RAN'); // failure context surfaced inline
+  });
+
+  // Mutation-hardening: pin each exclusion clause in the behavioralEdits
+  // filter (SOURCE_FILE_RE && !.d.ts && !TEST_FILE_RE && !PY_TEST_FILE_RE)
+  // independently, so a removed clause breaks a test instead of silently
+  // widening what counts as "behavioral source".
+  it('excludes a .d.ts declaration file — no behavioral obligation for type-only edits', async () => {
+    const onlyTypes = new Set<string>(['calculator.d.ts']);
+    expect(await buildBehavioralVerificationReprompt('the gui is broken', onlyTypes, noTests)).toBeNull();
+  });
+
+  it('excludes a JS/TS test file (TEST_FILE_RE) even without the .py convention', async () => {
+    const onlyJsTest = new Set<string>(['calculator.test.ts']);
+    expect(await buildBehavioralVerificationReprompt('the app is broken', onlyJsTest, noTests)).toBeNull();
+  });
+
+  it('excludes a non-source file entirely (fails SOURCE_FILE_RE)', async () => {
+    const onlyDocs = new Set<string>(['README.md']);
+    expect(await buildBehavioralVerificationReprompt('the app is broken', onlyDocs, noTests)).toBeNull();
+  });
+
+  it('a mixed edit set still obligates the ONE genuinely-behavioral file', async () => {
+    // .d.ts and the test file itself are excluded; the actual source file
+    // still needs a behavioral test — proves the exclusions filter
+    // per-file, not all-or-nothing.
+    const mixed = new Set<string>(['gui_calculator.py', 'gui_calculator.d.ts', 'test_gui_calculator.py']);
+    const r = await buildBehavioralVerificationReprompt('the gui is broken', mixed, noTests);
+    expect(r).not.toBeNull();
+    expect(r).toContain('gui_calculator.py');
+    expect(r).not.toContain('gui_calculator.d.ts');
   });
 });
 
@@ -1559,5 +1719,48 @@ describe('completionGate — buildNoFileWriteReprompt', () => {
     const edited = new Set<string>(['gui_calculator.py']);
     const exists = async (p: string) => p.includes('calculator.py') && !p.includes('gui_');
     expect(await buildNoFileWriteReprompt(msgs, edited, undefined, exists)).toBeNull();
+  });
+
+  // Mutation-hardening: pin the wasWritten match paths + pluralization.
+  it('matches via the suffix path (f.endsWith("/"+base)) — neither exact nor bare-basename match applies', async () => {
+    // editedFiles holds a path that ends with the mentioned basename but is
+    // NEITHER the exact mentioned path NOR the bare basename itself — only
+    // the third `.some(f => f.endsWith('/' + base) ...)` disjunct can match.
+    const msgs = [userMsg('Extend `src/deps/semver.test.ts` with a describe block for semverLte.')];
+    const edited = new Set<string>(['other/nested/semver.test.ts']);
+    expect(await buildNoFileWriteReprompt(msgs, edited, undefined, noFile)).toBeNull();
+  });
+
+  it('singular wording ("it" / "that file") for exactly one unwritten file', async () => {
+    const msgs = [userMsg('Add semverLte to `src/deps/semver.ts`.')];
+    const result = await buildNoFileWriteReprompt(msgs, new Set(), undefined, noFile);
+    expect(result).toContain('finished without writing to it');
+    expect(result).toContain('changes to that file');
+    expect(result).not.toContain('any of them');
+    expect(result).not.toContain('those files');
+  });
+
+  it('plural wording ("any of them" / "those files") for two or more unwritten files', async () => {
+    const msgs = [userMsg('Add semverLte to `src/deps/semver.ts` and tests to `src/deps/semver.test.ts`.')];
+    const result = await buildNoFileWriteReprompt(msgs, new Set(), undefined, noFile);
+    expect(result).toContain('finished without writing to any of them');
+    expect(result).toContain('changes to those files');
+    expect(result).not.toContain('writing to it.');
+  });
+
+  it('uses the real defaultFileExists (default param) against the mocked workspace', async () => {
+    // No custom fileExists injected — exercises the actual workspace.fs.stat
+    // path. Configured to say the file does NOT exist, so the gate fires.
+    (mockWorkspace.fs.stat as any).mockRejectedValue(new Error('not found'));
+    const msgs = [userMsg('Create `src/deps/newmath.ts` with a clamp function.')];
+    const result = await buildNoFileWriteReprompt(msgs, new Set());
+    expect(result).not.toBeNull();
+    expect(result).toContain('newmath.ts');
+  });
+
+  it('the real defaultFileExists returns null (no fire) when workspace.fs.stat resolves', async () => {
+    (mockWorkspace.fs.stat as any).mockResolvedValue(undefined);
+    const msgs = [userMsg('Create `src/deps/newmath.ts` with a clamp function.')];
+    expect(await buildNoFileWriteReprompt(msgs, new Set())).toBeNull();
   });
 });

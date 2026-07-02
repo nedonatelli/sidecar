@@ -128,14 +128,13 @@ thesis more than a missing lever does). Each produces a citable number.
      (`sidecar.analyticBounds.gate`), riding alongside the numerical-contract gate. 26 tests; 518 loop-area
      tests green; tsc+eslint clean. This is "prove the physics is right, not just that tests pass" as a gate —
      the most defensible item in the program (strategy §5/§6).
-   - **DONE (§5 pillar 3 — property-based test synthesis, COMPLETES the vertical):** `src/agent/propertyTests.ts`
-     - `synthesize_property_test` tool. Declaration-driven (`# property: symmetric|idempotent|monotonic|
+   - **DONE (§5 pillar 3 — property-based test synthesis, COMPLETES the vertical):** `src/agent/propertyTests.ts` - `synthesize_property_test` tool. Declaration-driven (`# property: symmetric|idempotent|monotonic|
 non-negative`, plus reuse of `# bounds:`/`# invariant:` from pillar 2 — a bound IS a property). Emits a
-       COMPLETE, runnable Hypothesis test: numpy-array `@given` strategies (one per param, parsed from the def
-       signature), the declared assertions (symmetry calls swapped args, idempotence checks f(f(x))==f(x),
-       bounds use the pillar-2 assertion), dotted module import. 18 tests; tool count 84→85. **All three §5
-       pillars now shipped** — shape/dtype/unit contracts (v0.115) + analytic-bound gate + property tests. This
-       is the strategy's "single move" (§6) delivered end-to-end: prove the physics, prove the math.
+     COMPLETE, runnable Hypothesis test: numpy-array `@given` strategies (one per param, parsed from the def
+     signature), the declared assertions (symmetry calls swapped args, idempotence checks f(f(x))==f(x),
+     bounds use the pillar-2 assertion), dotted module import. 18 tests; tool count 84→85. **All three §5
+     pillars now shipped** — shape/dtype/unit contracts (v0.115) + analytic-bound gate + property tests. This
+     is the strategy's "single move" (§6) delivered end-to-end: prove the physics, prove the math.
 
 ---
 
@@ -211,23 +210,36 @@ non-negative`, plus reuse of `# bounds:`/`# invariant:` from pillar 2 — a boun
 - **Verify-the-verifier: Stryker (TS mutation testing) on our own moat modules.** keepBestRatchet **95.4%**
   (real teeth). injectionGuard **47.1%→72.5%** after hardening (killed 26 untested-alternative-pattern
   mutants; remaining ~22 are equivalent regex mutations, un-killable). completionGate — NOT theater (it kills
-  the large majority of mutants) but had genuine unverified branch decisions; **two hardening passes:
-  61.1%→65.3%→67.5%** (963 mutants; 650 killed / 313 survived at final). Pass 1: `recordToolCall` failing-
-  result tests (every prior test used a PASSING tool result, so `if (passed)` branches were never falsified;
-  20→12 logic survivors) + `classifyTestResult`/`isAnalysisRequest` branch-pinning (→0 logic survivors, fully
-  closed). Pass 2: **adversarial guard-bypass tests** for the 5 message-walking helpers (`hasReadToolCallForFile`,
-  `hasRunCommandCall`, `hasAnyGroundingToolCall`, `firstUserText`, `lastUserText`) — same-shape-but-benign
-  tests can't distinguish "guard correctly skipped" from "guard was a no-op with nothing to match anyway"; the
-  fix is a message under the WRONG role with a well-formed match, and a non-matching block that coincidentally
-  carries the target field (e.g. a `text` block with a `.name` property), which DO regress if the guard is
-  removed (11-12→7-8 logic survivors each). +34 tests (138→172), all green, tsc+eslint clean, no regressions
-  (657 loop-area tests). **Remaining tracked follow-up:** `buildBehavioralVerificationReprompt` (16),
-  `lastAssistantText` (16, private — needs export or indirect testing via `buildUnverifiedClaimReprompt`),
-  `buildNoFileWriteReprompt` (16), `buildGateInjection` (12), `buildUnverifiedClaimReprompt` (11) — the
-  remaining reprompt-builder functions, each needing its own adversarial-case design; diminishing returns per
-  function justify stopping here for this session. Stryker kept as devDep + `stryker.conf.json` for on-demand
-  re-audit (too slow for CI). This is the purest method-first move: it proved our own gate's decision logic
-  was only partially test-pinned, and precisely which parts.
+  the large majority of mutants) but had genuine unverified branch decisions; **three hardening passes:
+  61.1%→65.3%→67.5%→74.7%** (963 mutants; 719 killed / 244 survived at final — cumulative +13.6 points).
+  Pass 1: `recordToolCall` failing-result tests (every prior test used a PASSING tool result, so `if (passed)`
+  branches were never falsified; 20→12 logic survivors) + `classifyTestResult`/`isAnalysisRequest`
+  branch-pinning (→0 logic survivors, fully closed). Pass 2: **adversarial guard-bypass tests** for the 5
+  message-walking helpers (`hasReadToolCallForFile`, `hasRunCommandCall`, `hasAnyGroundingToolCall`,
+  `firstUserText`, `lastUserText`) — same-shape-but-benign tests can't distinguish "guard correctly skipped"
+  from "guard was a no-op with nothing to match anyway"; the fix is a message under the WRONG role with a
+  well-formed match, and a non-matching block that coincidentally carries the target field. Pass 3: the
+  remaining reprompt-builder functions — **exclusivity assertions** (assert the ABSENCE of section B's wording
+  when only section A's findings exist — kills `.length >= 0` mutants that render a section unconditionally):
+  `buildGateInjection` 12→1, `buildBehavioralVerificationReprompt` 16→7. **Exclusion-boundary tests** (one
+  test per filter clause — `.d.ts`, JS/TS test file, non-source file — each independently excluded):
+  `buildBehavioralVerificationReprompt`. **Pluralization tests** (singular vs plural wording, asserting each
+  form's ABSENCE in the other case): `buildNoFileWriteReprompt` 16→4, `buildUnverifiedClaimReprompt` 11→8.
+  **Directory-prefix test** (every prior test used a bare filename, so `candidateTestFiles`' dir-prefixed
+  candidate branch was never exercised): `candidateTestFiles` 9→5. **`lastAssistantText` guard-bypass** (same
+  technique as pass 2, applied to the last untouched message-walker, tested indirectly via
+  `buildUnverifiedClaimReprompt` since it's private): 16→9. Also added a real-`defaultFileExists`-via-default-
+  param test (extended the vscode mock with `Uri.joinPath`) and a `defaultReadFile`-adjacent nested-dir case.
+  +19 tests this pass (172→191; +53 cumulative across all three passes, from 138), all green, tsc+eslint
+  clean, no regressions (3729 tests across src/agent/). One mutant class deliberately NOT chased: `recordToolCall`'s
+  L201 `typeof result.content === 'string' ? ... : ''` ternary is likely equivalent in practice — the type
+  system guarantees `.content` is always a string, so the ternary's false branch is unreachable for any
+  realistic input. **Remaining survivors (244) are concentrated in `recordToolCall` (12) and residual
+  message-walker/reprompt-builder mutants** that are largely equivalent-in-practice or require increasingly
+  contrived adversarial inputs for diminishing real-bug-catching value — a reasonable stopping point.
+  Stryker kept as devDep + `stryker.conf.json` for on-demand re-audit (too slow for CI). This is the purest
+  method-first move: it proved our own gate's decision logic was only partially test-pinned, then closed the
+  gap methodically.
 - **BFCL failure-taxonomy instrumentation — the tool-subsetting question, answered (method-first).** Built
   `bench/bfcl/failureClassifier.ts`: classifies each AST-checker failure `reason` into a type + axis
   (**selection** → tool subsetting fixes it; **argument** → constrained decoding fixes it; **structure** →
