@@ -97,4 +97,45 @@ describe('aggregate', () => {
     expect(r.microAccuracy).toBeCloseTo(1 / 3, 5);
     expect(r.categories).toHaveLength(2);
   });
+
+  it('computes meanDurationMs as the mean of every outcome carrying a duration', () => {
+    const outcomes: CaseOutcome[] = [
+      { id: 's0', category: 'simple', pass: true, reason: '', durationMs: 100 },
+      { id: 's1', category: 'simple', pass: true, reason: '', durationMs: 200 },
+      { id: 's2', category: 'simple', pass: true, reason: '', durationMs: 300 },
+    ];
+    expect(aggregate(outcomes).meanDurationMs).toBeCloseTo(200, 5);
+  });
+
+  it('leaves meanDurationMs undefined when no outcome carries a duration', () => {
+    const outcomes: CaseOutcome[] = [{ id: 's0', category: 'simple', pass: true, reason: '' }];
+    expect(aggregate(outcomes).meanDurationMs).toBeUndefined();
+  });
+
+  it('ignores outcomes missing a duration when averaging the rest', () => {
+    const outcomes: CaseOutcome[] = [
+      { id: 's0', category: 'simple', pass: true, reason: '', durationMs: 100 },
+      { id: 's1', category: 'simple', pass: true, reason: '' }, // no timing (e.g. replay backend)
+    ];
+    expect(aggregate(outcomes).meanDurationMs).toBeCloseTo(100, 5);
+  });
+});
+
+describe('runBfcl — timing', () => {
+  it('attaches a non-negative durationMs to every outcome', async () => {
+    const r = await runBfcl(
+      cases,
+      replay({ 'weather in Paris': [{ name: 'get_weather', args: { city: 'Paris' } }], 'write a poem': [] }),
+      { onCase: () => {} },
+    );
+    expect(r.meanDurationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('still records durationMs on a thrown model call', async () => {
+    const boom: CallModel = async () => {
+      throw new Error('connection refused');
+    };
+    const r = await runBfcl(cases, boom);
+    expect(r.meanDurationMs).toBeGreaterThanOrEqual(0);
+  });
 });

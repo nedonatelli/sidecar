@@ -11,17 +11,24 @@
 //   SIDECAR_BFCL_DATA=/path/to/bfcl npm run bench:bfcl   # full upstream dataset
 //
 // Env:
-//   SIDECAR_BFCL_MODEL    model id (default: gemma4:e4b)
-//   SIDECAR_BFCL_BACKEND  ollama | anthropic | openai (default: ollama)
-//   SIDECAR_BFCL_QUANT    quantization label for the envelope (default: unknown)
-//   SIDECAR_BFCL_DATA     dir with BFCL_v*_<category>.json + possible_answer/ (optional)
-//   SIDECAR_BFCL_OUT      where to write the markdown report (optional)
+//   SIDECAR_BFCL_MODEL       model id (default: gemma4:e4b)
+//   SIDECAR_BFCL_BACKEND     ollama | anthropic | openai (default: ollama)
+//   SIDECAR_BFCL_QUANT       quantization label for the envelope (default: unknown)
+//   SIDECAR_BFCL_DATA        dir with BFCL_v*_<category>.json + possible_answer/ (optional)
+//   SIDECAR_BFCL_OUT         where to write the markdown report (optional)
+//   SIDECAR_BFCL_N           deterministic, category-proportional subset size (optional;
+//                            default runs every loaded case). Use to get a clean
+//                            native-vs-constrained comparison on an identical small
+//                            slice — see bench/bfcl/README.md "Grammar-constraining
+//                            experiment".
+//   SIDECAR_BFCL_CONSTRAINED 1 = schema-constrained decoding (Ollama `format`) instead
+//                            of native tool-calling
 // ---------------------------------------------------------------------------
 
 import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-import { parseFixtures, parseUpstream } from './loader.js';
+import { parseFixtures, parseUpstream, sampleCases } from './loader.js';
 import { runBfcl } from './runner.js';
 import { ollamaBackend, anthropicBackend, openAiBackend, type BfclBackend, type BackendOptions } from './backend.js';
 import { formatReport, type RunEnvelope } from './report.js';
@@ -40,6 +47,11 @@ const BENCH_TIMEOUT_MS = parseInt(process.env.SIDECAR_BFCL_TIMEOUT ?? '', 10) ||
 // Phase 1: SIDECAR_BFCL_CONSTRAINED=1 forces schema-constrained decoding (Ollama
 // `format`). Run on vs off to measure the schema-validity + accuracy delta.
 const CONSTRAINED = process.env.SIDECAR_BFCL_CONSTRAINED === '1';
+// Deterministic, category-proportional subset size (see loader.sampleCases).
+// Unset (default) runs every loaded case. Used to get a clean, fully-completing
+// native-vs-constrained comparison on an identical small slice instead of a
+// full run that may exceed BENCH_TIMEOUT_MS under the constrained path's tax.
+const N = process.env.SIDECAR_BFCL_N ? parseInt(process.env.SIDECAR_BFCL_N, 10) : undefined;
 
 function makeBackend(): BfclBackend {
   const opts: BackendOptions = {
@@ -84,9 +96,13 @@ describe('BFCL AST subset', () => {
   it.skipIf(!backend.available())(
     `scores ${MODEL} on ${BACKEND}`,
     async () => {
-      const { cases, dataset } = loadCases();
+      const { cases: allCases, dataset } = loadCases();
+      const cases = N ? sampleCases(allCases, N) : allCases;
       // eslint-disable-next-line no-console
-      console.info(`[bfcl] ${MODEL} via ${BACKEND}${CONSTRAINED ? ' [constrained]' : ''}: ${cases.length} cases`);
+      console.info(
+        `[bfcl] ${MODEL} via ${BACKEND}${CONSTRAINED ? ' [constrained]' : ''}: ${cases.length} cases` +
+          (N ? ` (sampled from ${allCases.length})` : ''),
+      );
 
       const report = await runBfcl(cases, backend.callModel, {
         onCase: (o) => {

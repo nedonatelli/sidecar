@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-import { parseUpstream, parseFixtures, categoryFromId } from './loader.js';
+import { parseUpstream, parseFixtures, categoryFromId, sampleCases } from './loader.js';
+import type { BfclCase } from './types.js';
 
 describe('categoryFromId', () => {
   it('maps id prefixes to categories, longest-prefix first', () => {
@@ -91,5 +92,55 @@ describe('parseFixtures + bundled fixtures', () => {
         expect(c.groundTruth, c.id).toBeTruthy();
       }
     }
+  });
+});
+
+describe('sampleCases', () => {
+  const mk = (id: string, category: BfclCase['category']): BfclCase => ({
+    id,
+    category,
+    question: 'q',
+    functions: [],
+  });
+
+  it('returns all cases unchanged when n >= cases.length', () => {
+    const cases = [mk('simple_0', 'simple'), mk('simple_1', 'simple')];
+    expect(sampleCases(cases, 5)).toEqual(cases);
+  });
+
+  it('is deterministic — identical input yields an identical slice', () => {
+    const cases = Array.from({ length: 40 }, (_, i) => mk(`simple_${i}`, 'simple'));
+    expect(sampleCases(cases, 10)).toEqual(sampleCases(cases, 10));
+  });
+
+  it('preserves category mix — a small sample still spans every category present', () => {
+    const cases = [
+      ...Array.from({ length: 50 }, (_, i) => mk(`simple_${i}`, 'simple')),
+      ...Array.from({ length: 10 }, (_, i) => mk(`multiple_${i}`, 'multiple')),
+      ...Array.from({ length: 4 }, (_, i) => mk(`irrelevance_${i}`, 'irrelevance')),
+    ];
+    const sample = sampleCases(cases, 20);
+    const cats = new Set(sample.map((c) => c.category));
+    expect(cats.has('simple')).toBe(true);
+    expect(cats.has('multiple')).toBe(true);
+    expect(cats.has('irrelevance')).toBe(true);
+  });
+
+  it('never returns more than n cases', () => {
+    const cases = Array.from({ length: 100 }, (_, i) => mk(`simple_${i}`, 'simple'));
+    expect(sampleCases(cases, 20).length).toBeLessThanOrEqual(20);
+  });
+
+  it('a single-category set still samples proportionally within it (stride, not just first-n)', () => {
+    const cases = Array.from({ length: 100 }, (_, i) => mk(`simple_${String(i).padStart(3, '0')}`, 'simple'));
+    const sample = sampleCases(cases, 10);
+    const ids = sample.map((c) => c.id);
+    // Not just the first 10 sorted ids — confirms real striding across the range.
+    expect(ids).not.toEqual(cases.slice(0, 10).map((c) => c.id));
+  });
+
+  it('returns sorted-by-id output regardless of input order', () => {
+    const cases = [mk('simple_2', 'simple'), mk('simple_0', 'simple'), mk('simple_1', 'simple')];
+    expect(sampleCases(cases, 2).map((c) => c.id)).toEqual([...sampleCases(cases, 2).map((c) => c.id)].sort());
   });
 });

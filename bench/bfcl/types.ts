@@ -86,6 +86,9 @@ export interface ScoreResult {
 export interface CaseOutcome extends ScoreResult {
   id: string;
   category: BfclCategory;
+  /** Wall-clock time for the model call, ms. Undefined if the caller didn't
+   *  request timing (e.g. replayed/synthetic test runs). */
+  durationMs?: number;
 }
 
 export interface CategoryReport {
@@ -108,4 +111,6 @@ export interface BfclReport {
   total: number;
   /** Every failing case, for drill-down. */
   failures: CaseOutcome[];
+  /** Mean per-case wall-clock, ms. Undefined if no outcome carried timing. */
+  meanDurationMs?: number;
 }

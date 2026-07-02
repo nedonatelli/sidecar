@@ -37,13 +37,15 @@ export async function runBfcl(cases: BfclCase[], callModel: CallModel, opts: Run
       const c = cases[i];
       let calls: ParsedCall[] = [];
       let error = '';
+      const startedAt = Date.now();
       try {
         calls = await callModel(c.question, c.functions);
       } catch (e) {
         error = e instanceof Error ? e.message : String(e);
       }
+      const durationMs = Date.now() - startedAt;
       const scored = error ? { pass: false, reason: `model call failed: ${error}` } : checkCase(c, calls);
-      const outcome: CaseOutcome = { id: c.id, category: c.category, ...scored };
+      const outcome: CaseOutcome = { id: c.id, category: c.category, durationMs, ...scored };
       outcomes[i] = outcome;
       opts.onCase?.(outcome);
     }
@@ -67,6 +69,9 @@ export function aggregate(outcomes: CaseOutcome[]): BfclReport {
   const macroAccuracy =
     categories.length === 0 ? 1 : categories.reduce((s, c) => s + c.accuracy, 0) / categories.length;
 
+  const durations = outcomes.map((o) => o.durationMs).filter((d): d is number => typeof d === 'number');
+  const meanDurationMs = durations.length === 0 ? undefined : durations.reduce((s, d) => s + d, 0) / durations.length;
+
   return {
     categories,
     macroAccuracy,
@@ -74,5 +79,6 @@ export function aggregate(outcomes: CaseOutcome[]): BfclReport {
     passed,
     total,
     failures: outcomes.filter((o) => !o.pass),
+    meanDurationMs,
   };
 }

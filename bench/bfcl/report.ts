@@ -51,6 +51,10 @@ export function formatReport(report: BfclReport, env: RunEnvelope): string {
     '> Macro = unweighted mean of per-category accuracy. This is NOT BFCL’s official weighted overall; ' +
       'report it as "SideCar-measured AST-subset accuracy", weight-class-relative.',
   );
+  if (report.meanDurationMs !== undefined) {
+    lines.push('');
+    lines.push(`Mean per-case latency: **${(report.meanDurationMs / 1000).toFixed(1)}s** (${report.total} cases).`);
+  }
 
   if (report.failures.length > 0) {
     // Failure taxonomy (Phase 0 instrumentation): split failures into the

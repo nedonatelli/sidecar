@@ -78,6 +78,38 @@ export function parseUpstream(questionsJsonl: string, answersJsonl: string): Bfc
   return cases;
 }
 
+/**
+ * Deterministic, category-proportional sample of ~`n` cases: sort each
+ * category's cases by id, stride-sample within it so the slice is
+ * reproducible on any machine, and preserve the category MIX (so a small
+ * sample still spans simple/multiple/parallel/irrelevance rather than
+ * collapsing to whichever category sorts first). The returned count is
+ * `n` after truncation but may be slightly under `n` when per-category
+ * rounding undershoots — exactness is not guaranteed, representativeness is.
+ * Returns all cases unchanged if `n >= cases.length`.
+ */
+export function sampleCases(cases: BfclCase[], n: number): BfclCase[] {
+  if (n >= cases.length) return cases;
+  const byCategory = new Map<BfclCategory, BfclCase[]>();
+  for (const c of cases) {
+    const list = byCategory.get(c.category);
+    if (list) list.push(c);
+    else byCategory.set(c.category, [c]);
+  }
+
+  const out: BfclCase[] = [];
+  for (const list of byCategory.values()) {
+    const sorted = [...list].sort((a, b) => a.id.localeCompare(b.id));
+    const target = Math.max(1, Math.round((sorted.length / cases.length) * n));
+    const stride = Math.max(1, Math.floor(sorted.length / target));
+    for (let i = 0; i < sorted.length && out.length < cases.length; i += stride) {
+      out.push(sorted[i]);
+    }
+  }
+  out.sort((a, b) => a.id.localeCompare(b.id));
+  return out.slice(0, n);
+}
+
 /** Validate + normalize a JSON array of BfclCase (the bundled-fixture shape). */
 export function parseFixtures(raw: string): BfclCase[] {
   const data = JSON.parse(raw) as BfclCase[];

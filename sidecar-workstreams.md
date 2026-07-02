@@ -189,9 +189,13 @@ non-negative`, plus reuse of `# bounds:`/`# invariant:` from pillar 2 — a boun
 
 - Verify every post-2501 citation in the literature doc against arXiv (credibility-critical).
 - Plan externalization: harness or context? (gates Phase 3.)
-- ~~Does the BFCL constrained-decoding delta justify the agent-loop port?~~ **Answered: NO.** The latency tax
-  was the union-`oneOf` grammar (bench artifact); production repair already uses per-tool schema, repair-only.
-  Kept repair-only; strengthened tier-1 heuristic repair instead (see #2).
+- ~~Does the BFCL constrained-decoding delta justify the agent-loop port?~~ **Answered: NO.** Correction to an
+  earlier note here: the BFCL harness's schema was ALREADY per-case (`c.functions`, typically 1–4 candidates),
+  not a whole-dataset union — verified by reading `runner.ts`/`backend.ts` directly. The clean small-sample
+  follow-up (Results log) narrows the real mechanism: the tax tracks **schema/parameter complexity** (nested
+  objects, arrays, many properties), not request count or union size — negligible on simple schemas, real on
+  complex ones. Production repair already uses a single tool's (mostly simple) schema, repair-only — this
+  result says that's cheap, which is why it stays the design. Strengthened tier-1 heuristic repair too (see #2).
 
 ---
 
@@ -333,3 +337,21 @@ _Append findings as they land — the running record of what we actually measure
   cost). Implication: constrained decoding is likely best kept as **repair-only** (where we already use it),
   not the default path — pending a clean small-sample accuracy read. Confirms the "constrain at the action
   boundary only" instinct extends to "and only when the latency is affordable."
+- **Clean small-sample follow-up (gemma4:e4b, bundled 8-case fixture, `SIDECAR_BFCL_N`, same slice both arms).**
+  Added per-case `durationMs` + `meanDurationMs` instrumentation (`runner.ts`/`types.ts`/`report.ts`) and a
+  deterministic category-proportional `sampleCases(n)` (`loader.ts`) so native vs constrained can be compared
+  on an IDENTICAL small slice instead of a full run that risks the timeout above. Result: **native 100%
+  (8/8), 3.3s/case mean — constrained 100% (8/8), 3.5s/case mean.** The tax essentially DISAPPEARS (~6%,
+  noise-level at n=8) on this slice's simple schemas (1–3 top-level properties, ≤2 candidate functions, no
+  nesting/enums/arrays — confirmed by inspecting the fixture). **Refines the earlier finding: the constrained-
+  decoding tax looks schema-complexity-dependent, not a fixed per-request Ollama cost.** The upstream 100-case
+  run that timed out exercised functions with dict/array/nested params (per the failure-taxonomy work's
+  observed `reason` strings — `budget = {max,min}`, `gradeDict = {...}`, `columns = [...]`) — exactly the
+  shapes this fixture set lacks. This STRENGTHENS the repair-only decision rather than reversing it: production
+  repair already constrains on a SINGLE tool's schema (simple parameter shapes for most of the 86 tools), which
+  this result says should be cheap; a big multi-function union (the BFCL bench shape, and what a naive
+  "constrain everything" design would need) is where the tax bites. **Open follow-up (not done): confirm the
+  tax reappears on a deliberately complex schema** (many properties / nested objects / a large `oneOf`) to
+  directly test the mechanism rather than infer it — no upstream 100-case dataset is cached in this
+  environment to re-run at full scale. New tests: `sampleCases` (7), timing aggregation (5) — 67 BFCL tests
+  green, tsc clean.
