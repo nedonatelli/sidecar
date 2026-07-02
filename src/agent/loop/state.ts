@@ -5,6 +5,7 @@ import type { AgentLogger } from '../logger.js';
 import type { ChangeLog } from '../changelog.js';
 import type { MCPManager } from '../mcpManager.js';
 import { createGateState, lastUserText } from '../completionGate.js';
+import { initRatchetRunState } from './keepBestRatchetWiring.js';
 import { getToolDefinitionsForTier } from '../tools.js';
 import type { AgentOptions } from '../loop.js';
 import type { EditPlan } from '../editPlan.js';
@@ -223,6 +224,11 @@ export interface LoopState {
   // the historical constants. cycleDetection / actionReprompt / gate read it.
   scaffoldingProfile?: import('../scaffoldingProfile.js').ScaffoldingProfile;
 
+  // Keep-best ratchet state (Pareto-safe scaffolding, §2.1). Present only when
+  // `scaffolding.keepBest` is on and not in audit mode; `enabled=false`
+  // otherwise. keepBestRatchetWiring.ts is the only reader/writer.
+  ratchet?: import('./keepBestRatchetWiring.js').RatchetRunState;
+
   // Per-tool call counts for budget enforcement. toolBudget.ts is
   // the only reader; executeToolUses.ts is the only writer.
   toolCallCounts: Map<string, number>;
@@ -315,5 +321,12 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     gateState: createGateState(lastUserText(copiedMessages)),
     currentEditPlan: null,
     checkpointFired: false,
+    // Keep-best ratchet: opt-in and disabled in audit mode (writes are buffered
+    // in memory there, so a disk-level revert doesn't apply).
+    ratchet: initRatchetRunState(
+      (options.config ?? getConfig()).keepBestRatchetEnabled === true &&
+        (options.config ?? getConfig()).agentMode !== 'audit',
+      (options.config ?? getConfig()).keepBestOverEngineerBytes,
+    ),
   };
 }
