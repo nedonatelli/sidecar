@@ -44,6 +44,94 @@ export interface GraphWalkOptions {
   readonly maxDepth: number;
   /** Cap on total symbols added via walk (across all starts). */
   readonly maxGraphHits: number;
+  /**
+   * Which directions to expand from each hit:
+   *   - `callers` — functions that CALL the hit (upstream; who depends on it).
+   *   - `callees` — what the hit CALLS (downstream; its own dependencies).
+   * Default BOTH, so the auto-assembled context matches what a developer reads:
+   * who calls this AND what it calls. Both share the same `maxGraphHits` budget
+   * (interleaved so many callers can't starve callees), so bidirectional
+   * expansion is a richer MIX at the same token cost, not more tokens. Callees
+   * resolve via the graph's name→definition index and no-op on graphs that don't
+   * expose it — preserving callers-only behavior for partial/legacy graphs.
+   */
+  readonly directions?: ReadonlyArray<'callers' | 'callees'>;
+}
+
+/** The subset of the symbol graph the walk needs. `getCallees`/`lookupSymbol`
+ *  are optional so a partial graph (or an older test mock) degrades to
+ *  callers-only rather than throwing. */
+type WalkGraph = Pick<SymbolGraph, 'getCallers' | 'getSymbolsInFile'> & {
+  getCallees?: SymbolGraph['getCallees'];
+  lookupSymbol?: SymbolGraph['lookupSymbol'];
+};
+
+interface Neighbor {
+  filePath: string;
+  qualifiedName: string;
+  name: string;
+  kind: string;
+  startLine: number;
+  endLine: number;
+  direction: 'callers' | 'callees';
+}
+
+/** Resolve a symbol's graph neighbors in the requested directions. Callers come
+ *  from `getCallers` (resolved to the containing symbol at the call site);
+ *  callees from `getCallees` (resolved to the callee's DEFINITION via
+ *  `lookupSymbol`). Interleaved callee-first so a symbol with many callers can't
+ *  crowd its callees out of a shared budget. */
+function graphNeighbors(
+  graph: WalkGraph,
+  symbolName: string,
+  directions: ReadonlyArray<'callers' | 'callees'>,
+): Neighbor[] {
+  const callers: Neighbor[] = [];
+  const callees: Neighbor[] = [];
+
+  if (directions.includes('callers')) {
+    for (const call of graph.getCallers(symbolName)) {
+      const containing = graph
+        .getSymbolsInFile(call.callerFile)
+        .find((s) => s.startLine <= call.line && call.line <= s.endLine);
+      if (containing) {
+        callers.push({
+          filePath: call.callerFile,
+          qualifiedName: containing.qualifiedName,
+          name: containing.name,
+          kind: containing.type,
+          startLine: containing.startLine,
+          endLine: containing.endLine,
+          direction: 'callers',
+        });
+      }
+    }
+  }
+
+  if (directions.includes('callees') && graph.getCallees && graph.lookupSymbol) {
+    for (const call of graph.getCallees(symbolName)) {
+      const def = graph.lookupSymbol(call.calleeName)[0];
+      if (def) {
+        callees.push({
+          filePath: def.filePath,
+          qualifiedName: def.qualifiedName,
+          name: def.name,
+          kind: def.type,
+          startLine: def.startLine,
+          endLine: def.endLine,
+          direction: 'callees',
+        });
+      }
+    }
+  }
+
+  const out: Neighbor[] = [];
+  const max = Math.max(callers.length, callees.length);
+  for (let i = 0; i < max; i++) {
+    if (i < callees.length) out.push(callees[i]);
+    if (i < callers.length) out.push(callers[i]);
+  }
+  return out;
 }
 
 /**
@@ -90,6 +178,7 @@ export function enrichWithGraphWalk(
 
   const seen = new Set(enriched.map((e) => `${e.filePath}::${e.qualifiedName}`));
   let budget = maxGraphHits;
+  const directions = options.directions ?? ['callers', 'callees'];
 
   for (const start of directHits) {
     if (budget <= 0) break;
@@ -99,30 +188,26 @@ export function enrichWithGraphWalk(
     while (head < queue.length && budget > 0) {
       const cur = queue[head++];
       if (cur.hops >= maxDepth) continue;
-      const callers = graph.getCallers(cur.symbolName);
-      for (const call of callers) {
+      for (const n of graphNeighbors(graph, cur.symbolName, directions)) {
         if (budget <= 0) break;
-        const containing = graph
-          .getSymbolsInFile(call.callerFile)
-          .find((s) => s.startLine <= call.line && call.line <= s.endLine);
-        if (!containing) continue;
-        const id = `${call.callerFile}::${containing.qualifiedName}`;
+        const id = `${n.filePath}::${n.qualifiedName}`;
         if (seen.has(id)) continue;
         seen.add(id);
         const hopsFromStart = cur.hops + 1;
+        const rel = n.direction === 'callers' ? 'called-by' : 'calls';
         enriched.push({
-          filePath: call.callerFile,
-          qualifiedName: containing.qualifiedName,
-          name: containing.name,
-          kind: containing.type,
-          startLine: containing.startLine,
-          endLine: containing.endLine,
+          filePath: n.filePath,
+          qualifiedName: n.qualifiedName,
+          name: n.name,
+          kind: n.kind,
+          startLine: n.startLine,
+          endLine: n.endLine,
           score: start.similarity * Math.pow(0.5, hopsFromStart),
-          relationship: `graph: called-by (${hopsFromStart} hop${hopsFromStart === 1 ? '' : 's'} from ${start.name})`,
+          relationship: `graph: ${rel} (${hopsFromStart} hop${hopsFromStart === 1 ? '' : 's'} from ${start.name})`,
         });
         budget -= 1;
         if (hopsFromStart < maxDepth) {
-          queue.push({ symbolName: containing.qualifiedName, hops: hopsFromStart });
+          queue.push({ symbolName: n.qualifiedName, hops: hopsFromStart });
         }
       }
     }

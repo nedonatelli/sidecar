@@ -27,11 +27,23 @@ function mockGraph(spec: {
     string,
     Array<{ qualifiedName: string; name: string; type: string; startLine: number; endLine: number }>
   >;
+  callees?: Record<string, Array<{ calleeName: string; callerFile: string; line: number }>>;
+  defsByName?: Record<
+    string,
+    Array<{ filePath: string; qualifiedName: string; name: string; type: string; startLine: number; endLine: number }>
+  >;
 }): SymbolGraph {
-  return {
+  const g: Record<string, unknown> = {
     getCallers: (name: string) => spec.callers?.[name] ?? [],
     getSymbolsInFile: (file: string) => spec.symbolsInFile?.[file] ?? [],
-  } as unknown as SymbolGraph;
+  };
+  // Only attach callee-side methods when the spec provides them, so the
+  // existing callers-only tests exercise the graceful-degradation path.
+  if (spec.callees || spec.defsByName) {
+    g.getCallees = (name: string) => spec.callees?.[name] ?? [];
+    g.lookupSymbol = (name: string) => spec.defsByName?.[name] ?? [];
+  }
+  return g as unknown as SymbolGraph;
 }
 
 function directHit(overrides: Partial<SymbolSearchResult> = {}): SymbolSearchResult {
@@ -226,6 +238,105 @@ describe('enrichWithGraphWalk — depth caps + budget', () => {
     const out = enrichWithGraphWalk([directHit()], graph, { maxDepth: 1, maxGraphHits: 2 });
     // 1 direct hit + 2 graph hits (budget cap) = 3
     expect(out).toHaveLength(3);
+  });
+});
+
+describe('enrichWithGraphWalk — bidirectional (callees)', () => {
+  it('surfaces a CALLEE (the hit’s dependency) via getCallees + lookupSymbol', () => {
+    const graph = mockGraph({
+      callees: { requireAuth: [{ calleeName: 'hashToken', callerFile: 'src/auth.ts', line: 20 }] },
+      defsByName: {
+        hashToken: [
+          {
+            filePath: 'src/crypto.ts',
+            qualifiedName: 'hashToken',
+            name: 'hashToken',
+            type: 'function',
+            startLine: 5,
+            endLine: 12,
+          },
+        ],
+      },
+    });
+    const out = enrichWithGraphWalk([directHit()], graph, { maxDepth: 1, maxGraphHits: 5 });
+    const callee = out.find((e) => e.name === 'hashToken');
+    expect(callee).toBeDefined();
+    expect(callee!.filePath).toBe('src/crypto.ts');
+    expect(callee!.relationship).toMatch(/graph: calls \(1 hop from requireAuth\)/);
+    expect(callee!.score).toBeCloseTo(0.45, 2); // same decay as callers
+  });
+
+  it('walks BOTH directions from one hit — who calls it AND what it calls', () => {
+    const graph = mockGraph({
+      callers: { requireAuth: [{ callerFile: 'src/route.ts', line: 15 }] },
+      symbolsInFile: {
+        'src/route.ts': [
+          { qualifiedName: 'handleLogin', name: 'handleLogin', type: 'function', startLine: 10, endLine: 20 },
+        ],
+      },
+      callees: { requireAuth: [{ calleeName: 'hashToken', callerFile: 'src/auth.ts', line: 20 }] },
+      defsByName: {
+        hashToken: [
+          {
+            filePath: 'src/crypto.ts',
+            qualifiedName: 'hashToken',
+            name: 'hashToken',
+            type: 'function',
+            startLine: 5,
+            endLine: 12,
+          },
+        ],
+      },
+    });
+    const out = enrichWithGraphWalk([directHit()], graph, { maxDepth: 1, maxGraphHits: 5 });
+    expect(out.find((e) => e.name === 'handleLogin')?.relationship).toMatch(/called-by/);
+    expect(out.find((e) => e.name === 'hashToken')?.relationship).toMatch(/calls/);
+  });
+
+  it('honors the directions option (callers-only excludes callees)', () => {
+    const graph = mockGraph({
+      callees: { requireAuth: [{ calleeName: 'hashToken', callerFile: 'src/auth.ts', line: 20 }] },
+      defsByName: {
+        hashToken: [
+          {
+            filePath: 'src/crypto.ts',
+            qualifiedName: 'hashToken',
+            name: 'hashToken',
+            type: 'function',
+            startLine: 5,
+            endLine: 12,
+          },
+        ],
+      },
+    });
+    const out = enrichWithGraphWalk([directHit()], graph, { maxDepth: 1, maxGraphHits: 5, directions: ['callers'] });
+    expect(out.find((e) => e.name === 'hashToken')).toBeUndefined();
+  });
+
+  it('interleaves so many callers do not starve callees under a tight budget', () => {
+    const graph = mockGraph({
+      callers: {
+        requireAuth: [
+          { callerFile: 'src/a.ts', line: 5 },
+          { callerFile: 'src/b.ts', line: 5 },
+          { callerFile: 'src/c.ts', line: 5 },
+        ],
+      },
+      symbolsInFile: {
+        'src/a.ts': [{ qualifiedName: 'a', name: 'a', type: 'function', startLine: 1, endLine: 10 }],
+        'src/b.ts': [{ qualifiedName: 'b', name: 'b', type: 'function', startLine: 1, endLine: 10 }],
+        'src/c.ts': [{ qualifiedName: 'c', name: 'c', type: 'function', startLine: 1, endLine: 10 }],
+      },
+      callees: { requireAuth: [{ calleeName: 'dep', callerFile: 'src/auth.ts', line: 20 }] },
+      defsByName: {
+        dep: [
+          { filePath: 'src/dep.ts', qualifiedName: 'dep', name: 'dep', type: 'function', startLine: 1, endLine: 5 },
+        ],
+      },
+    });
+    // budget 2: callee-first interleave guarantees the single callee surfaces.
+    const out = enrichWithGraphWalk([directHit()], graph, { maxDepth: 1, maxGraphHits: 2 });
+    expect(out.find((e) => e.name === 'dep')).toBeDefined();
   });
 });
 
