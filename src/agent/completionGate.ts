@@ -83,6 +83,13 @@ export interface GateState {
    * (bounded to 1). Fires when `sidecar.numericalContracts.gate` is on and an
    * edited numerical kernel lacks a shape/dtype/unit contract. Optional. */
   numericalContractGateInjections?: number;
+  /** True once the (non-blocking) analytic-bound advisory has fired. */
+  analyticBoundAdvisoryFired?: boolean;
+  /** How many times the opt-in analytic-bound gate has blocked this run
+   * (bounded to 1). Fires when `sidecar.analyticBounds.gate` is on and an edited
+   * kernel declares a value bound (e.g. `# bounds: 0 <= result <= 1`) that
+   * nothing enforces or tests. Optional. */
+  analyticBoundGateInjections?: number;
   /**
    * The user request that triggered THIS run, captured at loop init. The
    * request-based gates (no-read/no-shell/no-grounding/no-file-write/

@@ -18,6 +18,7 @@ import { runVerificationCommand } from '../tools/shell.js';
 import { getDefaultToolRuntime } from '../tools/runtime.js';
 import type { SymbolGraph, ImpactedItem } from '../../config/symbolGraph.js';
 import { findNumericalKernels, uncontractedKernels, type NumericalKernel } from '../numericalContracts.js';
+import { findUnenforcedBoundsInFiles, type FileBoundFinding } from '../analyticBounds.js';
 import { checkShapeConsistency, type ShapeIssue } from '../shapePropagation.js';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -183,6 +184,57 @@ function buildNumericalGateReprompt(f: NumericalFindings): string {
   }
   parts.push('Then finish.');
   return parts.join('\n');
+}
+
+// --- Analytic-bound gate (§5 vertical, pillar 2) ---------------------------
+// Shape contracts say the array is the right shape; analytic bounds say the
+// VALUES are physically admissible (a probability in [0,1], an energy ≥ 0, a
+// normalized sum == 1). A kernel that DECLARES a bound (`# bounds: …`) but does
+// not enforce it — no assert, no clip, no raise — and isn't test-verified is the
+// gap this surfaces, with the exact assertion to add.
+
+function gatherBoundFindings(graph: SymbolGraph, editedFiles: ReadonlySet<string>, root: string): FileBoundFinding[] {
+  const relativize = (f: string): string => (root && path.isAbsolute(f) ? path.relative(root, f) : f);
+  const editedRel = new Set<string>();
+  for (const f of editedFiles) editedRel.add(relativize(f));
+  const readSource = (f: string): string | undefined => {
+    const cached = graph.getFileContent(f);
+    if (cached) return cached;
+    try {
+      return fs.readFileSync(root && !path.isAbsolute(f) ? path.join(root, f) : f, 'utf-8');
+    } catch {
+      return undefined;
+    }
+  };
+  return findUnenforcedBoundsInFiles(editedRel, graph, readSource);
+}
+
+function boundLines(findings: readonly FileBoundFinding[]): string[] {
+  return findings
+    .slice(0, IMPACT_ADVISORY_MAX_SYMBOLS)
+    .map((f) => `   • ${f.func} (${f.file}:${f.fileLine}) declares \`${f.bound.raw}\` — nothing enforces it`);
+}
+
+function buildBoundAdvisory(findings: readonly FileBoundFinding[]): string {
+  return (
+    '\n\n📊 Analytic bounds (advisory) — declared value bounds with no enforcement:\n' +
+    boundLines(findings).join('\n') +
+    '\n   Add the stated check (or a property test that tries to violate it) so the physics is verified, not just asserted in a comment.\n'
+  );
+}
+
+function buildBoundGateReprompt(findings: readonly FileBoundFinding[]): string {
+  const lines = findings
+    .slice(0, IMPACT_ADVISORY_MAX_SYMBOLS)
+    .map((f) => `   • ${f.func} (${f.file}:${f.fileLine}) — declared \`${f.bound.raw}\`; add:  ${f.fix}`);
+  return [
+    'Before finishing: you edited kernels that DECLARE an analytic value bound but nothing enforces it. A comment ' +
+      'is not a guarantee — add the assertion (or a property test that tries to violate the bound):',
+    '',
+    ...lines,
+    '',
+    'Enforce each bound in the code (or add a test that would fail if it were violated), then finish.',
+  ].join('\n');
 }
 
 /** Bounded retries for the syntax gate, mirroring MAX_GATE_INJECTIONS. */
@@ -521,6 +573,42 @@ export async function maybeInjectCompletionGate(
           }
         } catch (err) {
           logger?.warn(`Numerical-contract gate skipped: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+    }
+  }
+
+  // Analytic-bound gate + advisory (§5 vertical, pillar 2). Fires only when an
+  // edited kernel declares a value bound with no enforcement. Advisory always;
+  // opt-in hard block via `sidecar.analyticBounds.gate`. Independent of tests —
+  // a comment-only bound is unverified regardless of what the suite does.
+  {
+    const needBoundBlock =
+      config.analyticBoundsGateEnabled === true && (gateState.analyticBoundGateInjections ?? 0) < 1;
+    const needBoundAdvisory = !gateState.analyticBoundAdvisoryFired;
+    if (gateState.editedFiles.size > 0 && (needBoundBlock || needBoundAdvisory)) {
+      const graph = getDefaultToolRuntime().symbolGraph;
+      if (graph && graph.fileCount() > 0) {
+        try {
+          const findings = gatherBoundFindings(graph, gateState.editedFiles, getRoot());
+          if (findings.length > 0) {
+            if (needBoundBlock) {
+              gateState.analyticBoundGateInjections = 1;
+              gateState.analyticBoundAdvisoryFired = true; // the block carries the same info
+              logger?.info(`Analytic-bound gate fired — ${findings.length} declared-but-unenforced bound(s)`);
+              callbacks.onText('\n\n📊 Enforcing declared analytic bounds before completion...\n');
+              state.messages.push({
+                role: 'user',
+                content: [{ type: 'text' as const, text: buildBoundGateReprompt(findings) }],
+              });
+              return 'injected';
+            }
+            gateState.analyticBoundAdvisoryFired = true;
+            logger?.info(`Analytic-bound advisory surfaced — ${findings.length} unenforced bound(s)`);
+            callbacks.onText(buildBoundAdvisory(findings));
+          }
+        } catch (err) {
+          logger?.warn(`Analytic-bound gate skipped: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
     }
