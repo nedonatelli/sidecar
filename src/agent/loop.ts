@@ -30,6 +30,7 @@ import {
   pushToolResultsMessage,
   accountToolTokens,
   capToolResults,
+  guardToolResults,
 } from './loop/messageBuild.js';
 import { HookBus, PolicyEnforcementError, type PolicyHook, type HookContext } from './loop/policyHook.js';
 import { defaultPolicyHooks } from './loop/builtInHooks.js';
@@ -39,6 +40,12 @@ import { dispatchPendingToolUses } from './loop/dispatchToolUses.js';
 import { repairMalformedToolUses } from './loop/toolCallRepair.js';
 import { notifyIterationStart, maybeEmitProgressSummary, shouldStopAtCheckpoint } from './loop/notifications.js';
 import { finalize } from './loop/finalize.js';
+import {
+  captureRatchetOriginals,
+  captureScaffoldBoundary,
+  evaluateRatchetAtTermination,
+  makeWorkspaceRatchetIo,
+} from './loop/keepBestRatchetWiring.js';
 import { drainSteerQueueAtBoundary } from './loop/steerDrain.js';
 import type { SteerQueue } from './steerQueue.js';
 import type { PendingEditStore } from './pendingEdits.js';
@@ -325,6 +332,11 @@ export async function runAgentLoop(
     state.scaffoldingProfile = resolveScaffoldingProfile(resolveModelCapability(client.getModel()).tier);
   }
 
+  // Keep-best ratchet IO (§2.1). Built once, rooted at the loop's effective
+  // working dir (cwdOverride → Shadow Workspace / mounted root). Null when the
+  // ratchet is off, so all ratchet touch points below no-op cheaply.
+  const ratchetIo = state.ratchet?.enabled ? makeWorkspaceRatchetIo(options.cwdOverride) : null;
+
   // Start from a clean compression cache. The teardown `finally` also clears
   // it, but clearing here guarantees a fresh slate even if a prior run's
   // teardown was skipped (e.g. a synchronous throw before its finally ran),
@@ -568,7 +580,13 @@ export async function runAgentLoop(
           fullText,
         };
         const emptyMutated = await hookBus.runEmptyResponse(state, emptyCtx);
-        if (emptyMutated) continue;
+        if (emptyMutated) {
+          // A scaffold reprompt fired (completion gate). Arm the keep-best
+          // ratchet at this boundary if it hasn't been — everything the model
+          // does in response is scaffold-driven and subject to revert.
+          if (ratchetIo) await captureScaffoldBoundary(state, ratchetIo);
+          continue;
+        }
 
         // Nothing more to do and no hook kept the loop alive — the model
         // declared itself done. Mark natural completion; the completion gate
@@ -631,6 +649,12 @@ export async function runAgentLoop(
       // Combine outer + inner signals: dispatch respects both a full
       // user "Stop" and a steer-interrupt that fired after streaming.
       const dispatchSignal = combineSignals(signal, turnController.signal);
+
+      // Keep-best ratchet: baseline the pre-edit content of every file this
+      // turn is about to write, so a scaffold-tail change can be reverted
+      // precisely (delete if created this run, restore original otherwise).
+      if (ratchetIo) await captureRatchetOriginals(state, pendingToolUses, ratchetIo);
+
       const toolResults = await dispatchPendingToolUses(
         state,
         pendingToolUses,
@@ -679,9 +703,22 @@ export async function runAgentLoop(
       // (e.g. "grep kickstand") can return hundreds of KB and exhaust
       // the token budget even in a fresh conversation, because the raw
       // size is counted even though the backend truncates it anyway.
-      const storedResults = state.config.promptPruningEnabled
+      const cappedResults = state.config.promptPruningEnabled
         ? capToolResults(toolResults, pendingToolUses, state.config.promptPruningMaxToolResultTokens)
         : toolResults;
+
+      // Prompt-injection guard (§4): fence tool output that carries injection
+      // attempts as untrusted data before it reaches the model. Runs after
+      // capping so the fence boundary survives truncation.
+      const guarded = guardToolResults(cappedResults, pendingToolUses, state.config.injectionGuardEnabled);
+      if (guarded.findings.length > 0) {
+        for (const f of guarded.findings) {
+          state.logger?.warn(`Prompt-injection guard: fenced ${f.tool} output — ${f.categories.join(', ')}`);
+        }
+        const summary = guarded.findings.map((f) => `${f.tool} (${f.categories.join(', ')})`).join('; ');
+        callbacks.onText(`\n\n🛡️ Prompt-injection guard: fenced untrusted content as data — ${summary}\n`);
+      }
+      const storedResults = guarded.results;
 
       // Token accounting and history append for the tool results.
       accountToolTokens(state, pendingToolUses, storedResults);
@@ -746,6 +783,14 @@ export async function runAgentLoop(
     if (state.config.editorModel) {
       client.updateModel(state.config.model);
     }
+  }
+
+  // Keep-best ratchet: at natural completion, revert scaffold-driven changes
+  // that regressed a test signal or ballooned the patch with no gain. Skipped
+  // on user-abort (the user stopped deliberately — don't touch their files) and
+  // when the ratchet never armed (scaffolding drove no extra work).
+  if (ratchetIo && state.termination !== 'aborted') {
+    await evaluateRatchetAtTermination(state, ratchetIo, callbacks);
   }
 
   return finalize(state, callbacks);

@@ -83,6 +83,9 @@ export interface SideCarConfig {
   includeActiveFile: boolean;
   agentMode: string;
   agentTemperature: number;
+  /** Fixed RNG seed for generation, for reproducible runs (benchmarks/ablation).
+   *  null = unseeded (production default). Env `SIDECAR_AGENT_SEED` overrides. */
+  agentSeed: number | null;
   ollamaNumCtx: number | null;
   ollamaDisableThinking: boolean;
   agentMaxIterations: number;
@@ -158,6 +161,8 @@ export interface SideCarConfig {
   criticModel: string;
   criticBlockOnHighSeverity: boolean;
   adaptiveScaffoldingEnabled: boolean;
+  keepBestRatchetEnabled: boolean;
+  keepBestOverEngineerBytes: number;
   fetchUrlContext: boolean;
   fallbackBaseUrl: string;
   fallbackApiKey: string;
@@ -322,10 +327,15 @@ export interface SideCarConfig {
   /* Code Profiling */
   profilingEnabled: boolean;
   profilingTopN: number;
+  mutationEnabled: boolean;
+  mutationMaxMutants: number;
+  mutationTestTimeoutMs: number;
   /* Code-graph change-impact gate (opt-in hard block) */
   impactGateEnabled: boolean;
   /* Numerical-contract gate (opt-in hard block; §5 vertical) */
   numericalContractGateEnabled: boolean;
+  analyticBoundsGateEnabled: boolean;
+  injectionGuardEnabled: boolean;
   /* Eval history DB */
   evalHistoryEnabled: boolean;
   /* LaTeX Agentic Debugging */
@@ -426,6 +436,7 @@ function readConfig(): SideCarConfig {
     includeActiveFile: cfg.get<boolean>('includeActiveFile', true),
     agentMode: cfg.get<string>('agentMode', 'cautious'),
     agentTemperature: clampMin(cfg.get<number>('agentTemperature'), 0, 0.2),
+    agentSeed: cfg.get<number | null>('agentSeed', null),
     ollamaNumCtx: cfg.get<number | null>('ollama.numCtx', null),
     ollamaDisableThinking: cfg.get<boolean>('ollama.disableThinking', process.env.SIDECAR_DISABLE_THINKING === 'true'),
     agentMaxIterations: clampMin(cfg.get<number>('agentMaxIterations'), 1, 50),
@@ -509,6 +520,8 @@ function readConfig(): SideCarConfig {
     kickstandFlashAttn: cfg.get<boolean>('kickstand.flashAttn', false),
     criticEnabled: cfg.get<boolean>('critic.enabled', false),
     adaptiveScaffoldingEnabled: cfg.get<boolean>('adaptiveScaffolding.enabled', false),
+    keepBestRatchetEnabled: cfg.get<boolean>('scaffolding.keepBest', false),
+    keepBestOverEngineerBytes: cfg.get<number>('scaffolding.keepBestOverEngineerBytes', 4096),
     // Provider-aware default: an empty `critic.model` historically meant
     // "use the main model," which doubled per-iteration cost on paid Anthropic
     // backends. If the main model is Sonnet/Opus and the user hasn't explicitly
@@ -655,8 +668,13 @@ function readConfig(): SideCarConfig {
     researchActiveProject: cfg.get<string>('research.activeProject', ''),
     profilingEnabled: cfg.get<boolean>('profiling.enabled', false),
     profilingTopN: clampMin(cfg.get<number>('profiling.topN', 10), 1, 50),
+    mutationEnabled: cfg.get<boolean>('mutation.enabled', false),
+    mutationMaxMutants: clampMin(cfg.get<number>('mutation.maxMutants', 25), 1, 500),
+    mutationTestTimeoutMs: clampMin(cfg.get<number>('mutation.testTimeoutMs', 60000), 1000, 600000),
     impactGateEnabled: cfg.get<boolean>('codeGraph.impactGate', false),
     numericalContractGateEnabled: cfg.get<boolean>('numericalContracts.gate', false),
+    analyticBoundsGateEnabled: cfg.get<boolean>('analyticBounds.gate', false),
+    injectionGuardEnabled: cfg.get<boolean>('injectionGuard.enabled', true),
     evalHistoryEnabled: cfg.get<boolean>('evalHistory.enabled', false),
     latexEnabled: cfg.get<boolean>('latex.enabled', false),
     latexCompiler: cfg.get<'latexmk' | 'pdflatex'>('latex.compiler', 'latexmk'),

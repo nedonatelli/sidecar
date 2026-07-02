@@ -121,11 +121,15 @@ describe('package.json contributes.configuration — 13-category layout', () => 
     //                      notebookMode.sources.slides (feature not implemented).
     // + v0.114.48 whatsNew.enabled (+1: "What's New on update" auto-prompt toggle).
     // + v0.114.49 bedrock.region (+1: AWS Bedrock backend region).
+    // + v2.0.0 scaffold (+8: agentSeed, scaffolding.keepBest,
+    //   scaffolding.keepBestOverEngineerBytes, mutation.enabled,
+    //   mutation.maxMutants, mutation.testTimeoutMs, analyticBounds.gate,
+    //   injectionGuard.enabled).
     // Adding a setting requires bumping this + adding it to one of
     // the sections.
     const cfg = loadConfiguration();
     const totalKeys = cfg.reduce((sum, s) => sum + Object.keys(s.properties).length, 0);
-    expect(totalKeys).toBe(226);
+    expect(totalKeys).toBe(234);
   });
 
   it('no setting key is duplicated across sections', () => {

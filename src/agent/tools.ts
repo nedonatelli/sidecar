@@ -24,6 +24,8 @@ import { projectKnowledgeTools } from './tools/projectKnowledge.js';
 import { impactTools } from './tools/impact.js';
 import { numericalContractsTools } from './tools/numericalContracts.js';
 import { shapeConsistencyTools } from './tools/shapeConsistency.js';
+import { propertyTestTools } from './tools/propertyTest.js';
+import { codeGraphQueryTools } from './tools/codeGraphQuery.js';
 import { settingsTools } from './tools/settings.js';
 import { kickstandTools } from './tools/kickstand.js';
 import { githubTools } from './tools/github.js';
@@ -37,6 +39,7 @@ import { docTestsTools } from './tools/docTests.js';
 import { notebookTools } from './tools/notebook.js';
 import { depsTools } from './tools/deps.js';
 import { profilingTools } from './tools/profiling.js';
+import { mutationTools } from './tools/mutationTest.js';
 import { latexTools } from './tools/latex.js';
 import { mcpDelegateTools } from './tools/mcpDelegate.js';
 import { monorepoTools } from './tools/monorepoPackages.js';
@@ -79,6 +82,8 @@ export const TOOL_REGISTRY: RegisteredTool[] = [
   ...impactTools,
   ...numericalContractsTools,
   ...shapeConsistencyTools,
+  ...propertyTestTools,
+  ...codeGraphQueryTools,
   ...settingsTools,
   ...kickstandTools,
   ...githubTools,
@@ -98,6 +103,7 @@ export const TOOL_REGISTRY: RegisteredTool[] = [
   ...notebookTools,
   ...depsTools,
   ...profilingTools,
+  ...mutationTools,
   ...latexTools,
   ...mcpDelegateTools,
   ...monorepoTools,
@@ -195,6 +201,7 @@ const GATED_TOOL_GROUPS: ReadonlyArray<{ names: ReadonlySet<string>; enabled: (c
   { names: namesOf(notebookTools), enabled: (c) => c.notebookModeEnabled },
   { names: namesOf(depsTools), enabled: (c) => c.depsEnabled },
   { names: namesOf(profilingTools), enabled: (c) => c.profilingEnabled },
+  { names: namesOf(mutationTools), enabled: (c) => c.mutationEnabled },
   { names: namesOf(latexTools), enabled: (c) => c.latexEnabled },
   { names: namesOf(mcpDelegateTools), enabled: (c) => c.mcpDelegationEnabled },
   { names: namesOf(monorepoTools), enabled: (c) => c.monorepoEnabled },
