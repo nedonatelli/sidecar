@@ -1,6 +1,7 @@
 import type { ContentBlock, ToolResultContentBlock, ToolUseContentBlock } from '../../ollama/types.js';
 import { getContentLength } from '../../ollama/types.js';
 import { truncateForTool } from '../../ollama/promptPruner.js';
+import { neutralizeInjections, type InjectionCategory } from '../injectionGuard.js';
 import type { LoopState } from './state.js';
 
 // ---------------------------------------------------------------------------
@@ -80,6 +81,37 @@ export function capToolResults(
     const { text } = truncateForTool(nameById.get(r.tool_use_id), r.content, maxTokens);
     return text === r.content ? r : { ...r, content: text };
   });
+}
+
+export interface GuardedToolResults {
+  results: ToolResultContentBlock[];
+  /** One entry per tool result that contained a detected injection. */
+  findings: Array<{ tool: string; categories: InjectionCategory[] }>;
+}
+
+/**
+ * Prompt-injection guard (§4). Scan each tool result for injection attempts and
+ * FENCE any that match as untrusted data before the content reaches the model —
+ * turning "instructions the model might obey" into "information to report on".
+ * Clean results pass through untouched. Runs after `capToolResults` so the fence
+ * boundary isn't truncated away. No-op when `enabled` is false.
+ */
+export function guardToolResults(
+  toolResults: ToolResultContentBlock[],
+  pendingToolUses: ToolUseContentBlock[],
+  enabled: boolean,
+): GuardedToolResults {
+  if (!enabled) return { results: toolResults, findings: [] };
+  const nameById = new Map(pendingToolUses.map((tu) => [tu.id, tu.name]));
+  const findings: GuardedToolResults['findings'] = [];
+  const results = toolResults.map((r) => {
+    const tool = nameById.get(r.tool_use_id) ?? 'tool';
+    const n = neutralizeInjections(r.content, tool);
+    if (!n.fenced) return r;
+    findings.push({ tool, categories: [...new Set(n.findings.map((f) => f.category))] });
+    return { ...r, content: n.text };
+  });
+  return { results, findings };
 }
 
 /**
