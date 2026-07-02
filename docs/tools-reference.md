@@ -7,7 +7,7 @@ nav_section: 'Agent'
 
 # Tools Reference
 
-SideCar ships **83 built-in tools** available to the agent loop. Most are always active; a subset requires an opt-in setting to appear in the catalog (gated tools). All tool calls stream output back to the chat panel in real time.
+SideCar ships **86 built-in tools** available to the agent loop. Most are always active; a subset requires an opt-in setting to appear in the catalog (gated tools). All tool calls stream output back to the chat panel in real time.
 
 ---
 
@@ -47,6 +47,7 @@ SideCar ships **83 built-in tools** available to the agent loop. Most are always
 | `find_references`                   | Web & Search       | No       | —                                  |
 | `project_knowledge_search`          | Web & Search       | No       | `sidecar.projectKnowledge.enabled` |
 | `analyze_impact`                    | Code Graph         | No       | —                                  |
+| `query_code_graph`                  | Code Graph         | No       | —                                  |
 | `check_numerical_contracts`         | Code Graph         | No       | —                                  |
 | `check_shape_consistency`           | Code Graph         | No       | —                                  |
 | `db_list_connections`               | Databases          | No       | —                                  |
@@ -75,6 +76,8 @@ SideCar ships **83 built-in tools** available to the agent loop. Most are always
 | `extract_constraints`               | Doc-to-Test        | No       | `sidecar.docTests.enabled`         |
 | `synthesize_tests`                  | Doc-to-Test        | No       | `sidecar.docTests.enabled`         |
 | `classify_test_failure`             | Doc-to-Test        | No       | `sidecar.docTests.enabled`         |
+| `mutation_test`                     | Doc-to-Test        | Yes      | `sidecar.mutation.enabled`         |
+| `synthesize_property_test`          | Doc-to-Test        | No       | —                                  |
 | `ingest_source`                     | Notebook Mode      | No       | `sidecar.notebookMode.enabled`     |
 | `generate_briefing`                 | Notebook Mode      | No       | `sidecar.notebookMode.enabled`     |
 | `generate_study_guide`              | Notebook Mode      | No       | `sidecar.notebookMode.enabled`     |
@@ -526,6 +529,19 @@ Pass `symbols` or `file` (at least one). Example: `analyze_impact(symbols=["requ
 
 ---
 
+### `query_code_graph`
+
+Query the code graph for how a symbol relates to the codebase — `callers` (who calls it), `callees` (what it calls), `references` (all mentions), `type-users` (symbols using this type), or `neighborhood` (combined summary). Complements `analyze_impact` (downstream blast radius) with the exploratory both-directions view. Always available (read-only).
+
+| Parameter  | Type   | Required | Description                                                                                       |
+| ---------- | ------ | -------- | ------------------------------------------------------------------------------------------------- |
+| `symbol`   | string | Yes      | Name of the symbol to inspect (function / class / interface / type).                              |
+| `relation` | string | No       | One of `callers`, `callees`, `references`, `type-users`, `neighborhood`. Default: `neighborhood`. |
+
+Example: `query_code_graph(symbol="requireAuth", relation="callers")` or `query_code_graph(symbol="ChatMessage", relation="type-users")`.
+
+---
+
 ### `check_numerical_contracts`
 
 List numerical kernels (functions with array/tensor/quantity parameters or returns — e.g. `np.ndarray`) and flag those lacking a shape/dtype/unit contract (a shaped type annotation, a shape/dtype assertion, or a docstring shape spec). Use after editing scientific code to confirm the array contracts are stated, not just that tests pass.
@@ -906,6 +922,18 @@ Classify a failing pytest test back to its root cause.
 | `impl_snippet` | string | No       | Relevant implementation code block. Improves classification accuracy.              |
 
 Returns `{ verdict: "impl_wrong" | "doc_wrong" | "extraction_wrong", reasoning, proposed_fix }`.
+
+---
+
+### `mutation_test`
+
+Mutation testing — seed single-point faults into a source file and report which mutants SURVIVE the test suite (proof the tests would miss that class of bug). Opt-in via `sidecar.mutation.enabled`; requires a green baseline.
+
+---
+
+### `synthesize_property_test`
+
+Property-based test synthesis (§5 numerical vertical) — generate a runnable Hypothesis property test for a numerical kernel that declares invariants (`# property: symmetric` / `idempotent` / `monotonic` / `non-negative`, `# bounds: 0 <= result <= 1`, `# invariant: sum(result) == sum(x)`). Emits random-input strategies + the declared assertions. Always available (read-only).
 
 ---
 

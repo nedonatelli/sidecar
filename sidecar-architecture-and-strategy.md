@@ -56,23 +56,91 @@ SideCar's typed sub-agent facets are an **authorization/scoping** mechanism (all
 
 Facets are task-class granularity — right for scoping, too coarse for within-task retrieval (one coding facet spans many specific capabilities). So: **facets bound the neighborhood, on-demand retrieval picks within it.** Two layers, not one. Collapse them and you lose either the reliable pre-filter or the fine-grained economy.
 
+### 2.5 Scaling — prompt size vs database operations
+
+This is the actual justification for §2.2, and it is a **trade between two cost axes**, not a free win. State it explicitly or the architecture is just an assertion.
+
+**Eager-tools regime (today).**
+
+```
+context_per_turn ≈ system_prompt + Σ_{all N capabilities} schema_i + history
+```
+
+The tool-schema term is **O(N)** in the registry size N. As N grows (80 → 200 → 1000) context grows linearly, and for a small model that degrades tool _selection_ (lost-in-the-middle) long before it hits cost/TPM ceilings. Net consequence: **capability count is capped by the context window, not by usefulness.** Round-trips per turn: 1.
+
+**On-demand-database regime.**
+
+```
+context_per_turn ≈ system_prompt + resident_index(C) + working_set(k) + history
+```
+
+- `resident_index` is **O(C)** in the number of _categories_ C (compact one-liners). New capabilities land under existing categories, so C grows far slower than N — effectively constant.
+- `working_set` is **O(k)**, the capabilities actively retrieved for the current task. k is bounded by _task complexity_, not by N.
+
+So **per-turn context is decoupled from N.** The registry can grow to thousands of capabilities with no per-turn context growth. That is the win.
+
+**The counter-cost (the omitted half).** Cost moves from a _static_ axis (context size) to a _dynamic_ axis (retrieval operations). Each query is a round-trip:
+
+```
+total_task_cost ≈ Σ_turns context_per_turn   +   q · round_trip_cost
+```
+
+where **q = queries per task**. Smaller per-turn context, but more operations — and for local small-model inference each round-trip is real wall-clock latency. A model that queries badly re-queries, so **q can blow up**, which is the failure that erases the entire benefit.
+
+**Every §2 component maps to controlling one term in this trade:**
+
+| Component                                             | Term it controls                                                                                                  |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Tiered resident index (§2.2)                          | keeps `resident_index` small **and** lets the model see the capability _shape_, cutting exploratory queries (↓ q) |
+| Facet pre-resolution (§2.3)                           | makes the first query hit — narrows scope deterministically before the model queries (↓ q)                        |
+| Working-set cache (§2.2)                              | prevents re-querying resident capabilities (bounds q, keeps k resident)                                           |
+| Grammar-constrained / structured queries (§2.1, §2.2) | eliminates malformed queries that waste round-trips (↓ wasted q)                                                  |
+
+**The crossover.** On-demand wins when `O(C + k) + q·round_trip < O(N)` per-turn context. For small N (a handful of tools) eager is cheaper and simpler — don't build the database for 10 tools. The architecture pays off precisely because N is already 80 and growing; the four controls above are what keep q bounded so the trade stays favorable as N scales.
+
+**Method-first bounds:** track **q (queries per completed task)** and **k (working-set size)** alongside recall@k and CPS. If q trends up as N grows, one of the four controls is failing — that is the diagnostic that tells you _which_ before cost or latency regresses.
+
+### 2.6 User-extensible prompt transforms
+
+Some users will want lossy text compression (third-party prompt optimizers, custom passes) for their own cost/latency reasons. The right answer is **not** to integrate any specific library — it is to expose a generic transform hook and make those libraries adapters behind it. This decouples SideCar from any one dependency and turns a footgun into a bounded, opt-in feature.
+
+**Why a hook, not a dependency.** Wiring a single library in directly couples you to it (e.g. one unreleased 308-star repo that may go stale) and bakes its tradeoffs into the core. An interface costs almost nothing more and lets users bring whatever pass they prefer (LLMLingua, a regex stripper, an entropy optimizer) without SideCar taking on the dependency or the blame.
+
+**The load-bearing rule — type-aware, default-deny on structured segments.** The transform stage sees the _segment type_ (system instruction, tool schema, grammar, code, retrieved prose, plan state) and is **structurally forbidden** from transforming anything but prose-class segments. Schemas, grammars, code, and plan state are never eligible, by policy, at the boundary. This bakes the earlier objections (lossy compression breaks structure and degrades small-model adherence) into the architecture as a guardrail rather than trusting the user or the docs to enforce them. Even a user running aggressive compression cannot silently invalidate a tool call — the segments that _would_ break are never reachable.
+
+**Properties:**
+
+- **Off by default, config-gated** — safe default, explicit opt-in.
+- **Pipeline placement** — a post-assembly / pre-send stage in the §2.2 context pipeline, composing after the existing pruner. An ordered transform list mirrors the sequential-chaining pattern these optimizers already use.
+- **Out of the core install** — lazy-imported optional dependency in the Python worker (reuse the `delegate_task` boundary), graceful when absent. Honors "doesn't ship with SideCar."
+- **Measured, on the right axis** — surface before/after token delta _and_ route it through Model Arena so users A/B **task completion / CPS**, not token savings alone. A pass that saves 15% tokens and drops completion 8% must be visible as such.
+- **Protected regions** — lift the protected-tags idea (explicit non-compressible spans) into the interface, used both by the system (to fence structured segments) and by users.
+
+```python
+class PromptTransform(Protocol):
+    def applies_to(self, seg: Segment) -> bool: ...   # prose-class only, enforced by policy
+    def transform(self, seg: Segment) -> Segment: ...  # returns text + token delta
+```
+
+Third-party optimizer stages (entropy, punctuation, synonym, etc.) each become a thin adapter implementing this protocol; none of them is a core dependency.
+
+**Cost to accept:** any opt-in transform draws "why did my output break" support load. The default-deny on structured segments is what bounds it — the only failures a user can create are in prose quality, which is recoverable and shows up in the metrics rather than as a corrupted tool call.
+
 ---
 
 ## 3. The scaffolding roadmap (compact)
 
 Full item-level tables and acceptance bounds in the companion file. Sequence respects dependency and ROI.
 
-_(Status column verified against code at v0.114.56, 2026-06-29 — see companion file for per-item evidence.)_
-
-| Phase | Focus                                        | Standout gap                                                                                   | Status                                                                                                                                                                                         |
-| ----- | -------------------------------------------- | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0     | Measurement foundation                       | Failure taxonomy + CPS / schema-validity / executable-call metrics; real-task (not smoke) eval | 🟡 — real E2E harness + structured logs exist; taxonomy + 4 diagnostic metrics + scale missing (smaller lift than billed)                                                                      |
-| 1     | Structural guarantees (constrained decoding) | **Grammar-constrained tool calls** — biggest lever, uniquely yours                             | 🟡→ v0.115: dead `format` path **activated** as schema-constrained tool-call repair at the action boundary + JSON-repair/no-silent-drop (A5 ✅, A2 ✅); proactive per-call grammar still ahead |
-| 2     | Context economy                              | Per-turn tool subsetting; small-model-specific prompt                                          | ❌ / 🟡 — tools already progressively disclosed (`describe_tool`); B1 less urgent than billed                                                                                                  |
-| 3     | State externalization                        | Plan held in harness, per-turn step re-injection                                               | ❌ — **resolved**: PlanStore is crash-resume snapshot, not a live plan. Genuinely greenfield                                                                                                   |
-| 4     | Verification tuning                          | Make adversarial critic tier-aware (deterministic verifiers for small primary)                 | ✅ / ❌ — gate built; **critic is not tier-aware** (fires identically for Opus and a 3B)                                                                                                       |
-| 5     | Routing & fallback                           | Failure-triggered escalation; up-front task-type routing                                       | 🟡 — split/role routing built; escalation is error-triggered, not verifier-triggered                                                                                                           |
-| 6     | Model adaptation (optional)                  | LoRA on your own gate-passed trajectories                                                      | 🟡 — Kickstand LoRA consumption exists; runs logged but not gate-labeled                                                                                                                       |
+| Phase | Focus                                        | Standout gap                                                                                   | Status                                         |
+| ----- | -------------------------------------------- | ---------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| 0     | Measurement foundation                       | Failure taxonomy + CPS / schema-validity / executable-call metrics; real-task (not smoke) eval | 🟡 — spend + smoke exist, diagnostics don't    |
+| 1     | Structural guarantees (constrained decoding) | **Grammar-constrained tool calls** — biggest lever, likely absent, uniquely yours              | ❌                                             |
+| 2     | Context economy                              | Per-turn tool subsetting; small-model-specific prompt                                          | ❌ / 🟡                                        |
+| 3     | State externalization                        | Plan held in harness, per-turn step re-injection                                               | 🟡 — plan mode exists, externalization unclear |
+| 4     | Verification tuning                          | Make adversarial critic tier-aware (deterministic verifiers for small primary)                 | ✅ / 🟡 — mostly built                         |
+| 5     | Routing & fallback                           | Failure-triggered escalation; up-front task-type routing                                       | 🟡 — plumbing exists                           |
+| 6     | Model adaptation (optional)                  | LoRA on your own gate-passed trajectories                                                      | ❌                                             |
 
 **Priority:** Phase 0 first (method-first; the syntactic-vs-semantic split decides 1-vs-4 ROI) → Phase 1 (A1–A2) → Phase 2 (B1–B2) → Phase 3 (C2). Phases 4–5 are tier-awareness on things already built. Phase 6 only after metrics show a residual the harness can't close.
 
@@ -119,9 +187,11 @@ This turns "tests pass" into "the physics is right." It is the most defensible i
 
 ---
 
-## 7. Open questions — resolved (code read, v0.114.56, 2026-06-29)
+## 7. Open questions to resolve
 
-- **Plan externalization (C1–C2): RESOLVED — not externalized.** `PlanStore` writes a full message _snapshot_ to `.sidecar/plans/active.json` each iteration (planStore.ts:4); resume rehydrates the whole history (chatView.ts:271). No structured plan survives compaction. → **Phase 3 is greenfield; priority rises if F1 shows a "lost-plan" bucket.**
-- **Lazy schema loading (B3): RESOLVED — split.** Tools defer (extended tools ship as one-line stubs + `describe_tool`, tools.ts:462); skills inject their full body eagerly (skillLoader.ts:15). The 80-tool token tax is already mitigated. → **B1 deprioritized until real overhead is measured.**
-- **Phase 0 readiness: RESOLVED — only aggregate pass/fail.** But a real E2E harness (agentHarness.ts runs `runAgentLoop` in sandboxes over 34 cases), cross-model comparison (modelComparison.eval.ts), and structured metrics.jsonl/spend.jsonl already exist. → **Phase 0 = add taxonomy + 4 metrics to existing harness, not build it.**
-- **Competitor-matrix claims: CONFIRMED RISK.** The README's "ministral-3 — 94% agent eval pass rate, best agentic score" (README:137) has no published benchmark in-repo; competitor-gap rows are stamped "verified June 2026" and will stale. → **Publish the eval output or soften the wording.**
+These gate decisions and are the statuses least certain from the public listing:
+
+- **Plan externalization (C1–C2):** does plan mode hold the plan in the harness or in context? Changes Phase 3 priority.
+- **Lazy schema loading (B3):** does Skills 2.0 already defer full schemas, or load them eagerly? Changes Phase 2 priority.
+- **Phase 0 readiness:** is any per-turn diagnostic (schema validity, tool-selection correctness) already captured, or is the only signal aggregate smoke pass rate?
+- **Competitor-matrix claims** in the marketplace listing — verify before informed users challenge them; credibility cost.

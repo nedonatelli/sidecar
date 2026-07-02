@@ -68,7 +68,7 @@ Cloud models are accessed via their respective APIs. SideCar stores API keys in 
 
 ## Tool Use Compatibility
 
-SideCar's full agentic capabilities — file editing, shell commands, git operations, web search, and all 83 built-in tools — require function calling (tool use). Models without it fall back to chat-only mode automatically.
+SideCar's full agentic capabilities — file editing, shell commands, git operations, web search, and all 86 built-in tools — require function calling (tool use). Models without it fall back to chat-only mode automatically.
 
 ### Reliable tool use (native function calling)
 

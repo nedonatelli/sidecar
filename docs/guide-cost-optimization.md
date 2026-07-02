@@ -18,7 +18,7 @@ Every API request bills you for two token pools: **input** and **output**.
 | Source                                           | Typical token count | Relative cost                          |
 | ------------------------------------------------ | ------------------- | -------------------------------------- |
 | System prompt (base rules + SIDECAR.md sections) | 2,000–6,000         | Input — expensive if repeated uncached |
-| Tool schemas (83 built-in tools)                 | ~4,000–6,000        | Input — constant, ideal for caching    |
+| Tool schemas (86 built-in tools)                 | ~4,000–6,000        | Input — constant, ideal for caching    |
 | Workspace context (RAG hits, pinned files)       | 1,000–20,000        | Input — varies by query                |
 | Prior conversation history                       | grows per turn      | Input — compressible                   |
 | Tool results (file reads, shell output, etc.)    | 500–8,000 each      | Input — prunable                       |

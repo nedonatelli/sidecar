@@ -18,29 +18,32 @@ until something in Active ships.
 
 Legend: ✅ shipped · 🔵 in flight · 🟡 partial · ⬜ not started · ⏸ deferred · ❗ needed now
 
-| Workstream                                      | Layer            | Status                                                                  | Measuring stick           |
-| ----------------------------------------------- | ---------------- | ----------------------------------------------------------------------- | ------------------------- |
-| Failure taxonomy + diagnostic metrics (F1/F2)   | Measurement      | ✅                                                                      | `metrics.jsonl`           |
-| BFCL — model-level tool-use                     | Measurement      | ✅ ran (local models 83–86%)                                            | BFCL AST subset           |
-| SWE-bench ablation harness — system-level       | Measurement      | ✅ built + first no-Docker verdict                                      | resolve@k                 |
-| pass@k / variance discipline                    | Measurement      | ✅ first result (see Results log)                                       | resolve@k spread          |
-| **Pareto-safe scaffolding (keep-best ratchet)** | **Verification** | ❗ **over-engineering confirmed — Active**                              | **over-engineering rate** |
-| **Fix under-powered measurement instrument**    | **Measurement**  | ❗ **Active #1** (n=5×1 task can't detect effects)                      | n≥20–30/arm, IID          |
-| Run provenance (seed / temp / model+quant)      | Measurement      | ❗ needed now (part of ↑)                                               | —                         |
-| Constrained-decoding _repair_                   | Reliability      | ✅                                                                      | schema-validity           |
-| Schema-constrained tool calls (Phase 1)         | Reliability      | 🟡 core built; **latency tax found** (see Results) → likely repair-only | BFCL on/off               |
-| Tier-aware verification (D2/C4/E2)              | Verification     | ✅                                                                      | —                         |
-| Mutation testing (verify-the-verifier)          | Verification     | ⬜                                                                      | mutation score            |
-| Numerical contract _checking_                   | The vertical     | ✅ (v0.115)                                                             | contract coverage         |
-| Property-based + analytic-bound gate            | The vertical     | ⬜                                                                      | catches seeded bug        |
-| Shape/dtype/unit constrained _decoding_         | The vertical     | ⬜ frontier                                                             | —                         |
-| On-demand capability DB (§2.2–2.5)              | Architecture     | ⏸                                                                       | recall@k, q               |
-| Prompt-transform hook (§2.6)                    | Architecture     | ⏸                                                                       | CPS delta                 |
-| Code graph — query interface / expansion        | Cross-cutting    | 🟡 impact graph shipped                                                 | SWE-bench delta           |
-| Injection hardening                             | Cross-cutting    | ⏸                                                                       | AgentDojo                 |
-| Orchestrator-strength routing                   | Cross-cutting    | ⏸                                                                       | —                         |
-| Gate → trajectory flywheel (LoRA, Ph 6)         | Model adapt      | ⏸                                                                       | —                         |
-| Literature-doc citation verification            | Docs             | ❗ open                                                                 | IDs resolve on arXiv      |
+| Workstream                                      | Layer            | Status                                                                                | Measuring stick           |
+| ----------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------- | ------------------------- |
+| Failure taxonomy + diagnostic metrics (F1/F2)   | Measurement      | ✅                                                                                    | `metrics.jsonl`           |
+| BFCL failure taxonomy (selection vs args)       | Measurement      | ✅ **`failureClassifier.ts` — ground-truthed axis split; in BFCL report**             | selection/argument share  |
+| Per-turn tool subsetting                        | Context economy  | ⏸ **deferred with evidence — measured 0% wrong-function-selection** (see Results log) | selection-error rate      |
+| BFCL — model-level tool-use                     | Measurement      | ✅ ran (local models 83–86%)                                                          | BFCL AST subset           |
+| SWE-bench ablation harness — system-level       | Measurement      | ✅ built + first no-Docker verdict                                                    | resolve@k                 |
+| pass@k / variance discipline                    | Measurement      | ✅ first result (see Results log)                                                     | resolve@k spread          |
+| **Pareto-safe scaffolding (keep-best ratchet)** | **Verification** | ✅ **core + loop wiring shipped (opt-in `scaffolding.keepBest`); 36 tests**           | **over-engineering rate** |
+| **Fix under-powered measurement instrument**    | **Measurement**  | 🟡 **stats layer shipped (Wilson CI + McNemar exact); seed/temp + n next**            | n≥20–30/arm, IID          |
+| Run provenance (seed / temp / model+quant)      | Measurement      | ✅ seed pin (`agentSeed`/env) + `run.manifest.json` in the SWE driver                 | —                         |
+| Constrained-decoding _repair_                   | Reliability      | ✅                                                                                    | schema-validity           |
+| Schema-constrained tool calls (Phase 1)         | Reliability      | ✅ **resolved: repair-only + per-tool schema; tier-1 strengthened**                   | BFCL on/off               |
+| Tier-aware verification (D2/C4/E2)              | Verification     | ✅                                                                                    | —                         |
+| Mutation testing (verify-the-verifier)          | Verification     | ✅ **core + `mutation_test` tool (opt-in); 31 tests; tool count 83→84**               | mutation score            |
+| Numerical contract _checking_                   | The vertical     | ✅ (v0.115)                                                                           | contract coverage         |
+| Analytic-bound gate (§5 pillar 2)               | The vertical     | ✅ **`analyticBounds.ts` + gate (opt-in); 26 tests** — the MOAT                       | catches unenforced bound  |
+| Property-based tests (§5 pillar 3)              | The vertical     | ✅ **`propertyTests.ts` + `synthesize_property_test` tool; 18 tests**                 | catches seeded bug        |
+| Shape/dtype/unit constrained _decoding_         | The vertical     | ⬜ frontier                                                                           | —                         |
+| On-demand capability DB (§2.2–2.5)              | Architecture     | ⏸                                                                                     | recall@k, q               |
+| Prompt-transform hook (§2.6)                    | Architecture     | ⏸                                                                                     | CPS delta                 |
+| Code graph — query interface / expansion        | Cross-cutting    | ✅ **`query_code_graph` tool — callers/callees/refs/type-users/neighborhood**         | SWE-bench delta           |
+| Injection hardening                             | Cross-cutting    | ✅ **`injectionGuard.ts` — detect+fence at tool-result boundary; 15 tests**           | AgentDojo                 |
+| Orchestrator-strength routing                   | Cross-cutting    | ⏸                                                                                     | —                         |
+| Gate → trajectory flywheel (LoRA, Ph 6)         | Model adapt      | ⏸                                                                                     | —                         |
+| Literature-doc citation verification            | Docs             | ❗ open                                                                               | IDs resolve on arXiv      |
 
 ---
 
@@ -56,16 +59,83 @@ thesis more than a missing lever does). Each produces a citable number.
    **non-regression** — snapshot → apply → re-verify → keep only if the signal is ≥ before, else revert
    (keep-best moves into the harness, per §2.1); makes over-engineering _safe_. **Signal to optimize: patch
    minimality / over-engineering rate** (measurable at small n), not resolve harm rate (isn't).
+   - **DONE:** pure decision core + snapshot/restore primitive — `src/agent/loop/keepBestRatchet.ts`
+     (`decideRatchet` → keep / revert-regression / revert-overengineering; reads the gate's existing
+     `projectTestsPassed`/`passingTestFiles` signals so it runs NO tests of its own; injected snapshot IO so
+     it's fs/shadow/audit-agnostic). 19 unit tests, incl. the 32KB test-churn case. eslint+tsc clean.
+   - **DONE (loop wiring):** `keepBestRatchetWiring.ts` + 3 touch points in `loop.ts` — (1) baseline each
+     write target's pre-edit content before dispatch, (2) arm at the first completion-gate reprompt that fires
+     with edits present, (3) at natural termination evaluate against the gate signal and revert regressed /
+     over-engineered scaffold-tail changes via a `cwdOverride`-aware workspace.fs writer (deletes files created
+     in the tail, restores pre-existing ones, keeps good pre-scaffold work), surfacing the revert to the user.
+     Opt-in `sidecar.scaffolding.keepBest` (+`keepBestOverEngineerBytes`, default 4KB); auto-off in audit mode
+     (in-memory buffer). Skips on user-abort. 36 unit tests, 490 loop tests green, eslint+tsc clean.
+   - **NEXT (measure it):** run the SWE ablation with keepBest on/off as a third arm to quantify the
+     over-engineering-rate drop (mean scaffold-added patch bytes with no pass-signal gain → ~0) and confirm
+     no resolve regression. Rides on the campaign now unblocked on the Vast box.
 1. **Fix the measurement instrument FIRST (it's under-powered).** One task × pass@5 can't detect a real
    effect — a single arm swings 20↔80% between runs. Need: n≥20–30 per arm across several tasks, IID checks
    (back-to-back runs may share GPU/session state), run provenance (seed/temp). Until the instrument is
    trustworthy, **no resolve-level lift/harm claim is defensible** — lean on behavioral signals meanwhile.
+   - **DONE (statistical rigor):** `bench/swe/stats.ts` — Wilson score intervals per arm + **McNemar's exact
+     paired test** on the discordant pairs (rescued vs regressed; the only pairs carrying effect info) + a
+     paired-difference CI on the lift. `computeAblation` now fills a `significance` block; `report.ts` leads
+     with `lift = ±X% (95% CI […]), McNemar p=…, significant/NOT`, and prints a hard **honesty gate** — when
+     p≥0.05 it refuses to claim a resolve lift, names the discordant count, and points to the behavioral
+     signals instead. 14 stats tests vs known values (5/0→p=0.0625, 8/2→0.109, Wilson 5/10→[.237,.763]).
+     This is what makes the campaign output defensible the moment it lands.
+   - **DONE (provenance/reproducibility):** pinnable generation seed — `sidecar.agentSeed` (+ `SIDECAR_AGENT_SEED`
+     env for headless) threaded into the Ollama backend's request options; the SWE driver writes a
+     `run.manifest.json` (model, seed, temperature, dataset, N, arms, maxIters, retrievalTopK, node, timestamp)
+     so every resolve/lift number is reproducible + attributable. Backend seed test added (30 green).
+   - **NEXT:** scale tasks toward a powered discordant count (the campaign does this); add an IID/order-effect
+     check (run 1 resolved more than 2–5 last time — back-to-back runs may share GPU/session state).
 2. **Phase 1 — schema-constrained tool calls** — core built for BFCL; run BFCL on/off
    (schema-validity → ~100%, accuracy up-or-flat, watch the alignment tax), then port to
    the agent loop if the delta justifies it.
+   - **RESOLVED (Open Question answered):** the BFCL latency tax came from the union `oneOf` grammar over ALL
+     functions — a benchmark artifact. The agent-loop repair path (`toolCallRepair.ts`) already constrains
+     with the **single tool's schema** (tiny grammar) and only on an already-malformed call, so it has no such
+     tax. Verdict: **do NOT port full-constrained decoding**; keep repair-only + per-tool schema. Constrain at
+     the action boundary only, and only when latency is affordable — both already true.
+   - **DONE (make repair cheaper still):** strengthened tier-1 heuristic repair (`jsonRepair.ts`, zero-LLM) so
+     the tier-2 LLM regen rarely fires — added **raw-control-char escaping inside string values** (literal
+     newlines in multi-line `write_file`/`edit_file` content — the #1 coding-tool malformation, previously
+     unrecovered) + NaN/Infinity→null. 5 new tests (16 total). Every call tier-1 now recovers is a call that
+     costs no latency, which is the whole point of the "repair-only" verdict.
 3. **Verify-the-verifier** — mutation testing on the completion gate. Cheapest credibility.
+   - **DONE (core):** `src/agent/mutation/` — `mutationOperators.ts` (single-point mutants: relational /
+     arithmetic / logical / boolean, with string+comment MASKING so we never mutate inside a literal;
+     triple-quote aware; conservative on `=>`/`++`/`*args`), `mutationScore.ts` (killed/survived/no-coverage/
+     error → score = killed/viable, surfaces survivors as the credibility gaps), `mutationRunner.ts`
+     (baseline-green gate → write mutant → run test → classify → always-restore, injected IO). 24 tests incl.
+     a strong-suite-kills-all vs weak-suite-survives-all pair. eslint+tsc clean.
+   - **DONE (tool wiring):** `mutation_test` agent tool (`src/agent/tools/mutationTest.ts`) — real fs
+     (`workspace.fs`, `cwdOverride`-aware) + `runVerificationCommand`, bounded by a mutant cap + per-test
+     timeout, always-restore. Opt-in `sidecar.mutation.{enabled,maxMutants,testTimeoutMs}`; registered + gated;
+     tool count 83→84 (pinned test + docs swept). 7 tool tests (baseline-fail / strong-kills-all /
+     weak-survives-all / cap). Reports mutation score + surviving mutants as the actionable coverage gaps.
+   - **NEXT (optional):** behavioral-gate escalation — when the gate can't tell a test is hollow, mutation-test
+     the edited file; a surviving mutant proves the test is inadequate. Deferred until demand.
 4. **Numerical vertical hardening** — Hypothesis property-based tests + analytic-bound gate,
    riding on Phase 1. The moat.
+   - **DONE (analytic-bound gate — §5 pillar 2, the strategy's designated "single move"):**
+     `src/agent/analyticBounds.ts` — parses declared value bounds (`# bounds: 0 <= result <= 1`,
+     `# invariant: sum(result) == 1`, `@bounds("result >= 0")`, docstring `Bounds:`), classifies
+     (range/lower/upper/sign/conservation), detects whether the code ENFORCES them (assert/clip/raise), and
+     emits the exact array-safe assertion to close a gap (`assert np.all(result >= 0) and np.all(result <= 1)`).
+     Wired into the completion gate (`gate.ts`) as an advisory-always + opt-in hard block
+     (`sidecar.analyticBounds.gate`), riding alongside the numerical-contract gate. 26 tests; 518 loop-area
+     tests green; tsc+eslint clean. This is "prove the physics is right, not just that tests pass" as a gate —
+     the most defensible item in the program (strategy §5/§6).
+   - **DONE (§5 pillar 3 — property-based test synthesis, COMPLETES the vertical):** `src/agent/propertyTests.ts`
+     - `synthesize_property_test` tool. Declaration-driven (`# property: symmetric|idempotent|monotonic|
+non-negative`, plus reuse of `# bounds:`/`# invariant:` from pillar 2 — a bound IS a property). Emits a
+       COMPLETE, runnable Hypothesis test: numpy-array `@given` strategies (one per param, parsed from the def
+       signature), the declared assertions (symmetry calls swapped args, idempotence checks f(f(x))==f(x),
+       bounds use the pillar-2 assertion), dotted module import. 18 tests; tool count 84→85. **All three §5
+       pillars now shipped** — shape/dtype/unit contracts (v0.115) + analytic-bound gate + property tests. This
+       is the strategy's "single move" (§6) delivered end-to-end: prove the physics, prove the math.
 
 ---
 
@@ -83,6 +153,12 @@ thesis more than a missing lever does). Each produces a citable number.
   shipping. A scaffold that relies on the _model_ to execute extra work well is unsafe by design; the
   keep-best judgment belongs in the _harness_.
 - **Constrain at the action boundary only** (A2) — grammar the tool call, never the reasoning.
+- **Scaffold is versioned (`SCAFFOLD_VERSION`, semver).** A benchmark number is only comparable across runs
+  with a matching scaffold version AND active-mechanism snapshot. Bump MAJOR on mechanism add/remove or changed
+  verification semantics, MINOR on new-flag/arm-composition change, PATCH on within-mechanism tuning. Stamped
+  into every `run.manifest.json` (per-arm `describeScaffold`) + the ablation report. Registry:
+  `docs/scaffold-versions.md`; code: `src/agent/scaffoldVersion.ts`. Current = **2.0.0** (verification-vertical
+  - do-no-harm). Bumping it + updating the registry is part of the release checklist when the scaffold changes.
 
 ---
 
@@ -90,9 +166,23 @@ thesis more than a missing lever does). Each produces a citable number.
 
 - **On-demand capability DB (§2.2–2.5)** — biggest speculative build; §6 sequences it last. Build once
   measurement proves it helps (recall@k, q).
+- **Per-turn tool subsetting (§2.2/B1) — deferred WITH evidence, not just unmeasured.** BFCL failure-taxonomy
+  instrumentation (see Results log) found 0% wrong-function-selection errors in a real 100-case run — the
+  failure mode subsetting fixes doesn't show up. Building it now would add real risk (silent starvation: the
+  model can't miss a tool it never saw) for a problem not observed. Re-open if: more models show selection
+  errors, a distractor-heavy BFCL variant shows lost-in-the-middle at 80+ tools, or an in-loop signal surfaces it.
 - **Prompt-transform hook (§2.6)** — clean design, no demand yet.
-- **Injection hardening** — real; do a threat-model pass before it's exploited, not pre-emptively.
-- **Orchestrator-strength routing, code-graph query interface, LoRA flywheel** — as metrics demand.
+- ~~**Injection hardening**~~ **DONE** — `src/agent/injectionGuard.ts`: detects the classic injection shapes
+  (instruction-override, role-hijack, fake system turns, permission-manipulation, exfiltration-lure) and
+  FENCES flagged tool output in an untrusted-data boundary at the single tool-result→message boundary
+  (`messageBuild.guardToolResults`, wired in `loop.ts` after capping). Treat-all-tool-output-as-data, per §4;
+  non-blocking (fence + 🛡️ notice), default-on (`sidecar.injectionGuard.enabled`), clean output untouched.
+  15 tests; 562 loop-area tests green. Next credibility rung would be an AgentDojo run.
+- **Orchestrator-strength routing, LoRA flywheel** — as metrics demand.
+- **Code-graph query interface — DONE:** `query_code_graph` tool (`src/agent/tools/codeGraphQuery.ts`) exposes
+  the tree-sitter call/type graph as a relationship query — callers, callees, references, type-users,
+  neighborhood — complementing `analyze_impact` (downstream blast radius) with the exploratory both-directions
+  view (the "understand the edit before making it" §4 need). Read-only; 9 tests; tool count 85→86.
 
 ---
 
@@ -100,11 +190,60 @@ thesis more than a missing lever does). Each produces a citable number.
 
 - Verify every post-2501 citation in the literature doc against arXiv (credibility-critical).
 - Plan externalization: harness or context? (gates Phase 3.)
-- Does the BFCL constrained-decoding delta justify the agent-loop port? (Phase 1 experiment answers.)
+- ~~Does the BFCL constrained-decoding delta justify the agent-loop port?~~ **Answered: NO.** The latency tax
+  was the union-`oneOf` grammar (bench artifact); production repair already uses per-tool schema, repair-only.
+  Kept repair-only; strengthened tier-1 heuristic repair instead (see #2).
 
 ---
 
 ## Results log
+
+- **🏁 SWE-bench Lite ablation (scaffold 2.0.0, qwen2.5-coder:7b, 50 tasks, Modal-scored via swebench 4.1.0).**
+  scaffold-on **2/50 (4.0%)** vs scaffold-off **2/50 (4.0%)** → **lift +0.0%, McNemar p=1.000, 0 discordant
+  pairs — NOT significant.** The honesty gate fired correctly: at 2/50 (7B floor regime) with 0 discordant
+  pairs the instrument has no power, and it REFUSES a lift claim rather than printing noise. Usable signal is
+  behavioral + a FLAG: scaffold-on terminated ~7.5× faster (50s vs 379s) with MORE empty patches (20 vs 18) —
+  the established scaffold made runs bail earlier, not resolve more (investigate: early-give-up vs gate/critic
+  early-exit). Note: this arm is the PRE-2.0 mechanism set (no keep-best ratchet / analytic-bound / injection
+  guard). Takeaways: (1) the #1 stats work paid off — an honest 0% instead of a lucky point estimate; (2) need
+  a powered n (300–500) + a scaffold-2.1 arm to detect a real lift; (3) the bail-early behavior is why do-no-harm
+  exists. Full writeup: `sidecar-results-writeup.md` §4.2.
+- **Verify-the-verifier: Stryker (TS mutation testing) on our own moat modules.** keepBestRatchet **95.4%**
+  (real teeth). injectionGuard **47.1%→72.5%** after hardening (killed 26 untested-alternative-pattern
+  mutants; remaining ~22 are equivalent regex mutations, un-killable). completionGate — NOT theater (it kills
+  the large majority of mutants) but had genuine unverified branch decisions; **two hardening passes:
+  61.1%→65.3%→67.5%** (963 mutants; 650 killed / 313 survived at final). Pass 1: `recordToolCall` failing-
+  result tests (every prior test used a PASSING tool result, so `if (passed)` branches were never falsified;
+  20→12 logic survivors) + `classifyTestResult`/`isAnalysisRequest` branch-pinning (→0 logic survivors, fully
+  closed). Pass 2: **adversarial guard-bypass tests** for the 5 message-walking helpers (`hasReadToolCallForFile`,
+  `hasRunCommandCall`, `hasAnyGroundingToolCall`, `firstUserText`, `lastUserText`) — same-shape-but-benign
+  tests can't distinguish "guard correctly skipped" from "guard was a no-op with nothing to match anyway"; the
+  fix is a message under the WRONG role with a well-formed match, and a non-matching block that coincidentally
+  carries the target field (e.g. a `text` block with a `.name` property), which DO regress if the guard is
+  removed (11-12→7-8 logic survivors each). +34 tests (138→172), all green, tsc+eslint clean, no regressions
+  (657 loop-area tests). **Remaining tracked follow-up:** `buildBehavioralVerificationReprompt` (16),
+  `lastAssistantText` (16, private — needs export or indirect testing via `buildUnverifiedClaimReprompt`),
+  `buildNoFileWriteReprompt` (16), `buildGateInjection` (12), `buildUnverifiedClaimReprompt` (11) — the
+  remaining reprompt-builder functions, each needing its own adversarial-case design; diminishing returns per
+  function justify stopping here for this session. Stryker kept as devDep + `stryker.conf.json` for on-demand
+  re-audit (too slow for CI). This is the purest method-first move: it proved our own gate's decision logic
+  was only partially test-pinned, and precisely which parts.
+- **BFCL failure-taxonomy instrumentation — the tool-subsetting question, answered (method-first).** Built
+  `bench/bfcl/failureClassifier.ts`: classifies each AST-checker failure `reason` into a type + axis
+  (**selection** → tool subsetting fixes it; **argument** → constrained decoding fixes it; **structure** →
+  neither), wired into the BFCL report as a "Failure taxonomy" table. Ran it against a REAL 100-case upstream
+  BFCL result (granite4.1:3b, 84% macro, 16 failures): **selection 25%, argument 38%, structure 38% — and
+  ZERO wrong-function-selection errors.** The 4 "selection" failures are all `spurious-call` (over-eager
+  calling on irrelevance cases — subsetting the catalog doesn't fix over-eagerness, only wrong-choice-among-many).
+  **Verdict: do NOT build per-turn tool subsetting** — it would add the §2.2 silent-starvation risk to fix a
+  failure mode this model doesn't exhibit. Exactly the "measure before you build" discipline that also caught
+  the n=1 "+100%" lift illusion.
+  **Important caveat (why this isn't final):** BFCL gives each case only a FEW candidate functions; SideCar's
+  real loop puts **86 tools** in context. "Selection-from-a-few is fine" does not prove "selection-from-86 is
+  fine" — BFCL under-tests lost-in-the-middle at real scale. Before fully closing this: (a) run the classifier
+  across more models to confirm the 0%-selection-error pattern holds, (b) consider a BFCL variant with 80+
+  distractor tools to measure selection at realistic N, or (c) add an in-loop selection-failure signal. Parked
+  in Deferred with this evidence, not closed as "proven unnecessary forever."
 
 _Append findings as they land — the running record of what we actually measured._
 
@@ -134,6 +273,47 @@ _Append findings as they land — the running record of what we actually measure
   bare stay ~450b. So the completion gate demonstrably over-engineers — the do-no-harm fix (keep-best ratchet)
   is justified by mechanism + this behavioral signal, NOT by an (unmeasurable-at-this-n) resolve delta. Also:
   run 1 resolved more than runs 2–5 across arms → back-to-back runs may not be IID (GPU/session state).
+- **Code graph → prompt management: bidirectional retrieval expansion.** `enrichWithGraphWalk` (the retriever's
+  auto-context expansion, default-on for system-prompt + RAG) previously walked **callers only** (who calls a
+  hit). Now walks **callees too** (what the hit calls — its dependencies), resolved via `getCallees` +
+  `lookupSymbol`, at the SAME shared `maxGraphHits` budget (interleaved callee-first so many callers can't
+  starve callees) — richer context MIX at the same token cost, not more tokens. Default both directions;
+  `directions` option + defensive on graphs lacking `getCallees` (existing tests unchanged). Auto-assembled
+  context now matches what a developer reads: who calls this AND what it calls. 21 tests; 173 retrieval-area green.
+- **Analytic-bound gate shipped — the §5 moat, pillar 2 (the strategy's "single move").** `analyticBounds.ts`:
+  a kernel that declares a value bound (`# bounds: 0 <= result <= 1`, energy ≥ 0, `sum == 1`) but doesn't
+  enforce it (no assert/clip/raise) is now flagged by the completion gate — advisory always, opt-in hard block
+  (`sidecar.analyticBounds.gate`). Emits the exact assertion to add. Turns "tests pass" into "the physics is
+  right," as a gate. 26 tests. Pillar 1 (shape/dtype/unit contracts) was v0.115; pillar 3 (property-based
+  tests) is next. Per strategy §6 this is item #3 and the most defensible in the whole program.
+- **SWE harness parallelized + faster clones (campaign infra).** Two driver improvements landed while running
+  the real campaign on the Vast box: (1) **blobless partial clones** (`git clone --filter=blob:none`) — a
+  fraction of a full clone's size, viable over the box's slow GitHub link; (2) **process-level task sharding**
+  (`SIDECAR_SWE_SHARD_INDEX/COUNT`) so N copies of the driver run disjoint task subsets in parallel — each its
+  own process (the vscode mock is a global singleton; in-process concurrency would stomp it). Launcher runs
+  4 shards under `OLLAMA_NUM_PARALLEL=4` inside a tmux session; 4 concurrent clones also beat the CDN's
+  per-connection throttle (same root cause as the ollama-download fix). Campaign wall-clock ~9h → ~2.5h.
+- **Ablation now reports uncertainty, not point estimates (#1).** `bench/swe/stats.ts`: Wilson intervals +
+  McNemar's exact paired test + paired-diff lift CI, wired into `computeAblation`/`report.ts`. The report now
+  leads with `lift = ±X% (95% CI …), McNemar p=…` and a hard honesty gate that refuses a resolve-lift claim
+  when p≥0.05 (names the discordant count, defers to behavioral signals). Directly answers the earlier
+  self-critique ("at n=5×1-task no arm comparison is meaningful"): the harness will now SAY so instead of
+  printing a misleading "+X%". 20 bench tests green (14 stats vs known values). Still open: seed/temp
+  provenance threading + scaling tasks to a powered discordant count.
+- **Keep-best ratchet — pure core landed.** `src/agent/loop/keepBestRatchet.ts`: `decideRatchet(before, after)`
+  is a total function over two `RatchetSignal`s → `keep` / `revert-regression` / `revert-overengineering`.
+  Regression dominates (any green→red test signal reverts, even if a new test also went green — a scaffold that
+  fixes one test while breaking another is not Pareto-safe); otherwise the over-engineering guard reverts a
+  patch that grew past `DEFAULT_OVER_ENGINEER_BYTES` (4KB) with no pass-signal improvement. Snapshot/restore
+  takes injected IO (pure + testable now, wires to fs/shadow/audit later). 19 tests green. Loop wiring is the
+  next step (see Active #0). This is the do-no-harm foundation; it reads signals the loop already pays for.
+- **Vast.ai box operational for the campaign.** 2×RTX 5090, driver 580, torch 2.12+cu130 (sm_120). Ollama's
+  `install.sh` shipped a BROKEN install — the 1.4GB `.tar.zst` truncated on the box's slow CDN link (single-
+  stream ~260KB/s) so `llama-server` never extracted → GPU 0%, `gpu_count=0`, silent CPU fallback. Fixed by
+  parallel download (aria2c -x16) + verify-full-size + verify-archive-contains-llama-server before extract;
+  GPU inference now confirmed (qwen2.5-coder:1.5b, 2588 MiB VRAM, 29/29 layers offloaded, 2.9s load). Lesson
+  saved to memory ([[reference_ollama_cloud_install_gotcha]]): exit 0 ≠ complete; verify byte size + contents
+  after any big cloud fetch. Campaign prep (pull 7B + `npm ci`) now running detached on the box.
 - **BFCL native vs schema-constrained (gemma4:e4b, Q4_K_M):** native = **87% macro** (100 cases). Constrained
   (Ollama `format`, union tool schema) **timed out at 30 min** having done ~56 cases vs native's fast 100 —
   the Phase-1 cost is **latency, not accuracy** (partial constrained cases passed at a comparable rate).
