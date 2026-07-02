@@ -20,6 +20,7 @@ import { parseResolvedReport } from './predictions.js';
 import { computeAblation } from './ablation.js';
 import { formatAblationReport, type SweEnvelope } from './report.js';
 import type { SwePrediction } from './types.js';
+import { SCAFFOLD_VERSION } from '../../src/agent/scaffoldVersion.js';
 
 const DATA = process.env.SIDECAR_SWE_DATA;
 const ON = process.env.SIDECAR_SWE_RESOLVED_ON;
@@ -55,6 +56,9 @@ describe('SWE-bench Verified — ablation', () => {
       taskCount: tasks.length,
       maxIterations: parseInt(process.env.SIDECAR_SWE_MAX_ITERS ?? '20', 10),
       swebenchHarnessVersion: process.env.SIDECAR_SWE_HARNESS_VERSION || 'unspecified',
+      // From the run.manifest.json (via env) when scoring a run made by a
+      // different code version; else the current constant.
+      scaffoldVersion: process.env.SIDECAR_SWE_SCAFFOLD_VERSION || SCAFFOLD_VERSION,
     };
     const md = formatAblationReport(report, env);
     // eslint-disable-next-line no-console

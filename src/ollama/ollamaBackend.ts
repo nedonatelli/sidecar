@@ -326,7 +326,7 @@ export class OllamaBackend implements ApiBackend {
     signal?: AbortSignal,
     tools?: ToolDefinition[],
   ): AsyncGenerator<StreamEvent> {
-    const { agentTemperature, ollamaNumCtx, ollamaDisableThinking } = getConfig();
+    const { agentTemperature, agentSeed, ollamaNumCtx, ollamaDisableThinking } = getConfig();
     const probedNumCtx = numCtxCache.get(model) ?? null;
     // Use the probed num_ctx, floored at 32 768 (models that report < 32 K still
     // get a full 32 K window) and capped at LOCAL_CONTEXT_CAP (128 K by default).
@@ -334,6 +334,12 @@ export class OllamaBackend implements ApiBackend {
     // allocation by setting sidecar.ollama.numCtx explicitly (e.g. 32768).
     const numCtx = ollamaNumCtx ?? Math.min(Math.max(probedNumCtx ?? 0, 32_768), LOCAL_CONTEXT_CAP);
     const options: Record<string, unknown> = { temperature: agentTemperature, num_ctx: numCtx };
+    // Reproducible-run seed: config `sidecar.agentSeed`, or the headless
+    // `SIDECAR_AGENT_SEED` env fallback (benchmarks run without VS Code settings).
+    // Unseeded in production (both absent) so normal use keeps sampling variety.
+    const envSeed = process.env.SIDECAR_AGENT_SEED;
+    const seed = agentSeed ?? (envSeed !== undefined && envSeed !== '' ? Number(envSeed) : null);
+    if (seed !== null && Number.isFinite(seed)) options.seed = seed;
     if (ollamaDisableThinking) options.think = false;
     const body: Record<string, unknown> = {
       model,

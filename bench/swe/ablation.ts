@@ -8,6 +8,7 @@
 // ---------------------------------------------------------------------------
 
 import type { AblationReport, ArmName, ArmReport, SwePrediction, SweTask } from './types.js';
+import { wilsonInterval, mcnemarExactP, pairedDiffCI } from './stats.js';
 
 function armReport(arm: ArmName, tasks: SweTask[], predictions: SwePrediction[], resolved: Set<string>): ArmReport {
   const armPreds = predictions.filter((p) => p.arm === arm);
@@ -36,12 +37,35 @@ export function computeAblation(
   const off = armReport('scaffold-off', tasks, predictions, resolvedOff);
   const onSet = new Set(on.resolvedIds);
   const offSet = new Set(off.resolvedIds);
+  const rescuedIds = on.resolvedIds.filter((id) => !offSet.has(id));
+  const regressedIds = off.resolvedIds.filter((id) => !onSet.has(id));
+
+  // Paired significance: the only pairs that carry effect information are the
+  // discordant ones (rescued vs regressed). McNemar exact + Wilson/paired CIs
+  // so the lift is reported WITH its uncertainty, not as a bare point estimate.
+  const rescued = rescuedIds.length;
+  const regressed = regressedIds.length;
+  const pValue = mcnemarExactP(rescued, regressed);
+  const onCI = wilsonInterval(on.resolved, on.total);
+  const offCI = wilsonInterval(off.resolved, off.total);
+  const liftCI = pairedDiffCI(rescued, regressed, tasks.length);
+
   return {
     on,
     off,
     liftPct: on.resolveRate - off.resolveRate,
-    rescuedIds: on.resolvedIds.filter((id) => !offSet.has(id)),
-    regressedIds: off.resolvedIds.filter((id) => !onSet.has(id)),
+    rescuedIds,
+    regressedIds,
     latencyDeltaMs: on.meanDurationMs - off.meanDurationMs,
+    significance: {
+      rescued,
+      regressed,
+      discordant: rescued + regressed,
+      pValue,
+      significant: pValue < 0.05,
+      onCI: [onCI.low, onCI.high],
+      offCI: [offCI.low, offCI.high],
+      liftCI: [liftCI.low, liftCI.high],
+    },
   };
 }

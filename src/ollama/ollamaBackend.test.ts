@@ -103,6 +103,31 @@ describe('OllamaBackend', () => {
       expect(body.messages[0]).toEqual({ role: 'system', content: 'Be helpful' });
     });
 
+    it('sets options.seed from SIDECAR_AGENT_SEED for reproducible runs, absent otherwise', async () => {
+      const respond = () =>
+        mockFetch.mockResolvedValueOnce({
+          ok: true,
+          body: ndjsonBody([
+            { model: 'test', message: { role: 'assistant', content: 'ok' }, done: true, done_reason: 'stop' },
+          ]),
+        });
+
+      // Unseeded by default — no seed key in options.
+      respond();
+      for await (const _ of backend.streamChat('test', '', [{ role: 'user', content: 'hi' }])) void _;
+      expect('seed' in JSON.parse(mockFetch.mock.calls.at(-1)![1].body).options).toBe(false);
+
+      // With the env override, the seed is threaded into options.
+      process.env.SIDECAR_AGENT_SEED = '1234';
+      try {
+        respond();
+        for await (const _ of backend.streamChat('test', '', [{ role: 'user', content: 'hi' }])) void _;
+        expect(JSON.parse(mockFetch.mock.calls.at(-1)![1].body).options.seed).toBe(1234);
+      } finally {
+        delete process.env.SIDECAR_AGENT_SEED;
+      }
+    });
+
     it('converts tools to Ollama format', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,

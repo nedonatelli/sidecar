@@ -71,6 +71,30 @@ export interface ArmReport {
   emptyPatches: number;
 }
 
+/**
+ * Statistical rigor on the paired ablation (workstreams #1). Without this the
+ * lift is a bare point estimate; with it every claim carries uncertainty and a
+ * significance verdict, so a noise-sized lift can't masquerade as a real one.
+ */
+export interface AblationSignificance {
+  /** Discordant pairs the harness rescued (on✓/off✗) — McNemar's b. */
+  rescued: number;
+  /** Discordant pairs the harness regressed (on✗/off✓) — McNemar's c. */
+  regressed: number;
+  /** rescued + regressed. The only pairs that carry effect information. */
+  discordant: number;
+  /** McNemar exact two-sided p-value for "harness has no effect". */
+  pValue: number;
+  /** pValue < 0.05 — is the lift distinguishable from noise at this n? */
+  significant: boolean;
+  /** Wilson 95% CI for the scaffold-on resolve rate, [low, high]. */
+  onCI: [number, number];
+  /** Wilson 95% CI for the scaffold-off resolve rate. */
+  offCI: [number, number];
+  /** 95% CI for the lift (paired difference of rates). */
+  liftCI: [number, number];
+}
+
 export interface AblationReport {
   on: ArmReport;
   off: ArmReport;
@@ -82,4 +106,6 @@ export interface AblationReport {
   regressedIds: string[];
   /** meanDuration(on) − meanDuration(off): the latency the harness costs. */
   latencyDeltaMs: number;
+  /** Uncertainty + significance on the paired lift. */
+  significance: AblationSignificance;
 }

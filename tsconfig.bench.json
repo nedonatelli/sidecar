@@ -2,11 +2,14 @@
   // Type-checks the bench/ benchmark tooling, which lives outside the
   // extension's src/ rootDir and is never bundled into the .vsix. Run via
   // `npm run compile:bench` (and in lint-staged for staged bench files).
+  // rootDir is the repo root (not ./bench) because some bench modules
+  // import shared runtime primitives from src/ (e.g. SCAFFOLD_VERSION) —
+  // widened so tsc's project-mode path resolution covers both directories.
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "rootDir": "./bench",
+    "rootDir": ".",
     "noEmit": true
   },
-  "include": ["bench/**/*"],
-  "exclude": ["node_modules"]
+  "include": ["bench/**/*", "src/**/*"],
+  "exclude": ["node_modules", "out", "src/test/integration"]
 }

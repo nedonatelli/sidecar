@@ -29,6 +29,7 @@ import { getConfig } from '../../src/config/settings.js';
 import { mountWorkspaceRoot } from './workspaceSandbox.js';
 import { parseTasks, sampleTasks } from '../../bench/swe/loader.js';
 import { armConfigOverrides } from '../../bench/swe/arms.js';
+import { SCAFFOLD_VERSION, describeScaffold } from '../../src/agent/scaffoldVersion.js';
 import { toPredictionsJsonl } from '../../bench/swe/predictions.js';
 import { selectRelevantFiles, type RepoFile } from '../../bench/swe/retrieve.js';
 import type { SwePrediction, SweTask, ArmName } from '../../bench/swe/types.js';
@@ -38,6 +39,13 @@ const N = parseInt(process.env.SIDECAR_SWE_N ?? '5', 10);
 const MODEL = process.env.SIDECAR_SWE_MODEL || 'gemma4:e4b';
 const OUT = process.env.SIDECAR_SWE_OUT || path.join(os.tmpdir(), 'sidecar-swe');
 const REPOS = (process.env.SIDECAR_SWE_REPOS || '').split(',').map((s) => s.trim()).filter(Boolean);
+// Deterministic task sharding for process-level parallelism. Each shard process
+// handles tasks where (index % SHARD_COUNT === SHARD_INDEX), so N sharded
+// processes cover the slice with no overlap and no shared in-process state (the
+// vscode mock is a global singleton — concurrent in-process agents would stomp
+// it). Default 1×0 = the whole slice, single process (unchanged behavior).
+const SHARD_INDEX = parseInt(process.env.SIDECAR_SWE_SHARD_INDEX ?? '0', 10);
+const SHARD_COUNT = parseInt(process.env.SIDECAR_SWE_SHARD_COUNT ?? '1', 10);
 // SWE-bench tasks need a generous budget — a small local model spends many
 // iterations just locating the file in a large repo. The fixture-eval default
 // of 8 is far too few; default to 30 here. (Smoke run at 8 → empty patches.)
@@ -65,7 +73,11 @@ function prepareRepo(task: SweTask): string {
   let dir = repoClones.get(task.repo);
   if (!dir) {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), `swe-repo-${task.repo.replace(/[/\\]/g, '_')}-`));
-    git(['clone', '--quiet', `https://github.com/${task.repo}.git`, dir]);
+    // Blobless partial clone: pull commits + trees but fetch file blobs lazily
+    // on checkout. A fraction of a full clone's size (django ~50MB vs ~400MB) so
+    // it's viable over a slow link; `reset --hard <base_commit>` below still
+    // works — git fetches just that commit's blobs on demand.
+    git(['clone', '--quiet', '--filter=blob:none', `https://github.com/${task.repo}.git`, dir]);
     repoClones.set(task.repo, dir);
   }
   // Pristine checkout at this task's base: discard any prior arm/task edits.
@@ -214,8 +226,43 @@ describe('SWE-bench Verified — prediction generation', () => {
     `generates predictions for ${MODEL}`,
     async () => {
       const all = parseTasks(fs.readFileSync(DATA as string, 'utf-8'));
-      const tasks = sampleTasks(all, N, REPOS);
+      const sampled = sampleTasks(all, N, REPOS);
+      // Take this shard's slice (round-robin over the deterministic sample).
+      const tasks = SHARD_COUNT > 1 ? sampled.filter((_, i) => i % SHARD_COUNT === SHARD_INDEX) : sampled;
       fs.mkdirSync(OUT, { recursive: true });
+
+      // Provenance manifest (workstreams #1): every run records exactly what
+      // produced it — model, seed, temperature, slice, arms — so a resolve/lift
+      // number is reproducible and attributable, not a floating point estimate.
+      const seedEnv = process.env.SIDECAR_AGENT_SEED;
+      const manifest = {
+        model: MODEL,
+        backend: 'ollama',
+        ollamaHost: process.env.OLLAMA_HOST || 'http://localhost:11434',
+        agentTemperature: getConfig().agentTemperature,
+        agentSeed: seedEnv !== undefined && seedEnv !== '' ? Number(seedEnv) : (getConfig().agentSeed ?? null),
+        dataset: path.basename(DATA as string),
+        taskCount: tasks.length,
+        requestedN: N,
+        shardIndex: SHARD_INDEX,
+        shardCount: SHARD_COUNT,
+        // Scaffold provenance: the version + the ACTUAL mechanism on/off state
+        // per arm, so a resolve/lift number is attributable to the exact scaffold
+        // that produced it (the scaffold evolves; results must be comparable only
+        // across matching versions).
+        scaffoldVersion: SCAFFOLD_VERSION,
+        scaffold: Object.fromEntries(
+          ARMS.map((arm) => [arm, describeScaffold({ ...getConfig(), ...armConfigOverrides(arm) })]),
+        ),
+        repos: REPOS,
+        arms: ARMS,
+        maxIterations: MAX_ITERS,
+        retrievalTopK: RETRIEVAL_TOPK,
+        perTaskTimeoutMs: PER_TASK_MS,
+        nodeVersion: process.version,
+        createdAt: new Date().toISOString(),
+      };
+      fs.writeFileSync(path.join(OUT, 'run.manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
       // eslint-disable-next-line no-console
       console.info(`[swe] ${MODEL}: ${tasks.length} tasks × ${ARMS.length} arms`);
 
