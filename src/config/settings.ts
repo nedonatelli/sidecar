@@ -521,7 +521,7 @@ function readConfig(): SideCarConfig {
     criticEnabled: cfg.get<boolean>('critic.enabled', false),
     adaptiveScaffoldingEnabled: cfg.get<boolean>('adaptiveScaffolding.enabled', false),
     keepBestRatchetEnabled: cfg.get<boolean>('scaffolding.keepBest', false),
-    keepBestOverEngineerBytes: cfg.get<number>('scaffolding.keepBestOverEngineerBytes', 4096),
+    keepBestOverEngineerBytes: cfg.get<number>('scaffolding.keepBestOverEngineerBytes', 0),
     // Provider-aware default: an empty `critic.model` historically meant
     // "use the main model," which doubled per-iteration cost on paid Anthropic
     // backends. If the main model is Sonnet/Opus and the user hasn't explicitly

@@ -200,7 +200,7 @@ describe('evaluateRatchetAtTermination', () => {
     await evaluateRatchetAtTermination(state, fs, noopCallbacks(onText));
     expect(await fs.read('churn.test.ts')).toBeNull(); // reverted (deleted)
     expect(await fs.read('app.ts')).toBe('REAL FIX (450b)'.padEnd(450, ' ')); // good work kept
-    expect(onText).toHaveBeenCalledWith(expect.stringContaining('over-engineering'));
+    expect(onText).toHaveBeenCalledWith(expect.stringContaining('unproven scaffold-driven growth'));
   });
 
   it('reverts a regression: restores the pre-scaffold file when a green test went red', async () => {

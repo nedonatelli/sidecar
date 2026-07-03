@@ -217,7 +217,7 @@ export async function evaluateRatchetAtTermination(
     state.logger?.warn(
       `Keep-best ratchet: ${decision.verdict} — reverted ${reverted.length} file(s). ${decision.reason}`,
     );
-    const kind = decision.verdict === 'revert-regression' ? 'a test regression' : 'over-engineering (patch bloat)';
+    const kind = decision.verdict === 'revert-regression' ? 'a test regression' : 'unproven scaffold-driven growth';
     callbacks.onText(
       `\n\n♻️ Keep-best ratchet reverted scaffold-driven changes to ${reverted.length} file(s) — ` +
         `${kind}. ${decision.reason}\n   Reverted: ${reverted.join(', ')}\n`,

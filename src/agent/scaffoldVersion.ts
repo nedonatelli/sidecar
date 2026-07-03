@@ -27,6 +27,15 @@
  * human-facing registry is `docs/scaffold-versions.md`.
  *
  * ## Changelog
+ * - **2.0.1** (2026-07) — keep-best ratchet's over-engineering threshold
+ *   (`DEFAULT_OVER_ENGINEER_BYTES`) tightened from 4096 to 0. A local SWE-bench
+ *   repro of scaffold-on bail-early found a concrete case (a 536-byte wrong edit
+ *   to an unrelated file, driven by a cycle-detection bail) that slid under the
+ *   old 4 KB threshold untouched. A byte-size gate alone can't distinguish a
+ *   legitimate small addition from a wrong one, so the default now reverts ANY
+ *   scaffold-tail growth that didn't earn a proven test-signal improvement.
+ *   PATCH-level: tunes a threshold within the existing ratchet, doesn't add,
+ *   remove, or change which mechanisms run.
  * - **2.0.0** (2026-07) — verification-vertical + do-no-harm generation. Adds
  *   the keep-best ratchet (Pareto-safe scaffolding), mutation testing, the §5
  *   analytic-bound gate + property-based test synthesis, the prompt-injection
@@ -39,7 +48,7 @@
  *   auto-fix, adaptive scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '2.0.0';
+export const SCAFFOLD_VERSION = '2.0.1';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

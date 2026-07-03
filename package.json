@@ -469,12 +469,12 @@
           "sidecar.scaffolding.keepBest": {
             "type": "boolean",
             "default": false,
-            "description": "Pareto-safe scaffolding (keep-best ratchet). When on, the loop snapshots your files at the point scaffolding first drives extra work, then at the end reverts scaffold-driven changes that regressed a passing test OR ballooned the patch with no test-signal gain (over-engineering). Makes the completion gate / critic unable to turn a good run into a worse one. Disabled automatically in audit mode (writes are buffered, not on disk). Experimental."
+            "description": "Pareto-safe scaffolding (keep-best ratchet). When on, the loop snapshots your files at the point scaffolding first drives extra work, then at the end reverts scaffold-driven changes that regressed a passing test OR grew the patch with no test-signal gain (over-engineering). By default ANY unproven growth reverts, not just large bloat — see keepBestOverEngineerBytes. Makes the completion gate / critic unable to turn a good run into a worse one. Disabled automatically in audit mode (writes are buffered, not on disk). Experimental."
           },
           "sidecar.scaffolding.keepBestOverEngineerBytes": {
             "type": "number",
-            "default": 4096,
-            "description": "Byte growth past which a scaffold-driven patch that improved no test signal is reverted as over-engineered (keep-best ratchet). Above a legitimate multi-line fix, below the ~32KB test-churn patches the gate produced in dogfooding."
+            "default": 0,
+            "description": "Byte growth past which a scaffold-driven patch that improved no test signal is reverted as over-engineered (keep-best ratchet). Default 0: any growth without a proven improvement (a new passing test, or the project suite going green) reverts — a byte-size gate alone can't tell a legitimate small addition from a wrong one. Raise this (e.g. 4096) to tolerate some unverified growth before reverting."
           },
           "sidecar.critic.model": {
             "type": "string",

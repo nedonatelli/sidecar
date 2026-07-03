@@ -38,6 +38,21 @@ release) note it in `CHANGELOG.md`. This is part of the release checklist.
 
 ## Registry
 
+### 2.0.1 — keep-best ratchet threshold tightened (2026-07)
+
+PATCH. `DEFAULT_OVER_ENGINEER_BYTES` (in
+[`keepBestRatchet.ts`](../src/agent/loop/keepBestRatchet.ts)) tightened from
+4096 to 0. A local SWE-bench repro of scaffold-on bail-early found a concrete
+case — a 536-byte wrong edit to an unrelated file, driven by a cycle-detection
+bail — that slid under the old 4 KB threshold untouched. A byte-size gate alone
+can't tell a legitimate small addition from a wrong one, so the default now
+reverts **any** scaffold-tail growth that didn't earn a proven test-signal
+improvement (a new passing test, or the project suite going green). Raise
+`sidecar.scaffolding.keepBestOverEngineerBytes` (or `RatchetOptions.overEngineerBytes`)
+to tolerate some unverified growth again. No mechanism added/removed —
+comparable with 2.0.0 runs as long as both used the ratchet at all; note the
+threshold value itself when comparing patch-bloat-sensitive results.
+
 ### 2.0.0 — verification-vertical + do-no-harm (2026-07)
 
 The current baseline. Adds, over 1.x:

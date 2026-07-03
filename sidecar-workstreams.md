@@ -68,7 +68,8 @@ thesis more than a missing lever does). Each produces a citable number.
      with edits present, (3) at natural termination evaluate against the gate signal and revert regressed /
      over-engineered scaffold-tail changes via a `cwdOverride`-aware workspace.fs writer (deletes files created
      in the tail, restores pre-existing ones, keeps good pre-scaffold work), surfacing the revert to the user.
-     Opt-in `sidecar.scaffolding.keepBest` (+`keepBestOverEngineerBytes`, default 4KB); auto-off in audit mode
+     Opt-in `sidecar.scaffolding.keepBest` (+`keepBestOverEngineerBytes`, default 0 — tightened 2026-07 from
+     4KB, see the bail-early finding below; any unproven scaffold-tail growth reverts); auto-off in audit mode
      (in-memory buffer). Skips on user-abort. 36 unit tests, 490 loop tests green, eslint+tsc clean.
    - **NEXT (measure it):** run the SWE ablation with keepBest on/off as a third arm to quantify the
      over-engineering-rate drop (mean scaffold-added patch bytes with no pass-signal gain → ~0) and confirm
@@ -388,3 +389,18 @@ _Append findings as they land — the running record of what we actually measure
   directly test the mechanism rather than infer it — no upstream 100-case dataset is cached in this
   environment to re-run at full scale. New tests: `sampleCases` (7), timing aggregation (5) — 67 BFCL tests
   green, tsc clean.
+- **Keep-best ratchet tightened: over-engineering threshold 4096→0 bytes (scaffold 2.0.0→2.0.1, PATCH).**
+  Direct response to the bail-early finding above (line ~236): the concrete django-14608 case (536-byte wrong
+  edit to an unrelated file) sat under the old 4KB threshold untouched, so the ratchet as shipped would NOT
+  have caught it. `DEFAULT_OVER_ENGINEER_BYTES` in `keepBestRatchet.ts` is now **0** — any scaffold-tail growth
+  with no proven test-signal improvement reverts, not just bloat past a byte cap. `RatchetOptions.overEngineerBytes`
+  still lets a caller opt back into tolerating some unverified growth (e.g. `4096` for the old behavior).
+  Updated: `keepBestRatchet.ts` (constant + decision reason string, now correctly singular/plural and omitting
+  the now-meaningless "(over the 0-byte allowance)" clause), `keepBestRatchetWiring.ts` (user-facing revert
+  label: `'over-engineering (patch bloat)'` → `'unproven scaffold-driven growth'`, since a 1-byte revert isn't
+  "bloat"), `settings.ts` + `package.json` defaults, `scaffoldVersion.ts` changelog + `docs/scaffold-versions.md`
+  registry (2.0.1 entry). Test suite rewritten to match the tightened semantics (4 tests in
+  `keepBestRatchet.test.ts` renamed/rewritten to assert tiny-growth reverts and exact-threshold-only-keeps; 1
+  string-match assertion updated in `keepBestRatchetWiring.test.ts`) — 401 files / 7362 tests green, tsc +
+  eslint clean on all changed files. Not yet re-measured against the actual django/sympy repro cases (the local
+  4-task slice used for the original finding) — that's the natural next check before calling this closed.

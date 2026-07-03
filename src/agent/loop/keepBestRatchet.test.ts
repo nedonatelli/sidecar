@@ -51,9 +51,12 @@ describe('decideRatchet — regression (do-no-harm line)', () => {
 });
 
 describe('decideRatchet — over-engineering (patch minimality)', () => {
-  it('reverts a large patch that improved no test signal', () => {
+  it('reverts even a TINY (1-byte) unimproved growth — the tightened default has no free pass', () => {
+    // Root-caused via a local SWE-bench repro: a 536-byte wrong edit to an
+    // unrelated file slid under the old 4096-byte threshold untouched. The
+    // default is now 0 — any unproven growth reverts, not just bloat.
     const before = sig({ patchBytes: 500 });
-    const after = sig({ patchBytes: 500 + DEFAULT_OVER_ENGINEER_BYTES + 1 });
+    const after = sig({ patchBytes: 501 });
     const d = decideRatchet(before, after);
     expect(d.verdict).toBe('revert-overengineering');
     expect(d.reason).toMatch(/without improving/i);
@@ -71,10 +74,17 @@ describe('decideRatchet — over-engineering (patch minimality)', () => {
     expect(decideRatchet(before, after).verdict).toBe('keep');
   });
 
-  it('KEEPS growth at or below the threshold', () => {
-    const before = sig({ patchBytes: 0 });
-    const after = sig({ patchBytes: DEFAULT_OVER_ENGINEER_BYTES }); // exactly at threshold, not over
+  it('KEEPS zero growth at the (now tightened) default threshold — only POSITIVE growth reverts', () => {
+    const before = sig({ patchBytes: 500 });
+    const after = sig({ patchBytes: 500 + DEFAULT_OVER_ENGINEER_BYTES }); // exactly at threshold (0), not over
     expect(decideRatchet(before, after).verdict).toBe('keep');
+  });
+
+  it('a custom (raised) threshold still tolerates growth AT that threshold, not over', () => {
+    const before = sig({ patchBytes: 0 });
+    const after = sig({ patchBytes: 500 });
+    expect(decideRatchet(before, after, { overEngineerBytes: 500 }).verdict).toBe('keep');
+    expect(decideRatchet(before, after, { overEngineerBytes: 499 }).verdict).toBe('revert-overengineering');
   });
 
   it('honors a custom over-engineering threshold', () => {
@@ -92,8 +102,11 @@ describe('decideRatchet — over-engineering (patch minimality)', () => {
 });
 
 describe('decideRatchet — keep (held or improved)', () => {
-  it('keeps a small no-signal-change edit', () => {
-    expect(decideRatchet(sig({ patchBytes: 100 }), sig({ patchBytes: 300 })).verdict).toBe('keep');
+  it('keeps a no-growth, no-signal-change edit (same size, no proof needed either way)', () => {
+    // Positive growth with no signal change now REVERTS (see the
+    // over-engineering describe block above) — this is the boundary the
+    // tightened policy still keeps: nothing grew, so there's nothing to prove.
+    expect(decideRatchet(sig({ patchBytes: 300 }), sig({ patchBytes: 300 })).verdict).toBe('keep');
   });
 
   it('keeps when the patch shrank and nothing regressed', () => {

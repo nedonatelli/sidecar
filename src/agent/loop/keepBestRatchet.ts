@@ -31,10 +31,21 @@
 // writer — at the call site without this module knowing which.
 // ---------------------------------------------------------------------------
 
-/** Default byte growth past which an unimproved patch is deemed over-engineered.
- *  ~4 KB: comfortably above a legitimate multi-line fix, well below the ~32 KB
- *  test-churn patches the gate produced in dogfooding. */
-export const DEFAULT_OVER_ENGINEER_BYTES = 4096;
+/**
+ * Default byte growth past which an unimproved patch is deemed over-engineered.
+ *
+ * Tightened to 0 (was 4096 / ~4 KB) after a local SWE-bench repro showed the
+ * failure mode isn't only large bloat: a 536-byte scaffold-tail edit to an
+ * unrelated file (`AutoField.__init__` forced to `blank=True`, nothing to do
+ * with the task) slid under the old 4 KB threshold untouched. A byte-size gate
+ * can't distinguish "a legitimate small addition" from "a wrong small
+ * addition" — so at the default, ANY scaffold-tail growth with no proof it
+ * helped (no new passing test/project-test-green) is reverted, not just bloat
+ * past a threshold. Raise `overEngineerBytes` (RatchetOptions) if you want to
+ * tolerate some unverified growth again — e.g. back to 4096 for the old
+ * behavior — but the default now errs toward reverting unproven work.
+ */
+export const DEFAULT_OVER_ENGINEER_BYTES = 0;
 
 /** The verification signal a ratchet snapshot captures. Sourced from the
  *  gate state the loop already maintains — the ratchet runs NO tests of its
@@ -60,7 +71,9 @@ export interface RatchetDecision {
 }
 
 export interface RatchetOptions {
-  /** Byte growth past which an unimproved patch is reverted as over-engineered. */
+  /** Byte growth past which an unimproved patch is reverted as over-engineered.
+   *  Default 0 — any growth without a proven improvement reverts. Raise this
+   *  to tolerate some unverified growth (the pre-tightening default was 4096). */
   overEngineerBytes?: number;
 }
 
@@ -105,13 +118,16 @@ export function decideRatchet(
     }
   }
 
-  // --- 2. Over-engineering: big growth with no pass-signal improvement. ---
+  // --- 2. Over-engineering: unproven growth with no pass-signal improvement.
+  // Default threshold is 0 — ANY growth without proof it helped reverts, not
+  // just bloat past a byte cap (see DEFAULT_OVER_ENGINEER_BYTES). ---
   const grew = after.patchBytes - before.patchBytes;
   const threshold = options.overEngineerBytes ?? DEFAULT_OVER_ENGINEER_BYTES;
   if (grew > threshold && !improvedPassSignal(before, after)) {
+    const bound = threshold > 0 ? ` (over the ${threshold}-byte allowance)` : '';
     return {
       verdict: 'revert-overengineering',
-      reason: `change added ${grew} bytes without improving any test signal (over ${threshold}-byte threshold) — reverting the churn`,
+      reason: `change added ${grew} byte${grew === 1 ? '' : 's'} without improving any test signal${bound} — reverting the unproven work`,
     };
   }
 
