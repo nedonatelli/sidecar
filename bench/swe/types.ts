@@ -48,6 +48,15 @@ export interface SwePrediction {
   model_patch: string;
   /** Wall-clock for the agent run, for the latency side of the ablation. */
   durationMs: number;
+  /**
+   * F1 failure-taxonomy bucket the loop classified this run into (null =
+   * natural completion). Diagnostic only — never reaches the official
+   * predictions JSONL (toPredictionsJsonl projects instance_id/model_patch
+   * only); it's the "why did this run end" signal for investigating scaffold
+   * behavior (e.g. do-no-harm bail-early analysis). Undefined for older
+   * predictions.meta.jsonl files written before this field existed.
+   */
+  terminationBucket?: import('../../src/agent/failureTaxonomy.js').FailureBucket | null;
 }
 
 /** One line of the official `swebench` predictions JSONL. */

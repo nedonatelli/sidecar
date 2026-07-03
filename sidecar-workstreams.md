@@ -211,6 +211,39 @@ non-negative`, plus reuse of `# bounds:`/`# invariant:` from pillar 2 — a boun
   guard). Takeaways: (1) the #1 stats work paid off — an honest 0% instead of a lucky point estimate; (2) need
   a powered n (300–500) + a scaffold-2.1 arm to detect a real lift; (3) the bail-early behavior is why do-no-harm
   exists. Full writeup: `sidecar-results-writeup.md` §4.2.
+- **🔍 Bail-early mechanism — RESOLVED via local repro (4 SWE-bench Lite tasks, both arms, qwen2.5-coder:7b,
+  seed 1234, same config as the real campaign's scaffold-on/-off).** Added `onOutcome` (F1 termination bucket)
+  wiring to the SWE driver (`tests/llm-eval/swe.eval.ts`) + a diagnostic `terminationBucket` field on
+  `SwePrediction` (never reaches the official scorer input — `toPredictionsJsonl` still projects only
+  instance_id/model_patch) — this is what made the mechanism visible instead of guessed. Result across the 4
+  tasks:
+  | task | scaffold-off | scaffold-on |
+  |---|---|---|
+  | astropy-12907 | bad-reasoning, 666b, 73s | bad-reasoning, **identical** 666b, 30s (same dead end, faster) |
+  | **django-14608** | **natural**, 568b (correct minimal fix) | **bad-reasoning**, 1104b — same fix **plus** an unrelated, wrong edit to `AutoField.__init__` (forces `blank=True` globally) |
+  | requests-1963 | bad-reasoning, empty, 13s | bad-reasoning, empty, 7s (same failure, faster) |
+  | **sympy-11897** | **natural**, 512b (itself a garbled edit) | **bad-reasoning**, 1127b — duplicates the broken pattern into a SECOND file, creating mutual infinite recursion between `latex()`/`pretty()` |
+
+  **In 2 of 4 tasks the scaffold took a clean `natural` completion and drove it into `bad-reasoning`, making the
+  patch actively worse — not just slower.** Mechanism: the completion gate's post-edit verification push gives a
+  weak 7B no good way to comply (no reachable test runner, or an already-broken edit it can't verify), so it
+  flails — unrelated-file edits, duplicated broken patterns, nonsensical shell commands (`pip install --upgrade
+astropy`, `npm install puppeteer-core` in a Python repo) — until cycle-detection bails it. In the other 2
+  tasks both arms independently reached the SAME dead end; scaffold-on just got there faster (efficiency, not
+  harm). **This is a real do-no-harm violation in the pre-2.0 arm used in the actual campaign.**
+  **Checked, not assumed: would the keep-best ratchet (v2.0) already catch this?** Mostly no, as currently
+  configured. The django case grew by only **536 bytes** (568b→1104b) — well under `DEFAULT_OVER_ENGINEER_BYTES`
+  (4096) — so the ratchet's over-engineering guard would NOT have fired; and no test ever passed in either arm,
+  so the regression guard has nothing to compare either. The ratchet's SHAPE (snapshot before the scaffold-
+  driven tail, evaluate at termination) is right, but its threshold is calibrated for large bloat (the ~32KB
+  test-churn pattern), not a small-but-WRONG edit to an unrelated file. **Real refinement this surfaces:** the
+  byte-threshold heuristic can't distinguish "a legitimate small addition" from "a wrong small addition" — a
+  policy worth considering is reverting ANY scaffold-tail edit with zero test-signal improvement (dropping or
+  shrinking the size gate) rather than only bloat past a threshold, since "no evidence it helped" is already a
+  sufficient reason to revert when nothing regressed either. Tracked as a follow-up before claiming the ratchet
+  closes this gap. `onOutcome`/`terminationBucket` instrumentation is durable — useful for any future SWE-bench
+  run, not just this investigation.
+
 - **Verify-the-verifier: Stryker (TS mutation testing) on our own moat modules.** keepBestRatchet **95.4%**
   (real teeth). injectionGuard **47.1%→72.5%** after hardening (killed 26 untested-alternative-pattern
   mutants; remaining ~22 are equivalent regex mutations, un-killable). completionGate — NOT theater (it kills

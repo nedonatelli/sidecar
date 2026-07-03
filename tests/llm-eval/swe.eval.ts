@@ -148,6 +148,10 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
   let patch = '';
   let dir: string | null = null;
   let restoreMock: (() => void) | null = null;
+  // F1 failure-taxonomy bucket the loop terminated with (null = natural
+  // completion). Diagnostic: lets us see WHY a run ended (stuck / timeout /
+  // incomplete / bad-reasoning) instead of inferring it from patch shape alone.
+  let terminationBucket: import('../../src/agent/failureTaxonomy.js').FailureBucket | null = null;
   try {
     dir = prepareRepo(task);
     // Point the vscode mock's fs/workspaceFolders/findFiles at the clone — without
@@ -182,6 +186,10 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       onToolResult: (name, result, isError) => {
         trajectory.push(`  → ${name} ${isError ? 'ERROR' : 'ok'} (${result.length}b)`);
       },
+      onOutcome: (bucket) => {
+        terminationBucket = bucket;
+        trajectory.push(`TERMINATION: ${bucket ?? 'natural'}`);
+      },
       onDone: () => {},
     };
     const options: AgentOptions = {
@@ -211,7 +219,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     if (restoreMock) restoreMock();
     // Don't delete the clone — it's cached and reset per task. cleanupRepoClones() at the end.
   }
-  return { instance_id: task.instance_id, arm, model_patch: patch, durationMs: Date.now() - start };
+  return { instance_id: task.instance_id, arm, model_patch: patch, durationMs: Date.now() - start, terminationBucket };
 }
 
 function buildTaskPrompt(task: SweTask, retrievalContext: string): string {
