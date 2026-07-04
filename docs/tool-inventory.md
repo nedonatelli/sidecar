@@ -76,7 +76,7 @@ Net effect: a default local-LLM coding session now sheds 11 catalog entries (Kic
 
 ### Tier B — Make the gate dynamic (consistency fix)
 
-Move the config-conditional spreads out of the `TOOL_REGISTRY` module-const and into `getToolDefinitions()` (computed per call, like `delegate_task`). Removes the import-time freeze, lets toggles take effect without reload, and makes all gating consistent. Low risk, contained to `tools.ts`.
+✅ **Done.** The config-conditional spreads were moved out of the `TOOL_REGISTRY` module-const; `TOOL_REGISTRY` is now the complete static catalog and gating is applied per call by `getEnabledBuiltInTools(cfg)` against `GATED_TOOL_GROUPS` (like `delegate_task`). This removed the import-time freeze, so toggling a `sidecar.*.enabled` flag takes effect on the next request without a window reload, and it honors injected test configs.
 
 ### Tier C — Hygiene & governance
 
