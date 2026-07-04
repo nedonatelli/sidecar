@@ -18,6 +18,9 @@
   ],
   "mutate": [
     "src/agent/completionGate.ts",
+    "src/agent/completionGate/reprompts.ts",
+    "src/agent/completionGate/behavioralReprompt.ts",
+    "src/agent/completionGate/pathUtil.ts",
     "src/agent/loop/keepBestRatchet.ts",
     "src/agent/analyticBounds.ts",
     "src/agent/injectionGuard.ts",
