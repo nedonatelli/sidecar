@@ -99,3 +99,17 @@ export function charsToTokens(chars: number): number {
 export function tokensToChars(tokens: number): number {
   return Math.floor(tokens * CHARS_PER_TOKEN_EN);
 }
+
+/**
+ * Estimate the total tokens a request will bill: system prompt + conversation
+ * (structured content blocks measured via their JSON length) + the reserved
+ * output budget. Shared by every streaming backend's rate-limit accounting.
+ */
+export function estimateRequestTokens(systemPrompt: string, messages: ChatMessage[], maxOutputTokens: number): number {
+  let chars = systemPrompt.length;
+  for (const m of messages) {
+    const c = m.content;
+    chars += typeof c === 'string' ? c.length : c.reduce((sum, b) => sum + JSON.stringify(b).length, 0);
+  }
+  return charsToTokens(chars) + maxOutputTokens;
+}

@@ -16,9 +16,8 @@
  */
 
 import { FlatVectorStore } from '../config/vectorStore.js';
-import { logger } from '../system/logger.js';
 import type { SidecarDir } from '../config/sidecarDir.js';
-import { MINILM_MODEL_ID as MODEL_ID, type EmbeddingPipeline, getSharedPipeline } from '../config/hfPipeline.js';
+import { MINILM_MODEL_ID as MODEL_ID, type EmbeddingPipeline, LazyEmbedder } from '../config/hfPipeline.js';
 const DIMENSION = 384;
 /** Truncate input before embedding to avoid OOM on pathologically long summaries. */
 const MAX_TEXT_CHARS = 8000;
@@ -40,8 +39,7 @@ interface EpisodicMeta {
 
 export class EpisodicMemoryStore {
   private store: FlatVectorStore<EpisodicMeta>;
-  private pipeline: EmbeddingPipeline | null = null;
-  private modelLoading: Promise<boolean> | null = null;
+  private embedder = new LazyEmbedder({ label: 'EpisodicMemory', dimension: DIMENSION, maxChars: MAX_TEXT_CHARS });
 
   constructor(sidecarDir: SidecarDir | null = null) {
     this.store = new FlatVectorStore<EpisodicMeta>(sidecarDir, {
@@ -124,35 +122,12 @@ export class EpisodicMemoryStore {
     );
   }
 
-  private async embed(text: string): Promise<Float32Array | null> {
-    if (!(await this.ensureModel()) || !this.pipeline) return null;
-    try {
-      const output = await this.pipeline([text.slice(0, MAX_TEXT_CHARS)], { pooling: 'mean', normalize: true });
-      return new Float32Array(output.data.slice(0, DIMENSION));
-    } catch {
-      return null;
-    }
-  }
-
-  private async ensureModel(): Promise<boolean> {
-    if (this.pipeline) return true;
-    if (this.modelLoading) return this.modelLoading;
-    this.modelLoading = (async () => {
-      try {
-        this.pipeline = await getSharedPipeline(MODEL_ID, { allowLocalModels: false });
-        return true;
-      } catch (err) {
-        logger.warn('[EpisodicMemory] Embedding model failed to load:', err instanceof Error ? err.message : err);
-        this.modelLoading = null; // allow retry on next call
-        return false;
-      }
-    })();
-    return this.modelLoading;
+  private embed(text: string): Promise<Float32Array | null> {
+    return this.embedder.embed(text);
   }
 
   /** Test-only: inject a pre-built pipeline (or null to simulate load failure). */
   setPipelineForTests(pipeline: EmbeddingPipeline | null): void {
-    this.pipeline = pipeline;
-    this.modelLoading = Promise.resolve(pipeline !== null);
+    this.embedder.setPipelineForTests(pipeline);
   }
 }

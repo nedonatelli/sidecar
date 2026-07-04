@@ -16,7 +16,7 @@ import { sidecarFetch } from './sidecarFetch.js';
 import { translateAnthropicStream } from './anthropicStreamTranslate.js';
 import { spendTracker } from './spendTracker.js';
 import { prunePrompt, formatPruneStats } from './promptPruner.js';
-import { charsToTokens } from '../config/tokenEstimation.js';
+import { estimateRequestTokens } from '../config/tokenEstimation.js';
 
 /** How long we'll wait on a rate-limit reset before telling the user to switch backends. */
 const MAX_RATE_LIMIT_WAIT_MS = 60_000;
@@ -64,16 +64,6 @@ export function maxOutputTokensForModel(model: string): number {
 export function supportsTemperature(model: string): boolean {
   const lower = model.toLowerCase();
   return TEMPERATURE_SUPPORTED_PREFIXES.some((prefix) => lower.startsWith(prefix));
-}
-
-/** Rough token estimate for a system+messages payload using the shared chars/token ratio. */
-function estimateRequestTokens(systemPrompt: string, messages: ChatMessage[], maxOutputTokens: number): number {
-  let chars = systemPrompt.length;
-  for (const m of messages) {
-    const c = m.content;
-    chars += typeof c === 'string' ? c.length : c.reduce((sum, b) => sum + JSON.stringify(b).length, 0);
-  }
-  return charsToTokens(chars) + maxOutputTokens;
 }
 
 /**

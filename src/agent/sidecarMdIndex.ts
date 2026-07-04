@@ -21,11 +21,10 @@
  */
 
 import { parseSidecarMd } from './sidecarMdParser.js';
-import { logger } from '../system/logger.js';
 import { FlatVectorStore } from '../config/vectorStore.js';
 import type { SidecarDir } from '../config/sidecarDir.js';
 import type { RetrievalHit } from './retrieval/retriever.js';
-import { MINILM_MODEL_ID as MODEL_ID, type EmbeddingPipeline, getSharedPipeline } from '../config/hfPipeline.js';
+import { type EmbeddingPipeline, LazyEmbedder } from '../config/hfPipeline.js';
 const DIMENSION = 384;
 const SCHEMA_VERSION = 1;
 const MAX_SECTION_CHARS = 6000;
@@ -49,8 +48,7 @@ function quickHash(s: string): string {
 
 export class SidecarMdIndex {
   private readonly store: FlatVectorStore<SectionMeta>;
-  private pipeline: EmbeddingPipeline | null = null;
-  private modelLoading: Promise<boolean> | null = null;
+  private embedder = new LazyEmbedder({ label: 'SidecarMdIndex', dimension: DIMENSION });
 
   constructor(sidecarDir: SidecarDir | null) {
     this.store = new FlatVectorStore<SectionMeta>(sidecarDir, {
@@ -68,7 +66,7 @@ export class SidecarMdIndex {
    * No-ops silently when the embedding model fails to load.
    */
   async update(content: string): Promise<void> {
-    if (!(await this.ensureModel())) return;
+    if (!(await this.embedder.ensureReady())) return;
 
     const parsed = parseSidecarMd(content);
     const currentIds = new Set<string>();
@@ -125,35 +123,12 @@ export class SidecarMdIndex {
     await this.store.restore();
   }
 
-  private async embed(text: string): Promise<Float32Array | null> {
-    if (!(await this.ensureModel()) || !this.pipeline) return null;
-    try {
-      const output = await this.pipeline([text], { pooling: 'mean', normalize: true });
-      return new Float32Array(output.data.slice(0, DIMENSION));
-    } catch {
-      return null;
-    }
-  }
-
-  private async ensureModel(): Promise<boolean> {
-    if (this.pipeline) return true;
-    if (this.modelLoading) return this.modelLoading;
-    this.modelLoading = (async () => {
-      try {
-        this.pipeline = await getSharedPipeline(MODEL_ID, { allowLocalModels: false });
-        return true;
-      } catch (err) {
-        logger.warn('[SidecarMdIndex] Embedding model failed to load:', err instanceof Error ? err.message : err);
-        this.modelLoading = null; // allow retry on next call
-        return false;
-      }
-    })();
-    return this.modelLoading;
+  private embed(text: string): Promise<Float32Array | null> {
+    return this.embedder.embed(text);
   }
 
   /** Test-only: inject a pre-built pipeline (or null to simulate load failure). */
   setPipelineForTests(pipeline: EmbeddingPipeline | null): void {
-    this.pipeline = pipeline;
-    this.modelLoading = Promise.resolve(pipeline !== null);
+    this.embedder.setPipelineForTests(pipeline);
   }
 }

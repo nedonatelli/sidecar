@@ -1,15 +1,15 @@
 import * as path from 'path';
 import { logger } from '../system/logger.js';
-import { commands, window, Uri, workspace, ExtensionContext } from 'vscode';
+import { commands, workspace, ExtensionContext } from 'vscode';
 import { EloStore } from '../arena/eloStore.js';
 import { openArena, openArenaAgent } from '../arena/arenaCommands.js';
 import type { SideCarClient } from '../ollama/client.js';
 import type { SidecarDir } from '../config/sidecarDir.js';
+import { createDefaultForkReviewUi } from '../agent/fork/forkReview.js';
 import type { ForkReviewDeps } from '../agent/fork/forkReview.js';
+import { silentCallbacks } from '../agent/diffReview/shared.js';
 import type { MCPManager } from '../agent/mcpManager.js';
-import { GitCLI } from '../github/git.js';
 import * as os from 'os';
-import * as fsPromises from 'fs/promises';
 import { getConfig } from '../config/settings.js';
 
 /**
@@ -48,44 +48,14 @@ export function registerArenaCommands(
     commands.registerCommand('sidecar.arena.agent', async (args?: { models?: string[]; task?: string }) => {
       const mainRoot = workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
 
-      const reviewDeps: ForkReviewDeps = {
-        ui: {
-          showQuickPick: (items, placeholder) =>
-            window.showQuickPick(items, { placeHolder: placeholder }) as Promise<(typeof items)[0] | undefined>,
-          showWarningConfirm: (message, confirmLabel) =>
-            Promise.resolve(window.showWarningMessage(message, { modal: true }, confirmLabel)),
-          showInfo: (msg) => {
-            void window.showInformationMessage(msg);
-          },
-          showError: (msg) => {
-            void window.showErrorMessage(msg);
-          },
-          openDiff: async (left: Uri, right: Uri, title: string) => {
-            await commands.executeCommand('vscode.diff', left, right, title);
-          },
-        },
-        mainRoot,
-        applyDiff: async (_root: string, diff: string) => {
-          const git = new GitCLI(mainRoot);
-          return git.applyPatch(diff);
-        },
-        writeTempFile: async (prefix: string, content: string) => {
-          const tmpPath = path.join(os.tmpdir(), `sidecar-arena-${prefix}-${Date.now()}.patch`);
-          await fsPromises.writeFile(tmpPath, content, 'utf-8');
-          return Uri.file(tmpPath);
-        },
-      };
-
-      const silentCallbacks = {
-        onText: () => undefined,
-        onToolCall: () => undefined,
-        onToolResult: () => undefined,
-        onDone: () => undefined,
-      };
+      // Use the canonical fork-review UI + the default staged apply-to-main path
+      // (diffReview/shared.ts) so Arena winners land exactly like Fork/Facets do —
+      // no bespoke unstaged apply that diverges from the single source of truth.
+      const reviewDeps: ForkReviewDeps = { ui: createDefaultForkReviewUi(), mainRoot };
 
       return openArenaAgent(
         { context, createClient, eloStore, preFilledModels: args?.models, preFilledTask: args?.task, mcpManager },
-        silentCallbacks,
+        silentCallbacks(),
         reviewDeps,
       );
     }),

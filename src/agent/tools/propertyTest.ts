@@ -1,9 +1,7 @@
-import * as fs from 'fs';
-import * as path from 'path';
 import type { ToolDefinition } from '../../ollama/types.js';
 import type { RegisteredTool } from './shared.js';
 import { getRoot } from './shared.js';
-import { getDefaultToolRuntime } from './runtime.js';
+import { requireSymbolGraph, makeGraphSourceReader, SYMBOL_GRAPH_UNAVAILABLE } from './graphToolSupport.js';
 import { synthesizeHypothesisTest, parsePropertyDeclarations } from '../propertyTests.js';
 
 // ---------------------------------------------------------------------------
@@ -52,20 +50,11 @@ export async function synthesizePropertyTest(input: Record<string, unknown>): Pr
   const func = typeof input.function === 'string' ? input.function.trim() : '';
   if (!file || !func) return 'Error: both `file` and `function` are required.';
 
-  const graph = getDefaultToolRuntime().symbolGraph;
+  const graph = requireSymbolGraph();
   if (!graph || graph.fileCount() === 0) {
-    return 'Symbol graph not available yet (workspace still indexing). Retry shortly.';
+    return SYMBOL_GRAPH_UNAVAILABLE;
   }
-  const root = getRoot();
-  const readSource = (f: string): string | undefined => {
-    const cached = graph.getFileContent(f);
-    if (cached) return cached;
-    try {
-      return fs.readFileSync(root && !path.isAbsolute(f) ? path.join(root, f) : f, 'utf-8');
-    } catch {
-      return undefined;
-    }
-  };
+  const readSource = makeGraphSourceReader(graph, getRoot());
 
   const content = readSource(file);
   if (!content) return `Error: could not read "${file}".`;

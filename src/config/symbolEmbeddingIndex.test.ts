@@ -487,7 +487,8 @@ describe('SymbolEmbeddingIndex', () => {
         await index.flushQueueForTests();
 
         expect(index.getCount()).toBe(2); // two succeeded, one failed
-        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Symbol embed failed'), expect.any(Error));
+        // The shared LazyEmbedder surfaces the per-item embed failure under its label.
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('embed failed'), expect.anything());
       } finally {
         warnSpy.mockRestore();
       }

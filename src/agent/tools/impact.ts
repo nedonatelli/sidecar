@@ -1,7 +1,7 @@
 import type { ToolDefinition } from '../../ollama/types.js';
 import type { RegisteredTool } from './shared.js';
 import type { ImpactedItem, ImpactSeed } from '../../config/symbolGraph.js';
-import { getDefaultToolRuntime } from './runtime.js';
+import { requireSymbolGraph } from './graphToolSupport.js';
 
 /**
  * `analyze_impact` — change-impact analysis over the symbol graph. Given the
@@ -58,7 +58,7 @@ export const analyzeImpactDef: ToolDefinition = {
 };
 
 export async function analyzeImpact(input: Record<string, unknown>): Promise<string> {
-  const graph = getDefaultToolRuntime().symbolGraph;
+  const graph = requireSymbolGraph();
   if (!graph || graph.fileCount() === 0) {
     return (
       'Symbol graph not available yet (workspace still indexing, or no indexed code files). ' +

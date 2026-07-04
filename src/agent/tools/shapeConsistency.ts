@@ -1,10 +1,8 @@
-import * as fs from 'fs';
-import * as path from 'path';
 import type { ToolDefinition } from '../../ollama/types.js';
 import type { RegisteredTool } from './shared.js';
 import { getRoot } from './shared.js';
-import { getDefaultToolRuntime } from './runtime.js';
-import { checkShapeConsistency, type SourceReader } from '../shapePropagation.js';
+import { requireSymbolGraph, makeGraphSourceReader, SYMBOL_GRAPH_UNAVAILABLE } from './graphToolSupport.js';
+import { checkShapeConsistency } from '../shapePropagation.js';
 
 /**
  * `check_shape_consistency` — propagate shape/dtype contracts and flag the
@@ -35,22 +33,13 @@ export const checkShapeConsistencyDef: ToolDefinition = {
 };
 
 export async function checkShapeConsistencyTool(input: Record<string, unknown>): Promise<string> {
-  const graph = getDefaultToolRuntime().symbolGraph;
+  const graph = requireSymbolGraph();
   if (!graph || graph.fileCount() === 0) {
-    return 'Symbol graph not available yet (workspace still indexing). Retry shortly.';
+    return SYMBOL_GRAPH_UNAVAILABLE;
   }
-  const root = getRoot();
   const file = typeof input.file === 'string' && input.file.trim() ? input.file.trim() : undefined;
 
-  const readSource: SourceReader = (f) => {
-    const cached = graph.getFileContent(f);
-    if (cached) return cached;
-    try {
-      return fs.readFileSync(root && !path.isAbsolute(f) ? path.join(root, f) : f, 'utf-8');
-    } catch {
-      return undefined;
-    }
-  };
+  const readSource = makeGraphSourceReader(graph, getRoot());
 
   const issues = checkShapeConsistency(graph, readSource, file ? { fileFilter: (f) => f === file } : undefined);
   const scope = file ?? 'workspace';

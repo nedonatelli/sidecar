@@ -2,6 +2,7 @@ import { window } from 'vscode';
 import { type LoadFacetsOutcome } from './facetDiskLoader.js';
 import { dispatchFacets, type FacetDispatchBatchResult, type FacetBatchProgressCallback } from './facetDispatcher.js';
 import { reviewFacetBatch, type FacetReviewDeps, type FacetReviewOutcome } from './facetReview.js';
+import { silentCallbacks } from '../diffReview/shared.js';
 import type { FacetDefinition } from './facetLoader.js';
 import type { SideCarClient } from '../../ollama/client.js';
 import type { AgentCallbacks, AgentOptions } from '../loop.js';
@@ -241,15 +242,6 @@ function summarizeBatch(ui: FacetCommandUi, batch: FacetDispatchBatchResult): vo
   const pieces = [`${ok} succeeded`];
   if (failed > 0) pieces.push(`${failed} failed`);
   ui.showInfo(`Facets: ${pieces.join(', ')}.`);
-}
-
-function silentCallbacks(): AgentCallbacks {
-  return {
-    onText: () => undefined,
-    onToolCall: () => undefined,
-    onToolResult: () => undefined,
-    onDone: () => undefined,
-  };
 }
 
 /**

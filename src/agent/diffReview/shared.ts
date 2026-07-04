@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
 import { GitCLI } from '../../github/git.js';
+import type { AgentCallbacks } from '../loop.js';
 
 // ---------------------------------------------------------------------------
 // Shared diff-review primitives used by both the Fork (single-winner) and
@@ -90,5 +91,18 @@ export function createBaseReviewUi(): BaseReviewUi {
     async openDiff(left, right, title) {
       await commands.executeCommand('vscode.diff', left, right, title, { preview: true });
     },
+  };
+}
+
+/**
+ * No-op agent callbacks for batch dispatch (Fork / Facets / Arena), where each
+ * run's streaming output is captured per-lane rather than surfaced live in chat.
+ */
+export function silentCallbacks(): AgentCallbacks {
+  return {
+    onText: () => undefined,
+    onToolCall: () => undefined,
+    onToolResult: () => undefined,
+    onDone: () => undefined,
   };
 }

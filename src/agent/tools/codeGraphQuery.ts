@@ -1,6 +1,6 @@
 import type { ToolDefinition } from '../../ollama/types.js';
 import type { RegisteredTool } from './shared.js';
-import { getDefaultToolRuntime } from './runtime.js';
+import { requireSymbolGraph, SYMBOL_GRAPH_UNAVAILABLE } from './graphToolSupport.js';
 
 // ---------------------------------------------------------------------------
 // `query_code_graph` — the code-graph query interface (strategy §4).
@@ -57,9 +57,9 @@ export async function queryCodeGraph(input: Record<string, unknown>): Promise<st
     ? (input.relation as Relation)
     : 'neighborhood';
 
-  const graph = getDefaultToolRuntime().symbolGraph;
+  const graph = requireSymbolGraph();
   if (!graph || graph.fileCount() === 0) {
-    return 'Symbol graph not available yet (workspace still indexing). Retry shortly.';
+    return SYMBOL_GRAPH_UNAVAILABLE;
   }
 
   const callers = (): string[] => graph.getCallers(symbol).map((e) => `${e.callerName} — ${e.callerFile}:${e.line}`);

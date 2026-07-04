@@ -8,7 +8,7 @@ import { RateLimitStore } from './rateLimitState.js';
 import { parseOpenAIRateLimitHeaders } from './rateLimitHeaders.js';
 import { sidecarFetch } from './sidecarFetch.js';
 import { prunePrompt, formatPruneStats } from './promptPruner.js';
-import { charsToTokens, estimateTokensFromText } from '../config/tokenEstimation.js';
+import { charsToTokens, estimateTokensFromText, estimateRequestTokens } from '../config/tokenEstimation.js';
 import { OllamaBackend } from './ollamaBackend.js';
 
 /** How long we'll wait on a rate-limit reset before bailing to the caller. */
@@ -35,15 +35,6 @@ function maxTokensKey(model: string): 'max_tokens' | 'max_completion_tokens' {
 /** o1/o3/o4/gpt-5 reasoning models reject the `temperature` parameter with a 400. */
 function supportsTemperature(model: string): boolean {
   return !/^o\d/i.test(model) && !/^gpt-5/i.test(model);
-}
-
-function estimateRequestTokens(systemPrompt: string, messages: ChatMessage[], maxOutputTokens: number): number {
-  let chars = systemPrompt.length;
-  for (const m of messages) {
-    const c = m.content;
-    chars += typeof c === 'string' ? c.length : c.reduce((sum, b) => sum + JSON.stringify(b).length, 0);
-  }
-  return charsToTokens(chars) + maxOutputTokens;
 }
 
 /**

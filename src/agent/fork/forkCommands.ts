@@ -1,6 +1,7 @@
 import { window } from 'vscode';
 import { dispatchForks, type ForkDispatchBatchResult, type ForkBatchProgressCallback } from './forkDispatcher.js';
 import { reviewForkBatch, type ForkReviewDeps, type ForkReviewOutcome } from './forkReview.js';
+import { silentCallbacks } from '../diffReview/shared.js';
 import type { SideCarClient } from '../../ollama/client.js';
 import type { AgentCallbacks, AgentOptions } from '../loop.js';
 
@@ -154,15 +155,6 @@ function summarizeBatch(ui: ForkCommandUi, batch: ForkDispatchBatchResult): void
   if (failed > 0) pieces.push(`${failed} failed`);
   const seconds = (batch.elapsedMs / 1000).toFixed(1);
   ui.showInfo(`Forks: ${pieces.join(', ')} in ${seconds}s.`);
-}
-
-function silentCallbacks(): AgentCallbacks {
-  return {
-    onText: () => undefined,
-    onToolCall: () => undefined,
-    onToolResult: () => undefined,
-    onDone: () => undefined,
-  };
 }
 
 /**
