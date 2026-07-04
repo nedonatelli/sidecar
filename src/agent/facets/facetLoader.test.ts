@@ -174,6 +174,13 @@ describe('builtInFacets — shape + baseline health', () => {
     expect(facets.length).toBeGreaterThan(0);
   });
 
+  it('ships exactly 9 built-in facets (keep CLAUDE.md + docs/guide-facets.md in sync)', () => {
+    // The "nine facets" claim in docs/guide-facets.md and the "9-facet baseline"
+    // in CLAUDE.md are this number. Bump both docs (and the guide's table) when
+    // this changes — this pin is what catches the drift.
+    expect(builtInFacets().length).toBe(9);
+  });
+
   it('every built-in has a valid id, displayName, and systemPrompt', () => {
     for (const f of builtInFacets()) {
       expect(f.id).toMatch(/^[a-z0-9][a-z0-9_-]*$/);

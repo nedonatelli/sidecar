@@ -156,8 +156,8 @@ describe('tools.ts', () => {
       // appends outside the registry — spawn_agent (always advertised) and
       // delegate_task (cloud + opt-in). Pinned so the docs can't silently
       // drift from the code again. Bump this AND the docs together when a
-      // tool is added/removed (see docs/tools-reference.md, index.html,
-      // model-recommendations.md, guide-cost-optimization.md, CLAUDE.md).
+      // tool is added/removed (see docs/tools-reference.md, docs/tool-inventory.md,
+      // index.html, model-recommendations.md, guide-cost-optimization.md, CLAUDE.md).
       // v0.116: +mutation_test (verify-the-verifier), +synthesize_property_test (§5 pillar 3),
       // +query_code_graph (code-graph query interface).
       const builtInNames = new Set([

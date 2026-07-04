@@ -404,10 +404,7 @@ export const gitSearchHistoryDef: ToolDefinition = {
   nondeterministicOutput: true,
 };
 
-export async function gitSearchHistory(
-  input: Record<string, unknown>,
-  context?: ToolExecutorContext,
-): Promise<string> {
+export async function gitSearchHistory(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   try {
     const query = (input.query as string | undefined)?.trim();
     if (!query) return 'Error: query is required.';

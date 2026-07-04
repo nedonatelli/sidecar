@@ -981,3 +981,53 @@ Structured project tracking for scientific or engineering research workflows. Pr
 | `sidecar.research.activeProject` | string  | `""`    | Name of the currently active project. Set automatically by `research_create_project` or the `/research` slash command |
 
 When enabled: `research_create_project`, `research_add_hypothesis`, `research_log_experiment`, `research_add_observation`, `research_update_hypothesis_status`, `research_set_project_status`, `research_list_projects`, and `research_export_report` are available to the agent. The Research sidebar panel provides a live tree view of all projects.
+
+## Completion gates — analysis (v0.115+)
+
+Domain-specific completion gates that block finishing a turn when the agent edited code of a given class without the corresponding verification. Complements the general `sidecar.completionGate.*` settings above. All default off.
+
+| Setting                           | Type    | Default | Description                                                                                                                                                |
+| --------------------------------- | ------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sidecar.codeGraph.impactGate`    | boolean | `false` | Block completion when the agent edits an exported symbol that has unverified cross-file dependents (uses the symbol graph's import-resolved impact set).   |
+| `sidecar.numericalContracts.gate` | boolean | `false` | Block completion when the agent edits a numerical kernel (array/tensor/quantity-typed params or returns) whose shape/dtype/unit contract is unstated.      |
+| `sidecar.analyticBounds.gate`     | boolean | `false` | Block completion when the agent edits a kernel that declares an analytic value bound (e.g. `# bounds: 0 <= result <= 1`) without a check proving it holds. |
+
+## Mutation Testing (v0.115+)
+
+Verify-the-verifier tooling: seeds single-point faults into a source file and reports which mutants survive the test suite (surviving mutants = gaps in the tests).
+
+| Setting                          | Type    | Default | Description                                                                                                |
+| -------------------------------- | ------- | ------- | ---------------------------------------------------------------------------------------------------------- |
+| `sidecar.mutation.enabled`       | boolean | `false` | Enable the `mutation_test` agent tool.                                                                     |
+| `sidecar.mutation.maxMutants`    | number  | `25`    | Cap on mutants generated + tested per run (the test command runs once per mutant, so this bounds runtime). |
+| `sidecar.mutation.testTimeoutMs` | number  | `60000` | Per-mutant test-run timeout (ms). A mutant whose run times out is counted as errored, not killed.          |
+
+## Scaffolding (keep-best & adaptive)
+
+Loop-safety scaffolding tuning. See also the scaffolding roadmap in `docs/`.
+
+| Setting                                         | Type    | Default | Description                                                                                                                                          |
+| ----------------------------------------------- | ------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sidecar.adaptiveScaffolding.enabled`           | boolean | `false` | Tune loop-safety scaffolding to the active model's capability tier — strong models relax (fewer reprompts, looser burst cap), weaker models tighten. |
+| `sidecar.scaffolding.keepBest`                  | boolean | `false` | Pareto-safe keep-best ratchet: snapshot files when scaffolding first drives extra work and revert if the extra work proved no test signal.           |
+| `sidecar.scaffolding.keepBestOverEngineerBytes` | number  | `0`     | Byte growth past which a scaffold-driven patch that improved no test signal is reverted as over-engineered. `0` = any unproven growth reverts.       |
+| `sidecar.scaffolding.cycleDetectionMinRepeats`  | number  | `10`    | Repeats of the same tool + file (content-aware) before the loop bails as a stuck cycle. Higher gives weak models more self-correction attempts.      |
+
+## AWS Bedrock
+
+Endpoint selection for the Bedrock backend. Auth is the AWS credential chain (see the Connection section), not an API key.
+
+| Setting                  | Type    | Default       | Description                                                                                                 |
+| ------------------------ | ------- | ------------- | ----------------------------------------------------------------------------------------------------------- |
+| `sidecar.bedrock.region` | string  | `"us-east-1"` | AWS region for the Bedrock Runtime endpoint (`bedrock-runtime.<region>.amazonaws.com`).                     |
+| `sidecar.bedrock.fips`   | boolean | `false`       | Use the Bedrock FIPS endpoint (`bedrock-runtime-fips.<region>.amazonaws.com`) instead of the standard host. |
+
+## Other feature flags
+
+| Setting                               | Type        | Default | Description                                                                                                                         |
+| ------------------------------------- | ----------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `sidecar.injectionGuard.enabled`      | boolean     | `true`  | Prompt-injection guard: scan tool output (files, web search, fetched URLs, shell/CI logs, tickets) for injection attempts and warn. |
+| `sidecar.agentSeed`                   | number/null | `null`  | Fixed RNG seed for reproducible generation (benchmarks / ablation). `null` leaves generation unseeded.                              |
+| `sidecar.evalHistory.enabled`         | boolean     | `false` | Enable the `query_history` agent tool (read-only SELECT over the local eval-history DB in `.sidecar/history/`).                     |
+| `sidecar.notebookMode.sources.webUrl` | boolean     | `true`  | Allow Notebook Mode to ingest sources from web URLs via `ingest_source`.                                                            |
+| `sidecar.whatsNew.enabled`            | boolean     | `true`  | Show a one-time release-notes notification after SideCar updates. The `SideCar: What's New` command works regardless of this flag.  |

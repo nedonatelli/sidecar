@@ -29,7 +29,7 @@ npx vitest run path/to/file.test.ts  # Run a single test file
 npm run lint              # ESLint
 npm run compile           # TypeScript type-check (tsc -p ./)
 npm run build             # compile + esbuild bundle + copy tree-sitter wasm grammars
-npm run check             # compile + lint + test (full CI check)
+npm run check             # compile + compile:bench + lint + format:check + test (full CI check)
 npm run package           # build + vsce package → .vsix
 ```
 
@@ -48,7 +48,7 @@ Pre-commit hooks (lint-staged via husky) run `prettier --write`, `eslint --max-w
 
 ### Extension Entry Point
 
-`src/extension.ts` — 135-line orchestrator that activates all subsystems and registers commands. Logic is fully extracted into focused modules under `src/activation/` (baseSetup, servicesInit, mcpSetup, warmup, workspaceIndexer, chatViewSetup, editorFeatures) and `src/commands/` (autoMode, settings, agent, prAndReview). `src/ui/statusBar.ts` owns status-bar state.
+`src/extension.ts` — thin orchestrator that activates all subsystems and registers commands. Logic is fully extracted into focused modules under `src/activation/` (baseSetup, servicesInit, mcpSetup, warmup, workspaceIndexer, chatViewSetup, editorFeatures) and `src/commands/` (autoMode, settings, agent, prAndReview). `src/ui/statusBar.ts` owns status-bar state.
 
 ### Backend Abstraction (`src/ollama/`)
 
@@ -63,7 +63,9 @@ ApiBackend (interface)
 ├── KickstandBackend   — /v1/chat/completions + /api/v1/models/* management
 ├── OpenRouterBackend  — OpenAI-compat + catalog + referrer headers
 ├── GroqBackend        — OpenAI-compat
-└── FireworksBackend   — OpenAI-compat
+├── FireworksBackend   — OpenAI-compat
+├── GeminiBackend      — OpenAI-compat (Google generativelanguage endpoint; overrides model listing)
+└── CopilotBackend     — GitHub Copilot API
 ```
 
 `BedrockBackend` reuses the Anthropic message/tool mapping and the shared `anthropicStreamTranslate.ts` (also used by `AnthropicBackend`); Bedrock-specific concerns are isolated in `awsSigV4.ts` (request signing, no AWS SDK), `awsEventStream.ts` (AWS event-stream frame decoding), and `awsCredentials.ts` (env / `~/.aws/credentials` resolution). Auth is the AWS credential chain, not an API key.
@@ -178,9 +180,9 @@ Scope is the agent's file-authoring surface only — shell commands still run no
 
 ### Typed Sub-Agent Facets (`src/agent/facets/`)
 
-v0.66+ dispatchable specialist system. A facet is a named sub-agent with a preferredModel, tool allowlist, system prompt, optional `dependsOn` edges, and optional RPC schema. Built-in catalog ships 8 specialists embedded in code (not loaded from disk — avoids a broken-unpack footgun). Users layer project or user facets on top via `<workspace>/.sidecar/facets/*.md` or `sidecar.facets.registry` paths.
+v0.66+ dispatchable specialist system. A facet is a named sub-agent with a preferredModel, tool allowlist, system prompt, optional `dependsOn` edges, and optional RPC schema. Built-in catalog ships 9 specialists embedded in code (not loaded from disk — avoids a broken-unpack footgun). Users layer project or user facets on top via `<workspace>/.sidecar/facets/*.md` or `sidecar.facets.registry` paths.
 
-- `facetLoader.ts` — `parseFacetFile(path, raw, source)` YAML-frontmatter parser, `FacetValidationError` with typed reason codes (`missing-frontmatter` / `missing-id` / `duplicate-id` / `unknown-dep` / `cycle` / `io-error`), `builtInFacets()` returning the 8-facet baseline.
+- `facetLoader.ts` — `parseFacetFile(path, raw, source)` YAML-frontmatter parser, `FacetValidationError` with typed reason codes (`missing-frontmatter` / `missing-id` / `duplicate-id` / `unknown-dep` / `cycle` / `io-error`), `builtInFacets()` returning the 9-facet baseline.
 - `facetRegistry.ts` — `buildFacetRegistry(facets)` validates duplicate ids + unknown deps + cycles (DFS 3-coloring) and computes topological layers. `mergeWithBuiltInFacets(overrides)` — disk facets with matching ids replace built-ins.
 - `facetDiskLoader.ts` — `loadFacetRegistry({ workspaceRoot, registryPaths, fsOverride? })` scans disk, merges with built-ins, returns a `LoadFacetsOutcome { registry, errors }`. Per-file parse errors never abort the load; registry-level failures fall back to built-ins only so the dispatcher is never empty.
 - `facetDispatcher.ts` — `dispatchFacet` runs one facet through `runAgentLoopInSandbox` with preferredModel pin+restore, allowlist → `toolOverride` + `modeToolPermissions`, system-prompt composition on top of the orchestrator's, `approvalMode: 'autonomous'`, `deferPrompt: true` (see Shadow Workspaces below). `dispatchFacets(client, registry, ids, callbacks, { task, maxConcurrent, rpcTimeoutMs, rpcHandlers })` walks the registry's topological layers with bounded parallelism; returns `{ results, rpcWireTrace }` in input order.
@@ -286,7 +288,7 @@ v0.95+ two-direction MCP delegation.
 
 ### Webview & Message Handlers (`src/webview/`)
 
-`chatView.ts` — 258-line WebviewViewProvider that hosts the chat panel. Routes incoming webview messages (typed union in `chatWebview.ts`) to handler modules under `src/webview/handlers/`:
+`chatView.ts` — WebviewViewProvider that hosts the chat panel. Routes incoming webview messages (typed union in `chatWebview.ts`) to handler modules under `src/webview/handlers/`:
 
 - `chatHandlers.ts` — thin orchestrator; pure logic extracted into submodules below
 - `dispatchHandlers.ts` — top-level message dispatcher; routes each message type to the right handler

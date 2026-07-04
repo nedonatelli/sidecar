@@ -168,10 +168,7 @@ describe('reviewForkBatchWithPanel', () => {
     vi.spyOn(window, 'createWebviewPanel').mockReturnValue(fake.panel as never);
     const applyDiff = vi.fn().mockResolvedValue('applied');
     const batch: ForkDispatchBatchResult = {
-      results: [
-        forkResult({ forkId: 'fork-0', index: 0 }),
-        forkResult({ forkId: 'fork-1', index: 1 }),
-      ],
+      results: [forkResult({ forkId: 'fork-0', index: 0 }), forkResult({ forkId: 'fork-1', index: 1 })],
     } as unknown as ForkDispatchBatchResult;
 
     const p = reviewForkBatchWithPanel(batch, makeForkDeps(applyDiff), ctx);
@@ -246,10 +243,7 @@ describe('reviewForkBatchWithPanel', () => {
     vi.spyOn(window, 'createWebviewPanel').mockReturnValue(fake.panel as never);
     const applyDiff = vi.fn().mockResolvedValue('applied');
     const batch: ForkDispatchBatchResult = {
-      results: [
-        forkResult({ forkId: 'fork-0', index: 0 }),
-        forkResult({ forkId: 'fork-1', index: 1 }),
-      ],
+      results: [forkResult({ forkId: 'fork-0', index: 0 }), forkResult({ forkId: 'fork-1', index: 1 })],
     } as unknown as ForkDispatchBatchResult;
 
     const p = reviewForkBatchWithPanel(batch, makeForkDeps(applyDiff), ctx);
