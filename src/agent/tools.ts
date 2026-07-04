@@ -533,3 +533,12 @@ export function findTool(
   if (sdk) return sdk;
   return mcpManager?.getTool(name);
 }
+
+/**
+ * True when a tool's result is trusted, pre-built HTML the chat webview may
+ * render as markup. Only built-in tools can declare `producesHtml`; MCP / SDK /
+ * custom tool output is always treated as untrusted text.
+ */
+export function toolProducesHtml(name: string): boolean {
+  return TOOL_REGISTRY.find((t) => t.definition.name === name)?.definition.producesHtml === true;
+}

@@ -222,6 +222,8 @@ export interface ExtensionMessage {
   toolName?: string;
   toolCallId?: string;
   isDiff?: boolean;
+  /** Set on `toolResult` when the content is trusted, pre-built HTML (render_viz / db_*). */
+  isHtml?: boolean;
   confirmId?: string;
   confirmActions?: string[];
   /** Unified diff to render inline in the confirm card. */

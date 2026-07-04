@@ -150,4 +150,31 @@ describe('chat webview message dispatcher', () => {
       expect(lastUserBubbleIndex()).toBe('2');
     });
   });
+
+  // Security: tool results are rendered as markup ONLY when the extension flags
+  // them isHtml. Content-sniffing (any output containing an SVG marker) was a
+  // UI-spoofing injection surface — reachable via read_file on a repo .svg.
+  describe('toolResult HTML gating (injection surface)', () => {
+    const SVG = '<svg xmlns="http://www.w3.org/2000/svg"><text>pwn</text></svg>';
+
+    it('renders untrusted SVG-bearing output as text, not markup', () => {
+      postToWebview({ command: 'toolResult', toolName: 'read_file', content: SVG /* isHtml omitted */ });
+      // No markup injected: the raw string shows as text, and no real <svg> node exists.
+      expect(messagesEl.querySelector('.tool-result-viz')).toBeNull();
+      expect(messagesEl.querySelector('svg')).toBeNull();
+      expect(messagesEl.textContent).toContain('<svg');
+    });
+
+    it('renders trusted HTML output as markup when isHtml is set', () => {
+      postToWebview({
+        command: 'toolResult',
+        toolName: 'db_query',
+        content: '<div class="sidecar-db-result"><table></table></div>',
+        isHtml: true,
+      });
+      const viz = messagesEl.querySelector('.tool-result-viz');
+      expect(viz).not.toBeNull();
+      expect(viz!.querySelector('table')).not.toBeNull();
+    });
+  });
 });

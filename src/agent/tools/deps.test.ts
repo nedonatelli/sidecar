@@ -97,8 +97,11 @@ describe('check_dependencies', () => {
     await checkDependencies({ ecosystem: 'npm', checkVulnerabilities: false });
 
     expect(findFiles).toHaveBeenCalled();
-    // checkVulnerabilities:false must reach the scanner.
-    expect(h.scan).toHaveBeenCalledWith(expect.any(Array), { checkVulnerabilities: false });
+    // checkVulnerabilities:false must reach the scanner (alongside the timeout signal).
+    expect(h.scan).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({ checkVulnerabilities: false, signal: expect.any(AbortSignal) }),
+    );
   });
 
   it('surfaces a per-manifest scan error in the report', async () => {
@@ -108,5 +111,21 @@ describe('check_dependencies', () => {
     h.scan.mockResolvedValue([{ manifestPath: 'package.json', ecosystem: 'npm', deps: [], error: 'parse failed' }]);
     const out = await checkDependencies({});
     expect(out).toContain('Error: parse failed');
+  });
+
+  it('passes a timeout AbortSignal to the scanner and combines it with the turn signal', async () => {
+    vi.spyOn(workspace, 'findFiles').mockImplementation(async (pattern: unknown) =>
+      String(pattern).includes('package.json') ? [uri('/mock-workspace/package.json')] : [],
+    );
+    h.scan.mockResolvedValue([]);
+
+    await checkDependencies({});
+    const optsNoTurn = h.scan.mock.calls[0][1] as { signal?: AbortSignal };
+    expect(optsNoTurn.signal).toBeInstanceOf(AbortSignal);
+
+    h.scan.mockClear();
+    await checkDependencies({}, { signal: AbortSignal.abort() } as never);
+    const optsAborted = h.scan.mock.calls[0][1] as { signal?: AbortSignal };
+    expect(optsAborted.signal!.aborted).toBe(true);
   });
 });

@@ -1,6 +1,6 @@
 import { workspace, Uri } from 'vscode';
 import type { ToolDefinition } from '../../ollama/types.js';
-import { getRootUri, type ToolExecutorContext, type RegisteredTool } from './shared.js';
+import { getRootUri, hasShellMetachar, shellQuote, type ToolExecutorContext, type RegisteredTool } from './shared.js';
 import { getDefaultToolRuntime } from './runtime.js';
 import { getConfig } from '../../config/settings.js';
 
@@ -35,10 +35,13 @@ async function detectEcosystem(): Promise<Ecosystem | null> {
 }
 
 function buildCommand(eco: Ecosystem, script: string | undefined): string | null {
+  // `script` is model-controlled and interpolated into a shell string, so
+  // single-quote it (the caller also rejects shell metacharacters first).
+  const q = script ? shellQuote(script) : '';
   switch (eco) {
     case 'python':
       if (!script) return null;
-      return `python -m cProfile -s cumulative "${script}"`;
+      return `python -m cProfile -s cumulative ${q}`;
     case 'go':
       return 'go test -bench=. -run=^$ -benchmem ./...';
     case 'rust':
@@ -46,7 +49,7 @@ function buildCommand(eco: Ecosystem, script: string | undefined): string | null
     case 'node':
       if (!script) return null;
       // Run with --prof, then process the generated isolate log, then clean up
-      return `node --prof "${script}" 2>&1 && PROF_LOG=$(ls -t isolate-*.log 2>/dev/null | head -1) && [ -n "$PROF_LOG" ] && node --prof-process "$PROF_LOG" 2>&1; rm -f isolate-*.log 2>/dev/null; true`;
+      return `node --prof ${q} 2>&1 && PROF_LOG=$(ls -t isolate-*.log 2>/dev/null | head -1) && [ -n "$PROF_LOG" ] && node --prof-process "$PROF_LOG" 2>&1; rm -f isolate-*.log 2>/dev/null; true`;
   }
 }
 
@@ -146,6 +149,9 @@ export async function profileCode(input: Record<string, unknown>, context?: Tool
 
   const topN = Math.max(1, (input.top_n as number | undefined) ?? cfg.profilingTopN);
   const scriptInput = input.script as string | undefined;
+  if (scriptInput && hasShellMetachar(scriptInput)) {
+    return 'Error: `script` contains shell metacharacters. Pass a plain file path (e.g. "src/app.py").';
+  }
 
   let eco: Ecosystem;
   if (input.ecosystem && input.ecosystem !== 'auto') {

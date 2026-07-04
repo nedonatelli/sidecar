@@ -16,6 +16,7 @@ import { withFileLock } from './fileLock.js';
 import { detectIrrecoverable } from './executor/irrecoverableDetector.js';
 import { WRITE_TOOLS, NATIVE_MODAL_APPROVAL_TOOLS, resolveApprovalNeeded } from './executor/permissionsGate.js';
 import { runHook } from './executor/hookRunner.js';
+import { validateToolInput } from './executor/inputValidator.js';
 import { handleReviewModeTool, computePendingOverlay, REVIEW_OVERLAY_TOOLS } from './executor/reviewModeHandler.js';
 import { getActivePolicy, mergePermLevel } from './policy/policyLoader.js';
 
@@ -118,6 +119,21 @@ export async function executeTool(
         `Error: the JSON input for tool '${toolUse.name}' was malformed and could not be parsed. ` +
         `Please retry with valid JSON — double-check that strings are properly quoted, ` +
         `braces are balanced, and no characters were truncated.\n\nRaw input received:\n${truncated}`,
+      is_error: true,
+    };
+  }
+
+  // --- Validate input shape against the tool's declared schema ---
+  // Catches missing required params and string/array type mismatches before the
+  // executor runs, so the model gets a named error instead of an opaque
+  // downstream TypeError (e.g. `content: 123` → "argument must be of type string").
+  const schemaError = validateToolInput(toolUse.input, tool.definition.input_schema);
+  if (schemaError) {
+    logger?.warn(`Tool ${toolUse.name} input failed schema validation: ${schemaError}`);
+    return {
+      type: 'tool_result',
+      tool_use_id: toolUse.id,
+      content: `Error: invalid input for tool '${toolUse.name}' — ${schemaError}. Retry with input matching the tool's parameters.`,
       is_error: true,
     };
   }

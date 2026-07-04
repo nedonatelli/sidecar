@@ -38,6 +38,7 @@ function buildQuery(filter: string, maxIssues: number): string {
 export async function fetchLinearIssues(
   config: ContextProviderConfig,
   fetchFn: typeof fetch = fetch,
+  signal?: AbortSignal,
 ): Promise<ContextProviderResult> {
   const providerLabel = 'Linear';
 
@@ -58,6 +59,7 @@ export async function fetchLinearIssues(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ query: buildQuery(config.filter, config.maxIssues || 5) }),
+      signal,
     });
 
     if (!res.ok) {

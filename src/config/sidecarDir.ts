@@ -14,6 +14,9 @@ import * as path from 'path';
 export class SidecarDir {
   private root: string | null = null;
   private initialized = false;
+  /** Per-subpath tail of in-flight appendJsonl operations, to serialize the
+   *  read-modify-write so overlapping appends don't drop each other's lines. */
+  private appendChains = new Map<string, Promise<void>>();
 
   /** Subdirectories created on first access (lazy). */
   private static readonly SUBDIRS = [
@@ -137,16 +140,30 @@ export class SidecarDir {
 
   /** Append a line to a JSONL file (for logs). */
   async appendJsonl(subpath: string, data: unknown): Promise<void> {
-    await this.ensureParentSubdir(subpath);
-    const uri = this.getUri(subpath);
-    const line = JSON.stringify(data) + '\n';
-    try {
-      const existing = await workspace.fs.readFile(uri);
-      await workspace.fs.writeFile(uri, Buffer.concat([existing, Buffer.from(line, 'utf-8')]));
-    } catch {
-      // File doesn't exist yet — create it
-      await workspace.fs.writeFile(uri, Buffer.from(line, 'utf-8'));
-    }
+    const run = async (): Promise<void> => {
+      await this.ensureParentSubdir(subpath);
+      const uri = this.getUri(subpath);
+      const line = JSON.stringify(data) + '\n';
+      try {
+        const existing = await workspace.fs.readFile(uri);
+        await workspace.fs.writeFile(uri, Buffer.concat([existing, Buffer.from(line, 'utf-8')]));
+      } catch {
+        // File doesn't exist yet — create it
+        await workspace.fs.writeFile(uri, Buffer.from(line, 'utf-8'));
+      }
+    };
+    // Serialize appends to the same file: this is a read-modify-write, so two
+    // overlapping calls would both read the same base and the second write would
+    // clobber the first's line. Chaining on the previous append (which is stored
+    // as a never-rejecting tail so one failure can't poison the queue) keeps them
+    // ordered. Concurrent tool batches and Arena's N-lane fan-out hit this path.
+    const prev = this.appendChains.get(subpath) ?? Promise.resolve();
+    const mine = prev.then(run);
+    this.appendChains.set(
+      subpath,
+      mine.catch(() => undefined),
+    );
+    return mine;
   }
 
   /** Write a text file (for plans, specs, markdown). */

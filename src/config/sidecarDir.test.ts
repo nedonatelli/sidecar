@@ -124,6 +124,40 @@ describe('SidecarDir', () => {
     expect(written).toContain('"b":2');
   });
 
+  it('serializes concurrent appends without dropping lines', async () => {
+    await dir.initialize();
+    // Stateful in-memory file so the read-modify-write is realistic. The
+    // `await Promise.resolve()` gaps let overlapping calls interleave, which
+    // would make the un-serialized version lose all but the last line.
+    let fileContent: Buffer | null = null;
+    mockFs.readFile.mockImplementation(async () => {
+      await Promise.resolve();
+      if (fileContent === null) throw new Error('ENOENT');
+      return fileContent;
+    });
+    mockFs.writeFile.mockImplementation(async (_uri: unknown, buf: Buffer) => {
+      await Promise.resolve();
+      fileContent = buf;
+    });
+
+    await Promise.all(Array.from({ length: 10 }, (_, i) => dir.appendJsonl('logs/api.jsonl', { i })));
+
+    const lines = fileContent!.toString().trim().split('\n');
+    expect(lines).toHaveLength(10);
+    const ids = lines.map((l) => JSON.parse(l).i).sort((a, b) => a - b);
+    expect(ids).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  });
+
+  it('a failed append does not poison later appends to the same file', async () => {
+    await dir.initialize();
+    mockFs.readFile.mockRejectedValue(new Error('ENOENT'));
+    mockFs.writeFile.mockRejectedValueOnce(new Error('disk full')).mockResolvedValue(undefined);
+
+    await expect(dir.appendJsonl('logs/api.jsonl', { a: 1 })).rejects.toThrow('disk full');
+    // The next append still runs rather than being stuck behind the rejected tail.
+    await expect(dir.appendJsonl('logs/api.jsonl', { b: 2 })).resolves.toBeUndefined();
+  });
+
   it('writeText writes UTF-8 content', async () => {
     await dir.initialize();
     await dir.writeText('plans/foo.md', '# Plan');

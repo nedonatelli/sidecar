@@ -2,6 +2,7 @@ import type { ChatState } from '../chatState.js';
 import { logger } from '../../system/logger.js';
 import type { ChatMessage } from '../../ollama/types.js';
 import type { AgentCallbacks } from '../../agent/loop.js';
+import { toolProducesHtml } from '../../agent/tools.js';
 import { getConfig } from '../../config/settings.js';
 import type { PlanStore } from '../../agent/plans/planStore.js';
 import { extractGoal } from '../../agent/plans/planStore.js';
@@ -106,9 +107,14 @@ export function createAgentCallbacks(
       }
     },
     onToolResult: (name, result, isError, id) => {
+      // Only tools that declare producesHtml emit trusted markup; the webview
+      // renders HTML solely on this flag, never by sniffing content. HTML output
+      // is sent in full (truncating would corrupt the markup); everything else
+      // is previewed.
+      const isHtml = toolProducesHtml(name);
       const preview =
-        result.length > TOOL_RESULT_PREVIEW_MAX ? result.slice(0, TOOL_RESULT_PREVIEW_MAX) + '...' : result;
-      state.postMessage({ command: 'toolResult', toolName: name, toolCallId: id, content: preview });
+        !isHtml && result.length > TOOL_RESULT_PREVIEW_MAX ? result.slice(0, TOOL_RESULT_PREVIEW_MAX) + '...' : result;
+      state.postMessage({ command: 'toolResult', toolName: name, toolCallId: id, content: preview, isHtml });
       const durationMs = state.metricsCollector.getToolDuration();
       state.metricsCollector.recordToolEnd(name, isError);
       state.auditLog?.recordToolResult(name, id, result, isError, durationMs);

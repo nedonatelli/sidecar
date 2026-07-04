@@ -451,6 +451,7 @@ export const databaseTools: RegisteredTool[] = [
   {
     definition: {
       name: 'db_query',
+      producesHtml: true,
       description:
         'Run a read-only parameterized SQL query against a database connection. ' +
         'Only SELECT and other read-only statements are permitted — INSERT/UPDATE/DELETE/DROP/ALTER/CREATE are blocked. ' +
@@ -486,6 +487,7 @@ export const databaseTools: RegisteredTool[] = [
   {
     definition: {
       name: 'db_execute',
+      producesHtml: true,
       description:
         'Execute a write SQL statement (INSERT, UPDATE, DELETE, DDL) on a database connection. ' +
         'Requires the connection profile to have readOnly set to false. ' +
