@@ -33,6 +33,14 @@ describe('armConfigOverrides', () => {
     expect(c.autoFixOnFailure).toBe(false);
   });
 
+  it('scaffold-on-ratchet is scaffold-on plus the keep-best ratchet', () => {
+    const r = armConfigOverrides('scaffold-on-ratchet');
+    expect(r.keepBestRatchetEnabled).toBe(true);
+    expect(r.criticEnabled).toBe(true);
+    expect(r.completionGateEnabled).toBe(true);
+    expect(r.autoFixOnFailure).toBe(true);
+  });
+
   it('returns a fresh object each call (no shared mutable state)', () => {
     const a = armConfigOverrides('scaffold-on');
     a.criticEnabled = false;
@@ -42,5 +50,6 @@ describe('armConfigOverrides', () => {
   it('describes each arm', () => {
     expect(armDescription('scaffold-on')).toContain('critic');
     expect(armDescription('scaffold-off')).toContain('bare loop');
+    expect(armDescription('scaffold-on-ratchet')).toContain('ratchet');
   });
 });

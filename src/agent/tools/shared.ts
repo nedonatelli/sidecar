@@ -148,6 +148,23 @@ export interface ToolExecutorContext {
    * in non-loop calls, where the guard is skipped.
    */
   filesEditedViaEditTool?: Set<string>;
+  /**
+   * Per-path signature of the most recent `edit_file` call that failed with
+   * "search and replace text are identical" or "search string not found" —
+   * both are unrecoverable-without-more-info failures where the tool can only
+   * show a hint, not safely auto-apply a guess. A small/weak model frequently
+   * resubmits the EXACT same failing call rather than adapting to the hint
+   * (observed: gemma4:e4b repeating an identical search===replace call twice
+   * before cycle detection bailed the run with zero edits ever landing).
+   * `edit_file` checks this before erroring: if the incoming call's signature
+   * matches what's stored for this path, the model is stuck in a loop, so the
+   * error escalates to a blunt, explicit instruction instead of repeating the
+   * same hint verbatim. Cleared on a successful edit to that path. Threaded
+   * from `LoopState.editFailureSignatures`; absent in unit tests / non-loop
+   * calls, where the escalation is simply skipped (every failure looks "first
+   * time").
+   */
+  editFailureSignatures?: Map<string, string>;
 }
 
 export interface ToolExecutor {

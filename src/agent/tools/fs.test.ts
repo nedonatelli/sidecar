@@ -189,6 +189,181 @@ describe('editFile audit mode', () => {
   });
 });
 
+describe('editFile repeated-failure escalation', () => {
+  // Root-caused via a local SWE-bench repro: gemma4:e4b submitted an identical
+  // search===replace edit_file call twice in a row (same hint both times,
+  // no self-correction), then cycle detection bailed the run with zero edits
+  // ever landing. search===replace carries NO information about the intended
+  // change (both fields are identical), so the only lever there is a blunter
+  // message + a more precise (grep, line-numbered) hint on repeat.
+  //
+  // search-not-found is different: findIntentTarget has real signal (the
+  // `replace` text's keyword overlap with a DIFFERENT existing region), just
+  // gated behind a confidence threshold. A follow-up repro showed the model
+  // re-reading the file after the escalation but still resubmitting the same
+  // failing call — re-running the SAME deterministic check at the SAME
+  // threshold would reject again for the same reason, so a verbatim 3rd
+  // failure retries at a LOOSENED threshold and auto-applies if it now finds
+  // a (lower-confidence, clearly disclosed) candidate.
+  let buf: AuditBuffer;
+
+  beforeEach(() => {
+    buf = new AuditBuffer();
+    __setDefaultAuditBufferForTests(buf);
+  });
+
+  afterEach(() => {
+    __setDefaultAuditBufferForTests(null);
+  });
+
+  it('search===replace: first failure is the normal hint, an identical repeat escalates', async () => {
+    const context = { config: { agentMode: 'audit' } as never, editFailureSignatures: new Map<string, string>() };
+    await buf.write('src/dup.ts', 'const line = 1;\nconst other = 2;\n', async () => undefined);
+    const call = { path: 'src/dup.ts', search: 'const line = 1;', replace: 'const line = 1;' };
+
+    const first = await editFile(call, context);
+    expect(first).toContain('identical');
+    expect(first).not.toContain('AGAIN');
+
+    const second = await editFile(call, context);
+    expect(second).toContain('AGAIN');
+    expect(second).toContain('read_file');
+  });
+
+  it('a DIFFERENT search/replace pair after a failure does not escalate', async () => {
+    const context = { config: { agentMode: 'audit' } as never, editFailureSignatures: new Map<string, string>() };
+    await buf.write('src/dup2.ts', 'const line = 1;\nconst other = 2;\n', async () => undefined);
+    await editFile({ path: 'src/dup2.ts', search: 'const line = 1;', replace: 'const line = 1;' }, context);
+    const different = await editFile(
+      { path: 'src/dup2.ts', search: 'const other = 2;', replace: 'const other = 2;' },
+      context,
+    );
+    expect(different).toContain('identical');
+    expect(different).not.toContain('AGAIN');
+  });
+
+  it('search-not-found: an identical repeat escalates too', async () => {
+    const context = { config: { agentMode: 'audit' } as never, editFailureSignatures: new Map<string, string>() };
+    await buf.write('src/notfound.ts', 'const keep = 1;\n', async () => undefined);
+    const call = { path: 'src/notfound.ts', search: 'totally missing text', replace: 'new text' };
+
+    const first = await editFile(call, context);
+    expect(first).toContain('search string not found');
+    expect(first).not.toContain('AGAIN');
+
+    const second = await editFile(call, context);
+    expect(second).toContain('AGAIN');
+  });
+
+  it('a successful edit clears the failure signature so a later identical failure does not spuriously escalate', async () => {
+    const context = { config: { agentMode: 'audit' } as never, editFailureSignatures: new Map<string, string>() };
+    await buf.write('src/clear.ts', 'const a = 1;\nconst b = 2;\n', async () => undefined);
+    const badCall = { path: 'src/clear.ts', search: 'const a = 1;', replace: 'const a = 1;' };
+
+    await editFile(badCall, context); // fails, records the signature
+    await editFile({ path: 'src/clear.ts', search: 'const b = 2;', replace: 'const b = 99;' }, context); // succeeds, clears it
+
+    const repeatBad = await editFile(badCall, context);
+    expect(repeatBad).toContain('identical');
+    expect(repeatBad).not.toContain('AGAIN');
+  });
+
+  it('never escalates when the tracker is absent (unit tests / non-loop calls)', async () => {
+    const context = { config: { agentMode: 'audit' } as never }; // no editFailureSignatures
+    await buf.write('src/notracker.ts', 'const line = 1;\n', async () => undefined);
+    const call = { path: 'src/notracker.ts', search: 'const line = 1;', replace: 'const line = 1;' };
+    const first = await editFile(call, context);
+    const second = await editFile(call, context);
+    expect(first).not.toContain('AGAIN');
+    expect(second).not.toContain('AGAIN');
+  });
+
+  it('disk mode (non-audit): an identical search-not-found repeat escalates', async () => {
+    const { workspace } = await import('vscode');
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from('const keep = 1;\n') as never);
+    const context = { editFailureSignatures: new Map<string, string>() };
+    const call = { path: 'src/disk-notfound.ts', search: 'totally missing text', replace: 'new text' };
+
+    const first = await editFile(call, context);
+    expect(first).toContain('search string not found');
+    expect(first).not.toContain('AGAIN');
+
+    const second = await editFile(call, context);
+    expect(second).toContain('AGAIN');
+    vi.restoreAllMocks();
+  });
+
+  it('search-not-found: a 3rd identical repeat auto-repairs via a loosened confidence match', async () => {
+    // "alpha" is the only one of 5 candidate words (alpha/beta/gamma/delta/
+    // epsilon) present near the target line: score=1 passes the loosened 20%
+    // threshold (ceil(5*0.2)=1) but not the default 40% (ceil(5*0.4)=2) —
+    // exactly the gap the 3rd-strike retry is designed to cross.
+    const context = { config: { agentMode: 'audit' } as never, editFailureSignatures: new Map<string, string>() };
+    const fileContent = 'function foo() {\n  alpha zzzz zzzz zzzz zzzz;\n  return 1;\n}\n';
+    await buf.write('src/loose.ts', fileContent, async () => undefined);
+    const call = { path: 'src/loose.ts', search: 'totally missing text', replace: 'alpha beta gamma delta epsilon' };
+
+    const first = await editFile(call, context);
+    expect(first).toContain('search string not found');
+    expect(first).not.toContain('AGAIN');
+
+    const second = await editFile(call, context);
+    expect(second).toContain('AGAIN');
+    expect(second).not.toContain('Auto-repaired');
+
+    const third = await editFile(call, context);
+    expect(third).toContain('Auto-repaired');
+    expect(third).toContain('3 identical failed attempts');
+    expect(third).toContain('VERIFY');
+    const state = buf.read('src/loose.ts');
+    expect(state.content).toContain('alpha beta gamma delta epsilon');
+    expect(state.content).not.toContain('zzzz zzzz zzzz zzzz');
+  });
+
+  it('disk mode: a 3rd identical repeat auto-repairs via a loosened confidence match', async () => {
+    const { workspace } = await import('vscode');
+    const fileContent = 'function foo() {\n  alpha zzzz zzzz zzzz zzzz;\n  return 1;\n}\n';
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(fileContent) as never);
+    const writeSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined as never);
+    const context = { editFailureSignatures: new Map<string, string>() };
+    const call = {
+      path: 'src/disk-loose.ts',
+      search: 'totally missing text',
+      replace: 'alpha beta gamma delta epsilon',
+    };
+
+    await editFile(call, context); // 1st
+    await editFile(call, context); // 2nd (AGAIN)
+    const third = await editFile(call, context); // 3rd (auto-repair)
+    expect(third).toContain('Auto-repaired');
+    expect(writeSpy).toHaveBeenCalledTimes(1);
+    const written = Buffer.from(writeSpy.mock.calls[0][1] as Uint8Array).toString('utf-8');
+    expect(written).toContain('alpha beta gamma delta epsilon');
+    vi.restoreAllMocks();
+  });
+
+  it('search===replace: a 2nd+ repeat prefers a precise grep-based hint over the fuzzy nearest-match block', async () => {
+    const context = { config: { agentMode: 'audit' } as never, editFailureSignatures: new Map<string, string>() };
+    // No leading indentation on the target line — must match `search`
+    // verbatim so findIntentTarget's steer attempt finds intentTarget===search
+    // (a true no-op) and correctly falls through to escalation, rather than
+    // succeeding on a whitespace-shifted "different" string by accident.
+    const fileContent = 'function foo() {\nconst distinctiveMarker = 1;\nreturn distinctiveMarker;\n}\n';
+    await buf.write('src/grephint.ts', fileContent, async () => undefined);
+    const call = {
+      path: 'src/grephint.ts',
+      search: 'const distinctiveMarker = 1;',
+      replace: 'const distinctiveMarker = 1;',
+    };
+
+    await editFile(call, context); // 1st: normal hint
+    const second = await editFile(call, context); // 2nd: escalated, grep-preferred hint
+    expect(second).toContain('AGAIN');
+    expect(second).toContain('Grep for');
+    expect(second).toMatch(/line \d+:/);
+  });
+});
+
 describe('readFile audit mode', () => {
   let buf: AuditBuffer;
   let getConfigSpy: ReturnType<typeof vi.spyOn>;

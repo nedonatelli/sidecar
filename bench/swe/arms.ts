@@ -49,10 +49,18 @@ const SCAFFOLD_OFF: ArmOverrides = {
 const GATE_ONLY: ArmOverrides = { ...SCAFFOLD_OFF, completionGateEnabled: true };
 const CRITIC_ONLY: ArmOverrides = { ...SCAFFOLD_OFF, criticEnabled: true };
 
+// scaffold-on + the keep-best ratchet (scaffold 2.0.1 default: any unproven
+// scaffold-tail growth reverts). Not yet in SCAFFOLD_ON itself (see
+// docs/scaffold-versions.md's 2.0.0 note) — a separate arm isolates the
+// ratchet's effect on the established scaffold-on behavior.
+const SCAFFOLD_ON_RATCHET: ArmOverrides = { ...SCAFFOLD_ON, keepBestRatchetEnabled: true };
+
 export function armConfigOverrides(arm: ArmName): ArmOverrides {
   switch (arm) {
     case 'scaffold-on':
       return { ...SCAFFOLD_ON };
+    case 'scaffold-on-ratchet':
+      return { ...SCAFFOLD_ON_RATCHET };
     case 'gate-only':
       return { ...GATE_ONLY };
     case 'critic-only':
@@ -67,6 +75,8 @@ export function armDescription(arm: ArmName): string {
   switch (arm) {
     case 'scaffold-on':
       return 'critic + completion gate + auto-fix + impact/numerical gates + adaptive intensity';
+    case 'scaffold-on-ratchet':
+      return 'scaffold-on + keep-best ratchet (reverts unproven scaffold-tail growth)';
     case 'gate-only':
       return 'completion gate only (all other verification scaffolds off)';
     case 'critic-only':

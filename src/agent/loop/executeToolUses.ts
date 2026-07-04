@@ -221,6 +221,7 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
       writeHistoryByFile: state.writeHistoryByFile,
       writesSinceVerifyByFile: state.writesSinceVerifyByFile,
       filesEditedViaEditTool: state.filesEditedViaEditTool,
+      editFailureSignatures: state.editFailureSignatures,
     },
     inlineEditFn: options.inlineEditFn,
     streamingDiffPreviewFn: options.streamingDiffPreviewFn,

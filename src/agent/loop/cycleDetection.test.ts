@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { stubLoopState, stubCallbacks } from './testHelpers.js';
 import { exceedsBurstCap, detectCycleAndBail } from './cycleDetection.js';
 import type { LoopState } from './state.js';
+import type { SideCarConfig } from '../../config/settings.js';
 import type { ToolUseContentBlock } from '../../ollama/types.js';
 
 // ---------------------------------------------------------------------------
@@ -21,6 +22,21 @@ import type { ToolUseContentBlock } from '../../ollama/types.js';
 
 function makeToolUse(name: string, input: Record<string, unknown> = {}): ToolUseContentBlock {
   return { type: 'tool_use', id: `tu-${name}-${JSON.stringify(input)}`, name, input };
+}
+
+/**
+ * The normalized-signature threshold is now user-configurable (default 10,
+ * was a fixed 3). Most existing tests below exercise the MECHANISM (repeat
+ * detection, exemptions, window eviction) rather than the specific default
+ * value, so they pin `cycleDetectionMinRepeats: 3` to keep testing the same
+ * call-count shape they were written against. New tests further down cover
+ * the actual default (10) and the window auto-scaling explicitly.
+ */
+function stubLoopStateWithMinRepeats(n: number, overrides: Partial<LoopState> = {}): LoopState {
+  return stubLoopState({
+    ...overrides,
+    config: { ...(overrides.config as SideCarConfig | undefined), cycleDetectionMinRepeats: n } as SideCarConfig,
+  });
 }
 
 describe('exceedsBurstCap', () => {
@@ -82,7 +98,7 @@ describe('detectCycleAndBail', () => {
   it('returns true when the same signature fires 3 times (normalized pass fires before exact at 4)', () => {
     // Identical calls have identical secondary args, so the normalized check fires
     // at 3 (secondary hash repeats on call 2) before the exact check fires at 4.
-    const state = stubLoopState();
+    const state = stubLoopStateWithMinRepeats(3);
     const cb = stubCallbacks();
     const call = [makeToolUse('ls', { dir: '.' })];
     let bailed = false;
@@ -102,7 +118,7 @@ describe('detectCycleAndBail', () => {
     // to be the distinguishing check — but the 4-repeat exact behavior still exists.)
     // This test confirms the exact check is still in place via logger call count.
     const warn = vi.fn();
-    const state = stubLoopState({
+    const state = stubLoopStateWithMinRepeats(3, {
       logger: { warn, info: vi.fn(), debug: vi.fn(), error: vi.fn() } as unknown as LoopState['logger'],
     });
     const cb = stubCallbacks();
@@ -176,7 +192,11 @@ describe('detectCycleAndBail', () => {
   });
 
   it('trims the ring buffer at CYCLE_WINDOW=8 entries', () => {
-    const state = stubLoopState();
+    // Window = (cycleDetectionMinRepeats + 1) + REPEAT_WINDOW_MARGIN. Pin
+    // minRepeats=2 to reproduce the exact window size (3+5=8) this test was
+    // originally written against — the assertions below test ring-buffer
+    // eviction mechanics, not the configured threshold itself.
+    const state = stubLoopStateWithMinRepeats(2);
     const cb = stubCallbacks();
     for (let i = 0; i < 10; i++) {
       detectCycleAndBail([makeToolUse(`t${i}`)], state, cb);
@@ -228,7 +248,7 @@ describe('detectCycleAndBail — normalized signature pass', () => {
 
   it('fires when same file is edited and a previous search/replace is reused', () => {
     // If secondary args repeat (agent tried the same edit twice), it is stuck.
-    const state = stubLoopState();
+    const state = stubLoopStateWithMinRepeats(3);
     const cb = stubCallbacks();
     const edit0 = [makeToolUse('edit_file', { path: 'src/auth.ts', search: 'foo0', replace: 'bar0' })];
     const edit1 = [makeToolUse('edit_file', { path: 'src/auth.ts', search: 'foo1', replace: 'bar1' })];
@@ -297,7 +317,7 @@ describe('detectCycleAndBail — normalized signature pass', () => {
   });
 
   it('STILL bails 3 reads of a file that is never edited (genuine scan loop)', () => {
-    const state = stubLoopState();
+    const state = stubLoopStateWithMinRepeats(3);
     const cb = stubCallbacks();
     expect(detectCycleAndBail([makeToolUse('read_file', { path: 'a.ts' })], state, cb)).toBe(false);
     expect(detectCycleAndBail([makeToolUse('read_file', { path: 'a.ts' })], state, cb)).toBe(false);
@@ -319,7 +339,7 @@ describe('detectCycleAndBail — normalized signature pass', () => {
 
   it('fires when same command and cwd repeats', () => {
     // Two unique cwds then a repeat of the first — secondary hash recurs → loop.
-    const state = stubLoopState();
+    const state = stubLoopStateWithMinRepeats(3);
     const cb = stubCallbacks();
     expect(detectCycleAndBail([makeToolUse('run_command', { command: 'npm test', cwd: '/project0' })], state, cb)).toBe(
       false,
@@ -347,7 +367,7 @@ describe('detectCycleAndBail — normalized signature pass', () => {
 
   it('fires when no-primary-key tool is called with the same args repeatedly', () => {
     // Same tool, same non-primary arg value 3 times → normalized sig repeats → cycle.
-    const state = stubLoopState();
+    const state = stubLoopStateWithMinRepeats(3);
     const cb = stubCallbacks();
     for (let i = 0; i < 2; i++) {
       expect(detectCycleAndBail([makeToolUse('list_processes', { filter: 'stuck' })], state, cb)).toBe(false);
@@ -369,7 +389,7 @@ describe('detectCycleAndBail — normalized signature pass', () => {
 
   it('fires when tool-name-only sig and secondary args also repeat', () => {
     // Same tool, same numeric arg each time → secondary hash repeats → loop.
-    const state = stubLoopState();
+    const state = stubLoopStateWithMinRepeats(3);
     const cb = stubCallbacks();
     for (let i = 0; i < 2; i++) {
       expect(detectCycleAndBail([makeToolUse('list_processes', { limit: 10 })], state, cb)).toBe(false);
@@ -384,7 +404,7 @@ describe('detectCycleAndBail — normalized signature pass', () => {
     // (interleaved tools break the streak), and the interleaved tools use
     // distinct normalized sigs so no length-2 cycle forms. The new
     // frequency-over-window check accumulates 3 occurrences and fires.
-    const state = stubLoopState();
+    const state = stubLoopStateWithMinRepeats(3);
     const cb = stubCallbacks();
     const bad = [makeToolUse('read_file', { path: 'bad.ts' })];
     const g = [makeToolUse('grep', { pattern: 'foo' })];
@@ -444,7 +464,7 @@ describe('detectCycleAndBail — normalized signature pass', () => {
     // Model attempts to read a non-existent file, gets ENOENT, does other exploration,
     // comes back to the same hallucinated path repeatedly. After 3 occurrences the
     // frequency-over-window check fires even though no 3 calls are consecutive.
-    const state = stubLoopState();
+    const state = stubLoopStateWithMinRepeats(3);
     const cb = stubCallbacks();
     const bad = [makeToolUse('read_file', { path: 'src/agent/loop/runAgentLoop.ts' })];
 
@@ -465,7 +485,7 @@ describe('detectCycleAndBail — normalized signature pass', () => {
     // so calls 1-3 test normalized, call 4 fires exact first.
     // (Both checks fire on the 3rd call for identical calls since normalized
     // threshold is 3 — confirm the message is about "same resource".)
-    const state = stubLoopState();
+    const state = stubLoopStateWithMinRepeats(3);
     const cb = stubCallbacks();
     const call = [makeToolUse('read_file', { path: 'x.ts' })];
     expect(detectCycleAndBail(call, state, cb)).toBe(false);
@@ -477,9 +497,77 @@ describe('detectCycleAndBail — normalized signature pass', () => {
   });
 });
 
+describe('detectCycleAndBail — configurable normalized-repeat threshold', () => {
+  // sidecar.scaffolding.cycleDetectionMinRepeats (LoopState.config) replaces
+  // the old fixed MIN_NORMALIZED_REPEATS=3. Weaker models sometimes need a
+  // few attempts to self-correct from an edit_file hint (see
+  // editFailureSignatures in fs.ts) before a genuinely stuck loop should bail.
+  //
+  // These tests interleave a unique filler call every 3rd edit. Without it, 4+
+  // PURE consecutive identical calls trip the unconditioned length-2 exact/
+  // normalized pattern check regardless of threshold (an "A,A,A,A" run is
+  // trivially also a matching "A,B,A,B" run when A=B) — that check is a
+  // separate, always-on mechanism, not what's being tested here. Breaking any
+  // run of 4+ identical entries with a filler avoids it while keeping total
+  // pushes well within windowFor(threshold), so nothing is evicted early.
+
+  /** Push `totalRepeats` identical edit_file calls to the same file (one
+   *  unique filler read every 3rd call), returning each edit's
+   *  detectCycleAndBail result in order (fillers excluded). */
+  function pushRepeatedEdit(state: LoopState, cb: ReturnType<typeof stubCallbacks>, totalRepeats: number): boolean[] {
+    const edit = [makeToolUse('edit_file', { path: 'a.ts', search: 'x', replace: 'y' })];
+    const results: boolean[] = [];
+    let fillerIdx = 0;
+    for (let i = 0; i < totalRepeats; i++) {
+      results.push(detectCycleAndBail(edit, state, cb));
+      if ((i + 1) % 3 === 0 && i < totalRepeats - 1) {
+        detectCycleAndBail([makeToolUse('read_file', { path: `filler${fillerIdx++}.ts` })], state, cb);
+      }
+    }
+    return results;
+  }
+
+  it('defaults to 10 repeats when config does not set cycleDetectionMinRepeats', () => {
+    const state = stubLoopState(); // no config override — falls back to the default
+    const cb = stubCallbacks();
+    const results = pushRepeatedEdit(state, cb, 10);
+    expect(results.slice(0, 9)).toEqual(Array(9).fill(false));
+    expect(results[9]).toBe(true); // 10th identical repeat
+    expect(cb.texts[0]).toContain('repeated');
+  });
+
+  it('honors a smaller configured threshold (5)', () => {
+    const state = stubLoopStateWithMinRepeats(5);
+    const cb = stubCallbacks();
+    const results = pushRepeatedEdit(state, cb, 5);
+    expect(results.slice(0, 4)).toEqual(Array(4).fill(false));
+    expect(results[4]).toBe(true); // 5th identical repeat
+  });
+
+  it('honors a larger configured threshold (10) and does not fire at 9', () => {
+    const state = stubLoopStateWithMinRepeats(10);
+    const cb = stubCallbacks();
+    const results = pushRepeatedEdit(state, cb, 9);
+    expect(results).toEqual(Array(9).fill(false));
+    expect(cb.texts).toHaveLength(0);
+  });
+
+  it('the lookback window auto-scales with the threshold — a raised threshold is never mathematically unreachable', () => {
+    // With the OLD fixed CYCLE_WINDOW=8, a threshold of 10 could never fire
+    // (you can't observe 10 occurrences in an 8-slot window). Confirm the
+    // 10th repeat actually bails — proof the window grew to accommodate it.
+    const state = stubLoopStateWithMinRepeats(10);
+    const cb = stubCallbacks();
+    const results = pushRepeatedEdit(state, cb, 10);
+    expect(results[9]).toBe(true);
+  });
+});
+
 describe('detectCycleAndBail — write-target thrash pass', () => {
   it('fires as a runaway backstop when one file is mutated 6 times in the window', () => {
-    const state = stubLoopState();
+    // writeTargetThresholdFor floors at 6 regardless of a lower configured
+    // cycleDetectionMinRepeats, so pin a value <=6 to keep this test's shape.
+    const state = stubLoopStateWithMinRepeats(3);
     const cb = stubCallbacks();
     // Distinct tools + content each time (not a same-content loop) — only the
     // content-blind write-target backstop catches this, and only at 6 (the
@@ -582,7 +670,7 @@ describe('detectCycleAndBail — write-target thrash pass', () => {
   });
 
   it('resumes firing once auto-fix has exhausted its retry budget', () => {
-    const state = stubLoopState({ config: { autoFixMaxRetries: 3 } as never });
+    const state = stubLoopStateWithMinRepeats(3, { config: { autoFixMaxRetries: 3 } as never });
     state.autoFixRetriesByFile.set('gui_calculator.py', 3); // at cap → not exempt
     const cb = stubCallbacks();
     // Same edit repeated = a genuine stuck loop; with the exemption gone it's caught.
@@ -593,7 +681,7 @@ describe('detectCycleAndBail — write-target thrash pass', () => {
   });
 
   it('still fires on a non-exempt file while another file is gate-exempt', () => {
-    const state = stubLoopState();
+    const state = stubLoopStateWithMinRepeats(3);
     state.gateState.syntaxGateFixTargets = new Set(['gui_calculator.py']); // gui exempt
     const cb = stubCallbacks();
     const w = () => [makeToolUse('edit_file', { path: 'other.ts', search: 'x', replace: 'y' })];

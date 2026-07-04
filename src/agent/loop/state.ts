@@ -165,6 +165,15 @@ export interface LoopState {
   // edit_file had just fixed. circularRewrite.ts records; fs.ts writeFile reads.
   filesEditedViaEditTool: Set<string>;
 
+  // Per-path signature of the most recent edit_file call that failed with
+  // "search and replace identical" or "search not found" (both are
+  // unrecoverable-without-more-info failures — the tool can only show a hint,
+  // not safely guess the intended change). A weak model frequently resubmits
+  // the EXACT same failing call instead of adapting; fs.ts's editFile reads
+  // this to escalate the error message on a verbatim repeat rather than
+  // showing the same hint again, and clears the entry on a successful edit.
+  editFailureSignatures: Map<string, string>;
+
   // Most recent failing verification output (test failure / traceback /
   // diagnostics error), ANSI-stripped and truncated. Surfaced inline when the
   // model loops on a blocked rewrite so it sees WHAT to fix. circularRewrite.ts
@@ -309,6 +318,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     writesSinceVerifyByFile: new Map<string, number>(),
     forceVerifyBeforeBailByFile: new Map<string, number>(),
     filesEditedViaEditTool: new Set<string>(),
+    editFailureSignatures: new Map<string, string>(),
     escalatedRewriteByFile: new Set<string>(),
     enforceEditBlocksByFile: new Map<string, number>(),
     stubFixRetries: 0,

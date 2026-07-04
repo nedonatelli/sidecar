@@ -476,6 +476,12 @@
             "default": 0,
             "description": "Byte growth past which a scaffold-driven patch that improved no test signal is reverted as over-engineered (keep-best ratchet). Default 0: any growth without a proven improvement (a new passing test, or the project suite going green) reverts — a byte-size gate alone can't tell a legitimate small addition from a wrong one. Raise this (e.g. 4096) to tolerate some unverified growth before reverting."
           },
+          "sidecar.scaffolding.cycleDetectionMinRepeats": {
+            "type": "number",
+            "default": 10,
+            "minimum": 1,
+            "description": "Repeats of the same tool + file (content-aware) before the agent loop bails as a stuck cycle. Default 10 — was a fixed 3. Weaker/smaller models sometimes need a few attempts to self-correct from a hint (e.g. an edit_file search/replace mistake) before genuinely succeeding; raising this gives more retries before the safety net stops the loop, at the cost of a truly stuck model burning more iterations first. Lower it (e.g. back to 3) for a stricter, faster-to-bail loop."
+          },
           "sidecar.critic.model": {
             "type": "string",
             "default": "",

@@ -163,6 +163,14 @@ export interface SideCarConfig {
   adaptiveScaffoldingEnabled: boolean;
   keepBestRatchetEnabled: boolean;
   keepBestOverEngineerBytes: number;
+  /** Repeats of the same tool+file (normalized signature — content-aware,
+   *  see cycleDetection.ts) before the loop bails as a stuck cycle. Also
+   *  scales the lookback window the count is checked over, so raising this
+   *  never makes the check mathematically unable to fire. Higher = more
+   *  retries before bail (useful for weaker models that need a few attempts
+   *  to self-correct from a hint) at the cost of a stuck model burning more
+   *  iterations before the safety net stops it. */
+  cycleDetectionMinRepeats: number;
   fetchUrlContext: boolean;
   fallbackBaseUrl: string;
   fallbackApiKey: string;
@@ -522,6 +530,7 @@ function readConfig(): SideCarConfig {
     adaptiveScaffoldingEnabled: cfg.get<boolean>('adaptiveScaffolding.enabled', false),
     keepBestRatchetEnabled: cfg.get<boolean>('scaffolding.keepBest', false),
     keepBestOverEngineerBytes: cfg.get<number>('scaffolding.keepBestOverEngineerBytes', 0),
+    cycleDetectionMinRepeats: Math.max(cfg.get<number>('scaffolding.cycleDetectionMinRepeats', 10), 1),
     // Provider-aware default: an empty `critic.model` historically meant
     // "use the main model," which doubled per-iteration cost on paid Anthropic
     // backends. If the main model is Sonnet/Opus and the user hasn't explicitly

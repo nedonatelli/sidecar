@@ -38,6 +38,7 @@ export function stubLoopState(overrides: Partial<LoopState> = {}): LoopState {
     writesSinceVerifyByFile: new Map(),
     forceVerifyBeforeBailByFile: new Map(),
     filesEditedViaEditTool: new Set(),
+    editFailureSignatures: new Map(),
     escalatedRewriteByFile: new Set(),
     enforceEditBlocksByFile: new Map(),
     stubFixRetries: 0,
