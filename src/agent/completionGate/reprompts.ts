@@ -427,4 +427,3 @@ export async function buildNoFileWriteReprompt(
     `If you already completed everything the task asked for, ignore this and call done again.`
   );
 }
-

@@ -23,4 +23,3 @@ export function normalizePath(p: string | undefined | null): string | null {
   if (rel.startsWith('..') || path.isAbsolute(rel)) return null;
   return rel.split(path.sep).join('/');
 }
-

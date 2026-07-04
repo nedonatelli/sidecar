@@ -201,7 +201,6 @@ const LANGUAGE_MAPPINGS: Record<string, ElementMapping[]> = {
   ],
 };
 
-
 class TreeSitterCodeAnalyzer implements CodeAnalyzer {
   readonly supportedExtensions = SUPPORTED_EXTENSIONS;
   private parsers = new Map<string, Parser>();
