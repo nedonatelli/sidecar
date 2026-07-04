@@ -497,6 +497,31 @@ describe('SideCarClient', () => {
       expect(models).toEqual([]);
     });
 
+    it('lists Gemini models via the backend endpoint, not the Ollama /api/tags fallback', async () => {
+      // Regression: gemini had no branch and fell through to /api/tags, so the
+      // model picker was empty. It now delegates to GeminiBackend.listModels().
+      const client = new SideCarClient(
+        'gemini-2.0-flash',
+        'https://generativelanguage.googleapis.com/v1beta/openai',
+        'gkey',
+      );
+      expect(client.getProviderType()).toBe('gemini');
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          models: [
+            { name: 'models/gemini-2.0-flash', supportedGenerationMethods: ['generateContent'] },
+            { name: 'models/gemini-1.5-pro', supportedGenerationMethods: ['generateContent'] },
+          ],
+        }),
+      });
+      const models = await client.listInstalledModels();
+      expect(models.map((m) => m.name)).toEqual(['gemini-2.0-flash', 'gemini-1.5-pro']);
+      const calledUrl = String(mockFetch.mock.calls[0][0]);
+      expect(calledUrl).toContain('generativelanguage.googleapis.com');
+      expect(calledUrl).not.toContain('/api/tags');
+    });
+
     it('fetches models from Kickstand /api/v1/models with context_length', async () => {
       const client = new SideCarClient('qwen3-coder:30b', 'http://127.0.0.1:11435');
       mockFetch.mockResolvedValueOnce({

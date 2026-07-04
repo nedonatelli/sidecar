@@ -44,6 +44,18 @@ export interface ApiBackend {
   completeFIM?(model: string, prefix: string, suffix: string, maxTokens: number, signal?: AbortSignal): Promise<string>;
 
   /**
+   * List the models this backend exposes, as `{ id, owned_by }`. Optional —
+   * the OpenAI-compatible backends (OpenAI, Groq, Fireworks, OpenRouter, and
+   * Gemini, which overrides the endpoint) implement it, and each owns its own
+   * URL + auth. `SideCarClient` delegates here rather than probing a hardcoded
+   * `${baseUrl}/v1/models`, which is what lets Gemini's non-standard models
+   * endpoint be listed at all. Providers without this method (Ollama, Anthropic,
+   * Bedrock, Kickstand, Copilot) are listed via their own paths in the client.
+   * Callers check `backend.listModels` before calling.
+   */
+  listModels?(): Promise<{ id: string; owned_by?: string }[]>;
+
+  /**
    * Declare per-backend native capabilities beyond the standard
    * streamChat + complete surface. Optional — backends
    * without extra capabilities (Anthropic, Groq, Fireworks,

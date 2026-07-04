@@ -926,35 +926,21 @@ export class SideCarClient {
       return BEDROCK_FALLBACK_MODELS.map((id) => ({ name: id, model: id, size: 0 }));
     }
 
-    if (provider === 'openai' || provider === 'openrouter' || provider === 'groq' || provider === 'fireworks') {
-      // OpenAI-compatible servers all use GET /v1/models. OpenRouter
-      // enriches each entry with `top_provider` + `pricing` fields, but
-      // we only surface the id in the basic model picker here — the
-      // richer catalog is exposed via OpenRouterBackend.listOpenRouterModels()
-      // for features that need the pricing overlay.
-      try {
-        const headers: Record<string, string> = {};
-        if (this.apiKey && this.apiKey !== 'ollama') {
-          headers['Authorization'] = `Bearer ${this.apiKey}`;
-        }
-        const response = await fetch(`${this.baseUrl}/v1/models`, { headers });
-        if (!response.ok) return [];
-        const data = (await response.json()) as {
-          data: { id: string; name?: string; owned_by?: string; top_provider?: { name?: string } }[];
-        };
-        return (data.data || []).map((m) => ({
-          name: m.id,
-          model: m.id,
-          size: 0,
-          details: {
-            parameter_size: '',
-            quantization_level: '',
-            family: m.owned_by || m.top_provider?.name || '',
-          },
-        }));
-      } catch {
-        return [];
-      }
+    if (this.backend.listModels) {
+      // OpenAI-compatible backends (openai / openrouter / groq / fireworks /
+      // gemini) each own their model-list endpoint + auth. Delegating here —
+      // rather than probing a hardcoded `${baseUrl}/v1/models` — is what lets
+      // Gemini work: it overrides listModels() to hit its non-standard endpoint,
+      // whereas the old inline probe fell through to Ollama's /api/tags and
+      // returned nothing. The richer OpenRouter catalog (pricing) stays in
+      // OpenRouterBackend.listOpenRouterModels().
+      const models = await this.backend.listModels();
+      return models.map((m) => ({
+        name: m.id,
+        model: m.id,
+        size: 0,
+        details: { parameter_size: '', quantization_level: '', family: m.owned_by ?? '' },
+      }));
     }
 
     // Ollama uses /api/tags

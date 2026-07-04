@@ -44,7 +44,6 @@ export class ChunkRetriever implements Retriever {
   });
   private chunkCache = new Map<string, TextChunk>();
   private fileHashes = new Map<string, string>();
-  private synced = false;
 
   constructor(private embeddingIndex: EmbeddingIndex | null) {}
 
@@ -110,8 +109,6 @@ export class ChunkRetriever implements Retriever {
 
       this.fileHashes.set(filePath, hash);
     }
-
-    this.synced = true;
   }
 }
 
