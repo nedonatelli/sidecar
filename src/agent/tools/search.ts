@@ -3,7 +3,7 @@ import * as path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import type { ToolDefinition } from '../../ollama/types.js';
-import { getRoot, type ToolExecutorContext, type RegisteredTool } from './shared.js';
+import { getRoot, resolveRoot, type ToolExecutorContext, type RegisteredTool } from './shared.js';
 import { getDefaultToolRuntime } from './runtime.js';
 import { compressGrepOutput } from './compression.js';
 
@@ -87,10 +87,10 @@ export async function searchFiles(input: Record<string, unknown>): Promise<strin
   return uris.map((u) => path.relative(root, u.fsPath)).join('\n');
 }
 
-export async function grep(input: Record<string, unknown>): Promise<string> {
+export async function grep(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   const pattern = input.pattern as string;
   const searchPath = (input.path as string) || '.';
-  const cwd = getRoot();
+  const cwd = resolveRoot(context);
   try {
     // -E enables extended regex: +, ?, |, () without backslashes.
     // Use execFile with args array to prevent shell injection.

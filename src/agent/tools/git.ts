@@ -5,7 +5,7 @@ import { GitCLI } from '../../github/git.js';
 import { GitHubAPI } from '../../github/api.js';
 import { getGitHubToken } from '../../github/auth.js';
 import { canPushDirect, summarizeProtection, formatProtectionMarkdown } from '../../github/branchProtection.js';
-import { getRoot, formatToolError, type ToolExecutorContext, type RegisteredTool } from './shared.js';
+import { resolveRoot, formatToolError, type ToolExecutorContext, type RegisteredTool } from './shared.js';
 import { compressGitDiff } from './compression.js';
 import { getDefaultAuditBuffer } from '../audit/auditBuffer.js';
 import { shouldBufferCommits } from './auditHelper.js';
@@ -41,9 +41,9 @@ export const gitDiffDef: ToolDefinition = {
   nondeterministicOutput: true,
 };
 
-export async function gitDiffTool(input: Record<string, unknown>): Promise<string> {
+export async function gitDiffTool(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   try {
-    const git = new GitCLI();
+    const git = new GitCLI(context?.cwd);
     const result = await git.diff(input.ref1 as string | undefined, input.ref2 as string | undefined);
     // Drop blob hashes and redundant diff --git preambles — these
     // carry no information the model uses when reasoning about a
@@ -69,9 +69,9 @@ export const gitStatusDef: ToolDefinition = {
   nondeterministicOutput: true,
 };
 
-export async function gitStatus(): Promise<string> {
+export async function gitStatus(_input?: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   try {
-    return await new GitCLI().status();
+    return await new GitCLI(context?.cwd).status();
   } catch (err) {
     return `git status failed: ${formatToolError(err)}`;
   }
@@ -98,9 +98,9 @@ export const gitStageDef: ToolDefinition = {
   },
 };
 
-export async function gitStage(input: Record<string, unknown>): Promise<string> {
+export async function gitStage(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   try {
-    return await new GitCLI().stage(input.files as string[] | undefined);
+    return await new GitCLI(context?.cwd).stage(input.files as string[] | undefined);
   } catch (err) {
     return `git stage failed: ${formatToolError(err)}`;
   }
@@ -143,7 +143,7 @@ export async function gitCommit(input: Record<string, unknown>, context?: ToolEx
       return `Commit queued in audit buffer: ${message.split('\n')[0]} (executes on accept)`;
     }
 
-    return await new GitCLI().commit(message, extraTrailers);
+    return await new GitCLI(context?.cwd).commit(message, extraTrailers);
   } catch (err) {
     return `git commit failed: ${formatToolError(err)}`;
   }
@@ -166,9 +166,9 @@ export const gitLogDef: ToolDefinition = {
   nondeterministicOutput: true,
 };
 
-export async function gitLog(input: Record<string, unknown>): Promise<string> {
+export async function gitLog(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   try {
-    const git = new GitCLI();
+    const git = new GitCLI(context?.cwd);
     const commits = await git.log(Math.min(Math.max(1, (input.count as number) || 10), 200));
     if (commits.length === 0) return 'No commits found.';
     return commits.map((c) => `${c.hash} ${c.message} (${c.author}, ${c.date})`).join('\n');
@@ -197,9 +197,9 @@ export const gitPushDef: ToolDefinition = {
   },
 };
 
-export async function gitPush(input: Record<string, unknown>, _context?: ToolExecutorContext): Promise<string> {
+export async function gitPush(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   const config = getConfig();
-  const git = new GitCLI();
+  const git = new GitCLI(context?.cwd);
 
   if (config.branchProtectionEnabled) {
     try {
@@ -267,17 +267,17 @@ export const gitPullDef: ToolDefinition = {
   },
 };
 
-export async function gitPull(input: Record<string, unknown>): Promise<string> {
+export async function gitPull(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   try {
     // GitCLI.pull doesn't support --rebase flag yet, so handle it here
     if (input.rebase) {
       const { stdout, stderr } = await execAsync('git pull --rebase', {
-        cwd: getRoot(),
+        cwd: resolveRoot(context),
         timeout: 60_000,
       });
       return (stdout + '\n' + stderr).trim() || 'Pull complete.';
     }
-    return await new GitCLI().pull();
+    return await new GitCLI(context?.cwd).pull();
   } catch (err) {
     return `git pull failed: ${formatToolError(err)}`;
   }
@@ -306,11 +306,11 @@ export const gitBranchDef: ToolDefinition = {
   nondeterministicOutput: true,
 };
 
-export async function gitBranch(input: Record<string, unknown>): Promise<string> {
+export async function gitBranch(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   const action = (input.action as string) || 'list';
   const name = input.name as string | undefined;
   try {
-    const git = new GitCLI();
+    const git = new GitCLI(context?.cwd);
     switch (action) {
       case 'create': {
         if (!name) return 'Error: branch name required for create.';
@@ -353,9 +353,9 @@ export const gitStashDef: ToolDefinition = {
   nondeterministicOutput: true,
 };
 
-export async function gitStash(input: Record<string, unknown>): Promise<string> {
+export async function gitStash(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   try {
-    return await new GitCLI().stash((input.action as string) || 'push', {
+    return await new GitCLI(context?.cwd).stash((input.action as string) || 'push', {
       message: input.message as string | undefined,
       index: input.index as number | undefined,
     });
@@ -404,7 +404,10 @@ export const gitSearchHistoryDef: ToolDefinition = {
   nondeterministicOutput: true,
 };
 
-export async function gitSearchHistory(input: Record<string, unknown>): Promise<string> {
+export async function gitSearchHistory(
+  input: Record<string, unknown>,
+  context?: ToolExecutorContext,
+): Promise<string> {
   try {
     const query = (input.query as string | undefined)?.trim();
     if (!query) return 'Error: query is required.';
@@ -413,7 +416,7 @@ export async function gitSearchHistory(input: Record<string, unknown>): Promise<
     const maxResults = Math.min(Number(input.max_results) || 20, 100);
     const pathArg = (input.path as string | undefined)?.trim();
 
-    const root = getRoot();
+    const root = resolveRoot(context);
     const logFormat = '--pretty=format:%H|%as|%an|%s';
 
     // Use execFile (not execAsync) so all arguments are passed as separate

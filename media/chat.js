@@ -4522,6 +4522,14 @@
 
       case 'done': {
         finishAssistantMessage();
+        // Resync the message-index counter to the extension's authoritative
+        // transcript length. A turn appends assistant + tool entries (and
+        // transient status bubbles) this side never counted, so without this
+        // the next user bubble's msgIndex drifts and delete/edit would target
+        // the wrong entry in state.messages.
+        if (typeof event.data.messageCount === 'number') {
+          messageCounter = event.data.messageCount;
+        }
         setLoading(false);
         toolOutputChars.clear();
         toolFullOutput.clear();

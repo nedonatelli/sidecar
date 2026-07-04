@@ -4,7 +4,11 @@ src/**
 out/**
 node_modules/**
 !node_modules/web-tree-sitter/**
-!node_modules/@lancedb/**
+# @lancedb (~92 MB) is NOT bundled: the Project Knowledge backend defaults to
+# 'flat', and LanceVectorStore require()s '@lancedb/lancedb' lazily and falls
+# back to flat with a warning when absent (see config/vectorStore.ts,
+# activation/workspaceIndexer.ts). Bundling it would nearly double the .vsix for
+# an opt-in, non-default backend. Users who set backend: 'lance' install it themselves.
 # Local embedding runtime (@huggingface/transformers) — externalized from the
 # esbuild bundle and dynamic-imported at runtime, so it MUST ship in the .vsix.
 # Without it, PKI symbol/file embeddings fail to load ("Cannot find package
@@ -16,19 +20,21 @@ node_modules/**
 !node_modules/@huggingface/transformers/node_modules/@huggingface/**
 !node_modules/@huggingface/transformers/node_modules/onnxruntime-common/**
 !node_modules/@huggingface/transformers/node_modules/flatbuffers/**
-# onnxruntime-node: JS loader + ONLY the build host's native binary (darwin).
-# NOTE: this makes the .vsix darwin-specific — rebuild per-platform if distributing.
-# Skips onnxruntime-web (browser/WASM, not imported by the node build) and the
-# linux/win32 prebuilt binaries.
+# onnxruntime-node: JS loader + native bindings. The npm package bundles all
+# platforms (darwin/linux/win32) in bin/, so re-including the whole bin/ tree
+# keeps the .vsix working on every OS with no per-platform rebuild for this dep.
+# Skips onnxruntime-web (browser/WASM, not imported by the node build).
 !node_modules/@huggingface/transformers/node_modules/onnxruntime-node/package.json
 !node_modules/@huggingface/transformers/node_modules/onnxruntime-node/dist/**
 !node_modules/@huggingface/transformers/node_modules/onnxruntime-node/lib/**
 !node_modules/@huggingface/transformers/node_modules/onnxruntime-node/script/**
-!node_modules/@huggingface/transformers/node_modules/onnxruntime-node/bin/napi-v6/darwin/**
+!node_modules/@huggingface/transformers/node_modules/onnxruntime-node/bin/**
 # top-level tokenizers (imported by the node build).
 !node_modules/@huggingface/tokenizers/**
 # sharp — statically imported by transformers.node.mjs (even for text), so it must
-# load. Ship sharp + its host-only native binaries (@img, already darwin-arm64) + deps.
+# load. @img holds sharp's native binaries and npm installs ONLY the build host's
+# platform, so the .vsix is platform-specific for sharp — publish per-platform via
+# `vsce package --target <platform>` (see .github/workflows/publish.yml).
 !node_modules/@huggingface/transformers/node_modules/sharp/**
 !node_modules/@img/**
 !node_modules/detect-libc/**
@@ -53,3 +59,11 @@ vitest.*.config.ts
 eslint.config.mjs
 *.vsix
 .vscode-test/**
+.vscode-test.mjs
+.prettierignore
+*.log
+stryker.conf.json
+tsconfig.bench.json
+bench/**
+.husky/**
+.github/**

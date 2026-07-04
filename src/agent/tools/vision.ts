@@ -533,6 +533,7 @@ async function runPlaywrightCode(input: Record<string, unknown>): Promise<string
   const trusted = await checkWorkspaceConfigTrust(
     'run_playwright_code',
     'run_playwright_code executes arbitrary Playwright scripts in a Node.js child process. Grant trust only for workspaces you own.',
+    { modal: true },
   );
   if (trusted !== 'trusted')
     return 'Error: workspace is not trusted. Grant trust in the SideCar trust prompt to run Playwright scripts.';

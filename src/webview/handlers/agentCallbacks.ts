@@ -270,7 +270,11 @@ export function createAgentCallbacks(
       if (planStore && config.executiveFunctionEnabled) {
         void planStore.clear();
       }
-      if (!cancelled) state.postMessage({ command: 'done' });
+      // Report the authoritative transcript length so the webview can resync
+      // its message-index counter. A turn appends assistant + tool entries the
+      // webview never counts, so without this the next user bubble is stamped
+      // with a stale index and delete/edit target the wrong message.
+      if (!cancelled) state.postMessage({ command: 'done', messageCount: state.messages.length });
     },
   };
 

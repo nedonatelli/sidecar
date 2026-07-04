@@ -11,12 +11,21 @@ const trustDecisions = new Map<string, 'trusted' | 'blocked'>();
  * Check whether a workspace-level configuration section should be trusted.
  * If the section has workspace-level values, prompts the user once per session.
  *
+ * Fails closed: trust is granted only on an explicit 'Allow'. Dismissing the
+ * prompt (which resolves `undefined`) denies for this evaluation but is not
+ * cached, so the user can recover by triggering the flow again — only explicit
+ * Allow/Block decisions are remembered for the session.
+ *
+ * @param options.modal show a blocking modal dialog instead of a dismissable
+ *        toast. Use for sections that execute code or shell commands, where an
+ *        accidentally-ignored toast must not silently deny (or, previously, grant).
  * @returns 'trusted' if the user allows it (or there are no workspace values),
- *          'blocked' if the user blocks it.
+ *          'blocked' otherwise.
  */
 export async function checkWorkspaceConfigTrust(
   section: string,
   warningMessage: string,
+  options: { modal?: boolean } = {},
 ): Promise<'trusted' | 'blocked'> {
   // Return cached decision if already asked this session
   const cached = trustDecisions.get(section);
@@ -29,11 +38,18 @@ export async function checkWorkspaceConfigTrust(
     return 'trusted';
   }
 
-  const choice = await window.showWarningMessage(warningMessage, { modal: false }, 'Allow', 'Block');
+  const choice = await window.showWarningMessage(warningMessage, { modal: options.modal ?? false }, 'Allow', 'Block');
 
-  const decision = choice === 'Block' ? 'blocked' : 'trusted';
-  trustDecisions.set(section, decision);
-  return decision;
+  if (choice === 'Allow') {
+    trustDecisions.set(section, 'trusted');
+    return 'trusted';
+  }
+  if (choice === 'Block') {
+    trustDecisions.set(section, 'blocked');
+    return 'blocked';
+  }
+  // Dismissed: fail closed without caching, so the user can be re-prompted.
+  return 'blocked';
 }
 
 /** Reset all trust decisions (e.g., for testing). */

@@ -1,14 +1,12 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import * as path from 'path';
-import * as fs from 'fs';
 import type { CodeAnalyzer } from './types.js';
 import { createTreeSitterAnalyzer } from './treeSitterAnalyzer.js';
+import { grammarsDir, hasGrammars } from './grammarsTestSupport.js';
 
 // Real-grammar verification of AST edge extraction. Grammars live in the
 // gitignored `grammars/` build artifact (created by `npm run copy-grammars`),
-// so skip when absent rather than fail a grammar-less checkout.
-const grammarsDir = path.join(process.cwd(), 'grammars');
-const hasGrammars = fs.existsSync(path.join(grammarsDir, 'tree-sitter-typescript.wasm'));
+// so skip when absent rather than fail a grammar-less checkout — except in CI,
+// where grammarsTestSupport throws loudly instead of skipping.
 
 describe.skipIf(!hasGrammars)('treeSitterAnalyzer — AST edge extraction', () => {
   let analyzer: CodeAnalyzer;

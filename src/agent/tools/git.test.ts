@@ -12,6 +12,7 @@ import {
   gitSearchHistory,
 } from './git.js';
 import { AuditBuffer, __setDefaultAuditBufferForTests } from '../audit/auditBuffer.js';
+import { GitCLI } from '../../github/git.js';
 import * as settings from '../../config/settings.js';
 
 // Mock GitCLI so executor tests don't need a real git repo
@@ -569,5 +570,41 @@ describe('gitSearchHistory', () => {
 
     const result = await gitSearchHistory({ query: 'test', search_type: 'message' });
     expect(result).toContain('No commits found');
+  });
+});
+
+// Shadow-workspace isolation: git tools must run against context.cwd (the shadow
+// worktree) instead of the main tree, so a shadow/fork/facet agent's stage/commit
+// never touch the user's real repo. When no cwd is set, GitCLI is constructed with
+// undefined — identical to the pre-existing default (workspace root).
+describe('git tools honor context.cwd (shadow isolation)', () => {
+  const SHADOW = '/tmp/.sidecar/shadows/task-1';
+
+  beforeEach(() => {
+    vi.mocked(GitCLI).mockClear();
+  });
+
+  it('threads context.cwd into GitCLI for status/diff/stage/log/branch/stash', async () => {
+    await gitStatus({}, { cwd: SHADOW });
+    await gitDiffTool({}, { cwd: SHADOW });
+    await gitStage({ files: ['a.ts'] }, { cwd: SHADOW });
+    await gitLog({}, { cwd: SHADOW });
+    await gitBranch({ action: 'list' }, { cwd: SHADOW });
+    await gitStash({ action: 'push' }, { cwd: SHADOW });
+
+    expect(vi.mocked(GitCLI).mock.calls.length).toBe(6);
+    for (const call of vi.mocked(GitCLI).mock.calls) {
+      expect(call[0]).toBe(SHADOW);
+    }
+  });
+
+  it('commits into the shadow worktree, not the main repo', async () => {
+    await gitCommit({ message: 'fix: x' }, { cwd: SHADOW });
+    expect(vi.mocked(GitCLI)).toHaveBeenCalledWith(SHADOW);
+  });
+
+  it('passes undefined to GitCLI when no cwd override is present', async () => {
+    await gitStatus({});
+    expect(vi.mocked(GitCLI)).toHaveBeenCalledWith(undefined);
   });
 });

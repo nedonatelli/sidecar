@@ -91,4 +91,63 @@ describe('chat webview message dispatcher', () => {
     postToWebview({ command: 'suggestNextSteps', suggestions: [] });
     expect(messagesEl.querySelectorAll('.next-step-btn')).toHaveLength(0);
   });
+
+  // Regression: the webview stamps user bubbles with a local counter that the
+  // extension trusts as a direct index into state.messages. A model turn appends
+  // assistant + tool entries the webview never counts, so without the `done`
+  // resync the next user bubble drifts and delete targets the wrong message.
+  describe('message-index alignment across a turn (msgIndex drift)', () => {
+    function lastUserBubbleIndex(): string | undefined {
+      const users = messagesEl.querySelectorAll('.message.user');
+      return (users[users.length - 1] as HTMLElement | undefined)?.dataset.msgIndex;
+    }
+
+    it("resyncs the counter to the extension's transcript length on done", () => {
+      // Restore a 2-message transcript: indices 0 (user) and 1 (assistant).
+      postToWebview({
+        command: 'init',
+        messages: [
+          { role: 'user', content: 'hi' },
+          { role: 'assistant', content: 'hello' },
+        ],
+      });
+
+      // User sends msg #3 → stamped index 2 (correct: state.messages.length was 2).
+      postToWebview({ command: 'addUserMessage', content: 'do a task' });
+      expect(lastUserBubbleIndex()).toBe('2');
+
+      // The turn ran: extension appended assistant + tool_use + tool_result +
+      // final assistant, so state.messages is now length 6 — none of which the
+      // webview counted. done carries the authoritative length.
+      postToWebview({ command: 'done', messageCount: 6 });
+
+      // Next user message must be stamped 6 (its true state.messages index),
+      // not the stale 3 the un-resynced local counter would have produced.
+      postToWebview({ command: 'addUserMessage', content: 'another task' });
+      expect(lastUserBubbleIndex()).toBe('6');
+    });
+
+    it('deletes the correctly-aligned index after a turn', () => {
+      postToWebview({ command: 'init', messages: [{ role: 'user', content: 'hi' }] });
+      postToWebview({ command: 'addUserMessage', content: 'task' }); // index 1
+      postToWebview({ command: 'done', messageCount: 4 }); // turn grew transcript to 4
+      postToWebview({ command: 'addUserMessage', content: 'next' }); // must be index 4
+
+      const users = messagesEl.querySelectorAll('.message.user');
+      const lastUser = users[users.length - 1] as HTMLElement;
+      const deleteBtn = lastUser.querySelector('.message-delete-btn') as HTMLButtonElement;
+      deleteBtn.click();
+
+      expect(postMessage).toHaveBeenCalledWith({ command: 'deleteMessage', index: 4 });
+    });
+
+    it('leaves the counter untouched when done carries no messageCount', () => {
+      postToWebview({ command: 'init', messages: [{ role: 'user', content: 'hi' }] });
+      postToWebview({ command: 'addUserMessage', content: 'task' }); // index 1
+      postToWebview({ command: 'done' }); // legacy done, no count
+      postToWebview({ command: 'addUserMessage', content: 'next' });
+      // Counter simply continues (2) — no crash, no NaN from a missing field.
+      expect(lastUserBubbleIndex()).toBe('2');
+    });
+  });
 });

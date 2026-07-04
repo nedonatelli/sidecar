@@ -34,6 +34,11 @@ jobs:
       - name: Bundle
         run: npm run bundle
 
+      # Real-grammar tree-sitter suites skipIf grammars/ is absent. Build it so
+      # those suites actually run in CI (grammarsTestSupport throws otherwise).
+      - name: Copy tree-sitter grammars
+        run: npm run copy-grammars
+
       - name: Tests
         run: npm test
 

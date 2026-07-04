@@ -62,18 +62,28 @@ export interface ToolExecutorContext {
    */
   client?: SideCarClient;
   /**
-   * Working-directory override. When set, all path-resolving tool calls
-   * (`read_file`, `write_file`, `edit_file`, `list_directory`,
-   * `run_command`, `run_tests`, `git_*`) resolve relative paths against
-   * this directory instead of `workspace.workspaceFolders[0]`. Used by
-   * ShadowWorkspace to route every file operation into the shadow
-   * worktree at `.sidecar/shadows/<task-id>/` so the main working tree
-   * stays pristine until the user accepts the task's diff.
+   * Working-directory override. When set, path-resolving tool calls resolve
+   * relative paths against this directory instead of `workspace.workspaceFolders[0]`.
+   * Used by ShadowWorkspace (and fork / facet dispatch) to route file and shell
+   * operations into the shadow worktree at `.sidecar/shadows/<task-id>/` so the
+   * main working tree stays pristine until the user accepts the task's diff.
    *
-   * Must be an absolute path. Tools use `resolveRoot(context)` /
-   * `resolveRootUri(context)` to consult this field before falling back
-   * to the workspace root, so the shadow override is transparent to
-   * existing tool logic.
+   * Honored by:
+   *   - the fs tools (`read_file`, `write_file`, `edit_file`, `list_directory`)
+   *     via `resolveRoot(context)` / `resolveRootUri(context)`
+   *   - the git tools (`git_*`) via `new GitCLI(context.cwd)`
+   *   - `grep` via `resolveRoot(context)`
+   *   - `run_command` / `run_tests` / `profile_code` via the per-run
+   *     `context.toolRuntime` (whose ShellSession is rooted at cwd); the shared
+   *     VS Code terminal is bypassed while a cwd override is active because it
+   *     can't be re-rooted per run.
+   *
+   * NOT honored (inherent VS Code-API limitations, so these still reflect the
+   * main workspace): `search_files` (`workspace.findFiles` is workspace-scoped)
+   * and `get_diagnostics` (`languages.getDiagnostics` reports on analyzed open
+   * documents, not arbitrary shadow paths).
+   *
+   * Must be an absolute path.
    */
   cwd?: string;
   /**

@@ -168,6 +168,7 @@ export async function executeTool(
     const trust = await checkWorkspaceConfigTrust(
       'toolPermissions',
       'SideCar: This workspace defines tool permission overrides (e.g. auto-allow write_file). Only trust these from repositories you control.',
+      { modal: true },
     );
     if (trust === 'blocked') {
       explicitPermission = undefined;

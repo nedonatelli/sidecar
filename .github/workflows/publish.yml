@@ -6,13 +6,69 @@ on:
       - 'v*'
 
 # Grant the auto-provisioned GITHUB_TOKEN the ability to create releases.
-# This replaces the previous BOT_PAT approach, which required manually
-# managing a personal access token for a bot account.
 permissions:
   contents: write
 
 jobs:
+  # Build one platform-specific .vsix per target. Each runner's `npm ci` installs
+  # that platform's native binaries (sharp via @img is host-only), so a target
+  # must be built on a matching runner. `vsce package --target` tags the vsix so
+  # the Marketplace serves the right binary to each user.
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: darwin-arm64
+          - os: macos-13
+            target: darwin-x64
+          - os: ubuntu-latest
+            target: linux-x64
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
+          - os: windows-latest
+            target: win32-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build
+
+      # Gate publish on the test suite (canonical platform only — CI already runs
+      # the full matrix on main). `npm run build` above created grammars/, so the
+      # real-grammar tree-sitter suites run here instead of skipping.
+      - name: Tests
+        if: matrix.target == 'linux-x64'
+        run: npm test
+
+      - name: Package VSIX (${{ matrix.target }})
+        run: npx @vscode/vsce package --target ${{ matrix.target }} -o sidecar-ai-${{ matrix.target }}.vsix
+
+      - name: Verify VSIX contains runtime dependencies
+        run: node scripts/verify-package.mjs sidecar-ai-${{ matrix.target }}.vsix
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vsix-${{ matrix.target }}
+          path: sidecar-ai-${{ matrix.target }}.vsix
+          if-no-files-found: error
+
+  # Publish every built target to the Marketplace and attach all to one GitHub
+  # release. Runs only after every build+verify leg succeeds.
   publish:
+    needs: build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -26,34 +82,40 @@ jobs:
 
       - run: npm ci
 
-      - name: Type check
-        run: npx tsc --noEmit
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: vsix-*
+          merge-multiple: true
+          path: dist-vsix
 
-      - name: Lint
-        run: npm run lint
-
-      - name: Tests
-        run: npm test
-
-      - name: Build
-        run: npm run build
-
-      - name: Package VSIX
-        run: npx @vscode/vsce package --no-dependencies
-
-      - name: Publish to VS Code Marketplace
-        run: npx @vscode/vsce publish --no-dependencies || echo "::warning::Marketplace publish failed (version may already exist)"
-        continue-on-error: true
+      - name: Publish all targets to VS Code Marketplace
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          fail=0
+          for vsix in dist-vsix/*.vsix; do
+            echo "Publishing $vsix"
+            if out=$(npx @vscode/vsce publish --packagePath "$vsix" 2>&1); then
+              echo "$out"
+            else
+              echo "$out"
+              # Tolerate re-runs where this version was already published, but fail
+              # loudly on real errors (revoked/expired PAT, validation failure).
+              if echo "$out" | grep -qiE "already exists|already published|same version"; then
+                echo "::warning::$vsix version already published — skipping"
+              else
+                echo "::error::Marketplace publish failed for $vsix"
+                fail=1
+              fi
+            fi
+          done
+          exit $fail
 
       - name: Extract changelog for this version
         id: changelog
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          # Extract the section for this version from CHANGELOG.md
           NOTES=$(awk "/^## \[${VERSION}\]/{found=1; next} /^## \[/{if(found) exit} found{print}" CHANGELOG.md)
-          # Write to file to handle multiline
           echo "$NOTES" > /tmp/release-notes.md
 
       - name: Create GitHub Release
@@ -61,11 +123,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
-            echo "Release $GITHUB_REF_NAME already exists — uploading VSIX only"
-            gh release upload "$GITHUB_REF_NAME" sidecar-ai-*.vsix --clobber
+            echo "Release $GITHUB_REF_NAME already exists — uploading VSIXes only"
+            gh release upload "$GITHUB_REF_NAME" dist-vsix/*.vsix --clobber
           else
             gh release create "$GITHUB_REF_NAME" \
               --title "$GITHUB_REF_NAME" \
               --notes-file /tmp/release-notes.md \
-              sidecar-ai-*.vsix
+              dist-vsix/*.vsix
           fi

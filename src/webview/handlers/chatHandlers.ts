@@ -389,7 +389,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     // Skills 2.0 — disableModelInvocation: return the skill body directly.
     if (matchedSkill?.disableModelInvocation) {
       state.postMessage({ command: 'assistantMessage', content: matchedSkill.content });
-      state.postMessage({ command: 'done' });
+      state.postMessage({ command: 'done', messageCount: state.messages.length });
       return;
     }
 
@@ -524,7 +524,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     state.autoSave();
 
     if (err instanceof Error && err.name === 'AbortError') {
-      state.postMessage({ command: 'done' });
+      state.postMessage({ command: 'done', messageCount: state.messages.length });
       state.postMessage({ command: 'setLoading', isLoading: false });
       return;
     }
@@ -611,7 +611,7 @@ export async function handleReconnect(state: ChatState): Promise<void> {
       command: 'assistantMessage',
       content: 'Reconnected to model successfully.\n',
     });
-    state.postMessage({ command: 'done' });
+    state.postMessage({ command: 'done', messageCount: state.messages.length });
 
     const lastUserMsg = [...state.messages].reverse().find((m) => m.role === 'user');
     if (lastUserMsg) {

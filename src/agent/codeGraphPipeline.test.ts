@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import * as path from 'path';
-import * as fs from 'fs';
+import { grammarsDir, hasGrammars } from '../parsing/grammarsTestSupport.js';
 import { setGrammarsPath, getAnalyzer } from '../parsing/registry.js';
 import { SimpleCodeAnalyzer } from '../astContext.js';
 import {
@@ -18,8 +18,6 @@ import { checkShapeConsistency } from './shapePropagation.js';
 // SymbolIndexer.indexFile does) → the §5 analyzers + impact query. This is the
 // seam the unit tests mock (they hand-build graph edges); here the edges come
 // from the actual parser, proving extraction and analysis agree.
-const grammarsDir = path.join(process.cwd(), 'grammars');
-const hasGrammars = fs.existsSync(path.join(grammarsDir, 'tree-sitter-python.wasm'));
 
 /** Mirror of SymbolIndexer.indexFile's parsed → graph mapping. */
 async function indexSource(graph: SymbolGraph, rel: string, content: string): Promise<void> {

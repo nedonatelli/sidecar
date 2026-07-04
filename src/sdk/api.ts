@@ -74,6 +74,7 @@ async function ensureTrusted(extensionId: string, toolName: string): Promise<voi
     'sdkTools',
     `Extension "${extensionId}" wants to register a tool "${toolName}" in SideCar. ` +
       `Only allow this from extensions you trust — registered tools can execute code on your behalf.`,
+    { modal: true },
   );
   if (result === 'blocked') {
     throw new Error(`SideCar SDK: trust denied for extension "${extensionId}" (tool "${toolName}")`);

@@ -69,7 +69,12 @@ export function disposeAgentTerminalExecutor(): void {
 function buildExecutor(context?: ToolExecutorContext): CompositeShellExecutor {
   const cfg = context?.config ?? getConfig();
   const session = resolveShellSession(context);
-  const terminalEnabled = cfg.terminalExecutionEnabled;
+  // The shared VS Code terminal runs in the workspace root and can't be
+  // re-rooted per run, so a cwd override (ShadowWorkspace / fork / facet) must
+  // route through the ShellSession, which honors the per-run runtime's cwd.
+  // Otherwise commands and tests would execute against the main tree instead
+  // of the shadow the agent is editing.
+  const terminalEnabled = cfg.terminalExecutionEnabled && context?.cwd === undefined;
   const terminal = terminalEnabled
     ? getAgentTerminalExecutor()
     : ({ execute: async () => null, dispose: () => {} } as never);

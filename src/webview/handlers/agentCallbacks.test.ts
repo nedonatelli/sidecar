@@ -23,6 +23,7 @@ import type { EditPlan } from '../../agent/editPlan.js';
 function makeState(overrides: Partial<ChatState> = {}): ChatState {
   return {
     postMessage: vi.fn(),
+    messages: [],
     logMessage: vi.fn(),
     requestConfirm: vi.fn(),
     metricsCollector: {
@@ -89,7 +90,20 @@ describe('createAgentCallbacks — onText streaming + flush', () => {
     cb.onText('unflushed');
     cb.onDone();
     expect(state.postMessage).toHaveBeenCalledWith({ command: 'assistantMessage', content: 'unflushed' });
-    expect(state.postMessage).toHaveBeenCalledWith({ command: 'done' });
+    expect(state.postMessage).toHaveBeenCalledWith({ command: 'done', messageCount: 0 });
+  });
+
+  it('reports the authoritative transcript length on done for msgIndex resync', () => {
+    const state = makeState({
+      messages: [
+        { role: 'user', content: 'hi' },
+        { role: 'assistant', content: 'yo' },
+        { role: 'user', content: 'tool result' },
+      ],
+    } as unknown as Partial<ChatState>);
+    const { callbacks: cb } = createAgentCallbacks(state, makeConfig(), []);
+    cb.onDone();
+    expect(state.postMessage).toHaveBeenCalledWith({ command: 'done', messageCount: 3 });
   });
 });
 

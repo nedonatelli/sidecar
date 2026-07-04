@@ -347,6 +347,7 @@ export async function initCustomToolsTrust(): Promise<void> {
   const trust = await checkWorkspaceConfigTrust(
     'customTools',
     'SideCar: This workspace defines custom tool commands that will execute shell commands. Only trust these from repositories you control.',
+    { modal: true },
   );
   _customToolsTrusted = trust === 'trusted';
   // Drop any previously-cached tool registry so the blocked/allowed state

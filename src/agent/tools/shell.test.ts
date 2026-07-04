@@ -114,6 +114,22 @@ describe('shell tool runtime resolution', () => {
       expect(injected.checkBackground).toHaveBeenCalledWith('bg-1');
       expect(out).toContain('Background command finished');
     });
+
+    it('bypasses the shared VS Code terminal when a cwd override is active (shadow isolation)', async () => {
+      // terminalExecution is ON here, but a shadow/fork/facet cwd is set. The
+      // shared terminal can't be re-rooted per run, so it must be skipped — the
+      // command has to route through the cwd-rooted ShellSession instead.
+      // If the guard regressed, buildExecutor would construct AgentTerminalExecutor,
+      // whose window.onDidCloseTerminal subscription throws under this vscode mock.
+      const injected = new ShellSessionStub();
+      const ctx = {
+        cwd: '/tmp/.sidecar/shadows/task-1',
+        config: { shellTimeout: 120, shellMaxOutputMB: 10, terminalExecutionEnabled: true },
+        toolRuntime: { getShellSession: () => injected, dispose: () => undefined, symbolGraph: null },
+      } as unknown as ToolExecutorContext;
+      await expect(runCommand({ command: 'npm test' }, ctx)).resolves.toBeDefined();
+      expect(injected.execute).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('runTests', () => {
