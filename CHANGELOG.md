@@ -4,6 +4,38 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.116.0] - 2026-07-04
+
+A hardening and quality release on top of the 0.115.0 feature set: a full-codebase security audit closed six high-severity findings and a robustness cluster, the moat-critical gates were mutation-tested to prove their tests catch faults (not just pass), the largest source files were decomposed into focused modules with no behavior change, and the whole thing was put through a full verification pass — deterministic gate, mutation score, agent evals, and a tool-calling benchmark — before tagging.
+
+### Security
+
+- **Six high-severity findings from a full-codebase audit, resolved.** A multi-agent audit of the entire tree surfaced and fixed six high-severity issues across tool dispatch, input handling, and untrusted-content paths. (`107e017`)
+- **Security & robustness hardening cluster.** A follow-up pass closed the audit's "nice-to-have" security and robustness items (defensive validation and safer defaults on the same surfaces). (`2350c5d`)
+- **Prompt-injection guard.** Untrusted tool output is now fenced as data before it re-enters the model context, so a hostile file or web result can't smuggle instructions into the agent. (`src/agent/injectionGuard.ts`)
+
+### Added
+
+- **Mutation testing (`mutation_test` tool + core).** SideCar can now mutation-test code to confirm a suite actually catches faults rather than merely passing — killed/survived/no-coverage classification with always-restore. Opt-in `sidecar.mutation.{enabled,maxMutants,testTimeoutMs}`. The same "verify-the-verifier" method (via Stryker) is applied to SideCar's own moat modules on-demand. (`src/agent/mutation/`, `src/agent/tools/mutationTest.ts`, `stryker.conf.json`)
+- **Configurable stuck-loop recovery.** A tunable stuck-loop threshold plus an escalating `edit_file` recovery path so a model that thrashes on the same edit is nudged through progressively firmer interventions instead of looping. (`src/agent/loop/`)
+
+### Changed
+
+- **Large-file decomposition (8 files, no behavior change).** The eight largest source files were split into cohesive modules, each preserving its public import surface via barrel re-exports so no caller changed: `completionGate.ts` (1058→408 + 3 modules), `messageUtils.ts` (744→20-line barrel + 6), `vision.ts` (739→543 + helpers), `client.ts` (1096→836, model catalog extracted), `astContext.ts` (992→792), `treeSitterAnalyzer.ts` (736→469), `symbolGraph.ts` (870→801), `workspaceIndex.ts` (993→934). Verified identical behavior across the full suite after each split.
+- **Duplication consolidation.** Four copy-paste clusters and the retriever/model-discovery paths were consolidated into single sources of truth. (`3d2b631`, `f1a452f`)
+- **Built-in tool count reconciled to 86** across all docs (was drifting between 79/80/83/86).
+
+### Fixed
+
+- **Tier-1 tool-call repair strengthened** — handles control characters and `NaN`/`Infinity` in malformed tool-call JSON. (`02983ec`)
+- **Keep-best ratchet over-engineering threshold tightened to 0** so the do-no-harm ratchet doesn't reward gratuitous churn. (`1f235ab`)
+
+### Quality / verification
+
+- **Completion-gate mutation hardening: 61.1% → 74.7%** across three passes (pinning previously-unfalsified branch decisions in `recordToolCall`, `classifyTestResult`, `isAnalysisRequest`). The decomposition preserved this — a re-run after the split holds at 77.7% on `reprompts.ts` and 78.5% on the gate core.
+- **Test-coverage pass** — added coverage for previously-thin modules (DuckDbProvider 0→98%, historyDb/spawnHook 6→~100%, EmbeddingIndex model-backed path 28→91%, backend profile-apply, streaming file reader, documentationIndexer, providerReachability). Overall lines ~86% → ~88%.
+- **Release verified end-to-end** on this tag: 7501 unit tests, `.vsix` package + integrity check, Stryker mutation 71.7% (moat preserved), agent smoke suite 8/9 on qwen2.5-coder:7b with zero infra errors, BFCL AST-subset 100% on gemma4:e4b. (Note: `qwen3.5:latest` regressed under the full tool payload — an upstream Ollama-template issue, not SideCar — and is no longer recommended for agent work.)
+
 ## [0.115.0] - 2026-06-29
 
 Consequence-aware code graph + a numerical-correctness vertical built on top of it, plus the first chunks of the small-model scaffolding roadmap: constrained-decoding repair of malformed tool calls, capability-tiered scaffolding intensity, a failure taxonomy with diagnostic metrics, and a cleaner facet/fork progress UI. The symbol graph went from "where is X?" to "what depends on X?", with AST-exact extraction for TypeScript and Python, and its type-flow edges now power shape/dtype contract checking for scientific code — verified end-to-end in a live VS Code host.
