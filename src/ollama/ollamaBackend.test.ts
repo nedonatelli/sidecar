@@ -128,6 +128,22 @@ describe('OllamaBackend', () => {
       }
     });
 
+    it('neutralizes presence/frequency penalties so aggressive Modelfile defaults cannot break tool-call XML', async () => {
+      // qwen3.5's Modelfile ships presence_penalty 1.5, which pushes the model
+      // off the repeated-token tool-call XML format → malformed XML → Ollama 500.
+      // We must always send 0 to override it. Regression guard for that fix.
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        body: ndjsonBody([
+          { model: 'test', message: { role: 'assistant', content: 'ok' }, done: true, done_reason: 'stop' },
+        ]),
+      });
+      for await (const _ of backend.streamChat('test', '', [{ role: 'user', content: 'hi' }])) void _;
+      const options = JSON.parse(mockFetch.mock.calls.at(-1)![1].body).options;
+      expect(options.presence_penalty).toBe(0);
+      expect(options.frequency_penalty).toBe(0);
+    });
+
     it('converts tools to Ollama format', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,

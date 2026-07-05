@@ -27,6 +27,7 @@ A hardening and quality release on top of the 0.115.0 feature set: a full-codeba
 
 ### Fixed
 
+- **Ollama tool-calling reliability — neutralize presence/frequency penalties.** Some models ship aggressive penalty defaults in their Ollama Modelfile (e.g. `qwen3.5:latest`'s `presence_penalty 1.5`). Structured tool-call XML repeats tokens like `<parameter>`/`</parameter>`, so a positive presence penalty pushed the model off-format, producing malformed XML that Ollama's native parser rejected with a 500 on ~75% of tool turns — surfacing as agent-loop crashes. SideCar now explicitly sends `presence_penalty: 0` + `frequency_penalty: 0` in the Ollama chat options, overriding the Modelfile default (correct for agentic coding regardless of model — code and tool-call syntax are legitimately repetitive). Measured on `qwen3.5:latest`: tool-turn failure **~75% → 0%**. (`src/ollama/ollamaBackend.ts`)
 - **Tier-1 tool-call repair strengthened** — handles control characters and `NaN`/`Infinity` in malformed tool-call JSON. (`02983ec`)
 - **Keep-best ratchet over-engineering threshold tightened to 0** so the do-no-harm ratchet doesn't reward gratuitous churn. (`1f235ab`)
 
@@ -34,7 +35,7 @@ A hardening and quality release on top of the 0.115.0 feature set: a full-codeba
 
 - **Completion-gate mutation hardening: 61.1% → 74.7%** across three passes (pinning previously-unfalsified branch decisions in `recordToolCall`, `classifyTestResult`, `isAnalysisRequest`). The decomposition preserved this — a re-run after the split holds at 77.7% on `reprompts.ts` and 78.5% on the gate core.
 - **Test-coverage pass** — added coverage for previously-thin modules (DuckDbProvider 0→98%, historyDb/spawnHook 6→~100%, EmbeddingIndex model-backed path 28→91%, backend profile-apply, streaming file reader, documentationIndexer, providerReachability). Overall lines ~86% → ~88%.
-- **Release verified end-to-end** on this tag: 7501 unit tests, `.vsix` package + integrity check, Stryker mutation 71.7% (moat preserved), agent smoke suite 8/9 on qwen2.5-coder:7b with zero infra errors, BFCL AST-subset 100% on gemma4:e4b. (Note: `qwen3.5:latest` regressed under the full tool payload — an upstream Ollama-template issue, not SideCar — and is no longer recommended for agent work.)
+- **Release verified end-to-end** on this tag: 7501 unit tests, `.vsix` package + integrity check, Stryker mutation 71.7% (moat preserved), agent smoke suite 8/9 on qwen2.5-coder:7b with zero infra errors, BFCL AST-subset 100% on gemma4:e4b. The verification pass also surfaced and fixed the Ollama presence-penalty bug above (found while root-causing `qwen3.5:latest` tool-turn crashes).
 
 ## [0.115.0] - 2026-06-29
 

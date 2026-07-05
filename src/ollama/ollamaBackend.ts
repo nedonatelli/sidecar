@@ -333,7 +333,21 @@ export class OllamaBackend implements ApiBackend {
     // Users on low-VRAM machines running large models can reduce the KV-cache
     // allocation by setting sidecar.ollama.numCtx explicitly (e.g. 32768).
     const numCtx = ollamaNumCtx ?? Math.min(Math.max(probedNumCtx ?? 0, 32_768), LOCAL_CONTEXT_CAP);
-    const options: Record<string, unknown> = { temperature: agentTemperature, num_ctx: numCtx };
+    // Neutralize presence/frequency penalties. Some models ship aggressive
+    // penalty defaults in their Ollama Modelfile (e.g. qwen3.5's `presence_penalty
+    // 1.5`), which sabotage structured tool-call generation: the XML tool format
+    // repeats tokens like `<parameter>`/`</parameter>`, and a positive presence
+    // penalty pushes the model off-format, producing malformed XML that Ollama's
+    // native parser rejects with a 500 (~75% of tool turns on qwen3.5). Explicitly
+    // sending 0 overrides the Modelfile default and makes tool calling reliable.
+    // Correct for agentic coding regardless of model — code and tool-call syntax
+    // are legitimately repetitive and should never be penalized.
+    const options: Record<string, unknown> = {
+      temperature: agentTemperature,
+      num_ctx: numCtx,
+      presence_penalty: 0,
+      frequency_penalty: 0,
+    };
     // Reproducible-run seed: config `sidecar.agentSeed`, or the headless
     // `SIDECAR_AGENT_SEED` env fallback (benchmarks run without VS Code settings).
     // Unseeded in production (both absent) so normal use keeps sampling variety.
