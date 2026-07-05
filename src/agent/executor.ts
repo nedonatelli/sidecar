@@ -2,6 +2,7 @@ import { workspace, Uri } from 'vscode';
 import * as path from 'path';
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../ollama/types.js';
 import { findTool, type ToolExecutorContext } from './tools.js';
+import { parseMangledToolName } from './loop/textParsing.js';
 import type { ChangeLog } from './changelog.js';
 import type { MCPManager } from './mcpManager.js';
 import { getConfig } from '../config/settings.js';
@@ -90,7 +91,30 @@ export async function executeTool(
   // Check the run-scoped ephemeral tools  before
   // the global registry. Facet RPC tools land here so cross-facet
   // calls resolve without polluting TOOL_REGISTRY across runs.
-  const tool = extraTools?.find((t) => t.definition.name === toolUse.name) ?? findTool(toolUse.name, mcpManager);
+  let tool = extraTools?.find((t) => t.definition.name === toolUse.name) ?? findTool(toolUse.name, mcpManager);
+
+  // Salvage a call-expression name like `read_file(path="x")` that some model
+  // runtimes (notably Ollama's native qwen3.5 tool parser) occasionally emit as
+  // the tool NAME with empty args, and that models sometimes produce by echoing
+  // the prompt's `read_file(path="…")` example syntax as a literal text call.
+  // Recover the base name + parenthesized arguments so the intent isn't lost to
+  // an opaque "Unknown tool".
+  if (!tool) {
+    const salvaged = parseMangledToolName(toolUse.name);
+    if (salvaged) {
+      const reTool =
+        extraTools?.find((t) => t.definition.name === salvaged.name) ?? findTool(salvaged.name, mcpManager);
+      if (reTool) {
+        const hasInput = toolUse.input && Object.keys(toolUse.input).length > 0;
+        const recoveredInput = hasInput ? toolUse.input : salvaged.input;
+        logger?.warn(
+          `Salvaged mangled tool call "${toolUse.name}" → ${salvaged.name}(${JSON.stringify(recoveredInput)})`,
+        );
+        toolUse = { ...toolUse, name: salvaged.name, input: recoveredInput };
+        tool = reTool;
+      }
+    }
+  }
 
   if (!tool) {
     return {

@@ -49,6 +49,29 @@ describe('executeTool', () => {
     expect(result.content).toContain('Unknown tool');
   });
 
+  it('salvages a mangled call-expression tool name and dispatches the base tool', async () => {
+    // Some runtimes (Ollama's qwen3.5 parser) yield name=`read_file(path="…")`
+    // with empty args. The base name must resolve and recover its arguments.
+    const executor = vi.fn().mockResolvedValue('file contents');
+    mockedFindTool.mockImplementation((name: string) =>
+      name === 'read_file'
+        ? {
+            definition: { name: 'read_file', description: '', input_schema: { type: 'object', properties: {} } },
+            executor,
+            requiresApproval: false,
+          }
+        : undefined,
+    );
+    mockConfig({ toolPermissions: { read_file: 'allow' } });
+
+    const result = await executeTool(makeToolUse('read_file(path="src/greeter.ts")'));
+
+    expect(result.is_error).toBeFalsy();
+    expect(executor).toHaveBeenCalledTimes(1);
+    // Recovered the arguments from the parentheses despite the empty native input.
+    expect(executor.mock.calls[0][0]).toMatchObject({ path: 'src/greeter.ts' });
+  });
+
   it('returns error when tool permission is deny', async () => {
     mockedFindTool.mockReturnValue({
       definition: { name: 'read_file', description: '', input_schema: { type: 'object', properties: {} } },

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseTextToolCalls, stripRepeatedContent } from './textParsing.js';
+import { parseTextToolCalls, stripRepeatedContent, parseMangledToolName } from './textParsing.js';
 import type { ToolDefinition, ChatMessage } from '../../ollama/types.js';
 
 // ---------------------------------------------------------------------------
@@ -269,5 +269,64 @@ describe('stripRepeatedContent', () => {
     expect(result).not.toContain(longParagraph);
     // No stretch of 3+ newlines should remain.
     expect(result).not.toMatch(/\n{3,}/);
+  });
+});
+
+describe('parseMangledToolName', () => {
+  it('recovers the base name + kwargs from a call-expression name (the qwen3.5 case)', () => {
+    // The exact shape seen in the agent trajectory: name captured the whole call.
+    expect(parseMangledToolName('read_file(path="src/greeter.ts")')).toEqual({
+      name: 'read_file',
+      input: { path: 'src/greeter.ts' },
+    });
+  });
+
+  it('parses multiple kwargs with mixed value types', () => {
+    expect(parseMangledToolName('read_file(path="src/utils.ts", start_line=5, end_line=10)')).toEqual({
+      name: 'read_file',
+      input: { path: 'src/utils.ts', start_line: 5, end_line: 10 },
+    });
+  });
+
+  it('handles single-quoted strings, booleans, and Python None', () => {
+    expect(parseMangledToolName("grep(pattern='foo', recursive=True, limit=None)")).toEqual({
+      name: 'grep',
+      input: { pattern: 'foo', recursive: true, limit: null },
+    });
+  });
+
+  it('parses an embedded JSON object form', () => {
+    expect(parseMangledToolName('read_file({"path":"src/x.ts","start_line":3})')).toEqual({
+      name: 'read_file',
+      input: { path: 'src/x.ts', start_line: 3 },
+    });
+  });
+
+  it('does not split on commas inside quoted values', () => {
+    expect(parseMangledToolName('run_command(cmd="echo a, b, c")')).toEqual({
+      name: 'run_command',
+      input: { cmd: 'echo a, b, c' },
+    });
+  });
+
+  it('returns the base name with empty input for an empty arg list', () => {
+    expect(parseMangledToolName('list_directory()')).toEqual({ name: 'list_directory', input: {} });
+  });
+
+  it('returns empty input for positional-only args (unmappable without schema)', () => {
+    // No `key=` — nothing to map, but the base name still resolves downstream.
+    expect(parseMangledToolName('read_file("src/x.ts")')).toEqual({ name: 'read_file', input: {} });
+  });
+
+  it('returns null for a legitimate plain tool name (never fires on valid calls)', () => {
+    expect(parseMangledToolName('read_file')).toBeNull();
+    expect(parseMangledToolName('get_diagnostics')).toBeNull();
+    expect(parseMangledToolName('mcp_server_do_thing')).toBeNull();
+  });
+
+  it('returns null for non-call garbage', () => {
+    expect(parseMangledToolName('')).toBeNull();
+    expect(parseMangledToolName('read file please')).toBeNull();
+    expect(parseMangledToolName('{"name":"read_file"}')).toBeNull();
   });
 });
