@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { parseTextToolCalls, stripRepeatedContent, parseMangledToolName } from './textParsing.js';
+import {
+  parseTextToolCalls,
+  stripRepeatedContent,
+  parseMangledToolName,
+  splitTopLevelArgs,
+  coerceArgValue,
+} from './textParsing.js';
 import type { ToolDefinition, ChatMessage } from '../../ollama/types.js';
 
 // ---------------------------------------------------------------------------
@@ -345,5 +351,119 @@ describe('parseMangledToolName', () => {
     expect(parseMangledToolName('')).toBeNull();
     expect(parseMangledToolName('read file please')).toBeNull();
     expect(parseMangledToolName('{"name":"read_file"}')).toBeNull();
+  });
+});
+
+describe('coerceArgValue', () => {
+  it('strips double- and single-quoted strings', () => {
+    expect(coerceArgValue('"hello"')).toBe('hello');
+    expect(coerceArgValue("'hello'")).toBe('hello');
+  });
+
+  it('coerces booleans (both cases)', () => {
+    expect(coerceArgValue('true')).toBe(true);
+    expect(coerceArgValue('True')).toBe(true);
+    expect(coerceArgValue('false')).toBe(false);
+    expect(coerceArgValue('False')).toBe(false);
+  });
+
+  it('coerces null and Python None', () => {
+    expect(coerceArgValue('null')).toBeNull();
+    expect(coerceArgValue('None')).toBeNull();
+  });
+
+  it('coerces integers (incl. negative) and floats', () => {
+    expect(coerceArgValue('42')).toBe(42);
+    expect(coerceArgValue('-5')).toBe(-5);
+    expect(coerceArgValue('3.14')).toBe(3.14);
+    expect(coerceArgValue('-0.5')).toBe(-0.5);
+  });
+
+  it('leaves barewords as strings and trims whitespace', () => {
+    expect(coerceArgValue('hello')).toBe('hello');
+    expect(coerceArgValue('  spaced  ')).toBe('spaced');
+    // Not a full number → stays a string.
+    expect(coerceArgValue('12abc')).toBe('12abc');
+  });
+
+  it('does not coerce a value that only partially looks quoted', () => {
+    // Leading quote but no trailing quote → treated as a bareword, not stripped.
+    expect(coerceArgValue('"unterminated')).toBe('"unterminated');
+  });
+});
+
+describe('splitTopLevelArgs', () => {
+  it('splits simple comma-separated parts', () => {
+    expect(splitTopLevelArgs('a=1, b=2, c=3')).toEqual(['a=1', ' b=2', ' c=3']);
+  });
+
+  it('does not split on commas inside double- or single-quoted strings', () => {
+    expect(splitTopLevelArgs('a="x, y", b=2')).toEqual(['a="x, y"', ' b=2']);
+    expect(splitTopLevelArgs("a='x, y', b=2")).toEqual(["a='x, y'", ' b=2']);
+  });
+
+  it('does not split on commas inside (), [], or {}', () => {
+    expect(splitTopLevelArgs('a=[1, 2], b={3, 4}, c=f(5, 6)')).toEqual(['a=[1, 2]', ' b={3, 4}', ' c=f(5, 6)']);
+  });
+
+  it('treats an escaped quote as literal — does not end the quoted region early', () => {
+    // The \" must NOT close the string, so the comma stays inside one part.
+    expect(splitTopLevelArgs('a="x \\" , y", b=2')).toEqual(['a="x \\" , y"', ' b=2']);
+  });
+
+  it('keeps a single arg with no top-level comma as one part', () => {
+    expect(splitTopLevelArgs('path="src/x.ts"')).toEqual(['path="src/x.ts"']);
+  });
+
+  it('drops a trailing empty/whitespace-only segment after a trailing comma', () => {
+    expect(splitTopLevelArgs('a=1, ')).toEqual(['a=1']);
+  });
+});
+
+describe('parseTextToolCalls — argument-key and name-key variants', () => {
+  const tools = defineTools('read_file', 'grep');
+
+  // Each variant present in isolation, so dropping ANY key from the fallback
+  // chain (arguments / args / parameters / input / function.arguments) breaks it.
+  it('reads args from `arguments`', () => {
+    expect(
+      parseTextToolCalls('<tool_call>{"name":"grep","arguments":{"pattern":"a"}}</tool_call>', tools)[0].input,
+    ).toEqual({ pattern: 'a' });
+  });
+  it('reads args from `args`', () => {
+    expect(parseTextToolCalls('<tool_call>{"name":"grep","args":{"pattern":"b"}}</tool_call>', tools)[0].input).toEqual(
+      {
+        pattern: 'b',
+      },
+    );
+  });
+  it('reads args from `parameters`', () => {
+    expect(
+      parseTextToolCalls('<tool_call>{"name":"grep","parameters":{"pattern":"c"}}</tool_call>', tools)[0].input,
+    ).toEqual({ pattern: 'c' });
+  });
+  it('reads args from nested `function.arguments` in a <tool_call>', () => {
+    expect(
+      parseTextToolCalls('<tool_call>{"function":{"name":"grep","arguments":{"pattern":"d"}}}</tool_call>', tools)[0]
+        .input,
+    ).toEqual({ pattern: 'd' });
+  });
+  it('reads args from `input` in a fenced block', () => {
+    expect(parseTextToolCalls('```json\n{"tool":"grep","input":{"pattern":"e"}}\n```', tools)[0].input).toEqual({
+      pattern: 'e',
+    });
+  });
+
+  // Name-key variants: name / tool / function.name.
+  it('reads the name from `tool`', () => {
+    expect(parseTextToolCalls('<tool_call>{"tool":"read_file","args":{"path":"x"}}</tool_call>', tools)[0].name).toBe(
+      'read_file',
+    );
+  });
+  it('reads the name from nested `function.name`', () => {
+    expect(
+      parseTextToolCalls('<tool_call>{"function":{"name":"read_file","arguments":{"path":"y"}}}</tool_call>', tools)[0]
+        .name,
+    ).toBe('read_file');
   });
 });

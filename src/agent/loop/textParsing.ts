@@ -39,8 +39,8 @@ function salvageToolName(raw: string, toolNames: Set<string>): string | null {
   return m && toolNames.has(m[1]) ? m[1] : null;
 }
 
-/** Split a comma-separated argument list at top level, respecting quotes and brackets. */
-function splitTopLevelArgs(s: string): string[] {
+/** Split a comma-separated argument list at top level, respecting quotes and brackets. Exported for tests. */
+export function splitTopLevelArgs(s: string): string[] {
   const parts: string[] = [];
   let depth = 0;
   let quote: string | null = null;
@@ -70,8 +70,8 @@ function splitTopLevelArgs(s: string): string[] {
   return parts;
 }
 
-/** Coerce a raw Python-kwarg value token to a JS value (string/number/bool/null). */
-function coerceArgValue(raw: string): unknown {
+/** Coerce a raw Python-kwarg value token to a JS value (string/number/bool/null). Exported for tests. */
+export function coerceArgValue(raw: string): unknown {
   const t = raw.trim();
   if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
     return t.slice(1, -1);
