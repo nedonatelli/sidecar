@@ -167,8 +167,8 @@ export function parseTextToolCalls(text: string, tools: ToolDefinition[]): ToolU
       if (firstType !== 'tc') continue;
       try {
         const parsed = JSON.parse(match[3]);
-        const name = parsed.name || parsed.function?.name;
-        const args = parsed.arguments || parsed.function?.arguments || parsed.parameters || {};
+        const name = parsed.name || parsed.tool || parsed.function?.name;
+        const args = parsed.arguments || parsed.args || parsed.function?.arguments || parsed.parameters || {};
         if (name && toolNames.has(name)) {
           const input = typeof args === 'string' ? JSON.parse(args) : args;
           results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
@@ -195,7 +195,7 @@ export function parseTextToolCalls(text: string, tools: ToolDefinition[]): ToolU
       try {
         const parsed = JSON.parse(match[4]);
         const name = parsed.name || parsed.tool || parsed.function;
-        const args = parsed.arguments || parsed.parameters || parsed.input || {};
+        const args = parsed.arguments || parsed.args || parsed.parameters || parsed.input || {};
         if (name && typeof name === 'string' && toolNames.has(name)) {
           const input = typeof args === 'string' ? JSON.parse(args) : args;
           results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
@@ -244,7 +244,7 @@ export function parseTextToolCalls(text: string, tools: ToolDefinition[]): ToolU
       try {
         const parsed = JSON.parse(candidate);
         const name = parsed.name;
-        const args = parsed.arguments || parsed.parameters || parsed.input || {};
+        const args = parsed.arguments || parsed.args || parsed.parameters || parsed.input || {};
         if (name && typeof name === 'string' && toolNames.has(name)) {
           firstType = 'bare';
           const input = typeof args === 'string' ? JSON.parse(args) : args;

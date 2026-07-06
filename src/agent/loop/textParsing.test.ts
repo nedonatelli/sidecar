@@ -137,6 +137,23 @@ describe('parseTextToolCalls', () => {
       expect(result[0]).toMatchObject({ name: 'read_file', input: { path: 'x.ts' } });
     });
 
+    it('parses a fenced block with `tool` + `args` keys (Devstral-style) — args must not be dropped', () => {
+      // Exact shape captured from devstral:24b in the agent loop. Before the fix
+      // the `args` key was not in the extraction chain, so `path` silently
+      // dropped to {} and the tool failed with "missing required parameter".
+      const input = '```json\n{\n  "tool": "read_file",\n  "args": {\n    "path": "src/fact.ts"\n  }\n}\n```';
+      const result = parseTextToolCalls(input, tools);
+      expect(result).toHaveLength(1);
+      expect(result[0]).toMatchObject({ name: 'read_file', input: { path: 'src/fact.ts' } });
+    });
+
+    it('accepts the `args` key in a <tool_call> block too', () => {
+      const input = '<tool_call>{"name": "grep", "args": {"pattern": "foo"}}</tool_call>';
+      const result = parseTextToolCalls(input, tools);
+      expect(result).toHaveLength(1);
+      expect(result[0]).toMatchObject({ name: 'grep', input: { pattern: 'foo' } });
+    });
+
     it('parses a bare ``` fenced block (no json language tag)', () => {
       const input = '```\n{"name": "grep", "parameters": {"pattern": "x"}}\n```';
       const result = parseTextToolCalls(input, tools);
