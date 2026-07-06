@@ -82,6 +82,19 @@ export class MetricsCollector {
     }
   }
 
+  /**
+   * Latest-wins token estimate for the run. Local backends (Ollama) emit no
+   * per-turn `usage` event, so the loop's running whole-conversation estimate
+   * (`onIterationStart.estimatedTokens`) is the only token signal available.
+   * It grows monotonically as context accumulates, so the last value is the
+   * run's peak context size — the honest per-task token number for local models.
+   */
+  setTokenEstimate(tokens: number): void {
+    if (this.currentRun && tokens > (this.currentRun.totalTokensEstimate || 0)) {
+      this.currentRun.totalTokensEstimate = tokens;
+    }
+  }
+
   recordError(err: string): void {
     this.currentRun?.errors?.push(err);
   }

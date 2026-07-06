@@ -30,6 +30,8 @@ function makeState(overrides: Partial<ChatState> = {}): ChatState {
       recordToolStart: vi.fn(),
       recordToolEnd: vi.fn(),
       getToolDuration: vi.fn().mockReturnValue(0),
+      recordIteration: vi.fn(),
+      setTokenEstimate: vi.fn(),
     },
     auditLog: undefined,
     workspaceIndex: undefined,
@@ -242,6 +244,10 @@ describe('createAgentCallbacks — onIterationStart', () => {
         atCapacity: false,
       }),
     );
+    // Operational metrics were silently dead (iterations/tokens 0/129 in
+    // metrics.jsonl) because the loop never called these. Lock the wiring.
+    expect(state.metricsCollector.recordIteration).toHaveBeenCalled();
+    expect(state.metricsCollector.setTokenEstimate).toHaveBeenCalledWith(5000);
   });
 
   it('surfaces the at-capacity warning in the verbose log', () => {

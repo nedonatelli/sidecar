@@ -69,6 +69,20 @@ describe('MetricsCollector', () => {
     expect(collector.getHistory()[0].totalTokensEstimate).toBe(150);
   });
 
+  it('setTokenEstimate is latest-wins and monotonic (never shrinks)', () => {
+    collector.startRun();
+    collector.setTokenEstimate(500);
+    collector.setTokenEstimate(1200); // grew — takes it
+    collector.setTokenEstimate(900); // shrank — ignored (context only grows)
+    collector.endRun();
+    expect(collector.getHistory()[0].totalTokensEstimate).toBe(1200);
+  });
+
+  it('setTokenEstimate is no-op without startRun', () => {
+    collector.setTokenEstimate(1000); // should not throw
+    expect(collector.getHistory()).toEqual([]);
+  });
+
   it('recordError logs errors', () => {
     collector.startRun();
     collector.recordError('something broke');

@@ -144,6 +144,8 @@ export function createAgentCallbacks(
     },
     onIterationStart: (info) => {
       currentIteration = info.iteration;
+      state.metricsCollector.recordIteration();
+      state.metricsCollector.setTokenEstimate(info.estimatedTokens);
       if (planStore && config.executiveFunctionEnabled) {
         void planStore.save({
           goal: extractGoal(chatMessages),
