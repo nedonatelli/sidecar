@@ -62,6 +62,14 @@ Big clouds (AWS/GCP/Azure GPU VMs) work but are more setup + cost for the same j
 
 ## Notes / gotchas
 
+- **Truncated Ollama install → 0% GPU (the expensive one):** on slow-CDN boxes
+  `curl … install.sh | sh` can exit 0 but truncate the bundled llama runner.
+  `ollama serve` starts and `pull` succeeds, so nothing looks wrong — but
+  generation silently falls back to **CPU** and a 50-task run crawls for hours at
+  ~0% GPU. The script now fails loud on this via a `[1b/6]` warmup probe
+  (`nvidia-smi` memory ≈0 after a generation → abort). If it trips: reinstall with
+  a **parallel downloader** (e.g. `aria2c`) and verify the tarball size before
+  rerunning. Sanity-check anytime with `nvidia-smi` during a generation.
 - **Reproducible slice:** `fetch_dataset.mjs` sorts by `instance_id` and stride-
   samples, so the same `N` yields the same tasks on any machine (the envelope
   requires this). It needs no shipped data — it pulls from the HF datasets-server.

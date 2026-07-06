@@ -29,6 +29,27 @@ ollama pull "$MODEL"
 npm ci
 python -m pip install --quiet --upgrade swebench
 
+# --- GPU sanity probe (guards a known footgun) ------------------------------
+# On slow-CDN boxes `install.sh` can exit 0 but truncate the bundled llama
+# runner, so `ollama serve` starts, `pull` succeeds, and generation silently
+# falls back to CPU — a 50-task run then crawls at ~0% GPU for hours before you
+# notice. Fail loud here (≈1 min) instead. Warm the model and assert the GPU is
+# actually engaged.
+echo "== [1b/6] verify GPU inference =="
+ollama --version >/dev/null 2>&1 || { echo "!! ollama binary missing/broken — reinstall (truncated download?)"; exit 1; }
+timeout 120 ollama run "$MODEL" "reply with the single word ok" > "$WORK/warmup.txt" 2>&1 \
+  || { echo "!! warmup generation failed — likely a truncated Ollama install (llama runner missing). See $WORK/ollama.log"; exit 1; }
+if command -v nvidia-smi >/dev/null 2>&1; then
+  gpu_mem=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | head -1 | tr -d ' ')
+  echo "[verify] GPU memory in use after warmup: ${gpu_mem:-?} MiB"
+  if [ "${gpu_mem:-0}" -lt 500 ]; then
+    echo "!! GPU memory ~0 during generation — the model is running on CPU, not GPU."
+    echo "!! Almost always a truncated Ollama install. Reinstall with a parallel downloader"
+    echo "!! (e.g. aria2c) and verify the tarball size before rerunning. Aborting."
+    exit 1
+  fi
+fi
+
 echo "== [2/6] dataset ($DATASET, $N tasks) =="
 node bench/swe/cloud/fetch_dataset.mjs --dataset "$DATASET" --n "$N" --out "$SLICE"
 
