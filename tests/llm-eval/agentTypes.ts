@@ -99,6 +99,15 @@ export interface AgentEvalCase {
    * autoFix). Example: `{ criticEnabled: true }`.
    */
   configOverrides?: Partial<import('../../src/config/settings.js').SideCarConfig>;
+  /**
+   * Simulated user reply when the agent calls `ask_user`. The test plays a
+   * COOPERATIVE user: a clarifying question is a legitimate step, so the harness
+   * answers it and lets the agent continue to address the issue rather than
+   * treating the question as a dead-end. A string is returned verbatim; a
+   * function receives the model's question + offered options and returns the
+   * reply. Omit to use the harness default ("proceed, use your best judgment").
+   */
+  clarifyResponse?: string | ((question: string, options: string[]) => string);
 }
 
 /**
