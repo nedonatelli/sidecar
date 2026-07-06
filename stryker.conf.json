@@ -22,6 +22,7 @@
     "src/agent/completionGate/behavioralReprompt.ts",
     "src/agent/completionGate/pathUtil.ts",
     "src/agent/loop/keepBestRatchet.ts",
+    "src/agent/loop/textParsing.ts",
     "src/agent/analyticBounds.ts",
     "src/agent/injectionGuard.ts",
     "src/agent/jsonRepair.ts"
