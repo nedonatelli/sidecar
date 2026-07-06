@@ -8,11 +8,7 @@
 
 **SideCar** is a free, self-hosted VS Code extension that serves as a drop-in replacement for GitHub Copilot and Claude Code. Use local [Ollama](https://ollama.com) models, the [Anthropic API](https://api.anthropic.com), [OpenAI](https://platform.openai.com), [Fireworks AI](https://fireworks.ai), [OpenRouter](https://openrouter.ai), [Google Gemini](https://aistudio.google.com), [Groq](https://groq.com), [Kickstand](https://github.com/nedonatelli/kickstand) (self-hosted), or any OpenAI-compatible server (LM Studio, vLLM, llama.cpp) for AI-powered coding — with full agentic capabilities, inline completions, and tool use.
 
-> A free, open-source, local-first **autonomous AI agent for coding**. Full agent loop, not just chat. No subscriptions, no data leaving your machine.
-
-SideCar will always be free, tips not required but appreciated.
-
-<a href="https://www.buymeacoffee.com/nedonatelli" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-red.png" alt="Buy Me A Coffee" width="160" height="40"></a>
+A free, open-source, local-first **autonomous AI agent for coding** — a full agent loop, not just chat. No subscription, and with local models, no data leaves your machine.
 
 ## Why SideCar?
 
@@ -20,7 +16,7 @@ Agent mode, tool use, and MCP are table stakes in 2026 — Copilot, Cursor, Clau
 
 ### vs. open-source agents
 
-The free, open-source, agentic field is where SideCar's closest competitors live: **[Cline](https://cline.bot)**, **[Kilo Code](https://kilo.ai)** (the Cline/Roo hybrid most Roo users moved to after [Roo Code shut down in May 2026](https://github.com/RooCodeInc/Roo-Code)), and **[Continue](https://continue.dev)** (now a full agent, not just autocomplete). All of them — and SideCar — run local models offline, support MCP, and ship a project rules file. Agent mode is no longer a differentiator; these are the honest differences (verified June 2026):
+SideCar's closest competitors are the other free, open-source agentic extensions: **[Cline](https://cline.bot)**, **[Kilo Code](https://kilo.ai)** (the Cline/Roo hybrid most Roo users adopted after [Roo Code shut down in May 2026](https://github.com/RooCodeInc/Roo-Code)), and **[Continue](https://continue.dev)** (now a full agent, not just autocomplete). SideCar and all three run local models offline, support MCP, and ship a project-rules file — so agent mode itself is no longer a differentiator. The honest differences (verified June 2026):
 
 **Where SideCar is different**
 
@@ -205,6 +201,34 @@ LM Studio, vLLM, llama.cpp, and other OpenAI-compatible servers work out of the 
 
 SideCar auto-detects the provider from the URL. Override with `sidecar.provider: "openai"` if needed.
 
+## Tested Models
+
+SideCar is verified against an agent smoke-eval suite (read / edit / write / run / plan / error-recovery tasks) on each supported model. The primary gate is **infrastructure reliability** — the agent loop, tool-call parsing, and completion gates must run cleanly (no crashes, dropped tool calls, or retry thrash) — measured separately from a model's raw task capability.
+
+**Test hardware:** Apple M3 Max, 36 GB unified memory (macOS), Ollama for local models. Model sizes and memory guidance below assume this configuration.
+
+### Local models (Ollama)
+
+Every model below runs the agent smoke suite with **zero infrastructure errors**. Task-completion capability varies; the recommendations reflect both.
+
+| Model                    | Size   | Notes                                                                     |
+| ------------------------ | ------ | ------------------------------------------------------------------------- |
+| **gemma4:e4b** (default) | 9.6 GB | Strongest prompt-following of the local models; the shipped default       |
+| **ministral-3:latest**  | 6.0 GB | Lightest strong agent; recommended low-footprint default                  |
+| **qwen2.5-coder:7b**     | 4.7 GB | Reliable coding baseline — the most consistent tool-caller of the 7B tier |
+| **qwen3-coder:30b**      | 18 GB  | Best larger local coder (MoE, ~3.3B active); recommended if it fits       |
+| qwen3.5:latest           | 6.6 GB | Reliable as of v0.116 (earlier versions hit Ollama tool-parser issues)    |
+| deepseek-r1:8b / qwen3:8b | 5.2 GB | Reasoning models; answers surfaced correctly as of v0.116                |
+| granite4.1:3b            | 2.1 GB | Low-RAM option; punches above its weight                                  |
+| llama3.2:latest          | 2.0 GB | Low-RAM general model                                                     |
+| devstral:24b             | 14 GB  | SWE-tuned; supported as of v0.116 (`{tool, args}` text-call parsing fix)  |
+
+**Memory guidance (36 GB).** Sub-10 GB models run comfortably alongside VS Code with headroom for the context cache. A 14B model at a large context window (e.g. `qwen2.5-coder:14b` with SideCar's full `num_ctx`) can exceed 36 GB of unified memory and thrash — lower `sidecar.ollama.numCtx`, or prefer the 7B coder. On more memory, the 24–30 GB-class models above have proportionally more room.
+
+### Cloud models
+
+For maximum reliability, the **Anthropic (Claude)**, **Google Gemini**, and **Fireworks (DeepSeek)** backends are the strongest tested cloud options; see the setup sections above.
+
 ## VS Code Copilot Chat & Agents Window
 
 SideCar registers as a native VS Code chat participant — type `@sidecar` in the Copilot Chat panel to talk to your configured backend without opening the SideCar sidebar. Slash commands `/review`, `/fix`, `/explain`, and `/commit-message` are available.
@@ -236,7 +260,7 @@ Core settings — full reference at [nedonatelli.github.io/sidecar/settings](htt
 | Setting                                | Default                  | Description                                                                              |
 | -------------------------------------- | ------------------------ | ---------------------------------------------------------------------------------------- |
 | `sidecar.baseUrl`                      | `http://localhost:11434` | API base URL                                                                             |
-| `sidecar.model`                        | `qwen3-coder:30b`        | Model for chat                                                                           |
+| `sidecar.model`                        | `gemma4:e4b`             | Model for chat                                                                           |
 | `sidecar.agentMode`                    | `cautious`               | `cautious` / `autonomous` / `manual` / `plan` / `review` / `audit` or a custom mode name |
 | `sidecar.agentMaxIterations`           | `50`                     | Max agent loop iterations                                                                |
 | `sidecar.agentMaxTokens`               | `200000`                 | Max tokens per agent run                                                                 |
@@ -270,6 +294,10 @@ Full documentation: [nedonatelli.github.io/sidecar](https://nedonatelli.github.i
 - **Security issues**: private disclosure via [SECURITY.md](SECURITY.md) — please don't open public issues for vulnerabilities
 - **Email**: [sidecarai.vscode@gmail.com](mailto:sidecarai.vscode@gmail.com)
 - **Documentation**: [nedonatelli.github.io/sidecar](https://nedonatelli.github.io/sidecar/)
+
+SideCar is free and always will be. If it saves you time and you'd like to support development, a tip is appreciated but never required:
+
+<a href="https://www.buymeacoffee.com/nedonatelli" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-red.png" alt="Buy Me A Coffee" width="160" height="40"></a>
 
 ## Disclaimer
 
