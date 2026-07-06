@@ -190,6 +190,11 @@ export async function* streamOpenAiSse(
         } catch {
           continue;
         }
+        // `data:` can carry any valid JSON — `null`, a number, a bare string —
+        // none of which is a chat chunk. Skip non-objects so the field accesses
+        // below never dereference null/primitive (a `data: null` frame would
+        // otherwise crash the whole stream).
+        if (!chunk || typeof chunk !== 'object') continue;
 
         // Usage-only chunk — emitted as the final chunk when the
         // request body included `stream_options: { include_usage: true }`.

@@ -137,6 +137,20 @@ describe('streamOpenAiSse', () => {
     expect(texts.join('')).toBe('recovered');
   });
 
+  it('skips non-object JSON frames (null / number / string) without crashing', async () => {
+    // `JSON.parse("null")` is valid JSON but not a chat chunk — a `data: null`
+    // frame previously crashed the whole stream on `chunk.usage`. (Found by fuzz.)
+    const response = mockSseResponse([
+      'null',
+      '42',
+      '"a bare string"',
+      JSON.stringify({ choices: [{ index: 0, delta: { content: 'ok' }, finish_reason: 'stop' }] }),
+    ]);
+    const events = await collect(streamOpenAiSse(response, 'gpt-4o', undefined, undefined));
+    const texts = events.filter((e) => e.type === 'text').map((e: any) => e.text);
+    expect(texts.join('')).toBe('ok');
+  });
+
   it('throws when the response body is empty', async () => {
     const emptyResponse = new Response(null, { status: 200 });
     await expect(async () => {
