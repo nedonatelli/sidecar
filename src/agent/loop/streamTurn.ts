@@ -140,6 +140,7 @@ export async function streamOneTurn(
   firstTokenTimeoutMs: number = 0,
 ): Promise<TurnResult> {
   const fullTextParts: string[] = [];
+  const fullThinkingParts: string[] = [];
   const pendingToolUses: ToolUseContentBlock[] = [];
   let stopReason = 'end_turn';
   let terminated: TurnTermination = 'none';
@@ -223,6 +224,7 @@ export async function streamOneTurn(
         case 'thinking':
           state.totalChars += event.thinking.length;
           callbacks.onCharsConsumed?.(event.thinking.length);
+          fullThinkingParts.push(event.thinking);
           const thinkingMode = state.config.thinkingMode;
           thinkingStore.append(state.runId, event.thinking, thinkingMode).catch((err: unknown) => {
             logger.warn('[SideCar] Thinking store append failed:', err instanceof Error ? err.message : err);
@@ -290,6 +292,27 @@ export async function streamOneTurn(
       iter.return?.(undefined);
     } catch {
       /* ignore */
+    }
+  }
+
+  // Answer-in-thinking fallback. Some models emit their entire final answer via
+  // the thinking channel and leave text content empty — e.g. Ollama's qwen3.5
+  // under a large system prompt returns the one-sentence answer in
+  // `message.thinking` with `message.content` empty. When a turn ended cleanly
+  // (not aborted/timed out) with NO text and NO tool call but DID produce
+  // thinking, the thinking IS the response, so surface it as text — otherwise
+  // the user is left with a blank answer. Fires onText so finalText/observers
+  // see it. Never fires when the model produced real text or a tool call.
+  if (
+    terminated === 'none' &&
+    fullTextParts.length === 0 &&
+    pendingToolUses.length === 0 &&
+    fullThinkingParts.length > 0
+  ) {
+    const promoted = fullThinkingParts.join('').trim();
+    if (promoted) {
+      fullTextParts.push(promoted);
+      callbacks.onText(promoted);
     }
   }
 
