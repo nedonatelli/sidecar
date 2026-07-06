@@ -35,6 +35,16 @@ npm run package           # build + vsce package → .vsix
 
 Pre-commit hooks (lint-staged via husky) run `prettier --write`, `eslint --max-warnings=0`, `tsc --noEmit`, and `vitest run --silent` (excluding `**/shadowWorkspace.test.ts` since those tests use real `git worktree` which conflicts with lint-staged's stash-and-restore context). Full suite runs in CI.
 
+## Development & Release Process
+
+Full process in [`CONTRIBUTING.md`](CONTRIBUTING.md). The non-negotiables:
+
+- **Coding loop:** branch off `main` (never commit to main); complete implementations, no stubs; co-locate tests, new files ≥80%, never drop the CI coverage floor (70/63/67/71); run `npm run check` before every commit; conventional commits + `Co-Authored-By` footer. **Never push or tag without an explicit request.** Refactors preserve the public import surface via barrel re-exports.
+- **Verification pyramid** (match tier to risk; run all before a release): **T0** every commit — `npm run check`. **T1** pre-release, no model — `build` + `package` + `verify:package` + `test:coverage` + Stryker on the moat modules (`npx stryker run`; add moved moat files to `stryker.conf.json`). **T2** pre-release, needs a model — `eval:smoke` on `qwen2.5-coder:7b` **plus a differential 2nd model**; the gate is **zero infra errors** (500s / `Unknown tool` / empty-final-answer / thrash-to-maxIterations), not the pass rate. **T3** campaign — `bench:bfcl`, `bench:swe:predict`.
+- **Release:** verify pyramid (all green, zero infra errors) → pick version (semver from the last git tag; the bump script rejects skips) → sync CHANGELOG **and** README **and** ROADMAP **and** `docs/index.html` (+ stat drift; see CONTRIBUTING's doc-sync matrix) → `package` + `verify:package` → commit, tag `vX.Y.Z`, push **on explicit go-ahead only**.
+- **Debugging model-interaction bugs:** reproduce at the lowest layer (raw `/api/chat`) → bisect one variable → **differential across models** (fails on both = SideCar; on one = that model) → read *trajectories* not pass/fail → instrument with temp `console.error` DIAG then `git checkout` to revert → correct the record when a hypothesis is disproven → a bug found via eval is a real product bug: fix it **and** add a regression test.
+- **Eval harness** measures whether the model can address the task, played by a cooperative user: assertions tolerate synonyms (any-of groups), the harness answers `ask_user` via `clarifyFn`, thinking is off for speed, `qwen2.5-coder:7b` is the reliable baseline / `qwen3.5:latest` the stress model.
+
 ## Testing
 
 - Framework: **Vitest** with `src/__mocks__/vscode.ts` providing a mock VS Code API
