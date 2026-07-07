@@ -6,7 +6,7 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Changed
 
-- **Lazy MCP tool-schema loading.** MCP tool schemas no longer inject into the prompt upfront: the catalog carries a compact one-line stub per tool and the model fetches the full schema via `describe_tool` on first use — the same mechanism extended built-in tools already use. Cuts the fixed context cost of connected MCP servers, which matters most on small local models. Per-server opt-out: `"alwaysLoad": true` in `sidecar.mcpServers` keeps full schemas upfront for servers whose tools are used on nearly every run. Dispatch is unaffected — calls always resolve against the full schema and executor. (`src/agent/mcpManager.ts`, `src/agent/tools.ts`)
+- **Lazy MCP tool-schema loading.** MCP tool schemas no longer inject into the prompt upfront: the catalog carries a compact one-line stub per tool and the model fetches the full schema via `describe_tool` on first use — the same mechanism extended built-in tools already use. Measured against the reference servers, the catalog cut is 46–60% per server (56% aggregate over 49 tools: ~7.3K → ~3.2K estimated tokens for filesystem + github + memory) — fixed context cost that matters most on small local models. Per-server opt-out: `"alwaysLoad": true` in `sidecar.mcpServers` keeps full schemas upfront for servers whose tools are used on nearly every run. Dispatch is unaffected — calls always resolve against the full schema and executor. (`src/agent/mcpManager.ts`, `src/agent/tools.ts`)
 - **`describe_tool` now resolves MCP, custom, and SDK tools**, not just built-ins. (`src/agent/tools.ts`)
 
 ### Added
