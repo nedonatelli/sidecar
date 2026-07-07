@@ -81,9 +81,51 @@ Re-ran M2 on a second local model to confirm the finding still holds before cutt
 
 The critic's negative sign reproduces on a different model — the false-positive-then-block mechanism is not model-specific. `completionGate`/`autoFix` show **no net lift on the smoke set**, but this run is low-power (n=8, 1 rep; ±1 case = ±12.5%) and the smoke cases mostly pass without the scaffold, so they under-exercise the gate/autofix failure modes. Their value (if any) lives in error-headroom cases, not smoke — a higher-rep run on scaffold-relevant cases is the outstanding work before defaulting either on. Standing conclusion is unchanged: **the deterministic layer is the reliable lever; the model-judges-model critic stays opt-in.**
 
+## Planned initiatives (unscheduled)
+
+The initiatives above are shipped or in flight. The following are the next
+forward-looking bets — grounded in the same Constrain→Verify→Adapt→Measure model
+but not yet scheduled. Ordered roughly by leverage.
+
+### CONSTRAIN
+
+- **C1. On-demand capability database** _(L, vision — biggest lever)_ — generalize the Project Knowledge Index from code chunks to _all_ agent capabilities (tools, project conventions, few-shot trajectories), assembled per-query instead of injecting the full tool catalog every turn. A tiered always-resident core + working-set cache + faceted (grammar-constrainable) queries, where a facet is a pre-resolved capability query. Turns a fixed O(N-tools) context cost into O(core + k-retrieved). Supersedes ad-hoc tool-schema stubbing as the primary small-model context-budget lever.
+- **C2. Per-turn built-in-tool subsetting + schema compression** _(M)_ — gate the 80+ built-in tool schemas by task relevance and strip verbose descriptions/enums for weak models, beyond today's stub-the-extended-tools tiering. (MCP lazy schema loading is tracked separately in [ROADMAP.md](../ROADMAP.md).) Caveat: BFCL under-tests lost-in-the-middle at real full-catalog scale — measure at scale before trusting.
+- **C3. Bash / command grammars** _(M)_ — evidence-driven grammars (Lark-style) for the shell tool, the highest-blast-radius surface, constraining generation to well-formed commands (grammar-constrained decoding).
+
+### VERIFY
+
+- **V6. Shape/dtype/unit-constrained decoding** _(L, frontier)_ — enforce array-semantic constraints (shape, dtype, unit) at _decode_ time for numerical code — one step past today's contract _checking_ (analytic-bound gate, property-test synthesis), which rejects after the fact. Constrains the generation itself.
+
+### ADAPT
+
+- **A3. Verification-triggered escalation** _(M)_ — derive an uncertainty signal from verifier failures (N gate/critic failures on a subtask) and escalate _that subtask_ to a stronger/cloud model — a cost-cascade. Distinct from today's error/circuit-breaker fallback, which is not verification-triggered.
+- **A4. Per-facet model envelopes** _(M)_ — each facet declares the smallest sufficient model; the orchestration (fork/merge) layer runs the strongest. Wires the currently-empty `preferredModel` into capability-tiered dispatch (needs A1).
+
+### STATE _(new tier — the one genuinely greenfield area)_
+
+- **S1. Plan externalization ("plan-in-the-harness")** _(L)_ — an externalized plan/todo store with per-turn step re-injection (the model sees `{current step, last result, remaining steps}`) and a durable working-memory scratchpad separate from chat history. Today the plan lives only in the drifting message window; externalizing it is the highest-leverage change for long-horizon local runs.
+- **S2. Small-model-aware compaction** _(M)_ — tune _what_ compaction drops by capability tier: keep the plan + open contracts, shed resolved detail. The tier signal (A1) exists but isn't wired to compaction yet.
+
+### LEARN _(new tier)_
+
+- **L1. Gate → trajectory flywheel** _(L, vision)_ — capture gate-passing runs as a gate-validated fine-tuning corpus specific to the tool registry; LoRA/QLoRA on the user's own correct trajectories; a per-task-class few-shot trajectory library. Gates become free training labels.
+
+### MEASURE
+
+- **M3. Powered-measurement program** _(M)_ — promote a cost-adjusted throughput metric over raw pass rate as the headline; add diagnostic metrics (schema-validity, executable-call, tool-selection rates); a ≥30-task real-repo suite; a cross-tier (small/large/cloud) regression harness with per-PR deltas; powered n≈300–500 for SWE-bench with IID / order-effect checks.
+- **Open problem — bail-early / do-no-harm violation:** an established scaffold turned a clean `natural` completion into `bad-reasoning` on 2 of 4 SWE tasks (django-14608, sympy-11897) — the harness made the model _worse_. Investigate early-give-up vs gate/critic early-exit; candidate policy: revert any scaffold-tail edit with zero test-signal gain (the keep-best ratchet, generalized). Do-no-harm is a hard requirement for a default-on scaffold.
+
+### Cross-cutting
+
+- **Prompt-transform hook** _(M)_ — a `PromptTransform` protocol with a type-aware, default-deny-on-structured-segments policy, so opt-in lossy prompt compressors (LLMLingua-style) are adapters that can never corrupt a tool call — never a core dependency.
+
 ## Recommended sequence
 
-`V1 → M1 → V2 → A1 → M2 → A2 → O1 → V3 → O2`
+`V1 → M1 → V2 → A1 → M2 → A2 → O1 → V3 → O2` (shipped/in-flight), then the
+unscheduled bets lead with **C1 (capability DB)** and **S1 (plan externalization)**
+— the two biggest small-model levers — with **M3** underpinning them so each is
+ablation-proven, not assumed.
 
 V1 first: smallest, highest-confidence, fixes what we just watched break, and its verifier is reused by M1. M1 second so everything after is measurable. V2 ships gated-off; **M2 moves up to right after A1** so we can ablation-prove V2 (and any model-based scaffold) actually lifts pass-rate on one local model before trusting or defaulting it on. Then the rest of adapt/orchestration.
 
