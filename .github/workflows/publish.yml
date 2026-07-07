@@ -21,8 +21,9 @@ jobs:
         include:
           - os: macos-14
             target: darwin-arm64
-          - os: macos-13
-            target: darwin-x64
+          # darwin-x64 (Intel Mac) dropped: GitHub's macos-13 Intel runners are
+          # scarce/being deprecated and left releases stuck queued. Apple Silicon
+          # (darwin-arm64) covers current Macs; re-add if Intel support is needed.
           - os: ubuntu-latest
             target: linux-x64
           - os: ubuntu-24.04-arm
