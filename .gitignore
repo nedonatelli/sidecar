@@ -29,3 +29,13 @@ eval_output.log
 test-errors.log
 test-failures.log
 eval-failures.md
+
+# Internal working/planning docs — kept local, not in the public repo.
+# (Polished public versions live in docs/ and ROADMAP.md.) These remain in
+# git history; removing them here only stops future tracking.
+/PLAN.md
+/sidecar-architecture-and-strategy.md
+/sidecar-literature-foundations.md
+/sidecar-results-writeup.md
+/sidecar-small-model-scaffolding-roadmap.md
+/sidecar-workstreams.md
