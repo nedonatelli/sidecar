@@ -228,6 +228,11 @@ export interface LoopState {
   // Fires at most once. analysisCriticHook is the only writer.
   analysisCriticFired: boolean;
 
+  // True once the unapplied-edit nudge has fired this run. Bounds the nudge to
+  // one injection so a false positive (an explanatory code block) costs at most
+  // one extra message. unappliedEditHook is the only writer.
+  unappliedEditNudged: boolean;
+
   // Capability-driven scaffolding intensity (A2). Set at loop start only when
   // `adaptiveScaffolding.enabled` is on; otherwise undefined and the loop reads
   // the historical constants. cycleDetection / actionReprompt / gate read it.
@@ -327,6 +332,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     criticInjectionsByFile: new Map<string, number>(),
     criticInjectionsByTestHash: new Map<string, number>(),
     analysisCriticFired: false,
+    unappliedEditNudged: false,
     toolCallCounts: new Map<string, number>(),
     gateState: createGateState(lastUserText(copiedMessages)),
     currentEditPlan: null,

@@ -58,6 +58,7 @@ function makeState(logger?: AgentLogger): LoopState {
     criticInjectionsByFile: new Map(),
     criticInjectionsByTestHash: new Map(),
     analysisCriticFired: false,
+    unappliedEditNudged: false,
     toolCallCounts: new Map(),
     gateState: null as any,
     checkpointFired: false,
