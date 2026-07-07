@@ -4,6 +4,11 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **Lazy MCP tool-schema loading.** MCP tool schemas no longer inject into the prompt upfront: the catalog carries a compact one-line stub per tool and the model fetches the full schema via `describe_tool` on first use — the same mechanism extended built-in tools already use. Cuts the fixed context cost of connected MCP servers, which matters most on small local models. Per-server opt-out: `"alwaysLoad": true` in `sidecar.mcpServers` keeps full schemas upfront for servers whose tools are used on nearly every run. Dispatch is unaffected — calls always resolve against the full schema and executor. (`src/agent/mcpManager.ts`, `src/agent/tools.ts`)
+- **`describe_tool` now resolves MCP, custom, and SDK tools**, not just built-ins. (`src/agent/tools.ts`)
+
 ## [0.116.0] - 2026-07-04
 
 A hardening and quality release on top of the 0.115.0 feature set: a full-codebase security audit closed six high-severity findings and a robustness cluster, the moat-critical gates were mutation-tested to prove their tests catch faults (not just pass), the largest source files were decomposed into focused modules with no behavior change, and the whole thing was put through a full verification pass — deterministic gate, mutation score, agent evals, and a tool-calling benchmark — before tagging.

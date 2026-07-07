@@ -1677,7 +1677,7 @@
           "sidecar.mcpServers": {
             "type": "object",
             "default": {},
-            "markdownDescription": "MCP servers to connect to. Supports stdio, HTTP, and SSE transports. Also reads `.mcp.json` at workspace root.\n\n**stdio:** `{ \"command\": \"npx\", \"args\": [\"server\"] }`\n\n**HTTP:** `{ \"type\": \"http\", \"url\": \"https://...\", \"headers\": {} }`\n\n**Options:** `tools` (per-tool enable/disable), `maxResultChars` (output limit, default 50000)"
+            "markdownDescription": "MCP servers to connect to. Supports stdio, HTTP, and SSE transports. Also reads `.mcp.json` at workspace root.\n\n**stdio:** `{ \"command\": \"npx\", \"args\": [\"server\"] }`\n\n**HTTP:** `{ \"type\": \"http\", \"url\": \"https://...\", \"headers\": {} }`\n\n**Options:** `tools` (per-tool enable/disable), `toolAllowlist`, `maxResultChars` (output limit, default 50000), `alwaysLoad` (inject full tool schemas upfront; default lazy — one-line stubs, model fetches schemas via describe_tool)"
           },
           "sidecar.customTools": {
             "type": "array",

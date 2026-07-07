@@ -6,7 +6,7 @@ import { getConfig, detectProvider, type SideCarConfig } from '../config/setting
 import { checkWorkspaceConfigTrust } from '../config/workspaceTrust.js';
 import { redactSecrets } from './securityScanner.js';
 
-import type { RegisteredTool } from './tools/shared.js';
+import type { RegisteredTool, ToolExecutorContext } from './tools/shared.js';
 import { getRoot } from './tools/shared.js';
 import { parseArgv } from './lintFix.js';
 import { findSdkTool, getSdkToolDefinitions } from '../sdk/registry.js';
@@ -157,10 +157,12 @@ export const TOOL_REGISTRY: RegisteredTool[] = [
         required: ['name'],
       },
     },
-    executor: async (input: Record<string, unknown>) => {
+    executor: async (input: Record<string, unknown>, context?: ToolExecutorContext) => {
       const toolName = input.name as string;
       if (!toolName) return 'Error: name is required.';
-      const found = getEnabledBuiltInTools().find((t) => t.definition.name === toolName);
+      // findTool covers built-ins (config-gated), custom, SDK, and MCP tools —
+      // MCP resolution is what makes lazy MCP schema stubs expandable.
+      const found = findTool(toolName, context?.mcpManager);
       if (!found) return `Unknown tool: "${toolName}". Check the tool catalog for the correct name.`;
       const { name, description, input_schema } = found.definition;
       return [
@@ -468,7 +470,9 @@ function getBuiltInToolNames(): Set<string> {
  * - 'full': all tools, but built-in tools outside the core set are sent as
  *   compact one-line stubs (name + first sentence + "call describe_tool for
  *   full schema"). Core and read-tier tools keep their full definitions.
- *   Custom/SDK/MCP tools are never stubbed — pass through unchanged.
+ *   MCP tools are stubbed the same way unless their server sets
+ *   `alwaysLoad: true` (lazy schema loading — cuts MCP context cost on
+ *   small models). Custom/SDK tools pass through unchanged.
  *
  * toolOverride in AgentOptions takes precedence; tier only applies when
  * no explicit override is set.
@@ -481,22 +485,32 @@ export function getToolDefinitionsForTier(
   const all = getToolDefinitions(mcpManager, injectedConfig);
   if (tier === 'read') return all.filter((t) => READ_TIER_TOOL_NAMES.has(t.name));
 
-  // 'full' tier: core tools get full schemas; extended built-ins get compact stubs.
+  // 'full' tier: core tools get full schemas; extended built-ins and lazy MCP
+  // tools (servers without `alwaysLoad: true`) get compact stubs.
   const coreNames = new Set([...READ_TIER_TOOL_NAMES, ...CORE_FULL_TIER_TOOL_NAMES]);
   const builtInNames = getBuiltInToolNames();
+  const lazyMcpNames = mcpManager?.getLazyToolNames() ?? new Set<string>();
   return all.map((def) => {
-    if (coreNames.has(def.name) || !builtInNames.has(def.name)) return def;
-    // Extended built-in: emit a compact stub. The model calls describe_tool(name)
-    // to get the full schema before using the tool.
-    const dotIdx = def.description.indexOf('. ');
-    const firstSentence = dotIdx >= 0 ? def.description.slice(0, dotIdx + 1) : def.description;
-    return {
-      name: def.name,
-      description: `${firstSentence} [stub — call describe_tool('${def.name}') for parameters]`,
-      input_schema: { type: 'object' as const, properties: {}, required: [] },
-      ...(def.nondeterministicOutput ? { nondeterministicOutput: true } : {}),
-    };
+    if (coreNames.has(def.name)) return def;
+    if (builtInNames.has(def.name) || lazyMcpNames.has(def.name)) return toStubDefinition(def);
+    return def;
   });
+}
+
+/**
+ * Compact one-line stub for a tool whose full schema loads on demand: name +
+ * first sentence + describe_tool pointer, empty input schema. The model calls
+ * describe_tool(name) to get the full schema before using the tool.
+ */
+function toStubDefinition(def: ToolDefinition): ToolDefinition {
+  const dotIdx = def.description.indexOf('. ');
+  const firstSentence = dotIdx >= 0 ? def.description.slice(0, dotIdx + 1) : def.description;
+  return {
+    name: def.name,
+    description: `${firstSentence} [stub — call describe_tool('${def.name}') for parameters]`,
+    input_schema: { type: 'object' as const, properties: {}, required: [] },
+    ...(def.nondeterministicOutput ? { nondeterministicOutput: true } : {}),
+  };
 }
 
 export function getToolDefinitions(mcpManager?: MCPManager, injectedConfig?: SideCarConfig): ToolDefinition[] {

@@ -2,7 +2,7 @@
 title: MCP Servers
 layout: docs
 nav_order: 3
-nav_section: "Configuration"
+nav_section: 'Configuration'
 ---
 
 # MCP Servers
@@ -17,11 +17,11 @@ MCP is an open protocol that lets AI assistants call external tools — database
 
 SideCar supports three transport types:
 
-| Transport | Use case | Configuration |
-|-----------|----------|---------------|
-| **stdio** (default) | Local processes on your machine | `command` + `args` |
-| **http** | Remote servers via Streamable HTTP | `url` |
-| **sse** | Remote servers via Server-Sent Events | `url` |
+| Transport           | Use case                              | Configuration      |
+| ------------------- | ------------------------------------- | ------------------ |
+| **stdio** (default) | Local processes on your machine       | `command` + `args` |
+| **http**            | Remote servers via Streamable HTTP    | `url`              |
+| **sse**             | Remote servers via Server-Sent Events | `url`              |
 
 ## Configuration
 
@@ -193,6 +193,24 @@ Large MCP tool results can consume excessive context. Control this with `maxResu
 
 The default limit is 50,000 characters. Results exceeding the limit are truncated with a message indicating the total size.
 
+## Lazy tool schemas
+
+MCP tool schemas load lazily by default: the prompt catalog carries a compact one-line stub per tool (name + first sentence + a `describe_tool` pointer) instead of the full input schema. The model calls `describe_tool('mcp_<server>_<tool>')` to fetch the real parameter list before first use. This substantially cuts the fixed context cost of connected MCP servers — which matters most on small local models.
+
+Dispatch is unaffected: tool calls always resolve against the full schema and executor, and the schema is never re-sent once fetched.
+
+For servers whose tools are used on nearly every run, skip the extra `describe_tool` round-trip by injecting their full schemas upfront with `alwaysLoad`:
+
+```json
+"sidecar.mcpServers": {
+  "filesystem": {
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path"],
+    "alwaysLoad": true
+  }
+}
+```
+
 ## Server status
 
 Use the `/mcp` slash command to check the status of all connected servers:
@@ -217,6 +235,7 @@ SideCar monitors MCP server health automatically:
 - MCP tools are **discovered automatically** when the server starts
 - They appear in the agent's tool list with an `mcp_<server>_<tool>` prefix
 - Descriptions are prefixed with `[MCP: <server>]` for clarity
+- Schemas load **lazily** by default — the catalog carries one-line stubs and the model fetches full schemas via `describe_tool` (see [Lazy tool schemas](#lazy-tool-schemas))
 - Tool calls go through the same **approval flow** (cautious/autonomous/manual/review)
 - **Tool permissions** (`sidecar.toolPermissions`) apply to MCP tools by their prefixed name
 - All MCP tools **require approval** regardless of approval mode
@@ -236,16 +255,18 @@ Type `/mcp-builder` in chat to start, or describe the API you want to wrap.
 
 ## Full configuration reference
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `type` | `"stdio"` \| `"http"` \| `"sse"` | `"stdio"` | Transport type |
-| `command` | string | — | Executable to spawn (stdio) |
-| `args` | string[] | `[]` | Command arguments (stdio) |
-| `env` | object | `{}` | Environment variables (stdio) or variable source for header expansion |
-| `url` | string | — | Server URL (http/sse) |
-| `headers` | object | `{}` | HTTP headers (http/sse). Supports `${VAR}` expansion |
-| `tools` | object | `{}` | Per-tool config: `{ "tool_name": { "enabled": false } }` |
-| `maxResultChars` | number | `50000` | Maximum result size in characters before truncation |
+| Field            | Type                             | Default   | Description                                                                     |
+| ---------------- | -------------------------------- | --------- | ------------------------------------------------------------------------------- |
+| `type`           | `"stdio"` \| `"http"` \| `"sse"` | `"stdio"` | Transport type                                                                  |
+| `command`        | string                           | —         | Executable to spawn (stdio)                                                     |
+| `args`           | string[]                         | `[]`      | Command arguments (stdio)                                                       |
+| `env`            | object                           | `{}`      | Environment variables (stdio) or variable source for header expansion           |
+| `url`            | string                           | —         | Server URL (http/sse)                                                           |
+| `headers`        | object                           | `{}`      | HTTP headers (http/sse). Supports `${VAR}` expansion                            |
+| `tools`          | object                           | `{}`      | Per-tool config: `{ "tool_name": { "enabled": false } }`                        |
+| `toolAllowlist`  | string[]                         | —         | When set, only listed tools are registered; all others are silently dropped     |
+| `maxResultChars` | number                           | `50000`   | Maximum result size in characters before truncation                             |
+| `alwaysLoad`     | boolean                          | `false`   | Inject full tool schemas into the prompt upfront instead of lazy one-line stubs |
 
 ## Troubleshooting
 

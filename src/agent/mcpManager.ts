@@ -488,6 +488,21 @@ export class MCPManager {
     return this.toolCache.find((t) => t.definition.name === name);
   }
 
+  /**
+   * Names of connected tools whose full schemas should NOT be injected into
+   * the prompt upfront — everything except tools from servers configured with
+   * `alwaysLoad: true`. The catalog stubs these to one line each; the model
+   * fetches the full schema via describe_tool on first use. Dispatch is
+   * unaffected: getTool() always returns the full definition + executor.
+   */
+  getLazyToolNames(): ReadonlySet<string> {
+    return new Set(
+      this.connections
+        .filter((c) => c.status === 'connected' && !c.config.alwaysLoad)
+        .flatMap((c) => c.tools.map((t) => t.definition.name)),
+    );
+  }
+
   getToolCount(): number {
     return this.toolCache.length;
   }

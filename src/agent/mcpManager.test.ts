@@ -105,6 +105,37 @@ describe('MCPManager', () => {
     expect(tool?.definition.name).toBe('mcp_fs_read');
   });
 
+  describe('lazy tool-schema loading (alwaysLoad)', () => {
+    it('reports every connected tool as lazy by default', async () => {
+      await manager.connect({
+        fs: { command: 'echo' },
+      });
+
+      expect([...manager.getLazyToolNames()].sort()).toEqual(['mcp_fs_read', 'mcp_fs_write']);
+    });
+
+    it('excludes tools from servers configured with alwaysLoad: true', async () => {
+      await manager.connect({
+        fs: { command: 'echo' },
+        pinned: { command: 'echo', alwaysLoad: true },
+      });
+
+      const lazy = manager.getLazyToolNames();
+      expect(lazy.has('mcp_fs_read')).toBe(true);
+      expect(lazy.has('mcp_fs_write')).toBe(true);
+      expect(lazy.has('mcp_pinned_read')).toBe(false);
+      expect(lazy.has('mcp_pinned_write')).toBe(false);
+      // Lazy loading only shapes the prompt catalog — dispatch still resolves
+      // the full tool either way.
+      expect(manager.getTool('mcp_fs_read')).toBeDefined();
+      expect(manager.getTool('mcp_pinned_read')).toBeDefined();
+    });
+
+    it('returns an empty set when no servers are connected', () => {
+      expect(manager.getLazyToolNames().size).toBe(0);
+    });
+  });
+
   it('returns undefined for unknown tool', async () => {
     await manager.connect({
       fs: { command: 'echo' },
