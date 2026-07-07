@@ -446,21 +446,36 @@ export async function createTreeSitterAnalyzer(wasmDir: string): Promise<CodeAna
 
   const results = await Promise.allSettled(
     languages.map(async (lang) => {
-      const parser = await createParser(wasmDir, lang);
-      return { lang, parser };
+      try {
+        const parser = await createParser(wasmDir, lang);
+        return { lang, parser };
+      } catch (err) {
+        // Re-throw with the language name + full detail so the failure is
+        // attributable — a bare rejection reason loses which grammar broke.
+        const detail = err instanceof Error ? (err.stack ?? err.message) : String(err);
+        throw new Error(`grammar '${lang}' from ${wasmDir}: ${detail}`);
+      }
     }),
   );
 
+  const failures: string[] = [];
   for (const result of results) {
     if (result.status === 'fulfilled') {
       parsers.set(result.value.lang, result.value.parser);
     } else {
-      logger.warn(`[SideCar] Failed to load tree-sitter grammar:`, result.reason);
+      const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
+      failures.push(reason);
+      logger.warn(`[SideCar] Failed to load tree-sitter grammar: ${reason}`);
+      // Surface loudly: a silently-dropped grammar degrades the symbol graph,
+      // PKI, and impact analysis to empty results with no error — the exact
+      // footgun that made the CI-vs-local tree-sitter divergence hard to find.
+      // eslint-disable-next-line no-console
+      console.error(`[SideCar][tree-sitter] GRAMMAR LOAD FAILED — ${reason}`);
     }
   }
 
   if (parsers.size === 0) {
-    throw new Error('No tree-sitter grammars loaded');
+    throw new Error(`No tree-sitter grammars loaded. Failures:\n${failures.join('\n')}`);
   }
 
   logger.info(`[SideCar] Tree-sitter loaded with ${parsers.size} languages: ${[...parsers.keys()].join(', ')}`);
