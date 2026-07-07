@@ -124,6 +124,10 @@ content = re.sub(r'\d+ Built-in Tools', '${TOOL_COUNT} Built-in Tools', content)
 with open('docs/index.html', 'w') as f:
     f.write(content)
 "
+# Bump the hero version string (e.g. the "v0.116.0" eyebrow). Only the exact
+# current-version string matches, so older "new in vX.Y" feature badges are
+# left alone.
+sed -i '' "s/v$OLD_VERSION/v$NEW_VERSION/g" docs/index.html 2>/dev/null || true
 
 # --- 5. Update docs/agent-mode.md ---
 echo "Updating docs/agent-mode.md..."
