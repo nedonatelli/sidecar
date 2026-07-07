@@ -1,10 +1,13 @@
 # BFCL (AST subset) — model-selection benchmark
 
 Phase 1 of the external-benchmark plan ([ADR-006](../../docs/adr/006-external-benchmarks.md),
-[bench/README.md](../README.md)). A **model-level** benchmark: it scores a
-model's function-calling on a comparable scale so we choose local-model defaults
-on field-anchored data — _not_ a SideCar capability number (it gives the
-scaffolding harness zero credit, by design).
+[bench/README.md](../README.md)). Scores function-calling on a comparable scale so
+we choose local-model defaults on field-anchored data. Two lenses, one harness:
+the **default** measures the **product** (model + SideCar's real call recovery —
+what actually runs), and `SIDECAR_BFCL_RAW=1` measures the **raw model** alone
+(native `tool_calls` only, zero credit to the harness). The original ADR-006
+framing was raw-only; the product lens was added once raw-only was found to score
+a false 0% for text-emitting models (see below).
 
 ## What it measures
 
