@@ -40,6 +40,7 @@ import { dispatchPendingToolUses } from './loop/dispatchToolUses.js';
 import { repairMalformedToolUses } from './loop/toolCallRepair.js';
 import { notifyIterationStart, maybeEmitProgressSummary, shouldStopAtCheckpoint } from './loop/notifications.js';
 import { finalize } from './loop/finalize.js';
+import { maybeForceFinalAnswer } from './loop/forceFinalAnswer.js';
 import {
   captureRatchetOriginals,
   captureScaffoldBoundary,
@@ -784,6 +785,12 @@ export async function runAgentLoop(
       client.updateModel(state.config.model);
     }
   }
+
+  // Answer-forcing: the loop hit the iteration cap or a stuck-loop bail without
+  // the model voluntarily answering. Run one tools-disabled synthesis turn so
+  // the user gets an answer from the data already gathered instead of a wall of
+  // tool-call JSON. No-op on natural/aborted/out-of-resources termination.
+  await maybeForceFinalAnswer(state, client, callbacks, signal);
 
   // Keep-best ratchet: at natural completion, revert scaffold-driven changes
   // that regressed a test signal or ballooned the patch with no gain. Skipped
