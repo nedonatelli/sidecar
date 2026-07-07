@@ -50,7 +50,13 @@ vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', () => ({
   }),
 }));
 
+vi.mock('./mcpAuditLog.js', () => ({
+  logMcpEvent: vi.fn(),
+  setMcpAuditDir: vi.fn(),
+}));
+
 import { MCPManager, mergeMcpConfigs, wrapMcpOutput, detectInjectionSignals } from './mcpManager.js';
+import { logMcpEvent } from './mcpAuditLog.js';
 
 describe('MCPManager', () => {
   let manager: MCPManager;
@@ -237,6 +243,44 @@ describe('MCPManager', () => {
       await manager.connect({ fs: { command: 'echo' } });
       const out = await manager.getTool('mcp_fs_read')!.executor({ uri: 'x' });
       expect(out).not.toContain('Full input schema');
+    });
+  });
+
+  describe('forensic audit events (mcp.jsonl)', () => {
+    it('logs spawn + connected on a successful stdio connect', async () => {
+      await manager.connect({ fs: { command: 'echo', args: ['hi'] } });
+
+      expect(logMcpEvent).toHaveBeenCalledWith({ event: 'spawn', server: 'fs', command: 'echo', args: ['hi'] });
+      expect(logMcpEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'connected',
+          server: 'fs',
+          transport: 'stdio',
+          toolCount: 2,
+          tools: ['mcp_fs_read', 'mcp_fs_write'],
+          lazy: true,
+        }),
+      );
+    });
+
+    it('logs connect-failed when the client cannot connect', async () => {
+      mockClient.connect.mockRejectedValueOnce(new Error('spawn ENOENT'));
+      await manager.connect({ broken: { command: 'nope' } });
+
+      expect(logMcpEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'connect-failed',
+          server: 'broken',
+          error: expect.stringContaining('ENOENT'),
+        }),
+      );
+    });
+
+    it('logs disconnected on teardown', async () => {
+      await manager.connect({ fs: { command: 'echo' } });
+      await manager.disconnect();
+
+      expect(logMcpEvent).toHaveBeenCalledWith({ event: 'disconnected', server: 'fs' });
     });
   });
 

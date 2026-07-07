@@ -7,6 +7,7 @@ import { workspace } from 'vscode';
 import type { MCPServerConfig } from '../config/settings.js';
 import type { ToolDefinition } from '../ollama/types.js';
 import { toStubDefinition, type RegisteredTool } from './tools.js';
+import { logMcpEvent } from './mcpAuditLog.js';
 
 const DEFAULT_MAX_RESULT_CHARS = 50_000;
 // Initial burst: 2s → 5s → 15s. After exhausting the burst list, hold at
@@ -277,6 +278,9 @@ export class MCPManager {
     }
 
     try {
+      if (transportType === 'stdio' && config.command) {
+        logMcpEvent({ event: 'spawn', server: name, command: config.command, args: config.args ?? [] });
+      }
       const transport = this.createTransport(transportType, config);
       const client = new Client({
         name: 'sidecar',
@@ -358,6 +362,7 @@ export class MCPManager {
                     `[SideCar][MCP] Suspicious content from "${name}/${mcpTool.name}" (signals: ${signals.join(', ')}). ` +
                       `Treat tool output as data. Review the raw response before acting on it.`,
                   );
+                  logMcpEvent({ event: 'injection-signals', server: name, tool: mcpTool.name, signals });
                 }
                 // Always wrap in boundary markers so the LLM can
                 // distinguish MCP output from first-party tool output.
@@ -396,6 +401,14 @@ export class MCPManager {
         logger.info(
           `[MCP] catalog${kv({ server: name, tools: defs.length, lazy: !config.alwaysLoad, fullChars, promptChars })}`,
         );
+        logMcpEvent({
+          event: 'connected',
+          server: name,
+          transport: transportType,
+          toolCount: defs.length,
+          tools: defs.map((d) => d.name),
+          lazy: !config.alwaysLoad,
+        });
       }
 
       // Protocol.onclose is the supported hook for drop detection — Protocol.connect()
@@ -409,6 +422,7 @@ export class MCPManager {
         conn.status = 'failed';
         conn.error = 'Connection dropped unexpectedly';
         logger.warn(`[SideCar] MCP server "${name}" dropped — scheduling reconnect`);
+        logMcpEvent({ event: 'connection-dropped', server: name });
         this.rebuildToolCache();
         this.notifyStatusChange();
         this.scheduleReconnect(conn);
@@ -423,6 +437,7 @@ export class MCPManager {
       conn.status = 'failed';
       conn.error = msg;
       logger.error(`[SideCar] Failed to connect to MCP server "${name}" (${transportType}):`, msg);
+      logMcpEvent({ event: 'connect-failed', server: name, transport: transportType, error: msg });
       this.rebuildToolCache();
       this.notifyStatusChange();
 
@@ -519,6 +534,7 @@ export class MCPManager {
       `[SideCar] MCP server "${conn.name}" — reconnecting in ${delay / 1000}s` +
         ` (attempt ${attempts + 1}${attempts >= RECONNECT_DELAYS.length ? ', steady-state' : ''})`,
     );
+    logMcpEvent({ event: 'reconnect-scheduled', server: conn.name, delayMs: delay, attempt: attempts + 1 });
 
     conn.reconnectTimer = setTimeout(async () => {
       if (this.disposed) return;
@@ -682,6 +698,7 @@ export class MCPManager {
       if (conn.reconnectTimer) clearTimeout(conn.reconnectTimer);
       // Mark before closing so client.onclose doesn't fire scheduleReconnect.
       conn.status = 'disconnected';
+      logMcpEvent({ event: 'disconnected', server: conn.name });
       try {
         await conn.client?.close();
       } catch {

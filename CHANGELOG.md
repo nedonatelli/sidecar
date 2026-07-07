@@ -4,6 +4,12 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+### Security
+
+- **MCP forensic log.** MCP lifecycle events now persist to `.sidecar/logs/mcp.jsonl` (always-on; previously only the ephemeral Output Channel): stdio spawn commands (secret-redacted), discovered tool lists, connect/reconnect/disconnect events, and injection-heuristic hits — so there is an on-disk record of what a `.mcp.json` server spawned and exposed. Closes two Cycle-4 audit findings. (`src/agent/mcpAuditLog.ts`)
+- **`SECRET_PATTERNS_VERSION` 2 → 3.** New base64 credential heuristics: `Basic <b64>` header values, and long (≥40 char) base64 after `Bearer ` / `token=` — closing the gap where an already-base64-encoded MCP `Authorization` header value matched no pattern in logged strings. (`src/agent/securityScanner.ts`)
+- **PKI poisoning screen.** Symbol bodies are checked against the deterministic prompt-injection heuristic before embedding; flagged bodies are skipped (warned once per symbol) so a cloned repo can't plant payloads that surface as top-K retrieval results disguised as project documentation. Closes a Cycle-4 HIGH finding. (`src/config/symbolEmbeddingIndex.ts`)
+
 ### Changed
 
 - **Lazy MCP tool-schema loading.** MCP tool schemas no longer inject into the prompt upfront: the catalog carries a compact one-line stub per tool and the model fetches the full schema via `describe_tool` on first use — the same mechanism extended built-in tools already use. Measured against the reference servers, the catalog cut is 46–60% per server (56% aggregate over 49 tools: ~7.3K → ~3.2K estimated tokens for filesystem + github + memory) — fixed context cost that matters most on small local models. Per-server opt-out: `"alwaysLoad": true` in `sidecar.mcpServers` keeps full schemas upfront for servers whose tools are used on nearly every run. Dispatch is unaffected — calls always resolve against the full schema and executor. (`src/agent/mcpManager.ts`, `src/agent/tools.ts`)
