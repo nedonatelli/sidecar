@@ -139,6 +139,15 @@ sed -i '' "s/[0-9]* tool definitions add/~$TOOL_COUNT tool definitions add/" doc
 echo "Updating README.md..."
 sed -i '' "s/[0-9][0-9]* built-in tools/$TOOL_COUNT built-in tools/g" README.md 2>/dev/null || true
 
+# --- 7b. Update SECURITY.md supported-version table ---
+# Only the supported-version rows are mechanical. The SECRET_PATTERNS "unchanged
+# through vX" line is a manual judgment (assert only when the patterns really
+# didn't change) — see the CONTRIBUTING doc-sync checklist.
+echo "Updating SECURITY.md..."
+MINOR=$(echo "$NEW_VERSION" | cut -d. -f1-2)
+sed -i '' "s/| [0-9][0-9.]*\.x (current) | ✅ |/| ${MINOR}.x (current) | ✅ |/" SECURITY.md 2>/dev/null || true
+sed -i '' "s/| < [0-9][0-9.]* | ❌ |/| < ${MINOR} | ❌ |/" SECURITY.md 2>/dev/null || true
+
 # --- 8. Prepend CHANGELOG entry ---
 echo "Updating CHANGELOG.md..."
 CHANGELOG_ENTRY="## [$NEW_VERSION] - $TODAY
