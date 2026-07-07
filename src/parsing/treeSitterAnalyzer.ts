@@ -439,38 +439,32 @@ class TreeSitterCodeAnalyzer implements CodeAnalyzer {
 export async function createTreeSitterAnalyzer(wasmDir: string): Promise<CodeAnalyzer> {
   const parsers = new Map<string, Parser>();
 
-  // Load all available language parsers in parallel
   const languages = Object.values(EXT_TO_LANGUAGE).filter(
     (v, i, arr) => arr.indexOf(v) === i, // dedupe
   );
 
-  const results = await Promise.allSettled(
-    languages.map(async (lang) => {
-      try {
-        const parser = await createParser(wasmDir, lang);
-        return { lang, parser };
-      } catch (err) {
-        // Re-throw with the language name + full detail so the failure is
-        // attributable — a bare rejection reason loses which grammar broke.
-        const detail = err instanceof Error ? (err.stack ?? err.message) : String(err);
-        throw new Error(`grammar '${lang}' from ${wasmDir}: ${detail}`);
-      }
-    }),
-  );
-
+  // Load grammars SERIALLY, not in parallel. web-tree-sitter's `Language.load`
+  // mutates a shared Emscripten runtime and is NOT concurrency-safe: parallel
+  // loads corrupt each other's dynamic-linking symbol tables, so a load resolves
+  // another grammar's scanner export and fails. This surfaced only under the
+  // Linux CI runner's timing (loading 'python' failed on 'rust'/'tsx' exports);
+  // macOS happened to survive the race. Serial load makes it deterministic.
   const failures: string[] = [];
-  for (const result of results) {
-    if (result.status === 'fulfilled') {
-      parsers.set(result.value.lang, result.value.parser);
-    } else {
-      const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
-      failures.push(reason);
-      logger.warn(`[SideCar] Failed to load tree-sitter grammar: ${reason}`);
-      // Surface loudly: a silently-dropped grammar degrades the symbol graph,
-      // PKI, and impact analysis to empty results with no error — the exact
-      // footgun that made the CI-vs-local tree-sitter divergence hard to find.
-      // eslint-disable-next-line no-console
-      console.error(`[SideCar][tree-sitter] GRAMMAR LOAD FAILED — ${reason}`);
+  for (const lang of languages) {
+    try {
+      parsers.set(lang, await createParser(wasmDir, lang));
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      failures.push(`${lang}: ${reason}`);
+      logger.warn(`[SideCar] Failed to load tree-sitter grammar '${lang}': ${reason}`);
+      // A grammar compiled for a newer tree-sitter ABI than web-tree-sitter
+      // supports is a benign skip (that language just isn't analyzed). Anything
+      // else is an unexpected degradation — the symbol graph / PKI / impact
+      // analysis silently go empty — so surface it loudly.
+      if (!/Incompatible language version/i.test(reason)) {
+        // eslint-disable-next-line no-console
+        console.error(`[SideCar][tree-sitter] GRAMMAR LOAD FAILED — ${lang}: ${reason}`);
+      }
     }
   }
 
