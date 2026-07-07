@@ -66,30 +66,31 @@ Two entry points use it:
   - Persisting agent memory entries to `.sidecar/memory/agent-memories.json` (entries derive from tool inputs/outputs).
 - **`scanContent(content, path)` / `scanFile(path)`** — surfaces matches as diagnostics the user sees in the Problems panel.
 
-**Pattern catalog** (v0.62.4):
+**Pattern catalog** (v3):
 
-| Provider    | Pattern name                                             |
-| ----------- | -------------------------------------------------------- |
-| AWS         | Access Key, Secret Key                                   |
-| GitHub      | Token (ghp/gho/ghu/ghs/ghr)                              |
-| Anthropic   | `sk-ant-...`                                             |
-| OpenRouter  | `sk-or-...`                                              |
-| OpenAI      | `sk-...` (catch-all after provider-specifics)            |
-| HuggingFace | `hf_...`                                                 |
-| Cohere      | `co-...`                                                 |
-| Replicate   | `r8_...`                                                 |
-| Stripe      | live secret, live publishable, live restricted           |
-| Twilio      | Account SID                                              |
-| SendGrid    | API key                                                  |
-| Mailgun     | API key                                                  |
-| Google      | API key (`AIza...`)                                      |
-| Azure       | Storage connection string                                |
-| npm         | Access token, legacy auth token                          |
-| PyPI        | Token                                                    |
-| Slack       | `xox[bprs]-...`                                          |
-| Generic     | `api_key=`, `secret=`, `password=`, `token=` heuristics  |
-| Crypto      | PEM private key header, JWT                              |
-| Network     | DB connection strings, HTTP URLs with inline credentials |
+| Provider    | Pattern name                                                |
+| ----------- | ----------------------------------------------------------- |
+| AWS         | Access Key, Secret Key                                      |
+| GitHub      | Token (ghp/gho/ghu/ghs/ghr)                                 |
+| Anthropic   | `sk-ant-...`                                                |
+| OpenRouter  | `sk-or-...`                                                 |
+| OpenAI      | `sk-...` (catch-all after provider-specifics)               |
+| HuggingFace | `hf_...`                                                    |
+| Cohere      | `co-...`                                                    |
+| Replicate   | `r8_...`                                                    |
+| Stripe      | live secret, live publishable, live restricted              |
+| Twilio      | Account SID                                                 |
+| SendGrid    | API key                                                     |
+| Mailgun     | API key                                                     |
+| Google      | API key (`AIza...`)                                         |
+| Azure       | Storage connection string                                   |
+| npm         | Access token, legacy auth token                             |
+| PyPI        | Token                                                       |
+| Slack       | `xox[bprs]-...`                                             |
+| Generic     | `api_key=`, `secret=`, `password=`, `token=` heuristics     |
+| Crypto      | PEM private key header, JWT                                 |
+| Base64 auth | `Basic <b64>`, long `Bearer <b64>`, long `token=<b64>` (v3) |
+| Network     | DB connection strings, HTTP URLs with inline credentials    |
 
 **If a pattern is missing**, please [open an issue](https://github.com/nedonatelli/sidecar/issues) or follow the vulnerability reporting path above. Pattern gaps are treated as low-severity security issues — a missing pattern means real user credentials land unredacted in attacker-reachable surfaces.
 
