@@ -1,30 +1,53 @@
 import { describe, it, expect } from 'vitest';
-import { TOOL_REGISTRY } from './tools.js';
+import { TOOL_REGISTRY, getToolDefinitionsForTier } from './tools.js';
 import { toFunctionTools } from '../ollama/streamUtils.js';
 import { charsToTokens } from '../config/tokenEstimation.js';
-import { LOCAL_MAX_SYSTEM_CHARS } from '../config/constants.js';
 
-// Fixed-cost ratchet for the tool catalog.
+// Fixed-cost ratchets for the tool catalog.
 //
-// Every request ships the full tool catalog in the `tools` array — a fixed
-// per-turn cost paid BEFORE the system prompt, context, or conversation. It
-// rides in a separate array, so it is NOT counted against LOCAL_MAX_SYSTEM_CHARS;
-// the two costs stack. On a small local model with a 32K window this catalog
-// alone is a large fraction of the budget, which is why v0.117 pursues
-// relevance-gated tool loading.
+// Every request ships a tool catalog in the `tools` array — a fixed per-turn cost
+// paid BEFORE the system prompt, context, or conversation, and it rides in a
+// separate array (NOT counted against LOCAL_MAX_SYSTEM_CHARS; the two costs
+// stack). Two distinct sizes matter, and conflating them overstates the cost:
 //
-// This test pins the current size so a newly-added tool with a runaway schema
-// (a giant enum, a prose-heavy description, a deeply nested input_schema) trips
-// CI instead of silently eating the local-model context window. When the catalog
-// legitimately grows, bump CEILING_CHARS with intent — don't raise it reflexively.
+//   1. SHIPPED (what the model receives each turn) — `getToolDefinitionsForTier
+//      ('full')`, the loop default. Config-gates disabled tools AND stubs the
+//      ~30 extended built-ins to a one-line "call describe_tool for the schema"
+//      form. This is the real per-request overhead and the one to keep small.
+//
+//   2. RAW REGISTRY (every tool's full schema) — never sent whole; it is what
+//      `describe_tool(name)` serves on demand and the upper bound a single tool's
+//      bloat can reach. Worth ratcheting so a runaway schema (giant enum,
+//      prose-heavy description) trips CI, but it is NOT the per-turn cost.
+//
+// When a ceiling is legitimately exceeded, bump it with intent — don't raise it
+// reflexively.
 
-const CEILING_CHARS = 88_000; // current ~75.5K + ~15% headroom
+const SHIPPED_CEILING_CHARS = 42_000; // stubbed full tier ~35K + headroom
+const RAW_CEILING_CHARS = 88_000; // raw registry ~75.5K + ~15% headroom
+
+const wireChars = (defs: unknown[]): number => JSON.stringify(toFunctionTools(defs as never)).length;
 
 describe('tool-catalog fixed-cost ratchet', () => {
-  it('serialized catalog stays under the per-request ceiling', () => {
-    const defs = TOOL_REGISTRY.map((t) => t.definition);
-    const chars = JSON.stringify(toFunctionTools(defs as never)).length;
-    expect(chars).toBeLessThan(CEILING_CHARS);
+  it('SHIPPED catalog (stubbed full tier) stays under the per-request ceiling', () => {
+    // This is what actually hits the model every turn.
+    const chars = wireChars(getToolDefinitionsForTier('full'));
+    expect(chars, `shipped tool catalog is ${chars} chars (~${charsToTokens(chars)} tok)`).toBeLessThan(
+      SHIPPED_CEILING_CHARS,
+    );
+  });
+
+  it('stubbing keeps the shipped catalog well under the raw registry', () => {
+    // Guards the stubbing mechanism itself — if it silently stopped stubbing,
+    // the shipped size would balloon toward the raw size and this would trip.
+    const shipped = wireChars(getToolDefinitionsForTier('full'));
+    const raw = wireChars(TOOL_REGISTRY.map((t) => t.definition));
+    expect(shipped).toBeLessThan(raw * 0.6);
+  });
+
+  it('raw registry stays under its ceiling (describe_tool on-demand budget)', () => {
+    const chars = wireChars(TOOL_REGISTRY.map((t) => t.definition));
+    expect(chars).toBeLessThan(RAW_CEILING_CHARS);
   });
 
   it('no single tool schema is pathologically large', () => {
@@ -32,19 +55,8 @@ describe('tool-catalog fixed-cost ratchet', () => {
     // an over-written description — catch it at the source, not in aggregate.
     const oversized = TOOL_REGISTRY.map((t) => ({
       name: t.definition.name,
-      chars: JSON.stringify(toFunctionTools([t.definition] as never)).length,
+      chars: wireChars([t.definition]),
     })).filter((t) => t.chars > 2_500);
     expect(oversized, `oversized tool schemas: ${JSON.stringify(oversized)}`).toEqual([]);
-  });
-
-  it('reports catalog cost relative to the local system-char cap', () => {
-    // Not a gate — documents the stacked fixed cost so the number lives in-repo.
-    const defs = TOOL_REGISTRY.map((t) => t.definition);
-    const chars = JSON.stringify(toFunctionTools(defs as never)).length;
-    const tokens = charsToTokens(chars);
-    expect(tokens).toBeGreaterThan(0);
-    // Catalog + system prompt are additive fixed costs; the catalog alone
-    // already exceeds the system-prompt char cap for local models.
-    expect(chars).toBeGreaterThan(LOCAL_MAX_SYSTEM_CHARS * 0.5);
   });
 });
