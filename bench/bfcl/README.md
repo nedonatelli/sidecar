@@ -41,37 +41,61 @@ absent; the `ollama` backend targets a local daemon and fails loudly if it's
 down. Either way this never runs in `npm test` — the eval config is separate, so
 CI is unaffected. Env vars:
 
-| Var                    | Default             | Purpose                                                                         |
-| ---------------------- | ------------------- | ------------------------------------------------------------------------------- |
-| `SIDECAR_BFCL_MODEL`   | `gemma4:e4b`        | model id                                                                        |
-| `SIDECAR_BFCL_BACKEND` | `ollama`            | `ollama` \| `anthropic` \| `openai`                                             |
-| `SIDECAR_BFCL_QUANT`   | `unknown (≈Q4_K_M)` | quantization label for the envelope                                             |
-| `SIDECAR_BFCL_DATA`    | _(unset)_           | dir with `questions.jsonl` + `possible_answers.jsonl` for the full upstream set |
-| `SIDECAR_BFCL_OUT`     | _(unset)_           | write the markdown report to this path                                          |
-| `SIDECAR_BFCL_CONSTRAINED` | `0`             | `1` = grammar-constrained decoding (Ollama `format`) instead of tools           |
-| `SIDECAR_BFCL_RAW`     | `0`                 | `1` = raw model only (native `tool_calls`, no SideCar text-call recovery)        |
+| Var                        | Default             | Purpose                                                                         |
+| -------------------------- | ------------------- | ------------------------------------------------------------------------------- |
+| `SIDECAR_BFCL_MODEL`       | `gemma4:e4b`        | model id                                                                        |
+| `SIDECAR_BFCL_BACKEND`     | `ollama`            | `ollama` \| `anthropic` \| `openai`                                             |
+| `SIDECAR_BFCL_QUANT`       | `unknown (≈Q4_K_M)` | quantization label for the envelope                                             |
+| `SIDECAR_BFCL_DATA`        | _(unset)_           | dir with `questions.jsonl` + `possible_answers.jsonl` for the full upstream set |
+| `SIDECAR_BFCL_OUT`         | _(unset)_           | write the markdown report to this path                                          |
+| `SIDECAR_BFCL_CONSTRAINED` | `0`                 | `1` = grammar-constrained decoding (Ollama `format`) instead of tools           |
+| `SIDECAR_BFCL_RAW`         | `0`                 | `1` = raw model only (native `tool_calls`, no SideCar text-call recovery)       |
 
 ### What this measures — the product, not the raw model
 
 BFCL's default (non-constrained) path measures the **product**: the model **plus
 SideCar's real function-call recovery** (`parseTextToolCalls`, the exact parser
 the agent runs). That is deliberate — nobody runs the raw model; they run the
-agent, and SideCar's parsing layer is the whole value proposition for local
-models. Local coding models (qwen2.5-coder, devstral, …) return calls as **text**
-via `/api/chat` with native `tool_calls` **unset**, so the raw model scores ~0%
-even when every call is correct. SideCar recovers them.
+agent. `SIDECAR_BFCL_RAW=1` measures the raw model (native `tool_calls` only).
 
-Three modes, and their delta on qwen2.5-coder:7b (upstream AST subset, N=80):
+### Multi-model sweep (upstream AST subset, N=60, product mode)
 
-| Mode | Flag | qwen2.5-coder:7b | Measures |
-| --- | --- | --- | --- |
-| **SideCar-parsed** | _(default)_ | **75.0%** | model + SideCar recovery — **the product** |
-| Constrained | `SIDECAR_BFCL_CONSTRAINED=1` | 65.0% | SideCar's grammar-forced mode (slower: 5.0s vs 1.1s/case) |
-| Raw model | `SIDECAR_BFCL_RAW=1` | **0.0%** | the model alone — the baseline that proves the moat |
+Function-calling accuracy is **model-specific**; a single model is not a verdict
+on SideCar. Across families and sizes:
 
-The **0% → 75%** jump is the local-first thesis as a number: the harness is the
-moat. Text-parsing also beats grammar-forcing here (75 vs 65) because qwen emits
-` ```json ` natively. Weak spot: parallel calls (40%).
+| Model                    | Family  | Overall   | simple | multiple | parallel | latency  |
+| ------------------------ | ------- | --------- | ------ | -------- | -------- | -------- |
+| **gemma4:e4b** (default) | Google  | **95.0%** | 92.9%  | 100%     | 93.8%    | 5.6s     |
+| granite4.1:3b            | IBM     | 90.0%     | 85.7%  | 93.8%    | 93.8%    | **1.0s** |
+| devstral:24b             | Mistral | 90.0%     | 85.7%  | 100%     | 87.5%    | 5.2s     |
+| qwen3:8b                 | Alibaba | 86.7%     | 85.7%  | 87.5%    | 87.5%    | 11.1s    |
+| ministral-3              | Mistral | 86.7%     | 82.1%  | 93.8%    | 87.5%    | 1.9s     |
+| qwen2.5-coder:7b         | Alibaba | 78.3%     | 89.3%  | 93.8%    | 43.8%    | 1.4s     |
+| qwen2.5-coder:14b        | Alibaba | 71.7%     | 85.7%  | 93.8%    | 25.0%    | 3.5s     |
+| llama3.2                 | Meta    | 70.0%     | 67.9%  | 87.5%    | 56.3%    | 0.8s     |
+
+Findings: (1) SideCar's function-calling is **strong across every family** (70–95%).
+(2) **Bigger ≠ better** — qwen2.5-coder:14b (71.7%) trails the 7b (78.3%),
+collapsing on parallel calls. (3) **granite4.1:3b** is the speed/accuracy sweet
+spot (90% @ 1.0s). (4) The default **gemma4:e4b** leads outright (95%).
+
+### The text-recovery "moat" is a model-specific safety net (not universal)
+
+The raw-vs-product delta depends on how the model emits calls:
+
+| Model            | raw (native only) | product (SideCar) | delta                                                  |
+| ---------------- | ----------------- | ----------------- | ------------------------------------------------------ |
+| qwen2.5-coder:7b | **0.0%**          | 78.3%             | **+78** — emits calls as TEXT; SideCar recovers them   |
+| gemma4:e4b       | 95.0%             | 95.0%             | 0 — emits **native** `tool_calls`; recovery is a no-op |
+| llama3.2         | 70.0%             | 70.0%             | 0 — native `tool_calls`                                |
+
+So SideCar's parser is not a universal multiplier; it **normalizes across the
+native-vs-text divide** so a capable model that happens to emit text (qwen2.5-coder,
+which scores 0 raw) isn't stranded, while native-emitting models pass straight
+through. The value is "no capable model is lost to a format mismatch," not "+78
+everywhere." (Constrained decoding — `SIDECAR_BFCL_CONSTRAINED=1` — is a third mode;
+on qwen2.5-coder it scored 65%, below text-parsing's 78% and 4.5× slower, because
+qwen emits ` ```json ` well on its own.)
 
 By default it runs the **bundled fixtures** (`fixtures/ast.json`) — a small
 hand-curated set in BFCL's shape, enough to smoke-test the pipeline offline. For
