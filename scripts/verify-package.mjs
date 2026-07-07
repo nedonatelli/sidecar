@@ -9,9 +9,43 @@
 // With no argument it inspects what `vsce ls` would package.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 const vsixPath = process.argv[2];
+
+/**
+ * List the file names inside a .vsix (a ZIP) by reading its central directory
+ * natively — no external `tar`/`unzip`. `tar -tf` only reads ZIPs with bsdtar
+ * (macOS/Windows runners); GNU tar on the Linux runners rejects it ("not a tar
+ * archive"), which silently broke the linux-x64 / linux-arm64 publish legs.
+ */
+function listZipEntries(path) {
+  const buf = readFileSync(path);
+  // End of Central Directory record: signature 0x06054b50, within the last
+  // ~64KB (max comment length). Scan backwards for it.
+  const EOCD_SIG = 0x06054b50;
+  let eocd = -1;
+  for (let i = buf.length - 22; i >= 0; i--) {
+    if (buf.readUInt32LE(i) === EOCD_SIG) {
+      eocd = i;
+      break;
+    }
+  }
+  if (eocd < 0) throw new Error(`${path} is not a valid ZIP (no end-of-central-directory record)`);
+  const count = buf.readUInt16LE(eocd + 10);
+  let off = buf.readUInt32LE(eocd + 16); // central directory offset
+  const names = [];
+  const CDH_SIG = 0x02014b50; // central directory file header
+  for (let n = 0; n < count; n++) {
+    if (buf.readUInt32LE(off) !== CDH_SIG) break;
+    const nameLen = buf.readUInt16LE(off + 28);
+    const extraLen = buf.readUInt16LE(off + 30);
+    const commentLen = buf.readUInt16LE(off + 32);
+    names.push(buf.toString('utf8', off + 46, off + 46 + nameLen));
+    off += 46 + nameLen + extraLen + commentLen;
+  }
+  return names;
+}
 
 /** Return the list of packaged file paths, from a built .vsix or from `vsce ls`. */
 function listFiles() {
@@ -20,10 +54,7 @@ function listFiles() {
       console.error(`✖ VSIX not found: ${vsixPath}`);
       process.exit(1);
     }
-    // A .vsix is a zip. `vsce ls <vsix>` is not a thing, so read the archive.
-    // `tar -tf` reads zip archives on macOS/Linux/Windows (bsdtar) runners.
-    const out = execFileSync('tar', ['-tf', vsixPath], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-    return out.split('\n').map((l) => l.replace(/^extension\//, ''));
+    return listZipEntries(vsixPath).map((l) => l.replace(/^extension\//, ''));
   }
   const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
   const out = execFileSync(npx, ['@vscode/vsce', 'ls'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
@@ -56,4 +87,6 @@ if (missing.length > 0) {
   process.exit(1);
 }
 
-console.log(`✓ VSIX smoke check passed — all runtime dependencies present (platform: ${platform}, files: ${files.length}).`);
+console.log(
+  `✓ VSIX smoke check passed — all runtime dependencies present (platform: ${platform}, files: ${files.length}).`,
+);
