@@ -11,6 +11,7 @@ import {
   buildNoGroundingReprompt,
   buildUnverifiedClaimReprompt,
   buildBehavioralVerificationReprompt,
+  buildMcpMutationVerifyReprompt,
 } from '../completionGate.js';
 import { runSyntaxGate, buildSyntaxReprompt, hasCheckableFiles } from './syntaxGate.js';
 import { getRoot } from '../tools/shared.js';
@@ -291,9 +292,10 @@ export function recordGateToolUses(
   pendingToolUses: ToolUseContentBlock[],
   toolResults: ToolResultContentBlock[],
 ): void {
+  const mcpToolMeta = state.mcpManager ? (name: string) => state.mcpManager!.getToolMeta(name) : undefined;
   for (let idx = 0; idx < pendingToolUses.length; idx++) {
     const tr = toolResults[idx];
-    if (tr) recordGateToolCall(state.gateState, pendingToolUses[idx], tr);
+    if (tr) recordGateToolCall(state.gateState, pendingToolUses[idx], tr, mcpToolMeta);
   }
 }
 
@@ -371,6 +373,22 @@ export async function maybeInjectCompletionGate(
       gateState.unverifiedClaimRepromptFired = true;
       logger?.info('Unverified-claim gate fired — review cited a nonexistent path or an unverified claim');
       callbacks.onText('\n\n🧾 Verifying citations before finishing...\n');
+      state.messages.push({ role: 'user', content: [{ type: 'text' as const, text: reprompt }] });
+      return 'injected';
+    }
+  }
+
+  // Check: an MCP mutation (tool without readOnlyHint: true) succeeded but was
+  // never followed by a read-only call to the same server — the write is
+  // fire-and-trust. Demands round-trip evidence for each field the model set;
+  // on mismatch the model is told to report it and leave the resource in
+  // draft rather than claim success. Fires at most once per run.
+  if (!gateState.mcpMutationRepromptFired && config.completionGateEnabled !== false) {
+    const reprompt = buildMcpMutationVerifyReprompt(gateState);
+    if (reprompt) {
+      gateState.mcpMutationRepromptFired = true;
+      logger?.info('MCP mutation-verify gate fired — external write(s) never read back');
+      callbacks.onText('\n\n🔁 Verifying external writes landed...\n');
       state.messages.push({ role: 'user', content: [{ type: 'text' as const, text: reprompt }] });
       return 'injected';
     }

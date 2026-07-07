@@ -25,10 +25,11 @@ vi.mock('../completionGate.js', () => ({
   buildNoGroundingReprompt: vi.fn(() => null), // returns null by default — no reprompt needed
   buildUnverifiedClaimReprompt: vi.fn(async () => null), // async; returns null by default
   buildBehavioralVerificationReprompt: vi.fn(() => null), // returns null by default — no reprompt needed
+  buildMcpMutationVerifyReprompt: vi.fn(() => null), // returns null by default — no reprompt needed
 }));
 
 import { recordGateToolUses, maybeInjectCompletionGate } from './gate.js';
-import { recordToolCall, checkCompletionGate } from '../completionGate.js';
+import { recordToolCall, checkCompletionGate, buildMcpMutationVerifyReprompt } from '../completionGate.js';
 import { setSymbolGraph } from '../tools/runtime.js';
 import { SymbolGraph } from '../../config/symbolGraph.js';
 import type { LoopState } from './state.js';
@@ -157,6 +158,50 @@ describe('maybeInjectCompletionGate — skip paths', () => {
     });
     expect(await maybeInjectCompletionGate(state, stubConfig(), options, signal, stubCallbacks())).toBe('skip');
     expect(checkCompletionGate).toHaveBeenCalledOnce();
+  });
+});
+
+describe('maybeInjectCompletionGate — MCP mutation-verify gate', () => {
+  const options: AgentOptions = {};
+  const signal = new AbortController().signal;
+
+  // A queued mockReturnValueOnce survives a test that never calls the builder
+  // (e.g. the disabled-gate path) and would leak into unrelated suites below.
+  afterEach(() => {
+    vi.mocked(buildMcpMutationVerifyReprompt).mockReset().mockReturnValue(null);
+  });
+
+  it('fires "injected" + pushes the reprompt when unverified MCP mutations exist', async () => {
+    vi.mocked(buildMcpMutationVerifyReprompt).mockReturnValueOnce('⛔ Unverified external write(s).');
+    const gs = stubGateState();
+    const state = stubLoopState({ gateState: gs });
+    const out = await maybeInjectCompletionGate(state, stubConfig(), options, signal, stubCallbacks());
+    expect(out).toBe('injected');
+    expect((gs as unknown as { mcpMutationRepromptFired: boolean }).mcpMutationRepromptFired).toBe(true);
+    expect(
+      state.messages.some((m) => m.role === 'user' && JSON.stringify(m.content).includes('Unverified external')),
+    ).toBe(true);
+  });
+
+  it('fires at most once per run', async () => {
+    vi.mocked(buildMcpMutationVerifyReprompt).mockReturnValue('⛔ Unverified external write(s).');
+    const gs = { ...stubGateState(), mcpMutationRepromptFired: true } as unknown as LoopState['gateState'];
+    const state = stubLoopState({ gateState: gs });
+    const out = await maybeInjectCompletionGate(state, stubConfig(), options, signal, stubCallbacks());
+    expect(out).toBe('skip');
+  });
+
+  it('does not fire when the completion gate is disabled', async () => {
+    vi.mocked(buildMcpMutationVerifyReprompt).mockReturnValueOnce('⛔ Unverified external write(s).');
+    const state = stubLoopState({ gateState: stubGateState() });
+    const out = await maybeInjectCompletionGate(
+      state,
+      stubConfig({ completionGateEnabled: false }),
+      options,
+      signal,
+      stubCallbacks(),
+    );
+    expect(out).toBe('skip');
   });
 });
 

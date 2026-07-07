@@ -136,6 +136,46 @@ describe('MCPManager', () => {
     });
   });
 
+  describe('getToolMeta (ToolAnnotations capture)', () => {
+    it('classifies readOnlyHint: true tools as readOnly and unannotated tools as mutations', async () => {
+      mockClient.listTools.mockResolvedValue({
+        tools: [
+          {
+            name: 'get_issue',
+            description: 'Read an issue',
+            inputSchema: { type: 'object', properties: {} },
+            annotations: { readOnlyHint: true },
+          },
+          {
+            name: 'update_issue',
+            description: 'Update an issue',
+            inputSchema: { type: 'object', properties: {} },
+            annotations: { destructiveHint: true },
+          },
+          { name: 'create_issue', description: 'Create an issue', inputSchema: { type: 'object', properties: {} } },
+        ],
+      });
+      await manager.connect({ jira: { command: 'echo' } });
+
+      expect(manager.getToolMeta('mcp_jira_get_issue')).toEqual({ server: 'jira', readOnly: true });
+      expect(manager.getToolMeta('mcp_jira_update_issue')).toEqual({ server: 'jira', readOnly: false });
+      expect(manager.getToolMeta('mcp_jira_create_issue')).toEqual({ server: 'jira', readOnly: false });
+    });
+
+    it('returns undefined for unknown and non-MCP tool names', async () => {
+      await manager.connect({ fs: { command: 'echo' } });
+      expect(manager.getToolMeta('mcp_fs_nonexistent')).toBeUndefined();
+      expect(manager.getToolMeta('read_file')).toBeUndefined();
+    });
+
+    it('returns undefined after the owning server disconnects', async () => {
+      await manager.connect({ fs: { command: 'echo' } });
+      expect(manager.getToolMeta('mcp_fs_read')).toBeDefined();
+      await manager.disconnect();
+      expect(manager.getToolMeta('mcp_fs_read')).toBeUndefined();
+    });
+  });
+
   it('returns undefined for unknown tool', async () => {
     await manager.connect({
       fs: { command: 'echo' },

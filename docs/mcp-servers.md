@@ -211,6 +211,16 @@ For servers whose tools are used on nearly every run, skip the extra `describe_t
 }
 ```
 
+## Mutation discipline (write verification)
+
+MCP writes are fire-and-trust by default: the tool returns success, but nothing confirms the fields actually landed on the external system (partial writes, silently dropped fields, server-side transformations). SideCar extends its "evidence, not exit codes" completion-gate discipline to MCP:
+
+- Tools the server annotates `readOnlyHint: true` (MCP `ToolAnnotations`) are reads; everything else — including unannotated tools — is treated as a **mutation**.
+- A successful mutation stays **unverified** until a later successful read-only call to the same server.
+- If the agent tries to finish with unverified mutations, the completion gate injects one bounded reprompt: read the resource back, compare every field you set, and on any mismatch report it and leave the resource in a draft/unpublished state instead of claiming success.
+
+This is a reliability discipline, not a security boundary — the read-back comes from the same server, so it verifies _transport and semantics_, not server honesty. The approval flow (every MCP call requires approval) remains the security control. Rides `sidecar.completionGate.enabled`.
+
 ## Server status
 
 Use the `/mcp` slash command to check the status of all connected servers:

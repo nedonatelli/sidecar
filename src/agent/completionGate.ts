@@ -85,6 +85,17 @@ export interface GateState {
    * nothing enforces or tests. Optional. */
   analyticBoundGateInjections?: number;
   /**
+   * MCP mutation calls (tools without readOnlyHint: true) that succeeded but
+   * have not been followed by a successful read-only call to the same server.
+   * Keyed by an arbitrary unique key; values carry what the reprompt needs to
+   * tell the model exactly which write to round-trip. Cleared per server when
+   * a later read-only call to that server succeeds. Optional for back-compat
+   * with test stubs.
+   */
+  mcpUnverifiedMutations?: Map<string, { server: string; tool: string; inputSummary: string }>;
+  /** True once the MCP mutation-verify reprompt has fired (fires at most once). */
+  mcpMutationRepromptFired?: boolean;
+  /**
    * The user request that triggered THIS run, captured at loop init. The
    * request-based gates (no-read/no-shell/no-grounding/no-file-write/
    * unverified-claim) evaluate against this, NOT firstUserText(messages) —
@@ -114,6 +125,8 @@ export function createGateState(currentUserRequest = ''): GateState {
     behavioralVerificationInjections: 0,
     syntaxGateInjections: 0,
     syntaxGateFixTargets: new Set(),
+    mcpUnverifiedMutations: new Map(),
+    mcpMutationRepromptFired: false,
   };
 }
 
@@ -173,9 +186,77 @@ export function classifyTestResult(rawContent: string): 'pass' | 'fail' | 'empty
  * has actually executed — errored tool results are ignored so a failed
  * eslint run doesn't falsely satisfy the lint requirement.
  */
-export function recordToolCall(state: GateState, tu: ToolUseContentBlock, result: ToolResultContentBlock): void {
+/** Compact one-line rendering of a mutation's input so the verify reprompt can
+ * name the exact fields the model must round-trip. Bounded so a huge payload
+ * (e.g. a full document body) can't blow up the injection. */
+const MAX_MCP_INPUT_SUMMARY_CHARS = 300;
+function summarizeMcpInput(input: Record<string, unknown>): string {
+  let json: string;
+  try {
+    json = JSON.stringify(input);
+  } catch {
+    json = `{ ${Object.keys(input).join(', ')} }`;
+  }
+  return json.length > MAX_MCP_INPUT_SUMMARY_CHARS ? json.slice(0, MAX_MCP_INPUT_SUMMARY_CHARS) + '…' : json;
+}
+
+/**
+ * Reprompt for MCP writes that were never read back. Fire-and-trust is the
+ * failure mode: the tool returned success, but nothing confirmed the fields
+ * actually landed on the external system (partial writes, silently dropped
+ * fields, server-side transformations). Returns null when every mutation was
+ * verified or none happened.
+ */
+export function buildMcpMutationVerifyReprompt(state: GateState): string | null {
+  const mutations = state.mcpUnverifiedMutations;
+  if (!mutations || mutations.size === 0) return null;
+
+  const lines = [...mutations.values()].map((m) => `- ${m.tool} (server "${m.server}") — input: ${m.inputSummary}`);
+  return (
+    '⛔ Unverified external write(s). You changed state on an external system via MCP but never read it back:\n\n' +
+    lines.join('\n') +
+    '\n\nBefore finishing:\n' +
+    '1. Call a read tool from the same MCP server to fetch the resource(s) you modified.\n' +
+    '2. Compare every field you set against the value the read returns.\n' +
+    '3. If all fields match, finish and say so. If anything differs — or the server has no read tool — do NOT ' +
+    'claim success: report exactly which fields could not be verified, and if the resource supports a ' +
+    'draft/unpublished state, leave it there rather than publishing an unverified change.'
+  );
+}
+
+export function recordToolCall(
+  state: GateState,
+  tu: ToolUseContentBlock,
+  result: ToolResultContentBlock,
+  mcpToolMeta?: (name: string) => { server: string; readOnly: boolean } | undefined,
+): void {
   if (result.is_error) return;
   const resultText = typeof result.content === 'string' ? result.content : '';
+
+  // MCP tools — mutation discipline bookkeeping. A successful call to a tool
+  // the server did NOT annotate readOnlyHint: true is an external write we
+  // can't see; it stays "unverified" until a later successful read-only call
+  // to the SAME server gives the model round-trip evidence. Calls are
+  // processed in issue order, so a read only verifies mutations recorded
+  // before it.
+  if (tu.name.startsWith('mcp_') && mcpToolMeta) {
+    const meta = mcpToolMeta(tu.name);
+    if (meta) {
+      const mutations = (state.mcpUnverifiedMutations ??= new Map());
+      if (meta.readOnly) {
+        for (const [key, m] of mutations) {
+          if (m.server === meta.server) mutations.delete(key);
+        }
+      } else {
+        mutations.set(tu.id, {
+          server: meta.server,
+          tool: tu.name,
+          inputSummary: summarizeMcpInput(tu.input),
+        });
+      }
+    }
+    return;
+  }
 
   // Edit tools — track the path(s) they mutated.
   // Reset lintObserved so any lint run before this edit doesn't satisfy
