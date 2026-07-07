@@ -17,6 +17,8 @@ import type { BfclFunctionSchema, ParsedCall } from './types.js';
 import type { CallModel } from './runner.js';
 import { normalizeSchema } from './schemaUtil.js';
 import { buildToolCallSchema, CONSTRAINED_SYSTEM_PROMPT, parseConstrainedContent } from './constrainedSchema.js';
+import { parseTextToolCalls } from '../../src/agent/loop/textParsing.js';
+import type { ToolDefinition } from '../../src/ollama/types.js';
 
 // Re-export so existing importers (and tests) keep resolving normalizeSchema here.
 export { normalizeSchema } from './schemaUtil.js';
@@ -60,6 +62,15 @@ export interface BackendOptions {
    * Phase-1 evidence.
    */
   constrained?: boolean;
+  /**
+   * When true, measure the RAW model only: native `tool_calls`, no SideCar
+   * text-call recovery. Local coding models emit calls as text with tool_calls
+   * unset, so raw mode scores ~0% — the point of measuring it is the delta vs the
+   * default (SideCar-parsed) mode, which quantifies what SideCar's parsing layer
+   * adds. Default false: BFCL measures the PRODUCT (model + SideCar recovery),
+   * because that is what actually runs.
+   */
+  rawParsing?: boolean;
 }
 
 function withTimeout(timeoutMs: number, signal?: AbortSignal): AbortSignal {
@@ -120,11 +131,37 @@ export function ollamaBackend(opts: BackendOptions): BfclBackend {
       });
       if (!res.ok) throw new Error(`Ollama ${res.status}: ${(await res.text().catch(() => '')).slice(0, 300)}`);
       const data = (await res.json()) as { message?: { tool_calls?: OllamaToolCall[]; content?: string } };
-      return opts.constrained
-        ? parseConstrainedContent(data.message?.content ?? '')
-        : normalizeOpenAiStyle(data.message?.tool_calls ?? []);
+      if (opts.constrained) return parseConstrainedContent(data.message?.content ?? '');
+      // Non-constrained: prefer native tool_calls. When a local model returns the
+      // call as TEXT (tool_calls UNSET — the norm for qwen2.5-coder, devstral, …
+      // via /api/chat), recover it with SideCar's OWN parser, so the score
+      // reflects the PRODUCT (model + SideCar), which is what actually runs — not
+      // the raw model, which scores ~0% here. `rawParsing` opts out to measure
+      // that raw baseline; the delta is what SideCar's parsing layer adds.
+      const native = normalizeOpenAiStyle(data.message?.tool_calls ?? []);
+      if (native.length > 0 || opts.rawParsing) return native;
+      return parseTextCalls(data.message?.content ?? '', functions);
     },
   };
+}
+
+/**
+ * Recover tool calls emitted as TEXT using SideCar's real agent parser
+ * (`parseTextToolCalls`) — the exact code path the agent uses at runtime — so the
+ * benchmark measures SideCar's actual function-calling capability, not a
+ * bench-local reimplementation that could drift from it.
+ */
+export function parseTextCalls(content: string, functions: BfclFunctionSchema[]): ParsedCall[] {
+  if (!content) return [];
+  const toolDefs: ToolDefinition[] = functions.map((fn) => ({
+    name: fn.name,
+    description: fn.description ?? '',
+    input_schema: normalizeSchema(fn.parameters) as ToolDefinition['input_schema'],
+  }));
+  return parseTextToolCalls(content, toolDefs).map((tu) => ({
+    name: tu.name,
+    args: (tu.input ?? {}) as Record<string, unknown>,
+  }));
 }
 
 function normalizeOpenAiStyle(calls: OllamaToolCall[]): ParsedCall[] {

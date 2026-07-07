@@ -47,6 +47,10 @@ const BENCH_TIMEOUT_MS = parseInt(process.env.SIDECAR_BFCL_TIMEOUT ?? '', 10) ||
 // Phase 1: SIDECAR_BFCL_CONSTRAINED=1 forces schema-constrained decoding (Ollama
 // `format`). Run on vs off to measure the schema-validity + accuracy delta.
 const CONSTRAINED = process.env.SIDECAR_BFCL_CONSTRAINED === '1';
+// SIDECAR_BFCL_RAW=1 measures the RAW model only (native tool_calls, no SideCar
+// text-call recovery) — the baseline whose delta vs the default (SideCar-parsed)
+// run quantifies what SideCar's parsing layer adds. Local models score ~0% raw.
+const RAW = process.env.SIDECAR_BFCL_RAW === '1';
 // Deterministic, category-proportional subset size (see loader.sampleCases).
 // Unset (default) runs every loaded case. Used to get a clean, fully-completing
 // native-vs-constrained comparison on an identical small slice instead of a
@@ -60,6 +64,7 @@ function makeBackend(): BfclBackend {
     contextTokens: CONTEXT_TOKENS,
     timeoutMs: TIMEOUT_MS,
     constrained: CONSTRAINED,
+    rawParsing: RAW,
   };
   switch (BACKEND) {
     case 'anthropic':

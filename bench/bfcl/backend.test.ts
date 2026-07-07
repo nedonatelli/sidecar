@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { ollamaBackend, normalizeSchema, _normalizeOpenAiStyleForTest as normalize } from './backend.js';
+import {
+  ollamaBackend,
+  normalizeSchema,
+  _normalizeOpenAiStyleForTest as normalize,
+  parseTextCalls,
+} from './backend.js';
 import type { BfclFunctionSchema } from './types.js';
 
 const fn: BfclFunctionSchema = {
@@ -89,5 +94,66 @@ describe('ollamaBackend.callModel (injected fetch — no network)', () => {
     const fakeFetch = (async () => new Response('boom', { status: 500 })) as unknown as typeof fetch;
     const backend = ollamaBackend({ model: 'm', fetchImpl: fakeFetch });
     await expect(backend.callModel('q', [fn])).rejects.toThrow(/Ollama 500/);
+  });
+
+  it('falls back to text-parsed calls when the model emits JSON in content (no native tool_calls)', async () => {
+    // qwen2.5-coder:7b and most local coding models via /api/chat return the call
+    // as a JSON object in content with tool_calls UNSET.
+    const fakeFetch = (async () =>
+      new Response(
+        JSON.stringify({ message: { content: '```json\n{"name":"get_weather","arguments":{"city":"Paris"}}\n```' } }),
+        { status: 200 },
+      )) as unknown as typeof fetch;
+    const backend = ollamaBackend({ model: 'qwen2.5-coder:7b', fetchImpl: fakeFetch });
+    expect(await backend.callModel('weather in Paris', [fn])).toEqual([
+      { name: 'get_weather', args: { city: 'Paris' } },
+    ]);
+  });
+
+  it('prefers native tool_calls over text when both are present', async () => {
+    const fakeFetch = (async () =>
+      new Response(
+        JSON.stringify({
+          message: {
+            tool_calls: [{ function: { name: 'get_weather', arguments: { city: 'Berlin' } } }],
+            content: '```json\n{"name":"get_weather","arguments":{"city":"Paris"}}\n```',
+          },
+        }),
+        { status: 200 },
+      )) as unknown as typeof fetch;
+    const backend = ollamaBackend({ model: 'm', fetchImpl: fakeFetch });
+    expect(await backend.callModel('q', [fn])).toEqual([{ name: 'get_weather', args: { city: 'Berlin' } }]);
+  });
+
+  it('rawParsing mode reports the raw model only (no text recovery)', async () => {
+    const fakeFetch = (async () =>
+      new Response(
+        JSON.stringify({ message: { content: '```json\n{"name":"get_weather","arguments":{"city":"Paris"}}\n```' } }),
+        { status: 200 },
+      )) as unknown as typeof fetch;
+    const backend = ollamaBackend({ model: 'm', fetchImpl: fakeFetch, rawParsing: true });
+    // Native tool_calls unset + rawParsing → the raw model "made no call" (~0%).
+    expect(await backend.callModel('q', [fn])).toEqual([]);
+  });
+});
+
+describe('parseTextCalls (SideCar real-parser recovery)', () => {
+  const weather: BfclFunctionSchema = {
+    name: 'get_weather',
+    parameters: { type: 'object', properties: { city: { type: 'string' } }, required: ['city'] },
+  };
+
+  it('recovers a fenced JSON call', () => {
+    expect(parseTextCalls('```json\n{"name":"get_weather","arguments":{"city":"Paris"}}\n```', [weather])).toEqual([
+      { name: 'get_weather', args: { city: 'Paris' } },
+    ]);
+  });
+  it('recovers a bare JSON call', () => {
+    expect(parseTextCalls('{"name":"get_weather","arguments":{"city":"Rome"}}', [weather])).toEqual([
+      { name: 'get_weather', args: { city: 'Rome' } },
+    ]);
+  });
+  it('returns empty for prose with no call', () => {
+    expect(parseTextCalls('The weather is nice today.', [weather])).toEqual([]);
   });
 });

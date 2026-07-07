@@ -48,13 +48,39 @@ CI is unaffected. Env vars:
 | `SIDECAR_BFCL_QUANT`   | `unknown (≈Q4_K_M)` | quantization label for the envelope                                             |
 | `SIDECAR_BFCL_DATA`    | _(unset)_           | dir with `questions.jsonl` + `possible_answers.jsonl` for the full upstream set |
 | `SIDECAR_BFCL_OUT`     | _(unset)_           | write the markdown report to this path                                          |
+| `SIDECAR_BFCL_CONSTRAINED` | `0`             | `1` = grammar-constrained decoding (Ollama `format`) instead of tools           |
+| `SIDECAR_BFCL_RAW`     | `0`                 | `1` = raw model only (native `tool_calls`, no SideCar text-call recovery)        |
+
+### What this measures — the product, not the raw model
+
+BFCL's default (non-constrained) path measures the **product**: the model **plus
+SideCar's real function-call recovery** (`parseTextToolCalls`, the exact parser
+the agent runs). That is deliberate — nobody runs the raw model; they run the
+agent, and SideCar's parsing layer is the whole value proposition for local
+models. Local coding models (qwen2.5-coder, devstral, …) return calls as **text**
+via `/api/chat` with native `tool_calls` **unset**, so the raw model scores ~0%
+even when every call is correct. SideCar recovers them.
+
+Three modes, and their delta on qwen2.5-coder:7b (upstream AST subset, N=80):
+
+| Mode | Flag | qwen2.5-coder:7b | Measures |
+| --- | --- | --- | --- |
+| **SideCar-parsed** | _(default)_ | **75.0%** | model + SideCar recovery — **the product** |
+| Constrained | `SIDECAR_BFCL_CONSTRAINED=1` | 65.0% | SideCar's grammar-forced mode (slower: 5.0s vs 1.1s/case) |
+| Raw model | `SIDECAR_BFCL_RAW=1` | **0.0%** | the model alone — the baseline that proves the moat |
+
+The **0% → 75%** jump is the local-first thesis as a number: the harness is the
+moat. Text-parsing also beats grammar-forcing here (75 vs 65) because qwen emits
+` ```json ` natively. Weak spot: parallel calls (40%).
 
 By default it runs the **bundled fixtures** (`fixtures/ast.json`) — a small
 hand-curated set in BFCL's shape, enough to smoke-test the pipeline offline. For
 real numbers, point `SIDECAR_BFCL_DATA` at a checkout: concatenate BFCL's
 per-category `question` files into `questions.jsonl` and the matching
 `possible_answer` files into `possible_answers.jsonl`; `loader.parseUpstream`
-merges them by `id`.
+merges them by `id`. (The AST categories — `simple`, `multiple`, `parallel` —
+are on HF at `gorilla-llm/Berkeley-Function-Calling-Leaderboard`; fetch each
+`BFCL_v3_<cat>.json` + `possible_answer/BFCL_v3_<cat>.json` with `curl -L`.)
 
 ## Reproducibility envelope (printed with every run)
 
